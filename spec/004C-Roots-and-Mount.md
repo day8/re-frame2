@@ -4,26 +4,22 @@
 > Descriptor v1, and the three-layer fail-loud duplicate/conflict detection
 > the substrate's roots-and-mounting surface relies on. Owns the descriptor/manifest schema family (`:rf.root/*`); the
 > Stage-5 Root Manifest is its additive extension (co-owned with
-> [011](011-SSR.md)). The ratified identity model is preserved exactly — a
+> [011](011-SSR.md)). The identity model is exact — a
 > **root** is one React DOM render/hydration unit, a **frame** is one re-frame2
 > state world, roots ↔ frames are many-to-many, and mount position is never
 > identity. `[S1-CONFIRM]` marks a conservative contract adopted where no other
-> Spec ruled the combination — confirm before the surface hardens; not an open hole.
-> Discharged entries are struck from the register below as their stage lands.
+> Spec settles the combination — confirm before the surface hardens; not an open hole.
+> The register below lists the open entries.
 
-> **The two named doors are gone; this contract is not (rf2-0yp7w, 2026-08-16).** Both
-> substrates this document was written against — the compiled `re-frame.ui` macro door and
-> the interpreted Freehand door — were removed. What they realised outlived them, and is
+> **This contract ships without its two named doors.** Neither the compiled `re-frame.ui`
+> macro door nor the interpreted Freehand door exists. What this contract specifies is
 > live in two places you can check: the `:rf.root/*` descriptor/manifest family this Spec
 > owns is emitted by `implementation/ssr/src/re_frame/ssr/manifest.cljc`, and the
 > ENSURE-at-host-preflight lifecycle of [§Preflight runs before React](#preflight-runs-before-react)
 > is realised by `re-frame.fresco` — `implementation/fresco/src/re_frame/fresco/impl/mount.cljs`'s
 > `root!` calls `ensure-frame!` before `createRoot`. Where a door is named below it is named
-> as the historical realisation, never as a surface to build on. **This document's own
-> disposition is now ruled (rf2-h89ri, 2026-08-18): 004C is KEPT.** `spec/004-Views.md`
-> and the S3/S4/S5 view-conformance profiles were deleted in the same ruling; 004C was
-> exempted because the two producers named above are live, and the exemption rests on
-> them rather than on the doors.
+> as an illustrative realisation, never as a surface to build on. 004C stands because the
+> two producers named above are live, not because of the doors.
 
 ## 1. Root identity — required, host-authored, derivable
 
@@ -72,12 +68,12 @@ keyword/string/integer type). A keyword root encodes to `enc(namespace) _S enc(n
 escaped elements. `:page/shop` → `"page_Sshop"`; `[:shop/app :left]` →
 `"_V_Kshop_Sapp_Kleft"`. Because every boundary is *marked* rather than inferred from a
 data character, the mapping is losslessly decodable and thus injective — no two distinct
-root-ids can alias to one slug (the earlier lossy "normalise every disallowed char to
-`-`" transform could: `:a/b-c` and `:a-b/c` both flattened to `a-b-c`).
+root-ids can alias to one slug (a lossy "normalise every disallowed char to
+`-`" transform would: `:a/b-c` and `:a-b/c` would both flatten to `a-b-c`).
 
 ## 2. The Root Descriptor v1 — the named, versioned S1 subset
 
-The Stage-1 "root descriptor" is hereby named: **Root Descriptor v1**, key family
+The Stage-1 "root descriptor" is **Root Descriptor v1**, key family
 `:rf.root/*`, versioned by `:rf.root/schema-version 1`. It is the **compile-time
 static subset of the Stage-5 Root Manifest** — same schema family, same version field,
 one compatibility rule (below). The compiler can emit it from a mount site alone; no
@@ -102,7 +98,7 @@ expansion — see §2.1.
 normalization `N` it hashes are owned by
 [004B-UI-Tree-and-Conversion.md](004B-UI-Tree-and-Conversion.md)
 (§Semantic normalization). The `:template-fingerprint` and
-hook-signature-hash algorithms are defined by the S1 compiler-slice PR (rf2-vxgfnd.2);
+hook-signature-hash algorithms belong to the producing compiler, not to this Spec;
 this Spec pins only the fields and their comparison semantics.
 
 **Root Manifest v1 (Stage 5)** = Root Descriptor v1 (minus dev-only
@@ -123,18 +119,16 @@ hydration-salient fields carried by [011 §Root Manifest v1](011-SSR.md#root-man
 1. The manifest is a **strict superset** of the descriptor: every descriptor key
    appears in the manifest with identical name, type, and meaning. No key is renamed,
    retyped, or re-semanticised between S1 and S5.
-2. **Readers MUST ignore unknown keys.** S5 tooling reads S1 descriptors; S1-era
+2. **Readers MUST ignore unknown keys.** S5 tooling reads S1 descriptors; S1
    tooling reads S5 manifests and simply sees no extension keys.
 3. **Additive keys do not bump `:rf.root/schema-version`.** Only a breaking change to
-   an existing key bumps the integer; none is planned between S1 and S5 — the S5
-   manifest is additive by construction.
+   an existing key bumps the integer; the S5 manifest is additive by construction.
 4. One version field governs the family: a manifest declares the same
    `:rf.root/schema-version` as the descriptor it extends. Version incompatibility at
    hydration is `:rf.error/root-manifest-invalid` (§7).
 
-This split resolves the 12-§3-postpones-S5 / 08-§2-requires-S1 tension without moving
-either stage: S1 ships the descriptor (compiler artefact; Xray consumes it, as did the
-removed `ui.test`); S5 ships the manifest as its extension.
+The split lets the descriptor stand without a server: S1 ships the descriptor (a
+compiler artefact); S5 ships the manifest as its extension.
 
 ### 2.1 The descriptor is per-root static facts
 
@@ -195,8 +189,8 @@ For Shadow the build hook is the one load-bearing top-level setting: it supplies
 transaction and harvests the whole-build registries from the per-namespace analyzer
 descriptors the build tool persists to its disk cache and restores on a cache hit. Because
 those descriptors are present identically for a cache-hit member and a freshly compiled one,
-all members are present after a warm daemon start without disabling the cache — the earlier
-`:cache-blockers #{re-frame.ui}` requirement is removed (rf2-u53yy.1). The descriptor carrier
+all members are present after a warm daemon start without disabling the cache — no
+`:cache-blockers` entry is needed. The descriptor carrier
 is tested across shadow-cljs 3.4.0 through 3.4.11. A dev build that omits the hook publishes
 no registries; the failure surfaces at runtime, when a compiled view or root cannot be
 resolved.
@@ -211,7 +205,7 @@ This section states the mount grammar and identity model as the two donor doors 
 it: the **compiled `re-frame.ui` door**, whose mount entry points were macros over literal
 root forms, and the **interpreted Freehand door**, which realised the same grammar through
 ordinary runtime functions (`v/mount`, `v/hydrate-root`, `v/unmount!`) and shipped no
-`create-root` and no `render!`. **Both doors were removed on 2026-08-16 (rf2-0yp7w); the
+`create-root` and no `render!`. **Neither door ships; the
 grammar and the identity model below are the contract, not the doors.** Its live in-tree
 realisation is the interpreted shape of **[§The interpreted paved path](#the-interpreted-paved-path)**
 below — see the banner at the head of this document.
@@ -226,8 +220,7 @@ below — see the banner at the head of this document.
 On this door, `mount` is a **macro over a literal root form** — the compiler must see
 the root to keep the AST closed and extract frame plans; a runtime-assembled vector is
 a compile error pointing at `ui/view`/`ui/element`. The third argument is the **root
-opts map** — this is where root identity rides; the "nowhere to provide a root
-id" gap is closed here:
+opts map** — this is where root identity rides:
 
 | Opt | Tier | Contract |
 |---|---|---|
@@ -264,21 +257,18 @@ derive from**, so its identity set is `:root-id` / `:identifier-prefix` only; su
   fields — supplying `:root-id`/`:identifier-prefix` to `hydrate-root` is an error
   (`:rf.error/root-manifest-invalid` data names the conflicting key). The client must
   use the server's prefix or `use-id` hydration breaks.
-- **Every root-form-accepting entry point required the literal root form at the call
+- **Every root-form-accepting entry point requires the literal root form at the call
   site** — `mount`, `render!`, `hydrate-root`, `render-static` and `ui.test/render`
-  (§8, §9) alike; the same compile error rejected runtime-assembled vectors everywhere.
-  All five went with the substrates that carried them; the rule is recorded, not offered.
-- **Verb kinds on the two removed doors (ratified, shipped S1; recorded here as the roster each door carried).** On the compiled door, `mount`,
+  (§8, §9) alike; the same compile error rejects runtime-assembled vectors everywhere.
+  None of the five ships in this repository.
+- **Verb kinds on the two doors.** On the compiled door, `mount`,
   `create-root`, `render!`, and `hydrate-root` are **macros**; `unmount!` is a plain
   **function**. The four macros must
   see their argument shape at compile time — `mount`/`render!`/`hydrate-root` keep the
   literal root form's AST closed and extract the static frame plans, and `create-root`
   fixes literal identity opts (feeding the descriptor and build-time duplicate detection).
-  `unmount!` takes a live Root value, has no form to compile, and stays a function. This
-  is the shipped surface — `re-frame.ui`'s var metadata and the generated public manifest
-  classify each verb exactly so — and it settles the earlier `[S1-CONFIRM]` kind-label
-  question; the stale "all fns" labelling and its route-to-Mike delta are retired. The
-  compile-time contract is locked by the frozen roster: an unauthored `create-root`
+  `unmount!` takes a live Root value, has no form to compile, and is a function. The
+  compile-time contract: an unauthored `create-root`
   identity is `:rf.ui.compile/missing-root-id`, and an out-of-grammar opt (a stray
   `:disambiguator` among them) is `:rf.ui.compile/bad-root-opts`. The interpreted
   **Freehand door** carried a different roster: `v/mount`, `v/hydrate-root` and `v/unmount!`
@@ -286,7 +276,7 @@ derive from**, so its identity set is `:root-id` / `:identifier-prefix` only; su
   and no `render!`, and its one macro was `render-static`, the only interpreted verb whose
   site the build indexed (§7, Layer 1). An interpreted client mount carries a live runtime,
   so its duplicate-, container- and prefix-detection is the runtime claim-before-render
-  of Layer 3 (§7), not a build-time index — and THAT half is live, realised in-tree today.
+  of Layer 3 (§7), not a build-time index — and THAT half is live, realised in-tree.
 - Frame preflight (ENSURE + `:initial-events` drain, exactly once, before React) runs
   before the first `render!` on a Root and before `hydrate-root`'s hydration. **This
   compiled host-root sequencing — preflight completing before `createRoot`/`render!`
@@ -299,7 +289,7 @@ derive from**, so its identity set is `:root-id` / `:identifier-prefix` only; su
   frozen/transitional [`frame-root` two-pass contract](002-Frames.md#frame-root--the-ensure-component-cljs-reference)
   (empty first render → commit-phase `useLayoutEffect` ENSURE → populated second render),
   which runs the *opposite* order and scopes a component subtree, not a host root. This
-  draft only pins *what is extracted* (§6).
+  Spec pins only *what is extracted* (§6).
 
 ## 4. Element locators
 
@@ -369,7 +359,7 @@ top-region wrappers, in document order.)
   anywhere outside a root form's top region is already a compile error; this Spec adds nothing
   there.
 - **`frame-provider` references are dynamic:** `frame-provider` scopes a live frame
-  *handle* (per the rf2-nyea0r split) — handles are runtime values, so provider-scoped
+  *handle* — handles are runtime values, so provider-scoped
   frames are **not statically extractable** and do not appear in `:frame-plans`.
   Instead, the **manifest's** `:frame-payload-ids` (render-time) records the full
   referenced set the server render actually scoped: plan ids ∪ provider-scoped frame
@@ -377,7 +367,7 @@ top-region wrappers, in document order.)
   that no static plan declares. Descriptor = static plans; manifest = full render-time
   reference set;
   additive per §2's compatibility rule.
-- Payload install remains **idempotent and order-independent** (ratified): the first
+- Payload install is **idempotent and order-independent**: the first
   hydrating root referencing a payload installs it; later roots find it live and do
   not re-seed. Conflict is the exception, and it is fail-loud (§7). Install is the
   **state-boot** call's work, not the DOM-adoption call's: it is `re-frame.ssr/hydrate!`
@@ -388,15 +378,13 @@ top-region wrappers, in document order.)
 
 ## 7. Duplicate and conflict detection — fail-loud, three layers
 
-All ids below follow the one-catalogue `:rf.error/*` scheme (Spec 009 rows land with
-their stage); each carries a data map naming both parties with
-source coordinates in dev.
+All ids below follow the one-catalogue `:rf.error/*` scheme; each carries a data map
+naming both parties with source coordinates in dev.
 
-**Layer 1 — build time (S1).** This layer belonged to a **macro door**: the compiler
-indexed every `mount`/`render!`/`hydrate-root`/`render-static` macro site's statically
-resolved root-id. Both donor doors were removed on 2026-08-16 (rf2-0yp7w), so **no shipped
-substrate reaches Layer 1 today** — Layers 2 and 3 below carry the whole of duplicate and
-conflict detection for a runtime-function mount. On the interpreted door only
+**Layer 1 — build time (S1).** This layer belongs to a **macro door**: the compiler
+indexes every `mount`/`render!`/`hydrate-root`/`render-static` macro site's statically
+resolved root-id. **No shipped substrate reaches Layer 1** — Layers 2 and 3 below carry
+the whole of duplicate and conflict detection for a runtime-function mount. On the interpreted door only
 `render-static` had ever reached this layer — its `mount`/`hydrate-root` were runtime
 functions with no build-time site to index, and `render-static` alone had no client
 runtime, so it had no Layer 3. Layer 1 therefore
@@ -414,9 +402,9 @@ are derived). The entry-point closure is the build-time projection of "one page"
 sites in disjoint entry closures never co-occur and may legally reuse a root-id.
 `[S1-CONFIRM]` — confirm entry-closure scoping (vs. whole-build strictness) when the
 first multi-entry consumer lands; entry-closure is the conservative reading that does
-not break multi-page builds. The macro door and its build-time root indexing are
-revisited only if a named consumer for mount-site descriptors or static frame plans
-materialises — not for door symmetry.
+not break multi-page builds. A macro door and its build-time root indexing are
+warranted only by a named consumer for mount-site descriptors or static frame plans —
+not by door symmetry.
 
 **Layer 2 — server render time (S5).** Page assembly registers each root (manifest
 *and* `render-static` root — static roots hold identity too, so a static and a live
@@ -489,7 +477,7 @@ prefix-uniqueness backstop share the roster:
 | `:rf.error/root-not-live` | `render!` on a `Root` whose id is no longer live — `unmount!`ed, tearing-down, or superseded by a newer root claiming the same id (guarded like `unmount!`, but fails loud rather than no-op, before any side effect) |
 | `:rf.error/root-manifest-invalid` | manifest missing/unreadable at hydrate, schema-version incompatible, identity opts passed client-side, unserialisable props at emit, prefix conflict |
 | `:rf.error/frame-payload-conflict` | below |
-| `:rf.ssr/hydration-mismatch` | server↔client render-tree fingerprint/digest disagreement at hydration (an existing Spec 009 catalogue row — unchanged by this Spec) |
+| `:rf.ssr/hydration-mismatch` | server↔client render-tree fingerprint/digest disagreement at hydration (a Spec 009 catalogue row this Spec does not own) |
 
 **Payload/frame-config conflict — fail-loud at preflight.** At any root's preflight
 (hydration or client mount), before install/hydrate:
@@ -509,13 +497,13 @@ are untouched — failure scoping is precise: **a bad frame payload affects exac
 roots referencing it.** There is no first-wins silent merge and no last-wins
 overwrite. A **same-root** re-declaration whose fingerprint differs is a surgical
 **refresh** (an HMR config edit — durable state survives, `:initial-events` re-recorded
-not replayed), **not** a conflict; a **matching** fingerprint is the ratified idempotent
-no-op (no re-seed) — but §7.1 qualifies BOTH: the surgical refresh and the ratified no-op are admitted only while the arriving plan can PROVE it still owns the incarnation live under the id, so a same-root plan meeting a same-id successor (the installed incarnation torn down and re-created under the id) or a token-less legacy row does NOT refresh or no-op — it fails loud under `:scope-config-less-or-own-the-lifetime`. Layer 1 additionally rejects at build time two *plans* for one
+not replayed), **not** a conflict; a **matching** fingerprint is the idempotent
+no-op (no re-seed) — but §7.1 qualifies BOTH: the surgical refresh and the no-op are admitted only while the arriving plan can PROVE it still owns the incarnation live under the id, so a same-root plan meeting a same-id successor (the installed incarnation torn down and re-created under the id) or a token-less legacy row does NOT refresh or no-op — it fails loud under `:scope-config-less-or-own-the-lifetime`. Layer 1 additionally rejects at build time two *plans* for one
 frame-id with differing config fingerprints inside one entry closure (compile error —
 the didactic message points at boot/event infrastructure). (The S5 hydrate
 arm — a referenced payload id already installed with a different **content** digest —
-carries its own content-`:digest` slot when server rendering lands: the same error id,
-a distinct conflict trigger.)
+carries its own content-`:digest` slot: the same error id, a distinct conflict
+trigger.)
 
 ### 7.1 Root-attempt evidence — authority, committed scope, and settlement
 
@@ -530,7 +518,7 @@ NOW is the one that root installed. Ownership is proven against the LIVE incarna
 token: the value the install recorded carries the frame's `:rf.frame/incarnation-token`,
 and the record owns the current live frame only while that recorded token is identically
 the live frame's token. On that proof — and only on it — that root, and only that root,
-may refresh the record or take the ratified no-op (a same-root fingerprint change is the
+may refresh the record or take the no-op (a same-root fingerprint change is the
 surgical HMR refresh above, not a conflict). A recorded token that names a torn-down
 incarnation — the installed frame was destroyed and re-created under the same id, so the
 row now names a same-id SUCCESSOR it never installed — proves nothing, and neither does a
@@ -571,7 +559,7 @@ attempt fails, each record it already wrote is labelled by *provenance*:
 |---|---|---|
 | `:fresh` | an install, or a refresh of a never-committed record | `:mount-incomplete true` — the mount never completed and no root scopes it |
 | `:live` | a refresh of an already-committed record, or an adopt of a live boot frame | `:preflight-attempt-failed true` — neutral attempt evidence; the committed scope or boot frame PERSISTS (Q49), only the attempt failed |
-| `:found-live` | the ratified same-fingerprint no-op | never marked; only committed or cleared at a successful host boundary |
+| `:found-live` | the same-fingerprint no-op | never marked; only committed or cleared at a successful host boundary |
 
 Failure reaches the records by two complementary paths. A plan that throws **mid-run**
 (the plan phase) labels the siblings it already wrote on the way out. When every plan
@@ -616,7 +604,7 @@ server in sight (guide 01):
 | Aspect | Default |
 |---|---|
 | root-id | derived: the mounted view's id; single-root page needs no disambiguator (§1) |
-| descriptor | emitted at compile time regardless — Xray/instance records key on it from S1; S5 is additive (§2) |
+| descriptor | emitted at compile time regardless; S5 is additive (§2) |
 | element-locator | none — the host-supplied DOM node is the container; locator is a manifest-only key (§4) |
 | identifier-prefix | `"rf2-" + root-id-slug + "-"` (§3) |
 | manifest / digests / fingerprint validation | none — nothing to validate against; hydration errors cannot occur by construction |
@@ -626,70 +614,25 @@ server in sight (guide 01):
 
 ## 9. `ui.test/render` — accepted root-or-view forms
 
-**RETIRED (rf2-0yp7w).** `re-frame.ui.test` was the test surface of the compiled-view
-substrate `re-frame.ui`, removed on 2026-08-16 together with Freehand, and
-`ui.test/render` went with it. **No surviving mount site inherits the grammar below** —
-it is the compiled door's own. It resolved `defview` Vars and the literal top-region
-root forms that door accepted, and it rejected with `:rf.ui.compile/bad-test-root` and
-`:rf.error/ui-test-bad-opts`: the first has no catalogue row anywhere, the second is
-struck RETIRED in [009 §Error event catalogue](009-Instrumentation.md). The heading is
-kept because §10, the `[S1-CONFIRM]` register and
+**There is no `ui.test/render`.** It would belong to `re-frame.ui.test`, the test surface
+of the compiled-view substrate `re-frame.ui`, and neither ships: no mount site inherits a
+root-or-view test grammar, and nothing emits `:rf.ui.compile/bad-test-root` or
+`:rf.error/ui-test-bad-opts`. The headless view-test surface is the hiccup-walk of
+[008 §JVM-runnable boundary for hiccup-walk](008-Testing.md#jvm-runnable-boundary-for-hiccup-walk).
+The heading stays because §10, the Q24 coverage line and
 [008 §The `ui.test` contract](008-Testing.md#the-uitest-contract--headless-testing-for-compiled-views)
-still address this anchor — 008's own entry is itself a retirement record, and it names
-004C as one of the two documents that address it. What follows is the roster that door
-carried at S1, recorded as history and never as a surface to build on.
-
-`(ui.test/render root-or-view opts)` accepted exactly two forms:
-
-1. **A view reference** (compile-resolved Var/symbol of a `defview`). Props rode
-   `{:props p}`. A frame rode `{:frame f}`, minted with `rf/make-frame` +
-   `:initial-events` and **caller-owned** — `render` bound it for the render but
-   never created or destroyed it, so the caller released it with `rf/with-new-frame`
-   (eval-bind-run-destroy) or an explicit `rf/destroy-frame!` teardown per
-   [Spec 008 §`with-frame` and `with-new-frame`](008-Testing.md#with-frame-and-with-new-frame),
-   or the `make-frame` value leaked. With no frame, structural rendering proceeded
-   and any `sub` raised `:rf.error/no-frame-context` — honest, not defaulted.
-2. **A literal root form** — the same literal top-region grammar `mount` took,
-   wrappers included, tightened to exactly **one mounted view** per test root
-   (§1.1's authored-`:root-id` multi-view allowance did not apply here; two views →
-   `:rf.ui.compile/bad-test-root`, remedy: wrap the composition in one `defview`).
-   Then:
-    - `{:props p}` was **rejected** (didactic: props lived in the form);
-    - the form's `frame-root` plans ran preflight ENSURE against the test registrar,
-      minting fresh test frames from the plans;
-    - `{:frame f}` alongside a plan-bearing root form was **rejected**
-      (*"the root form owns its frames — pass a bare view to control the frame"*);
-      with a plan-free form it combined.
-      No other Spec ruled this combination; rejection was the conservative contract
-      (no ambiguity about which frame is ambient), and it shipped as the
-      `:rf.error/ui-test-bad-opts` `:frame`-branch.
-
-A runtime-assembled vector was the same compile error as at `mount` (§3). In both
-forms, `{:sub-overrides {query value}}` combined freely — the explicit JVM
-override door (006 §The static override handle, a subsection of the internal
-observation port, retired with it on 2026-08-21 — rf2-63t1i),
-with `:owned? false` honesty unchanged. Registrations came from the loaded namespaces;
-`ui.test` had no frame constructor, so a caller minted one with `rf/make-frame`
-([002 §`make-frame`](002-Frames.md#make-frame--atomic-create-and-register-and-the-canonical-config-grammar)),
-per [008 §The `ui.test` contract](008-Testing.md#the-uitest-contract--headless-testing-for-compiled-views).
-
-**Test-scope identity:** each `ui.test/render` call was its own document scope — root
-identity derived normally (so descriptor-shaped assertions worked) but the duplicate
-registry never spanned two `render` calls. Tier-3 `with-root` mounts participated in the
-real per-document registry of the jsdom/browser document, and its total teardown
-unregistered (a leaked registration failing a later mount was a test-harness bug, fixture-pinned).
+address it.
 
 ## The interpreted paved path
 
 An interpreted substrate realises this contract through a single public door of
-ordinary runtime functions. The mount grammar and the identity model above are
-unchanged — this section adds the paved-path spelling and the two guarantees the
-interpreted one-root mount ships first, and nothing here restates the numbered
-contract it points into.
+ordinary runtime functions. This section adds the paved-path spelling and the two
+guarantees of the interpreted one-root mount to the mount grammar and the identity
+model above, and nothing here restates the numbered contract it points into.
 
-The door this section was written against (`re-frame.freehand`, conventionally
-aliased `v`) was removed on 2026-08-16 (rf2-0yp7w), **and the lifecycle below was
-not.** It is realised in-tree today by `re-frame.fresco`, whose
+The `v/…` spelling below names the interpreted door (`re-frame.freehand`, conventionally
+aliased `v`), which does not ship; **the lifecycle below does.** It is realised in-tree
+by `re-frame.fresco`, whose
 `implementation/fresco/src/re_frame/fresco/impl/mount.cljs` `root!` calls
 `ensure-frame!` — frame ENSURE plus the `:initial-events` drain — **before**
 `react-dom/client`'s `createRoot`, which is exactly the ordering
@@ -744,7 +687,7 @@ the mount with the same root-id into the same container finds the root live
 and RE-RENDERS the existing host root rather than allocating a second one. A
 second host root on one container tears the whole tree down and re-seeds it;
 reusing the live one is the first half of preserving the occurrence across
-the redefinition. When frame binding lands, the frame is found live at the
+the redefinition. With a frame bound, the frame is found live at the
 same fingerprint on that same re-render (§6), so durable state survives the
 edit too.
 
@@ -896,7 +839,7 @@ different lifetimes:
 ```
 
 The ENSURE shape creates the frame if it is absent and drains its
-`:initial-events`; meeting the same plan again is the ratified idempotent
+`:initial-events`; meeting the same plan again is the idempotent
 no-op, and re-seeding is precisely what it must not do — but the no-op is
 admitted only while the root can PROVE it still owns the incarnation live
 under the id (§7.1): the value its install recorded carries the live
@@ -910,7 +853,7 @@ installed. The SCOPE shape creates nothing, and a target naming no live
 frame fails loud rather than scoping every read below the root to a frame
 that is not there.
 
-Plans meeting one frame are reconciled by the §7 rule, unchanged: an equal
+Plans meeting one frame are reconciled by the §7 rule: an equal
 config fingerprint over a PROVEN-owned incarnation is the no-op, and a
 DIFFERENT fingerprint recorded by a DIFFERENT root fails **that root** with
 `:rf.error/frame-payload-conflict`, before install and before React. The
@@ -962,12 +905,9 @@ successor, which is a worse answer than doing nothing.
 - **Q27** (locator generation SSR/client; duplicate detection across compilation
   units/page fragments) → §4, §7.
 - **Q28** (frame-plan extraction) → §6 pins what the extractor consumes and the
-  conflict ordering/diagnosis; the top-region syntactic grammar (which wrapper forms
-  are legal and their compile diagnostics) was deferred by the disposition's
-  Q-ownership map to a Spec 004 rewrite that never landed. `spec/004-Views.md` was
-  deleted instead (rf2-h89ri, 2026-08-18), with the compiled macro door whose
-  compile-time forms that grammar described (rf2-0yp7w, 2026-08-16), and **no live
-  Spec owns it today** — see [README](README.md) on the vacant 004 slot.
+  conflict ordering/diagnosis; **no Spec owns** the top-region syntactic grammar (which
+  wrapper forms are legal and their compile diagnostics) — see [README](README.md) on
+  the vacant 004 slot.
 
 ## [S1-CONFIRM] register
 
@@ -975,8 +915,3 @@ successor, which is a worse answer than doing nothing.
    alongside the Spec 011 payload-encoding rows.
 2. **§7** — entry-point-closure scoping as the build-time projection of "one page" for
    duplicate root-id detection (vs. whole-build strictness).
-3. ~~**§9** — rejection of `{:frame …}` combined with a plan-bearing root form in
-   `ui.test/render`.~~ **DISCHARGED at S1.** The rejection ships: `re-frame.ui.test`
-   raises `:rf.error/ui-test-bad-opts` when a plan-bearing root form carries `:frame`
-   (a plan-bearing form owns its frames — a frame plan and an explicit frame are two
-   ways to say one thing). The conservative contract was confirmed, not revised.
