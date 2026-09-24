@@ -1,20 +1,20 @@
 (ns re-frame.adapter.routing-token-cljs-test
-  "Stable-token hook routing (rf2-dkl5z1).
+  "Stable-token hook routing.
 
   `substrate-adapter/route-hook!` wraps each adapter's late-bind hook impl
   in a closure that fires ONLY when that adapter is the (rf/init!)-installed
-  one. The original guard was raw object identity —
-  `(identical? adapter-spec (current-adapter))` — which is WRONG against
-  a COPIED or wrapped canonical adapter map: a value-equal map installed via
-  `assoc`/`merge`/copy has a different identity, so every routed hook silently
-  fell through to the chain/fallback (inert), even though the user installed a
-  fully-functional adapter (Spec 006 §Frame-provider via React context
-  requires `:adapter/current-frame` to resolve to the LIVE routed impl). The
-  already-tested adapter-swap pattern (`boot_test/adapter-swap-...`) installs
-  exactly such an `assoc`'d copy.
-
-  The fix routes by a STABLE token carried in the installed map — the
+  one. It routes by a STABLE token carried in the installed map — the
   canonical `:rf.adapter/*` `:kind` discriminator — which survives a copy.
+  A raw object-identity guard — `(identical? adapter-spec (current-adapter))`
+  — would be WRONG against a COPIED or wrapped canonical adapter map: a
+  value-equal map installed via `assoc`/`merge`/copy has a different
+  identity, so every routed hook would silently fall through to the
+  chain/fallback (inert), even though the user installed a fully-functional
+  adapter (Spec 006 §Frame-provider via React context requires
+  `:adapter/current-frame` to resolve to the LIVE routed impl). The
+  adapter-swap pattern (`boot_test/adapter-swap-...`) installs exactly such
+  an `assoc`'d copy.
+
   This ns pins the mechanism substrate-agnostically (JVM + the :node-test
   CLJS gate, via .cljc) against the plain-atom adapter, independently of any
   one substrate's hook wiring; the per-substrate observable regressions
@@ -93,18 +93,18 @@
 ;; ---- route-hook! dispatches a COPIED canonical map to the live impl --------
 
 (deftest routed-hook-fires-for-copied-canonical-map
-  (testing "a routed hook fires its LIVE impl when a COPY of its adapter is installed (rf2-dkl5z1)"
+  (testing "a routed hook fires its LIVE impl when a COPY of its adapter is installed"
     (let [fired  (atom 0)
           routed (install-probe! rf.substrate.plain-atom/adapter
                                  (fn [& _] (swap! fired inc) :live-impl))
           ;; Install a COPY (assoc'd instrumentation wrapper) — a distinct
-          ;; object, same canonical :kind. This is the bug's exact shape.
+          ;; object, same canonical :kind — exactly the shape an identity
+          ;; guard mis-routes.
           copied (assoc rf.substrate.plain-atom/adapter :instrumentation-wrapper true)]
       (rf.substrate.adapter/install-adapter! copied)
       ;; Precondition that makes this test meaningful: the ROUTED adapter
       ;; (rf.substrate.plain-atom/adapter) is a DIFFERENT object from the installed copy.
-      ;; Pre-fix, the routed closure's `(identical? ...)` guard saw this
-      ;; mismatch and fell through — the exact defect.
+      ;; An `(identical? ...)` guard would see this mismatch and fall through.
       (is (false? (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter)))
           "the installed copy is NOT identical to the routed canonical map")
       (is (= :live-impl (routed))
