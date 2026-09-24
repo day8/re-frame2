@@ -31,10 +31,10 @@
   means a caret and a composition landing in the wrong cell with nothing
   on screen to say so.
 
-  ## What was NOT needed here
+  ## What is NOT needed here
 
   `defview`, `sub`, `::h/value`. That is the entire public surface a
-  hundred controlled fields required — no `::h/revision` (the grid has no
+  hundred controlled fields require — no `::h/revision` (the grid has no
   reset), no `h/event` (every intent is a vector, including the
   three-argument one), and nothing at all from the optional modules or
   the native tier — the `:require` below is the whole of it."
