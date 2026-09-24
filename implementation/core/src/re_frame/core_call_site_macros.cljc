@@ -6,7 +6,7 @@
   the CLJS compiler from baking the owner's fixed arities into call sites, so
   tools can safely replace the seam with a differently shaped test fn.
 
-  Carved out of `re-frame.core` so the public namespace stays a thin
+  Separate from `re-frame.core` so the public namespace stays a thin
   facade focused on user-visible Var resolution rather than macro
   expansion bulk; this ns owns the cohesive responsibility of every
   call-site-capturing macro's debug-gated stamping branch. The user-
@@ -16,7 +16,7 @@
   is a one-line call into a `build-…-form` plain fn here.
 
   Each shell emits an `(if interop/debug-enabled? <stamping> <plain>)`
-  branch around the matching `*`-fn call. Under `:advanced` +
+  branch around the matching `*-impl` seam call. Under `:advanced` +
   `goog.DEBUG=false` the closure compiler constant-folds the gate to
   false and the entire stamping branch — including the literal
   `:rf.trace/call-site` map — DCEs.
@@ -55,8 +55,7 @@
 ;;
 ;; Each `build-…-form` is a plain CLJ fn invoked from the matching
 ;; `defmacro` shell in `re-frame.core`. The shell passes `(meta &form)`
-;; / `*ns*` / `*file*` through; we emit the same gated expansion the
-;; original inlined `defmacro` body produced.
+;; / `*ns*` / `*file*` through; we emit the gated expansion.
 
 ;; The public dispatch shapes are `[event-vec]` and `[event-vec opts]`. The
 ;; stamped branch always calls the stable alias with two args, keeping the
@@ -84,8 +83,7 @@
 
      The emitted form is a plain CALL whose only non-literal operand is the
      user's own expression — no `binding`, no `cond->`, nothing that the CLJS
-     compiler could lower to an awaited async IIFE in the caller's context
-     (rf2-i3dvj)."
+     compiler could lower to an awaited async IIFE in the caller's context."
      [disp-sym arg1 arg2 cs-form]
      (if arg2
        `(~disp-sym ~arg1 (re-frame.core/stamp-opts
@@ -126,16 +124,16 @@
      The call-site coord rides the SHARED [[build-stamped-2]] opts-map seam —
      the same `:rf.trace/call-site` key `dispatch` / `dispatch-sync` use — and
      `re-frame.subs/subscribe` establishes the `trace/with-call-site` scope
-     from it INSIDE ITS OWN BODY (the mirror of `router/dispatch!`'s existing
+     from it INSIDE ITS OWN BODY (the mirror of `router/dispatch!`'s
      `(with-call-site (:rf.trace/call-site opts) ...)`).
 
-     Per rf2-i3dvj this placement is a CORRECTNESS requirement, not a
+     This placement is a CORRECTNESS requirement, not a
      tidy-up. `with-call-site` expands to a `binding`, and a `binding`
      spliced into the CALLER's context compiles to `await (async
      function(){...})()` when the call site sits in a CLJS async context —
-     inserting a real microtask yield immediately before the read. The
-     caller-side wrapper this replaces was an independent yield source of
-     exactly the class the `coords-form` fix removes. See
+     inserting a real microtask yield immediately before the read. A
+     caller-side wrapper would be an independent yield source of
+     exactly the class `coords-form` avoids. See
      [[re-frame.source-coords/coords-form]] for the standing principle:
      a call-site expansion splices ONLY yield-free expression forms into
      the caller; dynamic scope is established in the callee's body."
