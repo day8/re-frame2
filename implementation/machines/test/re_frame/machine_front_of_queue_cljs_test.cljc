@@ -21,7 +21,7 @@
   Dual-target (`.cljc`): the JVM runner selects it on `.*-test$`, Shadow's
   `:node-test` build on `cljs-test$`. The `-cljs-test` suffix is therefore
   load-bearing — a `.cljc` test whose ns ends in a plain `-test` compiles
-  nowhere but the JVM and reads as covered (rf2-dn6v7, rf2-lgozq)."
+  nowhere but the JVM and reads as covered."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.router :as rf.router]
