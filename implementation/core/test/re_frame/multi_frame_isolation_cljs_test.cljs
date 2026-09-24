@@ -1,18 +1,14 @@
 (ns re-frame.multi-frame-isolation-cljs-test
-  "Multi-frame isolation contract — node-CLJS port of the
-  `tools/xray/testbeds/parallel_frames` Playwright spec (rf2-lcg1z,
-  Wave 2 of the Playwright→CLJS migration rf2-tglku).
+  "Multi-frame isolation contract, pinned on the data layer.
 
-  The parallel-frames testbed mounts the SAME app code path in TWO
-  frames on ONE page (`:above` and `:below`) with zero cross-frame
-  coupling. The browser smoke walked through counter / clock-tick
-  isolation, machine-driven HTTP-mock fan-out, and the Xray target-
-  frame round-trip — 27 assertions total, 23 of which are pure data-
-  layer contracts that need no browser.
+  Two frames (`:above` and `:below`) run the SAME app code path on ONE
+  page with zero cross-frame coupling. Counter / clock-tick isolation,
+  per-frame sub scoping and independent destroy are pure data-layer
+  contracts that need no browser.
 
   Per Spec 002 §Per-instance frames + Spec 006 §The cache is held
   inside the frame container, frames are isolated reactive contexts.
-  This test pins the contract the Playwright spec exercised:
+  This test pins that contract:
 
     1. Each frame carries its own app-db; writes to one don't bleed
        into the other.
@@ -22,8 +18,7 @@
        versa.
     4. Cross-frame sub computation is REJECTED by the
        `with-frame`-scoped subscribe — a sub running in `:above` cannot
-       reach `:below`'s app-db (per
-       [[feedback_frames_are_isolated_contexts]] — frames are isolated
+       reach `:below`'s app-db (frames are isolated
        contexts; cross-frame sub computation is an anti-pattern). The
        only correct cross-frame read is the explicit framework API
        `rf/app-db-value` (used by Xray's panel layer, NOT by user
@@ -36,23 +31,19 @@
 
   - Xray-side `:rf.xray/set-target-frame` round-trip + L2 filtering
     on multi-frame mount — covered by
-    `tools/xray/test/.../panels_e2e/parallel_frames_e2e_cljs_test.cljs`
-    (rf2-ulpp8 / rf2-1p1j4).
+    `tools/xray/test/.../panels_e2e/parallel_frames_e2e_cljs_test.cljs`.
   - Cross-frame fan-out via fx with `:frame` opts — covered by
     `tools/xray/test/.../panels_e2e/multi_frame_isolation_e2e_cljs_test.cljs`
-    (rf2-83d4x cross-frame routing class).
+    (the cross-frame routing class).
   - State-machine + mock-fetch closure over originating frame —
     covered by the machines artefact's per-frame machine-state tests
-    plus the cross-bump fan-out above. The parallel-frames Playwright
-    spec's title-flow assertions exercised the SAME machine-fx-on-
-    frame contract those tests already cover; no need to re-stage
-    `:title/flow` here.
+    plus the cross-bump fan-out above; there is no need to stage a
+    machine flow here.
 
-  The frame ids `:above` / `:below` match the parallel-frames
-  testbed's id-prefix convention (Spec Conventions §Feature
-  modularity), keeping the contract surface visually identifiable
-  with the Xray-displayable showcase that still ships at
-  `tools/xray/testbeds/parallel_frames/`."
+  The frame ids `:above` / `:below` match the two-frame isolation
+  testbed's (`tools/xray/testbeds/two_frame_isolation/`), keeping the
+  contract surface visually identifiable with that Xray-displayable
+  showcase."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -62,7 +53,7 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; ---- Frame ids match the parallel-frames testbed ---------------------------
+;; ---- Frame ids match the two-frame isolation testbed ----------------------
 
 (def ^:private frame-above :above)
 (def ^:private frame-below :below)
@@ -85,9 +76,8 @@
   (rf/reg-event ::counter-inc
     (fn [{:keys [db]} _ev] {:db (update db :counter (fnil inc 0))}))
 
-  ;; Clock-tick handler (rf2-gxgmt — on-demand parallel-frames Tick
-  ;; button) — same shape as counter, different slot. Mirrors the
-  ;; testbed's per-frame tick semantics without the dispatch chain.
+  ;; Clock-tick handler — same shape as counter, different slot:
+  ;; per-frame tick semantics without a dispatch chain.
   (rf/reg-event ::clock-tick
     (fn [{:keys [db]} _ev] {:db (update db :ticks (fnil inc 0))}))
 
@@ -97,8 +87,8 @@
 (defn- seed-frames!
   "Register `:above` + `:below` and dispatch the `:initialise` event
   against each so their app-dbs land on the canonical zero shape
-  before any test-event fires. Mirrors the parallel-frames testbed's
-  `(make-frame {:id :above :initial-events [[::initialise]]})` mount path."
+  before any test-event fires — the same end state as
+  `(make-frame {:id :above :initial-events [[::initialise]]})`."
   []
   (rf/make-frame {:id frame-above})
   (rf/make-frame {:id frame-below})
@@ -131,7 +121,7 @@
                            (:app-db (rf.frame/frame frame-below))))
           ":above and :below must not share the same app-db container"))))
 
-;; ---- 2. Counter isolation (Playwright assertions 9, 10, 22, 23) -----------
+;; ---- 2. Counter isolation -------------------------------------------------
 
 (deftest counter-dispatched-on-one-frame-does-not-bleed-into-the-other
   (testing "three ::counter-inc on :above + one on :below leaves above=3, below=1"
@@ -151,7 +141,7 @@
     (is (= 1 (:counter (rf/app-db-value frame-below)))
         ":below advanced to 1 after its single ::counter-inc")))
 
-;; ---- 3. Clock-tick isolation (Playwright assertions 11, 12) ---------------
+;; ---- 3. Clock-tick isolation ----------------------------------------------
 
 (deftest clock-tick-on-one-frame-does-not-bleed-into-the-other
   (testing "two ::clock-tick on :above + one on :below leaves above=2, below=1"
@@ -195,7 +185,7 @@
 
 ;; ---- 5. Cross-frame sub computation is rejected by `with-frame` -----------
 ;;
-;; Per feedback_frames_are_isolated_contexts — subs MUST NOT reach
+;; Frames are isolated contexts — subs MUST NOT reach
 ;; into another frame's app-db. The runtime contract is that
 ;; `with-frame` is the ONLY scoping affordance for subs; there is no
 ;; (sub :other-frame [...]) user-API. Cross-frame reads must go
@@ -238,10 +228,8 @@
 ;;
 ;; Per Spec 002 §Destroy, destroying one frame removes only that
 ;; frame from `rf.frame/frames`; other frames keep their app-db, sub-
-;; cache, and router atoms intact. The Playwright spec did not
-;; exercise destroy (the test runs in a single page lifecycle), but
-;; the migration contract is "each frame is its own thing" — destroy
-;; isolation IS that contract's natural follow-on.
+;; cache, and router atoms intact. The contract is "each frame is its
+;; own thing" — destroy isolation IS that contract's natural follow-on.
 
 (deftest destroying-one-frame-leaves-the-other-intact
   (testing "destroy-frame! :below leaves :above's app-db, sub-cache, and dispatch path live"
