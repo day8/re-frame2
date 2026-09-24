@@ -1,13 +1,13 @@
 (ns re-frame.resources-populate-exact-target-cljs-test
-  "Populate-as-authoritative-load + map-form exact targets (rf2-h6n40v,
-  EP-0016 Riders 1 + 2 / slice 6 — Spec 016 §Populate is an authoritative load
-  + §Map-form exact resource targets).
+  "Populate-as-authoritative-load + map-form exact targets (EP-0016 Riders
+  1 + 2 — Spec 016 §Populate is an authoritative load + §Map-form exact
+  resource targets).
 
-  Slice 6 completes two riders the earlier slices set up but did not consume:
+  The two riders:
 
     R2 — the MAP-FORM exact target `{:resource :params :scope}` is the ONLY
-         public input form for `:populates` / `:patches` (no tuple migration
-         window; the tuple is the internal STORAGE key). The map's `:scope` may
+         public input form for `:populates` / `:patches` (the tuple is the
+         internal STORAGE key). The map's `:scope` may
          be concrete, `:rf.scope/same` (the default), or a `{:from-db …}` named
          resolver reference resolved against the settle-time app-db; a
          nil-resolving reference is FAIL-CLOSED (the target is dropped, never
@@ -19,7 +19,7 @@
          tag matches it) UNLESS a descriptor opts in with
          `:refetch-populated? true`.
 
-  These JVM+CLJS unit tests pin the slice's semantics:
+  These JVM+CLJS unit tests pin their semantics:
 
     1. a map-form populate writes the EXACT canonical scoped key
        authoritatively (loaded/fresh, the resource's stored shape, its tags);
@@ -29,8 +29,8 @@
        by default — even when the invalidation tag matches it;
     4. `:refetch-populated? true` re-enables the same-mutation refetch of the
        populated key (the partial-reply case);
-    5. the populate-exempt composes with the slice-5 invalidation descriptors
-       AND the slice-4 `:reply-to` continuation (the continuation still fires);
+    5. the populate-exempt composes with the invalidation descriptors AND the
+       `:reply-to` continuation (the continuation still fires);
     6. a STALE / superseded settle does NOT populate (the mandatory
        stale-suppression boundary);
     7. a map-form `:patches` updates the exact key only;
@@ -38,11 +38,11 @@
        (dropped, recorded in the settlement trace — never an implicit global);
     9. when ONE success plan targets the SAME exact key through BOTH `:patches`
        AND `:populates`, POPULATE wins — the fixed `patches → populates → removes
-       → invalidates` order applies the populate last (rf2-8sqr1, closing the
-       rf2-5gj77s acceptance gap: this is the RED-if-reversed contract tooth);
+       → invalidates` order applies the populate last (the RED-if-reversed
+       contract tooth);
    10. a populate / patch landing while a read of the same key is IN FLIGHT
        supersedes that read, so its late pre-write reply cannot revert the
-       write (rf2-3x7nj.11.3).
+       write.
 
   The transport is exercised end-to-end by overriding `:rf.http/managed` with a
   capturing stub that synthesises the transport's reply-event-append shape."
@@ -94,7 +94,7 @@
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 (defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
-;; rf2-8iciw8 — `:rf.runtime/mutations` is keyed on the instance id's CEDN-1
+;; `:rf.runtime/mutations` is keyed on the instance id's CEDN-1
 ;; byte `key-id` (`rf.resources.state/key-id`), not the raw id; resolve through it.
 (defn- instance [instance-id]
   (get-in (runtime-db) [:rf.runtime/mutations (rf.resources.state/key-id instance-id)]))
@@ -202,7 +202,7 @@
 ;; ===========================================================================
 
 (deftest populated-key-exempt-from-same-mutation-refetch
-  ;; Validation 11 (the core slice-6 rule): a mutation that POPULATES an
+  ;; Validation 11 (the core populate rule): a mutation that POPULATES an
   ;; article-detail key and then INVALIDATES a tag that matches that same key
   ;; must NOT immediately refetch the key it just learned from the reply (a
   ;; populate is an authoritative load). The detail entry stays fresh; only the
@@ -279,11 +279,11 @@
       (is (= [] (:populate-exempt (:invalidation trace)))))))
 
 ;; ===========================================================================
-;; 4b. rf2-fi6tda.3 finding 2 — MIXED-descriptor populate-exempt evidence
+;; 4b. MIXED-descriptor populate-exempt evidence
 ;; ===========================================================================
 
 (deftest mixed-descriptor-populate-exempt-not-collapsed-by-one-opt-in
-  ;; rf2-fi6tda.3 finding 2: a mixed plan where ONE descriptor opts into
+  ;; A mixed plan where ONE descriptor opts into
   ;; :refetch-populated? true and ANOTHER default descriptor matches the same
   ;; populated key. The runtime exempts per descriptor (plan->fx), so the
   ;; default descriptor's pass SPARES the populated key — the settlement
@@ -320,11 +320,11 @@
       (let [default (first (remove :refetch-populated? dispatched))]
         (is (= [global-article-key] (:exempt-keys default)))))
     (testing "the top-level :populate-exempt is the UNION — NOT collapsed to []
-              by the one opt-in descriptor (the bug rf2-fi6tda.3 flagged)"
+              by the one opt-in descriptor"
       (is (= [global-article-key] (:populate-exempt inv))))))
 
 ;; ===========================================================================
-;; 5. Composes with slice-5 descriptors AND the slice-4 :reply-to continuation
+;; 5. Composes with invalidation descriptors AND the :reply-to continuation
 ;; ===========================================================================
 
 (deftest populate-exempt-composes-with-descriptors-and-reply-to
@@ -450,11 +450,11 @@
       (is (= [:t/session] (:target-unresolved (:patch-summary trace)))))))
 
 ;; ===========================================================================
-;; 9. Same-key patch/populate OVERLAP — POPULATE wins (rf2-8sqr1)
+;; 9. Same-key patch/populate OVERLAP — POPULATE wins
 ;; ===========================================================================
 
 (deftest same-key-patch-populate-overlap-populate-wins
-  ;; The missing executable contract tooth for the fixed success-plan arm order
+  ;; The executable contract tooth for the fixed success-plan arm order
   ;; (`mutation-events/success-handler`: apply-patches → apply-populates →
   ;; apply-removes → invalidate). When ONE success plan targets the SAME exact
   ;; canonical key through BOTH `:patches` AND `:populates`, the populate is
@@ -464,9 +464,9 @@
   ;;
   ;; RED-IF-REVERSED: this test FAILS if apply-patches / apply-populates are
   ;; swapped — with populate first, the patch would then transform the seeded
-  ;; populate value and PATCH would win (:winner would read "patch"). Closes the
-  ;; rf2-5gj77s acceptance gap (existing tests exercise patch #7 and populate #1
-  ;; INDEPENDENTLY; none drives both arms against the same key in one plan).
+  ;; populate value and PATCH would win (:winner would read "patch"). Tests #7
+  ;; and #1 exercise patch and populate INDEPENDENTLY; this one drives both arms
+  ;; against the same key in one plan.
   (reg-article-resource!)
   (rf/reg-mutation :m/patch-and-populate
     {:scope :rf.scope/global
@@ -510,14 +510,14 @@
           "the populate arm applied to the SAME shared key"))))
 
 ;; ===========================================================================
-;; 10. An authoritative write SUPERSEDES a read in flight (rf2-3x7nj.11.3)
+;; 10. An authoritative write SUPERSEDES a read in flight
 ;; ===========================================================================
 ;;
 ;; A `:populates` / `:patches` write that lands while a read of the same key is
 ;; in flight settles the entry `:loaded` — so it must not leave that read owning
 ;; the entry. Otherwise the read's reply (answered BEFORE the server committed
-;; the write) still passes the work-id + generation gate and overwrites the
-;; written value, stamped fresh, and the user's write appears to revert.
+;; the write) would still pass the work-id + generation gate and overwrite the
+;; written value, stamped fresh, and the user's write would appear to revert.
 
 (defn- write-over-read-in-flight!
   "Load the owned article as `v1`, force a refetch so a read is IN FLIGHT, then
