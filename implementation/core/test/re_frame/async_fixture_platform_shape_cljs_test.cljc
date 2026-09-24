@@ -1,6 +1,6 @@
 (ns re-frame.async-fixture-platform-shape-cljs-test
-  "Platform-shape contract for `make-reset-runtime-fixture`'s `:async?` option
-  (rf2-e8ea), per Spec 008 §Test-support.
+  "Platform-shape contract for `make-reset-runtime-fixture`'s `:async?` option,
+  per Spec 008 §Test-support.
 
   `:async?` declares the suite ASYNC-CAPABLE. Which SHAPE delivers that is
   decided by the factory, per host, because the two runners disagree about
@@ -86,17 +86,17 @@
          (is (= 1 @landed)
              "and it ran with the fixture's ambient scope established: a bare dispatch-sync drained into :rf/default")))))
 
-;; ---- 3. the rf2-pn3d ruling is not disturbed ------------------------------
+;; ---- 3. the DEFAULT is the fn-form on both hosts ---------------------------
 ;;
-;; rf2-pn3d ruled that the DEFAULT stays the fn-form on both hosts (~479 CLJS
-;; suites compose it alongside sibling fn fixtures, and three call sites
-;; invoke it as a function). rf2-e8ea changes only what `:async? true` means.
+;; The DEFAULT is the fn-form on both hosts: hundreds of CLJS suites compose it
+;; alongside sibling fn fixtures, and call sites invoke it as a function. Only
+;; `:async? true` selects a different shape.
 
 (deftest default-shape-is-still-the-fn-form-on-both-hosts
-  (testing "omitting :async? still yields a callable fn-form fixture on every host (rf2-pn3d)"
+  (testing "omitting :async? yields a callable fn-form fixture on every host"
     (let [fx (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})]
       (is (fn? fx)
-          "the default shape did not flip — sibling fn-fixture composition and fixture-as-a-function call sites still hold")
+          "the default shape is the fn-form — sibling fn-fixture composition and fixture-as-a-function call sites hold")
       (let [ran? (atom false)]
         (fx (fn [] (reset! ran? true)))
         (is (true? @ran?) "and invoking it as a function runs the body")))))
