@@ -1,5 +1,5 @@
 (ns re-frame.resources-route-replan-cljs-test
-  "rf2-y8jjk — `[:rf.route/replan-resources {:cause …}]`, the RESOURCES half:
+  "`[:rf.route/replan-resources {:cause …}]`, the RESOURCES half:
   same-token reconciliation through the ONE canonical planner
   (`re-frame.resources.route/route-resource-plan` in plan mode `:replan`,
   published as `:routing/on-route-replan`), driven END TO END through routing
@@ -33,7 +33,7 @@
 
   Dual-target (`.cljc` + `_cljs_test`): the JVM runner picks it up via the
   `.*-test$` ns regex; Shadow's `:node-test` build via `cljs-test$`. The
-  `-cljs-test` suffix is load-bearing (rf2-dn6v7)."
+  `-cljs-test` suffix is load-bearing."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -478,7 +478,7 @@
             "orphaned → abort-requested")
         (is (nil? (owner-index A)) "A's index row is gone once it holds nothing")
         (is (= [(:current-work (entry k2))] (:aborted (:tags (op traces :rf.resource/owner-released)))))))
-    (testing "the whole-owner release is unchanged (regression over the shared core)"
+    (testing "the whole-owner release, over the same shared core, releases the owner and aborts orphaned work"
       (rf/dispatch-sync [:rf.resource/release-owner {:owner B}])
       (is (empty? (:active-owners (entry k1))))
       (is (nil? (owner-index B)))
