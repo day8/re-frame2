@@ -1,6 +1,6 @@
 (ns re-frame.source-coord-parity-test
-  "Per Spec 006 §Source-coord annotation (rf2-z7f7 / rf2-z9n1) + §View
-  tagging contract (rf2-01il5): the JVM-side registration-boundary
+  "Per Spec 006 §Source-coord annotation + §View tagging contract: the
+  JVM-side registration-boundary
   annotation (`re-frame.views.jvm-source-coord-annotation`) and the
   CLJS-side Reagent adapter's `format-source-coord` / `format-view-id`
   (in `re-frame.adapter.context`, re-exported via `re-frame.views`) MUST
@@ -10,11 +10,9 @@
   the HTML came from server-side rendering or client-side Reagent;
   divergent formats would silently break the source-mapping contract.
 
-  rf2-8vi4q moved server-side annotation from the (now-deleted) emitter
-  fn `re-frame.ssr/format-view-source-coord` to the reg-view registration
-  boundary, and added `data-rf-view` to the SSR side so BOTH attributes
-  are emitted on both hosts (previously the emitter stamped only
-  `data-rf2-source-coord`). This test therefore pins BOTH formatters and,
+  Server-side annotation happens at the reg-view registration boundary,
+  not in the emitter, and BOTH attributes are emitted on both hosts. This
+  test therefore pins BOTH formatters and,
   at the end, drives the FULL render path through a callable head — the
   shape hydratable pages actually use — to prove both attributes reach the
   server markup.
@@ -26,17 +24,17 @@
   SAME literals. The literals ARE the cross-host byte-comparison point —
   if either host's formatter drifts, its test fails.
 
-  ## Posture split (rf2-lwtlk)
+  ## Posture split
 
   The FORMATTERS are ordinary pure functions and the neutral-owner aliasing
   is ordinary Var identity: neither is gated, so every deftest above the
-  end-to-end one runs unchanged in both postures and always did.
+  end-to-end one runs unchanged in both postures.
 
   The end-to-end render is the exception. The attributes only reach server
   markup because `reg-view` installs the annotation wrapper, and it installs
   it only under `interop/debug-enabled?` — read once at namespace-load time,
   so under the real `-Dre-frame.debug=false` gate the markup is bare by
-  design. Those three assertions are kept verbatim inside a
+  design. Those three assertions sit inside a
   `(when interop/debug-enabled? …)` arm; alongside them sits the
   posture-independent half — that the callable head renders the registered
   view's own `<p>body</p>` root at all — plus a `when-not` arm pinning the
@@ -94,9 +92,8 @@
         "JVM data-rf2-source-coord value must match the canonical literal")))
 
 (deftest jvm-format-view-id-byte-identical-to-canonical
-  (testing "rf2-8vi4q — the JVM `format-view-id` produces `(str id)`, the
-            same `data-rf-view` value the CLJS host stamps. This is the
-            attribute the SSR side previously never emitted."
+  (testing "the JVM `format-view-id` produces `(str id)`, the
+            same `data-rf-view` value the CLJS host stamps."
     (is (= expected-view-id (rf.views.jvm-source-coord-annotation/format-view-id fixture-id))
         "JVM data-rf-view value must match the canonical literal")))
 
@@ -109,20 +106,21 @@
            (rf.views.jvm-source-coord-annotation/format-source-coord fixture-id fixture-coords-no-line-no-col))
         "JVM degraded source-coord must match the canonical degraded literal")))
 
-;; ---- convergence: source-coords is the single cross-host owner (rf2-5q0jv) -
+;; ---- convergence: source-coords is the single cross-host owner ------------
 ;;
-;; Before rf2-5q0jv the JVM formatters (this ns) and the CLJS formatters (in
-;; `re-frame.adapter.context`) were two hand-kept copies; a canonical-literal
-;; test could only catch a drift AFTER it shipped. They now alias one `.cljc`
+;; The JVM formatters (`re-frame.views.jvm-source-coord-annotation`) and the
+;; CLJS formatters (in `re-frame.adapter.context`) alias one `.cljc`
 ;; implementation in `re-frame.source-coords`, co-located with their inverse
-;; parsers, so cross-host divergence is structurally impossible. Prove it: the
+;; parsers, so cross-host divergence is structurally impossible — with two
+;; hand-kept copies a canonical-literal test could only catch a drift AFTER it
+;; shipped. Prove it: the
 ;; neutral owner emits the canonical literals directly, and the JVM annotation
 ;; vars ARE that same fn (an alias, not a re-derivable copy). `identical?` here
 ;; compares fn-object identity — NOT a keyword literal, so it is not the
-;; rf2-6365 `.cljc` interning trap (and these are `.clj` / `.cljs` test files).
+;; `.cljc` keyword-interning trap (and these are `.clj` / `.cljs` test files).
 
 (deftest neutral-owner-is-the-single-jvm-formatter-implementation
-  (testing "rf2-5q0jv — `re-frame.source-coords` owns the one cross-host
+  (testing "`re-frame.source-coords` owns the one cross-host
             implementation; the JVM annotation vars alias it, so the neutral
             owner emits the canonical literals and the JVM vars are the
             identical fn (not a re-derived copy that could drift)."
@@ -141,16 +139,13 @@
 
 ;; ---- end-to-end byte parity: SSR-rendered HTML carries BOTH attributes ---
 ;;
-;; This closes the placeholder rf2-j81hs left (the interim
-;; "carries-no-attribute-pending-rf2-8vi4q" assertion): a registered view
-;; reached through its CALLABLE head — `[(rf/view id) …]` or a Var, the
-;; shape isomorphic pages actually compose with — now renders WITH both
-;; annotations, so the server markup byte-matches the dev client render and
-;; hydration adopts. This is the assertion the old emitter-only test never
-;; covered.
+;; A registered view reached through its CALLABLE head — `[(rf/view id) …]`
+;; or a Var, the shape isomorphic pages actually compose with — renders WITH
+;; both annotations, so the server markup byte-matches the dev client render
+;; and hydration adopts.
 
 (deftest ssr-rendered-html-carries-both-annotations-through-callable-head
-  (testing "rf2-8vi4q — a registered view reached through `(rf/view id)`
+  (testing "a registered view reached through `(rf/view id)`
             renders with BOTH data-rf2-source-coord AND data-rf-view on its
             root DOM element, and their values are exactly the shared
             formatters' output for the slot's stored coords."
@@ -163,19 +158,19 @@
           ;; a hardcoded copy of it.
           coord   (rf.views.jvm-source-coord-annotation/format-source-coord fixture-id fixture-coords)
           view-id (rf.views.jvm-source-coord-annotation/format-view-id fixture-id)]
-      ;; SEMANTIC, posture-independent (rf2-lwtlk): `(rf/view id)` resolves to
+      ;; SEMANTIC, posture-independent: `(rf/view id)` resolves to
       ;; the registered view and the view renders its own root and body. The
       ;; gate can remove the attributes; it can never remove the element.
       (is (.startsWith html "<p") (pr-str html))
       (is (.endsWith html ">body</p>") (pr-str html))
 
-      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (.contains html (str "data-rf2-source-coord=\"" coord "\""))
             (str "server markup must carry the source-coord attribute; got: "
                  (pr-str html)))
         (is (.contains html (str "data-rf-view=\"" view-id "\""))
-            (str "server markup must carry the view-id attribute (rf2-8vi4q); "
+            (str "server markup must carry the view-id attribute; "
                  "got: " (pr-str html)))
         (is (= (str "<p data-rf2-source-coord=\"" coord "\""
                     " data-rf-view=\"" view-id "\">body</p>")
@@ -183,7 +178,7 @@
             (str "the full annotated root, both attributes present; got: "
                  (pr-str html))))
 
-      ;; rf2-lwtlk — the REAL-gate arm. Under `-Dre-frame.debug=false` the
+      ;; The REAL-gate arm. Under `-Dre-frame.debug=false` the
       ;; wrapper is never installed, so the same callable head renders the
       ;; SAME element with neither attribute. Pinned by `=` rather than by a
       ;; `not contains?` pair, which would pass vacuously.
