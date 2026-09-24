@@ -127,7 +127,7 @@
     :why    "the application is evidence about the public door; a reach past it makes the evidence worth nothing"
     :match? #(str/starts-with? % "re-frame.fresco.impl.")}
    {:label  "the benchmark tree"
-    :why    "`re-frame.bench.*` is the measured prototype the package was moved out of; a consumer has no access to it"
+    :why    "`re-frame.bench.*` is the measured prototype the package is derived from; a consumer has no access to it"
     :match? #(str/starts-with? % "re-frame.bench.")}
    {:label  "a development tool"
     :why    "`tools/` is bundle-isolated from production builds; nothing in `implementation/` may require it, and an application is not an exception"
