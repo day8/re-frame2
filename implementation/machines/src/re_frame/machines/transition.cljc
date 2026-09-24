@@ -138,7 +138,7 @@
   membership coordinates (`:child-id` / `:spawned-id` / `:attempt` /
   `:work-generation`) the runtime stamped at spawn.
 
-  At the parent's handler boundary the event routes three ways
+  At the parent's handler boundary the event routes two ways
   (`lifecycle-fx.registration`):
 
     - `:spawn` child — the parent's `:spawn :on-done` fold runs against the
@@ -147,13 +147,22 @@
       over the folded `:data`) or an explicit `:on` clause. This is what lets
       a parent sequence phases on a child's completion without the child
       knowing the parent exists.
-    - `:spawn-all` join child — the per-child `:on-done` fold runs, then the
-      runtime folds the completion into the join
+    - `:spawn-all` join child — the per-child `:on-done` fold runs for a
+      `:done` (plain-leaf) completion only, then the runtime folds the
+      completion into the join
       (`lifecycle-fx.join/intercept-spawn-done-event`); the parent's own
-      macrostep is driven by the join's resolution event instead.
-    - an ERROR leaf under a `:spawn` parent declaring `:on-error` routes to
-      `spawn-error-event-id` instead — the error TRANSITION keeps its own
-      carrier, which an uncaught child action exception also produces.
+      macrostep is driven by the join's resolution event instead. A failed
+      join child (`:error? true`) skips that fold and reaches the parent only
+      through `:on-any-failed` and the join's `:failed` set.
+
+  A single-`:spawn` child's failure never rides this event (rf2-3x7nj.41.1).
+  Its ERROR leaf, like an uncaught child action exception, goes out as
+  `spawn-error-event-id` whether or not the parent declares `:on-error`, and
+  the parent resolves it through `:on-error`, else an explicit
+  `:on {:rf.machine.spawn/error …}`, else nowhere. So `:error?` is true on
+  this event only for a join child, and what it hands a `:spawn` parent — at
+  the `:on-done` fold and at any `:on {:rf.machine.spawn/done …}` — is always
+  a success.
 
   Lives under the framework-reserved `:rf.machine.spawn/*` family, so
   `unhandled-event-no-op?` exempts it: a parent with nothing to say about a

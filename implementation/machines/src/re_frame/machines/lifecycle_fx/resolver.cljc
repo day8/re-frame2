@@ -211,8 +211,8 @@
   both spawn forms — a `:spawn` parent's `:on-done` (applied at the parent's
   handler boundary when the reserved completion carrier arrives) and a
   `:spawn-all` child spec's per-child `:on-done` (applied by the join fold at
-  that child's finality). Per Spec 005 §Final states the callback receives one
-  context-map arg and returns the new `:data` map:
+  that child's successful finality only). Per Spec 005 §Final states the
+  callback receives one context-map arg and returns the new `:data` map:
 
       (fn [{:keys [data result]}] new-data)
 

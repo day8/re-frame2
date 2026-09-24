@@ -932,8 +932,9 @@
   :actions}`, or a guarded candidate vector. Reject a malformed `:on-error`
   shape at registration (`:rf.error/machine-bad-on-error-clause`); the guard /
   action ref resolution is checked by the top-level pass (alongside `:on` /
-  `:on-done`). Absent `:on-error` is fine (the spawn simply has no failure
-  routing — the trace + escape-hatch remain)."
+  `:on-done`). Absent `:on-error` is fine: the failure event still reaches
+  the parent, where an explicit `:on {:rf.machine.spawn/error …}` may take it,
+  else it is a no-op (rf2-3x7nj.41.1); the trace + escape-hatch remain."
   [state-key state-node]
   (when-let [spawn (:spawn state-node)]
     (when (contains? spawn :on-error)
@@ -1537,7 +1538,8 @@
   prevent — so it falls through to the ordinary
   `:rf.error/machine-unknown-spawn-key`, which names the valid set. `:on-done`
   IS honoured on a child spec: it folds the parent's `:data` at that child's
-  finality, before the join fold."
+  successful finality, before the join fold; a failed child skips it
+  (rf2-3x7nj.41.1)."
   (-> known-spawn-spec-keys
       (disj :on-error)
       (conj :id)))

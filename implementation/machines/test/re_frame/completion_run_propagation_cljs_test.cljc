@@ -4,10 +4,12 @@
   rf2-gbzv9 carried Spec 002 §Run propagation across the SPAWN edge: the
   newborn actor's first event inherits the spawning envelope. The way BACK is
   two reserved carriers the runtime mints into the spawning parent when a
-  child finishes: `[:rf.machine.spawn/done …]` (a `:final?` leaf, either spawn
-  form) and `[:rf.machine.spawn/error …]` (an `:error?` leaf, or an uncaught
-  action exception, under a parent declaring `:spawn :on-error`). Both used to
-  be FRESH router dispatches carrying only `{:frame … :source :machine-spawn}`.
+  child finishes: `[:rf.machine.spawn/done …]` (a plain `:final?` leaf under
+  either spawn form, or a `:spawn-all` child's `:error?` leaf) and
+  `[:rf.machine.spawn/error …]` (a single-`:spawn` child's `:error?` leaf, or
+  an uncaught action exception, whether or not the parent declares
+  `:spawn :on-error`; rf2-3x7nj.41.1). Both used to be FRESH router
+  dispatches carrying only `{:frame … :source :machine-spawn}`.
   So a per-call override reached every fx a child fired, but NOT the fx the
   parent fired on resuming.
 
