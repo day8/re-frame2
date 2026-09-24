@@ -30,9 +30,12 @@
   namespace — it is loaded only by dev tools (Xray) + the conformance
   fixtures, which `:require` it directly. A production application bundle
   never loads this ns, so `:advanced` + `goog.DEBUG=false` DCE its body
-  wholesale. The bundle-isolation sentinel at the foot of this ns proves no
-  stray `:require` pulled it into the counter example's production bundle
-  (`implementation/scripts/check-bundle-isolation.cjs`).
+  wholesale. The bundle-isolation gate
+  (`implementation/scripts/check-bundle-isolation.cjs`) proves no stray
+  `:require` pulled it into the counter example's production bundle by
+  counting `rf.resource/opaque` — a literal this ns's live path emits — in
+  the emitted module; the note at the foot of this ns explains why there is
+  no planted sentinel string here.
 
   ## The contract
 
