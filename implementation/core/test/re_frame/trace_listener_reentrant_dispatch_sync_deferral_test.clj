@@ -1,18 +1,19 @@
 (ns re-frame.trace-listener-reentrant-dispatch-sync-deferral-test
-  "rf2-6t6qk — PR #6365's post-drain deferral must also cover the MOST important
+  "The post-drain deferral must also cover the MOST important
   reentrant path: a trace listener that calls `dispatch-sync`.
 
-  ## The defect this pins (rf2-6t6qk)
+  ## The hazard this pins
 
-  `re-frame.trace.tooling/deliver-to-tooling!` tested the reentrant `*fanout-ctx*`
-  fast path BEFORE the post-drain deferral scope. During an outer listener
-  fan-out `*fanout-ctx*` is bound; if that listener calls `dispatch-sync` into a
-  frame F, `re-frame.router/drain-block!` opens the deferral scope AND acquires
-  F's `:drain-lock`, but each nested drain trace still took the earlier
-  `*fanout-ctx*` branch — appending to the outer schedule and driving it INLINE.
-  Arbitrary listener code therefore ran while the framework held F's drain lock,
-  the exact negation of the rf2-wxy1c charter (\"arbitrary listener code is never
-  invoked nor awaited while the framework owns any target frame drain lock\").
+  During an outer listener fan-out `*fanout-ctx*` is bound; if that listener
+  calls `dispatch-sync` into a frame F, `re-frame.router/drain-block!` opens the
+  deferral scope AND acquires F's `:drain-lock`. So
+  `re-frame.trace.tooling/deliver-to-tooling!` consults the post-drain deferral
+  scope BEFORE the reentrant `*fanout-ctx*` fast path. Were the fast path tested
+  first, each nested drain trace would append to the outer schedule and drive it
+  INLINE, running arbitrary listener code while the framework holds F's drain
+  lock — the exact negation of the drain-lock law (\"arbitrary listener code is
+  never invoked nor awaited while the framework owns any target frame drain
+  lock\").
 
   ## The probe
 
@@ -23,10 +24,10 @@
   drain-owned emit of that nested drain, whether `:rf/default`'s `:drain-lock` is
   held at the instant its callback runs.
 
-  Pre-fix the probe observed the lock HELD on the nested `:rf.event/run-start`
-  (and the run-end / trailer emits): the reentrant fast path delivered them under
-  the lock. Post-fix every drain-owned emit is deferred and delivered at the
-  post-drain boundary — integrated back into the still-active outer schedule so
+  Through the fast path the probe would observe the lock HELD on the nested
+  `:rf.event/run-start` (and the run-end / trailer emits). Instead every
+  drain-owned emit is deferred and delivered at the post-drain boundary —
+  integrated back into the still-active outer schedule so
   outer-before-inner ordering and synchronous completion survive — so the probe
   sees the lock FREE on every one.
 
@@ -34,10 +35,11 @@
   the reentrant bypass does not throw, it silently runs listener code under the
   lock. JVM-only (`.clj`): the drain-lock read is only meaningful where a real
   lock cell is contended; the platform-uniform settled-state contract has its own
-  cross-host suite (`trace-listener-reentrant-settled-state-cljs-test`)."
+  cross-host suite (`trace-listener-post-drain-settled-state-cljs-test`)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            ;; Load-bearing require (mirrors the rf2-jl75r / rf2-wxy1c suites):
+            ;; Load-bearing require (mirrors the drain-deadlock and
+            ;; concurrent-drain suites):
             ;; with the epoch artefact on the classpath the per-event settle also
             ;; emits the cascade trailers on the drainer thread while the
             ;; drain-lock is held, so the deferral seam is exercised for the
@@ -61,17 +63,17 @@
 (defn- drain-lock-held?
   "True iff `frame-id`'s `:drain-lock` is currently taken — the direct read of
   the single-drainer cell the router CAS-acquires for a drain pass. Read from
-  inside a listener callback this answers the rf2-6t6qk / rf2-wxy1c acceptance
-  question literally: is arbitrary listener code running while the framework owns
-  this frame's drain lock?"
+  inside a listener callback this answers this suite's question literally: is
+  arbitrary listener code running while the framework owns this frame's drain
+  lock?"
   [frame-id]
   (boolean (some-> (rf.frame/frame frame-id) :drain-lock deref)))
 
-;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
+;; ---- Posture: dev-only, declared by `^:requires-debug` ---------------------
 ;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
 ;; no-op, so there is no semantic residue to run under that posture, and a
-;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
-;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
+;; `(when interop/debug-enabled? ...)` split would leave EMPTY deftests
+;; reporting green.  Every deftest
 ;; below is therefore TAGGED, and the production-gate lane skips the tag rather
 ;; than the file: the namespace is still LOADED there, so a load-time failure
 ;; under the gate still reddens the job, and an untagged new deftest joins that
