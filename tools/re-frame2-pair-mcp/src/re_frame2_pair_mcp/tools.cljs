@@ -30,15 +30,15 @@
 
 ;; Re-export the descriptor catalogue + JS-shape builder. Tests
 ;; (`list_subscriptions_test.cljs`, `typical_tokens_test.cljs`) and
-;; `server.cljs` consume these names off the façade ns; the split must
-;; not break their resolution.
+;; `server.cljs` consume these names off the façade ns, so they resolve
+;; here as well as in `tools/descriptors`.
 (def tool-descriptors descriptors/tool-descriptors)
 (def tool-descriptors-js descriptors/tool-descriptors-js)
 
 ;; Re-export the registry's closed-world predicate onto the façade so
 ;; `server.cljs` (which already requires this ns) can route the
 ;; server-local reads AROUND `ensure-connection!` at the pre-connection
-;; boundary — see `registry/closed-world-tool?` (rf2-6amhbt).
+;; boundary — see `registry/closed-world-tool?`.
 (def closed-world-tool? registry/closed-world-tool?)
 
 (defn- edit-distance
@@ -159,7 +159,7 @@
 ;; Adding a future step (request-level redaction, metrics, path-prefix
 ;; slicing, per-call elision toggle) is one map-entry addition here
 ;; plus the step's `:run` body. The orchestration loop and the test
-;; seam stay unchanged.
+;; seam need no change.
 ;; ---------------------------------------------------------------------------
 
 (defn- canonicalize-build-step
@@ -193,9 +193,9 @@
        who TYPES a build (`:build machine-epochs`); the no-arg default
        needs no trip.
 
-  Suffix-forgiveness is fully preserved for the case it was built for:
-  an explicit `:build` arg, or a sticky suffix stuck from a prior
-  explicit `:build`, still routes through `canonicalize-build!`.
+  Suffix-forgiveness covers the case it exists for: an explicit `:build`
+  arg, or a sticky suffix stuck from a prior explicit `:build`, routes
+  through `canonicalize-build!`.
 
   Pays one `active-builds` round-trip only the first time a not-yet-probed
   EXPLICIT build name is seen this session; an exact / already-aliased id
@@ -269,8 +269,8 @@
   for it cannot underwrite a future `:rf.mcp/cache-hit` — that marker
   tells the caller to re-use bytes it would never have received, and it
   also erases the actionable overflow diagnosis on every repeat of the
-  same oversized read. So the cap withdraws the candidate entry here
-  (rf2-gov3). Only the withheld case pays anything: `apply-cap` returns
+  same oversized read. So the cap withdraws the candidate entry here.
+  Only the withheld case pays anything: `apply-cap` returns
   the identical result object when the payload fits, and a delivered
   payload keeps its entry and the fast hit-before-cap path with it."
   [{:keys [result cap-opts cache-opts] :as ctx}]
@@ -305,7 +305,7 @@
   the order would never change behaviour but would waste a token
   walk on the hit path. The cost of that order is that step 2 records
   an identity for a payload step 3 may withhold, which `apply-cap-step`
-  settles by withdrawing that entry (rf2-gov3) — see its docstring.
+  settles by withdrawing that entry — see its docstring.
 
   `:skip-when?` is the per-step skip predicate: when it returns true the
   step is skipped and the chain continues to the next step's own
@@ -335,7 +335,7 @@
     (args/invalid-id-arg k v)))
 
 (defn- refuse-malformed-ids
-  "rf2-3x7nj.32.2 — refuse a caller-supplied `:build`, `:frame`, or
+  "Refuse a caller-supplied `:build`, `:frame`, or
   `:frames` entry that lacks keyword grammar, BEFORE anything reads it.
 
   Those ids are minted into keywords that tools print into eval source —
@@ -362,8 +362,13 @@
 
   ## Wire-boundary pipeline
 
-  The four-step pipeline lives in `wire-boundary-pipeline` and is
+  The five-step pipeline lives in `wire-boundary-pipeline` and is
   threaded by `boundary-step/run-step-pipeline`:
+
+  -1. **`:canonicalize-build`** (`probe/canonicalize-build!`) —
+     resolves an explicit or sticky `:build` suffix to the canonical
+     running build id before any later step reads it. A bare-default
+     call skips the round-trip; see `canonicalize-build-step`.
 
   0. **`:precheck`** (`precheck/fetch-precheck-hash`) —
      for precheck-eligible tools, issue one cheap nREPL eval to
@@ -397,12 +402,12 @@
      are sub-cap by construction.
 
   `extra` carries the MCP `extra` payload (the SDK's per-request
-  context: signal + sendNotification + _meta). Every current handler
+  context: signal + sendNotification + _meta). Every registered handler
   ignores it.
 
   Before any of that, a `:build` / `:frame` / `:frames` id without
   keyword grammar is refused with `:rf.mcp/invalid-arg`
-  (`refuse-malformed-ids`, rf2-3x7nj.32.2) — no tool runs, nothing is
+  (`refuse-malformed-ids`) — no tool runs, nothing is
   stuck, nothing is evaluated."
   [conn name args extra]
   (if-let [refusal (refuse-malformed-ids args)]
