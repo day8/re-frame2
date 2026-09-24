@@ -91,7 +91,9 @@
     `:source`. For a plan of a REGISTERED variant `[:world :setup]` stays out
     of the program, as it does from a Test-mode capture: promotion `:extends`
     that variant by default, which supplies its setup and world exactly once
-    (rf2-hyheo). A plan with no registered variant has nothing to extend, so
+    (rf2-hyheo), and `[:source :args]` records the args the plan resolved,
+    so promotion can hand that setup the run inputs it was compiled with
+    (rf2-30a8k). A plan with no registered variant has nothing to extend, so
     its setup folds in first, the setup-first fold `make-run-artifact`
     applies. It is NOT a reproduction of the variant's run: decorator stubs
     (`:rf.story/force-fx-stub`), `:db-seed`, frame-setup decorators, loaders,
@@ -118,16 +120,20 @@
     ;; The script is the event program; setup folds in first only when no
     ;; registered variant can supply it through :extends (rf2-hyheo). Carry
     ;; the network routes so replay re-installs the managed-request stubs.
+    ;; For a registered variant the source also records the args the plan
+    ;; resolved, run inputs included, which the setup :extends supplies was
+    ;; compiled with (rf2-30a8k).
     (and (map? target) (contains? target :world))
-    (rf.story.artifact/make-run-artifact
-      (cond-> {:setup        (if (rf.story.registrar/registered? :variant (:variant/id target))
-                               []
-                               (get-in target [:world :setup] []))
-               :script       (get target :script [])
-               :fx-decisions (get-in target [:world :frame :fx-overrides] {})
-               :source       {:tool :determinism-gate :variant/id (:variant/id target)}}
-        (seq (get-in target [:world :network]))
-        (assoc :network (get-in target [:world :network]))))
+    (let [registered? (rf.story.registrar/registered? :variant (:variant/id target))
+          args        (get-in target [:world :args])]
+      (rf.story.artifact/make-run-artifact
+        (cond-> {:setup        (if registered? [] (get-in target [:world :setup] []))
+                 :script       (get target :script [])
+                 :fx-decisions (get-in target [:world :frame :fx-overrides] {})
+                 :source       (cond-> {:tool :determinism-gate :variant/id (:variant/id target)}
+                                 (and registered? (seq args)) (assoc :args args))}
+          (seq (get-in target [:world :network]))
+          (assoc :network (get-in target [:world :network])))))
 
     :else
     (rf.story.artifact/make-run-artifact target)))

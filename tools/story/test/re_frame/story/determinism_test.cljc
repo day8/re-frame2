@@ -161,6 +161,7 @@
             :extends"
     (let [plan {:variant/id :story/x
                 :world  {:setup [[:dispatch [:seed]]]
+                         :args  {:n 9}
                          :frame {:fx-overrides {:http/get :http/stub}}}
                 :script [[:dispatch [:act]] [:wait 9]]}
           a    (rf.story.determinism/->artifact plan)]
@@ -169,7 +170,9 @@
              (:event-program a))
           "setup-first fold, then script")
       (is (= {:http/get :http/stub} (:fx-decisions a))
-          "[:world :frame :fx-overrides] become :fx-decisions")))
+          "[:world :frame :fx-overrides] become :fx-decisions")
+      (is (not (contains? (:source a) :args))
+          "the folded setup already holds its resolved args (rf2-30a8k)")))
 
   (testing "a plan of a REGISTERED variant leaves [:world :setup] out of the
             program: promotion :extends that variant, which supplies it
@@ -178,12 +181,16 @@
       {:setup [[:dispatch [:seed]]] :script [[:dispatch [:act]]]})
     (try
       (let [plan {:variant/id :story.det/registered
-                  :world  {:setup [[:dispatch [:seed]]]}
+                  :world  {:setup [[:dispatch [:seed]]]
+                           :args  {:n 9}}
                   :script [[:dispatch [:act]]]}
             a    (rf.story.determinism/->artifact plan)]
         (is (= [[:dispatch [:act]]] (:event-program a)) "the script alone")
         (is (= :story.det/registered (get-in a [:source :variant/id]))
-            "the artifact records its source, so promotion can extend it"))
+            "the artifact records its source, so promotion can extend it")
+        (is (= {:n 9} (get-in a [:source :args]))
+            "and the args the plan resolved, which that setup was compiled
+             with (rf2-30a8k)"))
       (finally (rf.story.registrar/unregister! :variant :story.det/registered)))))
 
 ;; ===========================================================================
