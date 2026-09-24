@@ -4,15 +4,15 @@
   reads it — off the committed fiber's `type` — rather than off the
   pre-mount fn property.
 
-  WHY THIS FILE EXISTS (rf2-976bw). Spec 006 §React DevTools support
+  WHY THIS FILE EXISTS. Spec 006 §React DevTools support
   item 1 is a claim about what a developer reads in the component tree,
   and `(.-displayName (rf/view id))` is one step short of that: on the
   Reagent path the thing React renders is a CLASS that Reagent's
   `fn-to-class` machinery builds from the wrapped fn, so whether the
   stamp survives into the tree is a property of that machinery, not of
-  the stamp. rf2-fa4ly pinned the stamp and never exercised the
-  machinery; this file closes that gap on the shipping Reagent
-  substrate. Its UIx counterpart is
+  the stamp. `reg-view-devtools-cljs-test` pins the stamp without
+  exercising the machinery; this file exercises it on the shipping
+  Reagent substrate. Its UIx counterpart is
   `re-frame.adapter.react-shared-suite/assert-mounted-display-name-is-devtools-visible`.
 
   Browser-only — a real `react-dom` commit is required before a fiber
@@ -58,7 +58,7 @@
         (try (rdc/unmount root) (catch :default _ nil))))))
 
 (deftest mounted-reagent-component-shows-the-colon-free-name
-  (testing "rf2-976bw: with the view MOUNTED through Reagent's class
+  (testing "with the view MOUNTED through Reagent's class
             machinery, the name React resolves for the component (the
             one DevTools renders in the tree) is the view-id's
             performance/display projection — no leading colon"
@@ -74,7 +74,7 @@
                  "rendered root; saw " (pr-str names)))))))
 
 (deftest mounted-name-and-render-measure-are-one-identifier
-  (testing "rf2-976bw: the equality that matters is between the name a
+  (testing "the equality that matters is between the name a
             developer READS in DevTools and the name the rf:render:
             bracket WRITES — asserted here against the mounted fiber, so
             it covers Reagent's class machinery rather than the stamp
