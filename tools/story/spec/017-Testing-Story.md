@@ -3296,9 +3296,15 @@ variant, and it yields an empty program for a variant with no `:script`.
 For a registered source neither route folds `[:world :setup]` into the
 program. The dialog's default draft `:extends` the source, and a promotion
 given no `:extends` defaults it to the registered source the artifact
-records. A plan that names no registered variant, such as an inline plan,
-has nothing to extend: its setup stays folded into the program and its world
-is not carried. Source intent above then restores the full step program and
+records. That setup re-substitutes its `[:arg …]` placeholders when the
+promoted variant compiles, so the run inputs it was compiled with ride the
+promoted body's own `:args`, at the values they resolved to. A Test-mode
+capture records the run's `:active-modes` and `:cell-overrides`
+(`[:source :run-opts]`). The API route records the args its plan resolved
+(`[:source :args]`), and promotion takes as inputs the ones that differ from
+what the source resolves without any. A plan that names no registered
+variant, such as an inline plan, has nothing to extend: its setup stays
+folded into the program, already resolved, and its world is not carried. Source intent above then restores the full step program and
 the declarative `:assertions` / `:checks`, so on either route the promoted
 variant fails under the fault, passes after the fix and fails again when the
 fault returns. `materialize-variant-plan` and
