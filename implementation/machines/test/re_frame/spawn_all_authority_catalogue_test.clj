@@ -176,9 +176,9 @@
 ;;
 ;; `:invoke-id` is classified bookkeeping, NOT a required consumer input: the seed
 ;; writes it (`transition.cljc` seeds `:invoke-id invoke-id`) REDUNDANT with the
-;; slot key `[parent-id invoke-id]`, and every consumer resolves `invoke-id` from
-;; the state-path prefix (`join.cljc` `find-active-spawn-all-in-tree`), reading the
-;; fetched join-state value only for `:rf/attempt` / `:children` — never for
+;; slot key `[parent-id invoke-id]`, and every consumer takes `invoke-id` from
+;; the completion carrier and looks the join state up by slot key (`join.cljc`),
+;; reading the fetched join-state value only for `:rf/attempt` / `:children` — never for
 ;; `:invoke-id`. `cancelled-child-tombstone-is-required-and-honoured` proves the
 ;; required keys' consumer contract end-to-end; the completeness proof below proves
 ;; `:invoke-id` is OPTIONAL (dropping it still validates the open schema).
