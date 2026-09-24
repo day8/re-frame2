@@ -1,28 +1,27 @@
 (ns re-frame.ssr-runtime-db-explicit-frame-test
-  "rf2-3fc89f.15 / rf2-f02diw — the SSR runtime-db hydration projection must
-  honour the EXPLICIT carried frame, never an ambient one. rf2-f02diw finishes
-  the clean break: the `:ssr/extend-runtime-db-projection` resource hook is
-  re-signatured `[runtime-db frame-id]` and the projector THREADS the target
-  into it as an argument rather than a `binding` rebind of ambient scope — the
-  `build-final-payload-explicit-frame-wins-over-ambient` stub below asserts the
-  hook receives A as its parameter while ambient stays B.
+  "The SSR runtime-db hydration projection honours the EXPLICIT carried
+  frame, never an ambient one. The `:ssr/extend-runtime-db-projection`
+  resource hook takes `[runtime-db frame-id]` and the projector THREADS the
+  target into it as an argument rather than a `binding` rebind of ambient
+  scope — the `build-final-payload-explicit-frame-wins-over-ambient` stub
+  below asserts the hook receives A as its parameter while ambient stays B.
 
   `re-frame.ssr.streaming/build-final-payload` carries an explicit `frame-id`
   and reads BOTH partitions of the frame-state container by it. Its app-db
-  projection (`project-app-db-egress`) is seeded at that explicit target — but
-  the prior `project-runtime-db` (one-arity) discarded the carried target and
-  bound the projection frame ambiently via `frame/resolve-current-frame`.
-
-  So a payload stamped `:rf/frame-id A` projected its app-db under A while its
-  runtime-db (route / machine / resource-extension slices) projected under
-  whatever frame happened to be ambient:
+  projection (`project-app-db-egress`) is seeded at that explicit target, and
+  so is its runtime-db projection (the two-arity `project-runtime-db`). A
+  runtime-db projection that resolved its frame ambiently via
+  `frame/resolve-current-frame` would split the payload: built for frame A,
+  its app-db would project under A while its runtime-db (route / machine /
+  resource-extension slices) projected under whatever frame happened to be
+  ambient:
 
     - OUTSIDE any `rf/with-frame` the ambient is nil → `project-routing-egress`
       fails OPEN (no frame ⇒ no walk) and the classified `:current` route
-      `:query` / `:params` ride the hydration blob RAW; the machines projector
-      gets nil (no `:data` redaction); the resource extension hook resolves no
-      frame.
-    - Under a DIFFERENT ambient frame B the runtime-db projects under B's
+      `:query` / `:params` would ride the hydration blob RAW; the machines
+      projector would get nil (no `:data` redaction); the resource extension
+      hook would resolve no frame.
+    - Under a DIFFERENT ambient frame B the runtime-db would project under B's
       (wrong / absent) declarations while app-db projects under A — an
       internally inconsistent payload that can also apply another frame's
       classifications (cross-frame non-determinism).
@@ -31,14 +30,15 @@
   `:data`, and resource-extension state are exactly the classified runtime
   facts EP-0025 / Spec 011 §Off-box redaction forbid shipping raw.
 
-  These regressions drive the ACTUAL public streaming builder
+  These tests drive the ACTUAL public streaming builder
   (`streaming/build-final-payload`) with an explicit non-default server frame,
   once with NO ambient scope and once under a MISMATCHED ambient frame, and
   prove the explicit target's classifications win for every runtime-db slice.
-  The pre-existing route / machine regressions
+  The route / machine projection suites
   (`ssr_route_slice_projection_test`, `ssr_machine_snapshot_projection_test`)
-  miss this because their fixtures classify + project under the SAME frame that
-  is ambient, so ambient == explicit and the bug is invisible."
+  cannot see this because their fixtures classify + project under the SAME
+  frame that is ambient, so ambient == explicit and an ambient-resolving
+  projector would pass them."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
@@ -62,7 +62,8 @@
 ;;
 ;; `server-frame` (frame A) is the EXPLICIT SSR target. The fixture pins
 ;; `:rf/default` (frame B) as the ambient scope, so A is NEVER the ambient
-;; frame inside a test body — precisely the seam the bug lives in.
+;; frame inside a test body — precisely the seam an ambient-resolving
+;; projector would get wrong.
 
 (def ^:private server-frame :review/ssr-target)
 (def ^:private route-id      :route/oauth-callback)
@@ -125,7 +126,7 @@
      :states  {:anon {:on {:login :authed}} :authed {}}})
   (rf.frame/swap-runtime-db! server-frame (constantly (frame-a-runtime-db))))
 
-;; ---- AC#1: leak with NO ambient scope -------------------------------------
+;; ---- NO ambient scope ------------------------------------------------------
 
 (deftest build-final-payload-honours-explicit-frame-outside-with-frame
   (testing "streaming/build-final-payload called OUTSIDE any rf/with-frame
@@ -133,8 +134,9 @@
             route :query / :params redact/elide, no raw secret survives"
     (setup-frame-a!)
     ;; Escape the fixture's `(with-frame :rf/default …)` scope: no ambient frame
-    ;; at all. On the buggy one-arity projector `resolve-current-frame` → nil,
-    ;; `project-routing-egress` fails OPEN, and the raw token rides the wire.
+    ;; at all. A projector that resolved its frame ambiently would get nil from
+    ;; `resolve-current-frame`, `project-routing-egress` would fail OPEN, and the
+    ;; raw token would ride the wire.
     (let [payload (binding [rf.frame/*current-frame* nil]
                     (rf.ssr.streaming/build-final-payload
                       server-frame "hash"
@@ -142,7 +144,7 @@
           current (get-in payload [:rf/runtime-db :rf.runtime/routing :current])
           snap    (get-in payload [:rf/runtime-db :rf.runtime/machines
                                    :snapshots machine-id])]
-      ;; rf2-lm2yzy — wire :rf/frame-id decoupled from the projection frame;
+      ;; The wire :rf/frame-id is decoupled from the projection frame;
       ;; no `:client-frame-id` opt ⇒ omitted. Redaction below proves the
       ;; projection targeted the explicit frame A.
       (is (not (contains? payload :rf/frame-id))
@@ -150,19 +152,19 @@
       (is (= :rf/redacted (get-in current [:query :token]))
           "route-declared sensitive :query :token redacted under frame A")
       (is (= "huge-callback-blob-value" (get-in current [:params :payload]))
-          "route-declared large :params :payload rides whole (no size elision on the hydration wire, rf2-hjz4r)")
+          "route-declared large :params :payload rides whole (no size elision on the hydration wire)")
       (is (= "/dashboard" (get-in current [:query :return-to]))
           "the unclassified route sibling rides verbatim")
       (is (= :rf/redacted (get-in snap [:data :token]))
           "machine snapshot :data :token redacted under frame A")
       (is (= "huge-blob-value" (get-in snap [:data :blob]))
-          "machine snapshot :data :blob rides whole (no size elision on the hydration wire, rf2-hjz4r)")
+          "machine snapshot :data :blob rides whole (no size elision on the hydration wire)")
       (is (not (.contains (pr-str payload) "secret-oauth-token"))
           "no raw route token survives anywhere in the payload")
       (is (not (.contains (pr-str payload) "secret-jwt-snapshot"))
           "no raw machine token survives"))))
 
-;; ---- AC#2: explicit frame A wins over a MISMATCHED ambient frame B ---------
+;; ---- explicit frame A wins over a MISMATCHED ambient frame B --------------
 
 (deftest build-final-payload-explicit-frame-wins-over-ambient
   (testing "with frame B (:rf/default) ambient and frame A passed explicitly,
@@ -176,8 +178,8 @@
       (try
         ;; A stub resource-extension hook records BOTH the frame-id PARAMETER it
         ;; is threaded AND the ambient scope in effect when it runs — proving the
-        ;; projector passes the explicit target A as an ARGUMENT (rf2-f02diw
-        ;; clean break: the hook is `[runtime-db frame-id]`), never via a
+        ;; projector passes the explicit target A as an ARGUMENT (the hook is
+        ;; `[runtime-db frame-id]`), never via a
         ;; borrowed ambient rebind (resources isn't on this artefact's classpath,
         ;; so we stub its seam). A one-arity stub here would ARITY-ERROR against
         ;; the consumer's `(extend-fn runtime-db frame-id)` — the two args ARE
@@ -198,11 +200,11 @@
                                        :snapshots machine-id])]
           (is (= server-frame @captured-hook-frame)
               "the resource-extension hook is THREADED the EXPLICIT target A as
-               its frame-id argument (rf2-f02diw), not ambient B")
+               its frame-id argument, not ambient B")
           (is (= :rf/default @captured-hook-ambient)
-              "the hook's ambient scope is UNTOUCHED (still B :rf/default) — the
+              "the hook's ambient scope is UNTOUCHED (B :rf/default) — the
                explicit frame arrives as a PARAMETER, not a borrowed ambient
-               rebind: the clean break removed the `binding` around the call")
+               rebind: there is no `binding` around the call")
           (is (= :rf/redacted (get-in payload [:rf/app-db :secret]))
               "app-db :secret redacted under frame A's declaration")
           (is (= "ok" (get-in payload [:rf/app-db :public]))
@@ -210,11 +212,11 @@
           (is (= :rf/redacted (get-in current [:query :token]))
               "route :query :token redacted under frame A, not leaked under B")
           (is (= "huge-callback-blob-value" (get-in current [:params :payload]))
-              "route :params :payload rides whole (no size elision on the hydration wire, rf2-hjz4r)")
+              "route :params :payload rides whole (no size elision on the hydration wire)")
           (is (= :rf/redacted (get-in snap [:data :token]))
               "machine snapshot :data :token redacted under frame A")
           (is (= "huge-blob-value" (get-in snap [:data :blob]))
-              "machine snapshot :data :blob rides whole (no size elision on the hydration wire, rf2-hjz4r)")
+              "machine snapshot :data :blob rides whole (no size elision on the hydration wire)")
           (is (not (.contains (pr-str payload) "secret-oauth-token")))
           (is (not (.contains (pr-str payload) "secret-jwt-snapshot")))
           (is (not (.contains (pr-str payload) "app-db-secret"))
@@ -222,7 +224,7 @@
         (finally
           (rf.late-bind/set-fn! :ssr/extend-runtime-db-projection orig-hook))))))
 
-;; ---- AC#4 (unit): explicit precedence at the projector seam ---------------
+;; ---- (unit): explicit precedence at the projector seam --------------------
 
 (deftest project-runtime-db-explicit-target-beats-ambient
   (testing "the two-arity project-runtime-db projects under its EXPLICIT
@@ -247,41 +249,40 @@
              documented fallback; explicit target is required for correctness")))))
 
 ;; ===========================================================================
-;; rf2-j538f7.15 — fail closed when the payload projection loses its frame
-;; during teardown.
+;; Fail closed when the payload projection loses its frame during teardown.
 ;;
 ;; The explicit-frame projectors above assume the carried frame stays LIVE
 ;; through payload assembly. An async host (disconnect / timeout / writer-error
 ;; / cancellation cleanup) can destroy — or destroy AND re-register under the
 ;; same id — the request frame between the caller's state CAPTURE and the
-;; PROJECTION. The prior `project-routing-egress` (and the machines / resource
-;; hooks) rode the captured, still-classified state VERBATIM whenever the frame
-;; was no longer live: the payload was stamped for A yet its policy came from no
-;; live frame, so the classified route :query / machine :data rode RAW. These
-;; regressions prove the projection now fails CLOSED on a lost / substituted
-;; frame while a LIVE frame with no declarations still ships verbatim.
+;; PROJECTION. A `project-routing-egress` (or machines / resource hook) that
+;; rode the captured, classified state VERBATIM whenever the frame was no
+;; longer live would build the payload for A yet take its policy from no live
+;; frame, so the classified route :query / machine :data would ride RAW. These
+;; tests prove the projection fails CLOSED on a lost / substituted frame while
+;; a LIVE frame with no declarations ships verbatim.
 ;; ===========================================================================
 
 (deftest project-routing-egress-fails-closed-on-destroyed-frame
-  (testing "rf2-j538f7.15 — the route :current slice captured while frame A was
+  (testing "the route :current slice captured while frame A was
             LIVE fails closed once A is destroyed, and is distinguished from the
             live-frame precise projection and the frameless-nil passthrough"
     (setup-frame-a!)
     (let [slice (select-keys (:rf.runtime/routing (rf.frame/frame-runtime-db-value server-frame))
                              [:current])]
-      ;; Acceptance #6, first clause: a LIVE frame with declarations projects
+      ;; A LIVE frame with declarations projects
       ;; PRECISELY — the sensitive token redacts, the unclassified sibling rides.
       (let [live (rf.ssr.payload-policy/project-routing-egress slice server-frame)]
         (is (= :rf/redacted (get-in live [:current :query :token]))
             "LIVE frame A: declared sensitive :query :token redacts precisely")
         (is (= "/dashboard" (get-in live [:current :query :return-to]))
             "LIVE frame A: unclassified sibling rides verbatim"))
-      ;; Acceptance #6, frameless clause: a NIL frame-id is the frameless
+      ;; A NIL frame-id is the frameless
       ;; convenience — no frame policy to lose, so the slice rides verbatim.
       (is (= slice (rf.ssr.payload-policy/project-routing-egress slice nil))
           "NIL frame: frameless passthrough (NOT fail-closed)")
       ;; The teardown race: destroy A, then re-project the ALREADY-captured slice
-      ;; under the same EXPLICIT id. Acceptance #1 — fail closed.
+      ;; under the same EXPLICIT id — fail closed.
       (rf/destroy-frame! server-frame)
       (let [dead (rf.ssr.payload-policy/project-routing-egress slice server-frame)]
         (is (= :rf/redacted dead)
@@ -290,10 +291,10 @@
             "no raw route token survives the fail-closed projection")))))
 
 (deftest project-runtime-db-fails-closed-on-destroyed-frame
-  (testing "rf2-j538f7.15 (acceptance #4) — project-runtime-db on a frame
-            destroyed after runtime-db capture fails closed for BOTH the machine
-            snapshot :data and the routing :current slice; no raw classified
-            value survives, while a LIVE frame still projects them precisely"
+  (testing "project-runtime-db on a frame destroyed after runtime-db
+            capture fails closed for BOTH the machine snapshot :data and the
+            routing :current slice; no raw classified value survives, while a
+            LIVE frame projects them precisely"
     (setup-frame-a!)
     (let [rt (rf.frame/frame-runtime-db-value server-frame)]
       ;; sanity — LIVE A projects machine :data + route precisely
@@ -316,17 +317,16 @@
               (str "no raw classified value (" secret ") survives")))))))
 
 (deftest build-final-payload-fails-closed-on-teardown-race
-  (testing "rf2-j538f7.15 (acceptance #2) — the REAL streaming builder: frame A
-            is destroyed AFTER its runtime-db is captured but BEFORE projection
-            (an async-host teardown race, DR#4). build-final-payload fails closed
-            — app-db redacts whole, runtime-db omitted — even though the payload
-            is still stamped for A; no classified route / machine / app-db value
-            survives."
+  (testing "the REAL streaming builder: frame A is destroyed AFTER its
+            runtime-db is captured but BEFORE projection (an async-host
+            teardown race). build-final-payload fails closed — app-db redacts
+            whole, runtime-db omitted — even though the payload is built for
+            A; no classified route / machine / app-db value survives."
     (setup-frame-a!)
     (let [orig    rf.frame/frame-runtime-db-value
           payload (with-redefs [rf.frame/frame-runtime-db-value
                                 (fn [fid]
-                                  ;; DR#4 interposition: capture the live
+                                  ;; Interposition: capture the live
                                   ;; runtime-db, THEN tear the frame down before
                                   ;; the projection proceeds.
                                   (let [v (orig fid)]
@@ -335,8 +335,8 @@
                     (rf.ssr.streaming/build-final-payload
                       server-frame "hash"
                       {:payload :rf.ssr.payload/whole-app-db}))]
-      ;; rf2-lm2yzy — wire :rf/frame-id decoupled from the projection frame;
-      ;; no `:client-frame-id` opt ⇒ omitted. Fail-closed redaction below still
+      ;; The wire :rf/frame-id is decoupled from the projection frame;
+      ;; no `:client-frame-id` opt ⇒ omitted. Fail-closed redaction below
       ;; proves the projection targeted the explicit frame A.
       (is (not (contains? payload :rf/frame-id))
           "anonymous per-request frame omits the wire :rf/frame-id")
@@ -350,7 +350,7 @@
             (str "no raw classified value (" secret ") survives the fail-closed payload"))))))
 
 (deftest build-final-payload-fails-closed-on-frame-reregistration
-  (testing "rf2-j538f7.15 (acceptance #5) — frame A destroyed AND re-registered
+  (testing "frame A destroyed AND re-registered
             under the SAME id (a NEW incarnation with an absent policy) between
             capture and projection must NOT substitute the new frame's policy for
             the old frame's captured, classified data. The incarnation-token
@@ -370,8 +370,8 @@
                     (rf.ssr.streaming/build-final-payload
                       server-frame "hash"
                       {:payload :rf.ssr.payload/whole-app-db}))]
-      ;; rf2-lm2yzy — wire :rf/frame-id decoupled from the projection frame;
-      ;; no `:client-frame-id` opt ⇒ omitted. Fail-closed redaction below still
+      ;; The wire :rf/frame-id is decoupled from the projection frame;
+      ;; no `:client-frame-id` opt ⇒ omitted. Fail-closed redaction below
       ;; proves the projection targeted the explicit frame A.
       (is (not (contains? payload :rf/frame-id))
           "anonymous per-request frame omits the wire :rf/frame-id")
