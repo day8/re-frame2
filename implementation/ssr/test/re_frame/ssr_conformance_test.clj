@@ -218,7 +218,7 @@
         rdr  (java.io.PushbackReader. (java.io.StringReader. text))
         fail (fn [why data]
                (throw (ex-info (str "conformance fixture " fixture-name " " why
-                                    " (rf2-98ni, rf2-5mr6)")
+                                    ".")
                                (assoc data :fixture/file fixture-name))))
         rd   (fn []
                (try (edn/read {:eof eof} rdr)
