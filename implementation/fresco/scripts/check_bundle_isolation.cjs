@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 /*
  * THE ZERO-RENT PROOF FOR EVERY ISOLATED SURFACE, read off a real
- * production bundle (rf2-hic-034; the forms module added by rf2-sh56,
- * motion and overlay by rf2-ot28g, the server module by rf2-fn62g).
+ * production bundle.
  *
  * Four surfaces are measured here — the optional MOTION, OVERLAY, FORMS
  * and SERVER modules — and the law they answer to is `invariants.md` §1:
@@ -11,8 +10,8 @@
  * instrument and one bundle; each surface's own reasoning is with its
  * rows.
  *
- * THE NATIVE TIER IS NO LONGER ROWED HERE, and the absence is the design
- * (rf2-6c12m.3). `re-frame.fresco.native` shrank to two plain hook
+ * THE NATIVE TIER IS NOT ROWED HERE, and the absence is the design.
+ * `re-frame.fresco.native` is two plain hook
  * functions — `use-sub` and `use-frame` — with no marker property, no
  * refusal family and no macro of their own, so there is no string a bundle
  * carries if and only if the namespace is reachable: a sentinel planted
@@ -25,11 +24,10 @@
  *
  * THE HEADING MEANS WHAT IT SAYS OF THE MODULE ROSTER: every module
  * `check_optional_module_reachability.py` rows is measured here except
- * `native`, for the reason just given. The last to arrive was
- * `re-frame.fresco.server`, which this file carried for one bead as a
- * named gap on the ground that it is a Node module and the one bundle
- * this gate reads is a browser build — see the server section below,
- * where that objection is answered rather than inherited.
+ * `native`, for the reason just given. That includes
+ * `re-frame.fresco.server`, although it is a Node module and the one
+ * bundle this gate reads is a browser build — the server section below
+ * says why that objection does not hold.
  *
  * Reachability has TWO halves and they are checked in two places, because
  * neither instrument can answer the other's question:
@@ -113,8 +111,8 @@
  *
  * ## The forms module's two sentinels, and why they are NOT two shapes
  *
- * rf2-sh56 shipped `re-frame.fresco.forms` — the optional module whose
- * `buffered-field` the guide's chapter 5 documents — and it is measured
+ * `re-frame.fresco.forms` is the optional module whose `buffered-field`
+ * the guide's chapter 5 documents, and it is measured
  * here beside the other modules. The rows are two, and NOT because the
  * module has two reachability shapes: it has ONE. It registers its
  * events at namespace load, so nothing about it is conditionally
@@ -129,7 +127,7 @@
  * keyword reaches a bundle the view's name does not. One row would
  * report that as a clean bundle.
  *
- * Each is paired with an EXISTING control of the same idiom, so the pair
+ * Each is paired with a control of the same idiom, so the pair
  * differs by reachability and by nothing else:
  *
  *   - `re-frame.fresco.forms/buffered-field` (absent) against
@@ -147,17 +145,8 @@
  *
  * ## Motion and overlay: ONE shape and TWO, decided rather than assumed
  *
- * rf2-ot28g closed the gap this file had carried since rf2-sh56: the
- * source-side gate covered four optional surfaces and this one covered
- * two, so a green here was reported under a heading reading "every
- * isolated surface" while saying nothing about motion or overlay. The
- * file already knew both modules existed — `motion/presence` sat in the
- * near-miss list below as a string the scan is asserted NOT to fire on —
- * which made the silence a choice rather than an oversight, and the
- * wrong one.
- *
- * All three new rows are stamped `displayName`s, which is not a new
- * idiom but the one the `frescoBoundary` control is already read
+ * All three rows are stamped `displayName`s, the idiom the
+ * `frescoBoundary` control is read
  * through: `codec/mark-boundary!` writes its marker with `unchecked-set`
  * onto a freshly minted component, and each of these modules writes a
  * NAME onto that same component in the same expression. The pair
@@ -165,7 +154,7 @@
  * same bundle, same moment in the namespace's load — which is the
  * property that makes an absence a statement about the linker.
  *
- * The shape question was settled per module rather than answered once:
+ * The shape question is answered per module rather than once:
  *
  *   - MOTION HAS ONE. The module's whole product is `presence`, a single
  *     component minted at `impl.presence-react`'s namespace load. There
@@ -178,22 +167,21 @@
  *     inert-backdrop and focus-wrap code behind. Either sentinel alone
  *     is green against the other's leak.
  *
- * A NOTE ON WHAT WAS NOT CHOSEN, because it is the more obvious string
+ * A NOTE ON WHAT IS NOT ROWED, because it is the more obvious string
  * and it is weaker. `--rf-overlay-` — the CSS dashed-ident prefix
  * `next-anchor-ident` mints — is genuinely load-bearing, and the
- * reachability gate's own header already records it measuring ZERO on
+ * reachability gate's own header records it measuring ZERO on
  * this bundle. But it is minted inside a ref callback on the ANCHORED
  * path only, so it is absent from a bundle that carries the whole of
  * `modal` and an unanchored `popover`. It is a narrower instrument than
- * the two names above and would have been green on a real leak.
+ * the two names above and would be green on a real leak.
  *
  * ## The server module: a Node module IS a browser-bundle question
  *
- * rf2-fn62g inherited an objection worth answering rather than
- * repeating. `:fresco-release` is a BROWSER build and
- * `re-frame.fresco.server` is a Node one, so — the reasoning ran — its
- * row here asks a different question from the other four's, and might
- * be category-confused.
+ * An objection is worth answering here. `:fresco-release` is a BROWSER
+ * build and `re-frame.fresco.server` is a Node one, so its row might
+ * seem to ask a different question from the other four's, and be
+ * category-confused.
  *
  * IT IS NOT, and the roster comment in
  * `check_optional_module_reachability.py` says why in the course of
@@ -215,7 +203,7 @@
  * removing it.
  *
  * It is CO-REACHABLE WITH THE EXPENSIVE HALF BY CONSTRUCTION, which is
- * the property that made it worth taking over the more obvious strings.
+ * the property that makes it worth taking over the more obvious strings.
  * `react-dom/server` enters this bundle by exactly one route — `render`
  * — and `render`'s first binding is `(fresh-frame-id)`. There is no
  * path on which `renderToString` is in the bundle and this string is
@@ -255,13 +243,12 @@
  * its own defect and a worse one. The remedy below says to check both,
  * which is the honest reading of a sentinel two surfaces emit.
  *
- * THE CONTROL IS `rf-uix-sub-`, ALREADY ON THE ROSTER, and the pairing
- * is exact rather than convenient: both are string literals handed to a
+ * THE CONTROL IS `rf-uix-sub-`, SHARED WITH THE ROWS ABOVE, and the
+ * pairing is exact rather than convenient: both are string literals handed to a
  * runtime name-minting call — one a `gensym` prefix in the UIx adapter
  * the release entry installs, one a keyword namespace in a namespace
  * the public door never names. The pair differs by reachability and by
- * nothing else, which is what this file asks of a pairing. No new
- * control is minted for this row.
+ * nothing else, which is what this file asks of a pairing.
  *
  * ## The live half is a test, not a comment
  *
@@ -295,7 +282,7 @@ const BUNDLE = path.join(IMPL_ROOT, 'out', 'fresco-release', 'main.js');
 
 const SENTINELS = [
   {
-    surface: 'forms module — the view the chapter documents (rf2-sh56)',
+    surface: 'forms module — the view the chapter documents',
     sentinel: 're-frame.fresco.forms/buffered-field',
     source: 'src/re_frame/fresco/forms.cljs',
     premise: '(rf.fresco/defview buffered-field',
@@ -313,7 +300,7 @@ const SENTINELS = [
       'that exhaustively.',
   },
   {
-    surface: 'forms module — the app-db concern every draft lives under (rf2-sh56)',
+    surface: 'forms module — the app-db concern every draft lives under',
     sentinel: 're-frame.fresco.forms/drafts',
     source: 'src/re_frame/fresco/forms.cljs',
     premise: ':re-frame.fresco.forms/drafts',
@@ -332,7 +319,7 @@ const SENTINELS = [
       'is an architectural change, not a convenience.',
   },
   {
-    surface: 'motion module — the presence boundary\'s stamped name (rf2-ot28g)',
+    surface: 'motion module — the presence boundary\'s stamped name',
     sentinel: 'fresco/presence',
     source: 'src/re_frame/fresco/impl/presence_react.cljs',
     premise: '(aset "displayName" "fresco/presence")',
@@ -352,7 +339,7 @@ const SENTINELS = [
       'that exhaustively.',
   },
   {
-    surface: 'overlay module — the popover boundary\'s stamped name (rf2-ot28g)',
+    surface: 'overlay module — the popover boundary\'s stamped name',
     sentinel: 'fresco/popover',
     source: 'src/re_frame/fresco/impl/overlay.cljs',
     premise: '(unchecked-set "displayName" "fresco/popover")',
@@ -370,7 +357,7 @@ const SENTINELS = [
       'row is red alone, only the anchored-panel half was re-exported.',
   },
   {
-    surface: 'overlay module — the modal boundary\'s stamped name (rf2-ot28g)',
+    surface: 'overlay module — the modal boundary\'s stamped name',
     sentinel: 'fresco/modal',
     source: 'src/re_frame/fresco/impl/overlay.cljs',
     premise: '(unchecked-set "displayName" "fresco/modal")',
@@ -385,7 +372,7 @@ const SENTINELS = [
       'alone, only the dialog half was re-exported.',
   },
   {
-    surface: 'server module — the keyword namespace every request frame is minted under (rf2-fn62g)',
+    surface: 'server module — the keyword namespace every request frame is minted under',
     sentinel: 'fresco.ssr',
     source: 'src/re_frame/fresco/server.cljs',
     premise: '(keyword "fresco.ssr"',
@@ -583,21 +570,18 @@ function selfTest() {
     `${green} … "native" nativeEvent isComposing …`,           // React's own plumbing
     `${green} … re-frame.fresco/revision re-frame.fresco/clear …`,
     `${green} … drafts buffered-field myapp.forms/buffered-field :app/drafts …`,
-    // rf2-ot28g. This line used to be here because motion was a sibling
-    // module the scan did not cover. Motion is now rowed, and the string
-    // stays for the OPPOSITE reason: `re-frame.fresco.motion/presence` is
-    // the door's SYMBOL, which `:advanced` renames and which reaches no
-    // bundle even when the module leaks — the real sentinel is the
-    // `displayName` `fresco/presence`. A row on the symbol would have been
-    // unfalsifiable, and this is what says so.
+    // `re-frame.fresco.motion/presence` is the door's SYMBOL, which
+    // `:advanced` renames and which reaches no bundle even when the module
+    // leaks — the real sentinel is the `displayName` `fresco/presence`. A
+    // row on the symbol would be unfalsifiable, and this is what says so.
     `${green} … re-frame.fresco.motion/presence …`,
     // The same distinction for overlay, plus the near-miss that matters
     // most: an application is entirely free to have a modal and a popover
     // of its own, and a bundle carrying either must stay green. This is
-    // why all three new sentinels carry the `fresco/` prefix the minting
+    // why all three stamped-name sentinels carry the `fresco/` prefix the minting
     // namespaces stamp rather than the bare product name.
     `${green} … re-frame.fresco.overlay/popover myapp.views/modal popoverTargetAction …`,
-    // rf2-fn62g, and this one is the near-miss that matters most for the
+    // The near-miss that matters most for the
     // server row: THE FRAMEWORK'S OWN SSR SURFACES ARE LEGAL HERE. A
     // hydrating client carries `re-frame.ssr`'s payload contract by
     // design — the bootstrap reads the payload script and the policy
