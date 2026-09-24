@@ -33,14 +33,11 @@
   no `:namespaces`, so `-elision-prod-test$` is the whole roster and a
   file is in the lane the moment it is named to match.
 
-  So this runner deliberately requires NO test namespace. It used to
-  require thirteen, under a comment saying the list was what put them in
-  the test environment. It was not: the same run that loaded those
-  thirteen ran 116 tests, and the thirteen carry 64 `deftest`s between
-  them — the other 52 arrived by `:ns-regexp`, exactly as every one of the
-  thirteen already had. A list that cannot omit anything cannot be read
-  as authoritative either, and a maintainer who believed it would
-  conclude that the files missing from it did not run.
+  So this runner deliberately requires NO test namespace. A require list
+  here would not be what puts a namespace in the test environment — every
+  match arrives by `:ns-regexp`, listed or not. A list that cannot omit
+  anything cannot be read as authoritative either, and a maintainer who
+  believed it would conclude that the files missing from it did not run.
 
   If a lane ever needs an authoritative roster, the place to put it is the
   build's `:namespaces` key, which `find-test-namespaces` honours AHEAD of
@@ -61,22 +58,21 @@
   can change completely without invalidating this namespace's cache entry.
 
   A namespace LEAVING the roster is the destructive direction: the stale
-  cached expansion still dereferences vars whose namespaces are no longer in
+  cached expansion would dereference vars whose namespaces are absent from
   the bundle, and under `:advanced` that lands as an uncaught
   `TypeError: Cannot read properties of undefined` inside `init` — before a
   single test runs, so the lane aborts with no `cljs.test` summary at all.
-  That is rf2-2ohy: the Freehand / re-frame.ui removal took fourteen
-  `*-elision-prod-test` namespaces out of this lane, and every nightly from
-  2026-08-16 on restored a warm `.shadow-cljs` cache and served the
-  pre-removal runner.
+  Deleting a batch of `*-elision-prod-test` namespaces would do exactly
+  that to every build that restores a warm `.shadow-cljs` cache and so
+  serves the stale runner.
 
   `{:dev/always true}` is what stops it. Despite the name,
   `shadow.build.compiler/is-cache-blocked?` reads that key with no mode
   gate, so it blocks caching in `release` exactly as in `:dev`. The stock
   runners `shadow.test.browser` and `shadow.test.node` both carry it for
-  this reason, as does this repo's own `re-frame.test-quiet.shadow-node`;
-  this runner and `re-frame.schemas-boundary-prod-runner` were written from
-  the stock runner's body without its ns metadata. Any namespace that
+  this reason, as does this repo's own `re-frame.test-quiet.shadow-node`,
+  and this runner and `re-frame.schemas-boundary-prod-runner` share the
+  stock runner's body and carry its ns metadata with it. Any namespace that
   expands `shadow.test.env/get-test-data` needs this."
   {:dev/always true}
   (:require [shadow.test :as st]
