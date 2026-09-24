@@ -14,9 +14,8 @@
      {…} \"Active\")` inside a body, where every other markup-producing
      thing on the page is `[some-view {…}]`. It is a plain function on
      purpose — a link is not a unit of re-render — and nothing at the
-     call site says which grammar applies. The slice authoring report
-     records this and it is confirmed here: three filter tabs, three
-     calls, and the one-time cost paid once.
+     call site says which grammar applies. Here that is three filter
+     tabs, three calls, and the one-time cost paid once.
 
   2. **`:on-key-down` takes a MAP.** `{\"Enter\" [::events/commit-edit
      id] \"Escape\" [::h/clear db/draft id]}` is a first-class lowered
@@ -102,9 +101,8 @@
   Escape is `[::h/clear db/draft id]` — removal, back to the default —
   and it needs no `::h/revision`, because clearing the draft UNMOUNTS the
   field rather than handing a still-mounted one a value it is already
-  showing. That is the boundary of the slice report's fifth finding, from
-  the other side: the revision counter is what a reset needs when the field
-  SURVIVES it."
+  showing. That is the other side of the boundary: the revision counter
+  is what a reset needs when the field SURVIVES it."
   [{:keys [id title done?]}]
   (let [draft (rf.fresco/sub [rf.fresco.examples.todo.db/draft id])]
     [:li.todo-row {:class (str/join " " (cond-> []
