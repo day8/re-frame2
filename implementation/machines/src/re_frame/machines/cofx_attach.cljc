@@ -8,7 +8,7 @@
   fact (the wall-clock time, a generated UUID, a random draw) declares its
   requirement with **`:rf.cofx/requires`** on the machine's **named** entry
   — the `{:rf.cofx/requires [...] :fn (fn [...] ...)}` map form in
-  `:guards` / `:actions`. This namespace owns the three slice-B.9 pieces:
+  `:guards` / `:actions`. This namespace owns three pieces:
 
     1. **Inline-fn restriction (registration-time hard error).**
        `:rf.cofx/requires` may live ONLY on a named `:guards` / `:actions`
@@ -60,11 +60,11 @@
   `:cofx/eval-recordable-sub` late-bind hook this ns publishes (core cofx
   cannot static-require subs / frame). It is a rung-3 tool of the minting
   ladder (derive-from-state ▸ payload threading ▸ recorded coeffect), NOT the
-  new default (Spec 005 §Causal host facts).
+  default (Spec 005 §Causal host facts).
 
   ## Why a separate namespace
 
-  The derivation + ensure machinery + lint are a cohesive slice-B.9 unit
+  The derivation + ensure machinery + lint are a cohesive unit
   with their own require on `re-frame.cofx` (the core delivery surface).
   Keeping them out of `lifecycle-fx.validation` / `lifecycle-fx.registration`
   keeps those files focused and lets the engine require this leaf without a
@@ -459,8 +459,7 @@
 (defn index-ensure-sets
   "Validate the inline-fn restriction and DERIVE the consumer-attachment
   index, returning `machine` with the index stamped under
-  `:rf/cofx-ensure-index`. Per Spec 005 §Consumer attachment + EP-0017
-  slice-B.9.
+  `:rf/cofx-ensure-index`. Per Spec 005 §Consumer attachment + EP-0017.
 
   Two registration-time effects:
     1. `check-inline-restriction!` — reject any `:rf.cofx/requires` on an
@@ -672,7 +671,7 @@
   parallel region's body — whose OWN `:on` the runtime consults after the
   active path (`transition/pick-transition`'s root fallback, Spec 005
   §Transition resolution steps 6-7), so its candidates join clause (a) at
-  decl-path `[]` (rf2-3x7nj.8.4).
+  decl-path `[]`.
 
   `by-entry` is the registration index's `:by-entry` map. Returns a vector of
   parsed-requires entries (deduped by id, declaration-order-insensitive — the
@@ -694,7 +693,7 @@
         ;; chain, then the `:always` closure it settles into. ONE closure for
         ;; the `:on` walk and every synthetic slot (`:on-done`, `:spawn
         ;; :on-error`, `:after`), so none of them can ensure the `:always`
-        ;; half and forget the `:entry` half (rf2-s2bda).
+        ;; half and forget the `:entry` half.
         add-target! (fn [tgt]
                       (add-lifecycle! states (initial-descent-path states tgt) :entry)
                       (add! (always-diet-for-state by-entry states tgt)))]
@@ -775,8 +774,8 @@
   `:on` — \"a moved region then settles its own `:always`\") contributes its
   guard/action requires to the ensure-set exactly as `ensure-set-in-scope`'s
   (b) clause does for a flat target — as does the `:entry` diet of every node
-  the moved region enters descending that target's `:initial` chain
-  (rf2-s2bda). A non-region-qualified / malformed target (rejected at
+  the moved region enters descending that target's `:initial` chain. A
+  non-region-qualified / malformed target (rejected at
   registration) contributes nothing here."
   [by-entry machine target add!]
   (let [add-region-target!
