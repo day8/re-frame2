@@ -104,10 +104,12 @@
 (defn tool-preview-variant
   "Dev: given a variant id, return the canvas state + share URL.
 
-  Returns rendered hiccup for a variant plus its assertions list. We
-  invoke the shared `tools.lifecycle` execution
-  owner (blocking `run-variant` deref + canonical exception
-  normalization), and serialise the result map.
+  Returns the variant's run verdict, app-db, assertions, checks,
+  snapshot and effective args; rendered output is not part of the
+  result (`rf.story/render-variant` owns rendering). We invoke the
+  shared `tools.lifecycle` execution owner (blocking `run-variant`
+  deref + canonical exception normalization), and serialise the result
+  map.
 
   `preview-variant` runs the SAME `rf.story/run-variant` lifecycle as
   `run-variant`, so it speaks the SAME unified run-result vocabulary —
@@ -137,7 +139,7 @@
     (fn [vk _body]
       (or (rf.story-mcp.tools.args/run-opts-shape-error arguments)
           (rf.story-mcp.tools.args/substrate-arg-error arguments "preview-variant")
-          ;; SEMANTIC run-option guard (rf2-sw1d), after the shape +
+          ;; SEMANTIC run-option guard, after the shape +
           ;; substrate guards and before any lifecycle / share work: an
           ;; unknown `:active-modes` id or `:cell-overrides` key is
           ;; REFUSED rather than silently dropped by `read-run-opts`'s
@@ -148,7 +150,7 @@
           ;; Same host PREREQUISITE `run-variant` applies, through the same
           ;; lifecycle owner so the two tools cannot drift: preview runs the
           ;; SAME `rf.story/run-variant` lifecycle, so with no adapter installed it
-          ;; would ship the same success-shaped non-run (rf2-c9t52).
+          ;; would ship the same success-shaped non-run.
           (rf.story-mcp.tools.lifecycle/no-adapter-error "preview-variant")
           (let [opts       (rf.story-mcp.tools.args/read-run-opts vk arguments)
                 base-url   (or (:base-url arguments) "")
@@ -176,13 +178,13 @@
                             :app-db       (rf.story-mcp.tools.egress/elide-app-db raw-db vk incl?)
                             :assertions   assertions
                             ;; Same filter as `:assertions` — the check groups
-                            ;; carry the same records (rf2-gwye.60).
+                            ;; carry the same records.
                             :checks       (rf.story-mcp.tools.egress/scrub-checks (:checks outcome) incl?)
                             ;; Derived trees are PATH-projected through scrub-rendered:
                             ;; a value AT a classified path redacts, a re-keyed copy
                             ;; ships raw (EP-0025 fail-open). `run-variant` produces
                             ;; no rendered output — rendering is
-                            ;; `rf.story/render-variant`'s (rf2-6r9j.13).
+                            ;; `rf.story/render-variant`'s.
                             :snapshot     (rf.story-mcp.tools.egress/scrub-rendered (:snapshot outcome) raw-db vk incl?)
                             :effective-args (rf.story-mcp.tools.egress/scrub-rendered (:effective-args outcome) raw-db vk incl?)}]
             ;; Surface the MUST-level egress indicator counts:
@@ -200,7 +202,7 @@
   stdio server has no bridge to that browser registry), this returns a
   machine-readable capability-unavailable error — NOT a false-empty
   `{:substrates []}` success that an agent could mistake for 'no
-  substrates registered' (rf2-3fc89f.21). Ordinary success with a
+  substrates registered'. Ordinary success with a
   (possibly empty) `:substrates` vec is reserved for a REACHED provider —
   a browser-local Story host whose registry actually answered.
 
@@ -236,7 +238,7 @@
 
    {:name           "preview-variant"
     :category       :dev
-    :description    (str "Given a variant id, return the canvas state (app-db, assertions, effective-args, elapsed) + a sharable URL. Runs the SAME `rf.story/run-variant` lifecycle as `run-variant`, so it accepts the SAME tunable `:timeout-ms` blocking knob (default 10000ms, hard ceiling 30000ms; caller values clamp DOWN) and the SAME host prerequisite: with no installed re-frame adapter it REFUSES up front (`isError true`, `:rf.error :rf.error/no-adapter-installed`) rather than settling a success-shaped non-run. An explicit `:substrate` is validated, not silently dropped: it requires a REACHED substrate registry (unreachable on the JVM stdio host → `:rf.error/story-mcp-capability-unavailable`; reached-but-unknown id → `:rf.error/story-mcp-unknown-substrate`). Unknown `:active-modes` ids and `:cell-overrides` keys are refused the same way rather than silently dropped (`:rf.error/story-mcp-unknown-active-mode` / `:rf.error/story-mcp-unknown-cell-override-key`): the diagnostic names the offending RAW identifier and enumerates the accepted set, and a mixed known+unknown mode list rejects ATOMICALLY rather than running the known subset. An ABSENT run option still defaults — only a PRESENT-but-unknown identifier fails, because a dropped one would return a share URL for a scenario you did not request. The `:app-db` slot is routed through `re-frame.core/project-egress` against the variant frame's `[:rf.runtime/elision]` runtime-db registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:effective-args` / `:snapshot` trees are PATH-projected on BOTH egress axes against the same frame classification. Rendered output is NOT part of this result — `rf.story/render-variant` owns rendering and returns it as `:rendered`. EP-0025 FAIL-OPEN: a value AT a classified path within a derived slot redacts (a slot whose shape mirrors the app-db, e.g. an `:effective-args {:token …}` with `[:token]` classified), but a value RE-KEYED to a non-matching position (a snapshot nested under `:db`) ships RAW — value-match was removed; classify the app-db PATH to redact a value before a derived tree re-surfaces it. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+    :description    (str "Given a variant id, return the canvas state (app-db, assertions, effective-args, elapsed) + a sharable URL. Runs the SAME `rf.story/run-variant` lifecycle as `run-variant`, so it accepts the SAME tunable `:timeout-ms` blocking knob (default 10000ms, hard ceiling 30000ms; caller values clamp DOWN) and the SAME host prerequisite: with no installed re-frame adapter it REFUSES up front (`isError true`, `:rf.error :rf.error/no-adapter-installed`) rather than settling a success-shaped non-run. An explicit `:substrate` is validated, not silently dropped: it requires a REACHED substrate registry (unreachable on the JVM stdio host → `:rf.error/story-mcp-capability-unavailable`; reached-but-unknown id → `:rf.error/story-mcp-unknown-substrate`). Unknown `:active-modes` ids and `:cell-overrides` keys are refused the same way rather than silently dropped (`:rf.error/story-mcp-unknown-active-mode` / `:rf.error/story-mcp-unknown-cell-override-key`): the diagnostic names the offending RAW identifier and enumerates the accepted set, and a mixed known+unknown mode list rejects ATOMICALLY rather than running the known subset. An ABSENT run option still defaults — only a PRESENT-but-unknown identifier fails, because a dropped one would return a share URL for a scenario you did not request. The `:app-db` slot is routed through `re-frame.core/project-egress` against the variant frame's `[:rf.runtime/elision]` runtime-db registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:effective-args` / `:snapshot` trees are PATH-projected on BOTH egress axes against the same frame classification. Rendered output is NOT part of this result — `rf.story/render-variant` owns rendering and returns it as `:rendered`. EP-0025 FAIL-OPEN: a value AT a classified path within a derived slot redacts (a slot whose shape mirrors the app-db, e.g. an `:effective-args {:token …}` with `[:token]` classified), but a value RE-KEYED to a non-matching position (a snapshot nested under `:db`) ships RAW — there is no value-match; classify the app-db PATH to redact a value before a derived tree re-surfaces it. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Examples: "
                          "1. Default substrate: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :share-url \"...\" :status :pass :lifecycle :ready :app-db {...} :assertions [] :checks [] :effective-args {...}}. "
                          "2. UIx substrate + a mode: {:variant-id \":story.cart/full\" :substrate \":uix\" :active-modes [\":mode/dark\"]} -> same shape, rendered under uix + dark mode. "
@@ -269,7 +271,7 @@
     ;; the destructive run annotations, not `read-only-annotations` — the
     ;; latter would let agent hosts auto-approve a call that mutates the
     ;; frame. The semantic distinction between the two tools
-    ;; (`preview-variant` adds the share URL + rendered view; `run-variant`
+    ;; (`preview-variant` adds the share URL + effective args; `run-variant`
     ;; is the headline run/verdict call — both return the same unified
     ;; run-result `:status`) is real but doesn't change the destructive
     ;; nature of the underlying lifecycle run.
