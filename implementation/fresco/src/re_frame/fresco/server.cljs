@@ -15,8 +15,9 @@
   `render-body` is the door for one that owns everything EXCEPT the
   body: it takes a render-state projection the JVM already made, seeds
   a fresh frame from it, and answers the inner markup alone — the
-  bounded Node sidecar's half of the ssr-node crossing (rf2-8arzr,
-  shared contract S2). Neither is built on the other, and neither
+  bounded Node sidecar's half of the ssr-node crossing
+  (`implementation/ssr-node/README.md`, §Node returns body markup and
+  nothing else). Neither is built on the other, and neither
   changes the other's spellings. `payload-script` and `document` are
   the composition helpers a host needs to rebuild the envelope without
   writing a second renderer; the roster and the argument for it are
@@ -110,8 +111,7 @@
   non-streaming shell writes. No `data-rf-render-hash` on the app root:
   that marker is the hiccup tier's (see the namespace docstring). A
   `<title>` only when `:title` is given: the module does not know the
-  application's title, so it invents none (rf2-veuyo, the class
-  rf2-3x7nj.14.4 ruled for ssr-ring)."
+  application's title, so it invents none."
   [{:keys  [html app-element-id script-src title]
     script :payload-script}]
   ;; `or`, not `:or` — a caller threading `nil` through for an option it
@@ -175,15 +175,15 @@
   with no saturation guard behind it. The one way to break it is
   re-entrancy: a view that calls a door mid-render.
 
-  A per-DOOR id closed only half of that. Registering REPLACES, so two
-  distinct door ids kept `render` inside `render-body` safe, but left a
-  door re-entering ITSELF sharing one id: the inner registration replaced
-  the outer listener and the inner `finally` unregistered it, leaving the
-  OUTER render blind for the rest of its pass — the exact
+  A per-DOOR id would close only half of that. Registering REPLACES, so
+  two distinct door ids keep `render` inside `render-body` safe, but leave
+  a door re-entering ITSELF sharing one id: the inner registration would
+  replace the outer listener and the inner `finally` unregister it,
+  leaving the OUTER render blind for the rest of its pass — the exact
   silent-wrong-page failure both doors exist to catch, reached from the
-  one direction the door ids could not separate (rf2-ypom, the audit of
-  PR #9035). React refusing a nested render does not make it safe: the
-  inner `finally` still runs, and still removes the outer's listener.
+  one direction door ids cannot separate. React refusing a nested render
+  does not make it safe: the inner `finally` still runs, and would remove
+  the outer's listener.
 
   `frame-id` is already unique per request — a `gensym` no other
   invocation holds — so pairing it with the tag makes every window's key
@@ -217,9 +217,8 @@
 
     - `render` renders in the host's own process, where the natural
       expectation is that `re-frame.ssr`'s per-frame projection turns the
-      record into a 5xx before any bytes ship. IT DOES NOT, and that
-      expectation is exactly what rf2-ct24 and rf2-ypom were filed
-      against. `error-emit-projection-listener`
+      record into a 5xx before any bytes ship. IT DOES NOT.
+      `error-emit-projection-listener`
       (`implementation/ssr/src/re_frame/ssr/error_listener.cljc`) buffers
       a record only when THREE things hold: the category is outside the
       recoverable-degradation skip set, the record carries a non-nil
@@ -227,10 +226,9 @@
       Fresco's cold reads go through pure `compute-sub`, whose
       `:rf.error/sub-exception` is stamped `:frame nil` BY CONSTRUCTION —
       a pure fn has no frame in scope to stamp — so the SECOND condition
-      drops it, and drops it alone: since rf2-323z the request frame IS
-      tagged `:platform :server`, so the third now holds. The buffer still
-      stays empty and the host still ships a 200 — the reason is one
-      condition rather than two, and the verdict below is unchanged.
+      drops it, and drops it alone: the request frame IS tagged
+      `:platform :server`, so the third holds. The buffer stays empty,
+      and without the verdict below the host would ship a 200.
 
   The verdict is deliberately BOUNDED and deliberately BLUNT: any error
   record inside the window fails the page, including one the application
@@ -264,9 +262,9 @@
   fills.
 
   `re-frame.error-emit` is the framework's own IMPLEMENTATION-tier
-  registry, not an app-facing door: rf2-kuky.69 retired `:errors` from the
-  public `rf/register-listener!` vocabulary, and this is one of the
-  framework capture sites the ruling kept it for. An APP that wants the
+  registry, not an app-facing door: `:errors` is not in the public
+  `rf/register-listener!` vocabulary, and this is one of the framework
+  capture sites the registry serves. An APP that wants the
   same records off-box declares a sink — a frame's `:observability` policy,
   or `(rf/configure! {:observability …})` for the process default — and
   gets the projected `:rf.observe/error` shape rather than this raw one.
@@ -282,9 +280,9 @@
   and documented as such in `re-frame.subs` (\"a `compute-sub`-driven SSR
   harness that wants the per-frame projection must use the reactive
   `subscribe` path\"). A per-frame check therefore reads CLEAN on exactly
-  the failure these entries exist to catch — measured, not reasoned: the
-  first cut of `render-body` used the per-frame buffer and its refusal row
-  rendered markup. `refuse-recovered-render-error!` sets out the other two
+  the failure these entries exist to catch — measured, not reasoned: a
+  `render-body` reading the per-frame buffer lets its refusal row render
+  markup. `refuse-recovered-render-error!` sets out the other two
   conditions the buffer imposes, either of which drops the same record.
 
   The registry is what survives production hardening (`goog.DEBUG=false`),
@@ -346,13 +344,13 @@
                          and `:initial-events` are this module's and cannot
                          be overridden — the renderer OWNS its server
                          identity rather than asking every caller to
-                         remember it (rf2-323z).
+                         remember it.
       :version           :schema-digest   passed to `build-payload`.
       :payload-include-sensitive
                          optional: a vector of app-db PATHS the frame
                          classifies `:sensitive` whose raw value may ride the
                          payload (a CSRF token, say) — `payload-policy`'s
-                         permit (rf2-hjz4r). Absent, every classified value
+                         permit. Absent, every classified value
                          arrives as `:rf/redacted`.
 
   The first eight are the spellings `18-ssr-and-hydration.md` teaches
@@ -363,7 +361,7 @@
   window as `render-body`. See `watch-recovered-errors!` for what is
   watched and `refuse-recovered-render-error!` for why a hole in the page
   is worse than a refusal, and why the per-frame buffer a JVM-local host
-  would reach for cannot see the record (rf2-ct24, rf2-ypom).
+  would reach for cannot see the record.
 
   One fresh frame per request, and the adoption window open around the
   render; the listener is unregistered, the window closed and the frame
@@ -401,7 +399,7 @@
                             ;; and skipping the server-only ones. Assoc'd OVER
                             ;; `frame-opts` rather than merged under it: a
                             ;; caller's `:platform :client` would otherwise
-                            ;; invert the renderer's own identity (rf2-323z).
+                            ;; invert the renderer's own identity.
                             :platform       :server
                             :initial-events (setup-events snapshot initial-events)))
       (let [;; The hiccup as written, through the same `tree` the hydrating
@@ -433,7 +431,7 @@
                               (rf.ssr.payload-policy/apply-policy (rf/app-db-value frame-id) policy-opts)
                               ;; PROJECTION frame — the real per-request one.
                               frame-id
-                              ;; rf2-hjz4r — the markup above printed the LIVE
+                              ;; The markup above printed the LIVE
                               ;; frame, so a permitted value must reach the
                               ;; payload raw too, or the two halves disagree.
                               payload-include-sensitive)
@@ -471,7 +469,8 @@
 (defn render-body
   "Render one request to the app root's INNER MARKUP and nothing else —
   no payload, no document, no head, no status. The body-only half of the
-  ssr-node crossing (rf2-8arzr shared contract S2): the JVM owns the
+  ssr-node crossing (`implementation/ssr-node/README.md`, §Node returns
+  body markup and nothing else): the JVM owns the
   request frame, the boot-event drain, `__rf_payload`, the shell and the
   response; this renders the body from a projection of what the JVM had
   settled, and returns a string.
