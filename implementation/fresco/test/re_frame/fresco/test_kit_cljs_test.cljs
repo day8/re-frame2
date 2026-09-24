@@ -16,9 +16,9 @@
   2. **Both verbs, from one discriminator.** [[outcome]] reports
      `{:returned v}` or `{:refused <ex-data>}`, and the refusal rows
      assert the WHOLE ex-data map rather than `(is (thrown? …))`. A bare
-     `thrown?` is green for a throw from any layer carrying any id, which
-     is exactly how a sibling bead's sabotage once passed while throwing
-     from the wrong place. [[the-refusal-witness-answers-both-ways]]
+     `thrown?` is green for a throw from any layer carrying any id, so a
+     sabotage throwing from the wrong place would pass it.
+     [[the-refusal-witness-answers-both-ways]]
      drives the discriminator in both directions so the refusal rows are
      not a helper that only knows one verb.
   3. **The legal twin.** Every refusal row has a sibling that renders the
@@ -106,8 +106,8 @@
 
 (deftest a-refusal-s-payload-cannot-rewrite-the-identity-it-rides-on
   ;; The constructor directly, because no refusal site in the kit spells an
-  ;; identity field in its payload today — and the whole point is that none
-  ;; can, including the one somebody writes next year. Driving the weakest
+  ;; identity field in its payload — and the whole point is that none can,
+  ;; including the next one somebody writes. Driving the weakest
   ;; case means handing it the four keys it guarantees, not a well-formed
   ;; payload that would pass under either merge order.
   (let [o (outcome #(#'rf.fresco.test/refuse! :rf.error/fresco-test-not-a-body
@@ -120,8 +120,8 @@
 
     (testing "the identity is the constructor's, whole — a payload spelling
               any of the four loses, and the class's own slot rides alongside
-              untouched. It used to merge LAST, so this call emitted the
-              impostor's id, a nil recovery and no raising site at all"
+              untouched. Merging the payload LAST would make this call emit
+              the impostor's id, a nil recovery and no raising site at all"
       (is (= {:rf.error/id :rf.error/fresco-test-not-a-body
               :where       're-frame.fresco.test
               :reason      "render's head is the BODY FUNCTION."
@@ -148,13 +148,12 @@
 (rf.fresco/defhost badge badge-component {:server :render})
 
 ;; The `<name>-body` pair, which is the spelling this suite's own examples
-;; teach — and which used to be unrenderable. `h/defview` named
-;; its emitted body fn `<sym>-body`, and a named `fn` binds its own name
-;; inside its body, so this declaration expanded to
-;; `(fn greeting-body [p] (greeting-body p))` and recursed until the stack
-;; overflowed. The expansion names nothing now, so the only `greeting-body`
-;; in scope is the author's; `a-body-may-call-a-helper-named-after-its-view`
-;; below is what says so.
+;; teach. A named `fn` binds its own name inside its body, so an
+;; `h/defview` that named its emitted body fn `<sym>-body` would expand this
+;; declaration to `(fn greeting-body [p] (greeting-body p))` and recurse
+;; until the stack overflowed. The expansion names nothing, so the only
+;; `greeting-body` in scope is the author's;
+;; `a-body-may-call-a-helper-named-after-its-view` below is what says so.
 (defn- greeting-body [{:keys [who]}] [:p (str "hi " who)])
 (rf.fresco/defview greeting [props] (greeting-body props))
 
@@ -423,11 +422,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-minted-boundary-head-renders-the-body-the-dev-build-retained
-  ;; The inversion of `a-minted-boundary-head-refuses-because-its-body-is-not-
-  ;; retained`: `mint-view!` keeps the body ON the head under one dev-only
-  ;; property, so L2 renders `[some-view …]`.
-  ;; The refusal is not gone — the last row below is it, reached the one way
-  ;; it can still be reached.
+  ;; `mint-view!` keeps the body ON the head under one dev-only property, so
+  ;; L2 renders `[some-view …]`. The not-retained refusal is the last row
+  ;; below, reached the one way it can be reached.
   (testing "a minted `h/defview` head renders, and answers the body's tree"
     (let [tree (rf.fresco.test/tree [farewell {:who "ada"}])]
       (is (= :p (:tag tree)))
@@ -439,17 +436,17 @@
     (is (= (rf.fresco.test/tree [farewell-text {:who "ada"}])
            (rf.fresco.test/tree [farewell {:who "ada"}]))))
 
-  (testing "what it cost is ONE own property on the head: the head is still
-            the function `defview` defined and still a boundary, so no memo
-            object escaped as the public representation (rf2-2rtt6.52)"
+  (testing "what it costs is ONE own property on the head: the head is the
+            function `defview` defined and a boundary, so no memo object
+            escapes as the public representation"
     (is (fn? farewell))
     (is (true? (rf.fresco.test/boundary? farewell)))
     (is (fn? (rf.fresco.impl.codec/retained-body farewell))))
 
-  (testing "the retention is DEV-ONLY, so the refusal is still live and still
-            named: a boundary head with no retained body — an `:advanced` +
+  (testing "the retention is DEV-ONLY, so the refusal is live and named: a
+            boundary head with no retained body — an `:advanced` +
             `goog.DEBUG=false` mint — refuses with the id, the view and the
-            L3 pointer it always carried"
+            L3 pointer"
     (let [o (outcome #(rf.fresco.test/tree [unretained-head {:who "ada"}]))]
       (is (= {:rf.error/id :rf.error/fresco-test-boundary-body-not-retained
               :where       're-frame.fresco.test
@@ -476,8 +473,8 @@
     (is (= (rf.fresco.test/tree [greeting-body {:who "ada"}])
            (rf.fresco.test/tree [greeting {:who "ada"}]))))
 
-  (testing "the control: `farewell`, whose helper is NOT named after it, was
-            always renderable — so the rows above measure the collision and
+  (testing "the control: `farewell`, whose helper is NOT named after it,
+            cannot collide — so the rows above measure the collision and
             not the kit's minted-head path in general"
     (is (= "bye ada" (rf.fresco.test/text (rf.fresco.test/tree [farewell {:who "ada"}]))))))
 
@@ -515,14 +512,14 @@
             an author's explicit deferral would change what their program
             means, which is the runtime's own ruling at a crossing.
 
-            THE IDENTITY, not the id alone (rf2-tsdik). This assertion
-            read only `:rf.error/id` for a release, so the kit could and did
-            answer the runtime's id with its OWN opacity reason — a pointer
-            to a tier where the identical refusal waits — and stayed green
-            throughout (rf2-llps1). The advice rides in `:reason`, which is
-            prose and not frozen here; what this pins is the id, borrowed
-            from the runtime, and `:where`, the kit's own — a borrowed id
-            brings the runtime's reason with it or it is not a borrowing."
+            THE IDENTITY, not the id alone. An assertion reading only
+            `:rf.error/id` would stay green while the kit answered the
+            runtime's id with its OWN opacity reason — a pointer to a tier
+            where the identical refusal waits. The advice rides in
+            `:reason`, which is prose and not frozen here; what this pins is
+            the id, borrowed from the runtime, and `:where`, the kit's own —
+            a borrowed id brings the runtime's reason with it or it is not a
+            borrowing."
     (is (= {:rf.error/id :rf.error/fresco-deferred-read-at-boundary
             :where       're-frame.fresco.test}
            (refusal (outcome #(rf.fresco.test/tree [(fn [_] [:div (delay [:p])]) {}]))
@@ -580,10 +577,10 @@
   ;; their option did nothing. The two rows below are the two ways that
   ;; silence is otherwise reachable, and neither is caught by the
   ;; missing-read detection above.
-  (testing "the RETIRED spelling on a body that reads NOTHING. This is the
-            row the rename left uncovered: `{:reads …}` supplies no
-            fixtures, the body needs none, so the render used to succeed
-            outright and the author's fixture map was never read by anything"
+  (testing "a near-miss spelling of `:subs` on a body that reads NOTHING.
+            `{:reads …}` supplies no fixtures and the body needs none, so
+            without the roster check the render would succeed outright and
+            the author's fixture map would never be read by anything"
     (is (= {:rf.error/id :rf.error/fresco-test-bad-option
             :where       're-frame.fresco.test
             :unknown     [:reads]}
@@ -591,9 +588,9 @@
                                        {:reads {[:tk/todo 1] {:text "milk"}}}))
                     [:unknown]))))
 
-  (testing "and on a body that DOES read, where the old behaviour named the
-            wrong problem — the fixtures were ignored and the refusal
-            reported a missing read fixture rather than the bad option"
+  (testing "and on a body that DOES read, where ignoring the option would
+            name the wrong problem — a missing read fixture rather than the
+            bad option"
     (is (= :rf.error/fresco-test-bad-option
            (:rf.error/id
             (:refused (outcome #(rf.fresco.test/tree [todo-row-body {:id 3}]
