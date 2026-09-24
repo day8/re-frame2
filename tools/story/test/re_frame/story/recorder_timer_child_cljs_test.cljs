@@ -23,6 +23,10 @@
   the child's wait must still cover the whole delay from there, not only
   the time since that dispatch.
 
+  The measured gap between the root and the child can land a millisecond
+  under the delay, so the recorded marker carries the delay itself and the
+  export never waits less than it.
+
   Named `-cljs-test` (not `-dom-cljs-test`), so the `:node-test` build
   selects it; nothing here needs a DOM."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
@@ -113,10 +117,11 @@
               (after-ms settle-ms
                 (fn []
                   (rf.story.recorder/stop-recording!)
-                  (let [final-db (rf/app-db-value source-id)
+                  (let [entries  (rf.story.recorder/recorded-entries)
+                        final-db (rf/app-db-value source-id)
                         seed-db  (:seed-db (rf.story.recorder/current-state))
                         body     (rf.story.recorder.play-export/recording->script-body
-                                   (rf.story.recorder/recorded-entries)
+                                   entries
                                    {:auto-assert? true
                                     :seed-db      seed-db
                                     :final-db     final-db})]
@@ -125,6 +130,15 @@
                         "control: the recorded session ran the timer child once")
                     (is (= 1 @child-runs)
                         "control: one child run while recording")
+                    (is (= [{:kind :event/timer-child :ms later-ms}]
+                           (->> entries
+                                (filter #(= :event/timer-child (:kind %)))
+                                (mapv #(select-keys % [:kind :ms]))))
+                        "the recorder marks the fired child with its scheduled delay")
+                    (is (some #(and (= :wait (first %)) (>= (second %) later-ms))
+                              (:script body))
+                        (str "the script waits the timer's whole delay; script "
+                             (pr-str (:script body))))
                     (is (some #(= [:assert-db [:children] 1] %) (:script body))
                         "control: the export auto-asserts the child's effect")
                     (reset! child-runs 0)
