@@ -1,17 +1,17 @@
 (ns re-frame.subs-render-owned-frame-slot-cljs-test
-  "The render-owned reference (Spec 006 §Ratom-family lifetime, rf2-ty246) is
+  "The render-owned reference (Spec 006 §Ratom-family lifetime) is
   ONE reference per (owning reaction, SLOT). This namespace pins the SLOT half
-  of that pair — the half rf2-kk986 found missing.
+  of that pair.
 
-  THE DEFECT. `re-frame.subs/claim-render-owned-ref!` recorded the owning
-  reaction's holdings in a map keyed by the cache key alone. A sub-cache is PER
-  FRAME, and `subscribe` takes an explicit `{:frame target}`, so ONE render may
-  read the same query from two frames: two different cached reactions under one
-  identical cache key. The second claim overwrote the first, and on every
-  re-render each frame's reaction failed the identity guard against the other's
-  — so neither duplicate bump was released, both `:ref-count`s climbed with
-  RENDERS rather than readers, and one more release callback was registered on
-  the owner per render per frame. That is precisely the render-tally the
+  THE HAZARD. A sub-cache is PER FRAME, and `subscribe` takes an explicit
+  `{:frame target}`, so ONE render may read the same query from two frames:
+  two different cached reactions under one identical cache key. Were
+  `re-frame.subs/claim-render-owned-ref!` to key the owning reaction's
+  holdings by the cache key alone, the second claim would overwrite the first,
+  and on every re-render each frame's reaction would fail the identity guard
+  against the other's — so neither duplicate bump would be released, both
+  `:ref-count`s would climb with RENDERS rather than readers, and one more
+  release callback would be registered on the owner per render per frame. That is precisely the render-tally the
   mechanism exists to abolish, surviving on the multi-frame path.
 
   WHICH DIRECTION EACH TEST PINS. The key has to be exactly as fine as a cache
@@ -19,19 +19,19 @@
   opposite directions, so both are pinned:
 
     * `...-across-frames` is the RED row. It fails when the key is too COARSE
-      (the shipped `k`-alone keying collapsed two frames into one holding).
+      (`k`-alone keying collapses two frames into one holding).
       Cross-frame only: every assertion in it is about two frames.
 
     * `...-same-frame-controls` is GREEN IN BOTH DIRECTIONS by construction and
-      is NOT a control for the cross-frame fix — it pins backward compatibility
-      and the OTHER failure direction. Its re-render and duplicate-read rows go
+      is NOT a control for the cross-frame keying — it pins the single-frame
+      path and the OTHER failure direction. Its re-render and duplicate-read rows go
       red if the key is too FINE (a per-read key would never match the identity
       guard, so every read would look new and the count would climb again), and
       its two-queries-one-frame row goes red if the key is too coarse in the
       other axis (keying by frame alone collapses two queries exactly as key
-      alone collapsed two frames). It is also the scoping evidence: the
-      single-frame path every existing caller is on today must not move, and
-      these rows are what says it did not.
+      alone collapses two frames). It is also the scoping evidence: the
+      single-frame path every caller is on must not move, and these rows are
+      what says it does not.
 
   WHY THIS LANE. `claim-render-owned-ref!` is `#?(:cljs ...)`-only and fires
   only when the `:adapter/reactive-owner` late-bind hook resolves, which the
@@ -159,17 +159,17 @@
                    (flush!))
      :dispose!   (fn [] (release! owner))}))
 
-;; ---- the cross-frame row (rf2-kk986) --------------------------------------
+;; ---- the cross-frame row --------------------------------------------------
 
 (defn- cross-frame-scenario
   "ONE owner reads ONE query from TWO frames. Both slots must sit at exactly
   one reference for this owner, however many times it renders, and final
   disposal must release each of them once.
 
-  RED before the frame half of the slot key landed: the two frames' cached
+  RED without the frame half of the slot key: the two frames' cached
   reactions share a cache key, so under key-alone keying each render's claim
-  overwrote the other's holding, neither duplicate bump was released, and both
-  counts climbed 1, 2, 3, ... with renders."
+  would overwrite the other's holding, neither duplicate bump would be
+  released, and both counts would climb 1, 2, 3, ... with renders."
   [{:keys [label] :as config}]
   (testing (str label ": one owner reading one query from TWO frames holds "
                 "exactly one reference in each")
@@ -214,8 +214,8 @@
 ;; ---- the same-frame rows --------------------------------------------------
 ;;
 ;; Green in BOTH directions by construction. They are not controls for the
-;; cross-frame fix; they pin the single-frame path that every caller is on
-;; today, and they are the rows that go red if the slot key is made too fine
+;; cross-frame keying; they pin the single-frame path that every caller is
+;; on, and they are the rows that go red if the slot key is made too fine
 ;; (the re-render and duplicate-read rows) or too coarse along the other axis
 ;; (the two-queries row).
 

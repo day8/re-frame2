@@ -1,10 +1,10 @@
 (ns re-frame.subs-image-local-classification-cljs-test
-  "rf2-vxgfnd.220 — a subscription's `:rf.sub/run` trace projects observability
+  "A subscription's `:rf.sub/run` trace projects observability
   from the EXACT registration classification captured for THAT reaction, not a
   later/global re-resolution.
 
-  The reactive recompute already captures the authoritative image-local / global
-  `sub-meta` for schema validation; it now also carries that reaction's
+  The reactive recompute captures the authoritative image-local / global
+  `sub-meta` for schema validation, and also carries that reaction's
   classification declaration through the `:rf.sub/run` trace chokepoint under an
   internal `:rf.sub/classification` slot. `project-sub-tags` redacts from the
   carried declaration instead of re-resolving `classification-when :sub sub-id`
@@ -18,11 +18,11 @@
   sensitive sub and proves the subscriber reads RAW while the projected trace
   redacts, across an ongoing recompute.
 
-  rf2-vxgfnd.258 — the chokepoint fixtures HAND a `:rf.sub/classification` map
-  to the projector, so they stay green even if REAL image-local resolution fell
-  back to the global/nil. The `image-local-*` deftests below close that gap:
+  The chokepoint fixtures HAND a `:rf.sub/classification` map
+  to the projector, so they would stay green even if REAL image-local
+  resolution fell back to the global/nil. The `image-local-*` deftests below close that gap:
   they ASSEMBLE a real inline `:reg-sub` (`rf.image/image` → `rf.live-frame/make-frame` →
-  `image-assembly/lower-inline-descriptors`, the rf2-vxgfnd.219/.257 path),
+  `image-assembly/lower-inline-descriptors`),
   install it on a LIVE frame carrying a resolved image GENERATION, and observe
   the Xray-facing `:trace` listener stream. They prove the image-local
   `:sensitive` declaration is the one that redacts even against a conflicting
@@ -162,7 +162,7 @@
         (rf/unregister-listener! :trace :sec-e2e)))))
 
 ;; ===========================================================================
-;; rf2-vxgfnd.258 — REAL image-local assembly + generation replacement
+;; REAL image-local assembly + generation replacement
 ;;
 ;; Not `project-trace-event` fed a fabricated classification: an inline
 ;; `:reg-sub` ASSEMBLED by `rf.image/image` → `rf.live-frame/make-frame` → image-assembly's
@@ -281,7 +281,8 @@
           (is (= rf.privacy/redacted-sentinel (get-in g1 [:rf.sub/value :token]))
               "generation 1 redacts :token"))
         ;; Swap to generation 2 — classifies :public instead. Frame memory
-        ;; (sub-cache) is preserved across the swap, so clear it to force a fresh
+        ;; (sub-cache) is preserved across the swap; the same-id re-construction
+        ;; evicts the changed sub, and the explicit clear below forces a fresh
         ;; reaction resolved against the NEW generation (an HMR sub reload).
         (install-image-frame! :img/frame-a
           (inline-sub-image :img/g2 :img/read {:sensitive [[:public]]}

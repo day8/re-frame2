@@ -1,16 +1,15 @@
 (ns re-frame.flight-booker-cljs-test
-  "Behavioural regression coverage for the 7GUIs Flight Booker example
-  (rf2-6t486x). The example demonstrates *derived UI state as a subscription*
-  — the Book button's enabled-ness is `:flight/book-enabled?`, a keystone sub
-  ANDing three smaller answers — yet had ZERO behavioural coverage: only
-  `re-frame.example-frame-scoping-cljs-test` touched it, and only to assert its
-  ns-load `[:flight]` app-schema landed on `:rf/default`. Nothing exercised the
-  actual date logic or the sub graph, so a regression that ACCEPTS an
-  impossible date, drops the deliberate `setUTCFullYear` low-year guard, or
-  lights Book when `return < start` would ship silently green.
+  "Behavioural coverage for the 7GUIs Flight Booker example. The example
+  demonstrates *derived UI state as a subscription* — the Book button's
+  enabled-ness is `:flight/book-enabled?`, a keystone sub ANDing three smaller
+  answers. `re-frame.example-frame-scoping-cljs-test` pins only its ns-load
+  `[:flight]` app-schema; this ns exercises the actual date logic and the sub
+  graph, so a change that ACCEPTS an impossible date, drops the deliberate
+  `setUTCFullYear` low-year guard, or lights Book when `return < start` fails
+  here rather than shipping silently green.
 
   These belong in the framework test tree, NOT under `examples/` (examples stay
-  test-free per rf2-8cevm). They exercise the example by `:require`ing
+  test-free). They exercise the example by `:require`ing
   `seven-guis.flight-booker.core` — a Reagent-coupled `.cljs`-only namespace —
   so they run under the consolidated `:node-test` CLJS build, which has
   `../examples/core` on its source paths (mirrors the classpath reach of
@@ -84,11 +83,11 @@
           (str (pr-str s) " is not ISO yyyy-mm-dd")))))
 
 (deftest valid-date?-low-year-uses-setUTCFullYear-not-date-utc
-  (testing "rf2-6t486x — the DELIBERATE `setUTCFullYear` (not `js/Date.UTC`):
+  (testing "the DELIBERATE `setUTCFullYear` (not `js/Date.UTC`):
             a low four-digit year like 0026 must round-trip to 26, NOT be
             corrupted to 1926 (the 0-99 -> 1900-1999 mapping `js/Date.UTC`
-            would apply). A revert to `js/Date.UTC` makes the round-trip fail
-            its own year check and this date would be wrongly rejected"
+            would apply). Under `js/Date.UTC` the round-trip would fail its
+            own year check and this date would be wrongly rejected"
     (is (true? (flight/valid-date? "0026-05-06"))
         "year 0026 is a real date under setUTCFullYear's faithful low-year handling")
     (is (true? (flight/valid-date? "0099-12-31"))
@@ -153,7 +152,7 @@
       (is (false? (sub f [:flight/book-enabled?]))))))
 
 (deftest return-before-start-is-incoherent
-  (testing "rf2-6t486x — the silent bug this example prevents: Book must NOT
+  (testing "the silent bug this example prevents: Book must NOT
             light when a return trip's return date precedes its start date.
             Coherence is a lexicographic ISO compare (return >= start)"
     (let [f (flight-frame!)]

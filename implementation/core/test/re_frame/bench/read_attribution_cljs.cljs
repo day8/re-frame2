@@ -231,8 +231,9 @@
     H-SPEC     `substrate-adapter/current-adapter` — the state read alone
     H-IMPL     `function-component-current-frame` — the routed impl alone
     H-SAMEH    `same-adapter?` on two HELD maps — the SHIPPED routing predicate
-    H-SAMEFLAT the CANDIDATE flat re-spelling of the same predicate, in the
-               same process, as the paired control
+    H-SAMEFLAT a local copy of the same flat predicate, in the same
+               process — a PARITY control: both spellings are flat, so
+               SAMEH - SAMEFLAT attributes no cost to anything
     H-ROUTED   `((get-fn-cached :adapter/current-frame))` — the whole shipped
                hook call
 
@@ -955,29 +956,14 @@
 ;;
 ;;   H-ROUTED  =  H-CACHE + H-SPEC + H-SAMEH + H-IMPL + the apply
 ;;
-;; THE CANDIDATE, held here as a PAIRED CONTROL. `same-adapter?`'s body is
-;;
-;;     (boolean (and a b (let [ka (:kind a)] …)))
-;;
-;; and every one of `boolean` / `and` / `let` is a STATEMENT-emitting form in
-;; EXPRESSION position, so the ClojureScript compiler wraps the whole body in an
-;; IIFE that CLOSES OVER `a` and `b`. `:advanced` does not remove it — the
-;; compiled output reads
-;;
-;;     function $E(a,b){return be(function(){ … a … b … }())}
-;;
-;; so a fresh JS closure (with its context and feedback cell) is allocated on
-;; EVERY call, and `same-adapter?` runs once per chain link on every routed-hook
-;; call. `same-adapter-flat?` threads the same decisions through `if` in RETURN
-;; position, where the compiler emits statements and allocates nothing; it
-;; compiles to
-;;
-;;     function(a,b){if(n(a)&&n(b)){var c=…;return …}return !1}
-;;
-;; It sits BESIDE the shipped predicate rather than in its place, so the
-;; saving is a prediction the instrument can falsify in ONE process rather than a
-;; before/after story across two — the same discipline as S1-EAGER beside
-;; S1-CURFRM and N-CWFRWRAP beside N-CWFRRAW.
+;; THE PARITY CONTROL. `same-adapter?` is a flat nest of `if`s in RETURN
+;; position; its docstring says why, and carries the measured cost of the
+;; expression-position `boolean` / `and` / `let` spelling that the
+;; ClojureScript compiler would wrap in a per-call IIFE. `same-adapter-flat?`
+;; is a local copy of that same flat shape, so H-SAMEH and H-SAMEFLAT price two
+;; EQUIVALENT spellings: their difference is parity noise, and it attributes no
+;; cost to an IIFE or to anything else. The agreement gate in `-main` checks
+;; that the two decide identically.
 
 (defn- same-adapter-flat?
   "`substrate-adapter/same-adapter?` with IDENTICAL semantics and no
@@ -1473,7 +1459,7 @@
         (when-not agree?
           (throw (ex-info "arms disagree; measurement is meaningless"
                           {:want expect :rgread rg-v :deref dr-v :raw raw-v :scope scope-v}))))
-      ;; The retired predicate spelling is only a paired CONTROL while it
+      ;; The local flat copy is only a parity CONTROL while it
       ;; decides identically. Checked over the cases that discriminate
       ;; the branches: nil, a canonical-kind match, a canonical-kind mismatch, a
       ;; kindless map (object identity), and a copied canonical map.
@@ -1814,8 +1800,8 @@
           (row "H-SPEC    current-adapter alone"      (net* "H-SPEC")   "H-SPEC")
           (row "H-IMPL    function-component-current-frame" (net* "H-IMPL")  "H-IMPL")
           (row "H-SAMEH   same-adapter?, two HELD maps  (SHIPPED)" (net* "H-SAMEH") "H-SAMEH")
-          (row "H-SAMEFLAT the CANDIDATE flat re-spelling" (net* "H-SAMEFLAT") "H-SAMEFLAT")
-          (row "  = the per-call IIFE (SAMEH - SAMEFLAT)"
+          (row "H-SAMEFLAT local flat copy (parity control)" (net* "H-SAMEFLAT") "H-SAMEFLAT")
+          (row "  = SAMEH - SAMEFLAT (parity, not a cost)"
                (- (net* "H-SAMEH") (net* "H-SAMEFLAT")) nil)
           (row "H-ROUTED  the SHIPPED hook: lookup + routed call" (net* "H-ROUTED") "H-ROUTED")
           (println ";;")
@@ -1845,17 +1831,12 @@
           (let [whole (- (net* "S0-SCOPE") (net* "S0-VAR"))
                 pctof (fn [v] (if (zero? whole) "n/a"
                                   (gstring/format "%.1f%%" (* 100.0 (/ v whole)))))
-                iife  (- (net* "H-SAMEH") (net* "H-SAMEFLAT"))
                 appl  (- (net* "H-ROUTED") (net* "H-CACHE") (net* "H-SPEC")
                          (net* "H-SAMEH") (net* "H-IMPL"))]
             (println (gstring/format
                        ";;   VERDICT — of the %s B/read CLJS-only consult:" (fmt whole)))
             (println (gstring/format ";;     same-adapter?, SHIPPED                      %10s  %s"
                              (fmt (net* "H-SAMEH")) (pctof (net* "H-SAMEH"))))
-            (println (gstring/format ";;       ... its expression-position IIFE, per call%10s  %s"
-                             (fmt iife) (pctof iife)))
-            (println (gstring/format ";;       ... the CANDIDATE flat re-spelling leaves %10s  %s"
-                             (fmt (net* "H-SAMEFLAT")) (pctof (net* "H-SAMEFLAT"))))
             (println (gstring/format ";;     apply at route-hook!'s polymorphic site     %10s  %s"
                              (fmt appl) (pctof appl)))
             (println ";;   and, at or under the floor, contributing nothing:")
@@ -1872,10 +1853,7 @@
             (println ";;   not per subscribe. Both terms are therefore paid by ambient dispatch")
             (println ";;   and rf/current-frame-id as well, and once per PUBLISHING adapter:")
             (println ";;   an inactive adapter loaded in the same bundle adds a chain link, and")
-            (println ";;   a link is another same-adapter? plus another apply.")
-            (println ";;   NEITHER is fixed here. This is a measurement: the flat re-spelling is")
-            (println ";;   local and contract-free, the arity spelling of route-hook!'s closure")
-            (println ";;   changes every adapter's routed hooks and is an operator call."))
+            (println ";;   a link is another same-adapter? plus another apply."))
           (println ";;"))
         ;; --- THE HEADLINE ---------------------------------------------------
         (println ";; ==== THE TERM THIS HARNESS IS ABOUT ====")

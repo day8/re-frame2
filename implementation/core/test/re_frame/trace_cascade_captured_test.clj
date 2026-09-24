@@ -1,5 +1,5 @@
 (ns re-frame.trace-cascade-captured-test
-  "Per rf2-931pm — pins the three new substrate-level trace ops:
+  "Pins three substrate-level trace ops:
 
     1. `:rf.sub/skip` emitted by the memo wrappers on a memo-hit.
     2. `:rf.flow/skip` carries `:rf.sub/input-paths-unchanged` (additive tag).
@@ -10,7 +10,7 @@
   aggregation all run identically on JVM and CLJS (the production
   elision gate is shared; bundle-isolation lives in its own gate).
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   Every claim in this file about `:rf.sub/skip`, `:rf.flow/skip`,
   `:rf.cascade/captured` and the `:rf.sub/run` attribution tags is read off
@@ -20,40 +20,38 @@
   in `re-frame.observability` promotes a sub-recompute onto the always-on
   `:errors` stream. So the trace reads are guarded.
 
-  What keeps this OFF the class-2 (100%-dev-instrumentation) list is that the
+  What keeps this file from being 100% dev instrumentation is that the
   three `aggregate-cascade-*` deftests drive `rf.trace.cascade/aggregate-cascade` over
   SYNTHETIC event maps — a pure function of its argument, always-on in both
   postures — and that every trace-reading deftest here has an always-on
   counterpart for the thing the trace was REPORTING ON. A `:rf.sub/skip` emit
-  reports a memo hit; the memo hit itself is production behaviour and is now
+  reports a memo hit; the memo hit itself is production behaviour and is
   witnessed by counting how many times the sub body actually ran. A
   `:rf.sub/run` value-change tag reports a recompute; the recomputed value is
-  production state and is now witnessed by dereferencing the reaction. A
+  production state and is witnessed by dereferencing the reaction. A
   `:rf.sub/cause-event-id` reports that a recompute happened INSIDE an
   in-flight dispatch; that is witnessed by an fx-handler that derefs during
-  the drain and records what it saw. Under the gate those run for the first
-  time.
+  the drain and records what it saw. Those witnesses run under the gate too.
 
-  FIVE VACUOUS PASSES CAME OFF, in two classes.
-  class 1 (a negative over an empty ring):
-  `cascade-captured-does-not-fire-when-no-focus`'s `(is (empty? caps))`,
-  which certified \"the default focus predicate suppresses the aggregator\"
-  over a stream that carried no events of any kind.
-  class 4 (absence of a key the gate elides wholesale) — four `(nil? …)` /
-  `(not (contains? …))` negatives read off a NIL tag map, in
+  VACUITY UNDER THE GATE. Two shapes would pass for free with the trace
+  elided, so both sit inside the posture guard. A negative over an empty
+  ring: `cascade-captured-does-not-fire-when-no-focus`'s `(is (empty? caps))`
+  would certify \"the default focus predicate suppresses the aggregator\"
+  over a stream that carried no events of any kind. And the absence of a key
+  the gate elides wholesale — the `(nil? …)` / `(not (contains? …))`
+  negatives read off a NIL tag map in
   `sub-run-value-changed-attribution`,
   `sub-run-first-run-flag-true-on-cache-slot-creation`,
   `sub-run-layer-1-no-cause-sub` and
   `sub-run-cause-event-id-absent-outside-dispatch`.
 
-  AND TWO ZERO-ASSERTION DEFTESTS, the shape pass 5 named: the inner claims
-  of `sub-run-cause-event-id-stamped-inside-dispatch` and
-  `sub-run-cause-event-id-layer-2-cascade` sit inside a `(when (seq runs) …)`
-  / `(when (and n-run d-run) …)`, so under the gate the guard was false and
-  those `is` forms never ran at all. Both are now inside the posture guard
-  where the precondition genuinely holds, and both deftests carry an
-  always-on witness that the in-cascade recompute they are about really
-  happened."
+  A precondition `when` is the other trap: in
+  `sub-run-cause-event-id-stamped-inside-dispatch` and
+  `sub-run-cause-event-id-layer-2-cascade`, a bare `(when (seq runs) …)` /
+  `(when (and n-run d-run) …)` would be false under the gate and run no
+  assertion at all. So the precondition and the claims it licenses sit
+  together inside the posture guard, and both deftests carry an always-on
+  witness that the in-cascade recompute they are about really happened."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
@@ -82,7 +80,7 @@
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
   (rf.trace.cascade/clear-focus-predicate!)
-  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
+  ;; EP-0002: `init!` does not synthesise `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
@@ -112,7 +110,7 @@
 
 (deftest layer-1-memo-hit-emits-sub-skip
   (testing "a layer-1 sub deref against an unchanged db emits :rf.sub/skip"
-    ;; ALWAYS-ON (rf2-d2841): `body-runs` counts how many times the sub's own
+    ;; ALWAYS-ON: `body-runs` counts how many times the sub's own
     ;; body executed. That is the memo hit itself — production behaviour the
     ;; `:rf.sub/skip` emit was merely REPORTING — so it is asserted outside
     ;; the posture guard.
@@ -151,12 +149,11 @@
 
 (deftest layer-2-memo-hit-emits-sub-skip-with-upstream
   (testing "layer-2 sub on memo-hit names its upstream input(s) in :rf.sub/input-paths-unchanged"
-    ;; MERGED-PR AUDIT #7250 (rf2-d2841): the always-on half used to be
-    ;; `(= [6 6] @seen)` alone, which a BROKEN memo passes — recomputing
-    ;; `:doubled` on the second deref returns 6 again. Mirror the layer-1 test
-    ;; above and COUNT the derived body: the memo hit the `:rf.sub/skip` emit
-    ;; reports is one body execution across two derefs, and that is production
-    ;; behaviour whatever the posture.
+    ;; ALWAYS-ON: `(= [6 6] @seen)` alone would pass on a BROKEN memo —
+    ;; recomputing `:doubled` on the second deref returns 6 again. So, as in
+    ;; the layer-1 test above, COUNT the derived body: the memo hit the
+    ;; `:rf.sub/skip` emit reports is one body execution across two derefs,
+    ;; and that is production behaviour whatever the posture.
     (let [body-runs (atom 0)]
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 3}}))
       (rf/reg-sub :n (fn [db _] (:n db)))
@@ -173,7 +170,7 @@
             skips  (filter #(and (= :rf.sub/skip (:operation %))
                                  (= :doubled (get-in % [:tags :rf.sub/id])))
                            events)]
-        ;; ALWAYS-ON (rf2-d2841): the layer-2 projection the skip emit reports
+        ;; ALWAYS-ON: the layer-2 projection the skip emit reports
         ;; on is production state — both derefs see the same committed value.
         (is (= [6 6] @seen)
             "the layer-2 sub projects 2*3 on both derefs in this posture")
@@ -193,7 +190,7 @@
   (testing ":rf.flow/skip carries :rf.sub/input-paths-unchanged naming the flow's input paths"
     (rf/reg-event :seed   (fn [{:keys [db]} _]      {:db {:x 0 :y 0}}))
     (rf/reg-event :bump-z (fn [{:keys [db]} _]     {:db (assoc db :z (inc (or (:z db) 0)))}))
-    ;; ALWAYS-ON (rf2-d2841): `flow-runs` counts the flow fn's own
+    ;; ALWAYS-ON: `flow-runs` counts the flow fn's own
     ;; executions. "The inputs were stable so the flow did not recompute" is
     ;; the production fact the `:rf.flow/skip` emit reports; count it.
     (let [flow-runs (atom 0)]
@@ -208,7 +205,7 @@
                        (rf/dispatch-sync [:bump-z])
                        (rf/dispatch-sync [:bump-z])))
             skips  (filter #(= :rf.flow/skip (:operation %)) events)]
-        ;; MERGED-PR AUDIT #7250 (rf2-d2841): the two always-on assertions
+        ;; The two always-on assertions
         ;; below say what did NOT happen — the flow fn did not re-run, the
         ;; durable output did not move. Both stay green if the DRIVER never
         ;; ran: delete the two `:bump-z` dispatches and nothing here notices,
@@ -247,11 +244,11 @@
                        (rf/dispatch-sync [:inc])
                        (swap! seen conj @r))))
           caps   (filter #(= :rf.cascade/captured (:operation %)) events)]
-      ;; ALWAYS-ON (rf2-d2841): the cascade whose absence-of-capture is the
-      ;; claim genuinely ran. VACUOUS PASS REMOVED (class 1) — under the gate
+      ;; ALWAYS-ON: the cascade whose absence-of-capture is the
+      ;; claim genuinely ran. The negative is GUARDED — under the gate
       ;; `events` is empty for EVERY cascade, focused or not, so
-      ;; `(empty? caps)` certified the focus predicate's suppression over a
-      ;; stream that never carried anything. It only discriminates against
+      ;; `(empty? caps)` would certify the focus predicate's suppression over
+      ;; a stream that never carried anything. It only discriminates against
       ;; `cascade-captured-fires-when-focused` below, which needs the ring.
       (is (= [0 1] @seen)
           "the cascade really ran — the sub recomputed 0 -> 1 in this posture")
@@ -275,7 +272,7 @@
                        (rf/dispatch-sync [:inc])
                        (swap! seen conj @r))))
           caps   (filter #(= :rf.cascade/captured (:operation %)) events)]
-      ;; ALWAYS-ON (rf2-d2841): installing a focus predicate is an
+      ;; ALWAYS-ON: installing a focus predicate is an
       ;; instrumentation-only act, but it must not perturb the cascade it
       ;; observes — the same 0 -> 1 recompute as the unfocused case above.
       (is (= [0 1] @seen)
@@ -320,9 +317,9 @@
       (is (false? (:sub-cap-truncated? dag))))))
 
 (deftest aggregate-cascade-truncated-flag-only-when-exceeding-cap
-  (testing "rf2-x76af2.31 — the truncation flag fires ONLY when an entry is
-            genuinely elided. `conj-bounded` already caps growth, so the prior
-            `>=` post-conj check over-flagged at EXACTLY the cap (nothing
+  (testing "the truncation flag fires ONLY when an entry is
+            genuinely elided. `conj-bounded` already caps growth, so a
+            `>=` post-conj check would over-flag at EXACTLY the cap (nothing
             dropped). EXACTLY the cap retains all entries and is NOT truncated;
             one MORE elides one and sets the flag."
     (let [run (fn [i] {:operation :rf.sub/run
@@ -362,7 +359,7 @@
       (is (true? (:view-cap-truncated? over))
           "the view-cap+1-th view is dropped → truncated"))))
 
-;; ---- :rf.sub/run value-change + cascade attribution (rf2-l1jz8) --------------
+;; ---- :rf.sub/run value-change + cascade attribution --------------------------
 ;;
 ;; The reactive recompute path (subs.memo/validate-and-trace) enriches the
 ;; `:rf.sub/run` tag with value-change + cascade attribution so Xray's
@@ -392,10 +389,11 @@
                      (rf/dispatch-sync [:inc]) ;; n 1 -> 2, layer-1 recompute
                      (reset! after @r)))
           runs   (sub-runs events :n)]
-      ;; ALWAYS-ON (rf2-d2841): the value change the trace tag REPORTS is
-      ;; production state — read it off the reaction. VACUOUS PASS REMOVED
-      ;; (class 4): `(nil? (:rf.sub/cause-sub t))` was true for free under the
-      ;; gate, where `t` is nil and every keyword lookup returns nil.
+      ;; ALWAYS-ON: the value change the trace tag REPORTS is
+      ;; production state — read it off the reaction. The
+      ;; `(nil? (:rf.sub/cause-sub t))` negative is GUARDED: under the gate
+      ;; `t` is nil and every keyword lookup returns nil, so it would pass
+      ;; for free.
       (is (= 1 before) "the sub projected 1 before the dispatch")
       (is (= 2 @after) "the sub projects 2 after the dispatch, in this posture")
       (when rf.interop/debug-enabled?
@@ -428,7 +426,7 @@
                      (rf/dispatch-sync [:bump-other])
                      (reset! after @r)))
           runs   (sub-runs events :n)]
-      ;; ALWAYS-ON (rf2-d2841): the false case the tag reports has a
+      ;; ALWAYS-ON: the false case the tag reports has a
       ;; production shape — the db DID change and :n's projection did NOT.
       (is (= 5 before))
       (is (= 5 @after) ":n's value is unchanged across the write, in this posture")
@@ -458,7 +456,7 @@
                      (rf/dispatch-sync [:inc]) ;; :n 2->3, :doubled cascades 4->6
                      (reset! after @r)))
           runs   (sub-runs events :doubled)]
-      ;; ALWAYS-ON (rf2-d2841): the cascade itself — an upstream write
+      ;; ALWAYS-ON: the cascade itself — an upstream write
       ;; propagating through a layer-2 projection — is production behaviour.
       (is (= 4 before))
       (is (= 6 @after) ":doubled cascaded 4 -> 6 in this posture")
@@ -491,7 +489,7 @@
                      (rf/dispatch-sync [:inc-b]) ;; :b 10->11, :a stable
                      (reset! after @r)))
           runs   (sub-runs events :sum)]
-      ;; ALWAYS-ON (rf2-d2841): the asymmetry the `:rf.sub/cause-sub` tag
+      ;; ALWAYS-ON: the asymmetry the `:rf.sub/cause-sub` tag
       ;; ATTRIBUTES is production state — :b moved, :a did not, and :sum
       ;; followed :b.
       (is (= 11 before))
@@ -504,14 +502,14 @@
           (is (= [:b] (:rf.sub/cause-sub t))
               ":rf.sub/cause-sub names :b (the changed input), not :a (stable)"))))))
 
-;; ---- :rf.sub/first-run? (rf2-fyd8u) -------------------------------------
+;; ---- :rf.sub/first-run? -------------------------------------------------
 
 (deftest sub-run-first-run-flag-true-on-cache-slot-creation
-  (testing "rf2-fyd8u — the run that creates a sub's cache slot
+  (testing "the run that creates a sub's cache slot
             stamps :rf.sub/first-run? true on :rf.sub/run. Disambiguates
             a value-change row (`← was X`) from a fresh-cache-entry row
             (`:added`) for the Xray SUBSCRIPTIONS leaf-scalar renderer."
-    ;; ALWAYS-ON (rf2-d2841): `body-runs` witnesses the slot allocation the
+    ;; ALWAYS-ON: `body-runs` witnesses the slot allocation the
     ;; flag reports — the FIRST deref runs the body, the second does not,
     ;; which is exactly what "this run created the cache slot" means.
     (let [body-runs (atom 0)]
@@ -527,8 +525,8 @@
                        (let [r (rf/subscribe [:n])]
                          (reset! first-value @r))))
             runs   (sub-runs events :n)]
-        ;; VACUOUS PASS REMOVED (class 4): `(nil? (:rf.sub/prev-value t))` was
-        ;; true for free under the gate, where `t` is nil.
+        ;; The `(nil? (:rf.sub/prev-value t))` negative is GUARDED: under
+        ;; the gate `t` is nil, so it would pass for free.
         (is (= 1 @first-value) "the cache-slot-creating run projects 1")
         (is (= 1 @body-runs)
             "exactly one body run allocated the slot, in BOTH postures")
@@ -546,7 +544,7 @@
                  ::unset sentinel projects to nil per the emit-site cond)")))))))
 
 (deftest sub-run-first-run-flag-false-on-recompute-against-existing-slot
-  (testing "rf2-fyd8u — every subsequent recompute (against an
+  (testing "every subsequent recompute (against an
             already-existing cache slot) stamps :rf.sub/first-run? false.
             Pairs with the true-case test above — the boolean must
             actually flip on the second run, not stay true."
@@ -562,7 +560,7 @@
                      (rf/dispatch-sync [:inc]) ;; n 1 -> 2, existing-slot recompute
                      (reset! after @r)))
           runs   (sub-runs events :n)]
-      ;; ALWAYS-ON (rf2-d2841): "the slot already existed" is witnessed by
+      ;; ALWAYS-ON: "the slot already existed" is witnessed by
       ;; the prior deref having produced a value at all — this recompute is
       ;; the second, and it still tracks the write.
       (is (= 1 before) "the slot was already allocated by this deref")
@@ -580,7 +578,7 @@
           (is (= 2 (:rf.sub/value t))))))))
 
 (deftest sub-run-first-run-flag-true-on-layer-2-cache-creation
-  (testing "rf2-fyd8u — layer-2 subs (cascade path) also stamp
+  (testing "layer-2 subs (cascade path) also stamp
             :rf.sub/first-run? true on the run that allocated their
             cache slot. The discriminator is universal across all
             memo wrappers (layer-1, layer-n-1, layer-n)."
@@ -596,7 +594,7 @@
                      (let [r (rf/subscribe [:doubled])]
                        (reset! first-value @r))))
           runs   (sub-runs events :doubled)]
-      ;; ALWAYS-ON (rf2-d2841): the layer-2 slot-creating recompute produced
+      ;; ALWAYS-ON: the layer-2 slot-creating recompute produced
       ;; a value — production state, not a trace tag.
       (is (= 4 @first-value)
           "the layer-2 cache-slot-creating run projects 2*2 in this posture")
@@ -621,11 +619,11 @@
                      (rf/dispatch-sync [:inc])
                      (reset! after @r)))
           runs   (sub-runs events :n)]
-      ;; ALWAYS-ON (rf2-d2841): "app-db-driven, not a cascade" is a claim
+      ;; ALWAYS-ON: "app-db-driven, not a cascade" is a claim
       ;; about WHERE this sub reads from, and that is production-visible —
       ;; the sub tracks a direct app-db write with no upstream sub involved.
-      ;; VACUOUS PASS REMOVED (class 4): `(nil? (:rf.sub/cause-sub t))` was
-      ;; true for free under the gate, where `t` is nil.
+      ;; The `(nil? (:rf.sub/cause-sub t))` negative is GUARDED: under the
+      ;; gate `t` is nil, so it would pass for free.
       (is (= 0 before))
       (is (= 1 @after) "the layer-1 sub tracks the app-db write directly")
       (when rf.interop/debug-enabled?
@@ -635,7 +633,7 @@
           (is (nil? (:rf.sub/cause-sub t))))))))
 
 (deftest sub-run-base-shape-still-emitted
-  (testing "the :rf.sub/run op-type vocabulary is unchanged — the base tags still ride"
+  (testing "the :rf.sub/run op-type vocabulary carries the base tags alongside the attribution tags"
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-sub :n (fn [db _] (:n db)))
@@ -648,7 +646,7 @@
                      (rf/dispatch-sync [:inc])
                      (reset! after @r)))
           runs   (sub-runs events :n)]
-      ;; ALWAYS-ON (rf2-d2841): the recompute the base shape describes.
+      ;; ALWAYS-ON: the recompute the base shape describes.
       (is (= 1 before))
       (is (= 2 @after) "the recompute the :rf.sub/run row describes really happened")
       (when rf.interop/debug-enabled?
@@ -659,22 +657,22 @@
           (is (= [:n] (get-in ev [:tags :rf.sub/query-v])))
           (is (contains? (:tags ev) :frame)))))))
 
-;; ---- :rf.sub/cause-event-id (rf2-okz1u) ----------------------------------
+;; ---- :rf.sub/cause-event-id ----------------------------------------------
 ;;
 ;; The reactive recompute path also stamps `:rf.sub/cause-event-id` (when
 ;; the optional `re-frame.epoch` artefact is on the classpath and the sub
 ;; runs inside an in-flight event run): the head of the event vector that
-;; kicked off the dispatching drain. Mirrors `:rf.view/cause-event-id`
-;; (per rf2-25zo2) — same `:epoch/run-cause` late-bind hook source.
+;; kicked off the dispatching drain. Mirrors `:rf.view/cause-event-id` —
+;; same `:epoch/run-cause` late-bind hook source.
 ;;
-;; The Mike-ruled posture is "option b" attribution-only (no behavioural
-;; change to the reactive flush). The tag carries which event invalidated
+;; The posture is attribution-only: the reactive flush's behaviour is
+;; untouched. The tag carries which event invalidated
 ;; this sub's input so consumers (Xray's Epoch panel) can credit each
 ;; sub-run to the right epoch row — even when a chained event's drain
 ;; would otherwise misattribute the run to itself.
 
 (deftest sub-run-cause-event-id-stamped-inside-dispatch
-  (testing "rf2-okz1u — a sub-run that fires INSIDE an in-flight event run
+  (testing "a sub-run that fires INSIDE an in-flight event run
             carries :rf.sub/cause-event-id naming the dispatching event.
             The plain-atom JVM path recomputes on deref (no cached
             reaction); land the recompute inside the run window by
@@ -682,7 +680,7 @@
             commits, while the event's handler-scope is still bound and
             the in-flight run buffer holds the :rf.event/run-start
             the :epoch/run-cause lookup consumes. Mirrors the
-            views-side precedent at view_rendered_op_cljs_test/
+            views-side test at view_rendered_op_cljs_test/
             rf-view-rendered-carries-cause-event-id-in-cascade."
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
@@ -692,7 +690,7 @@
       ;; The fx-handler signature is `(fn [ctx args])` per Spec 002
       ;; §The binary fx-handler signature — ctx carries `:frame`,
       ;; `:event`, `:envelope`; args is the value from the `:fx` vector.
-      ;; ALWAYS-ON (rf2-d2841): `in-cascade` records what the fx-handler saw
+      ;; ALWAYS-ON: `in-cascade` records what the fx-handler saw
       ;; when it dereferenced DURING the drain. That the sub recomputed
       ;; inside the in-flight run is precisely what `:rf.sub/cause-event-id`
       ;; attributes, and it is production behaviour — the fx observing the
@@ -715,12 +713,11 @@
               "the fx-handler dereferenced INSIDE the drain and saw the
                committed value — the in-cascade recompute happened in this
                posture")
-          ;; ZERO-ASSERTION DEFTEST FIXED (rf2-d2841): the claim below used to
-          ;; sit under `(when (seq runs) …)`. Under the gate `runs` is empty,
-          ;; so the `when` was false and NO assertion ran inside it — the
-          ;; deftest reported a pass having executed nothing but the failing
-          ;; precondition. The precondition and the claim it licenses now
-          ;; live together inside the posture guard.
+          ;; The precondition and the claim it licenses live together
+          ;; inside the posture guard. Under the gate `runs` is empty, so a
+          ;; bare `(when (seq runs) …)` would be false and NO assertion would
+          ;; run inside it — a pass having executed nothing but the failing
+          ;; precondition.
           (when rf.interop/debug-enabled?
             (is (seq runs)
                 "expected a :rf.sub/run for :n on the in-cascade fx-deref")
@@ -730,7 +727,7 @@
                    not the sub-id and not the :seed event"))))))))
 
 (deftest sub-run-cause-event-id-absent-outside-dispatch
-  (testing "rf2-okz1u — a sub-run that fires OUTSIDE any in-flight
+  (testing "a sub-run that fires OUTSIDE any in-flight
             dispatch omits :rf.sub/cause-event-id entirely. The slot is
             absent (key not present), not nil, so consumers can read
             `(contains? tags :rf.sub/cause-event-id)` to discriminate
@@ -748,11 +745,11 @@
                      (let [r (rf/subscribe [:n])]
                        (reset! outside @r))))
           runs   (sub-runs events :n)]
-      ;; ALWAYS-ON (rf2-d2841): the recompute really did happen with no
-      ;; dispatch in flight — the value is the settled one. VACUOUS PASS
-      ;; REMOVED (class 4): `(not (contains? t :rf.sub/cause-event-id))` was
-      ;; true for free under the gate, where `t` is nil and `contains?` of nil
-      ;; is false for EVERY key.
+      ;; ALWAYS-ON: the recompute really did happen with no
+      ;; dispatch in flight — the value is the settled one. The
+      ;; `(not (contains? t :rf.sub/cause-event-id))` negative is GUARDED:
+      ;; under the gate `t` is nil and `contains?` of nil is false for EVERY
+      ;; key, so it would pass for free.
       (is (= 7 @outside)
           "the out-of-cascade recompute projects the settled value")
       (when rf.interop/debug-enabled?
@@ -763,7 +760,7 @@
               ":rf.sub/cause-event-id is OMITTED (key absent) outside a cascade"))))))
 
 (deftest sub-run-cause-event-id-layer-2-cascade
-  (testing "rf2-okz1u — layer-2 sub recomputed inside the cascade
+  (testing "layer-2 sub recomputed inside the cascade
             also carries :rf.sub/cause-event-id. The cause-event-id is
             the SAME for every sub in the cascade (the dispatching
             event) — distinct from :rf.sub/cause-sub (the upstream sub
@@ -779,7 +776,7 @@
           r-doubled (rf/subscribe [:doubled])
           _         @r-n
           _         @r-doubled]
-      ;; ALWAYS-ON (rf2-d2841): both subs were invalidated by the SAME write
+      ;; ALWAYS-ON: both subs were invalidated by the SAME write
       ;; and both recomputed inside the SAME drain — that shared causation is
       ;; what the two `:rf.sub/cause-event-id` tags record, and the fx-handler
       ;; observing 3 and 6 together witnesses it without the trace.
@@ -797,9 +794,9 @@
           (is (= [3 6] @in-cascade)
               "both layers recomputed inside the one drain — the shared
                causation the two cause-event-id tags record")
-          ;; ZERO-ASSERTION DEFTEST FIXED (rf2-d2841): the three claims below
-          ;; used to sit under `(when (and n-run d-run) …)`, which is false
-          ;; under the gate — the deftest ran no assertion inside it at all.
+          ;; The claims below sit inside the posture guard: a bare
+          ;; `(when (and n-run d-run) …)` is false under the gate, and the
+          ;; deftest would run no assertion inside it at all.
           (when rf.interop/debug-enabled?
             (is (some? n-run))
             (is (some? d-run))
@@ -830,13 +827,12 @@
                   {:operation :rf.view/render
                    :tags {:rf.view/render-key [:v :k] :triggered-by :db-change}}]
           dag    (rf.trace.cascade/aggregate-cascade events)]
-      ;; Per rf2-l1jz8 the `:subs-recomputed` projection threads value-
-      ;; change + cascade attribution; this fixture event carries no
-      ;; attribution tags so the slots are nil. The projection RECORD keys
-      ;; stay bare (nested record-map carve-out — Spec 009 §`:tags`).
-      ;; rf2-okz1u — `:cause-event-id` joins the projection (the
-      ;; dispatching cascade's event-id, threaded from
-      ;; `:rf.sub/cause-event-id` on the trace tag).
+      ;; The `:subs-recomputed` projection threads value-change + cascade
+      ;; attribution; this fixture event carries no attribution tags so the
+      ;; slots are nil. The projection RECORD keys stay bare (nested
+      ;; record-map carve-out — Spec 009 §`:tags`). `:cause-event-id` is in
+      ;; the projection too (the dispatching cascade's event-id, threaded
+      ;; from `:rf.sub/cause-event-id` on the trace tag).
       ;; Assert only the load-bearing identity keys — pinning the whole
       ;; nil-padded record by `=` is brittle (an additive projection key
       ;; would break this with no behaviour change to catch).

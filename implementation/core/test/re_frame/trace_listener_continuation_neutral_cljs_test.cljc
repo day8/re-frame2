@@ -1,42 +1,43 @@
 (ns re-frame.trace-listener-continuation-neutral-cljs-test
-  "rf2-eaxnai — a PUBLIC trace listener body must run under a NEUTRAL continuation
+  "A PUBLIC trace listener body must run under a NEUTRAL continuation
   scope for its own nested authored work, while the surrounding delivery loop
   still checks the caller's EXACT continuation predicate before and after each
   callback.
 
-  ## The defect
+  ## The hazard
 
   When a framework-owned lifecycle trace is fenced to an exact incarnation A
   (`re-frame.trace/call-with-continuation-predicate` bound to
   `rf.frame/event-continuation-live?` — this is what a cold `reg-flow`'s
-  first-registration / replacement / clear emit does, rf2-pwum1g / rf2-rxsldx),
-  the public listener fan-out runs INSIDE that binding. Before this fix, a
+  first-registration / replacement / clear emit does), the public listener
+  fan-out runs INSIDE that binding. Were the listener body to inherit it, a
   listener that destroyed A and created same-id incarnation B with
-  `:initial-events` had B's seed `dispatch-sync!` consult `rf.trace/continuation-live?`,
-  inherit A's now-FALSE predicate, and get silently dropped at `build-envelope`
-  (`(when (rf.trace/continuation-live?) ...)` returns nil ⇒ the seed is never
-  enqueued). B was left live with `{}`, and make-frame's reuse/no-reseed law
-  meant a later re-ensure could not recover the seed.
+  `:initial-events` would have B's seed `dispatch-sync!` consult
+  `rf.trace/continuation-live?`, inherit A's now-FALSE predicate, and get
+  silently dropped at `build-envelope` (`(when (rf.trace/continuation-live?) ...)`
+  returns nil ⇒ the seed is never enqueued). B would be left live with `{}`,
+  and make-frame's reuse/no-reseed law means a later re-ensure could not
+  recover the seed.
 
   ## The reproduction
 
   This exercises the SAME code path a cold `reg-flow` uses — a `rf.trace/emit!`
   wrapped in `call-with-continuation-predicate` bound to A's incarnation — but
-  synthetically, so the proof lives in core (where the fix lives) and rides both
+  synthetically, so the proof lives in core (where the neutral scope lives) and rides both
   `npm run test:cljs` and `clojure -M:test`. The seam is DELIBERATELY the
   public-listener boundary: the fenced emit fires with A live, the FIRST listener
   (the already-entered delivery that may stand) destroys A and creates same-id B
   with an `:initial-events` seed, and the SUBSEQUENT listener must be suppressed.
 
-  Two teeth, red-before / green-after:
+  Two teeth, each red if the listener body inherits A's predicate:
     * B's seed runs exactly once and its db is initialized (the listener body ran
       under neutral scope), and re-ensuring B does not replay it.
     * an UNRELATED frame's nested `dispatch-sync` from the same listener body —
       issued AFTER A is destroyed — still runs (neutral scope frees it too).
 
-  One guard, green-before / green-after: the remaining A listener is suppressed
-  after A is destroyed (the loop's before/after checks retain A's exact
-  predicate — the outer fence, unchanged by this fix). The companion control
+  One guard, green either way: the remaining A listener is suppressed after A
+  is destroyed (the loop's before/after checks retain A's exact predicate — the
+  outer fence). The companion control
   deftest pins the other side: a NON-destroying first listener does not
   over-suppress the subsequent listener.
 
@@ -77,11 +78,11 @@
     (fn []
       (rf.trace/emit! :rf.registry :rf.test/fenced-emit {:frame frame-id}))))
 
-;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
+;; ---- Posture: dev-only, declared by `^:requires-debug` ---------------------
 ;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
 ;; no-op, so there is no semantic residue to run under that posture, and a
-;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
-;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
+;; `(when interop/debug-enabled? ...)` split would leave EMPTY deftests
+;; reporting green.  Every deftest
 ;; below is therefore TAGGED, and the production-gate lane skips the tag rather
 ;; than the file: the namespace is still LOADED there, so a load-time failure
 ;; under the gate still reddens the job, and an untagged new deftest joins that
@@ -93,8 +94,8 @@
         c-id       :trace.neutral/unrelated
         b-live?    (atom nil)
         b-token    (atom nil)
-        b-db       (atom ::unset)           ;; B's db AT callback time (the bead's :b-db)
-        later-hits (atom 0)                 ;; the bead's :later-a-listener-hits
+        b-db       (atom ::unset)           ;; B's db AT callback time
+        later-hits (atom 0)                 ;; hits on the SUBSEQUENT A listener
         armed?     (atom true)]
     (rf/make-frame {:id c-id})
     (rf/make-frame {:id a-id})
@@ -111,8 +112,8 @@
             (reset! b-token (rf.frame/frame-incarnation-token a-id))
             (reset! b-live? (some? (rf.frame/frame-incarnation-token a-id)))
             (reset! b-db (rf/app-db-value a-id))
-            ;; Unrelated-frame nested dispatch AFTER A is destroyed — before the
-            ;; fix this too was strangled by A's now-false predicate.
+            ;; Unrelated-frame nested dispatch AFTER A is destroyed — under A's
+            ;; now-false predicate this too would be strangled.
             (rf/dispatch-sync [:trace.neutral/mark] {:frame c-id}))))
       ;; Listener 2 (SECOND → subsequent): must NOT fire once A is destroyed.
       (rf.trace.tooling/register-listener! ::later-a
@@ -129,14 +130,15 @@
         (is (= {:seeded :ok :seed-count 1} @b-db)
             "B's :initial-events seed ran during the callback and initialized B's
              db — the listener body was NOT strangled by A's dead predicate
-             (before the fix this was {})")
+             (under A's predicate it would be {})")
         (is (= 1 (:seed-count (rf/app-db-value a-id)))
             "B's seed ran EXACTLY once")
 
         ;; --- tooth 2: unrelated-frame nested dispatch was unaffected ---
         (is (= {:marked true} (rf/app-db-value c-id))
             "the listener's nested dispatch into an UNRELATED frame ran under
-             neutral scope (before the fix it was dropped once A was destroyed)")
+             neutral scope (under A's predicate it would be dropped once A was
+             destroyed)")
 
         ;; --- guard: the outer fence still suppresses A's remaining fan-out ---
         (is (zero? @later-hits)

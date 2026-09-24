@@ -1,28 +1,26 @@
 (ns re-frame.flow-eval-exception-elision-prod-test
-  "Per rf2-gmrks — pins that `:rf.error/flow-eval-exception` rides the
+  "Pins that `:rf.error/flow-eval-exception` rides the
   **always-on production error-emit substrate**, not the dev-only
   trace surface. Under CLJS `:advanced` + `goog.DEBUG=false` the trace
   surface compile-time elides, but the corpus-wide
   `register-error-listener!` callbacks MUST still fire when a flow's
   `:derive` throws.
 
-  Pre-rf2-hrt5c, the cascade-level `:rf.error/flow-eval-exception`
-  rode the trace path only. `trace/emit-error!` is gated by
-  `interop/debug-enabled?` and DCEs to a no-op under `:advanced` +
-  `goog.DEBUG=false` — so a CLJS production build silently swallowed
-  flow-eval throws (no corpus-wide listener record for off-box
-  monitors). The fix routes the error through
-  `rf.error-emit/dispatch-on-error!` (the always-on substrate) in
-  parallel with the dev-only trace emit. This file is the
-  prod-elision proof — rf2-0q0du pinned the contract in Spec 013
-  §Failure semantics rule 4 + Resolved decisions, and this test
-  exercises the genuine `:advanced` build.
+  `trace/emit-error!` is gated by `interop/debug-enabled?` and DCEs to
+  a no-op under `:advanced` + `goog.DEBUG=false`, so a flow-eval error
+  riding the trace path only would be silently swallowed by a CLJS
+  production build (no corpus-wide listener record for off-box
+  monitors). The cascade-level `:rf.error/flow-eval-exception`
+  therefore routes through `rf.error-emit/dispatch-on-error!` (the
+  always-on substrate) in parallel with the dev-only trace emit. This
+  file is the prod-elision proof of the contract in Spec 013 §Failure
+  semantics rule 4 + Resolved decisions, exercising the genuine
+  `:advanced` build.
 
   Companion to:
-    - `re-frame.on-error-elision-prod-test` (rf2-bacs4, handler-
-      exception path)
-    - `re-frame.trace-listener-elision-prod-test` (rf2-2zdu)
-    - `re-frame.source-coord-dom-elision-prod-test` (rf2-uwg5)
+    - `re-frame.on-error-elision-prod-test` (handler-exception path)
+    - `re-frame.trace-listener-elision-prod-test`
+    - `re-frame.source-coord-dom-elision-prod-test`
 
   Shared runner: `re-frame.prod-elision-runner`. Shadow-cljs build:
   `:browser-test-prod-elision` (`:advanced` + `{goog.DEBUG false}`).
@@ -45,14 +43,14 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter
      :init-fn (fn []
-                ;; Per rf2-bacs4: clear the listener registry between
+                ;; Clear the listener registry between
                 ;; tests — defonce means it would otherwise leak.
                 (rf.error-emit/clear-error-listeners!))}))
 
 ;; ---- corpus-wide listener fires for flow-eval failures under prod -------
 
 (deftest error-emit-listener-fires-under-prod-on-flow-eval-throw
-  (testing "Per rf2-0q0du / rf2-bacs4: under `:advanced` +
+  (testing "Under `:advanced` +
             `goog.DEBUG=false`, a registered corpus-wide error-emit
             listener MUST fire for every flow-eval throw — the trace
             surface is gone but the always-on error-emit substrate

@@ -1,5 +1,5 @@
 (ns re-frame.effect-map-shape-record-cljs-test
-  "rf2-04tx — what a PRODUCTION build does, and learns, when a malformed
+  "What a PRODUCTION build does, and learns, when a malformed
   effect-map envelope refuses an event.
 
   Two claims live here and they are different in kind.
@@ -35,19 +35,19 @@
   precedent for shipping an app-authored id is `:rf.error/override-fallthrough`,
   which egresses fx-ids for the same reason — without it a production build
   hears only that SOME effect key aborted an event, with no route to the cause,
-  which is precisely the blindness this category was promoted to end.
+  which is precisely the blindness the always-on record exists to end.
 
   `:value` is the REJECTED PAYLOAD the handler built, so on any path fed from a
   system boundary it is attacker-controlled or user-private. It is omitted
   OUTRIGHT rather than scrubbed. `:reason` goes with it: the carrier builds that
   sentence by interpolating the key and event id, and it is the slot
   `emit-error-both!`'s component-attribution lift would drag onto the record if
-  `:failing-id` ever diverged from `:event-id` (rf2-eg61l). It does not diverge
+  `:failing-id` ever diverged from `:event-id`. It does not diverge
   here, and `the-record-carries-no-payload-derived-value` is what keeps that
   true.
 
   Deliberately NOT used: `with-redefs` on `interop/debug-enabled?` — the flag is
-  read once at namespace-load time and a rebind cannot reach it (rf2-f7qj4).
+  read once at namespace-load time and a rebind cannot reach it.
 
   Dual-runtime: named `*_cljs_test.cljc` so the shadow-cljs `:node-test` build
   (`npm run test:cljs`) AND the JVM `clojure -M:test` runner both pick it up.
@@ -158,7 +158,7 @@
 (deftest the-refused-event-settles-error-on-the-events-stream
   (testing "a refused dispatch must NOT be reported as a clean :ok — the
             always-on :events record is what an operator counts, and a
-            silently-:ok refusal is the fail-open shape this bead exists to end"
+            silently-:ok refusal is the fail-open shape this test exists to catch"
     (let [seen (atom [])]
       (rf.event-emit/register-event-listener! ::outcome (fn [r] (swap! seen conj r)))
       (rf/reg-event :bad/outcome (fn [_ _] {:db {:n 2} :legacy/dispatch [:x]}))
@@ -179,8 +179,8 @@
       (is (some? rec) "precondition: the refusal fanned its record")
       (is (= record-keys (set (keys rec)))
           (str "the always-on record's key set is CLOSED. Extra keys are an "
-               "unreviewed egress widening; a MISSING `:offending-key` is the "
-               "blindness the promotion was for.")))))
+               "unreviewed egress widening; a MISSING `:offending-key` leaves a "
+               "production build blind to the cause.")))))
 
 (deftest the-record-carries-no-payload-derived-value
   (testing "the key is program structure; the VALUE the handler built is not.
@@ -200,7 +200,7 @@
 ;; ===========================================================================
 
 (deftest a-malformed-fx-entry-fans-the-same-always-on-category
-  (testing "rf2-04tx promoted the WHOLE category's channel, not just the
+  (testing "the WHOLE category rides the always-on channel, not just the
             envelope arm: a malformed ENTRY inside a well-shaped :fx vector is
             reported on the always-on axis too, so a production build hears
             about a dropped fx row."

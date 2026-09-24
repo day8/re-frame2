@@ -1,9 +1,9 @@
 (ns re-frame.substrate-source-test
-  "Per rf2-ejtpd — substrate-internal `:source` values stamped at each
-  dispatch site. Closed-set extension over rf2-hxj0d's
-  `:ui / :frame-init / :unknown` baseline:
+  "Substrate-internal `:source` values stamped at each
+  dispatch site, extending the closed `:ui / :frame-init / :unknown`
+  set:
 
-  | new `:source` value | stamped by                | when                                                 |
+  | `:source` value     | stamped by                | when                                                 |
   |---------------------|---------------------------|------------------------------------------------------|
   | `:fx-dispatch`      | `:dispatch` fx handler     | the `:dispatch` reserved fx executes                 |
   | `:fx-dispatch-later`| `:dispatch-later` fx handler| the `:dispatch-later` reserved fx fires after delay|
@@ -11,7 +11,7 @@
   Per Spec 002 §`:source` / Spec-Schemas §`:rf/dispatch-envelope`, each
   substrate dispatch site stamps the matching specific value so the
   Epoch panel's DISPATCH step labels the precise trigger rather than
-  the prior aggregate (`:fx` / `:unknown`).
+  an aggregate (`:fx` / `:unknown`).
 
   The `:after-timer` and `:machine-spawn` paths live in the machines
   artefact's own test files (see `machines_after_cljs_test.cljs` and
@@ -21,32 +21,31 @@
 
   JVM-only — substrate fx-handler behaviour is platform-agnostic.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
-  The stamp this file is about is a PROPERTY OF THE DISPATCH ENVELOPE. It was
-  only ever READ off the `:rf.event/dispatched` trace, which emits nothing
-  under `-Dre-frame.debug=false` — so every deftest here failed under
-  `scripts/test-core-prod-gate.sh` while the thing being asserted was
-  production behaviour all along.
+  The stamp this file is about is a PROPERTY OF THE DISPATCH ENVELOPE. Read
+  only off the `:rf.event/dispatched` trace, which emits nothing under
+  `-Dre-frame.debug=false`, every deftest here would fail under
+  `scripts/test-core-prod-gate.sh` while the thing being asserted is
+  production behaviour.
 
-  Each case therefore grew an ALWAYS-ON probe rather than a guard: a
+  Each case therefore carries an ALWAYS-ON probe rather than a guard: a
   `:test/probe` fx running inside every level of the cascade captures
   `(:envelope m)`, the production surface
   `cascade-envelope-propagation-test/fx-handler-ctx-carries-envelope-slot`
   establishes. The `:source` / `:origin` claims are read off those envelopes and
-  now hold in BOTH postures — including the three-deep override and the
-  `:dispatch-later` deferral, which had no production-posture counterpart
-  anywhere.
+  hold in BOTH postures — including the three-deep override and the
+  `:dispatch-later` deferral.
 
   What is left inside the `(when rf.interop/debug-enabled? …)` arms is the
-  narrower claim the trace still owns: that `:source` is HOISTED to the trace
+  narrower claim the trace owns: that `:source` is HOISTED to the trace
   event's top level (Spec 009 §Core fields) while `:rf.event/origin` rides under
   `:tags`. That is a trace-shape claim, not a propagation claim.
 
-  The `:dispatch-later` case additionally moved its completion signal onto the
-  probe. It used to wait on a promise delivered by the TRACE listener — which
-  under the gate simply never arrives, so the case burned its full 2s timeout
-  before failing. The probe delivers it in both postures."
+  The `:dispatch-later` case takes its completion signal from the probe. A
+  promise delivered by the TRACE listener would never arrive under the gate,
+  so the case would burn its full 2s timeout before failing. The probe
+  delivers it in both postures."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -67,7 +66,7 @@
   (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
-  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
+  ;; EP-0002: `init!` does not synthesise `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
@@ -78,10 +77,10 @@
 
 (use-fixtures :each reset-runtime)
 
-;; ---- always-on envelope probe (rf2-d2841) --------------------------------
+;; ---- always-on envelope probe --------------------------------------------
 ;;
 ;; The `:source` stamp lives on the DISPATCH ENVELOPE; reading it off the
-;; `:rf.event/dispatched` trace was only ever one way to observe it, and the one
+;; `:rf.event/dispatched` trace is one way to observe it, and the one
 ;; that disappears under -Dre-frame.debug=false. A user fx-handler receives
 ;; `(:envelope m)` — the production surface pinned by
 ;; `cascade-envelope-propagation-test/fx-handler-ctx-carries-envelope-slot` —
@@ -113,7 +112,7 @@
         ;; Parent stamps `:source :ui` (mimicking a UI handler call-site).
         (rf/dispatch-sync [:test/parent] {:source :ui})
 
-        ;; ---- ALWAYS-ON (rf2-d2841): read the stamp off the ENVELOPES ------
+        ;; ---- ALWAYS-ON: read the stamp off the ENVELOPES ------------------
         (let [parent-env (:parent @envelopes)
               child-env  (:child  @envelopes)]
           (is (some? parent-env) "the parent's dispatch envelope was captured")
@@ -121,9 +120,9 @@
           (is (= :ui (:source parent-env))
               "parent carries the caller-supplied :source :ui")
           (is (= :fx-dispatch (:source child-env))
-              ":dispatch fx stamped :source :fx-dispatch on the child envelope (rf2-ejtpd)"))
+              ":dispatch fx stamped :source :fx-dispatch on the child envelope"))
 
-        ;; ---- rf2-d2841 dev arm: the same values, HOISTED onto the trace ---
+        ;; ---- dev arm: the same values, HOISTED onto the trace -------------
         (when rf.interop/debug-enabled?
           (let [dispatched (->> @seen (filter #(= :rf.event/dispatched (:operation %))))
                 parent-ev  (first (filter #(= [:test/parent] (get-in % [:tags :rf.event/v])) dispatched))
@@ -133,7 +132,7 @@
             (is (= :ui (:source parent-ev))
                 "parent carries the caller-supplied :source :ui")
             (is (= :fx-dispatch (:source child-ev))
-                ":dispatch fx stamped :source :fx-dispatch on the child envelope (rf2-ejtpd)")))
+                ":dispatch fx stamped :source :fx-dispatch on the child envelope")))
         (finally (rf/unregister-listener! :trace ::rec))))))
 
 (deftest dispatch-fx-overrides-parent-source-three-deep
@@ -152,13 +151,13 @@
 
         (rf/dispatch-sync [:test/lvl-0] {:source :ui})
 
-        ;; ---- ALWAYS-ON (rf2-d2841): the override at EVERY depth -----------
+        ;; ---- ALWAYS-ON: the override at EVERY depth -----------------------
         (is (= :ui          (:source (:lvl-0 @envelopes))) "root keeps :ui")
         (is (= :fx-dispatch (:source (:lvl-1 @envelopes))) "lvl-1 stamped :fx-dispatch")
         (is (= :fx-dispatch (:source (:lvl-2 @envelopes)))
             "lvl-2 ALSO stamped :fx-dispatch (immediate trigger, not :ui from the root)")
 
-        ;; ---- rf2-d2841 dev arm --------------------------------------------
+        ;; ---- dev arm ------------------------------------------------------
         (when rf.interop/debug-enabled?
           (let [dispatched (->> @seen (filter #(= :rf.event/dispatched (:operation %))))
                 ev-for     (fn [id]
@@ -183,7 +182,7 @@
 
         (rf/dispatch-sync [:test/parent] {:source :ui :origin :pair})
 
-        ;; ---- ALWAYS-ON (rf2-d2841): the two axes read off the envelopes ---
+        ;; ---- ALWAYS-ON: the two axes read off the envelopes ---------------
         (let [parent-env (:parent @envelopes)
               child-env  (:child  @envelopes)]
           (is (= :pair (:origin parent-env)))
@@ -191,9 +190,9 @@
               ":origin propagates through the cascade")
           (is (= :ui          (:source parent-env)))
           (is (= :fx-dispatch (:source child-env))
-              ":source is overridden by the substrate's :dispatch fx (rf2-ejtpd)"))
+              ":source is overridden by the substrate's :dispatch fx"))
 
-        ;; ---- rf2-d2841 dev arm: the trace SHAPE — `:origin` under `:tags`,
+        ;; ---- dev arm: the trace SHAPE — `:origin` under `:tags`,
         ;;      `:source` hoisted to the top level (Spec 009 §Core fields).
         (when rf.interop/debug-enabled?
           (let [dispatched (->> @seen (filter #(= :rf.event/dispatched (:operation %))))
@@ -204,7 +203,7 @@
                 ":origin propagates through the cascade")
             (is (= :ui          (:source parent-ev)))
             (is (= :fx-dispatch (:source child-ev))
-                ":source is overridden by the substrate's :dispatch fx (rf2-ejtpd)")))
+                ":source is overridden by the substrate's :dispatch fx")))
         (finally (rf/unregister-listener! :trace ::rec))))))
 
 ;; ---- :fx-dispatch-later stamp by the :dispatch-later fx handler ----------
@@ -213,9 +212,9 @@
   (testing ":dispatch-later fx stamps `:source :fx-dispatch-later` on the deferred dispatch"
     (let [seen      (atom [])
           envelopes (atom {})
-          ;; rf2-d2841 — the completion signal rides the ALWAYS-ON probe, not
+          ;; The completion signal rides the ALWAYS-ON probe, not
           ;; the trace listener. Waiting on a trace under -Dre-frame.debug=false
-          ;; simply never returns, so the case used to burn its whole 2s timeout
+          ;; never returns, so the case would burn its whole 2s timeout
           ;; before failing.
           done      (promise)]
       (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
@@ -236,16 +235,16 @@
         (is (= :seen (deref done 2000 :timeout))
             "the deferred :test/child dispatch fired")
 
-        ;; ---- ALWAYS-ON (rf2-d2841) ---------------------------------------
+        ;; ---- ALWAYS-ON ---------------------------------------------------
         (let [parent-env (:parent @envelopes)
               child-env  (:child  @envelopes)]
           (is (some? parent-env))
           (is (some? child-env))
           (is (= :ui                (:source parent-env)))
           (is (= :fx-dispatch-later (:source child-env))
-              ":dispatch-later fx stamped :source :fx-dispatch-later on the deferred dispatch (rf2-ejtpd)"))
+              ":dispatch-later fx stamped :source :fx-dispatch-later on the deferred dispatch"))
 
-        ;; ---- rf2-d2841 dev arm --------------------------------------------
+        ;; ---- dev arm ------------------------------------------------------
         (when rf.interop/debug-enabled?
           (let [dispatched (->> @seen (filter #(= :rf.event/dispatched (:operation %))))
                 parent-ev  (first (filter #(= [:test/parent] (get-in % [:tags :rf.event/v])) dispatched))
@@ -254,5 +253,5 @@
             (is (some? child-ev))
             (is (= :ui                (:source parent-ev)))
             (is (= :fx-dispatch-later (:source child-ev))
-                ":dispatch-later fx stamped :source :fx-dispatch-later on the deferred dispatch (rf2-ejtpd)")))
+                ":dispatch-later fx stamped :source :fx-dispatch-later on the deferred dispatch")))
         (finally (rf/unregister-listener! :trace ::rec))))))

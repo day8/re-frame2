@@ -1,7 +1,7 @@
 (ns re-frame.trace-listener-test
-  "Spec 009 — public trace listener contract + delivery semantics (rf2-h5by).
+  "Spec 009 — public trace listener contract + delivery semantics.
 
-  Pins each contract claim the post-rf2-j7kv reconcile narrowed:
+  Pins each contract claim:
 
     1. `register-listener!` is 2-arity (no opts). Returns the key.
     2. `unregister-listener!` returns nil and the listener stops receiving events.
@@ -20,14 +20,12 @@
     7. Production elision is gated on `re-frame.interop/debug-enabled?`:
        `emit!` and the user-facing listener emit path are wrapped in the
        compile-time gate so Closure DCE strips them in `:advanced` builds
-       with `goog.DEBUG=false`. Mirror of `trace-buffer-rides-debug-flag`.
+       with `goog.DEBUG=false`.
     8. Re-registration with the same key replaces; only the last handler
-       fires for that key. (Already pinned in trace-listener-lifecycle —
-       not duplicated here.)
+       fires for that key. (Pinned by `trace-listener-lifecycle` in
+       `trace_test.clj` — not duplicated here.)
 
-  JVM-only by intent; the listener API is platform-agnostic.
-
-  Per bead rf2-h5by."
+  JVM-only by intent; the listener API is platform-agnostic."
   (:require [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -37,7 +35,7 @@
             [re-frame.flows :as rf.flows]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace :as rf.trace]
-            ;; rf2-qwm0a — load the tooling sibling so the late-bind
+            ;; Load the tooling sibling so the late-bind
             ;; hooks behind the listener API resolve.
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
@@ -52,7 +50,7 @@
   (re-frame.trace.tooling/clear-trace-rings!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
-  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
+  ;; EP-0002: `init!` does not synthesise `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
@@ -78,11 +76,11 @@
 
 ;; ---- 1. register-listener! arity + return value ---------------------------
 
-;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
+;; ---- Posture: dev-only, declared by `^:requires-debug` ---------------------
 ;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
 ;; no-op, so there is no semantic residue to run under that posture, and a
-;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
-;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
+;; `(when interop/debug-enabled? ...)` split would leave EMPTY deftests
+;; reporting green.  Every deftest
 ;; below is therefore TAGGED, and the production-gate lane skips the tag rather
 ;; than the file: the namespace is still LOADED there, so a load-time failure
 ;; under the gate still reddens the job, and an untagged new deftest joins that
@@ -146,7 +144,7 @@
 
 (deftest ^:requires-debug in-cascade-emits-land-in-the-ring
   (testing "every IN-CASCADE listener event also appears in the frame's ring
-            (frameless emits ride the live stream only — per B3 ruling rf2-g1b2m).
+            (frameless emits ride the live stream only — per B3).
             For a pure dispatch-sync where all emits carry the cascade's
             `:dispatch-id`, the ring should mirror the listener stream."
     (let [seen (atom [])]
@@ -258,22 +256,20 @@
 
 (deftest ^:requires-debug emit-rides-debug-flag
   (testing "the listener-emission body is wrapped in interop/debug-enabled?"
-    ;; Mirror of trace-buffer-rides-debug-flag in trace_buffer_test: the
-    ;; production-elision contract is that no listener invocation, event-map
+    ;; The production-elision contract is that no listener invocation, event-map
     ;; allocation, or buffer push happens when the flag is false at compile
     ;; time. We assert the source contains the gate at the right call sites;
     ;; combined with the `:elision-probe` build (Spec 009 §Production-elision
     ;; verification) that exercises the surface in production, this protects
     ;; the elision contract.
     ;;
-    ;; Source is read via the CLASSPATH RESOURCE, not a cwd-relative path
-    ;; (rf2-55j4s3). The earlier `(slurp "src/re_frame/trace.cljc")` assumed
-    ;; the JVM cwd was `implementation/core/` (the canonical per-artefact
-    ;; gate, which CI runs); under the combined `implementation/deps.edn`
-    ;; `:test` alias the cwd is `implementation/` and the file lives at
-    ;; `core/src/...`, so the relative slurp threw FileNotFoundException.
-    ;; `io/resource` finds `re_frame/trace.cljc` on the classpath regardless
-    ;; of cwd.
+    ;; Source is read via the CLASSPATH RESOURCE, not a cwd-relative path:
+    ;; the JVM cwd is `implementation/core/` under the canonical per-artefact
+    ;; gate (which CI runs) but `implementation/` under the combined
+    ;; `implementation/deps.edn` `:test` alias, where the file lives at
+    ;; `core/src/...`, so a relative `(slurp "src/re_frame/trace.cljc")` would
+    ;; throw FileNotFoundException there. `io/resource` finds
+    ;; `re_frame/trace.cljc` on the classpath regardless of cwd.
     (let [res (io/resource "re_frame/trace.cljc")
           _   (assert res
                       (str "emit-rides-debug-flag cannot locate "
@@ -285,9 +281,9 @@
       (is (re-find #"\(defn-? emit-error![\s\S]*?interop/debug-enabled\?" src)
           "emit-error! body is gated on interop/debug-enabled?"))))
 
-;; ---- rf2-61iu: clear-listeners! direct contract pin ----------------------
+;; ---- clear-listeners! direct contract pin --------------------------------
 ;;
-;; Per test-coverage-review-2026-05-12 P3-21: every fixture above calls
+;; Every fixture above calls
 ;; `(rf.trace.tooling/clear-listeners!)`, but no deftest pins the contract directly.
 ;; This test exercises the documented behaviour: clear drops every
 ;; registered listener; a subsequent emission lands on NONE of them;
@@ -350,23 +346,20 @@
     (is (nil? (rf.trace.tooling/clear-listeners!))
         "clear-listeners! is a side-effecting nil-returning fn")))
 
-;; ---- unknown listener stream — canonical thrown-error shape (rf2-cl48e2) ---
+;; ---- unknown listener stream — canonical thrown-error shape ----------------
 ;;
-;; Pre-fix, `unknown-listener-stream!` rolled its own ex-info carrying the
-;; NON-canonical `:rf/where` slot (the ONLY `:rf/where` site in the corpus —
-;; canonical is bare `:where`) with a runtime KEYWORD value, omitted
-;; `:recovery`, and bypassed `error/throw-error!`. A consumer reading
-;; `(:where (ex-data e))` got nil only here. The fix routes through the
-;; canonical builder so the thrown ex-data carries `:rf.error/id` +
-;; bare `:where` (the `'rf/<surface>` SYMBOL, not the old `:rf/where`
-;; keyword-valued slot) + `:recovery` + `:reason`, like every other
-;; framework throw (Spec 009 §The thrown-error shape).
+;; `unknown-listener-stream!` routes through the canonical builder
+;; (`error/throw-error!`), so the thrown ex-data carries `:rf.error/id` +
+;; bare `:where` (the `'rf/<surface>` SYMBOL) + `:recovery` + `:reason`, like
+;; every other framework throw (Spec 009 §The thrown-error shape). A
+;; hand-rolled ex-info with a NON-canonical, keyword-valued `:rf/where` slot
+;; would leave a consumer reading `(:where (ex-data e))` with nil.
 
 (deftest ^:requires-debug unknown-listener-stream-carries-canonical-thrown-error-shape
   (testing "an unknown stream throws the canonical thrown-error shape:
-            bare :where holding the 'rf/<surface> SYMBOL (NOT the retired
-            :rf/where keyword-valued slot), plus :rf.error/id / :recovery /
-            :reason (rf2-cl48e2)"
+            bare :where holding the 'rf/<surface> SYMBOL (NOT a
+            non-canonical :rf/where keyword-valued slot), plus :rf.error/id /
+            :recovery / :reason"
     (doseq [[verb-fn where-sym] [[#(rf/register-listener! :bogus ::k (fn [_]))
                                   'rf/register-listener!]
                                  [#(rf/unregister-listener! :bogus ::k)
@@ -381,11 +374,11 @@
         (is (= where-sym (:where data))
             ":where is the bare canonical slot holding the 'rf/<surface> symbol")
         (is (symbol? (:where data))
-            ":where value is a symbol (not the old runtime-keyword)")
+            ":where value is a symbol (not a runtime keyword)")
         (is (not (contains? data :rf/where))
-            "the retired non-canonical :rf/where slot is GONE")
+            "there is no non-canonical :rf/where slot")
         (is (= :fix-registration (:recovery data))
-            ":recovery names the disposition (was omitted pre-fix)")
+            ":recovery names the disposition")
         (is (string? (:reason data)) ":reason is a human sentence")
         ;; Spec 009 §The thrown-error shape: message LEADS with a human
         ;; sentence and TRAILS with the [:rf.error/<id>] greppability token —
@@ -397,23 +390,24 @@
         (is (= #{:trace :epoch} (:valid data))
             ":valid preserves the closed vocabulary")))))
 
-;; ---- the retired always-on streams (rf2-kuky.69) ---------------------------
+;; ---- :events / :errors are not listener streams ----------------------------
 ;;
-;; `:events` / `:errors` LEFT the public `register-listener!` vocabulary: they
-;; were a second, fail-open production door — unprojected, raw `:exception`, no
-;; frame policy, fanned across every frame — beside the projected door Spec 015
-;; calls normal. Independent corpus observation regardless of a frame's policy
-;; is WITHDRAWN as a public primitive; production observation is
-;; `register-observability-sink!` against a frame's `:observability` policy or
-;; the `(rf/configure! {:observability …})` process default. The substrates
-;; survive as the implementation-tier registries `re-frame.event-emit` /
-;; `re-frame.error-emit` (exercised directly all over this test tree).
+;; `:events` / `:errors` are NOT in the public `register-listener!`
+;; vocabulary: a raw always-on stream would be a second, fail-open production
+;; door — unprojected, raw `:exception`, no frame policy, fanned across every
+;; frame — beside the projected door Spec 015 calls normal. There is no public
+;; primitive for corpus observation regardless of a frame's policy; production
+;; observation is `register-observability-sink!` against a frame's
+;; `:observability` policy or the `(rf/configure! {:observability …})` process
+;; default. The always-on substrates are the implementation-tier registries
+;; `re-frame.event-emit` / `re-frame.error-emit` (exercised directly all over
+;; this test tree).
 
 (deftest ^:requires-debug retired-always-on-streams-are-unknown-to-the-facade
-  (testing "rf2-kuky.69 — `:events` and `:errors` are no longer members of the
-            closed vocabulary, so both verbs refuse them exactly as they refuse
-            any other unknown stream, and the refusal names the TWO surviving
-            raw dev streams"
+  (testing "`:events` and `:errors` are not members of the closed
+            vocabulary, so both verbs refuse them exactly as they refuse any
+            other unknown stream, and the refusal names the TWO raw dev
+            streams"
     (doseq [stream  [:events :errors]
             verb-fn [#(rf/register-listener! % ::k (fn [_]))
                      #(rf/unregister-listener! % ::k)]]
@@ -424,7 +418,7 @@
             (str stream " is refused by the facade"))
         (is (= :rf.error/unknown-listener-stream (:rf.error/id data))
             (str stream " throws the unknown-listener-stream category"))
-        (is (= stream (:stream data)) ":stream names the retired member")
+        (is (= stream (:stream data)) ":stream names the refused member")
         (is (= #{:trace :epoch} (:valid data))
             ":valid is the two-member raw dev vocabulary")
         (is (not (contains? (:valid data) :events))
@@ -433,8 +427,8 @@
             ":errors is not in the vocabulary")))))
 
 (deftest ^:requires-debug surviving-streams-still-register
-  (testing "rf2-kuky.69 shrank the vocabulary; it did not disturb the two
-            members that remain. `:trace` registers and unregisters; `:epoch`
+  (testing "the two members of the vocabulary are accepted. `:trace`
+            registers and unregisters; `:epoch`
             no-ops to nil when the optional artefact is absent (and returns its
             id when present) rather than throwing."
     (rf.trace.tooling/clear-listeners!)
@@ -445,11 +439,11 @@
     ;; `:epoch` returns its id when `day8/re-frame2-epoch` is on the
     ;; classpath and degrades to nil when it is absent. Which of the two is
     ;; the classpath's business, not this test's — what is pinned here is
-    ;; that `:epoch` is STILL A MEMBER, so it does not throw the way the two
-    ;; retired streams now do.
+    ;; that `:epoch` IS A MEMBER, so it does not throw the way `:events` /
+    ;; `:errors` do.
     (is (not= ::threw
               (try (rf/register-listener! :epoch ::ep (fn [_]))
                    (catch clojure.lang.ExceptionInfo _ ::threw)))
-        ":epoch is still a member — it degrades or registers, it never throws")
+        ":epoch is a member — it degrades or registers, it never throws")
     (rf/unregister-listener! :epoch ::ep)))
 

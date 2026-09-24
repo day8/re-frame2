@@ -1,20 +1,20 @@
 (ns re-frame.elision-multi-owner-cljs-test
-  "rf2-wdm1vg — the per-frame elision registry is a MULTI-OWNER claim registry:
+  "The per-frame elision registry is a MULTI-OWNER claim registry:
   each axis slot maps a path to the SET of owner identities that claim it, and a
   path is redacted while ANY owner claims it, pruned only when the LAST owner
   drops.
 
   The correctness property this pins: two INDEPENDENT owners on the SAME path
-  UNION, and removing one leaves the other intact. Before the fix the registry
-  stored one owner per path, so a second owner's claim either overwrote the
-  first (then deleted it on teardown) or was silently ignored — a source-scoped
-  clear / subsystem teardown could un-redact a path another owner still
-  classifies (a fail-open on the AI-egress privacy boundary).
+  UNION, and removing one leaves the other intact. A registry storing one owner
+  per path would let a second owner's claim either overwrite the first (then
+  delete it on teardown) or be silently ignored — a source-scoped clear /
+  subsystem teardown could un-redact a path another owner still classifies (a
+  fail-open on the AI-egress privacy boundary).
 
   The cross-family proofs (effect + route / flow / machine / resource on the same
   path) live in each family's own test suite; this core suite pins the effect
   path + the pure core operations (`add-claims` / `remove-claims` /
-  `remove-owner` / `replace-owner-claims`) + the rf2-uhk9ko
+  `remove-owner` / `replace-owner-claims`) + the
   rejected-candidate pin (a classification riding a schema-rejected
   transition never installs).
 
@@ -26,7 +26,7 @@
             [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
             [re-frame.privacy :as rf.privacy]
-            ;; rf2-uhk9ko: the rejected-candidate pin below needs the schemas
+            ;; The rejected-candidate pin below needs the schemas
             ;; artefact loaded (reg-app-schema + the Malli validator hooks).
             [re-frame.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -84,7 +84,7 @@
     ;; subsystem teardown (route-leave) — the effect claim MUST survive
     (drop-subsystem! :sensitive-declarations)
     (is (= #{{:source :effect}} (get (rf.elision/sensitive-declarations) [:user :token]))
-        "the effect claim survives the subsystem teardown (the fix)")
+        "the effect claim survives the subsystem teardown")
     (is (= sentinel (get-in (wire) [:user :token]))
         "the path is STILL redacted after the subsystem left — the effect owns it")
     ;; now clear the effect (the sole remaining owner) — the path un-classifies
@@ -100,8 +100,8 @@
   (testing "the REVERSE order: a subsystem claims first, an effect SET on the
             same path UNIONS (it is neither ignored nor a clobber), and the
             effect's source-scoped CLEAR leaves the subsystem claim standing —
-            the path stays redacted (the reverse-order fail-open the old
-            single-owner registry hit)"
+            the path stays redacted (the reverse-order fail-open a
+            single-owner registry would hit)"
     (claim-subsystem! :sensitive-declarations [[:user :token]])
     (rf/reg-event :classify-token
       (fn [{:keys [db]} _]
@@ -146,19 +146,18 @@
           "the marker carries a stable provenance keyword derived from the owners"))))
 
 ;; ===========================================================================
-;; (2) rejected candidate — in-band effect claims never install (rf2-uhk9ko)
+;; (2) rejected candidate — in-band effect claims never install
 ;; ===========================================================================
 ;;
-;; The former `restore-elision-slot` rollback-overlay tests are deleted with
-;; the fn: under validate-before-install a schema-rejected candidate is
-;; discarded BEFORE any container write, so an in-band classification effect
-;; on a rejected event simply never installs (pinned live below), and there
-;; is no rollback overlay to unit-test.
+;; Under validate-before-install a schema-rejected candidate is discarded
+;; BEFORE any container write, so an in-band classification effect on a
+;; rejected event simply never installs (pinned live below), and there is no
+;; rollback overlay to unit-test.
 
 (deftest rejected-candidate-classification-never-installs
   (testing "a classification effect riding a schema-REJECTED transition never
             reaches the elision registry — the candidate (db + runtime-db
-            registry write) is discarded whole, pre-install (rf2-uhk9ko)"
+            registry write) is discarded whole, pre-install"
     (rf/reg-app-schema [:n] [:int])
     (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed])

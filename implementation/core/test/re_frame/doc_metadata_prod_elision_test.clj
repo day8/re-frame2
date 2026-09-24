@@ -1,5 +1,5 @@
 (ns re-frame.doc-metadata-prod-elision-test
-  "Per rf2-9wwkcm: pure-documentation registration metadata (`:doc`)
+  "The pure-documentation registration metadata (`:doc`)
   production-elision contract (Spec 001 §Production elision contract).
 
   `:doc` is the one PURE-documentation registration-metadata key — zero
@@ -24,7 +24,7 @@
   `rf.interop/debug-enabled?` and the bundle grep pins that the dev `:doc`
   string DCEs. This file pins the SEMANTIC handler-meta contract.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   The PROD half of this contract — `:doc` stripped, load-bearing keys
   retained, the elidable set closed to `#{:doc}` — is posture-independent
@@ -33,7 +33,7 @@
   get STRONGER, not weaker: the `with-redefs` models the gate in the dev
   lane, while the prod lane has the load-time flag genuinely off, so the
   same assertion is re-run against the real thing. Note this is NOT the
-  vacuous class-4 shape (a negative about a wholesale-elided key): `:doc`
+  vacuous shape of a negative about a wholesale-elided key: `:doc`
   is only absent here because `register!` stripped it from a map the caller
   really did supply, and `doc-retained-in-handler-meta-under-enabled-debug-
   gate` in the dev lane proves the same call site retains it when the gate
@@ -42,8 +42,8 @@
   The DEV half — `:doc` RETAINED for tooling / agent inspection, and
   `strip-pure-documentation`'s dev identity — is a claim about the gate
   being ON. Under `-Dre-frame.debug=false` there is nothing to retain, by
-  design, so those assertions are kept verbatim inside a
-  `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`."
+  design, so those assertions sit inside a
+  `(when rf.interop/debug-enabled? …)` arm."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
@@ -58,7 +58,7 @@
 ;; ---- runtime strip: :doc absent from handler-meta in prod ---------------
 
 (deftest doc-stripped-from-handler-meta-under-disabled-debug-gate
-  (testing "Per rf2-9wwkcm: under `:advanced + goog.DEBUG=false` (modelled
+  (testing "Under `:advanced + goog.DEBUG=false` (modelled
             as `with-redefs [rf.interop/debug-enabled? false]`) `:doc` is
             stripped from the stored registration metadata, so
             `(rf/handler-meta ...)` carries no `:doc` in production."
@@ -77,13 +77,13 @@
             ":tags retained in prod (runtime: containment subs / invalidation)")))))
 
 (deftest doc-retained-in-handler-meta-under-enabled-debug-gate
-  (testing "Per rf2-9wwkcm: the dev posture (default `rf.interop/debug-enabled?`
+  (testing "The dev posture (default `rf.interop/debug-enabled?`
             = true) retains `:doc` for tooling / agent inspection."
     (rf/reg-event :rf2-9wwkcm/dev-event
                      {:doc "kept in dev"}
                      (fn [{:keys [db]} _] {:db db}))
     (let [meta (rf/handler-meta {:source :store :kind :event :id :rf2-9wwkcm/dev-event})]
-      ;; PRODUCTION WITNESS (rf2-d2841). The dev claim below is about a key
+      ;; PRODUCTION WITNESS. The dev claim below is about a key
       ;; the gate elides, so guarded alone it would leave this deftest
       ;; executing NOTHING under `-Dre-frame.debug=false`. The always-on
       ;; half is that the doc-bearing metadata-map ARITY still registers a
@@ -98,9 +98,9 @@
       (is (= {:db {:seen true}}
              ((:handler-fn meta) {:db {:seen true}} [:rf2-9wwkcm/dev-event]))
           "the registered handler is the one the call site supplied")
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture
-      ;; split). `:doc` is pure-documentation metadata, stripped at the
-      ;; `register!` chokepoint under the production gate.
+      ;; Dev-instrumentation arm (see ns docstring §Posture split). `:doc`
+      ;; is pure-documentation metadata, stripped at the `register!`
+      ;; chokepoint under the production gate.
       (when rf.interop/debug-enabled?
         (is (= "kept in dev" (:doc meta))
             ":doc retained in dev for tooling / agent inspection")))))
@@ -108,7 +108,7 @@
 ;; ---- universality: every reg-* surface funnels through register! --------
 
 (deftest doc-stripped-uniformly-across-reg-surfaces
-  (testing "Per rf2-9wwkcm: the strip lives at the single `register!`
+  (testing "The strip lives at the single `register!`
             chokepoint, so it covers EVERY reg-* surface uniformly — subs,
             fx, cofx, … not just events."
     (with-redefs [rf.interop/debug-enabled? false]
@@ -131,7 +131,7 @@
 ;; ---- the strip helper, in isolation -------------------------------------
 
 (deftest strip-pure-documentation-helper-semantics
-  (testing "Per rf2-9wwkcm: `strip-pure-documentation` drops `:doc` (and
+  (testing "`strip-pure-documentation` drops `:doc` (and
             only the pure-documentation keys) in prod, and is an identity
             in dev. A non-map passes through untouched."
     (with-redefs [rf.interop/debug-enabled? false]
@@ -143,28 +143,28 @@
           "prod: doc-only map strips to empty")
       (is (nil? (rf.registrar/strip-pure-documentation nil))
           "non-map (nil) passes through"))
-    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture
-    ;; split). "Identity in dev" is a claim about the gate being ON;
-    ;; under `-Dre-frame.debug=false` the helper is the strip, by design.
+    ;; Dev-instrumentation arm (see ns docstring §Posture split).
+    ;; "Identity in dev" is a claim about the gate being ON; under
+    ;; `-Dre-frame.debug=false` the helper is the strip, by design.
     (when rf.interop/debug-enabled?
       (is (= {:doc "x" :schema :int}
              (rf.registrar/strip-pure-documentation {:doc "x" :schema :int}))
           "dev: full map retained (identity)"))))
 
-;; Note (rf2-tfiutq): the `reg-machine` LITERAL opts-map `:doc` elision lands
-;; here too — but the runtime handler-meta strip rides the SAME single
+;; Note: the `reg-machine` LITERAL opts-map `:doc` elision belongs with this
+;; contract too — but the runtime handler-meta strip rides the SAME single
 ;; `register!` chokepoint exercised by `doc-stripped-uniformly-across-reg-
 ;; surfaces` above, and the machine surface needs `day8/re-frame2-machines` on
 ;; the classpath (absent from this core artefact's `:test` deps). The semantic
 ;; strip for `reg-machine` opts therefore lives in the machines artefact
 ;; (`re-frame.machine-doc-opts-prod-elision-test`), and the CLJS-bundle `:doc`
-;; STRING absence — the bytes the macro's new `gate-doc-arg` routing DCEs — is
+;; STRING absence — the bytes the macro's `gate-doc-arg` routing DCEs — is
 ;; pinned by the elision probe (`rf2-tfiutq-machine-opts-doc-sentinel`).
 
 ;; ---- classification: the elidable set is closed to :doc -----------------
 
 (deftest pure-documentation-keys-is-closed-to-doc
-  (testing "Per rf2-9wwkcm / Spec 001 §Production elision contract: the
+  (testing "Per Spec 001 §Production elision contract: the
             elidable (pure-documentation) set is exactly `#{:doc}`. Every
             other standard registration-metadata key is load-bearing in
             production and MUST NOT be in this set."

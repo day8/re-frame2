@@ -1,17 +1,17 @@
 (ns re-frame.dry-run-effect-sink-cljs-test
-  "rf2-j538f7.39 — the dry-run EFFECT SINK is STRUCTURALLY unable to execute
+  "The dry-run EFFECT SINK is STRUCTURALLY unable to execute
   an effect. `re-frame.fx/*effect-sink*` intercepts at the SINGLE universal
   effect executor (`do-fx`), BEFORE `handle-one-fx`'s override resolution /
   reserved-fx dispatch / user-handler invoke, so binding it makes a
   `dispatch-sync` RECORD every source-ordered `[fx-id args]` and run NO fx
   body — with no registrar enumeration.
 
-  These are the adversarial regressions for the two live escape paths the
-  bead confirmed (frame-image / inline fx absent from the process-global
+  These are adversarial tests for the two escape paths an enumeration-based
+  dry-run would miss (frame-image / inline fx absent from the process-global
   `(rf/registrations {:source :store :kind :fx})`, and the reject-tier reserved fx core strips
-  `:fx-overrides` for and runs the real body). Every test here FAILS on
-  current `main` (no sink → the real fx body executes) and passes with the
-  sink. `.cljc` ending `-cljs-test` rides `npm run test:cljs` AND
+  `:fx-overrides` for and runs the real body). Each would fail without the
+  sink (the real fx body executes); the positive controls show the bodies
+  run when it is unbound. `.cljc` ending `-cljs-test` rides `npm run test:cljs` AND
   `clojure -M:test`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -30,7 +30,7 @@
                                             :ambient-frame nil}))
 
 ;; ===========================================================================
-;; AC1 — ESCAPE PATH #1 (frame-image / inline fx absent from the process-
+;; ESCAPE PATH #1 (frame-image / inline fx absent from the process-
 ;; global registrar): the image-only inline fx does NOT execute under the
 ;; sink; exactly one `[fx-id args]` row is recorded. Positive control proves
 ;; the fx WOULD fire without the sink.
@@ -71,7 +71,7 @@
            what suppresses it"))))
 
 ;; ===========================================================================
-;; AC2 — ESCAPE PATH #2 (reject-tier reserved fx). A dry-run RECORDS each
+;; ESCAPE PATH #2 (reject-tier reserved fx). A dry-run RECORDS each
 ;; reject-tier entry but NEVER invokes the real body. The three registrar-
 ;; resolved ids (spawn / destroy / with-nav-token) + one ordinary custom
 ;; control get a sentinel body via reg-fx; the two reserved-table flow ids
@@ -93,8 +93,7 @@
         ;; FN form (no source-coord capture): these OVERRIDE framework
         ;; reserved fx ids (machines spawn/destroy, routing with-nav-token)
         ;; — the override must REPLACE the framework's source-store slot,
-        ;; not collide as a cross-ns duplicate at default-image assembly
-        ;; (rf2-h1vqa4).
+        ;; not collide as a cross-ns duplicate at default-image assembly.
         (rf.fx/reg-fx id (record! id)))
       (rf/reg-event :rt/go
         (fn [{:keys [db]} _] {:db (assoc db :ran true) :fx emitted}))
@@ -109,7 +108,7 @@
             "every emitted fx recorded, source-ordered, incl. the reject-tier
              reserved ids"))
       ;; POSITIVE CONTROL. Resolve via the REGISTRAR-ATOM path — an
-      ;; engine-seated, generation-less frame (rf2-h1vqa4): the reserved
+      ;; engine-seated, generation-less frame: the reserved
       ;; machine fx ids ride the framework-STANDARDS pool inside a sealed
       ;; image generation (EP-0026 §Framework standards), so a test
       ;; re-registration cannot shadow them there; the registrar path is
@@ -160,7 +159,7 @@
           (rf.late-bind/set-fn! :flows/clear-flow old-clear))))))
 
 ;; ===========================================================================
-;; AC3 — two frames whose generations resolve the SAME fx id to DIFFERENT
+;; Two frames whose generations resolve the SAME fx id to DIFFERENT
 ;; bodies. Dry-run targets the requested frame, invokes NEITHER body, records
 ;; the requested frame's entry, and does not depend on the process-global
 ;; registration union (neither body is globally registered).
@@ -198,7 +197,7 @@
              image, independent of the process-global registration union")))))
 
 ;; ===========================================================================
-;; AC6 — :would-fire-effects is COMPLETE and SOURCE-ORDERED, and an escaped
+;; :would-fire-effects is COMPLETE and SOURCE-ORDERED, and an escaped
 ;; external-effect sentinel stays untouched even though the tentative :db
 ;; committed (the sink runs AFTER commit but skips every fx body).
 ;; ===========================================================================
@@ -234,12 +233,12 @@
             ":would-fire-effects is COMPLETE and SOURCE-ORDERED")))))
 
 ;; ===========================================================================
-;; AC4 (structural, mechanism half) — interception happens ONCE at the effect
+;; Structural: interception happens ONCE at the effect
 ;; executor, NOT by inferring coverage from (rf/registrations {:source :store :kind :fx}). This pins
 ;; that an fx id that exists ONLY on the frame image (never in the global
-;; registrar) is STILL intercepted — the very inference the old Pair
-;; enumeration could not make. (The skills-side pin that dispatch-dry-run no
-;; longer calls (rf/registrations {:source :store :kind :fx}) lives in tests/runtime.)
+;; registrar) is STILL intercepted — an inference a registrar enumeration
+;; cannot make. (The skills-side pin that dispatch-dry-run does not call
+;; (rf/registrations {:source :store :kind :fx}) lives in tests/runtime.)
 ;; ===========================================================================
 
 (deftest sink-intercepts-without-registrar-enumeration

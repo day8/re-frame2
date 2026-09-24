@@ -1,13 +1,12 @@
 (ns re-frame.error-record-event-registration-redaction-cljs-test
-  "rf2-3x7nj.4.5 — the always-on error record `error-emit/dispatch-on-error!`
-  builds must apply the event REGISTRATION's own `:sensitive` marks to its
-  `:event` slot (EP-0015: event args are registration-owned). It ran only the
-  router's path-overlap / `redact-interceptor` scrub and the app-db-rooted
-  `elide-wire-value` walk, so `reg-event :login {:sensitive [[:password]]}`
-  throwing handed every corpus listener the password RAW — while the two
-  sibling channels for the same failure, the dev trace (`project-event-tags`)
-  and the frame's `:observability :errors` sink (`project-event-slot`), both
-  redacted it.
+  "The always-on error record `error-emit/dispatch-on-error!` builds applies
+  the event REGISTRATION's own `:sensitive` marks to its `:event` slot
+  (EP-0015: event args are registration-owned). The router's path-overlap /
+  `redact-interceptor` scrub and the app-db-rooted `elide-wire-value` walk
+  alone would let `reg-event :login {:sensitive [[:password]]}` throwing hand
+  every corpus listener the password RAW — while the two sibling channels for
+  the same failure, the dev trace (`project-event-tags`) and the frame's
+  `:observability :errors` sink (`project-event-slot`), both redact it.
 
   Producer-derived: a REAL throwing handler under a REAL sink route. The sink
   record is the control that proves the declaration is live for this failure,

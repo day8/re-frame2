@@ -1,11 +1,10 @@
 (ns re-frame.emit-substrate-test
   "Direct unit coverage for `re-frame.emit-substrate/make-listener-registry`.
 
-  Per the rf2-o7ayf audit (rf2-byut1 round-2 core review): the
-  substrate factory underpins BOTH `re-frame.event-emit` and
+  The substrate factory underpins BOTH `re-frame.event-emit` and
   `re-frame.error-emit` — bugs at this layer fan out across the
   always-on emit surface (Spec 009 §What IS available in production).
-  Higher-level tests caught downstream symptoms; this file locks the
+  Higher-level tests catch downstream symptoms; this file locks the
   contract directly.
 
   Coverage:

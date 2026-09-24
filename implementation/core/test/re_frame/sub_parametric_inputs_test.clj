@@ -1,6 +1,6 @@
 (ns re-frame.sub-parametric-inputs-test
-  "Tests for parametric subscription inputs — the two-function
-  `(reg-sub id input-fn computation-fn)` form (rf2-7brl74, EP
+  "Tests for parametric subscription inputs — the `{:inputs input-fn}`
+  form, `(reg-sub id {:inputs input-fn} computation-fn)` (EP
   docs/EP/EP-0004-subscription-inputs.md §Test Plan; Spec 006 §Subscription
   input producers).
 
@@ -37,7 +37,7 @@
             [re-frame.flows :as rf.flows]
             [re-frame.trace :as rf.trace]
             ;; load the tooling sibling so the late-bind hooks behind the
-            ;; public listener API resolve (rf2-qwm0a).
+            ;; public listener API resolve.
             [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
@@ -48,8 +48,8 @@
   (rf.schemas/clear-schemas-by-frame!)
   (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
-  ;; EP-0002 (rf2-jue6sp): `init!` no longer synthesises `:rf/default`,
-  ;; and ambient subscribe / dispatch now require a carried frame stamp.
+  ;; EP-0002: `init!` does not synthesise `:rf/default`,
+  ;; and ambient subscribe / dispatch require a carried frame stamp.
   ;; These parametric-input tests run against a single conventional app
   ;; frame, so register `:rf/default` explicitly and pin it as the
   ;; established scope for the whole body via `with-frame`.
@@ -74,7 +74,7 @@
     [errs #(rf/unregister-listener! :trace k)]))
 
 (defn- capture-error-records!
-  "The ALWAYS-ON counterpart of [[capture-errors!]] (rf2-d2841). Both
+  "The ALWAYS-ON counterpart of [[capture-errors!]]. Both
   `:rf.error/sub-input-fn-exception` and `:rf.error/sub-input-fn-bad-return`
   are PROMOTED categories — `rf.subs/emit-sub-input-fn-error!` fans them through
   `error-emit/emit-error-both!` — so their occurrence, sub-id and query-v are
@@ -119,7 +119,7 @@
       (is (not (contains? m :input-fn))))))
 
 (deftest producer-fn-inputs-register-input-kind-parametric
-  (testing "the two-function form registers :input-kind :parametric + :input-fn"
+  (testing "the `{:inputs input-fn}` form registers :input-kind :parametric + :input-fn"
     (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
     (rf/reg-sub :item/title
                 {:inputs (fn [[_ id]] [[:item/by-id id]])}
@@ -292,7 +292,7 @@
     (let [db {:items {:x {:title "Hi"}}}]
       (is (= "Hi" (rf/compute-sub [:item/title :x] db))))))
 
-;; ---- the realized-inputs cache shape (bead 3 reads this) ------------------
+;; ---- the realized-inputs cache shape -------------------------------------
 
 (deftest realized-inputs-stored-on-cache-entry
   (testing ":inputs on a parametric cache entry holds the REALIZED query-vectors
@@ -435,7 +435,7 @@
         ;; The retired `:<-` spelling, refused by name.
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"reg-sub-bad-args"
               (rf/reg-sub :bad2 :<- (fn [x _] x))))
-        ;; rf2-d2841 — `:rf.error/reg-sub-bad-args` is a bare
+        ;; `:rf.error/reg-sub-bad-args` is a bare
         ;; `rf.trace/emit-error!` in `subs.cljc` (no always-on leg), so the TRACE
         ;; half is dev-only. The LOUD half — the two `thrown-with-msg?` rows
         ;; above — is what a production build has, and it is unguarded.
@@ -458,7 +458,7 @@
         ;; compute-sub path.
         (is (nil? (rf/compute-sub [:boom] {:leaf 1}))
             "the sub recovers to nil when its input-fn throws")
-        ;; rf2-d2841 — `:where` rides the dev-trace tags only.
+        ;; `:where` rides the dev-trace tags only.
         (when rf.interop/debug-enabled?
           (is (some #(= :compute-sub (get-in % [:tags :where])) @errs)
               "the compute-sub path emitted :rf.error/sub-input-fn-exception"))
@@ -470,7 +470,7 @@
         (when rf.interop/debug-enabled?
           (is (some #(= :reactive (get-in % [:tags :where])) @errs)
               "the reactive path emitted :rf.error/sub-input-fn-exception"))
-        ;; ---- ALWAYS-ON (rf2-d2841): BOTH paths fanned a corpus-wide record
+        ;; ---- ALWAYS-ON: BOTH paths fanned a corpus-wide record
         ;;      naming the failing sub. "Emits loudly" is the claim; the
         ;;      always-on axis is where a production build hears it.
         (is (= 2 (count @recs))
@@ -498,16 +498,16 @@
         (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:leaf 1}}))
         (rf/dispatch-sync [:seed])
         (is (nil? (rf/subscribe-once [:bad-shape])))
-        ;; rf2-d2841 — `:where` / `:rf.sub/query-v` ride the dev-trace tags.
+        ;; `:where` / `:rf.sub/query-v` ride the dev-trace tags.
         (when rf.interop/debug-enabled?
           (let [wheres (set (map #(get-in % [:tags :where]) @errs))]
             (is (contains? wheres :compute-sub))
             (is (contains? wheres :reactive)))
           ;; The error carries the outer query-v + sub id.
           (is (some #(= [:bad-shape] (get-in % [:tags :rf.sub/query-v])) @errs)))
-        ;; ---- ALWAYS-ON (rf2-d2841): the record carries the query-vector
-        ;;      VERBATIM as its positional `:event` (raw identity per
-        ;;      #6441 / rf2-zwgqe), so production learns exactly which
+        ;; ---- ALWAYS-ON: the record carries the query-vector
+        ;;      VERBATIM as its positional `:event` (raw identity), so
+        ;;      production learns exactly which
         ;;      subscription was rejected — not merely that one was.
         (is (= 2 (count @recs))
             "both paths fanned an always-on :rf.error/sub-input-fn-bad-return record")
@@ -529,22 +529,16 @@
       (is (false? @body-ran)
           "the computation fn was NOT run with a silently-empty input set"))))
 
-;; ---- handler-detection robustness (rf2-280fmh) ----------------------------
+;; ---- handler-detection robustness ------------------------------------------
 ;;
-;; The fn-or-Var handler test replaced the original bare-`ifn?` parser, and
-;; it outlived the two-trailing-fn form it was introduced alongside: with
-;; that form retired (rf2-kuky.50) `handler?` still decides whether the ONE
-;; trailing arg is a computation fn, and still has to accept a Var.
-;; Downstream consumers (ssr / xray / pair-mcp) build
-;; subs through registration shapes the original parametric feature test
-;; did NOT cover — chiefly the meta-map-prefixed `(reg-sub id meta-map
-;; computation-fn)` form (ssr/core conformance corpora use exactly this),
-;; and Var-valued handlers. These lock that the parser classifies those
-;; shapes correctly: a meta-map is consumed as `:meta` (never mistaken for
-;; the first fn of a two-fn parametric form), and a Var passes `handler?`.
-;; This is the core-level gate that would have caught a real
-;; misclassification — the gap that made the parser the plausible (but
-;; ultimately not actual) suspect for the cross-artefact regressions.
+;; `handler?` (fn-or-Var, not bare `ifn?`) decides whether the ONE trailing
+;; arg is a computation fn, and has to accept a Var. Downstream consumers
+;; (ssr / xray / pair-mcp) build subs through registration shapes the
+;; parametric feature tests above do NOT cover — chiefly the meta-map-prefixed
+;; `(reg-sub id meta-map computation-fn)` form (ssr/core conformance corpora
+;; use exactly this), and Var-valued handlers. These lock that the parser
+;; classifies those shapes correctly: a meta-map is consumed as `:meta`, and a
+;; Var passes `handler?`.
 
 (deftest meta-map-prefixed-layer-1-classifies-as-db
   (testing "(reg-sub id meta-map computation-fn) — the meta-map is consumed as
@@ -555,7 +549,7 @@
       (is (= [] (:input-signals m)))
       (is (not (contains? m :input-fn))
           "a meta-map + single fn is NOT misread as input-fn + computation-fn")
-      ;; rf2-d2841 — `:doc` is PURE DOCUMENTATION, stripped by
+      ;; `:doc` is PURE DOCUMENTATION, stripped by
       ;; `rf.registrar/strip-pure-documentation` under -Dre-frame.debug=false. The
       ;; claim ("the meta-map was consumed as :meta, not as a handler") is
       ;; carried in both postures by the `:input-kind` / `:input-fn` rows above
@@ -575,7 +569,7 @@
       (is (= :static (:input-kind m)))
       (is (= [[:base]] (:input-signals m)))
       (is (not (contains? m :input-fn)))
-      ;; rf2-d2841 — pure-documentation strip; see the deftest above.
+      ;; Pure-documentation strip; see the deftest above.
       (when rf.interop/debug-enabled?
         (is (= "doubled" (:doc m)))))
     (rf/reg-event :seed-m2 (fn [{:keys [db]} _] {:db {:n 5}}))
@@ -597,15 +591,15 @@
     (is (= 42 (rf/subscribe-once [:vh])))))
 
 (deftest meta-map-prefixed-parametric-still-recognised
-  (testing "(reg-sub id meta-map input-fn computation-fn) — a meta-map BEFORE a
-            genuine two-fn parametric pair still classifies as :parametric"
+  (testing "(reg-sub id {:doc … :inputs input-fn} computation-fn) — a doc
+            beside a parametric `:inputs` fn classifies as :parametric"
     (rf/reg-sub :leaf2 (fn [db [_ id]] (get-in db [:by-id id])))
     (rf/reg-sub :p1 {:doc "parametric with meta" :inputs (fn [[_ id]] [[:leaf2 id]])}
                 (fn [[v] _] v))
     (let [m (sub-meta :p1)]
       (is (= :parametric (:input-kind m)))
       (is (fn? (:input-fn m)))
-      ;; rf2-d2841 — pure-documentation strip; see above.
+      ;; Pure-documentation strip; see above.
       (when rf.interop/debug-enabled?
         (is (= "parametric with meta" (:doc m)))))
     (rf/reg-event :seed-p1 (fn [{:keys [db]} _] {:db {:by-id {:a 99}}}))

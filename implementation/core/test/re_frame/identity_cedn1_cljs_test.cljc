@@ -191,9 +191,9 @@
              #inst "2026-06-10T00:00:00.000-00:00"))
        (is (= "t:2026-06-10T00:00:00.000Z"
               (rf.identity/canonical-bytes #inst "2026-06-10T00:00:00.000-00:00")))))
-  ;; --- CLJS js/Date instant encoding (rf2-orcbow point 4) ---
+  ;; --- CLJS js/Date instant encoding ---
   ;; The JVM instant tests above exercise the java.time path; CLJS js/Date
-  ;; encoding rides a SEPARATE branch (`.toISOString`) that can regress
+  ;; encoding rides a SEPARATE branch (`.toISOString`) that can break
   ;; independently, so it gets its own dedicated assertions. The exact
   ;; `t:...Z` millisecond-precision token, and the equivalent-instant
   ;; timezone-collapse property, are both pinned for the JS host.
@@ -272,9 +272,8 @@
 
 ;; ---- canonical projection: ordering is owned by canonical-bytes ----------
 ;;
-;; rf2-orcbow point 3. The bead asks whether `canonical` returns a
-;; deterministically-ordered readable projection, or merely an =-equal
-;; value. These tests PIN the actual contract: `canonical` returns an
+;; Does `canonical` return a deterministically-ordered readable projection,
+;; or merely an =-equal value? These tests PIN the contract: `canonical` returns an
 ;; =-equal, recursively-normalized value but does NOT reorder map/set entries
 ;; — ordering is owned EXCLUSIVELY by `canonical-bytes` (the byte-level
 ;; identity the equality contract is defined over, Conventions §Canonical
@@ -316,8 +315,8 @@
 
 ;; ---- duplicate canonical map keys (the host-value collision) -------------
 ;;
-;; rf2-orcbow point 1. Two DISTINCT host values can encode to the same
-;; CEDN-1 key bytes. The canonical adversarial case (the one the bead names)
+;; Two DISTINCT host values can encode to the same
+;; CEDN-1 key bytes. The canonical adversarial case
 ;; is JVM-only: a `java.util.Date` and a `java.time.Instant` for the SAME
 ;; instant are distinct host types AND distinct Clojure map keys (`=` does
 ;; not equate them), yet both render the identical `t:<utc>.SSSZ` token. A
@@ -333,7 +332,7 @@
 ;; therefore inherently a JVM phenomenon; the CLJS leg pins the cross-host
 ;; "same instant → one identity" facts instead (which hold on both hosts).
 ;;
-;; HARDENED (rf2-w9x5fv item 3) — the encoder now DETECTS the JVM collision:
+;; The encoder DETECTS the JVM collision:
 ;; `encode-map` (and the value-form `canonical`) compare the entries' canonical
 ;; key tokens and FAIL CLOSED with `:rf.error/non-edn-identity` on a duplicate,
 ;; rather than sorting by key bytes and emitting both colliding tokens. Both
@@ -362,7 +361,7 @@
              "Date and Instant are distinct keys (= does not equate them)")
          (is (= 2 (count dup-map))
              "the map carries two entries whose canonical key bytes collide"))
-       (testing "rf2-w9x5fv item 3: a duplicate canonical key FAILS CLOSED
+       (testing "a duplicate canonical key FAILS CLOSED
                  (Conventions §Map key canonicalization — duplicate canonical
                  keys are invalid and MUST be rejected before the value becomes
                  a cache key / route id / work id)"
@@ -385,14 +384,14 @@
          (is (= 1 (count (re-seq #"t:2026-06-10T00:00:00\.000Z"
                                  (rf.identity/canonical-bytes m)))))))))
 
-;; ---- rf2-eynsfe: the reserved tagged-instant canonical form --------------
+;; ---- the reserved tagged-instant canonical form -------------------------
 ;;
 ;; The canonical form of an instant is the reserved tagged tuple
 ;; [:rf.identity/instant "<RFC-3339 UTC millisecond text>"]. `canonical-bytes`
-;; is UNCHANGED — a host instant AND the tuple both emit `t:<text>`, a plain
-;; string stays `s:` — so the byte contract (and the frozen conformance
-;; fixture) is untouched, while `canonical` no longer collapses an instant to a
-;; bare string that aliases a look-alike string one level down. Laws + the
+;; emits `t:<text>` for a host instant AND the tuple alike, and `s:` for a
+;; plain string — so the byte contract (and the frozen conformance
+;; fixture) holds, while `canonical` never collapses an instant to a
+;; bare string that would alias a look-alike string one level down. Laws + the
 ;; fail-closed cases run on BOTH hosts via the `.cljc`; the JVM-only
 ;; Date-vs-Instant and sub-millisecond legs ride `#?(:clj …)`.
 

@@ -1,41 +1,41 @@
 (ns re-frame.subs-inline-normalization-cljs-test
-  "rf2-vxgfnd.219 — inline `:reg-sub` metadata is normalized through the SAME
-  registrar contract as public `reg-sub` (EP-0026 — neither looser nor stricter).
+  "Inline `:reg-sub` metadata is normalized through the SAME registrar
+  contract as public `reg-sub` (EP-0026 — neither looser nor stricter).
 
   `re-frame.subs/lower-inline-sub` (the `:image/lower-inline-sub` lowering an
-  image's inline `:reg-sub` descriptor runs) previously projected the raw
-  metadata map straight onto the runnable descriptor, bypassing the retired-key
-  guard, the classification validator, and the production `:doc` strip that
-  public `reg-sub` runs. This suite pins the parity: a retired `:spec` key
+  image's inline `:reg-sub` descriptor runs) applies the retired-key guard, the
+  classification validator, and the production `:doc` strip that public
+  `reg-sub` runs, rather than projecting the raw metadata map straight onto
+  the runnable descriptor. This suite pins the parity: a retired `:spec` key
   hard-errors on BOTH paths, a malformed `:sensitive` / `:large` declaration
   raises on BOTH, a valid declaration survives identically, production strips
   `:doc`, and the runtime-owned runnable slots win over any metadata that names
-  them. A mutation restoring the direct `(assoc metadata …)` fails these rows.
+  them. A mutation projecting the raw metadata directly (`(assoc metadata …)`)
+  fails these rows.
 
-  rf2-vxgfnd.257 — normalize ONCE, and thread the authored descriptor id +
-  normalized metadata through the REAL image assembly. The `.219` parity above
-  called the lowerer directly; a residual defect only surfaced through the
-  assembled artifact: image assembly kept the descriptor's ORIGINAL RAW
-  `:metadata`, so a production image still carried `[:metadata :doc]` alongside
-  the doc-stripped top level; and the lowering hardcoded a synthetic
-  `:rf.image/inline-sub` id, so a retired/unknown-key diagnostic could not name
-  the author's subscription. The `production-assembly-*` and
-  `retired-key-diagnostic-*` deftests below drive `re-frame.image` +
-  `re-frame.image-assembly/lower-inline-descriptor` (the runnable descriptor a
-  frame resolves — NOT a direct `lower-inline-sub` call) and fail if the raw
-  metadata merge returns or the authored id is dropped.
+  Normalize ONCE, and thread the authored descriptor id + normalized metadata
+  through the REAL image assembly. The parity rows above call the lowerer
+  directly; two defects would surface only through the assembled artifact:
+  image assembly keeping the descriptor's ORIGINAL RAW `:metadata`, so a
+  production image carried `[:metadata :doc]` alongside the doc-stripped top
+  level; and the lowering hardcoding a synthetic `:rf.image/inline-sub` id, so
+  a retired/unknown-key diagnostic could not name the author's subscription.
+  The `production-assembly-*` and `retired-key-diagnostic-*` deftests below
+  drive `re-frame.image` + `re-frame.image-assembly/lower-inline-descriptor`
+  (the runnable descriptor a frame resolves — NOT a direct `lower-inline-sub`
+  call) and fail on a raw metadata merge or a dropped authored id.
 
   `.cljc` — the normalizer is host-agnostic, so this runs under both
   `clojure -M:test` (JVM) and `npm run test:cljs` (node CLJS).
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   The parity this suite pins is overwhelmingly posture-independent: the retired
   `:spec` key, the malformed-classification rejection, the runtime-owned slots
   winning over hostile metadata, the namespaced-extension carve-out and the
   authored id reaching the diagnostic are all the same under
   `-Dre-frame.debug=false`. Only the `:doc`-RETAINED-IN-DEV rows are not — they
-  are the dev half of the strip contract, so they sit verbatim inside a
+  are the dev half of the strip contract, so they sit inside a
   `(when rf.interop/debug-enabled? …)` arm beside the production row that gives
   them their meaning.
 
@@ -107,7 +107,7 @@
 ;; ---- production `:doc` strip parity ---------------------------------------
 
 (deftest doc-stripped-in-production-retained-in-dev-on-inline-path
-  ;; rf2-d2841 — the retention half is dev-only by construction; kept verbatim.
+  ;; The retention half is dev-only by construction.
   (when rf.interop/debug-enabled?
     (testing "dev (default gate on) retains `:doc` for tooling / agent inspection"
       (let [desc (rf.subs/lower-inline-sub :norm/inline-doc {:doc "kept in dev"} body)]
@@ -141,12 +141,12 @@
       (is (= 7 (:myapp/analytics-id desc))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-vxgfnd.257 — through the REAL image assembly (not a direct lowerer call)
+;; Through the REAL image assembly (not a direct lowerer call)
 ;;
 ;; `assemble-sub` drives `re-frame.image` → the image's `:rf.image/inline`
 ;; descriptors → `image-assembly/lower-inline-descriptor`, i.e. the runnable
 ;; descriptor a frame actually resolves. These are the fixtures a mutation that
-;; restores the raw-metadata merge, or drops the authored id, must fail.
+;; merges the raw metadata, or drops the authored id, must fail.
 ;; ---------------------------------------------------------------------------
 
 (defn- assemble-sub
@@ -164,9 +164,9 @@
   (testing "the authored id survives assembly in every posture"
     (let [d (assemble-sub :counter/value {:doc "author note" :schema :int} body)]
       (is (= :counter/value (:id d)) "authored id survives assembly")
-      ;; rf2-d2841 — the two `:doc` rows are the dev half of the strip
+      ;; The two `:doc` rows are the dev half of the strip
       ;; contract; under -Dre-frame.debug=false the key is gone at source.
-      ;; Kept verbatim inside the arm, beside the production block below that
+      ;; They sit inside the arm, beside the production block below that
       ;; asserts the same two slots are EMPTY.
       (when rf.interop/debug-enabled?
         (is (= "author note" (:doc d)) "top-level :doc retained in dev")
@@ -191,7 +191,7 @@
       (let [d (assemble-sub :counter/note {:doc "only a note"} body)]
         (is (not (contains? d :doc)))
         (is (not (contains? (:metadata d) :doc)))
-        ;; rf2-d2841 — the row above is a negative over a map that has been
+        ;; The row above is a negative over a map that has been
         ;; dropped WHOLESALE, so on its own it cannot tell "metadata present
         ;; without :doc" from "metadata gone". Pin the drop itself, which is
         ;; what the deftest name actually claims (mirrors the cross-kind

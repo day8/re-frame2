@@ -1,28 +1,23 @@
 (ns re-frame.elision-pr-str-bytes-cljs-test
-  "rf2-2rtt6.135 — `re-frame.elision/pr-str-bytes` counts UTF-8 BYTES on BOTH
-  hosts.
+  "`re-frame.elision/pr-str-bytes` counts UTF-8 BYTES on BOTH hosts.
 
-  THE DEFECT this pins against. The helper was
+  The figure is PUBLISHED (every `:rf.size/large-elided` marker's `:bytes`
+  slot, which Spec-Schemas §`:rf/elision-marker` types as the `pr-str` byte
+  count and 009 §Size elision makes a per-field MUST) and it is READ as a
+  threshold (against `:rf.egress/threshold-bytes`, deciding whether an
+  undeclared string leaf fires `:rf.warning/large-value-unschema'd`). The
+  obvious CLJS spelling, `(count (pr-str v))`, counts UTF-16 CODE UNITS —
+  `count` on a CLJS string is `.-length` — which would give one figure two
+  rulers: the same app-db leaf could warn on the JVM and pass silently in the
+  browser, and a CLJS marker would under-report its payload by up to 3x — 4x
+  on astral.
 
-      #?(:clj  (count (.getBytes ^String (pr-str v) \"UTF-8\"))
-         :cljs (count (pr-str v)))
-
-  — bytes on the JVM, UTF-16 CODE UNITS in the browser, because `count` on a
-  CLJS string is `.-length`. One figure, two rulers. The figure is PUBLISHED
-  (every `:rf.size/large-elided` marker's `:bytes` slot, which Spec-Schemas
-  §`:rf/elision-marker` types as the `pr-str` byte count and 009 §Size elision
-  makes a per-field MUST) and it is READ as a threshold (against
-  `:rf.egress/threshold-bytes`, deciding whether an undeclared string leaf fires
-  `:rf.warning/large-value-unschema'd`). So the same app-db leaf could warn on
-  the JVM and pass silently in the browser, and a CLJS marker under-reported
-  its payload by up to 3x — 4x on astral.
-
-  WHY IT SURVIVED, and why the fixtures below look the way they do. Code units
-  and UTF-8 bytes agree EXACTLY for ASCII, so the wrong expression prints the
-  right number on an ASCII payload and a green suite never notices. AN
-  ASCII-ONLY TEST CANNOT SEE THIS BUG. The three fixtures are therefore chosen
-  so that all three have the SAME `pr-str` code-unit length (42) and THREE
-  DIFFERENT byte lengths:
+  Why the fixtures below look the way they do. Code units and UTF-8 bytes
+  agree EXACTLY for ASCII, so a code-unit count prints the right number on an
+  ASCII payload and a green suite never notices. AN ASCII-ONLY TEST CANNOT
+  SEE THE DIFFERENCE. The three fixtures are therefore chosen so that all
+  three have the SAME `pr-str` code-unit length (42) and THREE DIFFERENT byte
+  lengths:
 
   | fixture      | code units | code points | UTF-8 bytes | `pr-str` bytes |
   |--------------|-----------:|------------:|------------:|---------------:|
@@ -30,10 +25,10 @@
   | `em-dash-40` |         40 |          40 |         120 |            122 |
   | `astral-20`  |         40 |          20 |          80 |             82 |
 
-  Under the DEFECT all three answer 42. Under the fix they answer 42 / 122 / 82
-  — and `astral-20` additionally separates code POINTS from code units, so a
-  \"count code points instead\" mis-repair is caught too. `ascii-40` pins the
-  OPPOSITE direction: a repair that inflated unconditionally (a fixed
+  A code-unit count answers 42 for all three. A byte count answers 42 / 122 /
+  82 — and `astral-20` additionally separates code POINTS from code units, so
+  a \"count code points instead\" mis-repair is caught too. `ascii-40` pins
+  the OPPOSITE direction: a count that inflated unconditionally (a fixed
   multiplier, a mis-hinted encoder) reds there.
 
   DUAL-RUNTIME: `*_cljs_test.cljc` so both the shadow-cljs `:node-test` build
@@ -57,7 +52,7 @@
 ;; The discriminating fixture set.
 ;;
 ;; The two non-ASCII fixtures are built from EXPLICIT CODE POINTS rather than
-;; written as literal characters, deliberately. The bug is invisible to ASCII
+;; written as literal characters, deliberately. The difference is invisible to ASCII
 ;; payloads, so the fixtures cannot be ASCII -- but a literal astral character in
 ;; source is a surrogate PAIR that an editor, a re-encoding tool or a careless
 ;; normalisation pass can silently mangle into two lone halves, which would
@@ -84,7 +79,7 @@
   (testing "the fixture set separates code units, code points and bytes — if
             this deftest ever passed vacuously the rest of the file would prove
             nothing"
-    ;; Same code-unit length, so the DEFECTIVE expression answers identically
+    ;; Same code-unit length, so a code-unit count answers identically
     ;; for all three. This is the assertion that makes the file a real test
     ;; rather than three numbers that happen to be right.
     (is (= 40 (count ascii-40) (count em-dash-40) (count astral-20))
@@ -97,8 +92,8 @@
          so `(count (pr-str v))` cannot tell them apart")))
 
 (deftest pr-str-bytes-counts-utf8-bytes-not-code-units
-  (testing "rf2-2rtt6.135: UTF-8 bytes on BOTH hosts. Under the pre-fix `:cljs`
-            arm every one of these answered 42"
+  (testing "UTF-8 bytes on BOTH hosts. A code-unit count would answer 42
+            for every one of these"
     (is (= 42 (rf.elision/pr-str-bytes ascii-40))
         "ASCII: bytes and code units agree exactly — the opposite-direction pin")
     (is (= 122 (rf.elision/pr-str-bytes em-dash-40))
@@ -111,8 +106,8 @@
 
   (testing "the relationship, stated as the law rather than as three constants:
             UTF-8 bytes are NEVER FEWER than UTF-16 code units, and are STRICTLY
-            MORE for a non-ASCII payload. This is why the correction can only
-            ever TIGHTEN — no leaf that warned before can fall silent now"
+            MORE for a non-ASCII payload. This is why a byte count can only
+            ever TIGHTEN — no leaf a code-unit count warns on falls silent"
     (doseq [[label s] [["ascii" ascii-40] ["em-dash" em-dash-40] ["astral" astral-20]]]
       (is (>= (rf.elision/pr-str-bytes s) (count (pr-str s)))
           (str label ": bytes >= code units, always")))
@@ -121,7 +116,7 @@
     (is (> (rf.elision/pr-str-bytes astral-20) (count (pr-str astral-20)))
         "astral: STRICTLY more")
     (is (= (rf.elision/pr-str-bytes ascii-40) (count (pr-str ascii-40)))
-        "ascii: exactly equal — which is precisely why the defect failed OPEN")))
+        "ascii: exactly equal — which is precisely why a code-unit count fails OPEN")))
 
 (deftest pr-str-bytes-measures-the-printed-form
   (testing "the name says `pr-str`: the delimiters count, an embedded quote
@@ -146,11 +141,11 @@
     (fn [rt] (rf.elision/apply-classification-effects rt {:large (mapv vec large)}))))
 
 (deftest marker-publishes-utf8-bytes
-  (testing "rf2-2rtt6.135: `->marker`'s `:bytes` is the byte count Spec-Schemas
+  (testing "`->marker`'s `:bytes` is the byte count Spec-Schemas
             §`:rf/elision-marker` types it as, on both hosts"
     (let [body (:rf.size/large-elided (rf.elision/->marker em-dash-40 [:user :bio] {}))]
       (is (= 122 (:bytes body))
-          "the published figure is bytes; it read 42 on CLJS before the fix")
+          "the published figure is bytes; a code-unit count would read 42 on CLJS")
       (is (= :string (:type body)))
       (is (= [:user :bio] (:path body))))
     (let [body (:rf.size/large-elided (rf.elision/->marker astral-20 [:user :bio] {}))]
@@ -173,11 +168,11 @@
 ;; NOTE what is and is not being proven. Per Privacy.md the threshold is
 ;; ADVISORY, NOT A CAP, and 009's error-catalogue row records the recovery as
 ;; `:warned-and-replaced`: an over-threshold value at an UNDECLARED path fires
-;; the warning and then SHIPS UNCHANGED. So this correction cannot lose data —
-;; it can only make a diagnostic fire that should always have fired. The
+;; the warning and then SHIPS UNCHANGED. So counting bytes cannot lose data —
+;; it can only make a diagnostic fire that a code-unit count would miss. The
 ;; always-on assertions (the value rides through intact either way) are the
 ;; load-bearing ones and sit OUTSIDE the debug-gated arms, matching the posture
-;; split `elision_test.clj`'s ns docstring sets out (rf2-d2841): the warning is
+;; split `elision_test.clj`'s ns docstring sets out: the warning is
 ;; a dev-only `trace/emit!` site and is the threshold's ONLY observable, so
 ;; every assertion that reads it must be gated.
 ;; ---------------------------------------------------------------------------
@@ -191,8 +186,8 @@
   (filterv #(= :rf.warning/large-value-unschema'd (:operation %)) @traces))
 
 (deftest threshold-compares-utf8-bytes-on-both-hosts
-  (testing "rf2-2rtt6.135: a payload whose CODE-UNIT length is UNDER the
-            threshold but whose BYTE length is OVER it now warns. At a
+  (testing "a payload whose CODE-UNIT length is UNDER the
+            threshold but whose BYTE length is OVER it warns. At a
             threshold of 50 all three fixtures are 42 code units — under it —
             but em-dash is 122 bytes and astral is 82"
     (rf.elision/clear-warning-cache!)
@@ -200,14 +195,13 @@
           out    (rf.elision/elide-wire-value {:user {:bio em-dash-40}}
                                       {:rf.egress/threshold-bytes 50})]
       ;; ALWAYS-ON. Advisory, not a cap: the value returns verbatim whether or
-      ;; not it warned. A correction that started ELIDING here would be the
-      ;; actual defect.
+      ;; not it warned. ELIDING here would be a defect.
       (is (= em-dash-40 (get-in out [:user :bio]))
           "over-threshold undeclared values ship UNCHANGED — advisory, not a cap")
       (when rf.interop/debug-enabled?
         (let [warnings (unschema'd-warnings traces)]
           (is (= 1 (count warnings))
-              "122 bytes > 50 warns. Pre-fix on CLJS this measured 42 and was SILENT")
+              "122 bytes > 50 warns; a code-unit count would measure 42 and stay SILENT")
           (is (= [:user :bio] (get-in (first warnings) [:tags :path])))
           (is (= 122 (get-in (first warnings) [:tags :bytes]))
               "and the figure the warning reports is bytes")))
@@ -235,12 +229,12 @@
       (is (= ascii-40 (get-in out [:user :bio])))
       (when rf.interop/debug-enabled?
         (is (= [] (unschema'd-warnings traces))
-            "42 bytes < 50 stays silent, exactly as before the fix"))
+            "42 bytes < 50 stays silent"))
       (rf/unregister-listener! :trace ::under))))
 
 (deftest threshold-zero-still-disables-auto-detect
-  (testing "the correction did not disturb the documented `0 disables` arm —
-            no `pr-str-bytes` walk happens at all"
+  (testing "the documented `0 disables` arm — no `pr-str-bytes` walk
+            happens at all"
     (rf.elision/clear-warning-cache!)
     (let [traces (collect-traces! ::zero)
           out    (rf.elision/elide-wire-value {:user {:bio em-dash-40}}

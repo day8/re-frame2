@@ -1,8 +1,8 @@
 (ns re-frame.sub-topology-test
   "Tests for the `(re-frame.subs.tooling/sub-topology)` static
-  dependency-graph query (rf2-8nzo; JVM-aliased as `rf.subs/sub-topology`).
-  rf2-80mmlf demoted the `rf/sub-topology` facade alias — it is a tooling
-  surface, addressed through its owning `re-frame.subs.tooling` namespace.
+  dependency-graph query (JVM-aliased as `rf.subs/sub-topology`). There is
+  no `rf/sub-topology` facade alias — it is a tooling surface, addressed
+  through its owning `re-frame.subs.tooling` namespace.
   Per Spec 002 §The public registrar query API and
   Spec 006 §Subscription topology vs subscription tracking.
 
@@ -16,7 +16,7 @@
   `[]` for `:db`, the literal declared input QUERY-VECTORS (args preserved)
   for `:static`, and the `:parametric` keyword sentinel for an
   `input-fn` sub (whose realized edges depend on the concrete outer
-  query vector and are NOT statically enumerable — rf2-e3acps / the
+  query vector and are NOT statically enumerable — the
   parametric-subscription-inputs EP §Tooling).
 
   These tests exercise the contract end-to-end: empty registry,
@@ -28,7 +28,7 @@
   reports the static declared-input chain regardless of whether the resulting sub
   would resolve at runtime).
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   The topology's SHAPE — `:input-kind` discrimination, the literal `:inputs`
   query-vectors with their args, declaration order, the `:parametric`
@@ -43,8 +43,8 @@
   class as the registry-entry `:doc` covered by
   `re-frame.doc-metadata-prod-elision-test` and the `->interceptor*`
   `:source-coord`), so under the real gate the entry simply does not carry
-  them. Their assertions are kept verbatim inside a
-  `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841` — INCLUDING the
+  them. Their assertions sit inside a
+  `(when rf.interop/debug-enabled? …)` arm — INCLUDING the
   negative `no-doc-key-when-not-supplied`, which under the gate would pass
   because `:doc` is never present rather than because the registration
   omitted it."
@@ -130,9 +130,9 @@
 (deftest static-inputs-preserve-query-vector-args
   (testing ":static :inputs preserve per-input query-vector args (full query-vectors)"
     ;; The registration form is `{:inputs [[:upstream :some-arg]]}`; the static
-    ;; topology now reports the literal query-vector (args preserved),
+    ;; topology reports the literal query-vector (args preserved),
     ;; per Spec 002 §The public registrar query API row + Spec 006
-    ;; §Subscription topology (the rf2-e3acps reconciliation). Tools that
+    ;; §Subscription topology. Tools that
     ;; want the bare sub-id project with `(mapv first ...)`.
     (rf/reg-sub :upstream (fn [db [_ _arg]] (:n db)))
     (rf/reg-sub :downstream {:inputs [[:upstream :some-arg]]}
@@ -140,7 +140,7 @@
     (is (= [[:upstream :some-arg]] (:inputs ((rf.subs/sub-topology) :downstream)))
         "static inputs carry the full declared query-vector, args and all")))
 
-;; ---- parametric input-fn topology (rf2-e3acps) ---------------------------
+;; ---- parametric input-fn topology ----------------------------------------
 
 (deftest parametric-sub-reports-parametric-sentinel
   (testing "a parametric input-fn sub reports :input-kind :parametric / :inputs :parametric"
@@ -187,7 +187,7 @@
     ;; off the entry at all.
     (is (contains? (rf.subs/sub-topology) :n)
         "the sub is projected into the topology regardless of posture")
-    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). Source coords
+    ;; Dev-instrumentation arm (see ns docstring). Source coords
     ;; are reflection metadata, elided in production.
     (when rf.interop/debug-enabled?
       (let [entry ((rf.subs/sub-topology) :n)]
@@ -205,7 +205,7 @@
     ;; choked on the meta-map arity would fail here in either posture.
     (is (= :db (:input-kind ((rf.subs/sub-topology) :counter)))
         "the meta-map registration form registers an ordinary layer-1 sub")
-    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+    ;; Dev-instrumentation arm (see ns docstring).
     (when rf.interop/debug-enabled?
       (is (= "Counter sub — a layer-1 sub that reads :n from app-db."
              (:doc ((rf.subs/sub-topology) :counter)))))))
@@ -215,7 +215,7 @@
     ;; Don't surface a nil :doc — match the spec row's "keys present
     ;; when the registration carries them" semantics.
     (rf/reg-sub :n (fn [db _] (:n db)))
-    ;; rf2-d2841 — dev-instrumentation arm. A NEGATIVE about a key that is
+    ;; Dev-instrumentation arm. A NEGATIVE about a key that is
     ;; ELIDED WHOLESALE under `-Dre-frame.debug=false`: outside the arm it
     ;; would pass because `:doc` is never present, not because this
     ;; registration omitted it. Same false-green shape as a negative over an

@@ -1,12 +1,12 @@
 (ns re-frame.drain-emergency-rearm-test
-  "rf2-3x7nj.1.1 — a hard per-event error that escapes the drain must not
-  strand the events queued behind it.
+  "A hard per-event error that escapes the drain must not strand the events
+  queued behind it.
 
   A hard coeffect or chain-assembly error (`:rf.error/missing-required-cofx`,
   `:rf.error/unregistered-cofx`, an interceptor-override error …) is thrown out
   of `process-event!` and out of the drain: to the `dispatch-sync` caller, or
   uncaught on the host for an async drain. That throw is the pinned, loud
-  contract and it stays. What must not happen is the drain's panic path
+  contract. What must not happen is the drain's panic path
   (`drain-emergency-release!`) clearing `:scheduled?` with work still queued,
   because `ensure-drain-scheduled!` arms a drain only when it flips that flag —
   so the tail (the failing event's own `:fx` siblings included) would wait for

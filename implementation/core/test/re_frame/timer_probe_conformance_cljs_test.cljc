@@ -1,14 +1,13 @@
 (ns re-frame.timer-probe-conformance-cljs-test
-  "CONFORMANCE PROBE for the Managed-Effects nine-property inheritance claim
-  (rf2-zqefg3.6).
+  "CONFORMANCE PROBE for the Managed-Effects nine-property inheritance claim.
 
   `spec/Managed-Effects.md` §How new managed-effect surfaces inherit the
   contract asserts that ANY future managed surface can adopt all nine
   properties — and that property 9 (the uniform reply envelope) is a
   framework-wide law a brand-new async writer inherits. No SHIPPED family
-  proves this: each co-evolved with the contract. This suite proves it with
-  `re-frame.timer-probe` — a MINIMAL, TEST-ONLY managed-timer surface that is
-  the FIRST FRESH consumer of the zqefg3.1 reply substrate. If a new surface
+  proves this: each shares its shape with the contract. This suite proves it
+  with `re-frame.timer-probe` — a MINIMAL, TEST-ONLY managed-timer surface
+  that is a FRESH consumer of the shared reply substrate. If a new surface
   could NOT in fact inherit the nine properties cleanly, this suite would not
   compile / pass.
 
@@ -220,7 +219,7 @@
     (is (true?  (rf.timer-probe/suppress? 1 2)) "superseded → stale")
     (is (false? (rf.timer-probe/suppress? 2 2)) "current → live"))
 
-  (testing "rf2-j538f7.14 — a stale timer completion is UNIVERSALLY non-delivering
+  (testing "a stale timer completion is UNIVERSALLY non-delivering
             through the probe's suppress: no target, app or otherwise, receives it"
     (is (false? (:deliver? (rf.timer-probe/suppress base-args 2 {} [:t]))) "plain target → not delivered")
     (is (false? (:deliver? (rf.timer-probe/suppress base-args 2 {} {:event [:t]}))) "descriptor → not delivered")

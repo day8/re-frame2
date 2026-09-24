@@ -1,39 +1,36 @@
 (ns re-frame.error-emit-dev-console-dom-cljs-test
-  "rf2-fu75 — the unowned-error dev console fallback in
-  `re-frame.error-emit`.
+  "The unowned-error dev console fallback in `re-frame.error-emit`.
 
-  RULED (2026-08-13): an untooled dev build DOES surface a framework
-  refusal, via a dev-build console.error fallback that fires ONLY when
-  NOTHING ROUTED the record. Not `reportError`; no new API knob;
-  browser-hosted dev builds only.
+  An untooled dev build DOES surface a framework refusal, via a dev-build
+  console.error fallback that fires ONLY when NOTHING ROUTED the record.
+  Not `reportError`; no new API knob; browser-hosted dev builds only.
 
-  This suite is the two-way control the ruling asks for, and BOTH halves are
-  the contract:
+  This suite is the two-way control, and BOTH halves are the contract:
 
     - with nothing owning it a promoted refusal reaches the console exactly
       once, as `[\"[re-frame2]\" <summary> <record> <exception>]` — a readable
       SUMMARY LINE first, then the structured record and the ORIGINAL
       exception as separate console ARGUMENTS;
     - with ANY `:errors` listener attached the fallback is SILENT — that is
-      what stops it being the nag-diagnostic the ruling avoided. Ownership
-      is corpus-wide and implicit: a listener that ignores the category, or
+      what stops it being a nag-diagnostic. Ownership is corpus-wide and
+      implicit: a listener that ignores the category, or
       one that itself throws, still owns the stream. Dropping the last
       listener resumes the fallback.
 
-  rf2-kuky.18 added the SECOND ownership arm, and its block sits beside the
-  listener block below: the record's owning frame having routed it to a
-  REGISTERED `:observability :errors` sink also owns it, frame-scoped rather
-  than corpus-wide. The listener arm above is unchanged in every respect.
+  The SECOND ownership arm has its block beside the listener block below:
+  the record's owning frame having routed it to a REGISTERED
+  `:observability :errors` sink also owns it, frame-scoped rather than
+  corpus-wide.
 
-  ## The summary argument (rf2-6sqv)
+  ## The summary argument
 
-  The record rides as a VALUE, and that is right — but for a while it was
-  the ONLY thing passed, and a CLJS map is not a JS object. Chrome renders
-  its interior fields, so an ordinary page load of a routed example showed
-  `[re-frame2] {meta: null, cnt: 7, arr: Array(14), __hash: null, …}` and no
-  message at all. Measured in headless Chromium, not asserted in a unit test.
+  The record rides as a VALUE, and that is right — but a CLJS map is not a
+  JS object. Chrome renders its interior fields, so the record alone would
+  show `[re-frame2] {meta: null, cnt: 7, arr: Array(14), __hash: null, …}`
+  and no message at all (measured in headless Chromium, not asserted in a
+  unit test).
 
-  So a readable line now LEADS, and the assertions below pin both halves of
+  So a readable line LEADS, and the assertions below pin both halves of
   that: the summary is text and names the category, AND the record and
   exception still ride as their own arguments so a structured consumer and
   the DevTools inspector are unaffected. The summary composes no new error
@@ -45,9 +42,9 @@
   Chromium turns into a `pageerror` — and
   `implementation/scripts/run-browser-tests.cjs` fails an otherwise-green
   run on any `pageerror` while treating console output as diagnostic-only
-  (\"only pageerror is fatal\", rf2-mwx08). Suites elsewhere in this bundle
-  exercise promoted refusals deliberately, so the no-`reportError`
-  assertion is what keeps this addition off the runner's fatal channel.
+  (\"only pageerror is fatal\"). Suites elsewhere in this bundle exercise
+  promoted refusals deliberately, so the no-`reportError` assertion is
+  what keeps the fallback off the runner's fatal channel.
 
   ## Why the ns is `-dom-cljs-test`
 
@@ -61,14 +58,13 @@
 
   Every browser-gated row below therefore spells its guard as
   `(if-not (browser?) (is true skip-msg) ...)` rather than as a bare
-  `(when (browser?) ...)` (rf2-b8zo). Under `:node-test` the marker
-  assertion fires and the row reports a STATED skip; a bare `when` left
-  it passing with zero assertions, which reads on the console exactly
-  like a row that ran. Nothing about the coverage moved: the browser
-  lane evaluates the same body it always did. `node-targeted-cljs-stays-quiet`
-  is the one row that runs only OFF a DOM host, so its guard and its
-  stated skip are the mirror image: the marker fires under
-  `:browser-test`, where the row's body does not run (rf2-f8yj).
+  `(when (browser?) ...)`. Under `:node-test` the marker assertion fires
+  and the row reports a STATED skip; a bare `when` would leave it passing
+  with zero assertions, which reads on the console exactly like a row that
+  ran. The browser lane evaluates the same body either way.
+  `node-targeted-cljs-stays-quiet` is the one row that runs only OFF a DOM
+  host, so its guard and its stated skip are the mirror image: the marker
+  fires under `:browser-test`, where the row's body does not run.
 
   The JVM / SSR lane is listener-only by the same rule and needs no
   counterpart here: `#?(:clj …)` in `report-unowned-error!` is `nil`."
@@ -77,12 +73,12 @@
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.late-bind :as rf.late-bind]
-            ;; rf2-xpd8: the app-db rejection arm below needs the OPTIONAL
+            ;; The app-db rejection arm below needs the OPTIONAL
             ;; schemas artefact actually loaded — without the require,
             ;; `reg-app-schema` writes into a registry no validator consults
             ;; and the whole deftest passes vacuously.
             [re-frame.schemas]
-            ;; rf2-vkn8: the machine-data rollback arm below drives a real
+            ;; The machine-data rollback arm below drives a real
             ;; machine, so the machines artefact has to be LOADED — its
             ;; late-bind hooks are what the candidate walker resolves, and
             ;; without them the deftest would pass vacuously.
@@ -101,9 +97,9 @@
                 ;; silently invert every assertion below.
                 (rf.error-emit/clear-error-listeners!)
                 ;; The sink registry is the SECOND ownership arm and a
-                ;; `defonce` atom for the same reason (rf2-kuky.18), so a
-                ;; sink leaked from a sibling test silences the fallback
-                ;; just as invisibly.
+                ;; `defonce` atom for the same reason, so a sink leaked
+                ;; from a sibling test silences the fallback just as
+                ;; invisibly.
                 (rf.observability/clear-observability-sinks!))}))
 
 (defn- browser?
@@ -166,7 +162,7 @@
           (let [[prefix summary record ex] (first console)]
             (is (= "[re-frame2]" prefix) "the stable prefix leads")
             (is (string? summary)
-                "a READABLE line comes before the record (rf2-6sqv) — without it
+                "a READABLE line comes before the record — without it
                  Chrome renders the CLJS map's interior fields and the reader
                  sees no message at all")
             (is (re-find #"^:rf\.error/handler-exception\b" summary)
@@ -263,20 +259,17 @@
           (is (zero? report-error)))))))
 
 ;; ===========================================================================
-;; NO-FRAME-CONTEXT — the category the rf2-6sqv measurement was OF
+;; NO-FRAME-CONTEXT — the category with no exception to summarise
 ;; ===========================================================================
 ;;
-;; This is the one that motivated the bead, and it is the one a summary-only
-;; fix could NOT have repaired. `emit-no-frame-context!` passes no exception
-;; (nothing threw — the operation is invalid), so before rf2-6sqv the record
-;; was seven slots of pure metadata and the recovery ladder
-;; `no-frame-context-payload` had just composed reached the always-on axis
-;; nowhere at all. The console printed `{meta: null, cnt: 7, arr: Array(14),
-;; …}` — `cnt: 7` being exactly that record — and no formatter reading only
-;; the record could have recovered the sentence, because it was not there.
+;; A summary line alone cannot help this category. `emit-no-frame-context!`
+;; passes no exception (nothing threw — the operation is invalid), so a record
+;; of pure metadata would carry the recovery ladder `no-frame-context-payload`
+;; composes nowhere on the always-on axis, and no formatter reading only the
+;; record could recover a sentence that is not there.
 ;;
 ;; So both halves are asserted here: the ladder is ON THE RECORD (the emit
-;; site carries it through `dispatch-on-error!`'s existing attribution seam),
+;; site carries it through `dispatch-on-error!`'s attribution seam),
 ;; and it REACHES THE CONSOLE LINE.
 
 (deftest no-frame-context-carries-its-ladder-to-the-console
@@ -318,7 +311,7 @@
               (is (re-find #"^:rf\.error/no-frame-context\b" summary))
               (is (re-find #"no frame context" summary)
                   (str "the ladder itself reaches the line — this is the exact "
-                       "text the rf2-6sqv page load could not show; got "
+                       "text a record-only console line cannot show; got "
                        (pr-str summary)))
               (is (map? record) "and the record still rides for the inspector"))
             (is (zero? report-error))))))))
@@ -418,25 +411,25 @@
         (is (zero? (:report-error unowned)))))))
 
 ;; ===========================================================================
-;; OWNED BY THE FRAME'S SINK POLICY — the second ownership arm (rf2-kuky.18)
+;; OWNED BY THE FRAME'S SINK POLICY — the second ownership arm
 ;; ===========================================================================
 ;;
 ;; The fallback fires when NOTHING ROUTED THIS RECORD, which is two arms, not
-;; one. Arm (a) — any corpus-wide `:errors` listener — is the block above and
-;; is unchanged. Arm (b) is here: the record's OWNING FRAME declared an
+;; one. Arm (a) — any corpus-wide `:errors` listener — is the block above.
+;; Arm (b) is here: the record's OWNING FRAME declared an
 ;; `:observability :errors` policy and at least one of its entries resolved to
 ;; a REGISTERED sink fn, which was invoked. That is the NORMAL production
 ;; door (Spec 015 §Frame-owned observability sink policy), and keying the
-;; fallback on the listener registry alone meant a frame whose sink already
-;; had the record still got a console line — while a *listener* that never
-;; looked at the category silenced records belonging to frames it had never
-;; heard of.
+;; fallback on the listener registry alone would give a frame whose sink
+;; already had the record a console line anyway — while a *listener* that
+;; never looked at the category would silence records belonging to frames it
+;; had never heard of.
 ;;
 ;; The two arms differ in SCOPE on purpose: a listener owns corpus-wide, a
 ;; sink policy owns only the frame that declared it. So a sibling frame with
-;; no policy on the same page keeps its console line — the property the
-;; page-wide claim could not offer, and the reason a no-op listener
-;; registered purely to buy silence is no longer anybody's idiom.
+;; no policy on the same page keeps its console line — the property a
+;; page-wide claim cannot offer, and the reason no one needs a no-op listener
+;; registered purely to buy silence.
 ;;
 ;; "Routed" is exact: DELIVERED to a registered sink fn. A policy naming a
 ;; sink the app never registered routes nowhere and does NOT own the record
@@ -450,7 +443,7 @@
   "Register a throwing handler on `frame-id`, whose frame declares
   `entries` as its `:observability :errors` policy. Returns nil."
   [frame-id entries]
-  (rf/make-frame (cond-> {:id frame-id :doc "rf2-kuky.18 sink-ownership witness"}
+  (rf/make-frame (cond-> {:id frame-id :doc "sink-ownership witness"}
                    (some? entries) (assoc :observability {:errors entries})))
   (rf/reg-event :fu75.sink/throws
                 {:frame frame-id}
@@ -508,8 +501,8 @@
     (do
       (testing "one frame's policy silences ONLY its own records. A sibling
                 frame on the same page that declared nothing keeps its console
-                line — this is the property a corpus-wide listener claim could
-                not express, and the whole reason the key moved"
+                line — this is the property a corpus-wide listener claim cannot
+                express, and the reason the fallback keys on frame routing"
         (let [seen (atom [])]
           (rf/register-observability-sink! :fu75.sink/collector
                                            (fn [r] (swap! seen conj r)))
@@ -560,8 +553,8 @@
     (do
       (testing "a `:frame nil` record carries no frame-owned policy BY
                 DEFINITION, so arm (b) can never fire for it. With no listener
-                either, the fallback is unchanged — this is the untooled case
-                rf2-fu75 exists for, and the arm added here must not erode it"
+                either, the fallback fires — this is the untooled case the
+                fallback exists for, and the sink arm must not erode it"
         (rf/register-observability-sink! :fu75.sink/collector (fn [_r] nil))
         (let [payload (rf.frame/no-frame-context-payload :subscribe
                                                          {:where 'rf/subscribe})
@@ -577,26 +570,25 @@
           (is (zero? report-error)))))))
 
 ;; ===========================================================================
-;; THE APP-DB CANDIDATE REJECTION — rf2-xpd8's whole point (PR1)
+;; THE APP-DB CANDIDATE REJECTION
 ;; ===========================================================================
 ;;
-;; This is the refusal the rf2-fu75 mechanism could not reach, and the reason
-;; is structural rather than an oversight: a rejected `app-db` candidate
-;; emitted on the DEV TRACE only, and the fallback hangs off the `:errors`
-;; stream. So the one refusal that discards a WHOLE transaction was the one
-;; refusal an untooled dev build could not see — measured on a live page as an
-;; application-wide permanent rollback loop producing 0 page errors, 0 console
-;; messages of any level, 0 failed requests, and an empty screen.
+;; The fallback hangs off the `:errors` stream, so a rejected `app-db`
+;; candidate emitted on the DEV TRACE only would be the one refusal an
+;; untooled dev build cannot see — even though it discards a WHOLE
+;; transaction, and an application-wide permanent rollback loop would produce
+;; 0 page errors, 0 console messages of any level, 0 failed requests, and an
+;; empty screen.
 ;;
-;; rf2-xpd8 routes that rejection onto the `:errors` stream from inside the
+;; The rejection is routed onto the `:errors` stream from inside the
 ;; validator's own `debug-enabled?` gate, and this fallback then fires FOR
-;; FREE — which is what makes Option A dominate a second printer in the
-;; validator. So the assertions here are about the seam, not about a new
-;; printer: one line per failing registration, naming the registered path and
-;; the TYPE of what it found, and silent the moment anything owns the stream.
+;; FREE — no second printer in the validator. So the assertions here are about
+;; the seam, not about a printer: one line per failing registration, naming
+;; the registered path and the TYPE of what it found, and silent the moment
+;; anything owns the stream.
 
 (defn- register-rollback-app! []
-  (rf/make-frame {:id :fu75.rollback/frame :doc "rf2-xpd8 console witness"})
+  (rf/make-frame {:id :fu75.rollback/frame :doc "app-db rollback console witness"})
   (rf/with-frame :fu75.rollback/frame
     (rf/reg-app-schema [:articles] :int)
     (rf/reg-app-schema [:tags]     :int))
@@ -642,7 +634,7 @@
                framework verdict, not an unhandled exception")))
 
       (testing "ANY listener owns the stream and the fallback goes quiet — the
-                rf2-fu75 ownership rule applies unchanged to this category"
+                ownership rule applies to this category too"
         (rf.error-emit/clear-error-listeners!)
         (let [seen (atom [])]
           (rf.error-emit/register-error-listener! :fu75/rollback-owner
@@ -659,21 +651,21 @@
           (rf.error-emit/unregister-error-listener! :fu75/rollback-owner))))))
 
 ;; ===========================================================================
-;; THE OTHER THREE ROLLBACK ARMS — rf2-vkn8 (PR2)
+;; THE OTHER ROLLBACK ARMS
 ;; ===========================================================================
 ;;
-;; One ruling, four `:rollback? true` producers. PR1 wired `:where :app-db`
-;; above and this fallback then fired for it FOR FREE — no second printer, no
-;; second gate. That is the claim these two deftests keep honest for the rest
-;; of the set: a machine transaction discarded by a `[:schemas :data]`
-;; violation, and a candidate rejected because a REGISTERED app-db schema is
-;; itself malformed, must reach the same console by the same route, and must
-;; go equally quiet the moment anything owns the `:errors` stream.
+;; There are four `:rollback? true` producers, and the `:where :app-db` one
+;; above reaches this fallback FOR FREE — no second printer, no second gate.
+;; These two deftests keep that claim honest for the rest of the set: a
+;; machine transaction discarded by a `[:schemas :data]` violation, and a
+;; candidate rejected because a REGISTERED app-db schema is itself malformed,
+;; must reach the same console by the same route, and must go equally quiet
+;; the moment anything owns the `:errors` stream.
 
 (def ^:private vkn8-machine-id :fu75.rollback/machine)
 
 (defn- register-machine-rollback-app! []
-  (rf/make-frame {:id :fu75.machine/frame :doc "rf2-vkn8 console witness"})
+  (rf/make-frame {:id :fu75.machine/frame :doc "machine-data rollback console witness"})
   (rf/reg-machine vkn8-machine-id
     {:initial :idle
      :data    {:n 1}
@@ -682,7 +674,7 @@
      :states  {:idle {:on {:break {:target :idle :action :break}}}}}))
 
 (defn- register-malformed-rollback-app! []
-  (rf/make-frame {:id :fu75.malformed/frame :doc "rf2-vkn8 console witness"})
+  (rf/make-frame {:id :fu75.malformed/frame :doc "malformed-schema rollback console witness"})
   ;; A childless `[:vector]` registers cleanly (Malli validates schema FORMS
   ;; lazily) and then makes the registered validator THROW on the first
   ;; candidate validation.
@@ -720,7 +712,7 @@
                      "is read off; got " (pr-str summary)))
             (is (= vkn8-machine-id (:machine-id record)))
             (is (= :fu75.machine/frame (:frame record))
-                "the frame threaded by rf2-vkn8 — without it the record could
+                "the frame is threaded onto the record — without it the record could
                  never reach this frame's :observability :errors sink")
             (is (true? (:rollback? record)))
             (is (nil? (:value record))
@@ -816,8 +808,9 @@
           (rf/dispatch-sync [:fu75.console/throws])
           (is (= [:rf.error/handler-exception] (mapv :error @seen)))))
 
-      ;; rf2-vkn8: the same boundary for PR2's arms. The host rule is a property
-      ;; of the FALLBACK, not of a category, so a new producer must inherit it
+      ;; The same boundary for the machine-data and malformed-schema arms. The
+      ;; host rule is a property of the FALLBACK, not of a category, so a new
+      ;; producer must inherit it
       ;; rather than acquire its own exemption — this is the half that would
       ;; catch a second printer being added beside the seam.
       (testing "the machine-data and malformed-schema rollbacks obey the same

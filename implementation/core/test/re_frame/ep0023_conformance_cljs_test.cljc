@@ -1,19 +1,19 @@
 (ns re-frame.ep0023-conformance-cljs-test
   "EP-0023 (Images And Frame-Loaded Instruction Sets) — the END-TO-END CONTRACT
-  CONFORMANCE suite (rf2-32siq3.15). The whole EP-0023 implementation is merged;
-  this suite asserts the FULL public contract end-to-end, exercising the public
-  surfaces (`rf/image` / `image-assembly/assemble` / `live-frame/make-frame` /
-  re-`make-frame` reload / `reproject-live-frames!` / the migration diagnostics)
-  the way a consumer reaches them, NOT each merged slice's internals.
+  CONFORMANCE suite. It asserts the FULL public contract end-to-end, exercising
+  the public surfaces (`rf/image` / `image-assembly/assemble` /
+  `live-frame/make-frame` / re-`make-frame` reload / `reproject-live-frames!` /
+  the migration diagnostics) the way a consumer reaches them, NOT each slice's
+  internals.
 
   > image -> frame -> event stream
 
   The per-slice unit suites (`image-cljs-test`, `image-assembly-cljs-test`,
   `live-frame-cljs-test`, `frame-resolution-cljs-test`, `migration-cljs-test`,
   …) prove each slice's internals exhaustively. This suite is the COHESIVE
-  conformance proof the EP §Conformance And Tests list demands before
-  graduation: each section asserts ONE contract area through the public path and
-  cites the EP clause it proves. The sections, in EP order:
+  conformance proof the EP §Conformance And Tests list demands: each section
+  asserts ONE contract area through the public path and cites the EP clause it
+  proves. The sections, in EP order:
 
     1. Image construction + selection (§Image, §Namespace-Selected Images,
        §Image Fragments) — `:include-ns` glob grammar (`*` one segment / `**`
@@ -21,12 +21,10 @@
        fail-loud.
     2. Sealed assembly + validation (§Image Validation) — the sealed generation
        shape; reference check; duplicate-id fail-loud; unsupported-kind.
-       (EP-0026 retired the image-capability requirement fail-loud with the
-       feature.)
     3. Layered resolution (EP-0026 §Layered Resolution / §Framework Standard
        Registrations) — image-order layering (later image wins); cross-image
-       conflict; standard-shadow-forbidden (no public opt-in). EP-0026 retired
-       the declared `:replace` / `:replace-standard` winner model.
+       conflict; standard-shadow-forbidden (no public opt-in). There is no
+       declared `:replace` / `:replace-standard` winner model.
     4. Default-image projection (§Default Image Semantics) — no/empty `:images`
        projects the whole store + standards; cross-namespace collision fails
        loud (no clobber).
@@ -36,13 +34,18 @@
        generation; absence-is-default; ALL-OR-NOTHING generation scope.
     6. Generation cache + invalidation (§Image — \"MUST cache resolved
        generations\") — cache hit for identical inputs; invalidation on
-       `reg-*` / `clear-kind!` (the .34 fix) and on a standard-registry change.
+       `reg-*` / `clear-kind!` and on a standard-registry change.
     7. Hot reload (§Hot Reload) — re-`make-frame` / `reproject-live-frames!`
        re-resolve every live frame; no frame left stale.
     8. The one frame constructor (EP-0024 §One constructor) — `rf/make-frame`
        is the SINGLE public constructor, returning the frame VALUE (not a bare
        id keyword), with `:initial-events` setup events running AFTER the
        resolved generation and seeded app-db are installed on the record.
+    9. Framework-standard registry (§Image — \"+ framework standard
+       registrations\") — the boot-seeded `:rf.interceptor/path` standard rides
+       into a generation, resolves under it, and no app image can shadow it.
+   10. Inline events deliver `:rf.cofx/requires` (§Image Fragments) — the
+       inline path lowers to the same runtime descriptor shape as `reg-event`.
 
   Every fail-loud assertion branches on the `:rf.error/id` DISCRIMINATOR, never
   the message bytes (Spec 009 §The thrown-error shape rule 3).
@@ -55,10 +58,10 @@
   (the standard registry + the generation cache + the live-frame registry). The
   LIVE-store cases (the cache-invalidation + `clear-kind!` + reprojection
   sections) drive the REAL `reg-*` → source-store → assemble cascade, so they
-  SNAPSHOT/RESTORE the source-store atom (per the bead — NO `rf.registrar/clear-all!`
+  SNAPSHOT/RESTORE the source-store atom (NO `rf.registrar/clear-all!`
   / `clear-kind!` in the fixture, which would destroy framework-shipped
   ns-load registrations a sibling test ns depends on; `clear-kind!` appears only
-  INSIDE a case proving the .34 invalidation). The registrar baseline is
+  INSIDE a case proving the `clear-kind!` invalidation). The registrar baseline is
   snapshot/restored via `make-reset-runtime-fixture`.
 
   `.cljc` ending `-cljs-test` rides `npm run test:cljs` AND `clojure -M:test`."
@@ -84,7 +87,7 @@
 ;; `make-reset-runtime-fixture` snapshots/restores the registrar (NOT
 ;; `clear-all!`). On top of it we reset the EP-0023 OWN process-state atoms (the
 ;; standard registry + its generation, the resolved-generation cache, the
-;; live-frame registry) — these are this wave's own defonces, not framework
+;; live-frame registry) — these are EP-0023's own defonces, not framework
 ;; ns-load state a sibling depends on, so a direct reset is safe and gives every
 ;; case a known baseline. The plain-atom adapter is installed so the make-frame
 ;; cases that need a live substrate work; the assembly/selection sections never
@@ -265,8 +268,7 @@
 (deftest s2-sealed-generation-shape
   (testing "EP-0023 §Specification Summary: a sealed generation carries
             :rf.gen/resolver (the id-disjoint [kind id] map), :rf.gen/images,
-            and :rf.gen/kinds (EP-0026 retired :rf.gen/requires with the
-            image-capability feature)"
+            and :rf.gen/kinds, and no :rf.gen/requires (EP-0026)"
     (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
     (let [pool [(reg-desc "shop.cart" :event :cart/add   ::add)
                 (reg-desc "shop.cart" :sub   :cart/items ::items)]
@@ -280,7 +282,7 @@
         (is (= ::std-nav (:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :rf.nav/push-url)))))
       (is (= [img] (:rf.gen/images gen)) "the normalized image vector is carried")
       (is (not (contains? gen :rf.gen/requires))
-          "the retired :rf.gen/requires key is absent (EP-0026)")
+          "the :rf.gen/requires key is absent (EP-0026)")
       (is (= #{:event :sub :fx} (rf.image-assembly/generation-kinds gen))))))
 
 (deftest s2-duplicate-id-fails-loud
@@ -315,19 +317,17 @@
         (let [pool+ [ev (reg-desc "app.core" :interceptor :my.audit/guard ::guard)]]
           (is (map? (rf.image-assembly/assemble [img] pool+))))))))
 
-;; EP-0026 (rf2-dlvmpc): image-declared host capabilities are removed end-to-end
-;; — there is no :rf.image/requires, no make-frame :capabilities, no
-;; :rf.gen/requires, and no frame-boundary capability check. The former
-;; s2-missing-capability-fails-loud-at-the-frame-boundary conformance test is
-;; retired with the feature; EP-0026 acceptance conformance lives in its own bead.
+;; EP-0026: images declare no host capabilities — there is no
+;; :rf.image/requires, no make-frame :capabilities, no :rf.gen/requires, and no
+;; frame-boundary capability check.
 
 ;; ===========================================================================
 ;; SECTION 3 — Layered resolution (EP-0026 §Layered Resolution / §Framework
-;; Standard Registrations — supersedes the EP-0023 :replace policy)
+;; Standard Registrations)
 ;; ===========================================================================
 ;;
-;; EP-0026 replaces the EP-0023 declared-:replace/:replace-standard winner model
-;; with deterministic IMAGE-ORDER layering: the later image in :images wins; a
+;; EP-0026 resolves by deterministic IMAGE-ORDER layering (there is no declared
+;; :replace / :replace-standard winner model): the later image in :images wins; a
 ;; within-image [kind id] collision is an error (an override is always a later
 ;; image); a framework standard is protected (a public app image must not shadow
 ;; one).
@@ -546,7 +546,7 @@
 ;; ===========================================================================
 ;;
 ;; Cache HIT for identical image + store-generation. INVALIDATION on every
-;; source-store mutation (reg-* / forget-* / clear-kind! — the .34 fix) and on a
+;; source-store mutation (reg-* / forget-* / clear-kind!) and on a
 ;; standard-registry change. The LIVE-store cases drive the REAL reg-* cascade,
 ;; so they snapshot/restore the source-store atom.
 
@@ -564,9 +564,9 @@
                                               [(reg-desc "app.other" :event :x ::x)]))))))))
 
 (deftest s6-live-store-cache-invalidates-on-reg-and-clear-kind
-  (testing "EP-0023 §Image + rf2-32siq3.34: the LIVE-store default generation is
+  (testing "EP-0023 §Image: the LIVE-store default generation is
             cached, and INVALIDATES on a `reg-*` AND on `rf.registrar/clear-kind!`
-            (the .34 fix — clear-kind! must bump the source-store generation so a
+            (clear-kind! must bump the source-store generation so a
             stale cached generation is never returned)"
     (let [store-before @rf.source-store/kind->id->ns->descriptor
           reg-before   @rf.registrar/kind->id->metadata]
@@ -590,7 +590,7 @@
               (is (not (identical? g1 g2)))
               (is (contains? (:rf.gen/resolver g2) [:sub :cart/items]))))
           (testing "clear-kind! :event drops the event slot AND invalidates the
-                    cache (the .34 fix) — a stale generation still resolving
+                    cache — a stale generation still resolving
                     :cart/add must NOT come back"
             (rf.registrar/clear-kind! :event)
             (let [g3 (rf.image-assembly/assemble-default)]
@@ -624,7 +624,7 @@
 ;;
 ;; Re-`make-frame`-ing an `:id`-bearing frame with a new `:images` vector swaps
 ;; the frame's whole image composition while preserving frame identity
-;; (rf2-lxwpob folded the dedicated `reload-images!` verb into re-construction);
+;; (re-construction is the reload verb);
 ;; reproject-live-frames! re-resolves every live frame against the current
 ;; source store.
 
@@ -680,11 +680,11 @@
             THAT frame's generation — explicit-image frames, not only
             default-image frames; a frame whose resolution is unchanged is left
             stale-free (untouched)"
-    ;; DETERMINISM (rf2-ssokdr): the auto-reprojection wiring
+    ;; DETERMINISM: the auto-reprojection wiring
     ;; (`live-frame/reproject-on-registration-change!`, installed once as a
     ;; process-`defonce` `rf.registrar/add-registration-hook!`) fires on EVERY
-    ;; `register!` — the `reg-event` re-evals below (frame seating no longer
-    ;; routes through `register!`, rf2-h1vqa4).
+    ;; `register!` — the re-evals below (frame seating does not route through
+    ;; `register!`).
     ;; Once a live image-loaded frame exists, that hook MARKS the shared
     ;; process-wide `pending-reprojection?` flag dirty and schedules a REAL
     ;; deferred `rf.interop/next-tick` flush (on the JVM: an async single-thread
@@ -694,16 +694,16 @@
     ;; already live, or one a prior case left in flight) to fire in the window
     ;; AFTER the `register! ::v2` and BEFORE the explicit reproject, it would
     ;; already swap the parity frame to ::v2 and DRAIN the dirty flag — so the
-    ;; explicit reproject would see the frame UNCHANGED and return `{}`, the
-    ;; observed intermittent `(not (contains? {} :docs/parity))` CI failure
-    ;; (PR #4895 run 27939575061). It PASSES in isolation only because the idle
-    ;; executor happens to fire the deferred flush AFTER the case completes.
+    ;; explicit reproject would see the frame UNCHANGED and return `{}` — an
+    ;; intermittent `(not (contains? {} :docs/parity))` failure. In isolation
+    ;; the idle executor happens to fire the deferred flush AFTER the case
+    ;; completes, so the race only shows under load.
     ;;
     ;; So redef `rf.interop/next-tick` to a NO-OP for the whole case (body AND
     ;; teardown): no async flush ever runs, the ONLY flush is the explicit
-    ;; synchronous `reproject-live-frames!` this case drives. The assertions are
-    ;; unchanged. This is the same `next-tick`-isolation every auto-reprojection
-    ;; case in `live-frame-reload-cljs-test` already uses (rf2-roou7s).
+    ;; synchronous `reproject-live-frames!` this case drives. This is the same
+    ;; `next-tick`-isolation every auto-reprojection case in
+    ;; `live-frame-reload-cljs-test` uses.
     (with-redefs [rf.interop/next-tick (fn [_f] nil)]
       ;; Start from a clean slate: drain any reprojection a prior case left
       ;; pending on the shared process-`defonce` flag (the hook survives across
@@ -750,11 +750,9 @@
             (reset! rf.registrar/kind->id->metadata reg-before)
             (rf.image-assembly/clear-generation-cache!)))))))
 
-;; The former `s7-reload-of-unknown-frame-errors-cleanly` case (pinning
-;; `:rf.error/reload-no-such-frame` for a target naming no live frame) tested a
-;; capability retired with `reload-images!` (rf2-lxwpob): re-`make-frame`-ing an
-;; unknown `:id` simply CREATES a fresh frame under that id — there is no
-;; separate "unknown target" failure mode once reload is just re-construction.
+;; Re-`make-frame`-ing an unknown `:id` simply CREATES a fresh frame under that
+;; id — reload is re-construction, so there is no separate "unknown target"
+;; failure mode to pin.
 
 ;; ===========================================================================
 ;; SECTION 8 — The one frame constructor (EP-0024 §One constructor)
@@ -764,10 +762,10 @@
 ;; one make-frame, which returns the frame VALUE.
 
 (deftest s8-make-frame-is-the-one-constructor
-  (testing "EP-0024 §One constructor (rf2-tu2vr7): rf/make-frame is the ONE
+  (testing "EP-0024 §One constructor: rf/make-frame is the ONE
             public constructor — it returns the frame VALUE, not a gensym keyword
-            id, and every public surface accepts the value directly (API-shrink
-            #1, rf2-csbbwu — no facade accessor needed to unwrap it). Built
+            id, and every public surface accepts the value directly (no facade
+            accessor needed to unwrap it). Built
             against an explicit descriptor pool (the 2-arity) so the pin does not
             project the live store."
     (let [pool    [(reg-desc "examples.counter" :event :counter/inc ::inc)]
@@ -780,9 +778,8 @@
       (is (= :counter/one (rf.frame/frame-value->id created))
           "the internal normalization primitive reads the id from the value")
       (rf/destroy-frame! created))
-    (testing "EP-0024 reverses the rf2-32siq3.45 option-(b) fail-loud redirect:
-              a record-config key is HONOURED in the same call (option-(a)), not
-              rejected with :rf.error/make-frame-record-only-key"
+    (testing "EP-0024: a record-config key is HONOURED in the same call, not
+              rejected"
       (let [img (rf/image {:select-ns {:include ["examples.counter"]}})
             f   (rf/make-frame {:id :counter/cfg :images [img]
                                 :doc "configured" :preset :test}
@@ -793,7 +790,7 @@
         (rf/destroy-frame! f)))))
 
 (deftest s8-initial-events-seed-installed-before-later-setup-events
-  (testing "EP-0027 §Construction ordering (was EP-0024 rf2-tu2vr7): when
+  (testing "EP-0027 §Construction ordering: when
             make-frame is given :initial-events that SEED app-db first
             ([:rf/set-db …]) then run a setup event, the resolved generation AND
             the seeded app-db are installed on the record BEFORE the later setup
@@ -804,7 +801,7 @@
     ;; when it runs) and writes a key (proving the write survives — not clobbered
     ;; by the seed). No `:images` ⇒ an ordinary configured frame whose setup
     ;; event resolves via the shared registrar where the handler is registered;
-    ;; this pins the seed-before-setup ordering (bug fix rf2-tu2vr7) without
+    ;; this pins the seed-before-setup ordering without
     ;; depending on default-image whole-store projection.
     (rf/reg-event :ep0024.oc/init
       (fn [{:keys [db]} _] {:db (assoc db :saw-seed (:seed db) :booted? true)}))
@@ -821,20 +818,20 @@
 
 ;; ===========================================================================
 ;; SECTION 9 — Framework-standard registry populated
-;; (EP-0023 §Image — "+ framework standard registrations"; rf2-32siq3.41)
+;; (EP-0023 §Image — "+ framework standard registrations")
 ;; ===========================================================================
 ;;
 ;; The framework-standard interceptor (`:rf.interceptor/path`) is contributed
 ;; into the EP-0023 framework-standard registry at boot, not ONLY into the
-;; regular registrar. Without this (rf2-32siq3.41, .27 Finding 2) the standard
-;; registry shipped EMPTY, so an image-loaded frame whose event references a
-;; standard interceptor BY REFERENCE under a bound `*generation*` could not
-;; resolve it (generation-routed `lookup` reads ONLY the generation's resolver,
-;; no registrar fallback), and the framework-standard protection / invariant-
-;; coupled machinery was dead code (no standard ever sat in a generation to
-;; protect).
+;; regular registrar. Without that the standard registry would be EMPTY, so an
+;; image-loaded frame whose event references a standard interceptor BY
+;; REFERENCE under a bound `*generation*` could not resolve it
+;; (generation-routed `lookup` reads ONLY the generation's resolver, no
+;; registrar fallback), and the framework-standard protection / invariant-
+;; coupled machinery would be dead code (no standard would ever sit in a
+;; generation to protect).
 ;;
-;; The fixture clears the standard registry per case (it is this wave's own
+;; The fixture clears the standard registry per case (it is EP-0023's own
 ;; process state), so these cases RE-SEED via the boot fn `register-standard-
 ;; interceptors!` — exactly what `re-frame.core/init!` does — then assert the
 ;; standard rides into a generation and resolves under it.
@@ -851,14 +848,14 @@
   (testing "EP-0023 §Image: register-standard-interceptors! contributes
             :rf.interceptor/path into the framework-standard registry, marked
             invariant-coupled (non-replaceable) — NOT only into the regular
-            registrar (rf2-32siq3.41)"
+            registrar"
     (with-standard-interceptors-seeded
       (fn []
         (let [by-kid (into {} (map (juxt (juxt :kind :id) identity))
                            (rf.image-assembly/standard-descriptors))
               std-desc (get by-kid [:interceptor :rf.interceptor/path])]
           (is (some? std-desc)
-              "the standard registry is NO LONGER empty — it carries :rf.interceptor/path")
+              "the standard registry is NOT empty — it carries :rf.interceptor/path")
           (is (true? (:standard std-desc)) "stamped :standard true")
           (is (seq (:rf.standard/requires-conformance std-desc))
               "invariant-coupled — a non-empty :rf.standard/requires-conformance")
@@ -871,8 +868,8 @@
   (testing "EP-0023 §Frame-derived live registration resolution: an image-loaded
             frame whose event references [:rf.interceptor/path …] resolves the
             standard UNDER the frame's generation — no
-            :rf.error/unregistered-interceptor (rf2-32siq3.41). Before the fix the
-            generation lacked the standard and resolution under *generation* threw."
+            :rf.error/unregistered-interceptor. A generation lacking the
+            standard would make resolution under *generation* throw."
     (with-standard-interceptors-seeded
       (fn []
         (let [pool  [(reg-desc "shop.cart" :event :cart/add ::cart-add)]
@@ -886,15 +883,15 @@
             (rf.live-frame/call-with-frame-resolution frame
               (fn []
                 (is (some? rf.registrar/*generation*) "a generation is bound")
-                ;; The bug: generation-routed lookup of a standard ref threw
-                ;; :rf.error/unregistered-interceptor because the generation
-                ;; lacked the standard. Now it resolves the factory-built path.
+                ;; Generation-routed lookup of a standard ref would throw
+                ;; :rf.error/unregistered-interceptor were the standard missing
+                ;; from the generation; it resolves the factory-built path.
                 (let [resolved (rf.interceptor-registry/resolve-ref [:rf.interceptor/path [:cart :items]])]
                   (is (= :rf.interceptor/path (:id resolved))
                       "the standard path interceptor is built from the generation's descriptor")
                   (is (fn? (:before resolved)) "an executable path interceptor")))))
-          (testing "absent the fix, a bare missing ref under a generation DOES throw
-                    — proving the resolution path is genuinely generation-routed"
+          (testing "a bare missing ref under a generation DOES throw — proving
+                    the resolution path is genuinely generation-routed"
             (rf.live-frame/call-with-frame-resolution frame
               (fn []
                 (is (= :rf.error/unregistered-interceptor
@@ -904,9 +901,8 @@
   (testing "EP-0026 §Framework Standard Registrations: the framework-standard
             :rf.interceptor/path is invariant-coupled and PROTECTED — a public app
             image selecting a same-[kind id] registration FAILS LOUD
-            (:rf.error/image-standard-replacement-forbidden). EP-0026 retired the
-            :replace-standard opt-in: standards are not an app extension point
-            (rf2-dlvmpc)"
+            (:rf.error/image-standard-replacement-forbidden). There is no
+            :replace-standard opt-in: standards are not an app extension point"
     (with-standard-interceptors-seeded
       (fn []
         (let [pool [(reg-desc "naive.override" :interceptor :rf.interceptor/path ::naive)]
@@ -933,17 +929,18 @@
 ;; SECTION 10 — Inline (image-loaded) events deliver :rf.cofx/requires
 ;; (EP-0023 §Image Fragments — "Both paths should lower to the same runtime
 ;;  descriptor shape"; Spec 002 §Satisfaction; EP-0017 §5 declared-only
-;;  delivery; rf2-khi7xr)
+;;  delivery)
 ;; ===========================================================================
 ;;
-;; The bug (rf2-khi7xr): the normal `reg-event` path parses `:rf.cofx/requires`
+;; The normal `reg-event` path parses `:rf.cofx/requires`
 ;; into `:rf.cofx/requires-parsed` on the registrar entry, and the satisfaction
 ;; step (`router/assemble-initial-ctx`) reads that TOP-LEVEL slot to deliver the
 ;; declared facts. The EP-0023 inline-image path lowers a `:reg-event` descriptor
-;; through `events/lower-inline-event`, which emitted ONLY `{:handler-fn
-;; :interceptors}` and NEVER parsed the inline `:metadata`'s `:rf.cofx/requires`
-;; — so an image-loaded event declaring `:rf.cofx/requires` ran with the declared
-;; facts MISSING (a fail-open silent drop). EP-0017 §5 requires uniform
+;; through `events/lower-inline-event`, which parses the inline `:metadata`'s
+;; `:rf.cofx/requires` into the same slot; a lowering that emitted ONLY
+;; `{:handler-fn :interceptors}` would run an image-loaded event declaring
+;; `:rf.cofx/requires` with the declared facts MISSING (a fail-open silent
+;; drop). EP-0017 §5 requires uniform
 ;; declared-only delivery for EVERY event regardless of registration path.
 ;;
 ;; The cofx supplier is ALSO declared inline (in the same image's
@@ -960,8 +957,7 @@
             `:rf.cofx/requires` RECEIVES the declared coeffect when dispatched —
             the inline path lowers to the SAME runtime descriptor shape (with
             `:rf.cofx/requires-parsed`) the `reg-event` path installs, so
-            declared-only delivery is uniform across both registration paths
-            (rf2-khi7xr)"
+            declared-only delivery is uniform across both registration paths"
     (let [seen (atom ::unset)
           ;; The inline handler reads the DECLARED :inline.cofx/locale and
           ;; stashes it (so the test can assert delivery) while writing app-db.
@@ -989,6 +985,5 @@
           "the inline image-loaded handler ran")
       (is (= "en-AU" @seen)
           "the DECLARED :inline.cofx/locale coeffect was delivered FLAT to the
-           inline handler (was silently DROPPED before rf2-khi7xr —
-           :rf.cofx/requires-parsed was never emitted by lower-inline-event)")
+           inline handler (lower-inline-event emits :rf.cofx/requires-parsed)")
       (rf/destroy-frame! frame))))

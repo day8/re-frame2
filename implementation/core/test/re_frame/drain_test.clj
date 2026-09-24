@@ -2,12 +2,12 @@
   "Targeted coverage for Spec 002 §Run-to-completion dispatch (drain
   semantics). The login-machine-flow and dispatch-sync-in-handler-errors
   smoke tests exercise these paths transitively; this namespace pins the
-  load-bearing properties directly so a future regression in router.cljc
+  load-bearing properties directly so a regression in router.cljc
   surfaces here, not from a far-away cascade test.
 
   Each deftest's docstring cites the specific Spec 002 anchor.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   The drain's SEMANTICS — run-to-completion ordering, the exact event count a
   `:drain-depth` bound admits, per-event durability, per-frame isolation, the
@@ -16,19 +16,19 @@
   suite AND in `scripts/test-core-prod-gate.sh` (the `-Dre-frame.debug=false`
   lane).
 
-  The `:trace` stream those semantics were previously observed THROUGH is not
+  The `:trace` stream that also observes those semantics is not
   production-real: every `trace/emit-error!` site sits behind
   `rf.interop/debug-enabled?`, which the JVM reads once at load time, so under the
   real gate the framework emits nothing here BY DESIGN. Those assertions are
-  correct dev-posture coverage and are kept verbatim — each simply sits inside
-  a `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841` so it declares the
+  correct dev-posture coverage — each sits inside
+  a `(when rf.interop/debug-enabled? …)` arm so it declares the
   posture it is about instead of dragging its semantic neighbours out of the
   production lane with it.
 
   The production-surviving half of the drain-depth halt has its own
   posture-independent pin at the foot of this namespace
   (`drain-depth-exceeded-fans-out-on-the-always-on-axis-with-cycle-evidence`,
-  the always-on `:errors` axis), which is why the halt is still covered under
+  the always-on `:errors` axis), which is why the halt is covered under
   the gate rather than merely guarded away."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -45,7 +45,7 @@
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
-  ;; rf2-fcbrjo: the always-on error-emit listener registry is a `defonce`
+  ;; The always-on error-emit listener registry is a `defonce`
   ;; atom — clear it so an `:errors` listener from one test cannot leak into
   ;; the next (the drain-depth always-on assertion below registers one).
   (rf.error-emit/clear-error-listeners!)
@@ -53,12 +53,12 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
-  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
+  ;; `init!` does not synthesise `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
   ;; `{:frame …}` opts in the test bodies still win. A top-level
-  ;; `make-frame …:initial-events` still drain synchronously — the lifecycle
+  ;; `make-frame …:initial-events` drains synchronously — the lifecycle
   ;; async/sync split keys off `*handler-scope*` (a real cascade), not
   ;; this ambient scope.
   (rf/make-frame {:id :rf/default})
@@ -131,7 +131,7 @@
   ;; readable error: {:reason :drain-depth-exceeded :frame :auth :event
   ;; [...] :depth N}. The limit is per-frame and runtime-overridable.\"
   ;; The router halts the loop and clears the queue when the bound is hit;
-  ;; see implementation/src/re_frame/router.cljc."
+  ;; see implementation/core/src/re_frame/router.cljc."
   (testing "a self-redispatching handler trips :rf.error/drain-depth-exceeded"
     (let [runs   (atom 0)
           traces (atom [])]
@@ -150,7 +150,7 @@
       ;; handler bodies.
       (is (= 8 @runs)
           "the drain-depth bound halted the runaway after exactly 8 handler bodies")
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring §Posture split).
       (when rf.interop/debug-enabled?
         (let [hit (some (fn [ev]
                           (when (= :rf.error/drain-depth-exceeded
@@ -186,17 +186,12 @@
             ":scheduled? is reset so future dispatches re-engage drain")))))
 
 (deftest drain-depth-exceeded-keeps-durable-per-event-writes
-  ;; Per rf2-u6jsj/rf2-nj6p7 (Spec 002 §Drain versus event — the epoch
-  ;; unit): the epoch boundary is the dequeued EVENT, so each event that
-  ;; ran before the depth limit tripped settled its own durable epoch AND
-  ;; its own db write. There is NO whole-drain rollback under per-event
-  ;; epochs — each settled event is independently atomic. The depth limit
+  ;; Per Spec 002 §Drain versus event — the epoch unit: the epoch boundary
+  ;; is the dequeued EVENT, so each event that ran before the depth limit
+  ;; tripped settled its own durable epoch AND its own db write. There is NO
+  ;; whole-drain rollback under per-event epochs (Spec 002 §Run-to-completion
+  ;; rule 3) — each settled event is independently atomic. The depth limit
   ;; stops the NEXT (halting) event; the work that already ran survives.
-  ;;
-  ;; SUPERSEDES the pre-rf2-u6jsj per-drain atomic-rollback behaviour
-  ;; (Spec 002 rule 3's "restore app-db to its pre-drain snapshot"), which
-  ;; was written for the per-drain epoch model. Rule 3 needs tightening to
-  ;; the per-event boundary — see rf2-nj6p7.
   (testing "a chain that overflows leaves :db with the durable per-event writes"
     ;; Frame seeded via :initial-events so the baseline is non-empty.
     (rf/reg-event :seed/init
@@ -222,7 +217,7 @@
           "the durable per-event writes survive; there is no whole-drain rollback")
       ;; Sanity: the depth-exceeded trace fired and tags :rollback? false
       ;; (no rollback under per-event epochs).
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
+      ;; Dev-instrumentation arm (see ns docstring §Posture split). The
       ;; no-rollback SEMANTICS are already pinned above, posture-independently,
       ;; by the surviving `{:step :mid-drain :counter 4}` app-db value.
       (when rf.interop/debug-enabled?
@@ -234,7 +229,7 @@
           (is (some? hit) "drain-depth-exceeded trace was emitted")
           (when hit
             (is (false? (get-in hit [:tags :rollback?]))
-                ":rollback? false — per rf2-nj6p7 there is no whole-drain rollback"))))))
+                ":rollback? false — there is no whole-drain rollback"))))))
 
   (testing "earlier clean drains stay durable; an overflow keeps prior-event writes"
     ;; A drain that has already settled cleanly once, then is re-engaged
@@ -250,8 +245,8 @@
     (is (= {:phase :first-settled :n 0}
            (rf/app-db-value :drain.rollback/two))
         "first drain settled cleanly; that's the new baseline")
-    ;; Second drain: trip the depth limit. Per rf2-nj6p7 the three events
-    ;; that ran each made a durable :n write — no rollback.
+    ;; Second drain: trip the depth limit. The three events that ran each
+    ;; made a durable :n write — no rollback.
     (rf/reg-event :overflow2
       (fn [{:keys [db]} _]
         {:db (assoc db :phase :poisoned :n (inc (:n db 0)))
@@ -262,16 +257,16 @@
         "the overflow drain's per-event writes are durable — no whole-drain rollback")))
 
 (deftest drain-depth-halts-after-exactly-drain-depth-events
-  ;; rf2-agpv2.1 — CANONICAL pin of the drain-depth event count.
+  ;; CANONICAL pin of the drain-depth event count.
   ;;
   ;; `:drain-depth` is the MAXIMUM number of events a single drain
   ;; processes. The router halts at `(>= depth drain-depth)` (router.cljc
-  ;; run-one-pass!), and Spec 002 §Drain-loop pseudocode now matches with
+  ;; run-one-pass!), and Spec 002 §Drain-loop pseudocode matches with
   ;; `(>= depth (:drain-depth …))`. So for a runaway self-redispatching
   ;; cascade under drain-depth N, EXACTLY N handler bodies run (depths
   ;; 0,1,…,N-1) and the (N+1)th event is the halting event that never
-  ;; runs. This test pins that count directly so a future flip back to
-  ;; `>`/`>=` (an off-by-one) fails HERE rather than in a far-away
+  ;; runs. This test pins that count directly so an off-by-one between
+  ;; `>` and `>=` fails HERE rather than in a far-away
   ;; cascade assertion. The `:depth` tag on the halt equals N.
   (testing "a runaway cascade under drain-depth N runs EXACTLY N handlers, then halts"
     (doseq [n [1 4 8 100]]
@@ -290,7 +285,7 @@
         (is (= n @runs)
             (str "exactly " n " handler bodies ran for drain-depth " n
                  " (got " @runs ")"))
-        ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
+        ;; Dev-instrumentation arm (see ns docstring §Posture split). The
         ;; off-by-one this deftest exists to catch is pinned by `(= n @runs)`
         ;; above, which is posture-independent; the `:depth` tag is the
         ;; dev-trace restatement of the same number.
@@ -317,7 +312,7 @@
   ;;   [[:dispatch event]] under :fx.\"
   ;; The CLJS partner test (runtime_cljs_test.cljs §dispatch-sync-in-
   ;; handler-errors-cljs) covers the browser path; this is the JVM
-  ;; equivalent plus the transitive-via-fx case the bead calls out."
+  ;; equivalent plus the transitive-via-fx case."
   (testing "directly calling rf/dispatch-sync from a handler raises the structured error"
     (let [traces (atom [])]
       (rf/register-listener! :trace ::dsih-direct (fn [ev] (swap! traces conj ev)))
@@ -328,14 +323,14 @@
           {}))
       (rf/dispatch-sync [:nested-direct])
       (rf/unregister-listener! :trace ::dsih-direct)
-      ;; SEMANTIC, posture-independent (rf2-d2841). The ban is not a warning:
+      ;; SEMANTIC, posture-independent. The ban is not a warning:
       ;; the nested event is REJECTED, so `:leaf`'s handler never runs and its
       ;; `:db` write never lands. That is the half a production build really
-      ;; enforces, and until rf2-d2841 nothing asserted it in either posture —
-      ;; the whole contract hung off the dev trace below.
+      ;; enforces, so it is asserted in both postures rather than left
+      ;; hanging off the dev trace below.
       (is (nil? (:leaf? (rf/app-db-value :rf/default)))
           "the rejected inner event's handler never ran — no :db write landed")
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring §Posture split).
       (when rf.interop/debug-enabled?
         (let [err (some (fn [ev]
                           (when (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
@@ -345,11 +340,11 @@
                         @traces)]
           (is (some? err)
               "expected :rf.error/dispatch-sync-in-handler with :no-recovery")
-          ;; rf2-kg0et6 — the rejected inner event vector MUST ride the
+          ;; The rejected inner event vector MUST ride the
           ;; schema-required `:rf.event/v` tag (Spec-Schemas
           ;; §DispatchSyncInHandlerTags; Spec 009 §Error event catalogue),
           ;; NOT the undocumented bare `:event`. Pin both directions so the
-          ;; documented key can't silently drift back.
+          ;; documented key can't silently drift to the bare one.
           (when err
             (let [tags (:tags err)]
               (is (= [:leaf] (:rf.event/v tags))
@@ -379,12 +374,12 @@
           {:fx [[:user.fx/sync-dispatch [:leaf2]]]}))
       (rf/dispatch-sync [:nested-via-fx])
       (rf/unregister-listener! :trace ::dsih-fx)
-      ;; SEMANTIC, posture-independent (rf2-d2841): the guard keys off the
+      ;; SEMANTIC, posture-independent: the guard keys off the
       ;; router's :in-drain? flag rather than the call-stack depth, so the
       ;; transitive call is rejected too — `:leaf2`'s handler never runs.
       (is (nil? (:leaf2? (rf/app-db-value :rf/default)))
           "the transitive (via-fx) dispatch-sync was rejected — no :db write landed")
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring §Posture split).
       (when rf.interop/debug-enabled?
         (is (some (fn [ev]
                     (= :rf.error/dispatch-sync-in-handler (:operation ev)))
@@ -426,20 +421,17 @@
     ;; executor). The dispatch-sync below only sees its own work; the
     ;; async-queued event arrives on a later drain.
     ;;
-    ;; rf2-lmkk: on the JVM, the async dispatch's drain thunk is posted
+    ;; On the JVM, the async dispatch's drain thunk is posted
     ;; onto a single-thread executor. The main thread then runs
     ;; dispatch-sync, which starts its own drain on the queue. The
     ;; drain! loop's peek+pop pair is not atomic across threads, so if
     ;; the executor wakes up while the main thread is mid-drain both
     ;; threads can peek the same envelope, double-process a single event
-    ;; and drop another. That race produced
-    ;;   actual: (not (some #{:outside-async} [:sync-only :sync-only]))
-    ;; intermittently on CI. Same family as rf2-iosc — stabilise it the
-    ;; same way: intercept rf.interop/next-tick so the executor never sees
-    ;; the drain thunk concurrent with the sync drain, then invoke the
-    ;; captured thunk synchronously on the main thread once the sync
-    ;; drain has settled. The semantics under test are unchanged: the
-    ;; async event runs only AFTER the dispatch-sync drain returns.
+    ;; and drop another. So this test intercepts rf.interop/next-tick so
+    ;; the executor never sees the drain thunk concurrent with the sync
+    ;; drain, then invokes the captured thunk synchronously on the main
+    ;; thread once the sync drain has settled. The property under test is
+    ;; that the async event runs only AFTER the dispatch-sync drain returns.
     (let [order          (atom [])
           done           (promise)
           captured-ticks (atom [])]
@@ -463,7 +455,7 @@
         ;; (drain thunk captured, not yet run). The sync drain seeds
         ;; :sync-only at the FRONT of the queue and drains both — but
         ;; the assertion below only requires both ran, not a specific
-        ;; order, so this still pins the spec property.
+        ;; order, so this pins the spec property.
         (rf/dispatch-sync [:sync-only]))
       ;; Run any drain thunks the async path scheduled. With the sync
       ;; drain already settled, this is just a tidy-up — the queue may
@@ -531,18 +523,17 @@
     (is (= 2 (:n (rf/app-db-value :drain.test/X))))
     (is (= 1 (:n (rf/app-db-value :drain.test/Y))))))
 
-;; ---- rf2-6guf: drain-depth-exceeded preserves OTHER frames' app-db --------
+;; ---- drain-depth-exceeded preserves OTHER frames' app-db ------------------
 ;;
-;; Per test-coverage-review-2026-05-12 P3-25: the companion
-;; `drain-depth-exceeded-keeps-durable-per-event-writes` only exercises
-;; :rf/default. The broader contract is "a depth-exceed is scoped to the
-;; FRAME that overflowed — other frames' app-dbs are untouched, and the
-;; depth-exceeded trace carries the right frame id". Per rf2-nj6p7
-;; (per-event epochs) the overflowing frame keeps its durable per-event
-;; writes (no whole-drain rollback); the isolation contract is unchanged.
+;; The companion `drain-depth-exceeded-keeps-durable-per-event-writes`
+;; watches only the overflowing frame. The broader contract is "a
+;; depth-exceed is scoped to the FRAME that overflowed — other frames'
+;; app-dbs are untouched, and the depth-exceeded trace carries the right
+;; frame id". Under per-event epochs the overflowing frame keeps its durable
+;; per-event writes (no whole-drain rollback).
 
 (deftest drain-depth-exceeded-isolated-to-the-overflowing-frame
-  (testing "depth-exceed on frame :B rolls back :B's app-db only; :A's
+  (testing "depth-exceed on frame :B is confined to :B; :A's
             app-db is byte-identical to its pre-dispatch state; the
             depth-exceeded trace carries :B"
     (rf/reg-event :seed/A (fn [{:keys [db]} _] {:db {:where :A :counter 0 :marker :pristine}}))
@@ -559,8 +550,8 @@
       (rf/register-listener! :trace ::iso (fn [ev] (swap! traces conj ev)))
 
       ;; Register a loop event under :B that infinitely self-dispatches.
-      ;; Each iteration writes to :B's :db, so we can see whether the
-      ;; rollback actually fires.
+      ;; Each iteration writes to :B's :db, so we can see that no
+      ;; rollback fires.
       (rf/reg-event :loop/B
         (fn [{:keys [db]} _]
           {:db {:where :B
@@ -568,8 +559,8 @@
                 :marker  :mid-cascade}
            :fx [[:dispatch [:loop/B]]]}))
 
-      ;; Dispatch the loop on :B. This trips :B's drain-depth limit. Per
-      ;; rf2-nj6p7 (per-event epochs) :B's completed events keep their
+      ;; Dispatch the loop on :B. This trips :B's drain-depth limit. Under
+      ;; per-event epochs :B's completed events keep their
       ;; durable writes — no whole-drain rollback — but the cascade stays
       ;; isolated to :B; :A is untouched.
       (rf/dispatch-sync [:loop/B] {:frame :drain.iso/B})
@@ -587,7 +578,7 @@
           ":A's app-db remains exactly its :initial-events state")
 
       ;; --- (c) the depth-exceeded trace carries :B, not :A.
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The isolation
+      ;; Dev-instrumentation arm (see ns docstring §Posture split). The isolation
       ;; CONTRACT is (a) + (b) above, both posture-independent; the trace's
       ;; `:frame` tag is the dev restatement of which frame overflowed.
       (when rf.interop/debug-enabled?
@@ -600,19 +591,18 @@
           (is (= :drain.iso/B (get-in hit [:tags :frame]))
               "the trace's :frame tag is :B (the overflowing frame), not :A")
           (is (false? (get-in hit [:tags :rollback?]))
-              ":rollback? false — per rf2-nj6p7 there is no whole-drain rollback")))
+              ":rollback? false — there is no whole-drain rollback")))
 
       (rf/unregister-listener! :trace ::iso))))
 
-;; ---- rf2-fcbrjo: drain-depth-exceeded is ALWAYS-ON + carries cycle evidence
+;; ---- drain-depth-exceeded is ALWAYS-ON + carries cycle evidence
 
 (deftest drain-depth-exceeded-fans-out-on-the-always-on-axis-with-cycle-evidence
-  ;; rf2-fcbrjo — the production halt must be VISIBLE. Before promotion the
-  ;; drain-depth halt rode ONLY the dev trace surface (`:trace` listeners /
-  ;; `trace/emit-error!`), which Closure DCEs under `goog.DEBUG=false`, so a
-  ;; production build shipped NOTHING when a runaway drain halted. This pins
-  ;; the promotion: the halt ALSO fans a STRUCTURAL-ONLY record out through the
-  ;; ALWAYS-ON error-emit axis (`rf.error-emit/register-error-listener!`, surface #4 —
+  ;; The production halt must be VISIBLE. The dev trace surface (`:trace`
+  ;; listeners / `trace/emit-error!`) is DCE'd by Closure under
+  ;; `goog.DEBUG=false`, so a halt riding only that surface would ship
+  ;; NOTHING when a runaway drain halted. So the halt ALSO fans a
+  ;; STRUCTURAL-ONLY record out through the ALWAYS-ON error-emit axis (`rf.error-emit/register-error-listener!`, surface #4 —
   ;; production-survivable, NOT gated on `rf.interop/debug-enabled?`), carrying
   ;; the CYCLE EVIDENCE (`:tail-event-ids`, the last K settled event-ids — the
   ;; repeating suffix IS the runaway cycle).
@@ -665,28 +655,25 @@
               "the always-on record carries NO :last-event vector (dev-trace only)"))))))
 
 (deftest drain-of-exactly-drain-depth-events-settles-with-no-halt
-  ;; rf2-2wntx — a CLEAN cascade of EXACTLY `:drain-depth` events must SETTLE,
-  ;; not halt as a runaway.
+  ;; A CLEAN cascade of EXACTLY `:drain-depth` events must SETTLE, not halt
+  ;; as a runaway.
   ;;
-  ;; `run-one-pass!` (router.cljc) tested `(>= depth drain-depth)` as its FIRST
-  ;; `cond` arm — BEFORE `take-event!` ever consulted the queue. `depth` counts
-  ;; events ALREADY SETTLED, so a terminating cascade of exactly N events left
-  ;; the loop at `depth` = N with an EMPTY queue, and the depth arm fired
-  ;; anyway. `handle-depth-exceeded!` then peeked that empty queue, fell back to
-  ;; `last-event`, and named as the "halting event" the event that had just
-  ;; settled `:ok` — an always-on `:rf.error/drain-depth-exceeded` and a phantom
-  ;; `:halted-depth` epoch record on a drain that did nothing wrong. 16 events
-  ;; under the `:story` preset, 100 under the default, were enough to trip it.
+  ;; `depth` counts events ALREADY SETTLED, so a terminating cascade of
+  ;; exactly N events reaches `depth` = N with an EMPTY queue. Testing
+  ;; `(>= depth drain-depth)` BEFORE consulting the queue would fire the
+  ;; depth arm anyway, name as the "halting event" the event that had just
+  ;; settled `:ok`, and emit an always-on `:rf.error/drain-depth-exceeded`
+  ;; and a phantom `:halted-depth` epoch record on a drain that did nothing
+  ;; wrong — at 16 events under the `:story` preset, 100 under the default.
   ;;
   ;; Spec 002 §Run-to-completion rule 3 is unambiguous that the halt discards
   ;; "the remaining queued events (the next, *halting* event never runs)" — a
-  ;; halt PRESUPPOSES a next event. The router now peeks first and halts only
+  ;; halt PRESUPPOSES a next event. The router peeks first and halts only
   ;; when there IS one.
   ;;
   ;; This is the boundary case of `drain-depth-halts-after-exactly-drain-depth-
-  ;; events` above, which could not reach it: that pin drives a RUNAWAY cascade,
-  ;; which ALWAYS has a pending event at the halt seam, so it stayed green
-  ;; throughout. The defect lived exactly in the terminating case.
+  ;; events` above, which cannot reach it: that pin drives a RUNAWAY cascade,
+  ;; which ALWAYS has a pending event at the halt seam.
   (testing "a terminating cascade of exactly N events settles; no depth halt"
     (doseq [n [1 4 16]]
       (let [frame-id (keyword "drain.exact" (str "loop-" n))
@@ -718,7 +705,7 @@
                  " depth = :drain-depth " n " (got " @runs ")"))
         (is (= n (:n (rf/app-db-value frame-id)))
             "every event in the clean cascade settled its own durable write")
-        ;; The defect itself.
+        ;; No halt on a clean cascade.
         (is (empty? (filter #(= :rf.error/drain-depth-exceeded (:error %))
                             @records))
             (str "a clean cascade of exactly " n " events must NOT fan a"

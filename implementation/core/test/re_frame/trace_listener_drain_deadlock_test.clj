@@ -1,9 +1,10 @@
 (ns re-frame.trace-listener-drain-deadlock-test
-  "rf2-jl75r — the JVM trace `fanout-monitor` must NOT be held (or awaited) across
+  "The JVM trace `fanout-monitor` must NOT be held (or awaited) across
   a frame-drain emit. Public trace listeners are allowed to call `dispatch-sync`,
   and the drain path emits ordinary traces (`:rf.event/run-start`, …) while
-  holding a frame's `:drain-lock`. Before the fix these two facts closed a hard
-  AB-BA deadlock (`re-frame.trace.tooling/deliver-to-tooling!`):
+  holding a frame's `:drain-lock`. Were the monitor taken for such an emit,
+  these two facts would close a hard AB-BA deadlock
+  (`re-frame.trace.tooling/deliver-to-tooling!`):
 
     - **T1** does a clean `emit!`, acquires `fanout-monitor`, enters a listener
       that calls `dispatch-sync` into frame F, and spin-waits on F's `:drain-lock`
@@ -23,32 +24,34 @@
   `re-frame.interop/next-tick`'s single-thread executor), where `:in-sync-drain?`
   is false and T1's listener `dispatch-sync` really does spin on the lock.
 
-  The fix keeps the whole synchronous, ordered, serialized fan-out (rf2-uw7hg)
-  but takes the monitor OUT of the cycle: an emit issued while the framework owns
-  a frame's `:drain-lock` never acquires the monitor at all. Per rf2-wxy1c it is
-  APPENDED and delivered at the post-drain boundary
+  The runtime keeps the whole synchronous, ordered, serialized fan-out but
+  takes the monitor OUT of the cycle: an emit issued while the framework owns a
+  frame's `:drain-lock` never acquires the monitor at all. It is APPENDED and
+  delivered at the post-drain boundary
   (`re-frame.trace/call-with-deferred-listener-delivery`, which brackets every
   `:drain-lock` acquire → run → release region), where the lock is already down —
   so the drainer's side of the cycle blocks on nothing while holding the lock.
-  (rf2-jl75r's original cut drove such an emit INLINE instead; that broke the
-  deadlock but let two independent frames' drains enter one listener at once,
-  which is what the deferral replaced.) This suite is the deterministic
-  barrier/latch proof that the exact AB-BA interleaving now completes within a
-  bounded timeout and the listener-dispatched event settles EXACTLY once.
+  (Driving such an emit INLINE would also break the deadlock, but would let two
+  independent frames' drains enter one listener at once — see
+  `trace-listener-concurrent-drain-serialization-test`.) This suite is the
+  deterministic barrier/latch proof that the exact AB-BA interleaving completes
+  within a bounded timeout and the listener-dispatched event settles EXACTLY
+  once.
 
   JVM-only (`.clj`): CLJS is single-threaded, has no monitor, and cannot race two
   drains — the deadlock cannot manifest there."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            ;; Load-bearing require (rf2-jl75r): with the epoch artefact on the
+            ;; Load-bearing require: with the epoch artefact on the
             ;; classpath the per-event settle emits the cascade trailers
             ;; (`:rf.epoch/snapshotted` / `:rf.epoch/outcome`) `outside any cascade`
             ;; — nil `:rf.trace/dispatch-id` — yet STILL on the drainer thread
-            ;; holding the `:drain-lock`. That is the exact emit a dispatch-id-only
-            ;; frame-drain test misclassifies (re-opening the deadlock), so the
-            ;; suite must load epoch to exercise the frame-routability discriminator
-            ;; rather than only the dispatch-id fast path. The FULL JVM suite always
-            ;; loads epoch; this require makes the guard hold in isolation too.
+            ;; holding the `:drain-lock`. A classifier keyed on dispatch-id alone
+            ;; would misclassify exactly that emit (re-opening the deadlock), so
+            ;; the suite loads epoch to exercise the deferral seam for the trailer
+            ;; emits too, not only for the dispatch-id-carrying in-run emits. The
+            ;; FULL JVM suite always loads epoch; this require makes the guard
+            ;; hold in isolation too.
             [re-frame.epoch]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -71,11 +74,11 @@
 (def ^:private join-timeout-ms 10000)
 (def ^:private latch-timeout-s 10)
 
-;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
+;; ---- Posture: dev-only, declared by `^:requires-debug` ---------------------
 ;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
 ;; no-op, so there is no semantic residue to run under that posture, and a
-;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
-;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
+;; `(when interop/debug-enabled? ...)` split would leave EMPTY deftests
+;; reporting green.  Every deftest
 ;; below is therefore TAGGED, and the production-gate lane skips the tag rather
 ;; than the file: the namespace is still LOADED there, so a load-time failure
 ;; under the gate still reddens the job, and an untagged new deftest joins that
@@ -94,8 +97,8 @@
             ;; The drainer signals it is inside the drain, holding F's drain-lock.
             drainer-in     (CountDownLatch. 1)
             ;; T1's listener (holding fanout-monitor) signals the drainer to
-            ;; proceed to its next in-run emit, which pre-fix blocks acquiring
-            ;; that same monitor.
+            ;; proceed to its next in-run emit, which would block acquiring
+            ;; that same monitor were drain emits to take it.
             drainer-go     (CountDownLatch. 1)]
 
         ;; --- handlers, re-registered each iter so they close over this iter's
@@ -113,8 +116,9 @@
             (.await drainer-go latch-timeout-s TimeUnit/SECONDS)
             ;; Queue a SECOND event. Its `:rf.event/run-start` — an ordinary
             ;; in-run (drain-nested) emit fanned out while we still hold the
-            ;; drain-lock — is precisely what pre-fix blocked acquiring the
-            ;; monitor (the run-end/db-changed emits of THIS event contend too).
+            ;; drain-lock — is precisely the emit that would block acquiring a
+            ;; monitor taken for drain emits (the run-end/db-changed emits of
+            ;; THIS event would contend too).
             {:db (assoc db :jl75r/drain-first true)
              :fx [[:dispatch [:jl75r/drain-second]]]}))
 
@@ -137,9 +141,9 @@
               ;; We are on T1, HOLDING fanout-monitor (a clean emit's outermost
               ;; drive holds it across this callback). Release the drainer, then
               ;; dispatch-sync into :rf/default — which the executor is draining
-              ;; — so this spins on the drain-lock (`drain-block!`). Pre-fix, the
-              ;; drainer's next in-run emit blocks on the monitor we hold: the
-              ;; AB-BA cycle.
+              ;; — so this spins on the drain-lock (`drain-block!`). Were drain
+              ;; emits to take the monitor, the drainer's next in-run emit would
+              ;; block on the monitor we hold: the AB-BA cycle.
               (.countDown drainer-go)
               (rf/dispatch-sync [:jl75r/t1-event] {:frame :rf/default}))))
 

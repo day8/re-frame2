@@ -1,21 +1,21 @@
 (ns re-frame.todomvc-cljs-test
-  "Behavioural regression coverage for the TodoMVC example (rf2-km3ssc).
+  "Behavioural coverage for the TodoMVC example.
 
   TodoMVC's dataflow — one event per intent, a layered sub graph, and a filter
   the app DELIBERATELY never stores (it derives `:todo/showing` from the route
-  id: `one fact, one home`) — had almost no behavioural coverage. The only
-  prior test pinned the cold-boot id-allocation / sorted-map invariant on the
-  ADD path (rf2-mzqd4.1). Everything else was untested: `:todo/toggle-completed`,
-  `:todo/save` (blank title -> delete), `:todo/delete`, `:todo/clear-completed`,
-  `:todo/toggle-all` (mark-all-complete UNLESS all already complete), and the
-  sub graph — `:todo/showing` (route -> filter), `:todo/visible-todos` (filter
-  predicate), `:todo/all-complete?`, `:todo/footer-counts`. A regression in
-  toggle-all's all-complete? inversion, the visible-todos predicate, or the
-  route->filter mapping would produce a visibly broken TodoMVC with a green
-  suite.
+  id: `one fact, one home`) — is pinned here: `:todo/add`,
+  `:todo/toggle-completed`, `:todo/save` (blank title -> delete),
+  `:todo/delete`, `:todo/clear-completed`, `:todo/toggle-all`
+  (mark-all-complete UNLESS all already complete), and the sub graph —
+  `:todo/showing` (route -> filter), `:todo/visible-todos` (filter predicate),
+  `:todo/all-complete?`, `:todo/footer-counts`. The adapter tree's
+  `re-frame.todomvc-cljs-test` pins the cold-boot id-allocation / sorted-map
+  invariant on the ADD path. Without these, a fault in toggle-all's
+  all-complete? inversion, the visible-todos predicate, or the route->filter
+  mapping would produce a visibly broken TodoMVC with a green suite.
 
   These belong in the framework test tree, NOT under `examples/` (examples stay
-  test-free per rf2-8cevm). They `:require` `todomvc.core` (a Reagent-coupled
+  test-free). They `:require` `todomvc.core` (a Reagent-coupled
   `.cljs`-only entry ns, transitively pulling its events / subs / db) so they
   run under the consolidated `:node-test` CLJS build, which has
   `../examples/core` on its source paths.
@@ -104,9 +104,9 @@
       (is (false? (get-in (todos f) [1 :completed])) "toggling again flips back"))))
 
 (deftest toggle-all-inverts-only-when-not-already-all-complete
-  (testing "rf2-km3ssc — toggle-all marks every row complete UNLESS they are
+  (testing "toggle-all marks every row complete UNLESS they are
             already all complete, in which case it marks them all active. A
-            regression in that all-complete? inversion is a silent bug"
+            fault in that all-complete? inversion would be a silent bug"
     (let [f (todo-frame!)]
       (rf/dispatch-sync [:todo/add "a"] {:frame f})
       (rf/dispatch-sync [:todo/add "b"] {:frame f})
@@ -158,10 +158,10 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest showing-derives-filter-from-route-id
-  (testing "rf2-km3ssc — :todo/showing maps the route id to the active filter;
+  (testing ":todo/showing maps the route id to the active filter;
             the not-found route AND an unset route both fall through to :all
-            (the filter the app never stores). A regression in this mapping is
-            a silent bug"
+            (the filter the app never stores). A fault in this mapping would
+            be a silent bug"
     (let [f (todo-frame!)]
       (is (= :all       (rf/compute-sub [:todo/showing] (with-route f :todo/all))))
       (is (= :active    (rf/compute-sub [:todo/showing] (with-route f :todo/active))))
@@ -172,7 +172,7 @@
           "an unset route (no slice) also falls through to :all"))))
 
 (deftest visible-todos-filters-per-showing
-  (testing "rf2-km3ssc — :todo/visible-todos applies the per-showing predicate:
+  (testing ":todo/visible-todos applies the per-showing predicate:
             :all -> everything, :active -> incomplete only, :completed ->
             complete only. A wrong predicate is a silent bug"
     (let [f (todo-frame!)]

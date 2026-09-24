@@ -331,7 +331,7 @@
 
 ;; ---- single-source readers keep their container value ---------------------
 
-(deftest single-source-readers-still-receive-their-container-value
+(deftest single-source-readers-receive-their-container-from-subscribe-once-and-compute-sub
   (testing "`:db` / `:runtime-db` / `:frame-state` bodies receive the CONTAINER
             value, not a vector — the collapse is by single-source KIND, not
             by \"anything that is not :db\""
@@ -438,7 +438,7 @@
                (read-three-ways query-v db))
             (str query-v " delivers " (pr-str expected) " on all three paths"))))))
 
-(deftest single-source-readers-still-receive-their-container-value
+(deftest single-source-readers-receive-the-same-container-on-all-three-read-paths
   (testing "the collapse is \"single-source kind → container; declared → vector\",
             so `:db`, `:runtime-db` and `:frame-state` are untouched by it —
             on all three read paths"

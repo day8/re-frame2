@@ -1,5 +1,5 @@
 (ns re-frame.trigger-handler-coord-test
-  "Per rf2-3nn8 — `:rf.trace/trigger-handler` on `:rf.error/*` trace events.
+  "`:rf.trace/trigger-handler` on `:rf.error/*` trace events.
 
   Every error trace emitted while a handler is in scope (event, sub, fx,
   cofx, view) carries an optional top-level `:rf.trace/trigger-handler`
@@ -8,7 +8,7 @@
   outside any handler scope (e.g. the outermost-dispatch
   `:rf.error/no-such-handler`) omit the field.
 
-  Locked shape (per rf2-3nn8):
+  Locked shape:
 
     {:kind         :event / :sub / :fx / :cofx / :view
      :id           <registered-id>
@@ -20,46 +20,45 @@
   Q4 — NOT elided in production.
 
   JVM-only here — the dynamic-var binding mechanism is platform-agnostic
-  and CLJS adds no signal beyond the source-coord macro path which
-  rf2-mdjp + rf2-ulxi already cover. Mirror tests under cljs are slim
+  and CLJS adds no signal beyond the source-coord macro path, which the
+  source-coord suites cover. Mirror tests under cljs are slim
   smoke checks driven by the same fixture pattern.
 
   Source-coord parity with the registrar is established by the
-  `source-coords-test` suite (rf2-k84s); this file only checks that the
+  `source-coords-test` suite; this file only checks that the
   registrar's stamp is carried onto the emitted error event.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   Q4 above says `:rf.trace/trigger-handler` is \"NOT elided in production\", and
   that is true of the SUBSTANCE but not of the SLOT this file reads. The slot
   rides a TRACE event, and under `-Dre-frame.debug=false` no trace event is
-  emitted at all, so every deftest here failed under
+  emitted at all, so every trace assertion here would fail under
   `scripts/test-core-prod-gate.sh`. The substance — \"which registered
   component produced this error, and where was it registered\" — survives on a
   different channel: `error-emit/dispatch-on-error!` resolves
   `source-coords/error-coords-for` against the always-on `error-coords-by-id`
   registry and stamps `:source-coord` onto the tight record every
-  `:errors`-stream listener receives. That is the channel a production error
-  shipper actually reads, and nothing here had ever asserted it.
+  `error-emit` listener receives. That is the channel a production error
+  shipper actually reads.
 
-  So each case grew an ALWAYS-ON witness on the `:errors` stream beside its
-  guarded trace assertions. The witness is not a restatement: the two channels
-  attribute DIFFERENTLY, and the difference is now pinned. `:rf.error/
+  So each case carries an ALWAYS-ON witness on the `error-emit` registry beside
+  its guarded trace assertions. The witness is not a restatement: the two
+  channels attribute DIFFERENTLY, and the difference is pinned. `:rf.error/
   fx-handler-exception`'s trace names the FX as the trigger handler, while the
   always-on record resolves its `:source-coord` from `:event-id` — see
   `fx-handler-exception-carries-trigger-handler` for which id that turns out
   to be.
 
-  THREE VACUOUS PASSES CAME OFF THIS FILE (rf2-d2841 class 4 — absence of a
-  key the gate elides wholesale): `trigger-handler-rides-at-top-level`'s
+  VACUITY UNDER THE GATE, so these sit inside the posture guard. Three
+  negatives — `trigger-handler-rides-at-top-level`'s
   `(not (contains? (:tags exc) …))`, `no-such-handler-omits-trigger-handler`'s
   `(not (contains? miss …))` and `programmatic-registration-omits-trigger-
-  handler`'s ditto — all three read `contains?` off the nil the empty trace
-  ring yields, and `(contains? nil k)` is false for every k. A FOURTH shape,
-  class 3, sat in `source-coord-matches-registration-site`: it compares
-  `(:ns reg-meta)` against `(:ns coord)` field by field, and under the gate
-  BOTH sides are nil — four `nil = nil` comparisons certifying parity between
-  two absences."
+  handler`'s ditto — would read `contains?` off the nil the empty trace ring
+  yields, and `(contains? nil k)` is false for every k. And
+  `source-coord-matches-registration-site` compares `(:ns reg-meta)` against
+  `(:ns coord)` field by field, where under the gate BOTH sides are nil — four
+  `nil = nil` comparisons certifying parity between two absences."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
@@ -82,7 +81,7 @@
   (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
-  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
+  ;; EP-0002: `init!` does not synthesise `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
@@ -104,8 +103,8 @@
            evs))
 
 (defn- record-both
-  "ALWAYS-ON (rf2-d2841) capture: run `body-fn` with BOTH a
-  dev-trace listener and an always-on `:errors`-stream listener attached, and
+  "ALWAYS-ON capture: run `body-fn` with BOTH a
+  dev-trace listener and an always-on `error-emit` listener attached, and
   return `{:traces [...] :errors [...]}`. The `:errors` half is the corpus-wide
   `error-emit` registry — not gated by `rf.interop/debug-enabled?` — so it fills
   in both postures."
@@ -154,17 +153,17 @@
                                       (rf/dispatch-sync [:rf2-3nn8/throws])))
           [exc] (errors-of traces :rf.error/handler-exception)
           rec   (error-of errors :rf.error/handler-exception)]
-      ;; ALWAYS-ON (rf2-d2841): the failure reaches the production error
+      ;; ALWAYS-ON: the failure reaches the production error
       ;; stream, carrying the registration coord under `:source-coord`.
       (is (some? rec) "the always-on error record fired")
       (is (map? (:source-coord rec))
           "the always-on record carries the registration :source-coord")
       (is (= (rf.source-coords/error-coords-for :event :rf2-3nn8/throws) (:source-coord rec))
           "…and it is exactly what the always-on coord registry holds")
-      ;; rf2-d2841 — the trace SLOT and its placement are dev-only. Under
-      ;; `-Dre-frame.debug=false` `exc` is nil, which made the `:tags`
-      ;; negative below a class-4 vacuous pass: `(contains? nil k)` is false
-      ;; for every k.
+      ;; The trace SLOT and its placement are dev-only. Under
+      ;; `-Dre-frame.debug=false` `exc` is nil, which would make the `:tags`
+      ;; negative below pass for free: `(contains? nil k)` is false for
+      ;; every k.
       (when rf.interop/debug-enabled?
         (is (some? exc) "handler-exception trace fired")
         (is (contains? exc :rf.trace/trigger-handler)
@@ -183,7 +182,7 @@
                                     #(rf/dispatch-sync [:rf2-3nn8/throwing-event]))
           [exc] (errors-of traces :rf.error/handler-exception)
           rec   (error-of errors :rf.error/handler-exception)]
-      ;; ALWAYS-ON (rf2-d2841): same attribution on the production channel —
+      ;; ALWAYS-ON: same attribution on the production channel —
       ;; the record names the failing event and resolves its coord.
       (is (= :rf2-3nn8/throwing-event (:event-id rec))
           "the always-on record names the failing event")
@@ -205,7 +204,7 @@
                                     #(rf/dispatch-sync [:rf2-3nn8/use-throwing-fx]))
           [exc] (errors-of traces :rf.error/fx-handler-exception)
           rec   (error-of errors :rf.error/fx-handler-exception)]
-      ;; ALWAYS-ON (rf2-d2841), AND THE TWO CHANNELS DISAGREE ON PURPOSE.
+      ;; ALWAYS-ON, AND THE TWO CHANNELS DISAGREE ON PURPOSE.
       ;; The trace names the FX as the trigger handler (the fx body threw);
       ;; the always-on record's `:source-coord` is resolved by
       ;; `error-emit/error-source-coord` from `:event-id` under `[:event …]`,
@@ -232,9 +231,9 @@
                                     #(deref (rf/subscribe [:rf2-3nn8/throwing-sub])))
           [exc] (errors-of traces :rf.error/sub-exception)
           rec   (error-of errors :rf.error/sub-exception)]
-      ;; ALWAYS-ON (rf2-d2841): `:rf.error/sub-exception` is one of
+      ;; ALWAYS-ON: `:rf.error/sub-exception` is one of
       ;; `error-emit`'s `sub-error-categories`, so its coord resolves under
-      ;; `[:sub …]` — the realm-aware lookup rf2-xgkgx installed. That is the
+      ;; `[:sub …]` — the realm-aware lookup. That is the
       ;; production-posture statement of "the record names the FAILING SUB".
       (is (some? rec) "the always-on sub-exception record fired")
       (is (= :rf2-3nn8/throwing-sub (:event-id rec))
@@ -245,12 +244,9 @@
       (when rf.interop/debug-enabled?
         (assert-trigger-shape exc :sub :rf2-3nn8/throwing-sub)))))
 
-;; The former `no-such-cofx-carries-enclosing-event-trigger-handler` deftest is
-;; retired with `inject-cofx` (EP-0017 slice A.3) — `:rf.error/no-such-cofx` no
-;; longer fires. Its successor `:rf.error/unregistered-cofx` (a declared typo'd
-;; id) is registration / context-assembly-time, outside the in-chain
-;; trigger-handler scope this file pins; its coverage lives in
-;; `re-frame.cofx-test`.
+;; No cofx case here: `:rf.error/unregistered-cofx` (a declared typo'd id) is
+;; registration / context-assembly-time, outside the in-chain trigger-handler
+;; scope this file pins; its coverage lives in `re-frame.cofx-cljs-test`.
 
 (deftest no-such-fx-carries-enclosing-event-trigger-handler
   (testing ":rf.error/no-such-fx fires from the fx walker while the event
@@ -262,7 +258,7 @@
                                     #(rf/dispatch-sync [:rf2-3nn8/uses-missing-fx]))
           [miss] (errors-of traces :rf.error/no-such-fx)
           rec    (error-of errors :rf.error/no-such-fx)]
-      ;; ALWAYS-ON (rf2-d2841): `:rf.error/no-such-fx` is a PROMOTED category,
+      ;; ALWAYS-ON: `:rf.error/no-such-fx` is a PROMOTED category,
       ;; so the enclosing event's coord reaches production on the record.
       (is (some? rec) "the always-on no-such-fx record fired")
       (is (= (rf.source-coords/error-coords-for :event :rf2-3nn8/uses-missing-fx)
@@ -280,7 +276,7 @@
                                     #(rf/dispatch-sync [:rf2-3nn8/no-such-event]))
           [miss] (errors-of traces :rf.error/no-such-handler)
           rec    (error-of errors :rf.error/no-such-handler)]
-      ;; ALWAYS-ON (rf2-d2841): the production analogue of "no handler was in
+      ;; ALWAYS-ON: the production analogue of "no handler was in
       ;; scope" is that the record carries NO `:source-coord` — there is no
       ;; registration to point at. Non-vacuous because the sibling deftests
       ;; above assert the slot IS present for a registered handler, on the
@@ -288,8 +284,8 @@
       (is (some? rec) "the always-on no-such-handler record fired")
       (is (not (contains? rec :source-coord))
           "no registration in scope → the always-on record omits :source-coord")
-      ;; rf2-d2841 — dev-only trace slot. Under the gate `miss` is nil, which
-      ;; made the negative below a class-4 vacuous pass.
+      ;; Dev-only trace slot. Under the gate `miss` is nil, which would make
+      ;; the negative below pass for free.
       (when rf.interop/debug-enabled?
         (is (some? miss) "no-such-handler trace fired")
         (is (not (contains? miss :rf.trace/trigger-handler))
@@ -310,7 +306,7 @@
           coord    (-> exc :rf.trace/trigger-handler :source-coord)
           rec      (error-of errors :rf.error/handler-exception)
           errc     (rf.source-coords/error-coords-for :event :rf2-3nn8/registration-site)]
-      ;; ALWAYS-ON (rf2-d2841): the same "the emitted coord IS the registration
+      ;; ALWAYS-ON: the same "the emitted coord IS the registration
       ;; site" claim, made against the always-on registry — which is the
       ;; registration-site record of truth in production, `handler-meta`
       ;; having been stripped of coord keys there.
@@ -320,10 +316,9 @@
       (is (symbol? (:ns errc)))
       (is (string? (:file errc)))
       (is (integer? (:line errc)))
-      ;; rf2-d2841 — GUARDED, and this arm was a class-3 vacuous pass: under
-      ;; the gate `reg-meta` carries no coord keys AND `coord` is nil, so all
-      ;; four comparisons were `nil = nil` — parity certified between two
-      ;; absences.
+      ;; GUARDED: under the gate `reg-meta` carries no coord keys AND
+      ;; `coord` is nil, so all four comparisons would be `nil = nil` —
+      ;; parity certified between two absences.
       ;;
       ;; The registrar stamps :ns / :file / :line / :column flat on the
       ;; meta map; the trigger-handler value picks them up. Compare
@@ -348,7 +343,7 @@
                                     #(rf/dispatch-sync [:rf2-3nn8/no-coords]))
           [exc] (errors-of traces :rf.error/handler-exception)
           rec   (error-of errors :rf.error/handler-exception)]
-      ;; ALWAYS-ON (rf2-d2841): "better no-data than poison-data" is a
+      ;; ALWAYS-ON: "better no-data than poison-data" is a
       ;; PRODUCTION claim — a programmatic registration must leave the
       ;; always-on registry empty, so the shipped record omits `:source-coord`
       ;; rather than pointing an operator at someone else's line.
@@ -357,7 +352,7 @@
           "programmatic registration stored no always-on coords")
       (is (not (contains? rec :source-coord))
           "…so the production record omits the :source-coord slot")
-      ;; rf2-d2841 — dev-only trace slot; class-4 vacuous under the gate.
+      ;; Dev-only trace slot; vacuous under the gate, so guarded.
       (when rf.interop/debug-enabled?
         (is (some? exc))
         (is (not (contains? exc :rf.trace/trigger-handler))

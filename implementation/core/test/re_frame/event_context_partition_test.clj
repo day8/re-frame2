@@ -1,26 +1,25 @@
 (ns re-frame.event-context-partition-test
-  "EP-0001 (rf2-bvwoi4) — event-context partition keys + effect-map widening
-  + the runtime-effect dev diagnostic.
+  "EP-0001 — event-context partition keys, the effect-map's `:rf.db/runtime`
+  key, and the runtime-effect dev diagnostic.
 
-  Pins the event-CONTEXT contract introduced by bead 4 (the partitioned
-  COMMIT is bead 5 / rf2-adwcv6):
+  Pins the event-CONTEXT contract:
 
-    1. `:db` coeffect KEEPS meaning app-db (NOT the whole frame).
+    1. The `:db` coeffect means app-db (NOT the whole frame).
     2. `:rf.db/runtime` + `:rf.frame/id` are present in the event context
        (per Spec 002 §Event context threads both partitions). `:rf.db/runtime`
-       reads `nil` until the physical partition lands in bead 5.
-    3. The closed effect-map is widened to admit `:rf.db/runtime` (per
+       reads the frame's runtime-db partition (`{}` on a fresh frame).
+    3. The closed effect-map admits `:rf.db/runtime` (per
        Spec-Schemas §:rf/effect-map, whose closed set is SEVEN keys — `:db`,
        `:rf.db/runtime`, `:fx` and the four EP-0025 commit-plane
        classification effects): a `:rf.db/runtime` effect is NOT a shape
-       error, while a foreign top-level key still is.
+       error, while a foreign top-level key is.
     4. `:rf.warning/app-handler-runtime-effect` fires when an ORDINARY app
        handler returns a `:rf.db/runtime` effect, and DOES NOT fire for a
        framework-authority handler (`:rf/machine? true`) — reserved BY
-       CONVENTION, not a security boundary (Mike ruling #4). The effect is
-       applied either way (the diagnostic is a warning, not a gate).
+       CONVENTION, not a security boundary. The effect is applied either
+       way (the diagnostic is a warning, not a gate).
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   Two of the three surfaces this file reads are dev-only. The
   `:rf.warning/app-handler-runtime-effect` diagnostic is a trace-bus warning,
@@ -33,32 +32,31 @@
   a foreign top-level effect key REFUSES the event, a non-sequential `:fx`
   REFUSES it too — both abort PRE-COMMIT, so no `:db` lands beside them and
   `do-fx` never runs to throw a raw host exception — and a legacy
-  `:rf/runtime` root is REJECTED WHOLE — in every posture. (Before rf2-04tx
-  cases (a) and (b) were DROPS that committed the `:db` anyway; that
-  partial-success disguise is gone. A malformed ENTRY inside a well-shaped
-  `:fx` vector is the one case that still recovers per-entry — it is
-  post-commit, on the best-effort do-fx plane.) Each case
-  already had, or now has, an always-on assertion on exactly that: what
-  committed, what did not, and that the drain survived. Read the file with the
-  guards on and it still says everything that matters about production
-  behaviour; what it loses is the narration.
+  `:rf/runtime` root is REJECTED WHOLE — in every posture. A drop that
+  committed the `:db` anyway would be a partial-success disguise. (A
+  malformed ENTRY inside a well-shaped `:fx` vector is the one case that
+  recovers per-entry — it is post-commit, on the best-effort do-fx plane.)
+  Each case has an always-on assertion on exactly that: what committed, what
+  did not, and that the drain survived. Read the file with the guards on and
+  it still says everything that matters about production behaviour; what it
+  loses is the narration.
 
-  FIVE VACUOUS PASSES CAME OFF (rf2-d2841 class 1 — a negative over an empty
-  trace ring), and every one of them was in a deftest already GREEN under the
-  gate: `runtime-db-effect-is-not-a-shape-error`,
+  A negative over an empty trace ring passes vacuously, so the five deftests
+  whose dev-only assertion certifies that nothing was emitted —
+  `runtime-db-effect-is-not-a-shape-error`,
   `framework-authority-runtime-effect-does-not-warn`,
   `plain-db-fx-handler-does-not-warn`,
   `legitimate-runtime-db-effect-is-not-a-legacy-root-error` and
-  `well-shaped-final-effects-emit-no-shape-error` each certify that nothing was
-  emitted, over a stream that emits nothing at all there. Two of the five —
-  `runtime-db-effect` and `well-shaped-final-effects` — had nothing else to
-  say under the gate at all until this pass gave them a commit witness.
+  `well-shaped-final-effects-emit-no-shape-error` — each also carry an
+  always-on commit witness, which is all two of them —
+  `runtime-db-effect` and `well-shaped-final-effects` — have to say under the
+  gate.
 
   ONE ASYMMETRY IS WORTH RECORDING RATHER THAN PAPERING OVER.
   `framework-authority-runtime-effect-does-not-warn` has NO production
   counterpart even in principle: the diagnostic is `:recovery :warned`, so the
-  effect applies identically whether it fires or not (Mike ruling #4 —
-  convention, not enforcement). Its always-on residue can only be that the
+  effect applies identically whether it fires or not (convention, not
+  enforcement). Its always-on residue can only be that the
   write landed, which is true of the warned case too. That is the honest state
   of the contract, not a gap in the test."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -144,21 +142,21 @@
         (is (contains? cofx :rf.db/runtime)
             ":rf.db/runtime coeffect is present (runtime-db partition)")
         (is (= {} (:rf.db/runtime cofx))
-            ":rf.db/runtime reads the real (fresh {}) runtime-db partition (rf2-adwcv6, bead 5)")
+            ":rf.db/runtime reads the real (fresh {}) runtime-db partition")
         (is (= (:rf.db/runtime (rf/frame-state-value :ctx/partitions)) (:rf.db/runtime cofx))
             ":rf.db/runtime coeffect equals runtime-db-value")
         (is (= :ctx/partitions (:rf.frame/id cofx))
             ":rf.frame/id is the running frame's id (runtime-context spelling)")
-        ;; rf2-1m6rf1 — the retired bare `:frame` coeffect is GONE. The
-        ;; frame stamp travels under `:rf.frame/id` only in the event
-        ;; context; `:frame` survives solely as the public dispatch/subscribe
-        ;; opt + the dispatch envelope key (per Spec 002 §Event context).
+        ;; There is no bare `:frame` coeffect. The frame stamp travels under
+        ;; `:rf.frame/id` only in the event context; `:frame` exists solely
+        ;; as the public dispatch/subscribe opt + the dispatch envelope key
+        ;; (per Spec 002 §Event context).
         (is (not (contains? cofx :frame))
-            "the bare :frame coeffect is no longer injected (one carrier, one name)")))))
+            "the bare :frame coeffect is not injected (one carrier, one name)")))))
 
 ;; ===========================================================================
-;; 3 — effect-map widening (:rf.db/runtime joins the closed set, which today
-;;     is the seven keys #{:db :rf.db/runtime :fx :sensitive :large
+;; 3 — the effect-map admits :rf.db/runtime (inside the closed set, which is
+;;     the seven keys #{:db :rf.db/runtime :fx :sensitive :large
 ;;     :clear-sensitive :clear-large})
 ;; ===========================================================================
 
@@ -172,28 +170,28 @@
         {:doc "framework-authority runtime write" :rf/machine? true}
         (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {}} :fx []}))
       (rf/dispatch-sync [:ctx/fw-runtime] {:frame :ctx/runtime-fx})
-      ;; ALWAYS-ON (rf2-d2841): "inside the widened closed set" means the
-      ;; effect was APPLIED rather than dropped, and that is readable in both
-      ;; postures. The negative below was class-1 vacuous under the gate and
-      ;; was this deftest's only assertion.
+      ;; ALWAYS-ON: "inside the closed set" means the effect was APPLIED
+      ;; rather than dropped, and that is readable in both postures. The
+      ;; negative below is vacuous under the gate, so without this the
+      ;; deftest would say nothing there.
       (is (= {:rf.runtime/machines {}}
              (:rf.db/runtime (rf/frame-state-value :ctx/runtime-fx)))
           "the :rf.db/runtime effect committed — it was not policed away")
       (when rf.interop/debug-enabled?
         (is (empty? (error-events recorded :rf.error/effect-map-shape))
-            ":rf.db/runtime is inside the widened closed set — no shape error")))))
+            ":rf.db/runtime is inside the closed set — no shape error")))))
 
 (deftest foreign-top-level-key-refuses-the-event
-  (testing "a foreign top-level key (legacy :http) refuses the event after the widening"
+  (testing "a foreign top-level key (legacy :http) refuses the event"
     (rf/make-frame {:id :ctx/foreign-fx :doc "ctx"})
     (let [recorded (record-traces! ::foreign-err)]
       (rf/reg-event :ctx/foreign
         (fn [_ _] {:db {:ok? true} :http {:url "/api"}}))
       (rf/dispatch-sync [:ctx/foreign] {:frame :ctx/foreign-fx})
-      ;; ALWAYS-ON (rf2-d2841 / rf2-04tx): the REFUSAL is production behaviour
-      ;; — the event aborts pre-commit, so the legal `:db` does NOT land either.
-      ;; Only the diagnostic that narrates it is dev-only. Before rf2-04tx the
-      ;; `:db` committed while `:http` vanished: the partial-success disguise.
+      ;; ALWAYS-ON: the REFUSAL is production behaviour — the event aborts
+      ;; pre-commit, so the legal `:db` does NOT land either. Only the
+      ;; diagnostic that narrates it is dev-only. Committing the `:db` while
+      ;; `:http` vanished would be a partial-success disguise.
       (is (nil? (:ok? (rf/app-db-value :ctx/foreign-fx)))
           "no partial commit — the legal :db did NOT land alongside the refusal")
       (when rf.interop/debug-enabled?
@@ -215,10 +213,10 @@
       (rf/reg-event :ctx/app-emits-runtime
         (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {}}}))
       (rf/dispatch-sync [:ctx/app-emits-runtime] {:frame :ctx/app-runtime})
-      ;; ALWAYS-ON (rf2-d2841): `:recovery :warned` means the write is NOT
-      ;; gated — the app handler's runtime effect applies in production, where
-      ;; no diagnostic exists to nudge anyone. That is the load-bearing half of
-      ;; Mike ruling #4 and it had no production-posture assertion before.
+      ;; ALWAYS-ON: `:recovery :warned` means the write is NOT gated — the
+      ;; app handler's runtime effect applies in production, where no
+      ;; diagnostic exists to nudge anyone. That is the load-bearing half of
+      ;; the convention-not-enforcement contract.
       (is (= {:rf.runtime/routing {}}
              (:rf.db/runtime (rf/frame-state-value :ctx/app-runtime)))
           "the effect applied anyway — the diagnostic is a warning, not a gate")
@@ -244,11 +242,11 @@
         {:doc "framework-authority" :rf/machine? true}
         (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {}}}))
       (rf/dispatch-sync [:ctx/fw-emits-runtime] {:frame :ctx/fw-authority})
-      ;; ALWAYS-ON (rf2-d2841) — and see the ns docstring: this case has no
-      ;; production counterpart even in principle, because the diagnostic is
+      ;; ALWAYS-ON — and see the ns docstring: this case has no production
+      ;; counterpart even in principle, because the diagnostic is
       ;; `:recovery :warned` and the effect applies either way. The residue is
       ;; that the framework write landed; the ABSENCE of the nudge is a
-      ;; dev-posture fact only, and the negative was class-1 vacuous.
+      ;; dev-posture fact only, and the negative is vacuous under the gate.
       (is (= {:rf.runtime/machines {}}
              (:rf.db/runtime (rf/frame-state-value :ctx/fw-authority)))
           "the framework-authority runtime write committed")
@@ -266,17 +264,17 @@
       ;; ALWAYS-ON: the ordinary path commits.
       (is (true? (:touched? (rf/app-db-value :ctx/plain)))
           "the :db effect committed normally")
-      ;; rf2-d2841 — class-1 vacuous under the gate.
+      ;; Vacuous under the gate: a negative over an empty trace ring.
       (when rf.interop/debug-enabled?
         (is (empty? (warning-events recorded :rf.warning/app-handler-runtime-effect))
             "no :rf.db/runtime effect ⇒ no diagnostic")))))
 
 ;; ===========================================================================
-;; EP-0001 (rf2-tfepxu, decision #8) — legacy :rf/runtime root is a HARD ERROR
+;; EP-0001 — legacy :rf/runtime root is a HARD ERROR
 ;; ===========================================================================
 ;;
 ;; Per Conventions §The legacy :rf/runtime root — hard error in final form:
-;; the retired app-db root key `:rf/runtime` is gone. A handler whose `:db`
+;; `:rf/runtime` is not an app-db root key. A handler whose `:db`
 ;; effect carries a top-level `:rf/runtime` key THROWS
 ;; `:rf.error/legacy-runtime-root`. Framework runtime state lives in the
 ;; runtime-db partition (`:rf.db/runtime`), never under an app-db root.
@@ -317,7 +315,7 @@
       ;; :rf.error/handler-exception carrying the original ex-info.
       (let [errs (error-events recorded :rf.error/handler-exception)
             ex   (some-> errs first :tags :exception)]
-        ;; ALWAYS-ON (rf2-d2841): the REJECTION is production behaviour —
+        ;; ALWAYS-ON: the REJECTION is production behaviour —
         ;; `rf.events/reject-legacy-runtime-root!` is an ungated `throw`. Only the
         ;; trace that reports it is dev-only.
         (is (not (contains? (rf/app-db-value :ctx/legacy-db) :rf/runtime))
@@ -337,7 +335,7 @@
       (rf/dispatch-sync [:ctx/fx-writes-legacy-root] {:frame :ctx/legacy-fx})
       (let [errs (error-events recorded :rf.error/handler-exception)
             ex   (some-> errs first :tags :exception)]
-        ;; ALWAYS-ON (rf2-d2841): the rejection holds on the `:fx` path too.
+        ;; ALWAYS-ON: the rejection holds on the `:fx` path too.
         (is (not (contains? (rf/app-db-value :ctx/legacy-fx) :rf/runtime))
             "the legacy root never commits")
         (when rf.interop/debug-enabled?
@@ -345,16 +343,16 @@
               "the :fx-path :db effect with a legacy root is rejected too"))))))
 
 (deftest legitimate-runtime-db-effect-is-not-a-legacy-root-error
-  (testing "a framework :rf.db/runtime effect (the NEW partition) is NOT the legacy-root hard error"
+  (testing "a framework :rf.db/runtime effect (the runtime-db partition) is NOT the legacy-root hard error"
     (rf/make-frame {:id :ctx/new-runtime :doc "ctx"})
     (let [recorded (record-traces! ::new-runtime)]
       (rf/reg-event :ctx/fw-runtime
         {:doc "framework-authority" :rf/machine? true}
         (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:m 1}}}))
       (rf/dispatch-sync [:ctx/fw-runtime] {:frame :ctx/new-runtime})
-      ;; ALWAYS-ON (rf2-d2841): the commit IS the discriminator — a
-      ;; legacy-root throw would have aborted it. The trace negative below was
-      ;; class-1 vacuous under the gate.
+      ;; ALWAYS-ON: the commit IS the discriminator — a legacy-root throw
+      ;; would have aborted it. The trace negative below is vacuous under the
+      ;; gate.
       (is (= {:rf.runtime/machines {:m 1}} (:rf.db/runtime (rf/frame-state-value :ctx/new-runtime)))
           "the runtime-db partition committed normally")
       (when rf.interop/debug-enabled?
@@ -362,15 +360,13 @@
             "writing the :rf.db/runtime partition is legitimate — no legacy-root throw")))))
 
 ;; ===========================================================================
-;; rf2-u1kdvg — FINAL-effects boundary shape policing
+;; FINAL-effects boundary shape policing
 ;; ===========================================================================
 ;;
-;; `commit-fx-effects` polices a `reg-event` HANDLER RETURN during the
-;; chain's `:before` pass — BEFORE the `:after` interceptors run. The router
-;; consumes the FINAL `(:effects final-ctx)` AFTER the whole chain ran, so an
-;; effect can arrive malformed by a route the handler-return site never saw: an
-;; `:after`-interceptor mutation of the effect-map after the handler already
-;; returned. Since rf2-04tx `commit-fx-effects` does not police at all — it
+;; The router consumes the FINAL `(:effects final-ctx)` AFTER the whole chain
+;; ran, so an effect can arrive malformed by a route the handler-return site
+;; never saw: an `:after`-interceptor mutation of the effect-map after the
+;; handler already returned. `commit-fx-effects` does not police at all — it
 ;; projects the returned map verbatim — so the boundary below is the ONE check,
 ;; and it decides identically whichever route the key arrived by:
 ;;   - a foreign top-level effect key REFUSES the event
@@ -409,7 +405,7 @@
       (rf/reg-event :ctx/downstream (fn [{:keys [db]} _] {:db (assoc db :downstream? true)}))
       (rf/dispatch-sync [:ctx/writes-db] {:frame :ctx/after-bad-fx})
       (rf/dispatch-sync [:ctx/downstream] {:frame :ctx/after-bad-fx})
-      ;; ALWAYS-ON (rf2-d2841 / rf2-04tx): "refused in-band, not thrown" is
+      ;; ALWAYS-ON: "refused in-band, not thrown" is
       ;; entirely a production claim — nothing committed and the drain survived.
       ;; That is what this deftest is for; the shape error merely narrates it.
       ;; The in-band arm is load-bearing: a THROW here would escape into
@@ -438,7 +434,7 @@
         {:interceptors [::foreign]}
         (fn [{:keys [db]} _] {:db (assoc db :ok? true)}))
       (rf/dispatch-sync [:ctx/writes-db2] {:frame :ctx/after-foreign})
-      ;; ALWAYS-ON (rf2-d2841 / rf2-04tx): the final-boundary refusal happens in
+      ;; ALWAYS-ON: the final-boundary refusal happens in
       ;; production. This is the SECOND ROUTE witness — a key inserted here
       ;; never passed through the handler return, and gets the same verdict.
       (is (nil? (:ok? (rf/app-db-value :ctx/after-foreign)))
@@ -454,7 +450,7 @@
   (testing "an :after interceptor inserting :rf/runtime into [:effects :db] is rejected at the final boundary — never lands in app-db, drain survives"
     (rf/make-frame {:id :ctx/after-legacy :doc "ctx"})
     (let [recorded (record-traces! ::after-legacy)
-          ;; Insert the retired :rf/runtime root into the FINAL :db effect,
+          ;; Insert the legacy :rf/runtime root into the FINAL :db effect,
           ;; AFTER the in-chain `reject-legacy-runtime-root!` :before guard ran.
           legacy   (after-icpt ::legacy
                                (fn [ctx]
@@ -468,7 +464,7 @@
       (rf/reg-event :ctx/after-legacy-downstream (fn [{:keys [db]} _] {:db (assoc db :downstream? true)}))
       (rf/dispatch-sync [:ctx/clean-db] {:frame :ctx/after-legacy})
       (rf/dispatch-sync [:ctx/after-legacy-downstream] {:frame :ctx/after-legacy})
-      ;; ALWAYS-ON (rf2-d2841): whole-effect rejection, no partial commit, and
+      ;; ALWAYS-ON: whole-effect rejection, no partial commit, and
       ;; a surviving drain — all production behaviour at the final boundary.
       ;; The `(not (contains? db :user/id))` negative is NOT vacuous here: the
       ;; sibling assertion proves the frame's app-db exists and carries
@@ -489,9 +485,8 @@
 
 ;; ---- full-context (interceptor) final-effects policing --------------------
 ;;
-;; EP-0018 (rf2-xhfxcs.14): full-context work is now an INTERCEPTOR `:before`
-;; on a `reg-event` registration (the removed `reg-event-ctx` form's
-;; `context -> context` shape transplants verbatim). These pin that effects a
+;; EP-0018: full-context work is an INTERCEPTOR `:before` on a `reg-event`
+;; registration, with a `context -> context` shape. These pin that effects a
 ;; full-context interceptor writes onto the context are governed by the final
 ;; boundary exactly as a handler-returned effects map would be.
 
@@ -509,9 +504,9 @@
         {:interceptors [:ctx/ctx-writes-probe]}
         (fn [_ _] {}))
       (rf/dispatch-sync [:ctx/ctx-writes] {:frame :ctx/ctx-bad-fx})
-      ;; ALWAYS-ON (rf2-d2841 / rf2-04tx): the interceptor-written effects are
-      ;; refused at the boundary in production too — nothing landed, and the
-      ;; bad `:fx` still did not throw.
+      ;; ALWAYS-ON: the interceptor-written effects are refused at the
+      ;; boundary in production too — nothing landed, and the bad `:fx` did
+      ;; not throw.
       (is (nil? (:committed? (rf/app-db-value :ctx/ctx-bad-fx)))
           "no partial commit — the :db write did NOT land beside the refused :fx")
       (when rf.interop/debug-enabled?
@@ -534,7 +529,7 @@
         {:interceptors [:ctx/ctx-foreign-writes-probe]}
         (fn [_ _] {}))
       (rf/dispatch-sync [:ctx/ctx-foreign-writes] {:frame :ctx/ctx-foreign})
-      ;; ALWAYS-ON (rf2-d2841 / rf2-04tx).
+      ;; ALWAYS-ON.
       (is (nil? (:ok? (rf/app-db-value :ctx/ctx-foreign)))
           "no partial commit — the legal :db did NOT land beside the foreign key")
       (when rf.interop/debug-enabled?
@@ -555,11 +550,10 @@
           (fn [{:keys [db]} _] {:db (assoc db :n 1)
                                 :fx [[:ctx/noop-fx {}]]}))
         (rf/dispatch-sync [:ctx/clean] {:frame :ctx/clean-final})
-        ;; ALWAYS-ON (rf2-d2841): "passed the final boundary untouched" means
-        ;; BOTH effects survived it — the `:db` committed and the `:fx` ran.
-        ;; That is the production statement of "no spurious policing"; the
-        ;; empty-error-stream negative below was class-1 vacuous under the gate
-        ;; and was one of this deftest's two assertions.
+        ;; ALWAYS-ON: "passed the final boundary untouched" means BOTH
+        ;; effects survived it — the `:db` committed and the `:fx` ran. That
+        ;; is the production statement of "no spurious policing"; the
+        ;; empty-error-stream negative below is vacuous under the gate.
         (is (= 1 (:n (rf/app-db-value :ctx/clean-final)))
             "the :db effect committed normally")
         (is (= 1 @fx-ran)

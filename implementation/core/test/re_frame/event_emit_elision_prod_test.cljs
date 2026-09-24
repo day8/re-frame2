@@ -1,11 +1,10 @@
 (ns re-frame.event-emit-elision-prod-test
-  "Per rf2-rirbq — the always-on event-emit substrate is a production
-  observability surface and MUST fire even when the CLJS trace surface
-  is compile-time elided in production builds (`:advanced` +
-  `goog.DEBUG=false`).
+  "The always-on event-emit substrate is a production observability
+  surface and MUST fire even when the CLJS trace surface is compile-time
+  elided in production builds (`:advanced` + `goog.DEBUG=false`).
 
   This file is the prod-mode companion to `re-frame.event-emit-cljs-test`
-  (default JVM / Node runners). It mirrors the rf2-hqbeh shape used by
+  (default JVM / Node runners). It mirrors the shape used by
   `re-frame.on-error-elision-prod-test`: the shared runner is
   `re-frame.prod-elision-runner`; the shadow-cljs build is
   `:browser-test-prod-elision` (`:advanced` + `{goog.DEBUG false}`).
@@ -14,8 +13,8 @@
   picked up ONLY by the `:browser-test-prod-elision` build. The
   default `:browser-test` / `:node-test` runners use regexes that do
   NOT match this suffix, so these tests run only under prod-mode
-  compilation. This is the suite that exercises the bug class
-  rf2-rirbq exists to prevent: a Datadog forwarder registered through
+  compilation. This is the suite that exercises the bug class the
+  substrate exists to prevent: a Datadog forwarder registered through
   the per-frame `:trace-cb` surface goes silent under `goog.DEBUG=
   false`; the same forwarder registered through this substrate
   survives."
@@ -32,7 +31,7 @@
 ;; ---- event-emit fires under prod build -----------------------------------
 
 (deftest event-emit-fires-under-prod
-  (testing "Per rf2-rirbq: under `:advanced` + `goog.DEBUG=false`, a
+  (testing "Under `:advanced` + `goog.DEBUG=false`, a
             registered event-emit listener MUST fire for every
             processed event — the trace surface is gone, but the
             always-on event-emit substrate delivers the tight record
@@ -58,7 +57,7 @@
 (deftest event-emit-records-error-outcome-under-prod
   (testing "When a handler throws under `:advanced` + `goog.DEBUG=false`,
             the listener record's `:outcome` is `:error`. The trace
-            surface's `:rf.error/handler-exception` event has been
+            surface's `:rf.error/handler-exception` event is
             elided, but the tight event-emit record retains the
             success/failure discriminator so monitoring pipelines can
             distinguish the two without needing the trace surface."
@@ -94,16 +93,16 @@
       (is (= 1 (count @seen))
           "the sibling listener still received the record under prod"))))
 
-;; ---- (removed) handler-meta :sensitive? short-circuit under prod ---------
+;; ---- no handler-meta :sensitive? short-circuit under prod -----------------
 ;;
-;; The handler-meta `:sensitive?` annotation has been removed. Under prod
-;; the substrate no longer short-circuits based on handler-level sensitivity;
-;; per-path elision (via the per-frame `[:rf.runtime/elision]` runtime-db registry) is the
-;; load-bearing privacy surface.
+;; There is no handler-meta `:sensitive?` annotation. Under prod the
+;; substrate does not short-circuit based on handler-level sensitivity;
+;; per-path elision (via the per-frame `[:rf.runtime/elision]` runtime-db
+;; registry) is the load-bearing privacy surface.
 
 (deftest event-emit-handler-fires-under-prod
   (testing "Every handler delivers records to listeners under prod —
-            handler-meta `:sensitive?` no longer drops records."
+            no handler-meta `:sensitive?` drops records."
     (let [seen (atom [])]
       (rf.event-emit/register-event-listener!
         :prod/recorder

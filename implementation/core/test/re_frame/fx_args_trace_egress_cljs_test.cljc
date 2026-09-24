@@ -1,47 +1,43 @@
 (ns re-frame.fx-args-trace-egress-cljs-test
-  "rf2-6h3c02 — an fx registration's `:sensitive` classification must reach
+  "An fx registration's `:sensitive` classification must reach
   EVERY trace slot that carries the fx's args, not only the per-effect
   `:rf.fx/handled` slot.
 
-  Before this fix `re-frame.classification/project-trace-event` applied the fx
+  Were `re-frame.classification/project-trace-event` to apply the fx
   registration's `:sensitive` only inside `project-fx-tags`, gated on op
-  `:rf.fx/handled`. Two OTHER slots carried the SAME fx args RAW, unreachable by
-  any app-side classification:
+  `:rf.fx/handled`, two OTHER slots would carry the SAME fx args RAW,
+  unreachable by any app-side classification:
 
     1. `:rf.event/fx` on the `:rf.fx/do-fx` trace — the handler's WHOLE returned
-       effect vector, stamped raw. (The projector walked the sibling
-       `:rf.event/db` slot but not this one.)
+       effect vector. (The projector walks the sibling `:rf.event/db` slot
+       too.)
     2. `:rf.fx/args` on the fx error traces (`:rf.error/fx-handler-exception` +
-       siblings). The more serious of the two: those CATEGORIES are promoted
-       onto the always-on axis, so the failure itself reaches production
-       observability.
+       siblings). Those CATEGORIES are promoted onto the always-on axis, so
+       the failure itself reaches production observability; the `:rf.fx/args`
+       SLOT stays on the dev trace (see §Posture split).
 
-  This suite is the adversarial regression: it drives a `reg-fx` declaring
+  This suite is adversarial: it drives a `reg-fx` declaring
   `{:sensitive [[:token]]}` through a SUCCESS arm and an ERROR arm and pins the
   sentinel token absent from every fx-arg-bearing slot, PLUS a non-sensitive
-  control fx that must ride RAW (no over-redaction). Each sensitive assertion
-  FAILS before the fix and PASSES after.
+  control fx that must ride RAW (no over-redaction).
 
   Dual-runtime `.cljc` (`*-cljs-test` ns): the shadow-cljs `:node-test` build
   (`npm run test:cljs`) AND the JVM `clojure -M:test` runner both pick it up —
   traces fire in both runtimes (`goog.DEBUG` / JVM `debug-enabled?` default on).
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
-  A CORRECTION TO THIS FILE'S OWN PREMISE FIRST. The `.2` bullet above used to
-  read \"that trace is production-survivable — it fans out through the always-on
-  error-emit listener, not just the dev trace\", and used that to call the error
-  arm the more serious of the two slots. The CATEGORY is promoted; the SLOT is
-  not. `fx.cljc`'s `:rf.error/no-such-fx` site says so in as many words —
+  The error CATEGORY is promoted; the `:rf.fx/args` SLOT is not.
+  `fx.cljc`'s `:rf.error/no-such-fx` site says so in as many words —
   \"the tight-record discipline is intact: `:rf.fx/args` stays on the dev trace
   and does NOT reach the production record\" — and `error-emit/emit-error-both!`
   lifts only `:failing-id` / `:reason` out of the trace tags onto the always-on
   record. So `:rf.fx/args` is a DEV-TRACE slot on both arms, and there is no
-  `:errors`-stream re-aim available for it the way there was for `fx-test`'s
-  `:reason` (rf2-d2841 pass 2). Checked against the source, not the story.
+  `:errors`-stream re-aim available for it the way there is for `fx-test`'s
+  `:reason`.
 
   Consequently both live arms read a channel that emits nothing under
-  `-Dre-frame.debug=false`, and both are kept VERBATIM — sweeps included —
+  `-Dre-frame.debug=false`, and both sit — sweeps included —
   inside `(when rf.interop/debug-enabled? …)` arms. The whole-stream sweeps are
   the reason the arm is drawn around the WHOLE body rather than around the
   failing rows: `(is (not (contains-sentinel? v)))` over an empty stream is a
@@ -54,12 +50,11 @@
       was ever in flight would be pinning nothing;
     * the registration owns its `[:token]` declaration (`:sensitive` is
       load-bearing metadata, NOT pure documentation, so it survives the strip);
-    * `rf.classification/project-trace-event` — the rf2-6h3c02 chokepoint itself —
+    * `rf.classification/project-trace-event` — the chokepoint itself —
       redacts both fx-arg-bearing slot shapes and leaves the control fx raw,
       driven deterministically on hand-built shapes. That is the same
       \"projector teeth\" pattern `fx-aggregate-classification-cljs-test` and
-      `fx-redirect-classification-cljs-test` use for their section A, and it is
-      what this file had NO always-on counterpart to before."
+      `fx-redirect-classification-cljs-test` use for their section A."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
@@ -81,7 +76,7 @@
 
 ;; What the fx BODIES actually received. Redaction is EGRESS-ONLY, so these are
 ;; the always-on control: the token must be in flight for its absence from the
-;; trace slots to mean anything (rf2-d2841).
+;; trace slots to mean anything.
 (def ^:private body-args (atom {}))
 
 (defn- register! []
@@ -132,7 +127,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest success-arm-bodies-receive-raw-args
-  (testing "ALWAYS-ON control (rf2-d2841): redaction is EGRESS-ONLY, so both the
+  (testing "ALWAYS-ON control: redaction is EGRESS-ONLY, so both the
             classified fx and the control fx receive their args RAW — the token
             IS in flight, which is what makes its absence from the trace slots
             below a fact rather than a vacuum"
@@ -144,9 +139,9 @@
         "the control fx body received its args unchanged")))
 
 (deftest success-arm-redacts-classified-fx-args-in-every-slot
- ;; rf2-d2841 — every row below reads the DEV TRACE stream. Under
+ ;; Every row below reads the DEV TRACE stream. Under
  ;; -Dre-frame.debug=false nothing is emitted, and the whole-stream sweep at
- ;; the end would then certify "no leak" over an empty stream. Kept verbatim.
+ ;; the end would then certify "no leak" over an empty stream.
  (when rf.interop/debug-enabled?
   (testing "a classified fx's token is redacted in BOTH the :rf.event/fx
             aggregate (on :rf.fx/do-fx) AND the per-effect :rf.fx/handled slot,
@@ -170,13 +165,13 @@
             (is (= {:msg "a benign audit line"} (second audit))
                 "the NON-sensitive control fx rides RAW (no over-redaction)"))))
 
-      ;; --- per-effect :rf.fx/handled: unchanged redaction (control) ---
+      ;; --- per-effect :rf.fx/handled redaction (control) ---
       (let [handled (->> @acc
                          (filterv #(= :fx-args/store (get-in % [:tags :rf.fx/id]))))]
         (is (seq handled) "the classified fx emitted a :rf.fx/handled trace")
         (doseq [ev handled]
           (is (= rf.privacy/redacted-sentinel (get-in ev [:tags :rf.fx/args :token]))
-              "the :token arg reads :rf/redacted in :rf.fx/handled (unchanged)")))
+              "the :token arg reads :rf/redacted in :rf.fx/handled")))
 
       (let [audit-handled (->> @acc
                                (filterv #(= :fx-args/audit (get-in % [:tags :rf.fx/id]))))]
@@ -197,11 +192,11 @@
 ;; ---------------------------------------------------------------------------
 ;; ERROR arm — :rf.error/fx-handler-exception carries :rf.fx/args; it must
 ;; redact the classified token. The CATEGORY is always-on; the `:rf.fx/args`
-;; SLOT rides the dev trace only (see the ns docstring's correction).
+;; SLOT rides the dev trace only (see the ns docstring §Posture split).
 ;; ---------------------------------------------------------------------------
 
 (deftest error-arm-body-receives-raw-args
-  (testing "ALWAYS-ON control (rf2-d2841): the throwing classified fx also
+  (testing "ALWAYS-ON control: the throwing classified fx also
             receives its args RAW before it throws"
     (register!)
     (rf/dispatch-sync [:fx-args/fail] {:frame frame-id})
@@ -209,8 +204,8 @@
         "the throwing fx body received the RAW token")))
 
 (deftest error-arm-redacts-fx-args-on-fx-handler-exception
- ;; rf2-d2841 — dev-trace stream; the trailing `contains-sentinel?` negative
- ;; would pass over an empty stream. Kept verbatim inside the arm.
+ ;; Dev-trace stream; the trailing `contains-sentinel?` negative
+ ;; would pass over an empty stream, so the body sits inside the arm.
  (when rf.interop/debug-enabled?
   (testing "when a classified fx throws, :rf.error/fx-handler-exception redacts
             its :rf.fx/args :token"
@@ -246,21 +241,20 @@
         "the control fx declares nothing — precision, not blanket redaction")))
 
 ;; ---------------------------------------------------------------------------
-;; ALWAYS-ON projector teeth (rf2-d2841) — the rf2-6h3c02 chokepoint itself,
+;; ALWAYS-ON projector teeth — the chokepoint itself,
 ;; driven deterministically on the two fx-arg-bearing slot SHAPES rather than
-;; through the dev trace stream. Runs in BOTH postures, so the regression this
+;; through the dev trace stream. Runs in BOTH postures, so the contract this
 ;; file exists for is pinned under `scripts/test-core-prod-gate.sh` too.
 ;;
 ;; Same pattern as `fx-aggregate-classification-cljs-test` §A and
-;; `fx-redirect-classification-cljs-test` §A; this file previously had no
-;; always-on counterpart at all.
+;; `fx-redirect-classification-cljs-test` §A.
 ;; ---------------------------------------------------------------------------
 
 (defn- project [ev] (:tags (rf.classification/project-trace-event ev)))
 
 (deftest projector-redacts-the-do-fx-aggregate-slot
-  (testing "the :rf.event/fx aggregate on :rf.fx/do-fx — the slot rf2-6h3c02
-            added to the walk — redacts the classified entry's declared path
+  (testing "the :rf.event/fx aggregate on :rf.fx/do-fx — the whole-effect-vector
+            slot — redacts the classified entry's declared path
             while the control entry rides raw"
     (register!)
     (let [t      (project {:operation :rf.fx/do-fx

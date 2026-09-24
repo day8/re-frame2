@@ -1,17 +1,16 @@
 (ns re-frame.sub-ownership-race-test
-  "JVM-only regressions for two sub-cache OWNERSHIP races (rf2-fzbj.5, split
-  as rf2-gwye.3 and rf2-gwye.4). In both, a release or a disposal batch acted
-  on the cache as it stood at that moment rather than on what its own caller
-  had acquired or removed.
+  "JVM-only coverage for two sub-cache OWNERSHIP races. In both, a release
+  or a disposal batch must act on what its own caller acquired or removed,
+  not on the cache as it stands at that moment.
 
-  1. `subscribe-once` released by ADDRESS. If a `clear-sub-cache!` evicted
-     the one-shot's reaction A while it was mid-deref, and another consumer
-     then rebuilt the slot as B, the one-shot's release decremented B and
-     disposed it under its owner. The eviction had already taken A's
-     reference, so the release must be a no-op.
-  2. `clear-sub-cache!` and `dispose-all-for-frame-destroy!` read the cache
-     and emptied it in two steps. An entry acquired between the two was
-     erased by the reset without being in the batch, so it was never
+  1. `subscribe-once` must not release by ADDRESS. If a `clear-sub-cache!`
+     evicts the one-shot's reaction A while it is mid-deref, and another
+     consumer then rebuilds the slot as B, an address-keyed release would
+     decrement B and dispose it under its owner. The eviction has already
+     taken A's reference, so the release must be a no-op.
+  2. `clear-sub-cache!` and `dispose-all-for-frame-destroy!` must not read
+     the cache and empty it in two steps. An entry acquired between the two
+     would be erased by the reset without being in the batch, so never
      disposed; and two overlapping batches could each condemn one entry.
 
   ## Determinism
@@ -142,8 +141,8 @@
               (is (= :value (await! job "the one-shot to return"))
                   "the one-shot still returns the value it read")
               (is (identical? b (:reaction (entry frame-id q)))
-                  "THE BUG (rf2-gwye.3): pre-fix the one-shot's address-only release
-                   found B at the address, drove it 1 -> 0 and evicted it")
+                  "B stays cached: an address-only release would find B at the
+                   address, drive it 1 -> 0 and evict it")
               (is (= 1 (:ref-count (entry frame-id q)))
                   "B keeps exactly its owner's reference")
               (is (zero? @disposed) "B's on-dispose never ran")
@@ -244,8 +243,8 @@
           (is (= {:cached? false :disposes 1} (fate old [:own/old]))
               "A, cached when the batch began, is removed and disposed exactly once")
           (is (owned-exactly-once? (fate late [:own/late]))
-              (str "THE BUG (rf2-gwye.4): pre-fix B was erased by the reset but was "
-                   "absent from the batch's snapshot, so it was never disposed; got "
+              (str "B must not be erased by the reset while absent from the "
+                   "batch's snapshot, which would leave it never disposed; got "
                    (fate late [:own/late]))))))))
 
 (deftest overlapping-batches-condemn-each-entry-once
@@ -262,8 +261,8 @@
           (run-batch-held-at-extraction cache batch! batch!))
         (is (= {} @cache))
         (is (= 1 (get @counts old 0))
-            "THE BUG (rf2-gwye.4): pre-fix both batches had already snapshotted
-             the entry, so each of them disposed it")))))
+            "exactly one batch disposes the entry: were both to snapshot it,
+             each of them would dispose it")))))
 
 (deftest an-acquisition-after-extraction-stays-live
   (rf/reg-sub :own/old (fn [_db _q] :old))

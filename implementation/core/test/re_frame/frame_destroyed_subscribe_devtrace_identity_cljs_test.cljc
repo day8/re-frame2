@@ -1,37 +1,31 @@
 (ns re-frame.frame-destroyed-subscribe-devtrace-identity-cljs-test
-  "rf2-wd4ac (dev-trace arm) — the `:rf.error/frame-destroyed` DEV-TRACE `:event`
-  tag carries a raw subscription QUERY VECTOR in the `:subscribe` realm (public
-  IDENTITY — rf2-zwgqe / rf2-alk8a / Spec 015), and the classification projector
-  must NOT redact it.
+  "The `:rf.error/frame-destroyed` DEV-TRACE `:event` tag carries a raw
+  subscription QUERY VECTOR in the `:subscribe` realm (public IDENTITY — Spec
+  015), and the classification projector must NOT redact it.
 
-  ## The residual this file pins closed
+  ## What this file pins
 
-  #6516 (the wd4ac original) fixed the UI PRODUCER: `re-frame.ui.frames`'
-  `emit-and-throw-frame-destroyed!` passed the raw query vector on BOTH the
-  always-on `:event` slot AND the dev-trace `:event` tag for the `:subscribe`
-  realm. That tree was removed on 2026-08-16 (rf2-0yp7w); the live producer of
-  the same shape is `router/emit-frame-destroyed!`, reached from
+  The producer of that shape is `router/emit-frame-destroyed!`, reached from
   `capture-frame`'s superseded-`:subscribe` seam (`capture-subscribe!` via
   `emit-captured-frame-superseded!`), which passes the attempted query vector
-  as `:event` under `:op :subscribe`. The always-on egress (axis 1) then stays
+  as `:event` under `:op :subscribe`. The always-on egress (axis 1) stays
   raw because `error-emit/raw-identity-query-vector-event?` skips elision keyed
   on `(:rf.error/frame-destroyed, :op :subscribe)`.
 
-  But the DEV-TRACE egress (axis 2) flows through
-  `re-frame.classification/project-trace-event`, which had NO realm-awareness:
-  it unconditionally ran the bare `:event` tag through
+  The DEV-TRACE egress (axis 2) flows through
+  `re-frame.classification/project-trace-event`. Events and subscriptions live
+  in SEPARATE registries, so a sub id may LEGALLY collide with an event id. A
+  projector without realm-awareness would run the bare `:event` tag through
   `redact-event-by-registration`, treating EVERY `:event` tag as a dispatched
-  event. Events and subscriptions live in SEPARATE registries, so a sub id may
-  LEGALLY collide with an event id. When it does, the colliding EVENT
-  registration's `:sensitive` paths were applied to the raw subscribe query
-  vector — mutating public identity at dev-trace egress. #6516's own dev-trace
-  assertion was VACUOUS against this: its query head (`:reinc/n`) was registered
-  only as a sub, so `redact-event-by-registration` was a no-op and the raw value
-  survived whether or not the projector was realm-aware.
+  event, and apply the colliding EVENT registration's `:sensitive` paths to the
+  raw subscribe query vector — mutating public identity at dev-trace egress. A
+  query head registered only as a sub cannot catch that: there
+  `redact-event-by-registration` is a no-op and the raw value survives whether
+  or not the projector is realm-aware.
 
-  ## The fix (rf2-wd4ac)
+  ## The guard
 
-  `project-trace-event` now SKIPS bare-`:event` registration projection for
+  `project-trace-event` SKIPS bare-`:event` registration projection for
   `:rf.error/frame-destroyed` + `:op :subscribe` ONLY — mirroring the always-on
   record's `raw-identity-query-vector-event?` skip on the same realm. Every
   other `:event` tag still projects, INCLUDING the `:dispatch` / `:dispatch-sync`
@@ -45,12 +39,12 @@
   SAME registration DOES redact that vector through `redact-event-by-registration`
   (the machinery is live and WOULD have bitten) — so the subscribe realm's raw
   egress is the GUARD's doing, not an absent registration. The dispatch
-  counterpaths assert the redaction still lands, and capture stays payload-free.
+  counterpaths assert the redaction still lands.
 
   Dual-runtime `*_cljs_test.cljc`: the shadow-cljs `:node-test`
   (`npm run test:cljs`) AND the JVM `clojure -M:test` runner both pick it up.
-  Plain CLJC, no DOM dependency; `=` on keyword operands, never `identical?`
-  (#6365)."
+  Plain CLJC, no DOM dependency; `=` on keyword operands, never
+  `identical?`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.classification :as rf.classification]
@@ -96,7 +90,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 1. Headline — the subscribe realm preserves the raw query vector even with a
-;;    colliding, matching event registration (RED before rf2-wd4ac dev arm).
+;;    colliding, matching event registration.
 ;; ---------------------------------------------------------------------------
 
 (deftest frame-destroyed-subscribe-devtrace-preserves-raw-query-identity
@@ -107,10 +101,10 @@
     ;; Machinery intact: the SAME registration DOES redact this exact vector
     ;; when routed through the event-vector chokepoint — so a raw subscribe
     ;; egress below is the realm GUARD's doing, not an absent registration
-    ;; (the non-vacuity the #6516 dev-trace assertion lacked).
+    ;; (the non-vacuity a sub-only query head cannot supply).
     (is (= redacted (rf.classification/redact-event-by-registration query-v))
         "the colliding EVENT registration WOULD redact :token — machinery live")
-    ;; THE FIX: the subscribe realm skips bare-event projection.
+    ;; THE GUARD: the subscribe realm skips bare-event projection.
     (is (= query-v (project-event :subscribe query-v))
         "frame-destroyed :subscribe dev-trace :event is the RAW query vector, VERBATIM")
     (is (not= redacted (project-event :subscribe query-v))
@@ -136,17 +130,7 @@
         "frame-destroyed :dispatch-sync dev-trace :event keeps its registration redaction")))
 
 ;; ---------------------------------------------------------------------------
-;; 3. Capture — REMOVED 2026-09-04 (rf2-xtqs). This section pinned the `:capture`
-;;    realm's payload-free dev trace. That realm was the retired ui `(frame)`
-;;    read's alone (rf2-0yp7w) and its enum value is gone from
-;;    `FrameDestroyedTags`, so there is no realm left to pin. The assertion was
-;;    also VACUOUS about `:capture`: `project-trace-event` special-cases only
-;;    `:subscribe` (see `classification.cljc`), so a nil `:event` projects to nil
-;;    under EVERY op keyword — the test would have passed against any of them.
-;; ---------------------------------------------------------------------------
-
-;; ---------------------------------------------------------------------------
-;; 4. Guard scope — the skip requires BOTH conjuncts. A NON-frame-destroyed
+;; 3. Guard scope — the skip requires BOTH conjuncts. A NON-frame-destroyed
 ;;    operation carrying `:event` still projects, so the guard cannot leak the
 ;;    raw-identity exemption onto ordinary dispatched-event error traces.
 ;; ---------------------------------------------------------------------------

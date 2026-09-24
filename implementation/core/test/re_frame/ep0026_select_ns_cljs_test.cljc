@@ -1,5 +1,5 @@
 (ns re-frame.ep0026-select-ns-cljs-test
-  "EP-0026 §Namespace Selection / §Layered Resolution / §Image Keys (rf2-6ls85a)
+  "EP-0026 §Namespace Selection / §Layered Resolution / §Image Keys
   — the CORE resolution mechanism the rest of EP-0026 builds on:
 
     * `:select-ns` as ONE `{:include … :exclude …}` map (not sibling keys),
@@ -92,7 +92,7 @@
 
 (deftest retired-include-exclude-ns-keys-fail-loud
   (testing "the EP-0023 sibling :include-ns / :exclude-ns keys are RETIRED
-            (EP-0026, rf2-dlvmpc): they fail loud at rf/image, never silently
+            (EP-0026): they fail loud at rf/image, never silently
             accepted — :select-ns is the single selection surface"
     (is (= :rf.error/invalid-image
            (err-id #(rf.image/image {:id :x :include-ns ["a.b"]}))))
@@ -249,10 +249,10 @@
           gen  (rf.image-assembly/assemble [img1 img2] [])]
       (is (contains? (:rf.gen/resolver gen) [:fx :a]))
       (is (contains? (:rf.gen/resolver gen) [:fx :b]))))
-  (testing "an ANONYMOUS image (no :id) in a MULTI-image composition now fails
+  (testing "an ANONYMOUS image (no :id) in a MULTI-image composition fails
             loud — it is un-nameable in the shadow report, so it cannot
-            participate in composition (rf2-x76af2.30; rf/image contract:
-            anonymous images are for local tests/examples that do not compose)"
+            participate in composition (rf/image contract: anonymous images
+            are for local tests/examples that do not compose)"
     (let [img1 (rf.image/image {:registrations {:reg-fx [[:a {} ::a]]}})
           img2 (rf.image/image {:registrations {:reg-fx [[:b {} ::b]]}})]
       (is (= :rf.error/image-duplicate-image-id

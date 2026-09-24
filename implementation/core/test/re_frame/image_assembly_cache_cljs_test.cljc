@@ -1,6 +1,6 @@
 (ns re-frame.image-assembly-cache-cljs-test
-  "EP-0023 §Image — the resolved-generation CACHE (rf2-32siq3.7) + cache-key
-  correctness (rf2-3sjdmi).
+  "EP-0023 §Image — the resolved-generation CACHE + cache-key
+  correctness.
 
   > Resolved generations are immutable. The runtime MAY physically share one
   > resolved generation across many frames when the same image inputs resolve
@@ -25,12 +25,10 @@
     * INVALIDATION — a changed SELECTED descriptor (source-store generation),
       a changed STANDARD descriptor (standard generation), and a changed INLINE
       descriptor each force a re-seal (a fresh, distinct object);
-    * EP-0026 (rf2-6ls85a) — two compositions differing ONLY in IMAGE ORDER
+    * EP-0026 — two compositions differing ONLY in IMAGE ORDER
       resolve a shared `[kind id]` to DIFFERENT descriptors (later wins), so they
       must NOT cache-collide; the key is built from the ORDERED image INPUTS,
-      never from `:rf.gen/resolver` alone. (The EP-0023 declared-`:replace`
-      winner model that the original rf2-3sjdmi test exercised is RETIRED under
-      EP-0026 rf2-dlvmpc.)
+      never from `:rf.gen/resolver` alone.
 
   Pure data + process state (the source store, the standard registry, the
   generation cache). A fixture clears all three per case. `.cljc` ending
@@ -144,7 +142,7 @@
       (let [gen2 (rf.image-assembly/assemble [img])]
         (is (not (identical? gen1 gen2)))
         (is (not (contains? (:rf.gen/resolver gen2) [:sub :cart/items]))
-            "the re-sealed generation no longer carries the forgotten descriptor")))))
+            "the re-sealed generation does not carry the forgotten descriptor")))))
 
 ;; ===========================================================================
 ;; 3. INVALIDATION — a changed STANDARD descriptor (standard generation)
@@ -194,7 +192,7 @@
 ;;    cache-collide even when the per-image selections are the same. The later
 ;;    image wins, so order is part of the resolved generation; the key is built
 ;;    from the image VECTOR (which carries order), so distinct orders are distinct
-;;    keys (rf2-6ls85a; the formal select-ns + image-order key leg is rf2-ke7w5j).
+;;    keys (the select-ns leg is §5b).
 ;; ===========================================================================
 
 (deftest image-order-invalidates-even-with-same-selections
@@ -235,7 +233,7 @@
       (is (= 1 (rf.image-assembly/cache-size))))))
 
 ;; ===========================================================================
-;; 5b. rf2-ke7w5j — the resolved-generation cache key MUST include the
+;; 5b. The resolved-generation cache key MUST include the
 ;;     :select-ns SELECTION. Two images with the SAME id but a DIFFERENT
 ;;     :select-ns (so a different selected descriptor set) are DIFFERENT
 ;;     compositions and must NOT cache-collide. The :select-ns lowers to the
@@ -247,7 +245,7 @@
 (deftest select-ns-selection-is-part-of-the-key
   (testing "two images differing ONLY in their :select-ns :include selection are
             distinct compositions → distinct cache slots, distinct generations
-            (selection is part of the key — rf2-ke7w5j)"
+            (selection is part of the key)"
     (record! "shop.cart"  :event :cart/add  ::cart)
     (record! "shop.admin" :event :admin/ban ::admin)
     (let [img-cart  (rf.image/image {:id :shop/main :select-ns {:include ["shop.cart"]}})
@@ -268,7 +266,7 @@
 (deftest exclude-ns-selection-is-part-of-the-key
   (testing "two images with the same :include but a DIFFERENT :exclude resolve
             DIFFERENT descriptor sets → distinct cache slots (the exclude leg is
-            part of the selection key — rf2-ke7w5j)"
+            part of the selection key)"
     (record! "app.feature"     :event :feature/run ::run)
     (record! "app.feature.dev" :event :dev/probe   ::probe)
     (let [img-all (rf.image/image {:id :app/main
@@ -302,7 +300,7 @@
           "the throwing composition left nothing cached"))))
 
 ;; ===========================================================================
-;; 6b. rf2-1x2zuc — two DISTINCT live source stores at the SAME generation
+;; 6b. Two DISTINCT live source stores at the SAME generation
 ;;     integer must NOT alias one cached generation. The store-generation
 ;;     counter is keyed PER store, so the integer alone is ambiguous across
 ;;     stores; the cache key folds the store IDENTITY alongside the generation
@@ -314,9 +312,9 @@
   (testing "two DIFFERENT source-store atoms, each at generation 1 with the SAME
             image selector but DIFFERENT registered handlers, assemble DISTINCT
             sealed generations — the second store resolves its OWN handler, NOT
-            the first store's cached handler (rf2-1x2zuc). On current main this
-            FAILS: the live-store cache key carried only the generation integer,
-            so the second store (also generation 1) hit the first store's slot."
+            the first store's cached handler. A live-store cache key carrying
+            only the generation integer would let the second store (also
+            generation 1) hit the first store's slot."
     (let [store-a (atom {})
           store-b (atom {})
           img     (rf.image/image {:id :shared/main :select-ns {:include ["shared.core"]}})
@@ -345,14 +343,14 @@
           "store A's generation resolves store A's handler")
       (is (= ::b-handler b-impl)
           "store B's generation resolves store B's OWN handler — NOT store A's
-           cached handler (the cross-store alias bug)")
+           cached handler (a cross-store alias)")
       (is (= 2 (rf.image-assembly/cache-size))
           "two distinct stores at the same generation occupy two cache slots"))))
 
 (deftest same-store-still-hits-after-identity-leg
   (testing "the complement: the SAME source store assembling the SAME unchanged
-            composition twice STILL returns the one cached object — folding the
-            store identity into the key did not break the HIT path (rf2-1x2zuc)"
+            composition twice STILL returns the one cached object — the store
+            identity leg of the key leaves the HIT path intact"
     (let [store (atom {})
           img   (rf.image/image {:id :realm/main :select-ns {:include ["realm.core"]}})]
       (binding [rf.source-store/*source-store* store]

@@ -36,7 +36,7 @@
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
   (rf/init! rf.substrate.plain-atom/adapter)
-  ;; EP-0002 (rf2-69r7ui): there is no `:rf/default` floor — the runtime
+  ;; EP-0002: there is no `:rf/default` floor — the runtime
   ;; never synthesises a frame from absence, so a bare dispatch / subscribe
   ;; raises :rf.error/no-frame-context. The tests below that exercise the
   ;; default app frame register it EXPLICITLY and target it via an explicit
@@ -184,9 +184,9 @@
 ;;
 ;; Per Cross-Spec-Interactions §18.2 — re-registering a sub invalidates not
 ;; just its own cache slot but every DOWNSTREAM cache slot that depended on
-;; it through its declared inputs. rf2-kboyu: before the fix, `invalidate-sub-on-replace!`
-;; only evicted keys whose query-vector HEAD equalled the re-registered id;
-;; a cached `[:sum]` over `[:a]` kept its old input reaction and served the OLD
+;; it through its declared inputs. Were `invalidate-sub-on-replace!` to evict
+;; only keys whose query-vector HEAD equalled the re-registered id, a cached
+;; `[:sum]` over `[:a]` would keep its old input reaction and serve the OLD
 ;; `:a` body's value after `:a` was re-registered.
 
 (deftest sub-re-register-evicts-transitive-dependents
@@ -198,7 +198,7 @@
     (rf/reg-sub :a (fn [db _] (:n db)))
     (rf/reg-sub :sum {:inputs [[:a]]} (fn [[a] _] (+ a 0)))
     ;; Pin the DOWNSTREAM reaction so ref-counting cannot evict it; this is
-    ;; the slot that, pre-fix, survives the re-registration with a stale
+    ;; the slot a head-only eviction would leave holding a stale
     ;; input reaction. Subscribing [:sum] also subscribes [:a] (its input).
     (let [pin-sum (rf/subscribe [:sum] {:frame :rf/default})
           cache   (:sub-cache (rf.frame/frame :rf/default))]
@@ -221,7 +221,7 @@
       (is (= 20 (rf/subscribe-once [:sum] {:frame :rf/default}))
           "next subscribe of [:sum] observes the new :a body (2 * 10 = 20)")
       ;; A held reaction taken AFTER the re-registration also reads the new
-      ;; body — the stale input reaction is no longer reachable from the cache.
+      ;; body — the stale input reaction is unreachable from the cache.
       (let [pin-sum-v2 (rf/subscribe [:sum] {:frame :rf/default})]
         (is (= 20 @pin-sum-v2)
             "a freshly-held [:sum] reaction reads the new :a body (20)")))))
@@ -279,7 +279,7 @@
     (rf/dispatch-sync [:traffic-light [:tick]] {:frame :tenant})
     (rf/dispatch-sync [:traffic-light [:tick]] {:frame :tenant})
     ;; Capture pre-reregistration state.
-    ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
+    ;; EP-0001: machine snapshots are durable runtime-db state.
     (let [pre-rt          (:rf.db/runtime (rf/frame-state-value :tenant))
           pre-snapshot    (get-in pre-rt [:rf.runtime/machines :snapshots :traffic-light])
           pre-app-db-cont (rf.frame/app-db-container :tenant)]

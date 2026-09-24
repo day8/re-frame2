@@ -1,5 +1,5 @@
 (ns re-frame.ep0008-producers-jvm-gate-test
-  "rf2-f7qj4 — READ THIS FIRST. Despite the namespace's name, this suite is
+  "READ THIS FIRST. Despite the namespace's name, this suite is
   NOT THE LOAD-TIME GATE.
 
   `re-frame.interop/debug-enabled?` is read ONCE, at namespace-load time, from
@@ -19,16 +19,15 @@
     * `re-frame.prod-gate-dispatch-jvm-test` — the child-JVM pattern for a
       defect that only reproduces at load time.
 
-  rf2-9c2jf was a TOTAL `dispatch-sync` failure under the documented gate that
-  stayed green for as long as it existed, and the full-looking roster of
-  \"production gate\" suites is part of why.
+  A full-looking roster of \"production gate\" suites that counts this one can
+  stay green over a TOTAL `dispatch-sync` failure under the documented gate.
 
   ## What this suite pins
 
-  EP-0008 / rf2-ntv9i9.3 — the debug-Var-rebind + raw-payload regressions
+  EP-0008 — the debug-Var-rebind + raw-payload regressions
   for the REAL promoted producers.
 
-  ## Why this suite exists (rf2-ntv9i9.3 finding #1)
+  ## Why this suite exists
 
   EP-0008 says the always-on axis survives BOTH CLJS production elision AND
   JVM `re-frame.debug` / `RE_FRAME_DEBUG` gating. The generic rebind suite
@@ -36,7 +35,7 @@
   exception reaches `register-error-listener!` with debug disabled — but the
   REAL EP-0008 producers (`:rf.error/frame-teardown-failed`,
   `:rf.error/write-after-destroy`, `:rf.error/on-destroy-handler-exception`)
-  were pinned mainly through the CLJS production-elision probe. This suite
+  are otherwise pinned mainly through the CLJS production-elision probe. This suite
   exercises each REAL producer end-to-end with `debug-enabled?` REBOUND to
   `false` — a model of the SSR-production JVM posture, not the posture itself
   — and asserts:
@@ -46,7 +45,7 @@
     (b) the dev-only companion trace (the per-hook
         `:rf.warning/teardown-hook-exception`, the dev error trace) is ELIDED
         under the same gate (the diagnostic channel is gated; the always-on
-        axis is not) — the negative assertion rf2-ntv9i9.3 #2 names.
+        axis is not).
 
   ## Why JVM-only (`.clj`, not `.cljc`)
 
@@ -55,13 +54,13 @@
   by the `prod_elision_runner` probe, which is a genuine production build).
   Naming this `.clj` keeps it on the JVM `clojure -M:test` runner only.
 
-  ## Raw-payload regressions (rf2-ntv9i9.3 #2)
+  ## Raw-payload regressions
 
   The corpus-wide listener carries the RAW exception (the off-box-shipper API
   — Sentry needs the stack). That is the documented advanced-integration
   posture (Spec 009 §What IS available in production — the `:exception` slot
   exception to 'no raw values'). The frame-owned `:observability :errors` sink
-  route PROJECTS the record (rf2-ntv9i9.1). This suite pins both halves with a
+  route PROJECTS the record. This suite pins both halves with a
   sensitive event payload + exception ex-data."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -92,7 +91,7 @@
 ;; ===========================================================================
 
 (deftest frame-teardown-failed-survives-jvm-prod-gate
-  (testing "rf2-ntv9i9.3 — with the JVM debug gate OFF (the SSR production
+  (testing "with the JVM debug gate OFF (the SSR production
             posture), a frame destroy whose cleanup hooks throw STILL fans the
             always-on `:rf.error/frame-teardown-failed` report out through
             `register-error-listener!` (the axis is not debug-gated)."
@@ -116,7 +115,7 @@
           (is (= 1 (count (:hook-failures (first reports))))))))))
 
 (deftest write-after-destroy-survives-jvm-prod-gate
-  (testing "rf2-ntv9i9.3 — with the JVM debug gate OFF, a nil-container
+  (testing "with the JVM debug gate OFF, a nil-container
             `replace-container!` (the scheduled-drain-vs-destroy race) STILL
             fans the always-on `:rf.error/write-after-destroy` record out."
     (with-redefs [rf.interop/debug-enabled? false]
@@ -136,7 +135,7 @@
             (is (nil? (:exception r)) "no exception — a suppressed write")))))))
 
 (deftest on-destroy-handler-exception-survives-jvm-prod-gate
-  (testing "rf2-ntv9i9.3 — with the JVM debug gate OFF, a throwing
+  (testing "with the JVM debug gate OFF, a throwing
             `:on-destroy` STILL fans the dedicated always-on
             `:rf.error/on-destroy-handler-exception` discriminator out (the
             production source of the teardown discriminator that the dev trace
@@ -155,12 +154,11 @@
 
 ;; ===========================================================================
 ;; (b) The dev-only companion trace is ELIDED under the same gate (the
-;; diagnostic channel is debug-gated; the always-on axis is not). The negative
-;; assertion rf2-ntv9i9.3 #2 names.
+;; diagnostic channel is debug-gated; the always-on axis is not).
 ;; ===========================================================================
 
 (deftest dev-per-hook-teardown-warning-elided-while-report-survives
-  (testing "rf2-ntv9i9.3 — under the debug-off JVM gate the dev per-hook
+  (testing "under the debug-off JVM gate the dev per-hook
             `:rf.warning/teardown-hook-exception` trace is ELIDED, while the
             always-on `:rf.error/frame-teardown-failed` report SURVIVES — the
             two channels diverge exactly at the gate."
@@ -188,7 +186,7 @@
             "the always-on report still fired under debug-off (axis not gated)")))))
 
 ;; ===========================================================================
-;; Raw-payload regressions (rf2-ntv9i9.3 #2) — corpus listener carries the raw
+;; Raw-payload regressions — corpus listener carries the raw
 ;; payload; the frame-owned sink route projects it (under the debug-off gate,
 ;; so both routes are exercised in the production posture).
 ;; ===========================================================================
@@ -196,7 +194,7 @@
 (def ^:private secret "S3CR3T-rf2-ntv9i9-3-DO-NOT-LEAK")
 
 (deftest corpus-listener-carries-raw-frame-sink-projects-under-prod-gate
-  (testing "rf2-ntv9i9.3 #2 — under the debug-off JVM gate, a teardown report
+  (testing "under the debug-off JVM gate, a teardown report
             whose `:hook-failures` entry carries sensitive exception ex-data
             reaches the corpus-wide listener RAW (the off-box-shipper API) AND
             the frame-owned `:errors` sink PROJECTED (sensitive path redacted)."
@@ -213,8 +211,8 @@
                         {:errors [{:sink :test.sinks/sentry
                                    :rf.egress/profile :rf.egress/off-box-observability}]}})
         ;; EP-0025: classify the sensitive app-db path via the commit-plane
-        ;; effect path (`:source :effect`) — the durable frame annotation is
-        ;; removed. Same registry write a reg-event returning `:sensitive` makes.
+        ;; effect path (`:source :effect`) — there is no durable frame
+        ;; annotation. Same registry write a reg-event returning `:sensitive` makes.
         (rf.frame/swap-runtime-db! :gate/raw
           (fn [rt] (rf.elision/apply-classification-effects rt
                      {:sensitive [[:hook-failures :exception-data :token]]})))
@@ -239,7 +237,7 @@
               "the secret never appears anywhere in the projected sink record"))))))
 
 (deftest sensitive-event-payload-redacted-on-frame-error-sink-prod-gate
-  (testing "rf2-ntv9i9.3 #2 — under the debug-off JVM gate, an EVENT-centric
+  (testing "under the debug-off JVM gate, an EVENT-centric
             error whose event carries a sensitive payload reaches the frame's
             `:errors` sink with the sensitive slot REDACTED (the event-centric
             companion to the non-event raw-payload pin — both route through
@@ -252,7 +250,7 @@
                         {:errors [{:sink :test.sinks/sentry
                                    :rf.egress/profile :rf.egress/off-box-observability}]}})
         ;; EP-0025: classify the sensitive app-db path via the commit-plane
-        ;; effect path (`:source :effect`) — the durable frame annotation is removed.
+        ;; effect path (`:source :effect`) — there is no durable frame annotation.
         (rf.frame/swap-runtime-db! :gate/evt
           (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :token]]})))
         (rf/reg-event :gate/login {:frame :gate/evt}

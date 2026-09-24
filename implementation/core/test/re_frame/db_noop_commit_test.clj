@@ -1,11 +1,11 @@
 (ns re-frame.db-noop-commit-test
-  "Per rf2-ekq28v — commit-level `:db` semantics:
+  "Commit-level `:db` semantics:
 
     1. identical?-noop short-circuit (`commit-frame-transition!`,
        frame.cljc): when the next app-db is `identical?` to the current
        app-db (the handler returned the db UNCHANGED — the common
        `(if cond (assoc db …) db)` else-arm), SKIP the `replace-container!`
-       write entirely rather than re-installing an equal value. `=` stays
+       write entirely rather than re-installing an equal value. `=` is
        the deeper change-detection (a different-object-but-`=`-value commit
        still writes).
 
@@ -15,7 +15,7 @@
        \"event returned an unchanged db; nothing committed.\"
 
     3. nil-coercion (`commit-frame-effects!`, router.cljc): a `{:db nil}`
-       effect is coerced to `{:db {}}` (app-db is always a map, never nil)
+       effect is coerced to `{:db {}}` (app-db is never nil)
        and emits a dev-mode `:rf.warning/db-nil-coerced` diagnostic for
        accidental-wipe visibility. A deliberate clear (`{:db {}}`) does
        NOT fire the diagnostic.
@@ -31,14 +31,14 @@
   Contract — Spec 009 §Canonical per-event trace sequence + §Error event
   catalogue (`:rf.warning/db-nil-coerced` is a diagnostic-channel warning).
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   The COMMIT SEMANTICS are production-real and are asserted WITHOUT a posture
   guard, so they run in the ordinary `clojure -M:test` suite AND in
   `scripts/test-core-prod-gate.sh` (the `-Dre-frame.debug=false` lane). That
   is the whole of point 1 and the substance of point 3: whether
   `replace-container!` was skipped (frame-state object identity before vs
-  after — the adversarial discriminator this namespace was written for),
+  after — the adversarial discriminator this namespace exists for),
   whether a `=`-but-distinct value still installs a new object, and that a
   `{:db nil}` return lands `{}` rather than nil. Those are facts about the
   container, readable straight off `rf.frame/frame-state-value` and
@@ -48,10 +48,10 @@
   the `:rf.warning/db-nil-coerced` diagnostic are DEV-ONLY. Both are
   `trace/emit!` sites with no always-on twin (`:rf.warning/db-nil-coerced` is
   catalogued diagnostic-channel, per this docstring's own contract line), so
-  under the real gate nothing is emitted BY DESIGN. Their assertions are kept
-  verbatim inside a `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`.
+  under the real gate nothing is emitted BY DESIGN. Their assertions sit
+  inside a `(when rf.interop/debug-enabled? …)` arm.
 
-  The NEGATIVE trace assertions move inside the arm with their positive
+  The NEGATIVE trace assertions sit inside the arm with their positive
   partners, and that is the point rather than tidiness: `(not (some #{…} ops))`
   over an empty `ops` passes automatically under the gate. Left outside they
   would report that `db-changed` correctly did not fire on a no-op — while in
@@ -114,7 +114,7 @@
                frame-state object is the SAME object (no equal value re-installed)")
           (is (= {:counter 1 :seeded? true} (rf.frame/frame-app-db-value :rf/default))
               "app-db is unchanged")
-          ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+          ;; Dev-instrumentation arm (see ns docstring §Posture split).
           (when rf.interop/debug-enabled?
             (is (some #{:rf.event/db-noop} ops)
                 ":rf.event/db-noop fired on the unchanged-db commit")
@@ -141,7 +141,7 @@
               "a real change installed a new frame-state object (write happened)")
           (is (= 2 (:counter (rf.frame/frame-app-db-value :rf/default)))
               "the counter incremented")
-          ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+          ;; Dev-instrumentation arm (see ns docstring §Posture split).
           (when rf.interop/debug-enabled?
             (is (some #{:rf.event/db-changed} ops) ":rf.event/db-changed fired")
             (is (not (some #{:rf.event/db-noop} ops)) ":rf.event/db-noop did NOT fire")))
@@ -179,7 +179,7 @@
                new frame-state object (only identical? short-circuits)")
           ;; Change-detection is `=`, so no app-db change is reported →
           ;; :rf.event/db-noop is the signal (not db-changed).
-          ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+          ;; Dev-instrumentation arm (see ns docstring §Posture split).
           (when rf.interop/debug-enabled?
             (is (some #{:rf.event/db-noop} ops)
                 "=-equal commit reports no change → db-noop fires")
@@ -191,7 +191,7 @@
 ;; ---- 3: nil-coercion — {:db nil} → {} + dev diagnostic --------------------
 
 (deftest db-nil-coerced-to-empty-map-with-diagnostic
-  (testing "{:db nil} is coerced to {} (app-db is ALWAYS a map, never nil)
+  (testing "{:db nil} is coerced to {} (app-db is never nil)
    and emits the :rf.warning/db-nil-coerced dev diagnostic"
     (rf/reg-event :nil/seed (fn [{:keys [db]} _] {:db {:counter 7}}))
     ;; A reg-event handler returning a {:db nil} effect.
@@ -205,7 +205,7 @@
               warn (first (filterv #(= :rf.warning/db-nil-coerced (:operation %)) @acc))]
           (is (= {} db) "app-db was coerced to {} (NOT nil)")
           (is (map? db) "app-db is a map after a {:db nil} return")
-          ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
+          ;; Dev-instrumentation arm (see ns docstring §Posture split). The
           ;; COERCION is production-real and asserted above; the diagnostic
           ;; that announces it is diagnostic-channel, and so is the
           ;; db-changed/db-noop discrimination of its outcome.
@@ -234,7 +234,7 @@
           (is (not (identical? fs-before (rf.frame/frame-state-value :rf/default)))
               "the deliberate clear COMMITTED — a new frame-state object was
                installed (the production-visible half of db-changed)")
-          ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). Both of
+          ;; Dev-instrumentation arm (see ns docstring §Posture split). Both of
           ;; these read the dev trace, and the NEGATIVE especially must sit
           ;; here: over an empty `ops` it would report that no spurious
           ;; diagnostic fired when in fact no diagnostic exists to fire.
@@ -260,7 +260,7 @@
         (let [db  (rf.frame/frame-app-db-value :rf/default)
               ops (ops-of acc)]
           (is (= {} db) "app-db is {} (never nil)")
-          ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+          ;; Dev-instrumentation arm (see ns docstring §Posture split).
           (when rf.interop/debug-enabled?
             (is (some #{:rf.warning/db-nil-coerced} ops)
                 "the diagnostic fires whenever the supplied :db was literally nil")

@@ -1,5 +1,5 @@
 (ns re-frame.frame-resolver-test
-  "EP-0002 chain bead 1 (rf2-piwhsw) — central frame resolver, the carried
+  "EP-0002 — central frame resolver, the carried
   invariant. Per Spec 002 §Frame target resolution — the carried invariant
   and §Resolver surface.
 
@@ -10,7 +10,7 @@
     - `rf.frame/require-current-frame!` is the requiring primitive — it returns
       the carried stamp or raises/emits `:rf.error/no-frame-context`.
 
-  And `init!` no longer creates `:rf/default` (the runtime never synthesises
+  And `init!` does not create `:rf/default` (the runtime never synthesises
   a default frame).
 
   This suite runs cold (no shared reset-runtime fixture that pins
@@ -156,10 +156,10 @@
       (is (= :rf/default (rf.frame/require-current-frame! :dispatch))
           "an explicit :rf/default scope resolves like any other"))))
 
-;; ---- ensure-default-frame! survives as a TEST-ONLY fixture helper ---------
+;; ---- ensure-default-frame! exists as a TEST-ONLY fixture helper ---------
 
 (deftest ensure-default-frame-is-a-test-only-helper
-  (testing "ensure-default-frame! still registers :rf/default for test fixtures (idempotent), but it is NOT a runtime path"
+  (testing "ensure-default-frame! registers :rf/default for test fixtures (idempotent), but it is NOT a runtime path"
     (is (nil? (rf.frame/frame :rf/default)) "precondition: init! did not create it")
     (rf.frame/ensure-default-frame!)
     (is (some? (rf.frame/frame :rf/default))
@@ -169,7 +169,7 @@
       (is (identical? original (rf.frame/frame :rf/default))
           "idempotent — a second call does not replace the frame"))))
 
-;; ---- the REFUSAL tier — "no ambient frame is legal here" (rf2-2rtt6.122) --
+;; ---- the REFUSAL tier — "no ambient frame is legal here" --
 ;;
 ;; The third tier of the same resolver. The two above answer WHICH frame is
 ;; current; this one lets a substrate withdraw the AMBIENT reach for a
@@ -237,7 +237,7 @@
           (is (= :rf/default (rf.frame/require-current-frame! :subscribe))
               "and requiring it does not throw"))))))
 
-;; ---- the MISMATCH — a body has ONE frame, by construction (rf2-nqj22) -----
+;; ---- the MISMATCH — a body has ONE frame, by construction -----
 ;;
 ;; The row above is the rule and stays the rule: a carried stamp wins inside
 ;; a refused extent. These rows are its one exception, and it is opt-in — an
@@ -248,13 +248,13 @@
 ;; lowered intents and children target `:a` — two frames in one body, with no
 ;; signal, which is the class the whole tier exists to delete.
 ;;
-;; BOTH DIRECTIONS MATTER EQUALLY. A fix that refused a MATCHED carried stamp
-;; would make `with-frame` and `{:frame …}` disagree inside a body and would
-;; be strictly worse than the bug, so the matched case is asserted here as
-;; hard as the mismatched one.
+;; BOTH DIRECTIONS MATTER EQUALLY. Refusing a MATCHED carried stamp would
+;; make `with-frame` and `{:frame …}` disagree inside a body and would be
+;; strictly worse than the two-frame ambiguity, so the matched case is
+;; asserted here as hard as the mismatched one.
 
 (deftest a-matched-carried-stamp-still-answers-inside-an-extent-that-names-its-frame
-  (testing "the EP-0002 behaviour, unchanged: the stamp names the frame the
+  (testing "the EP-0002 behaviour: the stamp names the frame the
            extent is rendering, so there is no second frame and nothing to
            be ambiguous about"
     (rf.frame/call-with-ambient-frame-refused
@@ -263,7 +263,7 @@
         (binding [rf.frame/*current-frame* :app]
           (is (= :app (rf.frame/resolve-current-frame)))
           (is (= :app (rf.frame/require-current-frame! :subscribe))
-              "a matched carry is the one thing this change must not break"))))))
+              "a matched carry is the one thing the mismatch check must not break"))))))
 
 (deftest a-mismatched-carried-stamp-is-refused
   (testing "the stamp names a frame OTHER than the one the extent renders, so
@@ -304,7 +304,7 @@
 (deftest an-extent-that-names-no-frame-refuses-no-carried-stamp
   (testing "the check is a declaration, not a policy core imposes: an extent
            with no frame of its own has nothing to be mismatched against, so
-           the pre-rf2-nqj22 contract is exactly what it still gets"
+           a carried stamp wins there exactly as in the rule above"
     (rf.frame/call-with-ambient-frame-refused
       {:substrate :probe :reason "Use the probe's own reader."}
       (fn []
@@ -318,9 +318,9 @@
            describes: `subs/subscribe`'s 1-arity — the framework's per-read
            path, and the very op HD-002 clause (a) is about — inlines
            `(or (resolve-current-frame) (require-current-frame! …))` to keep
-           its error payload off the fast path (rf2-a8bw0), so a check living
-           only in the requiring primitive would have let every ambient
-           subscribe through. Measured: it did"
+           its error payload off the fast path, so a check living
+           only in the requiring primitive would let every ambient
+           subscribe through"
     (rf.frame/call-with-ambient-frame-refused
       {:substrate :probe :extent-frame :app :reason "Use the probe's own reader."}
       (fn []
@@ -377,7 +377,7 @@
                 "and a genuine mismatch against a declared VALUE still refuses"))))
       (rf/destroy-frame! :valued))))
 
-;; ---- the PURE DOORS — identity and capture are admitted (rf2-t32wg) -------
+;; ---- the PURE DOORS — identity and capture are admitted -------
 ;;
 ;; "A refusing render extent may still expose its declared frame to the pure
 ;; identity and capture doors. Stateful ambient operations remain refused."
@@ -413,7 +413,7 @@
 
 (deftest the-admission-is-the-declaration-not-the-refusal
   (testing "an extent that names no frame has nothing to offer, so the pure
-           doors refuse there exactly as before"
+           doors refuse there like every other operation"
     (is (= :rf.error/ambient-frame-refused
            (refused-id #(rf.frame/call-with-ambient-frame-refused
                           {:substrate :probe :reason "Use the probe's own reader."}

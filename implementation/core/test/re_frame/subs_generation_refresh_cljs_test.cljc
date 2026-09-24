@@ -1,58 +1,57 @@
 (ns re-frame.subs-generation-refresh-cljs-test
-  "rf2-4lp1 — a frame's cached subscriptions REFRESH when its resolved image
-  generation changes.
+  "A frame's cached subscriptions REFRESH when its resolved image generation
+  changes.
 
-  ## The defect
+  ## The hazard
 
   `re-frame.live-frame/make-frame` against an EXISTING `:id` is the supported
-  image hot-reload verb (EP-0023 §Hot Reload, rf2-lxwpob retired
-  `reload-images!` in its favour): it seals a fresh generation and installs it
+  image hot-reload verb (EP-0023 §Hot Reload; there is no `reload-images!`
+  verb): it seals a fresh generation and installs it
   via `rf.frame/upsert-frame!`'s surgical-update path, preserving durable frame
   state — the `:sub-cache` atom among it. The automatic `reg-*` reprojection
   path (`reproject-live-frame!` / `reproject-live-frames!`) swaps a generation
   in place through `rf.frame/set-generation!` for the same reason.
 
-  Both preserved the sub-cache and neither invalidated ANY of it. A query that
-  was already materialised stayed a cache HIT — `subscribe-in-frame`'s hit
-  branch bumps the ref-count and returns the cached reaction without ever
-  comparing that entry against the current generation — so it kept running the
-  OLD generation's body. Image replacement (and Story behaviour replacement)
-  appeared not to take effect until the caller knew to call `clear-sub-cache!`
-  by hand, which is exactly the ceremony EP-0023 §Hot Reload says a reload must
-  not require.
+  Both preserve the sub-cache. Were neither to invalidate ANY of it, a query
+  already materialised would stay a cache HIT — `subscribe-in-frame`'s hit
+  branch bumps the ref-count and returns the cached reaction without
+  comparing that entry against the current generation — so it would keep
+  running the OLD generation's body. Image replacement (and Story behaviour
+  replacement) would appear not to take effect until the caller knew to call
+  `clear-sub-cache!` by hand, which is exactly the ceremony EP-0023 §Hot
+  Reload says a reload must not require.
 
   The second face of the same gap is a LATE dependency: a parent sub declaring
   an input that is not registered yet resolves that input to a nil-yielding
-  reaction, and the miss is deliberately not cached (rf2-l9u5). But the PARENT
-  is cached, holding the nil-yielding input by closure — so first-registering
-  the missing input, which reprojects the frame's generation, left the cached
+  reaction, and the miss is deliberately not cached. But the PARENT is cached,
+  holding the nil-yielding input by closure — so first-registering the missing
+  input, which reprojects the frame's generation, would leave the cached
   parent permanently nil while `compute-sub` inside the frame's resolution
   returned the real value.
 
-  ## The repair under test
+  ## The refresh under test
 
-  `re-frame.frame` now fires a generation-change hook from the TWO (and only
-  two) writers of the `:generation` slot — `set-generation!` and
-  `upsert-frame!`'s re-registration branch — and `re-frame.subs.cache` installs
-  `invalidate-subs-on-generation-change!` on it. That handler diffs the two
-  generations with the already-public `re-frame.live-frame/generation-diff`,
-  keeps the `:sub` `[kind id]` pairs that were `:added` / `:changed` /
-  `:removed`, and evicts exactly those slots plus their transitive
-  declared-input dependent closure from THAT frame's cache — the same
+  `re-frame.live-frame`'s `invalidate-subs-for-generation-change!` runs after
+  both generation writers — `make-frame`'s same-id re-construction and the
+  reprojection swap (`swap-frame-generation!`). It diffs the two generations
+  with the public `re-frame.live-frame/generation-diff`, keeps the `:sub` ids
+  that were `:added` / `:changed` / `:removed`, and evicts exactly those slots
+  plus their transitive declared-input dependent closure from THAT frame's
+  cache through `rf.subs.cache/invalidate-frame-subs!` — the same
   `transitive-dependent-closure` + dispose machinery the `reg-sub` replacement
-  hook already uses. `:retained` registrations (present in both generations
+  hook uses. `:retained` registrations (present in both generations
   with an `=` descriptor — an unchanged sub merely selected by a different
   image composition) are NOT evicted, so unchanged entries keep their identity
   and ref-counts.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   Every assertion here is posture-independent: it holds in the ordinary
   `clojure -M:test` suite AND under the real production gate
   (`scripts/test-core-prod-gate.sh`, `-Dre-frame.debug=false`). Nothing here
   observes the `:trace` stream, and the invalidation seam itself is deliberately
-  NOT behind `rf.interop/debug-enabled?` — a correctness fix hung off the trace
-  surface would DCE out of release bundles.
+  NOT behind `rf.interop/debug-enabled?` — a correctness seam hung off the
+  trace surface would DCE out of release bundles.
 
   `.cljc` — runs under both `clojure -M:test` (JVM) and `npm run test:cljs`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
@@ -72,12 +71,12 @@
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
-  ;; rf2-qj4g — COLD-START the slot: destroy, then seat. `init!` is idempotent
-  ;; only for the adapter ALREADY SEATED (rf2-kuky.1) — handed a DIFFERENT one
+  ;; COLD-START the slot: destroy, then seat. `init!` is idempotent
+  ;; only for the adapter ALREADY SEATED — handed a DIFFERENT one
   ;; it raises `:rf.error/adapter-already-installed` rather than ignoring the
   ;; call. This ns shares the node bundle with suites that seat Reagent, UIx
-  ;; and the SSR adapter, so a bare `init!` here was a no-op whenever one of
-  ;; them ran first, and every test below ran on a substrate it never named.
+  ;; and the SSR adapter, so a bare `init!` here would raise whenever one of
+  ;; them ran first.
   (rf/destroy-adapter!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (test-fn))
@@ -126,12 +125,12 @@
 
       (let [r2 (rf.subs/subscribe [:gen/value] {:frame :gen/frame})]
         (is (= 2 @r2)
-            "THE BUG (rf2-4lp1): the next subscribe must resolve the NEW
-             generation's body — pre-fix this read 1, because the hit branch
-             returned the cached reaction built against generation 1")
+            "the next subscribe must resolve the NEW generation's body — a
+             stale hit would return the cached reaction built against
+             generation 1 and read 1")
         (is (not (identical? r1 r2))
             "a sub whose definition CHANGED does not keep its reaction identity
-             (the bead explicitly does not require preserving it)")))
+             (preserving it is not required)")))
 
     ;; `subscribe-once` reads through the same seam.
     (is (= 2 (rf.subs/subscribe-once [:gen/value] {:frame :gen/frame}))
@@ -157,9 +156,9 @@
 
       (install! :gen/pframe image-2)
       (is (= 50 @(rf.subs/subscribe [:gen/parent] {:frame :gen/pframe}))
-          "THE BUG (rf2-4lp1): the parent's TRANSITIVE dependent closure must be
-           evicted too — pre-fix the cached parent kept the generation-1 child
-           reaction by closure and stayed 10"))))
+          "the parent's TRANSITIVE dependent closure must be evicted too — a
+           cached parent would keep the generation-1 child reaction by closure
+           and stay 10"))))
 
 ;; ---- 2. a first-registered late input reaches a cached parent -------------
 
@@ -173,7 +172,7 @@
 
     (let [r1 (rf.subs/subscribe [:gen/parent-late] {:frame :gen/lframe})]
       (is (nil? @r1)
-          "the missing input resolves to a nil-yielding reaction (rf2-l9u5); the
+          "the missing input resolves to a nil-yielding reaction; the
            MISS is not cached but the PARENT is")
       (is (contains? (cache-keys :gen/lframe) [:gen/parent-late])
           "the parent IS cached, holding the nil-yielding input by closure"))
@@ -184,9 +183,9 @@
     (rf/reg-sub :gen/late (fn [_db _q] 7))
 
     (is (= 7 @(rf.subs/subscribe [:gen/parent-late] {:frame :gen/lframe}))
-        "THE BUG (rf2-4lp1), second face: the :added registration must evict the
-         cached parent that declares it as an input — pre-fix the parent stayed
-         nil while compute-sub inside the frame's resolution returned 7")))
+        "second face: the :added registration must evict the cached parent
+         that declares it as an input — a cached parent would stay nil while
+         compute-sub inside the frame's resolution returned 7")))
 
 ;; ---- 3. unaffected entries and other frames are UNTOUCHED -----------------
 

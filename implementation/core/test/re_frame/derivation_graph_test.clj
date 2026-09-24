@@ -1,8 +1,7 @@
 (ns re-frame.derivation-graph-test
-  "Tests for the internal derivation/process GRAPH-INSPECTION helper
-  (EP-0014 slice-7, rf2-6xm07h). Per [spec/Derivations.md] §Graph
-  inspection — internal but structured (graduated from EP-0014) and the
-  `:rf/derivation-graph` shape in [spec/Spec-Schemas.md].
+  "Tests for the internal derivation/process GRAPH-INSPECTION helper.
+  Per [spec/Derivations.md] §Graph inspection — internal but structured —
+  and the `:rf/derivation-graph` shape in [spec/Spec-Schemas.md].
 
   `re-frame.derivation.graph/derivation-graph` composes the five
   algebra-view tooling siblings (subs / flows / resources / routes /
@@ -13,7 +12,7 @@
 
   These tests pin:
     - the assembled graph contains nodes from ALL FIVE families + their
-      edges (the slice-7 acceptance contract);
+      edges;
     - canonical node-id tagging per family (`[:sub …] / [:flow …] /
       [:resource …] / [:machine …] / [:rf/route …]`);
     - `:input` edges from `[:sub …]` declared inputs, `:param` edges from a
@@ -25,7 +24,7 @@
     - bundle isolation: a family whose contributor is absent contributes
       no nodes (the no-flows / no-resources story).
 
-  Slice-7 ships NO public accessor (EP-0014 issue-1 disposition): the
+  There is NO public accessor: the
   composer lives in the bundle-isolated `re-frame.derivation.graph` ns,
   consumed by Xray + the conformance fixtures; there is no
   `re-frame.core` facade export and no api-manifest row (it mirrors the
@@ -150,7 +149,7 @@
           "all five algebra-view families are present in the assembled graph")
       ;; Canonical node-id tagging per family.
       (is (contains? nodes [:sub :cart/total]) "a subscription node, [:sub …]-tagged")
-      ;; flow node id is FRAME-SCOPED (rf2-k0meap.2): [:flow <frame-id> <flow-id>]
+      ;; flow node id is FRAME-SCOPED: [:flow <frame-id> <flow-id>]
       ;; so a reused flow-id across frames does not collapse onto one slot.
       (is (contains? nodes [:flow :rf/default :cart/materialized-total])
           "a flow node, [:flow <frame-id> <flow-id>]-tagged (frame-scoped)")
@@ -165,7 +164,7 @@
       (is (= :process    (get-in nodes [[:rf/route :route/article] :kind])))
       (is (= :process    (get-in nodes [[:machine :upload/main] :kind])))
       ;; The informative refinement rides on :refinement, never :kind — the
-      ;; three :process families share one closed superkind (rf2-7wwp1z).
+      ;; three :process families share one closed superkind.
       (is (= :resource-process (get-in nodes [[:resource :article/by-slug] :refinement])))
       (is (= :route-fact       (get-in nodes [[:rf/route :route/article] :refinement])))
       (is (= :machine-process  (get-in nodes [[:machine :upload/main] :refinement]))))))
@@ -192,7 +191,7 @@
           "the :selector edge from the machine process to its selector sub")
       (is (contains? roles :input))
       (is (contains? roles :selector))
-      ;; rf2-k0meap.2: the selector sub node is ENRICHED with the
+      ;; The selector sub node is ENRICHED with the
       ;; :machine-selector refinement (still a :derivation superkind — not a
       ;; second subscription system; the refinement is colour, not contract).
       (is (= :machine-selector
@@ -206,7 +205,7 @@
           "a non-selector sub is not falsely refined :machine-selector"))))
 
 (deftest same-flow-id-on-two-frames-stays-distinct
-  ;; rf2-k0meap.2 point-1: a flow is FRAME-SCOPED — the same flow-id may
+  ;; A flow is FRAME-SCOPED — the same flow-id may
   ;; register against two frames with different :inputs / :derive / :output-path.
   ;; The composed graph must preserve the frame dimension so one frame's
   ;; flow does NOT overwrite another's when their ids match.
@@ -226,8 +225,8 @@
       (is (contains? nodes a-id) "frame :app/a's flow node is present, frame-scoped")
       (is (contains? nodes b-id) "frame :app/b's flow node is present, frame-scoped")
       (is (not= a-id b-id) "the two nodes have DISTINCT ids (no collapse)")
-      ;; Each preserved its own per-frame output — the collapse bug would
-      ;; have left only one of these.
+      ;; Each keeps its own per-frame output — collapsing them onto one
+      ;; slot would leave only one of these.
       (is (= [:db [:a-total]] (get-in nodes [a-id :output]))
           "frame A's flow kept its own :output path")
       (is (= [:db [:b-total]] (get-in nodes [b-id :output]))
@@ -258,7 +257,7 @@
                 param)
           "the route-owned resource activation edge runs route → resource"))))
 
-;; ---- precise machine→selector edge targeting (rf2-4qmiij) -----------------
+;; ---- precise machine→selector edge targeting ------------------------------
 
 (deftest machine-selector-edge-targets-only-the-machine-it-reads
   (testing "in a multi-machine app a selector edge runs ONLY from the machine
@@ -286,7 +285,7 @@
                :role :selector}]
              (vec sel))
           "one selector edge from the machine the selector actually reads")
-      ;; The unrelated machine receives NO selector edge (the cross-product bug).
+      ;; The unrelated machine receives NO selector edge (no cross product).
       (is (not-any? #(= [:machine :download/main] (:from %)) sel)
           "no selector edge from the unrelated :download/main machine"))))
 
@@ -385,7 +384,7 @@
       (is (= :route/article (:route-id slice)) "the live matched route id")
       (is (= {:slug "welcome"} (:params slice)) "the live matched params"))))
 
-;; ---- live graph: realized route-owned resource edges (rf2-k0meap.1) -------
+;; ---- live graph: realized route-owned resource edges ----------------------
 ;;
 ;; The composer's live route→resource edge derivation is exercised through
 ;; the PUBLIC `live-derivation-graph` over CUSTOM contributors that return
@@ -438,7 +437,7 @@
   (testing "a route-owned resource entry (owner [:route route-id nav-token])
             yields a :param edge from the live route node to the CONCRETE
             [:resource <scoped-key>] node — the live resolution of the
-            static graph's :parametric route-resource marker (rf2-k0meap.1)"
+            static graph's :parametric route-resource marker"
     (let [route-node (live-route-node-fixture)
           res-node   (live-resource-node-fixture
                        #{[:route :route/article nav-token-fixture]})
@@ -524,12 +523,12 @@
 
 (deftest default-contributors-wires-the-machine-selector-targets-surface
   (testing "the JVM default contributors wire the machine selector-target
-            extractor (EP-0014 machine-selector refinement reads it) — present
-            and callable, not dropped by the narrowed resolver (rf2-k0meap.8)"
+            extractor (the machine-selector refinement reads it) — present
+            and callable, not dropped by the resolver"
     (let [c (rf.derivation.graph/default-contributors)]
       (is (fn? (get-in c [:machines :selector-targets]))
           "the :machines contributor carries a callable :selector-targets extractor")
-      ;; and the assembled default-contributors graph still draws the precise
+      ;; and the assembled default-contributors graph draws the precise
       ;; selector edge — the wiring is live end-to-end.
       (rf/reg-machine :upload/main
                       {:initial :idle :data {} :states {:idle {}}})

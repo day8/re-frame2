@@ -1,5 +1,5 @@
 (ns re-frame.frame-upsert-linearization-production-test
-  "rf2-7vk3z — frame-upsert linearization, witnessed through PRODUCTION state.
+  "Frame-upsert linearization, witnessed through PRODUCTION state.
 
   ## Why this namespace exists
 
@@ -29,7 +29,7 @@
       durable state a clobbered loser would have orphaned;
     * `rf.trace/frame-trace-disabled?` — the OTHER frame-scoped policy store.
       That store is written unconditionally (it survives the gate; only the
-      retention ring does not), so it still witnesses the rf2-umsyo9 contract
+      retention ring does not), so it witnesses the contract
       that auxiliary policy publication linearizes with the registry.
 
   The one thing genuinely NOT witnessable in production is the retention cap
@@ -84,7 +84,7 @@
 ;; ===========================================================================
 
 (deftest exclusive-create-loser-cannot-publish-over-the-owner
-  (testing "rf2-7vk3z / rf2-umsyo9 — a same-id contender that arrives while the
+  (testing "a same-id contender that arrives while the
             owner holds an exclusive-create transaction loses at admission with
             `:rf.error/frame-construction-in-progress`, and neither its config
             nor its frame-scoped trace policy reaches any store. Witnessed
@@ -119,7 +119,7 @@
           "the owner's full record is published — no orphaned container"))))
 
 (deftest disjoint-ids-stay-independent-under-a-held-transaction
-  (testing "rf2-7vk3z — the negative control. A held transaction on one id does
+  (testing "the negative control. A held transaction on one id does
             not serialize construction of a DIFFERENT id, so the fail-fast
             above is same-id admission and not a global construction lock."
     (let [reached (CountDownLatch. 1)
@@ -142,7 +142,7 @@
 ;; ===========================================================================
 
 (deftest failed-reregistration-rolls-back-to-the-intervening-generation
-  (testing "rf2-7vk3z / rf2-vxgfnd.197 — the invariant the bead names. A
+  (testing "the rollback invariant. A
             staged re-registration pauses provisional; the image-reprojection
             path legitimately swaps only the generation in that window; the
             re-registration's hook then fails. Rollback must restore the

@@ -1,5 +1,5 @@
 (ns re-frame.frame-construction-transaction-cljs-test
-  "rf2-vxgfnd.197 — a frame id has one construction transaction from adapter
+  "A frame id has one construction transaction from adapter
   allocation through setup and final publication.
 
   The custom-adapter fixtures synchronously re-enter construction for the SAME

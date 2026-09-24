@@ -1,32 +1,22 @@
 (ns re-frame.warn-once-clear-governance-cljs-test
-  "Governance gate for the adapter/views warn-once `defonce` cache class
-  (rf2-z79p8) — the class that bit FOUR times before the chokepoint landed:
+  "Governance gate for the adapter/views warn-once `defonce` cache class.
 
-    * rf2-4edk  — `warned-non-dom-roots` (the source-coord / non-DOM-root
-                  cache) was left out of the fixture-reset chain.
-    * rf2-9hoos — `seen-render-keys` (the :mount? discriminator's set).
-    * rf2-qy6cl — the slim hiccup interpreter's `warned-keyword-prop`.
-    * rf2-z79p8 — `warned-plain-fn-frame-pairs` (the Spec 000 §Plain
-                  Reagent fns under non-default frames suppression
-                  set) — the 4th
-                  straggler. That cache has since been REMOVED (rf2-k4xous):
-                  its warning is retired per EP-0002, and the three live
-                  probe-carrying caches below still exercise the same gate.
+  The hazard: a process-wide `defonce` warn-once cache whose clear-fn is
+  published standalone but NEVER chained into the canonical
+  `:adapter/clear-warn-once-caches!` hook that `make-reset-runtime-fixture`
+  fires — so the standard fixture silently fails to re-arm it between tests,
+  and a sibling test's first-encounter warning can swallow a later same-key
+  warning. The class covers `warned-non-dom-roots` (the source-coord /
+  non-DOM-root cache), `seen-render-keys` (the :mount? discriminator's set),
+  the slim hiccup interpreter's `warned-keyword-prop`, and the React-hook
+  spine's per-adapter cache.
 
-  Each recurrence was the SAME defect: a process-wide `defonce` warn-once
-  cache whose clear-fn was published standalone but NEVER chained into the
-  canonical `:adapter/clear-warn-once-caches!` hook that
-  `make-reset-runtime-fixture` fires — so the standard fixture silently
-  failed to re-arm it between tests, and a sibling test's first-encounter
-  warning could swallow a later same-key warning.
-
-  rf2-z79p8 ENDS the class. Every contributor now enrols through the
-  single chokepoint `re-frame.late-bind/register-warn-once-clear-fn!`,
-  which both chains the clear-fn AND records the cache (with `:arm` /
+  Every contributor enrols through the single chokepoint
+  `re-frame.late-bind/register-warn-once-clear-fn!`, which both chains the clear-fn AND records the cache (with `:arm` /
   `:armed?` probes where the cache atom is in scope) in the
   `warn-once-clear-registry`. This test enumerates that registry and
   proves, empirically, that firing the canonical chain ONCE wipes every
-  registered cache. A future 5th cache that registers but forgets the
+  registered cache. A future cache that registers but forgets the
   chain (impossible through the chokepoint, but a bare `chain-fn!` could
   still drift) — or that escapes the chokepoint entirely — is caught:
 
@@ -40,8 +30,7 @@
   The companion source-enumeration assertion lives in the JVM test
   `re-frame.warn-once-clear-governance-test` (it greps every `defonce`
   warn-once cache out of source and asserts each is routed through the
-  chokepoint) — that layer catches a 5th cache that never registers at
-  all.
+  chokepoint) — that layer catches a cache that never registers at all.
 
   Loading the four adapter/views producer namespaces below populates the
   registry at ns-load (each adapter's `make-react-adapter` /
@@ -69,10 +58,10 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private expected-labels
-  "Every warn-once cache of the rf2-4edk/9hoos/qy6cl class that MUST be
+  "Every warn-once cache of the class that MUST be
   enrolled in the registry (and therefore chained). A new cache that
   forgets to enrol trips the source-enumeration JVM assertion; one that
-  enrols under a new label lands here once Mike/the reviewer adds it."
+  enrols under a new label is added here by hand."
   #{:views/warned-non-dom-roots
     :views/seen-render-keys
     :adapter/warned-non-dom-roots          ;; the React-hook spine's per-adapter cache
@@ -80,14 +69,14 @@
 
 (deftest registry-enrols-every-named-cache-of-the-class
   (testing "the warn-once-clear governance registry enrols every named
-            cache of the rf2-z79p8 class"
+            cache of the class"
     (let [enrolled (set (map :label @rf.late-bind/warn-once-clear-registry))
           missing  (set/difference expected-labels enrolled)]
       (is (empty? missing)
           (str "these warn-once caches are NOT enrolled in the governance "
                "registry (so they are NOT chained into "
                ":adapter/clear-warn-once-caches! and the standard fixture "
-               "will not re-arm them — the rf2-z79p8 defect class): "
+               "will not re-arm them — the unchained warn-once cache defect): "
                (pr-str missing)
                ". Enrolled labels: " (pr-str enrolled))))))
 
@@ -110,7 +99,7 @@
   (testing "arming every probe-carrying warn-once cache, then firing the
             canonical :adapter/clear-warn-once-caches! chain ONCE, wipes
             ALL of them — proving each enrolled cache is genuinely a member
-            of the chain the standard fixture drives (rf2-z79p8)"
+            of the chain the standard fixture drives"
     (let [entries (probed-entries)
           chain   (rf.late-bind/get-fn :adapter/clear-warn-once-caches!)]
       (is (seq entries)
@@ -129,8 +118,8 @@
         (is (false? (boolean (armed?)))
             (str label " survived the canonical :adapter/clear-warn-once-"
                  "caches! chain — its clear-fn is enrolled in the registry "
-                 "but NOT actually wired into the chain (the rf2-z79p8 "
-                 "defect class). The standard make-reset-runtime-fixture "
+                 "but NOT actually wired into the chain (the unchained "
+                 "warn-once cache defect). The standard make-reset-runtime-fixture "
                  "will not re-arm it between tests."))))))
 
 ;; ---------------------------------------------------------------------------
@@ -150,12 +139,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest governance-gate-catches-an-unchained-cache
-  (testing "PROOF the gate would FAIL for a 5th cache that registers but is
+  (testing "PROOF the gate would FAIL for a new cache that registers but is
             NOT chained: inject a SYNTHETIC entry straight into the registry
             (bypassing register-warn-once-clear-fn!, so it never reaches the
             chain), arm it, fire the canonical chain, and confirm the same
-            arm/fire/assert-empty logic the gate uses flags it as surviving
-            (rf2-z79p8). The synthetic entry is removed afterwards so the
+            arm/fire/assert-empty logic the gate uses flags it as surviving.
+            The synthetic entry is removed afterwards so the
             real gate stays green."
     (let [survivor (atom #{})
           synthetic {:label    :rf-test/unchained-synthetic-cache

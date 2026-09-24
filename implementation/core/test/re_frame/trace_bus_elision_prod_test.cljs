@@ -1,8 +1,8 @@
 (ns re-frame.trace-bus-elision-prod-test
-  "Per Spec 009 §Production builds (bead rf2-l7hlm) — `:advanced` +
+  "Per Spec 009 §Production builds — `:advanced` +
   `goog.DEBUG=false` runtime contract for the `re-frame.trace.tooling`
   RING BUFFER (the 'trace bus'). Companion to
-  `re-frame.trace-listener-elision-prod-test` (rf2-2zdu) which covers
+  `re-frame.trace-listener-elision-prod-test` which covers
   the listener fan-out side of the trace surface; this file pins the
   buffer side.
 
@@ -14,7 +14,7 @@
   it because every push site sits inside the gated `deliver!` /
   `emit!` chain.
 
-  Per Spec 009 §Retain-N trace ring buffer (rf2-smee): the buffer is a
+  Per Spec 009 §Per-frame trace rings (event-keyed, dev-only): the buffer is a
   dev-only inspection surface. Production observability rides the
   always-on event-emit / error-emit substrates instead.
 
@@ -27,7 +27,7 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace :as rf.trace]
-            ;; rf2-qwm0a — buffer + listener surface lives in
+            ;; The buffer + listener surface lives in
             ;; `re-frame.trace.tooling`.
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
@@ -38,7 +38,7 @@
 ;; ---- ring buffer is empty under prod -------------------------------------
 
 (deftest dispatched-events-do-not-populate-trace-buffer-under-prod
-  (testing "Per Spec 009 §Production builds (rf2-l7hlm): under
+  (testing "Per Spec 009 §Production builds: under
             `:advanced` + `goog.DEBUG=false` a registered handler
             fires through the router but NO events reach the trace
             ring buffer. Every emit site's body sits inside the
@@ -94,8 +94,8 @@
         "buffer remains empty after direct emit calls under prod")))
 
 (deftest trace-configure-is-noop-under-prod
-  (testing "Per Spec 009 §Production builds: the generic `configure`
-            dispatch (currently `:trace-buffer`) is also gated. Apps
+  (testing "Per Spec 009 §Production builds: the generic `configure!`
+            dispatch's `:trace-buffer` key is also gated. Apps
             that boot via `(re-frame.core/configure! {:trace-buffer ...})`
             do not crash under :advanced; the requested config is
             silently dropped."

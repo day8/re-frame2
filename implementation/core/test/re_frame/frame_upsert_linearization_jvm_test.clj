@@ -1,22 +1,22 @@
 (ns re-frame.frame-upsert-linearization-jvm-test
-  "rf2-vxgfnd.76 / rf2-vxgfnd.197 — linearize frame-id construction.
+  "Linearize frame-id construction.
 
-  THE WINDOW (JVM-only; CLJS is single-threaded). Before the A-prime fix
-  `upsert-frame!` read `(get @frames
-  id)` and THEN wrote (`swap! frames assoc id …` on create / `swap! frames update
-  id assoc …` on re-register) as two separate steps. Two actors racing in the
-  read→write window both read the id absent and both `assoc` — a LAST-WRITER
-  CLOBBER that orphaned the loser's container / drain-lock / durable state; and a
-  re-registration racing a concurrent `destroy-frame!` did a bare `(update m id
-  assoc …)` on a dissoc'd id, RESURRECTING a partial `{:config … :generation …}`
-  zombie with no state container and no `:drain-lock`.
+  THE WINDOW (JVM-only; CLJS is single-threaded). An `upsert-frame!` that read
+  `(get @frames id)` and THEN wrote (`swap! frames assoc id …` on create /
+  `swap! frames update id assoc …` on re-register) as two separate steps would
+  let two actors racing in the read→write window both read the id absent and
+  both `assoc` — a LAST-WRITER CLOBBER orphaning the loser's container /
+  drain-lock / durable state; and a re-registration racing a concurrent
+  `destroy-frame!` would do a bare `(update m id assoc …)` on a dissoc'd id,
+  RESURRECTING a partial `{:config … :generation …}` zombie with no state
+  container and no `:drain-lock`.
 
-  The original fix serialized only cold creation. The construction transaction
-  now reserves a frame id before adapter callbacks and retains that ownership
-  through publication or exact rollback. A same-id contender fails promptly;
-  disjoint ids remain independent. Plus an internal create-exclusive mode
-  (`:rf.frame/must-create?`) that throws typed `:rf.error/frame-id-taken` on a
-  taken id — the primitive `ui.test` rests its fresh-isolated-frame contract on.
+  The construction transaction reserves a frame id before adapter callbacks and
+  retains that ownership through publication or exact rollback. A same-id
+  contender fails promptly; disjoint ids remain independent. Plus an internal
+  create-exclusive mode (`:rf.frame/must-create?`) that throws typed
+  `:rf.error/frame-id-taken` on a taken id — the primitive for a
+  fresh-isolated-frame contract.
 
   These fixtures open construction windows DETERMINISTICALLY via the
   `rf.frame/*upsert-decide-probe*` JVM linearization seam (a `nil`-in-production
@@ -33,10 +33,10 @@
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace :as rf.trace]
-            ;; Loads the trace-tooling artefact so its
-            ;; The trace-tooling retention-policy late-bind is published
-            ;; before these tests run (the retention override is otherwise a
-            ;; silent no-op) and so the per-frame retention store is observable.
+            ;; Loads the trace-tooling artefact so its retention-policy
+            ;; late-bind is published before these tests run (the retention
+            ;; override is otherwise a silent no-op) and so the per-frame
+            ;; retention store is observable.
             [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
@@ -46,7 +46,7 @@
   (rf.trace.tooling/clear-listeners!)
   ;; Clear the process-global trace-policy stores so a frame-scoped no-emit /
   ;; retention override written by one test never leaks into the next
-  ;; (rf2-umsyo9 — these stores are SEPARATE from `frames`, which the reset
+  ;; (these stores are SEPARATE from `frames`, which the reset
   ;; above does unwind).
   (rf.trace/clear-frame-no-emit!)
   (rf.trace.tooling/clear-trace-rings!)
@@ -150,7 +150,7 @@
         "the record remains full, never a partial zombie")))
 
 ;; ===========================================================================
-;; must-create (create-exclusive) — the ui.test primitive.
+;; must-create (create-exclusive).
 ;; ===========================================================================
 
 (deftest must-create-throws-typed-collision-on-an-already-live-id
@@ -185,7 +185,7 @@
         "the owner's full record is published")))
 
 ;; ===========================================================================
-;; rf2-umsyo9 — a same-id loser must not overwrite the OWNER's frame-scoped
+;; A same-id loser must not overwrite the OWNER's frame-scoped
 ;; trace policy.
 ;;
 ;; `upsert-frame!`'s two frame-scoped TRACE POLICY writes — the `set-frame-
@@ -433,14 +433,15 @@
           (rf.late-bind/set-fn! hook-key original-hook))))))
 
 ;; ===========================================================================
-;; rf2-3x7nj.2.1 — a re-registering LIVE frame stays visible to every actor.
+;; A re-registering LIVE frame stays visible to every actor.
 ;;
 ;; Owner-only visibility of a provisional row is for FIRST construction, where
 ;; the row is half-built. A same-id re-registration stages a new config onto the
 ;; live record — app-db, router, queue, drain lock and sub-cache are the same
 ;; objects — so while the revision is staged every actor, foreign JVM threads
-;; included, sees the frame with its STAGED config. Admission is unchanged: a
-;; same-id constructor or destroyer still loses at the per-id reservation.
+;; included, sees the frame with its STAGED config. Admission is as for
+;; any construction: a same-id constructor or destroyer loses at the per-id
+;; reservation.
 ;;
 ;; Each case pauses the owner at `*upsert-policy-probe*`, which fires AFTER the
 ;; revision is staged (`*upsert-decide-probe*` fires before, while the row is

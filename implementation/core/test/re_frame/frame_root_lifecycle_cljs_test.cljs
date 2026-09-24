@@ -1,10 +1,9 @@
 (ns re-frame.frame-root-lifecycle-cljs-test
-  "Node-runnable unit tests for the substrate-agnostic cores of the SPLIT
-  frame-boundary components (rf2-nyea0r) and the fail-loud guards they share —
+  "Node-runnable unit tests for the substrate-agnostic cores of the
+  frame-boundary components and the fail-loud guards they share —
   `re-frame.views.frame-boundary`.
 
-  rf2-nyea0r split. The pre-split merged `frame-provider` had TWO shapes
-  dispatched on the prop map; it is now TWO components, one verb each:
+  There are TWO frame-boundary components, one verb each:
   `rf/frame-root` ENSURE (create-if-absent, reuse-if-present NO re-seed, NO
   destroy-on-unmount, COMMIT-OWNED two-pass) and `rf/frame-provider` SCOPE-only
   (fail loud if absent). These tests exercise the parts that need NO React
@@ -115,10 +114,10 @@
         ":children and :fallback are stripped; frame opts pass through")))
 
 (deftest acquire-frame-root-setup-escaping-throw-rethrows-and-leaves-no-frame
-  (testing "rf2-83fwld: a frame-root acquire whose :initial-events step THROWS
+  (testing "a frame-root acquire whose :initial-events step THROWS
             out of dispatch-sync rethrows out of acquire-frame-root! AND leaves
             NO frame registered (a setup throw destroys the just-created frame,
-            then rethrows). Transitively: acquire -> make-frame -> make-frame ->
+            then rethrows). Transitively: acquire -> make-frame ->
             run-setup-events! tears down the partial frame and rethrows
             :rf.error/initial-events-step-failed. This is the ESCAPING-throw
             detection route."
@@ -146,7 +145,7 @@
           "no half-created frame is left registered — the partial frame was torn down"))))
 
 (deftest acquire-frame-root-setup-in-band-handler-throw-rethrows-and-leaves-no-frame
-  (testing "rf2-vw5h1r: a throwing acquire destroys the just-created frame, then
+  (testing "a throwing acquire destroys the just-created frame, then
             rethrows — holds for an IN-BAND handler-body throw too, not just an
             escaping throw. A [:rf/set-db :not-a-map] bad-arg step raises
             :rf.error/set-db-bad-value from inside the handler; the chain catches
@@ -184,7 +183,7 @@
           (rf.views.frame-boundary/require-frame-root-id! "root/str" 'rf/frame-root))
         "a non-keyword :id fails loud")))
 
-;; ---- fail-loud: did-you-mean both ways (rf2-nyea0r) ----------------------
+;; ---- fail-loud: did-you-mean both ways ----------------------
 
 (deftest reject-frame-provider-id-names-frame-root
   (testing "frame-provider given :id fails loud naming frame-root"

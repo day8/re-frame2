@@ -1,7 +1,7 @@
 (ns re-frame.example-generation-guard-cljs-test
   "Framework-tree regression for two properties of `seven-guis.timer.core`:
-   the `:dispatch-later` GENERATION-GUARD idiom (rf2-jo4oqv) and the
-   MEASURED-NOT-COUNTED elapsed-time rule (rf2-4s8g).
+   the `:dispatch-later` GENERATION-GUARD idiom and the
+   MEASURED-NOT-COUNTED elapsed-time rule.
 
    The generation-guard idiom: `:dispatch-later` is fire-and-forget (no handle
    to cancel a tick in flight). To retire a chain you BUMP a `:tick-gen`
@@ -21,18 +21,16 @@
    100ms is a sampling cadence only.
 
    This test pins both against `seven-guis.timer.core` — the canonical Reagent
-   precedent (formerly also cited by the Helix process-monitor example, removed
-   at S7/W13). timer.core is requireable + node-drivable and its `:tick-gen`
+   precedent. timer.core is requireable + node-drivable and its `:tick-gen`
    guard is the pure form of the pattern (a tick either advances + reschedules
    or no-ops), so pinning it protects the shared idiom. It belongs in the
-   framework test tree (examples stay test-free, rf2-8cevm) and runs under
+   framework test tree (examples stay test-free) and runs under
    `:node-test` (`../examples/core` is on its source-paths).
 
-   Neither property was tested behaviourally before this file
-   (`git grep 'tick-gen' -- implementation/` found no test): the frame-scoping
-   test only asserts timer.core's ns-load app-schema, and the resources/machine
-   timer tests cover a DIFFERENT mechanism (cancel-then-arm via a real timer
-   registry). A regression — stale ticks that stop no-op'ing, a bump that fails
+   This is the file that pins both properties behaviourally: the
+   frame-scoping test only asserts timer.core's ns-load app-schema, and the
+   resources/machine timer tests cover a DIFFERENT mechanism (cancel-then-arm
+   via a real timer registry). A regression — stale ticks that stop no-op'ing, a bump that fails
    to retire, or elapsed drifting back to one-callback-equals-one-tick — would
    spawn overlapping chains with no guard, or a clock that silently loses time.
 
@@ -41,7 +39,7 @@
 
    - The scheduled follow-ups are observed by capturing the `:dispatch-later`
      fx via a function-value `:fx-overrides` entry on the frame (spec/002
-     §`:fx-overrides`, rf2-nrpj1): the override runs in place of the reserved
+     §`:fx-overrides`): the override runs in place of the reserved
      `:dispatch-later` body, so NO real host timer is ever armed and we read
      back exactly what each handler tried to schedule.
    - The clock is supplied as data — `{:rf.cofx {:rf/time-ms t}}` on the
@@ -114,7 +112,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest generation-guard-retires-stale-chains-keeps-one-live
-  (testing "rf2-jo4oqv — the :dispatch-later generation guard: a stale-gen tick
+  (testing "the :dispatch-later generation guard: a stale-gen tick
             no-ops (no state change, no reschedule) while a live-gen tick
             advances + reschedules under the SAME gen; a bump (reset) retires
             the old chain and arms exactly ONE fresh chain"
@@ -130,7 +128,7 @@
         ;; ---- (a) a STALE-gen tick no-ops ----
         ;; Note the injected reading MOVES here (t0 + 5000) while the expected
         ;; app-db does not: a retired tick must not even re-anchor the clock,
-        ;; which a whole-db comparison now also pins.
+        ;; which the whole-db comparison pins.
         (reset! captured [])
         (let [db-before (rf/app-db-value f)]
           (dispatch-at! f (+ t0 5000) [:timer/tick 999])
@@ -176,11 +174,11 @@
             "the gen-1 chain is the single live chain and keeps ticking")))))
 
 ;; ---------------------------------------------------------------------------
-;; Elapsed time is MEASURED, not counted (rf2-4s8g)
+;; Elapsed time is MEASURED, not counted
 ;; ---------------------------------------------------------------------------
 
 (deftest elapsed-follows-recorded-time-not-callback-count
-  (testing "rf2-4s8g — elapsed advances by the interval that ACTUALLY passed
+  (testing "elapsed advances by the interval that ACTUALLY passed
             between samples, never by a fixed tick-ms per callback: a late
             callback contributes its real interval, and a sample past the
             deadline clamps exactly once and stops the chain"
@@ -198,8 +196,9 @@
         ;; The chain asked for 100ms; the host delivered at +450ms — an
         ;; ordinary outcome under load, throttling, or a background tab.
         ;; A callback-counter credits 100ms here and loses the other 350ms
-        ;; permanently. This assertion is what the pre-rf2-4s8g implementation
-        ;; fails: `(min (+ elapsed-ms tick-ms) duration-ms)` yields 100.
+        ;; permanently. A callback-counting implementation —
+        ;; `(min (+ elapsed-ms tick-ms) duration-ms)` — yields 100 and fails
+        ;; this assertion.
         (reset! captured [])
         (dispatch-at! f (+ t0 450) [:timer/tick 0])
         (is (= 450 (elapsed-ms f))
@@ -243,7 +242,7 @@
               "elapsed, duration, active flag and generation all unchanged"))))))
 
 (deftest reset-and-rearm-establish-a-fresh-time-baseline
-  (testing "rf2-4s8g — Reset and a post-completion re-arm both re-anchor the
+  (testing "Reset and a post-completion re-arm both re-anchor the
             clock, so the first sample afterwards counts from that USER EVENT
             rather than from the last sample before it: time the timer spent
             stopped is never charged to the new run"
@@ -292,11 +291,11 @@
              have leapt straight off zero")))))
 
 ;; ---------------------------------------------------------------------------
-;; Shortening the duration below elapsed never rewinds it (rf2-gwye.54)
+;; Shortening the duration below elapsed never rewinds it
 ;; ---------------------------------------------------------------------------
 
 (deftest shortening-below-elapsed-keeps-measured-time
-  (testing "rf2-gwye.54 — a tick still in flight when the slider drops the
+  (testing "a tick still in flight when the slider drops the
             duration below elapsed stops the chain WITHOUT dragging elapsed
             down to the new target; raising the duration re-arms only once it
             clears the time already measured"
@@ -315,8 +314,8 @@
         (reset! captured [])
         (dispatch-at! f (+ t0 5100) [:timer/tick 0])
         (is (= 5000 (elapsed-ms f))
-            "the tick holds elapsed at the 5000ms already measured — the
-             deadline clamp used to rewind it to the new 1000ms target")
+            "the tick holds elapsed at the 5000ms already measured — a
+             deadline clamp would rewind it to the new 1000ms target")
         (is (empty? @captured) "past its target, so the chain ends")
 
         ;; ---- raising the target but staying behind elapsed: still stopped ----

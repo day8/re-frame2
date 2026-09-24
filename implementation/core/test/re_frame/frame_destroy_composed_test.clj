@@ -1,9 +1,9 @@
 (ns re-frame.frame-destroy-composed-test
-  "Per rf2-gh1mj — composed lifecycle teardown interleavings.
+  "Composed lifecycle teardown interleavings.
 
-  Pre-existing coverage exercises each frame-lifecycle edge IN ISOLATION:
+  Other suites exercise each frame-lifecycle edge IN ISOLATION:
   individual destroy steps, the adapter-disposed throw, drain-after-
-  destroy, optional-hook absent paths. What was NOT pinned is the
+  destroy, optional-hook absent paths. This file pins the
   COMBINATION — what happens when a throwing trace listener fires WHILE
   the destroy cascade is running, what happens when an optional cleanup
   hook is registered but throws, what happens when a reaction's
@@ -12,8 +12,8 @@
   rare cases most likely to leave sub-cache, epoch buffers, flow
   registries, or frames-store records alive after destroy.
 
-  Acceptance per rf2-gh1mj:
-    - At least four composed lifecycle interleavings (this file: five).
+  Coverage:
+    - Five composed lifecycle interleavings.
     - Assertions prove no leaked sub-cache, epoch buffer, flow
       registration, or frames-store record for the destroyed frame.
     - Listener-throw and late-bound-hook-throw paths pinned.
@@ -22,37 +22,36 @@
       agnostic; CLJS adds only React-context teardown, which is owned
       by the views ns and tested separately in adapters/*/test/).
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   Teardown is production behaviour; the LIFECYCLE EMITS that narrate it are
   not. Six of the eight cases read `:rf.sub/dispose` / `:rf.frame/destroyed` /
   `:rf.warning/teardown-hook-exception` /
-  `:rf.warning/cross-frame-dispatch-sync-during-drain` off the dev trace, so
-  they failed under `scripts/test-core-prod-gate.sh`. Those reads are guarded;
-  everything about WHAT WAS TORN DOWN stays always-on, which is most of the
-  file already — the frames store, the sub-cache, the schemas registry, the
-  flows registry and last-inputs are all ungated.
+  `:rf.warning/cross-frame-dispatch-sync-during-drain` off the dev trace, which
+  is silent under `scripts/test-core-prod-gate.sh`, so those reads are
+  guarded; everything about WHAT WAS TORN DOWN is always-on — the frames
+  store, the sub-cache, the schemas registry, the flows registry and
+  last-inputs are all ungated.
 
-  TWO CASES NEEDED A NEW WITNESS RATHER THAN A GUARD, and both are about
-  counting disposals. `destroy-emits-sub-dispose-per-cached-slot` and
-  `destroy-emits-exactly-one-dispose-per-slot-for-layered-sub` were reading the
-  emit stream to count evictions; the bug the second one regresses (rf2-awhtpc)
-  is a DOUBLE DISPOSE, and a double dispose is observable directly through
-  `rf.interop/add-on-dispose!` on the reactions themselves. Both now count real
-  disposals in both postures. The layered case is the stronger for it: under
-  the gate it now proves the input-release cascade does not re-dispose a slot
-  the frame-destroy walk already cleared, which is the actual defect — the
-  duplicated EMIT was only its symptom.
+  TWO CASES COUNT DISPOSALS THROUGH A WITNESS RATHER THAN A GUARD.
+  `destroy-emits-sub-dispose-per-cached-slot` and
+  `destroy-emits-exactly-one-dispose-per-slot-for-layered-sub` count
+  evictions; the failure the second one guards is a DOUBLE DISPOSE, observable
+  directly through `rf.interop/add-on-dispose!` on the reactions themselves,
+  so both count real disposals in both postures. The layered case is the
+  stronger for it: under the gate it proves the input-release cascade does not
+  re-dispose a slot the frame-destroy walk already cleared, which is the
+  actual hazard — a duplicated EMIT would be only its symptom.
 
-  THE EPOCH RING IS DEV-FED, and that is where this file's false green was.
-  `epoch.capture/observe-trace-event!` feeds the ring from the DEV TRACE, so
-  under the gate `rf/epoch-history` is empty and `observed-frames-by-cb` is
-  never populated. `composed-destroy-leak-audit`'s two epoch PRECONDITIONS
-  went red — and its two matching POST-conditions passed for free: `(= []
-  (rf/epoch-history …))` over a ring that is always empty (class 1) and
-  `(not (contains? (get observed …) …))` over a nil map (class 4). A leak audit
-  certifying that a buffer was cleared, when the buffer was never filled, is
-  exactly the shape this lane exists to close. Both pairs are guarded together
+  THE EPOCH RING IS DEV-FED. `epoch.capture/observe-trace-event!` feeds the
+  ring from the DEV TRACE, so under the gate `rf/epoch-history` is empty and
+  `observed-frames-by-cb` is never populated. Ungated,
+  `composed-destroy-leak-audit`'s two epoch PRECONDITIONS would go red while
+  its two matching POST-conditions passed for free: `(= []
+  (rf/epoch-history …))` over a ring that is always empty and
+  `(not (contains? (get observed …) …))` over a nil map. A leak audit
+  certifying that a buffer was cleared, when the buffer was never filled, is a
+  false green. Both pairs are guarded together
   so the precondition can never be separated from the claim it licenses."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -67,7 +66,7 @@
             [re-frame.schemas :as rf.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]
-            ;; rf2-v6z0: machines is a separate artefact whose late-bind
+            ;; Machines is a separate artefact whose late-bind
             ;; hooks publish when the ns is loaded — side-effect require
             ;; so the `:machines/teardown-on-frame-destroy!` and
             ;; `:machines/on-frame-destroyed!` hooks exist for the
@@ -124,7 +123,7 @@
     ;; Seed two machine snapshots so destroy emits multiple
     ;; :rf.machine.lifecycle/destroyed events in addition to
     ;; :rf.frame/destroyed.
-    ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
+    ;; EP-0001: machine snapshots are durable runtime-db state.
     (rf/reg-event :composed/seed-machines
                      (fn [{rt :rf.db/runtime} _]
                        {:rf.db/runtime
@@ -147,7 +146,7 @@
       (is (nil? (rf/destroy-frame! :composed/scoped))
           "destroy-frame! completes without re-throwing the listener's exception")
 
-      ;; rf2-d2841 — GUARDED: the listener storm and the cascade's emit
+      ;; GUARDED: the listener storm and the cascade's emit
       ;; sequence are dev-trace facts. Under `-Dre-frame.debug=false` nothing
       ;; is emitted, so no listener runs and there is no storm to survive. The
       ;; always-on residue is the teardown itself, asserted below.
@@ -170,7 +169,7 @@
             "survivor saw both per-machine destroyed events (one per snapshot)"))
 
       ;; The frame is fully gone from the frames store (the ONE store a
-      ;; seated frame lives in, rf2-h1vqa4) — proves no destroy step was
+      ;; seated frame lives in) — proves no destroy step was
       ;; skipped by the listener throw.
       (is (nil? (rf.frame/frame :composed/scoped))
           "frame is dissoc'd from the frames atom")
@@ -214,11 +213,11 @@
         (rf.late-bind/set-fn! :flows/teardown-on-frame-destroy!
                            (fn [_id]
                              (swap! other-hooks-called conj :flows-ran)))
-        ;; rf2-vxgfnd.151: the post-dissoc :epoch/on-frame-destroyed hook takes
+        ;; The post-dissoc :epoch/on-frame-destroyed hook takes
         ;; (frame-id owner-token terminal-evidence) — exact incarnation
         ;; ownership plus the pre-dissoc terminal-evidence bundle
         ;; :epoch/snapshot-frame-destroyed captured for the :halted-destroy
-        ;; record. (The two frame-state snapshots + causal :time-ms now reach
+        ;; record. (The two frame-state snapshots + causal :time-ms reach
         ;; the epoch layer via that pre-dissoc snapshot hook.)
         (rf.late-bind/set-fn! :epoch/on-frame-destroyed
                            (fn [_id _owner-token _terminal-evidence]
@@ -303,10 +302,10 @@
           "frame is invisible to frame-meta"))))
 
 ;; ---------------------------------------------------------------------------
-;; 3b. Frame-destroy sub-cache eviction emits :rf.sub/dispose (rf2-x3m8c f2)
+;; 3b. Frame-destroy sub-cache eviction emits :rf.sub/dispose
 ;;
-;; tear-down-sub-cache! used to dispose reactions directly, bypassing the
-;; :rf.sub/dispose lifecycle emit that every OTHER eviction site fires.
+;; Like every OTHER eviction site, tear-down-sub-cache! fires the
+;; :rf.sub/dispose lifecycle emit rather than disposing reactions silently.
 ;; Frame teardown is a real eviction class and MUST appear in the stream
 ;; (reason :frame-destroy) so tooling can tell a clean teardown from
 ;; missing trace data.
@@ -315,7 +314,7 @@
 (deftest destroy-emits-sub-dispose-per-cached-slot
   (testing ":rf.sub/dispose fires once per cached slot when destroy-frame!
             tears the frame down — reason :frame-destroy, correct :frame
-            + :rf.sub/query-v (rf2-x3m8c finding 2)"
+            + :rf.sub/query-v"
     (rf/make-frame {:id :composed/dispose-emit :doc "dispose-emit"})
     (rf/reg-event :composed/seed2 (fn [{:keys [db]} _] {:db {:a 1 :b 2}}))
     (rf/reg-sub :composed/da (fn [db _] (:a db)))
@@ -331,7 +330,7 @@
         (let [ra       (rf/subscribe [:composed/da] {:frame :composed/dispose-emit})
               rb       (rf/subscribe [:composed/db] {:frame :composed/dispose-emit})
               disposed (atom [])]
-          ;; rf2-d2841 — ALWAYS-ON counterpart of the emit stream: count the
+          ;; ALWAYS-ON counterpart of the emit stream: count the
           ;; REAL disposals through `rf.interop/add-on-dispose!`, which is not
           ;; gated on `rf.interop/debug-enabled?`.
           (rf.interop/add-on-dispose! ra (fn [] (swap! disposed conj [:composed/da])))
@@ -362,17 +361,16 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 3b-2. Frame-destroy on a layered (declared-input) sub emits exactly one
-;; :rf.sub/dispose PER cached slot — no cascade re-emit (rf2-awhtpc)
+;; :rf.sub/dispose PER cached slot — no cascade re-emit
 ;;
-;; dispose-all-for-frame-destroy! used to walk the cache and call
-;; rf.interop/dispose! per slot WITHOUT first evicting the whole cache atom.
 ;; A layer-2+ sub's on-dispose callback releases its declared-input refs via
-;; unsubscribe! — if an input's slot was still present in the
-;; not-yet-cleared cache, dropping its ref-count to 0 fired a SECOND
-;; :rf.sub/dispose (reason :no-more-derefers) for that input, racing the
-;; walk's own :frame-destroy emit for the same slot; which one landed
-;; first (and thus which reason "won") depended on hash-map iteration
-;; order over the cache. The fix pre-clears the whole cache atom before
+;; unsubscribe!. If dispose-all-for-frame-destroy! called rf.interop/dispose!
+;; per slot WITHOUT first evicting the whole cache atom, an input's slot
+;; still present in the not-yet-cleared cache would drop its ref-count to 0
+;; and fire a SECOND :rf.sub/dispose (reason :no-more-derefers) for that
+;; input, racing the walk's own :frame-destroy emit for the same slot —
+;; which one landed first (and thus which reason "won") would depend on
+;; hash-map iteration order. The walk pre-clears the whole cache atom before
 ;; any dispose! call, so the cascade always finds nothing left to evict.
 ;; ---------------------------------------------------------------------------
 
@@ -380,8 +378,7 @@
   (testing "a layer-2 sub (two declared inputs) held live at frame-destroy: every
             cached slot (the sum + its two inputs) gets EXACTLY ONE
             :rf.sub/dispose, reasoned :frame-destroy — no double-emit from
-            the on-dispose ref-count cascade racing the frame-destroy walk
-            (rf2-awhtpc)"
+            the on-dispose ref-count cascade racing the frame-destroy walk"
     (rf/make-frame {:id :composed/layered-destroy :doc "layered destroy"})
     (rf/reg-event :composed/seed-layered (fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
     (rf/reg-sub :composed/layered-a (fn [db _] (:a db)))
@@ -403,12 +400,12 @@
           (is (= 5 @r))
           (is (= 3 (count @cache))
               "precondition: sum + both inputs are cached before destroy")
-          ;; rf2-d2841 — ALWAYS-ON, and this is the DEFECT rather than its
-          ;; symptom: rf2-awhtpc was a slot being disposed TWICE (the
-          ;; input-release cascade racing the frame-destroy walk over a cache
-          ;; that had not been pre-cleared). The duplicated `:rf.sub/dispose`
-          ;; emit was how it was noticed; `rf.interop/add-on-dispose!` counts the
-          ;; disposals themselves, in both postures.
+          ;; ALWAYS-ON, and this is the hazard rather than its symptom: a slot
+          ;; disposed TWICE (the input-release cascade racing the
+          ;; frame-destroy walk over a cache that had not been pre-cleared). A
+          ;; duplicated `:rf.sub/dispose` emit would be the visible symptom;
+          ;; `rf.interop/add-on-dispose!` counts the disposals themselves, in
+          ;; both postures.
           (doseq [[q-v node] @cache]
             (rf.interop/add-on-dispose! (:reaction node)
                                      (fn [] (swap! disposed conj q-v))))
@@ -444,10 +441,10 @@
           (rf/unregister-listener! :trace ::layered-destroy))))))
 
 ;; ---------------------------------------------------------------------------
-;; 3c. Throwing cleanup hook emits a diagnostic, not silence (rf2-x3m8c f3)
+;; 3c. Throwing cleanup hook emits a diagnostic, not silence
 ;;
 ;; safe-call-hook! keeps best-effort teardown (the throw is swallowed and
-;; downstream hooks still run) BUT now emits exactly one structured
+;; downstream hooks still run) BUT emits exactly one structured
 ;; :rf.warning/teardown-hook-exception carrying the hook key, frame id,
 ;; and exception — so a leaked optional-artefact cleanup is diagnosable.
 ;; ---------------------------------------------------------------------------
@@ -455,8 +452,7 @@
 (deftest throwing-cleanup-hook-emits-one-diagnostic
   (testing "a throwing late-bound cleanup hook emits exactly one
             :rf.warning/teardown-hook-exception (carrying :hook, :frame,
-            :exception) while teardown continues best-effort (rf2-x3m8c
-            finding 3)"
+            :exception) while teardown continues best-effort"
     (rf/make-frame {:id :composed/hook-diag :doc "hook-diag"})
     (let [downstream-ran (atom #{})
           original-schemas-h (rf.late-bind/get-fn :schemas/on-frame-destroyed!)
@@ -479,7 +475,7 @@
         (is (contains? @downstream-ran :flows-ran)
             "best-effort: the downstream hook still ran after the throw")
 
-        ;; ALWAYS-ON (rf2-d2841): best-effort teardown still finished — the
+        ;; ALWAYS-ON: best-effort teardown finished — the
         ;; frame is gone despite the hook throw. Only the DIAGNOSTIC that makes
         ;; the leak diagnosable is dev-only.
         (is (nil? (rf.frame/frame :composed/hook-diag))
@@ -541,8 +537,8 @@
           ":on-destroy's cross-frame dispatch-sync committed on the parent")
 
       ;; The warn trace fired (cross-frame dispatch-sync mid-drain
-      ;; on a sibling per Spec 002 / rf2-fp97).
-      ;; rf2-d2841 — GUARDED: the warn is a dev-trace emit. The commit, the
+      ;; on a sibling per Spec 002).
+      ;; GUARDED: the warn is a dev-trace emit. The commit, the
       ;; teardown and the sibling's survival above and below are the production
       ;; contract, and they are already always-on.
       (when rf.interop/debug-enabled?
@@ -573,9 +569,8 @@
 ;; flows registry + last-inputs cache), epoch (per-frame ring buffer
 ;; + observed-frames-by-cb entry), sub-cache (pinned reactions),
 ;; the frames store. Destroy. Pin that ALL of them are cleared in a single
-;; composed assertion — guards against a future regression that fixes
-;; each leak in isolation while breaking the destroy step list's
-;; ordering.
+;; composed assertion — guards against a change that keeps each leak
+;; fixed in isolation while breaking the destroy step list's ordering.
 ;; ---------------------------------------------------------------------------
 
 (deftest composed-destroy-leak-audit
@@ -600,7 +595,7 @@
     ;; Seed the flow's last-inputs directly — under some inter-test
     ;; orderings the `run-flows!` walker's hook is gated by a sibling
     ;; reload (conformance suite reloads flows mid-pass). The direct
-    ;; write (frame-scoped per rf2-94ol5) pins the post-condition
+    ;; write (frame-scoped) pins the post-condition
     ;; contract this test cares about (the destroy-frame! teardown
     ;; clears the row) without depending on the flow walker firing
     ;; during this specific dispatch.
@@ -610,7 +605,7 @@
     (is (= [3 4] (get-in (rf.flows/last-inputs-snapshot) [:composed/area :composed/leak-audit]))
         "precondition: flow last-inputs has a row for the frame")
 
-    ;; rf2-d2841 — GUARDED AS A PAIR with the matching post-conditions below.
+    ;; GUARDED AS A PAIR with the matching post-conditions below.
     ;; `epoch.capture/observe-trace-event!` feeds the epoch ring from the DEV
     ;; TRACE, so under `-Dre-frame.debug=false` the ring is never filled and
     ;; `observed-frames-by-cb` is never populated. Splitting the precondition
@@ -633,7 +628,7 @@
     ;; --- frames store: precondition -----------------------------------
     (is (some? (rf.frame/frame-meta :composed/leak-audit))
         "precondition: frame is seated in the frames store (frame-meta reads it)")
-    ;; rf2-h1vqa4 substrate ownership: seating writes NO registrar row.
+    ;; Substrate ownership: seating writes NO registrar row.
     (is (nil? (rf.registrar/lookup :frame :composed/leak-audit))
         "precondition: no :frame registrar row exists for a seated frame")
 
@@ -648,22 +643,22 @@
     (is (nil? (rf.frame/frame-meta :composed/leak-audit))
         "post: frame is invisible to frame-meta")
     (is (not (contains? (rf.schemas/snapshot-schemas-by-frame) :composed/leak-audit))
-        "post: schema row dropped (per rf2-wkxng / rf2-6m0se)")
+        "post: schema row dropped")
     (is (not (contains? (rf.flows/flows-snapshot) :composed/leak-audit))
-        "post: flow registry slot dropped (per rf2-wbtjn)")
+        "post: flow registry slot dropped")
     (is (not (contains? (get (rf.flows/last-inputs-snapshot) :composed/area)
                         :composed/leak-audit))
         "post: flow last-inputs row dropped for the destroyed frame")
-    ;; rf2-d2841 — the guarded half of the pair above. These two were the
-    ;; file's vacuous passes: `(= [] …)` over a ring that is ALWAYS empty
-    ;; under the gate (class 1) and `(not (contains? nil …))` (class 4).
+    ;; The guarded half of the pair above. Ungated, these two would pass
+    ;; vacuously: `(= [] …)` over a ring that is ALWAYS empty under the
+    ;; gate and `(not (contains? nil …))`.
     (when rf.interop/debug-enabled?
       (is (= [] (rf/epoch-history :composed/leak-audit))
           "post: epoch ring buffer returns the empty vector for the destroyed frame")
       (let [observed @(deref #'rf.epoch.state/observed-frames-by-cb)]
         (is (not (contains? (get observed ::composed-observer)
                             :composed/leak-audit))
-            "post: epoch cb's observed-frames entry no longer includes the frame")))
+            "post: epoch cb's observed-frames entry does not include the frame")))
 
     ;; Listener registries (trace, epoch) outlive frames by design — they
     ;; are global and re-arm against the next same-keyed frame

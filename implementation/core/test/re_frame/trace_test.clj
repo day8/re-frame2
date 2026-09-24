@@ -1,7 +1,7 @@
 (ns re-frame.trace-test
   "Spec 009 — trace-stream completeness.
 
-  Per the bead rf2-91tl brief: register a listener, dispatch through a
+  Register a listener, dispatch through a
   representative flow that should emit every documented op, and assert
   the canonical event shape per op. Plus exercise the listener API:
   multiple listeners, removal, exception isolation.
@@ -18,11 +18,9 @@
      :source    <kw> (optional)   ;; trigger origin — hoisted from tags
      :recovery  <kw> (optional)}  ;; recovery policy — hoisted from tags
 
-  For ops Spec 009 documents but the implementation never emits, this
-  test files (or already filed) `bd` bug bead rf2-hyxg and the assertion
-  is left in place as `(is (some ...) \"see rf2-hyxg\")` so the gap
-  surfaces on the regression dashboard rather than being silently
-  skipped."
+  The Spec 009 documented operations are asserted together (`gap-check`
+  below), so an op Spec 009 documents but the implementation does not emit
+  surfaces as a failure rather than being silently skipped."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -31,11 +29,10 @@
             [re-frame.flows :as rf.flows]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace :as rf.trace]
-            ;; rf2-qwm0a: the public-tooling surface
+            ;; The public-tooling surface
             ;; (`register-listener!` / `clear-listeners!` / `trace-buffer`
-            ;; / …) lives in `re-frame.trace.tooling`, and since
-            ;; rf2-kuky.52 that is the ONLY namespace publishing it —
-            ;; `re-frame.trace` re-exports nothing. Its late-bind hooks
+            ;; / …) lives in `re-frame.trace.tooling`, the ONLY namespace
+            ;; publishing it — `re-frame.trace` re-exports nothing. Its late-bind hooks
             ;; only publish once `trace.tooling` loads. This test does
             ;; not use `re-frame.test-support` (which transitively loads
             ;; the tooling ns), so we require it directly here.
@@ -54,12 +51,12 @@
   ;; routing.cljc; clear-all! wiped them. Re-eval those registrations
   ;; so :rf.route/handle-url-change, :rf.route/url-requested, :rf.route/* etc. resurrect.
   (require 're-frame.routing :reload)
-  ;; rf2-dbiv8 — the test-only `:rf.test/simulate-http-resolution` fixture
+  ;; The test-only `:rf.test/simulate-http-resolution` fixture
   ;; event lives in the routing test-support ns (not the production
   ;; façade); the :rf.route.nav-token/stale-suppressed trace assertion
   ;; below dispatches it. Reload so it re-seats after clear-all!.
   (require 're-frame.routing.test-support :reload)
-  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
+  ;; EP-0002: `init!` does not synthesise `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
@@ -109,11 +106,11 @@
 
 ;; ---- comprehensive flow -----------------------------------------------------
 
-;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
+;; ---- Posture: dev-only, declared by `^:requires-debug` ---------------------
 ;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
 ;; no-op, so there is no semantic residue to run under that posture, and a
-;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
-;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
+;; `(when interop/debug-enabled? ...)` split would leave EMPTY deftests
+;; reporting green.  Every deftest
 ;; below is therefore TAGGED, and the production-gate lane skips the tag rather
 ;; than the file: the namespace is still LOADED there, so a load-time failure
 ;; under the gate still reddens the job, and an untagged new deftest joins that
@@ -140,19 +137,19 @@
       ;; :rf.registry/handler-replaced with :different-fn? false (a
       ;; metadata-only replacement; no handler-fn rotation, but the changed
       ;; :doc changes the B4 dedup shape so the emit is not suppressed).
-      ;; Frames no longer ride the registrar (rf2-h1vqa4), so an fx supplies
+      ;; Frames do not ride the registrar, so an fx supplies
       ;; the idempotent-fn replacement case here.
       (let [same-fx (fn [_ _] :same)]
         (rf/reg-fx :test/same-fx same-fx)
         (rf/reg-fx :test/same-fx {:doc "same fn, new doc (rev 2)"} same-fx))
       ;; Explicitly unregister an event so :rf.registry/handler-cleared has an
-      ;; emit source in the flow — destroying a frame no longer clears a
-      ;; registrar row (rf2-h1vqa4: frames have no registrar rows).
+      ;; emit source in the flow — frames have no registrar rows, so
+      ;; destroying one clears none.
       (rf/reg-event :short-lived (fn [_ _] {}))
       (rf.registrar/unregister! :event :short-lived)
 
-      ;; Subs (used to demonstrate the absence of :sub/run / :sub/create
-      ;; emit — see rf2-hyxg).
+      ;; Subs (the :rf.sub/* ops are checked in the gap-check block
+      ;; below).
       (rf/reg-sub :n     (fn [db _] (:n db)))
       (rf/reg-sub :n*2   {:inputs [[:n]]} (fn [[n] _] (* 2 (or n 0))))
 
@@ -243,7 +240,7 @@
 
       ;; ---- Routing: :rf.warning/route-shadowed-by-equal-score -------------
       ;; Two routes with the same structural rank AND the same URL family
-      ;; (identical patterns, so trivially co-matchable — rf2-6gzobp). The
+      ;; (identical patterns, so trivially co-matchable). The
       ;; second registration sees the first and warns; the earlier
       ;; registration wins at match time, so the NEW route is the shadowed
       ;; one.
@@ -358,7 +355,7 @@
         (testing ":warning :rf.warning/route-shadowed-by-equal-score fires on equal-rank co-matchable route registration"
           (is (has-op? events :warning :rf.warning/route-shadowed-by-equal-score)
               "expected :warning :rf.warning/route-shadowed-by-equal-score")
-          ;; rf2-6gzobp payload direction: earlier registration wins the
+          ;; Payload direction: earlier registration wins the
           ;; rule-6 tiebreak, so :route-id names the NEW (shadowed) route,
           ;; :shadowed-by the existing winner, and :rank carries the tied
           ;; rules-1-5 structural tuple.
@@ -387,10 +384,10 @@
           (is (keyword? (:frame (:tags (find-op events :rf.frame :rf.frame/destroyed))))))
 
         ;; ---- :rf.registry op-type ------------------------------------------
-        (testing ":rf.registry :rf.registry/handler-replaced fires on EVERY re-registration (rf2-6w7zn)"
+        (testing ":rf.registry :rf.registry/handler-replaced fires on EVERY re-registration"
           ;; Per Spec 001 §Hot-reload trace surface the emit is
-          ;; unconditional on re-registration — the prior `different-fn?`
-          ;; gate dropped events for kinds like `:route` whose slot
+          ;; unconditional on re-registration — a `different-fn?` gate
+          ;; would drop events for kinds like `:route` whose slot
           ;; replacement need not rotate `:handler-fn`. Tools branch on
           ;; the `:different-fn?` tag (preserved below) to suppress
           ;; idempotent reload noise on their side.
@@ -423,13 +420,13 @@
 
         ;; ---- :rf.machine op-type -------------------------------------------
         ;; Per Spec 009 §:op-type vocabulary the machine trace family rides
-        ;; op-type :rf.machine (the :rf.* single-root scheme; #1973 +
-        ;; rf2-aa5qi). The operation carries the slashed identity.
+        ;; op-type :rf.machine (the :rf.* single-root scheme). The
+        ;; operation carries the slashed identity.
         (testing ":rf.machine :rf.machine/transition fires on a machine event"
           (is (has-op? events :rf.machine :rf.machine/transition)
               "expected :rf.machine :rf.machine/transition")
           (let [t (:tags (find-op events :rf.machine :rf.machine/transition))]
-            ;; rf2-ws5thu — the transition row addresses the LIVE actor instance
+            ;; The transition row addresses the LIVE actor instance
             ;; under :actor-id (:machine-id reserved for the registered TYPE).
             (is (keyword? (:actor-id t)))
             (is (vector?  (:event t)))
@@ -445,7 +442,7 @@
 
         ;; ---- routing :rf.event ops -----------------------------------------
         ;; Route lifecycle traces ride the :rf.event family (op-type
-        ;; :rf.event; rf2-a20e9 completed the #1973 migration in routing).
+        ;; :rf.event).
         (testing ":rf.event :rf.route.nav-token/allocated fires on :rf.route/handle-url-change full nav"
           (is (has-op? events :rf.event :rf.route.nav-token/allocated)
               "expected :rf.event :rf.route.nav-token/allocated")
@@ -540,7 +537,7 @@
                            (if is-strict?
                              (is (has-op? events op-type operation)
                                  (str "expected " op-type " " operation
-                                      " — see rf2-hyxg"))
+                                      " — a documented Spec 009 operation was not emitted"))
                              ;; non-strict: report status but pass.
                              (when-not (has-op? events op-type operation)
                                (println "  [trace-test] note:" op-type operation
@@ -551,9 +548,8 @@
             (gap-check :rf.machine.lifecycle/created  :rf.machine.lifecycle/created)
             (gap-check :rf.machine.lifecycle/destroyed :rf.machine.lifecycle/destroyed)
             ;; op-type is the machine FAMILY :rf.machine; the slashed
-            ;; identity lives in :operation (rf2-aa5qi fixed these two
-            ;; emit-sites which previously rode the malformed slashed
-            ;; op-type :rf.machine/event-received / :rf.machine/snapshot-updated).
+            ;; identity lives in :operation, never in a slashed op-type
+            ;; such as :rf.machine/event-received.
             (gap-check :rf.machine :rf.machine/event-received)
             (gap-check :rf.machine :rf.machine/snapshot-updated)
             (gap-check :rf.registry :rf.registry/handler-registered)
@@ -564,12 +560,11 @@
           (is (vector? seen)
               (str "captured pairs: " (pr-str seen))))))))
 
-;; ---- per-op DURATION timing (rf2-hhh92) -----------------------------------
+;; ---- per-op DURATION timing -----------------------------------------------
 ;;
 ;; The dev trace stream carries per-op wall-clock so the Trace panel's
-;; DURATION column reads it off the trace (previously only views carried
-;; `:rf.view/elapsed-ms`; subs/fx/flows/handler rendered `—`). Per Spec
-;; 009 §:tags the new tags are `:rf.sub/elapsed-ms`, `:rf.fx/elapsed-ms`,
+;; DURATION column reads it off the trace. Per Spec 009 §:tags the per-op
+;; tags are `:rf.view/elapsed-ms`, `:rf.sub/elapsed-ms`, `:rf.fx/elapsed-ms`,
 ;; `:rf.flow/computed`'s bare `:elapsed-ms`, `:rf.cofx/elapsed-ms`, and the
 ;; HANDLER-BODY-only `:rf.event/elapsed-ms` on `:rf.event/run-end`. All
 ;; ride `interop/debug-enabled?` so production DCEs them (the elision probe
@@ -695,7 +690,7 @@
       (rf/unregister-listener! :trace ::throwing)
       (rf/unregister-listener! :trace ::survivor))))
 
-;; ---- :rf.trace/no-emit? event-meta opt-out (rf2-qsjda) --------------------
+;; ---- :rf.trace/no-emit? event-meta opt-out --------------------------------
 ;;
 ;; Per Spec 009 §Trace-emission opt-out: handlers whose registration meta
 ;; carries `:rf.trace/no-emit? true` produce NO trace events. The flag is
@@ -703,7 +698,7 @@
 ;; whose own bookkeeping dispatches — emitted from inside a trace-cb —
 ;; would otherwise re-enter the consumer through the trace-cb fan-out
 ;; and form a cb-dispatch loop. (See `re-frame.trace/*handler-scope*`'s
-;; `:no-emit?` slot for the runtime mechanism, per rf2-ryri7.)
+;; `:no-emit?` slot for the runtime mechanism.)
 ;;
 ;; Covers:
 ;;   - A handler WITH `:rf.trace/no-emit? true` produces no `:event/
@@ -717,8 +712,7 @@
             the runtime to emit NO trace events for the dispatch — not
             at queue time (`:event/dispatched`), not at run-start /
             run-end, not on db-commit (`:event/db-changed`), not for
-            any in-cascade emit. Per Spec 009 §Trace-emission opt-out
-            and rf2-qsjda."
+            any in-cascade emit. Per Spec 009 §Trace-emission opt-out."
     (rf/reg-event :rf2-qsjda/internal-bookkeeping
                      {:rf.trace/no-emit? true}
                      (fn [{:keys [db]} _] {:db (assoc db :bookkeeping/ran? true)}))

@@ -4,20 +4,17 @@
   The spec teaches the ONE public frame-targeted read as `(subscribe query-v
   {:frame target})` (002-Frames §Frame-targeted dispatch and subscribe;
   008-Testing §Reading machine snapshots; API.md §Dispatch and subscribe).
-  API-shrink #1 (rf2-csbbwu) DELETED the frame-FIRST `(subscribe frame-id
-  query-v)` runtime shape-discrimination entirely — every sig is `[query-v]`
-  / `[query-v opts]`, no `vector?` punning on the first arg. Before the
-  EP-0024/rf2-bfadc6 reconciliation `(subscribe [:x] {:frame f})` misbound
-  the OPTS map as the `query-v` and the query-vector as the frame-id; this
-  suite now pins that the DELETED frame-first shape fails loudly rather than
-  silently misrouting.
+  There is no frame-FIRST `(subscribe frame-id query-v)` shape and no runtime
+  shape-discrimination — every sig is `[query-v]` / `[query-v opts]`, no
+  `vector?` punning on the first arg. This suite pins that a frame-first call
+  fails loudly rather than silently misrouting.
 
   This suite pins, end-to-end through the public `rf/subscribe` macro:
 
     1. the opts form targets the named frame;
-    2. the ambient 1-arity still resolves the carried `with-frame` scope;
-    3. a former frame-first call — `(subscribe frame-id query-v)` — no
-       longer resolves the named frame; it fails loudly (never a silent
+    2. the ambient 1-arity resolves the carried `with-frame` scope;
+    3. a frame-first call — `(subscribe frame-id query-v)` — does not
+       resolve the named frame; it fails loudly (never a silent
        misroute to the wrong frame);
     4. an opts map WITHOUT `:frame` falls to ambient (the `:frame` opt is the
        only frame-targeting key);
@@ -59,7 +56,7 @@
          (:rf.error/id (ex-data e)))))
 
 (deftest ambient-1-arity-no-frame-context-payload-is-fully-attributed
-  (testing "rf2-a8bw0: the 1-arity builds its `:rf.error/no-frame-context`
+  (testing "the 1-arity builds its `:rf.error/no-frame-context`
             payload LAZILY — the scope reader runs first and the `extra` map is
             constructed only once absence is known. The error a caller sees must
             therefore be identical to the eagerly-built one: the same
@@ -87,15 +84,15 @@
     (is (= :B @(rf/subscribe [:soa/val] {:frame :soa/t2})))))
 
 (deftest ambient-1-arity-resolves-the-carried-scope
-  (testing "(subscribe query-v) still resolves the ambient frame via with-frame"
+  (testing "(subscribe query-v) resolves the ambient frame via with-frame"
     (setup!)
     (is (= :A (rf/with-frame :soa/t1 @(rf/subscribe [:soa/val]))))
     (is (= :B (rf/with-frame :soa/t2 @(rf/subscribe [:soa/val]))))))
 
 (deftest former-frame-first-call-no-longer-resolves-a-named-frame
-  (testing "(subscribe frame-id query-v) — the DELETED frame-first shape
-            (API-shrink #1, rf2-csbbwu) — no longer targets the named frame.
-            `frame-id` (a keyword) is now read as `query-v` and `query-v` (a
+  (testing "(subscribe frame-id query-v) — a frame-first shape — does not
+            target the named frame.
+            `frame-id` (a keyword) is read as `query-v` and `query-v` (a
             vector) as `opts`; `(:frame opts)` on a vector is nil, so it falls
             to the 1-arity ambient path, where `(first query-v)` on the
             keyword throws. It fails LOUDLY rather than silently misrouting

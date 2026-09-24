@@ -1,39 +1,39 @@
 (ns re-frame.trace-listener-frame-tagged-serialization-test
-  "rf2-rakqk — a frame-SHAPED trace emit that is NOT issued while the emitting
+  "A frame-SHAPED trace emit that is NOT issued while the emitting
   thread actually holds the target frame's `:drain-lock` must STILL serialize
-  through `fanout-monitor` like every other clean emit (rf2-uw7hg). The public
+  through `fanout-monitor` like every other clean emit. The public
   trace-listener contract (Spec 009 §The listener contract) promises a single
   registered listener is never entered concurrently with itself across JVM
   threads, whatever the event payload looks like.
 
-  ## The defect this pins (rf2-rakqk)
+  ## The hazard this pins
 
-  PR #6200 (rf2-jl75r) broke the fanout-monitor↔drain-lock AB-BA deadlock by
-  routing any FRAME-SHAPED outermost emit inline, off the monitor. But the
-  discriminator was event-shape inference: a `:frame` tag / caller-supplied
-  dispatch-id / ambient frame / `retain? false` opted an emit out of the monitor
-  even when the emitting thread was NOT actually inside a held drain-lock. A
+  Breaking the fanout-monitor↔drain-lock AB-BA deadlock by routing any
+  FRAME-SHAPED outermost emit inline, off the monitor, would make event-shape
+  inference the discriminator: a `:frame` tag / caller-supplied dispatch-id /
+  ambient frame / `retain? false` would opt an emit out of the monitor even when
+  the emitting thread is NOT actually inside a held drain-lock. A
   public/manual/stale `:frame`-tagged `rf.trace/emit!` — issued from an ordinary
-  thread that owns no drain-lock — was therefore driven inline and LOST the
+  thread that owns no drain-lock — would then be driven inline and LOSE the
   whole-fanout serial law: two such emits could enter the same listener callback
   concurrently.
 
   A deterministic latch probe below starts two `{:frame :rf/default}`-tagged
-  emits on two threads while the first listener callback is latched. Pre-fix the
-  second entered the callback while the first was still in flight (max concurrent
-  invocations 2). Post-fix neither emitting thread is inside a drain — no
-  `:drain-lock` region, so no post-drain deferral scope
-  (`re-frame.trace/call-with-deferred-listener-delivery`, rf2-wxy1c) — so both
+  emits on two threads while the first listener callback is latched. Under
+  shape-based routing the second would enter the callback while the first was
+  still in flight (max concurrent invocations 2). Here neither emitting thread
+  is inside a drain — no `:drain-lock` region, so no post-drain deferral scope
+  (`re-frame.trace/call-with-deferred-listener-delivery`) — so both
   emits take the ordinary clean-emit path and serialize on the monitor: the second
   is BLOCKED contending for it until the first callback returns. Max concurrent
   invocations 1, strict A-before-B. Event payload SHAPE never enters the routing
   decision, which is the law this suite pins.
 
   The complementary laws — a drain-owned emit never deadlocks against a
-  listener's `dispatch-sync` (`re-frame.trace-listener-drain-deadlock-test`,
-  rf2-jl75r), and two concurrent drains of DIFFERENT frames never overlap one
-  listener (`re-frame.trace-listener-concurrent-drain-serialization-test`,
-  rf2-wxy1c) — are pinned by those suites and deliberately not duplicated here.
+  listener's `dispatch-sync` (`re-frame.trace-listener-drain-deadlock-test`),
+  and two concurrent drains of DIFFERENT frames never overlap one listener
+  (`re-frame.trace-listener-concurrent-drain-serialization-test`) — are pinned
+  by those suites and deliberately not duplicated here.
 
   JVM-only (`.clj`): CLJS is single-threaded, has no monitor, and cannot race two
   emits — the overlap cannot manifest there."
@@ -56,11 +56,11 @@
   (or (some-> (System/getenv "RF2_RAKQK_LATCH_ITERS") Long/parseLong)
       50))
 
-;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
+;; ---- Posture: dev-only, declared by `^:requires-debug` ---------------------
 ;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
 ;; no-op, so there is no semantic residue to run under that posture, and a
-;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
-;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
+;; `(when interop/debug-enabled? ...)` split would leave EMPTY deftests
+;; reporting green.  Every deftest
 ;; below is therefore TAGGED, and the production-gate lane skips the tag rather
 ;; than the file: the namespace is still LOADED there, so a load-time failure
 ;; under the gate still reddens the job, and an untagged new deftest joins that
@@ -70,12 +70,13 @@
   ;; Two frame-TAGGED emits (`{:frame :rf/default}`) issued from two ordinary
   ;; threads, NEITHER of which is draining `:rf/default` — so neither holds its
   ;; `:drain-lock`. A single listener L blocks INSIDE its callback while handling
-  ;; A (thread t1). While A is blocked, B is emitted to the SAME L on t2. Pre-fix
-  ;; the `:frame` tag routed both inline (bypassing `fanout-monitor`), so L(B)
-  ;; entered while L(A) was still in flight (max concurrent invocations 2). With
-  ;; the drain-lock OWNERSHIP discriminator, an unowned frame-tagged emit is NOT
-  ;; treated as a drain emit, so t2's fan-out blocks on the monitor until t1's A
-  ;; callback returns: L never re-enters itself, B delivered strictly after A.
+  ;; A (thread t1). While A is blocked, B is emitted to the SAME L on t2. Were
+  ;; the `:frame` tag to route both inline (bypassing `fanout-monitor`), L(B)
+  ;; would enter while L(A) was still in flight (max concurrent invocations 2).
+  ;; Routing keys on the post-drain deferral scope, which neither thread has, so
+  ;; an unowned frame-tagged emit is NOT treated as a drain emit and t2's fan-out
+  ;; blocks on the monitor until t1's A callback returns: L never re-enters
+  ;; itself, B delivered strictly after A.
   (testing (str "a frame-shaped emit that owns no drain-lock cannot enter B until "
                 "its A callback has returned (" latch-iters " iterations)")
     (dotimes [iter latch-iters]
@@ -105,8 +106,8 @@
                 (swap! in-flight dec)))))
         ;; Both emits carry a `:frame` tag but run on fresh threads that are NOT
         ;; draining `:rf/default` — so the payload is frame-SHAPED yet the thread
-        ;; owns no drain-lock. This is exactly the emit the shape heuristic
-        ;; mis-routed inline.
+        ;; owns no drain-lock. This is exactly the emit shape-based routing
+        ;; would send inline.
         (let [t1 (Thread. ^Runnable
                           (fn [] (rf.trace/emit! :info probe-a {:frame :rf/default})))
               t2 (Thread. ^Runnable
@@ -115,9 +116,9 @@
           ;; A is now inside L, blocked on release-a.
           (.await a-entered 5 TimeUnit/SECONDS)
           (.start t2)
-          ;; Wait until t2 has reached the fan-out seam: pre-fix it enters L(B)
-          ;; (b-entered fires, overlap already recorded); fixed, it is BLOCKED
-          ;; contending for fanout-monitor. The ownership probe + emit path use
+          ;; Wait until t2 has reached the fan-out seam: routed inline it would
+          ;; enter L(B) (b-entered fires, overlap already recorded); serialized,
+          ;; it is BLOCKED contending for fanout-monitor. The emit path uses
           ;; only lock-free atoms, so a BLOCKED state here means monitor
           ;; contention. Deadline-bounded so a mis-started thread cannot hang the
           ;; suite.
@@ -136,7 +137,7 @@
             (str "iter " iter ": a frame-tagged public emit that owns no "
                  "drain-lock overlapped the listener callback with itself (max "
                  "concurrent invocations " @max-conc "); event-shape must not opt "
-                 "an emit out of the rf2-uw7hg serial monitor"))
+                 "an emit out of the serial monitor"))
         (is (= [[:enter probe-a] [:exit probe-a] [:enter probe-b] [:exit probe-b]]
                @log)
             (str "iter " iter ": B reached the listener before A's callback "

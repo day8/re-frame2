@@ -1,25 +1,23 @@
 (ns re-frame.emit-recorder-bracket-cljs-test
-  "rf2-kuky.69 — the `with-emit-recorder!` capture bracket, and the tier split
-  it exists to express.
+  "The `with-emit-recorder!` capture bracket, and the tier split it exists to
+  express.
 
-  The ruling on rf2-kuky.22 retired `:events` / `:errors` from the public
-  `register-listener!` vocabulary. They were a SECOND production observation
-  door — unprojected, raw `:exception`, no frame policy, fanned across every
-  frame — beside the projected door Spec 015 calls normal, and independent
-  corpus observation regardless of a frame's policy is WITHDRAWN as a public
-  primitive.
+  `:events` / `:errors` are not in the public `register-listener!`
+  vocabulary. They would be a SECOND production observation door —
+  unprojected, raw `:exception`, no frame policy, fanned across every frame —
+  beside the projected door Spec 015 calls normal, and independent corpus
+  observation regardless of a frame's policy is not a public primitive.
 
-  What the ruling did NOT do is delete the substrates. `re-frame.event-emit`
-  and `re-frame.error-emit` survive as IMPLEMENTATION-tier registries for two
-  named consumers: the framework's own synchronous-window capture sites (the
-  Fresco server's one-render error window, the test kit's intent capture) and
-  TESTS. `re-frame.test-support/with-emit-recorder!` is the test half — ONE
-  bracket over both registries rather than a hand-rolled
-  register/try/finally/unregister wrapper per file, which is the divergence
-  rf2-64iuw measured on the trace side and folded into
-  `with-trace-recorder!`.
+  The substrates stand. `re-frame.event-emit` and `re-frame.error-emit` are
+  IMPLEMENTATION-tier registries for two named consumers: the framework's own
+  synchronous-window capture sites (the Fresco server's one-render error
+  window, the test kit's intent capture) and TESTS.
+  `re-frame.test-support/with-emit-recorder!` is the test half — ONE bracket
+  over both registries rather than a hand-rolled
+  register/try/finally/unregister wrapper per file, the same consolidation
+  `with-trace-recorder!` gives the trace side.
 
-  Pins, in the acceptance's own terms:
+  Pins:
 
     - one SINK and one temporary error-emit listener observe the SAME live
       failure, each with its own documented shape (projected vs raw) — the
@@ -29,9 +27,8 @@
     - leaving the bracket ENDS capture — a failure after the body is not
       recorded;
     - the `:events` arm brackets the event substrate, and `:pred` filters;
-    - the retired public spelling is gone: the facade refuses both retired
-      stream keywords, and the thrown vocabulary names the two raw dev
-      streams that remain.
+    - the public facade refuses both stream keywords, and the thrown
+      vocabulary names the two raw dev streams it accepts.
 
   Dual-runtime `*_cljs_test.cljc`: the shadow-cljs `:node-test`
   (`npm run test:cljs`) AND the JVM `clojure -M:test` runner both pick it up.
@@ -76,8 +73,8 @@
             both see ONE live handler exception. The sink's record is the
             PROJECTED :rf.observe/error; the bracket's is the RAW substrate
             record. Neither is a fallback for the other — the tiers are
-            parallel, which is what makes retiring the public listener
-            spelling safe."
+            parallel, which is what makes keeping these streams out of the
+            public listener vocabulary safe."
     (let [sunk (atom [])]
       (rf/register-observability-sink! :test.sinks/sentry
                                        (fn [record] (swap! sunk conj record)))
@@ -109,7 +106,7 @@
               "both tiers report the same :rf.error/* category")
           ;; The shapes are genuinely different — the discriminator is the
           ;; record's own top-level key set. `:kind` is the projected
-          ;; record's; the raw substrate record has never carried one.
+          ;; record's; the raw substrate record carries none.
           (is (not (contains? r :kind))
               "the raw record is NOT a projected record"))))))
 
@@ -140,8 +137,8 @@
 (deftest bracket-captures-with-no-observability-key-at-all
   (testing "a frame that declares no :observability key routes nothing (no
             :rf/default synthesis, no borrowed policy) — the bracket is the
-            only observer, which is precisely the test-tier job the ruling
-            kept these registries for."
+            only observer, which is precisely the test-tier job these
+            registries serve."
     (rf/make-frame {:id :bracket/bare})
     (reg-boom! :bracket/bare :bare/boom)
     (with-emit-recorder! [raw]
@@ -234,15 +231,15 @@
            registration did not replace it"))))
 
 ;; ---------------------------------------------------------------------------
-;; 5. The retired public spelling is gone.
+;; 5. The public facade refuses the raw always-on streams.
 ;; ---------------------------------------------------------------------------
 
 (deftest the-public-facade-no-longer-offers-the-always-on-streams
-  (testing "rf2-kuky.69 — the facade refuses both retired stream keywords
+  (testing "the facade refuses both stream keywords
             with `:rf.error/unknown-listener-stream`,
             and the refusal's `:valid` slot names the TWO raw dev streams
-            that remain. This is the retirement itself, asserted from the
-            public surface."
+            it accepts. This is the tier split asserted from the public
+            surface."
     (doseq [stream [:errors :events]]
       (let [e    (try (rf/register-listener! stream ::probe (fn [_]))
                       nil

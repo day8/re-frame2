@@ -1,5 +1,5 @@
 (ns re-frame.thrown-error-message-conformance-cljs-test
-  "rf2-vvixub — the thrown-error HUMAN-MESSAGE conformance gate.
+  "The thrown-error HUMAN-MESSAGE conformance gate.
 
   Spec 009 §The thrown-error shape rules the human-message contract:
 
@@ -13,19 +13,18 @@
        log/CI greppability.
 
   This gate makes rule 1+4 REAL, not documentary: it rejects any
-  framework throw whose message regresses to a keyword-only shape, and
-  asserts the central builder + every CENTRAL per-surface site routed
-  through it (rf2-vvixub PR) emits the canonical message.
+  framework throw whose message is a keyword-only shape, and asserts the
+  central builder + the curated CENTRAL per-surface sites routed through
+  it emit the canonical message.
 
-  CORPUS BACKSTOP (rf2-6bb3pg): this suite exercises the BUILDER
-  PREDICATES + a curated set of central sites in-process, so a NEW or
-  never-converted `(ex-info \":rf.error/…\")` site elsewhere is invisible
-  to it. The whole-tree anti-regression sweep is now
-  `scripts/check_thrown_error_messages.py` — a source scan (run by
-  `scripts/test-fast-pr.sh`) that fails on ANY framework `(ex-info …)`
-  whose message position is a bare `:rf.*` discriminator keyword. That
-  corpus gate, not this allow-list, is what guarantees the rollout can't
-  silently regress; this suite proves the BUILDER and predicates the
+  CORPUS BACKSTOP: this suite exercises the BUILDER PREDICATES + a
+  curated set of central sites in-process, so any other
+  `(ex-info \":rf.error/…\")` site elsewhere is invisible to it. The
+  whole-tree sweep is `scripts/check_thrown_error_messages.py` — a source
+  scan (run by `scripts/test-fast-pr.sh`) that fails on ANY framework
+  `(ex-info …)` whose message position is a bare `:rf.*` discriminator
+  keyword. That corpus gate, not this allow-list, is what keeps the whole
+  tree conformant; this suite proves the BUILDER and predicates the
   corpus gate's contract rests on are themselves correct.
 
   Dual-runtime: the ns ends in `-cljs-test` so it rides the always-on
@@ -45,11 +44,11 @@
 ;; ============================================================================
 
 (deftest keyword-only-message?-rejects-bare-keyword-strings
-  (testing "a bare stringified :rf.error/… keyword is flagged (the OLD shape)"
+  (testing "a bare stringified :rf.error/… keyword is flagged (the non-conformant shape)"
     (is (true? (rf.error/keyword-only-message? ":rf.error/no-adapter-installed")))
     (is (true? (rf.error/keyword-only-message? ":rf.error/flow-bad-id")))
     (is (true? (rf.error/keyword-only-message? ":rf.error/route-url-validation"))))
-  (testing "a human sentence carrying the token is NOT flagged (the NEW shape)"
+  (testing "a human sentence carrying the token is NOT flagged (the conformant shape)"
     (is (false? (rf.error/keyword-only-message?
                   "rf/init! cannot continue because no adapter is installed; require an adapter ns and install it before boot. [:rf.error/no-adapter-installed]")))
     (is (false? (rf.error/keyword-only-message?
@@ -122,12 +121,12 @@
     (is (rf.error/message-has-id-token? (ex-message thrown)))))
 
 ;; ============================================================================
-;; The CENTRAL per-surface sites converted in the rf2-vvixub PR all emit
-;; the conformant shape (the "no keyword-only message regression" gate).
-;; Each site is exercised through its public throw path and its message is
-;; asserted to be a human sentence carrying the token, with the canonical
-;; discriminator in :rf.error/id. (The 10 surface CHILDREN are converted by
-;; their own beads; this gate covers the contract + the central conversions.)
+;; The CENTRAL per-surface sites all emit the conformant shape (the
+;; "no keyword-only message" gate). Each site is exercised through its
+;; throw path and its message is asserted to be a human sentence carrying
+;; the token, with the canonical discriminator in :rf.error/id. (Every other
+;; site is the corpus gate's; this gate covers the contract + the central
+;; sites.)
 ;; ============================================================================
 
 (defn- ex-info-class? [e]
@@ -168,7 +167,8 @@
 (deftest flow-error-emits-conformant-validation-throw
   ;; flows.registry validation — the :error→:rf.error/id exemplar. An
   ;; invalid flow (non-keyword :id) trips the validation cascade. flow-error
-  ;; is private; reach it through the public reg-flow validation entry point.
+  ;; is private; reach it through `validate-flow`, the validation step
+  ;; `reg-flow` runs.
   (assert-conformant-throw!
     "reg-flow (bad :id)"
     :rf.error/flow-bad-id
@@ -194,10 +194,9 @@
         "route-error message carries the [:rf.error/<id>] token (rule 4)")))
 
 ;; ============================================================================
-;; flows/topo throws (rf2-1jh98u) — the THREE topo categories that previously
-;; threw a bare-keyword `(ex-info ":rf.error/…" …)` directly, bypassing the
-;; flows.registry/flow-error helper. They now route through the central builder
-;; (`re-frame.error/throw-error!`), so the message LEADS with the human
+;; flows/topo throws — the THREE topo categories route through the central
+;; builder (`re-frame.error/throw-error!`) rather than the
+;; flows.registry/flow-error helper, so the message LEADS with the human
 ;; sentence + TRAILS with the token, and `:rf.error/id` is the discriminator.
 ;; ============================================================================
 

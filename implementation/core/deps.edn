@@ -121,13 +121,13 @@
          ;; `-Dre-frame.debug=false` is on this JVM's command line. It belongs
          ;; to the `:prod-gate` lane below and is red anywhere else BY DESIGN
          ;; — a pin that softened to "check the property if it is set" would
-         ;; pass vacuously in exactly the case it exists to catch (rf2-f8x2i).
+         ;; pass vacuously in exactly the case it exists to catch.
          ;; So `:test` + `:slow-test` + `:prod-gate` are the three-way
          ;; partition; every test still runs exactly once across them.
          :main-opts   ["-m" "re-frame.test-quiet.runner"
                        "-e" ":slow" "-e" ":stress" "-e" ":prod-gate"]}
 
-  ;; rf2-f8x2i — the PRODUCTION-GATE lane, as a MODIFIER composed onto
+  ;; The PRODUCTION-GATE lane, as a MODIFIER composed onto
   ;; `:test`: `clojure -M:test:prod-gate`. `:extra-paths` / `:extra-deps`
   ;; merge in from `:test` (so the classpath cannot drift between the two
   ;; lanes), while `:jvm-opts` and `:main-opts` come from here —
@@ -136,34 +136,32 @@
   ;;
   ;; WHY THE FLAG LIVES IN `:jvm-opts` AND NOT ON A COMMAND LINE. SECURITY.md
   ;; documents `-Dre-frame.debug=false` as the JVM/SSR production setting, and
-  ;; `re-frame.interop/debug-enabled?` reads it ONCE at namespace-load time.
-  ;; Nothing in CI ever set it, so the documented production configuration was
-  ;; executed by no suite anywhere — which is how rf2-9c2jf (dispatch-sync a
-  ;; total no-op under the gate) stayed green. Every existing suite calling
-  ;; itself a "production gate" test rebinds the Var with `with-redefs` AFTER
-  ;; the framework has loaded, and a load-time gate is invisible to that.
+  ;; `re-frame.interop/debug-enabled?` reads it ONCE at namespace-load time,
+  ;; so a suite that rebinds the Var with `with-redefs` AFTER the framework
+  ;; has loaded cannot see the load-time gate; only a JVM started with the
+  ;; property executes the documented production configuration.
   ;; Putting the property in the alias makes it part of the LANE's definition
   ;; rather than something a job has to remember, and
   ;; `re-frame.prod-gate-lane-pin-test` fails the run if it ever stops
   ;; arriving.
   ;;
-  ;; NOT THE WHOLE SUITE, YET. Under the real gate 91 of this artefact's 174
-  ;; test namespaces were red, almost all of them asserting dev instrumentation
+  ;; NOT THE WHOLE SUITE. Namespaces that assert dev instrumentation
   ;; (traces, the `:errors` sink, doc metadata, source coords) inline with
-  ;; semantics — legitimate dev-posture tests, not defects. The runnable
+  ;; semantics are red under the real gate — legitimate dev-posture tests,
+  ;; not defects. The runnable
   ;; roster therefore lives in `scripts/test-core-prod-gate.sh`, which appends
   ;; `-n` selectors for every namespace MINUS a documented known-red list, so
   ;; a NEW namespace joins the lane by default. Do not invoke this alias
   ;; bare; run the script.
   ;;
-  ;; `-e :requires-debug` — THE DEV-ONLY DECLARATION (rf2-d2841, seventh pass).
-  ;; Most of that bead's namespaces were SPLIT: the instrumentation assertions
-  ;; went inside `(when interop/debug-enabled? …)` and the semantics beside
-  ;; them stayed always-on, so the namespace joined this lane carrying real
-  ;; claims. Fifteen could not be split, because they are about the trace
-  ;; machinery ITSELF, end to end — the ten `trace-listener-*` suites plus
-  ;; `trace`, `db-pending-trace`, `sub-dispose-trace`, `trace-buffer` and
-  ;; `trace.structural-retention-cljs`. Guarding those wholesale would leave
+  ;; `-e :requires-debug` — THE DEV-ONLY DECLARATION. A namespace that mixes
+  ;; instrumentation and semantics is SPLIT: the instrumentation assertions
+  ;; sit inside `(when interop/debug-enabled? …)` and the semantics beside
+  ;; them stay always-on, so the namespace joins this lane carrying real
+  ;; claims. Suites about the trace machinery ITSELF, end to end — the
+  ;; `trace-listener-*` suites plus `trace`, `db-pending-trace`,
+  ;; `sub-dispose-trace`, `trace-buffer` and `trace.structural-retention-cljs`
+  ;; — cannot be split. Guarding those wholesale would leave
   ;; EMPTY deftests reporting green, which is the false green this lane exists
   ;; to close. So they declare the posture they need instead, per deftest, and
   ;; this lane skips the tag.
@@ -180,15 +178,15 @@
   ;; AND THE NAMESPACE STILL RUNS SOMETHING. cognitect `require`s every `-n`
   ;; namespace BEFORE it filters vars, so a tagged namespace is still LOADED
   ;; under `-Dre-frame.debug=false` and a load-time failure there still reddens
-  ;; this job — strictly more than the roster line it replaced, which kept the
+  ;; this job — strictly more than a roster exclusion, which would keep the
   ;; file off the classpath altogether. What the tag does NOT do is claim the
   ;; tests ran: `contains-tests?` drops a fully-tagged namespace before
   ;; `run-tests` sees it, so it contributes no test and no assertion to the
   ;; tally, and nothing green is reported for work that did not happen.
   ;;
   ;; The tag is DEV-LANE-NEUTRAL. It appears in no other `:main-opts` in this
-  ;; file, so `clojure -M:test` runs every tagged deftest exactly as before;
-  ;; the tag narrows this lane only.
+  ;; file, so `clojure -M:test` runs every tagged deftest; the tag narrows
+  ;; this lane only.
   :prod-gate
   {:jvm-opts  ["-Dre-frame.debug=false"]
    :main-opts ["-m" "re-frame.test-quiet.runner"
@@ -224,8 +222,8 @@
   ;; build descriptor in implementation/adapters/reagent/deps.edn.
   ;;
   ;; :version is a relative path to the repo-root VERSION file — single
-  ;; source of truth for both artefacts. Mike updates VERSION in the
-  ;; release commit, then tags `v<contents>` (e.g. `v0.0.1.alpha`).
+  ;; source of truth for both artefacts. The release commit updates
+  ;; VERSION, and the release is tagged `v<contents>` (e.g. `v0.0.1.alpha`).
   :clein/build
   {:lib      day8/re-frame2
    :main     re-frame.core

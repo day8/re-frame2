@@ -1,40 +1,40 @@
 (ns re-frame.egress-closed-opts-test
-  "rf2-kuky.6 — ONE policy vocabulary, and it is CLOSED at every egress door.
+  "ONE policy vocabulary, and it is CLOSED at every egress door.
 
-  ## The defect this pins
+  ## What this pins
 
-  On a privacy surface a RECOGNISED policy key could vanish without a
-  signal, in both directions:
+  On a privacy surface a RECOGNISED-looking policy key must never vanish
+  without a signal. There are two ways it could:
 
-    1. `re-frame.elision/elide-wire-value` never read `:rf.egress/profile` — profiles are
-       resolved a layer up, in `re-frame.projection`. Three normative
-       teaching sites nevertheless passed one to the walker, where it was
-       silently dropped: the call READ as though it had named the off-box
-       boundary while the walk ran under the default policy.
-    2. The epoch `project-egress` boundary read the two shared inclusion
-       axes ONLY in their unqualified spelling, so a caller passing
-       `:rf.egress/include-sensitive? true` — the spelling the walker,
-       `project-egress`, `:rf/project-egress-opts` and Conventions
-       §`:rf.egress/*` all use — was silently dropped there.
+    1. `re-frame.elision/elide-wire-value` does not read `:rf.egress/profile` —
+       profiles are resolved a layer up, in `re-frame.projection`. A profile
+       passed to the walker would be silently dropped: the call READS as
+       though it named the off-box boundary while the walk runs under the
+       default policy.
+    2. The shared inclusion axes are spelled `:rf.egress/include-sensitive?`
+       and so on — the spelling the walker, `project-egress`,
+       `:rf/project-egress-opts` and Conventions §`:rf.egress/*` all use. A
+       door that read only the unqualified spelling, or only the qualified
+       one, would silently drop the other.
 
-  Neither direction errored. Both read exactly like a policy that had been
-  applied. The fix is that the opts maps are CLOSED and an unrecognised key
-  is a loud `:rf.error/bad-egress-opts` naming it.
+  Either would read exactly like a policy that had been applied. So the opts
+  maps are CLOSED and an unrecognised key is a loud `:rf.error/bad-egress-opts`
+  naming it.
 
   ## Why closing cannot widen egress
 
-  An unknown key did NOTHING before this change — it was neither read nor
-  rejected. So no value that used to be redacted can now escape; the only
-  new outcome is a throw where there used to be a silent no-op. That is why
-  a closed map is a fail-CLOSED change on a privacy surface, and it is the
-  claim the `unknown-key-cannot-widen-egress` deftest below pins directly.
+  An open map ignores an unknown key — it is neither read nor rejected. So
+  closing the map cannot let out a value that would otherwise be redacted;
+  the only different outcome is a throw where an open map would silently
+  no-op. That is why a closed map is fail-CLOSED on a privacy surface, and
+  it is the claim the `unknown-key-cannot-widen-egress` deftest below pins
+  directly.
 
-  The three doors' key sets differ by exactly the keys each door OWNS —
-  `project-egress` adds `:rf.egress/profile` to the walker's set, and the
-  epoch door (pinned in `implementation/epoch/test`) trades the walk-shaping
-  keys for its three epoch-local knobs. The sets are DERIVED from one
-  another in source rather than re-spelled, so `walker-and-projection-sets-
-  agree` below pins the derivation and not a transcription."
+  The two doors' key sets differ by exactly the keys `project-egress` OWNS:
+  it adds `:rf.egress/profile` and the three epoch-only axes to the walker's
+  set. The sets are DERIVED from one another in source rather than
+  re-spelled, so `walker-and-projection-sets-agree` below pins the
+  derivation and not a transcription."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.elision :as rf.elision]
             [re-frame.projection :as rf.projection]))
@@ -63,11 +63,10 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest walker-rejects-a-profile
-  (testing "rf2-kuky.6 — `:rf.egress/profile` is NOT a walker opt. It names a
+  (testing "`:rf.egress/profile` is NOT a walker opt. It names a
             BOUNDARY and is resolved by `project-egress`, which passes the
-            resolved `:rf.egress/*` opt-set down. Passing one to the walker was
-            the original silent no-op; it now throws and the message says
-            where the profile belongs."
+            resolved `:rf.egress/*` opt-set down. Passing one to the walker
+            throws, and the message says where the profile belongs."
     (let [d (bad-opts-ex-data
               #(rf.elision/elide-wire-value
                  {:a 1}
@@ -87,11 +86,10 @@
           "and the accepted set does not include the key just rejected"))))
 
 (deftest walker-rejects-the-unqualified-inclusion-axes
-  (testing "rf2-kuky.6 — the unqualified `include-sensitive?` spelling is the
-            OTHER half of the same defect. `spec/Conventions.md` taught it on
-            an `elide-wire-value` call, where it was harmless only because
-            `false` happened to be the default. Passing `true` would have
-            read as an opt-in that never happened."
+  (testing "the unqualified `include-sensitive?` spelling is the OTHER half.
+            On an `elide-wire-value` call it would be harmless only while it
+            said `false`, the default; passing `true` would read as an
+            opt-in that never happened."
     (doseq [k [:include-sensitive? :include-large? :include-digests?]]
       (let [d (bad-opts-ex-data #(rf.elision/elide-wire-value {:a 1} {k true}))]
         (is (some? d) (str k " throws"))
@@ -100,14 +98,13 @@
             "a plain misspelling gets the generic recovery")))))
 
 (deftest the-retired-rf-size-opts-spellings-are-refused
-  (testing "rf2-kuky.93 — the opts vocabulary moved to `:rf.egress/*`, so the
-            whole closed map is describable by ONE namespace. The retired
-            `:rf.size/*` spellings are the OLD names of LIVE axes, which is
-            what makes them worth pinning: a caller left on one must throw
-            rather than quietly lose the opt-in it believes it passed. That
-            throw IS the fail-open guard for the rename — after it,
-            `:rf.size/*` reserves the wire MARKER (`:rf.size/large-elided`)
-            and nothing else."
+  (testing "the opts vocabulary is `:rf.egress/*`, so the whole closed map
+            is describable by ONE namespace. The retired `:rf.size/*`
+            spellings are the OLD names of LIVE axes, which is what makes
+            them worth pinning: a caller using one must throw rather than
+            quietly lose the opt-in it believes it passed. `:rf.size/*`
+            reserves the wire MARKER (`:rf.size/large-elided`) and nothing
+            else."
     (doseq [k [:rf.size/include-sensitive? :rf.size/include-large?
                :rf.size/include-digests?   :rf.size/threshold-bytes]]
       (let [d (bad-opts-ex-data #(rf.elision/elide-wire-value {:a 1} {k true}))]
@@ -119,10 +116,8 @@
                    {:rf.egress/profile :rf.egress/off-box-tool k true}))]
         (is (some? d) (str "the retired " k " is refused at project-egress"))
         (is (= [k] (:unknown-keys d)) (str k " is named at that door too")))))
-  (testing "rf2-kuky.93 — the three epoch-only axes were bare before this
-            rename (different keyspaces, so `:rf.size/*` would have been
-            absurd). One namespace covers them now, so the bare spellings
-            retire alongside the `:rf.size/*` ones."
+  (testing "the three epoch-only axes are `:rf.egress/*` too, so their
+            bare spellings are refused alongside the `:rf.size/*` ones."
     (doseq [k [:include-fx-args? :include-runtime-db? :include-event-args?]]
       (let [d (bad-opts-ex-data
                 #(rf.projection/project-egress
@@ -145,21 +140,20 @@
                      {:a 1}
                      {:rf.egress/profile :rf.egress/off-box-tool k true})))
           (str k " is live project-egress vocabulary"))))
-  (testing "rf2-kuky.93 — and the MARKER did not move. It shares no key with
-            the opts map, so a prefix-level substitution over `:rf.size/`
-            would have destroyed the one `:rf.size/*` member that has to
-            survive."
+  (testing "and the MARKER stays `:rf.size/*`. It shares no key with the
+            opts map, so a prefix-level substitution over `:rf.size/` would
+            destroy the one `:rf.size/*` member that has to survive."
     (is (rf.elision/marker? {:rf.size/large-elided {:path [] :bytes 1}})
-        ":rf.size/large-elided is still the wire marker")))
+        ":rf.size/large-elided is the wire marker")))
 
 (deftest as-of-epoch-is-retired
-  (testing "rf2-aakv6 — `:as-of-epoch` is no longer egress vocabulary. Its only
-            effect was a four-element marker handle,
+  (testing "`:as-of-epoch` is not egress vocabulary. It would produce a
+            four-element marker handle,
             `[:rf.elision/at <path> :as-of-epoch <id>]`, which Spec-Schemas
             `:rf/elision-marker` rejects (the handle is a two-tuple), and
-            rf2-3x7nj.32.5 ruled epoch-resolvable handles out. Removed from
-            the CLOSED maps, a caller passing it gets the closed-map refusal
-            naming it, at BOTH doors — never a silently schema-invalid marker."
+            there are no epoch-resolvable handles. Absent from the CLOSED
+            maps, a caller passing it gets the closed-map refusal naming it,
+            at BOTH doors — never a silently schema-invalid marker."
     (let [d (bad-opts-ex-data
               #(rf.elision/elide-wire-value {:a 1} {:as-of-epoch 7}))]
       (is (some? d) "the walker refuses :as-of-epoch")
@@ -186,8 +180,8 @@
                    {:rf.egress/profile :rf.egress/off-box-tool}))))))
 
 (deftest walker-rejects-an-arbitrary-unknown-key
-  (testing "rf2-kuky.6 — the guard is a CLOSED-SET test, not a denylist of
-            the two spellings that bit us."
+  (testing "the guard is a CLOSED-SET test, not a denylist of two known-bad
+            spellings."
     (let [d (bad-opts-ex-data
               #(rf.elision/elide-wire-value {:a 1} {:frame :app/main
                                                     :totally-made-up true}))]
@@ -199,7 +193,7 @@
       (is (= [:aaa :zzz] (:unknown-keys d))))))
 
 (deftest walker-accepts-every-member-of-its-own-set
-  (testing "rf2-kuky.6 — the CONTROL. A guard that rejected everything would
+  (testing "the CONTROL. A guard that rejected everything would
             pass every test above, so exercise the accepted set itself: each
             key, alone, must get through the guard. `:frame` is deliberately
             an unresolvable id, so the walk takes its own fail-closed arm and
@@ -221,12 +215,12 @@
     (is (nil? (bad-opts-ex-data #(rf.elision/elide-wire-value {:a 1} {}))))))
 
 (deftest unknown-key-cannot-widen-egress
-  (testing "rf2-kuky.6 — the SAFETY argument, pinned rather than asserted in
+  (testing "the SAFETY argument, pinned rather than asserted in
             prose. With no live frame and no sensitive opt-out the walker
             fails closed to the `:rf/redacted` sentinel. Adding an unknown
             key to that call cannot turn the sentinel back into the value:
-            before the change the key was ignored (same sentinel), after it
-            the call throws. There is no third outcome in which the raw value
+            an open map would ignore the key (same sentinel), and the closed
+            map throws. There is no third outcome in which the raw value
             ships."
     (is (= :rf/redacted
            (rf.elision/elide-wire-value {:secret "s"} {:frame ::never-registered}))
@@ -260,7 +254,7 @@
                         :tree  {:a 1}}})
 
 (deftest project-egress-rejects-an-unknown-key-on-every-kind
-  (testing "rf2-kuky.6 — one guard at the door means every `:rf.observe/*`
+  (testing "one guard at the door means every `:rf.observe/*`
             kind and the kindless value path answer identically."
     (doseq [[label record] record-kind-samples]
       (let [d (bad-opts-ex-data
@@ -275,7 +269,7 @@
             (str label " attributes the throw to project-egress"))))))
 
 (deftest project-egress-accepts-a-profile-the-walker-refuses
-  (testing "rf2-kuky.6 — the two sets differ by exactly the key this layer
+  (testing "the two sets differ by exactly the key this layer
             OWNS. The same map that throws at the walker is valid here; that
             asymmetry is the whole point of the split."
     (is (nil? (bad-opts-ex-data
@@ -285,12 +279,11 @@
                     :rf.egress/profile :rf.egress/off-box-tool}))))))
 
 (deftest walker-and-projection-sets-agree
-  (testing "rf2-kuky.6 — `project-egress`'s set is DERIVED from the walker's,
+  (testing "`project-egress`'s set is DERIVED from the walker's,
             so the two cannot drift into disagreeing about the vocabulary
             they SHARE. It adds exactly two things and nothing else: the one
-            key this layer owns (`:rf.egress/profile`) and, since rf2-bv1p
-            retired the standalone `projected-record` door, the three
-            epoch-only axes that door used to own."
+            key this layer owns (`:rf.egress/profile`) and the three
+            epoch-only axes (there is no standalone `projected-record` door)."
     (is (= (into (conj rf.elision/walker-opt-keys :rf.egress/profile)
                  rf.projection/epoch-only-opt-keys)
            rf.projection/project-egress-opt-keys)
@@ -299,8 +292,8 @@
     (is (= #{:rf.egress/include-fx-args? :rf.egress/include-runtime-db?
              :rf.egress/include-event-args?}
            rf.projection/epoch-only-opt-keys)
-        "and the three are named, so rf2-kuky.93's rename had to move this
-         test on purpose rather than find it already passing")
+        "and the three are named, so a rename has to move this test on
+         purpose rather than find it already passing")
     (is (not (contains? rf.elision/walker-opt-keys :rf.egress/profile))
         "the walker's own set excludes the profile")
     (is (empty? (filter rf.elision/walker-opt-keys
@@ -309,13 +302,13 @@
          the door and must never reach the walker's closed map")))
 
 (deftest all-six-profiles-still-resolve
-  (testing "rf2-kuky.6 — the closed opts map must not have narrowed the
-            profile enum. Every ruled profile still passes the door."
+  (testing "the closed opts map must not narrow the profile enum. Every
+            profile passes the door."
     (doseq [p rf.projection/profiles]
       (is (nil? (bad-opts-ex-data
                   #(rf.projection/project-egress {:a 1} {:rf.egress/profile p})))
-          (str p " still resolves"))))
-  (testing "while an unknown profile is still the OTHER error — the two
+          (str p " resolves"))))
+  (testing "while an unknown profile is the OTHER error — the two
             closed-vocabulary guards are distinct and neither swallows the
             other."
     (is (= :rf.error/unknown-egress-profile

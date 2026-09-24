@@ -1,5 +1,5 @@
 (ns re-frame.test-helpers-cljs-test
-  "Unit coverage for `re-frame.test-helpers` (rf2-irp6j).
+  "Unit coverage for `re-frame.test-helpers`.
 
   Dual-runtime: the file is named `*_cljs_test.cljc` so both the JVM
   test runner and the shadow-cljs `:node-test` build pick it up.
@@ -77,7 +77,7 @@
     (is (= {:a 1}    (rf.test-helpers/expand-tree {:a 1})))))
 
 ;; ---------------------------------------------------------------------------
-;; expand-tree — Form-3 reagent class detection (rf2-1c036 gap 1)
+;; expand-tree — Form-3 reagent class detection
 ;;
 ;; The walker treats a hiccup vector whose head is a reagent-slim
 ;; class constructor (built by `reagent2.impl.component/create-class*`)
@@ -223,7 +223,7 @@
            (mapv (comp :data-testid second) hits)))))
 
 ;; ---------------------------------------------------------------------------
-;; find-by-attr family (rf2-1c036 gap 2)
+;; find-by-attr family
 ;;
 ;; Generic over the attribute keyword — `:data-testid` is the React
 ;; convention but Story keys on `:data-test` and Xray uses
@@ -297,11 +297,11 @@
       (is (= 1 (count hits)))
       (is (= "x" (last (first hits)))))))
 
-;; Back-compat: existing find-by-testid call sites must still work
-;; (Xray tests + every internal caller key on the testid wrapper).
+;; The testid wrappers resolve exactly what the attr family resolves for
+;; `:data-testid` (Xray tests + every internal caller key on the testid wrapper).
 
 (deftest find-by-testid-still-routes-through-find-by-attr
-  (testing "find-by-testid is a thin wrapper — semantics unchanged"
+  (testing "find-by-testid is a thin wrapper — same semantics as find-by-attr :data-testid"
     (let [tree (counter-view {:n 0 :on-inc identity})
           via-testid (rf.test-helpers/find-by-testid tree "counter-root")
           via-attr   (rf.test-helpers/find-by-attr tree :data-testid "counter-root")]
@@ -398,7 +398,7 @@
       (is (fn? (rf.test-helpers/extract-handler hit :on-click))))))
 
 ;; ---------------------------------------------------------------------------
-;; Deferred-callback frame-law guard (rf2-1yi8d, rf2-ywwpx, rf2-2sjtw)
+;; Deferred-callback frame-law guard
 ;; ---------------------------------------------------------------------------
 ;; The copyable `testid` example must show the `reg-view`-injected `dispatch`,
 ;; not a bare qualified `rf/dispatch`. A deferred `:on-*` callback runs after
@@ -408,17 +408,17 @@
 ;;
 ;; Showing the injected `dispatch` is only half the contract: the example must
 ;; also show the form that BINDS it, otherwise a reader who copies the snippet
-;; gets an unresolved `dispatch` symbol (rf2-ywwpx).
+;; gets an unresolved `dispatch` symbol.
 ;;
-;; Two regex generations failed to prove that. The previous fixture,
-;; `#"\(rf/reg-view [\s\S]*?#\(dispatch "`, only required a `reg-view` to occur
+;; A regex match does not prove that. A fixture like
+;; `#"\(rf/reg-view [\s\S]*?#\(dispatch "`, only requires a `reg-view` to occur
 ;; somewhere *earlier* in the docstring: `[\s\S]*?` is lazy but unbounded, so it
-;; spans a closing paren happily and matched
+;; spans a closing paren happily and would match
 ;; `(rf/reg-view already-closed [] [:div])\n[:button #(dispatch [:x])]` — a view
 ;; that has already closed followed by a detached fragment whose `dispatch` is
-;; unresolved (rf2-2sjtw). Textual ordering is not enclosure.
+;; unresolved. Textual ordering is not enclosure.
 ;;
-;; So the guard no longer infers structure from a pattern; it pins the canonical
+;; So the guard does not infer structure from a pattern; it pins the canonical
 ;; example as one exact form. `canonical-testid-example` is a single balanced
 ;; `rf/reg-view` carrying its own closing `])`, with the deferred `#(dispatch
 ;; ...)` strictly interior — enclosure holds by construction of the literal
@@ -458,8 +458,8 @@
         "the testid example must NOT use a bare deferred `rf/dispatch` (raises :rf.error/no-frame-context)")))
 
 ;; Negative controls are load-bearing in both directions: they pin the shapes the
-;; guard must reject, and they trip if a future edit loosens the pin back toward
-;; a bare `#(dispatch ` substring.
+;; guard must reject, and they trip if an edit loosens the pin toward a bare
+;; `#(dispatch ` substring.
 (deftest enclosure-guard-discriminates-binding-context
   (testing "re-indented canonical example still passes — the pin must not over-tighten"
     (is (shows-enclosed-injected-dispatch?
@@ -467,13 +467,13 @@
               "      [:button (testid \"counter-inc\"\n"
               "                       {:on-click #(dispatch [:counter/inc])})\n"
               "       \"+\"])"))))
-  (testing "a `reg-view` that has already closed does not bind a later detached fragment (rf2-2sjtw)"
+  (testing "a `reg-view` that has already closed does not bind a later detached fragment"
     (is (not (shows-enclosed-injected-dispatch?
               "(rf/reg-view already-closed [] [:div])\n[:button #(dispatch [:x])]"))))
   (testing "a detached fragment with no binding form at all"
     (is (not (shows-enclosed-injected-dispatch?
               "[:button (testid \"counter-inc\" {:on-click #(dispatch [:counter/inc])}) \"+\"]"))))
-  (testing "an otherwise-canonical example that reverts to a bare qualified `rf/dispatch`"
+  (testing "an otherwise-canonical example that uses a bare qualified `rf/dispatch`"
     (is (not (shows-enclosed-injected-dispatch?
               (str "(rf/reg-view counter-inc-button [] [:button "
                    "(testid \"counter-inc\" {:on-click #(rf/dispatch [:counter/inc])}) \"+\"])"))))))
