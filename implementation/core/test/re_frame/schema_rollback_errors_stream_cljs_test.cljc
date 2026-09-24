@@ -1,32 +1,32 @@
 (ns re-frame.schema-rollback-errors-stream-cljs-test
-  "rf2-xpd8 / rf2-vkn8 — a rejected CANDIDATE TRANSITION reports on the
+  "A rejected CANDIDATE TRANSITION reports on the
   always-on `:errors` stream, under the validator's own dev gate.
 
-  PR1 (rf2-xpd8) took the `:where :app-db` arm, which is everything above the
-  `PR2` banner. PR2 (rf2-vkn8) took the ruling's other three `:rollback? true`
-  producers — `:where :machine-data`, and the two `:rf.error/malformed-schema`
-  rejection sites — and they live below that banner, sharing this file's
-  fixtures and its pinning discipline so the four arms cannot drift apart.
+  Four `:rollback? true` producers report this way — `:where :app-db`,
+  `:where :machine-data`, and the two `:rf.error/malformed-schema` rejection
+  sites — sharing this file's fixtures and its pinning discipline so the four
+  arms cannot drift apart.
 
-  ## The measurement this suite reproduces
+  ## The measurement this suite guards
 
-  Before this change, `:rf.error/schema-validation-failure :where :app-db`
-  reached the DEV-ONLY `:trace` stream and nothing else. On one live page,
-  one frame, one dispatch, a listener on `:errors` recorded 0 records while a
-  listener on `:trace` recorded 17 rollback records for the SAME dispatch —
-  whose `:events` outcome read `:rolled-back`. The control that makes that
-  zero real: dispatching an unregistered event id DID reach the `:errors`
-  listener as `:rf.error/no-such-handler`, so the listener was live.
+  A `:rf.error/schema-validation-failure :where :app-db` that reaches only the
+  DEV-ONLY `:trace` stream is invisible to an application. Measured on one
+  live page, one frame, one dispatch with no always-on record: a listener on
+  `:errors` recorded 0 records while a listener on `:trace` recorded 17
+  rollback records for the SAME dispatch — whose `:events` outcome read
+  `:rolled-back`. The control that makes that zero real: dispatching an
+  unregistered event id DID reach the `:errors` listener as
+  `:rf.error/no-such-handler`, so the listener was live.
 
-  That is the whole cost of the incident this bead was filed against. An
-  application-wide, permanent rollback loop produced no page error, no console
-  message of any level, no failed request, and nothing on the stream an
-  application registers to hear about its own errors. The only surface that
-  said anything was the dev trace, which has no default listener — so unless
-  the developer already had Xray open and knew to look, the app rendered
-  empty and said nothing about why.
+  That is the whole cost of a trace-only rejection. An application-wide,
+  permanent rollback loop produces no page error, no console message of any
+  level, no failed request, and nothing on the stream an application
+  registers to hear about its own errors. The only surface that says
+  anything is the dev trace, which has no default listener — so unless the
+  developer already has Xray open and knows to look, the app renders empty
+  and says nothing about why.
 
-  So this suite drives the 0-vs-N split and asserts the fixed side of it,
+  So this suite drives the 0-vs-N split and asserts the reporting side of it,
   WITH the same control. Every deftest below carries the control or the
   negative half beside its positive claim: a suite that only asserts records
   arrive cannot tell a working fan-out from a listener that receives
@@ -41,11 +41,10 @@
   sentinel value, which is the assertion that survives a future slot being
   added without anyone re-reading this list.
 
-  The dev trace is BYTE-IDENTICAL to before the change: it keeps `:value`,
-  `:explain` and the leaf `:path`, so Xray, Story and the epoch recorder read
-  exactly what they read before. That half is asserted too — a change that
-  quietened the trace to make room for the record would pass every
-  record-shaped assertion here.
+  The dev trace keeps its full payload — `:value`, `:explain` and the leaf
+  `:path` — so Xray, Story and the epoch recorder read the rejection in
+  full. That half is asserted too — a trace quietened to make room for the
+  record would pass every record-shaped assertion here.
 
   ## Posture
 
@@ -75,13 +74,13 @@
             [re-frame.late-bind :as rf.late-bind]
             ;; Load the schemas artefact explicitly. It is an OPTIONAL
             ;; dependency reached through late-bind hooks, so without this
-            ;; require `reg-app-schema` registers into a registry no validator
-            ;; ever consults and every deftest below passes VACUOUSLY — which
-            ;; is exactly how this file first ran: two tests, ZERO assertions,
-            ;; exit 0. The `schemas-present?` guard is the belt to this
-            ;; require's braces, not a substitute for it.
+            ;; require `reg-app-schema` would register into a registry no
+            ;; validator ever consults and every deftest below would pass
+            ;; VACUOUSLY — ZERO assertions, exit 0. The `schemas-present?`
+            ;; guard is the belt to this require's braces, not a substitute
+            ;; for it.
             [re-frame.schemas]
-            ;; rf2-vkn8: the `:where :machine-data` arm below drives a real
+            ;; The `:where :machine-data` arm below drives a real
             ;; machine, and `reg-machine`'s macro expansion needs the machines
             ;; artefact LOADED — its late-bind hooks (`:machines/machine-meta`,
             ;; `:machines/validate-machine-data!`) are what the candidate
@@ -99,8 +98,8 @@
                 ;; The error-listener registry is a `defonce` atom that
                 ;; survives test re-runs. A listener leaked from a sibling
                 ;; suite would both pollute the counts here AND silence the
-                ;; rf2-fu75 console fallback the browser suite asserts — which
-                ;; since rf2-kuky.18 fires when NOTHING ROUTED the record, a
+                ;; unowned-error console fallback the browser suite asserts —
+                ;; which fires when NOTHING ROUTED the record, a
                 ;; registered `:errors` listener and a frame's registered
                 ;; `:observability :errors` sink each counting as owning it.
                 (rf.error-emit/clear-error-listeners!))}))
@@ -159,7 +158,7 @@
 
 (defn- register-app! []
   (reset! fx-ran 0)
-  (rf/make-frame {:id frame-id :doc "rf2-xpd8 rollback witness"})
+  (rf/make-frame {:id frame-id :doc "app-db rollback witness"})
   ;; FOUR registered paths, all `:int`, over an EMPTY app-db — the incident's
   ;; shape exactly: schemas declared non-nilable over slices nothing has
   ;; written yet. The seeded event writes a conforming value into ONE of them
@@ -229,10 +228,10 @@
   (some? (rf.late-bind/get-fn :schemas/validate-app-schema!)))
 
 ;; ---------------------------------------------------------------------------
-;; PR2 (rf2-vkn8) — the campaign's other three `:rollback? true` producers
+;; The other three `:rollback? true` producers
 ;; ---------------------------------------------------------------------------
 ;;
-;; One ruling, four arms. PR1 above took `:where :app-db`; these three take the
+;; Four arms: `:where :app-db` (the 0-vs-N split below) and these three, the
 ;; rest of what discards a whole candidate transition:
 ;;
 ;;   1. `:where :machine-data` at `:rollback? true` (`:phase :macrostep` /
@@ -244,17 +243,16 @@
 ;;   3. `:rf.error/malformed-schema` from the router's wholesale
 ;;      validator-machinery backstop.
 ;;
-;; Leaving any of them trace-only would have been the worse half of an
+;; Leaving any of them trace-only would be the worse half of an
 ;; inconsistency rather than a smaller version of the same gap: to the
 ;; developer these are one symptom — the app stopped updating — reached
 ;; through the value, the schema form, or the validator itself, and only one
-;; of the three would have said so.
+;; of the three would say so.
 ;;
-;; The `:frame` slot in arm 1 is the re-verification this bead turned on, and
-;; it is asserted rather than assumed: `validate-machine-data!` RECEIVED a
-;; frame-id and discarded it (`_frame-id`), and the record without it can
-;; reach corpus listeners but never the frame's own `:observability :errors`
-;; sink — which is most of the point.
+;; The `:frame` slot in arm 1 is asserted rather than assumed: a
+;; `validate-machine-data!` that discarded its frame-id (`_frame-id`) would
+;; build a record that reaches corpus listeners but never the frame's own
+;; `:observability :errors` sink — which is most of the point.
 
 (def ^:private machine-frame-id :vkn8/machine)
 (def ^:private machine-id       :vkn8.machine/counter)
@@ -268,10 +266,11 @@
 
 (def ^:private machine-record-keys
   "The CLOSED key set of the dev-gated `:where :machine-data` rejection
-  record. Pinned EQUAL, like PR1's: every member is a framework keyword
-  (`:error`, `:where`, `:rollback?`, `:recovery`, and `:phase` — a closed
-  lifecycle vocabulary) or a structural id (`:machine-id` / `:failing-id`,
-  both the machine's registered keyword, and `:frame`)."
+  record. Pinned EQUAL, like the app-db record's: every member is a
+  framework keyword (`:error`, `:where`, `:rollback?`, `:recovery`, and
+  `:phase` — a closed lifecycle vocabulary) or a structural id
+  (`:machine-id` / `:failing-id`, both the machine's registered keyword, and
+  `:frame`)."
   #{:error :where :machine-id :failing-id :phase :frame
     :rollback? :recovery :reason :time})
 
@@ -307,7 +306,7 @@
 ;; ===========================================================================
 
 (defn- register-machine-app! []
-  (rf/make-frame {:id machine-frame-id :doc "rf2-vkn8 machine rollback witness"})
+  (rf/make-frame {:id machine-frame-id :doc "machine rollback witness"})
   (rf/reg-machine machine-id
     {:initial :idle
      :data    {:n 1}
@@ -357,11 +356,10 @@
               ":rollback? true — the WHOLE candidate frame transition was discarded")
           (is (= :no-recovery (:recovery r)))))
 
-      (testing "the `:frame` slot — the re-verification this bead turned on.
-                `validate-machine-data!` received a frame-id and discarded it
-                (`_frame-id`); without threading it the record reaches corpus
-                listeners but never the frame's own `:observability :errors`
-                sink, which is most of the point."
+      (testing "the `:frame` slot. A `validate-machine-data!` that discarded
+                its frame-id (`_frame-id`) would build a record that reaches
+                corpus listeners but never the frame's own
+                `:observability :errors` sink, which is most of the point."
         (is (= machine-frame-id (:frame (first records)))
             (str "the record must name the frame whose candidate transition "
                  "was rejected; got " (pr-str (:frame (first records))))))
@@ -389,27 +387,27 @@
           (is (str/includes? (:reason r) "rejected")
               "and says what happened to the transaction")))
 
-      (testing "the DEV TRACE is unchanged — still one, still carrying the
-                offending `:data`. The frame was threaded for the RECORD
-                ALONE: nothing was added to the tags map `emit-failure!`
-                builds, so Xray, Story and the epoch recorder read a
-                byte-identical trace and `tools/xray/spec` needed no edit.
+      (testing "the DEV TRACE keeps its shape — one trace, carrying the
+                offending `:data`. The frame is threaded for the RECORD
+                ALONE: the tags map `emit-failure!` builds carries no
+                `:frame`, so Xray, Story and the epoch recorder read the
+                trace they always read.
 
-                And the delivered trace was never frameless, which is worth
+                And the delivered trace is never frameless, which is worth
                 pinning because it is the half a reader gets wrong: the EMIT
-                SITE built no `:frame`, but `re-frame.trace/stamp-frame`
+                SITE builds no `:frame`, but `re-frame.trace/stamp-frame`
                 supplies one on the way out for any emit correlated to a run.
                 An always-on RECORD has no such bus — `dispatch-error-record!`
                 delivers the map the caller built, verbatim — which is exactly
-                why the frame had to be threaded down to the emit site rather
-                than left to be stamped."
+                why the frame is threaded down to the emit site rather than
+                left to be stamped."
         (let [traces (machine-traces captured)]
           (is (= 1 (count traces)))
           (is (contains? (:tags (first traces)) :value))
           (is (str/includes? (pr-str (:tags (first traces))) machine-planted-value)
-              "the trace is where the offending :data still lives")
+              "the trace is where the offending :data lives")
           (is (= machine-frame-id (:frame (:tags (first traces))))
-              "the trace's frame comes from the bus stamp, unchanged by this bead")))
+              "the trace's frame comes from the bus stamp")))
 
       (testing "the record precedes its trace — axis-1-then-axis-2 ordering"
         (let [seqd    (:sequence captured)
@@ -433,7 +431,7 @@
         (is (= :rolled-back
                (:outcome (first (filter #(= machine-id (:event-id %))
                                         (:events captured)))))
-            "the always-on :events record already carried the CONSEQUENCE")))))
+            "the always-on :events record carries the CONSEQUENCE")))))
 
 (deftest ^:requires-debug machine-data-negative-controls
   (when (and rf.interop/debug-enabled? (schemas-present?) (machines-present?))
@@ -468,7 +466,7 @@
 ;; ===========================================================================
 
 (defn- register-malformed-app! []
-  (rf/make-frame {:id malformed-frame-id :doc "rf2-vkn8 malformed-schema witness"})
+  (rf/make-frame {:id malformed-frame-id :doc "malformed-schema witness"})
   ;; A childless `[:vector]` registers cleanly — Malli validates schema FORMS
   ;; lazily — and then makes the registered validator THROW on the first
   ;; candidate validation.
@@ -516,7 +514,7 @@
                 author-controlled — a user-supplied validator may say
                 anything, and Malli's own form errors `pr-str` the offending
                 schema — so an unbounded reason on a bounded record is the
-                defect shape this campaign exists to avoid."
+                defect shape this suite exists to avoid."
         (let [r      (first records)
               traces (filterv #(= :rf.error/malformed-schema (:operation %))
                               (:traces captured))]
@@ -537,7 +535,7 @@
 
 (deftest ^:requires-debug a-well-formed-registration-is-silent
   (when (and rf.interop/debug-enabled? (schemas-present?))
-    (rf/make-frame {:id :vkn8/well-formed :doc "rf2-vkn8 negative control"})
+    (rf/make-frame {:id :vkn8/well-formed :doc "malformed-schema negative control"})
     (rf/with-frame :vkn8/well-formed
       (rf/reg-app-schema [:ok] [:vector :int]))
     (rf/reg-event :vkn8/well-formed-write (fn [_ _] {:db {:ok [1 2]}}))
@@ -553,7 +551,7 @@
 
 (deftest ^:requires-debug validator-machinery-throw-reaches-the-errors-stream
   (when (and rf.interop/debug-enabled? (schemas-present?))
-    (rf/make-frame {:id throw-frame-id :doc "rf2-vkn8 validator-throw witness"})
+    (rf/make-frame {:id throw-frame-id :doc "validator-throw witness"})
     (rf/reg-event :vkn8/throw-write (fn [_ _] {:db {:whatever 1}}))
     (let [real (rf.late-bind/get-fn :schemas/validate-app-schema!)]
       (try
@@ -679,17 +677,17 @@
                 (str "the reason names its registered path; got "
                      (pr-str reason))))))
 
-      (testing "the DEV TRACE is unchanged — same count, still carrying the
-                payload. A change that quietened the trace to make room for the
-                record would pass every assertion above."
+      (testing "the DEV TRACE keeps its payload — same count, carrying the
+                failing leaf. A trace quietened to make room for the record
+                would pass every assertion above."
         (let [traces (rejection-traces captured)]
           (is (= 3 (count traces)))
           (is (every? #(contains? (:tags %) :value) traces)
-              "the trace still carries the failing leaf")
+              "the trace carries the failing leaf")
           (is (every? #(contains? (:tags %) :path) traces)
               "and the leaf path the record deliberately omits")
           (is (some #(str/includes? (pr-str (:tags %)) planted-value) traces)
-              "the trace is where the offending value still lives")))
+              "the trace is where the offending value lives")))
 
       (testing "the record precedes its trace — `emit-error-both!`'s
                 axis-1-then-axis-2 ordering, so the JVM SSR listener's
@@ -725,8 +723,8 @@
         (is (= :rolled-back
                (:outcome (first (filter #(= :xpd8/seed (:event-id %))
                                         (:events captured)))))
-            "the always-on :events record already carried the CONSEQUENCE; this
-             bead is about the CAUSE never reaching the errors stream")))))
+            "the always-on :events record carries the CONSEQUENCE; this
+             suite is about the CAUSE reaching the errors stream")))))
 
 (deftest ^:requires-debug conforming-commit-is-silent-and-the-control-is-live
   (when (and rf.interop/debug-enabled? (schemas-present?))
@@ -741,7 +739,7 @@
             "and the candidate installed")))
 
     (testing "CONTROL — the same listener on the same frame DOES receive an
-              unrelated always-on category. This is what made the original
+              unrelated always-on category. This is what makes the
               0-of-17 measurement real rather than a dead listener."
       (let [captured (capture #(rf/dispatch-sync [:xpd8/no-such-event] {:frame frame-id}))]
         (is (seq (filter #(= :rf.error/no-such-handler (:error %))
@@ -756,10 +754,10 @@
 ;; JVM-ONLY, and the reader conditional is load-bearing rather than tidy.
 ;; `^:prod-gate` is a cognitect-test-runner VAR filter, and only the JVM lanes
 ;; pass `-e` / drop it: shadow-cljs `:node-test` runs every `deftest` it finds,
-;; tags and all. So on CLJS this deftest ran in an ordinary DEV build and its
-;; own premise assertion — `debug-enabled?` is false — failed, which is the
-;; RIGHT failure for a test that has no business running there. Measured: three
-;; failures in `npm run test:cljs`, none in either JVM lane.
+;; tags and all. So on CLJS this deftest would run in an ordinary DEV build
+;; and its own premise assertion — `debug-enabled?` is false — would fail,
+;; which is the RIGHT failure for a test that has no business running there.
+;; Measured: three failures in `npm run test:cljs`, none in either JVM lane.
 ;;
 ;; Nothing is lost by scoping it. The CLJS half of this claim is not a runtime
 ;; assertion at all but `scripts/check-elision.cjs`, which greps a real
@@ -794,19 +792,20 @@
              (Spec 010 §What elision means for `reg-app-schema`), and the
              reason there is nothing to report"))))))
 
-;; PR2's production gate (rf2-vkn8), JVM-only for the same load-bearing reason
-;; as the deftest above: `^:prod-gate` is a cognitect-test-runner VAR filter
-;; and shadow-cljs `:node-test` honours no var tags, so on CLJS this would run
-;; in an ordinary DEV build and correctly fail its own premise. The CLJS half
+;; The other three producers' production gate, JVM-only for the same
+;; load-bearing reason as the deftest above: `^:prod-gate` is a
+;; cognitect-test-runner VAR filter and shadow-cljs `:node-test` honours no
+;; var tags, so on CLJS this would run in an ordinary DEV build and correctly
+;; fail its own premise. The CLJS half
 ;; of the claim is `scripts/check-elision.cjs`, which greps a real `:advanced`
-;; + `goog.DEBUG=false` bundle for all three of PR2's reason tails and proves
+;; + `goog.DEBUG=false` bundle for all three of their reason tails and proves
 ;; them ABSENT — a stronger statement than "they did not fire", because it
 ;; shows the literals are not in the artefact.
 #?(:clj
    (deftest ^:prod-gate pr2-rejection-records-are-absent-under-the-production-gate
-     (testing "Under `-Dre-frame.debug=false` none of PR2's three producers
-            runs: `validate-machine-data!` returns true from inside its own
-            gate without walking a snapshot, `validate-app-schema!` never
+     (testing "Under `-Dre-frame.debug=false` none of the three non-app-db
+            producers runs: `validate-machine-data!` returns true from inside
+            its own gate without walking a snapshot, `validate-app-schema!` never
             reaches the per-entry malformed branch, and the router's backstop
             emit is behind an explicit `debug-enabled?` check of its own —
             which it needs, because `run-candidate-validation!` (unlike the
