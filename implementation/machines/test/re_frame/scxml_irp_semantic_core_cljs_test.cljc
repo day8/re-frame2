@@ -13,7 +13,7 @@
   cascade (355/372). This namespace COMPLETES the semantic core: it AUDITS
   the W3C IRP MANDATORY semantic-core test set against the re-frame2
   coverage (the `## W3C SCXML IRP SEMANTIC-CORE COVERAGE MATRIX` below) and
-  carries the NOT-COVERED ids as additive conformance cases here, each
+  carries the NOT-COVERED ids as conformance cases here, each
   citing its W3C test id + Spec 005 anchor + xstate@5.x verification,
   matching the sibling file's citation discipline.
 
@@ -25,7 +25,7 @@
   `clojure -M:test`).
 
   The XState v6 direction is the parity reference for every behaviour
-  (the semantic core here is v5→v6 stable and was recorded against
+  (the semantic core here is v5→v6 stable and is verified against
   xstate@5.32.0); the W3C SCXML IRP semantic-core is the canonical corpus.
   Where re-frame2 deliberately diverges from the raw SCXML shape
   (substrate-constrained, or behavioural parity via different expression),
@@ -40,8 +40,8 @@
   semantics (no `<datamodel>`/`<assign>`/`<script>`/cond-expression
   evaluation, no `<send>`/`<invoke>`/I-O-processor mechanics — both excluded
   by design, the same line xstate draws; see the sibling file's
-  `## SCXML EXCLUSIONS`). Each row is COVERED (by an existing fixture or
-  deftest), NEW (ported here), or OUT-OF-SCOPE-with-reason.
+  `## SCXML EXCLUSIONS`). Each row is COVERED (by a fixture or deftest
+  elsewhere), HERE (a case in this namespace), or OUT-OF-SCOPE-with-reason.
 
   Initial / default-entry:
     355  initial absent ⇒ first child in document order   COVERED
@@ -61,7 +61,7 @@
          per-region shallow                                COVERED (scxml-history-test580-*)
 
   Entry/exit handlers + ordering:
-    375  onentry handlers run in document order            NEW — onentry/onexit
+    375  onentry handlers run in document order            HERE — onentry/onexit
                                   re-frame2 collapses N <onentry> blocks to ONE
                                   `:entry` action per node; the cross-NODE entry
                                   cascade order IS the 375 rule re-frame2 expresses.
@@ -73,7 +73,7 @@
                                   yields a failure Result (no partial commit).
                                   Asserted as the divergence in
                                   scxml-irp-test376-onentry-throw-is-failure-result.
-    377  onexit handlers run in document order             NEW (377 = exit twin of 375)
+    377  onexit handlers run in document order             HERE (377 = exit twin of 375)
                                   scxml-irp-test377-onexit-single-block-doc-order.
     378  each onexit is an independent block               OUT-OF-SCOPE (divergence, as 376).
     407  run a state's onexit when it is exited            COVERED (scxml-lca-cascade-*)
@@ -81,9 +81,9 @@
     411  state added to config + onentry on entry          COVERED (scxml-lca-cascade-*, scxml-initial-cascade-*)
 
   Event-descriptor matching:
-    396  match transition event attr against event name    NEW (re-anchor to the IRP id)
+    396  match transition event attr against event name    HERE (re-anchored to the IRP id)
                                   scxml-irp-test396-exact-event-name-match.
-    399  descriptor matching = exact OR token-prefix       NEW — re-frame2 spells the
+    399  descriptor matching = exact OR token-prefix       HERE — re-frame2 spells the
                                   SCXML §3.12.1 dot-prefix token descriptor as the
                                   keyword NAMESPACE-wildcard `:ns/*`; a bare
                                   (non-namespaced) event has no token tier.
@@ -91,7 +91,7 @@
 
   done / final / parallel-done:
     372  done.state.id raised after onentry, before onexit COVERED (scxml-compound-done-*)
-    415  final child of <scxml> root halts processing      NEW — re-frame2 top-level
+    415  final child of <scxml> root halts processing      HERE — re-frame2 top-level
                                   finality (whole-machine done) is the analogue;
                                   scxml-irp-test415-top-level-final-is-machine-final.
     416  done.state.id for a <final> child of a compound   COVERED (scxml-compound-done-*, scxml-final-leaf-*)
@@ -103,22 +103,22 @@
     404  exit the exit set first                           COVERED (scxml-lca-cascade-*)
     405  transition content after exits, before entries    COVERED (scxml-lca-cascade-* — :ACTION at the boundary)
     406  enter the entry set after transition content      COVERED (scxml-lca-cascade-*)
-    503  targetless transition ⇒ EMPTY exit set           NEW — re-anchor: an action
+    503  targetless transition ⇒ EMPTY exit set           HERE — re-anchor: an action
                                   fires, NO exit/entry, descendants preserved.
                                   scxml-irp-test503-targetless-empty-exit-set.
     504  external transition exit set = LCCA descendants   COVERED (scxml-lca-cascade-*)
     505  internal transition (compound source): target's
-         descendants in the exit set                       NEW — re-frame2 / xstate v5
+         descendants in the exit set                       HERE — re-frame2 / xstate v5
                                   FLIP the SCXML internal/external DEFAULT:
                                   an explicit on-path target is INTERNAL by
                                   default (re-resolves descendants); external
                                   restart is opt-in `:reenter? true`.
                                   scxml-irp-test505-internal-default-re-resolves-descendants.
-    506  internal treated as external when not applicable  NEW — disjoint-subtree target
+    506  internal treated as external when not applicable  HERE — disjoint-subtree target
                                   is always external (exit/enter both leaves).
                                   scxml-irp-test506-disjoint-target-is-external.
     533  internal transition is external for a NON-compound
-         (atomic) source                                   NEW — an atomic leaf has no
+         (atomic) source                                   HERE — an atomic leaf has no
                                   descendants to re-resolve, so an explicit
                                   self-target with no `:reenter?` is a config no-op
                                   (xstate v5). scxml-irp-test533-atomic-source-self-target.
@@ -127,16 +127,16 @@
     144  raised events FIFO on the internal queue          COVERED (machine_raise_fifo_test;
                                   re-anchored here to the IRP id:
                                   scxml-irp-test144-internal-raise-fifo).
-    158  executable-content block runs in document order   NEW — a transition `:action`'s
+    158  executable-content block runs in document order   HERE — a transition `:action`'s
                                   side effects run in source order; the cascade
                                   exit→action→entry is the cross-boundary order.
                                   scxml-irp-test158-executable-content-doc-order.
     419  after a stable config, run the optimal NULL
-         (eventless) transition set                        NEW — re-anchor: eventless
+         (eventless) transition set                        HERE — re-anchor: eventless
                                   fires only at a stable config, deepest-first.
                                   scxml-irp-test419-eventless-optimal-set-at-quiescence.
     421  process the internal queue (microstep) before the
-         next external event                               COVERED-as-NEW — raised +
+         next external event                               HERE — raised +
                                   eventless work drains fully within ONE macrostep
                                   before the result is observable.
                                   scxml-irp-test421-internal-queue-drains-before-return.
@@ -221,7 +221,7 @@
             any event sharing the leading token — SCXML `error` catches
             `error.send.failed`; re-frame2's `:error/*` catches any
             `:error/...` event with no exact descriptor. Spec 005 §Wildcard
-            transitions §Namespaced (partial) event descriptors (rf2-z4t2v)."
+            transitions §Namespaced (partial) event descriptors."
     (let [m {:initial :a :data {}
              :states  {:a {:on {:error/parse :exact
                                  :error/*     :family
@@ -302,7 +302,7 @@
 
 (deftest scxml-irp-test505-internal-default-re-resolves-descendants
   (testing "W3C IRP test505 (SCXML §3.13 internal-transition exit set) under
-            the xstate v5 DEFAULT FLIP (rf2-eicq0): an explicit target naming
+            the xstate v5 DEFAULT FLIP: an explicit target naming
             the CURRENT COMPOUND (no :reenter?) is INTERNAL — the source
             compound is NOT in the exit set (no compound onexit/onentry), but
             the target's ACTIVE DESCENDANTS ARE (xstate v5: an explicit target
@@ -484,8 +484,8 @@
             apart and proves the root-vs-embedded distinction: on the same
             embedded-final config `final-on-leaf?` is TRUE (the active leaf is
             final) while `top-level-final?` is FALSE (the path is length 2, not
-            a direct child of the root). xstate v5 / SCXML §3.7
-            (rf2-bnjb3 / rf2-zlmz7). Spec 005 §Final states §Top-level vs
+            a direct child of the root). xstate v5 / SCXML §3.7.
+            Spec 005 §Final states §Top-level vs
             embedded."
     (let [m {:initial :work :data {}
              :states {:work {:initial :step1
@@ -519,7 +519,7 @@
             drain FIFO — an action raising [:b] then [:c], where :b's action
             raises [:d], processes :b, :c, :d (the nested :d goes to the BACK,
             behind the still-pending sibling :c), NOT depth-first. xstate v5
-            / SCXML (rf2-nr434). Spec 005 §`:raise` FIFO."
+            / SCXML. Spec 005 §`:raise` FIFO."
     (let [log (atom [])
           la  (fn [label & raises]
                 (fn [{:keys [data]}]
