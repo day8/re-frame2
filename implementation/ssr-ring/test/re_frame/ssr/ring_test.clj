@@ -1,5 +1,5 @@
 (ns re-frame.ssr.ring-test
-  "End-to-end tests for the Ring host adapter (rf2-ny6v7).
+  "End-to-end tests for the Ring host adapter.
 
   Mirrors the shape of implementation/ssr/test/re_frame/ssr_end_to_end_test.clj
   — synthesises a Ring request, invokes the handler, asserts on the
@@ -23,10 +23,10 @@
             [re-frame.ssr.ring.shell :as rf.ssr.ring.shell]
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
 
-;; rf2-i3qc0 / rf2-09iktm — the canonical reset-runtime fixture is
+;; The canonical reset-runtime fixture is
 ;; artefact-local in `re-frame.ssr.ring.test-support`. It wraps the
 ;; published `re-frame.test-support/make-reset-runtime-fixture` and layers
-;; the four SSR per-request side-channel atom resets, so no external
+;; the three SSR per-request side-channel atom resets, so no external
 ;; `../ssr/test` path is required.
 (use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
@@ -76,8 +76,7 @@
                  (rf.ssr.ring/cookie->set-cookie-header {:value "abc"})))))
 
 ;; ===========================================================================
-;; rf2-rpedl — CRLF injection in Set-Cookie attributes + cookie-name grammar
-;; (security audit 2026-05-14 §P1.2 + §P2.4)
+;; CRLF injection in Set-Cookie attributes + cookie-name grammar
 ;;
 ;; Every attribute string that gets concatenated into the wire shape is
 ;; checked for CR/LF/NUL before emission — the framework rejects rather
@@ -87,7 +86,7 @@
 ;; ===========================================================================
 
 (deftest cookie-attribute-crlf-injection-rejected
-  (testing "rf2-rpedl §P1.2 — CR / LF / NUL in :domain throws
+  (testing "CR / LF / NUL in :domain throws
             :rf.error/cookie-invalid-attribute"
     (doseq [hostile ["evil.com\r\nSet-Cookie: admin=1; Path=/"
                      "evil.com\rinjected"
@@ -100,28 +99,28 @@
               {:name "session" :value "abc" :domain hostile}))
           (str "hostile :domain " (pr-str hostile) " must be rejected"))))
 
-  (testing "rf2-rpedl §P1.2 — CR / LF / NUL in :path throws"
+  (testing "CR / LF / NUL in :path throws"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/cookie-invalid-attribute"
           (rf.ssr.ring/cookie->set-cookie-header
             {:name "session" :value "abc" :path "/\r\nSet-Cookie: x=1"}))))
 
-  (testing "rf2-rpedl §P1.2 — CR / LF / NUL in :max-age (string-shaped) throws"
+  (testing "CR / LF / NUL in :max-age (string-shaped) throws"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/cookie-invalid-attribute"
           (rf.ssr.ring/cookie->set-cookie-header
             {:name "session" :value "abc" :max-age "3600\r\nbad"}))))
 
-  (testing "rf2-rpedl §P1.2 — CR / LF / NUL in :same-site (string-shaped) throws"
+  (testing "CR / LF / NUL in :same-site (string-shaped) throws"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/cookie-invalid-attribute"
           (rf.ssr.ring/cookie->set-cookie-header
             {:name "session" :value "abc" :same-site "Lax\r\nbad"}))))
 
-  (testing "rf2-rpedl §P1.2 — clean attributes still serialise (regression
+  (testing "clean attributes still serialise (regression
             guard: validation doesn't reject valid input)"
     (let [s (rf.ssr.ring/cookie->set-cookie-header
               {:name      "session"
@@ -134,44 +133,44 @@
       (is (str/includes? s "Path=/articles")))))
 
 ;; ===========================================================================
-;; rf2-j538f7.16 — a raw `;` in a structured cookie attribute is the RFC 6265
+;; A raw `;` in a structured cookie attribute is the RFC 6265
 ;; cookie-attribute delimiter, so it escapes its assigned attribute and
-;; fabricates additional attributes (SameSite=None, Secure, Domain, …). The
-;; CR/LF/NUL-only gate accepted it. The attribute gate now rejects `;` too;
-;; cookie :value stays delimiter-tolerant because it is percent-encoded.
+;; fabricates additional attributes (SameSite=None, Secure, Domain, …), which a
+;; CR/LF/NUL-only gate would accept. The attribute gate rejects `;` too;
+;; cookie :value is delimiter-tolerant because it is percent-encoded.
 ;; ===========================================================================
 
 (deftest cookie-attribute-semicolon-injection-rejected
-  (testing "rf2-j538f7.16 — a `;` in :path forges extra Set-Cookie
-            attributes and must be rejected (the bead's public repro)"
+  (testing "a `;` in :path forges extra Set-Cookie
+            attributes and must be rejected"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/cookie-invalid-attribute"
           (rf.ssr.ring/cookie->set-cookie-header
             {:name "sid" :value "abc" :path "/; SameSite=None; Secure"}))))
 
-  (testing "rf2-j538f7.16 — a `;` in string :max-age forges attributes (repro 2)"
+  (testing "a `;` in string :max-age forges attributes"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/cookie-invalid-attribute"
           (rf.ssr.ring/cookie->set-cookie-header
             {:name "sid" :value "abc" :max-age "3600; SameSite=None; Secure"}))))
 
-  (testing "rf2-j538f7.16 — a `;` in :domain is rejected"
+  (testing "a `;` in :domain is rejected"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/cookie-invalid-attribute"
           (rf.ssr.ring/cookie->set-cookie-header
             {:name "sid" :value "abc" :domain "evil.com; Secure"}))))
 
-  (testing "rf2-j538f7.16 — a `;` in string :same-site is rejected"
+  (testing "a `;` in string :same-site is rejected"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/cookie-invalid-attribute"
           (rf.ssr.ring/cookie->set-cookie-header
             {:name "sid" :value "abc" :same-site "Lax; Secure"}))))
 
-  (testing "rf2-j538f7.16 — the offending attribute + original value ride the
+  (testing "the offending attribute + original value ride the
             structured error payload"
     (try
       (rf.ssr.ring/cookie->set-cookie-header
@@ -186,7 +185,7 @@
           (is (= "/; SameSite=None" (:value data))
               "the original attribute value rides the :value slot")))))
 
-  (testing "rf2-j538f7.16 — a `;` in cookie :value is DATA, not a delimiter:
+  (testing "a `;` in cookie :value is DATA, not a delimiter:
             it is percent-encoded (`%3B`), so it must NOT be over-rejected"
     (let [s (rf.ssr.ring/cookie->set-cookie-header
               {:name "sid" :value "a;b" :path "/"})]
@@ -196,8 +195,8 @@
           "the raw `;` does not survive into the wire value")
       (is (str/includes? s "Path=/"))))
 
-  (testing "rf2-j538f7.16 — clean attributes (canonical `/` path, plain
-            domain, integer max-age) still serialise unchanged"
+  (testing "clean attributes (canonical `/` path, plain
+            domain, integer max-age) serialise unaltered"
     (let [s (rf.ssr.ring/cookie->set-cookie-header
               {:name    "sid"  :value "abc"
                :path    "/app" :domain "example.com"
@@ -207,12 +206,12 @@
       (is (str/includes? s "Max-Age=3600"))
       (is (str/includes? s "SameSite=None")))))
 
-;; rf2-j538f7.16 — end-to-end: a hostile `;`-bearing attribute value routed
+;; End-to-end: a hostile `;`-bearing attribute value routed
 ;; through the public :rf.server/set-cookie effect and the Ring handler MUST
 ;; NOT emit a forged Secure/SameSite attribute; the structured failure routes
 ;; through the fx error contract and no cookie header is written.
 (deftest handler-cookie-semicolon-attribute-cannot-forge-set-cookie
-  (testing "rf2-j538f7.16 — a `;`-bearing :path cannot smuggle SameSite=None;
+  (testing "a `;`-bearing :path cannot smuggle SameSite=None;
             Secure into the emitted Set-Cookie header"
     (rf/reg-event :init/hostile-cookie
       {:platforms #{:server}}
@@ -243,7 +242,7 @@
               "no forged Secure attribute"))))))
 
 (deftest cookie-name-rfc6265-token-grammar
-  (testing "rf2-rpedl §P2.4 — cookie :name violating the RFC 6265 §4.1.1
+  (testing "cookie :name violating the RFC 6265 §4.1.1
             token grammar throws :rf.error/cookie-invalid-name"
     (testing "name with whitespace throws"
       (is (thrown-with-msg?
@@ -285,15 +284,15 @@
               (str (clojure.core/name named) "="))
             (str "Named cookie name " (pr-str named) " should serialise"))))
 
-    (testing "rf2-d95o1y — non-string / non-Named :name throws a STRUCTURED
+    (testing "non-string / non-Named :name throws a STRUCTURED
               :rf.error/cookie-invalid-name (not a raw ClassCastException)"
       (doseq [bad [42 3.14 [] [1 2 3] {} {:k 1} #{1 2} true]]
-        ;; The broad `catch Throwable` is DELIBERATE: the regression is the
-        ;; raw `ClassCastException` (a `Throwable`, NOT an `ExceptionInfo`)
-        ;; the pre-fix `(clojure.core/name n)` threw. We must catch the broad
+        ;; The broad `catch Throwable` is DELIBERATE: the failure under guard
+        ;; is a raw `ClassCastException` (a `Throwable`, NOT an `ExceptionInfo`),
+        ;; which a bare `(clojure.core/name n)` would throw. We must catch the broad
         ;; type to OBSERVE which throwable surfaces, then assert it is the
-        ;; structured ex-info — a narrow `catch ExceptionInfo` would let the
-        ;; bug's raw exception escape the test and obscure the failure.
+        ;; structured ex-info — a narrow `catch ExceptionInfo` would let that
+        ;; raw exception escape the test and obscure the failure.
         (let [t (try
                   (rf.ssr.ring/cookie->set-cookie-header {:name bad :value "v"})
                   ::no-throw
@@ -355,7 +354,7 @@
                              {:id "b" :title "Article B"}])
 
     (let [handler (rf.ssr.ring/ssr-handler
-                    ;; rf2-q1b96 — the RESOLVING root-view form. The hash
+                    ;; The RESOLVING root-view form. The hash
                     ;; assertion below is what forces it: an unresolved
                     ;; `[(rf/view :pages/articles)]` renders byte-identical
                     ;; HTML but carries no hash on either channel.
@@ -420,8 +419,7 @@
   (testing "the per-request frame teardown destroys the frame VALUE make-frame
             returned (carrying the exact incarnation token), NOT the bare gensym
             frame-id — so teardown is incarnation-EXACT and cannot reap a same-id
-            successor reseated in between while the request still returns 200
-            (rf2-moftbs)"
+            successor reseated in between while the request still returns 200"
     (register-articles-app! [{:id "x" :title "Article X"}])
     (let [real-destroy    rf/destroy-frame!
           teardown-target (atom ::none)
@@ -432,7 +430,7 @@
                      :payload        :rf.ssr.payload/whole-app-db})
           frames-before (set (rf/frame-ids))]
       ;; Spy on the facade destroy the handler's `finally` calls. A clean request
-      ;; issues exactly ONE per-request-frame teardown, and (post-fix) it hands
+      ;; issues exactly ONE per-request-frame teardown, and it hands
       ;; over the frame VALUE — not the bare gensym id.
       (with-redefs [rf/destroy-frame!
                     (fn [target & more]
@@ -481,7 +479,7 @@
       (is (not (str/includes? (:body response) "should not render"))))))
 
 (deftest handler-redirect-no-target-warns
-  (testing "rf2-ee38b.11: a :rf.server/redirect with no :location/:url/:to
+  (testing "a :rf.server/redirect with no :location
             produces a 3xx with no Location header (malformed redirect —
             the runtime accepts a target-less redirect since location is
             caller-trusted/optional at the fx boundary). The adapter is
@@ -559,7 +557,7 @@
 ;; ===========================================================================
 
 (deftest handler-render-error-projects-through-projector
-  (testing "rf2-zwgsv — exception raised during render flows through the
+  (testing "exception raised during render flows through the
             SSR error projector (Spec 011 §View-time exceptions), not
             through the Ring :on-error hook. Wire body carries the
             projector's :message / :code, never .getMessage."
@@ -576,37 +574,37 @@
                      :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/broken" :request-method :get})]
       (is (= 500 (:status response))
-          "rf2-zwgsv: default projector's `:internal-error` shape →
+          "default projector's `:internal-error` shape →
            status 500. Same status the drain-time projector path
            produces for fx/handler exceptions — uniform contract.")
-      ;; rf2-kzvwq / security audit §P2.1 — the default body MUST NOT
+      ;; The default body MUST NOT
       ;; carry the exception's message. .getMessage is documented as
       ;; carrying internal topology (JDBC URLs, file paths, SQL
-      ;; fragments); leaking it publicly is the bug. The projector is
+      ;; fragments); leaking it publicly would be a disclosure. The projector is
       ;; the security boundary.
       (is (not (str/includes? (:body response) "boom-internal-jdbc-url-secret"))
-          "rf2-kzvwq: the throwable's message text MUST NOT appear in
+          "the throwable's message text MUST NOT appear in
            the projector body (topology disclosure surface)")
-      ;; rf2-zwgsv: the projector-driven body carries the default
+      ;; The projector-driven body carries the default
       ;; projector's `:message` ("Something went wrong") so the
       ;; client / crawler / monitoring stack sees the public surface.
       (is (str/includes? (:body response) "Something went wrong")
-          "rf2-zwgsv: wire body carries the projector's `:message`
+          "wire body carries the projector's `:message`
            (default = 'Something went wrong' per
            `error-projector/fallback-public-error`)")
       (is (str/includes? (:body response) "internal-error")
-          "rf2-zwgsv: wire body carries the projector's `:code`
+          "wire body carries the projector's `:code`
            (default = `:internal-error`) as a stable category that
            response-page templates can branch on.")
       (is (not (= "Internal error" (:body response)))
-          "rf2-zwgsv: render-time throws go through the projector,
+          "render-time throws go through the projector,
            not the Ring :on-error fallback — the fixed
            'Internal error' string is never the wire body."))))
 
 (deftest handler-render-error-custom-projector-shapes-body
-  (testing "rf2-zwgsv — caller customises the render-time error wire
+  (testing "caller customises the render-time error wire
             body via a custom :rf.error/* projector mapping, NOT via
-            the :on-error Ring hook (which now only catches
+            the :on-error Ring hook (which only catches
             transport/projector-undeliverable failures)."
     (rf/reg-event :init/ok
       {:platforms #{:server}}
@@ -643,13 +641,13 @@
           "the custom projector's :code rides the wire body."))))
 
 ;; ===========================================================================
-;; rf2-ee38b.11 — :error-view caller hook (Spec 011 §Server error
+;; :error-view caller hook (Spec 011 §Server error
 ;; projection step 5 — "a registered view (or the host's default error
 ;; template) … receiving the public-error map as its prop")
 ;; ===========================================================================
 
 (deftest handler-render-error-renders-registered-error-view
-  (testing "rf2-ee38b.11: a caller-registered :error-view (keyword) is
+  (testing "a caller-registered :error-view (keyword) is
             rendered through the SSR emitter, receiving the public-error
             map as its single prop — replacing the hardcoded default
             error template. The public-error's :message rides the wire
@@ -681,10 +679,10 @@
       (is (str/includes? body "Something went wrong")
           "the public-error :message flows to the error view")
       (is (not (str/includes? body "boom-internal"))
-          "rf2-kzvwq: the throwable message text MUST NOT reach the wire"))))
+          "the throwable message text MUST NOT reach the wire"))))
 
 (deftest handler-render-error-view-as-fn
-  (testing "rf2-ee38b.11: :error-view accepts a 1-arity fn receiving the
+  (testing ":error-view accepts a 1-arity fn receiving the
             public-error map and returning hiccup"
     (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/broken-evf
@@ -704,7 +702,7 @@
       (is (str/includes? body "class=\"fn-error\"") "fn view markup on the wire"))))
 
 (deftest handler-error-view-throw-falls-back-to-default-template
-  (testing "rf2-ee38b.11: a buggy :error-view (itself throwing) MUST NOT
+  (testing "a buggy :error-view (itself throwing) MUST NOT
             bypass the error boundary — the host falls back to the
             default error template and emits
             :rf.error/ssr-ring-error-view-failed on the trace bus."
@@ -734,10 +732,10 @@
              buggy error view")))))
 
 (deftest handler-payload-number-refusal-is-a-projected-500
-  (testing "rf2-qtald: a payload slice carrying a number the browser's EDN
+  (testing "a payload slice carrying a number the browser's EDN
             reader cannot read back as the same value (a Long past 2^53) is
-            refused with :rf.error/ssr-hydration-payload-invalid
-            (rf2-3x7nj.13.3). The ssr-handler builds the payload before it
+            refused with :rf.error/ssr-hydration-payload-invalid.
+            The ssr-handler builds the payload before it
             commits anything, so the refusal projects like any render-time
             throw: a 500 carrying the default projector's page, with the
             value nowhere on the wire."
@@ -759,7 +757,7 @@
           "and no payload script was shipped"))))
 
 ;; ===========================================================================
-;; ssr-handler — fn-form :root-view invoked exactly once per request (rf2-6t36h)
+;; ssr-handler — fn-form :root-view invoked exactly once per request
 ;;
 ;; The fn-form branch of `:root-view` is not guaranteed to be idempotent —
 ;; unsorted-map iteration order, gensym'd react keys, and time-of-day
@@ -776,7 +774,7 @@
 ;; ===========================================================================
 
 (deftest fn-form-root-view-invoked-exactly-once-per-request
-  (testing "rf2-6t36h: a 0-arity fn :root-view fires exactly once per request"
+  (testing "a 0-arity fn :root-view fires exactly once per request"
     (let [call-count (atom 0)]
       (rf/reg-event :init/ok-once
         {:platforms #{:server}}
@@ -795,11 +793,11 @@
         (is (= 200 (:status response)))
         (is (= 1 @call-count)
             "fn-form :root-view must be invoked exactly once per request
-             (rf2-6t36h: ONE call covers both the wire HTML and the
+             (ONE call covers both the wire HTML and the
              payload :rf/render-hash)")))))
 
 (deftest fn-form-root-view-non-idempotent-still-hashes-consistently
-  (testing "rf2-6t36h: a non-idempotent fn-form :root-view produces a wire
+  (testing "a non-idempotent fn-form :root-view produces a wire
             hash that matches the payload hash — the same tree is used for
             both, so the client mismatch check does NOT fire spuriously"
     (let [counter (atom 0)]
@@ -810,18 +808,18 @@
       ;; A view fn that produces a DIFFERENT tree on every call — its
       ;; key includes a monotonic counter. With two invocations the wire
       ;; HTML would carry hash(tree_1) and the payload would carry
-      ;; hash(tree_2); rf2-6t36h's single-invocation contract closes that
-      ;; spurious-mismatch gap.
+      ;; hash(tree_2); the single-invocation contract rules out that
+      ;; spurious mismatch.
       (rf/reg-view* :pages/noni
         (fn [n] [:div {:data-call n} "noni"]))
 
       (let [handler  (rf.ssr.ring/ssr-handler
                        {:initial-events [[:init/ok-noni]]
-                        ;; rf2-q1b96 — outer call: the fn RESOLVES the view
+                        ;; Outer call: the fn RESOLVES the view
                         ;; rather than handing back a reference to it, so the
                         ;; hash channel exists at all. Still non-idempotent
                         ;; (the counter rides into the tree) and still exactly
-                        ;; one invocation, which is what rf2-6t36h pins.
+                        ;; one invocation, which is what this test pins.
                         :root-view (fn []
                                      ((rf/view :pages/noni) (swap! counter inc)))
                         :payload :rf.ssr.payload/whole-app-db})
@@ -846,28 +844,25 @@
         (is (some? payload-hash)
             ":rf/render-hash present in hydration payload")
         (is (= wire-hash payload-hash)
-            "rf2-6t36h: wire hash MUST equal payload hash — both derive
+            "wire hash MUST equal payload hash — both derive
              from the same single invocation of the fn-form root-view")
         (is (= 1 @counter)
             "side-effect counter confirms the fn was invoked exactly once")))))
 
 ;; ===========================================================================
 ;; ssr-handler — BODY-ONLY :rf/render-hash + a SEPARATE :rf/head-hash channel
-;; (rf2-1oxjxk, Mike-RULED Option B — reverting rf2-9fw2de)
 ;;
-;; rf2-9fw2de folded the resolved head fragment (+ :html-attrs / :body-attrs)
-;; into a UNIFIED `:rf/render-hash` channel so a head-only divergence would
-;; move the hash too. But the CLIENT half of that change was never made: the
-;; documented client boot (`ssr/hydrate!`'s `:render-tree-fn`, per Spec 011
+;; The documented client boot (`ssr/hydrate!`'s `:render-tree-fn`, per Spec 011
 ;; §Client-side hydration boot helper) only ever hashes the BARE body tree a
-;; registered view returns — never a document wrapper. Folding the head in
-;; server-side therefore made `:rf/render-hash` (and the wire
+;; registered view returns — never a document wrapper. Folding the resolved
+;; head fragment (+ :html-attrs / :body-attrs) into a UNIFIED `:rf/render-hash`
+;; server-side would therefore make `:rf/render-hash` (and the wire
 ;; `data-rf-render-hash`) NEVER equal the client's hash — a spurious
 ;; :rf.ssr/hydration-mismatch on EVERY SSR page.
 ;;
-;; The fix (Option B): revert the wire hash to BODY-ONLY (these tests pin
+;; So the wire hash is BODY-ONLY (these tests pin
 ;; that a head-only change does NOT move :rf/render-hash / data-rf-render-
-;; hash), and carry head divergence on a SEPARATE :rf/head-hash /
+;; hash), and head divergence rides a SEPARATE :rf/head-hash /
 ;; data-rf-head-hash channel — a structural hash over the CANONICAL HEAD
 ;; MODEL (not emitted HTML), client-reconstructible via `(rf.ssr/head-model
 ;; frame-id)` (Spec 011 §Default flow step 5).
@@ -906,9 +901,9 @@
     {:wire wire :payload payload}))
 
 (deftest ssr-handler-explicit-head-string-does-not-move-render-hash
-  (testing "rf2-1oxjxk: identical body + DIFFERENT explicit :head string →
+  (testing "identical body + DIFFERENT explicit :head string →
             SAME :rf/render-hash / data-rf-render-hash. The wire hash is
-            BODY-ONLY (Option B); a head-only change must NOT move it, or
+            BODY-ONLY; a head-only change must NOT move it, or
             the documented client :render-tree-fn (which hashes the bare
             body tree) would mismatch on every page."
     (rf/reg-event :init/noop-head (fn [{:keys [db]} _] {:db db}))
@@ -917,7 +912,7 @@
     (let [mk      (fn [head]
                     (rf.ssr.ring/ssr-handler
                       {:initial-events [[:init/noop-head]]
-                       ;; rf2-q1b96 — resolving form; the body-only-hash
+                       ;; Resolving form; the body-only-hash
                        ;; assertions below need a hash to exist.
                        :root-view (fn [] ((rf/view :pages/fixed-body)))
                        :head      head
@@ -937,11 +932,11 @@
       (is (= (:wire ha) (:payload ha))
           "render A: wire data-rf-render-hash == payload :rf/render-hash")
       (is (= (:wire hb) (:payload hb)) "render B: wire == payload")
-      ;; THE LOAD-BEARING ASSERTION (rf2-1oxjxk): a head-only divergence
+      ;; THE LOAD-BEARING ASSERTION: a head-only divergence
       ;; must NOT move the body-only wire hash.
       (is (= (:payload ha) (:payload hb))
-          "rf2-1oxjxk: identical body + different head → SAME :rf/render-hash
-           (body-only wire hash; head no longer folds in)")
+          "identical body + different head → SAME :rf/render-hash
+           (body-only wire hash; the head does not fold in)")
       ;; An explicit :head STRING carries no reconstructible model — the
       ;; :rf/head-hash / data-rf-head-hash channel is OMITTED entirely
       ;; (graceful degrade, no guaranteed false-positive).
@@ -953,7 +948,7 @@
         (is (nil? (:payload head-b)) "explicit :head string omits :rf/head-hash (B)")))))
 
 (deftest ssr-handler-route-head-moves-head-hash-not-render-hash
-  (testing "rf2-1oxjxk: identical body + DIFFERENT route-driven reg-head
+  (testing "identical body + DIFFERENT route-driven reg-head
             output → :rf/render-hash STAYS THE SAME (body-only) while the
             SEPARATE :rf/head-hash / data-rf-head-hash channel DIFFERS.
             Covers the route-head path (not just explicit :head)."
@@ -985,7 +980,7 @@
       (is (= (:wire ha) (:payload ha)) "render A: wire == payload")
       (is (= (:wire hb) (:payload hb)) "render B: wire == payload")
       (is (= (:payload ha) (:payload hb))
-          "rf2-1oxjxk: different reg-head title (identical body) → SAME
+          "different reg-head title (identical body) → SAME
            :rf/render-hash (body-only)")
       ;; The SEPARATE head-hash channel DOES carry the divergence.
       (is (some? (:payload head-a)) "render A carries :rf/head-hash")
@@ -994,11 +989,11 @@
           "render A: wire data-rf-head-hash == payload :rf/head-hash")
       (is (= (:wire head-b) (:payload head-b)) "render B: wire == payload")
       (is (not= (:payload head-a) (:payload head-b))
-          "rf2-1oxjxk: different reg-head title (identical body) → DIFFERENT
+          "different reg-head title (identical body) → DIFFERENT
            :rf/head-hash (the separate channel attributes head divergence)"))))
 
 (deftest ssr-handler-html-body-attrs-move-head-hash-not-render-hash
-  (testing "rf2-1oxjxk: the head model's :html-attrs / :body-attrs are part
+  (testing "the head model's :html-attrs / :body-attrs are part
             of the SEPARATE head-hash channel, not the body-only
             :rf/render-hash — a change to them (identical body + identical
             title) moves :rf/head-hash but leaves :rf/render-hash unchanged."
@@ -1028,33 +1023,33 @@
           head-a  (extract-head-hash body-a)
           head-b  (extract-head-hash body-b)]
       (is (= (:payload ha) (:payload hb))
-          "rf2-1oxjxk: differing :html-attrs (identical body + title) →
+          "differing :html-attrs (identical body + title) →
            SAME :rf/render-hash (body-only)")
       (is (not= (:payload head-a) (:payload head-b))
-          "rf2-1oxjxk: differing :html-attrs (identical body + title) →
+          "differing :html-attrs (identical body + title) →
            DIFFERENT :rf/head-hash (attr bags are part of the head model)"))))
 
 ;; ===========================================================================
-;; rf2-1oxjxk — MANDATORY REGRESSION: a REAL server render -> real wire
+;; MANDATORY REGRESSION: a REAL server render -> real wire
 ;; payload -> ssr/hydrate! with the DOCUMENTED :render-tree-fn must NOT fire
 ;; a spurious :rf.ssr/hydration-mismatch, even under :on-mismatch
 ;; :hard-error (which THROWS on any mismatch).
 ;;
-;; Per the rf2-lo28u lesson: a hand-built payload literal / pre-computed
-;; hash would NOT have caught the original bug (the divergence was between
-;; the REAL server pipeline's hash input and the REAL client's hash input,
-;; not a value either side could fake in isolation). This test drives the
-;; ACTUAL failing path end-to-end: a real `ssr-handler` renders a REAL head
-;; fragment (route-driven `reg-head`, the original bug's trigger) into the
+;; A hand-built payload literal / pre-computed hash cannot catch this
+;; divergence: it lies between the REAL server pipeline's hash input and the
+;; REAL client's hash input, not in a value either side could fake in
+;; isolation. This test drives the
+;; ACTUAL path end-to-end: a real `ssr-handler` renders a REAL head
+;; fragment (route-driven `reg-head`, the trigger) into the
 ;; response body, the REAL `__rf_payload` is parsed off the wire, and
 ;; `ssr/hydrate!` is called with the documented expanded
 ;; `:render-tree-fn #((rf/view :app/root))` form — the exact shape Spec 011's
-;; worked example uses. Pre-fix (the unified full-document hash), this
-;; throws on every single call.
+;; worked example uses. Under a unified full-document hash this would
+;; throw on every single call.
 ;; ===========================================================================
 
 (deftest ssr-handler-hydrate-no-spurious-mismatch-under-hard-error
-  (testing "rf2-1oxjxk: real render -> real payload -> ssr/hydrate! with
+  (testing "real render -> real payload -> ssr/hydrate! with
             :render-tree-fn #((rf/view :app/root)) completes with NO
             spurious :rf.ssr/hydration-mismatch, even under the strict
             :on-mismatch :hard-error posture."
@@ -1066,7 +1061,7 @@
                                    {:route-id :route/regression})}))
     (rf/reg-head :head/regression
       (fn [_db _route] {:title "Regression Page"
-                        :meta  [{:name "description" :content "rf2-1oxjxk"}]}))
+                        :meta  [{:name "description" :content "hydration regression"}]}))
     (rf/reg-route :route/regression {:doc "Regression" :head :head/regression} "/regression")
     ;; A pure static view (no subscribe/dispatch) so it can be called
     ;; directly via `(rf/view :app/root)` outside an explicit `with-frame`
@@ -1083,7 +1078,7 @@
                          ;; Documented EXPANDED :root-view form — symmetric
                          ;; with the client's :render-tree-fn
                          ;; #((rf/view :app/root)) (Spec 011 §Hydration
-                         ;; equivalence rule / rf2-1kqvbx).
+                         ;; equivalence rule).
                          :root-view (fn [] ((rf/view :app/root)))
                          :payload   :rf.ssr.payload/whole-app-db})
           response    (handler {:uri "/regression" :request-method :get})
@@ -1091,23 +1086,23 @@
           payload-edn (second (re-find
                                 #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
                                 body))
-          ;; rf2-lm2yzy — the shipped handler now OMITS the per-request
+          ;; The shipped handler OMITS the per-request
           ;; gensym from the wire payload (it is projection-only), so an
-          ;; absent `:rf/frame-id` is already the documented no-conflict
-          ;; shape here; the `dissoc` is defensive (a no-op on the fixed
-          ;; wire) and keeps this test isolating the HASH path (the
-          ;; rf2-1oxjxk concern) even if a stable `:client-frame-id` were
-          ;; later configured on the handler.
+          ;; absent `:rf/frame-id` is the documented no-conflict
+          ;; shape here; the `dissoc` is defensive (a no-op on this
+          ;; wire) and keeps this test isolating the HASH path
+          ;; even if a stable `:client-frame-id` were
+          ;; configured on the handler.
           payload     (dissoc (edn/read-string payload-edn) :rf/frame-id)
           client-frame (rf.frame/make-anon-frame-record!
-                         {:doc      "rf2-1oxjxk regression client frame"
+                         {:doc      "hydration regression client frame"
                           :platform :client
                           :ssr      {:on-mismatch :hard-error}})]
       (is (= 200 (:status response)) "the server render succeeds")
       (is (some? payload-edn) "the response carries a __rf_payload script")
       (is (str/includes? body "<title>Regression Page</title>")
           "sanity: the server actually rendered a real route-driven head
-           fragment (the original bug's trigger) alongside the body")
+           fragment (the mismatch trigger) alongside the body")
       ;; The REAL wire payload carries a body-only :rf/render-hash AND a
       ;; separate :rf/head-hash (the route-driven head is reconstructible).
       (is (some? (:rf/render-hash payload)) "payload carries :rf/render-hash")
@@ -1115,34 +1110,32 @@
           "payload carries the separate :rf/head-hash (route-driven head is
            client-reconstructible)")
 
-      ;; THE REGRESSION — must NOT throw. Pre-fix (rf2-9fw2de's unified
-      ;; full-document hash), the payload's :rf/render-hash covered body +
-      ;; head while the documented :render-tree-fn only ever hashes the
-      ;; body, so this call threw :rf.ssr/hydration-mismatch on every
-      ;; single SSR page — even here under :on-mismatch :hard-error.
+      ;; THE REGRESSION — must NOT throw. Were the payload's
+      ;; :rf/render-hash a unified full-document hash covering body + head
+      ;; while the documented :render-tree-fn only ever hashes the
+      ;; body, this call would throw :rf.ssr/hydration-mismatch on every
+      ;; single SSR page — here under :on-mismatch :hard-error.
       (is (= payload
              (rf.ssr/hydrate! {:frame          client-frame
                             :payload        payload
                             :render-tree-fn #((rf/view :app/root))}))
-          "rf2-1oxjxk: hydrate! completes without a spurious mismatch throw
+          "hydrate! completes without a spurious mismatch throw
            and returns the applied payload"))))
 
 ;; ===========================================================================
-;; rf2-lm2yzy — the shipped ssr-handler → documented ssr/hydrate! round-trip
+;; The shipped ssr-handler → documented ssr/hydrate! round-trip
 ;; completes WITHOUT :rf.error/hydration-frame-id-mismatch, driving the REAL
 ;; wire payload (no strip, no re-stamp).
 ;;
-;; Pre-fix, `build-payload` stamped the per-request server gensym as the
-;; payload's `:rf/frame-id`; the client boot hydrates a STABLE id (`:app/main`),
-;; so `validate-payload-frame-id!` threw on EVERY page. The framework's own
-;; tests stripped/re-stamped the id and the example omitted it while
-;; documenting "never a per-request gensym" — the shipped handler emitted
-;; exactly what the example forbade. This regression pins the fix on the REAL
-;; wire payload.
+;; The client boot hydrates a STABLE id (`:app/main`), so a `build-payload`
+;; that stamped the per-request server gensym as the payload's `:rf/frame-id`
+;; would make `validate-payload-frame-id!` throw on EVERY page. A test that
+;; strips or re-stamps the id cannot see that, so this one pins the omission
+;; on the REAL wire payload.
 ;; ===========================================================================
 
 (deftest shipped-handler-hydrates-without-frame-id-mismatch
-  (testing "rf2-lm2yzy: the REAL payload the shipped ssr-handler emits feeds
+  (testing "the REAL payload the shipped ssr-handler emits feeds
             into the documented ssr/hydrate! {:frame :app/main} with NO
             :rf.error/hydration-frame-id-mismatch (the anonymous per-request
             frame is omitted from the wire) and seeds the client app-db"
@@ -1160,18 +1153,18 @@
           payload     (edn/read-string payload-edn)
           ;; The client's fixed hydration target — a STABLE id, as every real
           ;; deployment carries (Spec 011 §Client-side hydration boot helper).
-          _           (rf/make-frame {:id :app/main :doc "lm2yzy client" :platform :client})]
+          _           (rf/make-frame {:id :app/main :doc "stable-id client" :platform :client})]
       (is (= 200 (:status response)))
       (is (not (contains? payload :rf/frame-id))
-          "rf2-lm2yzy: the shipped wire payload omits the per-request gensym :rf/frame-id")
-      ;; THE REGRESSION — must NOT throw. Pre-fix this threw
-      ;; :rf.error/hydration-frame-id-mismatch on the gensym vs :app/main.
+          "the shipped wire payload omits the per-request gensym :rf/frame-id")
+      ;; THE REGRESSION — must NOT throw. A stamped gensym would throw
+      ;; :rf.error/hydration-frame-id-mismatch against :app/main.
       (is (= payload (rf.ssr/hydrate! {:frame :app/main :payload payload}))
-          "rf2-lm2yzy: documented hydrate! completes without a frame-id mismatch")
+          "documented hydrate! completes without a frame-id mismatch")
       (is (= 42 (:count (rf/app-db-value :app/main)))
           "the client app-db carries the server's seeded slice after hydration")))
 
-  (testing "rf2-lm2yzy: a deployment MAY name a stable wire id via
+  (testing "a deployment MAY name a stable wire id via
             :client-frame-id — the payload then stamps it, and hydrate! into
             the SAME frame succeeds"
     (rf/reg-event :rf.lm2yzy/init2 (fn [{:keys [db]} _] {:db (assoc db :count 7)}))
@@ -1186,20 +1179,20 @@
                         (second (re-find
                                   #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
                                   (:body response))))
-          _           (rf/make-frame {:id :app/stamped :doc "lm2yzy stamped" :platform :client})]
+          _           (rf/make-frame {:id :app/stamped :doc "stamped-id client" :platform :client})]
       (is (= :app/stamped (:rf/frame-id payload))
           "the configured stable :client-frame-id rides the wire as :rf/frame-id")
       (is (= payload (rf.ssr/hydrate! {:frame :app/stamped :payload payload}))
           "hydrate! into the matching stable frame succeeds (no mismatch)"))))
 
 ;; ===========================================================================
-;; ssr-handler — Ring → :rf.server/request cofx (rf2-afxhv)
+;; ssr-handler — Ring → :rf.server/request cofx
 ;;
 ;; The canonical Ring-adapter ↔ cofx boundary. Per Spec 011 §Request
 ;; storage substrate, the host adapter populates the per-frame request
 ;; slot before drain; a handler declares `:rf.cofx/requires
 ;; [:rf.server/request]` and the `:rf.server/request` cofx reads from the
-;; slot at context assembly (EP-0017 — `inject-cofx` is removed). This test
+;; slot at context assembly (EP-0017; there is no `inject-cofx`). This test
 ;; pins the wiring end-to-end — if the adapter forgets to call
 ;; `set-request!`, the cofx surfaces `nil` and this assertion fails.
 ;; ===========================================================================
@@ -1234,7 +1227,7 @@
       (rf/reg-event :init/capture-frame-id
         {:platforms #{:server}}
         ;; The running frame's stamp reaches the event context under
-        ;; :rf.frame/id (rf2-1m6rf1 — the bare :frame coeffect is retired).
+        ;; :rf.frame/id (there is no bare :frame coeffect).
         (fn [{frame :rf.frame/id} _]
           (reset! captured-fid frame)
           {}))
@@ -1273,14 +1266,14 @@
             "each request's handler saw its own URI — no slot bleed")))))
 
 ;; ===========================================================================
-;; rf2-kzns7l — :initial-events accepts a (fn [request] initial-events-vector) form
+;; :initial-events accepts a (fn [request] initial-events-vector) form
 ;;
-;; Additive convenience: alongside the :initial-events VECTOR, a 1-arity fn
+;; Alongside the :initial-events VECTOR, a 1-arity fn
 ;; may DERIVE the setup vector from the Ring request. It is called once per
 ;; request (before the drain) and its result must be an :initial-events vector.
 ;; This is the ergonomic, replay-safe way to fold a request-derived fact into
 ;; a boot event's PAYLOAD (the recordable causal boundary — Spec 011
-;; §Durable request-derived facts), NOT the removed positional-conj helper.
+;; §Durable request-derived facts), NOT a positional conj onto the event.
 ;; ===========================================================================
 
 (defn- extract-user
@@ -1344,7 +1337,7 @@
             "the fn fired exactly once per request, each with that request's URI")))))
 
 (deftest initial-events-vector-form-still-works
-  (testing "the :initial-events VECTOR form is preserved verbatim"
+  (testing "the :initial-events VECTOR form dispatches verbatim"
     (let [seen (atom false)]
       (rf/reg-event :init/plain
         {:platforms #{:server}}
@@ -1397,18 +1390,17 @@
 (deftest resolve-root-view-invalid-shape-unit-contract
   (testing "lifecycle/resolve-root-view — hiccup passthrough, 0-arity fn
             resolution, and the :else invalid-shape throw (unit).
-            Sibling to initial-events-resolve-fn-unit-contract:
-            resolve-initial-events! has a dedicated invalid-shape unit but the
-            resolve-root-view :else arm (lifecycle.clj:186-193) — which throws
+            Sibling to initial-events-resolve-fn-unit-contract: the
+            resolve-root-view :else arm throws
             :rf.error/invalid-root-view for a value that is neither a hiccup
-            vector nor a 0-arity fn — was untested (rf2-njkw94)."
+            vector nor a 0-arity fn."
     ;; A hiccup vector passes through verbatim.
     (is (= [:div "x"] (rf.ssr.ring.lifecycle/resolve-root-view [:div "x"])))
     ;; A 0-arity fn is invoked exactly once; its hiccup result is returned.
     (let [calls (atom 0)]
       (is (= [:section] (rf.ssr.ring.lifecycle/resolve-root-view
                           (fn [] (swap! calls inc) [:section]))))
-      (is (= 1 @calls) "the fn-form is resolved exactly once (rf2-6t36h)"))
+      (is (= 1 @calls) "the fn-form is resolved exactly once"))
     ;; Every non-vector, non-fn shape hits the :else arm and throws the
     ;; canonical :rf.error/invalid-root-view — pinned across scalar shapes so
     ;; the fail-closed branch (not accidental happy-path fallthrough) fires.
@@ -1432,22 +1424,21 @@
 ;; ===========================================================================
 ;; ssr-handler — :ssr opt reaches the per-request frame's :ssr metadata
 ;;
-;; Regression (rf2-8cx3y): the docstring documented `:ssr` but the
-;; destructure read `:ssr-config`, so any caller passing
-;; `{:ssr {:dev-error-detail? true ...}}` had it silently dropped —
-;; `cond->` never asserted the key onto the per-request frame config,
-;; and the default projector ran regardless of the caller's intent.
-;; Pre-alpha: no back-compat — `:ssr` is now the canonical name and
-;; matches both `rf/make-frame`'s frame-config key and Spec 011.
+;; `:ssr` is the canonical name and matches both `rf/make-frame`'s
+;; frame-config key and Spec 011. A destructure reading any other key
+;; (e.g. `:ssr-config`) would silently drop a caller's
+;; `{:ssr {:dev-error-detail? true ...}}` — `cond->` would never assert the
+;; key onto the per-request frame config, and the default projector would
+;; run regardless of the caller's intent.
 ;; ===========================================================================
 
 (deftest handler-passes-through-ssr-opt-to-frame-meta
-  (testing ":ssr opt → per-request frame's :ssr metadata (rf2-8cx3y)"
+  (testing ":ssr opt → per-request frame's :ssr metadata"
     (let [captured (atom :unset)]
       (rf/reg-event :init/capture-ssr-meta
         {:platforms #{:server}}
         ;; The running frame's stamp reaches the event context under
-        ;; :rf.frame/id (rf2-1m6rf1 — the bare :frame coeffect is retired).
+        ;; :rf.frame/id (there is no bare :frame coeffect).
         (fn [{frame :rf.frame/id} _]
           (reset! captured (:ssr (rf/frame-meta frame)))
           {}))
@@ -1503,7 +1494,7 @@
       (is (not (str/includes? body "admin-flag"))))))
 
 (deftest handler-emits-serializable-runtime-db-slice
-  ;; EP-0001 (rf2-30kzz2): the server-side payload producer emits the
+  ;; EP-0001: the server-side payload producer emits the
   ;; serializable runtime-db slice (machine snapshots, route :current slice)
   ;; as `:rf/runtime-db` so the client `:rf/hydrate` handler installs a
   ;; coherent frame-state. Transient runtime-db state (scroll-position cache)
@@ -1544,7 +1535,7 @@
           "the transient scroll-position cache is excluded from the wire payload"))))
 
 ;; ===========================================================================
-;; ssr-handler — explicit fail-closed payload policy (rf2-gtgf9)
+;; ssr-handler — explicit fail-closed payload policy
 ;;
 ;; The wire-level proof that the policy contract is fail-closed:
 ;;
@@ -1558,7 +1549,7 @@
 ;;      that key MUST NOT appear in the hydration payload on the
 ;;      wire. The contract requires the allowlist; an un-permitted
 ;;      slot is provably excluded by inspection of the wire payload
-;;      (rf2-gtgf9: no default-whole-app-db fallback exists, so
+;;      (no default-whole-app-db fallback exists, so
 ;;      server-only keys cannot ride the wire silently).
 ;;
 ;;   3. The opt-in branch — `:payload :rf.ssr.payload/whole-app-db`
@@ -1572,7 +1563,7 @@
 ;; ===========================================================================
 
 (deftest handler-construction-fails-closed-when-no-policy-supplied
-  (testing "rf2-gtgf9: ssr-handler with no :payload opt throws
+  (testing "ssr-handler with no :payload opt throws
             :rf.error/ssr-missing-payload-policy at construction time —
             the canonical fail-closed pattern. Misconfigured deployments
             fail at boot, not at first request."
@@ -1586,11 +1577,11 @@
             {:initial-events [[:init/no-policy]]
              :root-view [(rf/view :pages/no-policy)]}))
         "ssr-handler MUST throw at construction time when the policy
-         is unset — Spec 011 §Payload scope (canonical boundary) +
-         rf2-gtgf9 fail-closed contract")))
+         is unset — Spec 011 §Payload scope (canonical boundary)
+         fail-closed contract")))
 
 (deftest stream-handler-construction-fails-closed-when-no-policy-supplied
-  (testing "rf2-gtgf9: stream-handler shares the policy contract —
+  (testing "stream-handler shares the policy contract —
             mirror of ssr-handler-construction test for the chunked
             host adapter"
     (rf/reg-event :init/no-policy-stream {:platforms #{:server}} (fn [_ _] {}))
@@ -1605,16 +1596,16 @@
         "stream-handler MUST throw at construction time when the
          policy is unset — same fail-closed contract as ssr-handler")))
 
-;; rf2-ee38b.11 — stream-handler MUST run the SAME required-opt
+;; stream-handler MUST run the SAME required-opt
 ;; (:initial-events / :root-view) construction-time validation ssr-handler
-;; does. Pre-fix it only checked the policy + trusted-shell opts, so a
-;; misconfigured streaming handler shipped and failed per-request
-;; (missing :initial-events → 500; missing :root-view → silently-truncated
-;; chunked response from the writer thread) instead of refusing to
-;; construct. Now both share `lifecycle/validate-required-opts!`.
+;; does — both share `lifecycle/validate-required-opts!`. Checking only the
+;; policy + trusted-shell opts would let a misconfigured streaming handler
+;; ship and fail per-request (missing :initial-events → 500; missing
+;; :root-view → silently-truncated chunked response from the writer thread)
+;; instead of refusing to construct.
 
 (deftest ssr-handler-construction-fails-closed-when-missing-initial-events
-  (testing "rf2-ee38b.11: ssr-handler with no :initial-events throws
+  (testing "ssr-handler with no :initial-events throws
             :rf.error/ssr-ring-missing-initial-events at construction"
     (rf/reg-view* :pages/no-oncreate (fn [] [:div]))
     (is (thrown-with-msg?
@@ -1625,9 +1616,9 @@
              :payload :rf.ssr.payload/whole-app-db})))))
 
 (deftest stream-handler-construction-fails-closed-when-missing-initial-events
-  (testing "rf2-ee38b.11: stream-handler with no :initial-events throws
+  (testing "stream-handler with no :initial-events throws
             :rf.error/ssr-ring-missing-initial-events at construction — same
-            fail-closed contract as ssr-handler (was missing pre-fix)"
+            fail-closed contract as ssr-handler"
     (rf/reg-view* :pages/no-oncreate-stream (fn [] [:div]))
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
@@ -1637,10 +1628,10 @@
              :payload :rf.ssr.payload/whole-app-db})))))
 
 (deftest stream-handler-construction-fails-closed-when-missing-root-view
-  (testing "rf2-ee38b.11: stream-handler with no :root-view throws
-            :rf.error/ssr-ring-missing-root-view at construction — pre-fix
-            this surfaced only inside the writer thread, truncating the
-            chunked response instead of failing at boot"
+  (testing "stream-handler with no :root-view throws
+            :rf.error/ssr-ring-missing-root-view at construction — failing
+            at boot rather than inside the writer thread, where it would
+            truncate the chunked response"
     (rf/reg-event :init/no-rootview-stream {:platforms #{:server}} (fn [_ _] {}))
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
@@ -1650,7 +1641,7 @@
              :payload :rf.ssr.payload/whole-app-db})))))
 
 (deftest fail-closed-proof-unpermitted-slot-not-on-wire
-  (testing "rf2-gtgf9 FAIL-CLOSED PROOF: a server-only app-db key NOT in
+  (testing "FAIL-CLOSED PROOF: a server-only app-db key NOT in
             the :payload allowlist MUST NOT appear in the
             hydration-payload script tag's EDN body. Without the
             allowlist gate an unaudited new app-db key would silently
@@ -1664,7 +1655,7 @@
               ;; allowlist below, so it MUST NOT appear in the
               ;; hydration payload. The string is unique enough that
               ;; the str/includes? check below is unambiguous.
-              :server-only/auth-token   "RF2_GTGF9_FAIL_CLOSED_PROBE_xyz789"
+              :server-only/auth-token   "FAIL_CLOSED_PAYLOAD_PROBE_xyz789"
               :server-only/feature-flag :flag/internal-only
               :server-only/admin-uid    "admin-42"}}))
 
@@ -1699,20 +1690,19 @@
            dropping everything by accident)")
 
       ;; THE FAIL-CLOSED PROOF: the un-permitted slot's value MUST
-      ;; NOT appear in the wire payload. Under rf2-gtgf9 the allowlist
-      ;; is load-bearing — this assertion is what the security audit
-      ;; asked for.
-      (is (not (str/includes? payload-edn "RF2_GTGF9_FAIL_CLOSED_PROBE_xyz789"))
-          "rf2-gtgf9 fail-closed proof: an un-permitted server-only
+      ;; NOT appear in the wire payload. The allowlist
+      ;; is load-bearing — this assertion is the security proof.
+      (is (not (str/includes? payload-edn "FAIL_CLOSED_PAYLOAD_PROBE_xyz789"))
+          "fail-closed proof: an un-permitted server-only
            key's value does NOT appear in the wire hydration payload.")
       (is (not (str/includes? payload-edn "feature-flag"))
-          "rf2-gtgf9: the un-permitted key NAME also does not leak —
+          "the un-permitted key NAME also does not leak —
            neither key nor value reaches the wire")
       (is (not (str/includes? payload-edn "admin-uid"))
-          "rf2-gtgf9: belt-and-braces over multiple un-permitted slots"))))
+          "belt-and-braces over multiple un-permitted slots"))))
 
 (deftest payload-policy-whole-app-db-opt-in-ships-everything
-  (testing "rf2-gtgf9: explicit :payload :rf.ssr.payload/whole-app-db is
+  (testing "explicit :payload :rf.ssr.payload/whole-app-db is
             the documented opt-in for apps whose entire app-db is intended
             for the wire"
     (rf/reg-event :init/wholeapp
@@ -1743,7 +1733,7 @@
           ":public/theme reached the wire under the whole-app-db opt-in"))))
 
 (deftest handler-construction-rejects-unknown-policy-keyword
-  (testing "rf2-gtgf9 / rf2-pffil: a typo'd :payload keyword surfaces as a
+  (testing "a typo'd :payload keyword surfaces as a
             distinct error so the developer can tell the failure modes apart"
     (rf/reg-event :init/typo-policy {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/typo-policy (fn [] [:div]))
@@ -1760,7 +1750,7 @@
          :rf.error/ssr-unknown-payload-policy")))
 
 ;; ===========================================================================
-;; ssr-handler / stream-handler — trusted shell-hook contract (rf2-o6ndb)
+;; ssr-handler / stream-handler — trusted shell-hook contract
 ;;
 ;; The four shell-envelope opts that cross the trust boundary into the
 ;; rendered HTML response — `:head`, `:body-end`, `:script-src`,
@@ -1768,7 +1758,7 @@
 ;; hook contract. They split by injection position: `:head` / `:body-end`
 ;; are RAW content hooks (injected verbatim), while `:script-src` /
 ;; `:app-element-id` are escaped attribute hooks (escape-attr'd into a
-;; quoted attribute value, rf2-7x0qk — pinned below). The framework names
+;; quoted attribute value — pinned below). The framework names
 ;; the trust boundary (so apps reading any of them from untrusted input
 ;; know they are opting into an arbitrary-script-injection XSS vector via
 ;; the raw content hooks) AND structurally validates the shape at
@@ -1783,7 +1773,7 @@
 ;; ===========================================================================
 
 (deftest handler-construction-rejects-non-string-trusted-shell-opts
-  (testing "rf2-o6ndb: ssr-handler structural-shape-checks the four
+  (testing "ssr-handler structural-shape-checks the four
             trusted-shell-hook opts at construction time"
     (rf/reg-event :init/trusted-opt-test
                      {:platforms #{:server}} (fn [_ _] {}))
@@ -1794,8 +1784,8 @@
                      :payload [:public/x]}]
 
       (testing "each of the four trusted-string opts is rejected when
-                supplied a non-string non-nil value (per the bead's
-                'validate STRINGS, not maps/symbols/etc' requirement)"
+                supplied a non-string non-nil value (strings only, not
+                maps/symbols/etc)"
         (doseq [[opt-k bad-vals]
                 {:head            [{:title "x"}             ; map
                                    [:head [:title "x"]]     ; vector (hiccup)
@@ -1829,7 +1819,7 @@
                         (assoc base-opts :body-end {:script "evil"}))
                       (catch clojure.lang.ExceptionInfo e e))]
           (is (some? ex) "an exception was thrown")
-          ;; rf2-vvixub — branch on the canonical :rf.error/id; the message is
+          ;; Branch on the canonical :rf.error/id; the message is
           ;; the human :reason + the [:rf.error/<id>] token (non-normative bytes).
           (is (= :rf.error/ssr-trusted-shell-opt-invalid
                  (:rf.error/id (ex-data ex))))
@@ -1839,7 +1829,7 @@
 
       (testing "strings pass through unchanged — the framework names
                 the boundary but does not gate the content; the
-                trust call itself remains the caller's"
+                trust call itself is the caller's"
         (is (fn? (rf.ssr.ring/ssr-handler
                    (assoc base-opts
                           :head           "<title>OK</title>"
@@ -1850,8 +1840,8 @@
 
       (testing "nil values pass — explicit nil signals 'no override,
                 use the default'; the construction-time check accepts it
-                AND the page renders the defaults (rf2-3x7nj.14.3: this used
-                to check construction only, so it could not see nil drop the
+                AND the page renders the defaults (a construction-only check
+                could not see nil drop the
                 bootstrap script and render id=\"\")"
         (let [body (:body ((rf.ssr.ring/ssr-handler
                              (assoc base-opts
@@ -1871,7 +1861,7 @@
         (is (fn? (rf.ssr.ring/ssr-handler base-opts)))))))
 
 (deftest stream-handler-construction-rejects-non-string-trusted-shell-opts
-  (testing "rf2-o6ndb: stream-handler shares the trusted-shell-hook
+  (testing "stream-handler shares the trusted-shell-hook
             structural contract — mirror of the ssr-handler test for the
             chunked host adapter. The streaming prefix/suffix routes the
             same four opts into the rendered HTML envelope (:head /
@@ -1906,14 +1896,14 @@
                           :app-element-id "root"))))))))
 
 ;; ===========================================================================
-;; rf2-3x7nj.14.3 — nil means "use the default" for every shell opt, and
+;; Nil means "use the default" for every shell opt, and
 ;; `:script-src false` is the one spelling for "emit no bootstrap script".
 ;;
-;; The shell destructured its defaults with `:or`, which fires only for an
+;; Defaults destructured with `:or` would fire only for an
 ;; ABSENT key, so an explicit nil — the ordinary result of
-;; `{:script-src (:script-src cfg)}` with the key absent from `cfg` — was used
+;; `{:script-src (:script-src cfg)}` with the key absent from `cfg` — would be used
 ;; as the value: no bootstrap `<script src>`, `<div id="">`, `<html>` with no
-;; lang, and on ssr-handler `:html-shell nil` answered 500 on every request.
+;; lang, and on ssr-handler `:html-shell nil` a 500 on every request.
 ;; ===========================================================================
 
 (defn- render-both-handlers
@@ -1936,7 +1926,7 @@
   (mapv second (re-seq #"src=\"([^\"]*)\"" html)))
 
 (deftest explicit-nil-shell-opts-render-the-defaults
-  (testing "rf2-3x7nj.14.3: an explicit nil on a shell opt renders exactly as
+  (testing "an explicit nil on a shell opt renders exactly as
             the absent key, on both handlers"
     (rf/reg-event :init/nil-shell-opts {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/nil-shell-opts (fn [] [:div "nil-shell body"]))
@@ -1959,7 +1949,7 @@
         (is (str/includes? body "<html lang=\"en\">")
             (str label ", " mode ": the default lang")))
 
-      (testing "explicit strings still pass through (control)"
+      (testing "explicit strings pass through (control)"
         (doseq [[mode _status body] (render-both-handlers
                                       (assoc base
                                              :script-src     "/custom-bootstrap.js"
@@ -1968,7 +1958,7 @@
           (is (str/includes? body "<div id=\"root\"") (str mode))))
 
       (testing ":html-shell nil on ssr-handler falls back to default-html-shell
-                (it used to answer 500 on every request)"
+                (not a 500 on every request)"
         (let [response ((rf.ssr.ring/ssr-handler (assoc base :html-shell nil))
                         {:uri "/" :request-method :get})]
           (is (= 200 (:status response)))
@@ -1976,7 +1966,7 @@
           (is (= ["/main.js"] (script-srcs (:body response)))))))))
 
 (deftest script-src-false-emits-no-bootstrap-script
-  (testing "rf2-3x7nj.14.3: `:script-src false` constructs on both handlers
+  (testing "`:script-src false` constructs on both handlers
             and emits no bootstrap `<script src>`; the hydration payload and
             the caller's `:body-end` bootstrap are untouched"
     (rf/reg-event :init/no-bootstrap {:platforms #{:server}} (fn [_ _] {}))
@@ -1999,7 +1989,7 @@
         (is (str/includes? body "id=\"__rf_payload\"")
             (str mode ": the hydration payload script still ships")))))
 
-  (testing "rf2-3x7nj.14.3 control: the `false` carve-out is `:script-src`
+  (testing "control: the `false` carve-out is `:script-src`
             only — `:app-element-id false` is still refused"
     (let [opts {:initial-events [[:init/no-bootstrap]]
                 :root-view      [(rf/view :pages/no-bootstrap)]
@@ -2011,7 +2001,7 @@
                     (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e))))))))))
 
 (deftest top-level-lang-nil-defaults-but-html-attrs-bag-stays-verbatim
-  (testing "rf2-3x7nj.14.3: a top-level `:lang nil` falls back to \"en\", while
+  (testing "a top-level `:lang nil` falls back to \"en\", while
             the head model's `:html-attrs` bag stays verbatim — `{:lang nil}`
             there still omits the attribute (control)"
     (is (str/includes? (rf.ssr.ring/default-html-shell "b" "{}" {:lang nil})
@@ -2021,14 +2011,14 @@
                        "<html data-x=\"1\">"))))
 
 ;; ===========================================================================
-;; rf2-7x0qk — :app-element-id and :script-src are ATTRIBUTE-VALUE positions,
+;; :app-element-id and :script-src are ATTRIBUTE-VALUE positions,
 ;; escape-attr'd at the shell so a stray double-quote can't break out of the
 ;; attribute and emit structurally-broken markup. Contrast :head / :body-end
 ;; (content positions) which stay RAW. Structural-correctness, not a sandbox.
 ;; ===========================================================================
 
 (deftest shell-escapes-attribute-value-opts-app-id-and-script-src
-  (testing "rf2-7x0qk: default-html-shell escapes :app-element-id and
+  (testing "default-html-shell escapes :app-element-id and
             :script-src as attribute values — a quote-bearing value
             cannot break out of the double-quoted attribute"
     (let [;; A quote-bearing-but-otherwise-trusted value: an asset URL the
@@ -2049,14 +2039,14 @@
       (is (str/includes? html "src=\"/main.js?v=&quot;x&quot;\"")
           ":script-src quote is escape-attr'd to &quot;")))
 
-  (testing "rf2-7x0qk: an ampersand in :script-src (legal query-string
+  (testing "an ampersand in :script-src (legal query-string
             separator) is escape-attr'd to &amp; — lossless, position-correct"
     (let [html (rf.ssr.ring/default-html-shell
                  "body" "{}" {:script-src "/main.js?a=1&b=2"})]
       (is (str/includes? html "src=\"/main.js?a=1&amp;b=2\"")
           "& in the URL is encoded as &amp; (the attribute-value escape)")))
 
-  (testing "rf2-7x0qk: benign values are unaffected (escape-attr only
+  (testing "benign values are unaffected (escape-attr only
             touches & and \") — the common case round-trips verbatim"
     (let [html (rf.ssr.ring/default-html-shell
                  "body" "{}" {:app-element-id "root" :script-src "/bootstrap.js"})]
@@ -2064,7 +2054,7 @@
       (is (str/includes? html "src=\"/bootstrap.js\"")))))
 
 (deftest streaming-prefix-suffix-escape-attribute-value-opts
-  (testing "rf2-7x0qk: the streaming prefix/suffix share the attribute-value
+  (testing "the streaming prefix/suffix share the attribute-value
             escaping with the non-streaming shell — :app-element-id in the
             prefix, :script-src in the suffix"
     (let [prefix-fn (requiring-resolve
@@ -2083,7 +2073,7 @@
           "no raw quote breakout in the streaming suffix"))))
 
 ;; ===========================================================================
-;; rf2-od9fet — single-source document envelope. `default-html-shell` and the
+;; Single-source document envelope. `default-html-shell` and the
 ;; streaming prefix/suffix compose the SAME `shell/document-prefix` /
 ;; `shell/document-suffix` renderers, so the non-streaming shell is
 ;; byte-identical to prefix + body + `</div>` + payload-script + suffix. A
@@ -2093,7 +2083,7 @@
 ;; ===========================================================================
 
 (deftest default-html-shell-composes-from-shared-envelope-renderers
-  (testing "rf2-od9fet: default-html-shell == default-streaming-prefix
+  (testing "default-html-shell == default-streaming-prefix
             (render-hash nil) + body + </div> + payload-script-tag +
             default-streaming-suffix — the two response modes single-source
             the envelope, so security-load-bearing escaping cannot diverge"
@@ -2131,7 +2121,7 @@
           "the head-hash marker rides the shared prefix"))))
 
 (deftest streaming-prefix-render-hash-is-the-only-mode-divergence
-  (testing "rf2-od9fet: the ONLY prefix divergence between response modes is
+  (testing "the ONLY prefix divergence between response modes is
             the explicit render-hash arg — the streaming prefix stamps
             data-rf-render-hash on #app when supplied; a render-hash-less
             call matches the non-streaming shell's marker-free #app root"
@@ -2148,7 +2138,7 @@
 
 ;; ===========================================================================
 ;; default-html-shell — title is sourced from the head fragment, never the
-;; shell. Two <title> tags per document is malformed HTML (rf2-3z841).
+;; shell. Two <title> tags per document is malformed HTML.
 ;; ===========================================================================
 
 (deftest default-shell-emits-exactly-one-title-when-route-declares-head
@@ -2160,7 +2150,7 @@
     (rf/reg-route :route/x
                   {:doc  "Route x"
                    :head :head/main} "/")
-    ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
+    ;; EP-0001: the route slice is durable routing runtime-db state.
     (rf/reg-event :init/seed-route
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/x})}))
@@ -2183,10 +2173,9 @@
           "the head fragment's title is what reaches the wire"))))
 
 (deftest default-shell-emits-no-title-when-no-route-head
-  (testing "rf2-3x7nj.14.4: no route :head → head-model returns default-head,
+  (testing "no route :head → head-model returns default-head,
             whose :title is the frame's :doc or \"\". The adapter's request
-            frame carries no :doc, so the page ships NO <title> — before the
-            fix every such page was titled `ssr-ring per-request frame`."
+            frame carries no :doc, so the page ships NO <title>."
     (rf/reg-view* :pages/blank-no-head (fn [] [:div]))
     (rf/reg-event :init/noop (fn [{:keys [db]} _] {:db db}))
     (rf/reg-route :route/no-head {:doc "Route without :head"} "/")
@@ -2205,7 +2194,7 @@
           (str label ", " mode ": no <title> — the adapter never titles a page")))))
 
 (deftest a-page-title-comes-from-the-route-head-or-the-head-string
-  (testing "rf2-3x7nj.14.4 controls: a route :head title, and a whole-head
+  (testing "controls: a route :head title, and a whole-head
             :head string, each render their title exactly once on both
             handlers"
     (rf/reg-head :head/my-page (fn [_db _route] {:title "My Page"}))
@@ -2255,14 +2244,14 @@
            (no shell fallback)"))))
 
 ;; ===========================================================================
-;; default-html-shell — :html-attrs / :body-attrs honoured (rf2-h2ujj).
+;; default-html-shell — :html-attrs / :body-attrs honoured.
 ;;
 ;; Per Spec 011 §Head/meta: the head model carries `:html-attrs` /
 ;; `:body-attrs` bags; the host shell stamps them on the opening
 ;; `<html>` / `<body>` tags. Serialisation goes through the shared
 ;; `re-frame.ssr.html-helpers/attr-string` helper — the SAME function the
 ;; hiccup element emitter uses — so the bags obey one rule with it and
-;; there is no separate shell contract (rf2-r9kf). `nil` omits the
+;; there is no separate shell contract. `nil` omits the
 ;; attribute; every other value is `escape-attr`-escaped (`&` and `"`
 ;; only, since the bag is emitted inside double-quoted attribute values);
 ;; and a BOOLEAN is rendered by its attribute's CLASS per Spec 004B
@@ -2283,7 +2272,7 @@
 (deftest default-shell-stamps-html-attrs-and-body-attrs
   (testing "head model with :html-attrs + :body-attrs → both bags reach
             the wire on the opening tags; :html-attrs :lang wins over the
-            :lang opt (Spec 011 §Head/meta line 478, line 516)."
+            :lang opt (Spec 011 §Head/meta contract)."
     (register-attrs-app! {:html-attrs {:lang "fr" :data-theme "dark"}
                           :body-attrs {:class "page-article"}})
 
@@ -2340,7 +2329,7 @@
   (testing "attr-string serialisation contract on the shell bags — `nil` →
             omitted, other values → escape-attr-escaped (`&` and `\"`), and a
             boolean by its attribute's CLASS rather than by the value alone
-            (Spec 004B §Booleans and their neighbours, rf2-r9kf): a `data-*`
+            (Spec 004B §Booleans and their neighbours): a `data-*`
             boolean stringifies BOTH true and false, while a true boolean
             attribute keeps presence semantics. The shell shares one
             serialiser with the hiccup element emitter, so it shares one
@@ -2417,15 +2406,14 @@
         (is (str/includes? (:body ssr-response) "<!DOCTYPE html>"))))))
 
 ;; ===========================================================================
-;; hydration-payload-omits-rf-response-accumulator (rf2-jbcmt)
+;; hydration-payload-omits-rf-response-accumulator
 ;;
-;; Privacy regression — per Spec 011 §Response storage substrate the HTTP
-;; response accumulator MUST NOT ride `app-db`. Earlier drafts stored the
-;; accumulator at `[:rf/response]` in the request frame's app-db; without
-;; explicit `:payload` allowlist filtering, the hydration payload at
-;; `build-payload` shipped the whole app-db (with the accumulator's
-;; server-only Set-Cookie / X-* headers / redirect locations) onto the
-;; client wire. The rf2-jbcmt fix moved storage to a framework-private
+;; Privacy — per Spec 011 §Response storage substrate the HTTP
+;; response accumulator MUST NOT ride `app-db`. Stored at `[:rf/response]`
+;; in the request frame's app-db, without explicit `:payload` allowlist
+;; filtering the hydration payload at `build-payload` would ship the whole
+;; app-db (with the accumulator's server-only Set-Cookie / X-* headers /
+;; redirect locations) onto the client wire. Storage is a framework-private
 ;; side-channel atom keyed by frame-id (`re-frame.ssr/response-slots`)
 ;; so the accumulator can NEVER reach the hydration payload — the
 ;; privacy boundary is self-enforcing at the storage layer rather than
@@ -2443,7 +2431,7 @@
 ;; ===========================================================================
 
 (deftest hydration-payload-omits-rf-response-accumulator
-  (testing "rf2-jbcmt: the :rf/response accumulator is side-channel — it
+  (testing "the :rf/response accumulator is side-channel — it
             never appears in the hydration payload, even when a login-shape
             request sets server-only cookies / headers / status"
     (rf/reg-event :auth/login
@@ -2478,7 +2466,7 @@
                        :payload :rf.ssr.payload/whole-app-db})
           response  (handler {:uri            "/dashboard"
                               :request-method :get
-                              :headers        {"user-agent" "rf2-jbcmt-leak-probe"}})
+                              :headers        {"user-agent" "accumulator-leak-probe"}})
           body      (:body response)
           ;; The payload script tag's contents are EDN per the default
           ;; html-shell — `<script id="__rf_payload" type="application/edn">
@@ -2501,22 +2489,21 @@
       ;; (b) The :rf/response accumulator key itself MUST NOT appear in
       ;; the payload — the side-channel substrate guarantees this.
       (is (not (str/includes? payload-edn ":rf/response"))
-          "rf2-jbcmt: payload does NOT carry :rf/response — the accumulator
+          "payload does NOT carry :rf/response — the accumulator
            lives in a framework-private side-channel atom, not in app-db")
 
       ;; (c) The server-only secret values MUST NOT appear in the payload.
-      ;; rf2-jbcmt strips `[:rf/response :cookies ...]` /
-      ;; `[:rf/response :headers ...]` from the app-db slice before it
-      ;; reaches the wire — Set-Cookie / X-Secret-Header values live in
+      ;; The accumulator never enters the app-db slice, so
+      ;; Set-Cookie / X-Secret-Header values live in
       ;; the response headers ONLY, not also in the hydration payload.
       (is (not (str/includes? payload-edn "SUPER_SECRET_AUTH_TOKEN_xyz"))
-          "rf2-jbcmt: the Set-Cookie auth token does NOT leak into the
+          "the Set-Cookie auth token does NOT leak into the
            hydration payload")
       (is (not (str/includes? payload-edn "INTERNAL_ONLY_VALUE_abc"))
-          "rf2-jbcmt: the internal X-Secret-Header value does NOT leak
+          "the internal X-Secret-Header value does NOT leak
            into the hydration payload")
       (is (not (str/includes? payload-edn "stale-session"))
-          "rf2-jbcmt: even delete-cookie metadata stays server-side")
+          "even delete-cookie metadata stays server-side")
 
       ;; (d) The wire response DOES carry the Set-Cookie + X-Secret-Header.
       ;; The privacy contract is "side-channel only" — the values reach
@@ -2540,7 +2527,7 @@
             "X-Audit append-header reached the wire (multi-valued)")))))
 
 ;; ===========================================================================
-;; rf2-3fc89f.16 — mixed-case append-header pairs collapse to ONE Ring key
+;; Mixed-case append-header pairs collapse to ONE Ring key
 ;;
 ;; `:rf.server/append-header` preserves the caller's supplied spelling, so an
 ;; app can append the same logical header under inconsistent casing (`Vary`
@@ -2551,7 +2538,7 @@
 ;; ===========================================================================
 
 (deftest mixed-case-append-header-collapses-to-one-wire-key
-  (testing "rf2-3fc89f.16 (accept #5): mixed-case :rf.server/append-header
+  (testing "mixed-case :rf.server/append-header
             effects for one logical header materialise to exactly one Ring
             key carrying every value in declaration order"
     (rf/reg-event :vary/emit
@@ -2584,7 +2571,7 @@
           "every value present in declaration order under the first-seen key"))))
 
 ;; ===========================================================================
-;; rf2-nncni3 / rf2-depii — Content-Type override strips any casing (no dup)
+;; Content-Type override strips any casing (no dup)
 ;;
 ;; `headers->ring-map+content-type-override` force-replaces the accumulator's
 ;; Content-Type with a non-nil override, stripping EVERY existing
@@ -2593,13 +2580,12 @@
 ;; header names are case-insensitive tokens, so the strip must catch every
 ;; casing or a stale duplicate would ride the wire.
 ;;
-;; (rf2-nncni3 replaces the prior rf2-depii default-when-absent premise: the
-;; opt is now a genuine OVERRIDE, so the override value wins — not the
-;; caller's accumulator pair.)
+;; The opt is a genuine OVERRIDE, so the override value wins — not the
+;; caller's accumulator pair.
 ;; ===========================================================================
 
 (deftest content-type-override-replaces-any-casing
-  (testing "rf2-nncni3: a non-nil override strips a preexisting Content-Type
+  (testing "a non-nil override strips a preexisting Content-Type
             in ANY casing and leaves exactly one canonical key carrying the
             OVERRIDE value — no duplicate, no casing survivor"
     (let [fold (requiring-resolve
@@ -2621,16 +2607,16 @@
                    " — the override value wins over the accumulator's pair")))))))
 
 ;; ===========================================================================
-;; rf2-nncni3 — the handler :content-type opt is honored on the wire
+;; The handler :content-type opt is honored on the wire
 ;;
-;; The documented `:content-type` opt was a silent no-op: the runtime always
-;; seeds a Content-Type on the accumulator, so the earlier default-when-absent
-;; fold could never apply the opt. It is now a genuine OVERRIDE. These tests
+;; The runtime always seeds a Content-Type on the accumulator, so a
+;; default-when-absent fold could never apply the opt; it is a genuine
+;; OVERRIDE. These tests
 ;; pin the wire contract end-to-end through the full non-streaming handler:
 ;;   (a) a custom opt force-replaces the default seed on the wire,
-;;   (b) omitting the opt leaves the runtime's text/html seed unchanged,
+;;   (b) omitting the opt leaves the runtime's text/html seed in place,
 ;;   (c) omitting the opt leaves an app-set `:rf.server/set-header`
-;;       Content-Type in control (the opt no longer clobbers it).
+;;       Content-Type in control (an absent opt does not clobber it).
 ;; ===========================================================================
 
 (defn- response-content-type
@@ -2646,9 +2632,9 @@
                  (keys (:headers response)))))
 
 (deftest ssr-handler-honors-custom-content-type-opt
-  (testing "rf2-nncni3: a custom :content-type opt force-replaces the
-            runtime's default-seeded text/html on the wire — the documented
-            opt is no longer a silent no-op, and no duplicate key survives"
+  (testing "a custom :content-type opt force-replaces the
+            runtime's default-seeded text/html on the wire, and no
+            duplicate key survives"
     (rf/reg-event :init/ct-ok {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/ct-body (fn [] [:div "body"]))
     (let [handler  (rf.ssr.ring/ssr-handler
@@ -2665,7 +2651,7 @@
           "the custom :content-type opt is on the wire, not text/html"))))
 
 (deftest ssr-handler-default-content-type-is-html-when-opt-absent
-  (testing "rf2-nncni3: with NO :content-type opt the runtime's default seed
+  (testing "with NO :content-type opt the runtime's default seed
             (text/html; charset=utf-8) rides the wire unchanged"
     (rf/reg-event :init/ct-def {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/ct-def-body (fn [] [:div "body"]))
@@ -2680,7 +2666,7 @@
       (is (str/includes? ct "utf-8")))))
 
 (deftest ssr-handler-app-set-content-type-flows-when-opt-absent
-  (testing "rf2-nncni3: an app `:rf.server/set-header \"content-type\"` stays
+  (testing "an app `:rf.server/set-header \"content-type\"` stays
             in control when the handler passes NO :content-type opt — the opt
             default is nil, so it does not clobber the app's explicit value"
     (rf/reg-event :init/ct-appset
@@ -2700,19 +2686,19 @@
           "the app-set content-type flows to the wire when the opt is absent"))))
 
 ;; ===========================================================================
-;; rf2-d95m4i — non-streaming materialiser strips a stale app-set
+;; Non-streaming materialiser strips a stale app-set
 ;; Content-Length
 ;;
 ;; The non-streaming body is the adapter-assembled shell + hydration payload,
 ;; built AFTER the :initial-events drain, so an app-set fixed Content-Length
 ;; can never match it. Left in place a Ring server that honours the length
 ;; truncates the HTML (too short) or blocks the client (too long). The
-;; streaming path was hardened (rf2-h3dg0); this pins the same guarantee on
+;; streaming path strips it too; this pins the same guarantee on
 ;; the non-streaming sibling path.
 ;; ===========================================================================
 
 (deftest ssr-handler-strips-stale-app-set-content-length
-  (testing "rf2-d95m4i: an :initial-events-set Content-Length is stripped
+  (testing "an :initial-events-set Content-Length is stripped
             (case-insensitively) from the non-streaming Ring response so the
             server owns byte framing for the String body; the full HTML rides
             the wire, not truncated to the stale length"
@@ -2755,19 +2741,19 @@
            the response was not capped to the fake length"))))
 
 ;; ===========================================================================
-;; rf2-7ksyr — hydration payload </script> injection (security audit §P1)
+;; Hydration payload </script> injection
 ;;
 ;; A user-controlled string round-tripping through app-db that contains
 ;; `</script>` would close the `<script id="__rf_payload" ...>` envelope
 ;; and let attacker HTML follow — XSS via the standard hydration boot
-;; surface. The shell pre-escapes every `<` in the EDN string as `<`
-;; via `html-helpers/escape-script-body-string`. The EDN reader accepts
-;; `<` as a string escape for `<`, so the payload round-trips
+;; surface. The shell escapes every `<` inside an EDN string literal as
+;; `\u003c` via `html-helpers/escape-edn-script-body`. The EDN reader accepts
+;; `\u003c` as a string escape for `<`, so the payload round-trips
 ;; through `clojure.edn/read-string` on the client.
 ;; ===========================================================================
 
 (deftest hydration-payload-escapes-script-close-and-round-trips
-  (testing "rf2-7ksyr: a `</script>` substring in app-db cannot close the
+  (testing "a `</script>` substring in app-db cannot close the
             hydration payload script tag; the EDN reader still recovers
             the original string verbatim"
     (let [hostile "</script><script>alert('xss')</script>"]
@@ -2794,13 +2780,13 @@
              into the document context")
 
         ;; The escape sequence is what reaches the wire. Two `<` chars
-        ;; in the hostile literal → two < escapes.
+        ;; in the hostile literal → two `\u003c` escapes.
         (is (str/includes? body "\\u003c/script>\\u003cscript>alert")
             "`<` chars in the payload EDN are escaped as `\\u003c`")
 
         ;; The EDN reader on the client side must still recover the
         ;; original string from the escaped payload. Extract just the
-        ;; specific value's quoted literal and read it. `<` must be
+        ;; specific value's quoted literal and read it. `\u003c` must be
         ;; transparent to clojure.edn/read-string.
         (let [payload-edn (second
                            (re-find
@@ -2819,12 +2805,12 @@
           (is (some? literal)
               "the article-title's EDN string literal is locatable in the payload")
           (is (= hostile recovered)
-              "rf2-7ksyr: the EDN reader recovers the original hostile
+              "the EDN reader recovers the original hostile
                string verbatim — the `\\u003c` escape is transparent to
                clojure.edn/read-string"))))))
 
 (deftest hydration-payload-shell-helper-escapes-direct-call
-  (testing "rf2-7ksyr: default-html-shell directly — feeding it a payload
+  (testing "default-html-shell directly — feeding it a payload
             containing </script> must produce a body where the closing
             tag is broken, even before any runtime path. Pin the helper
             contract independent of the handler lifecycle."
@@ -2839,11 +2825,11 @@
       (is (str/includes? html "</script>")))))
 
 (deftest hydration-payload-edn-token-with-angle-round-trips
-  (testing "rf2-rdxxa: the final hydration payload round-trips a keyword KEY
+  (testing "the final hydration payload round-trips a keyword KEY
             and value carrying a non-breakout `<` (`:a<b`, `:<`) AND a string
             value carrying `</script>` — the EDN-aware escape neutralises the
             string-literal breakout WITHOUT corrupting the keyword tokens
-            (the regression the whole-string escape broke)."
+            (which a whole-string escape would corrupt)."
     ;; A payload mixing the dangerous-string case and the token-with-< case.
     (let [payload-edn (pr-str {:a<b 1
                                :tag :<
@@ -2864,11 +2850,11 @@
               :tag :<
               :public/title "</script><script>alert(1)</script>"}
              (clojure.edn/read-string body-edn))
-          "rf2-rdxxa: the EDN reader recovers the full payload verbatim — the
-           old whole-string `<`→`\\u003c` escape threw on `:a<b`"))))
+          "the EDN reader recovers the full payload verbatim — a
+           whole-string `<`→`\\u003c` escape would throw on `:a<b`"))))
 
 (deftest hydration-payload-edn-token-breakout-fails-loud
-  (testing "rf2-rdxxa: a `</` breakout precursor in a non-string TOKEN (a
+  (testing "a `</` breakout precursor in a non-string TOKEN (a
             symbol value `a</script>b` — valid, readable EDN printing a
             literal `</`) has no readable in-token EDN escape, so the shell
             fails loud rather than emitting a corrupted / breakout-bearing
@@ -2883,15 +2869,14 @@
                             (rf.ssr.ring/default-html-shell "body" payload-edn {}))))))
 
 (deftest shell-with-default-head-emits-exactly-one-charset-meta
-  (testing "rf2-q78s1: the default shell owns the baseline <meta charset>;
-            default-head no longer carries one, so a full document built
+  (testing "the default shell owns the baseline <meta charset>;
+            default-head carries none, so a full document built
             from default-head threaded through the shell has EXACTLY one
             charset meta (not two).
 
-            Reproduces the original defect path: default-head →
-            head-model->html → shell :head opt. Before the fix both the
-            shell hardcode AND default-head's :meta produced a charset
-            tag, yielding two."
+            Exercises the path default-head →
+            head-model->html → shell :head opt, where a charset from both
+            the shell hardcode AND default-head's :meta would yield two."
     (let [;; The head fragment as the pipeline produces it for a route
           ;; with no declared :head — default-head rendered to HTML.
           f          (rf.frame/make-anon-frame-record! {:doc "Charset probe" :platform :server})
@@ -2910,16 +2895,16 @@
           "the shell hardcodes the baseline charset as the first head byte"))))
 
 ;; ===========================================================================
-;; rf2-hyk9j TC-3 — destroy-frame-failed trace surfaces on per-request teardown
+;; destroy-frame-failed trace surfaces on per-request teardown
 ;; ===========================================================================
 ;;
-;; Per audit rf2-asmj1 R6 / cluster rf2-sljs1, `destroy-frame-quietly!`
+;; `destroy-frame-quietly!`
 ;; emits a `:rf.ssr/destroy-frame-failed` warning trace when destroy
-;; throws. The behaviour shipped; no test pinned it.
+;; throws.
 
 (deftest destroy-frame-quietly-emits-trace-on-throwing-destroy
-  (testing "rf2-hyk9j: a frame whose destroy throws → :rf.ssr/destroy-frame-failed
-            warning trace fires (audit rf2-asmj1 R6 / rf2-sljs1)
+  (testing "a frame whose destroy throws → :rf.ssr/destroy-frame-failed
+            warning trace fires
 
             Most paths inside `destroy-frame!` swallow their own
             exceptions (the on-destroy event runs through the router's
@@ -2960,22 +2945,21 @@
                 ":recovery names the policy")))))))
 
 ;; ===========================================================================
-;; rf2-axq1y / parent rf2-bof8i — resolve-head emits
+;; resolve-head emits
 ;; :rf.error/ssr-head-resolution-failed before falling back
 ;; ===========================================================================
 ;;
-;; Per rf2-bof8i (Mike decision, Option B — observability over silent
-;; fallback) `resolve-head` wraps the `:head` walk in try/catch and emits
+;; Observability over silent fallback: `resolve-head` wraps the `:head`
+;; walk in try/catch and emits
 ;; `:rf.error/ssr-head-resolution-failed` with the throw before degrading
-;; to the empty fragment. Earlier the helper's docstring promised "the
-;; trace surface still carries the throw" but the impl was silent — a
-;; broken `:head` fn produced a visually-broken page with zero diagnostic.
+;; to the empty fragment, so a broken `:head` fn never produces a
+;; visually-broken page with zero diagnostic.
 ;; The trace category is catalogued in Spec 009 §Error event catalogue.
 
 (deftest resolve-head-emits-trace-on-throwing-head-fn
-  (testing "rf2-axq1y: a throwing :head fn → :rf.error/ssr-head-resolution-failed
+  (testing "a throwing :head fn → :rf.error/ssr-head-resolution-failed
             trace fires AND the resolver returns the empty fallback shape
-            (preserves rf2-h2ujj's degrade-gracefully contract)"
+            (the degrade-gracefully contract)"
     (let [resolve-head! (requiring-resolve
                           're-frame.ssr.ring.lifecycle/resolve-head)
           traces        (atom [])
@@ -2993,7 +2977,7 @@
                        (resolve-head! frame-id))
                      (finally
                        (rf/unregister-listener! :trace ::rh)))]
-        (testing "fallback shape preserved (rf2-h2ujj contract)"
+        (testing "fallback shape (degrade-gracefully contract)"
           (is (= "" (:head-html result))
               "empty fragment so a buggy head fn can't take down the request")
           (is (nil? (:html-attrs result))
@@ -3001,7 +2985,7 @@
           (is (nil? (:body-attrs result))
               "no body-attrs in the fallback shape"))
 
-        (testing "trace emitted (rf2-bof8i Option B contract)"
+        (testing "trace emitted (observability contract)"
           (is (= 1 (count @traces))
               (str "expected one :rf.error/ssr-head-resolution-failed trace;"
                    " saw " (count @traces)))
@@ -3022,7 +3006,7 @@
                   ":recovery names the policy — empty fallback is not a recovery"))))))))
 
 (deftest resolve-head-happy-path-no-trace
-  (testing "rf2-axq1y: a non-throwing :head fn (mocked to return nil
+  (testing "a non-throwing :head fn (mocked to return nil
             so head-model->html produces an empty fragment) → no
             :rf.error/ssr-head-resolution-failed trace fires.
             Belt-and-braces against accidentally emitting the trace on
@@ -3049,30 +3033,27 @@
           "success path must NOT emit the head-resolution-failed trace"))))
 
 ;; ===========================================================================
-;; rf2-lia3i — head-resolution failure correctness is ENFORCED at the
+;; Head-resolution failure correctness is ENFORCED at the
 ;; handler level (not incidental to call ordering)
 ;; ===========================================================================
 ;;
-;; CONTRACT (Spec 011 §1070, lifecycle/resolve-head, rf2-bof8i Option B):
+;; CONTRACT (lifecycle/resolve-head; Spec 011 §Resolved decisions):
 ;; a throwing route `:head` fn is a RECOVERABLE DEGRADATION — the request
 ;; ships a 200 with an empty `<head>` fragment ("a buggy head fn can't
 ;; take down the request") AND emits `:rf.error/ssr-head-resolution-failed`
 ;; for observability. This is the deliberate counterpoint to the view/sub
-;; FAIL-CLOSED posture (rf2-vvwmi / rf2-7d30s, Spec 011 §744/§748-751):
+;; FAIL-CLOSED posture (Spec 011 §View-time exceptions):
 ;; a view or reactive sub that throws mid-render projects a non-200
 ;; because the page is unusable; a head fn that throws degrades to a 200
 ;; because only the `<head>` metadata is missing — the body still renders.
 ;;
-;; Pre-rf2-lia3i the degraded-200 outcome was SAFE BY TIMING ONLY:
-;; `ssr-handler` reads `get-response` (the single post-shell read — drains + reads the
-;; status) BEFORE `build-full-response` → `resolve-head` fires the head
-;; trace (the `resolve-head` call in `build-full-response*`), so the buffered head trace was never
-;; projected onto the already-captured status. A reorder (head resolution
-;; before `get-response`, a second flush after the render, or a re-read of
-;; `get-response`) would have let the default projector map the head trace
-;; → 500 and silently flip the degraded 200 to a 500.
+;; Call ordering alone cannot keep the degraded 200 safe: `ssr-handler`
+;; reads `flush-response-result!` BEFORE `build-full-response` →
+;; `resolve-head` fires the head trace, but `build-full-response*` re-reads
+;; the accumulator AFTER the render, so a buffered head trace would let the
+;; default projector map it → 500 and silently flip the degraded 200 to a 500.
 ;;
-;; rf2-lia3i enforces the contract at the projection BUFFERING chokepoint:
+;; So the contract is enforced at the projection BUFFERING chokepoint:
 ;; `re-frame.ssr.error-listener` skips `:rf.error/ssr-head-resolution-failed`
 ;; in BOTH projection listeners (dev-only + always-on), so the head trace
 ;; is never buffered for status projection regardless of call ordering.
@@ -3090,7 +3071,7 @@
   []
   (rf/reg-head :head/throws
                (fn [_db _route]
-                 (throw (ex-info "synthetic head failure (rf2-lia3i)"
+                 (throw (ex-info "synthetic head failure"
                                  {:reason :test}))))
   (rf/reg-route :route/head-throws
                 {:doc  "Route whose head fn throws"
@@ -3104,10 +3085,10 @@
     (fn [] [:div.page [:h1 "Body rendered fine"]])))
 
 (deftest handler-throwing-head-fn-ships-degraded-200-not-projected-error
-  (testing "rf2-lia3i: a throwing route :head fn → ssr-handler returns a
+  (testing "a throwing route :head fn → ssr-handler returns a
             200 (degraded — empty head, body intact), NOT a projected
             4xx/5xx. The head-resolution failure is a recoverable
-            degradation (Spec 011 §1070), enforced not incidental."
+            degradation, enforced not incidental."
     (register-head-throwing-app!)
     (let [traces  (atom [])
           _       (rf/register-listener! :trace ::head-fail-watch
@@ -3129,9 +3110,9 @@
       ;; this would be 500 and the assertion turns red.
       (is (= 200 (:status response))
           "throwing :head fn degrades to a 200 — NEVER a projected
-           4xx/5xx (Spec 011 §1070 degrade-gracefully contract;
+           4xx/5xx (the degrade-gracefully contract;
            ENFORCED via the projector-skip, not incidental to the
-           get-response/resolve-head ordering)")
+           flush-response-result!/resolve-head ordering)")
       (let [body (:body response)]
         (is (string? body))
         (is (str/includes? body "<!DOCTYPE html>")
@@ -3140,36 +3121,35 @@
             "the body view content is intact — only the head degraded")
         ;; Empty head fragment: the throwing head fn contributed no
         ;; route-specific tags. The shell's hardcoded charset meta is an
-        ;; envelope concern (rf2-q78s1), not produced by resolve-head, so
+        ;; envelope concern, not produced by resolve-head, so
         ;; its presence does not contradict the empty-fragment contract;
         ;; the synthetic-failure marker simply never reaches the wire.
         (is (not (str/includes? body "synthetic head failure"))
             "the throwable's message never crosses the wire"))
-      ;; Observability preserved: the spec contract is degrade AND emit.
+      ;; Observability: the spec contract is degrade AND emit.
       (is (= 1 (count @traces))
           ":rf.error/ssr-head-resolution-failed still fires for
-           observability (Spec 011 §1070 Option B) — degraded, not
+           observability — degraded, not
            silent"))))
 
 ;; ===========================================================================
-;; rf2-joibj / rf2-lm2yzy — the wire payload round-trips AND omits the
+;; The wire payload round-trips AND omits the
 ;; per-request gensym frame-id
 ;;
-;; `setup-request-frame!` still builds the per-request PROJECTION frame-id via
+;; `setup-request-frame!` builds the per-request PROJECTION frame-id via
 ;;     (keyword "rf.frame" (str (gensym "f")))
-;; The `"f"` prefix remains load-bearing for the INTERNAL keyword's EDN
-;; validity (spec-strict readers reject `:rf.frame/<digits>`), but per
-;; rf2-lm2yzy the throwaway gensym NO LONGER ships on the wire: stamping it as
-;; the payload's `:rf/frame-id` guaranteed `:rf.error/hydration-frame-id-
+;; The `"f"` prefix is load-bearing for the INTERNAL keyword's EDN
+;; validity (spec-strict readers reject `:rf.frame/<digits>`), but the
+;; throwaway gensym does NOT ship on the wire: stamping it as
+;; the payload's `:rf/frame-id` would guarantee `:rf.error/hydration-frame-id-
 ;; mismatch` on every page (the client hydrates a stable id, never the
-;; gensym). The wire payload now OMITS `:rf/frame-id` for the anonymous
-;; per-request frame (the documented no-conflict shape) — so the original
-;; rf2-joibj wire-EDN-grammar concern for the gensym is moot, while the
-;; whole-payload round-trip pin is preserved below.
+;; gensym). The wire payload OMITS `:rf/frame-id` for the anonymous
+;; per-request frame (the documented no-conflict shape), and the
+;; whole-payload round-trip is pinned below.
 ;; ===========================================================================
 
 (deftest hydration-payload-round-trips-and-omits-per-request-frame-id
-  (testing "rf2-joibj / rf2-lm2yzy: the full wire payload round-trips through
+  (testing "the full wire payload round-trips through
             the strict EDN reader AND omits the per-request gensym frame-id
             (never stamped as `:rf/frame-id`, so no hydration-frame-id-mismatch)"
     (register-articles-app! [{:id "a" :title "Article A"}])
@@ -3193,35 +3173,34 @@
       (let [recovered (clojure.edn/read-string payload-edn)]
         (is (map? recovered)
             "payload-EDN round-trips through clojure.edn/read-string")
-        ;; rf2-lm2yzy — the per-request gensym is projection-only; it must NOT
+        ;; The per-request gensym is projection-only; it must NOT
         ;; ride the wire as `:rf/frame-id`.
         (is (not (contains? recovered :rf/frame-id))
             "the anonymous per-request frame is omitted from the wire payload")))))
 
 ;; ===========================================================================
-;; rf2-zev2h — default-on-error direct positive assertion
-;; (follow-on from rf2-q1z1u F7)
+;; default-on-error direct positive assertion
 ;;
 ;; `default-on-error` is the Ring-layer fallback used when the SSR
 ;; error projector cannot see the exception (handler-constructor throw,
-;; middleware throw ahead of the projector). The pre-existing
+;; middleware throw ahead of the projector). The
 ;; render-time-throw tests (`handler-render-error-*` above) pin the
 ;; projector path with negative assertions of the form
 ;; `(not= "Internal error" body)` — they verify those paths DON'T fall
 ;; through to this fixed shape.
 ;;
-;; The literal `"Internal error"` body produced by `default-on-error`
-;; itself had no positive pin. A future refactor that changed the
-;; literal string (e.g. an i18n table, a richer template) would not
-;; surface today. This test pins the literal exact-string contract +
-;; the no-leak guarantee at the function boundary directly.
+;; This test pins the literal `"Internal error"` body produced by
+;; `default-on-error` itself, positively, so a refactor that changed the
+;; literal string (e.g. an i18n table, a richer template) surfaces here —
+;; the literal exact-string contract + the no-leak guarantee at the
+;; function boundary directly.
 ;;
-;; rf2-kzvwq / security audit 2026-05-14 §P2.1 — the body MUST NOT
+;; The body MUST NOT
 ;; carry .getMessage (JDBC URLs, file paths, SQL fragments).
 ;; ===========================================================================
 
 (deftest default-on-error-shape-pinned
-  (testing "rf2-zev2h — default-on-error returns the fixed-shape 500
+  (testing "default-on-error returns the fixed-shape 500
             response with the literal `\"Internal error\"` body. The
             throwable's .getMessage MUST NOT appear anywhere in the
             response (status, headers, or body)."
@@ -3238,33 +3217,33 @@
       (is (= "Internal error" (:body response))
           "body is the literal `\"Internal error\"` — exact string match
            (a refactor that changes the literal surfaces here)")
-      ;; rf2-kzvwq no-leak — the throwable's message MUST NOT appear in
+      ;; No-leak — the throwable's message MUST NOT appear in
       ;; ANY slot of the response. Asserted on every channel that could
       ;; carry it (status is a number, but headers + body are strings).
       (is (not (str/includes? (:body response) secret-msg))
-          "rf2-kzvwq §P2.1: body does NOT carry the throwable's
+          "body does NOT carry the throwable's
            .getMessage text — topology disclosure surface closed")
       (is (not (str/includes? (str (:headers response)) secret-msg))
-          "rf2-kzvwq §P2.1: headers do NOT carry the throwable's
+          "headers do NOT carry the throwable's
            .getMessage text either"))))
 
 ;; ===========================================================================
-;; rf2-ljjh0 — a throwing caller :on-error must be CONTAINED, not escape
+;; A throwing caller :on-error must be CONTAINED, not escape
 ;;
 ;; `:on-error` is the handler's last-resort transport-failure net. A
 ;; caller-supplied `:on-error` that ITSELF throws must not propagate out
 ;; of the handler: an uncaught throwable handed to the Ring server
 ;; (Jetty / http-kit) surfaces as a raw container 500 with a stack
-;; trace, defeating the rf2-kzvwq topology-leak contract the boundary
+;; trace, defeating the topology-leak contract the boundary
 ;; otherwise upholds. The exposure is symmetric — the setup-failure path
 ;; (`setup-request-frame!`, which runs OUTSIDE the handler's own
-;; try/catch) AND the success path both invoke `:on-error`. Both now
+;; try/catch) AND the success path both invoke `:on-error`. Both
 ;; route through `lifecycle/safe-on-error`, which falls back to the
 ;; locked `default-on-error` when the caller's fn throws.
 ;; ===========================================================================
 
 (deftest ssr-handler-throwing-on-error-during-setup-is-contained
-  (testing "rf2-ljjh0 — a caller :on-error that THROWS during a
+  (testing "a caller :on-error that THROWS during a
             setup-failure is contained: the handler returns the locked
             default-on-error 500 rather than letting the throwable
             escape as a raw container 500 with leaked internals.
@@ -3284,9 +3263,9 @@
                      :root-view [:div]
                      :payload [:x]
                      :on-error throwing-on-error})
-          ;; Before the fix this call THREW (the throwing on-error
-          ;; escaped `setup-request-frame!` uncaught). After the fix it
-          ;; returns the contained locked-default 500.
+          ;; Uncontained, the throwing on-error would escape
+          ;; `setup-request-frame!` uncaught; contained, this call
+          ;; returns the locked-default 500.
           response (handler {:uri "/x" :request-method :get})]
       (is (map? response)
           "the handler RETURNED a Ring response — the throwing
@@ -3295,13 +3274,13 @@
           "contained via the locked default-on-error (500)")
       (is (= "Internal error" (:body response))
           "locked generic body — the secondary throw's internals never
-           reach the wire (rf2-kzvwq topology-leak contract held)")
+           reach the wire (topology-leak contract held)")
       (is (= "text/plain; charset=utf-8"
              (get (:headers response) "Content-Type"))
           "locked default-on-error content-type"))))
 
 (deftest ssr-handler-throwing-on-error-on-success-path-is-contained
-  (testing "rf2-ljjh0 — symmetric: a caller :on-error that throws on the
+  (testing "symmetric: a caller :on-error that throws on the
             SUCCESS path is also contained. Driven by a cookie whose
             :expires is a non-integer string — it passes the fx boundary
             (`validate-cookie!` is a CR/LF/NUL injection gate, it does
@@ -3319,8 +3298,8 @@
         ;; (`validate-cookie!` is a CR/LF/NUL injection gate — it does
         ;; not type-check :expires) and throws at host materialise time
         ;; in `cookie->set-cookie-header` (the primitive-long :expires
-        ;; type contract). Before rf2-kjf3m.1 this used a CR/LF-bearing
-        ;; :max-age; that is now CRLF-gated at the fx boundary, so the
+        ;; type contract). A CR/LF-bearing :max-age would not do: it is
+        ;; CRLF-gated at the fx boundary, so the
         ;; non-integer :expires divergence is the genuine escape path.
         {:db {}
          :fx [[:rf.server/set-cookie {:name "s" :value "v" :expires "not-an-int"}]]}))
@@ -3332,9 +3311,8 @@
                      :root-view [:div "hello"]
                      :payload :rf.ssr.payload/whole-app-db
                      :on-error throwing-on-error})
-          ;; Before the fix the throwing :on-error escaped the handler
-          ;; body's catch uncaught; after the fix `safe-on-error`
-          ;; contains it → locked default 500.
+          ;; `safe-on-error` contains the throwing :on-error that would
+          ;; otherwise escape the handler body's catch → locked default 500.
           response (handler {:uri "/x" :request-method :get})]
       (is (map? response)
           "handler returned a Ring response — throwing :on-error on the
@@ -3343,31 +3321,31 @@
           "contained via the locked default-on-error (500)")
       (is (= "Internal error" (:body response))
           "locked generic body — the secondary throw's internals never
-           reach the wire (rf2-kzvwq topology-leak contract held)"))))
+           reach the wire (topology-leak contract held)"))))
 
 ;; ===========================================================================
-;; rf2-c6lp3 — the setup-failure catch must NOT reap by bare id
+;; The setup-failure catch must NOT reap by bare id
 ;;
 ;; Core construction is the exact-token owner of a failed incarnation's
 ;; rollback: `make-frame` tears incarnation A down with its exact installed
-;; token before rethrowing (frame.cljc, PR #6072). Once that exact rollback
+;; token before rethrowing (frame.cljc). Once that exact rollback
 ;; releases the per-id transaction, a same-id successor B can be seated before
-;; the SSR setup-failure catch continues. The old catch did a redundant
-;; ADDRESS-directed `destroy-frame-quietly! frame-id`; the bare keyword pins
-;; whichever incarnation currently holds the id — i.e. B — and destroys it.
-;; The fix removes that bare-id reap; the catch owns only the request slot.
+;; the SSR setup-failure catch continues. An ADDRESS-directed
+;; `destroy-frame-quietly! frame-id` in the catch would be redundant and
+;; wrong: the bare keyword pins whichever incarnation currently holds the id
+;; — i.e. B — and destroys it. So the catch owns only the request slot.
 ;; ===========================================================================
 
 (deftest setup-failure-catch-does-not-reap-same-id-successor
-  (testing "rf2-c6lp3: a same-id successor B seated during the setup-failure
+  (testing "a same-id successor B seated during the setup-failure
             window survives the catch. `setup-request-frame!` gensyms a frame
             id, seeds the request slot, then calls `make-frame`. We model the
             reproduced interleaving with `with-redefs`: `make-frame` seats a
             live successor B at the SAME id (standing in for the incarnation
             reseated after core's exact rollback of failed A) and then throws
             as A's constructor would. The catch must clear the request slot and
-            short-circuit WITHOUT reaping B — before the fix the bare-id
-            `destroy-frame-quietly! frame-id` destroyed B."
+            short-circuit WITHOUT reaping B — a bare-id
+            `destroy-frame-quietly! frame-id` would destroy B."
     (let [captured-id (atom nil)
           b-token     (atom nil)
           real-make   rf/make-frame]
@@ -3397,7 +3375,7 @@
                 "the configured on-error 500 is returned")))
 
         ;; The load-bearing assertion: B's EXACT incarnation is still live after
-        ;; the catch. With the removed bare-id reap present it would be destroyed.
+        ;; the catch. A bare-id reap would destroy it.
         (is (rf.frame/frame-incarnation-live? @captured-id @b-token)
             "same-id successor B survives the setup-failure catch (no bare-id reap)")
         (is (some? (rf.frame/frame @captured-id))
@@ -3407,7 +3385,7 @@
             (rf/destroy-frame! id)))))))
 
 ;; ===========================================================================
-;; EP-0008 (rf2-hhutya) — HTTP-WIRE acceptance: the promoted SSR error
+;; EP-0008 — HTTP-WIRE pins: the promoted SSR error
 ;; categories reach the always-on `register-error-listener!` axis under
 ;; production hardening (`interop/debug-enabled? = false`), through the FULL
 ;; Ring handler, WITHOUT changing the wire status the request would have
@@ -3418,8 +3396,8 @@
 ;; degraded-200-not-projected-error`, `handler-error-view-throw-falls-back-
 ;; to-default-template`): those run debug-ON and watch the dev
 ;; `register-listener!` bus. THESE run debug-OFF and watch the production-
-;; survivable `register-error-listener!` axis — the channel the EP-0008
-;; promotion adds.
+;; survivable `register-error-listener!` axis — the channel EP-0008
+;; promotion targets.
 ;; ===========================================================================
 
 (defn- capture-always-on-categories!
@@ -3433,11 +3411,11 @@
     seen))
 
 (deftest hhutya-render-failed-off-box-record-under-debug-off-wire-5xx
-  (testing "rf2-hhutya: a view that throws mid-render → the full Ring
+  (testing "a view that throws mid-render → the full Ring
             handler ships a 5xx (PROJECTION-ELIGIBLE) AND delivers a
             :rf.error/ssr-render-failed record to register-error-listener!
-            under debug-off. Promotion adds the off-box record; the 5xx
-            wire outcome is unchanged."
+            under debug-off. Promotion adds the off-box record and does
+            not alter the 5xx wire outcome."
     (rf.error-emit/clear-error-listeners!)
     (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/render-throws
@@ -3450,16 +3428,16 @@
                           :payload   :rf.ssr.payload/whole-app-db})
               response (handler {:uri "/render-throws" :request-method :get})]
           (rf.error-emit/clear-error-listeners!)
-          ;; WIRE-UNCHANGED: a render-time throw still projects 5xx.
+          ;; WIRE: a render-time throw projects 5xx.
           (is (= 500 (:status response))
-              "render-failed still ships a 5xx through the full handler")
+              "render-failed ships a 5xx through the full handler")
           ;; OFF-BOX: the always-on record reached the shipper under debug-off.
           (is (some #{:rf.error/ssr-render-failed} @seen)
               ":rf.error/ssr-render-failed reached register-error-listener!
                under -Dre-frame.debug=false (the dev trace is elided there)"))))))
 
 (deftest hhutya-head-failed-off-box-record-under-debug-off-wire-degraded-200
-  (testing "rf2-hhutya: a throwing route :head fn → the full Ring handler
+  (testing "a throwing route :head fn → the full Ring handler
             ships a DEGRADED 200 (NON-PROJECTING) AND delivers a
             :rf.error/ssr-head-resolution-failed record to register-error-
             listener! under debug-off. Promotion ships the off-box record
@@ -3474,7 +3452,7 @@
                           :payload   :rf.ssr.payload/whole-app-db})
               response (handler {:uri "/head-throws" :request-method :get})]
           (rf.error-emit/clear-error-listeners!)
-          ;; WIRE-UNCHANGED: degraded 200, body intact.
+          ;; WIRE: degraded 200, body intact.
           (is (= 200 (:status response))
               "throwing :head fn degrades to a 200 — promotion did NOT flip
                the wire (NON-PROJECTING)")
@@ -3486,7 +3464,7 @@
                listener! under -Dre-frame.debug=false"))))))
 
 (deftest hhutya-error-view-failed-off-box-record-under-debug-off-wire-unchanged
-  (testing "rf2-hhutya: a buggy :error-view (itself throwing) → the full
+  (testing "a buggy :error-view (itself throwing) → the full
             Ring handler falls back to the locked default template (the
             render-time 5xx already stamped is unchanged, NON-PROJECTING)
             AND delivers a :rf.error/ssr-ring-error-view-failed record to
@@ -3505,7 +3483,7 @@
                           :payload :rf.ssr.payload/whole-app-db})
               response (handler {:uri "/broken" :request-method :get})]
           (rf.error-emit/clear-error-listeners!)
-          ;; WIRE-UNCHANGED: the error boundary holds at 500 with the locked
+          ;; WIRE: the error boundary holds at 500 with the locked
           ;; default template; the error-view's own failure did NOT re-flip
           ;; or escape (NON-PROJECTING).
           (is (= 500 (:status response))
