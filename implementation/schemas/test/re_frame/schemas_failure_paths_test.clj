@@ -1,42 +1,42 @@
 (ns re-frame.schemas-failure-paths-test
   "JVM tests for the precise / sensitivity-aware failure-path contract
-  on `validate-app-schema!` (rf2-oh4se).
+  on `validate-app-schema!`.
 
-  Pre-rf2-oh4se, `validate-app-schema!` always emitted the registered
-  schema root as `:path` and applied coarse whole-schema redaction
-  whenever any nested slot in the schema declared `:sensitive?`. The
-  audit (rf2-x8x4p) flagged two consequences:
+  A trace that emitted only the registered schema root as `:path`, and
+  redacted coarsely whenever any nested slot in the schema declared
+  `:sensitive?`, would have two defects:
 
-    1. **Imprecise locator.** A consumer reading the trace had to walk
-       the registered schema by hand to find the failing leaf — the
-       trace itself only pointed at the registration root.
+    1. **Imprecise locator.** A consumer reading the trace would have to
+       walk the registered schema by hand to find the failing leaf — the
+       trace itself would only point at the registration root.
     2. **Over-broad redaction.** A failure at a non-sensitive sibling
-       slot (e.g. `[:user :name]`) suffered redaction because the same
-       schema declared a separate slot (e.g. `[:user :password]`)
-       sensitive. The sensitive sibling's value did not appear in the
-       failing leaf — but the whole `:user` map was shipped and
-       redacted regardless.
+       slot (e.g. `[:user :name]`) would suffer redaction because the
+       same schema declares a separate slot (e.g. `[:user :password]`)
+       sensitive, although the sensitive sibling's value does not appear
+       in the failing leaf.
 
-  rf2-oh4se's fix:
+  So `validate-app-schema!`:
 
-    - Derive the failing leaf path from the Malli explainer's `:in`
+    - Derives the failing leaf path from the Malli explainer's `:in`
       slot (the navigation path through the failing VALUE, not the
       schema-walk `:path` slot which encodes branch dispatch values).
-    - Emit `:path` as the FULL leaf path
-      (`(concat registered-path explain-in-path)`); emit
+    - Emits `:path` as the FULL leaf path
+      (`(concat registered-path explain-in-path)`); emits
       `:registered-path` as the registration root for tooling that
-      still wants the registration anchor.
-    - Apply sensitivity targeted at the failing leaf:
+      wants the registration anchor.
+    - Applies sensitivity targeted at the failing leaf:
       ancestor-sensitive OR descendant-sensitive at the leaf counts;
-      a sibling-sensitive flag on an UN-failing slot does NOT trigger
-      redaction.
-    - Conservative fallback: when the explainer is absent / non-Malli
-      / returns no extractable `:in`, fall back to the registered
-      root as `:path` and the whole-schema sensitivity check.
+      a sibling-sensitive flag on an UN-failing slot does NOT redact the
+      leaf-narrowed `:value`.
+    - Falls back conservatively: when the explainer is absent / non-Malli
+      / returns no extractable `:in`, `:path` is the registered root and
+      the whole-schema sensitivity check applies.
 
-  Backward-compat: `:explain` and the structural slots
-  (`:failing-id`, `:where`, `:frame`, `:recovery`, `:reason`) ride
-  the trace verbatim under both the precise and fallback paths."
+  The structural slots (`:failing-id`, `:where`, `:frame`, `:recovery`,
+  `:reason`) ride the trace verbatim under both the precise and fallback
+  paths. `:explain` carries the whole registered slice, so it redacts
+  under the whole-schema check even when the failing leaf is not
+  sensitive."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -61,7 +61,7 @@
 ;; ---- :path is the failing leaf, not the registration root ----------------
 
 (deftest path-is-leaf-when-explainer-reports-in
-  (testing "rf2-oh4se — :path is the registered path concat'd with the
+  (testing ":path is the registered path concat'd with the
             explainer's :in (the failing value's navigation path)"
     (rf/reg-app-schema [:user] [:map [:id :int] [:email :string]])
     (let [traces (capture-trace
@@ -117,14 +117,14 @@
 ;; ---- sensitivity is path-targeted, not whole-schema ----------------------
 
 (deftest non-sensitive-sibling-failure-narrowed-value-verbatim-whole-explain-redacted
-  (testing "rf2-oh4se + rf2-3qam7b — PER-SLOT DECISION SCOPING on the app-db
+  (testing "PER-SLOT DECISION SCOPING on the app-db
             path. A failure at a non-sensitive leaf (:name) whose CONFORMING
             sibling (:password) is sensitive: the LEAF-NARROWED `:value` slot
             (just the failing leaf, 42) rides VERBATIM — the precise-narrowing
             win the leaf-precise check buys — but the WHOLE-PAYLOAD `:explain`
             slot (which carries the whole :user map, conforming secret
             included) MUST redact under the root check, else the live
-            `secret-pw` egresses. This is the bead's repro: [:name] fails,
+            `secret-pw` egresses. The case: [:name] fails,
             [:password {:sensitive?}] conforms."
     (rf/reg-app-schema [:user]
                        [:map
@@ -147,7 +147,7 @@
           ":path stays the navigable leaf locator (the failing leaf is not
            sensitive, so no path sanitization)")
       ;; The whole-payload :explain slot carries the conforming sensitive
-      ;; sibling — it redacts under the ROOT check (rf2-3qam7b).
+      ;; sibling — it redacts under the ROOT check.
       (is (= :rf/redacted (-> v :tags :explain))
           ":explain (whole reg-slice) redacted — it carries the conforming
            sensitive :password sibling")
@@ -156,7 +156,7 @@
       ;; The conforming secret never egresses anywhere in the trace.
       (is (not (str/includes? (pr-str (:tags v)) "secret-pw"))
           "the conforming sensitive sibling's value does NOT appear anywhere in
-           the emitted tags (the rf2-3qam7b leak this fix closes)"))))
+           the emitted tags"))))
 
 (deftest sensitive-leaf-failure-redacted
   (testing "the failing leaf IS the sensitive slot — redaction fires"
@@ -234,7 +234,7 @@
 ;; ---- conservative fallback ----------------------------------------------
 
 (deftest fallback-uses-whole-schema-sensitivity-when-explainer-absent
-  (testing "Per rf2-oh4se — when no explainer can extract a leaf path
+  (testing "when no explainer can extract a leaf path
             (e.g. explainer returns nil; non-Malli validator with no
             structured explanation), :path falls back to the registered
             root and the sensitivity check falls back to the
@@ -346,7 +346,7 @@
       (is (false? (rf.schemas/schema-sensitive-at? schema [:public]))
           ":public is on a different branch from :auth/:token"))))
 
-;; ---- G1: multi-error common-prefix narrowing (rf2-rbbmt) -----------------
+;; ---- multi-error common-prefix narrowing ---------------------------------
 ;;
 ;; Every test above drives a SINGLE failing slot, so the Malli explainer
 ;; reports one `:errors` entry and `failing-in-path`'s
@@ -355,11 +355,10 @@
 ;; paths under one registered `[:map ...]` schema so the reduce branch
 ;; executes and must narrow to the common ancestor — plus direct unit
 ;; tests for `common-prefix` and `failing-in-path` (the only non-trivial
-;; private helpers in the validate slice, previously with zero direct
-;; coverage).
+;; private helpers in the validate slice).
 
 (deftest multi-error-path-narrows-to-common-ancestor
-  (testing "rf2-rbbmt — two diverging children of one nested [:map ...]
+  (testing "two diverging children of one nested [:map ...]
             both fail; the Malli explainer reports two `:in` paths
             ([:root :user :id] + [:root :user :age]) and `failing-in-path`
             must `reduce common-prefix` them to the parent slot
@@ -387,7 +386,7 @@
             ":value is the ancestor slot's value — both failing children")))))
 
 (deftest multi-error-top-level-map-narrows-to-root
-  (testing "rf2-rbbmt — two diverging children of a top-level [:map ...]
+  (testing "two diverging children of a top-level [:map ...]
             registered directly at the path; their `:in` paths
             ([:id] + [:age]) common-prefix to [] (the map root), so the
             leaf path collapses to the registered root. Distinguishes the
@@ -405,14 +404,14 @@
         (is (= [:rec] (-> v :tags :registered-path)))))))
 
 ;; ---- a :map-of KEY failure blames the key, not the entry's value ---------
-;; (rf2-3x7nj.19.3). Malli reports a key-schema failure and a value-schema
+;; Malli reports a key-schema failure and a value-schema
 ;; failure under the same `:in [k]`, so `(get-in registered-value [k])` hands
 ;; back the entry's VALUE — valid, here — as the failing datum. The error's
 ;; own `:value` is the key. Both the dev trace and the always-on `:errors`
 ;; record describe the failing datum, so both are pinned.
 
 (deftest map-of-key-failure-reports-the-failing-key
-  (testing "rf2-3x7nj.19.3 — a string key under [:map-of :keyword :int]
+  (testing "a string key under [:map-of :keyword :int]
             reports the key as :value and 'got string', never the entry's
             valid integer value"
     (rf/reg-app-schema [:scores] [:map-of :keyword :int])
@@ -445,10 +444,10 @@
       (is (= [:scores :alice] (-> v :tags :path)))
       (is (= "ten" (-> v :tags :value))))))
 
-;; ---- G1: direct unit tests for the private helpers -----------------------
+;; ---- direct unit tests for the private helpers ---------------------------
 
 (deftest common-prefix-unit
-  (testing "rf2-rbbmt — common-prefix returns the longest shared leading
+  (testing "common-prefix returns the longest shared leading
             run of two sequential collections, as a vector"
     (let [cp #'rf.schemas.validate/common-prefix]
       (is (= [:a :b] (cp [:a :b :c]   [:a :b :d]))
@@ -469,7 +468,7 @@
           "result is a vector (transient→persistent!), not a lazy seq"))))
 
 (deftest failing-in-path-unit
-  (testing "rf2-rbbmt — failing-in-path extracts and narrows the Malli
+  (testing "failing-in-path extracts and narrows the Malli
             explainer's per-error :in paths; nil when no extractable path"
     (let [fip #'rf.schemas.validate/failing-in-path]
       (is (nil? (fip nil))
@@ -490,7 +489,7 @@
                                     {:in [:a :b :d]}
                                     {:in [:a :b :e]}]}))
           "three errors fold left to the shared [:a :b] prefix")))
-  (testing "rf2-rbbmt — failing-in-path agrees with the live Malli
+  (testing "failing-in-path agrees with the live Malli
             explainer on a real two-child divergence"
     (let [fip #'rf.schemas.validate/failing-in-path
           schema [:map [:user [:map [:id :int] [:age :int]]]]
