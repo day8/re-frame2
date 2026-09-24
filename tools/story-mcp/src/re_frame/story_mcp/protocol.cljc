@@ -237,7 +237,7 @@
 
   ## Why metadata, not a map entry
 
-  The no-intern ingress invariant is preserved verbatim: the
+  The no-intern ingress invariant holds: the
   unknown keys are kept as STRINGS and never converted to keywords, and
   they ride as Clojure metadata on the normalised arguments map rather
   than as map entries — so they never reach a handler's `(get args ...)`
