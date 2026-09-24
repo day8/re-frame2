@@ -4,8 +4,8 @@
   examples/ (examples stay test-free), because they require
   the example ENTRY namespaces — which are `.cljs`-only (Reagent-coupled
   `reg-view`) and so cannot load on the JVM. They run under the
-  consolidated `:node-test` CLJS build (`../examples/reagent` is on its
-  source-paths) — the only runtime where these examples' ns-load + their
+  consolidated `:node-test` CLJS build (the `../examples/*` concept roots
+  are on its source-paths) — the only runtime where these examples' ns-load + their
   durable handlers actually execute.
 
   Two contracts are pinned here:
