@@ -33,7 +33,7 @@
   One pure async fn: probe the shadow HTTP API, return the project root,
   bail to nil on every error. The orchestrator in `nrepl.cljs` runs the
   same port-file candidates against this absolute root before falling
-  back to the legacy cwd-relative scan.
+  back to the cwd-relative scan.
 
   ## Transit-json shape
 
