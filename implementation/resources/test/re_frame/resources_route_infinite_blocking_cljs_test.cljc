@@ -1,8 +1,7 @@
 (ns re-frame.resources-route-infinite-blocking-cljs-test
-  "Route ↔ INFINITE-feed BLOCKING integration (rf2-kz90ep, EP-0021 wave 7
-  coverage gap, Spec 016 §Route integration + §Infinite resources and
-  load-more feeds). Cross-host (JVM + CLJS) so the routing/resources seam
-  behaves identically server- and client-side.
+  "Route ↔ INFINITE-feed BLOCKING integration (Spec 016 §Route integration +
+  §Infinite resources and load-more feeds). Cross-host (JVM + CLJS) so the
+  routing/resources seam behaves identically server- and client-side.
 
   The scalar route-blocking surface (`resources_route_cljs_test.cljc`)
   thoroughly covers a BLOCKING SCALAR resource: it holds the transition
@@ -10,15 +9,11 @@
   flips the route to `:error`. But a route blocking an INFINITE feed drains
   through a DIFFERENT path — the PAGE reply handlers
   (`:rf.resource.internal/page-succeeded` / `…/page-failed`), NOT the scalar
-  succeeded/failed handlers — and an infinite feed has a CRUCIAL divergence:
-  it has ONE error axis (`:page-error` + `:loaded`), unlike a scalar resource
-  whose first-load failure is `:error`. The flagship example test
-  (`infinite_feed_example_cljs_test`) navigates a `:blocking? true` infinite
-  route but only asserts the entry `:status` / view `:loading?` — it never
-  reads the route blocking-slot or asserts the route TRANSITION completes.
+  succeeded/failed handlers — and an infinite feed has a third error channel:
+  a load-more failure records `:page-error` and keeps the feed `:loaded`,
+  while a page-0 failure uses the scalar first-load `:error` channel.
 
-  THE CONTRACT this pins (rf2-byl7bk.3.1 — spec-correct first-load semantics,
-  superseding the rf2-kz90ep characterisation that pinned the divergence):
+  THE CONTRACT this pins (Spec 016 first-load semantics):
 
     1. a blocking infinite route holds the transition `:loading` on PAGE 0
        in flight, and DRAINS (transition → `:idle`) when page-0 SUCCEEDS via
@@ -31,16 +26,12 @@
        failure and `:page-error` for load-more (page N>0) failure only. So a
        blocking infinite route whose required page 0 fails flips to route
        `:error` (the feed settles `:status :error`, `:error` envelope, no
-       data) — EXACTLY like a blocking SCALAR resource, restoring parity. The
-       rf2-kz90ep test pinned the OPPOSITE (`:loaded` + `:page-error` + route
-       `:idle`), which tested the implementation against itself, not against
-       Spec 016; this fix inverts it;
+       data) — EXACTLY like a blocking SCALAR resource;
 
-    3. a LOAD-MORE (page N>0) FAILURE with accumulated pages still uses the
+    3. a LOAD-MORE (page N>0) FAILURE with accumulated pages uses the
        `:page-error` channel: the feed stays `:loaded`, KEEPS all pages, and
        the route (already drained on page-0 success) is undisturbed — the
-       third error channel is intact for the case the spec actually reserves
-       it for.
+       third error channel applies to the case the spec reserves it for.
 
   The capturing transport REPLAYS the live managed-HTTP reply-append shape
   (the transport conj's its result as the LAST arg of the internal reply
@@ -103,9 +94,8 @@
 
 (defn- blocking-slot
   "The live blocking slot for `nav-token`, projected to the SET of its scoped
-  keys. The slot itself is the byte-keyed `{<key-id> <scoped-key>}` carrier
-  (rf2-btdl1); these assertions ask a membership question the projection
-  answers."
+  keys. The slot itself is the byte-keyed `{<key-id> <scoped-key>}` carrier;
+  these assertions ask a membership question the projection answers."
   [nav-token]
   (set (vals (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                      (rf.resources.route/blocking-path nav-token)))))
@@ -172,7 +162,7 @@
 ;; ===========================================================================
 
 (deftest blocking-infinite-route-holds-then-drains-on-page-0-success
-  ;; rf2-kz90ep (1): the blocking drain on an infinite feed runs through the
+  ;; The blocking drain on an infinite feed runs through the
   ;; PAGE reply handler (entry-replace-page append), NOT the scalar succeeded-
   ;; handler — and the route transition must complete when page 0 lands.
   (register-blocking-infinite-route!)
@@ -208,14 +198,13 @@
 ;; ===========================================================================
 
 (deftest blocking-infinite-route-page-0-failure-errors-route
-  ;; rf2-byl7bk.3.1 — THE spec-correct contract (Spec 016 §Status semantics +
-  ;; §Infinite resources): a blocking infinite page-0 FIRST-load FAILURE (no
+  ;; The contract (Spec 016 §Status semantics + §Infinite resources): a
+  ;; blocking infinite page-0 FIRST-load FAILURE (no
   ;; accumulated pages) settles the FIRST-load :error channel (`entry-failed`
   ;; → :status :error, :error envelope, :data nil), which the readiness
   ;; projection reads as a failed blocking first load and flips the route to
   ;; :error — EXACTLY like a blocking SCALAR resource, through the same
-  ;; projector and with no infinite-specific readiness branch. This INVERTS the rf2-kz90ep
-  ;; characterisation test (which pinned :loaded + :page-error + route :idle):
+  ;; projector and with no infinite-specific readiness branch.
   ;; Spec 016 reserves :error for first-load (page 0) and :page-error for
   ;; load-more (page N>0) ONLY — page 0 is a first load, never a load-more.
   (register-blocking-infinite-route!)
@@ -250,15 +239,14 @@
 
 ;; ===========================================================================
 ;; 3. contrast guard — a SCALAR blocking first-load failure errors the route
-;;    too, so #2 now confirms PARITY (infinite page-0 == scalar first load)
+;;    too, so #2 confirms PARITY (infinite page-0 == scalar first load)
 ;; ===========================================================================
 
 (deftest scalar-blocking-first-load-failure-still-errors-route-contrast
   ;; A guard so #2's assertion has a parity baseline: the SAME route shape with
   ;; a SCALAR (non-infinite) blocking resource ALSO flips to :error on a
-  ;; first-load failure. Post-fix #2 and #3 agree — a blocking infinite page-0
-  ;; first-load failure errors the route exactly like a scalar one (parity
-  ;; restored, the divergence rf2-kz90ep pinned is removed).
+  ;; first-load failure. #2 and #3 agree — a blocking infinite page-0
+  ;; first-load failure errors the route exactly like a scalar one.
   (rf/reg-resource :article/by-slug
                    {:scope         :rf.scope/global
                     :params-schema [:map [:slug :string]]
@@ -279,18 +267,18 @@
                             {:status :error :error {:status 503 :message "upstream down"}}))
     (testing "a SCALAR blocking first-load failure flips the route to :error (parity with #2)"
       (is (= :error (:transition (slice)))
-          "scalar first-load failure errors the route — infinite page-0 (#2) now matches it")
+          "scalar first-load failure errors the route — infinite page-0 (#2) matches it")
       (is (= :rf.error/resource-route-blocking (:rf.error/id (:error (slice))))
           ":rf.route/error carries the structured blocking-failure error"))))
 
 ;; ===========================================================================
 ;; 4. LOAD-MORE (page N>0) FAILURE keeps the :page-error channel intact — the
-;;    third error channel still applies where the spec reserves it (data kept)
+;;    third error channel applies where the spec reserves it (data kept)
 ;; ===========================================================================
 
 (deftest blocking-infinite-route-load-more-failure-keeps-page-error-channel
-  ;; rf2-byl7bk.3.1 — the OTHER side of the split: a page N>0 (load-more)
-  ;; failure with accumulated pages is STILL the third error channel
+  ;; The OTHER side of the split: a page N>0 (load-more)
+  ;; failure with accumulated pages is the third error channel
   ;; (`entry-page-failed` → :loaded + :page-error, all pages kept). Only page 0
   ;; with no pages uses the first-load :error channel; a load-more failure must
   ;; NOT error the route (the route already drained on the page-0 success) and
