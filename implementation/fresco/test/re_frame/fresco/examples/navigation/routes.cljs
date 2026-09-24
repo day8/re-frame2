@@ -25,9 +25,9 @@
   loads every application in this repository into ONE node process — so
   the match table `match-url` walks is written by all of them at once.
   Two applications claiming one path share one entry and the earlier
-  registration wins every URL, which is how the slice once made
-  RealWorld's URLs resolve to its own routes and broke twelve of its
-  assertions with every other gate green. Nothing warned:
+  registration wins every URL, so one application's URLs resolve to the
+  other's routes and its assertions break with every other gate green.
+  Nothing warns:
   `:rf.warning/route-shadowed-by-equal-score` asks whether two
   co-matchable routes TIE on rank, and a silent overwrite between routes
   of different ranks is a different question.
