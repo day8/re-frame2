@@ -215,9 +215,13 @@ class Pool {
         // pass-through would be the wider of the two. What arrives here is a
         // BOOT refusal, and `isolate.cjs` builds those for an operator
         // standing at a process that would not start: the module's own
-        // message, `err.stack` in the `detail`, the module path, and a
-        // `code` the module chose, since the boot receiver does not consult
-        // `isRefusalCode` the way the render receiver does. On
+        // message, and a `detail` saying where it failed. For a fault the
+        // worker does not catch, `isolate.cjs`'s `error` handler puts
+        // `err.stack` in that `detail`. A caught boot exception's stack goes
+        // to stderr from `worker.cjs` instead, and its refusal carries only
+        // the module path in `detail`, beside a `code` the module chose,
+        // since the boot receiver does not consult `isRefusalCode` the way
+        // the render receiver does. On
         // `Pool.start()` that audience is real. Here it is a caller across a
         // wire, and none of it is theirs.
         //
