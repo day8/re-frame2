@@ -26,8 +26,8 @@
         ;; The `--allow-sensitive-reads` boot gate forces
         ;; `:include-sensitive` to false when OFF (the default); the
         ;; gate wins over the per-call arg. `:elision` is the SIZE
-        ;; override and is honoured on every launch (rf2-ealv5 /
-        ;; rf2-3x7nj.32.4) — its `include-large?` overlay cannot reveal a
+        ;; override and is honoured on every launch — its
+        ;; `include-large?` overlay cannot reveal a
         ;; declared-sensitive slot. Single intention-naming predicate
         ;; `raw-state-allowed?` (positive sense — true when operator
         ;; opted in at launch).
@@ -55,7 +55,7 @@
         ;; The walker reads the `[:rf.runtime/elision]` registry from the
         ;; frame's durable runtime-db partition (EP-0001) — it has to run
         ;; app-side, where the registry is reachable. The walk fires on
-        ;; every read (rf2-kuky.88); `elision false` only overlays
+        ;; every read; `elision false` only overlays
         ;; `:rf.egress/include-large? true` on the named profile.
         ;;
         ;; The Tool-Pair §`Direct-read privacy posture
@@ -72,14 +72,14 @@
         ;; envelope's `:elided-large`: it is taken over the WHOLE walked
         ;; state, and the pipeline's path slice and summary pass then
         ;; remove markers, so the wire pipeline counts what it ships
-        ;; instead (rf2-3x7nj.32.8).
+        ;; instead.
         ;; `egress-opts-edn` takes the walker-aligned
         ;; `include-large?` polarity directly (no in-helper inversion).
         ;; MCP arg `elision` true = emit markers = `:rf.egress/include-large?` false,
         ;; hence the local `(not elision?)`.
         ;;
         ;; Fail-CLOSED: the `:app-db` / `:sub-cache` slices ALWAYS route
-        ;; through the door (rf2-kuky.88) and the NAMED profile decides
+        ;; through the door and the NAMED profile decides
         ;; the floor. An `:elision false` caller who leaves
         ;; `:include-sensitive` at its default must NOT ship raw
         ;; `:app-db` / `:sub-cache` slices — a frame-declared-sensitive
@@ -118,7 +118,7 @@
         ;; never crosses the wire as a raw
         ;; fx-arg / runtime-db payload, gate ON or OFF.
         project-epochs?   true
-        ;; EP-0001 (Mike ruling #14) — the `:machines` slice is
+        ;; EP-0001 — the `:machines` slice is
         ;; RUNTIME-DB-partition state (machine snapshots live in the
         ;; durable runtime-db partition). Per Spec
         ;; 011 §Off-box redaction the runtime-db partition is REDACTED/OMITTED
@@ -131,8 +131,8 @@
         ;; `:include-sensitive true` ⇒ the live runtime-db snapshots ship
         ;; (the operator's deliberate opt-in to runtime-db diagnostics).
         redact-runtime-db? (not incl?)
-        ;; The `walked` reduction always fires: rf2-kuky.88 routes the
-        ;; `:app-db` / `:sub-cache` slices through the door on EVERY read,
+        ;; The `walked` reduction always fires: the `:app-db` /
+        ;; `:sub-cache` slices route through the door on EVERY read,
         ;; and `:epochs` projection (`project-epochs?`) / `:machines`
         ;; runtime-db redaction (`redact-runtime-db?`) ride the same
         ;; reduction.
@@ -150,7 +150,7 @@
         ;; (`:elision false` AND `:include-sensitive true`) names
         ;; `:rf.egress/local-raw`, under which the projection is the
         ;; identity.
-        ;; rf2-mtzv5m — the `:sub-cache` slice is `{query-v {:value v …}}`, so
+        ;; The `:sub-cache` slice is `{query-v {:value v …}}`, so
         ;; walking it WHOLE roots every sub value at the whole-slice root,
         ;; where a route's re-rooted `[:rf.runtime/routing :current …]`
         ;; classification can never match the bare route slice a route read
@@ -161,7 +161,7 @@
         ;; the walk consults) and a `:sensitive` route query / param
         ;; redacts — mirroring `list-subscriptions :include-values` /
         ;; `read-sub`. The `:app-db` slice has no per-sub structure, so it
-        ;; still walks whole.
+        ;; walks whole.
         slice-walk-src    (str "(let ["
                                (str " opts (merge {:frame fid} " egress-opts-form ")"
                                     " f    (fn [v] (re-frame.core/project-egress v opts))"
@@ -203,9 +203,9 @@
         tool-frames-form (if (= :app frames)
                            "(filterv re-frame2-pair.runtime/reserved-tool-frame? (re-frame.core/frame-ids))"
                            "[]")
-        ;; rf2-kuky.88 — one shape, always. The slices always route
-        ;; through the door, so there is no longer a raw-passthrough arm
-        ;; of the eval form to select between.
+        ;; One shape, always. The slices always route through the door,
+        ;; so there is no raw-passthrough arm of the eval form to select
+        ;; between.
         form     (ef/emit
                    (ef/rt-let
                      ['snap (ef/rt-call 'snapshot-state opts)
