@@ -1,10 +1,10 @@
 (ns re-frame.example-realworld-password-classification-cljs-test
-  "Framework-tree security regression for the RealWorld reference apps' PASSWORD
-   classification (rf2-agb5jk) — the classification declared by
+  "Framework-tree security tests for the RealWorld reference apps' PASSWORD
+   classification — the classification declared by
    examples/real-apps/realworld_http/* and examples/real-apps/realworld_resources/*.
 
    These belong in the framework test tree, NOT under examples/ (examples stay
-   test-free per rf2-8cevm). The ns requires the managed-HTTP app's FEATURE nses
+   test-free). The ns requires the managed-HTTP app's FEATURE nses
    (never `core` — that would pull `routing.cljs` and register routes into the
    shared node-test registrar) PLUS the resources app's HTTP ns (for its demo
    stub only). It does NOT co-load both apps' `settings` / `auth` nses: the two
@@ -16,21 +16,19 @@
    the resources app doesn't have) and reaches the resources app ONLY through its
    stub's registration (a unique fx-id). The resources app's login / register /
    settings app-db draft classifications use the IDENTICAL slice-init `:sensitive`
-   pattern proven here on the managed-HTTP app's drafts (and were runtime-verified
-   against the resources app directly during development).
+   pattern proven here on the managed-HTTP app's drafts.
 
-   THE DEFECT (rf2-agb5jk): both apps meticulously classified the durable JWT but
-   NEVER the user PASSWORD — a credential that egresses raw through the
-   dispatched-event trace, the managed-HTTP request record, the settings machine
-   snapshot / app-db drafts, and any off-box shipper. This ns pins the THREE
-   surfaces the fix classifies:
+   THE PASSWORD IS A CREDENTIAL, exactly like the durable JWT: unclassified, it
+   would egress raw through the dispatched-event trace, the managed-HTTP request
+   record, the settings machine snapshot / app-db drafts, and any off-box
+   shipper. This ns pins the THREE surfaces the apps classify:
 
      1. THE MANAGED-HTTP REQUEST BODY. Both apps run against a demo-stub
         `:fx-overrides` remap of `:rf.http/managed`, which BYPASSES the real
         handler's `:sensitive?` body scrub. When the override fires,
         `handle-one-fx` stamps the always-emitted `:rf.fx/handled` trace with the
         RESOLVED stub id + RAW args, and the classification projector redacts
-        `:rf.fx/args` off the RESOLVED fx's own `:sensitive` (post-rf2-6h3c02).
+        `:rf.fx/args` off the RESOLVED fx's own `:sensitive`.
         So each stub declares `:sensitive [[:request :body :user :password]]` —
         the Conduit `{user {…}}` envelope path — and the request-body password
         reads `:rf/redacted` on the one wire every tool reads.
@@ -46,17 +44,17 @@
         declares projection-relative `:sensitive [[:data :draft :password]
         [:data :submitted :password]]`, lowered per actor at spawn.
 
-   RESIDUAL CLOSED (rf2-agb5jk RULED 2026-07-11, item 1 — app redesign, the
-   examples/core/login split). The prior residual — login/register riding
+   THE AUTH MACHINE IS CREDENTIAL-FREE. A login/register riding
    `[:auth/flow [:auth/login {… :password …}]]` as a POSITIONAL machine
-   sub-event that no `:sensitive` mark could reach — is closed by keeping the
-   `:auth/flow` machine CREDENTIAL-FREE, not by classifying the position:
+   sub-event would be out of reach of any `:sensitive` mark, so the apps keep
+   the `:auth/flow` machine CREDENTIAL-FREE rather than classifying the
+   position:
 
      4. PER-KEYSTROKE PASSWORD EDITS are their OWN map-payload events
         (`:auth.login-form/edit-password`, `:auth.register-form/edit-password`,
         `:settings/edit-password`), each `:sensitive [[:value]]` — the
-        generic positional `:*-form/edit-field` event non-secret fields keep
-        using is never routed a secret.
+        generic positional `:*-form/edit-field` event non-secret fields use
+        is never routed a secret.
 
      5. SUBMIT is the credential-owning handoff: `:auth.login-form/submit` /
         `:auth.register-form/submit` read the draft, fire the `:sensitive?
@@ -66,12 +64,11 @@
         never sees the password at all.
 
      6. THE SETTINGS MACHINE (managed-HTTP app) is the one place a password
-        legitimately still rides a routed sub-event (`:edit-password`,
+        legitimately rides a routed sub-event (`:edit-password`,
         `:submit-valid` — the form-as-a-machine architecture makes the
         machine the password's :data owner by design). Its `reg-machine`
         OPTS carries an EVENT-rooted `:sensitive [[1 :password] [1 :submitted
-        :password]]` (rf2-ghgbqi, agb5jk item 2 — the machine trace
-        projector's completion) redacting the routed sub-event echoed into
+        :password]]` redacting the routed sub-event echoed into
         the `:event` / `[:input :event]` machine trace slots, alongside (not
         instead of) the `:data`-rooted classification in point 3.
 
@@ -80,43 +77,37 @@
         classified ordinary event (`:auth/session-established` /
         `:auth/session-restored`, `:sensitive [[:value :user :token]]`) —
         never straight to the machine — and the persistence fx
-        (`:auth.session/persist`) now declares `:sensitive [[:token]]` too
-        (it lacked one before; the JWT rode along for the same redesign).
+        (`:auth.session/persist`) declares `:sensitive [[:token]]` too.
 
-     8. THE STANDALONE `:auth/store-session` EVENT (rf2-oxyle) — the
+     8. THE STANDALONE `:auth/store-session` EVENT — the
         directly-dispatchable form of that same write, for test fixtures and
         external callers — classifies its JWT at the ARG-MAP-relative
-        `[:token]`. It shipped as the vector-relative `[1 :token]`, which
-        reaches NOTHING: an event's classification paths index into `(second
-        event)`, so the root is the User MAP and a numeric key `1` is a mark
-        at a missing slot — a silent no-op, leaving the JWT raw in the
+        `[:token]`. The vector-relative `[1 :token]` would reach NOTHING: an
+        event's classification paths index into `(second event)`, so the
+        root is the User MAP and a numeric key `1` is a mark at a missing
+        slot — a silent no-op that would leave the JWT raw in the
         dispatched-event trace while the declaration read as protection. The
         handler's `[_ user]` vector destructuring is a different coordinate
-        system and never moved the root. Pinned below with POSITIVE
-        assertions at the `:rf.event/v` slot, so the old spelling cannot pass.
+        system and does not move the root. Pinned below with POSITIVE
+        assertions at the `:rf.event/v` slot, so the vector-relative
+        spelling cannot pass.
 
    The tests below drive the FULL edit→submit(→success) cascade through the
    real public events (never poking `:auth/flow` / the settings machine
    directly with a credential) and scan EVERY emitted trace event for both a
-   password and a JWT sentinel — the \"existing password test explicitly
-   skips resources auth/settings, cannot serve as closure proof\" gap the
-   ruling's ACCEPTANCE section calls out. The resources app's mirror-image
-   closure lives in its own test file (this ns cannot co-load
-   `realworld-resources.auth` — see the ns docstring above).
+   password and a JWT sentinel. The resources app's mirror-image coverage
+   lives in its own test file (this ns cannot co-load
+   `realworld-resources.auth` — see above).
 
-   THREE FRAMEWORK-OWNED GAPS SURFACED BY THIS SWEEP — genuinely NOT fixable
-   from examples/ (they live in implementation/core's classification
-   projector / implementation/machines' transition trace, outside this
-   bead's declared surface) and confirmed to PRE-DATE this redesign — even
-   examples/core/login, the reference model, has never been swept this
-   thoroughly and shares gap (a)/(b). Filed as a framework follow-up rather
-   than papered over here:
+   THREE FRAMEWORK-OWNED GAPS this sweep scopes around — NOT fixable from
+   examples/ (they live in implementation/core's classification projector /
+   implementation/machines' transition trace):
 
      (a) A `[:dispatch [target-event ...]]` fx NESTED inside another
          handler's `:fx` vector does not inherit the TARGET event's own
          `:sensitive` at the DISPATCHING handler's own `:rf.fx/handled` /
          `:rf.event/fx` trace — only a fx's OWN static registration redacts
-         there (`:dispatch` itself carries none). This app's redesign works
+         there (`:dispatch` itself carries none). This app works
          AROUND it everywhere avoidable — see `store-session-db` in
          auth.cljs, called inline rather than via a nested
          `[:dispatch [:auth/store-session user]]` — but a machine-routed
@@ -135,11 +126,11 @@
      (c) `:rf.machine/action-ran`'s `:outcome` tag (the action's raw return
          value) carries no classification pass at all in
          `project-machine-tags` — any action returning updated `:data`
-         containing a classified path leaks there, pre-dating this redesign
-         identically for the settings machine's pre-existing `:edit` action.
+         containing a classified path leaks there, identically for the
+         settings machine's `:edit` action.
 
-   Tests 5/6 below therefore scope their sweep to what THIS bead's redesign
-   provably controls, excluding tag (b)'s `:rf.event/fx` by name (documented,
+   Tests 5/6 below therefore scope their sweep to what the apps provably
+   control, excluding (b)'s `:rf.event/fx` tag by name (documented,
    narrow — a real NEW leak anywhere else still fails the sweep); test 8
    (settings) documents (a)+(c) as an accepted residual rather than asserting
    a false clean bill."
@@ -184,12 +175,12 @@
 ;; which marks the durable JWT path sensitive at frame creation. This suite
 ;; deliberately requires the app's FEATURE namespaces and NOT its `core` ("no
 ;; core -> no routes"), so it cannot reach the app's own event, and it must not
-;; borrow it: `:auth/classify-token` resolved here only because the row sat LIVE
-;; in the process registrar, put there by a LATER test namespace's require chain
-;; and reachable because `reinstate-and-snapshot!` folds this ns's baseline OVER
-;; the live registrar. That is a cross-suite accident, not a dependency this ns
-;; declares, and it evaporates the moment the suite that owns the app claims it
-;; with the fixture's `:app-ns` (rf2-kuky.27). Reproducing the one-line effect
+;; borrow it: resolving `:auth/classify-token` here would depend on the row
+;; sitting LIVE in the process registrar, put there by another test namespace's
+;; require chain and reachable only because `reinstate-and-snapshot!` folds this
+;; ns's baseline OVER the live registrar. That is a cross-suite accident, not a
+;; dependency this ns declares, and it evaporates when the suite that owns the
+;; app claims it with the fixture's `:app-ns`. Reproducing the one-line effect
 ;; locally is the same move the sibling boot-seed suite makes for the app's seed
 ;; events, and it keeps what is under test the APP's classification discipline
 ;; rather than the bundle's load order.
@@ -200,11 +191,12 @@
     {:db db :sensitive [[:auth :token]]}))
 
 ;; A UNIQUE sentinel JWT — for the item 4/6/7 closure tests below, which chase
-;; the session TOKEN through the redesigned success-reply path.
+;; the session TOKEN through the success-reply path.
 (def token-sentinel "JWT-REALWORLD-SENTINEL-9f1e6b")
 
 ;; A whole-value scan: does `needle` appear ANYWHERE in `x`'s printed form?
-;; Mirrors the sibling rf2-ghgbqi regression's `leaks?` — the bluntest, most
+;; Mirrors `re-frame.machine-routed-event-classification-cljs-test`'s `leaks?`
+;; — the bluntest, most
 ;; trustworthy way to assert "this trace event carries no trace of the raw
 ;; secret," regardless of which slot it might have hidden in.
 (defn- leaks? [needle x] (str/includes? (pr-str x) needle))
@@ -232,7 +224,7 @@
   (fn [_ [_ args]] {:fx [[:rf.http/managed args]]}))
 
 ;; A SECOND local stub, this one REPLYING — for the item 4/6/7 cascade tests
-;; below, which need to observe the redesigned success path
+;; below, which need to observe the success path
 ;; (:auth/session-established) end to end. Note what this is NOT:
 ;; `re-frame.http.test-support`'s generic `with-request-stubs` (a
 ;; framework test helper with no idea what shape any one app's request body
@@ -289,7 +281,7 @@
 (deftest request-body-password-redacts-in-fx-handled-trace
   (testing "a :sensitive? true managed request routed through a stub redacts
             the WHOLE request body in the always-emitted :rf.fx/handled trace:
-            post-rf2-2siusz the keyword redirect stamps :rf.fx/from
+            the keyword redirect stamps :rf.fx/from
             :rf.http/managed and the projector composes the ORIGINAL id's
             dynamic classification (the same whole-body scrub the dedicated
             :rf.http/* composers run) over the stub's own static path"
@@ -407,18 +399,16 @@
           "the live snapshot still holds the REAL password — classification is egress-only"))))
 
 ;; ---------------------------------------------------------------------------
-;; 4. THE REDESIGNED APP (rf2-agb5jk RULING, item 1 closure) — drive the FULL
-;;    public edit→submit(→success) cascade and scan EVERY emitted trace for
-;;    both sentinels (scoped past the ONE pre-existing, documented framework
-;;    gap — see the ns docstring's "THREE FRAMEWORK-OWNED GAPS" section).
-;;    This is the residual-closure proof the ruling's ACCEPTANCE section
-;;    asked for: never poke :auth/flow or the settings machine directly with
-;;    a credential — always go through the same public events a real view
-;;    dispatches.
+;; 4. THE CREDENTIAL-FREE AUTH FLOW — drive the FULL public
+;;    edit→submit(→success) cascade and scan EVERY emitted trace for both
+;;    sentinels (scoped past the ONE documented framework gap — see the ns
+;;    docstring's "THREE FRAMEWORK-OWNED GAPS" section). Never poke
+;;    :auth/flow or the settings machine directly with a credential — always
+;;    go through the same public events a real view dispatches.
 ;; ---------------------------------------------------------------------------
 
 (deftest login-form-cascade-redacts-password-and-token-everywhere
-  (testing "rf2-agb5jk item 1: the full login edit->submit->success cascade —
+  (testing "the full login edit->submit->success cascade —
             map-payload :auth.login-form/edit-password, a bare credential-free
             :auth/login nudge, a :sensitive? true managed-HTTP request, and the
             classified :auth/session-established reply, whose store-session
@@ -458,7 +448,7 @@
           "the draft password is blanked after hand-off (secret-field hygiene)"))))
 
 (deftest register-form-cascade-redacts-password-everywhere
-  (testing "rf2-agb5jk item 1: the register form's edit->submit cascade is the
+  (testing "the register form's edit->submit cascade is the
             same credential-owning handoff as login — map-payload
             :auth.register-form/edit-password, a bare :auth/register nudge, a
             :sensitive? true request — so no emitted trace leaks the raw
@@ -480,29 +470,30 @@
           "register shares :auth/session-established with login — same credential-free machine nudge"))))
 
 (deftest auth-session-persist-fx-classifies-token
-  (testing "rf2-agb5jk item 1 (JWT rides along): the session-persistence fx
-            declares :sensitive [[:token]] on its OWN registration — it lacked
-            one before the redesign"
+  (testing "the session-persistence fx declares :sensitive [[:token]] on its
+            OWN registration"
     (is (= {:sensitive [[:token]]}
            (rf.classification/registration-classification :fx :auth.session/persist))
         ":auth.session/persist owns [:token]")))
 
 (deftest store-session-event-token-redacts-at-its-arg-map-path
-  (testing "rf2-oxyle: the DIRECTLY-DISPATCHABLE :auth/store-session event
+  (testing "the DIRECTLY-DISPATCHABLE :auth/store-session event
             classifies its JWT at the ARG-MAP-relative path [:token], not the
-            vector-relative [1 :token] it shipped with. An event's
+            vector-relative [1 :token]. An event's
             classification paths index into the event vector's SECOND element
             (`redact-event-vec` redacts `(second event)`; Spec 015
             §Registration-owned transient classification — index 0 is not
             addressable and outer positions 2+ pass through raw), and here that
-            second element IS the User map. So [1 :token] asked for a numeric
-            map key `1` no map has; a mark at a missing slot is a SILENT no-op,
-            and the JWT rode RAW into the dispatched-event trace while the
-            declaration read as protection — the reassuring-direction failure.
+            second element IS the User map. So [1 :token] would ask for a
+            numeric map key `1` no map has; a mark at a missing slot is a SILENT
+            no-op, and the JWT would ride RAW into the dispatched-event trace
+            while the declaration read as protection — the reassuring-direction
+            failure.
             The handler's own `[_ user]` destructuring is a different
             coordinate system and does not move the classification root.
             Assertions are POSITIVE (the sentinel at the slot) rather than a
-            bare absence check, so the old spelling cannot pass them, and the
+            bare absence check, so the vector-relative spelling cannot pass
+            them, and the
             non-secret username rides visible beside it: selective
             classification, not whole-arg blanking."
     (is (= {:sensitive [[:token]]}
@@ -543,16 +534,16 @@
           "and was never duplicated at the unclassified [:auth :user :token]"))))
 
 (deftest settings-machine-routed-password-subevents-echo-slots-redact
-  (testing "rf2-agb5jk item 1 + item 2 framework completion (rf2-ghgbqi): the
-            settings machine's OWN reg-machine OPTS :sensitive
+  (testing "the settings machine's OWN reg-machine OPTS :sensitive
             ([[1 :password] [1 :submitted :password]]) redacts the routed
             :edit-password sub-event echoed into the SPECIALIZED machine
             trace's :event (:rf.machine/transition, :event-received) and
             [:input :event] (:guard-evaluated, :action-ran) slots — the exact
-            surface rf2-ghgbqi's own regression proves the mechanism reaches,
+            surface the machine-routed classification suite proves the
+            mechanism reaches,
             and the surface the machine SPEC's :data-rooted :sensitive (test 3
-            above) does NOT reach. Scoped, per-op assertions (mirroring
-            rf2-ghgbqi's own methodology) rather than a whole-stream sweep —
+            above) does NOT reach. Scoped, per-op assertions (mirroring that
+            suite's methodology) rather than a whole-stream sweep —
             see the ns docstring's gap (a)/(c) for why a blanket sweep here
             would be a false claim: the PARENT :settings/edit-password
             handler's own `[:dispatch [:settings/form ...]]` nesting (gap a)
