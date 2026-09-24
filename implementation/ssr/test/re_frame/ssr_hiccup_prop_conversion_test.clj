@@ -1,5 +1,5 @@
 (ns re-frame.ssr-hiccup-prop-conversion-test
-  "rf2-3x7nj.13.1 and rf2-slr59 — the two hiccup BODY walkers
+  "The two hiccup BODY walkers
   (`render-to-string` and the streaming `render-shell`) paint what the
   hydrating Reagent-tier client paints, not the author's attribute map
   verbatim.
@@ -14,7 +14,7 @@
   moves `checked` / `value` to the end of an `<input>`.
 
   Each row runs through BOTH walkers, because they share one conversion
-  (`re-frame.ssr.emit/dom-element-props`) and a repair landing on one of them
+  (`re-frame.ssr.emit/dom-element-props`) and a change landing on one of them
   only is the drift this pins."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
@@ -36,9 +36,9 @@
           (str "render-shell " (pr-str hiccup))))))
 
 (deftest names-and-values-convert-the-way-the-client-does
-  (testing "rf2-3x7nj.13.1 — each of these was painted verbatim before, as an
-            attribute the browser does not recognise, a keyword's print, or a
-            class vector's EDN; React neither patches nor reports the
+  (testing "each of these, painted verbatim, would be an attribute the
+            browser does not recognise, a keyword's print, or a class
+            vector's EDN; React neither patches nor reports the
             difference at hydration"
     (check-rows
       [;; kebab names → Reagent's camel prop → react-dom's attribute
@@ -46,7 +46,7 @@
        [[:label {:html-for "e"} "Email"]          "<label for=\"e\">Email</label>"]
        [[:svg {:view-box "0 0 10 10"}]            "<svg viewBox=\"0 0 10 10\"></svg>"]
        [[:td {:col-span 2} "x"]                   "<td colSpan=\"2\">x</td>"]
-       ;; rf2-u0xpc — Reagent's prop is `panose1`, which react-dom writes
+       ;; Reagent's prop is `panose1`, which react-dom writes
        ;; verbatim (its alias row is keyed on `panose-1`)
        [[:svg {:panose-1 "2 0 0 0"}]              "<svg panose1=\"2 0 0 0\"></svg>"]
        ;; React spellings, as keywords and as a string key
@@ -64,9 +64,9 @@
        [[:div {:class :active}]                   "<div class=\"active\"></div>"]])))
 
 (deftest a-converted-handler-name-is-still-stripped
-  (testing "rf2-3x7nj.13.1 — the regression this conversion could introduce.
-            `:onc-lick` was painted as the harmless `onc-lick=`; converted it
-            is `oncLick`, which the HTML parser reads as `onclick`, a live
+  (testing "the hazard this conversion could introduce. Painted
+            verbatim, `:onc-lick` would be the harmless `onc-lick=`; converted
+            it is `oncLick`, which the HTML parser reads as `onclick`, a live
             handler. It is stripped only because the strip reads the
             CONVERTED name"
     (check-rows
@@ -118,19 +118,19 @@
   [:option {:value value} label])
 
 (deftest form-controls-take-react-dom-special-forms
-  (testing "rf2-slr59 — a textarea's value is its text body"
+  (testing "a textarea's value is its text body"
     (check-rows
       [[[:textarea {:value "abc"}]                "<textarea>abc</textarea>"]
        [[:textarea {:default-value "abc"}]        "<textarea>abc</textarea>"]
        [[:textarea {:value "a<b"}]                "<textarea>a&lt;b</textarea>"]
-       ;; the rf2-s7l5 leading-LF compensation applies to a :value body too
+       ;; the leading-LF compensation applies to a :value body too
        [[:textarea {:value "\nabc"}]              "<textarea>\n\nabc</textarea>"]
        ;; the client takes the value and never reads the child
        [[:textarea {:value "v"} "child"]          "<textarea>v</textarea>"]
-       ;; with no value the child is the body, as before
+       ;; with no value the child is the body
        [[:textarea "child"]                       "<textarea>child</textarea>"]]))
 
-  (testing "rf2-slr59 — a select's value marks its matching options"
+  (testing "a select's value marks its matching options"
     (check-rows
       [[[:select {:value "b"} [:option {:value "a"} "A"] [:option {:value "b"} "B"]]
         "<select><option value=\"a\">A</option><option value=\"b\" selected>B</option></select>"]
@@ -156,7 +156,7 @@
        [[:select [:option {:value "a"} "A"] [:option {:value "b" :selected true} "B"]]
         "<select><option value=\"a\">A</option><option value=\"b\" selected>B</option></select>"]]))
 
-  (testing "rf2-slr59 — an input's default props write value / checked"
+  (testing "an input's default props write value / checked"
     (check-rows
       [[[:input {:default-value "x" :default-checked true}]  "<input value=\"x\" checked>"]
        [[:input {:value "v" :default-value "x"}]             "<input value=\"v\">"]

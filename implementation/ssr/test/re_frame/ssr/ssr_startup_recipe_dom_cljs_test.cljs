@@ -1,13 +1,13 @@
 (ns re-frame.ssr.ssr-startup-recipe-dom-cljs-test
-  "DIRECT browser proof of the canonical SSR startup recipe (rf2-byio7).
+  "DIRECT browser proof of the canonical SSR startup recipe.
 
   ## The gap this closes
 
-  PR #6052 corrected the SSR capability example's client boot
-  (`examples/capabilities/ssr/ssr/core.cljc` `run`) to call
-  `reagent.dom.client/hydrate-root` when a `__rf_payload` exists and
-  `create-root` + `render` only for a client-only load. But every test
-  guarding that recipe was INDIRECT — none proved the shipped recipe
+  The SSR capability example's client boot
+  (`examples/capabilities/ssr/ssr/core.cljc` `run`) hydrates the server
+  DOM when a `__rf_payload` exists and mounts fresh (`create-root` +
+  `render`) only for a client-only load. Every other test guarding that
+  recipe is INDIRECT — none proves the shipped recipe
   actually ADOPTS the server-rendered DOM and ACTIVATES handlers on it:
 
     - the Reagent / reagent-slim adapter render suites STUB `hydrate-root`
@@ -28,15 +28,15 @@
       never the CLJS mount.
 
   A `create-root` regression in the copyable recipe could therefore
-  replace the server DOM while all of the above stayed green.
+  replace the server DOM while all of the above stay green.
 
-  ## How this executes the canonical recipe (rf2-drq8s)
+  ## How this executes the canonical recipe
 
   The load-bearing decision of the recipe — payload present ⇒ the first
   render through the adapter's client root HYDRATES (adopts the server DOM);
   payload absent ⇒ a fresh mount — lives in ONE place: the registration-free
   helper `ssr.mount/mount!`, which passes `{:hydrate? (some? payload)}` to
-  `reagent-adapter/render!` (rf2-k5r9t). `ssr.core/run` calls it, and so does
+  `reagent-adapter/render!`. `ssr.core/run` calls it, and so does
   `run-recipe!` below, so this proof executes the SAME mount code the copyable
   recipe ships — not a copy of it. Regress that decision (drop the `:hydrate?`
   option) and this proof turns red.
@@ -58,22 +58,14 @@
   The view here is a PLAIN component (not `reg-view`) on the `:rf/default`
   frame — for ISOLATION, so this proof reads the adopt-vs-replace signal
   through the mount branch alone with no annotation reconciliation in the
-  mix. (Historically the plain component was also NECESSARY: in a dev
-  build the reagent CLIENT render of a registered view stamps
-  `data-rf-view` / `data-rf2-source-coord` on the root, and the JVM
-  emitter reproduced NEITHER on a callable-head view — so a registered
-  view's server markup could not byte-match its dev client render. That
-  asymmetry is FIXED (rf2-8vi4q moved annotation to the reg-view
-  registration boundary on both hosts; a registered view now adopts
-  cleanly, proven in
-  `re-frame.ssr-reg-view-hydration-adoption-dom-cljs-test`). Note the
-  causal correction the rf2-8vi4q browser probe established: on React
+  mix. (A registered view adopts cleanly too: annotation is stamped at the
+  reg-view registration boundary on both hosts, proven in
+  `re-frame.ssr-reg-view-hydration-adoption-dom-cljs-test`. On React
   18.3 / 19.2 an attribute-only mismatch WARNS and is left unpatched but
-  does NOT replace the node — the earlier claim that React `regenerates
-  the tree` on that mismatch was wrong. The node survives either way;
-  what the pre-fix asymmetry cost was the clean, warning-free adoption,
-  not the node.) Production elides the annotations on both hosts. The app
-  is still idiomatic re-frame2: app-db + a `::toggle` event + a `::show?`
+  does NOT replace the node, so an annotation asymmetry between the hosts
+  would cost the clean, warning-free adoption, not the node.) Production
+  elides the annotations on both hosts. The app
+  is idiomatic re-frame2: app-db + a `::toggle` event + a `::show?`
   sub, dispatched / subscribed on `:rf/default`.
 
   ## What this proves
@@ -171,10 +163,9 @@
   The tree is a PLAIN component (see the ns docstring), not the recipe's own
   registered `:app/root` view: a plain, annotation-free tree keeps the
   adopt-vs-replace signal isolated from annotation reconciliation while still
-  executing the canonical mount branch. (A registered view now also adopts
-  cleanly — rf2-8vi4q fixed the dev-mode annotation asymmetry — but that is
-  proven separately; here the point is the mount branch, not annotation
-  parity.)"
+  executing the canonical mount branch. (A registered view adopts cleanly
+  too, but that is proven separately; here the point is the mount branch,
+  not annotation parity.)"
   [handle]
   (rf/init! rf.adapter.reagent/adapter)
   (rf/make-frame {:id app-frame :platform :client})
@@ -252,7 +243,7 @@
   (testing "The payload branch of the SSR startup recipe hydrates the
             server-rendered DOM: the exact server `<button>` node survives
             (adopted, not re-created) AND clicking that retained node fires
-            the wired `:on-click` handler (rf2-byio7). Causally fails if the
+            the wired `:on-click` handler. Causally fails if the
             branch is changed to create-root/render."
     (if-not (browser?)
       (is true ":node-test: no DOM — the :browser-test build runs the assertions")
@@ -312,7 +303,7 @@
 (deftest client-only-startup-is-a-fresh-root
   (testing "With NO payload, the recipe takes the create-root/render branch:
             a pre-existing sentinel node is DISCARDED, the app mounts fresh,
-            and exactly one retained root owns the container (rf2-byio7)."
+            and exactly one retained root owns the container."
     (if-not (browser?)
       (is true ":node-test: no DOM — the :browser-test build runs the assertions")
       (async done

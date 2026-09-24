@@ -11,13 +11,14 @@
   `goog.provide` created for a namespace named `re-frame.ssr.boundary` —
   so the def SILENTLY OVERWRITES the namespace, and every other var in it
   (`failed-boundaries`, `failed-boundaries-path`) becomes `undefined` for
-  anyone who required both. That is not a hypothetical: this namespace
-  WAS called `…ssr.boundary` and the compiled output read
+  anyone who required both. Named `…ssr.boundary`, this namespace would
+  compile to
 
       re_frame.ssr.boundary = re_frame.ssr.boundary.boundary;
 
-  Renaming the namespace keeps the good authoring name (`ssr/boundary`)
-  and removes the collision structurally. Do not rename it back.
+  Naming the namespace `suspense` keeps the good authoring name
+  (`ssr/boundary`) and removes the collision structurally. Do not rename
+  it to `…ssr.boundary`.
 
   A streaming region is one authoring form that works on every host:
 
@@ -38,28 +39,27 @@
 
   `:rf/suspense-boundary` cannot be an authoring surface on the client.
   A keyword head is an HTML element on every host (Conventions
-  §Render-tree shape vs runtime lookup; rf2-j81hs made that one rule
-  corpus-wide), so a marker left in a client render tree paints a phantom
+  §Render-tree shape vs runtime lookup), so a marker left in a client
+  render tree paints a phantom
   `<suspense-boundary>` element. And the marker could not be *given*
   client semantics either: stock Reagent is an external dependency whose
   element dispatch is not ours to extend, and UIx views are
   `defui` / `$` forms where a hiccup keyword head cannot occur at all.
 
   A callable component head is the ONE form expressible on every
-  substrate, so that is the authoring surface. The keyword marker stays,
-  demoted to internal wire syntax between this component and the walker —
-  the walker protocol is unchanged, and the non-streaming emitter's
-  `:rf.error/ssr-suspense-boundary-outside-stream` throw still guards a
+  substrate, so that is the authoring surface. The keyword marker is
+  internal wire syntax between this component and the walker, and the
+  non-streaming emitter's
+  `:rf.error/ssr-suspense-boundary-outside-stream` throw guards a
   marker that escapes a stream.
 
-  This also removes the reader-conditional `card-slot` pattern that the
-  streaming example was forced into (a `#?(:clj … :cljs …)` slot, plus
-  hand-maintained fallback duplication in every view's nil branch). One
-  form, two hosts — and because both hosts now hash the SAME raw tree,
-  the render-tree hash agrees by construction. A reader conditional made
-  the two hosts hash structurally different trees; a component head
-  canonicalises to the existing `#fn[]` token on both (Spec 011
-  §Render-tree hash, rf2-jsa2ml), so no hash change is needed.
+  One form serves both hosts, so a view needs no reader-conditional slot
+  (`#?(:clj … :cljs …)`) and no hand-maintained fallback duplication in
+  a nil branch. And because both hosts hash the SAME raw tree,
+  the render-tree hash agrees by construction. A reader conditional would
+  make the two hosts hash structurally different trees; a component head
+  canonicalises to the `#fn[]` token on both (Spec 011
+  §Render-tree hash).
 
   ## Not React Suspense
 
@@ -77,7 +77,7 @@
   failed set, which rides the serialisable runtime-db slice to
   `[:rf.runtime/ssr :streaming :failed-boundaries]`. This component reads
   that set, so a failed boundary renders its DECLARED `:fallback` — the
-  exact markup the failed chunk left in the DOM. Views no longer need a
+  exact markup the failed chunk left in the DOM. Views need no
   defensive nil branch to keep the client render agreeing with the
   painted DOM; the boundary that declared the fallback is the one that
   re-renders it.
@@ -95,7 +95,7 @@
   render FAILED, as reported by the final payload's serialisable
   runtime-db slice (`re-frame.ssr.streaming/build-final-payload`).
 
-  Under the already-reserved `:rf.runtime/ssr` key (Conventions §Reserved
+  Under the reserved `:rf.runtime/ssr` key (Conventions §Reserved
   runtime-db keys), a sibling of the `:hydration` metadata the
   `:rf/hydrate` handler writes. Runtime-managed: user code MUST NOT
   write it.
@@ -138,7 +138,7 @@
 ;; So the render-time record is a process-level set, written once at
 ;; stream finalization by `re-frame.ssr.streaming.client/install!` from
 ;; the outcomes it observed on the wire. A page's boundary ids are unique
-;; by contract (duplicates are already `:rf.error/suspense-boundary-
+;; by contract (duplicates are `:rf.error/suspense-boundary-
 ;; duplicate-id`), so an id identifies a boundary without a frame.
 
 (defonce ^:private failed-registry
@@ -219,7 +219,7 @@
   Server (`:clj`): expands to the internal `:rf/suspense-boundary` marker
   the streaming shell walker consumes. Outside a stream the standard
   emitter rejects that marker with
-  `:rf.error/ssr-suspense-boundary-outside-stream` — unchanged.
+  `:rf.error/ssr-suspense-boundary-outside-stream`.
 
   Client (`:cljs`): renders `body`, or `:fallback` when `:id` is in the
   page's failed-boundary record (`failed-boundaries`, written at stream

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 //
-// rf2-w1hd8 — GENERATOR for `javascript_url.edn`, the external anchor for the
+// GENERATOR for `javascript_url.edn`, the external anchor for the
 // `javascript:` URL rule in the SSR hiccup emitters.
 //
 // WHY THIS EXISTS. The markup `re-frame.ssr/render-to-string` and the
@@ -8,9 +8,9 @@
 // paints through react-dom. react-dom's `setProp` swaps a `javascript:` URL in
 // `href`, `src`, `action`, `formAction` and `xlinkHref` (and in `data` on an
 // `<object>`) for a URL that throws, before it ever reaches `setAttribute`.
-// The emitters wrote the value unchanged. React does not patch an attribute at
-// hydration, so the unblocked URL stayed live on the hydrated page while the
-// client's own render would have blocked it. The emitters now apply the same
+// React does not patch an attribute at hydration, so an emitter that wrote the
+// value unchanged would leave the unblocked URL live on the hydrated page while
+// the client's own render would have blocked it. The emitters apply the same
 // rule, and `re_frame/ssr_javascript_url_react_parity_test.clj` checks it
 // against this file.
 //
@@ -24,7 +24,7 @@
 // element). The generator checks the first two by reading both builds' source
 // text, and it ABORTS if they differ, so a react-dom bump that parts the two
 // builds cannot produce a plausible fixture. The prop cases were read from
-// both builds' `pushAttribute` / `setProp` by hand, under rf2-w1hd8.
+// both builds' `pushAttribute` / `setProp` by hand.
 //
 // REGENERATE (from `implementation/`, where node_modules lives):
 //

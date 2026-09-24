@@ -1,5 +1,5 @@
 (ns re-frame.ssr.root-manifest-cljs-test
-  "Root Manifest v1 (S5-A) — the SUBSET PROPERTY and the wire/discovery
+  "Root Manifest v1 — the SUBSET PROPERTY and the wire/discovery
   contract (Spec 011 §Root Manifest v1; schema family Spec 004C §2).
 
   What this namespace covers is the manifest surface itself: validation
@@ -8,17 +8,13 @@
   discovery. Every assertion drives `re-frame.ssr.manifest` directly over
   hand-built manifests.
 
-  WHAT USED TO BE HERE AND IS NOT, so the gap is legible rather than
-  mysterious: a SUBSET-PROPERTY suite that drove the shipped S1 descriptor
-  emitter (`re-frame.ui.compiler.root/root-descriptor`) and fed its output
+  There is no suite feeding a real descriptor emitter's output
   byte-for-byte to the validator, proving Root Manifest v1 a strict
-  superset of Root Descriptor v1 against the real compiler rather than
-  against a transcribed fixture. `re-frame.ui` has been retired
-  (rf2-0yp7w) and no other substrate emits a Root Descriptor, so that
-  property has no producer left to check it — it was deleted rather than
-  re-expressed over a hand-written descriptor, because a hand-written one
-  would assert the transcription and not the compiler, which is precisely
-  what the original suite existed to avoid.
+  superset of Root Descriptor v1 against a compiler rather than against a
+  transcribed fixture: no substrate emits a Root Descriptor, so that
+  property has no producer to check it. It is not re-expressed over a
+  hand-written descriptor, because a hand-written one would assert the
+  transcription and not a compiler.
 
   Runs on BOTH hosts (`.cljc`, `-cljs-test` ns): `clojure -M:test` from
   `implementation/ssr` and the node runner via `npm run test:cljs`."
@@ -29,9 +25,9 @@
                :cljs [cljs.reader])))
 
 ;; A record defined HERE rather than reached for in some production ns:
-;; the rf2-v4foc defect is about any value whose `pr-str` carries a tag
-;; the safe reader cannot construct, and a locally-defined record is the
-;; smallest honest instance of that class on both hosts.
+;; the wire must refuse any value whose `pr-str` carries a tag the safe
+;; reader cannot construct, and a locally-defined record is the smallest
+;; honest instance of that class on both hosts.
 (defrecord WireProbeRecord [x])
 
 (deftest schema-version-is-the-only-required-key
@@ -154,22 +150,23 @@
           (str "body " (pr-str body) " — a hydrating root never guesses")))))
 
 ;; ---------------------------------------------------------------------------
-;; THE EXACT ROUND TRIP (rf2-v4foc)
+;; THE EXACT ROUND TRIP
 ;; ---------------------------------------------------------------------------
 ;;
-;; #6383 shipped a wire whose ACCEPTANCE predicate was not equivalent to
-;; its READ. Three ways apart, each measured on both hosts before the fix:
+;; The wire's ACCEPTANCE predicate must be equivalent to its READ. Three
+;; ways the two could come apart, each pinned below on both hosts:
 ;;
-;;   1. a record-valued prop satisfied `map?`, so `edn-carryable?` walked
-;;      its entries and said yes — but `pr-str` emits `#my.ns.R{…}` and
-;;      the safe reader has no constructor for that tag;
-;;   2. `serialise-props` tested only the VALUE half of each entry, so an
-;;      opaque KEY (a fn, a host object) emitted `#object[…]`;
-;;   3. `read-manifest` took the first form and silently discarded any
+;;   1. a record-valued prop satisfies `map?`, so an acceptance walk that
+;;      asks `map?` first would say yes — but `pr-str` emits `#my.ns.R{…}`
+;;      and the safe reader has no constructor for that tag;
+;;   2. screening only the VALUE half of each props entry would let an
+;;      opaque KEY (a fn, a host object) emit `#object[…]`;
+;;   3. a reader that takes the first form would silently discard any
 ;;      trailing text or second form.
 ;;
-;; All three turn an EMIT-time authoring mistake into a CLIENT hydration
-;; failure, which is the one thing a fail-loud wire exists to prevent.
+;; All three would turn an EMIT-time authoring mistake into a CLIENT
+;; hydration failure, which is the one thing a fail-loud wire exists to
+;; prevent.
 ;;
 ;; The property below is `read(write(m)) = m` driven through the SHIPPED
 ;; `script-html` / `read-manifest` — not a hand-transcribed sample, and
@@ -225,7 +222,7 @@
    :nested         {:a {:b [1 #{:c} {"d" :e}]}}})
 
 (deftest every-emitted-manifest-round-trips-exactly
-  (testing "rf2-v4foc — every manifest that reaches the wire reads back
+  (testing "every manifest that reaches the wire reads back
             EQUAL, not merely readable, with and without extension facts"
     (let [d {:rf.root/schema-version 1 :root-id :page/shop}]
       (is (round-trips? (rf.ssr.manifest/manifest d {:element-locator    {:id "shop-root"}
@@ -253,15 +250,15 @@
         (is (round-trips? m) (str "prop key " (pr-str k)))))))
 
 (deftest round-trip-guard-is-load-bearing
-  (testing "THE RED-BEFORE for rf2-v4foc, kept executable: re-create the
-            defective predicate (the one that tested `map?` before
+  (testing "THE LEVER for the record arm: build the
+            defective predicate (one that tests `map?` before
             `record?`) and prove it ACCEPTS a value whose printed form the
-            reader then REJECTS. That gap is the whole bug; the shipped
+            reader then REJECTS. That gap is the whole failure; the shipped
             predicate must never reproduce it, and this test fails if the
             `record?` arm is ever removed."
     (let [r (->WireProbeRecord 1)
-          ;; The PRE-FIX predicate, verbatim in the one respect that
-          ;; mattered: `map?` reached before any record test.
+          ;; The defective predicate, wrong in the one respect that
+          ;; matters: `map?` reached before any record test.
           lenient-carryable?
           (fn lenient? [v]
             (cond
@@ -277,7 +274,7 @@
              proves nothing"))
 
       (testing "…yet its printed form does NOT read back — the exact
-                asymmetry #6383 shipped"
+                asymmetry the defective predicate lets through"
         (is (not= (pr-str {:x r}) (pr-str (into {} r)))
             "a record does not PRINT as a map, which is why map?-shape was
              the wrong question")
@@ -294,7 +291,7 @@
             "detected through nesting, like every other opaque value")))))
 
 (deftest record-valued-prop-fails-before-emission
-  (testing "rf2-v4foc — a record prop is rejected at ASSEMBLY, naming the
+  (testing "a record prop is rejected at ASSEMBLY, naming the
             prop, rather than emitting a body the client cannot read"
     (let [data (try (rf.ssr.manifest/manifest
                      'test {:rf.root/schema-version 1 :root-id :page/shop}
@@ -308,8 +305,8 @@
       (is (= :value (:unserialisable-half data))))))
 
 (deftest opaque-prop-KEY-fails-before-emission
-  (testing "rf2-v4foc — `serialise-props` checked only the value half, so
-            an opaque KEY reached `pr-str` and emitted `#object[…]`. Both
+  (testing "were `serialise-props` to check only the value half, an
+            opaque KEY would reach `pr-str` and emit `#object[…]`. Both
             halves are carried, so both halves are validated."
     (let [k    (fn [] 1)
           data (try (rf.ssr.manifest/manifest
@@ -328,31 +325,31 @@
     (is (not (rf.ssr.manifest/edn-carryable? {(->WireProbeRecord 1) :v})))))
 
 ;; ---------------------------------------------------------------------------
-;; THE NUMERIC HALF OF THE ROUND TRIP (rf2-v4foc, Codex audit of #6407)
+;; THE NUMERIC HALF OF THE ROUND TRIP
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The round-trip property above is driven by ONE host at a time: the JVM
 ;; suite emits and reads with `clojure.edn`, the CLJS suite with
 ;; `cljs.reader`. Every JVM-only numeric form passes THAT test — it is
-;; the CROSSING that loses, and no same-host suite can see it. This is
-;; why SSR 419/1911, UI 928/16132 and CLJS 10099/49944 were all green
-;; while the wire silently changed application-visible hydration props.
+;; the CROSSING that loses, and no same-host suite can see it: every one
+;; would stay green while the wire silently changed application-visible
+;; hydration props.
 ;;
 ;; So the proof below is joined by BYTES rather than by a shared host.
-;; `jvm-emitted-body` is the exact script body the shipped emitter
-;; produced for `{:props {:x 9007199254740993N}}`. Each host then asserts
+;; `jvm-emitted-body` is the exact script body a JVM emitter without the
+;; numeric gate produces for `{:props {:x 9007199254740993N}}`. Each host then asserts
 ;; its OWN half against those same bytes, with the shipped reader:
 ;;
 ;;   JVM  reads them back as 9007199254740993N  — the value rendered
 ;;   CLJS reads them back as 9007199254740992   — a DIFFERENT number
 ;;
 ;; One wire, two hosts, two values, no error on either side. That is the
-;; defect stated as an executable fact, and it stays executable after the
-;; fix: it is *why* the emitter must now refuse the value.
+;; hazard stated as an executable fact: it is *why* the emitter refuses
+;; the value.
 
 (def ^:private jvm-emitted-body
-  "The exact `<script>` body the JVM emitter produced for a bigint prop
-  before this fix. Pinned as BYTES because bytes are what actually cross
+  "The exact `<script>` body a JVM emitter without the numeric gate
+  produces for a bigint prop. Pinned as BYTES because bytes are what actually cross
   — reconstructing it per-host would beg the question the test asks.
 
   The JVM half below pins the one token that matters
@@ -361,7 +358,7 @@
   "{:rf.root/schema-version 1, :root-id :page/shop, :phase :server, :props {:x 9007199254740993N}}")
 
 (deftest jvm-emitted-number-reads-back-differently-on-cljs
-  (testing "rf2-v4foc — the SAME wire bytes, read by the SHIPPED
+  (testing "the SAME wire bytes, read by the SHIPPED
             `read-manifest` on each host, yield DIFFERENT hydration props.
             Asserted as an observable VALUE: nothing throws, which is the
             entire danger."
@@ -386,9 +383,9 @@
                 naming the value it is supposed to reject"))))))
 
 (deftest numeric-wire-guard-is-load-bearing
-  (testing "THE RED-BEFORE for the numeric arm, kept executable in the same
-            shape as the `record?` lever above: re-create the predicate
-            that said `(number? v) true` and prove it ACCEPTS the very
+  (testing "THE LEVER for the numeric arm, in the same
+            shape as the `record?` lever above: build the predicate
+            that says `(number? v) true` and prove it ACCEPTS the very
             value the test above shows the far host mangles."
     (let [lenient-number? (fn [v] (number? v))]
       #?(:clj
@@ -404,7 +401,7 @@
            (is (not (rf.ssr.manifest/edn-carryable? nan))))))))
 
 (deftest only-cross-host-numbers-ride-the-wire
-  (testing "rf2-v4foc — what the numeric subset ADMITS. These must keep
+  (testing "what the numeric subset ADMITS. These must keep
             working: narrowing the wire must not narrow ordinary props."
     (doseq [v [0 -1 1 1.5 -1.5 9.0 0.1
                rf.ssr.manifest/max-safe-integer
@@ -447,14 +444,13 @@
       (is (rf.ssr.manifest/edn-carryable? #?(:clj 1.0E308 :cljs 1e308))))))
 
 ;; ---------------------------------------------------------------------------
-;; ±INFINITY RIDES; ONLY NaN IS EXCLUDED (rf2-pdcoh — Spec 011 same-contract)
+;; ±INFINITY RIDES; ONLY NaN IS EXCLUDED (Spec 011 same-contract)
 ;; ---------------------------------------------------------------------------
 ;;
-;; Spec 011 once read "finite doubles", but `wire-number?` admits ±Infinity and
-;; always has: EDN prints `##Inf` / `##-Inf` and reads them back EXACTLY, so
-;; they satisfy the round-trip property. `##NaN` alone is excluded — it is not
-;; `=` to itself. The predicate, the spec prose, and these pins now agree, on
-;; BOTH hosts.
+;; `wire-number?` admits ±Infinity: EDN prints `##Inf` / `##-Inf` and reads
+;; them back EXACTLY, so they satisfy the round-trip property. `##NaN` alone
+;; is excluded — it is not `=` to itself. The predicate, the Spec 011 prose,
+;; and these pins agree, on BOTH hosts.
 
 (deftest infinities-ride-only-nan-is-excluded
   (testing "±Infinity is admitted on both hosts — EDN round-trips it exactly"
@@ -473,23 +469,23 @@
             "the exact infinity the server rendered is what the reader returns")))))
 
 ;; ---------------------------------------------------------------------------
-;; CROSS-HOST NUMERIC KEY / SET COLLISIONS (rf2-pdcoh)
+;; CROSS-HOST NUMERIC KEY / SET COLLISIONS
 ;; ---------------------------------------------------------------------------
 ;;
-;; PR #6437 made `wire-number?` decide, PER VALUE, whether a number crosses the
+;; `wire-number?` decides, PER VALUE, whether a number crosses the
 ;; JVM→CLJS wire. Per-value acceptance is not enough for a whole map or set:
 ;; the server and the browser do not share numeric key identity. On the JVM `1`
 ;; and `1.0` (and `0` and `-0.0`) are two DISTINCT keys that BOTH pass
-;; `edn-carryable?`; the browser reads every number as one double, so the
-;; emitted body reads back with a DUPLICATE key — the accepted manifest does
-;; not round-trip, and its cardinality changes across the wire. As with the
+;; `edn-carryable?`; the browser reads every number as one double, so an
+;; emitted body carrying both reads back with a DUPLICATE key — the manifest
+;; does not round-trip, and its cardinality changes across the wire. As with the
 ;; numeric-scalar arm above, no same-host suite can see it: the server reads its
 ;; own two-key body back perfectly. So this proof, too, is joined by BYTES.
 
 (def ^:private collision-bodies
-  "Exact `<script>` bodies a PRE-fix server emitted for colliding manifests,
-  pinned as BYTES because bytes are what cross. Map-key, set-element, and
-  signed-zero arms, plus the rf2-pdcoh COMPOSITE arms — a VECTOR key and a
+  "Exact `<script>` bodies a server without the collision gate emits for
+  colliding manifests, pinned as BYTES because bytes are what cross.
+  Map-key, set-element, and signed-zero arms, plus the COMPOSITE arms — a VECTOR key and a
   vector set element, where each key/element is a collection whose numeric
   leaves (not the key itself) collapse. The JVM half pins the tokens against
   the live printer so these literals cannot go stale."
@@ -500,11 +496,11 @@
    :vec-set "{:rf.root/schema-version 1, :root-id :page/shop, :phase :server, :props {:tags #{[1.0] [1]}}}"})
 
 (deftest colliding-wire-bytes-part-across-hosts
-  (testing "rf2-pdcoh — the SAME wire bytes, read by the shipped `read-manifest`
+  (testing "the SAME wire bytes, read by the shipped `read-manifest`
             on each host, PART: the server reads its own body back with BOTH
             keys; the browser rejects it as a duplicate. One wire, two
-            cardinalities — the defect as an executable fact, and WHY emission
-            must now refuse the value."
+            cardinalities — the hazard as an executable fact, and WHY emission
+            refuses the value."
     #?(:clj
        (do
          (is (= "{1 :integer, 1.0 :double}" (pr-str {1 :integer 1.0 :double}))
@@ -513,7 +509,7 @@
              "…and the set token — if either reds, the pinned bytes are stale")
          (is (= "{[1] :integer-vector, [1.0] :double-vector}"
                 (pr-str {[1] :integer-vector [1.0] :double-vector}))
-             "the COMPOSITE map-key tokens — the residual #6489's direct walk missed")
+             "the COMPOSITE map-key tokens — which a directly-numeric walk misses")
          (is (= "#{[1.0] [1]}" (pr-str #{[1] [1.0]}))
              "…and the composite set-element token")
          (is (= 2 (count (get-in (rf.ssr.manifest/read-manifest 'test (:map collision-bodies))
@@ -538,7 +534,7 @@
 
 #?(:clj
    (deftest cross-host-numeric-collision-fails-before-emission
-     (testing "rf2-pdcoh — the server holds two distinct keys the browser cannot
+     (testing "the server holds two distinct keys the browser cannot
                tell apart; `script-html` refuses the manifest BEFORE emission,
                naming the offending collection, its colliding keys, and the one
                browser double they share."
@@ -549,7 +545,7 @@
          (is (= 2 (count collide)) "the server really does hold two distinct keys")
          (is (rf.ssr.manifest/edn-carryable? collide)
              "THE LEVER: each key and value rides the wire ALONE — exactly what
-              PR #6437 checked. Per-value carryability is not the property.")
+              a per-value check sees. Per-value carryability is not the property.")
          (let [data (try (rf.ssr.manifest/script-html m) nil
                          (catch clojure.lang.ExceptionInfo e (ex-data e)))]
            (is (= :rf.error/root-manifest-invalid (:rf.error/id data))
@@ -601,10 +597,10 @@
          (is (= :set-elements (:collision data)))
          (is (= [:props :xs 1] (:path data)) "the path indexes into the vector"))
 
-       ;; rf2-pdcoh RESIDUAL — COMPOSITE sibling KEYS. `[1]` and `[1.0]` are two
-       ;; distinct vectors on the server, and NEITHER is a number, so #6489's
-       ;; directly-numeric grouping accepted them and emitted the body; the
-       ;; browser reads both as `[1.0]` and rejects the duplicate. The walk now
+       ;; COMPOSITE sibling KEYS. `[1]` and `[1.0]` are two
+       ;; distinct vectors on the server, and NEITHER is a number, so a
+       ;; directly-numeric grouping would accept them and emit the body; the
+       ;; browser reads both as `[1.0]` and rejects the duplicate. The walk
        ;; projects the WHOLE key before comparing siblings.
        (let [collide {[1] :integer-vector [1.0] :double-vector}
              m       {:rf.root/schema-version 1 :root-id :page/shop
@@ -635,8 +631,9 @@
          (is (= [:props :tags] (:path data)))
          (is (= #{[1] [1.0]} (set (:collapses data)))))
 
-       ;; DEEP composite collision — a set inside a vector inside a map: the
-       ;; residual is closed at ARBITRARY depth, not just one collection down.
+       ;; DEEP composite collision — a set inside a vector inside a map:
+       ;; composite collisions are found at ARBITRARY depth, not just one
+       ;; collection down.
        (let [m    {:rf.root/schema-version 1 :root-id :page/shop
                    :props {:xs [{:k #{[1] [1.0]}}]}}
              data (try (rf.ssr.manifest/script-html m) nil
@@ -647,7 +644,7 @@
              "the path threads map -> vector -> map -> set to the colliding set")))))
 
 (deftest a-mutation-that-resolves-the-collision-emits-fine
-  (testing "rf2-pdcoh — THE RED-BEFORE MUTATION: change one colliding number so
+  (testing "THE MUTATION: change one colliding number so
             the two keys/elements no longer share a browser double, and the very
             same shape emits and round-trips. This proves each rejection above is
             the COLLISION, not the shape — and that the gate does not narrow
@@ -665,10 +662,10 @@
                             :props {:tags #{1 2 3}}}
              :nested-ok    {:rf.root/schema-version 1 :root-id :page/shop
                             :props {:a [1 {:b #{2 3.5}}]}}
-             ;; rf2-pdcoh — the COMPOSITE mutations: change one leaf so the two
+             ;; The COMPOSITE mutations: change one leaf so the two
              ;; vector keys/elements no longer project to one browser value, and
              ;; the same composite shape emits and round-trips. Proves the
-             ;; residual rejection is the COLLISION, not the composite shape.
+             ;; composite rejection is the COLLISION, not the composite shape.
              :vec-map-ok   {:rf.root/schema-version 1 :root-id :page/shop
                             :props {:lookup {[1] :integer-vector [2.0] :double-vector}}}
              :vec-set-ok   {:rf.root/schema-version 1 :root-id :page/shop
@@ -685,7 +682,7 @@
 
 #?(:clj
    (deftest non-carryable-number-fails-before-emission
-     (testing "rf2-v4foc — a JVM-only number is refused at ASSEMBLY naming
+     (testing "a JVM-only number is refused at ASSEMBLY naming
                the prop, and at the EMISSION gate naming the manifest key,
                exactly as an opaque value is. Not a second mechanism —
                the same `edn-carryable?`, told the truth about numbers."
@@ -711,18 +708,18 @@
            (is (= :rf.error/root-manifest-invalid (:rf.error/id data)))
            (is (= :static-props (:unserialisable-manifest-key data)))))
 
-       (testing "the bigint that started this: `script-html` no longer
-                 emits the body the CLJS reader mangles"
+       (testing "the bigint case: `script-html` refuses to
+                 emit the body the CLJS reader mangles"
          (is (thrown? clojure.lang.ExceptionInfo
                       (rf.ssr.manifest/script-html
                        (assoc {:rf.root/schema-version 1 :root-id :page/shop}
                               :props {:x 9007199254740993N}))))))))
 
 (deftest script-emission-gates-the-whole-manifest
-  (testing "rf2-v4foc — `serialise-props` screens `:props` at assembly, but
+  (testing "`serialise-props` screens `:props` at assembly, but
             `script-html` is the only door onto the wire and DESCRIPTOR
-            keys ride through it too. A non-carryable `:static-props` was
-            emitted happily before this gate; the property `every manifest
+            keys ride through it too. Without this gate a non-carryable
+            `:static-props` would be emitted happily; the property `every manifest
             accepted for script emission round-trips` is only true if the
             gate is at emission."
     (doseq [k [:static-props :props-shape :frame-plans :root-id]]
@@ -745,10 +742,10 @@
         "the gate rejects unwireable values, not ordinary data")))
 
 (deftest body-must-hold-exactly-one-edn-form
-  (testing "rf2-v4foc — `read-string` returns the FIRST form and discards
-            the rest, so a truncated render, two concatenated manifests, or
-            an injected suffix all hydrated silently against the first map.
-            A manifest is ONE value."
+  (testing "`read-string` returns the FIRST form and discards
+            the rest, so without a form count a truncated render, two
+            concatenated manifests, or an injected suffix would all hydrate
+            silently against the first map. A manifest is ONE value."
     (doseq [[label body] {:trailing-text  "{:rf.root/schema-version 1} trailing"
                           :second-form    "{:rf.root/schema-version 1} {:second true}"
                           :second-scalar  "{:rf.root/schema-version 1} 42"
@@ -782,7 +779,7 @@
            (rf.ssr.manifest/read-manifest 'test "{:rf.root/schema-version 1} #_{:x 1}")))))
 
 (deftest one-form-guard-is-load-bearing
-  (testing "THE RED-BEFORE for the one-form rule, kept executable: the
+  (testing "THE LEVER for the one-form rule: the
             bundled reader really does discard the suffix, so without the
             count check the bodies above are accepted. If a future reader
             starts throwing on trailing content this test goes red and the
@@ -794,7 +791,7 @@
              #?(:clj  (clojure.edn/read-string body)
                 :cljs (cljs.reader/read-string body)))
           (str "the raw reader silently accepts " (pr-str body)
-               " — that is the hole `read-manifest` now closes")))))
+               " — that is the hole `read-manifest` closes")))))
 
 (deftest marker-attribute-is-pinned-in-one-place
   (is (= "data-rf-root" rf.ssr.constants/root-manifest-marker-attribute))
@@ -820,7 +817,7 @@
    (deftest discovery-is-adjacency-and-content
      ;; `m` carries an AUTHORED `:identifier-prefix`, so `discover` passes it
      ;; through verbatim and this test stays about ADJACENCY (the omitted-prefix
-     ;; canonicalization has its own test below, rf2-y3swx).
+     ;; canonicalization has its own test below).
      (let [m    (rf.ssr.manifest/manifest {:rf.root/schema-version 1
                                     :root-id :page/shop}
                                    {:element-locator   {:id "shop-root"}
@@ -854,7 +851,7 @@
              "discovery does not walk — adjacency is the whole rule")))))
 
 ;; ---------------------------------------------------------------------------
-;; Omitted identifier-prefix -> React's effective empty prefix (rf2-y3swx)
+;; Omitted identifier-prefix -> React's effective empty prefix
 ;;
 ;; React 19.2's hydrateRoot has no distinct "no prefix" state: it canonicalizes
 ;; an omitted `identifierPrefix` option to the empty string "", and useId
@@ -884,9 +881,8 @@
 
 #?(:cljs
    (deftest discover-stamps-react-empty-prefix-on-a-bare-manifest
-     ;; RED-BEFORE: the shipped `discover` returned the bare manifest verbatim,
-     ;; so `hydrate-root*` read a NIL prefix and the Layer-3 prefix-uniqueness
-     ;; arm (a no-op on nil) admitted every omitted-prefix root.
+     ;; A `discover` that returned the bare manifest verbatim would hand the
+     ;; hydrating root a NIL prefix rather than React's effective empty one.
      (let [bare   (rf.ssr.manifest/manifest {:rf.root/schema-version 1 :root-id :page/a})
            script (stub-el {:attrs {"type" "application/edn"
                                     rf.ssr.constants/root-manifest-marker-attribute ""}

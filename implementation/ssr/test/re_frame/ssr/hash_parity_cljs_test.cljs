@@ -1,6 +1,6 @@
 (ns re-frame.ssr.hash-parity-cljs-test
   "CLJS side of the render-tree-hash cross-runtime byte-identity parity
-  smoke (rf2-1q9de).
+  smoke.
 
   Spec 011 §Hydration-mismatch detection pins the hash as byte-identical
   between CLJS and JVM runtimes. The CLJS pipeline:
@@ -11,7 +11,7 @@
   render tree; this file locks the CLJS side to the literals the JVM
   side pins.
 
-  Pattern mirrors `re-frame.schemas.digest-parity-cljs-test` (rf2-xssfv)
+  Pattern mirrors `re-frame.schemas.digest-parity-cljs-test`
   — both runtimes consume the SAME fixture map (loaded from a shared
   `.cljc` fixtures namespace) and pin the SAME canonical literal. The
   literal IS the cross-host byte-comparison point. The companion JVM
@@ -19,11 +19,11 @@
   against the same fixtures.
 
   Note on namespace: the file lives at `implementation/ssr/test/re_frame/ssr/`
-  and the ns suffix is `-cljs-test` (not `cljs-test`) so it matches
-  both the shadow-cljs `:node-test` build's `cljs-test$` regex and the
-  `:browser-test` build's `-cljs-test$` regex. The hash-pipeline code
-  is platform-neutral — no DOM, no React — so the node-test gate is
-  sufficient."
+  and the ns suffix is `-cljs-test`, so the shadow-cljs `:node-test`
+  build's `cljs-test$` regex picks it up; it does not end
+  `-dom-cljs-test`, so the `:browser-test` build does not. The
+  hash-pipeline code is platform-neutral — no DOM, no React — so the
+  node-test gate is sufficient."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.ssr.hash :as rf.ssr.hash]
             [re-frame.ssr.hash-parity-fixtures :as rf.ssr.hash-parity-fixtures]))
@@ -47,7 +47,7 @@
 ;; ---- nil-pruning equivalence pairs ---------------------------------------
 
 (deftest cljs-render-tree-hash-prunes-nil-to-canonical-literal
-  (testing "Spec 011 + rf2-6djjl — both the with-nil and without-nil
+  (testing "Spec 011 — both the with-nil and without-nil
             inputs MUST hash to the pinned literal under the CLJS
             pipeline."
     (doseq [{:keys [label input-with-nil input-without-nil expected rationale]}

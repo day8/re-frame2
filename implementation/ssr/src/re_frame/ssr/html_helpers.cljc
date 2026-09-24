@@ -83,16 +83,15 @@
       (str/replace "\"" "&quot;")))
 
 ;; ---------------------------------------------------------------------------
-;; Raw-text elements — <script>/<style> content is HTML RAW TEXT (rf2-2dh3b)
+;; Raw-text elements — <script>/<style> content is HTML RAW TEXT
 ;;
-;; The single shared home for the raw-text emission rule (hoisted from
-;; `re-frame.ssr.ui-tree` per rf2-xbvzh, ruling Option (a)). ALL three SSR
+;; The single shared home for the raw-text emission rule. ALL three SSR
 ;; paths — the S5 structural serialiser and both hiccup emitters — call
 ;; this ONE implementation, so an ordinary inline `<script>`/`<style>`
 ;; with the same author content serialises to byte-identical HTML on every
 ;; path. This is the AUTHOR-CONTENT channel; the stricter DATA-payload
 ;; helpers (`escape-script-body-string` / `escape-edn-script-body`, below)
-;; are a separate concern and unchanged.
+;; are a separate concern.
 ;; ---------------------------------------------------------------------------
 
 (def raw-text-tags
@@ -144,15 +143,14 @@
     s))
 
 ;; ---------------------------------------------------------------------------
-;; Newline-eating elements — leading-LF compensation (rf2-z05di, rf2-s7l5)
+;; Newline-eating elements — leading-LF compensation
 ;;
-;; The single shared home for the leading-LF rule, hoisted from
-;; `re-frame.ssr.ui-tree` per rf2-s7l5 for exactly the reason rf2-xbvzh
-;; hoisted the raw-text rule: the S5 structural serialiser had the rule and
-;; the two HICCUP emitters (`emit` / `streaming`) did not, so the SAME author
-;; content serialised to DIFFERENT bytes depending on which SSR path rendered
-;; it — and the hiccup paths' bytes lost a character at parse time. ONE roster
-;; and ONE rule, read by all three paths.
+;; The single shared home for the leading-LF rule, for exactly the reason the
+;; raw-text rule has one: an SSR path without the rule would serialise the
+;; SAME author content to DIFFERENT bytes from the paths with it — and lose a
+;; character at parse time. ONE roster and ONE rule, read by all three paths:
+;; the S5 structural serialiser and the two HICCUP emitters (`emit` /
+;; `streaming`).
 ;; ---------------------------------------------------------------------------
 
 (def newline-eating-tags
@@ -213,24 +211,23 @@
   emission that puts user-controlled content inside `<script>` is an
   XSS vector unless the closing-tag pattern is broken.
 
-  We escape every `<` as the Unicode escape `\\u003c`. The two known
-  callers — the hydration payload EDN (rf2-7ksyr) and JSON-LD script
-  bodies (rf2-m5u23) — both parse via readers (the EDN reader; the
-  client's `JSON.parse` for JSON-LD) that accept `\\u003c` as the
+  We escape every `<` as the Unicode escape `\\u003c`. Its caller, the
+  JSON-LD script body (`re-frame.ssr.head.emit`), is parsed by the
+  client's `JSON.parse`, which accepts `\\u003c` as the
   six-character escape sequence for `<`, so the payload round-trips
   through the reader unchanged. Escaping `<` rather than the narrower
   `</` keeps the rule simple and covers related lookalikes (`<!--`,
   `<![CDATA[`, …) the HTML parser also treats as state switches.
 
-  Security audit 2026-05-14 §P1.1 / §P1 (rf2-7ksyr, rf2-m5u23) — single
-  helper, two call sites, no copy-paste drift.
+  One helper serves both host arms of that caller, so there is no
+  copy-paste drift.
 
   NOTE — this whole-string replacement is correct ONLY for JSON bodies
   (JSON-LD), where every `<` is necessarily inside a string literal and
   `\\u003c` is a valid JSON string escape. EDN bodies (the hydration
   payload / streaming delta) carry bare keyword/symbol TOKENS in which
   `<` is legal yet `\\u003c` is NOT a valid in-token escape — use
-  `escape-edn-script-body` for those (rf2-rdxxa)."
+  `escape-edn-script-body` for those."
   [s]
   (str/replace (str s) "<" "\\u003c"))
 
@@ -238,7 +235,7 @@
   "EDN-aware variant of `escape-script-body-string` for an
   already-`pr-str`'d EDN document dropped inside a `<script
   type=\"application/edn\">` body — the hydration payload (`__rf_payload`)
-  and the per-subtree streaming delta (rf2-7ksyr / rf2-rdxxa).
+  and the per-subtree streaming delta.
 
   Why the whole-string `<`→`\\u003c` replacement is WRONG for EDN: the
   six-character escape `\\u003c` is only meaningful to the EDN reader
@@ -259,7 +256,7 @@
   after the backslash is the literal's payload, so a `\\\"` (what
   `(char 34)` prints as) does NOT open a string and a later real string
   literal's `</script>` is escaped, not mis-read as a token-position
-  breakout (rf2-g15jtb):
+  breakout:
 
     - INSIDE a string literal — every `<` becomes `\\u003c`. The reader
       decodes the escape back to `<` inside the string, so the value
@@ -319,11 +316,11 @@
             ;; Outside any string literal — token / structural position.
             ;;
             ;; An EDN character literal opens with a backslash (`\"`, `\<`,
-            ;; `\newline`, `A`, `\o101`). The character IMMEDIATELY
+            ;; `\newline`, `\u0041`, `\o101`). The character IMMEDIATELY
             ;; following the backslash is the literal's payload, NOT a
             ;; document delimiter — in particular a `\"` (the char literal
             ;; for double-quote, what `(char 34)` prints as) must NOT be
-            ;; read as a string-opening quote (rf2-g15jtb). Emit the
+            ;; read as a string-opening quote. Emit the
             ;; backslash and the following payload char verbatim, then
             ;; resume normal token scanning. The payload char cannot itself
             ;; start an HTML breakout: an EDN char literal is a single
@@ -517,46 +514,46 @@
 (def ^:private jsx-source-prop-names
   #{"_jsxFileName" "_jsxLineNumber" "_jsxColumnNumber"})
 
-;; rf2-gw87 — REACT'S TWO STRUCTURAL SLOTS. `key` and `ref` are read off a
+;; REACT'S TWO STRUCTURAL SLOTS. `key` and `ref` are read off a
 ;; props map by React itself (the JSX transform / `createElement`) and are
 ;; never handed to the host as DOM attributes: `key` is reconciliation
 ;; identity and `ref` is an instance handle, and neither has an HTML wire
-;; representation. This emitter passed both straight through, so
-;; `[:div {:key "k"}]` served `<div key="k">` and a string `[:div {:ref "R"}]`
-;; served `<div ref="R">` — measured live before this fix.
+;; representation. Passing both straight through would serve
+;; `<div key="k">` for `[:div {:key "k"}]` and `<div ref="R">` for a string
+;; `[:div {:ref "R"}]`.
 ;;
-;; A function-valued `:ref` was already dropped by the `fn?` arm below, which
-;; is what kept this narrow: the REACHABLE case is `:key`, and `:key` on a
-;; native tag is ordinary application markup rather than a curiosity — the
-;; same `[:div {:key i}]`-inside-a-`for` idiom that produced rf2-3357's
-;; fragment defect one slot over.
+;; A function-valued `:ref` is dropped by the `fn?` arm below in any case,
+;; which is what keeps this narrow: the REACHABLE case is `:key`, and `:key`
+;; on a native tag is ordinary application markup rather than a curiosity —
+;; the same `[:div {:key i}]`-inside-a-`for` idiom as the keyed fragment one
+;; slot over.
 ;;
 ;; WHY DROPPING IS RIGHT RATHER THAN MERELY TIDY. The client paints no such
 ;; attribute, so emitting one server-side is precisely a hydration
 ;; divergence — the emitter's whole contract here is agreeing with
 ;; react-dom/server, and react-dom/server emits neither. A custom element
 ;; genuinely wanting a `key` attribute cannot get one out of React either,
-;; so refusing it costs nothing that was reachable on the client.
+;; so refusing it costs nothing that is reachable on the client.
 ;;
 ;; MATCHED CASE-SENSITIVELY, unlike the event-handler and prototype-pollution
 ;; rosters above. React extracts these two slots by exact JS property name,
 ;; so `:Key` really does reach the host as an ordinary unknown prop; matching
 ;; loosely here would make the SERVER strip a name the client paints, which
-;; is the divergence this entry exists to remove, pointed the other way.
+;; is the divergence this entry exists to prevent, pointed the other way.
 (def ^:private structural-slot-names
   #{"key" "ref"})
 
-;; rf2-dgyi — REACT'S TWO CONTENT CHANNELS. A SEPARATE ROSTER FROM THE
+;; REACT'S TWO CONTENT CHANNELS. A SEPARATE ROSTER FROM THE
 ;; STRUCTURAL SLOTS ABOVE, DELIBERATELY. `key` and `ref` are IDENTITY —
 ;; reconciliation identity and an instance handle, neither of which has
 ;; anything to render. `children` and `dangerouslySetInnerHTML` are the
 ;; two channels React takes an element's CONTENT from, so they fail the
 ;; same way on the wire and for a different reason, and folding them into
 ;; one roster entry for tidiness would lose that reason. React consumes
-;; all four before the host sees them; only these two were ever about
-;; what the element CONTAINS.
+;; all four before the host sees them; only these two are about what the
+;; element CONTAINS.
 ;;
-;; Measured on all four surfaces before this entry existed:
+;; Without this entry the attribute stream would serve:
 ;;
 ;;   [:div {:children "v"}]        => <div children="v"></div>
 ;;   [:div {:dangerouslySetInnerHTML {:__html "<b>x</b>"}}]
@@ -568,14 +565,14 @@
 ;; MEASUREMENT RATHER THAN A JUDGEMENT. The obvious objection is that
 ;; `dangerouslySetInnerHTML` is CONTENT, so dropping it silently discards
 ;; something the author asked to render — a worse failure than a stray
-;; attribute, and a new server-stricter-than-client divergence. It is not,
-;; because this emitter renders NO content for either prop TODAY: both
-;; land in the ATTRIBUTE stream, and the raw-HTML one arrives there as the
-;; escaped EDN PRINT of the `{:__html …}` map, which no browser renders as
-;; anything. The content divergence is therefore PRE-EXISTING and is not
-;; created here. Dropping strictly REDUCES the disagreement with the
-;; client — it removes the attribute half and leaves the content half
-;; exactly where it already was.
+;; attribute, and a server-stricter-than-client divergence. It is not,
+;; because this emitter renders NO content for either prop: the children
+;; path never reads them, and left in they would land only in the ATTRIBUTE
+;; stream, the raw-HTML one as the escaped EDN PRINT of the `{:__html …}`
+;; map, which no browser renders as anything. The content divergence
+;; therefore does not come from dropping. Dropping strictly REDUCES the
+;; disagreement with the client — it removes the attribute half and leaves
+;; the content half where it is.
 ;;
 ;; WHAT THE CLIENT DOES, established rather than assumed. The client
 ;; adapters pass both straight through to React: `reagent2.impl.template`
@@ -585,7 +582,7 @@
 ;; body — painting NEITHER as an attribute. react-dom's own output for
 ;; the raw-HTML case is pinned in-repo against the real serialiser by
 ;; `reagent2.dom.parity-cljs-test/parity-dangerously-set-inner-html`, and
-;; the peer hiccup serialiser `reagent2.dom.server` already strips both
+;; the peer hiccup serialiser `reagent2.dom.server` strips both
 ;; from its attribute stream for exactly this reason (`emit-attribute`).
 ;;
 ;; SO HONOURING THEM, RATHER THAN DROPPING, IS THE REAL REPAIR — AND IT IS
@@ -597,8 +594,7 @@
 ;; the Ring host shell's `:html-attrs` / `:body-attrs` are attribute bags
 ;; with no children slot. For the raw-HTML channel it would additionally
 ;; mint a SECOND trusted-markup spelling, which 004B refuses in terms
-;; ("`v/html` is the one visible trusted-markup spelling"). Filed rather
-;; than absorbed; see this entry's bead.
+;; ("`v/html` is the one visible trusted-markup spelling").
 ;;
 ;; NOT A THROW, THOUGH 004B SAYS "REFUSED" FOR THE TREE-SPACE GRAMMAR.
 ;; That refusal is a compile/walk-time gate in a grammar that HAS a
@@ -637,28 +633,28 @@
       shims (the framework itself does not emit them; see Spec 006
       §Historical: JSX source-coord props). They have no HTML wire
       representation and would fail the HTML5 attribute-name grammar.
-    - React's two STRUCTURAL SLOTS, `:key` and `:ref` (rf2-gw87) —
+    - React's two STRUCTURAL SLOTS, `:key` and `:ref` —
       reconciliation identity and an instance handle, both consumed by
       React before the host sees them and neither serialised by
       react-dom/server. Matched case-sensitively; see
       `structural-slot-names`.
     - React's two CONTENT CHANNELS, `:children` and
-      `:dangerouslySetInnerHTML` (rf2-dgyi) — the two slots React takes
+      `:dangerouslySetInnerHTML` — the two slots React takes
       an element's CONTENT from, likewise consumed before the host sees
       them and likewise serialised by react-dom/server as neither. A
       SEPARATE roster from the structural slots because the reason
       differs: those are identity, these are content, and this emitter
-      renders no content for either today — the raw-HTML one reached the
-      wire as the escaped EDN print of its `{:__html …}` map. Dropping
-      therefore removes a stray attribute without discarding anything
-      that was being rendered; HONOURING them is a children-path change
+      renders no content for either — left in, the raw-HTML one would reach
+      the wire only as the escaped EDN print of its `{:__html …}` map.
+      Dropping therefore removes a stray attribute without discarding
+      anything rendered; HONOURING them is a children-path change
       and is deliberately not done here. Matched case-sensitively; see
       `content-channel-names`, which carries the full argument.
 
   Mirrors react-dom/server behaviour. Recognised here are exactly the
   props that are *safe to silently drop*; malformed keys (breakout chars)
   are NOT this fn's concern — they surface at the `validate-attr-name!`
-  grammar gate (rf2-vl8ir).
+  grammar gate.
 
   ONE ROSTER, READ BY EVERY SSR SURFACE THAT EMITS AN ATTRIBUTE. This fn
   is called only from `attr-string` below, and `attr-string` is what the
@@ -666,11 +662,10 @@
   (`streaming/walk-dom-tag`, via the `emit/attr-string` re-export), the
   head emitter (`head.emit`'s `<meta>` / `<link>` / `<script>`) and the
   Ring host shell (`ring.shell`'s `<html>` / `<body>`) all serialise
-  through. That is the whole reason rf2-gw87 was fixed HERE rather than
+  through. That is the whole reason the stripping lives HERE rather than
   as a `dissoc` local to one emitter: a second stripping roster is a
-  drift surface, and a local fix would have left the streaming path
-  divergent from the non-streaming one — the class of split that
-  produced rf2-n2y3 next door."
+  drift surface, and a local `dissoc` would leave the streaming path
+  divergent from the non-streaming one."
   [[k v]]
   (let [nm (name k)]
     (or (event-handler-name? nm)
@@ -680,31 +675,28 @@
         (contains? structural-slot-names nm)
         (contains? content-channel-names nm))))
 
-;; ---- boolean attribute-value classes (rf2-r9kf) ---------------------------
+;; ---- boolean attribute-value classes ---------------------------------------
 ;;
 ;; HTML/React attributes do NOT share one boolean rule, so a `false` value
 ;; cannot mean "omit" everywhere. Spec 004B §Booleans and their neighbours
 ;; carries the react-dom 19.2.0 table, row-by-row probed; these are its three
-;; rosters and the classifier both SSR serialisers read. The structural-tree
-;; serialiser (`re-frame.ssr.ui-tree`) already followed the table; the hiccup
-;; emitter did not, and dropped `aria-expanded false` / `contentEditable
+;; rosters and the classifier both SSR serialisers read. A serialiser that
+;; ignored the table would drop `aria-expanded false` / `contentEditable
 ;; false` entirely — markup asserting the OPPOSITE of what the author wrote,
 ;; with no hydration-mismatch signal to catch it (011 §What React-native
 ;; adoption does not catch — attribute-only mismatches).
 ;;
 ;; ONE roster, read by both — a second copy is a drift surface, and the two
-;; emitters' PIPELINES stay separate (004B) because only the rosters and the
+;; emitters' PIPELINES are separate (004B) because only the rosters and the
 ;; name→class function are shared; each emitter keeps its own attribute-name
 ;; handling and its own escape.
 ;;
-;; WHAT CHECKS THESE ROSTERS, AND WHY IT CANNOT BE A PARITY TEST (the
-;; rf2-r9kf audit's finding). Sharing one roster between two serialisers
-;; removed the drift between them and, with it, the only check that had been
-;; watching: two consumers of one table agree with each other whatever the
-;; table says. The first version of these rosters was internally consistent
-;; and still missing eight names — four presence, four stringifying — and
-;; every in-repo test stayed green, because every test compared re-frame with
-;; re-frame.
+;; WHAT CHECKS THESE ROSTERS, AND WHY IT CANNOT BE A PARITY TEST. Sharing
+;; one roster between two serialisers removes the drift between them and,
+;; with it, any check that compares them: two consumers of one table agree
+;; with each other whatever the table says. A roster can be internally
+;; consistent and still miss names, with every in-repo test green, as long
+;; as every test compares re-frame with re-frame.
 ;;
 ;; So the rosters are pinned against something OUTSIDE them:
 ;; `re-frame.ssr-boolean-attr-react-parity-test` reads
@@ -716,11 +708,12 @@
 ;; as omitting one does. Two names are deliberate, documented exceptions;
 ;; the test names them and says why.
 ;;
-;; THE EVIDENCE CARRIES SIX VALUES PER NAME, NOT TWO (rf2-u82a). `true` and
+;; THE EVIDENCE CARRIES SIX VALUES PER NAME, NOT TWO. `true` and
 ;; `false` cannot separate `:presence` from `:overloaded` — the two render
-;; identically for both booleans — so a boolean-only fixture let the classes
-;; be merged with every row green, and `attr-string` serialised a non-boolean
-;; value wrongly for every member of `boolean-attrs`. The four non-booleans
+;; identically for both booleans — so a boolean-only fixture would let the
+;; classes be merged with every row green, and `attr-string` would then
+;; serialise a non-boolean value wrongly for every member of
+;; `boolean-attrs`. The four non-booleans
 ;; `"yes"`, `""`, `0` and `"0"` are what tell the classes apart and pin the
 ;; JS-truthiness collapse the presence class runs on.
 
@@ -761,7 +754,6 @@
 
 (defn presence-value-truthy?
   "Would react-dom treat this value on a `:presence` attribute as present?
-  (rf2-u82a.)
 
   react-dom's pure-boolean branch is a plain JAVASCRIPT truthiness test —
   `if (value && …) push(name, '=\"\"')` — so a presence attribute COLLAPSES
@@ -786,8 +778,7 @@
   objects — matching JS, where every object is truthy.
 
   `NaN` IS JS-FALSY, AND `NaN?` IS THE CHECK — NOT the self-inequality idiom
-  `(not= v v)`, which this predicate shipped with and which is DEAD CODE on
-  the JVM. `clojure.lang.Util/equiv` short-circuits on reference identity
+  `(not= v v)`, which is DEAD CODE on the JVM. `clojure.lang.Util/equiv` short-circuits on reference identity
   before it ever compares numerically, and a predicate parameter is ONE boxed
   object handed to both argument positions, so `(= v v)` answers `true` for
   every value a caller can supply — `NaN` included — and `(not= v v)` is
@@ -837,48 +828,47 @@
                     (react-dom drops it rather than inventing a bare
                     attribute); any other value stringifies.
 
-  `:presence` AND `:overloaded` WERE ONE CLASS UNTIL rf2-u82a, and the merge
-  was invisible for as long as only BOOLEAN values consulted this fn — the two
-  rules are identical for `true` and for `false`, and 004B's own tables state
-  them with the same two words. They part on the third case, which is where
-  `download=\"report.pdf\"` has to survive and `disabled=\"yes\"` has to
-  collapse, so a classifier that cannot tell them apart cannot serialise a
-  non-boolean value correctly for either. The split is now derived from
-  react-dom's measured bytes for a non-boolean value, in
+  `:presence` AND `:overloaded` ARE SEPARATE CLASSES although merging them
+  would be invisible for as long as only BOOLEAN values consulted this fn —
+  the two rules are identical for `true` and for `false`, and 004B's own
+  tables state them with the same two words. They part on the third case,
+  which is where `download=\"report.pdf\"` has to survive and
+  `disabled=\"yes\"` has to collapse, so a classifier that cannot tell them
+  apart cannot serialise a non-boolean value correctly for either. The split
+  is derived from react-dom's measured bytes for a non-boolean value, in
   `re-frame.ssr-boolean-attr-react-parity-test`, exactly as the other three
   classes are.
 
   TWO NAMES ARE DELIBERATELY NOT WHAT REACT DOES, and both are recorded
-  rather than left to be rediscovered (rf2-r9kf, second pass):
+  rather than left to be rediscovered:
 
     `value`  — react-dom stringifies a BOOLEAN `value` (`value=\"true\"`)
                because `value` shares the code branch with the booleanish
-               names, not because it is one. Here it stays `:ordinary`: a
+               names, not because it is one. Here it is `:ordinary`: a
                boolean `value` on a form control is an author error, not a
                state, and `value` is a 004B form-control special form whose
-               meaning already differs per element (`<input>` attribute,
+               meaning differs per element (`<input>` attribute,
                `<textarea>` text child, `<select>` → `selected` on an
                option). Classifying it in this shared roster would change
                `re-frame.ssr.ui-tree`'s handling of that special form from
                here, which is 004B's call and not this ns's.
-    `ismap`  — kept `:presence` on 004B §Booleans and their neighbours,
-               which names it explicitly and, since rf2-u6zw, carries the
+    `ismap`  — `:presence` per 004B §Booleans and their neighbours,
+               which names it explicitly and carries the
                divergence and its reason in the row itself. react-dom 19.2.0
                accepts NO boolean `ismap` in any spelling — the name is absent
                from its `possibleStandardNames` altogether, so a boolean warns
                \"Received `true` for a non-boolean attribute\" and emits
                nothing — which is why it can never appear in the evidence
                fixture. `ismap` IS a real HTML boolean attribute on `<img>`,
-               so presence is the HTML-correct rendering, and 004B has ruled
+               so presence is the HTML-correct rendering, and 004B states
                that the grammar tracks HTML where the two part on a genuine
-               HTML boolean attribute. The class here is unchanged by that
-               ruling; only the spec's stated provenance for it was wrong.
+               HTML boolean attribute.
 
   Names are matched hyphen-collapsed and lowercased, so `:content-editable`
   and `:contentEditable` classify alike. Only the CLASS is decided here — the
   emitted attribute NAME is each caller's business (the two hiccup body
   walkers convert author names the way the hydrating Reagent-tier adapter
-  does before calling `attr-string`, rf2-3x7nj.13.1; the head emitter and the
+  does before calling `attr-string`; the head emitter and the
   Ring host shell pass theirs verbatim; `re-frame.ssr.ui-tree` maps them
   through the React prop vocabulary)."
   [attribute-name]
@@ -891,14 +881,13 @@
       (contains? boolean-attrs collapsed)              :presence
       :else                                            :ordinary)))
 
-;; ---- inline-style map serialisation (rf2-l6h6a) ---------------------------
+;; ---- inline-style map serialisation ---------------------------------------
 ;;
 ;; A hiccup `:style` whose value is a MAP must serialise to a CSS declaration
 ;; string (`{:margin "0 1em"}` → `margin:0 1em`), NOT the EDN print of the map
 ;; (`{:margin &quot;0 1em&quot;}`). The server HTML must match what the client
 ;; React path emits from the same style object, or React 19 logs a hydration
-;; attribute mismatch on first load (rf2-l6h6a — surfaced by the generated SSR
-;; scaffold's counter-value span).
+;; attribute mismatch on first load.
 ;;
 ;; The rules mirror `react-dom/server`'s `pushStyleAttribute` — the same
 ;; contract the reagent-slim static-markup emitter pins in its IMPL-SPEC §8.3.
@@ -957,7 +946,7 @@
 (defn style-map->css
   "Serialise a hiccup `:style` MAP to an HTML inline-style declaration string,
   matching `react-dom/server`'s `pushStyleAttribute` so the server HTML agrees
-  with the client React render (rf2-l6h6a):
+  with the client React render:
 
     - camelCase property names → kebab CSS names (`:marginTop` → `margin-top`);
     - a NUMERIC value gets a `px` suffix unless it is `0` or the property is
@@ -994,7 +983,7 @@
   `escape-attr`-escaped.
 
   A value is rendered by the attribute's CLASS, not by the value alone
-  (`boolean-attr-class`, rf2-r9kf / rf2-u82a): `aria-*` / `data-*` /
+  (`boolean-attr-class`): `aria-*` / `data-*` /
   booleanish names stringify BOTH `true` and `false`
   (`aria-expanded=\"false\"`); true boolean and overloaded-boolean names keep
   presence semantics for a boolean (`true` → bare `disabled`, `false` →
@@ -1010,20 +999,20 @@
 
   Attribute KEYS are gated through `validate-attr-name!` (HTML5 grammar
   `[A-Za-z][A-Za-z0-9_:-]*`) — a key violating the grammar throws
-  `:rf.error/ssr-invalid-attribute-name`. This closes the rf2-vl8ir XSS
+  `:rf.error/ssr-invalid-attribute-name`. This closes the XSS
   vector where an app splats an attacker-controlled `:custom-attrs`
   map into hiccup; an attacker who chooses a key like
   `\"onclick=alert(1) data-x\"` would otherwise inject an event-handler
   attribute by escaping the attribute-name context. Same gate covers
-  the `:html-attrs` / `:body-attrs` flow through the host shell
-  (security audit §P3.1).
+  the `:html-attrs` / `:body-attrs` flow through the host shell.
 
   Props matching `strip-prop?` — `on*` event-handler props, function-
   valued props, reserved prototype-pollution keys, JSX source-coord
   props, and React's structural slots (`:key` / `:ref`) and content
   channels (`:children` / `:dangerouslySetInnerHTML`) — are dropped at
-  emit time per Spec 011 rule rf2-dwds9 (the per-attribute prop-name
-  filter position in the locked emitter composition order). The filter
+  emit time per Spec 011 §XSS at output boundaries (the per-attribute
+  prop-name filter position in the locked emitter composition order). The
+  filter
   runs ahead of the attribute-key grammar gate so a stripped prop never
   reaches `validate-attr-name!`.
 
@@ -1035,10 +1024,9 @@
   which is itself downstream of Spec 011's enumeration — that list is the
   contract, and what an other-language port implements (011 §XSS at
   output boundaries says so in terms). The three of them standing apart
-  is a defect in whichever moved without the others, and this gloss
-  demonstrates the cost: written 2026-05-21, it went short SIX DAYS later
-  when the JSX class landed 400 lines above it in this same file, and was
-  three classes behind by 2026-09-10."
+  is a defect in whichever moved without the others, and a gloss is the
+  easiest of the three to leave behind: a new class can land hundreds of
+  lines above it in this same file."
   [attrs]
   ;; `keep` realises only the surviving attributes; the leading space is
   ;; added once, conditionally. A map that is non-empty but whose every
@@ -1048,7 +1036,7 @@
   (let [rendered (keep (fn [[k v :as kv]]
                          (cond
                            (strip-prop? kv) nil
-                           ;; rf2-r9kf — a BOOLEAN value's rendering depends on
+                           ;; A BOOLEAN value's rendering depends on
                            ;; the attribute NAME, not on the value alone. See
                            ;; `boolean-attr-class` and 004B §Booleans and their
                            ;; neighbours.
@@ -1061,16 +1049,15 @@
                              :ordinary   nil)
                            (nil? v)   nil
 
-                           ;; rf2-u82a — a PRESENCE attribute collapses a
+                           ;; A PRESENCE attribute collapses a
                            ;; non-boolean value too, on react-dom's JS
                            ;; truthiness. Asking the class BEFORE the value is
-                           ;; the whole repair: this branch used to be reached
-                           ;; only after `(boolean? v)` failed, so every
-                           ;; non-boolean fell through to the ordinary
-                           ;; stringify below and emitted `disabled="yes"`
+                           ;; what makes that work: without this arm every
+                           ;; non-boolean would fall through to the ordinary
+                           ;; stringify below and emit `disabled="yes"`
                            ;; where react-dom emits `disabled=""` — a DOM-level
                            ;; hydration divergence, and one the structural-tree
-                           ;; serialiser next door already got right.
+                           ;; serialiser next door does not have.
                            ;; `:overloaded` deliberately does NOT come here:
                            ;; keeping the value is what it is for
                            ;; (`download="report.pdf"`).
@@ -1084,15 +1071,15 @@
                                    ;; A map-valued `:style` serialises to a CSS
                                    ;; declaration string, matching react-dom/
                                    ;; server's `pushStyleAttribute` so the server
-                                   ;; HTML agrees with the client React render
-                                   ;; (rf2-l6h6a). A string `:style` value is
+                                   ;; HTML agrees with the client React render.
+                                   ;; A string `:style` value is
                                    ;; already CSS and rides the default branch
                                    ;; verbatim.
                                    (and (map? v) (= "style" (name k)))
                                    (style-map->css v)
                                    ;; A numeric attribute VALUE is canonicalised
                                    ;; the same way the render-tree hash serialises
-                                   ;; it (rf2-0ypnnk) so a whole-valued double
+                                   ;; it so a whole-valued double
                                    ;; renders `value="0"` (not the JVM
                                    ;; `value="0.0"`) and the emitted HTML matches
                                    ;; the hash byte-for-byte cross-runtime.

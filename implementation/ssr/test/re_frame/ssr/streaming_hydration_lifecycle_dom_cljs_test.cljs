@@ -1,17 +1,16 @@
 (ns re-frame.ssr.streaming-hydration-lifecycle-dom-cljs-test
   "Acceptance coverage for the streaming READINESS + HYDRATION lifecycle
-  and the cross-host suspense COMPONENT (rf2-ycz3k, closing rf2-j81hs
-  SS2 + SS3). Per Spec 011 §Streaming SSR — client-side hydration
-  semantics.
+  and the cross-host suspense COMPONENT. Per Spec 011 §Streaming SSR —
+  client-side hydration semantics.
 
-  ## The gap these tests close
+  ## The mismatch these tests rule out
 
-  rf2-o4rbh measured it by running it. On a genuinely streamed page
+  On a genuinely streamed page
   `install!` materialises each boundary's inert fallback `<template>`
   into a LIVE `<rf-suspense data-rf2-suspense-mount>` wrapper — the
   visible skeleton and the stable swap target. That wrapper is
   client-invented protocol DOM: no render tree on any host can express
-  it. So the DOM at hydration time was
+  it. So a DOM hydrated with the wrappers in place would read
 
       <section class=\"cards\"><rf-suspense …><div class=\"card\">…
 
@@ -19,12 +18,10 @@
 
       <section class=\"cards\"><div class=\"card\">…
 
-  and `hydrateRoot` saw a structural mismatch at every boundary, on a
-  page whose content was otherwise byte-correct. Spec 011 never said
-  what a client tree should contain at a boundary, which is why the
-  shipped example had nothing correct to copy.
+  and `hydrateRoot` would see a structural mismatch at every boundary,
+  on a page whose content is otherwise byte-correct.
 
-  The fix is two halves, and both are exercised here:
+  The contract is two halves, and both are exercised here:
 
     - FINALIZATION unwraps every mount before hydration, so the DOM is
       exactly the tree the author's hiccup describes.
@@ -37,8 +34,8 @@
   Hydration mismatches surface through React's `onRecoverableError`
   callback, which must be passed to `hydrateRoot` in its options object.
   A harness built on an adapter wrapper can silently drop that option
-  and then capture NOTHING — passing identically on broken and fixed
-  HTML, certifying a fix it never observed. So these tests call
+  and then capture NOTHING — passing identically on broken and correct
+  HTML, certifying behaviour it never observed. So these tests call
   `react-dom-client/hydrateRoot` themselves with their own options
   object, and `harness-captures-a-known-bad-hydration` feeds the harness
   deliberately-wrong HTML FIRST and asserts it reds. Every
@@ -102,9 +99,8 @@
 ;; stamp down from the enclosing `frame-provider` (Spec 006 §Lookup
 ;; algorithm — the React-context tier resolves through the reg-view
 ;; wrapper). A plain fn that subscribes raises `:rf.error/no-frame-context`
-;; under a provider, which is exactly what the first draft of this suite
-;; did. The `boundary` component itself stays a plain fn and needs no
-;; wrapper: it runs inside the enclosing registered view's scope.
+;; under a provider. The `boundary` component itself stays a plain fn and
+;; needs no wrapper: it runs inside the enclosing registered view's scope.
 (rf/reg-view ^{:rf/id :test.dash/card-skeleton} card-skeleton [card-id]
   [:div.card.skeleton [:h3 (str "Loading " (name card-id))]])
 
@@ -160,10 +156,10 @@
 ;; Ring writer thread flushes (`ssr/streaming-{fallback,resolved,failed}-
 ;; template`, `ssr/streaming-hydrate-delta-script`).
 ;;
-;; Hand-transcribing this markup was a mistake worth recording: a
+;; Hand-transcribed markup would be wrong: a
 ;; `reg-view` root carries dev-time `data-rf-view` / `data-rf2-source-coord`
 ;; attributes that the emitter writes and a hand-written fixture cannot
-;; know (the coord embeds a LINE NUMBER). Hydration then failed on
+;; know (the coord embeds a LINE NUMBER), so hydration would fail on
 ;; attributes rather than on anything the feature does. Emitting the
 ;; fixture makes the test a genuine cross-host parity check: same hiccup,
 ;; server render vs client render, reconciled by React.
@@ -343,7 +339,7 @@
           (remove-host! host))))))
 
 (deftest streamed-page-hydrates-without-structural-mismatch
-  (testing "rf2-o4rbh: a genuinely staggered stream, finalised, hydrates
+  (testing "A genuinely staggered stream, finalised, hydrates
             with ONE ordinary whole-root hydration and no mismatch"
     (if-not (browser?)
       (is true "skipped under node — no js/document")
@@ -408,9 +404,7 @@
                         ;; would ALSO report no mismatch — React would simply
                         ;; drop the server DOM and be done. Assert the content
                         ;; SURVIVED hydration; that is what proves the two
-                        ;; trees actually agreed. (This assertion caught the
-                        ;; first version of this suite rendering an empty
-                        ;; tree and passing.)
+                        ;; trees actually agreed.
                         (is (str/includes? html "42375")
                             "the resolved card survives hydration — React adopted the server DOM rather than discarding it")
                         (is (str/includes? html "Loading flaky")
@@ -548,12 +542,12 @@
               (is (pos? (count (mounts host)))
                   "mounts are still present pre-readiness — this is precisely why hydration must wait")
               (is (some? (.querySelector host (str "[" rf.ssr.streaming.constants/attr-suspense-mount "] > div.card")))
-                  "the resolved card is nested inside its mount pre-readiness — the o4rbh mismatch shape")
+                  "the resolved card is nested inside its mount pre-readiness — the mismatch shape the ns docstring describes")
               (remove-host! host)
               (done))
             60))))))
 
-;; ---- the `install!` Usage recipe, executed (rf2-gwye.20) --------------------
+;; ---- the `install!` Usage recipe, executed ----------------------------------
 
 (defn- recipe-bootstrap!
   "`re-frame.ssr.streaming.client/install!`'s Usage recipe, transcribed onto
@@ -595,7 +589,7 @@
         "React adopted the server DOM rather than discarding it")))
 
 (deftest the-install-recipe-boots-once-from-readiness-on-a-live-stream
-  (testing "rf2-gwye.20: with the payload still in flight the recipe owns
+  (testing "With the payload still in flight the recipe owns
             nothing; once it lands, exactly one seed + hydration runs, after
             every wrapper is gone"
     (if-not (browser?)
@@ -628,7 +622,7 @@
             40))))))
 
 (deftest the-install-recipe-boots-once-on-an-already-buffered-response
-  (testing "rf2-gwye.20: a fully buffered response boots the recipe
+  (testing "A fully buffered response boots the recipe
             synchronously inside install!, once, without a later tick"
     (if-not (browser?)
       (is true "skipped under node — no js/document")

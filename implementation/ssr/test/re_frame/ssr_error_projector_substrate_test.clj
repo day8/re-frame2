@@ -1,10 +1,10 @@
 (ns re-frame.ssr-error-projector-substrate-test
-  "Per rf2-fb598: the SSR error-projection pipeline rides the always-on
+  "The SSR error-projection pipeline rides the always-on
   `register-error-listener!` substrate (per Spec 009 §What IS
   available in production §Error-emit listener) — NOT the dev-only
   `register-listener!` surface.
 
-  Production-hardening (rf2-vnjfg — `-Dre-frame.debug=false` on the JVM)
+  Production-hardening (`-Dre-frame.debug=false` on the JVM)
   silences `trace/emit-error!` so any listener installed on
   `register-listener!` stops firing under that posture. The SSR
   error-projector is a production-required surface — Spec 011 §Server
@@ -46,12 +46,12 @@
             substrate carries the projector install, not the dev-only
             trace surface. A server-frame handler that throws still
             stamps :status 500 onto :rf/response."
-    ;; rf2-vw5h1r / rf2-anehs6: :load/article throws at RENDER time (a
-    ;; post-construction request dispatch against the live frame) — NOT as an
-    ;; :initial-events setup step. Construction-time :initial-events is now
-    ;; STRICT (EP-0027 §Failure, Mike-ruled (a)): a THROWN setup step tears
+    ;; :load/article throws at RENDER time (a post-construction request
+    ;; dispatch against the live frame) — NOT as an :initial-events setup
+    ;; step. Construction-time :initial-events is STRICT (EP-0027 §Failure):
+    ;; a THROWN setup step tears
     ;; the partial frame down and is the OUTER :on-error transport path (Spec
-    ;; 011 §810), NOT a projector-catches-it case. The projector covers errors
+    ;; 011 §`:on-error` vs `:error-view`), NOT a projector-catches-it case. The projector covers errors
     ;; INSIDE the render/cascade drain — exactly what a post-construction
     ;; request dispatch models. :rf/server-init is a clean no-op setup step.
     (rf/reg-event :load/article
@@ -71,10 +71,9 @@
         (is (= 500 (:status response))
             "Spec 011 §Server error projection — the default projector
              stamps :status 500 on :rf/response even with the dev trace
-             gate disabled (production-hardening posture per rf2-vnjfg).
-             Pre-rf2-fb598 the install was on register-listener!, which
-             elides under this gate; rf2-fb598 moves the install onto
-             the always-on register-error-listener! substrate.")))))
+             gate disabled (production-hardening posture). The install is
+             on the always-on register-error-listener! substrate; an install
+             on register-listener! would elide under this gate.")))))
 
 (deftest ssr-error-projector-direct-substrate-install-rf2-fb598
   (testing "The error-emit listener is registered under
@@ -123,6 +122,6 @@
       (is (contains? registered :re-frame.ssr/error-projection)
           "The SSR façade registers ::error-projection on the always-on
            register-error-listener! substrate at ns-load — Spec 011
-           §Server error projection (rf2-fb598). The id matches the one
+           §Server error projection. The id matches the one
            the dev-only register-listener! install also uses, so the
            two surfaces are addressable as one logical projector."))))

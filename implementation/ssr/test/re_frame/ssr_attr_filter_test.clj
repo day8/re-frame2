@@ -1,5 +1,5 @@
 (ns re-frame.ssr-attr-filter-test
-  "Spec 011 §XSS at output boundaries — rule rf2-dwds9 (+ rf2-1uex4): the
+  "Spec 011 §XSS at output boundaries: the
   SSR static-markup emitter MUST strip, at attribute-emit time:
 
     - `on*` event-handler props. Detection is CASE-INSENSITIVE and covers
@@ -8,37 +8,37 @@
       event-handler names. So `:on-click` / `:onClick` / `:onclick` /
       `:onload` / `:onerror` / `:ONLOAD` / `:OnClick` ALL filter out,
       while non-handler keys (`:online` / `:once` / `:only` / `:on`)
-      round-trip (rf2-1uex4 — HTML attribute names are case-insensitive,
-      so the canonical lowercase + arbitrary `on`-prefix casings were the
-      live XSS hole the camelCase/kebab-only regex missed).
+      round-trip (HTML attribute names are case-insensitive, so a
+      camelCase/kebab-only regex would miss the canonical lowercase +
+      arbitrary `on`-prefix casings — a live XSS hole).
     - function-valued prop values,
     - reserved prototype-pollution keys (`__proto__` / `constructor` /
       `prototype`),
     - JSX source-coord props (`:_jsxFileName` / `:_jsxLineNumber` /
-      `:_jsxColumnNumber`, rf2-fa4ly) — React DevTools internals that
+      `:_jsxColumnNumber`) — React DevTools internals that
       have no HTML wire representation. Matched CASE-SENSITIVELY against
       exactly those three documented names rather than by a broad
       underscore prefix, so an app's own underscore-led prop still
-      surfaces the grammar error (rf2-ounh), and
-    - React's two STRUCTURAL SLOTS, `:key` and `:ref` (rf2-gw87) —
+      surfaces the grammar error, and
+    - React's two STRUCTURAL SLOTS, `:key` and `:ref` —
       reconciliation identity and an instance handle, consumed by React
       before the host sees them and serialised by react-dom/server as
       neither. Unlike the handler and prototype rosters this one matches
       CASE-SENSITIVELY, because React extracts the two slots by exact JS
       property name, and
     - React's two CONTENT CHANNELS, `:children` and
-      `:dangerouslySetInnerHTML` (rf2-dgyi) — the slots React takes an
+      `:dangerouslySetInnerHTML` — the slots React takes an
       element's CONTENT from, likewise consumed before the host sees them
       and likewise serialised as neither, likewise case-sensitive. A
       SEPARATE roster from the structural slots: those are identity,
-      these are content. Dropping them discards nothing that was being
-      rendered, because this emitter rendered no content for either — the
-      raw-HTML one reached the wire as the escaped EDN print of its
-      `{:__html …}` map,
+      these are content. Dropping them discards nothing rendered,
+      because this emitter renders no content for either — left in, the
+      raw-HTML one would reach the wire only as the escaped EDN print of
+      its `{:__html …}` map,
 
   matching react-dom/server behaviour. The filter is the per-attribute
   prop-name position in the locked emitter composition order, so it runs
-  ahead of the attribute-name grammar gate (rf2-vl8ir) — a stripped prop
+  ahead of the attribute-name grammar gate — a stripped prop
   never reaches `validate-attr-name!`.
 
   These exercise `re-frame.ssr.html-helpers/attr-string` directly (the
@@ -52,7 +52,7 @@
             [re-frame.ssr.emit :as rf.ssr.emit]))
 
 (deftest attr-string-strips-event-handler-props
-  (testing "rf2-dwds9 — structural `on*` handler spellings the re-frame
+  (testing "Structural `on*` handler spellings the re-frame
             hiccup adapters and react-dom/server recognise are dropped at
             emit time: camelCase `on[A-Z]…` and kebab `on-…`."
     (testing ":on-click (kebab) is stripped"
@@ -80,11 +80,11 @@
               empty string — no stray leading space"
       (is (= "" (rf.ssr.html-helpers/attr-string {:on-click "f" :onScroll "g"})))))
 
-  (testing "rf2-1uex4 — canonical all-lowercase HTML event-handler names
+  (testing "Canonical all-lowercase HTML event-handler names
             are stripped. HTML attribute names are case-insensitive, so the
             browser fires `onclick`/`onload`/`onerror` identically; these
-            are the canonical (and attacker-preferred) spellings the old
-            camelCase/kebab-only regex MISSED, emitting a live handler on
+            are the canonical (and attacker-preferred) spellings a
+            camelCase/kebab-only regex would MISS, emitting a live handler on
             the wire."
     (doseq [k [:onclick :onload :onerror :onmouseover :onsubmit :onfocus]]
       (testing (str k " (lowercase canonical) is stripped")
@@ -92,7 +92,7 @@
                (rf.ssr.html-helpers/attr-string {k "steal()" :id "x"}))
             (str (name k) " must not survive to wire output")))))
 
-  (testing "rf2-1uex4 — arbitrary casings of a real handler name are
+  (testing "Arbitrary casings of a real handler name are
             stripped (attribute names are case-insensitive)"
     (doseq [k [:ONLOAD :OnClick :OnLoad :ONCLICK :onCLICK]]
       (testing (str k " (mixed/upper casing) is stripped")
@@ -100,7 +100,7 @@
                (rf.ssr.html-helpers/attr-string {k "steal()" :id "x"}))
             (str (name k) " must not survive to wire output")))))
 
-  (testing "rf2-1uex4 — the allowlist does NOT over-reach onto innocuous
+  (testing "The allowlist does NOT over-reach onto innocuous
             keys that merely begin with the letters `on`. `online` / `once`
             / `only` / `on` / `data-on` are legitimate attributes and MUST
             round-trip (a blind `starts-with? \"on\"` would eat them)."
@@ -114,7 +114,7 @@
       (is (str/includes? out "on=\"5\"")))))
 
 (deftest attr-string-strips-function-valued-props
-  (testing "rf2-dwds9 — function-valued props have no HTML serialisation
+  (testing "Function-valued props have no HTML serialisation
             and are dropped (a fn can only be a handler/callback)"
     (is (= " id=\"x\""
            (rf.ssr.html-helpers/attr-string {:title (fn [_] :handler) :id "x"})))
@@ -124,7 +124,7 @@
              (rf.ssr.html-helpers/attr-string {:data-cb (fn [] nil)}))))))
 
 (deftest attr-string-drops-prototype-pollution-keys
-  (testing "rf2-dwds9 — reserved prototype-pollution keys are dropped
+  (testing "Reserved prototype-pollution keys are dropped
             before they reach the host createElement-equivalent"
     (doseq [k ["__proto__" "constructor" "prototype"]]
       (testing (str "`" k "` is dropped")
@@ -137,14 +137,11 @@
              (rf.ssr.html-helpers/attr-string {(keyword "Constructor") "polluted" :id "x"}))))))
 
 (deftest attr-string-drops-jsx-source-coord-props
-  (testing "rf2-ounh — React DevTools' \"View source\" gesture reads
+  (testing "React DevTools' \"View source\" gesture reads
             `_jsxFileName` / `_jsxLineNumber` / `_jsxColumnNumber` off the
             rendered element. The framework does not emit them, but user
             code, JSX-compiled third-party libraries and hand-stamped
-            DevTools shims can, and they have no HTML wire representation.
-            The class landed with the reference stripper on 2026-05-27
-            (rf2-fa4ly) as a defensive rider on a DevTools commit, and
-            went untested until this deftest."
+            DevTools shims can, and they have no HTML wire representation."
     (testing "each of the three documented names is dropped"
       (doseq [k ["_jsxFileName" "_jsxLineNumber" "_jsxColumnNumber"]]
         (is (= " id=\"x\""
@@ -208,12 +205,12 @@
             (str k " is an ordinary attribute and must round-trip"))))))
 
 (deftest attr-string-drops-reacts-structural-slots
-  (testing "rf2-gw87 — `:key` and `:ref` are React's two STRUCTURAL SLOTS.
+  (testing "`:key` and `:ref` are React's two STRUCTURAL SLOTS.
             React reads them off the props map itself and hands the host
-            neither, so react-dom/server serialises neither. This emitter
-            passed both straight through. Measured before the fix:
-            `[:div {:key \"k\"}]` served `<div key=\"k\">` and a string
-            `[:div {:ref \"R\"}]` served `<div ref=\"R\">`."
+            neither, so react-dom/server serialises neither. Passing both
+            straight through would serve `<div key=\"k\">` for
+            `[:div {:key \"k\"}]` and `<div ref=\"R\">` for a string
+            `[:div {:ref \"R\"}]`."
     (testing ":key is dropped"
       (is (= " id=\"x\"" (rf.ssr.html-helpers/attr-string {:key "k" :id "x"})))
       (is (= " id=\"x\"" (rf.ssr.html-helpers/attr-string {:key 1 :id "x"}))
@@ -224,11 +221,10 @@
 
     (testing ":ref is dropped whatever its value"
       (is (= " id=\"x\"" (rf.ssr.html-helpers/attr-string {:ref "R" :id "x"}))
-          "a STRING ref — illegal in React, and the arm that was reachable
+          "a STRING ref — illegal in React, and the arm reachable
            past the fn? filter")
       (is (= " id=\"x\"" (rf.ssr.html-helpers/attr-string {:ref (fn [_]) :id "x"}))
-          "a function-valued ref was already dropped by the fn? arm and
-           still is"))
+          "a function-valued ref is dropped by the fn? arm"))
 
     (testing "the match is CASE-SENSITIVE, unlike the handler and
               prototype-pollution rosters. React extracts these two slots
@@ -250,11 +246,11 @@
             (str k " is an ordinary attribute and must round-trip"))))))
 
 (deftest structural-slots-drop-on-every-emitter-that-shares-the-roster
-  (testing "rf2-gw87 — the whole argument for fixing `strip-prop?` rather
+  (testing "The whole argument for dropping in `strip-prop?` rather
             than `dissoc`-ing in one emitter is that `attr-string` is the
             single per-attribute emission point every SSR surface goes
-            through. A change that only demonstrated the body emitter would
-            not have shown the thing that justified its own location, so
+            through. A test that only demonstrated the body emitter would
+            not show the thing that justifies that location, so
             each surface is exercised here."
     (testing "the hiccup BODY emitter (emit/render-to-string)"
       (is (= "<div></div>" (rf.ssr.emit/render-to-string [:div {:key "k"}] {})))
@@ -290,10 +286,10 @@
             (str "emitters disagree on " (pr-str tree)))))
 
     (testing "the HEAD emitter, and this one is a DELIBERATE consequence
-              rather than a side effect. `strip-prop?` is shared, so
-              widening it changes head output too — measured before the
-              change, `{:meta [{:key \"m1\" :name \"a\"}]}` emitted
-              `<meta key=\"m1\" name=\"a\">`. That is the SAME defect in the
+              rather than a side effect. `strip-prop?` is shared, so it
+              governs head output too — without it,
+              `{:meta [{:key \"m1\" :name \"a\"}]}` would emit
+              `<meta key=\"m1\" name=\"a\">`. That would be the SAME defect in the
               same direction: react-dom/server would emit no `key` on a
               `<meta>` either, and a head model built from a keyed component
               list is exactly where a stray `:key` comes from. Pinned so the
@@ -319,17 +315,17 @@
       (is (= " class=\"c\"" (rf.ssr.html-helpers/attr-string {:ref "R" :class "c"}))))))
 
 (deftest attr-string-drops-reacts-content-channels
-  (testing "rf2-dgyi — `:children` and `:dangerouslySetInnerHTML` are the two
-            slots React takes an element's CONTENT from. Both were reaching
-            the wire as DOM attributes. Measured before the fix:
-            `{:children \"v\"}` emitted ` children=\"v\"`, and the raw-HTML
-            channel emitted the escaped EDN PRINT of its map —
+  (testing "`:children` and `:dangerouslySetInnerHTML` are the two
+            slots React takes an element's CONTENT from. Left in, both would
+            reach the wire as DOM attributes: `{:children \"v\"}` would emit
+            ` children=\"v\"`, and the raw-HTML channel the escaped EDN
+            PRINT of its map —
             ` dangerouslySetInnerHTML=\"{:__html &quot;<b>x</b>&quot;}\"` —
-            which is the measurement that settles the design question. This
-            emitter rendered NO content for either prop, so dropping them
-            discards nothing that was being rendered; it removes the
+            which is what settles the design question. This
+            emitter renders NO content for either prop, so dropping them
+            discards nothing rendered; it removes the
             attribute half of a divergence and leaves the content half
-            exactly where it already was."
+            where it is."
     (testing ":children is dropped"
       (is (= " id=\"x\"" (rf.ssr.html-helpers/attr-string {:children "v" :id "x"})))
       (is (= "" (rf.ssr.html-helpers/attr-string {:children "v"}))
@@ -350,7 +346,7 @@
                  (rf.ssr.html-helpers/attr-string
                    {:dangerouslySetInnerHTML {:__html "<b>x</b>"} :id "x"})
                  ":__html"))
-          "the raw EDN map text must never reach the wire — the defect was
+          "the raw EDN map text must never reach the wire — the risk is
            not merely a stray attribute NAME but a printed map as its VALUE"))
 
     (testing "REAL children still render — dropping the prop does not touch
@@ -380,12 +376,12 @@
             (str k " is an ordinary attribute and must round-trip"))))))
 
 (deftest content-channels-drop-on-every-emitter-that-shares-the-roster
-  (testing "rf2-dgyi — the same four-surface obligation rf2-gw87 carried: the
-            argument for editing shared `strip-prop?` rather than
+  (testing "The same four-surface obligation as the structural slots:
+            the argument for dropping in shared `strip-prop?` rather than
             `dissoc`-ing in one emitter is that `attr-string` is the single
             per-attribute emission point every SSR surface goes through, so a
-            change demonstrating only one has not shown the thing that
-            justified its own location."
+            test demonstrating only one would not show the thing that
+            justifies that location."
     (testing "the hiccup BODY emitter (emit/render-to-string)"
       (is (= "<div></div>" (rf.ssr.emit/render-to-string [:div {:children "v"}] {})))
       (is (= "<div></div>"
@@ -414,11 +410,11 @@
             (str "emitters disagree on " (pr-str tree)))))
 
     (testing "the HEAD emitter — a DELIBERATE consequence, pinned rather than
-              discovered later. `strip-prop?` is shared, so widening it
-              changes head output too. Measured BEFORE this change:
-              `{:meta [{:children \"v\" :name \"a\"}]}` emitted
+              discovered later. `strip-prop?` is shared, so it governs
+              head output too. Without it,
+              `{:meta [{:children \"v\" :name \"a\"}]}` would emit
               `<meta children=\"v\" name=\"a\">`, and `<link>` / `<script>`
-              the same. That is the SAME defect in the same direction —
+              the same. That would be the SAME defect in the same direction —
               react-dom/server emits no `children` attribute on a `<meta>`
               either — and on a VOID element `<meta>`/`<link>` the prop could
               not be honoured as children even in principle, which is part of
@@ -462,12 +458,13 @@
                               :id "x"})))))
 
 (deftest attr-string-serialises-style-map
-  (testing "rf2-l6h6a — a map-valued `:style` serialises to a CSS declaration
+  (testing "A map-valued `:style` serialises to a CSS declaration
             string (matching react-dom/server's `pushStyleAttribute`), NOT the
-            EDN print of the map. Before the fix `{:margin \"0 1em\"}` rendered
+            EDN print of the map, which for `{:margin \"0 1em\"}` would be
             the literal `style=\"{:margin &quot;0 1em&quot;}\"`, and React 19
-            logged a hydration attribute mismatch on every SSR app's first load."
-    (testing "the reported repro: a single string-valued declaration"
+            would log a hydration attribute mismatch on every SSR app's first
+            load."
+    (testing "a single string-valued declaration"
       (is (= " style=\"margin:0 1em\""
              (rf.ssr.html-helpers/attr-string {:style {:margin "0 1em"}})))
       (is (not (str/includes? (rf.ssr.html-helpers/attr-string {:style {:margin "0 1em"}})
@@ -522,7 +519,7 @@
              (rf.ssr.html-helpers/attr-string {:style (array-map :margin 0 :padding "4px")}))))))
 
 (deftest render-to-string-serialises-style-map-through-full-emit
-  (testing "rf2-l6h6a — the style-map → CSS serialisation survives the FULL
+  (testing "The style-map → CSS serialisation survives the FULL
             `render-to-string` emit composition (not just `attr-string` in
             isolation), so the wire markup for a `:style` map is CSS and the
             server/client render agree (no hydration attribute mismatch)."
@@ -530,13 +527,13 @@
                      [:div {:style {:margin "0 1em" :color :red}} "hi"] {})]
       (is (= "<div style=\"margin:0 1em;color:red\">hi</div>" html-out))
       (is (not (str/includes? html-out "{:margin"))
-          "no raw EDN map text on the wire — the hydration-mismatch defect is gone"))))
+          "no raw EDN map text on the wire — no hydration attribute mismatch"))))
 
 (deftest render-to-string-strips-lowercase-handlers-end-to-end
-  (testing "rf2-1uex4 — the canonical lowercase `on*` payload an attacker
+  (testing "The canonical lowercase `on*` payload an attacker
             splats into `:custom-attrs` does NOT survive through the public
-            emitter. The verified repro was `[:img {:src \"x\" :onerror
-            \"alert(document.cookie)\"}]` rendering the live handler on a
+            emitter. Left unstripped, `[:img {:src \"x\" :onerror
+            \"alert(document.cookie)\"}]` would render the live handler on a
             void element; the wire output MUST carry no `onerror`."
     (let [out (rf.ssr.emit/render-to-string
                [:img {:src "x" :onerror "alert(document.cookie)"}] {})]

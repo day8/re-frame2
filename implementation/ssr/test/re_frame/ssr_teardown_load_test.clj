@@ -1,5 +1,5 @@
 (ns re-frame.ssr-teardown-load-test
-  "Per-request SSR frame teardown — load + memory-hygiene audit (rf2-fcj33).
+  "Per-request SSR frame teardown — load + memory-hygiene audit.
 
   Background. A long-running server process serving SSR requests at high
   rate is the canonical re-frame2 SSR shape: every HTTP request creates a
@@ -15,8 +15,8 @@
        lifecycle, config) — owned by `re-frame.frame/frames`.
     2. HTTP response accumulator — owned by
        `re-frame.ssr/response-slots`, a defonce side-channel atom keyed
-       by frame-id (rf2-jbcmt moved this off app-db to plug a hydration-
-       payload leak + per-fx full-app-db swap).
+       by frame-id (kept off app-db so it cannot leak into the hydration
+       payload or cost a full-app-db swap per fx).
     3. Per-frame pending-error-traces buffer — owned by
        `re-frame.ssr/pending-error-traces`, a defonce side-channel atom
        keyed by frame-id.
@@ -36,12 +36,12 @@
     b. After every iteration, the SSR side-channel atoms
        (`pending-error-traces`, `request-slots`, `response-slots`) are
        back to baseline. Verifies the `:ssr/on-frame-destroyed` hook
-       (rf2-fcj33 / rf2-jbcmt) fires and clears every slot.
+       fires and clears every slot.
     c. After a triggered GC, the JVM heap delta is small relative to
        the total bytes the test churned — proves no large object graph
        is retained past frame destruction.
 
-  Marked `^:slow` so the default test gate skips it (rf2-bv2qqm). The
+  Marked `^:slow` so the default test gate skips it. The
   `:test` alias in deps.edn passes `-e :slow -e :stress` to the runner, so
   cognitect-test-runner drops these vars on the PR/local gate; the
   `:slow-test` alias passes `-i :slow -i :stress` to run them, and the
@@ -62,8 +62,8 @@
 
 ;; ---- runtime reset --------------------------------------------------------
 ;;
-;; The canonical reset-runtime fixture lives in `re-frame.ssr.test-fixture`
-;; (rf2-i3qc0). One source of truth for the registrar/side-channel/ns-reload
+;; The canonical reset-runtime fixture lives in `re-frame.ssr.test-fixture`.
+;; One source of truth for the registrar/side-channel/ns-reload
 ;; cycle every ssr-artefact JVM test runs between :each.
 
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
@@ -86,7 +86,7 @@
   @(pending-error-traces-atom))
 
 (defn- request-slots-atom
-  "Return the `re-frame.ssr/request-slots` atom. Per rf2-i3qc0 this is
+  "Return the `re-frame.ssr/request-slots` atom. This is
   `^:private` at the façade (symmetric with `pending-error-traces` and
   `response-slots`); resolve via the producing sub-namespace so the
   load-test still observes the teardown contract."
@@ -102,7 +102,7 @@
 
 (defn- response-slots-atom
   "Return the `re-frame.ssr/response-slots` atom. It's `^:private` at the
-  façade (per Spec 011 §Response storage substrate, rf2-jbcmt — the
+  façade (per Spec 011 §Response storage substrate — the
   accumulator's framework-private side-channel slot) so we resolve the
   Var reflectively, like `pending-error-traces`."
   []
@@ -147,7 +147,7 @@
            :platform  :server
            :initial-events [[:load-test/server-init {:i i}]]})]
     ;; Step 2 — populate the per-frame request slot. Exercises the SSR
-    ;; side-channel atom we just wired the destroy hook for.
+    ;; side-channel atom the destroy hook clears.
     (rf.ssr/set-request! server-frame
                       {:uri            (str "/load/" i)
                        :request-method :get
@@ -168,8 +168,7 @@
 
   `:load-test/server-init` fires `:rf.server/set-header` so each request
   writes to `response-slots` — exercises the side-channel that needs
-  cleanup on frame destroy (per Spec 011 §Response storage substrate,
-  rf2-jbcmt)."
+  cleanup on frame destroy (per Spec 011 §Response storage substrate)."
   []
   (rf/reg-event :load-test/server-init
     {:platforms #{:server}}
@@ -241,7 +240,7 @@
   (testing "2000 SSR requests — frame registry returns to baseline, side-
             channel atoms return to baseline, heap delta is bounded"
     (let [result (load-test 2000)]
-      ;; Silent-on-success (rf2-try1x): the load-test result map is
+      ;; Silent-on-success: the load-test result map is
       ;; only printed when an assertion below fails. On green the
       ;; metrics are uninteresting; on red the test name and the
       ;; specific `(is ...)` that failed already names the dimension,
@@ -273,7 +272,7 @@
           (str "response-slots leaked across destroy-frame! — "
                "end-count " (:end-responses result) " > 0; the "
                ":ssr/on-frame-destroyed hook didn't clear the slot. "
-               "Per Spec 011 §Response storage substrate (rf2-jbcmt) "
+               "Per Spec 011 §Response storage substrate "
                "the accumulator is a per-frame side-channel atom whose "
                "release path is the destroy-frame! teardown hook; each "
                "request fires :rf.server/set-header so the slot is "

@@ -15,9 +15,9 @@
   CONSTRUCTION caller-untrusted — that is the entire reason
   `:rf.server/safe-redirect` exists as the sibling of the caller-trusted
   `:rf.server/redirect` — so a rejected target routinely looks like
-  `?next=https://evil.example.com/cb?token=…#access_token=…`. rf2-6jqa8
-  promoted those rejections onto the always-on error axis so a security team
-  can SEE open-redirect probing in production; that promotion is only
+  `?next=https://evil.example.com/cb?token=…#access_token=…`. Those
+  rejections ride the always-on error axis so a security team
+  can SEE open-redirect probing in production; that is only
   defensible with this projection in front of it.
 
   ## Two instruments, and which one goes where
@@ -30,7 +30,7 @@
   meant either dragging the whole route grammar onto every SSR app's classpath
   or late-binding to it and FAILING OPEN on a routing-free SSR host. A
   fail-open scrub on a fail-closed egress boundary is the wrong failure mode
-  by construction (rf2-6l2nc).
+  by construction.
 
   The ALWAYS-ON record does not use that scrub at all. It is built from the
   closed allow-list below, for the reasons argued at
@@ -40,21 +40,21 @@
   (:require [clojure.string :as str]))
 
 ;; ---------------------------------------------------------------------------
-;; The always-on record projection (rf2-6jqa8 AUDIT-REOPEN)
+;; The always-on record projection
 ;; ---------------------------------------------------------------------------
 ;;
 ;; WHY A PROJECTION AND NOT A BIGGER SCRUB.
 ;; `re-frame.privacy.url/redact-url-carriers` is the
 ;; Spec 015 blanket CARRIER policy: it redacts query / fragment values and
 ;; keeps everything else, which is exactly right over the app's OWN URL space
-;; (rf2-ov56u's route-miss `:url`, where the path is a route the app authored
+;; (routing's route-miss `:url`, where the path is a route the app authored
 ;; and the host is the app's own).  A rejected safe-redirect target is not
 ;; that.  It is an ARBITRARY FOREIGN URL chosen by whoever is probing, so
 ;; every component is attacker-authored and "keep everything except the
 ;; carriers" inverts the burden of proof.  Concretely, the carrier policy does
-;; string surgery only after the first `?` or `#`, so it never reached:
+;; string surgery only after the first `?` or `#`, so it never reaches:
 ;;
-;;   - the USERINFO component — `https://alice:pw@host/…` shipped credentials
+;;   - the USERINFO component — `https://alice:pw@host/…` would ship credentials
 ;;     whole (RFC 3986 §3.2.1; OpenTelemetry's URL conventions say user /
 ;;     password MUST NOT be recorded),
 ;;   - the PATH — a password-reset token in a path segment is the canonical
@@ -76,8 +76,8 @@
 ;; strict projection of it, not a copy.
 ;;
 ;; AND A CLOSED SET OF KEYS IS NOT YET A CLOSED SET OF VALUES.
-;; The first tightening carried the PARSED `:scheme` and `:host` as strings,
-;; on the reasoning that a parsed URL component is structural.  It is not.
+;; Carrying the PARSED `:scheme` and `:host` as strings would rest on the
+;; reasoning that a parsed URL component is structural.  It is not.
 ;; Parsing says where a substring sat in the grammar; it says nothing about
 ;; who wrote it, and on this path the answer is always "whoever is probing":
 ;;
@@ -96,11 +96,11 @@
 ;; values into a metrics dimension, which is how an observability bill and a
 ;; dashboard get DoS'd by the very records meant to reveal the DoS.
 ;;
-;; So the always-on record now carries CLASSES, not components.  `:scheme`
-;; becomes [[safe-redirect-scheme-class]] — a lookup into the framework's own
+;; So the always-on record carries CLASSES, not components.  `:scheme`
+;; is carried as [[safe-redirect-scheme-class]] — a lookup into the framework's own
 ;; closed scheme vocabulary, so the prober selects a bucket and never names
 ;; one — and `:host` is dropped entirely, for the reasons at
-;; [[safe-redirect-record-slots]].  Every value the record can carry is now a
+;; [[safe-redirect-record-slots]].  Every value the record can carry is a
 ;; framework-owned keyword or the frame's own id: bounded in size, bounded in
 ;; cardinality, and incapable of transporting a byte the caller chose.
 
@@ -180,7 +180,7 @@
                   policy data whose contents hand a reader the exact boundary
                   being probed, and which `:reason :not-in-allowlist` already
                   discriminates without disclosing.
-    `:scheme`     the raw parsed scheme, superseded by `:scheme-class`.
+    `:scheme`     the raw parsed scheme; `:scheme-class` carries its class.
     `:host`       the raw parsed host, dropped outright.
 
   `:host` is the one worth arguing, because it reads like the most useful

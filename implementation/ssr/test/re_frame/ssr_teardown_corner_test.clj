@@ -1,7 +1,6 @@
 (ns re-frame.ssr-teardown-corner-test
   "Corner-matrix coverage for per-request frame teardown — composition,
-  idempotence, cross-frame isolation, missing-hook tolerance. Per
-  rf2-u91hb (audit follow-on from the rare-corner-cases sweep).
+  idempotence, cross-frame isolation.
 
   ## Why this lives next to `ssr_teardown_load_test.clj`
 
@@ -10,11 +9,10 @@
   drives the documented per-request flow N times and asserts the
   aggregate invariant. What it does NOT do is exercise each named
   invariant on its own (`re-frame.ssr.request/on-frame-destroyed!`
-  docstring claims four properties: drops pending-error-traces, drops
-  request-slots, drops response-slots, invokes head-cleanup hook;
-  idempotent; tolerates missing head hook). The load test will catch
-  a regression in the aggregate, but the per-invariant tests are the
-  triage hooks — they name the failing dimension at first sight, not
+  drops pending-error-traces, request-slots and response-slots, releases
+  the hydration-payload claim, and is idempotent). The load test will
+  catch a regression in the aggregate, but the per-invariant tests are
+  the triage hooks — they name the failing dimension at first sight, not
   via a heap-delta detective story.
 
   ## Scope
@@ -23,10 +21,7 @@
   all four side-channels in one call (test 1).
   Idempotence: a second destroy of the same frame-id is a no-op (test 2).
   Cross-frame isolation: destroying frame A leaves frame B's slots
-  intact (test 3).
-  Missing-hook tolerance: the head-cleanup hook can be absent (e.g. a
-  bundle that doesn't pull in re-frame.ssr.head); destroy still completes
-  (test 4)."
+  intact (test 3)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.ssr.error-listener :as rf.ssr.error-listener]
             [re-frame.ssr.install :as rf.ssr.install]
@@ -41,15 +36,13 @@
 ;; ===========================================================================
 
 (deftest on-frame-destroyed-clears-every-side-channel-in-one-call
-  (testing "rf2-u91hb: a single destroy call against a frame whose
+  (testing "A single destroy call against a frame whose
             request-slot, response-slot, pending-error-trace buffer AND
             hydration-payload claim are ALL populated MUST clear every
-            one of them. The pre-rf2-fcj33 / rf2-jbcmt teardown only
-            cleared a subset (or none); the post-fix contract pins the
-            all-in-one-call composition that the individual tests don't
-            exercise together. (Head reads keep NO per-frame state —
-            `head-model` returns its model and records nothing — so
-            there is no fourth head channel to clear.)"
+            one of them. This pins the all-in-one-call composition that
+            the individual tests don't exercise together. (Head reads
+            keep NO per-frame state — `head-model` returns its model and
+            records nothing — so there is no head channel to clear.)"
     (let [fid :rf.test/composition-target]
       ;; Populate every side-channel slot for fid.
       (rf.ssr.request/set-request! fid {:uri "/comp" :request-method :get})
@@ -90,7 +83,7 @@
 ;; ===========================================================================
 
 (deftest on-frame-destroyed-is-idempotent
-  (testing "rf2-u91hb: the on-frame-destroyed! docstring promises
+  (testing "The on-frame-destroyed! docstring promises
             idempotence ('a second call against the same frame-id sees
             the atoms already cleared and does nothing'). Pin that
             promise — a host adapter that mistakenly invokes the hook
@@ -121,7 +114,7 @@
 ;; ===========================================================================
 
 (deftest on-frame-destroyed-isolates-across-frames
-  (testing "rf2-u91hb: destroying frame A MUST NOT touch frame B's
+  (testing "Destroying frame A MUST NOT touch frame B's
             slots. Per Spec 011 §Request/Response storage substrate —
             'two simultaneous per-request frames carry independent
             slots that cannot bleed into each other'. The side-

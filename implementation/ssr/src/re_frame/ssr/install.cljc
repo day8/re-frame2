@@ -8,7 +8,7 @@
   root re-seeds a frame the first root already seeded, silently
   discarding everything that happened in between.
 
-  [Spec 004C §6] ratifies the rule this namespace implements:
+  [Spec 004C §6] states the rule this namespace implements:
 
   > Payload install is **idempotent and order-independent**: the
   > first hydrating root referencing a payload installs it; later roots
@@ -49,7 +49,7 @@
   | Ledger state | Verdict |
   |---|---|
   | no entry | `:install` — this root is the first; record the claim |
-  | entry, **equal** digest | `:already-installed` — the ratified idempotent no-op; do NOT re-seed |
+  | entry, **equal** digest | `:already-installed` — the idempotent no-op; do NOT re-seed |
   | entry, **differing** digest | `:rf.error/frame-payload-conflict`, thrown |
 
   The third arm is [004C §7]'s payload conflict: a referenced payload id
@@ -67,14 +67,14 @@
 
   It is deliberately NOT the render-tree hash, whose nil-pruning is right
   for a render tree and wrong for a data-identity test — see
-  `payload-content-digest` (rf2-tax2).
+  `payload-content-digest`.
 
   ## What this namespace deliberately does NOT do
 
   No reconciliation, no retry, no re-render. A conflicting root fails and
   **nothing else moves** — the installed payload and every root already
-  using it are untouched, which is [06 §2]'s failure scoping, not a
-  failed-root isolation mechanism (that is its own leaf). There is no
+  using it are untouched, which is [004C §7]'s failure scoping, not a
+  failed-root isolation mechanism (that lives in `re-frame.ssr.boot`). There is no
   Layer-2 per-response page registry here either: this is the CLIENT-side
   install ledger, keyed by payload id, and it takes no position on how a
   server assembles a page."
@@ -103,16 +103,16 @@
   therefore compute the same digest on either host, which is what makes
   `:already-installed` a reliable verdict rather than a hopeful one.
 
-  **Not the render-tree hash (rf2-tax2).** That hash PRUNES NIL, because
+  **Not the render-tree hash.** That hash PRUNES NIL, because
   for a render tree `[:div {:class nil}]` and `[:div {}]` emit the same
   HTML and must not manufacture a mismatch. A payload is not a render
   tree: `{:x nil}` is not `{}`, `[nil 7]` is not `[7]`, and `#{nil 1}` is
-  not `#{1}`. Digesting payloads through the render-tree rules aliased all
-  three pairs DETERMINISTICALLY — not by hash accident — so a second root
-  carrying a genuinely different server slice was waved through as
-  `:already-installed` instead of raising
-  `:rf.error/frame-payload-conflict`, and hydrated against data it never
-  received. The render-tree rules are untouched and still right for their
+  not `#{1}`. Digesting payloads through the render-tree rules would alias
+  all three pairs DETERMINISTICALLY — not by hash accident — so a second
+  root carrying a genuinely different server slice would be waved through
+  as `:already-installed` instead of raising
+  `:rf.error/frame-payload-conflict`, and hydrate against data it never
+  received. The render-tree rules are right for their
   own job; this asks a different question, so it uses a different
   canonicalisation."
   [payload]
@@ -159,8 +159,7 @@
   **Why the record guard.** Release is never an unconditional `dissoc`:
   it evicts only the claim this root actually wrote. A `dissoc` would let
   a late release from a failed root evict a SUCCESSOR that legitimately
-  re-claimed the id in the meantime — the same identity-guarded-release
-  rule [004C §7] states for root claims. `compare-and-set!` on the whole
+  re-claimed the id in the meantime. `compare-and-set!` on the whole
   ledger makes the check and the eviction one step, so the guard cannot
   be defeated by a claim landing between them.
 
@@ -233,7 +232,7 @@
       ;; We won the claim — the id was unheld when the swap landed.
       (nil? existing-claim) :install
 
-      ;; The ratified idempotent no-op: same content, already live.
+      ;; The idempotent no-op: same content, already live.
       (= arriving-digest (:digest existing-claim)) :already-installed
 
       :else
@@ -262,15 +261,14 @@
 
   A `container` that yields NO manifest fails loud with
   `:rf.error/root-manifest-invalid` `{:missing :manifest}` — the arm
-  Spec 009 reserved for exactly this. Asking for a hydrating root's
+  Spec 009 reserves for exactly this. Asking for a hydrating root's
   manifest and finding none is not a degraded case to paper over:
   hydrating mounts take root-id and identifier-prefix FROM the manifest
   ([004C §3]), so there is nothing left to hydrate AS.
 
   With neither `manifest` nor `container` there is no manifest step at
   all and this returns `nil` — the manifest-less boot path (a host that
-  calls `hydrate!` with an explicit payload and no container) is
-  unchanged."
+  calls `hydrate!` with an explicit payload and no container)."
   [where {:keys [manifest container]}]
   (cond
     (some? manifest) (rf.ssr.manifest/validate! where manifest)

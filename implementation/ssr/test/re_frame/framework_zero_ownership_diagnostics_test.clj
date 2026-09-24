@@ -2,10 +2,9 @@
   "EP-0001 cross-subsystem conformance sweep: the FRAMEWORK must never trip
   its OWN runtime-db ownership diagnostics.
 
-  The routing-authority gap shipped unnoticed because no test asserted that
-  the framework does not trip its own EP-0001 ownership diagnostics — the
-  routing fix added a routing-focused regression; THIS namespace is the
-  BROADER cross-subsystem sweep. It exercises a representative set of real
+  Without a test asserting that the framework does not trip its own EP-0001
+  ownership diagnostics, an authority gap in any one subsystem would ship
+  unnoticed; THIS namespace is the cross-subsystem sweep. It exercises a representative set of real
   framework flows across EVERY runtime-db-writing subsystem Spec 002 §Write
   authority names — routing, machines, elision, and SSR hydration — while
   recording the trace stream, and asserts that NONE of the three runtime-db
@@ -13,19 +12,20 @@
 
     - `:rf.warning/app-handler-runtime-effect` — a handler returned the
       reserved `:rf.db/runtime` effect without framework-write authority
-      (the diagnostic the routing gap was tripping on every navigation).
+      (the diagnostic a routing event lacking that authority would trip
+      on every navigation).
     - `:rf.error/legacy-runtime-root` — a handler returned a `:db` value
-      carrying the retired `:rf/runtime` app-db root.
+      carrying the reserved `:rf/runtime` app-db root.
     - `:rf.error/effect-map-shape` — a malformed effect-map shape.
 
-  Why this matters (Mike ruling #4 — convention + reliable diagnostics):
+  Why this matters:
   `:rf.db/runtime` is reserved BY CONVENTION for framework / runtime-
   extension code, surfaced through a dev diagnostic rather than enforced.
   The diagnostic only retains teaching value if the framework itself never
   fires it. A framework subsystem that trips its own ownership diagnostic
-  trains users that the warning is noise (it polluted the Xray Issues lens
-  on every navigation before the fix). This sweep is the regression guard
-  that keeps every runtime-db writer quiet.
+  trains users that the warning is noise (a routing trip would pollute the
+  Xray Issues lens on every navigation). This sweep is the guard that keeps
+  every runtime-db writer quiet.
 
   ## Home + fixture
 
@@ -57,7 +57,7 @@
   `:rf.db/runtime` DOES fire the warning, so the framework-quiet assertions
   above are not vacuously empty.
 
-  ## Posture split (rf2-lwtlk)
+  ## Posture split
 
   This namespace is the sharpest instance of the vacuous-pass trap the
   production-gate lane exists to close, and the split has to be read with
@@ -70,25 +70,25 @@
   precisely the assertion that fails first in that posture, which is the
   system telling the truth: with the recorder dead, the sweep is vacuous.
 
-  So all five `empty?` assertions are kept VERBATIM inside
-  `(when interop/debug-enabled? …)` arms marked `rf2-lwtlk`. They are correct
-  dev-posture coverage and nothing about them is weakened; they simply stop
-  claiming to have run under a gate that makes them unfalsifiable.
+  So all five `empty?` assertions sit inside
+  `(when interop/debug-enabled? …)` arms. They are correct dev-posture
+  coverage; they simply do not claim to have run under a gate that makes
+  them unfalsifiable.
 
   What remains outside the arms is production-real and substantial: every
-  deftest already pins the runtime-db WRITE its flow performs — the route
+  deftest pins the runtime-db WRITE its flow performs — the route
   slice after navigate / transitioned / handle-url-change / on-match, the
   pending-navigation slot through the can-leave protocol, the machine
   snapshots through bootstrap / spawn / destroy, the elision declarations,
   the `:rf/hydrate` app-db replacement and server-hash. Those are the flows
   themselves and they run in the lane.
 
-  The control deftest gains a PRODUCTION witness rather than being guarded
-  away wholesale (which would report green for a deftest that executed
-  nothing). Per the Mike ruling this file cites, `:rf.db/runtime` is
-  reserved BY CONVENTION and surfaced through a dev diagnostic rather than
-  ENFORCED — so in production the sneaky write LANDS. That is the policy's
-  production face and nothing asserted it in either posture before."
+  The control deftest carries a PRODUCTION witness rather than being
+  guarded away wholesale (which would report green for a deftest that
+  executed nothing). `:rf.db/runtime` is reserved BY CONVENTION and surfaced
+  through a dev diagnostic rather than ENFORCED — so in production the
+  sneaky write LANDS. That is the policy's production face, and the control
+  asserts it in both postures."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
@@ -176,7 +176,7 @@
                                    [:rf.runtime/routing :current :route-id]))
           "the :on-match route settled onto the slice")
 
-      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
+      ;; Dev-instrumentation arm (see ns docstring). Vacuous
       ;; under the gate: the diagnostic ring is empty for every input there.
       ;; The four route-slice writes above are the posture-independent half.
       (when rf.interop/debug-enabled?
@@ -215,7 +215,7 @@
       (is (= :route/cart (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                  [:rf.runtime/routing :current :route-id]))
           ":rf.route/continue completed the navigation")
-      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
+      ;; Dev-instrumentation arm (see ns docstring). Vacuous
       ;; under the gate; the pending-slot writes above are the residue.
       (when rf.interop/debug-enabled?
         (is (empty? @diags)
@@ -265,16 +265,16 @@
       ;; (c) explicit destroy — the destroy fx clears the actor from runtime-db.
       (rf/dispatch-sync [:zod/parent [:kill]])
 
-      ;; SEMANTIC, posture-independent (rf2-lwtlk): the explicit destroy
-      ;; above had no witness at all — its only assertion was the vacuous
-      ;; `empty?`. The parent's `:tearing` entry fires
+      ;; SEMANTIC, posture-independent: the explicit destroy's own
+      ;; witness, so it does not rest on the vacuous `empty?` alone. The
+      ;; parent's `:tearing` entry fires
       ;; `[:rf.machine/destroy :zod/child]`, so the child's snapshot must be
       ;; gone from runtime-db while the parent's remains.
       (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                         [:rf.runtime/machines :snapshots :zod/child]))
           "the explicit destroy fx cleared the child actor from runtime-db")
 
-      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
+      ;; Dev-instrumentation arm (see ns docstring). Vacuous
       ;; under the gate.
       (when rf.interop/debug-enabled?
         (is (empty? @diags)
@@ -314,7 +314,7 @@
       (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                          [:rf.runtime/elision]))
           "the commit-plane effect wrote its declaration registry into runtime-db")
-      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
+      ;; Dev-instrumentation arm (see ns docstring). Vacuous
       ;; under the gate; the three elision-registry pins above are the
       ;; posture-independent half.
       (when rf.interop/debug-enabled?
@@ -345,7 +345,7 @@
       (is (= "deadbeef" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                 [:rf.runtime/ssr :hydration :server-hash]))
           ":rf/hydrate stashed the server-hash into the runtime-db partition")
-      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
+      ;; Dev-instrumentation arm (see ns docstring). Vacuous
       ;; under the gate; the app-db replacement + server-hash pins above are
       ;; the posture-independent half.
       (when rf.interop/debug-enabled?
@@ -368,19 +368,18 @@
     (let [diags (record-ownership-diagnostics! ::app-sneaky)]
       (rf/dispatch-sync [:app/sneaky-runtime-write])
 
-      ;; SEMANTIC, posture-independent (rf2-lwtlk), and the reason this
-      ;; deftest is not simply guarded away: `:rf.db/runtime` is reserved BY
-      ;; CONVENTION and surfaced through a DIAGNOSTIC, not enforced (Mike
-      ;; ruling #4, cited in the ns docstring). So the write LANDS — in dev,
-      ;; noisily; in production, silently. That is the policy's production
-      ;; face, and nothing asserted it in either posture before. If a future
-      ;; change turns the warning into a rejection, this is where it surfaces.
+      ;; SEMANTIC, posture-independent, and the reason this deftest is
+      ;; not simply guarded away: `:rf.db/runtime` is reserved BY
+      ;; CONVENTION and surfaced through a DIAGNOSTIC, not enforced. So the
+      ;; write LANDS — in dev, noisily; in production, silently. That is the
+      ;; policy's production face. Were the warning turned into a
+      ;; rejection, this is where it would surface.
       (is (= :hijacked (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                [:rf.runtime/routing :current :route-id]))
           "the diagnostic is advisory, not enforcement — the app handler's
            :rf.db/runtime write reaches runtime-db in both postures")
 
-      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). This is the
+      ;; Dev-instrumentation arm (see ns docstring). This is the
       ;; CONTROL for the five `empty?` assertions above, and it is the one
       ;; that goes red first under the gate — correctly, because with the
       ;; diagnostic elided there is nothing for a control to control.

@@ -1,7 +1,6 @@
 (ns re-frame.ssr-streaming-corner-test
   "Corner-matrix coverage for the streaming SSR shell walker, continuation
-  drain, and final-payload build paths. Per rf2-u91hb (audit follow-on
-  from the rare-corner-cases sweep): the existing
+  drain, and final-payload build paths.
   `ssr_streaming_test.clj` pins the common shapes (single boundary,
   duplicate id, failed continuation, payload shape); this ns pins the
   composition corners — `n=0`/`n>=2` body children, nested boundaries,
@@ -14,27 +13,27 @@
   test here pins a documented invariant that's downstream of the basic
   shapes — keeping them in a focused file makes the corner topology
   obvious at-a-glance to anyone auditing the streaming surface. Mirrors
-  the rf2-jvpli / rf2-ozhy9 split (`streaming_robustness_test` +
-  `concurrency_stress_test`) where the basic ring-streaming pin lives in
+  the `streaming_robustness_test` + `concurrency_stress_test` split, where
+  the basic ring-streaming pin lives in
   `ring_streaming_test` and the failure-mode tests live in dedicated
   sibling ns'.
 
   All tests are JVM-only — streaming SSR is JVM-only by design (Ring is
   Clojure-on-the-JVM).
 
-  ## Posture split (rf2-lwtlk)
+  ## Posture split
 
   Every composition corner pinned here is production-real and is asserted
-  without a posture guard. Two assertions were not: the
+  without a posture guard. Two assertions are not: the
   `:rf.error/suspense-boundary-duplicate-id` trace in the N=3 dedup corner,
   and the `:rf.ssr/suspense-boundary-failed` trace in the double-throw
   corner. Both emit behind `interop/debug-enabled?`, read once at
   namespace-load time, so under `-Dre-frame.debug=false` neither fires — a
   duplicate boundary id is a programmer error the framework announces in dev
-  and silently applies last-write-wins to in production. Both are kept
-  verbatim inside `(when interop/debug-enabled? …)` arms.
+  and silently applies last-write-wins to in production. Both sit inside
+  `(when interop/debug-enabled? …)` arms.
 
-  What each corner is actually FOR survives outside the arms and now runs in
+  What each corner is actually FOR sits outside the arms and runs in
   `scripts/test-ssr-prod-gate.sh`: N=3 dedup keeps the third registration's
   `:fallback` AND drains the third body, and the double-throw continuation
   returns `:failed? true` with empty `:html` instead of escaping — which is
@@ -75,11 +74,11 @@
 
 ;; ===========================================================================
 ;; Shell-walk body-arity corners — n=0, n>=2 (the case n=0/1/2 branch in
-;; streaming.cljc:249-252). The existing test suite only covered n=1.
+;; streaming.cljc:249-252). `ssr_streaming_test` covers n=1.
 ;; ===========================================================================
 
 (deftest boundary-with-zero-body-children-resolves-empty-html
-  (testing "rf2-u91hb: a :rf/suspense-boundary with NO body children
+  (testing "A :rf/suspense-boundary with NO body children
             (n=0 branch) registers a continuation whose subtree is nil;
             render-continuation resolves to empty HTML and does NOT
             throw. The shell still emits the fallback placeholder."
@@ -94,10 +93,10 @@
           "fallback still materialised in the shell")
       ;; Drain the continuation — the subtree is nil per the n=0 branch;
       ;; emit-element returns "" for nil, so the resolved html is empty.
-      ;; rf2-usio0 — drain the shell-produced entry VERBATIM (no manual
-      ;; `(assoc … :fallback …)`). The entry must already carry its
+      ;; Drain the shell-produced entry VERBATIM (no manual
+      ;; `(assoc … :fallback …)`). The entry must carry its
       ;; declared :fallback from `record-continuation!`; re-injecting it
-      ;; by hand re-introduces exactly the mask the rf2-405ld fix removed.
+      ;; by hand would mask an entry that lost its :fallback.
       (let [fid    (make-server-frame)
             entry  (first continuations)
             result (rf.ssr.streaming/render-continuation fid entry)]
@@ -114,7 +113,7 @@
             ":delta is still a (possibly empty) map even with no body")))))
 
 (deftest boundary-with-multi-child-body-wraps-in-fragment
-  (testing "rf2-u91hb: a :rf/suspense-boundary with TWO+ body children
+  (testing "A :rf/suspense-boundary with TWO+ body children
             (n>=2 branch) wraps them in a :<> fragment so a single
             logical hiccup form drains; both children's HTML appears in
             the resolved chunk."
@@ -128,7 +127,7 @@
       (is (= 1 (count continuations))
           "multi-child body still registers ONE continuation — the
            fragment wraps all children")
-      ;; rf2-usio0 — drain the entry verbatim; the declared :fallback
+      ;; Drain the entry verbatim; the declared :fallback
       ;; must ride from `record-continuation!`, not be re-injected here.
       (let [fid    (make-server-frame)
             entry  (first continuations)
@@ -147,7 +146,7 @@
 ;; ===========================================================================
 
 (deftest boundary-nested-inside-resolved-subtree-registers-inner-continuation
-  (testing "rf2-sgvn6 / rf2-b1v8v: when a continuation's subtree contains
+  (testing "When a continuation's subtree contains
             ANOTHER :rf/suspense-boundary, the inner boundary registers
             DURING the continuation's render — render-continuation drains
             the subtree through the streaming walker (NOT the non-streaming
@@ -155,9 +154,9 @@
             <template> inline and returns a NEW continuation on
             :continuations for the host to append at the tail of the FIFO
             drain queue (Spec 011 §922-924/§966/§983). It does NOT
-            fail-soft — the prior impl rendered the subtree through
-            emit/render-to-string, which THREW on the buried marker and
-            inline-fallback'd, never registering the inner boundary."
+            fail-soft — rendering the subtree through
+            emit/render-to-string would THROW on the buried marker and
+            inline-fallback, never registering the inner boundary."
     (let [tree [:div
                 [:rf/suspense-boundary
                  {:id :outer :fallback [:p "outer loading"]}
@@ -183,7 +182,7 @@
       ;; RECOGNISED: its fallback materialises inline as a <template> and
       ;; a NEW continuation for the inner is registered + returned on
       ;; :continuations. The outer does NOT fail.
-      ;; rf2-usio0 — drain the outer entry verbatim; its declared
+      ;; Drain the outer entry verbatim; its declared
       ;; :fallback rides from `record-continuation!`.
       (let [fid    (make-server-frame)
             entry  (first continuations)
@@ -195,7 +194,7 @@
                        (is (not (:failed? result))
                            "the outer continuation resolves cleanly — the streaming
                             walker recognises the buried :rf/suspense-boundary instead
-                            of throwing on it (rf2-sgvn6 / rf2-b1v8v)")
+                            of throwing on it")
                        (is (empty? (filter #(= :rf.ssr/suspense-boundary-failed (:operation %))
                                            @captured))
                            "NO suspense-boundary-failed trace — the nested boundary is
@@ -239,7 +238,7 @@
                :continuations is empty"))))))
 
 (deftest boundary-three-levels-deep-drains-each-level-FIFO
-  (testing "rf2-sgvn6 / rf2-b1v8v: nesting is UNBOUNDED — a level-1 boundary
+  (testing "Nesting is UNBOUNDED — a level-1 boundary
             whose subtree nests a level-2 boundary whose subtree nests a
             level-3 boundary drains one level per continuation, each
             registering the next at the FIFO tail. Proves the recursion is
@@ -282,7 +281,7 @@
                 "no further nesting below level-3")))))))
 
 (deftest boundary-inside-registered-view-body-is-reachable-by-walker
-  (testing "rf2-u91hb: when a registered view's body contains
+  (testing "When a registered view's body contains
             :rf/suspense-boundary, the walker resolves the view-ref and
             recurses into its hiccup output. This is the load-bearing
             case for the conformance fixture's root view, which IS a
@@ -308,7 +307,7 @@
           "the boundary's id was stamped on the fallback template"))))
 
 (deftest boundary-inside-fragment-children-is-reachable-by-walker
-  (testing "rf2-u91hb: when a :<> fragment's children contain a
+  (testing "When a :<> fragment's children contain a
             :rf/suspense-boundary, the walker splices the fragment and
             finds the boundary. Critical for hiccup authors who use
             fragments to group siblings without a wrapper element."
@@ -331,21 +330,20 @@
           "the buried boundary's fallback materialised inline"))))
 
 (deftest fragment-props-map-is-not-a-child-in-the-streaming-walker
-  (testing "rf2-n2y3 — a `:<>` fragment's PROPS MAP at slot 1 is not a
-            child, on the STREAMING path too. The walker's arm was a plain
-            `(rest element)`, so the map itself was walked as a child, fell
-            through to `emit/emit-element` → `escape-html`, and put its EDN
-            in the streamed shell bytes. `[:<> {:key i} …]` inside a `for`
-            is the canonical fragment idiom, so this was reachable from
-            ordinary application markup. rf2-3357 fixed the IDENTICAL
-            defect in the non-streaming emitter; until this arm matched it
-            the two paths disagreed on the same input."
-    (testing "the three rows rf2-3357 measured now agree on this path"
-      ;; Measured on the streaming walker BEFORE the fix, for the record:
+  (testing "A `:<>` fragment's PROPS MAP at slot 1 is not a
+            child, on the STREAMING path too. With a plain
+            `(rest element)` arm the map itself would be walked as a child,
+            fall through to `emit/emit-element` → `escape-html`, and put its
+            EDN in the streamed shell bytes. `[:<> {:key i} …]` inside a
+            `for` is the canonical fragment idiom, so this is reachable from
+            ordinary application markup. The non-streaming emitter skips the
+            slot the same way, so the two paths agree on the same input."
+    (testing "the three spellings agree on this path"
+      ;; Walking slot 1 as a child would give:
       ;;   [:<> {:key "k"} [:div "x"]] => "{:key &quot;k&quot;}<div>x</div>"
       ;;   [:<> {}         [:div "x"]] => "{}<div>x</div>"
       ;;   [:<>            [:div "x"]] => "<div>x</div>"
-      ;; Only the third was right; all three are the same markup now.
+      ;; Only the third is right; all three stream the same markup.
       (is (= "<div>x</div>"
              (:shell-html (rf.ssr.streaming/render-shell [:<> {:key "k"} [:div "x"]])))
           "a keyed fragment streams its children and nothing else")
@@ -354,7 +352,7 @@
           "an EMPTY props map is still a props map, not a child")
       (is (= "<div>x</div>"
              (:shell-html (rf.ssr.streaming/render-shell [:<> [:div "x"]])))
-          "the no-props spelling is unchanged"))
+          "the no-props spelling streams the same markup"))
     (testing "no EDN of the props map survives anywhere in the shell bytes"
       (let [html (:shell-html
                    (rf.ssr.streaming/render-shell
@@ -365,7 +363,7 @@
     (testing "a fragment that is ONLY a props map streams nothing"
       (is (= "" (:shell-html (rf.ssr.streaming/render-shell [:<> {:key "k"}]))))
       (is (= "" (:shell-html (rf.ssr.streaming/render-shell [:<>])))))
-    (testing "rf2-3357's ruling holds here — a NON-`:key` fragment attribute
+    (testing "The same rule holds here — a NON-`:key` fragment attribute
               is DROPPED, silently, not refused. A fragment is not an
               element, so no attribute on one has a wire representation."
       (is (= "<div>x</div>"
@@ -387,10 +385,9 @@
           "a seq at slot 1 is a child, not props"))))
 
 (deftest streaming-and-non-streaming-fragments-agree-byte-for-byte
-  (testing "rf2-n2y3 — the pin that stops these two arms drifting apart
-            again. rf2-3357 fixed `emit.cljc`'s `:<>` arm and this walker's
-            was left behind, so for two hours the SAME hiccup rendered one
-            way through `render-to-string` and another through
+  (testing "The pin that stops these two arms drifting apart: a change
+            to one `:<>` arm without the other would render the SAME hiccup
+            one way through `render-to-string` and another through
             `render-shell`. A boundary-free tree contains nothing the
             streaming walker is FOR, so its shell HTML must equal what the
             non-streaming emitter produces, byte for byte."
@@ -410,10 +407,11 @@
           (str "streaming and non-streaming disagree on " (pr-str tree))))))
 
 (deftest fragment-props-map-does-not-displace-a-suspense-boundary
-  (testing "rf2-n2y3 — the STREAMING-SPECIFIC analogue of rf2-3357's worse
-            half. There, the props map becoming the first child displaced
-            the value that was supposed to receive the root-attrs, and the
-            `data-rf-render-hash` marker vanished. This walker threads no
+  (testing "The STREAMING-SPECIFIC analogue of the non-streaming
+            emitter's worse case. There, a props map taken as the first child
+            would displace the value that is supposed to receive the
+            root-attrs, and the `data-rf-render-hash` marker would vanish.
+            This walker threads no
             attrs at all — `walk-shell` / `walk-children` / `walk-dom-tag`
             take only `[element continuation-accumulator]` and
             `render-shell` only `[root-hiccup]` — so there is no marker to
@@ -435,10 +433,10 @@
         (is (str/starts-with? shell-html "<h1>header</h1>")
             (str "the shell opens with the first real child; got: " shell-html))
         ;; The boundary id is deliberately free of the substring `:key` —
-        ;; a first spelling of this test used `:keyed/frag` and the probe
-        ;; matched the id stamped on the fallback `<template>` rather than
-        ;; any props EDN, which is a false positive in the direction that
-        ;; looks like a caught bug.
+        ;; an id like `:keyed/frag` would make the probe match the id
+        ;; stamped on the fallback `<template>` rather than any props EDN,
+        ;; a false positive in the direction that looks like a caught
+        ;; bug.
         (is (not (str/includes? shell-html ":key"))
             "no props EDN in front of the fallback placeholder")))
     (testing "a keyed fragment as a continuation SUBTREE drains clean — the
@@ -455,10 +453,10 @@
             (str "the drained chunk carries no props EDN; got: " (:html result)))))))
 
 (deftest triple-duplicate-id-keeps-only-last-of-three
-  (testing "rf2-u91hb: three boundaries with the same :id — dedup keeps
+  (testing "Three boundaries with the same :id — dedup keeps
             ONLY the LAST registration. Pins the last-write-wins shape
-            against more than two duplicates (the existing test covers
-            only the 2-duplicate case)."
+            against more than two duplicates (`ssr_streaming_test` covers
+            the 2-duplicate case)."
     (let [tree [:div
                 [:rf/suspense-boundary
                  {:id :triple :fallback [:p "first fallback"]}
@@ -477,7 +475,7 @@
           "only one continuation survives dedup across three duplicates")
       ;; Drain it — the body should be the LAST registration's body
       ;; (third), confirming last-write-wins.
-      ;; rf2-usio0 — drain verbatim; last-write-wins means the surviving
+      ;; Drain verbatim; last-write-wins means the surviving
       ;; entry carries the THIRD boundary's declared :fallback, threaded
       ;; through `record-continuation!` (not re-injected by hand).
       (let [fid    (make-server-frame)
@@ -491,7 +489,7 @@
              the first or middle. Per Spec 011 §Boundary nesting and
              recursion: 'the second registration overwrites the first'
              generalises to N-deep — every-but-last is dropped."))
-      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). The
+      ;; Dev-instrumentation arm (see ns docstring). The
       ;; N=3 last-write-wins SEMANTICS are pinned above by the surviving
       ;; entry's `:fallback` and the drained chunk's body, both
       ;; posture-independent; a duplicate boundary id is a programmer error
@@ -521,7 +519,7 @@
 ;; ===========================================================================
 
 (deftest render-continuation-fallback-render-throw-emits-empty-html
-  (testing "rf2-u91hb: when the subtree throws AND the fallback ALSO
+  (testing "When the subtree throws AND the fallback ALSO
             throws on render, render-continuation MUST NOT escape — it
             returns :failed? true with empty :html (per streaming.cljc
             line 397-404). The client-side runtime treats an empty
@@ -550,7 +548,7 @@
                throw)")
           (is (nil? (:delta result))
               "delta still omitted on failure")
-          ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). The
+          ;; Dev-instrumentation arm (see ns docstring). The
           ;; MUST-NOT-ESCAPE contract this deftest exists for is pinned
           ;; posture-independently above: `render-continuation` returned at
           ;; all, with `:failed? true` and empty `:html`, despite BOTH the
@@ -564,7 +562,7 @@
                  the client cares about)")))))))
 
 (deftest render-continuation-delta-captures-app-db-change-during-render
-  (testing "rf2-u91hb: render-continuation snapshots app-db before
+  (testing "render-continuation snapshots app-db before
             render, then after; the resulting :delta carries the keys
             that changed (per spec — :delta is the streaming hydration
             speed prop). Pins that the diff actually fires."
@@ -596,7 +594,7 @@
           "the delta's value matches the post-render app-db value"))))
 
 (deftest render-continuation-after-frame-destroy-still-fails-soft
-  (testing "rf2-u91hb: if the host adapter (incorrectly) drives
+  (testing "If the host adapter (incorrectly) drives
             render-continuation against a frame-id whose frame has
             been destroyed, the runtime MUST fail-soft (not escape
             with NPE / NoSuchFrame). The continuation's failure
@@ -606,7 +604,7 @@
                 {:id :after-destroy :fallback [:p "loading"]}
                 [:p "body"]]
           {:keys [continuations]} (rf.ssr.streaming/render-shell tree)
-          ;; rf2-usio0 — drain the entry verbatim; the declared :fallback
+          ;; Drain the entry verbatim; the declared :fallback
           ;; rides from `record-continuation!`. Re-injecting it masks an
           ;; empty-fallback regression on the fail-soft path.
           entry (first continuations)]
@@ -636,11 +634,11 @@
 ;; ===========================================================================
 
 (deftest build-final-payload-allowlist-drops-unpermitted-keys
-  (testing "rf2-u91hb: the streaming build-final-payload MUST honour
+  (testing "The streaming build-final-payload MUST honour
             :payload allowlist projection — same contract as
             non-streaming build-payload (the streaming + non-streaming
             payload builders share re-frame.ssr.payload-policy/apply-
-            policy per rf2-gtgf9). Pin that an un-permitted key on
+            policy). Pin that an un-permitted key on
             app-db does NOT ride the wire under the streaming path."
     (let [fid (make-server-frame {:public/articles [{:id "a"}]
                                   :server-only/auth-token "RF2_U91HB_LEAK_PROBE_xyz"
@@ -653,7 +651,7 @@
           "the public slice IS on the wire (sanity)")
       (is (not (contains? (:rf/app-db payload) :server-only/auth-token))
           "the un-permitted :server-only/auth-token key does NOT
-           appear in the streaming final payload — pin the rf2-gtgf9
+           appear in the streaming final payload — the
            fail-closed proof on the STREAMING path")
       (is (not (contains? (:rf/app-db payload) :server-only/admin-flag))
           "belt-and-braces over a second un-permitted slot"))))
@@ -665,7 +663,7 @@
 ;; ===========================================================================
 
 (deftest clear-request-on-unpopulated-frame-is-noop
-  (testing "rf2-u91hb: ssr/clear-request! on a frame-id that was never
+  (testing "ssr/clear-request! on a frame-id that was never
             populated MUST be a no-op — host adapters that forget to
             populate (or clear twice) must not observe any error or
             side-effect"
@@ -682,7 +680,7 @@
              by a clear of a never-populated slot")))))
 
 (deftest clear-response-on-unpopulated-frame-is-noop
-  (testing "rf2-u91hb: ssr/clear-response! on a never-populated frame
+  (testing "ssr/clear-response! on a never-populated frame
             MUST be a no-op (same idempotence contract as clear-
             request!)"
     (let [before @(requiring-resolve 're-frame.ssr.response/response-slots)]
@@ -702,7 +700,7 @@
 (deftest response-accumulator-not-on-app-db-privacy-invariant
   (testing "writing an :rf.server/* fx MUST NOT populate any
             key under app-db. Per Spec 011 §Response storage substrate
-            (rf2-jbcmt) — privacy boundary: response accumulator data
+            — privacy boundary: response accumulator data
             (Set-Cookie, internal X-* headers) MUST NOT default-leak
             into the hydration payload via an app-db backing store."
     (rf/reg-event :test/server-write
@@ -716,8 +714,7 @@
                       :initial-events [[:test/server-write]]})
       (let [app-db (rf.frame/frame-app-db-value fid)]
         ;; Spec 011 §Response storage substrate: NO app-db key may
-        ;; carry the accumulator. Pin both the published reserved key and the
-        ;; old sentinel spelling.
+        ;; carry the accumulator. Pin the published reserved key.
         (is (not (contains? app-db :rf/response))
             "app-db MUST NOT carry :rf/response; the accumulator lives in
              re-frame.ssr.response/response-slots")
@@ -737,7 +734,7 @@
                    (vec keys-named-response))))))))
 
 (deftest request-slot-not-on-app-db-privacy-invariant
-  (testing "rf2-u91hb: populating the per-request request slot MUST NOT
+  (testing "Populating the per-request request slot MUST NOT
             land any key on app-db. Per Spec 011 §Request storage
             substrate — the request map carries Host, Cookie,
             Authorization, X-Forwarded-For; an app-db backing would

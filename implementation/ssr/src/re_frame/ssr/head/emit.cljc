@@ -139,7 +139,7 @@
                      ;; strings. `js/JSON.stringify` (the CLJS branch)
                      ;; coerces every key to a string; the JVM branch must
                      ;; match or the two reader-conditional arms diverge on
-                     ;; non-string keys. A bare `(emit k)` emitted invalid
+                     ;; non-string keys. A bare `(emit k)` would emit invalid
                      ;; JSON for number/boolean/nil keys (`1:"a"`,
                      ;; `true:"a"`, `null:"a"`). Coerce every key to a quoted
                      ;; string; nil keys throw (no JSON representation —

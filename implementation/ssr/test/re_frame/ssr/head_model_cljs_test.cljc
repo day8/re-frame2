@@ -1,8 +1,8 @@
 (ns re-frame.ssr.head-model-cljs-test
-  "rf2-kuky.89 — the NAME-COLLISION guard for the one head read.
+  "The NAME-COLLISION guard for the one head read.
 
-  The ruling (rf2-kuky.44) proposed spelling the collapsed read
-  `(ssr/head …)`. That name is unusable in ClojureScript: `re-frame.ssr`
+  The read cannot be spelled `(ssr/head …)`. That name is unusable in
+  ClojureScript: `re-frame.ssr`
   requires `re-frame.ssr.head`, so the namespace OBJECT `re_frame.ssr.head`
   — which carries `.registry`, `.emit` and the head ns's own vars — exists
   before `re-frame.ssr`'s body runs, and a `(def head …)` there would emit
@@ -40,11 +40,11 @@
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.head :as rf.ssr.head]))
 
-;; rf2-qj4g — COLD-START the adapter slot rather than assuming it is empty.
+;; COLD-START the adapter slot rather than assuming it is empty.
 ;; This ns runs in the shared node bundle beside suites that seat Reagent /
-;; UIx / plain-atom, so a bare `init!` would be a no-op whenever one of them
-;; ran first. Destroy first, seat the adapter this ns NAMES, and destroy
-;; again on the way out.
+;; UIx / plain-atom, so a bare `init!` would meet whichever adapter one of
+;; them left seated. Destroy first, seat the adapter this ns NAMES, and
+;; destroy again on the way out.
 (use-fixtures :once
   (fn [f]
     (rf/destroy-adapter!)
@@ -70,7 +70,7 @@
 ;; ===========================================================================
 
 (deftest head-model-and-the-head-namespace-coexist
-  (testing "rf2-kuky.89 — `re-frame.ssr/head-model` does not clobber the
+  (testing "`re-frame.ssr/head-model` does not clobber the
             `re-frame.ssr.head` namespace object. Both are reached in ONE
             namespace, after load, and both answer."
     (is (ifn? rf.ssr/head-model)

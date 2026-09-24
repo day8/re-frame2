@@ -1,22 +1,22 @@
 (ns re-frame.ssr-hiccup-newline-test
-  "rf2-s7l5 — leading-LF compensation for the TWO HICCUP emitters.
+  "Leading-LF compensation for the TWO HICCUP emitters.
 
-  ANCHOR (rf2-z05di, extended by rf2-s7l5): HTML parsing eats the FIRST LF
+  ANCHOR: HTML parsing eats the FIRST LF
   immediately after `<pre>` / `<listing>` / `<textarea>` (the newline-eating
   elements), so react-dom/server 19.2 prefixes ONE compensating LF when such an
   element's body is a SINGLE STRING beginning with LF — making the authored
   content survive the parse round-trip. Multiple / element children are left
   untouched (React's `typeof children === 'string'` guard).
 
-  rf2-z05di implemented that rule for the S5 STRUCTURAL serialiser
-  (`re-frame.ssr.ui-tree`) only. Both HICCUP emitters — the non-streaming
-  `re-frame.ssr.emit/render-to-string` and the streaming shell walker
-  `re-frame.ssr.streaming/render-shell` — emitted the start tag, the children
-  and the end tag with no compensation, so an ordinary supported
-  `[:pre \"\\ncode\"]` reached the browser as `<pre>\\ncode</pre>` and parsed to
-  the DOM text `code`: one authored character silently lost, and a text
-  hydration mismatch against the client's Reagent/React rendering of the same
-  `.cljc` view. Spec 011 §The render-tree → HTML emitter describes the hiccup
+  The S5 STRUCTURAL serialiser (`re-frame.ssr.ui-tree`) and both HICCUP
+  emitters — the non-streaming `re-frame.ssr.emit/render-to-string` and the
+  streaming shell walker `re-frame.ssr.streaming/render-shell` — apply that
+  rule through one shared helper. A hiccup emitter that wrote the start tag,
+  the children and the end tag with no compensation would send an ordinary
+  supported `[:pre \"\\ncode\"]` to the browser as `<pre>\\ncode</pre>`, which
+  parses to the DOM text `code`: one authored character silently lost, and a
+  text hydration mismatch against the client's Reagent/React rendering of the
+  same `.cljc` view. Spec 011 §The render-tree → HTML emitter describes the hiccup
   emitter as text-PRESERVING per-position HTML output.
 
   WHY THE STRUCTURAL RENDER HASH DOES NOT CATCH IT: `render-tree-hash` is
@@ -25,7 +25,7 @@
   BYTES are where it becomes visible without a browser, and pinning those bytes
   against react-dom's is what this namespace does.
 
-  WHAT THIS WITNESS OBSERVES (rf2-s7l5, merged-PR audits #9377 and #9391). It
+  WHAT THIS WITNESS OBSERVES. It
   PARSES the emitted markup with a conformant HTML5 parser and reads the
   resulting DOM node's `textContent`. Two things are asserted, and both are
   named honestly at every assertion site:
@@ -41,12 +41,10 @@
        tree-construction algorithm, the parser behind the W3C/WHATWG validator
        — which yields an `org.w3c.dom` tree, and reads `Node.getTextContent()`
        off the element. That is the browser contract's own vocabulary, not a
-       re-statement of this repository's rule, and it is what the acceptance
-       criterion asks for.
+       re-statement of this repository's rule.
 
-  WHY THAT MATTERS, AND WHAT IT REPLACED. Until rf2-s7l5's second pass this
-  namespace carried a hand-written MODEL of the tokenizer rule instead of a
-  parse. A model cannot independently establish the rule it models: if the
+  WHY A PARSE AND NOT A MODEL. A hand-written MODEL of the tokenizer rule
+  cannot independently establish the rule it models: if the
   production compensation were wrong about WHICH elements eat a newline, or
   about HOW MANY characters are eaten, a model sharing that belief agrees with
   it and every assertion stays green. The parser has no such coupling — it was
@@ -66,7 +64,7 @@
   from both ends — our emitted bytes AND react-dom/server's own measured bytes
   parse to the authored string.
 
-  WHAT IS STILL NOT OBSERVED HERE: a real browser. A conformant parser plus
+  WHAT IS NOT OBSERVED HERE: a real browser. A conformant parser plus
   byte parity with react-dom/server is the bound; a browser would add the
   rendering engine's own text handling, which no gate in this artefact reaches.
 
@@ -120,13 +118,13 @@
     (.getTextContent (.item elements 0))))
 
 (deftest the-parser-is-itself-exercised
-  ;; NEGATIVE CONTROL, and the acceptance criterion names it: the parser must
-  ;; report the LOSS on UNCOMPENSATED markup — the exact pre-repair emitter
-  ;; output — or every green below would be vacuous. A witness that has never
+  ;; NEGATIVE CONTROL: the parser must report the LOSS on UNCOMPENSATED
+  ;; markup — the exact output of an emitter without the compensation — or
+  ;; every green below would be vacuous. A witness that has never
   ;; been red about the defect is not a witness.
-  (testing "UNCOMPENSATED markup — the pre-repair bytes — loses its leading LF"
+  (testing "UNCOMPENSATED markup loses its leading LF"
     (is (= "code" (parsed-text-content "pre" "<pre>\ncode</pre>"))
-        "this is rf2-s7l5's defect, observed rather than modelled")
+        "this is the lost-character defect, observed rather than modelled")
     (is (= "listed" (parsed-text-content "listing" "<listing>\nlisted</listing>")))
     (is (= "text" (parsed-text-content "textarea" "<textarea>\ntext</textarea>"))))
   (testing "COMPENSATED markup round-trips"
@@ -148,8 +146,7 @@
         "pre / listing / textarea eat a leading LF; nothing else does")))
 
 ;; ---------------------------------------------------------------------------
-;; The shared rule — one roster, one implementation (acceptance: "share the
-;; compensation rather than creating divergent rosters")
+;; The shared rule — one roster, one implementation
 ;; ---------------------------------------------------------------------------
 
 (deftest one-roster-one-rule
@@ -176,8 +173,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest non-streaming-hiccup-preserves-a-leading-newline
-  (testing "[:pre \"\\ncode\"] — the bead's ordinary supported input"
-    ;; RED-BEFORE lever: emitted "<pre>\ncode</pre>", parsing to "code".
+  (testing "[:pre \"\\ncode\"] — an ordinary supported input"
+    ;; Without compensation this would emit "<pre>\ncode</pre>", parsing to
+    ;; "code".
     (let [html (rf.ssr.emit/render-to-string [:pre "\ncode"])]
       (is (= "<pre>\n\ncode</pre>" html)
           "byte parity with react-dom/server 19.2 renderToStaticMarkup")
@@ -211,7 +209,7 @@
     (let [html (rf.ssr.emit/render-to-string [:pre "code"])]
       (is (= "<pre>code</pre>" html))
       (is (= "code" (parsed-text-content "pre" html))
-          "the acceptance's no-leading-LF control, observed through the parser"))
+          "the no-leading-LF control, observed through the parser"))
     (let [html (rf.ssr.emit/render-to-string [:textarea "text"])]
       (is (= "<textarea>text</textarea>" html))
       (is (= "text" (parsed-text-content "textarea" html)))))
@@ -232,16 +230,17 @@
   ;; round-trips. In each the parser DOES eat a character that no compensation
   ;; replaces — because react-dom/server does not compensate either, and byte
   ;; parity with react-dom is this emitter's contract. Pinning what the parser
-  ;; actually reports keeps the witness from overstating the repair's reach.
+  ;; actually reports keeps the witness from overstating the compensation's
+  ;; reach.
   (testing "CONTROL: a leading CR is not a newline-eating trigger (React parity)"
     (let [html (rf.ssr.emit/render-to-string [:pre "\r\ncode"])]
       (is (= "<pre>\r\ncode</pre>" html)
           "React's test is `charAt(0) === '\\n'`, so CRLF is not compensated")
       (is (= "code" (parsed-text-content "pre" html))
           "and the parser normalises CRLF→LF before eating it, so BOTH
-           characters go — a divergence shared with react-dom/server, not a
-           regression this bead introduces")))
-  (testing "CONTROL: the existing MULTI-CHILD rule is preserved (React parity)"
+           characters go — a divergence shared with react-dom/server, not
+           one the compensation introduces")))
+  (testing "CONTROL: a MULTI-CHILD body is not compensated (React parity)"
     (let [html (rf.ssr.emit/render-to-string [:pre "\na" "b"])]
       (is (= "<pre>\nab</pre>" html)
           "React leaves a multi-child body untouched; so do we")
@@ -260,7 +259,7 @@
 
 (deftest streaming-hiccup-preserves-a-leading-newline
   (testing "the shell walker compensates exactly as the sync emitter does"
-    ;; RED-BEFORE lever: walk-dom-tag emitted "<pre>\ncode</pre>".
+    ;; Without compensation walk-dom-tag would emit "<pre>\ncode</pre>".
     (let [html (shell [:pre "\ncode"])]
       (is (= "<pre>\n\ncode</pre>" html))
       (is (= "\ncode" (parsed-text-content "pre" html)))))
@@ -292,7 +291,7 @@
     (let [html (shell [:div "\ncode"])]
       (is (= "<div>\ncode</div>" html))
       (is (= "\ncode" (parsed-text-content "div" html)))))
-  (testing "CONTROL: the multi-child rule is preserved in the shell walk too"
+  (testing "CONTROL: the multi-child rule holds in the shell walk too"
     (is (= "<pre>\nab</pre>" (shell [:pre "\na" "b"]))))
   (testing "CONTROL: raw-text handling is untouched in the shell walk"
     (let [html (shell [:script "\nvar a = 1 < 2;"])]
@@ -300,8 +299,8 @@
       (is (= "\nvar a = 1 < 2;" (parsed-text-content "script" html))))))
 
 ;; ---------------------------------------------------------------------------
-;; Three-path agreement — the S5 serialiser already had the rule; the point of
-;; the repair is that all three now emit the same bytes for the same content.
+;; Three-path agreement — all three SSR paths emit the same bytes for the same
+;; content.
 ;; ---------------------------------------------------------------------------
 
 (deftest all-three-ssr-paths-agree
@@ -318,7 +317,7 @@
           (str "S5 serialiser vs streaming hiccup emitter on <" tag ">")))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-s7l5's acceptance criterion, stated once and closed in one place.
+;; The server-vs-client text contract, stated once and closed in one place.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private react-dom-static-markup
@@ -331,7 +330,7 @@
    "textarea" ["\ntext"   "<textarea>\n\ntext</textarea>"]})
 
 (deftest server-parse-matches-authored-and-client-text
-  ;; THE ACCEPTANCE: for one LF-leading string under pre / listing / textarea,
+  ;; THE CONTRACT: for one LF-leading string under pre / listing / textarea,
   ;; PARSE the emitted non-streaming AND streaming HTML and assert the parsed
   ;; textContent is the authored string — which is also the client rendering,
   ;; because React's client path sets a lone string child as a DOM text node
@@ -354,8 +353,8 @@
       (testing (str "<" tag "> — react-dom's own bytes parse the same way")
         (is (= authored (parsed-text-content tag expected-bytes))
             "the browser-side claim, checked against react-dom rather than us"))
-      (testing (str "<" tag "> — NEGATIVE CONTROL: the pre-repair bytes")
+      (testing (str "<" tag "> — NEGATIVE CONTROL: uncompensated bytes")
         (is (not= authored
                   (parsed-text-content tag (str "<" tag ">" authored "</" tag ">")))
-            "uncompensated markup — what both hiccup emitters produced before
-             rf2-s7l5 — parses to one character SHORT of the authored string")))))
+            "uncompensated markup parses to one character SHORT of the
+             authored string")))))

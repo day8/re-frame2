@@ -16,7 +16,7 @@
 ;; ---- always-on error emission ---------------------------------------------
 ;;
 ;; The promoted SSR error categories ride the always-on error-emit axis
-;; (surface #4) ALONGSIDE the existing dev-gated `trace/emit-error!`. The
+;; (surface #4) ALONGSIDE the dev-gated `trace/emit-error!`. The
 ;; always-on emit reaches `error-emit/dispatch-error-record!` through the
 ;; published `:error-emit/dispatch-error-record` late-bind hook (the SSR
 ;; artefact ships above core's require graph; the hook keeps the axis
@@ -70,7 +70,7 @@
 ;; degraded-200 outcome a PROPERTY OF THE PROJECTOR, not an incidental
 ;; consequence of `ssr-handler` reading `get-response` (ring.clj:343)
 ;; BEFORE `build-full-response` fires the head trace (pipeline.clj:286).
-;; Without this skip the immunity was timing-only: a future reorder (head
+;; Without this skip the immunity would be timing-only: a reorder (head
 ;; resolution before `get-response`, a second flush after the render, a
 ;; re-read of `get-response` on the same frame) would let a buffered head
 ;; trace project the default `:rf.error/*` → status and silently flip a
@@ -86,14 +86,14 @@
 ;; frame-stamped (`:frame frame-id`) and fires inside `build-full-
 ;; response`'s render-time catch AFTER `project-render-exception!` has
 ;; ALREADY stamped the projected status and cleared the buffer
-;; (consume-pending-traces!) — so without this skip it is re-buffered
-;; and left in `pending-error-traces` until frame-destroy. Safe TODAY
-;; only because nothing re-reads `get-response`/`flush-response!` on the
-;; frame after that point (the c0bq1 re-flush, pipeline.clj:331, lives on
+;; (consume-pending-traces!) — so without this skip it would be re-buffered
+;; and left in `pending-error-traces` until frame-destroy. That would be
+;; harmless only while nothing re-reads `get-response`/`flush-response!` on the
+;; frame after that point (the re-flush at pipeline.clj:331 lives on
 ;; the HAPPY path inside `build-full-response*`, which the error-view-
-;; failed catch never reaches), and the default projector maps it to the
-;; same 500 the render-time path already stamped. But a CUSTOM projector
-;; mapping the render exception to a 4xx, plus a future post-error
+;; failed catch never reaches) and the default projector maps it to the
+;; same 500 the render-time path already stamped. A CUSTOM projector
+;; mapping the render exception to a 4xx, plus a post-error
 ;; re-flush, would let the buffered trace re-project → its generic 5xx
 ;; and silently flip 4xx→5xx. Skipping it here closes that hole by
 ;; construction — symmetric with the head category, enforced at the same
@@ -102,18 +102,18 @@
 ;;
 ;;   `:rf.error/ssr-streaming-writer-failed` — POST-HEAD-COMMIT (the chunked
 ;;   200 is already on the wire on the daemon writer thread; the status can
-;;   no longer change). Promoting it to the always-on axis would otherwise
+;;   no longer change). On the always-on axis it would otherwise
 ;;   let `error-emit-projection-listener` buffer + project a 500 onto a
 ;;   response that has already committed — flipping the wire. It is pure
-;;   off-box telemetry; skip it so promotion ships the record WITHOUT
+;;   off-box telemetry; skip it so the always-on axis ships the record WITHOUT
 ;;   touching the (already-committed) status.
 ;;
-;;   `:rf.error/sanitised-on-projection` — the projector-fallback path. It
-;;   was always guarded explicitly here (the re-entry guard); folding it
-;;   into the set makes the classification uniform and keeps the one-shot,
+;;   `:rf.error/sanitised-on-projection` — the projector-fallback path. Both
+;;   listeners also guard it explicitly (the re-entry guard); its place
+;;   in the set keeps the classification uniform and keeps the one-shot,
 ;;   never-re-enter-projection contract enforced at the same chokepoint.
 ;;
-;; rf2-6jqa8 — THE THREE `:rf.error/safe-redirect-*` CATEGORIES, and they are
+;; THE THREE `:rf.error/safe-redirect-*` CATEGORIES, and they are
 ;; the sharpest case in the set. `:rf.server/safe-redirect`'s five-step gate
 ;; is deliberately EMIT-AND-NO-OP rather than throw (`response.cljc`
 ;; §safe-redirect): "the cascade continues, the response's `:redirect` stays
@@ -121,19 +121,19 @@
 ;; as it would have, minus a redirect the framework refused to perform. That
 ;; refusal IS the mitigation working.
 ;;
-;; Promoting these onto the always-on axis without this skip would have made
-;; `error-emit-projection-listener` buffer them and the default projector's
-;; `:else` arm stamp the locked generic 500 — handing an attacker a trivial
+;; On the always-on axis without this skip,
+;; `error-emit-projection-listener` would buffer them and the default projector's
+;; `:else` arm would stamp the locked generic 500 — handing an attacker a trivial
 ;; denial of service: `?next=javascript:alert(1)` would turn a healthy page
-;; into a 500. That is the inverse of the bead's intent. The governing rule
+;; into a 500. That inverts the gate's purpose. The governing rule
 ;; is the one stated at the head of this block and it is absolute here:
 ;; PROMOTION CHANGES WHAT SHIPPERS SEE, NEVER WHAT THE WIRE DOES.
 ;;
 ;; The skip is at this chokepoint, so it is symmetric across BOTH buffering
-;; listeners — which also closes the pre-existing dev-side asymmetry: on the
-;; trace-cb path these categories were projection-eligible, so a rejected
-;; redirect could stamp a 500 in a dev build while a production build (where
-;; nothing buffered at all) answered 200. Same wire in both postures now.
+;; listeners. Were these categories projection-eligible on the
+;; trace-cb path, a rejected
+;; redirect could stamp a 500 in a dev build while a production build
+;; answered 200. The wire is the same in both postures.
 (def ^:private non-projection-eligible-errors
   #{:rf.error/ssr-head-resolution-failed
     :rf.error/ssr-ring-error-view-failed
@@ -142,16 +142,16 @@
     :rf.error/safe-redirect-invalid-url
     :rf.error/safe-redirect-scheme-rejected
     :rf.error/safe-redirect-host-disallowed
-    ;; rf2-gblft — the Ring materialiser's fail-closed `:status` rewrite. It
+    ;; The Ring materialiser's fail-closed `:status` rewrite. It
     ;; fires at MATERIALISATION time, strictly AFTER the response is resolved
     ;; and flushed, so a projection could only fight the 500 it is already
-    ;; reporting. Today its record is deliberately FRAMELESS (`:frame nil` —
-    ;; the materialiser is a pure map→map fn), so nothing routes here anyway;
-    ;; the entry is the same forward-looking symmetry the members above carry,
-    ;; and it is what makes a future change that gives the materialiser a frame
+    ;; reporting. Its record is deliberately FRAMELESS (`:frame nil` —
+    ;; the materialiser is a pure map→map fn), so nothing routes here;
+    ;; the entry keeps the set symmetric with the members above, so a
+    ;; materialiser that carried a frame would stay
     ;; safe rather than silently status-flipping every request it reports on.
     :rf.error/ssr-ring-response-status-invalid
-    ;; rf2-tildz — the two SSR categories promoted onto the always-on axis.
+    ;; The two SSR categories promoted onto the always-on axis.
     ;; Both are RECOVERABLE DEGRADATIONS by their catalogued recovery, which
     ;; is the whole membership test for this set: a hydration mismatch is
     ;; `:warned-and-replaced` (the client re-renders and the page becomes
@@ -159,10 +159,9 @@
     ;; `:quarantined-delta` / `:inline-fallback` (the fallback stands and the
     ;; stream continues). Neither is a reason to refuse the response.
     ;;
-    ;; Before the promotion these rode the dev trace ALONE, so they reached a
-    ;; buffering listener only in a dev build; now they reach BOTH paths, and
-    ;; without these entries the promotion would have silently turned a
-    ;; degraded-but-served page into a non-200 — the exact dev/production
+    ;; They reach BOTH buffering paths, and
+    ;; without these entries a
+    ;; degraded-but-served page would silently turn into a non-200 — the exact dev/production
     ;; asymmetry the header above says this chokepoint exists to close.
     ;; `:rf.ssr/suspense-boundary-failed` additionally has a SERVER-side emit
     ;; (`ssr/streaming.cljc`), which is precisely the routing change the
@@ -271,10 +270,9 @@
   Per Spec 011 §Server error projection — unifies render-time
   failures (tag-name validator, view-fn throw, hiccup-walk error)
   with drain-time failures (fx-handler, sub-handler exceptions)
-  under the same projector pipeline (rf2-zwgsv / rf2-i9f0g
-  Option B).
+  under the same projector pipeline.
 
-  Dev escape-hatch (Spec 011 §View-time exceptions, rf2-ee38b.10):
+  Dev escape-hatch (Spec 011 §View-time exceptions):
   when the frame declares `:ssr {:on-view-exception :throw}`, the
   exception is RE-THROWN unchanged instead of projected — hosts that
   prefer eager exceptions during dev (to surface bugs early) opt in
@@ -316,7 +314,7 @@
       ;; we drain it again via the 1-arity call below so the buffer
       ;; clears.
       (rf.trace/emit-error! :rf.error/ssr-render-failed tags)
-      ;; EP-0008 (rf2-hhutya): ALSO ride the always-on error-emit axis so
+      ;; EP-0008: ALSO ride the always-on error-emit axis so
       ;; an off-box shipper on a `-Dre-frame.debug=false` JVM SSR host sees
       ;; the structured render-failure record (the dev trace above is
       ;; elided there). `:rf.error/ssr-render-failed` is PROJECTION-ELIGIBLE
@@ -367,28 +365,25 @@
   source of truth: `:rf.error/sub-exception` (a sub throwing
   mid-`render-to-string` under production hardening must project a
   fail-closed 5xx, not recover to a silent 200),
-  `:rf.error/no-such-handler` (both the `:kind :event` dispatch miss and —
-  since rf2-ov56u — the `:kind :route` URL miss the default projector maps
-  to 404), `:rf.error/drain-depth-exceeded` (rf2-fcbrjo), and — since
-  rf2-mwv4e — `:rf.error/schema-validation-failure` from the
+  `:rf.error/no-such-handler` (both the `:kind :event` dispatch miss and
+  the `:kind :route` URL miss the default projector maps
+  to 404), `:rf.error/drain-depth-exceeded`, and
+  `:rf.error/schema-validation-failure` from the
   `:boundary? true` step-1 check, which the default projector's
   `:where`-gated arm maps to 400 (RFC 9110 §15.5.1: a refused request
   payload is a client fault, not a server one). In dev both listeners fire
   for those — last-write-wins + idempotent projection makes the duplicate
   benign.
 
-  THE BOUNDARY ENTRY USED TO SIT IN THE DEV-ONLY LIST, and both halves of
-  its stated reason were wrong even before rf2-mwv4e promoted it. Boundary
+  THE BOUNDARY ENTRY IS NOT DEV-ONLY. Boundary
   validation is ungated per Spec 010 §Production builds (one of several
   load-bearing checks that are — C-000.35 settles what may be elided by
   WHAT THE CHECK IS FOR, not by who declared the schema it reads; this is
-  the one an application author installs): the CHECK was never elided, only
-  its `trace/emit-error!` — the
-  same overclaim rf2-mnmzh and rf2-bx4bf corrected elsewhere — so a
-  production reject always existed; what did not exist was a record to
-  project it from. rf2-mwv4e supplied that record (structural-only,
-  `:source :boundary`), it is absent from `non-projection-eligible-errors`
-  below, and the generic tag-lift in `error-emit-projection-listener` puts
+  the one an application author installs): the CHECK is never elided, only
+  its `trace/emit-error!` is, so a production reject exists and
+  needs a record to project it from. That record is structural-only
+  (`:source :boundary`), it is absent from `non-projection-eligible-errors`
+  above, and the generic tag-lift in `error-emit-projection-listener` puts
   its `:where :event` where `error_projector/default-error-projector-fn`
   looks. `re-frame.ssr-boundary-rejection-400-production-test` is the
   witness, and it runs under the REAL gate."
@@ -416,7 +411,7 @@
   `dispatch-on-error!` path carries `:event` / `:event-id` / `:elapsed-ms`
   / `:source-coord`; other SSR records carry `:exception` /
   `:phase` / `:reason` / `:projector-id` / … instead. We synthesise the
-  `{:operation :op-type :tags}` envelope the existing projector pipeline
+  `{:operation :op-type :tags}` envelope the projector pipeline
   expects — symmetric with the trace-cb delivery — by lifting EVERY
   non-`:error` slot onto `:tags` generically, so a custom
   projector reading `(get-in event [:tags :exception])` sees the same keys
@@ -430,16 +425,16 @@
   [record]
   (let [operation (:error record)]
     ;; Symmetric with the trace-cb guard above — refuse our own
-    ;; sanitisation records to avoid recursion. The record is not currently
-    ;; delivered through this substrate, but keep the guard so a future routing
-    ;; change can't reintroduce a re-entrant projection.) Also refuse
-    ;; recoverable-degradation categories such as
-    ;; `:rf.error/ssr-head-resolution-failed`,
-    ;; `:rf.error/ssr-ring-error-view-failed`): if a future host-adapter
-    ;; change routes a recoverable-degradation trace through the always-on
-    ;; substrate (they ride only the dev trace bus today, but non-Ring
+    ;; sanitisation records to avoid recursion: `project-error` fans them
+    ;; out on this substrate, and buffering one would re-enter projection.
+    ;; Also refuse
+    ;; recoverable-degradation categories (such as
+    ;; `:rf.error/ssr-head-resolution-failed` and
+    ;; `:rf.error/ssr-ring-error-view-failed`): when a host adapter
+    ;; routes a recoverable-degradation trace through the always-on
+    ;; substrate (non-Ring
     ;; adapters MUST emit the same categories per Spec 011 §1070), it must
-    ;; STILL not project a non-200 — the skip is symmetric across both
+    ;; not project a non-200 — the skip is symmetric across both
     ;; buffering paths so the degraded-200 contract holds regardless of
     ;; which substrate carries the trace.
     (when-not (or (= :rf.error/sanitised-on-projection operation)
@@ -502,9 +497,9 @@
   `get-response` perform, so calling it consumes the pending trace: a
   SECOND call returns `{:response … :public-error nil}` for the
   already-consumed projection. `flush-response!` and `get-response`
-  delegate to `(:response (flush-response-result! …))`, so response-only
-  reads are unchanged. Per Spec 011 §Server error projection §Drain-time
-  error classification (rf2-oytx7j)."
+  delegate to `(:response (flush-response-result! …))`. Per Spec 011
+  §Server error projection §Drain-time
+  error classification."
   [frame-id]
   (let [public-error (apply-error-projection! frame-id)]
     {:response     (peek-response frame-id)
@@ -546,8 +541,8 @@
   "PURE predicate — true when `frame-id` has at least one buffered error
   trace still awaiting projection. Does NOT consume, drain, or project.
 
-  Host adapters use this to close the error-view containment hole
-  (rf2-oytx7j): the `resolve-error-body` `try/catch` catches a THROWING
+  Host adapters use this to close the error-view containment hole:
+  the `resolve-error-body` `try/catch` catches a THROWING
   error view, but a reactive sub INSIDE the error view that RECOVERS to nil
   under production hardening does not throw — it silently buffers a
   fail-closed projection here. On entry to the error arm the buffer is

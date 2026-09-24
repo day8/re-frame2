@@ -1,54 +1,50 @@
 (ns re-frame.ssr-doc-example-form-action-test
-  "rf2-eane2 ACCEPTANCE — the `/cart/add` worked example printed in
-  `spec/Pattern-FormAction.md` is EXECUTED, not merely read.
+  "The `/cart/add` worked example printed in `spec/Pattern-FormAction.md` is
+  EXECUTED, not merely read.
 
   WHY THIS SUITE EXISTS. Pattern-FormAction is a copyable example for the one
   surface where getting it wrong is a security event: an HTML form POST, which
   is untrusted input arriving on a production server. Two docs-only gates cover
   the page — `scripts/check_doc_slugs.py` proves its links and anchors resolve,
   `mkdocs build --strict` proves it renders — and neither can evaluate a single
-  form in it. The example drifted twice under exactly that blind spot:
+  form in it. Three defects hide in exactly that blind spot:
 
-    - rf2-eane2 as filed: the page rested its whole validation story on the
-      `:schema` metadata key, which [010 §Production builds] compile-time
-      elides. The documented 400 could not happen on a release server.
-    - rf2-eane2 after the #7232 audit: the repaired example gave `:item-id`,
-      `:quantity` AND `:csrf-token` to one required-key schema, then pointed
-      the form slice's `:draft`, the event's `:schema`, and the handler's own
-      validation call at it. The hydrated client dispatches the draft WITHOUT
-      a token, so every post-hydration submission took the validation-failure
-      arm, 400'd, and never navigated — in production, because unlike the
-      `:schema` tripwire the handler's arm is ordinary code and does not
-      elide. The same schema also made `[:cart :add-form :draft]` unsatisfiable
-      by the page's own rule that the token must never enter that draft.
-    - rf2-eane2 after the #7347 audit: this suite called
-      `{:item-id \"sku-1\" :quantity 2 :csrf-token \"tok-abc\"}` the canonical
-      body a browser submits, and hard-coded it. A browser submits TEXT —
-      `quantity=2` parses to the string `\"2\"` under the string key
-      `\"quantity\"` — and the pattern required the host to parse the body
-      while defining no keywordisation or coercion contract at all. So the
-      proof was vacuous at exactly the seam that was missing: a real parsed
-      body 403'd (the CSRF compare looks up `:csrf-token` in a string-keyed
-      map and finds nothing) or 400'd (`\"2\"` is not an `:int`). The page now
-      names one normalisation owner — `:rf/server-init` — and prints the
-      decoding code, and the server shapes below are DERIVED from a literal
+    - Resting the whole validation story on the `:schema` metadata key, which
+      [010 §Production builds] compile-time elides. The documented 400 could
+      not happen on a release server.
+    - Giving `:item-id`, `:quantity` AND `:csrf-token` to one required-key
+      schema, then pointing the form slice's `:draft`, the event's `:schema`,
+      and the handler's own validation call at it. The hydrated client
+      dispatches the draft WITHOUT a token, so every post-hydration submission
+      would take the validation-failure arm, 400, and never navigate — in
+      production, because unlike the `:schema` tripwire the handler's arm is
+      ordinary code and does not elide. The same schema would also make
+      `[:cart :add-form :draft]` unsatisfiable by the page's own rule that the
+      token must never enter that draft.
+    - Treating `{:item-id \"sku-1\" :quantity 2 :csrf-token \"tok-abc\"}` as
+      the body a browser submits. A browser submits TEXT — `quantity=2` parses
+      to the string `\"2\"` under the string key `\"quantity\"` — so without a
+      keywordisation and coercion contract a real parsed body 403s (the CSRF
+      compare looks up `:csrf-token` in a string-keyed map and finds nothing)
+      or 400s (`\"2\"` is not an `:int`). The page names one normalisation
+      owner — `:rf/server-init` — and prints the decoding code, and the server
+      shapes below are DERIVED from a literal
       `application/x-www-form-urlencoded` body through that code.
 
-  All three defects are invisible to a reader and to every gate the page had.
-  All three are caught below by DRIVING the documented handler, so this suite
+  All three defects are invisible to a reader and to every docs gate. All
+  three are caught below by DRIVING the documented handler, so this suite
   cannot drift from the page: every schema, helper and branch under test is
   read out of the markdown fences at run time rather than transcribed here. A
-  rewritten example that still works stays green; one that reintroduces any of
-  the defects goes red naming the arm.
+  rewritten example that works stays green; one that introduces any of the
+  defects goes red naming the arm.
 
-  WHAT `deftest`s 1-2 PROVE THAT A SCHEMA-ONLY CHECK COULD NOT. The defect was
-  never that a schema rejected a bad value — it was that the SHARED handler
-  reached different arms for the two legitimate call sites. So the shapes are
+  WHAT `deftest`s 1-2 PROVE THAT A SCHEMA-ONLY CHECK COULD NOT. The defect is
+  not that a schema rejects a bad value — it is that the SHARED handler
+  reaches different arms for the two legitimate call sites. So the shapes are
   driven THROUGH the extracted handler fn and the arm it chose is asserted, not
   merely `m/validate`d. The server POST shape is itself derived from the view
   fence's `<input name=…>` attributes, which ties the HTML the browser submits
-  to the schema the handler validates — the cross-platform shape proof the
-  #7232 audit found missing.
+  to the schema the handler validates — the cross-platform shape proof.
 
   POSTURE-INDEPENDENT. Every assertion is a pure function call on extracted
   code: no frame, no dispatch, no trace bus, no `debug-enabled?` read. The
@@ -73,7 +69,7 @@
 
 (def ^:private pattern-page
   "`spec/Pattern-FormAction.md`, anchored to a CLASSPATH RESOURCE rather than
-  the working directory (rf2-ywrwkl; the same anchoring
+  the working directory (the same anchoring
   `re-frame.ssr-doc-example-projector-test` uses for the API page). A
   `(io/file \"../../spec/...\")` form would resolve correctly under the
   per-artefact gate run from `implementation/ssr/` and silently MIS-SCOPE under
@@ -124,7 +120,7 @@
   evaluated, because the handler's body resolves `AddToCartFields` by name, and
   the two app-level helpers must exist before the handler is CALLED. Evaluating
   the handler rather than transcribing it is the whole point — a transcription
-  is a second copy that drifts, which is how the page reached its second audit."
+  is a second copy that drifts."
   (delay
     (binding [*ns* (find-ns 're-frame.ssr-doc-example-form-action-test)]
       (let [schema-forms (forms (fence "(def AddToCartFields"))
@@ -195,8 +191,8 @@
   "The HOST ADAPTER's job — Ring's `wrap-params` produces exactly this shape,
   and the pattern requires nothing more of a host than that it get here: a map
   of STRING keys to STRING values. No keywordisation, no coercion. Everything
-  between this and the handler is the app's own responsibility, which is the
-  seam the #7347 audit found unnamed."
+  between this and the handler is the app's own responsibility — the seam the
+  page names."
   [body]
   (into {} (for [pair (str/split body #"&")
                  :let [[k v] (str/split pair #"=" 2)]]
@@ -219,8 +215,8 @@
 (def ^:private server-post
   "The canonical no-JS POST body as the ACTION HANDLER receives it — derived
   from the wire body above through the page's own seam, never hand-written.
-  Before the seam existed this was a hard-coded map of already-normalised
-  values, which is what made the earlier browser-to-handler proof vacuous."
+  A hard-coded map of already-normalised values would make the
+  browser-to-handler proof vacuous."
   (delay (decode-post @parsed-post)))
 
 (def ^:private client-dispatch
@@ -241,26 +237,26 @@
    [:cart/add-item form-params]))
 
 ;; ===========================================================================
-;; (1) THE REGRESSION: the hydrated client reaches the SUCCESS arm
+;; (1) THE CLIENT CALL SITE: the hydrated client reaches the SUCCESS arm
 ;; ===========================================================================
 
 (deftest the-hydrated-client-submission-navigates-rather-than-400ing
-  (testing "rf2-eane2 (#7232 audit): the client dispatches the draft with no
-            CSRF token. When the handler validated that payload against a
-            token-REQUIRING schema, every client submission took the
+  (testing "The client dispatches the draft with no CSRF token. Were the
+            handler to validate that payload against a token-REQUIRING
+            schema, every client submission would take the
             validation-failure arm — a 400 and no navigation, in production,
             because the handler's arm is ordinary code and does not elide.
-            The success arm is the assertion; reaching it is the whole fix."
+            The success arm is the assertion."
     (let [{:keys [db fx]} (invoke {:server? false} client-dispatch)]
       (is (= [[:dispatch [:rf.route/navigate {:to :route/cart}]]] fx)
-          "the client arm navigates — it did not fall into the 400 arm")
+          "the client arm navigates — it does not fall into the 400 arm")
       (is (= [client-dispatch] (get-in db [:cart :items]))
           "and the item actually reached the cart")
       (is (nil? (get-in db [:cart :add-form :errors]))
           "no errors were written on a clean client submission"))))
 
 (deftest the-no-js-post-reaches-the-same-success-arm
-  (testing "rf2-eane2: the other legitimate call site. The server POST carries
+  (testing "The other legitimate call site. The server POST carries
             one extra key — the token — and must be accepted by the same
             handler and the same field schema, then answered with the canonical
             POST-redirect-GET."
@@ -276,7 +272,7 @@
 ;; ===========================================================================
 
 (deftest the-parsed-body-is-strings-keyed-by-strings
-  (testing "rf2-eane2 (#7347 audit): the premise the earlier proof skipped. A
+  (testing "The premise the seam rests on. A
             browser submits text; the host adapter parses it; nothing in that
             chain keywordises a key or coerces a value. Naming this shape is
             what makes the normalisation owner a real obligation rather than a
@@ -292,7 +288,7 @@
            the wire body under test is the one this page's HTML produces"))))
 
 (deftest the-documented-seam-turns-the-wire-body-into-the-handlers-shape
-  (testing "rf2-eane2 (#7347): one named owner, and its code is on the page.
+  (testing "One named owner, and its code is on the page.
             `route->action` resolves the route to the event AND the schema that
             decodes its body; `decode-form-params` does the decoding. Both are
             extracted, so a page that drops either goes red here."
@@ -306,9 +302,9 @@
            leaving the two string fields alone"))))
 
 (deftest the-no-js-post-reaches-303-driven-from-the-wire
-  (testing "rf2-eane2 (#7347): the end-to-end claim, from the bytes a browser
-            puts on the wire through the documented seam to the response. This
-            is the assertion the hard-coded body could not make."
+  (testing "The end-to-end claim, from the bytes a browser
+            puts on the wire through the documented seam to the response. A
+            hard-coded body could not make this assertion."
     (let [{:keys [db fx]} (invoke {:server? true :active-token "tok-abc"}
                                   (decode-post (parse-form-urlencoded raw-wire-body)))]
       (is (= [[:rf.server/redirect {:status 303 :location "/cart"}]] fx)
@@ -317,7 +313,7 @@
           "carrying the coerced integer quantity into the cart, not \"2\""))))
 
 (deftest the-raw-parsed-body-does-not-reach-303-so-the-seam-is-load-bearing
-  (testing "rf2-eane2 (#7347): the counter-proof. Hand the handler what the
+  (testing "The counter-proof. Hand the handler what the
             host adapter actually produced — undecoded — and a CORRECT
             submission is rejected: the CSRF compare misses a string-keyed
             :csrf-token and fails closed. A page that quietly drops the
@@ -331,7 +327,7 @@
           "and nothing reached the cart"))))
 
 (deftest malformed-wire-values-still-reach-the-safe-400-draft-path
-  (testing "rf2-eane2 (#7347): decoding must not become a second, unshaped
+  (testing "Decoding must not become a second, unshaped
             rejection point. A value the transformer cannot decode passes
             through and fails the handler's own arm, so malformed input still
             gets the documented 400-with-repopulated-draft rather than an
@@ -361,9 +357,9 @@
 ;; ===========================================================================
 
 (deftest the-post-body-the-form-submits-is-the-shape-the-schemas-name
-  (testing "rf2-eane2 (#7232 COMPLETENESS): nothing tied the HTML the browser
-            POSTs to the schema the handler validates. These assertions are
-            that tie — derived from the view fence, not transcribed."
+  (testing "The tie between the HTML the browser POSTs and the schema the
+            handler validates — derived from the view fence, not
+            transcribed."
     (let [{:keys [fields submission]} @example
           entry-keys (fn [s] (set (map first (m/children (m/schema s)))))]
       (is (= #{:csrf-token :item-id :quantity} @posted-field-names)
@@ -374,38 +370,37 @@
       (is (= #{:item-id :quantity} (entry-keys fields))
           "while the FIELD schema names only the editable fields")
       (is (not (contains? (entry-keys fields) :csrf-token))
-          "the token is absent from the field schema — this is the split the
-           #7232 audit required, and the assertion that fails first if one
-           schema is ever pointed at both jobs again"))))
+          "the token is absent from the field schema — this is the split, and
+           the assertion that fails first if one schema is ever pointed at
+           both jobs"))))
 
 (deftest both-call-sites-satisfy-the-field-schema-and-the-event-tripwire
-  (testing "rf2-eane2: the field schema validates BOTH payloads (Malli maps are
+  (testing "The field schema validates BOTH payloads (Malli maps are
             open, so the server's extra token passes through), and the dev-time
-            event `:schema` admits both dispatch shapes. The tripwire rejecting
-            the client was the second half of the audit's CORRECTNESS finding."
+            event `:schema` admits both dispatch shapes. A tripwire rejecting
+            the client dispatch would be a correctness defect of its own."
     (let [{:keys [fields event-schema]} @example]
       (is (m/validate fields client-dispatch)
           "field schema accepts the client draft")
       (is (m/validate fields @server-post)
           "field schema accepts the server POST body unchanged")
       (is (m/validate event-schema [:cart/add-item client-dispatch])
-          "the dev tripwire admits the client dispatch — it did not before")
+          "the dev tripwire admits the client dispatch")
       (is (m/validate event-schema [:cart/add-item @server-post])
           "and the server POST")
       (is (not (m/validate fields (assoc client-dispatch :quantity 0)))
-          "the field schema still REJECTS a bad quantity — the split did not
+          "the field schema REJECTS a bad quantity — the split does not
            soften the check it exists to make"))))
 
 (deftest the-token-is-marked-sensitive-on-the-surface-it-travels-through
-  (testing "rf2-eane2: `:rf/server-init` dispatches the whole POST body as the
+  (testing "`:rf/server-init` dispatches the whole POST body as the
             event args, and 010 says a schema-validation-failure trace carries
             the failing value VERBATIM. The token therefore needs its
             `:sensitive?` mark on the schema describing the shape it is IN —
-            the page previously told the reader to mark an app-db slot that
-            this pattern deliberately never writes.
+            not on an app-db slot, which this pattern deliberately never
+            writes.
 
-            rf2-iro6x narrowed what this pins without weakening it.
-            `AddToCartSubmission` is now the schema that DECODES the wire
+            `AddToCartSubmission` is the schema that DECODES the wire
             body; the event's own `:schema` is a separate structural one,
             because a strict `:schema` is adjudicated at the router and would
             pre-empt the custom 400 arm in a dev build. Both carry the mark,
@@ -432,20 +427,21 @@
 ;; ===========================================================================
 
 (deftest the-failure-arm-writes-a-draft-that-satisfies-the-registered-schema
-  (testing "rf2-eane2 (#7232): the page registers a schema for
+  (testing "The page registers a schema for
             `[:cart :add-form :draft]` and separately rules that the token must
-            never enter that draft. When both pointed at the token-requiring
-            schema the canonical draft was invalid BY CONSTRUCTION. Proven here
-            against what the real handler writes, not against a transcription.
+            never enter that draft. Were both to point at a token-requiring
+            schema, the canonical draft would be invalid BY CONSTRUCTION.
+            Proven here against what the real handler writes, not against a
+            transcription.
 
-            rf2-ex1r: the same defect one level down. The page then registered
-            the strict SUBMISSION schema at that path, while the arm writes back
-            the very values that just FAILED it — and `reg-app-schema` rejects a
-            failing candidate WHOLE, `:db` and `:fx` alike, so a dev build threw
-            away the 400, the errors and the repopulated draft together. The
-            assertion meant to catch that patched `:quantity` to a valid 1
-            before validating, so it could not; it now validates the write
-            UNPATCHED, against the schema the page really registers."
+            The same defect one level down: with the strict SUBMISSION schema
+            registered at that path, the arm would write back the very values
+            that just FAILED it — and `reg-app-schema` rejects a failing
+            candidate WHOLE, `:db` and `:fx` alike, so a dev build would throw
+            away the 400, the errors and the repopulated draft together. So
+            the write is validated UNPATCHED — patching `:quantity` to a valid
+            1 first would hide exactly that — against the schema the page
+            really registers."
     (let [{:keys [fields draft-schema]} @example
           bad-post (assoc @server-post :quantity 0)
           {:keys [db fx]} (invoke {:server? true :active-token "tok-abc"} bad-post)
@@ -474,7 +470,7 @@
           "control: that same value is exactly what the SUBMISSION schema
            refuses, so the assertion above does not pass merely because the two
            schemas agree. With `fields` registered at the draft path it goes
-           red — which is what it did before rf2-ex1r")
+           red")
       (is (= {:item-id "sku-1" :quantity "abc"} garbled)
           "an undecodable quantity reaches the draft as the string it arrived as")
       (is (m/validate draft-schema garbled)
@@ -486,9 +482,9 @@
           "and the cart was not touched"))))
 
 (deftest client-side-validation-failure-takes-the-same-arm
-  (testing "rf2-eane2: the field validation is not server-only — the same arm
-            must catch a malformed client draft. The fix must not have turned
-            the client path into an unvalidated one."
+  (testing "The field validation is not server-only — the same arm
+            must catch a malformed client draft, so the client path is not an
+            unvalidated one."
     (let [{:keys [db fx]} (invoke {:server? false} (assoc client-dispatch :quantity 0))]
       (is (= [[:rf.server/set-status 400]] fx)
           "the client takes the validation arm too")
@@ -500,7 +496,7 @@
 ;; ===========================================================================
 
 (deftest the-csrf-arm-rejects-a-mismatched-token
-  (testing "rf2-eane2: the baseline the page always claimed — a submitted token
+  (testing "The baseline the page claims — a submitted token
             that does not match the session's is a 403, before any mutation."
     (let [{:keys [db fx]} (invoke {:server? true :active-token "tok-abc"}
                                   (assoc @server-post :csrf-token "tok-WRONG"))]
@@ -508,10 +504,10 @@
       (is (nil? (get-in db [:cart :items])) "no state mutation"))))
 
 (deftest the-csrf-arm-fails-closed-when-the-request-carries-no-session
-  (testing "rf2-eane2: a bare `(not= submitted active-token)` compares nil to
-            nil on a session-less request and WAVES A TOKEN-LESS POST THROUGH.
-            The page held this arm up as the model the validation arm should
-            copy, so a fail-open here undercuts the whole section. Both limbs
+  (testing "A bare `(not= submitted active-token)` would compare nil to
+            nil on a session-less request and WAVE A TOKEN-LESS POST THROUGH.
+            The page requires the check to fail closed on both limbs, so a
+            fail-open here would undercut the whole section. Both limbs
             must hold: session token present AND equal."
     (let [{:keys [db fx]} (invoke {:server? true :active-token nil}
                                   (dissoc @server-post :csrf-token))]
@@ -521,9 +517,10 @@
           "and emphatically no cart mutation"))))
 
 (deftest the-csrf-arm-does-not-fire-on-the-client
-  (testing "rf2-eane2: the CSRF arm is guarded on coeffect PRESENCE. Ungated it
+  (testing "The CSRF arm is guarded on coeffect PRESENCE. Ungated it
             would measure every client submission against an absent cofx and
-            403 all of them — the mirror image of the bug this bead fixes."
+            403 all of them — the mirror image of the client 400 pinned in
+            (1)."
     (let [{:keys [fx]} (invoke {:server? false} client-dispatch)]
       (is (not= [[:rf.server/set-status 403]] fx)
           "the client never takes the CSRF arm"))))
@@ -533,7 +530,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-published-helpers-produce-the-shapes-pattern-forms-expects
-  (testing "rf2-eane2: `write-form-errors` / `explain->errors` are printed on
+  (testing "`write-form-errors` / `explain->errors` are printed on
             the page as app-owned code a reader copies. They are executed by
             every assertion above; this one names their contract directly."
     (binding [*ns* (find-ns 're-frame.ssr-doc-example-form-action-test)]

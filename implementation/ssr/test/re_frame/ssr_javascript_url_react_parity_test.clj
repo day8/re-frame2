@@ -1,15 +1,15 @@
 (ns re-frame.ssr-javascript-url-react-parity-test
-  "rf2-w1hd8 — the SSR hiccup emitters block a `javascript:` URL exactly where
+  "The SSR hiccup emitters block a `javascript:` URL exactly where
   the hydrating react-dom client does, pinned against react-dom ITSELF.
 
   WHY THIS FILE EXISTS. `render-to-string` and the streaming shell walk paint
   markup that a Reagent-tier client hydrates, and that client paints through
   react-dom. react-dom's `setProp` swaps a `javascript:` URL in `href`, `src`,
   `action`, `formAction` and `xlinkHref`, and in `data` on an `<object>`, for a
-  URL that throws. The emitters wrote the value unchanged. React does not patch
-  an attribute at hydration (Spec 011 §Hydration-mismatch detection), so the
-  unblocked URL stayed live on the hydrated page while the client's own render
-  blocked it.
+  URL that throws. React does not patch an attribute at hydration (Spec 011
+  §Hydration-mismatch detection), so an emitter that wrote the value unchanged
+  would leave the unblocked URL live on the hydrated page while the client's
+  own render blocked it.
 
   WHY THE EVIDENCE IS EXTERNAL. The emitter carries a copy of react-dom's rule
   (`isJavaScriptProtocol` and the URL it substitutes), and a test written by
@@ -112,7 +112,7 @@
         "the controls on <a href> are exactly the three near-misses")))
 
 (deftest hiccup-emitters-paint-what-react-dom-paints
-  (testing "rf2-w1hd8 — for every row, from every author spelling of the prop,
+  (testing "for every row, from every author spelling of the prop,
             both hiccup body emitters paint the attribute value the installed
             react-dom paints: the blocked URL where it blocks, the value
             unchanged where it does not"

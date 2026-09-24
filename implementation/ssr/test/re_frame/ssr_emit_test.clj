@@ -1,8 +1,7 @@
 (ns re-frame.ssr-emit-test
-  "Spec 011 §XSS at output boundaries — the strip-prop rule (rf2-dwds9)
+  "Spec 011 §XSS at output boundaries — the strip-prop rule
   driven through the FULL emit composition, not just `attr-string` in
-  isolation. Per rf2-usio0 (testcov audit ai/findings/2026-05-21-testcov-ssr.md
-  §G1).
+  isolation.
 
   `ssr_attr_filter_test.clj` proves the rule at the per-attribute unit
   level (`html-helpers/attr-string` called directly). That is necessary
@@ -19,8 +18,8 @@
   These tests therefore feed hostile props through:
 
     1. `re-frame.ssr.emit/render-to-string` — the public non-streaming
-       emitter, including the void-element branch, the registered-view
-       branch, fragments, and the root-attrs (`:render-hash`) injection.
+       emitter, including the void-element branch, the callable-head
+       (registered view) branch, fragments, and the root-attrs (`:render-hash`) injection.
     2. `re-frame.ssr.streaming/render-shell` — the streaming shell walk,
        whose `walk-dom-tag` re-derives attrs via `emit/attr-string`.
 
@@ -41,7 +40,7 @@
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ---------------------------------------------------------------------------
-;; rf2-xbvzh — shared raw-text emission across ALL three SSR paths.
+;; Shared raw-text emission across ALL three SSR paths.
 ;; ---------------------------------------------------------------------------
 
 (defn- v1
@@ -50,7 +49,7 @@
   (assoc node :rf.ui/tree-version 1))
 
 (defn- assert-emitters-agree
-  "The load-bearing cross-emitter proof (rf2-xbvzh ruling Option (a)): for a
+  "The load-bearing cross-emitter proof: for a
   raw-text `tag` (`:script`/`:style`) carrying a single string `content`, all
   three SSR paths — the sync hiccup emitter, the streaming shell walker, and
   the S5 structural serialiser — emit the SAME `expected-inner` body between
@@ -68,11 +67,11 @@
         (str "emit-ui-tree byte-mismatch for <" tag-name ">"))))
 
 ;; ===========================================================================
-;; G1 — strip-prop XSS rule through `render-to-string` / `emit-element`
+;; Strip-prop XSS rule through `render-to-string` / `emit-element`
 ;; ===========================================================================
 
 (deftest render-to-string-strips-event-handler-props
-  (testing "rf2-usio0 / rf2-dwds9 — an `on*` event-handler prop fed
+  (testing "An `on*` event-handler prop fed
             through the FULL `render-to-string` emit composition (not
             `attr-string` in isolation) is dropped at emit time. Pins
             that the strip survives `emit-element`'s attr path."
@@ -99,7 +98,7 @@
              (rf.ssr.emit/render-to-string [:div {:on-click "f"}] {}))))))
 
 (deftest render-to-string-strips-lowercase-touch-handlers
-  (testing "rf2-cv165 — the lower-case W3C Touch Events L2 GlobalEventHandlers
+  (testing "The lower-case W3C Touch Events L2 GlobalEventHandlers
             (`ontouchstart` / `ontouchmove` / `ontouchend` / `ontouchcancel`)
             are stripped through the FULL `render-to-string` emit composition.
             These have no upper-case tail char and no hyphen, so the structural
@@ -122,7 +121,7 @@
                    html)))))))
 
 (deftest render-to-string-strips-function-valued-props
-  (testing "rf2-usio0 / rf2-dwds9 — a function-valued prop has no HTML
+  (testing "A function-valued prop has no HTML
             serialisation and is dropped through the full emit
             composition."
     (is (= "<div id=\"x\"></div>"
@@ -133,7 +132,7 @@
              (rf.ssr.emit/render-to-string [:span {:data-cb (fn [] nil)}] {}))))))
 
 (deftest render-to-string-drops-prototype-pollution-keys
-  (testing "rf2-usio0 / rf2-dwds9 — reserved prototype-pollution keys
+  (testing "Reserved prototype-pollution keys
             (`__proto__` / `constructor` / `prototype`) are dropped
             through `render-to-string` before they reach the host
             createElement-equivalent on hydration."
@@ -150,7 +149,7 @@
                [:div {(keyword "Constructor") "polluted" :id "x"}] {}))))))
 
 (deftest render-to-string-strips-props-on-void-element
-  (testing "rf2-usio0 — the strip composes with the VOID-element branch
+  (testing "The strip composes with the VOID-element branch
             of `emit-element` (emit.cljc:322-323), not just the
             open/close branch. An `on*` handler on an <input> is dropped
             and the void tag self-closes cleanly."
@@ -164,7 +163,7 @@
       (is (not (str/includes? html "alert")) "the handler body is gone"))))
 
 (deftest render-to-string-strips-props-through-registered-view-root
-  (testing "rf2-usio0 — the strip composes with the CALLABLE-head
+  (testing "The strip composes with the CALLABLE-head
             resolution branch. A view whose ROOT DOM element carries a
             hostile handler must still emit stripped — the callable-head
             indirection must not bypass `attr-string`."
@@ -182,7 +181,7 @@
           "the handler body never reaches the wire"))))
 
 (deftest render-to-string-strips-props-when-root-attrs-injected
-  (testing "rf2-usio0 — the strip survives the rf2-lxwse root-attrs
+  (testing "The strip survives the root-attrs
             (`:render-hash`) injection path. The injected
             `data-rf-render-hash` lands while the user's hostile handler
             on the SAME root element is dropped — `merge-root-attrs`
@@ -200,7 +199,7 @@
           "no handler body leaks through the injection composition"))))
 
 (deftest render-to-string-strips-deep-nested-handler
-  (testing "rf2-usio0 — the strip runs at EVERY emit-element descent, not
+  (testing "The strip runs at EVERY emit-element descent, not
             only the root. A handler buried several levels deep is
             dropped — `emit-children` re-enters `emit-element` per child."
     (let [html (rf.ssr.emit/render-to-string
@@ -215,11 +214,11 @@
       (is (not (str/includes? html "deep()")) "the deep handler body is gone"))))
 
 ;; ===========================================================================
-;; G1 — strip-prop XSS rule through `streaming/render-shell`'s walk
+;; Strip-prop XSS rule through `streaming/render-shell`'s walk
 ;; ===========================================================================
 
 (deftest render-shell-strips-event-handler-props
-  (testing "rf2-usio0 / rf2-dwds9 — the streaming shell walker
+  (testing "The streaming shell walker
             (`walk-dom-tag`, streaming.cljc:225-227) re-derives attrs via
             `emit/attr-string`, so an `on*` handler on a shell DOM
             element must be stripped through the shell walk too — not
@@ -237,7 +236,7 @@
           "the handler body never reaches the shell HTML"))))
 
 (deftest render-shell-strips-function-and-proto-props
-  (testing "rf2-usio0 / rf2-dwds9 — fn-valued + prototype-pollution
+  (testing "Fn-valued + prototype-pollution
             props are also stripped through the streaming walk."
     (let [tree [:div {:title (fn [] nil)
                       :__proto__ "polluted"
@@ -252,7 +251,7 @@
           "the prototype-pollution value never reaches the shell"))))
 
 (deftest render-shell-strips-handler-on-void-element
-  (testing "rf2-usio0 — the streaming walk's void-element branch
+  (testing "The streaming walk's void-element branch
             (streaming.cljc:224) also runs the strip. An `on*` handler on
             an <input> in the shell is dropped."
     (let [tree [:form
@@ -263,7 +262,7 @@
       (is (not (str/includes? shell-html "steal")) "the handler body is gone"))))
 
 (deftest render-shell-strips-handler-buried-near-suspense-boundary
-  (testing "rf2-usio0 — a hostile handler on a shell element that SITS
+  (testing "A hostile handler on a shell element that SITS
             ALONGSIDE a :rf/suspense-boundary is stripped through the
             walk, while the boundary still registers its continuation.
             Pins that the strip composes with the suspense-walk path,
@@ -283,20 +282,20 @@
           "the handler body never reaches the shell"))))
 
 ;; ===========================================================================
-;; rf2-xbvzh (supersedes the rf2-ee38b.10 refusal) — ordinary inline
+;; Ordinary inline
 ;; <script>/<style> STRING content is AUTHOR content: emitted VERBATIM with
 ;; only React's context-safe closing-sequence rewrite, NO entity escaping and
-;; NO refusal. The refusal (`:rf.error/ssr-raw-text-in-body`) was pushing real
+;; NO refusal. A refusal would push real
 ;; content into the genuinely-unguarded trusted shell opts, which is strictly
-;; LESS safe than a guarded render-tree element. ONE raw-text semantics now
+;; LESS safe than a guarded render-tree element. ONE raw-text semantics
 ;; holds across all three SSR paths (sync hiccup, streaming hiccup, S5
 ;; serialiser); the DATA-payload channels keep their stricter escapes.
 ;; ===========================================================================
 
 (deftest raw-text-body-content-is-emitted-verbatim-not-escaped
-  (testing "rf2-xbvzh — literal JS/CSS operators and `&` are NOT entity-escaped
+  (testing "Literal JS/CSS operators and `&` are NOT entity-escaped
             (escape-html would corrupt them), and all three SSR paths agree."
-    ;; escape-html would have produced `if (a &lt; b)` / `a &gt; .b` — a
+    ;; escape-html would produce `if (a &lt; b)` / `a &gt; .b` — a
     ;; corrupted script/style body. Raw text emits them literally.
     (assert-emitters-agree :script "if (a < b) { x() }" "if (a < b) { x() }")
     (assert-emitters-agree :script "a & b && c" "a & b && c")
@@ -304,12 +303,12 @@
     (assert-emitters-agree :style "x & y" "x & y")))
 
 (deftest raw-text-body-closing-sequence-is-rewritten-case-insensitively
-  (testing "rf2-xbvzh — an embedded `(<|</)script`/`style` closing sequence is
+  (testing "An embedded `(<|</)script`/`style` closing sequence is
             rewritten to a context-safe spelling so the raw-text parser cannot
             terminate the element early, matching react-dom/server's
             scriptRegex/styleRegex byte-for-byte (case-insensitive), and all
             three SSR paths agree."
-    ;; <script>: s/S -> s / S (a valid JS *and* JSON string escape).
+    ;; <script>: s/S -> \u0073 / \u0053 (a valid JS *and* JSON string escape).
     (assert-emitters-agree :script "var x = '</script>';"
                            "var x = '</\\u0073cript>';")
     (assert-emitters-agree :script "a</ScRiPt>b" "a</\\u0053cRiPt>b")
@@ -320,7 +319,7 @@
     (assert-emitters-agree :style "x</StYlE>y" "x</\\53 tYlE>y")))
 
 (deftest raw-text-classification-is-case-insensitive-on-the-tag
-  (testing "rf2-xbvzh + rf2-hzttr finding 3 — an UPPER/MIXED-case <SCRIPT> /
+  (testing "An UPPER/MIXED-case <SCRIPT> /
             <Style> tag is still classified as raw text (author case preserved
             in the emitted markup), so its literal `<` is NOT entity-escaped."
     (doseq [tag [:SCRIPT :Script :sCrIpT]]
@@ -333,7 +332,7 @@
           (str tag " body emitted as raw text, not escaped")))))
 
 (deftest raw-text-json-island-round-trips-through-json-parse
-  (testing "rf2-xbvzh — a JSON data island written as ordinary <script> string
+  (testing "A JSON data island written as ordinary <script> string
             content is emitted raw with the closing-sequence rewrite; the
             embedded `</script>` cannot terminate the element, and because
             `\\u0073` is ALSO a valid JSON string escape the payload round-trips
@@ -346,9 +345,9 @@
                   "</script>")
              out)
           "the embedded </script> is rewritten to </\\u0073cript>, element not terminated")
-      ;; Reversing `s` -> `s` (exactly what a JS engine / JSON.parse does
+      ;; Reversing `\u0073` -> `s` (exactly what a JS engine / JSON.parse does
       ;; when decoding the escape) restores the author's JSON verbatim — the
-      ;; round-trip the ruling requires.
+      ;; round-trip JSON.parse performs.
       (let [body    (-> out
                         (str/replace-first "<script type=\"application/ld+json\">" "")
                         (str/replace-first "</script>" ""))
@@ -357,11 +356,10 @@
             "decoding \\u0073 -> s restores the original JSON island (JSON.parse round-trip)")))))
 
 (deftest data-payload-json-ld-channel-uses-stricter-escape-unchanged
-  (testing "rf2-xbvzh — the DATA-payload channel (reg-head JSON-LD) is
-            UNCHANGED: the SAME `</script>` payload keeps the stricter
+  (testing "The DATA-payload channel (reg-head JSON-LD) keeps its own
+            escape: the SAME `</script>` payload keeps the stricter
             data-aware `\\u003c` escape, DISTINCT from the author-content
-            raw-text closing-sequence rewrite. Removing the body refusal did
-            NOT touch the data-payload escape path."
+            raw-text closing-sequence rewrite."
     (let [html (rf.ssr/head-model->html
                  {:json-ld [{"@type"    "Article"
                              "headline" "</script><script>alert(1)</script>"}]})]
@@ -373,8 +371,8 @@
           "the hostile breakout literal does not survive on the data channel"))))
 
 (deftest render-to-string-allows-empty-or-element-only-raw-text-tags
-  (testing "rf2-xbvzh — a raw-text tag with NO string child is inert and emits
-            unchanged; the raw-text emission only applies to string content."
+  (testing "A raw-text tag with NO string child is inert; the raw-text
+            emission only applies to string content."
     (is (= "<script></script>"
            (rf.ssr.emit/render-to-string [:script] {}))
         "empty <script> is fine")
@@ -386,17 +384,17 @@
         "an attribute-only <script> (the common external-script shape) is fine")))
 
 ;; ===========================================================================
-;; rf2-hzttr finding 3 — void classification is CASE-INSENSITIVE.
+;; Void classification is CASE-INSENSITIVE.
 ;; `validate-tag-name!` admits upper/mixed-case names, but the void element
-;; SET is keyed lower-case. Without normalisation, `[:BR]` was emitted as a
-;; non-void <BR></BR> pair. Same void issue in the streaming walker. (The
-;; case-insensitive RAW-TEXT classification is exercised by the rf2-xbvzh
+;; SET is keyed lower-case. Without normalisation, `[:BR]` would be emitted as
+;; a non-void <BR></BR> pair; the streaming walker has the same void rule.
+;; (The case-insensitive RAW-TEXT classification is exercised by the raw-text
 ;; emission tests above — `raw-text-classification-is-case-insensitive-on-the-tag`
 ;; and `render-shell-raw-text-is-case-insensitive`.)
 ;; ===========================================================================
 
 (deftest render-to-string-void-classification-is-case-insensitive
-  (testing "rf2-hzttr finding 3 — an UPPER/MIXED-case void tag is recognised
+  (testing "An UPPER/MIXED-case void tag is recognised
             as void and self-closes; it must NOT emit a spurious closing tag.
             HTML5 tag names are case-insensitive."
     (testing "[:BR] self-closes (no </BR>)"
@@ -419,7 +417,7 @@
            which tags are void"))))
 
 (deftest render-shell-void-classification-is-case-insensitive
-  (testing "rf2-hzttr finding 3 — the streaming walker mirrors the
+  (testing "The streaming walker mirrors the
             case-insensitive void classification (streaming.cljc:284). A
             `[:BR]` in the shell must self-close, not emit <BR></BR>."
     (let [{:keys [shell-html]} (rf.ssr.streaming/render-shell
@@ -431,7 +429,7 @@
       (is (not (str/includes? shell-html "</Img>"))))))
 
 (deftest render-shell-raw-text-is-case-insensitive
-  (testing "rf2-xbvzh — the streaming walk classifies raw-text tags
+  (testing "The streaming walk classifies raw-text tags
             case-insensitively too: an UPPER/MIXED-case <STYLE>/<SCRIPT> body
             is emitted as raw text (author case preserved), NOT entity-escaped
             and NOT refused."
@@ -447,13 +445,13 @@
           "no entity escaping leaked into a raw-text body"))))
 
 ;; ===========================================================================
-;; rf2-ee38b.10 — Reagent-native interop head `:>` cannot be statically
+;; Reagent-native interop head `:>` cannot be statically
 ;; rendered server-side (no React on the JVM); fail loud rather than dump
 ;; the component+props as raw text.
 ;; ===========================================================================
 
 (deftest render-to-string-rejects-reagent-native-head
-  (testing "rf2-ee38b.10 — `[:> Component {props} child]` throws
+  (testing "`[:> Component {props} child]` throws
             :rf.error/ssr-reagent-native-head instead of stringifying the
             component ref + dumping the props map as raw EDN into markup."
     (let [some-component (fn [_props] [:div "react"])]
@@ -470,7 +468,7 @@
                  (:rf.error/id (ex-data thrown)))))))))
 
 (deftest render-shell-rejects-reagent-native-head
-  (testing "rf2-ee38b.10 — the streaming walk routes `:>` through the same
+  (testing "The streaming walk routes `:>` through the same
             single throw (no raw component+props splice)."
     (let [some-component (fn [_props] [:div "react"])]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
@@ -479,17 +477,17 @@
                               [:div [:> some-component {:prop "v"}]]))))))
 
 (deftest render-to-string-still-handles-fragment-head
-  (testing "rf2-ee38b.10 — splitting `:>` out of the `:<>` branch leaves
-            the fragment head working: children splice with no wrapper."
+  (testing "With `:>` in its own branch, the fragment head `:<>` works:
+            children splice with no wrapper."
     (is (= "<p>a</p><p>b</p>"
            (rf.ssr.emit/render-to-string [:<> [:p "a"] [:p "b"]] {})))))
 
 (deftest render-hash-threads-through-fragment-root
-  (testing "rf2-58zvy1 finding 2 — root-attrs (the render-hash marker)
+  (testing "Root-attrs (the render-hash marker)
             thread through a `:<>` fragment ROOT onto the first DOM-tag
-            child exactly once. The prior plain `emit-children` on the
-            fragment branch dropped root-attrs, so a fragment-rooted SSR
-            tree lost the `data-rf-render-hash` the emitter docstring
+            child exactly once. A plain `emit-children` on the
+            fragment branch would drop root-attrs, so a fragment-rooted SSR
+            tree would lose the `data-rf-render-hash` the emitter docstring
             promises (and that the emitter/Ring hash contract depends on)."
     (testing "the marker lands on the FIRST DOM child only, not every child"
       (let [html (rf.ssr.emit/render-to-string [:<> [:div "a"] [:div "b"]] {:render-hash "deadbeef"})]
@@ -506,25 +504,25 @@
       (is (re-matches #"<div data-rf-render-hash=\"[0-9a-f]+\">y</div>"
                       (rf.ssr.emit/render-to-string [:<> [:<> [:div "y"]]] {:render-hash "deadbeef"}))
           "a fragment whose first child is a fragment still places the marker"))
-    (testing "no opts → no marker (fragment branch unchanged when root-attrs nil)"
+    (testing "no opts → no marker (root-attrs nil on the fragment branch)"
       (is (= "<div>x</div>"
              (rf.ssr.emit/render-to-string [:<> [:div "x"]] {}))
           "without :render-hash the fragment root emits no marker"))))
 
 (deftest fragment-props-map-is-not-a-child
-  (testing "rf2-3357 — a `:<>` fragment's PROPS MAP at slot 1 is not a child.
-            The prior `(rest el)` handed it to `emit-element`, which fell
-            through to `escape-html` and put the map's EDN in the response
+  (testing "A `:<>` fragment's PROPS MAP at slot 1 is not a child.
+            A plain `(rest el)` would hand it to `emit-element`, which would
+            fall through to `escape-html` and put the map's EDN in the response
             bytes — garbage text, and a guaranteed hydration mismatch against
             a client render that emits none of it. `[:<> {:key i} …]` inside a
-            `for` is the canonical fragment idiom, so this was reachable from
+            `for` is the canonical fragment idiom, so this is reachable from
             ordinary application markup."
-    (testing "the three rows the bead measured now agree"
-      ;; Measured at trunk BEFORE the fix, for the record:
+    (testing "the three spellings agree"
+      ;; Treating slot 1 as a child would give:
       ;;   [:<> {:key "k"} [:div "x"]] => "{:key &quot;k&quot;}<div>x</div>"
       ;;   [:<> {}         [:div "x"]] => "{}<div>x</div>"
       ;;   [:<>            [:div "x"]] => "<div>x</div>"
-      ;; Only the third was right; all three are the same markup now.
+      ;; Only the third is right; all three emit the same markup.
       (is (= "<div>x</div>"
              (rf.ssr.emit/render-to-string [:<> {:key "k"} [:div "x"]] {}))
           "a keyed fragment emits its children and nothing else")
@@ -533,7 +531,7 @@
           "an EMPTY props map is still a props map, not a child")
       (is (= "<div>x</div>"
              (rf.ssr.emit/render-to-string [:<> [:div "x"]] {}))
-          "the no-props spelling is unchanged"))
+          "the no-props spelling emits the same markup"))
     (testing "no EDN of the props map survives anywhere on the wire"
       (let [html (rf.ssr.emit/render-to-string
                    [:<> {:key "k" :data-x "v"} [:p "body"]] {})]
@@ -543,7 +541,7 @@
     (testing "a fragment that is ONLY a props map emits nothing"
       (is (= "" (rf.ssr.emit/render-to-string [:<> {:key "k"}] {})))
       (is (= "" (rf.ssr.emit/render-to-string [:<>] {}))))
-    (testing "rf2-3357 ruling — a NON-`:key` fragment attribute is DROPPED, not
+    (testing "A NON-`:key` fragment attribute is DROPPED, not
               refused. A fragment is not an element, so no attribute on one has
               a wire representation; React treats a stray Fragment prop as a
               development warning rather than an error, and refusing here would
@@ -568,13 +566,12 @@
           "a seq at slot 1 is a child, not props"))))
 
 (deftest render-hash-threads-through-a-fragment-that-has-props
-  (testing "rf2-3357 / rf2-58zvy1 finding 2 — skipping the props slot must NOT
-            regress the root-attrs threading, and in fact REPAIRS it for a
-            keyed fragment. Before the fix the map became the first child, so
-            `emit-children-threading-root-attrs` threaded the render-hash onto
-            a value that cannot carry an attribute and the marker VANISHED —
-            silently, on exactly the keyed fragments applications write. This
-            is the row the fix has to keep green in both directions: the marker
+  (testing "Skipping the props slot is also what keeps the root-attrs
+            threading working for a keyed fragment. With the map as the first
+            child, `emit-children-threading-root-attrs` would thread the
+            render-hash onto a value that cannot carry an attribute and the
+            marker would VANISH — silently, on exactly the keyed fragments
+            applications write. This row pins both directions: the marker
             lands, and it lands on the first CHILD (not the second, and not
             twice)."
     (testing "the marker lands on the first DOM child of a PROPS-carrying fragment"
@@ -604,12 +601,12 @@
             (str "keyed fragments in a for emit clean markup; got: " html))))))
 
 (deftest render-hash-threads-through-lazy-seq-root
-  (testing "rf2-a73idu — root-attrs (the render-hash marker) thread through a
+  (testing "Root-attrs (the render-hash marker) thread through a
             `lazy-seq` / list ROOT onto the first DOM-tag element, per Spec 011
             §Source-coord annotation / §Hydration-mismatch detection (a
-            lazy-seq root is 'passed through the injection'). The prior
-            `(sequential? el)` branch used plain `emit-children`, DROPPING
-            root-attrs, so a lazy-seq-rooted tree silently lost its
+            lazy-seq root is 'passed through the injection'). A plain
+            `emit-children` on the `(sequential? el)` branch would DROP
+            root-attrs, so a lazy-seq-rooted tree would silently lose its
             data-rf-render-hash marker."
     (testing "the marker lands on a (map …) lazy-seq root"
       (is (re-matches #"<div data-rf-render-hash=\"[0-9a-f]+\">1</div>"
@@ -625,13 +622,13 @@
       (is (= "<div data-rf-render-hash=\"deadbeef\">x</div>"
              (rf.ssr.emit/render-to-string (list [:div "x"]) {:render-hash "deadbeef"}))
           "the supplied hash drives the marker through the seq root"))
-    (testing "no opts → no marker (seq branch unchanged when root-attrs nil)"
+    (testing "no opts → no marker (root-attrs nil on the seq branch)"
       (is (= "<div>x</div>"
              (rf.ssr.emit/render-to-string (list [:div "x"]) {}))
           "without :render-hash the lazy-seq root emits no marker"))))
 
 ;; ===========================================================================
-;; rf2-bee5i — :rf/suspense-boundary is a streaming-only marker. The standard
+;; :rf/suspense-boundary is a streaming-only marker. The standard
 ;; emitter must REJECT it (fail loud, parallel to :>) rather than emit a
 ;; phantom <suspense-boundary> DOM element — its name passes the tag grammar,
 ;; so without the guard it would serialise the {:id … :fallback …} attrs as
@@ -639,7 +636,7 @@
 ;; ===========================================================================
 
 (deftest render-to-string-rejects-suspense-boundary-outside-stream
-  (testing "rf2-bee5i — `[:rf/suspense-boundary {:id … :fallback …} child]`
+  (testing "`[:rf/suspense-boundary {:id … :fallback …} child]`
             reaching render-to-string outside a stream throws
             :rf.error/ssr-suspense-boundary-outside-stream instead of
             emitting a phantom <suspense-boundary> DOM element."
@@ -673,7 +670,7 @@
                               {}))))))
 
 (deftest streaming-walker-still-handles-suspense-boundary
-  (testing "rf2-bee5i — the streaming shell walker still recognises
+  (testing "The streaming shell walker still recognises
             :rf/suspense-boundary (the emit-element guard only fires on
             the NON-streaming path); render-shell materialises the
             fallback as a <template> and does NOT throw."
@@ -693,17 +690,16 @@
           "the boundary registers exactly one continuation"))))
 
 ;; ===========================================================================
-;; rf2-ynjts.13 — emit-element scalar-child branches (emit.cljc:319-323).
-;; The strip-prop / raw-text / tag-name security gates are well covered, but
-;; the load-bearing scalar emission rules — number stringifies, boolean is
-;; DROPPED, nil is dropped, string is escaped — had no direct behaviour
-;; assertion. These are the leaf rules every render bottoms out at; a
-;; regression (e.g. booleans accidentally stringifying to "true") would
-;; corrupt every server-rendered page and slip past the existing tests.
+;; emit-element scalar-child branches (emit.cljc:319-323).
+;; The load-bearing scalar emission rules — number stringifies, boolean is
+;; DROPPED, nil is dropped, string is escaped — are the leaf rules every
+;; render bottoms out at; a regression (e.g. booleans accidentally
+;; stringifying to "true") would corrupt every server-rendered page, and the
+;; strip-prop / raw-text / tag-name security-gate tests would not catch it.
 ;; ===========================================================================
 
 (deftest render-to-string-number-child-stringifies
-  (testing "rf2-ynjts.13 — a number child renders as its `str` form, not
+  (testing "A number child renders as its `str` form, not
             dropped, not escaped (emit-element number? branch)."
     (is (= "<span>42</span>"
            (rf.ssr.emit/render-to-string [:span 42] {}))
@@ -716,7 +712,7 @@
         "a number sits inline alongside a string child")))
 
 (deftest render-to-string-boolean-child-is-dropped
-  (testing "rf2-ynjts.13 — a boolean CHILD emits nothing (emit-element
+  (testing "A boolean CHILD emits nothing (emit-element
             boolean? branch → \"\"). The ubiquitous
             `[:div (when cond? [:p ...])]` shape yields `false`/`nil` for
             the false arm; both must vanish, not render the word `true`/
@@ -736,11 +732,11 @@
         "booleans + nil interleaved with strings drop, strings survive")))
 
 (deftest render-to-string-fn-headed-component
-  (testing "rf2-ynjts.13 — a fn-headed component `[component-fn & args]`
-            (emit-element fn? branch) is invoked with its args and its
-            returned hiccup is emitted. The streaming walker's fn-head path
-            is exercised indirectly elsewhere, but the non-streaming
-            emitter's fn-head branch had no direct assertion."
+  (testing "A fn-headed component `[component-fn & args]`
+            (emit-element's callable-head branch) is invoked with its args
+            and its returned hiccup is emitted. The streaming walker's fn-head
+            path is exercised indirectly elsewhere; this is the non-streaming
+            emitter's direct assertion."
     (let [greeting (fn [name] [:h1 "Hello, " name])]
       (is (= "<h1>Hello, world</h1>"
              (rf.ssr.emit/render-to-string [greeting "world"] {}))
@@ -757,7 +753,7 @@
             "the fn's string output flows back through escape-html")))))
 
 ;; ===========================================================================
-;; rf2-ynjts.13 — escape-attr / escape-html asymmetry (html_helpers.cljc).
+;; escape-attr / escape-html asymmetry (html_helpers.cljc).
 ;; A deliberate, security-relevant correctness invariant: text-node content
 ;; escapes `< > & " '` (no raw-tag injection), but attribute VALUES escape
 ;; ONLY `& "` because `<`/`>` are legal inside a double-quoted attribute
@@ -768,7 +764,7 @@
 ;; ===========================================================================
 
 (deftest render-to-string-text-node-escapes-all-five-entities
-  (testing "rf2-ynjts.13 — a text-node child escapes `& < > \" '` so no
+  (testing "A text-node child escapes `& < > \" '` so no
             raw markup or quote can break out of text position."
     (is (= "<p>&amp;&lt;&gt;&quot;&#39;</p>"
            (rf.ssr.emit/render-to-string [:p "&<>\"'"] {}))
@@ -778,7 +774,7 @@
         "a literal <script> in text cannot inject a real tag")))
 
 (deftest render-to-string-attr-value-escapes-only-amp-and-quote
-  (testing "rf2-ynjts.13 — an attribute VALUE escapes only `&` and `\"`;
+  (testing "An attribute VALUE escapes only `&` and `\"`;
             `<` / `>` / `'` are LEGAL inside a double-quoted attr value and
             are emitted verbatim (HTML5 parser rule). This asymmetry with
             text-node escaping is deliberate — over-escaping attrs corrupts
@@ -798,16 +794,16 @@
         "a single-quote is NOT escaped — the value is double-quoted")))
 
 ;; ===========================================================================
-;; rf2-ynjts.13 — boolean ATTR-VALUE branch through the full emitter
+;; Boolean ATTR-VALUE branch through the full emitter
 ;; (attr-string true → bare name; false/nil → omitted). The head emitter
 ;; test pins async/defer, and ssr_attr_filter_test pins the helper in
-;; isolation, but the non-streaming body emitter's boolean-attr composition
-;; (the common `[:input {:disabled true :required false}]` shape) had no
-;; direct render-to-string assertion.
+;; isolation; these pin the non-streaming body emitter's boolean-attr
+;; composition (the common `[:input {:disabled true :required false}]`
+;; shape) through render-to-string.
 ;; ===========================================================================
 
 (deftest render-to-string-boolean-attr-values
-  (testing "rf2-ynjts.13 — `true` attr value → bare attribute name; `false`
+  (testing "`true` attr value → bare attribute name; `false`
             and `nil` attr values → omitted entirely, through the full
             render-to-string composition."
     (is (= "<input disabled required>"
@@ -821,12 +817,11 @@
         "boolean + nil attrs compose on a non-void element alongside text")))
 
 ;; ===========================================================================
-;; rf2-wtd8z finding 2 — Var-headed component resolution (emit.cljc +
+;; Var-headed component resolution (emit.cljc +
 ;; streaming.cljc). On the JVM a Var (`#'component`) is `ifn?` but NOT
-;; `fn?`, so the prior `(fn? head)` test let a Var-headed component fall
-;; through to the scalar/`:else` arm and emit the EDN text
-;; `[#'re-frame.ssr-emit-test/var-component "ok"]` instead of resolving it
-;; to `<span>ok</span>`. The emitter / streaming walker now test `ifn?`,
+;; `fn?`, so a `(fn? head)` test would send a Var-headed component past the
+;; callable-head arm instead of resolving it to `<span>ok</span>`. The
+;; emitter / streaming walker test `ifn?`,
 ;; which resolves both fns and Var references. These tests pin standard +
 ;; streaming resolution AND the root-attr threading (render-hash +
 ;; source-coord) through the Var-head indirection.
@@ -841,7 +836,7 @@
   [:span label])
 
 (deftest render-to-string-var-headed-component
-  (testing "rf2-wtd8z finding 2 — a Var-headed component `[#'component & args]`
+  (testing "A Var-headed component `[#'component & args]`
             is invoked and its hiccup emitted (NOT stringified as EDN)"
     (is (= "<span>ok</span>"
            (rf.ssr.emit/render-to-string [#'var-component "ok"] {}))
@@ -857,7 +852,7 @@
                  " <span> root; got: " html))))))
 
 (deftest render-to-string-var-headed-registered-view
-  (testing "rf2-wtd8z finding 2 — a registered view whose body is a
+  (testing "A registered view whose body is a
             Var-headed component resolves (no EDN leak), while the
             render-hash root-attr DOES thread through the Var head onto
             the resolved DOM root. Two levels of callable indirection:
@@ -876,7 +871,7 @@
                  "the Var head onto the resolved <span> root; got: " html))))))
 
 (deftest render-shell-var-headed-component
-  (testing "rf2-wtd8z finding 2 — the streaming shell walker resolves a
+  (testing "The streaming shell walker resolves a
             Var-headed component just like the non-streaming emitter
             (ifn?, not fn?), recursing on its returned hiccup"
     (let [{:keys [shell-html]} (rf.ssr.streaming/render-shell [#'var-component "streamed"])]
@@ -891,18 +886,18 @@
                  shell-html))))))
 
 ;; ===========================================================================
-;; rf2-y1jbaq — malformed-head hiccup vector fails loud, never emits raw
+;; Malformed-head hiccup vector fails loud, never emits raw
 ;; unescaped output (XSS-class escape bypass)
 ;;
 ;; A hiccup vector whose head is a string / nil / number / boolean (not a
-;; keyword and not a callable) previously hit `:else (str el)` and shipped its
-;; WHOLE EDN form RAW — a `[nil "<script>…"]` put a live `<script>` on the
-;; wire. Both the sync emitter and the streaming shell walker MUST reject it
+;; keyword and not a callable), stringified by an `(str el)` fallthrough,
+;; would ship its WHOLE EDN form RAW — a `[nil "<script>…"]` would put a live
+;; `<script>` on the wire. Both the sync emitter and the streaming shell walker MUST reject it
 ;; with `:rf.error/invalid-hiccup-head`; no raw angle-brackets may reach output.
 ;; ===========================================================================
 
 (deftest emit-rejects-malformed-hiccup-head
-  (testing "rf2-y1jbaq — a nil / string / number / boolean head throws
+  (testing "A nil / string / number / boolean head throws
             :rf.error/invalid-hiccup-head through render-to-string"
     (doseq [el [[nil "<script>alert(1)</script>"]
                 ["x" "<img src=x onerror=alert(1)>"]
@@ -913,7 +908,7 @@
                             (rf.ssr.emit/render-to-string el {}))
           (str "malformed-head vector must fail loud, not emit raw: " (pr-str el)))))
 
-  (testing "rf2-y1jbaq — no raw `<script>` / `<img onerror>` survives to output
+  (testing "No raw `<script>` / `<img onerror>` survives to output
             for a malformed-head vector (the throw prevents any emission)"
     (doseq [el [[nil "<script>alert(1)</script>"]
                 ["x" "<img src=x onerror=alert(1)>"]]]
@@ -922,7 +917,7 @@
             (str "no wire output produced for malformed head: " (pr-str el)))))))
 
 (deftest streaming-rejects-malformed-hiccup-head
-  (testing "rf2-y1jbaq — the streaming shell walker rejects a malformed-head
+  (testing "The streaming shell walker rejects a malformed-head
             vector identically to the sync emitter (it must NOT splice it as a
             child-seq and ride the raw child strings)"
     (doseq [el [[nil "<script>alert(1)</script>"]
@@ -933,11 +928,11 @@
           (str "streaming path must fail loud on malformed head: " (pr-str el))))))
 
 ;; ===========================================================================
-;; rf2-dtza9a — Form-2 raw-fn component renders (never leaks the inner fn's
+;; Form-2 raw-fn component renders (never leaks the inner fn's
 ;; .toString as page text)
 ;;
-;; A Form-2 component (an outer fn returning an inner render fn) previously
-;; resolved to a fn VALUE that fell through to `escape-html`, stringifying the
+;; A Form-2 component (an outer fn returning an inner render fn) resolves to
+;; a fn VALUE that, left to fall through to `escape-html`, would stringify the
 ;; fn's `.toString` (`user$…fn__…@…`) as visible page text. Both the sync
 ;; emitter and the streaming shell walker MUST invoke the inner render fn
 ;; (Form-2 semantics) and render its hiccup; a result that is STILL a fn after
@@ -945,7 +940,7 @@
 ;; ===========================================================================
 
 (deftest emit-renders-form-2-component
-  (testing "rf2-dtza9a — a Form-2 component renders its inner hiccup, not the
+  (testing "A Form-2 component renders its inner hiccup, not the
             inner fn's .toString, through BOTH the sync emit and streaming paths"
     ;; The idiomatic Reagent/UIx Form-2 shapes: a 0-arity inner closing
     ;; over the outer's args, AND a same-arity inner taking the args.
@@ -970,7 +965,7 @@
         (is (not (str/includes? out "@"))
             "no object-identity `@hash` leaks as page text"))))
 
-  (testing "rf2-dtza9a — a component that resolves to a fn even after the
+  (testing "A component that resolves to a fn even after the
             Form-2 unwrap (deeper than Form-2) fails loud, never leaking a fn"
     (let [deep (fn [x] (fn [] (fn [] [:div x])))]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
@@ -983,47 +978,47 @@
           "streaming fails loud on a deeper-than-Form-2 component"))))
 
 ;; ===========================================================================
-;; rf2-mocn3 — Form-2 arity adaptation is a DECISION taken before the render
+;; Form-2 arity adaptation is a DECISION taken before the render
 ;; runs, never an exception caught after it
 ;;
-;; `invoke-form-2-render-fn` used to probe arity BY EXCEPTION:
+;; Probing arity BY EXCEPTION:
 ;;
 ;;     (try (apply inner args) (catch ArityException _ (inner)))
 ;;
-;; That catch encloses execution of PROGRAMMER code, which is two independent
+;; would enclose execution of PROGRAMMER code, which is two independent
 ;; defects:
 ;;
 ;;   1. An `ArityException` raised INSIDE a correctly-invoked inner render —
-;;      an ordinary wrong-arity bug in a helper that render calls — is
-;;      indistinguishable from an invocation-arity mismatch. The renderer ran
-;;      the render body a SECOND time and reported the retry's outcome, so a
-;;      non-pure render duplicated its effects and the user's own failure was
-;;      replaced by the retry's.
-;;   2. The fallback tried only arity ZERO, so an inner accepting a non-zero
-;;      PREFIX of the outer's props — valid under the CLJS/JS extra-argument
-;;      semantics this helper exists to emulate — was rejected on the JVM.
-;;      The same `.cljc` app rendered in the browser and failed SSR.
+;;      an ordinary wrong-arity bug in a helper that render calls — would be
+;;      indistinguishable from an invocation-arity mismatch. The renderer
+;;      would run the render body a SECOND time and report the retry's
+;;      outcome, so a non-pure render would duplicate its effects and the
+;;      user's own failure would be replaced by the retry's.
+;;   2. A fallback trying only arity ZERO would reject on the JVM an inner
+;;      accepting a non-zero PREFIX of the outer's props — valid under the
+;;      CLJS/JS extra-argument semantics this helper exists to emulate — so
+;;      the same `.cljc` app would render in the browser and fail SSR.
 ;;
-;; The helper now selects a compatible call shape from the compiled fn's
+;; The helper selects a compatible call shape from the compiled fn's
 ;; DECLARED arities and invokes exactly once. Both public server paths share
 ;; the one resolver (`emit/resolve-component-head`), so every row below
 ;; asserts through BOTH `emit/emit-element` and `streaming/render-shell`;
-;; a fix proven through one of them is proven for half the surface.
+;; a behaviour proven through one of them is proven for half the surface.
 ;;
 ;; NOTE ON NON-VACUITY: the inners below are FIXED arity where prefix
 ;; selection is the thing under test (a variadic inner accepts the full arg
 ;; list and would pass without exercising selection at all), and the
-;; double-invocation rows COUNT their calls — an idempotent test double is
-;; green against the unrepaired helper and proves nothing.
+;; double-invocation rows COUNT their calls — an idempotent test double would
+;; be green against a catch-and-retry helper and proves nothing.
 ;; ===========================================================================
 
 (deftest emit-renders-form-2-partial-arity-inner
-  (testing "rf2-mocn3 — an inner render declaring a non-zero PREFIX of the
+  (testing "An inner render declaring a non-zero PREFIX of the
             outer's args renders on the JVM exactly as it does on CLJS,
             through BOTH the sync emitter and the streaming shell walker"
-    ;; Fixed arity 1, taking the first of the outer's two props — the
-    ;; failure scenario on the bead: the client drops the extra JS argument,
-    ;; the JVM used to try 2 args, catch, retry at 0, and throw.
+    ;; Fixed arity 1, taking the first of the outer's two props. The
+    ;; client drops the extra JS argument; a catch-and-retry JVM would try
+    ;; 2 args, catch, retry at 0, and throw.
     (let [form2-partial (fn [_outer-value _ignored]
                           (fn [kept] [:p kept]))]
       (is (= "<p>kept</p>" (rf.ssr.emit/emit-element [form2-partial "kept" "ignored"]))
@@ -1033,14 +1028,15 @@
           "streaming passes the inner the longest prefix it accepts"))))
 
 (deftest emit-form-2-inner-body-arity-exception-propagates-once
-  (testing "rf2-mocn3 — a zero-arity inner invoked with zero args REACHES its
+  (testing "A zero-arity inner invoked with zero args REACHES its
             body, and an ArityException raised THERE is not an invocation
             mismatch: the render runs exactly ONCE, on BOTH server paths"
-    ;; The shape the old catch-and-retry could re-enter successfully. The
-    ;; first call already matches, so the body runs, throws, is caught, and
-    ;; the retry runs the body a SECOND time. ONLY a counting inner detects
+    ;; The shape a catch-and-retry helper could re-enter successfully. The
+    ;; first call matches, so the body runs and throws; a catch-and-retry would
+    ;; catch that and run the body a SECOND time. ONLY a counting inner detects
     ;; that — the exception is the same either way, so an idempotent test
-    ;; double is green against the unrepaired helper and proves nothing.
+    ;; double would be green against a catch-and-retry helper and proves
+    ;; nothing.
     ;;
     ;; The arity must match on the FIRST call for this to bite: a zero-arity
     ;; inner under a one-arg component throws before entering the body, the
@@ -1059,23 +1055,23 @@
                    (rf.ssr.emit/emit-element [form2-buggy]))
           "sync emit propagates the inner body's own ArityException")
       (is (= 1 @calls)
-          "sync emit invoked the inner render EXACTLY once (the old
-           catch-and-retry reached 2)")
+          "sync emit invoked the inner render EXACTLY once (a
+           catch-and-retry would reach 2)")
       (reset! calls 0)
       (is (thrown? clojure.lang.ArityException
                    (rf.ssr.streaming/render-shell [form2-buggy]))
           "streaming propagates the inner body's own ArityException")
       (is (= 1 @calls)
-          "streaming invoked the inner render EXACTLY once (the old
-           catch-and-retry reached 2)")))
+          "streaming invoked the inner render EXACTLY once (a
+           catch-and-retry would reach 2)")))
 
-  (testing "rf2-mocn3 — the inner body's ORIGINAL failure propagates
+  (testing "The inner body's ORIGINAL failure propagates
             unchanged rather than being replaced by the retry's"
-    ;; A SAME-arity inner. The old helper caught the body's
-    ;; `Wrong number of args (1)` and re-invoked at arity ZERO, which this
-    ;; arity-1 inner rejects — so the programmer was shown
+    ;; A SAME-arity inner. A catch-and-retry helper would catch the body's
+    ;; `Wrong number of args (1)` and re-invoke at arity ZERO, which this
+    ;; arity-1 inner rejects — so the programmer would be shown
     ;; `Wrong number of args (0)` about a call they never wrote and their
-    ;; real bug vanished. The arg COUNT in the message is the discriminator
+    ;; real bug would vanish. The arg COUNT in the message is the discriminator
     ;; here; the invocation counter cannot tell these two apart.
     (let [calls       (atom 0)
           needs-two   (fn [a b] [:span a b])
@@ -1102,12 +1098,12 @@
       (is (= 1 @calls) "streaming invoked the inner render exactly once"))))
 
 (deftest emit-form-2-variadic-inner-body-failure-is-not-swallowed
-  (testing "rf2-mocn3 — the old zero-arity retry SUCCEEDED on a variadic
+  (testing "A zero-arity retry would SUCCEED on a variadic
             inner, silently replacing a failing render with different HTML.
             The programmer's failure must surface on BOTH paths instead"
     ;; With args the render is reached and its helper bug throws; with NO
-    ;; args it returns a different tree. Under the old catch-and-retry the
-    ;; no-args branch is what shipped — a silent wrong render, no exception
+    ;; args it returns a different tree. Under a catch-and-retry the
+    ;; no-args branch is what would ship — a silent wrong render, no exception
     ;; anywhere, which is the severest form of defect 1.
     (let [needs-two (fn [a b] [:span a b])
           form2     (fn [x] (fn [& xs]
@@ -1128,7 +1124,7 @@
            re-entering the variadic inner with no args"))))
 
 (deftest emit-passes-form-2-variadic-inner-the-whole-arg-seq
-  (testing "rf2-mocn3 — a VARIADIC inner receives the complete original
+  (testing "A VARIADIC inner receives the complete original
             argument sequence, once, preserving ordinary Reagent/CLJS
             semantics on BOTH server paths"
     ;; `(fn [& xs] …)` accepts any arity from zero up; selection must hand it
@@ -1157,28 +1153,26 @@
           "streaming invoked the variadic inner exactly once"))))
 
 ;; ===========================================================================
-;; rf2-mocn3 (audit) — the selection must not be MORE permissive than CLJS
+;; The selection must not be MORE permissive than CLJS
 ;;
-;; The first repair replaced exception-driven probing with a walk down the
-;; inner's declared arities, taking the longest accepted PREFIX. That is not
-;; what a compiled ClojureScript fn does. Only a fn with a SINGLE fixed arity
+;; A walk down the inner's declared arities taking the longest accepted
+;; PREFIX is not what a compiled ClojureScript fn does. Only a fn with a SINGLE fixed arity
 ;; and no variadic tail compiles to a bare JavaScript function, and only a
 ;; bare JavaScript function drops extra arguments; anything with more than one
 ;; arm compiles to a dispatcher that switches on `arguments.length` and throws
-;; `Invalid arity: n`. Measured on node (see the cross-host table in
+;; `Invalid arity: n`. On node (see the cross-host table in
 ;; `re-frame.ssr.form2-arity-cljs-test`):
 ;;
 ;;   (fn [x] …)               at 3 args → returns
 ;;   (fn ([x] …) ([x y] …))   at 3 args → throws `Invalid arity: 3`
 ;;   (fn ([] …) ([x] …))      at 2 args → throws `Invalid arity: 2`
 ;;
-;; The prefix walk selected arity 2 and arity 1 for those last two and
-;; rendered, so a shared `.cljc` Form-2 component rendered on the server and
-;; failed on hydration — the exact parity the repair exists to hold.
+;; A prefix walk would select arity 2 and arity 1 for those last two and
+;; render, so a shared `.cljc` Form-2 component would render on the server
+;; and fail on hydration — the exact parity the selection exists to hold.
 ;;
 ;; The cross-host table runs on both hosts through the sync emitter: it pins
-;; the AGREEMENT above, and — since rf2-mocn3's mayor ruling of 2026-09-01 —
-;; also the one place agreement STOPS. Where an inner is handed FEWER args
+;; the AGREEMENT above, and also the one place agreement STOPS. Where an inner is handed FEWER args
 ;; than its shortest arm requires, CLJS binds the missing parameters to
 ;; `undefined` and renders while the JVM raises; the JVM is stricter there on
 ;; purpose (`emit/invoke-form-2-render-fn`, THE SUPPORTED CONTRACT). What is
@@ -1187,11 +1181,11 @@
 ;; ===========================================================================
 
 (deftest emit-form-2-multi-arity-inner-refuses-what-cljs-refuses
-  (testing "rf2-mocn3 — a multi-arity inner handed a count no arm declares is
+  (testing "A multi-arity inner handed a count no arm declares is
             REFUSED on both server paths, as the client refuses it, rather
             than silently rendering some shorter arm's output"
-    ;; The audit's two shapes verbatim. Under the prefix walk the first
-    ;; rendered `<p>m2|a|b</p>` and the second `<p>m1|a</p>`.
+    ;; The two dispatcher shapes above. Under a prefix walk the first would
+    ;; render `<p>m2|a|b</p>` and the second `<p>m1|a</p>`.
     (let [multi-1-2 (fn [& _] (fn ([x]   [:p (str "m1|" x)])
                                   ([x y] [:p (str "m2|" x "|" y)])))
           multi-0-1 (fn [& _] (fn ([]  [:p "m0"])
@@ -1228,13 +1222,13 @@
       (is (= "<p>m0</p>" (:shell-html (rf.ssr.streaming/render-shell [multi-0-1])))
           "streaming selects the exact 0-arity arm")))
 
-  (testing "rf2-mocn3 — a fixed+variadic inner routes by the same rules: the
+  (testing "A fixed+variadic inner routes by the same rules: the
             exact fixed arm when one matches, otherwise the variadic arm with
             the WHOLE arg list, on both server paths"
     ;; `(fn ([a] …) ([a b & r] …))` — fixed arity 1 plus a variadic arm
     ;; requiring 2. The compiled CLJS dispatcher sends 1 arg to the fixed arm
-    ;; and 3 to the variadic one; so must the JVM. Note the prefix walk would
-    ;; have sent 3 args to the ARITY-1 arm, dropping two props.
+    ;; and 3 to the variadic one; so must the JVM. Note a prefix walk would
+    ;; send 3 args to the ARITY-1 arm, dropping two props.
     (let [mixed (fn [& _] (fn ([a] [:p (str "mx1|" a)])
                               ([a b & r] [:p (str "mxv|" a "|" b "|"
                                                   (str/join "," r))])))]
@@ -1249,11 +1243,11 @@
           "streaming prefers the exact fixed arm"))))
 
 ;; ===========================================================================
-;; rf2-r9kf — BOOLEAN ATTRIBUTE-VALUE CLASSES through both hiccup SSR modes.
+;; BOOLEAN ATTRIBUTE-VALUE CLASSES through both hiccup SSR modes.
 ;;
-;; `html-helpers/attr-string` used to branch on the VALUE alone — `true` → a
-;; bare attribute name, `false`/`nil` → omitted — one rule applied to
-;; attributes that do not share one. HTML/React carries three classes, pinned
+;; Branching on the VALUE alone — `true` → a bare attribute name,
+;; `false`/`nil` → omitted — would apply one rule to attributes that do not
+;; share one. HTML/React carries three classes, pinned
 ;; by Spec 004B §Booleans and their neighbours from a row-by-row react-dom
 ;; 19.2.0 probe:
 ;;
@@ -1261,10 +1255,10 @@
 ;;              (`contentEditable` / `draggable` / `spellCheck`) — `true` AND
 ;;              `false` both reach markup as `="true"` / `="false"`. ARIA is
 ;;              not boolean HTML: `aria-expanded="false"` is a DIFFERENT state
-;;              from the attribute being absent, so dropping the `false` made
-;;              server markup assert the OPPOSITE of what the author wrote,
-;;              and assistive technology read a different UI than the client
-;;              render shows.
+;;              from the attribute being absent, so dropping the `false`
+;;              would make server markup assert the OPPOSITE of what the
+;;              author wrote, and assistive technology would read a different
+;;              UI than the client render shows.
 ;;   presence   the true boolean attributes (`disabled`, `checked`, …) and the
 ;;              overloaded booleans (`download`, `capture`) — presence IS
 ;;              truth and `disabled="false"` is still TRUTHY to a browser, so
@@ -1284,7 +1278,7 @@
 ;; ===========================================================================
 
 (deftest render-to-string-aria-and-data-booleans-stringify
-  (testing "rf2-r9kf — an `aria-*` boolean stringifies in BOTH directions;
+  (testing "An `aria-*` boolean stringifies in BOTH directions;
             `false` is a state, never an omission"
     (is (= "<button aria-expanded=\"true\">x</button>"
            (rf.ssr.emit/render-to-string [:button {:aria-expanded true} "x"] {}))
@@ -1302,7 +1296,7 @@
            (rf.ssr.emit/render-to-string [:div {:aria-disabled false}] {}))
         "aria-disabled false survives"))
 
-  (testing "rf2-r9kf — `data-*` booleans stringify the same way"
+  (testing "`data-*` booleans stringify the same way"
     (is (= "<div data-open=\"true\"></div>"
            (rf.ssr.emit/render-to-string [:div {:data-open true}] {}))
         "data-* true → data-open=\"true\"")
@@ -1311,7 +1305,7 @@
         "data-* false → data-open=\"false\"")))
 
 (deftest render-to-string-booleanish-attrs-stringify-both-ways
-  (testing "rf2-r9kf — the nested editable-parent regression: an explicit
+  (testing "The nested editable-parent case: an explicit
             `false` on a child is how it opts OUT of an editable ancestor, so
             dropping it silently makes the child editable"
     (is (= (str "<div contentEditable=\"true\">"
@@ -1323,7 +1317,7 @@
             {}))
         "the child keeps its explicit contentEditable=\"false\" marker"))
 
-  (testing "rf2-r9kf — every booleanish family member stringifies true AND
+  (testing "Every booleanish family member stringifies true AND
             false (the whole roster, table-driven)"
     (doseq [attribute-key [:contentEditable :draggable :spellCheck]
             [value expected] [[true "true"] [false "false"]]]
@@ -1333,7 +1327,7 @@
                " → " (name attribute-key) "=\"" expected "\"")))))
 
 (deftest render-to-string-presence-classes-are-preserved
-  (testing "rf2-r9kf CONTROL — true boolean attributes keep PRESENCE
+  (testing "CONTROL — true boolean attributes keep PRESENCE
             semantics. `disabled=\"false\"` is truthy to a browser, so
             emitting the false value here would disable the control"
     (is (= "<input disabled required>"
@@ -1346,7 +1340,7 @@
            (rf.ssr.emit/render-to-string [:input {:checked false :readonly false}] {}))
         "checked/readonly false stay omitted"))
 
-  (testing "rf2-r9kf CONTROL — overloaded booleans keep their own shape:
+  (testing "CONTROL — overloaded booleans keep their own shape:
             true → presence, false → omitted, any other value stringifies"
     (is (= "<a download>d</a>"
            (rf.ssr.emit/render-to-string [:a {:download true} "d"] {}))
@@ -1358,7 +1352,7 @@
            (rf.ssr.emit/render-to-string [:a {:download "report.pdf"} "d"] {}))
         "a string download stringifies"))
 
-  (testing "rf2-r9kf CONTROL — a boolean on an ORDINARY attribute never
+  (testing "CONTROL — a boolean on an ORDINARY attribute never
             becomes a bare attribute (react-dom drops it)"
     (is (= "<div>x</div>"
            (rf.ssr.emit/render-to-string [:div {:title true} "x"] {}))
@@ -1368,8 +1362,8 @@
         "false on an ordinary attribute is dropped")))
 
 (deftest render-shell-applies-the-same-boolean-classes
-  (testing "rf2-r9kf — the streaming shell walker re-derives attrs through the
-            SAME `attr-string`, so the classes must hold there too; a fix
+  (testing "The streaming shell walker re-derives attrs through the
+            SAME `attr-string`, so the classes must hold there too; a change
             landing on one hiccup mode only is the drift this pins"
     (let [tree [:div {:aria-expanded false :contentEditable false}
                 [:button {:disabled true :aria-disabled false} "go"]]
@@ -1401,9 +1395,9 @@
       :else                                       :absent)))
 
 (deftest boolean-classes-agree-with-the-structural-tree-serialiser
-  (testing "rf2-r9kf — the hiccup emitter and `emit-ui-tree` reach the SAME
+  (testing "The hiccup emitter and `emit-ui-tree` reach the SAME
             class verdict for every row of 004B §Booleans and their
-            neighbours. Compared as CLASSES, not bytes: the two pipelines stay
+            neighbours. Compared as CLASSES, not bytes: the two pipelines are
             separate (004B) and differ in presence spelling and name mapping;
             what must not differ is which class an attribute is in"
     (doseq [[attribute-key value] [[:aria-hidden true]     [:aria-hidden false]

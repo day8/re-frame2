@@ -1,31 +1,29 @@
 (ns re-frame.hash-parity-test
   "JVM side of the render-tree-hash cross-runtime byte-identity parity
-  smoke (rf2-1q9de).
+  smoke.
 
   Spec 011 §Hydration-mismatch detection pins the hash as byte-identical
   between CLJS and JVM runtimes: the server hashes the render-tree at
   SSR time and the client recomputes the hash on first render — a
-  mismatch produces `:rf.ssr/hydration-mismatch`. Before this file the
-  only JVM↔CLJS hash literals pinned anywhere were one ASCII smoke
+  mismatch produces `:rf.ssr/hydration-mismatch`.
+  `re-frame.hash-check-cljs-test` pins one ASCII smoke
   (`9d7457ef` for `[:div {:class \"x\"} [:p \"hi\"]]`) and one
-  bare-string non-ASCII pin (`a82b5049` for `\"café\"`) at
-  `re-frame.hash-check-cljs-test` (rf2-t7ktb). The audit at rf2-asmj1
-  called this `the under-appreciated win` and rf2-1q9de extends to a
-  representative corpus spanning empty containers, scalars, hiccup
+  bare-string non-ASCII pin (`a82b5049` for `\"café\"`); this file
+  extends that to a representative corpus spanning empty containers, scalars, hiccup
   trees of growing depth, namespaced-keyword keys/values, multi-byte
   UTF-8 (Latin-1 supplement, Cyrillic, CJK), UTF-16 surrogate-pair
   codepoints, set ordering, list-vs-vector branching, and a 20-child
   tree exercising the FNV multiply-accumulate loop.
 
-  Pattern mirrors `re-frame.schemas.digest-parity-test` (rf2-xssfv) —
+  Pattern mirrors `re-frame.schemas.digest-parity-test` —
   both runtimes consume the SAME fixture map (loaded from a shared
   `.cljc` fixtures namespace) and pin the SAME canonical literal. The
   literal IS the cross-host byte-comparison point. The companion CLJS
   test lives at `re-frame.ssr.hash-parity-cljs-test` and pins the same
   literals against the same fixtures.
 
-  The hash-stability and nil-pruning equivalence rules are already
-  pinned in `re-frame.ssr-hash-test` (rf2-6djjl); this namespace focuses
+  The hash-stability and nil-pruning equivalence rules are
+  pinned in `re-frame.ssr-hash-test`; this namespace focuses
   on byte-identity literals, not structural equivalence."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.ssr.hash :as rf.ssr.hash]
@@ -54,14 +52,14 @@
 
 ;; ---- nil-pruning equivalence pairs ---------------------------------------
 ;;
-;; Per Spec 011 §Hydration-mismatch detection + rf2-6djjl: nil values
+;; Per Spec 011 §Hydration-mismatch detection: nil values
 ;; in attribute maps and nil children in sequences are pruned. The
 ;; with-nil and without-nil inputs MUST hash to the SAME pinned literal
-;; on both runtimes. The pre-existing `re-frame.ssr-hash-test` (JVM-only)
+;; on both runtimes. `re-frame.ssr-hash-test` (JVM-only)
 ;; asserts the equivalence but pins no literal; this file pins it.
 
 (deftest jvm-render-tree-hash-prunes-nil-to-canonical-literal
-  (testing "Spec 011 + rf2-6djjl — both the with-nil and without-nil
+  (testing "Spec 011 — both the with-nil and without-nil
             inputs MUST hash to the pinned literal. A drift in either
             the pruning step OR the FNV byte stream would fail one of
             the two assertions."

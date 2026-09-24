@@ -5,7 +5,7 @@
   The schema family and its compatibility rule are owned by
   [Spec 004C §2]; this namespace owns what Spec 011 owes it: the
   **extension keys** the server render supplies, the **wire form** the
-  manifest rides, and the **discovery** rule `hydrate-root` follows to
+  manifest rides, and the **discovery** rule a hydrating root follows to
   find it.
 
   ## The one invariant: the manifest is a VERSIONED SUPERSET
@@ -21,17 +21,14 @@
   004C §2 rule 3), so there is no migration step, no negotiation
   handshake, and no second schema to keep in sync. `problems` below is
   the executable statement of the property, and it is checked over
-  HAND-BUILT manifests only. `re-frame.ui` was retired (rf2-0yp7w) and no
-  remaining substrate emits a Root Descriptor, so the compiler-backed
-  subset-property suite that once fed real descriptor output to the
-  validator has no producer left; it was deleted rather than re-expressed
-  over a transcribed fixture, and `re-frame.ssr.root-manifest-cljs-test`
-  records that gap.
+  HAND-BUILT manifests only: no substrate emits a Root Descriptor, so
+  there is no real descriptor output to feed the validator, and
+  `re-frame.ssr.root-manifest-cljs-test` records that gap.
 
   Readers ignore unknown keys (004C §2 rule 2). `problems` therefore
   validates only the keys it KNOWS, and only for SHAPE — it never
   rejects a map for carrying an extra key, including the dev-only
-  `:root-id-provenance` an S1 descriptor may still hold. Stripping that
+  `:root-id-provenance` an S1 descriptor may hold. Stripping that
   key is an EMIT-side duty (`manifest` does it); it is not a read-side
   rejection, or a descriptor could not validate.
 
@@ -60,21 +57,21 @@
   a reader to trust the cheaper copy; one spelling, in the content, is
   the whole rule.
 
-  This follows the S4 fixture precedent (rf2-j81hs): a wire artefact
+  This follows the S4 fixture rule: a wire artefact
   names things EXPLICITLY, never implicitly. The manifest names the
   mounted view through the explicit `:view-id` KEY — it never re-spells
   a view as a callable or a head position, so the keyword-head ambiguity
-  that forced the `[:view-ref <id> & args]` marker in the conformance
+  that needs the `[:view-ref <id> & args]` marker in the conformance
   fixtures cannot arise here.
 
   ## What this namespace deliberately does NOT do
 
   No schema framework, no migration mechanism, no version negotiation.
   v1 is the first version, not a compatibility layer. Assembling
-  manifests during a real page render, the Layer-2 per-response page
-  registry (004C §7), and the client `hydrate-root` preflight that
-  CONSUMES a discovered manifest are later S5 leaves — this namespace
-  supplies the shape, the wire, and the finder they will use."
+  manifests during a page render, the Layer-2 per-response page
+  registry (004C §7), and the client hydration preflight that
+  CONSUMES a discovered manifest are not this namespace's job — it
+  supplies the shape, the wire, and the finder."
   (:require [clojure.string :as str]
             [re-frame.error :as rf.error]
             [re-frame.ssr.constants :as rf.ssr.constants]
@@ -134,7 +131,7 @@
   (004C §2 rule 2). An unmodified S1 Root Descriptor therefore validates
   unchanged — making any extension key mandatory here would break that,
   which is exactly what this namespace's validation tests watch — over
-  hand-built manifests, there being no live descriptor producer left to
+  hand-built manifests, there being no live descriptor producer to
   check it against (see the ns docstring)."
   [m]
   (cond
@@ -233,13 +230,13 @@
   "`2^53 - 1` — the largest integer a browser number (an IEEE-754 double)
   holds EXACTLY. Beyond it, consecutive integers share a representation:
   the CLJS reader turns `9007199254740993` into `9007199254740992` and
-  says nothing (rf2-v4foc)."
+  says nothing."
   9007199254740991)
 
 (defn portable-number?
   "Is the number `v` of a TYPE and RANGE the browser holds exactly? The type /
   range half of `wire-number?` below, shared with the hydration payload's
-  crossing check (`re-frame.ssr.payload-policy`, rf2-3x7nj.13.3) so the two
+  crossing check (`re-frame.ssr.payload-policy`) so the two
   wires cannot drift apart on which JVM numbers cross.
 
   JVM: no Ratio, BigDecimal, BigInt / BigInteger or Float; integers only
@@ -277,7 +274,7 @@
 
   **JVM** — the server holds numeric types the browser has none of, and
   integers wider than a double can hold. Both cross badly, and both
-  cross SILENTLY (rf2-v4foc):
+  cross SILENTLY:
 
   | JVM value | prints | CLJS reads back |
   |---|---|---|
@@ -306,7 +303,7 @@
   they are holding.
 
   The type / range rule is `portable-number?`, shared with the hydration
-  payload (rf2-3x7nj.13.3); this adds only the NaN clause."
+  payload; this adds only the NaN clause."
   [v]
   (and (portable-number? v)
        (not #?(:clj  (and (double? v) (Double/isNaN v))
@@ -328,16 +325,16 @@
     (boolean? v) true
     ;; Not every number crosses. The JVM has numeric types and integer
     ;; widths the browser has none of, and each one arrives silently
-    ;; WRONG rather than failing — see `wire-number?` (rf2-v4foc).
+    ;; WRONG rather than failing — see `wire-number?`.
     (number? v)  (wire-number? v)
     (string? v)  true
     (keyword? v) true
     (symbol? v)  true
-    ;; A record satisfies `map?`, so without this arm it took the map
-    ;; branch, every entry tested carryable, and the record was declared
-    ;; wire-safe (rf2-v4foc). But `pr-str` does not emit a record as a
+    ;; A record satisfies `map?`, so without this arm it would take the map
+    ;; branch, every entry would test carryable, and the record would be
+    ;; declared wire-safe. But `pr-str` does not emit a record as a
     ;; map — it emits the TAGGED literal `#my.ns.R{:x 1}`, and the safe
-    ;; reader has no constructor for that tag, so the body threw
+    ;; reader has no constructor for that tag, so the body would throw
     ;; `:invalid :unreadable` at the far end of the wire. The check must
     ;; precede `map?`: a record is map-LIKE but not map-PRINTING, and
     ;; this predicate is about the printed form.
@@ -368,9 +365,9 @@
        {:recovery :re-render-the-root-manifest
         :extra    {:invalid :props :got props}}))
     ;; Both HALVES of every entry are checked. Testing only the value
-    ;; (rf2-v4foc) let an opaque KEY — a fn, a host object — through: the
-    ;; entry looked fine, `pr-str` emitted `#object[…]` for the key, and
-    ;; the reader rejected the whole body on the client. A prop map is
+    ;; would let an opaque KEY — a fn, a host object — through: the
+    ;; entry would look fine, `pr-str` would emit `#object[…]` for the key,
+    ;; and the reader would reject the whole body on the client. A prop map is
     ;; carried key-and-value, so it is validated key-and-value.
     (doseq [[k v] props]
       (let [bad-key? (not (edn-carryable? k))]
@@ -470,8 +467,7 @@
   vectors on the server, and NEITHER is a number, yet the browser reads both
   as `[1.0]` and rejects the second as a duplicate. Projecting the WHOLE
   key/element — to any depth — before siblings are compared is what closes
-  that gap (PR #6489 grouped only the directly-numeric siblings and missed
-  it). The projected value is used only to GROUP siblings for `=`; it is
+  that gap. The projected value is used only to GROUP siblings for `=`; it is
   never emitted, so a key whose own numbers collapse (a nested collision the
   recursion reports on its own) is projected to a well-defined value here
   without hiding that inner failure."
@@ -496,13 +492,12 @@
   numbers the browser cannot tell apart. `1` and `1.0`, or `0` and
   `-0.0`, are two distinct keys on the JVM, but the browser reads both as
   one double, so `pr-str`'ing the collection and reading it back on the
-  client rejects a DUPLICATE key/element (PR #6437 screened each value in
-  isolation and missed this).
+  client rejects a DUPLICATE key/element, which screening each value in
+  isolation cannot see.
 
   The collision need not be a bare number. `[1]` and `[1.0]` are two
   distinct VECTOR keys on the server, neither a number, yet the browser
-  reads both as `[1.0]` and rejects the duplicate all the same (PR #6489
-  grouped only the directly-numeric siblings and missed this). So siblings
+  reads both as `[1.0]` and rejects the duplicate all the same. So siblings
   are grouped by `browser-project`, which folds a WHOLE key/element to any
   depth, not by the bare-number projection. The check also recurs through
   nested maps, sets, vectors and lists — the same reach `edn-carryable?`
@@ -557,9 +552,8 @@
   redundant: `serialise-props` fails EARLY, naming the offending prop;
   this gate makes the property TOTAL. `script-html` is the only door
   onto the wire, and every descriptor key rides through it too, so
-  without it a non-carryable `:static-props` still produced a body the
-  reader rejects — the same defect as the props one, one layer out
-  (rf2-v4foc).
+  without it a non-carryable `:static-props` would produce a body the
+  reader rejects — the same defect as the props one, one layer out.
 
   One predicate, `edn-carryable?`, spelled once and enforced at both
   points. Not a second rule.
@@ -571,8 +565,7 @@
   `-0.0`, as two distinct keys — each rides the wire — yet the browser
   reads every number as one double and collapses the pair, so the emitted
   body reads back with a DUPLICATE key and the manifest changes
-  cardinality across the wire (PR #6437 checked each value in isolation
-  and missed this). So the whole manifest is also screened for cross-host
+  cardinality across the wire. So the whole manifest is also screened for cross-host
   numeric collisions here, at the one door onto the wire, and a colliding
   manifest is refused rather than emitted."
   [m]
@@ -647,8 +640,8 @@
   The one-form rule is not pedantry. `read-string` returns the FIRST form
   and silently drops whatever follows, so a body carrying trailing text
   or a second map — a truncated render, two manifests concatenated by a
-  faulty page assembly, an injected suffix — hydrated happily against the
-  first map and ignored the evidence that the wire was wrong (rf2-v4foc).
+  faulty page assembly, an injected suffix — would hydrate happily against the
+  first map and ignore the evidence that the wire was wrong.
   A manifest is one value; anything else is a corrupt body, not a body
   with extras."
   [where s]
@@ -678,7 +671,7 @@
 
 (defn canonicalize-effective-prefix
   "Resolve a validated manifest's EFFECTIVE React identifier prefix for
-  hydration identity (rf2-y3swx). React 19.2's `hydrateRoot` has no distinct
+  hydration identity. React 19.2's `hydrateRoot` has no distinct
   \"no prefix\" state: it canonicalizes an OMITTED `identifierPrefix` option to
   the empty string `\"\"`, and `useId` derives its ids from that empty prefix
   (server `renderToString` with no prefix does the same). A Root Manifest that
@@ -686,10 +679,9 @@
   React's effective EMPTY prefix — NOT \"no effective prefix at all\".
 
   Discovery IS the client hydration identity boundary, so it stamps that
-  effective value: an absent `:identifier-prefix` becomes `\"\"`. This lets the
-  client-runtime live-root uniqueness fence (Spec 004C Layer 3) see two
-  omitted-prefix roots as BOTH owning `\"\"` and reject the second before any
-  React work, and it feeds React the empty prefix it already uses — never a
+  effective value: an absent `:identifier-prefix` becomes `\"\"`, the empty
+  prefix React already uses, so two omitted-prefix roots both read as owning
+  `\"\"` — never a
   client-synthesized, root-id-derived prefix, which would disagree with the
   server and break hydration. An AUTHORED prefix passes through untouched. This
   resolves the effective IDENTITY only; the wire form and `valid?` keep
@@ -726,23 +718,23 @@
 
      Identity is then read from the CONTENT (`:root-id`), never from the
      element. `nil` means \"no manifest here\" — the caller decides what
-     that means (a hydrate-root door fails loud with
+     that means (a hydrating root fails loud with
      `:rf.error/root-manifest-invalid` `{:missing :manifest}`; a
      client-only mount never asks)."
      [container]
      (let [el (some-> container .-nextElementSibling)]
        (when (manifest-script? el)
-         ;; rf2-y3swx — stamp React's effective empty prefix onto an
+         ;; Stamp React's effective empty prefix onto an
          ;; omitted `:identifier-prefix`, so the hydration identity the caller
          ;; reads matches what React actually uses (an omitted prefix is `""`).
          (canonicalize-effective-prefix
           (read-manifest 'rf.ssr/discover-root-manifest (.-textContent el)))))))
 
 ;; ---------------------------------------------------------------------------
-;; The `view -> core late-bind <- ssr` discovery seam (rf2-3omxp)
+;; The `view -> core late-bind <- ssr` discovery seam
 ;; ---------------------------------------------------------------------------
 ;;
-;; A view artefact's hydrate-root door must resolve a container's Root Manifest,
+;; A view artefact's hydrate door must resolve a container's Root Manifest,
 ;; but the discovery code lives HERE, in the optional `day8/re-frame2-ssr`
 ;; artefact. A direct `view artefact -> re-frame.ssr.manifest` require is ruled
 ;; out twice over: the Independence rule reserves the single sanctioned direct
@@ -751,21 +743,20 @@
 ;; classpath — a static require would fail to COMPILE every non-SSR app and drag
 ;; ssr into every view bundle.
 ;;
-;; So the seam is late-bind, the same shape a view artefact already
+;; So the seam is late-bind, the same shape a view artefact (Fresco)
 ;; exercises against routing (`:routing/link-model` / `:routing/activate-link!`).
 ;; The hook does EXACTLY what its name says: hand back the validated adjacent
 ;; Root Manifest, or nil when there is none. It exposes no payload install and
 ;; no other ssr operation — the two-call boot model (`ssr/hydrate!` for state,
-;; then the view artefact's own door for DOM adoption) is unchanged by it.
+;; then the view artefact's own door for DOM adoption) owns those.
 ;;
 ;; Validation failures still throw `:rf.error/root-manifest-invalid` out of
 ;; `validate!` (a corrupt manifest is a wire fault, not an absence); nil means
 ;; "no manifest here" and the CALLER decides — a hydrate door fails loud with
 ;; `{:missing :manifest}`, a client-only mount never asks.
 ;;
-;; NO in-repo consumer resolves this hook today: both consumers went with the
-;; retired donor view artefacts. The publication stays because the seam is SSR's
-;; to offer, not theirs to own.
+;; No in-repo consumer resolves this hook. It is published because the seam is
+;; SSR's to offer, not a consumer's to own.
 ;;
 ;; Per Spec 011 §Discovery and the drift-parity rule (Conventions §Late-bind
 ;; hook key grammar rule 3, enforced by `late_bind_drift_test.clj`): this

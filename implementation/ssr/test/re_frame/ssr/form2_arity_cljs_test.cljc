@@ -1,14 +1,14 @@
 (ns re-frame.ssr.form2-arity-cljs-test
-  "rf2-mocn3 (audit) — the CROSS-HOST arity contract for a Form-2 inner
+  "The CROSS-HOST arity contract for a Form-2 inner
   render fn, as a single table asserted on BOTH hosts.
 
   The whole reason `re-frame.ssr.emit/invoke-form-2-render-fn` selects an
   arity at all is that a shared `.cljc` Form-2 component must resolve the
   same way on the JVM server and in the browser. A JVM-only proof cannot
   see the defect this namespace exists to pin, because the defect IS a
-  disagreement between the hosts: the JVM helper used to walk the inner's
-  declared arities downward and take the longest accepted PREFIX, which is
-  not what a compiled ClojureScript fn does.
+  disagreement between the hosts: a JVM helper that walked the inner's
+  declared arities downward and took the longest accepted PREFIX would not
+  do what a compiled ClojureScript fn does.
 
     - A fn with a SINGLE fixed arity and no variadic tail compiles to a bare
       JavaScript function. JS drops extra arguments, so it renders.
@@ -16,26 +16,24 @@
       on `arguments.length` and throws `Invalid arity: n` when no arm matches.
 
   So `(fn ([x] …) ([x y] …))` applied to three args, and `(fn ([] …) ([x] …))`
-  applied to two, are REJECTED on the client while the prefix walk selected
-  arity 2 and arity 1 for them and rendered happily. A component like that
-  server-rendered fine and blew up on hydration.
+  applied to two, are REJECTED on the client, while a prefix walk would
+  select arity 2 and arity 1 for them and render happily. A component like
+  that would server-render fine and blow up on hydration.
 
   Most rows below therefore assert the SAME expectation on both hosts —
   either exact rendered bytes or `::arity-rejected`.
 
-  TWO ROWS DO NOT, AND THAT IS THE POINT OF THEM (rf2-mocn3, mayor ruling
-  2026-09-01). The hosts agree on arm SELECTION and on EXCESS arguments, and
+  TWO ROWS DO NOT, AND THAT IS THE POINT OF THEM. The hosts agree on arm SELECTION and on EXCESS arguments, and
   they DIVERGE on MISSING ones: JavaScript binds an absent parameter to
   `undefined` and CLJS renders, while the JVM raises `ArityException` and SSR
   fails. That divergence is deliberate — see
   `re-frame.ssr.emit/invoke-form-2-render-fn`, THE SUPPORTED CONTRACT — so
   those two rows carry a per-host expectation and record what each host
   actually does. A table whose stated contract is host agreement has to show
-  where agreement STOPS, or it advertises the same false promise the prose
-  used to.
+  where agreement STOPS, or it advertises a false promise.
 
-  So the contract this table pins is not \"the JVM is lenient\", and no
-  longer the flat \"the JVM agrees with CLJS\" it once claimed: it is \"the
+  So the contract this table pins is not \"the JVM is lenient\", and not
+  the flat \"the JVM agrees with CLJS\": it is \"the
   JVM agrees with CLJS on which arm runs and on extra args, and refuses —
   loudly, on purpose — where CLJS would silently supply `undefined`\".
 
@@ -100,7 +98,7 @@
                                          [:p (str "mxv|" a "|" b "|"
                                                   (str/join "," r))]))))
 
-;; The two MISSING-argument shapes, per the ruling: a single fixed arity of
+;; The two MISSING-argument shapes, per the contract: a single fixed arity of
 ;; two, and a fixed+variadic arm requiring two with no shorter arm to fall
 ;; back on. Both are invoked below their required count by the rows that use
 ;; them.
@@ -114,25 +112,25 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest form-2-inner-arity-selection-agrees-across-hosts
-  (testing "rf2-mocn3 — a SINGLE-fixed-arity inner is the only lenient shape:
+  (testing "a SINGLE-fixed-arity inner is the only lenient shape:
             it compiles to a bare JS function, so extra args are dropped"
     (is (= "<p>single|a</p>" (outcome [single "a" "b" "c"]))
         "an inner taking a PREFIX of the outer's args renders on both hosts")
     (is (= "<p>single|a</p>" (outcome [single "a"]))
         "the same inner at its exact arity renders on both hosts"))
 
-  (testing "rf2-mocn3 — a MULTI-arity inner dispatches on the argument count
-            and REJECTS a count no arm declares. This is the audit finding:
-            the JVM used to select the longest prefix and render"
-    ;; Compiled CLJS: `Invalid arity: 3`. The old JVM walk chose arity 2 and
-    ;; returned `<p>m2|a|b</p>` — a server render the client cannot reproduce.
+  (testing "a MULTI-arity inner dispatches on the argument count
+            and REJECTS a count no arm declares — a JVM that selected the
+            longest prefix would render instead"
+    ;; Compiled CLJS: `Invalid arity: 3`. A prefix walk would choose arity 2
+    ;; and return `<p>m2|a|b</p>` — a server render the client cannot reproduce.
     (is (= ::arity-rejected (outcome [multi-1-2 "a" "b" "c"]))
         "a 1-or-2-arity inner handed 3 args is refused on both hosts")
-    ;; Compiled CLJS: `Invalid arity: 2`. The old JVM walk chose arity 1.
+    ;; Compiled CLJS: `Invalid arity: 2`. A prefix walk would choose arity 1.
     (is (= ::arity-rejected (outcome [multi-0-1 "a" "b"]))
         "a 0-or-1-arity inner handed 2 args is refused on both hosts"))
 
-  (testing "rf2-mocn3 — non-vacuity: the SAME multi-arity inners still render
+  (testing "non-vacuity: the SAME multi-arity inners render
             through every arm they DO declare, so the rows above pin the
             rejection and not a blanket refusal of multi-arity inners"
     (is (= "<p>m2|a|b</p>" (outcome [multi-1-2 "a" "b"]))
@@ -144,7 +142,7 @@
     (is (= "<p>m0</p>" (outcome [multi-0-1]))
         "the exact 0-arity arm is selected"))
 
-  (testing "rf2-mocn3 — a satisfied VARIADIC arm receives the whole arg list,
+  (testing "a satisfied VARIADIC arm receives the whole arg list,
             never a truncated prefix and never a fabricated zero-arity call"
     (is (= "<p>v|a,b,c</p>" (outcome [var-only "a" "b" "c"]))
         "a purely variadic inner is handed every arg")
@@ -156,7 +154,7 @@
         "the same inner routes an exactly-matching count to its fixed arm")))
 
 (deftest form-2-inner-missing-arguments-diverge-across-hosts
-  (testing "rf2-mocn3 (mayor ruling 2026-09-01) — MISSING arguments are the
+  (testing "MISSING arguments are the
             ONE place the hosts disagree, and the rows record what each host
             actually does rather than a parity the code does not hold.
             JavaScript binds an absent parameter to `undefined` and the CLJS
@@ -164,8 +162,8 @@
             The JVM is the STRICTER host here, deliberately — a fabricated
             nil prop ships an author's arity mistake as production HTML,
             where a loud server failure shows it. Do not `fix` either side
-            to make these rows agree; that would be the change the ruling
-            refused"
+            to make these rows agree; that would change the supported
+            contract"
     ;; Case 1 — a SINGLE fixed arity of two, handed one arg.
     (is (= #?(:clj ::arity-rejected :cljs "<p>fixed2|a|</p>")
            (outcome [fixed-2 "a"]))
@@ -179,7 +177,7 @@
         "a fixed+variadic inner below its required count: CLJS routes to the
          variadic arm with the missing slot absent; the JVM refuses"))
 
-  (testing "rf2-mocn3 — non-vacuity: the SAME two inners render identically
+  (testing "non-vacuity: the SAME two inners render identically
             on both hosts at every count they DO accept, so the rows above
             pin the missing-argument divergence and not a JVM that has
             simply stopped rendering these shapes"
@@ -198,7 +196,7 @@
   ;; `void 0`, which is what discriminates — so pin the slot itself, on the
   ;; host where the call actually happens.
   #?(:cljs
-     (testing "rf2-mocn3 — the client's missing slot is genuinely
+     (testing "the client's missing slot is genuinely
                `js/undefined`, not a nil the client fabricated"
        (let [seen (atom nil)
              spy  (fn [a b]

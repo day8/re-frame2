@@ -1,7 +1,7 @@
 (ns re-frame.ssr.presence-truthiness-cljs-test
-  "rf2-u82a (second pass) — `re-frame.ssr.html-helpers/presence-value-truthy?`
-  driven on BOTH runtimes, because the defect this file exists for was a
-  HOST ASYMMETRY and every other test of the predicate is JVM-only.
+  "`re-frame.ssr.html-helpers/presence-value-truthy?` driven on BOTH
+  runtimes, because the failure this file guards against is a HOST
+  ASYMMETRY and every other test of the predicate is JVM-only.
 
   ## Why this file is `.cljc` and not another `.clj` beside the parity test
 
@@ -12,14 +12,14 @@
   react-dom's own measured bytes, which is the right anchor and the reason the
   rosters are trustworthy; but it is a `.clj`, so it speaks about the JVM
   alone. A predicate written to make TWO RUNTIMES emit the same bytes needs at
-  least one suite that runs on both, and the bug below is precisely the shape
-  that slips through when there is none.
+  least one suite that runs on both, and the failure below is precisely the
+  shape that slips through when there is none.
 
-  ## The bug, and why it read as cross-platform
+  ## The failure, and why it reads as cross-platform
 
-  The predicate's NaN arm shipped as the self-inequality idiom `(not= v v)`,
-  documented as *the one NaN check that reads the same on both runtimes*. It
-  does not. In ClojureScript it is correct — `=` on numbers reaches
+  The obvious NaN arm is the self-inequality idiom `(not= v v)`, easily taken
+  for *the one NaN check that reads the same on both runtimes*. It is not. In
+  ClojureScript it is correct — `=` on numbers reaches
   `identical?`, and `NaN === NaN` is false. On the JVM it is DEAD CODE:
   `clojure.lang.Util/equiv` short-circuits on reference identity before
   comparing numerically, and a predicate parameter hands ONE boxed object to
@@ -27,17 +27,17 @@
   supply and `(not= v v)` is `false` for all of them — NaN included. Nothing
   throws, no branch is skipped, and the arm simply never runs.
 
-  So the value fell through to `true`, and BOTH public JVM emitters wrote a
-  presence attribute react-dom omits: `[:button {:disabled ##NaN}]` rendered
-  `<button disabled>` and the structural path `<button disabled=\"\">`, where
-  react-dom 19.2.0 renders `<button>`. Sharing one predicate — which is what
-  rf2-u82a's first pass correctly did — made the two serialisers agree on the
-  same wrong answer, so no parity test BETWEEN them could see it either.
+  With that arm the value falls through to `true`, and BOTH public JVM
+  emitters write a presence attribute react-dom omits: `[:button {:disabled
+  ##NaN}]` renders `<button disabled>` and the structural path `<button
+  disabled=\"\">`, where react-dom 19.2.0 renders `<button>`. Sharing one
+  predicate — right in itself — makes the two serialisers agree on the same
+  wrong answer, so no parity test BETWEEN them can see it either.
 
-  That is also why these assertions are not symmetric evidence: on the old
-  source they are GREEN in ClojureScript and RED on the JVM. The runtime that
-  renders server-side is the JVM, so the half that was broken is the half that
-  ships. Keeping both halves in one file is the point — the contract is that
+  That is also why these assertions are not symmetric evidence: against a
+  `(not= v v)` arm they are GREEN in ClojureScript and RED on the JVM. The
+  runtime that renders server-side is the JVM, so the half that breaks is
+  the half that ships. Keeping both halves in one file is the point — the contract is that
   they agree, not that either is separately plausible.
 
   ## Why NaN is worth a suite at all
@@ -49,13 +49,13 @@
   guarantee to patch. A server-rendered button is DISABLED where the browser
   believes the attribute absent; nothing errors and nothing repairs it.
 
-  The controls beside it are the values a repair is most likely to take with
-  it: the number `0` and `\"\"` must stay absent (JS-falsy, logically TRUE in
+  The controls beside it are the values a change to the NaN arm is most
+  likely to take with it: the number `0` and `\"\"` must stay absent (JS-falsy, logically TRUE in
   Clojure), the STRING `\"0\"` and a whitespace string must stay present
   (truthy — only the NUMBER 0 is not), and infinity must stay present (JS
   truthiness is not finiteness). The overloaded pair is driven too, because a
-  presence-class repair that reaches `download` is the failure mode the class
-  split was introduced to stop."
+  presence-class change that reaches `download` is the failure mode the class
+  split exists to stop."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.ssr.emit :as rf.ssr.emit]
             [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
@@ -66,15 +66,15 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest presence-value-truthy-answers-nan-the-way-javascript-does
-  (testing "rf2-u82a — NaN is JS-falsy, so a presence attribute given NaN is
-            ABSENT. This is the assertion the `(not= v v)` arm could not
+  (testing "NaN is JS-falsy, so a presence attribute given NaN is
+            ABSENT. This is the assertion a `(not= v v)` arm cannot
             satisfy on the JVM, where reference identity short-circuits `=`
             before it compares numerically"
     (is (false? (rf.ssr.html-helpers/presence-value-truthy? ##NaN))
         "NaN is falsy in JavaScript: react-dom writes no attribute"))
 
-  (testing "rf2-u82a — and the repair did not widen. Every other number keeps
-            the answer it had: zero (in both its integer and its floating
+  (testing "and the NaN arm does not widen. Every other number keeps
+            its own answer: zero (in both its integer and its floating
             spellings) is the OTHER value Clojure and JavaScript disagree
             about, and infinity is the reminder that JS truthiness is not
             finiteness"
@@ -89,7 +89,7 @@
     (is (true? (rf.ssr.html-helpers/presence-value-truthy? ##-Inf))
         "including negative infinity"))
 
-  (testing "rf2-u82a — the non-numeric controls, unchanged. The STRING \"0\"
+  (testing "the non-numeric controls. The STRING \"0\"
             is the trap in the other direction: it is a non-empty string and
             therefore truthy, where the NUMBER 0 is not"
     (is (true? (rf.ssr.html-helpers/presence-value-truthy? "0"))
@@ -108,9 +108,9 @@
 ;; ---------------------------------------------------------------------------
 ;; 2. The two public emitters — the same answer, through the shipped surface.
 ;;
-;; A predicate assertion alone would not have caught the original defect being
-;; USER-VISIBLE: what makes it a bug rather than a wart is that both public
-;; render paths wrote the attribute. Both are driven here, each against its
+;; A predicate assertion alone would not show the failure being USER-VISIBLE:
+;; what makes it a bug rather than a wart is that both public render paths
+;; would write the attribute. Both are driven here, each against its
 ;; OWN no-attribute baseline, because the two pipelines spell presence
 ;; differently by design (bare `disabled` / `disabled=""`, 004B: one table,
 ;; two pipelines) and a byte comparison between them would fail for the wrong
@@ -124,21 +124,21 @@
   (rf.ssr.emit/render-to-string [:button attrs] {}))
 
 (deftest both-public-emitters-omit-a-presence-attribute-given-nan
-  (testing "rf2-u82a — the PUBLIC hiccup path. `[:button {:disabled ##NaN}]`
-            must render exactly what the empty attribute map renders; on the
-            old source it rendered `<button disabled>`"
+  (testing "the PUBLIC hiccup path. `[:button {:disabled ##NaN}]`
+            must render exactly what the empty attribute map renders; a
+            `(not= v v)` arm renders `<button disabled>`"
     (is (= (hiccup-html {}) (hiccup-html {:disabled ##NaN}))
         "NaN writes no presence attribute at all"))
 
-  (testing "rf2-u82a — the PUBLIC structural-tree path, which reaches the same
-            shared predicate. On the old source it rendered `disabled=\"\"`,
-            so the two pipelines agreed on the wrong answer and no parity test
-            between them could see it"
+  (testing "the PUBLIC structural-tree path, which reaches the same
+            shared predicate. A `(not= v v)` arm renders `disabled=\"\"` here,
+            so the two pipelines would agree on the wrong answer and no parity
+            test between them could see it"
     (is (= (tree-html {}) (tree-html {:disabled ##NaN}))
         "NaN writes no presence attribute at all"))
 
-  (testing "rf2-u82a — and the emitters still disagree with nothing. The
-            controls that a repair could plausibly have taken with it: the
+  (testing "and the emitters disagree with nothing. The controls a
+            change to the NaN arm could plausibly take with it: the
             number 0 stays absent, the string \"0\" stays present"
     (is (= (hiccup-html {}) (hiccup-html {:disabled 0}))
         "the NUMBER 0 is JS-falsy: no attribute")
@@ -150,17 +150,16 @@
         "and the structural path agrees")))
 
 ;; ---------------------------------------------------------------------------
-;; 3. The class split survives.
+;; 3. The class split holds.
 ;; ---------------------------------------------------------------------------
 
 (deftest an-overloaded-attribute-never-consults-the-presence-predicate
-  (testing "rf2-u82a — `download` and `capture` are `:overloaded`: the two
+  (testing "`download` and `capture` are `:overloaded`: the two
             booleans behave exactly as `:presence`, but a NON-boolean value is
             KEPT rather than collapsed. They must therefore be unreachable
-            from any change to the presence truthiness rule — a repair that
+            from any change to the presence truthiness rule — a change that
             collapsed NaN here would take `download=\"report.pdf\"` with it,
-            which is the whole reason the class was split out of `:presence`
-            in the first place"
+            which is the whole reason the class is separate from `:presence`"
     (is (not= (rf.ssr.emit/render-to-string [:a {}] {})
               (rf.ssr.emit/render-to-string [:a {:download ##NaN}] {}))
         "an overloaded name keeps a non-boolean value, NaN included")
@@ -168,6 +167,6 @@
               (rf.ssr.emit/render-to-string [:a {:download 0}] {}))
         "and keeps the number 0, which the presence class omits")
     (is (= :overloaded (rf.ssr.html-helpers/boolean-attr-class "download"))
-        "the split itself is still in place")
+        "the split itself is in place")
     (is (= :presence (rf.ssr.html-helpers/boolean-attr-class "disabled"))
-        "and `disabled` is still the presence class this file drives")))
+        "and `disabled` is the presence class this file drives")))

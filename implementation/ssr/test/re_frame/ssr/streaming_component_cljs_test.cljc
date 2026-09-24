@@ -1,7 +1,7 @@
 (ns re-frame.ssr.streaming-component-cljs-test
   "Cross-host contract for the suspense COMPONENT
-  (`re-frame.ssr.suspense/boundary`) and the failed-boundary set it reads
-  (rf2-ycz3k; rf2-j81hs ruling SS2 + SS3). Per Spec 011 §Streaming SSR.
+  (`re-frame.ssr.suspense/boundary`) and the failed-boundary set it reads.
+  Per Spec 011 §Streaming SSR.
 
   Runs on BOTH hosts, which is the point: the component's whole reason to
   exist is that ONE authoring form has to work on the JVM streaming
@@ -30,7 +30,7 @@
 ;; support, and a map is `IFn` (key lookup), so a `{:before …}` fixture
 ;; on the JVM composes to a fn that returns nil WITHOUT calling the test
 ;; — the whole namespace then reports "Ran 0 tests" and reads as GREEN.
-;; This suite hit exactly that while being written. `:async?` is left
+;; `:async?` is left
 ;; unset so `make-reset-runtime-fixture` also returns its fn form.
 (use-fixtures :each
   (fn [f]
@@ -99,7 +99,7 @@
    (deftest shell-walk-defers-a-component-boundary
      (testing "the shell walker resolves the callable head, sees the
                marker it expands to, and registers a continuation —
-               the walker protocol is unchanged"
+               the same walker protocol a bare marker takes"
        (let [fid :test/shell-walk]
          (rf/reg-sub :card/by-id (fn [db [_ id]] (get-in db [:cards id])))
          (rf/reg-event :server-init {:platforms #{:server}}
@@ -127,9 +127,9 @@
 
 #?(:clj
    (deftest failed-continuations-ride-the-final-payloads-runtime-slice
-     (testing "SS3: the server has always known :failed? per continuation
-               and DROPPED it; it now rides the serialisable runtime slice
-               so the client can render the declared fallback"
+     (testing "the server knows :failed? per continuation, and it rides
+               the serialisable runtime slice so the client can render the
+               declared fallback"
        (let [fid :test/failed-payload]
          (rf/reg-sub :card/by-id (fn [db [_ id]] (get-in db [:cards id])))
          (rf/make-frame {:id fid :platform :server})
@@ -162,10 +162,11 @@
 
 #?(:clj
    (deftest one-tree-hashes-identically-for-both-hosts
-     (testing "the component canonicalises to the existing #fn[] token, so
+     (testing "the component canonicalises to the #fn[] token, so
                the render-tree hash of the SHARED tree is stable — the
                property a reader-conditional card-slot could never have
-               (it made the two hosts hash structurally different trees)"
+               (it would make the two hosts hash structurally different
+               trees)"
        (let [fid :test/hash]
          (rf/make-frame {:id fid :platform :server})
          (let [tree [:section.cards
@@ -196,7 +197,7 @@
 
 #?(:cljs
    (deftest client-renders-the-declared-fallback-for-a-failed-boundary
-     (testing "SS2: a boundary in the failed set renders its DECLARED
+     (testing "a boundary in the failed set renders its DECLARED
                fallback — the markup the failed chunk left in the DOM"
        (rf.ssr.suspense/record-failed-boundaries! #{:card.flaky})
        (is (= [:p "loading"]
@@ -220,7 +221,7 @@
 
 #?(:cljs
    (deftest the-durable-set-round-trips-through-hydration
-     (testing "SS3: the payload's runtime slice installs into the frame's
+     (testing "the payload's runtime slice installs into the frame's
                runtime-db — the durable, inspectable record (distinct from
                the render-time one above)"
        (let [fid :test/client-durable]

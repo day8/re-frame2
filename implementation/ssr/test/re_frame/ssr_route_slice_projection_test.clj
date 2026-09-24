@@ -1,5 +1,5 @@
 (ns re-frame.ssr-route-slice-projection-test
-  "rf2-4xut98 — the SSR hydration `:rf/runtime-db` payload must NOT ship a
+  "The SSR hydration `:rf/runtime-db` payload must NOT ship a
   route's classified `:query` / `:params` RAW.
 
   EP-0025 §Subsystem matrix (`reg-route` row) + Spec 012 §Route data
@@ -12,27 +12,27 @@
   `:source :route`). Hydration is a serialized-state egress boundary projected
   under `:rf.egress/ssr-hydration`. The SSR `:rf/runtime-db` payload ships the
   durable `:current` route slice so the client reconstitutes the active route —
-  but the prior `project-runtime-db` copied that slice via a bare `select-keys`,
-  so a route whose `:query` / `:params` the frame classifies sensitive / large
-  shipped that value RAW.
+  and copying that slice with a bare `select-keys` would ship a route's
+  `:query` / `:params` value RAW even where the frame classifies it
+  sensitive / large.
 
-  This is the IDENTICAL leak class machines fixed under rf2-jm2u63 (durable
-  snapshots shipped `:data` raw before `:machines/project-ssr-runtime-db`) and
-  app-db fixed under rf2-bt9kct (`project-app-db-egress`). The fix runs the
-  allowlisted routing slice through `project-routing-egress` (the
-  `:rf.egress/ssr-hydration` profile, seeded at the offset
-  `:path [:rf.runtime/routing]` so the registry's absolute re-rooted route paths
-  match), mirroring the machines hook.
+  This is the same leak class as durable machine snapshots (whose `:data`
+  `:machines/project-ssr-runtime-db` projects) and app-db
+  (`project-app-db-egress`). `project-runtime-db` runs the allowlisted routing
+  slice through `project-routing-egress` (the `:rf.egress/ssr-hydration`
+  profile, seeded at the offset `:path [:rf.runtime/routing]` so the
+  registry's absolute re-rooted route paths match), mirroring the machines
+  hook.
 
-  This pins the fix end-to-end on the ACTUAL SSR projection path
+  This pins that end-to-end on the ACTUAL SSR projection path
   (`re-frame.ssr.payload-policy/project-runtime-db` →
   `re-frame.ssr.payload-policy/build-payload`), driving a genuine route
   `:sensitive` / `:large` declaration through the route classification lowering
   (`re-frame.routing.classification`, `:source :route`) installed into the live
-  request frame's elision registry. The existing
+  request frame's elision registry.
   `payload_policy_cljs_test/project-runtime-db-ships-durable-omits-transient`
-  uses a NON-sensitive sample route, so the leak was invisible there — this is
-  the sensitive-route regression that gap called for (rf2-ugoxyv)."
+  uses a NON-sensitive sample route, so the leak would be invisible there —
+  this is the sensitive-route case."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
@@ -49,7 +49,7 @@
 ;;
 ;; An OAuth-callback-shaped route: the `:query :token` carries a live secret
 ;; (classify SENSITIVE → redact), the `:params :payload` carries a large blob
-;; (classify LARGE — which the hydration wire does NOT size-elide, rf2-hjz4r,
+;; (classify LARGE — which the hydration wire does NOT size-elide,
 ;; so it rides whole), and `:query :return-to` is a
 ;; plain navigation breadcrumb (classified by nothing → rides verbatim). The
 ;; declaration is PROJECTION-RELATIVE to the route's `{:query … :params …}`
@@ -97,7 +97,7 @@
 (deftest sensitive-route-query-redacted-in-hydration-projection
   (testing "a route-declared sensitive :query path is redacted to :rf/redacted
             in the SSR :rf/runtime-db projection; the large :params path rides
-            whole (the hydration wire applies no size elision, rf2-hjz4r); the
+            whole (the hydration wire applies no size elision); the
             plain :query sibling rides verbatim; the transient
             :pending-navigation is stripped"
     (install-route-classification!)

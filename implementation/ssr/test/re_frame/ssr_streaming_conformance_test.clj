@@ -1,6 +1,6 @@
 (ns re-frame.ssr-streaming-conformance-test
   "Drive the `:ssr/streaming` conformance fixture against the live ssr
-  runtime. Per rf2-ojakd / rf2-olb64 (a) — the fixture pins the
+  runtime. The fixture pins the
   wire-shape contract for `:rf/suspense-boundary`; this test is the
   fixture's executable counterpart.
 
@@ -25,7 +25,7 @@
 
   The conformance fixture names a view by ID — `[:streaming.test/root]` —
   which is a language-NEUTRAL pin: EDN cannot spell a callable, and every
-  port resolves an id its own way. Per rf2-j81hs a keyword head is a DOM /
+  port resolves an id its own way. A keyword head is a DOM /
   custom element on every host, so the id must be turned into a CALLABLE
   head (`(rf/view :id)`) before it reaches the emitter — otherwise this
   suite would silently assert against a phantom `<root>` element.
@@ -33,8 +33,8 @@
   The fixture spells the reference as the explicit marker
   `[:view-ref <id> & args]` — NOT as a bare keyword head. That is
   deliberate: an implicit \"a keyword head here means a view\" rule would
-  recreate, at the fixture layer, exactly the server/client ambiguity
-  rf2-j81hs removed, and fixtures are what other implementations learn
+  create, at the fixture layer, exactly the server/client ambiguity
+  the head grammar rules out, and fixtures are what other implementations learn
   the grammar from. The same marker is resolved inside view bodies by
   `re-frame.conformance/walk-hiccup` and for the generic corpus by
   `re-frame.ssr-conformance-test/realise-heads`.
@@ -62,7 +62,7 @@
         [:ul.comments [:li "First comment"] [:li "Nice piece"]])
       (rf/reg-view ^{:rf/id :streaming.test/related} _rl []
         [:ul.related [:li "Related X"] [:li "Related Y"]])
-      ;; rf2-j81hs — view references are CALLABLE heads. `(rf/view :id)`
+      ;; View references are CALLABLE heads. `(rf/view :id)`
       ;; resolves inside this fn body, i.e. at RENDER time, by which point
       ;; all four views above are registered; a top-level vector would
       ;; capture nil (the `:each` reset clears the registrar first).
@@ -86,17 +86,17 @@
 (defn- read-one-form
   "Read `text` as EXACTLY ONE top-level EDN form, or throw. `read-string`
   returns only the FIRST and silently discards the rest, so a fixture whose
-  expectation block closes early passes having verified less than it claims
-  (rf2-5mr6). Unlike the corpus-walking runners this namespace names its two
+  expectation block closes early passes having verified less than it claims.
+  Unlike the corpus-walking runners this namespace names its two
   fixtures directly, so there is no `:fixture/load-error` datum here — but
   the silent-truncation hazard is identical. Full rationale on
-  `re-frame.conformance-test/read-one-form` (rf2-98ni)."
+  `re-frame.conformance-test/read-one-form`."
   [text fixture-name]
   (let [eof  (Object.)
         rdr  (java.io.PushbackReader. (java.io.StringReader. text))
         fail (fn [why data]
                (throw (ex-info (str "conformance fixture " fixture-name " " why
-                                    " (rf2-98ni, rf2-5mr6)")
+                                    ".")
                                (assoc data :fixture/file fixture-name))))
         rd   (fn []
                (try (edn/read {:eof eof} rdr)
@@ -164,7 +164,7 @@
           payload (rf.ssr/streaming-build-final-payload
                     :rf/default
                     (:render-hash input)
-                    ;; rf2-lm2yzy — the WIRE :rf/frame-id is decoupled from the
+                    ;; The WIRE :rf/frame-id is decoupled from the
                     ;; projection frame. This fixture's stable `:rf/default`
                     ;; server frame is named as the `:client-frame-id` wire id,
                     ;; so the payload carries `:rf/frame-id` to match the
@@ -187,7 +187,7 @@
           "wire-order pins shell → N resolved → final-payload → close"))))
 
 ;; ===========================================================================
-;; Nested-boundary fixture — rf2-sgvn6 / rf2-b1v8v. The inner boundary
+;; Nested-boundary fixture. The inner boundary
 ;; registers DURING the outer continuation render and drains at the FIFO
 ;; tail. Drives spec/conformance/fixtures/ssr-streaming-nested.edn.
 ;; ===========================================================================
@@ -217,7 +217,7 @@
      [:footer "End"]]))
 
 (deftest nested-fixture-shell-registers-only-outer
-  (testing "rf2-sgvn6: the shell walk registers ONLY the outer
+  (testing "the shell walk registers ONLY the outer
             continuation; the inner is buried in the unresolved outer
             subtree and its fallback is NOT in the shell"
     (reg-nested-fixture-handlers!)
@@ -239,7 +239,7 @@
           "shell registers exactly the outer continuation"))))
 
 (deftest nested-fixture-outer-drain-registers-inner-fifo
-  (testing "rf2-sgvn6 / rf2-b1v8v: draining the outer continuation resolves
+  (testing "draining the outer continuation resolves
             cleanly, carries the inner FALLBACK template inline, defers the
             inner body, and returns the inner continuation on :continuations
             (FIFO tail). Draining the inner then resolves the inner body."
@@ -278,7 +278,7 @@
             "the inner subtree registers no further nested boundaries")))))
 
 (deftest nested-fixture-wire-order-pinned
-  (testing "rf2-sgvn6: the nested fixture's wire-order pins shell → outer
+  (testing "the nested fixture's wire-order pins shell → outer
             resolved → inner resolved (FIFO tail) → final-payload → close"
     (let [fixture (load-nested-fixture)
           wire    (:fixture/wire-order fixture)

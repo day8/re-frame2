@@ -1,22 +1,19 @@
 (ns re-frame.late-bind-missing-test
-  "Per rf2-5b6x — assert the documented missing-artefact error contract for
-  the ssr artefact's `re-frame.core` REGISTRAR re-exports.
+  "Assert the documented missing-artefact error contract for the ssr
+  artefact's `re-frame.core` REGISTRAR re-exports.
 
-  rf2-kuky.87 deleted the six QUERY re-exports (`render-to-string`,
-  `render-tree-hash`, `project-error`, `head-model->html` and the two head
-  reads rf2-kuky.89 has since collapsed into one `head-model`) and their
-  late-bind hooks: `re-frame.ssr` /
-  `re-frame.ssr.head` are their only door, so an app that calls one has
-  necessarily loaded the artefact and the guided-failure branch this test
-  pins cannot be reached for them. `reg-error-projector` and `reg-head`
-  remain on the façade and keep the contract.
+  There are no QUERY re-exports (`render-to-string`, `render-tree-hash`,
+  `project-error`, `head-model->html`, `head-model`) and no late-bind hooks
+  for them: `re-frame.ssr` / `re-frame.ssr.head` are their only door, so an
+  app that calls one has necessarily loaded the artefact and the
+  guided-failure branch this test pins cannot be reached for them.
+  `reg-error-projector` and `reg-head` are on the façade and carry the
+  contract.
 
   Each per-feature split (schemas / machines / routing / flows / http /
   ssr) raises a documented `:rf.error/<artefact>-artefact-missing`
   ex-info when a consumer calls a re-exported surface but the artefact
-  is absent from the classpath. The contract was previously only
-  documented in prose; this test pins the runtime behaviour against
-  regression.
+  is absent from the classpath. This test pins that runtime behaviour.
 
   Strategy: the ssr artefact IS on the classpath here (the test ns
   requires `re-frame.ssr`, which fires the late-bind hook
@@ -25,8 +22,8 @@
   assertion, then restore it in `finally`. Identical mechanism as the
   test would use on CLJS.
 
-  Per Spec 002 §The late-bind seam, rf2-uo7v (ssr split), and the
-  prose at the call sites in `re-frame.core`."
+  Per Spec 002 §The late-bind seam and the prose at the call sites in
+  `re-frame.core`."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as rf.late-bind]
@@ -60,7 +57,7 @@
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)
               "reg-error-projector throws when the ssr artefact is absent")
-          ;; rf2-vvixub — message is the human :reason + trailing
+          ;; The message is the human :reason + trailing
           ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
           ;; not exact keyword-equality.
           (is (re-find #"\[:rf\.error/ssr-artefact-missing\]" (.getMessage thrown))
@@ -68,7 +65,7 @@
           (is (= :rf.error/ssr-artefact-missing (:rf.error/id (ex-data thrown)))
               "ex-data carries the canonical :rf.error/id discriminator")
           (let [data (ex-data thrown)]
-            ;; Per rf2-j8icl the `:where` symbol is namespace-qualified
+            ;; The `:where` symbol is namespace-qualified
             ;; to the user-facing surface (`rf/reg-error-projector`) so
             ;; greping for the symbol finds call sites in the user's
             ;; codebase. The macro forwards to the plain-fn delegate

@@ -33,9 +33,8 @@
 
   The marker is INTERNAL syntax between the component and this walker,
   not an authoring surface — a keyword head is an HTML element on every
-  client substrate (rf2-j81hs), so a marker written by hand into a shared
-  render tree paints a phantom `<suspense-boundary>`. The walker protocol
-  below is unchanged by the component's introduction.
+  client substrate, so a marker written by hand into a shared
+  render tree paints a phantom `<suspense-boundary>`.
 
   Three load-bearing operations:
 
@@ -69,10 +68,10 @@
             [clojure.string]
             [re-frame.error :as rf.error]
             [re-frame.frame :as rf.frame]
-            ;; rf2-j81hs — `re-frame.registrar` / `re-frame.interop` dropped
-            ;; with the walker's keyword-view branch (registry lookup +
-            ;; debug-gated source-coord injection). The shell walk no longer
-            ;; consults the registry to decide what a head means.
+            ;; No `re-frame.registrar` / `re-frame.interop`: the shell walk
+            ;; never consults the registry to decide what a head means (a
+            ;; keyword head is always an element), and injects no
+            ;; source coords.
             ;; The suspense COMPONENT's reserved runtime-db slot. `boundary`
             ;; depends on core only (frame + error), never on this ns, so the
             ;; require is acyclic: the component expands TO the marker this
@@ -220,7 +219,7 @@
 ;; sensitive CHILD under an allowed top-level key rides raw. That violates
 ;; EP-0015 §14: production browser egress is ALLOWLIST-FIRST and then centrally
 ;; projected under `:rf.egress/ssr-hydration` — the SAME contract the final
-;; `__rf_payload`'s `:rf/app-db` already obeys (rf2-bt9kct).
+;; `__rf_payload`'s `:rf/app-db` obeys.
 ;;
 ;; `project-delta` applies that SAME two-step boundary to the raw delta:
 ;;
@@ -248,12 +247,12 @@
   an off-allowlist changed key is dropped and a frame-sensitive child inside an
   allowed changed key redacts. The projected delta then obeys the final
   payload's numeric crossing rule on a JVM host
-  (`payload-policy/check-portable-numbers!`, rf2-3x7nj.13.3): a number the
+  (`payload-policy/check-portable-numbers!`): a number the
   browser would read back as a different value throws
   `:rf.error/ssr-hydration-payload-invalid`. `policy-opts` carries the
   `:payload` policy (validated at handler-construction time, so a malformed
   policy never reaches here) and the optional `:payload-include-sensitive`
-  permit, applied exactly as the final payload applies it (rf2-hjz4r). A nil / empty delta returns `{}` (nothing to
+  permit, applied exactly as the final payload applies it. A nil / empty delta returns `{}` (nothing to
   hydrate). Pure."
   [delta frame-id {:as policy-opts}]
   (if-not (seq delta)
@@ -265,11 +264,11 @@
       ;; `:rf/redacted` sentinel, which the host's `(seq …)` emit guard cannot
       ;; walk). Short-circuit to `{}` so the host emits no delta script.
       (if (seq allowed)
-        (let [;; rf2-hjz4r — the same host permit the final payload honours,
+        (let [;; The same host permit the final payload honours,
               ;; so a delta and the final payload agree on a permitted value.
               projected (rf.ssr.payload-policy/project-app-db-egress
                           allowed frame-id (:payload-include-sensitive policy-opts))]
-          ;; rf2-3x7nj.13.3 — a delta is hydration state too, so on a JVM
+          ;; A delta is hydration state too, so on a JVM
           ;; host it obeys the final payload's numeric crossing rule.
           #?(:clj (rf.ssr.payload-policy/check-portable-numbers! :rf/app-db projected))
           projected)
@@ -394,7 +393,7 @@
         ;; `validate-tag-name!` must be recognised as void here too, or the
         ;; shell walker emits a `<BR></BR>` open+close pair.
         normalised-tag-name   (clojure.string/lower-case tag-name)
-        ;; rf2-3x7nj.13.1 / rf2-slr59 — the SAME class join, name/value
+        ;; The SAME class join, name/value
         ;; conversion and form-control special forms as the non-streaming
         ;; emitter, through its one shared function. No root attrs here.
         {merged-attrs :attrs text :text select-value :select}
@@ -405,7 +404,7 @@
         raw-text?             (contains? rf.ssr.html-helpers/raw-text-tags normalised-tag-name)]
     (cond
       void?     (str "<" tag-name (rf.ssr.emit/attr-string merged-attrs) ">")
-      ;; rf2-xbvzh — mirror the non-streaming emitter: an ordinary inline
+      ;; Mirror the non-streaming emitter: an ordinary inline
       ;; `<script>`/`<style>` with STRING content is author content, emitted
       ;; VERBATIM with only the shared closing-sequence rewrite
       ;; (`html/escape-raw-text`), byte-identical to the sync emitter and the
@@ -416,7 +415,7 @@
            (rf.ssr.html-helpers/escape-raw-text normalised-tag-name
                                  (clojure.string/join children))
            "</" tag-name ">")
-      ;; rf2-slr59 — mirror the non-streaming emitter: a `<textarea>`'s
+      ;; Mirror the non-streaming emitter: a `<textarea>`'s
       ;; `:value` (else `:default-value`) is its text body.
       (some? text)
       (str "<" tag-name (rf.ssr.emit/attr-string merged-attrs) ">"
@@ -424,7 +423,7 @@
              normalised-tag-name text)
            (rf.ssr.html-helpers/escape-html text)
            "</" tag-name ">")
-      ;; rf2-s7l5 — mirror the non-streaming emitter's leading-LF
+      ;; Mirror the non-streaming emitter's leading-LF
       ;; compensation for `<pre>`/`<listing>`/`<textarea>` with a SINGLE
       ;; string body, so progressive shell/continuation markup preserves an
       ;; authored initial newline exactly as `render-to-string` does. ONE
@@ -497,8 +496,8 @@
     (walk-suspense-boundary element continuation-accumulator)
 
     ;; Recurse into vector children so nested suspense-boundaries are
-    ;; reachable. For DOM-tag heads (which is what EVERY keyword head is,
-    ;; per rf2-j81hs) we re-walk children manually and emit the wrapping
+    ;; reachable. For DOM-tag heads (which is what EVERY keyword head is)
+    ;; we re-walk children manually and emit the wrapping
     ;; tag. For fragments, we splice children. Callable heads — the Var /
     ;; `(rf/view :id)` forms that reference a view — are invoked and their
     ;; output recursed, on the `ifn?` branch further down.
@@ -507,37 +506,37 @@
       (cond
         ;; Fragment — splice children, recurse.
         ;;
-        ;; rf2-n2y3 — A FRAGMENT MAY CARRY A PROPS MAP AT SLOT 1, AND IT IS
-        ;; NOT A CHILD. This arm was a plain `(rest element)`, so the map
-        ;; itself was walked as a child, fell through to the scalar arm's
-        ;; `emit/emit-element` → `escape-html`, and put its EDN in the
+        ;; A FRAGMENT MAY CARRY A PROPS MAP AT SLOT 1, AND IT IS
+        ;; NOT A CHILD. Walked as a child, the map would fall through to the
+        ;; scalar arm's
+        ;; `emit/emit-element` → `escape-html` and put its EDN in the
         ;; streamed shell bytes (`[:<> {:key "k"} [:div "x"]]` →
         ;; `{:key &quot;k&quot;}<div>x</div>`). `[:<> {:key i} …]` inside a
         ;; `for` is the canonical fragment idiom, so this is ordinary
-        ;; application markup, and the garbage is a guaranteed hydration
+        ;; application markup, and the garbage would be a guaranteed hydration
         ;; mismatch against a client render that emits none of it.
         ;;
-        ;; The IDENTICAL defect was fixed in the non-streaming emitter by
-        ;; rf2-3357; until this arm matched it the two paths DIVERGED on the
-        ;; same input. The slot test is the same one — `(map? (second …))` —
-        ;; which is also what `walk-dom-tag` above already uses to split a
+        ;; The non-streaming emitter makes the IDENTICAL split, so the two
+        ;; paths agree on the same input. The slot test is the same one —
+        ;; `(map? (second …))` —
+        ;; which is also what `walk-dom-tag` above uses to split a
         ;; DOM tag's attrs from its children, and the same rule as the
         ;; React-side codec's `props-map?`.
         ;;
-        ;; NO ROOT-ATTRS ANALOGUE ON THIS PATH. On the non-streaming side the
-        ;; worse half of the bug was that the map became the first child and
-        ;; displaced the rf2-lxwse `data-rf-render-hash` marker. This walker
+        ;; NO ROOT-ATTRS ANALOGUE ON THIS PATH. On the non-streaming side a
+        ;; map walked as the first child would also
+        ;; displace the `data-rf-render-hash` marker. This walker
         ;; threads no attrs at all — `walk-shell` / `walk-children` /
         ;; `walk-dom-tag` take only `[element continuation-accumulator]`, and
-        ;; `render-shell` takes only `[root-hiccup]` — so here the defect was
-        ;; the visible garbage and nothing hid behind it. (The `render-hash`
+        ;; `render-shell` takes only `[root-hiccup]` — so here the harm would
+        ;; be the visible garbage alone. (The `render-hash`
         ;; this namespace does carry is a `build-streaming-payload` argument
         ;; that rides the `__rf_payload` JSON, not a root attr.)
         ;;
         ;; WHAT HAPPENS TO THE ATTRIBUTES: dropped, silently, `:key`
-        ;; included — the rf2-3357 ruling, which owns the argument. A
+        ;; included. A
         ;; fragment is not an element, so no attribute on one has a wire
-        ;; representation, and every sibling emitter here already drops.
+        ;; representation, and every sibling emitter here drops them too.
         (= :<> head)
         (walk-children (if (map? (second element))
                          (drop 2 element)
@@ -545,7 +544,7 @@
                        continuation-accumulator)
 
         ;; Reagent-native interop head `:>` — cannot be rendered on the
-        ;; JVM (no React). rf2-ee38b.10 — mirror the non-streaming
+        ;; JVM (no React). Mirror the non-streaming
         ;; emitter and fail loud rather than splice the component+props
         ;; as raw text. Delegate to the standard emitter so the single
         ;; `:rf.error/ssr-reagent-native-head` throw lives in one place.
@@ -555,28 +554,27 @@
         ;; An unrecognised head in the reserved `:rf/*` scheme — delegate
         ;; to the standard emitter so the single
         ;; `:rf.error/invalid-hiccup-head` reserved-head throw lives in
-        ;; one place, exactly as the `:>` branch above does (rf2-j81hs).
+        ;; one place, exactly as the `:>` branch above does.
         (rf.ssr.emit/reserved-rf-head? head)
         (rf.ssr.emit/reject-reserved-rf-hiccup-head! element head)
 
         ;; DOM / custom element — always recurse via `walk-dom-tag` so
-        ;; nested suspense-boundaries are reachable. Per rf2-muasb the
-        ;; prior `some-suspense-boundary?` pre-scan was a perf
-        ;; anti-pattern: O(N) per descent, dominated whatever it saved by
+        ;; nested suspense-boundaries are reachable. A
+        ;; `some-suspense-boundary?` pre-scan would be a perf
+        ;; anti-pattern: O(N) per descent, dominating whatever it saved by
         ;; short-circuiting to `emit/emit-element`.
         ;;
-        ;; rf2-j81hs — this branch used to probe
-        ;; `(registrar/lookup :view head)` FIRST and resolve a registered
-        ;; view, falling through to `walk-dom-tag` only on a miss. That
-        ;; made a keyword head mean "registered view" on the streaming
+        ;; This branch never probes `(registrar/lookup :view head)`:
+        ;; resolving a registered view here would make a keyword head mean
+        ;; "registered view" on the streaming
         ;; server and "an HTML element" on every client substrate. One
-        ;; grammar now holds corpus-wide: a keyword head is a DOM / custom
+        ;; grammar holds corpus-wide: a keyword head is a DOM / custom
         ;; element on EVERY host (Conventions §Render-tree shape vs runtime
-        ;; lookup owns the head grammar; this finishes rf2-n82bbu). Views
+        ;; lookup owns the head grammar). Views
         ;; are referenced by
         ;; callable binding — the Var `reg-view` defs, or `(rf/view :id)`
         ;; — both of which the `ifn?` branch below resolves and recurses
-        ;; through, so a suspense boundary inside a view body is still
+        ;; through, so a suspense boundary inside a view body is
         ;; reachable.
         :else
         (walk-dom-tag element continuation-accumulator)))
@@ -584,22 +582,22 @@
     (and (vector? element) (ifn? (first element)))
     ;; Callable component head — a plain fn OR a Var reference
     ;; (`[#'component & args]`). On the JVM a Var is `ifn?` but NOT `fn?`,
-    ;; so a bare `(fn? …)` test left a Var-headed component falling through
+    ;; so a bare `(fn? …)` test would leave a Var-headed component falling through
     ;; to the `(sequential? element)` / scalar arms and emitting EDN text rather
-    ;; than resolving it (rf2-wtd8z finding 2 — same gap as the non-
-    ;; streaming emitter). The keyword branch above (DOM tags, fragments,
+    ;; than resolving it (the non-streaming emitter makes the same test).
+    ;; The keyword branch above (DOM tags, fragments,
     ;; `:>`, reserved `:rf/*` heads) is reached first, so the only callables
     ;; reaching here are fns and Var references. Resolve + recurse on the
     ;; body so the shell walk threads through the Var head.
     ;;
-    ;; rf2-dtza9a — `resolve-component-head` handles a Form-2 component
+    ;; `resolve-component-head` handles a Form-2 component
     ;; (outer fn → inner render fn) identically to the sync emitter: the
     ;; inner fn is invoked once with the same args rather than left to
     ;; stringify its `.toString` as page text.
     (walk-shell (rf.ssr.emit/resolve-component-head (first element) (rest element))
                 continuation-accumulator)
 
-    ;; rf2-y1jbaq — a vector reaching here (not a suspense boundary, not a
+    ;; A vector reaching here (not a suspense boundary, not a
     ;; keyword head, not a callable head) has a malformed head (string / nil /
     ;; number / boolean / collection). Fail loud via the shared emit reject —
     ;; identical to the sync emitter — rather than fall through to
@@ -635,7 +633,7 @@
   semantics — the failure boundary stops at the continuation; a shell-
   walk throw is a structural failure that escalates."
   [root-hiccup]
-  ;; Per rf2-ezdwh — bind the per-render parse-tag-name memo so the
+  ;; Bind the per-render parse-tag-name memo so the
   ;; walker's DOM-tag emissions and any inline fallback renders share
   ;; one cache for the whole shell pass. The cache lives only for the
   ;; duration of `render-shell`.
@@ -687,8 +685,7 @@
   ;; dispatch the fetch's event before the render — typical pattern).
   ;; For this v1 the delta is computed against the same db the shell
   ;; walked with. Apps that need true async-resolution per-subtree wire
-  ;; their fetches as initial-events-time fanout (the test below
-  ;; demonstrates the pattern); see Spec 011 §Streaming SSR.
+  ;; their fetches as initial-events-time fanout; see Spec 011 §Streaming SSR.
   (let [before-db (rf.frame/frame-app-db-value frame-id)]
     (try
       ;; Bind the per-render parse-tag-name memo (mirrors `render-shell`)
@@ -734,13 +731,13 @@
   "Record the failed-boundary id set in the projected runtime-db slice, at
   `re-frame.ssr.suspense/failed-boundaries-path`.
 
-  The server has known `:failed?` per continuation since streaming
-  shipped and DROPPED it: the client could see a
-  `data-rf2-suspense-failed` chunk in the DOM, but nothing survived into
-  the hydrated frame-state, so a client render tree had no way to know
-  which boundaries should re-render their fallback. Carrying the set on
-  the serialisable runtime slice closes that — it rides the existing
-  `:rf/runtime-db` key and the existing `:replace-frame-state` install.
+  The server knows `:failed?` per continuation, and the client sees a
+  `data-rf2-suspense-failed` chunk in the DOM; without this set nothing
+  about the failure would survive into
+  the hydrated frame-state, so a client render tree could not know
+  which boundaries should re-render their fallback. The set rides
+  the serialisable runtime slice — the
+  `:rf/runtime-db` key and the `:replace-frame-state` install.
 
   Empty / absent set contributes NO key: `project-runtime-db` returns nil
   when no durable subsystem fact is present, and a page where nothing
@@ -761,7 +758,7 @@
   Mirrors `re-frame.ssr.ring.payload/build-payload`'s shape so the
   client-side bootstrap can read either streaming or non-streaming
   payloads with the same code path. Both are thin wrappers over the
-  shared `re-frame.ssr.payload-policy/build-payload` (rf2-8wrzz.4):
+  shared `re-frame.ssr.payload-policy/build-payload`:
   version resolution (`:rf/version`) and the canonical assembly live
   once there. The streaming path differs only in sourcing `app-db` —
   it reads the live frame's `app-db` after every continuation has
@@ -769,7 +766,7 @@
 
   `frame-id` is the REAL per-request PROJECTION frame (drives the
   app-db / runtime-db egress projections). The WIRE `:rf/frame-id` is
-  decoupled (rf2-lm2yzy): sourced from the optional `:client-frame-id`
+  decoupled: sourced from the optional `:client-frame-id`
   policy-opt (a stable, ahead-of-time-agreed client id) and defaulting
   to nil, so an anonymous per-request server frame OMITS `:rf/frame-id`
   rather than stamping a per-request gensym the client's hydrate guard
@@ -778,10 +775,9 @@
   Version source-of-truth: `re-frame.ssr.payload-policy/resolve-version`
   — caller opt wins, falling back to the SSR-owned
   `payload-policy/pattern-protocol-version` constant so server and client
-  read from the same source (rf2-via0g, mirroring the non-streaming
-  rf2-asmj1 S8 fix).
+  read from the same source, mirroring the non-streaming path.
 
-  `render-hash` is BODY-ONLY (rf2-1oxjxk Option B — see
+  `render-hash` is BODY-ONLY (see
   `re-frame.ssr.ring.lifecycle/render-document-hash`). `policy-opts` may
   carry an optional `:head-hash` — the SEPARATE client-reconstructible
   head-model hash (`re-frame.ssr.ring.lifecycle/render-head-hash`) —
@@ -789,8 +785,8 @@
   `payload-policy/build-payload`).
 
   The `:rf/app-db` slice is projected per the explicit, fail-closed
-  policy in `re-frame.ssr.payload-policy/apply-policy` (rf2-gtgf9,
-  rf2-pffil single-opt consolidation): callers MUST declare `:payload`
+  policy in `re-frame.ssr.payload-policy/apply-policy`: callers MUST
+  declare `:payload`
   as either a vector allowlist of top-level keys (recommended) or the
   keyword `:rf.ssr.payload/whole-app-db` (explicit opt-in to shipping
   the whole `app-db`). Absence throws
@@ -804,13 +800,13 @@
   drains and hands the set here; it rides the serialisable runtime-db
   slice at `re-frame.ssr.suspense/failed-boundaries-path`, so the
   `:rf/hydrate` `:replace-frame-state` install puts it in the client
-  frame's runtime-db with no new payload key and no hydrate-handler
-  change. The client `boundary` component reads it to render a failed
+  frame's runtime-db with no dedicated payload key and no hydrate-handler
+  code of its own. The client `boundary` component reads it to render a failed
   boundary's DECLARED fallback — the markup the failed chunk actually
   left in the DOM. Empty / absent contributes NO key (the ordinary
   nothing-failed page carries nothing extra on the wire)."
   [frame-id render-hash {:as policy-opts}]
-  (let [;; rf2-j538f7.15 — pin the frame's per-incarnation identity BEFORE
+  (let [;; Pin the frame's per-incarnation identity BEFORE
         ;; reading its state. The app-db / runtime-db below are captured off the
         ;; LIVE request frame and classified against THAT frame's per-frame
         ;; elision registry by the projections that follow. An async host
@@ -821,7 +817,7 @@
         ;; serialized under an absent or SUBSTITUTED policy.
         token      (rf.frame/frame-incarnation-token frame-id)
         app-db     (rf.frame/frame-app-db-value frame-id)
-        ;; EP-0001 (rf2-30kzz2): project the live runtime-db value to the
+        ;; EP-0001: project the live runtime-db value to the
         ;; serializable `:rf/runtime-db` slice (machine snapshots, route slice,
         ;; elision declarations, SSR metadata) so the streamed final payload
         ;; hydrates a coherent frame-state, symmetric with the non-streaming
@@ -835,9 +831,9 @@
     (if coherent?
       (rf.ssr.payload-policy/build-payload
        ;; WIRE :rf/frame-id — the stable client id from `:client-frame-id`, or
-       ;; nil to omit (never the per-request projection gensym). rf2-lm2yzy.
+       ;; nil to omit (never the per-request projection gensym).
        (:client-frame-id policy-opts)
-       ;; rf2-bt9kct — allowlist FIRST (`apply-policy`), THEN run the surviving
+       ;; Allowlist FIRST (`apply-policy`), THEN run the surviving
        ;; slice through the centralized `:rf.egress/ssr-hydration` projection
        ;; seeded at the request frame (defense-in-depth, EP-0015 §14) — symmetric
        ;; with the non-streaming `re-frame.ssr.ring.payload/build-payload` so a
@@ -846,25 +842,25 @@
        (rf.ssr.payload-policy/project-app-db-egress
         (rf.ssr.payload-policy/apply-policy app-db policy-opts)
         frame-id
-        ;; rf2-hjz4r — the host's permit. The incoherent-frame branch below
+        ;; The host's permit. The incoherent-frame branch below
         ;; redacts whole and applies none.
         (:payload-include-sensitive policy-opts))
        render-hash
-       ;; rf2-3fc89f.15 — project the runtime-db under the EXPLICIT carried
+       ;; Project the runtime-db under the EXPLICIT carried
        ;; `frame-id` (the same target the app-db projection above uses), NOT an
        ;; ambient one. A streaming build called outside `with-frame`, or under a
-       ;; different ambient frame, otherwise serialized classified route / machine
+       ;; different ambient frame, would otherwise serialize classified route / machine
        ;; / resource runtime state under nil / the wrong frame's policy.
        (assoc policy-opts :runtime-db (-> (rf.ssr.payload-policy/project-runtime-db runtime-db frame-id)
                                           (with-failed-boundaries policy-opts))))
-      ;; rf2-j538f7.15 — the request frame was destroyed / re-registered between
+      ;; The request frame was destroyed / re-registered between
       ;; state capture and projection: its classification authority is gone, so
       ;; the captured app-db / runtime-db must NOT ship under absent / substituted
       ;; policy. Fail closed — redact the whole app-db slice and omit the
       ;; runtime-db — while still stamping the requested target so the client sees
       ;; a well-formed, safe payload rather than a leak.
       (rf.ssr.payload-policy/build-payload
-       ;; WIRE :rf/frame-id — stable client id or nil to omit (rf2-lm2yzy).
+       ;; WIRE :rf/frame-id — stable client id or nil to omit.
        (:client-frame-id policy-opts)
        :rf/redacted
        render-hash

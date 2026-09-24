@@ -1,6 +1,6 @@
 (ns re-frame.ssr-render-failed-test
-  "Regression coverage for the `:rf.error/ssr-render-failed` trace category
-  (Spec 009 §Error event catalogue, rf2-260pg — follow-up to rf2-zwgsv).
+  "Coverage for the `:rf.error/ssr-render-failed` trace category
+  (Spec 009 §Error event catalogue).
 
   Per Spec 011 §View-time exceptions, the SSR pipeline unifies render-time
   and drain-time failure surfaces under the same error projector. An SSR
@@ -23,7 +23,7 @@
   (`ssr_end_to_end_test`, `ssr_error_projector_substrate_test`,
   `ssr-ring/ring_e2e_validator_test`); this suite isolates the trace.
 
-  ## Posture split (rf2-lwtlk)
+  ## Posture split
 
   `project-render-exception!` does TWO things and only one of them survives
   production. The PROJECTION — returning a public-error map with the
@@ -33,15 +33,15 @@
   `-Dre-frame.debug=false` nothing is emitted, by design.
 
   So every assertion about the trace — its count, its envelope, its
-  catalogued tags — sits inside a `(when interop/debug-enabled? …)` arm,
-  verbatim. The projection assertions sit outside and now run in
+  catalogued tags — sits inside a `(when interop/debug-enabled? …)` arm.
+  The projection assertions sit outside and run in
   `scripts/test-ssr-prod-gate.sh`.
 
-  The NEGATIVE trace assertions moved into the arm too, and that is the
+  The NEGATIVE trace assertions sit in the arm too, and that is the
   load-bearing half of this split. `(zero? (count @traces))` in the
-  non-server-frame and `:on-view-exception :throw` deftests is satisfied
-  automatically under the gate, where the ring is empty for every input —
-  a green that proves nothing. Each is replaced outside the arm by a
+  non-server-frame and `:on-view-exception :throw` deftests would be
+  satisfied automatically under the gate, where the ring is empty for every
+  input — a green that proves nothing. Outside the arm each has a
   production-visible witness of the same claim: the client-frame call
   returns `nil` without projecting, and the escape-hatch re-throws the
   original Throwable instead of returning a public-error map."
@@ -55,7 +55,7 @@
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 (deftest project-render-exception-emits-ssr-render-failed-trace
-  (testing "rf2-260pg / rf2-zwgsv: `project-render-exception!` against a
+  (testing "`project-render-exception!` against a
             server frame emits a `:rf.error/ssr-render-failed` trace
             carrying the catalogued tags (Spec 009 §Error event
             catalogue)."
@@ -81,7 +81,7 @@
             (is (= 500 (:status public))
                 "the default projector maps the synthesised category to 500"))
 
-          ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). The
+          ;; Dev-instrumentation arm (see ns docstring). The
           ;; projection above is the production-real half and is asserted
           ;; outside it; everything from here down is the trace envelope.
           (when rf.interop/debug-enabled?
@@ -126,7 +126,7 @@
           (rf/unregister-listener! :trace ::srf))))))
 
 (deftest project-render-exception-noop-for-non-server-frame
-  (testing "rf2-260pg: `project-render-exception!` against a non-server
+  (testing "`project-render-exception!` against a non-server
             frame is a no-op — no trace fires, projector not invoked.
             Belt-and-braces against accidentally emitting the trace from
             client-side render paths."
@@ -142,11 +142,11 @@
         (let [f      (rf.frame/make-anon-frame-record! {})
               t      (ex-info "should not fire" {})
               result (rf.ssr/project-render-exception! f t)]
-          ;; SEMANTIC, posture-independent (rf2-lwtlk): `nil` rather than a
+          ;; SEMANTIC, posture-independent: `nil` rather than a
           ;; public-error map IS the short-circuit, observable in production.
           (is (nil? result)
               "client-frame call returns nil — projector not invoked")
-          ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
+          ;; Dev-instrumentation arm (see ns docstring). Vacuous
           ;; under the gate: the ring is empty for every input there, so
           ;; `zero?` cannot distinguish a short-circuit from a full run.
           (when rf.interop/debug-enabled?
@@ -157,7 +157,7 @@
           (rf/unregister-listener! :trace ::srf-client))))))
 
 (deftest project-render-exception-rethrows-under-on-view-exception-throw
-  (testing "rf2-ee38b.10 — a server frame with :ssr {:on-view-exception
+  (testing "a server frame with :ssr {:on-view-exception
             :throw} re-throws the original Throwable instead of projecting
             it to a sanitised public-error (Spec 011 §View-time
             exceptions — dev escape-hatch)."
@@ -173,7 +173,7 @@
                    :ssr      {:public-error-id   :rf.ssr/default-error-projector
                               :on-view-exception :throw}})
               t (ex-info "eager dev failure" {:reason :test})]
-          ;; SEMANTIC, posture-independent (rf2-lwtlk): the re-throw IS the
+          ;; SEMANTIC, posture-independent: the re-throw IS the
           ;; escape-hatch, and it is what a host observes in either posture.
           ;; That it threw rather than returned also witnesses that the
           ;; projection path was skipped — no public-error map came back.
@@ -181,7 +181,7 @@
                                 #"eager dev failure"
                                 (rf.ssr/project-render-exception! f t))
               "the original throwable surfaces unchanged to the host")
-          ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
+          ;; Dev-instrumentation arm (see ns docstring). Vacuous
           ;; under the gate, where no trace fires on any path.
           (when rf.interop/debug-enabled?
             (is (zero? (count @traces))
@@ -191,7 +191,7 @@
           (rf/unregister-listener! :trace ::srf-throw))))))
 
 (deftest project-render-exception-projects-when-on-view-exception-absent
-  (testing "rf2-ee38b.10 — without the :on-view-exception knob (the
+  (testing "without the :on-view-exception knob (the
             production default) project-render-exception! projects as
             normal. Pins the default so the escape-hatch can't silently
             become the default."

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 //
-// rf2-4ale — GENERATOR for `attr_name_mask_family.edn`, the external anchor
+// GENERATOR for `attr_name_mask_family.edn`, the external anchor
 // for the SSR EMITTED-ATTRIBUTE-NAME direction of the react-dom conversion
 // table.
 //
@@ -12,17 +12,16 @@
 //   `dom-attr-aliases`   React prop name -> the DOM attribute name
 //                        react-dom/server actually WRITES
 //
-// PR #9576 moved this repo to react-dom 19.3.0 and re-derived the first half
-// (`masktype -> maskType` landed there) while the second half stayed at its
-// 19.2.0 mirror. React 19.3 changed BOTH: it also began emitting
-// `maskType` as `mask-type`. Comparing only `possibleStandardNames` cannot
-// see that second direction, so the upgrade looked complete and the emitter
-// silently kept writing the 19.2 spelling. The whole CI rollup was green over
-// it — browser, node, JVM SSR, template, controlled-input and HMR lanes, zero
-// failures — because nothing in the tree compared an EMITTED NAME against
-// react-dom. That is the hole this file closes, and the consequence is not
-// cosmetic: SSR delivering `maskType` to a client that hydrates against
-// `mask-type` is a hydration mismatch.
+// The two halves can move independently across a react-dom upgrade. React
+// 19.3 changed BOTH for one name: `possibleStandardNames` gained
+// `masktype -> maskType`, and react-dom/server began emitting `maskType` as
+// `mask-type`. Comparing only `possibleStandardNames` cannot see that second
+// direction, so an upgrade that re-derives only the first half looks
+// complete while the emitter silently keeps writing the old spelling — with
+// every CI lane green, because nothing else in the tree compares an EMITTED
+// NAME against react-dom. This file is that comparison, and the consequence
+// is not cosmetic: SSR delivering `maskType` to a client that hydrates
+// against `mask-type` is a hydration mismatch.
 //
 // WHAT IS MEASURED, AND WHY BOTH HALVES COME FROM REACT.
 //
@@ -35,19 +34,17 @@
 //      react-dom wrote in front of it. Nothing here restates a re-frame rule.
 //
 // WHY THE MASK FAMILY AND NOT EVERY NAME. Deliberately bounded. A full sweep
-// of the emitted direction would be a react-dom table clone, which is a
-// different and much larger piece of work than this bead; the audit that
-// reopened rf2-4ale asked in terms for a FOCUSED witness for the newly
-// changed alias and said no general table-generation project was needed. The
-// family is the right unit rather than the single name because `maskUnits`
-// and `maskContentUnits` are the UNAFFECTED CONTROLS — they sit beside
-// `maskType` in the same table, took the same code path, and must not move.
-// A witness carrying only the row that changed cannot show the fix is narrow.
+// of the emitted direction would be a react-dom table clone, a different and
+// much larger piece of work than a FOCUSED witness for the `maskType` alias.
+// The family is the right unit rather than the single name because
+// `maskUnits` and `maskContentUnits` are the UNAFFECTED CONTROLS — they sit
+// beside `maskType` in the same table, take the same code path, and must not
+// move. A witness carrying only the one row cannot show the rule is narrow.
 //
-// THE CLASS THIS DOES NOT COVER, recorded rather than built for: any other
-// react-dom emitted-name change between 19.2.0 and 19.3.0 (or a later bump)
-// outside the mask family is still invisible to the tree. The general repair
-// is a full emitted-direction probe; it is not this bead's.
+// THE CLASS THIS DOES NOT COVER: any other react-dom emitted-name change
+// between 19.2.0 and 19.3.0 (or a later bump) outside the mask family is
+// invisible to the tree. The general answer is a full emitted-direction
+// probe, which this file is not.
 //
 // REGENERATE (from `implementation/`, where node_modules lives):
 //

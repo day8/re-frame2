@@ -1,7 +1,6 @@
 (ns re-frame.ssr-drain-facade-test
-  "Per rf2-zplpsp — the `re-frame.ssr/drain-blocking-resources!` FAÇADE
-  WRAPPER (ssr.cljc §196-264), tested IN THE SSR SLICE (where the resources
-  artefact is absent).
+  "The `re-frame.ssr/drain-blocking-resources!` FAÇADE WRAPPER, tested IN
+  THE SSR SLICE (where the resources artefact is absent).
 
   The drain LOOP + timeout POLICY live in the resources artefact
   (`re-frame.resources.ssr/drain-blocking-resources!`, published as the
@@ -12,8 +11,8 @@
   map (`:deadline-ms` / `:pump!` / `:tick-ms`); when ABSENT it returns a
   fixed settled-shape no-op.
 
-  The ssr slice never loads resources, so the hook is ALWAYS absent here — yet
-  nothing pinned the ssr-slice-specific branches:
+  The ssr slice never loads resources, so the hook is ALWAYS absent here, and
+  only an ssr-slice test can pin the ssr-slice-specific branches:
 
     1. HOOK-ABSENT no-op fast path — the DEFAULT path for every SSR app that
        does not load the optional resources artefact. It MUST return
@@ -59,13 +58,13 @@
 ;; ---- (1) hook-absent no-op fast path ---------------------------------------
 
 (def ^:private settled-shape
-  ;; rf2-btdl1 — `:timed-out` is a VECTOR of scoped keys (the one spelling the
+  ;; `:timed-out` is a VECTOR of scoped keys (the one spelling the
   ;; drain and its failure record share); a set would collapse two `=`-equal-
   ;; but-byte-distinct requirements into one report.
   {:settled? true :timed-out [] :route-blocking-failure nil})
 
 (deftest hook-absent-returns-the-settled-fast-path-shape
-  (testing "rf2-zplpsp — with NO resources artefact (the `:resources/drain-
+  (testing "with NO resources artefact (the `:resources/drain-
   blocking-ssr!` hook unregistered — the default for every no-resources SSR
   app) the façade is a no-op returning the exact settled-shape the Ring host
   consults: {:settled? true :timed-out [] :route-blocking-failure nil}"
@@ -89,7 +88,7 @@
 ;; ---- (2) hook-present opts resolution --------------------------------------
 
 (deftest hook-present-forwards-resolved-opts-and-return
-  (testing "rf2-zplpsp — with the drain hook PRESENT the façade forwards the
+  (testing "with the drain hook PRESENT the façade forwards the
   frame-id and a normalised opts map, and returns the hook's result verbatim"
     (let [prev     (rf.late-bind/get-fn drain-key)
           captured (atom nil)

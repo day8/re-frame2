@@ -1,17 +1,16 @@
 (ns re-frame.ssr-route-miss-404-production-test
-  "rf2-ov56u (ruling rf2-rqje9) ACCEPTANCE — an SSR request for an
-  UNROUTABLE URL answers HTTP 404 under the REAL production gate.
+  "ACCEPTANCE — an SSR request for an UNROUTABLE URL answers HTTP 404
+  under the REAL production gate.
 
-  THE DEFECT. `re-frame.interop/debug-enabled?` reads
-  `-Dre-frame.debug=false` ONCE at namespace-load time. Until this bead the
-  URL-driven route miss reached the outside world through ONE channel —
-  `plan/emit-intents!` → `trace/emit-error!`, which sits inside that
-  gate. On a production JVM nothing buffered, `flush-response!` had nothing
-  to project, and `:status` stayed 200: RFC 9110 calls 200 a success and
-  Google calls a 200'd not-found page a soft 404 and drops it from Search.
-  The fix promotes that ONE emit site onto the always-on error axis
-  (`error-emit/dispatch-error-record!`, via the
-  `:error-emit/dispatch-error-record` late-bind hook) while retaining its
+  WHY. `re-frame.interop/debug-enabled?` reads `-Dre-frame.debug=false`
+  ONCE at namespace-load time. A URL-driven route miss reaching the outside
+  world through ONE channel — `plan/emit-intents!` → `trace/emit-error!`,
+  which sits inside that gate — would buffer nothing on a production JVM:
+  `flush-response!` would have nothing to project and `:status` would stay
+  200. RFC 9110 calls 200 a success, and Google calls a 200'd not-found
+  page a soft 404 and drops it from Search. So that ONE emit site also
+  rides the always-on error axis (`error-emit/dispatch-error-record!`, via
+  the `:error-emit/dispatch-error-record` late-bind hook) alongside its
   dev trace.
 
   WHY THIS SUITE IS POSTURE-INDEPENDENT, AND WHY THAT MATTERS. Every
@@ -20,8 +19,8 @@
   default (that roster is an EXCLUSION list) and executes under
   `-Dre-frame.debug=false` for real. A `with-redefs [interop/debug-enabled?
   false]` rebind CANNOT reach a load-time gate — it is not evidence for
-  this bead, which is precisely why the sibling suites that use it stayed
-  green while production shipped a 200.
+  this contract, and a suite relying on it stays green while production
+  ships a 200.
 
   WHAT IS PINNED:
 
@@ -35,17 +34,17 @@
        never an app-db slice (EP-0015 fail-closed; the `:url` slot is the
        class most likely to carry `?token=…` / `#access_token=…`).
     3. The `:kind` gate. An unregistered EVENT dispatch is a SERVER defect
-       and answers 500, not 404 — the adjacent correction that makes the
-       promotion safe, since before it no `:rf.error/no-such-handler`
-       reached the projector in production at all.
+       and answers 500, not 404 — the gate that makes the always-on route
+       miss safe, since without it every `:rf.error/no-such-handler`
+       reaching the projector would answer 404.
     4. The seam. A projector registered through `reg-error-projector`
-       still wins over the built-in default on the promoted path.
+       still wins over the built-in default on the always-on path.
 
   Companion suites:
     - `re-frame.ssr-end-to-end-test` — the dev-posture end-to-end cascade.
     - `re-frame.ssr-error-projector-substrate-test` — the always-on
       substrate install.
-    - `re-frame.ssr-routing-egress-production-test` (rf2-u2x6w) — the
+    - `re-frame.ssr-routing-egress-production-test` — the
       other always-on witness written to run in this lane."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
@@ -102,11 +101,11 @@
 ;; ===========================================================================
 
 (deftest unroutable-url-projects-404-under-the-production-gate
-  (testing "rf2-ov56u: `[:rf.route/handle-url-change \"/no-such-page\"]` on a
+  (testing "`[:rf.route/handle-url-change \"/no-such-page\"]` on a
             server frame projects the default projector's 404 onto
-            `:rf/response`. This assertion is the whole bead: before the
-            promotion it observed 200 under `-Dre-frame.debug=false` while
-            passing in dev, because the miss only ever rode the dev trace."
+            `:rf/response`. This is the central assertion: a miss riding
+            only the dev trace would observe 200 under
+            `-Dre-frame.debug=false` while passing in dev."
     (register-routes!)
     (let [f (server-frame)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
@@ -126,7 +125,7 @@
              projection, not by re-inferring from (:status response)")))))
 
 (deftest the-404-is-status-only-the-not-found-body-still-renders
-  (testing "rf2-ov56u: a 404 is a STATUS decision, not a rendering one. The
+  (testing "a 404 is a STATUS decision, not a rendering one. The
             app's own not-found view still produces markup, so the host ships
             a real page under the 404 rather than an error page."
     (register-routes!)
@@ -142,10 +141,10 @@
           "and the response still carries the 404"))))
 
 (deftest the-route-slice-records-the-miss-alongside-the-404
-  (testing "rf2-ov56u: the durable `:rf.route/not-found` slice (the app's
+  (testing "the durable `:rf.route/not-found` slice (the app's
             source of truth for WHAT to render) and the per-request HTTP
             status (the wire decision) are BOTH present and stay distinct
-            surfaces — the ruling rejected deriving one from the other."
+            surfaces — neither is derived from the other."
     (register-routes!)
     (let [f (server-frame)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
@@ -161,7 +160,7 @@
 ;; ===========================================================================
 
 (deftest route-miss-fans-exactly-one-always-on-record
-  (testing "rf2-ov56u: the promotion delivers ONE record per miss on the
+  (testing "a route miss delivers ONE record on the
             always-on axis (Spec 009's one-runtime-error law) — not one per
             channel, and not one per telemetry intent."
     (register-routes!)
@@ -173,7 +172,7 @@
           "exactly one always-on record, and it is the route-miss category"))))
 
 (deftest the-always-on-record-carries-the-route-discriminator-and-attribution
-  (testing "rf2-ov56u: the production record is the enumerated tight shape —
+  (testing "the production record is the enumerated tight shape —
             category + `:kind :route` + emitting `:frame` + `:time` +
             `:recovery`. `:kind` is what the default projector gates its 404
             arm on, so a record without it would silently fall to 500."
@@ -197,9 +196,9 @@
             "the framework-owned recovery, not an app-steerable policy")))))
 
 (deftest the-always-on-record-redacts-url-carrier-values
-  (testing "rf2-ov56u / EP-0015 (rf2-n1f4rh) EGRESS: the promotion changes
+  (testing "EP-0015 EGRESS: the always-on record is part of
             what a PRODUCTION build sends off-box, so the fail-closed scrub
-            has to cover the always-on record and not just the dev trace. A
+            has to cover it and not just the dev trace. A
             route-miss URL has no matched route and therefore no
             `:params` / `:query` schema to target, yet it is the class most
             likely to carry `?token=…` / `#access_token=…`. The redaction is
@@ -224,7 +223,7 @@
              that a `token` parameter was present")))))
 
 (deftest the-always-on-record-carries-no-app-db-and-no-stray-slots
-  (testing "rf2-ov56u EGRESS: `dispatch-error-record!` delivers the record
+  (testing "EGRESS: `dispatch-error-record!` delivers the record
             UNCHANGED to every registered shipper — it is not privacy-gated
             the way the dev trace is, so the emit site is contracted to keep
             it tight. Pin the key set CLOSED: a slot added here reaches
@@ -241,7 +240,7 @@
            vector, no exception, no raw carrier"))))
 
 (deftest a-malformed-miss-carries-its-structured-reason
-  (testing "rf2-4ic0f / rf2-ov56u: the `:reason` vocabulary is uniform across
+  (testing "the `:reason` vocabulary is uniform across
             the route slice and BOTH error axes, so a production shipper can
             tell a plain miss from a malformed URL without the dev trace."
     (register-routes!)
@@ -262,13 +261,13 @@
 ;; ===========================================================================
 
 (deftest an-unregistered-event-dispatch-projects-500-not-404
-  (testing "rf2-ov56u ADJACENT CORRECTION: `:rf.error/no-such-handler` covers
+  (testing "THE :kind GATE: `:rf.error/no-such-handler` covers
             three misses discriminated by `:kind`. Only `:kind :route` is a
             missing-PAGE condition. A dispatch to an event id the server
             forgot to register is a SERVER defect — telling the client its
             URL was wrong would be a lie, and would poison crawler
-            behaviour. Before the gate, promoting the route miss would have
-            made every unregistered-event dispatch answer 404."
+            behaviour. Without the gate, the always-on route miss would
+            make every unregistered-event dispatch answer 404."
     (register-routes!)
     (let [f (server-frame)]
       (rf/dispatch-sync [:never/registered] {:frame f})
@@ -276,7 +275,7 @@
           "the event-kind miss falls through to the locked generic-500"))))
 
 (deftest default-projector-gates-the-404-arm-on-kind-route
-  (testing "rf2-ov56u: the gate, unit-tested directly on the pure projector
+  (testing "the gate, unit-tested directly on the pure projector
             fn. A miss with no `:kind` at all falls through too — the 404 arm
             is opt-in on the route discriminator (fail-safe), symmetric with
             the `:where`-gated schema-validation-failure arm."
@@ -306,10 +305,9 @@
 ;; ===========================================================================
 
 (deftest a-custom-projector-still-wins-on-the-promoted-path
-  (testing "rf2-ov56u: the promotion feeds the EXISTING `reg-error-projector`
-            seam rather than bypassing it — which is the reason the ruling
-            rejected deriving `:status` from the routing slice at the host
-            boundary. A frame that names its own projector gets its own
+  (testing "the always-on route miss feeds the `reg-error-projector`
+            seam rather than bypassing it — which is why `:status` is not
+            derived from the routing slice at the host boundary. A frame that names its own projector gets its own
             mapping, in production, on the route-miss path."
     (register-routes!)
     (rf/reg-error-projector :myapp/route-miss-projector
@@ -328,8 +326,8 @@
         (is (= :gone (:code public-error)))))))
 
 (deftest a-redirect-still-takes-precedence-over-the-projected-404
-  (testing "rf2-ov56u: redirect precedence (Spec 011 §Redirect precedence) is
-            unchanged by the promotion. A handler that redirects during the
+  (testing "redirect precedence (Spec 011 §Redirect precedence) holds
+            on the route-miss path. A handler that redirects during the
             same drain as a route miss ships the redirect bodiless; the
             projected 404 does not overwrite it."
     (register-routes!)
@@ -349,8 +347,8 @@
 ;; ===========================================================================
 
 (deftest the-404-lands-on-the-emitting-frame-only
-  (testing "rf2-7d30s / rf2-ov56u: under concurrent SSR many server frames
-            are live at once. The promoted record carries the emitting
+  (testing "under concurrent SSR many server frames
+            are live at once. The always-on record carries the emitting
             frame's `:frame` slot, so the projection routes to THAT response
             accumulator; a sibling request serving a routable URL keeps its
             200. Without the `:frame` stamp the projection would be
@@ -368,7 +366,7 @@
           "its concurrent sibling, which routed fine, is untouched"))))
 
 (deftest a-client-frame-route-miss-stamps-no-status
-  (testing "rf2-ov56u: promotion does not give a CLIENT frame an HTTP
+  (testing "the always-on route miss does not give a CLIENT frame an HTTP
             response. The record fans to off-box shippers on both hosts, but
             the projection listener no-ops for a non-server frame — there is
             no request to fail."

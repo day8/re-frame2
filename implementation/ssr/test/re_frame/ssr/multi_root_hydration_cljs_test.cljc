@@ -1,5 +1,5 @@
 (ns re-frame.ssr.multi-root-hydration-cljs-test
-  "Multi-root hydration (S5-B) — hydration PREFLIGHT and the IDEMPOTENT
+  "Multi-root hydration — hydration PREFLIGHT and the IDEMPOTENT
   payload install (Spec 011 §Hydration preflight; ratified by
   [Spec 004C §6/§7]).
 
@@ -18,10 +18,10 @@
   installs and requires the mutation to SURVIVE the second one. That is
   the harm a re-seed actually causes, so that is what the test watches.
 
-  ## The red-before is permanent and executable
+  ## The unguarded twin is permanent and executable
 
-  `re-seeding-a-live-payload-destroys-client-state` is the measurement
-  that motivated this leaf, kept runnable forever. It reaches PAST the
+  `re-seeding-a-live-payload-destroys-client-state` measures the harm the
+  guard prevents, kept runnable forever. It reaches PAST the
   ledger — dispatching `:rf/hydrate` directly, exactly as a caller who
   skipped preflight would — and proves the client mutation IS destroyed
   on that path. Delete the guard from `hydrate!` and the idempotence
@@ -33,10 +33,9 @@
 
   This is a `.cljc` named `*-cljs-test`, so it runs under BOTH
   `clojure -M:test` from `implementation/ssr` (JVM) and the node runner
-  (`npm run test:cljs`). The JVM emitter and the client substrates have
-  diverged before, and multi-root hydration was measured on both hosts
-  before this contract was designed: they double-applied IDENTICALLY.
-  The `.cljc` keeps that agreement pinned rather than assumed.
+  (`npm run test:cljs`). The JVM emitter and the client substrates can
+  diverge, so the `.cljc` pins the two hosts' agreement rather than
+  assuming it.
 
   Handlers are registered INSIDE each test body, never at ns-load. In
   the shared node process a sibling namespace's `registrar/clear-all!`
@@ -52,14 +51,12 @@
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             [re-frame.router :as rf.router]))
 
-;; rf2-qj4g — COLD-START the adapter slot rather than assuming it is empty.
-;; `init!` is idempotent only for the adapter ALREADY SEATED (rf2-kuky.1);
-;; handed a DIFFERENT one it raises `:rf.error/adapter-already-installed`
-;; instead of silently ignoring the call. This ns runs in the shared node
-;; bundle beside suites that seat Reagent / UIx / plain-atom, so a bare
-;; `init!` here was a NO-OP whenever one of them ran first — every test
-;; below then exercised the SSR flow on somebody else's substrate and
-;; passed for the wrong reason. Destroy first, seat the adapter this ns
+;; COLD-START the adapter slot rather than assuming it is empty.
+;; `init!` is idempotent only for the adapter ALREADY SEATED; handed a
+;; DIFFERENT one it raises `:rf.error/adapter-already-installed`. This ns
+;; runs in the shared node bundle beside suites that seat Reagent / UIx /
+;; plain-atom, so a bare `init!` here would meet whichever adapter one of
+;; them left seated. Destroy first, seat the adapter this ns
 ;; NAMES, and destroy again on the way out so the slot is left cold for
 ;; whichever namespace the runner reaches next.
 (use-fixtures :once
@@ -86,7 +83,7 @@
   frame is never platform-tagged at all; every test below would still pass,
   because the runtime falls back to the host-wide platform marker, which on
   CLJS is already `:client`. `the-fixture-frames-are-actually-platform-tagged`
-  is what keeps that accident from coming back."
+  is what catches that accident."
   []
   (let [fid (keyword "rf.multiroot" (str "f" (swap! frame-counter inc)))]
     (rf/make-frame {:id fid :platform :client})
@@ -112,7 +109,7 @@
 
 (def ^:private manifest-v1
   "A minimal valid Root Manifest v1 — only `:rf.root/schema-version` is
-  required, which is exactly the subset property S5-A pinned."
+  required."
   {:rf.root/schema-version rf.ssr.manifest/schema-version
    :root-id                :page/shop
    :view-id                :app/shop-root
@@ -132,7 +129,7 @@
     (is (= :client (:platform (rf/frame-meta (fresh-frame!)))))))
 
 ;; ---------------------------------------------------------------------------
-;; THE RED-BEFORE, kept permanently executable
+;; THE UNGUARDED TWIN, kept permanently executable
 ;; ---------------------------------------------------------------------------
 
 (deftest re-seeding-a-live-payload-destroys-client-state
@@ -297,15 +294,15 @@
            (rf.ssr.install/payload-content-digest {:rf/version 1 :rf/app-db {:b 2 :a 1}})))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-tax2 — nil is CONTENT in a payload, however it is spelled
+;; Nil is CONTENT in a payload, however it is spelled
 ;; ---------------------------------------------------------------------------
 ;;
-;; The digest used to be `render-tree-hash`, whose canonicalisation PRUNES
-;; nil — the right rule for a render tree (`[:div {:class nil}]` and
-;; `[:div {}]` emit the same HTML) and the wrong one for a data-identity
-;; test. Each pair below is `not=` as a Clojure value and used to produce
-;; ONE digest, so the second root was waved through as `:already-installed`
-;; and hydrated against a slice it never received.
+;; `render-tree-hash`'s canonicalisation PRUNES nil — the right rule for a
+;; render tree (`[:div {:class nil}]` and `[:div {}]` emit the same HTML)
+;; and the wrong one for a data-identity test. Each pair below is `not=` as
+;; a Clojure value; under that pruning it would produce ONE digest, so the
+;; second root would be waved through as `:already-installed` and hydrate
+;; against a slice it never received.
 ;;
 ;; The three shapes are the three places the render-tree walk prunes, and
 ;; they are asserted separately because they are three different code
@@ -364,8 +361,8 @@
       (is (= :rf.error/frame-payload-conflict
              (caught-error-id #(decision (payload-with-app-db {:items [7]}) :page/b))))))
 
-  (testing "and the genuinely identical second root is still the ratified
-            no-op — the guard above must not have been bought by breaking it"
+  (testing "and the genuinely identical second root is the ratified
+            no-op — the guard above does not come at its expense"
     (let [payload-id :rf.multiroot/tax2-idempotent
           decision   (fn [payload root-id]
                        (rf.ssr.install/payload-install-decision!
@@ -376,8 +373,8 @@
       (is (= :already-installed (decision (payload-with-app-db {:items [nil 7]}) :page/b))))))
 
 (deftest the-render-tree-hash-keeps-pruning-nil
-  (testing "the fix is a SECOND canonicalisation, not a change to the first:
-            Spec 011 §Hydration-mismatch detection still requires
+  (testing "the payload digest is a SECOND canonicalisation, not a change to
+            the first: Spec 011 §Hydration-mismatch detection requires
             [:div {:class nil}] and [:div {}] to hash alike, or the common
             {:class (when …)} shape manufactures a spurious mismatch"
     (is (= (rf.ssr/render-tree-hash [:div {:class nil} [:p "hi"]])

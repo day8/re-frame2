@@ -1,15 +1,15 @@
 (ns re-frame.ssr.streaming-client-dom-cljs-test
   "Acceptance coverage for the client-side streaming-SSR runtime
   (`re-frame.ssr.streaming.client/install!`). Per Spec 011 §Streaming
-  SSR — client-side hydration semantics (rf2-3hhv5).
+  SSR — client-side hydration semantics.
 
   ## What this proves — the feature's whole acceptance
 
-  The prior gap (rf2-3hhv5) was that the server emitted `<template>`
-  resolved chunks + `<script data-rf2-suspense-hydrate>` deltas that
-  NOTHING consumed: a browser showed skeleton fallbacks until the final
+  The server emits `<template>` resolved chunks +
+  `<script data-rf2-suspense-hydrate>` deltas; were NOTHING to consume
+  them, a browser would show skeleton fallbacks until the final
   `__rf_payload`, defeating streaming. These tests prove the client
-  runtime closes that gap — **a chunk hydrates its subtree (DOM swap +
+  runtime consumes them — **a chunk hydrates its subtree (DOM swap +
   app-db delta merge) BEFORE the final payload lands**:
 
     1. `progressive-hydration-happens-before-final-payload` — drives
@@ -18,7 +18,7 @@
        content in-place, and (b) the target frame's app-db received the
        chunk's delta (so a subscription reading that region sees the
        speculative state) — all while NO `__rf_payload` exists yet. This
-       is the regression the gap left invisible.
+       is the regression a missing consumer would leave invisible.
     2. `failed-boundary-swaps-fallback-and-emits-trace` — a
        `data-rf2-suspense-failed` chunk swaps the fallback HTML, applies
        no delta, and emits `:rf.ssr/suspense-boundary-failed`.
@@ -36,7 +36,7 @@
   `data-rf2-suspense-*` attribute; the delta is the bare delta-map EDN.
 
   Browser-only — the runtime is a `MutationObserver` + DOM-swap consumer.
-  The `-dom-cljs-test$` suffix (rf2-2hrj8) opts this file into the
+  The `-dom-cljs-test$` suffix opts this file into the
   `:browser-test` build; `:node-test` loads it too (matches `cljs-test$`)
   and the DOM-dependent assertions gate on `(browser?)`, exiting early
   under Node where `js/document` is absent."
@@ -104,7 +104,7 @@
   (rf.ssr/streaming-failed-template id fallback-html))
 
 (defn- failed-chunk-with-delta-html
-  "A CONTRADICTORY wire shape (rf2-x76af2.40): a failed `<template>` (the
+  "A CONTRADICTORY wire shape: a failed `<template>` (the
   server's inline-fallback marker) followed by a hydrate-delta `<script>` for
   the SAME id — which the shipped server NEVER emits for a failed
   continuation. Models a malformed / duplicated / reordered stream the client
@@ -170,7 +170,7 @@
   payload."
   []
   (let [fid (keyword "rf.frame" (str (gensym "stream-client-")))]
-    ;; Register BEFORE creating the frame (rf2-h1vqa4): an explicit id in the
+    ;; Register BEFORE creating the frame: an explicit id in the
     ;; reserved `rf.frame` namespace is a DIRECT frame — auto-reprojection
     ;; deliberately never touches it (EP-0023 §Frame), so its default image
     ;; generation is sealed at construction and a post-construction reg-sub
@@ -196,7 +196,7 @@
   (testing "Resolved chunks present at install (NO final payload) are each
             swapped into their live mount AND their delta merged into
             app-db — proving the client applies deltas progressively,
-            independent of the final `__rf_payload`. This is the rf2-3hhv5
+            independent of the final `__rf_payload`. This is the feature's
             acceptance: the client path actually runs. (Initial-sweep path
             — synchronous + deterministic.)"
     (if-not (browser?)
@@ -245,9 +245,8 @@
   (testing "Two resolved chunks present at install, the second carrying the
             FULL after-db value for the changed top-level key — the
             client's top-level `(into existing delta)` merge keeps both
-            cards (the lossless property, Spec 011 §Hydration interleaving;
-            folds rf2-bee5i part-2's resolved-vs-marker concern on the
-            client side)."
+            cards (the lossless property, Spec 011 §Hydration
+            interleaving)."
     (if-not (browser?)
       (is true ":node-test: no DOM")
       (let [fid  (make-client-frame!)
@@ -304,12 +303,12 @@
             (remove-root! host)))))))
 
 (deftest failed-boundary-suppresses-matching-hydration-delta
-  (testing "rf2-x76af2.40 — a boundary the server flagged FAILED must NEVER
+  (testing "a boundary the server flagged FAILED must NEVER
             merge a matching hydrate-delta into app-db, even under a
             contradictory / duplicated / reordered stream that pairs a
             `data-rf2-suspense-failed` template with a (valid-map) delta
-            `<script>` for the same id. #5728 made `seen` an undifferentiated
-            set, so `apply-ready-deltas!` would merge ANY seen id's delta —
+            `<script>` for the same id. Were `seen` an undifferentiated
+            set, `apply-ready-deltas!` would merge ANY seen id's delta —
             including a failed boundary's. The delta must be QUARANTINED (not
             merged), its script consumed, and exactly one `:quarantined-delta`
             diagnostic emitted; the failed fallback still swaps and emits its
@@ -358,7 +357,7 @@
             (remove-root! host)))))))
 
 (deftest failed-boundary-suppresses-delta-arriving-first
-  (testing "rf2-x76af2.40 — order independence + observer batching: the
+  (testing "order independence + observer batching: the
             hydrate-delta `<script>` arrives in a SEPARATE, EARLIER batch than
             the failed `<template>`. The first sweep must HOLD the delta (the
             boundary has not swapped → no outcome recorded); when the failed
@@ -403,7 +402,7 @@
                 ;; this test's `js/setTimeout` settle window — so an
                 ;; `:operation`+`:recovery`-only match could go green on a foreign
                 ;; `:quarantined-delta` while THIS `:card.flaky` boundary emitted
-                ;; none (the rf2-veyfp false-green). The producer carries the
+                ;; none (a false green). The producer carries the
                 ;; authored boundary under `[:tags :id]` (see string-boundary-id
                 ;; test); scoping by it is a pure narrowing — it can only reject a
                 ;; foreign boundary, never loosen the subject match.
@@ -418,17 +417,17 @@
               0)))))))
 
 (deftest parseable-non-map-delta-fails-closed
-  (testing "rf2-l3paoi — a resolved chunk whose hydrate-delta `<script>` body
+  (testing "a resolved chunk whose hydrate-delta `<script>` body
             is PARSEABLE EDN but NOT a map (a vector / number / string —
             a server/client wire-shape regression) must fail CLOSED: the
             resolved HTML still swaps in (DOM progress), the delta is NOT
             merged (app-db stays unchanged), the script is consumed (DOM left
             script-free), AND a `:rf.ssr/suspense-boundary-failed`
-            `:skipped-delta` trace fires. Before the fix `read-string`
-            accepted the non-map, `merge-delta!`'s `(map? delta)` guard
-            silently no-op'd the merge, and the script was removed with NO
-            diagnostic — progressive hydration LOOKED successful in the DOM
-            while subscriptions read stale state."
+            `:skipped-delta` trace fires. Without that diagnostic,
+            `merge-delta!`'s `(map? delta)` guard would silently no-op the
+            merge and the script would be removed with NO signal —
+            progressive hydration would LOOK successful in the DOM while
+            subscriptions read stale state."
     (if-not (browser?)
       (is true ":node-test: no DOM")
       ;; Each bad delta is parseable EDN but the wrong shape. Empty-string
@@ -480,7 +479,7 @@
               (remove-root! host))))))))
 
 (deftest empty-delta-body-is-not-malformed
-  (testing "rf2-l3paoi — the fail-closed guard is PRECISE: an empty-map delta
+  (testing "the fail-closed guard is PRECISE: an empty-map delta
             body (`{}`) is a legitimate no-op delta (no app-db change), and a
             VALID map delta still merges — neither emits the malformed
             diagnostic. This pins that the non-map fail-closed branch does not
@@ -518,14 +517,14 @@
             (remove-root! host)))))))
 
 (deftest css-special-payload-id-does-not-throw
-  (testing "rf2-58zvy1 finding 3 — a documented :payload-id override that is
+  (testing "a documented :payload-id override that is
             a VALID HTML id but carries CSS-selector-significant chars
             (`.`, `:`) must not make install! throw or mis-detect the
-            final payload. The prior `(.querySelector root (str \"#\" id))`
-            built a raw CSS selector, so `#rf:payload` / `#rf.payload`
-            either threw a SyntaxError or selected the wrong element.
-            install! now matches by exact id (getElementById on a Document
-            root / id-scan on an element root)."
+            final payload. A raw CSS selector,
+            `(.querySelector root (str \"#\" id))`, would make `#rf:payload` /
+            `#rf.payload` either throw a SyntaxError or select the wrong
+            element, so install! matches by exact id (getElementById on a
+            Document root / id-scan on an element root)."
     (if-not (browser?)
       (is true ":node-test: no DOM")
       (doseq [pid ["rf:payload" "rf.payload" "rf payload" "rf[0]"]]
@@ -559,17 +558,17 @@
             (finally (remove-root! host))))))))
 
 (deftest nested-resolved-chunks-recover-on-late-install
-  (testing "rf2-58zvy1 finding 4 — when an OUTER and a NESTED INNER resolved
+  (testing "when an OUTER and a NESTED INNER resolved
             chunk are both already in the DOM at install (a late-loading
             client), and the outer resolved HTML contains the inner
             FALLBACK template, install! must leave BOTH outer and inner
-            content live with the inner delta merged. The prior code marked
-            the inner id seen BEFORE its mount existed (the inner mount only
-            appears once the outer swap moves the inner fallback into live
-            DOM), so the inner swap failed and was skipped permanently —
-            the nested boundary stuck on fallback. The sweep now marks seen
-            only on a successful swap, re-materialises fallbacks introduced
-            by a swap, and iterates to a fixpoint."
+            content live with the inner delta merged. Marking the inner id
+            seen BEFORE its mount exists (the inner mount only appears once
+            the outer swap moves the inner fallback into live DOM) would
+            fail the inner swap and skip it permanently — the nested
+            boundary stuck on fallback. So the sweep marks seen only on a
+            successful swap, re-materialises fallbacks introduced by a
+            swap, and iterates to a fixpoint."
     (if-not (browser?)
       (is true ":node-test: no DOM")
       (let [fid  (make-client-frame!)
@@ -625,8 +624,7 @@
 (defn- mounts-for
   "Every live `<rf-suspense data-rf2-suspense-mount=\"<id>\">` wrapper for
   boundary `id` under `host`, in document order. Duplicate-id boundaries
-  produce more than one — the placement-coherence assertions (rf2-8en9mu)
-  read both."
+  produce more than one — the placement-coherence assertions read both."
   [host id]
   (array-seq
     (.querySelectorAll host (str "[" rf.ssr.streaming.constants/attr-suspense-mount "=\"" (pr-str id) "\"]"))))
@@ -634,13 +632,12 @@
 (defn- inert-fallback-template-count
   "Count of un-materialised fallback `<template>`s still in the DOM. After a
   sweep this MUST be zero — every fallback template is consumed into a live
-  mount (rf2-8en9mu: a duplicate-id boundary must not leave a stray inert
-  template)."
+  mount (a duplicate-id boundary must not leave a stray inert template)."
   [host]
   (count (array-seq (.querySelectorAll host (str "[" rf.ssr.streaming.constants/attr-suspense-fallback "]")))))
 
 (deftest fallback-is-inert-template-before-js-then-painted-on-install
-  (testing "rf2-xzhf2a — the no-JS / first-byte contract. The shell's
+  (testing "the no-JS / first-byte contract. The shell's
             fallback markup is delivered ONLY inside an inert
             `<template data-rf2-suspense-fallback>` — its content is NOT
             painted DOM until the client runtime runs. We distinguish the two:
@@ -678,7 +675,7 @@
           (finally (remove-root! host)))))))
 
 (deftest duplicate-id-resolves-into-last-boundary
-  (testing "rf2-8en9mu — two suspense boundaries declared with the SAME id.
+  (testing "two suspense boundaries declared with the SAME id.
             The server's `dedupe-continuations` keeps the LAST registration
             (last-write-wins, Spec 011 §Boundary nesting and recursion), so
             exactly ONE resolved chunk for that id streams in. The shell still
@@ -686,9 +683,9 @@
             must (a) materialise BOTH fallbacks into visible live mounts (no
             stray inert template stranded), and (b) swap the single resolved
             chunk into the LAST boundary's mount — the registration that won —
-            leaving the EARLIER mount showing its fallback. Before the fix the
-            resolved content landed in the FIRST mount (querySelectorAll
-            document order) and the second fallback template was left inert."
+            leaving the EARLIER mount showing its fallback. Placing by
+            querySelectorAll document order would land the resolved content
+            in the FIRST mount."
     (if-not (browser?)
       (is true ":node-test: no DOM")
       (let [fid  (make-client-frame!)
@@ -725,19 +722,19 @@
               ;; exactly one resolved-dupe node total — not duplicated.
               (is (= 1 (card-count host "resolved-dupe"))
                   "the single resolved chunk is placed exactly once")
-              ;; delta still merged (placement bug must not regress hydration).
+              ;; delta still merged (placement must not regress hydration).
               (is (= 7 (:value @(rf/subscribe [:sct/card :dupe] {:frame fid})))
                   "the resolved chunk's delta merged")
               (finally (stop!))))
           (finally (remove-root! host)))))))
 
 (deftest string-boundary-id-preserves-type-in-trace
-  (testing "rf2-m96yhw — a STRING suspense id must keep its string type in
+  (testing "a STRING suspense id must keep its string type in
             client-side trace payloads, while a KEYWORD id parses back to a
             keyword. The malformed-delta + failed-boundary trace paths decode
-            the id via `read-boundary-id`; before the fix a bare string id
-            (`card-revenue`, emitted via `(str id)`) parsed to an EDN SYMBOL,
-            so the trace `:id` carried the wrong type."
+            the id via `read-boundary-id`; a plain EDN read of a bare string
+            id (`card-revenue`, emitted via `(str id)`) would parse to an EDN
+            SYMBOL and give the trace `:id` the wrong type."
     (if-not (browser?)
       (is true ":node-test: no DOM")
       ;; Drive a STRING id and a KEYWORD id through the failed-boundary path
@@ -756,7 +753,7 @@
             ;; `make-root!` seeds a fallback <template> for `id`, so the
             ;; initial sweep materialises its live mount BEFORE the failed
             ;; chunk is processed and the fallback swap SUCCEEDS — the failed
-            ;; trace is gated on swap success (rf2-8ymnem; the shipped FIFO
+            ;; trace is gated on swap success (the shipped FIFO
             ;; shape always materialises a mount first).
             (append-chunk!
               host
@@ -815,17 +812,17 @@
             0))))))
 
 (deftest split-batch-template-first-delta-later
-  (testing "rf2-x76af2.35 — a boundary's resolved `<template>` and its
+  (testing "a boundary's resolved `<template>` and its
             hydrate-delta `<script>` arrive in SEPARATE observer batches
             (the server flushes them as two `.flush`ed chunks), TEMPLATE
             FIRST. The template is swapped + REMOVED + marked `seen` in the
             first sweep; the delta arrives in a LATER sweep, by which point
             the template node is gone. The delta must STILL merge into
-            app-db. Before the fix the delta was applied only as a side
-            effect of processing the resolved template, so a delta landing
-            after the template was swept was orphaned and its `into` merge
-            was lost (silent progressive-hydration failure until the final
-            payload self-healed it)."
+            app-db. Were the delta applied only as a side effect of
+            processing the resolved template, a delta landing after the
+            template was swept would be orphaned and its `into` merge lost
+            (silent progressive-hydration failure until the final payload
+            self-healed it)."
     (if-not (browser?)
       (is true ":node-test: no DOM")
       (async
@@ -869,7 +866,7 @@
               0)))))))
 
 (deftest split-batch-delta-first-template-later
-  (testing "rf2-x76af2.35 — the same two chunks in SEPARATE observer batches,
+  (testing "the same two chunks in SEPARATE observer batches,
             DELTA FIRST. The delta `<script>` is present before its resolved
             `<template>`. The first sweep must NOT apply it (the boundary has
             not swapped — its id is not yet `seen`), and the delta must WAIT
@@ -921,17 +918,17 @@
               0)))))))
 
 (deftest failed-boundary-trace-emits-exactly-once-when-mount-arrives-late
-  (testing "rf2-8ymnem — the failed-boundary trace is gated on a SUCCESSFUL
+  (testing "the failed-boundary trace is gated on a SUCCESSFUL
             fallback swap. A resolved-failed <template> whose live mount does
             not exist yet (the nested-boundary race / out-of-order-stream
             shape) emits NOTHING — it stays un-`seen` and retryable — and
             emits EXACTLY ONCE when a later sweep materialises the mount and
-            the swap lands. Before the fix the failed arm fired on every sweep
-            regardless of swap success, so a no-mount failed chunk re-emitted
-            :rf.ssr/suspense-boundary-failed on each MutationObserver
-            re-sweep (multi-emit). The shipped FIFO emitter never hits this
-            (a fallback template always materialises a mount first), so the
-            bug is latent — this drives the non-FIFO shape directly."
+            the swap lands. A failed arm that fired on every sweep regardless
+            of swap success would re-emit :rf.ssr/suspense-boundary-failed
+            for a no-mount failed chunk on each MutationObserver re-sweep
+            (multi-emit). The shipped FIFO emitter never hits this (a
+            fallback template always materialises a mount first), so the
+            hazard is latent — this drives the non-FIFO shape directly."
     (if-not (browser?)
       (is true ":node-test: no DOM")
       (async
@@ -949,7 +946,7 @@
               ;; The `(= 1 (failed-count))` below is the SOLE detector that the
               ;; trace fired on the successful swap, so an unscoped count could
               ;; go green on a foreign padding while THIS boundary emitted none
-              ;; (the rf2-veyfp false-green). The failed trace carries the
+              ;; (a false green). The failed trace carries the
               ;; authored id under `[:tags :id]` (see string-boundary-id test).
               failed-count #(count (filter (fn [ev]
                                              (and (= :rf.ssr/suspense-boundary-failed
@@ -971,7 +968,8 @@
             (is (zero? (failed-count))
                 "no failed trace while the failed chunk has no live mount to swap into")
             ;; Force a SECOND sweep with the mount STILL absent (an unrelated
-            ;; DOM mutation drives the observer). The OLD code re-emitted here.
+            ;; DOM mutation drives the observer). An ungated failed arm would
+            ;; re-emit here.
             (append-chunk! host "<div class=\"noise\"></div>")
             (js/setTimeout
               (fn []
@@ -996,7 +994,7 @@
                   0))
               0)))))))
 
-;; ---- a REAL incremental parse (rf2-3x7nj.13.2) -----------------------------
+;; ---- a REAL incremental parse ----------------------------------------------
 ;;
 ;; Every test above appends each chunk WHOLE (`append-chunk!` parses it
 ;; through a `<template>` first), so an element always arrives complete. The
@@ -1044,15 +1042,15 @@
       (poll))))
 
 (deftest split-payload-is-not-finalised-until-the-parser-closes-it
-  (testing "rf2-3x7nj.13.2 — the final `__rf_payload` reaches the renderer
+  (testing "the final `__rf_payload` reaches the renderer
             in two network reads. After the first, the parser has already
             INSERTED the payload `<script>`, holding only a prefix of the EDN.
             Finalisation must wait until the parser has closed it: `:on-ready`
             (where the bootstrap `hydrate!`s from the payload) must not fire
             on the half-parsed element, and when it does fire the payload is
-            whole. Before the fix the element's mere presence finalised, so
-            `hydrate!` read a truncated payload, refused it as malformed, and
-            the canonical state was never installed."
+            whole. Finalising on the element's mere presence would have
+            `hydrate!` read a truncated payload and refuse it as malformed,
+            and the canonical state would never be installed."
     (if-not (browser?)
       (is true ":node-test: no DOM")
       (async
@@ -1095,7 +1093,7 @@
                         (done))))))))))
 
 (deftest split-resolved-template-and-delta-wait-for-the-parser
-  (testing "rf2-3x7nj.13.2 — a resolved `<template>` and its delta `<script>`
+  (testing "a resolved `<template>` and its delta `<script>`
             each reach the renderer across two network reads. A half-parsed
             template must not be swapped in: its clone carries only the
             markup parsed so far, and the parser goes on filling the removed
@@ -1168,7 +1166,7 @@
                             (done))))))))))))
 
 (deftest split-fallback-is-painted-whole-through-failure-and-finalisation
-  (testing "rf2-5yj03 — two initial fallback `<template>`s each reach the
+  (testing "two initial fallback `<template>`s each reach the
             renderer across two network reads. A half-parsed fallback is
             painted at once from its prefix but NOT consumed: consumed, the
             parser would go on writing its tail into the removed original

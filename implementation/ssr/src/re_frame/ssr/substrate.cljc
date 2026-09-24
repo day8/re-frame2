@@ -15,7 +15,7 @@
   The render slot deliberately throws because the adapter has no DOM host;
   SSR callers use `render-to-string` exclusively.
 
-  Internal implementation namespace. The public adapter remains
+  Internal implementation namespace. The public adapter is
   re-frame.ssr/adapter; this ns deliberately avoids
   re-frame.ssr.adapter so CLJS does not see a child-namespace /
   parent-var name clash."

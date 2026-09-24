@@ -1,7 +1,7 @@
 (ns re-frame.ssr-payload-numeric-crossing-test
-  "rf2-3x7nj.13.3 — the hydration payload, and every streaming delta, obey the
+  "The hydration payload, and every streaming delta, obey the
   numeric crossing rule the root manifest and the ssr-node render-state wire
-  already enforce.
+  enforce.
 
   On a JVM host the payload is `pr-str`'d and read back by the browser's EDN
   reader, and for a Long past 2^53, a BigInt, a BigDecimal, a Ratio or a Float
@@ -9,11 +9,11 @@
   `9007199254740992`, `1/3` as `0.3333333333333333`). The server reads its
   own value back perfectly and the render hash often agrees, so nothing else
   catches it. `build-payload` (shared by both SSR paths) and `project-delta`
-  now refuse such a number with `:rf.error/ssr-hydration-payload-invalid`,
+  refuse such a number with `:rf.error/ssr-hydration-payload-invalid`,
   naming the partition, the path and the class — fail closed, always on.
 
-  NaN, infinities, `#inst` and `#uuid` read back as what they were and keep
-  riding: the rule is the manifest's TYPE / RANGE rule, not its NaN clause
+  NaN, infinities, `#inst` and `#uuid` read back as what they were and
+  ride: the rule is the manifest's TYPE / RANGE rule, not its NaN clause
   and not `edn-carryable?` wholesale."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -34,8 +34,8 @@
   (refusal #(rf.ssr.payload-policy/build-payload nil db nil {})))
 
 (deftest a-jvm-only-number-is-refused-in-the-app-db-slice
-  (testing "each of these used to ship untouched and narrow silently in the
-            browser"
+  (testing "each of these would otherwise ship untouched and narrow silently
+            in the browser"
     (doseq [[v class-name] [[10.50M               "java.math.BigDecimal"]
                             [9007199254740993    "java.lang.Long"]
                             [-9007199254740993   "java.lang.Long"]
@@ -138,7 +138,7 @@
       (is (= :rf/app-db (:partition data)))
       (is (contains? #{[:order :id] [:order :price]} (:path data)))))
 
-  (testing "the allowlist still runs first — an off-allowlist key never
+  (testing "the allowlist runs first — an off-allowlist key never
             reaches the check, so it cannot fail the delta"
     (reg-server-frame!)
     (is (= {:public {:n 1}}

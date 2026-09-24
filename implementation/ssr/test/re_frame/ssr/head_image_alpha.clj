@@ -1,6 +1,6 @@
 (ns re-frame.ssr.head-image-alpha
   "Test-support namespace ALPHA for the frame-targeted head/projector
-  resolution tests (rf2-blpg).
+  resolution tests.
 
   Its whole job is to be a distinct `:rf.provenance/ns` — the provenance
   source store keys descriptors `[kind id provenance-ns]`, so the SAME

@@ -15,7 +15,7 @@
   `head-model` returned. There is no side-channel register, so there is
   nothing to clear on frame teardown.
 
-  ## The frame target selects the REGISTRATIONS too (rf2-blpg)
+  ## The frame target selects the REGISTRATIONS too
 
   `head-model` is an explicit-target read — the frame is carried, and it
   is called OUTSIDE any `with-frame` binding (the public head query, a
@@ -23,23 +23,23 @@
   inside frame A targeting frame B). It reads the target frame's app-db
   and route slice by id, which needs no ambient scope; but the `:head`
   and `:route` lookups are ordinary `(kind, id)` resolutions, and those
-  route through `re-frame.registrar/*generation*` — which nothing had
-  bound here.
+  route through `re-frame.registrar/*generation*` — which a read made
+  outside `with-frame` finds unbound.
 
-  So a head id registered from two namespaces, with two frames selecting
-  one each (the image-isolation case
-  `re-frame.source-store/descriptors-for` exists to preserve), resolved to
-  whichever registration reached the registrar ATOM last — and then ran
-  that other image's body against the REQUESTED frame's app-db. Silently:
-  a plausible head model for the wrong page.
+  Left unbound, a head id registered from two namespaces, with two frames
+  selecting one each (the image-isolation case
+  `re-frame.source-store/descriptors-for` exists to preserve), would
+  resolve to whichever registration reached the registrar ATOM last — and
+  then run that other image's body against the REQUESTED frame's app-db.
+  Silently: a plausible head model for the wrong page.
 
   Every read that participates in producing the model therefore runs
   inside ONE `re-frame.live-frame/call-with-frame-resolution` extent on
   the target frame — route metadata selection, head lookup, and the head
   fn's own invocation, so a coherent generation covers the whole read
   rather than half of it. A target that names no image-loaded frame binds
-  nothing and takes the registrar-atom path exactly as before, so this
-  changes nothing for the ordinary single-image / default-image
+  nothing and takes the plain registrar-atom path, which is the path of
+  the ordinary single-image / default-image
   application."
   (:require [re-frame.error :as rf.error]
             [re-frame.frame :as rf.frame]
@@ -95,7 +95,7 @@
   streaming prefix) hardcodes `<meta charset=\"utf-8\">` as the first
   `<head>` byte. A route's `:head` declares page-specific metas; the
   baseline charset is not a per-route head concern. Carrying it here
-  too produced two `<meta charset>` tags in the non-streaming default
+  too would produce two `<meta charset>` tags in the non-streaming default
   document."
   [frame-id]
   (let [doc (when frame-id (:doc (rf.frame/frame-meta frame-id)))]
@@ -123,12 +123,11 @@
   Contract — the slice's `(:route-id route)` IS the canonical registrar
   key under the `:route` kind. If the runtime ever introduces an
   indirection between the slice id and the registry key (route aliases,
-  versioned routes, ...), this fn breaks and must learn the new mapping
-  (audit rf2-asmj1 H6 / cluster rf2-sljs1).
+  versioned routes, ...), this fn breaks and must learn the new mapping.
 
   The `:route` lookup is an ordinary generation-routed resolution, and
   `head-model` calls this INSIDE the target frame's resolution extent
-  (rf2-blpg) so the route metadata and the head it names come from the
+  so the route metadata and the head it names come from the
   same image as the app-db they are read against."
   [route]
   (when-let [route-id (:route-id route)]
@@ -143,7 +142,7 @@
   Assumes the caller has already established the target frame's
   resolution extent — `head-model` is the only caller and does exactly
   that, so the `:head` lookup and the head fn's own body run in one
-  generation (rf2-blpg)."
+  generation."
   [frame-id head-id route]
   (let [head-registration (rf.registrar/lookup :head head-id)]
     (when-not head-registration
@@ -171,9 +170,7 @@
     (head-model frame-id {:head-id :head/article})
     (head-model frame-id {:route {:route-id :route/article :params {:id \"1\"}}})
 
-  One read answers the whole question, and it answers it in one pass
-  (rf2-kuky.44 / rf2-kuky.89 — this replaced a pair of reads whose second
-  argument dispatched on its own type):
+  One read answers the whole question, and it answers it in one pass:
 
     1. `frame-id` is CARRIED, never ambient (EP-0002). A nil stamp emits
        + throws `:rf.error/no-frame-context` rather than resolving
@@ -203,12 +200,12 @@
                     frame-id :rf.ssr/head-model
                     (cond-> {:where 're-frame.ssr/head-model}
                       (:head-id opts) (assoc :event-id (:head-id opts))))]
-     ;; ONE resolution extent over the whole read (rf2-blpg): the route
+     ;; ONE resolution extent over the whole read: the route
      ;; registration that NAMES the head, the head registration itself and
      ;; the head fn's body must come from the same image, or a
      ;; route-declared head resolves in one generation and executes in
      ;; another. A frame with no sealed generation binds nothing — the
-     ;; unchanged registrar-atom path.
+     ;; plain registrar-atom path.
      (rf.live-frame/call-with-frame-resolution
        frame-id
        (fn []

@@ -1,15 +1,15 @@
 (ns re-frame.ssr.foreign-value-hash-cljs-test
-  "THE FOREIGN CROSSING IN THE RENDER-TREE HASH (rf2-56iys).
+  "THE FOREIGN CROSSING IN THE RENDER-TREE HASH.
 
   `canonical-edn-into`'s `:else` branch delegates to `pr-str`, and
   `cljs.core`'s printer descends into a plain JS object (`#js {…}`, over
   `js-keys`) and a JS array (`#js […]`, over elements) with no seen-set.
   A foreign object graph may be CYCLIC — React 19's `createContext`
   returns an object whose `Provider` key points back at the context
-  itself — so hashing an ordinary provider-headed form recurred until the
-  stack blew (`RangeError: Maximum call stack size exceeded`) instead of
-  returning a hash. The walk now stops at those two predicates and emits
-  one fixed token.
+  itself — so hashing an ordinary provider-headed form through that
+  printer would recur until the stack blows (`RangeError: Maximum call
+  stack size exceeded`) instead of returning a hash. The walk stops at
+  those two predicates and emits one fixed token.
 
   ## How these rows OBSERVE a stack overflow
 
@@ -35,7 +35,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- self-referential-object
-  "A plain JS object holding a reference to ITSELF. No React: the defect
+  "A plain JS object holding a reference to ITSELF. No React: the hazard
   is a property of a foreign object graph, and this is the smallest value
   that has it."
   []
@@ -44,8 +44,8 @@
     o))
 
 (def ^:private corpus-context
-  "A real React context, so the rows below carry the shape that was
-  reported rather than a model of it."
+  "A real React context, so the rows below carry the real shape rather
+  than a model of it."
   (react/createContext "unset"))
 
 (def ^:private provider
@@ -88,8 +88,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-cyclic-foreign-value-hashes-instead-of-blowing-the-stack
-  (testing "THE REGRESSION GUARD. Revert the foreign branch in
-           `canonical-edn-into` and every row here reports
+  (testing "THE REGRESSION GUARD. Without the foreign branch in
+           `canonical-edn-into`, every row here would report
            `{:threw \"RangeError\"}` where a hash was expected."
     (doseq [[label v] [["a self-referential object" (self-referential-object)]
                        ["a React 19 context"        corpus-context]
@@ -113,9 +113,9 @@
 
 (deftest a-foreign-value-serialises-to-one-fixed-token
   (testing "The token is identity-free, exactly as the `fn?` branch's
-           `#fn[]` is (rf2-jsa2ml) — and for the second of that branch's
-           reasons as well as the first: `#js {\"f\" some-fn}` used to
-           print `#js {:f #object[f]}`, smuggling a JS function's `.name`
+           `#fn[]` is — and for the second of that branch's reasons as
+           well as the first: printed, `#js {\"f\" some-fn}` would be
+           `#js {:f #object[f]}`, smuggling a JS function's `.name`
            — which the `:advanced` compiler renames — back into the hash
            the fn branch exists to keep identity out of."
     (is (= "#js{}" (rf.ssr.hash/canonical-edn #js {"a" 1 "b" "two"})))
@@ -147,7 +147,7 @@
   (testing "`object?` and `array?` are precisely the two `cljs.core`
            printer branches that DESCEND. Every other print form a
            foreign value can take is bounded and recurses into nothing,
-           so it keeps the serialisation it has always had — this row is
+           so it keeps its ordinary printed serialisation — this row is
            what stops the foreign branch from quietly widening."
     (is (= "#inst \"1970-01-01T00:00:00.000-00:00\"" (rf.ssr.hash/canonical-edn (js/Date. 0))))
     (is (= "#\"ab+c\"" (rf.ssr.hash/canonical-edn #"ab+c")))

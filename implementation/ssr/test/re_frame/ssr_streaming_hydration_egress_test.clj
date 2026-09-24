@@ -1,21 +1,22 @@
 (ns re-frame.ssr-streaming-hydration-egress-test
-  "rf2-uc3cs4 — streaming per-subtree hydration DELTAS obey the same
+  "Streaming per-subtree hydration DELTAS obey the same
   allowlist-first-then-`:rf.egress/ssr-hydration`-project boundary the final
-  `__rf_payload` does (rf2-bt9kct, EP-0015 §14).
+  `__rf_payload` does (EP-0015 §14).
 
   A streaming delta is browser-delivered hydration state — it arrives in the
   stream BEFORE the final payload and the client merges it into the live
   app-db. `subtree-delta` computes it as the raw changed/new top-level keys
-  each mapped to the FULL after-db value, and the Ring adapter serialized
-  `(pr-str delta)` directly. So a continuation mutating `:secret` streamed
+  each mapped to the FULL after-db value. Serialized directly as
+  `(pr-str delta)`, a continuation mutating `:secret` would stream
   `{:secret …}` even when the handler `:payload` allowlist named only public
-  keys, and a frame-sensitive child under an allowed changed key rode raw.
+  keys, and a frame-sensitive child under an allowed changed key would ride
+  raw.
 
-  `re-frame.ssr.streaming/project-delta` is the fix — the pure helper the Ring
+  `re-frame.ssr.streaming/project-delta` is the guard — the pure helper the Ring
   adapter calls before serialising the delta script. This pins it directly
   (allowlist drop + sensitive-child redaction + the empty-delta short-circuit)
-  AND the streaming final-payload's app-db projection (the streaming arm of
-  rf2-bt9kct) through the actual `build-final-payload` path."
+  AND the streaming final-payload's app-db projection through the actual
+  `build-final-payload` path."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.privacy :as rf.privacy]
@@ -30,13 +31,12 @@
   "Register a server frame whose classification marks [:session :token]
   sensitive and seed its app-db with a sensitive child + public siblings.
 
-  EP-0025 B4-ssr follow-on (rf2-ux7983): the durable `:session :token` app-db
-  path is classified through the post-purge mechanism — a B3 COMMIT-PLANE
-  `:sensitive` effect returned by the frame's init event alongside `:db`
-  (EP-0025 §How it works / §Examples). The effect writes the path into the
-  per-frame `[:rf.runtime/elision]` registry the `:rf.egress/ssr-hydration`
-  egress walk reads, replacing the retired frame-config `:sensitive {:app-db}`
-  durable annotation (deleted by the EP-0025 B1b purge)."
+  The durable `:session :token` app-db path is classified through a
+  COMMIT-PLANE `:sensitive` effect returned by the frame's init event
+  alongside `:db` (EP-0025 §How it works / §Examples). The effect writes the
+  path into the per-frame `[:rf.runtime/elision]` registry the
+  `:rf.egress/ssr-hydration` egress walk reads; there is no frame-config
+  `:sensitive {:app-db}` durable annotation."
   [db]
   (rf/reg-event :rf.uc3cs4/seed
     (fn [_ [_ v]]
@@ -103,12 +103,12 @@
       (is (= {} (rf.ssr.streaming/project-delta {:secret {:k 1}} sframe {:payload [:public]}))
           "all-off-allowlist delta → {} (no :rf/redacted scalar)"))))
 
-;; ---- the streaming arm of rf2-bt9kct: build-final-payload's :rf/app-db -----
+;; ---- the streaming final payload: build-final-payload's :rf/app-db ---------
 
 (deftest streaming-final-payload-redacts-sensitive-app-db-child
   (testing "build-final-payload's :rf/app-db runs the allowlisted slice through
             the ssr-hydration projection so a frame-sensitive child redacts in
-            the final __rf_payload (the streaming arm of rf2-bt9kct)"
+            the final __rf_payload"
     (reg-sensitive-server-frame!
       {:session {:token "secret-jwt-final" :user "carol"}
        :public  {:page :home}

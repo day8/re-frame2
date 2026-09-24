@@ -1,13 +1,13 @@
 (ns re-frame.ssr-routing-egress-production-test
-  "rf2-u2x6w — route sub-classification egresses in PRODUCTION here too, and
+  "Route sub-classification egresses in PRODUCTION here too, and
   this namespace says so under the real gate.
 
   ## What this adds to `ssr-route-slice-projection-test`
 
-  rf2-7vk3z established that \"no cross-frame classification bleed\" is a
-  PRODUCTION-real privacy invariant, and found the boundary of what
-  `implementation/core` can witness: the PROJECTION half of sub classification
-  has no production egress inside core, because
+  \"No cross-frame classification bleed\" is a PRODUCTION-real privacy
+  invariant, and `implementation/core` can witness only part of it: the
+  PROJECTION half of sub classification has no production egress inside
+  core, because
   `classification/project-sub-tags` is reached only from `trace/build-event`
   inside `trace/emit!`'s `interop/debug-enabled?` gate. Under
   `-Dre-frame.debug=false` no `:rf.sub/run` event is built at all.
@@ -15,7 +15,7 @@
   `payload-policy/project-routing-egress` is one of the two sites outside core
   where that classification DOES leave the box in a production build — the
   hydration blob every visitor receives. `ssr-route-slice-projection-test`
-  already pins the projector and is, as it happens, green under the gate; what
+  pins the projector and is green under the gate; what
   it does not do is drive the LOWERING. It installs the re-rooted declarations
   directly (`elision/swap-elision-slot!` over
   `routing.classification/apply-route-classification`), which proves the
@@ -34,16 +34,13 @@
 
   Every assertion below holds in dev AND under `-Dre-frame.debug=false`.
   Nothing here rebinds `interop/debug-enabled?`: the flag is read once at
-  namespace-load time and a `with-redefs` cannot reach it (rf2-f7qj4). The
+  namespace-load time and a `with-redefs` cannot reach it. The
   posture is supplied by the JVM:
 
       clojure -J-Dre-frame.debug=false -M:test -n re-frame.ssr-routing-egress-production-test
 
-  Measured both ways at rf2-u2x6w: 4 tests / 15 assertions, 0 failures, exit 0.
-
-  There is no `jvm-ssr-prod-gate` job today — `jvm-core-prod-gate` covers
-  `implementation/core` only, so this artefact is not in its reach. The lane
-  recommendation is recorded on rf2-u2x6w."
+  In CI the `jvm-ssr-prod-gate` job runs it in that posture, as part of the
+  whole suite `scripts/test-ssr-prod-gate.sh` discovers."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -91,7 +88,7 @@
 ;; ===========================================================================
 
 (deftest route-activation-lowers-its-classification-in-this-posture
-  (testing "rf2-u2x6w — the hydration redaction below is downstream of ONE
+  (testing "The hydration redaction below is downstream of ONE
             always-on fact: a real navigation re-roots the route's
             projection-relative declarations to absolute runtime-db paths and
             writes them into the live frame's elision registry. If a production
@@ -118,7 +115,7 @@
 ;; ===========================================================================
 
 (deftest hydration-runtime-db-redacts-the-live-classified-route-slice
-  (testing "rf2-u2x6w — `project-runtime-db` over the frame's REAL runtime-db,
+  (testing "`project-runtime-db` over the frame's REAL runtime-db,
             under the explicit target frame the security-critical builders
             carry. The allowlisted durable routing slice goes through
             `project-routing-egress` at the `[:rf.runtime/routing]` offset, so
@@ -131,7 +128,7 @@
           "the `:sensitive` query value redacts in the hydration slice")
       (is (= blob-secret (get-in current [:query :payload]))
           "the `:large` one rides whole — the hydration wire applies no size
-           elision, because the client route needs the value (rf2-hjz4r)")
+           elision, because the client route needs the value")
       (is (= "/dashboard" (get-in current [:query :return-to]))
           "the unclassified sibling rides verbatim — path-precise, not a
            blanket scrub")
@@ -141,7 +138,7 @@
           "GUARD: no raw token anywhere in the projected runtime-db"))))
 
 (deftest the-hydration-payload-a-visitor-receives-carries-no-raw-route-secret
-  (testing "rf2-u2x6w — one step further out, at the artefact a browser
+  (testing "One step further out, at the artefact a browser
             actually gets. `build-payload` is where the projected runtime-db
             becomes the serialized hydration blob; asserting on the projector's
             return value alone would leave the last hop unwitnessed."
@@ -153,7 +150,7 @@
           current  (get-in payload [:rf/runtime-db :rf.runtime/routing :current])]
       (is (= :rf/redacted (get-in current [:query :token])))
       (is (= blob-secret (get-in current [:query :payload]))
-          "the `:large` value rides whole (rf2-hjz4r)")
+          "the `:large` value rides whole")
       (is (not (.contains (pr-str payload) token-secret))
           "GUARD: the blob the client receives carries no raw secret"))))
 
@@ -162,7 +159,7 @@
 ;; ===========================================================================
 
 (deftest an-unclassified-route-ships-its-slice-verbatim
-  (testing "rf2-u2x6w — the over-redaction control, driven through the same
+  (testing "The over-redaction control, driven through the same
             real activation. A route that declares nothing lowers nothing, and
             its durable slice rides the hydration wire intact. Without this the
             assertions above would also pass under a blanket scrub, which would

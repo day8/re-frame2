@@ -1,5 +1,5 @@
 (ns re-frame.ssr.machine-after-rearm-cljs-test
-  "rf2-jqvgp — the `:rf/hydrate` SEAM re-arms machine `:after` timers.
+  "The `:rf/hydrate` SEAM re-arms machine `:after` timers.
 
   `machine_after_hydration_rearm_cljs_test` (machines artefact) pins the
   walk and the arming. This namespace pins the WIRING: that a real
@@ -39,14 +39,13 @@
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]))
 
-;; rf2-qj4g — COLD-START the adapter slot rather than assuming it is empty.
-;; `init!` is idempotent only for the adapter ALREADY SEATED (rf2-kuky.1);
+;; COLD-START the adapter slot rather than assuming it is empty.
+;; `init!` is idempotent only for the adapter ALREADY SEATED;
 ;; handed a DIFFERENT one it raises `:rf.error/adapter-already-installed`
 ;; instead of silently ignoring the call. This ns runs in the shared node
 ;; bundle beside suites that seat Reagent / UIx / plain-atom, so a bare
-;; `init!` here was a NO-OP whenever one of them ran first — every test
-;; below then exercised the SSR flow on somebody else's substrate and
-;; passed for the wrong reason. Destroy first, seat the adapter this ns
+;; `init!` here would raise whenever one of them ran first. Destroy first,
+;; seat the adapter this ns
 ;; NAMES, and destroy again on the way out so the slot is left cold for
 ;; whichever namespace the runner reaches next.
 (use-fixtures :once
@@ -142,8 +141,8 @@
 
       (let [table (inner cfid)]
         (is (= 1 (count table))
-            (str "the `:rf/hydrate` seam armed exactly one timer. Before "
-                 "rf2-jqvgp this was 0 and the machine was stuck in "
+            (str "the `:rf/hydrate` seam armed exactly one timer. With 0 "
+                 "the machine would be stuck in "
                  ":waiting for the life of the page."))
         (is (= {:parent :ssrrearm/one :spawn [:waiting] :delay 5000}
                (ffirst table)))
