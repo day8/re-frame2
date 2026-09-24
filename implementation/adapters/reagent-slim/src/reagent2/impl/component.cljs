@@ -1,6 +1,6 @@
 (ns reagent2.impl.component
   "Component-shape detection (Form-1/2/3) + Form-3 7-key cap for the
-  day8/reagent-slim artefact (rf2-6hyy Stage 4-C).
+  day8/reagent-slim artefact.
 
   Per IMPL-SPEC §5 and §6.
 
@@ -19,17 +19,18 @@
     get-children         ;; Form-3 accessor: rest after props
     state-atom           ;; Form-3 state cell
 
-  Compile-time fold (rf2-yfbx): the runtime detection in `wrap-render`
-  is the load-bearing correctness mechanism. Per IMPL-SPEC §14.1 the
-  recommended fold is for `re-frame.core/reg-view`'s expansion to add
+  Compile-time fold: the runtime detection in `wrap-render`
+  is the load-bearing correctness mechanism. Per IMPL-SPEC §14.1
+  `re-frame.core/reg-view`'s expansion adds
   a compile-time form-tag (the `:reagent2/form` meta stamped onto the
-  wrapped fn, built by `reagent2.impl.component/tag-form-meta` on the
-  CLJ side), letting `wrap-render` skip the runtime
-  classification on the hot path. The runtime path stays load-bearing
+  wrapped fn, built at that expansion site from
+  `reagent2.impl.component/classify-form-body`'s verdict), letting
+  `wrap-render` skip the runtime
+  classification on the hot path. The runtime path is load-bearing
   for plain `(reg-view* :id (fn ...))` callers and for paths where the
-  fold isn't applied — i.e. correctness without the macro is preserved.
+  fold isn't applied — i.e. correctness does not depend on the macro.
 
-  No separate `defview` macro is shipped (per the rf2-yfbx decision).
+  No separate `defview` macro is shipped.
   Users who want compile-time dispatch use `reg-view`; that is the
   single canonical view-registration surface.
 
@@ -40,8 +41,8 @@
           methods. Detection happens at `create-class*` call time
           (registration time, fail-fast).
 
-  React floor: 19 (per rf2-5djt + Stage 1 commitment). Class components
-  remain the React-blessed shape for error boundaries
+  React floor: 19. Class components
+  are the React-blessed shape for error boundaries
   (`getDerivedStateFromError` + `componentDidCatch`); function components
   do NOT support `componentDidCatch`. The cap's
   `:component-did-catch` key is the single irreplaceable Form-3 surface."
@@ -73,15 +74,14 @@
   "Convert wrap-render's hiccup output to a React element via the
   registered `as-element` fn. Unregistered → throw
   `:rf.error/as-element-fn-unregistered` — honest failure over silent
-  pass-through (the pre-rf2-08t0 shape that reached React with a raw
-  CLJS vector and surfaced as 'Objects are not valid as a React
-  child'). The unregistered fallback is reachable only via a
+  pass-through (a raw CLJS vector reaching React would surface as
+  'Objects are not valid as a React child'). The unregistered fallback is reachable only via a
   hand-rolled bundle that requires component without template;
   production load via reagent2.core pulls both."
   [hiccup]
   (if-let [f @as-element-fn]
     (f hiccup)
-    ;; EP-0015 (rf2-uwqale): carry a SHAPE summary of the hiccup, never
+    ;; Per EP-0015, carry a SHAPE summary of the hiccup, never
     ;; the raw tree — this throw escapes through React's render path into
     ;; error boundaries / host logs, and the hiccup can carry app-owned
     ;; sensitive/large values that path-based projection cannot recover.
@@ -116,7 +116,7 @@
   *current-component*)
 
 ;; ---------------------------------------------------------------------------
-;; The 7-key cap (per IMPL-SPEC §6.1 + Stage 1 DECISION-3)
+;; The 7-key cap (per IMPL-SPEC §6.1)
 ;;
 ;; Exactly these keys are accepted in a `create-class` spec map. Any
 ;; other key throws at registration time so users see the error at
@@ -202,7 +202,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Type predicates
 ;;
-;; Per IMPL-SPEC §2.8: kept (re-com / 10x type-check). `reagent-class?`
+;; Per IMPL-SPEC §2.8: these serve re-com / 10x type-checks. `reagent-class?`
 ;; is true only for classes built by `create-class*` (or `fn-to-class`).
 ;; `react-class?` is the broader "is this a React component class?"
 ;; predicate.
@@ -237,10 +237,10 @@
 ;;             We cache the inner fn on `.-cljsRenderFn` and recall it
 ;;             with the current argv on subsequent renders.
 ;;
-;; The compile-time fold (rf2-yfbx) lets `reg-view`'s expansion stamp
-;; a `-form-tag` property on the user fn — when present, `wrap-render`
+;; The compile-time fold lets `reg-view`'s expansion stamp
+;; `:reagent2/form` meta on the user fn — when present, `wrap-render`
 ;; skips the classification cond and dispatches directly. The runtime
-;; cond stays load-bearing for plain `(reg-view* :id (fn ...))` calls.
+;; cond is load-bearing for plain `(reg-view* :id (fn ...))` calls.
 ;; ---------------------------------------------------------------------------
 
 (defn- argv-args
@@ -253,7 +253,7 @@
 
 (defn- form-tag
   "Read the compile-time form-tag stamped onto `render-fn` by
-  `reg-view`'s expansion (per rf2-yfbx). Returns `:reagent2/form-1`,
+  `reg-view`'s expansion. Returns `:reagent2/form-1`,
   `:reagent2/form-2`, or nil when the fn carries no tag (plain
   `(reg-view* :id (fn ...))` callers, or a non-folding macro path)."
   [render-fn]
@@ -261,7 +261,7 @@
 
 (defn- class-mounting-render-fn
   "Wrap a factory-returned Reagent class `klass` in a render fn that MOUNTS
-  it (rf2-oyrj).
+  it.
 
   A class made by `create-class*` is a JS function, so the bare `fn?`
   test that classifies a Form-2 inner render fn also matches it. Calling
@@ -269,10 +269,10 @@
   returns `this`, while the real render lives on the prototype and the
   lifecycle methods are installed separately. The supported Form-3
   FACTORY shape — a plain `defn` whose body returns `create-class` (see
-  `FORM-3.md`'s google-map recipe) — therefore never reached its class.
+  `FORM-3.md`'s google-map recipe) — would therefore never reach its class.
 
   Returning `[klass & args]` instead hands the class back as a hiccup
-  HEAD, which `template/vec-to-elem` already routes through
+  HEAD, which `template/vec-to-elem` routes through
   `react-component-element` → `React.createElement`. React then owns the
   instance: the class type is stable across renders, so an update
   reconciles in place and the factory's per-mount closure survives.
@@ -285,7 +285,7 @@
 (defn- form-2-inner-fn
   "Classify a render fn's fn-valued output for caching as the Form-2 inner
   render fn. A factory-returned Reagent class is wrapped so it is MOUNTED
-  rather than invoked (rf2-oyrj); a genuine inner render closure is cached
+  rather than invoked; a genuine inner render closure is cached
   unchanged."
   [out]
   (if (reagent-class? out)
@@ -303,18 +303,18 @@
   single `fn?` test on the first-call return value — same shape as
   stock Reagent's `reagent.impl.component:wrap-render`.
 
-  Compile-time fold (rf2-yfbx): when `render-fn` carries the
+  Compile-time fold: when `render-fn` carries the
   `:reagent2/form` meta stamped by `reg-view`'s expansion, we
   short-circuit the classification cond and dispatch directly. The
-  runtime cond stays load-bearing for plain `(reg-view* :id (fn ...))`
+  runtime cond is load-bearing for plain `(reg-view* :id (fn ...))`
   callers and other paths where the fold isn't applied — correctness
-  without the macro is preserved.
+  does not depend on the macro.
 
   Form-3 dispatches via the `:reagent-render` key in the spec map and
   reaches this fn directly with the user's render fn (the spec's
   `:reagent-render` value).
 
-  Form-3 FACTORY (rf2-oyrj): when `render-fn` is a plain factory whose
+  Form-3 FACTORY: when `render-fn` is a plain factory whose
   body RETURNS a `create-class` result — `FORM-3.md`'s supported
   per-instance shape — the returned class is a JS function and so
   matches the same `fn?` test that detects a Form-2 inner render fn.
@@ -361,19 +361,19 @@
           ;; Form-2: render-fn returned a fn. Cache it and recall with
           ;; the current args so this render produces actual hiccup.
           ;; A factory-returned Reagent CLASS is also a fn — `form-2-inner-fn`
-          ;; wraps that case so the class is mounted, not called (rf2-oyrj).
+          ;; wraps that case so the class is mounted, not called.
           (fn? out)
           (let [inner (form-2-inner-fn out)]
             (set! (.-cljsRenderFn c) inner)
             (apply inner args))
 
           ;; A sequence is SIBLING children and must reach `as-element`
-          ;; still a seq: a vector there means ONE hiccup form, so the
-          ;; `(vec out)` this arm used to do made the first child a head —
+          ;; still a seq: a vector there means ONE hiccup form, so
+          ;; `(vec out)` would make the first child a head —
           ;; `:rf.error/template-bad-tag` for keyed elements, an empty-vector
-          ;; error for `()`, and `("a" "b")` rendered as `<a>b</a>`
-          ;; (rf2-fzbj.30). `doall` keeps the realization inside the render
-          ;; Reaction, where `vec` had it, without changing the shape.
+          ;; error for `()`, and `("a" "b")` rendered as `<a>b</a>`.
+          ;; `doall` keeps the realization inside the render
+          ;; Reaction without changing the shape.
           (seq? out) (doall out)
 
           ;; Anything else (a React element, a primitive) flows
@@ -437,8 +437,8 @@
   (let [prototype (.-prototype component-class)]
     ;; componentDidMount: always installed (even without a user
     ;; :component-did-mount) so a React.StrictMode simulated
-    ;; unmount→remount can re-establish the per-instance render Reaction
-    ;; (rf2-6b6pex). StrictMode's dev init sequence for a slim class is
+    ;; unmount→remount can re-establish the per-instance render Reaction.
+    ;; StrictMode's dev init sequence for a slim class is
     ;; `render ×2 → componentDidMount → componentWillUnmount →
     ;; componentDidMount`: the transient componentWillUnmount disposes +
     ;; nils this instance's render Reaction (below), and React reuses the
@@ -455,7 +455,7 @@
     ;; ran, `cljsRenderRea` live, no marker) is a no-op here.
     ;;
     ;; It is also the ADOPTION point for the provisional-adoption reaper
-    ;; (rf2-3x7nj.6.3, see `reap-unless-adopted!`): `cljsIsMounted` tells the
+    ;; (see `reap-unless-adopted!`): `cljsIsMounted` tells the
     ;; reaper this instance's render Reaction is no longer provisional, and
     ;; componentWillUnmount clears it again. An instance the reaper reached
     ;; first carries the same reattach marker, so a commit that lost the race
@@ -478,13 +478,13 @@
       (set! (.-componentWillUnmount prototype)
             (fn []
               (this-as ^js this
-                ;; Not mounted from here on (rf2-3x7nj.6.3). React also calls
+                ;; Not mounted from here on. React also calls
                 ;; this when it HIDES a mounted instance (Activity / Suspense),
                 ;; may re-render it while hidden, and may then delete it
                 ;; without calling this again — so a render Reaction built
                 ;; while hidden must be provisional, and reaped, too.
                 (set! (.-cljsIsMounted this) false)
-                ;; Clear the dirty flag on unmount (rf2-mdgt8t (a)). A
+                ;; Clear the dirty flag on unmount. A
                 ;; component queued via batching/queue-render! (which sets
                 ;; cljsIsDirty) and THEN unmounted would otherwise stay
                 ;; dirty, so the next flush-render drain sees (dirty? c)
@@ -495,7 +495,7 @@
                 (when-some [rea (.-cljsRenderRea this)]
                   (ratom/dispose! rea)
                   (set! (.-cljsRenderRea this) nil)
-                  ;; Mark for reattach on a StrictMode remount (rf2-6b6pex).
+                  ;; Mark for reattach on a StrictMode remount.
                   ;; If React remounts THIS same instance (its dev
                   ;; unmount→remount reuses the committed fiber and fires
                   ;; componentDidMount with no intervening render()),
@@ -550,8 +550,7 @@
     ;; Per IMPL-SPEC §6.5. This is a STATIC method (no `this`), so it
     ;; can only patch React's own this.state; `sync-error-state!`
     ;; (called at render entry) bridges the marker into the public
-    ;; Reagent state atom so `(reagent2.core/state this)` sees it too
-    ;; (rf2-ygknv finding 4 — the React-state/Reagent-atom desync).
+    ;; Reagent state atom so `(reagent2.core/state this)` sees it too.
     (when (:component-did-catch spec)
       (set! (.-getDerivedStateFromError component-class)
             (fn [_error]
@@ -573,7 +572,7 @@
 
 (defn- sync-error-state!
   "Bridge React's error-boundary state into the public Reagent state
-  atom (rf2-ygknv finding 4).
+  atom.
 
   The default `getDerivedStateFromError` (installed by
   `install-lifecycle-methods!`) is a STATIC method — it cannot reach the
@@ -585,7 +584,7 @@
 
   This runs at render entry — AFTER React has applied the derived-state
   patch and re-rendered — and copies the `cljsHasError` marker from
-  `this.state` into the Reagent state atom (additively, leaving any
+  `this.state` into the Reagent state atom (an `assoc`, leaving any
   user-managed keys intact). Guarded so it writes the atom only on the
   error-state transition: the write happens OUTSIDE the render Reaction
   (before the capture below), so it neither registers as a render
@@ -598,17 +597,17 @@
           (swap! a assoc :cljsHasError true))))))
 
 ;; ---------------------------------------------------------------------------
-;; Provisional-adoption reaper (rf2-3x7nj.6.3)
+;; Provisional-adoption reaper
 ;;
 ;; A render Reaction is built INSIDE render(), and from then on it watches
 ;; every subscription the render derefs and holds re-frame's render-owned
 ;; reference on each (Spec 006 §Which lifetime governs a ratom adapter).
 ;; componentWillUnmount disposes it — but React calls that only for an
-;; instance it COMMITTED. A pass React renders and throws away (a Suspense
-;; boundary suspending on mount, an error boundary catching on mount, a hidden
-;; Activity never shown) used to leave every instance it rendered subscribed
-;; for the life of the page: the slot never reached 0, and each change
-;; forceUpdated an instance React never mounted.
+;; instance it COMMITTED. Left alone, a pass React renders and throws away (a
+;; Suspense boundary suspending on mount, an error boundary catching on mount,
+;; a hidden Activity never shown) would leave every instance it rendered
+;; subscribed for the life of the page: the slot would never reach 0, and each
+;; change would forceUpdate an instance React never mounted.
 ;;
 ;; So a render Reaction built while its instance is NOT mounted is
 ;; provisional: one host macrotask later the reaper disposes it unless
@@ -628,7 +627,7 @@
 
 (def ^:private provisional-horizon-ms
   "How long an unadopted render Reaction lives before the reaper disposes it.
-  Mirrors `re-frame.substrate.spine/provisional-horizon-ms` (rf2-2rtt6.71)."
+  Mirrors `re-frame.substrate.spine/provisional-horizon-ms`."
   4)
 
 (defonce ^:private unadopted
@@ -696,7 +695,7 @@
       ;; so the copy happens here.
       (copy-argv-from-props! this (.-props this))
       ;; Bridge the error-boundary marker from React's this.state into
-      ;; the public Reagent state atom (rf2-ygknv finding 4). Outside
+      ;; the public Reagent state atom. Outside
       ;; the render Reaction so it is not captured as a dependency.
       (sync-error-state! this)
       (binding [*current-component* this]
@@ -710,8 +709,8 @@
                                (fn [_changed-reaction]
                                  (batching/queue-render! this)))]
                          (set! (.-cljsRenderRea this) new-render-reaction)
-                         ;; Provisional until componentDidMount adopts it
-                         ;; (rf2-3x7nj.6.3). Armed BEFORE the deref: a render
+                         ;; Provisional until componentDidMount adopts it.
+                         ;; Armed BEFORE the deref: a render
                          ;; that throws has already taken its subscription
                          ;; references by then, and needs an owner that can
                          ;; release them.
@@ -723,22 +722,21 @@
           (->react-element hiccup))))))
 
 ;; ---------------------------------------------------------------------------
-;; Framework-default shouldComponentUpdate — argv-equality gate (rf2-5al9d7)
+;; Framework-default shouldComponentUpdate — argv-equality gate
 ;;
 ;; Stock Reagent installs a default `shouldComponentUpdate` that compares a
 ;; component's argv with `=`: a child whose args did not change does NOT
 ;; re-render just because its parent did (the signature "fine-grained
-;; re-render" property). reagent-slim shipped without it, so React took its
-;; always-render default and every slim class re-rendered on every parent
-;; re-render — an observable lifecycle-frequency divergence from stock
-;; (`:component-did-update` / `:get-snapshot-before-update` firing on
-;; value-identical argvs) plus wasted work down Reagent-shaped subtrees. This
-;; restores the invariant.
+;; re-render" property). Without it React takes its always-render default and
+;; every slim class re-renders on every parent re-render — an observable
+;; lifecycle-frequency divergence from stock (`:component-did-update` /
+;; `:get-snapshot-before-update` firing on value-identical argvs) plus wasted
+;; work down Reagent-shaped subtrees. This gate keeps the invariant.
 ;;
 ;; This is a FRAMEWORK-INTERNAL default, NOT a user surface. `:should-
-;; component-update` stays OUT of the 7-key `create-class` cap — a user
-;; override is still rejected at registration time (see `cap-keys`). The
-;; framework merely restores its own invariant.
+;; component-update` is OUT of the 7-key `create-class` cap — a user
+;; override is rejected at registration time (see `cap-keys`). The
+;; framework only maintains its own invariant.
 ;;
 ;; It does NOT suppress subscription- or local-state-driven updates. Every
 ;; reactive update in reagent-slim (a subscription invalidation or a Form-2
@@ -755,7 +753,7 @@
 ;; `-equiv`, a same-reference foreign object mutated in place). Stock Reagent
 ;; fails CLOSED (skips); we fail OPEN (render) with a dev warning — skipping
 ;; on a comparison failure risks a stale UI, and a class component is always
-;; correct WITH a render. The extra render is the safe branch (rf2-5al9d7).
+;; correct WITH a render. The extra render is the safe branch.
 ;; ---------------------------------------------------------------------------
 
 (defn- argv-should-update?
@@ -799,7 +797,7 @@
   [spec]
   (validate-class-spec! spec)
   (let [render-fn (or (:reagent-render spec)
-                      ;; EP-0015 (rf2-uwqale): summarise the Form-3 spec —
+                      ;; Per EP-0015, summarise the Form-3 spec —
                       ;; never carry the whole spec map. A spec can carry
                       ;; app-owned closures/data; the throw is captured by
                       ;; host logs before path-based projection runs.
@@ -837,8 +835,8 @@
     (set! (.. component-class -prototype -render)
           (make-render-method render-fn))
 
-    ;; Framework-default shouldComponentUpdate: restore stock Reagent's
-    ;; argv-equality gate on every slim class (rf2-5al9d7). Internal — NOT a
+    ;; Framework-default shouldComponentUpdate: stock Reagent's
+    ;; argv-equality gate on every slim class. Internal — NOT a
     ;; user cap key. React skips sCU on the initial render and for forceUpdate
     ;; (the reactive-update drain in reagent2.impl.batching), so this gates
     ;; only parent-propagated re-renders: an equal-argv child is skipped.
@@ -856,7 +854,7 @@
 ;; Per IMPL-SPEC §2.8 / §7.1: most reg-view'd render fns reach the
 ;; renderer as plain CLJS fns; the renderer wraps them in a class so
 ;; lifecycle (including the *current-component* binding + the
-;; dependency-tracking deref-capture in 4-D) has somewhere to live.
+;; dependency-tracking deref-capture) has somewhere to live.
 ;; This is the canonical path for Form-1 and Form-2 components that
 ;; arrive without an explicit create-class call.
 ;;
@@ -875,7 +873,7 @@
   spec; runtime detection between Form-1 and Form-2 happens inside
   `wrap-render`.
 
-  React-context wiring (rf2-0bz5ah): a `:contextType` carried in `f`'s
+  React-context wiring: a `:contextType` carried in `f`'s
   CLJS metadata is assigned to the synthesised class's static
   `.-contextType` field, mirroring stock Reagent's `fn-to-class` (which
   threads `(meta f)` — including `:contextType` — through `create-class`).
