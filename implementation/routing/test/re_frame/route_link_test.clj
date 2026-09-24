@@ -241,13 +241,10 @@
 
     ;; Fire the event a click on `[rf/route-link {:to :route/article :params {:id \"intro\"}}]`
     ;; would produce.
-    (rf/dispatch-sync [:rf.route/url-requested
-                       {:url    "/articles/intro"
-                        :to     :route/article
-                        :params {:id "intro"}}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/articles/intro"}])
     (is (= :route/article
            (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
         ":rf.route/url-requested with a route-link payload completes the navigation")
     (is (= {:id "intro"}
            (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :params]))
-        ":params from the link land in the :rf/route slice")))
+        ":params matched from the link's URL land in the :rf/route slice")))
