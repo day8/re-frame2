@@ -1,18 +1,18 @@
 (ns re-frame.image-no-emit-trace-gate-cljs-test
-  "rf2-x76af2.25 — `emit-dispatched-trace!`'s enqueue-time `:rf.trace/no-emit?`
+  "`emit-dispatched-trace!`'s enqueue-time `:rf.trace/no-emit?`
   gate must be IMAGE-AWARE.
 
   The gate reads the target handler's registration meta to decide whether to
   suppress the `:rf.event/dispatched` enqueue trace (Spec 009 §Trace-emission
-  opt-out). It ran at enqueue time via a BARE `(registrar/lookup :event
-  event-id)` — OUTSIDE the `call-with-frame-resolution` binding that wraps
-  `process-event!` — so an image-loaded frame's inline `:reg-event` handler
-  (which lives ONLY in the frame's generation resolver, and whose inline
-  descriptor CAN carry `:rf.trace/no-emit?` in `:metadata`) was MISSED: the bare
-  lookup returned nil → `no-emit?` false → the `:rf.event/dispatched` trace
-  flooded the very stream the handler is marked to stay out of. This is the
-  exact flood rf2-qsjda closed for registrar-registered handlers, previously
-  still open for image-registered ones.
+  opt-out). It runs at enqueue time, OUTSIDE the `call-with-frame-resolution`
+  binding that wraps `process-event!`, so it resolves the meta through the
+  target frame's image generation. A BARE `(registrar/lookup :event event-id)`
+  there would MISS an image-loaded frame's inline `:reg-event` handler (which
+  lives ONLY in the frame's generation resolver, and whose inline descriptor
+  CAN carry `:rf.trace/no-emit?` in `:metadata`): the bare lookup would return
+  nil → `no-emit?` false → the `:rf.event/dispatched` trace would flood the
+  very stream the handler is marked to stay out of — the same flood the gate
+  prevents for registrar-registered handlers.
 
   Mirrors `re-frame.trace-test`'s registrar-handler no-emit tests for the IMAGE
   case: an image inline no-emit handler must NOT emit `:rf.event/dispatched` at
@@ -21,19 +21,19 @@
 
   `.cljc` ending `-cljs-test` rides `npm run test:cljs` AND `clojure -M:test`.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   The always-on half is that the image-inline handler is RESOLVED AND RUN —
   `:bookkeeping/ran?` / `:normal/ran?` land in the frame's app-db. That is the
-  precondition the whole namespace rests on (the pre-fix bug was a
-  generation-blind lookup returning nil), it is readable straight off
+  precondition the whole namespace rests on (a generation-blind lookup would
+  return nil), it is readable straight off
   `rf/app-db-value`, and it needs no trace surface — so it is asserted WITHOUT
   a posture guard and runs in `scripts/test-core-prod-gate.sh` too.
 
   The `:rf.event/dispatched` assertions are DEV-ONLY: `:rf.trace/no-emit?`
   gates a `trace/emit!` site, and under `-Dre-frame.debug=false` nothing is
-  emitted at all. BOTH of them move inside the
-  `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`, the negative
+  emitted at all. BOTH of them sit inside the
+  `(when rf.interop/debug-enabled? …)` arm, the negative
   included — and the negative is the point rather than tidiness. Left outside,
   `(not (contains? ops :rf.event/dispatched))` over an EMPTY `ops` would report
   that the no-emit flag correctly suppressed the enqueue trace when in fact
@@ -78,11 +78,10 @@
   (testing "an image-loaded frame whose INLINE :reg-event handler is marked
             :rf.trace/no-emit? true does NOT emit :rf.event/dispatched at enqueue
             time — the gate resolves the handler meta through the frame's image
-            generation, not a bare (generation-blind) registrar lookup
-            (rf2-x76af2.25)"
+            generation, not a bare (generation-blind) registrar lookup"
     (rf/make-frame {:id :img/main :doc "image-loaded no-emit frame"})
     ;; The handler exists ONLY in the frame's image (never globally registered),
-    ;; so a bare enqueue-time lookup would miss it entirely — the pre-fix bug.
+    ;; so a bare enqueue-time lookup would miss it entirely.
     (let [img (rf.image/image
                 {:id :img/no-emit
                  :registrations
@@ -96,12 +95,12 @@
         ;; execution) — proves the image handler was genuinely resolved + run.
         (is (true? (:bookkeeping/ran? (rf/app-db-value :img/main)))
             "the inline image handler executed")
-        ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture
+        ;; Dev-instrumentation arm (see ns docstring §Posture
         ;; split). A NEGATIVE over the trace stream: under the production gate
         ;; `ops` is empty for EVERY handler, so this would pass without the
         ;; no-emit flag doing anything at all.
         (when rf.interop/debug-enabled?
-          ;; The bug: :rf.event/dispatched was emitted for a no-emit handler.
+          ;; A no-emit handler must not emit :rf.event/dispatched.
           (is (not (contains? ops :rf.event/dispatched))
               (str "the :rf.trace/no-emit? image handler must NOT emit "
                    ":rf.event/dispatched at enqueue; saw ops: " (pr-str ops))))))))
@@ -110,7 +109,7 @@
   (testing "baseline sanity: the SAME image-inline dispatch shape WITHOUT
             :rf.trace/no-emit? DOES emit :rf.event/dispatched — so the
             suppression above is the flag's effect, not that image-frame
-            dispatches never emit (rf2-x76af2.25)"
+            dispatches never emit"
     (rf/make-frame {:id :img/main :doc "image-loaded normal frame"})
     (let [img (rf.image/image
                 {:id :img/normal
@@ -122,8 +121,7 @@
       (let [ops (dispatched-ops-for :img/main [:normal/event] :normal/event)]
         (is (true? (:normal/ran? (rf/app-db-value :img/main)))
             "the inline image handler executed")
-        ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture
-        ;; split).
+        ;; Dev-instrumentation arm (see ns docstring §Posture split).
         (when rf.interop/debug-enabled?
           (is (contains? ops :rf.event/dispatched)
               ":rf.event/dispatched fired for the un-flagged image handler"))))))
