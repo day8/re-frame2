@@ -370,22 +370,29 @@
       (is (not (str/includes? (pr-str we) "4111-1111-1111-1111"))
           "no raw owner-marked value rides on the wire"))))
 
-(deftest ssr-serialize-entry-elides-owner-large-declaration-slot
+(deftest ssr-serialize-entry-ships-owner-large-declaration-slot-whole
   (reg! :report/blob {:large [[:data :blob]]})
-  (testing "rf2-260yhk / rf2-d3pku1 END-TO-END: a :serialize resource whose OWN
-            :data-rooted :large declaration is lowered ELIDES that slot on SSR
-            projection (the registry-driven owner surface fires)"
+  (testing "rf2-hjz4r: a :serialize resource whose OWN :data-rooted :large
+            declaration is lowered ships that slot WHOLE on SSR projection —
+            the hydration wire applies no size elision, because the client's
+            cached :data must be the data, not a marker"
     (rf/make-frame {:id :rcfg/owner-large})
-    (let [big (apply str (repeat 1000 "q"))
-          k   (rf.resources.state/scoped-resource-key :rf.scope/global :report/blob {:slug "r"})
-          e   (entry {:resource-id :report/blob :data {:blob big :name "ok"}})
+    (let [big  (apply str (repeat 1000 "q"))
+          k    (rf.resources.state/scoped-resource-key :rf.scope/global :report/blob {:slug "r"})
+          k-id (rf.resources.state/key-id k)
+          e    (entry {:resource-id :report/blob :data {:blob big :name "ok"}})
           [_ we] (only-wire-entry (ssr-project :rcfg/owner-large (runtime-db-with {k e})))]
-      (is (contains? (:blob (:data we)) :rf.size/large-elided)
-          "the owner-declared :blob slot is elided on the serialized entry")
+      (is (= big (:blob (:data we)))
+          "the owner-declared :blob slot rides raw under :rf.egress/ssr-hydration")
       (is (= "ok" (:name (:data we))) "the unmarked sibling rides verbatim")
       (is (= :loaded (:status we)) "metadata (status) still rides")
-      (is (not (str/includes? (pr-str we) big))
-          "no raw large value rides on the serialized entry"))))
+      (testing "control: the same entry under :rf.egress/off-box-tool still elides
+                (the registry-driven owner surface fires; only the hydration
+                boundary keeps large values)"
+        (let [projected (rf.resources.classification/project-entry-data
+                          (:data e) k-id :rcfg/owner-large :rf.egress/off-box-tool)]
+          (is (contains? (:blob projected) :rf.size/large-elided))
+          (is (not (str/includes? (pr-str projected) big))))))))
 
 (deftest ssr-serialize-entry-redacts-owner-params-declaration-slot-in-key
   (reg! :report/by-account {:sensitive [[:params :account-id]]

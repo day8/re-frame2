@@ -15,8 +15,10 @@
   This drives the ACTUAL non-streaming payload-build path
   (`re-frame.ssr.ring.payload/build-payload`) against a registered server frame
   carrying a `:sensitive :app-db` declaration."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.edn :as edn]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.frame :as rf.frame]
             [re-frame.privacy :as rf.privacy]
             [re-frame.ssr.ring.payload :as rf.ssr.ring.payload]
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
@@ -110,3 +112,79 @@
       (is (= {:token "secret-jwt" :user "alice"} (:session db))
           "no frame classification → allowlisted slice rides verbatim")
       (is (not (contains? db :public))))))
+
+;; ---- rf2-hjz4r: no size elision on the hydration wire ----------------------
+;;
+;; `:large` exists to protect tool budgets and hosted monitors, not the wire to
+;; the page's own browser. The hydration payload is installed as LIVE client
+;; state by `:rf/hydrate`, so an elided value arrived as a
+;; `:rf.size/large-elided` marker map where the page expected its data. The
+;; `:rf.egress/ssr-hydration` profile now keeps large values; `:sensitive` still
+;; redacts.
+
+(def ^:private catalog-frame :rf.hjz4r/catalog-server)
+
+(defn- reg-catalog-frame! []
+  (rf/reg-event :rf.hjz4r/classify-catalog
+    (fn [_ _] {:large     [[:catalog :items]]
+               :sensitive [[:catalog :owner-token]]}))
+  (rf/make-frame {:id catalog-frame :platform :server
+                  :initial-events [[:rf.hjz4r/classify-catalog]]}))
+
+(def ^:private catalog-db
+  {:catalog {:items [1 2 3] :title "Shop" :owner-token "tok-server-only"}
+   :private {:note "never allowlisted"}})
+
+(deftest large-classified-value-rides-the-hydration-wire-intact
+  (testing "a :large path inside an allowlisted key ships its data, not a size
+            marker; its :sensitive sibling still redacts and its unclassified
+            sibling is unchanged"
+    (reg-catalog-frame!)
+    (let [out (rf.ssr.ring.payload/build-payload catalog-frame catalog-db nil
+                                                 {:payload [:catalog]})
+          db  (:rf/app-db out)]
+      (is (= [1 2 3] (get-in db [:catalog :items]))
+          "the :large vector rides intact (it was a :rf.size/large-elided marker map)")
+      (is (= rf.privacy/redacted-sentinel (get-in db [:catalog :owner-token]))
+          "control: the :sensitive sibling still redacts")
+      (is (= "Shop" (get-in db [:catalog :title]))
+          "control: the unclassified sibling is unchanged")
+      (is (not (contains? db :private))
+          "control: the unallowlisted key is still absent")
+      (is (not (.contains (pr-str out) "tok-server-only"))
+          "control: no raw sensitive value survives anywhere in the payload"))))
+
+(deftest large-classified-value-survives-a-real-hydrate
+  (testing "the wire payload, read back as EDN and installed by a real
+            :rf/hydrate into a client frame, leaves the client holding the
+            vector"
+    (reg-catalog-frame!)
+    (let [payload (-> (rf.ssr.ring.payload/build-payload catalog-frame catalog-db nil
+                                                         {:payload [:catalog]})
+                      pr-str
+                      edn/read-string)
+          client  (rf.frame/make-anon-frame-record! {:doc      "rf2-hjz4r client frame"
+                                                     :platform :client})]
+      (rf/dispatch-sync [:rf/hydrate payload] {:frame client})
+      (let [items (get-in (rf/app-db-value client) [:catalog :items])]
+        (is (vector? items) (str "the client holds a vector, not a marker; got " (pr-str items)))
+        (is (= 3 (count items)))
+        (is (= [1 2 3] items)))
+      (is (= rf.privacy/redacted-sentinel
+             (get-in (rf/app-db-value client) [:catalog :owner-token]))
+          "control: the sensitive sibling is still the sentinel on the client"))))
+
+(deftest large-value-obeys-the-numeric-crossing-rule
+  (testing "a :large value now rides, so it now obeys the JVM numeric crossing
+            rule: a Long past 2^53 inside it is refused rather than shipped as a
+            marker (which destroyed the value silently)"
+    (reg-catalog-frame!)
+    (let [data (try (rf.ssr.ring.payload/build-payload
+                      catalog-frame
+                      {:catalog {:items [1 9007199254740993] :title "Shop"}}
+                      nil {:payload [:catalog]})
+                    nil
+                    (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+      (is (= :rf.error/ssr-hydration-payload-invalid (:rf.error/id data)))
+      (is (= [:catalog :items 1] (:path data)))
+      (is (= :rf/app-db (:partition data))))))

@@ -108,7 +108,8 @@
 (deftest sensitive-machine-data-redacted-in-hydration-projection
   (testing "a frame-declared sensitive :data path inside a durable machine
             snapshot is redacted to :rf/redacted in the SSR :rf/runtime-db
-            projection; the large path elides; the plain sibling rides verbatim"
+            projection; the large path rides whole (the hydration wire applies
+            no size elision, rf2-hjz4r); the plain sibling rides verbatim"
     (reg-auth-machine!)
     (declare-frame-marks!)
     (let [slice    (rf.ssr.payload-policy/project-runtime-db
@@ -116,20 +117,19 @@
           snapshot (get-in slice [:rf.runtime/machines :snapshots auth-id])]
       (is (= :rf/redacted (get-in snapshot [:data :token]))
           "frame-declared token redacted in the hydration runtime-db slice")
-      (is (contains? (get-in snapshot [:data :blob]) :rf.size/large-elided)
-          "frame-declared blob elided to the size marker")
+      (is (= "huge-blob-value" (get-in snapshot [:data :blob]))
+          "frame-declared large blob rides whole — the client actor needs its :data")
       (is (= 2 (get-in snapshot [:data :retries]))
           "plain sibling rides the wire verbatim")
       (is (= :authed (:state snapshot))
           ":state (durable structural fact) rides verbatim")
       (is (not (.contains (pr-str slice) "secret-jwt-snapshot"))
-          "no raw token survives anywhere in the projected runtime-db slice")
-      (is (not (.contains (pr-str slice) "huge-blob-value"))
-          "no raw large value survives in the projected runtime-db slice"))))
+          "no raw token survives anywhere in the projected runtime-db slice"))))
 
 (deftest full-hydration-payload-redacts-machine-snapshot-data
   (testing "the full :rf/hydration-payload's :rf/runtime-db carries the
-            redacted/elided machine :data, not the raw classified fields"
+            redacted machine :data token, not the raw secret; the large field
+            rides whole"
     (reg-auth-machine!)
     (declare-frame-marks!)
     (let [rt-slice (rf.ssr.payload-policy/project-runtime-db
@@ -140,10 +140,9 @@
           snap     (get-in payload [:rf/runtime-db :rf.runtime/machines
                                     :snapshots auth-id])]
       (is (= :rf/redacted (get-in snap [:data :token])))
-      (is (contains? (get-in snap [:data :blob]) :rf.size/large-elided))
+      (is (= "huge-blob-value" (get-in snap [:data :blob])))
       (is (not (.contains (pr-str payload) "secret-jwt-snapshot"))
-          "the hydration blob the client receives carries no raw secret")
-      (is (not (.contains (pr-str payload) "huge-blob-value"))))))
+          "the hydration blob the client receives carries no raw secret"))))
 
 (deftest undeclared-machine-snapshot-rides-verbatim
   (testing "a machine whose frame declares nothing ships its snapshot :data

@@ -84,14 +84,15 @@
         (str where ": anonymous per-request frame omits the wire :rf/frame-id"))
     (is (= :rf/redacted (get-in current [:query :token]))
         (str where ": route-declared sensitive :query :token redacted under frame A"))
-    (is (contains? (get-in current [:params :payload]) :rf.size/large-elided)
-        (str where ": route-declared large :params :payload elided under frame A"))
+    ;; rf2-hjz4r — the hydration wire applies no size elision, so the
+    ;; route-declared large value rides whole; the sensitive token above is the
+    ;; proof the walk ran under frame A.
+    (is (= "huge-callback-blob-value" (get-in current [:params :payload]))
+        (str where ": route-declared large :params :payload rides whole (no size elision on the hydration wire)"))
     (is (= "/dashboard" (get-in current [:query :return-to]))
         (str where ": the unclassified route sibling rides verbatim"))
     (is (not (.contains (pr-str payload) "secret-oauth-token"))
-        (str where ": no raw route token survives anywhere in the payload"))
-    (is (not (.contains (pr-str payload) "huge-callback-blob-value"))
-        (str where ": no raw route blob survives"))))
+        (str where ": no raw route token survives anywhere in the payload"))))
 
 (deftest build-payload-honours-explicit-frame-outside-with-frame
   (testing "ring.payload/build-payload called OUTSIDE any rf/with-frame projects

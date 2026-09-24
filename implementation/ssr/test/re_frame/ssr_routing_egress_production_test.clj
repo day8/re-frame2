@@ -46,7 +46,6 @@
   recommendation is recorded on rf2-u2x6w."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
             ;; Loading routing publishes the route classification machinery and
             ;; the routing events; the reset fixture reloads it.
@@ -130,17 +129,16 @@
           current (get-in slice [:rf.runtime/routing :current])]
       (is (= :rf/redacted (get-in current [:query :token]))
           "the `:sensitive` query value redacts in the hydration slice")
-      (is (rf.elision/marker? (get-in current [:query :payload]))
-          "the `:large` one elides to the size marker")
+      (is (= blob-secret (get-in current [:query :payload]))
+          "the `:large` one rides whole — the hydration wire applies no size
+           elision, because the client route needs the value (rf2-hjz4r)")
       (is (= "/dashboard" (get-in current [:query :return-to]))
           "the unclassified sibling rides verbatim — path-precise, not a
            blanket scrub")
       (is (= :route/oauth-callback (:route-id current))
           "and so does the structural `:route-id`")
       (is (not (.contains (pr-str slice) token-secret))
-          "GUARD: no raw token anywhere in the projected runtime-db")
-      (is (not (.contains (pr-str slice) blob-secret))
-          "GUARD: nor the large value"))))
+          "GUARD: no raw token anywhere in the projected runtime-db"))))
 
 (deftest the-hydration-payload-a-visitor-receives-carries-no-raw-route-secret
   (testing "rf2-u2x6w — one step further out, at the artefact a browser
@@ -154,10 +152,10 @@
                      {:version 1 :runtime-db rt-slice})
           current  (get-in payload [:rf/runtime-db :rf.runtime/routing :current])]
       (is (= :rf/redacted (get-in current [:query :token])))
-      (is (rf.elision/marker? (get-in current [:query :payload])))
+      (is (= blob-secret (get-in current [:query :payload]))
+          "the `:large` value rides whole (rf2-hjz4r)")
       (is (not (.contains (pr-str payload) token-secret))
-          "GUARD: the blob the client receives carries no raw secret")
-      (is (not (.contains (pr-str payload) blob-secret))))))
+          "GUARD: the blob the client receives carries no raw secret"))))
 
 ;; ===========================================================================
 ;; (3) The boundary — an unclassified route is not over-redacted
