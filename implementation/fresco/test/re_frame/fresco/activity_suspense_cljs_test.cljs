@@ -181,7 +181,7 @@
   carry its installs into the next row's arithmetic. React's `act` queue
   is not the browser's scheduler and none of this runs inside one — set
   outright, as the package smoke does, rather than importing the bench
-  tree's helper, which the freeze gate forbids this package to require."
+  tree's helper, which is off this package's classpath."
   []
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
   (when (rf.frame/frame-incarnation-token frame-id) (rf/destroy-frame! frame-id))
