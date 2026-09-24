@@ -1,17 +1,16 @@
 (ns re-frame.bench.p0-write-page-cljs-test
-  "rf2-2rtt6.140 — the BOUNDARY-PROPORTIONAL WRITE, adjudicated hermetically.
+  "The BOUNDARY-PROPORTIONAL WRITE, adjudicated hermetically.
 
   `:p0/write-page` exists because `:p0/write-all` rebuilds a 300-element
   vector and drives the whole event pipeline whether one boundary is
   mounted or 1,200. On this rig that fixed cost measured F ~ 24.4 KB per
   write (24,108 B on `reagent-subs`, 24,730 on `uix-subs`) and it does not
-  shrink when the page does — which is what made the allocation ladder
+  shrink when the page does — which makes the allocation ladder
   uncertifiable at any page size.
 
   WHY A CLJS SUITE AND NOT THE ALLOCATION ROW. The allocation row is an
   `:advanced` release build driven by hand behind an opt-in flag, in no
-  gate at all, and rf2-2rtt6.140's criterion 5 freezes it until its
-  validity witnesses are green. So the write's CONTRACT — as opposed to
+  gate at all. So the write's CONTRACT — as opposed to
   its cost — has to be checkable without a browser, on every PR. That is
   what this suite is: no DOM, no adapter beyond the plain atom, no
   measurement.
@@ -32,12 +31,11 @@
       clock and bulk rows publish figures taken with it.
 
   NOTHING HERE MEASURES ANYTHING. The cost claim — that the fixed residue
-  is no longer dominant — is validity witness V1's, and V1 needs a quiet
-  box that criterion 5 has not granted.
+  does not dominate — is validity witness V1's, and V1 needs a quiet box.
 
   ns ends in `-cljs-test` so shadow-cljs `:node-test` picks it up via
-  `:ns-regexp \"cljs-test$\"`; `core/test` is already on that build's
-  source paths."
+  `:ns-regexp \"cljs-test$\"`; `core/test` is on that build's source
+  paths."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.bench.p0-fixture :as rf.bench.p0-fixture]
             [re-frame.core :as rf]
@@ -86,9 +84,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-seeded-grid-is-the-width-the-caller-stated
-  (testing "rf2-2rtt6.140 — `seed-db` takes the width and `:p0/seed` carries
+  (testing "`seed-db` takes the width and `:p0/seed` carries
             it, so the page a frame is standing on is stated at the one place
-            the frame is stood up. The brief's V2 configuration is B=4, and
+            the frame is stood up. The V2 validity configuration is B=4, and
             this is that page."
     (frame-at 4 1)
     (is (= 4 (count (:cells (db)))) "four cells, one per mounted boundary")
@@ -102,7 +100,7 @@
 (deftest an-unstated-width-is-the-published-page-to-the-byte
   (testing "every caller that passes nothing — the clock rows, the bulk rows,
             the fan-out sweep, the retention ladder — gets `rf.bench.p0-fixture/cells-n`. No
-            published figure may move on the strength of this change."
+            published figure may move on the strength of the width parameter."
     (is (= rf.bench.p0-fixture/cells-n (count (:cells (rf.bench.p0-fixture/seed-db)))))
     (is (= (rf.bench.p0-fixture/seed-db) (rf.bench.p0-fixture/seed-db rf.bench.p0-fixture/cells-n))
         "the default arity is the stated one at the published width")))
@@ -154,11 +152,11 @@
             (str "boundary " n " renders R·v"))))))
 
 (deftest two-keys-folding-onto-one-slot-is-not-new
-  (testing "`:p0/fan` has folded `mod cells-n` since rf2-5prok, and at B=24,
-            R=20 the published page already folds 480 keys onto 300 slots. What
-            changes is only WHICH grid they fold into, and folding does not
-            cost a key its invalidation: distinct keys sharing a slot all see
-            the write."
+  (testing "`:p0/fan` folds its keys into the grid, and at B=24, R=20 the
+            published page folds 480 keys onto 300 slots. The width decides
+            only WHICH grid they fold into, and folding does not cost a key
+            its invalidation: distinct keys sharing a slot all see the
+            write."
     (frame-at 4 480)
     (rf/dispatch-sync [:p0/write-page 2] {:frame frame-id})
     (is (= [2 2 2 2] (:cells (db))))
@@ -170,11 +168,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest write-all-still-rebuilds-the-published-grid-whatever-is-mounted
-  (testing "rf2-2rtt6.140 leaves `:p0/write-all` exactly as it is, literal
-            `cells-n` and all: it is the bulk clock row's write, its rows are
-            published, and it stays byte-identical. On a 4-cell page it
-            therefore RESIZES the grid back to 300 — which is precisely the
-            cost the allocation row stopped paying, made visible."
+  (testing "`:p0/write-all` keeps its literal `cells-n`: it is the bulk
+            clock row's write, its rows are published, and it stays
+            byte-identical. On a 4-cell page it therefore RESIZES the grid
+            back to 300 — which is precisely the cost the allocation row
+            avoids, made visible."
     (frame-at 4 1)
     (is (= 4 (count (:cells (db)))))
     (rf/dispatch-sync [:p0/write-all 1] {:frame frame-id})
@@ -183,9 +181,9 @@
     (is (every? #(= 1 %) (:cells (db))))))
 
 (deftest write-all-and-write-page-agree-at-the-published-width
-  (testing "the two writes are the SAME WRITE at the page `:p0/write-all` was
-            written for. A difference here would mean the new event is not a
-            width-parameterised form of the old one but a second thing."
+  (testing "the two writes are the SAME WRITE at the page `:p0/write-all` is
+            written for. A difference here would mean `:p0/write-page` is not
+            a width-parameterised form of `:p0/write-all` but a second thing."
     (frame-at rf.bench.p0-fixture/cells-n 300)
     (rf/dispatch-sync [:p0/write-all 4] {:frame frame-id})
     (let [after-all (:cells (db))]
@@ -195,7 +193,7 @@
           "identical `:cells` at width 300, so the difference is the width alone"))))
 
 ;; ---------------------------------------------------------------------------
-;; `:p0/write-one` — the point write, unmoved
+;; `:p0/write-one` — the point write, whatever the width
 ;; ---------------------------------------------------------------------------
 
 (deftest the-narrow-write-is-untouched
