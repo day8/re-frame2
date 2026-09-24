@@ -1,27 +1,26 @@
 (ns re-frame.adapter.uix-reg-view-direct-mount-dom-cljs-test
-  "rf2-oz7wr — the ADVERTISED registry-keyed UIx mount, exercised as a
-  consumer writes it.
+  "The ADVERTISED registry-keyed UIx mount, exercised as a consumer writes
+  it.
 
   `docs/api/re-frame.adapter.uix.md` tells UIx users to reach for
   `rf/reg-view*` for registry-keyed view addressing, and Spec 001
   §`(re-frame.core/view id)` makes `(rf/view id)` the runtime handle for
   what was registered. Composing those two gives
-  `($ (rf/view ::row) {…})` — and that form did not work. `reg-view*`
-  registered `(with-meta (fn frame-aware-view …) {:contextType …})`, and
-  `cljs.core/with-meta` on a fn yields a `MetaFn`: an IFn OBJECT, which
+  `($ (rf/view ::row) {…})`, and that form has to mount. A head registered
+  as `(with-meta (fn frame-aware-view …) {:contextType …})` would not:
+  `cljs.core/with-meta` on a fn yields a `MetaFn`, an IFn OBJECT, which
   React rejects as an element type before the registered view renders.
 
-  The pre-existing React-hook coverage could not see it. Every registry-head
-  mount in `react-shared-suite` went through a hand-written host component
-  that INVOKED the registered value — so those rows proved teardown and
-  annotation BELOW the workaround, never the advertised head itself. This
-  file mounts the head directly and contains no such host by construction:
-  the registered value is only ever handed to `$` as a component type.
+  A mount that goes through a hand-written host component INVOKING the
+  registered value cannot see that — it proves teardown and annotation
+  BELOW the host, never the advertised head itself. This file mounts the
+  head directly and contains no such host by construction: the registered
+  value is only ever handed to `$` as a component type.
 
   What each row is for:
 
-    - `direct-mount-*` — AC1/AC2/AC3. `($ (rf/view id) props child)` under
-      the normal `frame-provider` boundary, with a nested namespaced-keyword
+    - `direct-mount-*` — `($ (rf/view id) props child)` under the normal
+      `frame-provider` boundary, with a nested namespaced-keyword
       prop asserted for EXACT equality inside the registered component (the
       losslessness half: a marked UIx head carries the original CLJS props
       on `argv`, an unmarked one would be converted through
@@ -30,23 +29,22 @@
       and a console/page-error capture that must stay free of both the
       invalid-element-type and the hook-boundary diagnostics.
 
-    - `boot-order-*` — the audit's row. The same direct mount, but the view
-      is registered at NS-LOAD, before any adapter is installed, which is the
-      order `docs/core/how-to/boot-and-mount-an-app.md` prescribes and the
-      order the first fix could not survive: `:adapter/componentize-view` is
-      routed, so at registration it declined, and `rf/init!` seats the adapter
-      without revisiting existing `:view` slots. The row asserts its own
-      premise (no adapter at registration; the reg-time head really was the
-      MetaFn) before mounting, so it cannot silently decay into a copy of the
-      row above.
+    - `boot-order-*` — the same direct mount, but the view is registered
+      at NS-LOAD, before any adapter is installed, which is the order
+      `docs/core/how-to/boot-and-mount-an-app.md` prescribes:
+      `:adapter/componentize-view` is routed, so at registration it
+      declines, and `rf/init!` seats the adapter without revisiting
+      existing `:view` slots. The row asserts its own premise (no adapter at
+      registration; the reg-time head really is the MetaFn) before
+      mounting, so it cannot silently decay into a copy of the row above.
 
-    - `native-defui-control-*` — AC5's NON-VACUITY control. The SAME probe
+    - `native-defui-control-*` — the NON-VACUITY control. The SAME probe
       body, mounted as an unregistered native `defui`, so the harness is
       shown to pass independently of the registry path. When the registry
-      row is deliberately broken (restoring the metadata-wrapped head, or
-      removing the componentization seam) this row must stay green — that
-      is what makes the registry row's red attributable to the seam under
-      test rather than to the harness.
+      row is deliberately broken (a metadata-wrapped head, or no
+      componentization seam) this row must stay green — that is what makes
+      the registry row's red attributable to the seam under test rather than
+      to the harness.
 
   ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` build
   (ns-regexp `-dom-cljs-test$`) discovers it. `:node-test`'s `cljs-test$`
@@ -65,7 +63,7 @@
 ;; The `use-fixtures` call is NOT here. It sits below the ns-load registration
 ;; further down the file, and the position is load-bearing —
 ;; `make-reset-runtime-fixture` snapshots the registrar AT CALL TIME as its
-;; ns-load baseline (rf2-7hwnu), and the boot-order row's whole premise is a
+;; ns-load baseline, and the boot-order row's whole premise is a
 ;; registration that already exists when the fixture is built.
 
 ;; ---- DOM gate ladder -------------------------------------------------------
@@ -128,27 +126,26 @@
   [pattern messages]
   (filterv #(and (string? %) (re-find pattern %)) messages))
 
-;; The two diagnostics this bead is about. `invalid-element-type-re` is what
-;; React raises when handed the `MetaFn` — the pre-fix symptom. `hook-boundary-re`
-;; covers the failure a repair could introduce instead: a head that mounts but
-;; owns no genuine React component boundary makes every hook below it an invalid
-;; call.
+;; The two diagnostics this file guards. `invalid-element-type-re` is what
+;; React raises when handed a `MetaFn`. `hook-boundary-re` covers the other
+;; failure: a head that mounts but owns no genuine React component boundary
+;; makes every hook below it an invalid call.
 (def ^:private invalid-element-type-re #"(?i)element type is invalid|not a valid (react )?(element|component)")
 (def ^:private hook-boundary-re        #"(?i)invalid hook call|hooks can only be called|rendered more hooks|order of Hooks")
 
 ;; ---- the probe body --------------------------------------------------------
 ;;
-;; ONE body, mounted two ways: through the registry head, and (the AC5
-;; control) as an unregistered native `defui`. Sharing the body is what makes
-;; the control a control — a difference in outcome can only come from the
-;; mount path, because nothing else differs.
+;; ONE body, mounted two ways: through the registry head, and (the control)
+;; as an unregistered native `defui`. Sharing the body is what makes the
+;; control a control — a difference in outcome can only come from the mount
+;; path, because nothing else differs.
 ;;
-;; It is a native `defui`, which is the documented UIx idiom and the shape the
-;; bead's repro registers. `defui` reads its props off UIx's `argv` channel, so
-;; a mount that reached it through JS-prop conversion would arrive with the
-;; namespace stripped from `:tenant/id` and the equality assertion below would
-;; fail — the losslessness half of the invariant, checked by construction
-;; rather than by inspecting the props object.
+;; It is a native `defui`, which is the documented UIx idiom. `defui` reads
+;; its props off UIx's `argv` channel, so a mount that reached it through
+;; JS-prop conversion would arrive with the namespace stripped from
+;; `:tenant/id` and the equality assertion below would fail — the
+;; losslessness half of the invariant, checked by construction rather than by
+;; inspecting the props object.
 
 (def ^:private probe-frame :rf.uix-direct-mount/frame)
 (def ^:private probe-query [:rf.uix-direct-mount/n])
@@ -183,7 +180,7 @@
        ($ :span {:data-testid "n"} (str n))
        children)))
 
-;; ---- the CANONICAL BOOT ORDER, captured at ns-load (rf2-oz7wr audit) -------
+;; ---- the CANONICAL BOOT ORDER, captured at ns-load -------------------------
 ;;
 ;; `docs/core/how-to/boot-and-mount-an-app.md` has the registration namespaces
 ;; load FIRST — every `reg-event` / `reg-sub` / view registration runs as a
@@ -191,12 +188,12 @@
 ;; below are exactly that order, and they run at NS-LOAD so no fixture can
 ;; have installed an adapter first.
 ;;
-;; This is the order the original fix could not survive. `reg-view*` asked
-;; `:adapter/componentize-view` at registration; the hook is ROUTED, so with no
-;; adapter installed it declined, the slot kept the `MetaFn`, and `init!` — which
-;; only seats the adapter — never revisited it. Every row that installed the
-;; adapter BEFORE registering (the two below, and the whole shared suite) sailed
-;; past that, which is why the audit reopened the bead.
+;; `reg-view*` asks `:adapter/componentize-view` at registration; the hook is
+;; ROUTED, so with no adapter installed it declines, the slot keeps the
+;; `MetaFn`, and `init!` — which only seats the adapter — never revisits it.
+;; What has to mount is the head `(rf/view id)` hands back after init. A row
+;; that installs the adapter BEFORE registering (the two below, and the whole
+;; shared suite) cannot see this ordering.
 ;;
 ;; `adapter-at-registration` and `head-at-registration` make the premise
 ;; CHECKABLE rather than assumed: the row asserts there really was no adapter
@@ -223,7 +220,7 @@
 (defn- seed-world!
   "Create the frame, register the event + sub, and seed app-db. Returns nil."
   []
-  (rf/make-frame {:id probe-frame :doc "rf2-oz7wr direct-mount probe frame"})
+  (rf/make-frame {:id probe-frame :doc "direct-mount probe frame"})
   (rf/reg-event :rf.uix-direct-mount/seed (fn [_ _] {:db {:n 1}}))
   (rf/reg-event :rf.uix-direct-mount/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
   (rf/reg-sub (first probe-query) (fn [db _] (:n db)))
@@ -314,11 +311,11 @@
         (str label ": the DOM re-rendered after a dispatch off use-frame's ops"
              " map; got " (pr-str updated-text)))))
 
-;; ---- AC1 / AC2 / AC3 — the registry path ----------------------------------
+;; ---- the registry path ----------------------------------------------------
 
 (deftest direct-mount-of-registered-view-head
   (testing "UIx — ($ (rf/view id) props child) mounts DIRECTLY: lossless CLJS
-            props, a real hook boundary, and a re-render on dispatch (rf2-oz7wr)"
+            props, a real hook boundary, and a re-render on dispatch"
     (with-browser-act
       (fn [act-fn]
         (seed-world!)
@@ -330,7 +327,7 @@
           ;; `instance? js/Function` is the property React actually needs.
           (is (instance? js/Function head)
               "the registered head is a real JS function React can use as an
-               element type — NOT the MetaFn `with-meta` yields (rf2-oz7wr)")
+               element type — NOT the MetaFn `with-meta` yields")
           (is (true? (.-uix-component? ^js head))
               "and it carries UIx's own component marker, which is what makes
                `$` route props through the lossless `argv` channel instead of
@@ -342,7 +339,7 @@
 (deftest boot-order-registration-yields-a-mountable-head-after-init
   (testing "UIx — a view registered at ns-load, BEFORE rf/init! installed the
             adapter, is still directly mountable through ($ (rf/view id) …)
-            once the adapter is in (rf2-oz7wr audit)"
+            once the adapter is in"
     ;; Premise first. If either of these two fails the row below proves
     ;; nothing — it would just be `direct-mount-of-registered-view-head` again
     ;; under a different name.
@@ -363,7 +360,7 @@
           (is (instance? js/Function head)
               "the lookup hands back a real JS function React can use as an
                element type, even though registration ran before the adapter
-               existed (rf2-oz7wr audit)")
+               existed")
           (is (true? (.-uix-component? ^js head))
               "and it carries UIx's component marker, so `$` still routes props
                through the lossless `argv` channel")
@@ -373,12 +370,12 @@
                instead of remounting the subtree on every render")
           (assert-mount-case "boot-order head" (run-mount-case act-fn head)))))))
 
-;; ---- AC5 — the non-vacuity control ----------------------------------------
+;; ---- the non-vacuity control ----------------------------------------------
 
 (deftest native-defui-control-mounts-independently-of-the-registry
   (testing "UIx — the SAME probe mounted as an unregistered native defui passes
             the identical harness, so the registry row's verdict is about the
-            registry path and not about this file (rf2-oz7wr AC5)"
+            registry path and not about this file"
     (with-browser-act
       (fn [act-fn]
         (seed-world!)
@@ -389,7 +386,7 @@
 (deftest registered-head-is-stable-and-still-callable
   (testing "UIx — componentizing the head does not cost the registry its other
             guarantees: instance identity is stable across lookups, and the
-            head remains the callable render fn Spec 001 describes (rf2-oz7wr)"
+            head remains the callable render fn Spec 001 describes"
     (seed-world!)
     (rf/reg-view* :rf.uix-direct-mount/stable
                   (fn [props] (React/createElement "div" #js {} (str (:label props)))))
