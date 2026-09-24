@@ -1,7 +1,7 @@
 (ns reagent2.impl.diag-cljs-test
-  "rf2-grd5hd — coverage + mirror-parity pin for `reagent2.impl.diag/value-summary`,
+  "Coverage + mirror-parity pin for `reagent2.impl.diag/value-summary`,
   the day8/reagent-slim EP-0015 diagnostic REDACTION primitive (Spec 015
-  §Data-Classification, rf2-uwqale).
+  §Data-Classification).
 
   `value-summary` exists so a hiccup head / child vector / Form-3 spec baked
   into a framework error message or ex-data slot carries only a SHAPE summary
@@ -9,13 +9,12 @@
   before off-box capture (console, error boundary, host log, SSR error
   handler) can grab the raw value the record projector never got to classify.
 
-  rf2-210uq removed the two legs that made that claim false: the `:head`
-  (a raw 24-char prefix of the printed value, and no bound at all for
-  keywords/symbols) and a map's `:keys` (every top-level key, uncapped and
-  unsanitised). The summary is now content-free BY CONSTRUCTION — every
-  value it carries is a closed-vocabulary `:type` keyword or an integer
-  count — so this suite asserts that grammar rather than a truncation
-  quality.
+  The summary is content-free BY CONSTRUCTION — every value it carries is
+  a closed-vocabulary `:type` keyword or an integer count. There is no
+  `:head` (a printed prefix of the value carries content, and has no safe
+  bound for keywords/symbols) and no map `:keys` (every top-level key is
+  app-controlled and unbounded in number). So this suite asserts that
+  grammar rather than a truncation quality.
 
   Two properties are pinned here:
 
@@ -47,8 +46,8 @@
   (testing "nil / fn / boolean / seq summarise to their bare shape tag"
     (is (= {:type :nil} (diag/value-summary nil)))
     (is (= :fn (:type (diag/value-summary (fn [] nil)))))
-    ;; rf2-210uq — a boolean's VALUE is app content and `:type` already says
-    ;; everything the diagnostic needs, so no `:head` distinguishes them.
+    ;; A boolean's VALUE is app content and `:type` already says
+    ;; everything the diagnostic needs, so nothing distinguishes them.
     (is (= {:type :boolean} (diag/value-summary true)))
     (is (= {:type :boolean} (diag/value-summary false)))
     ;; A lazy-seq (and a plain list) is caught by the `seq?` arm BEFORE the
@@ -68,9 +67,9 @@
                       (pr-str (diag/value-summary [:div "child xyzzy"])))))))
 
 (deftest value-summary-scalar-shapes-carry-no-head
-  (testing "rf2-210uq — keyword / symbol heads were returned with NO length
-            bound at all, on the guess that such values are always
-            structural. `(keyword user-string)` is not, so the head is gone"
+  (testing "keyword / symbol values carry no head: they are not always
+            structural — `(keyword user-string)` is app content — and a
+            head for them has no safe length bound"
     (is (= {:type :keyword} (diag/value-summary :ws.app/request)))
     (is (= {:type :symbol}  (diag/value-summary 'reagent2.template/as-element)))
     (is (= {:type :number}  (diag/value-summary 42)))
@@ -81,16 +80,15 @@
 ;; ---- REDACTION: a string discloses its SIZE and nothing else --------------
 
 (deftest value-summary-string-discloses-no-content
-  (testing "rf2-210uq — the pre-fix `:head` returned any string of 24 chars
-            or fewer VERBATIM and a longer one's raw first 24 chars, so a
-            short token rode back whole and a bearer token leaked its prefix"
+  (testing "a string discloses only its size: a printed head would return
+            a short token whole and leak a bearer token's prefix"
     (let [secret "SENTINELSENTINELSENTINEL-tail-0123456789"
           s      (diag/value-summary secret)]
       (is (= {:type :string :count (count secret)} s)
           "size is shape and stays; nothing else survives")
       (is (not (str/includes? (pr-str s) "SENTINEL"))
           "no raw prefix of the secret reaches the summary")))
-  (testing "a SHORT secret — under the old limit, so previously verbatim"
+  (testing "a SHORT secret (24 chars or fewer) discloses nothing either"
     (let [s (diag/value-summary "SENTINELSENTINEL")]
       (is (= {:type :string :count 16} s))
       (is (not (str/includes? (pr-str s) "SENTINEL"))))))
@@ -98,9 +96,9 @@
 ;; ---- REDACTION: a map discloses its CARDINALITY and nothing else ----------
 
 (deftest value-summary-map-discloses-neither-keys-nor-values
-  (testing "rf2-210uq — the pre-fix `:keys` leg returned every top-level key,
-            uncapped and unsanitised. Map keys are app-controlled: they carry
-            content, and an attacker-sized key set grew the summary unbounded"
+  (testing "a map discloses no keys: map keys are app-controlled, so they
+            carry content, and an attacker-sized key set would grow the
+            summary unbounded"
     (let [m {:token "secret" :pdf "%PDF-1.4 huge blob" :n 7}
           s (diag/value-summary m)]
       (is (= {:type :map :count 3} s))
@@ -122,13 +120,12 @@
       (is (= "{:type :map, :count 2000}" printed))
       (is (not (str/includes? printed "SENTINEL"))))))
 
-;; ---- a hostile toString no longer throws OUT of the diagnostic ------------
+;; ---- a hostile toString cannot throw OUT of the diagnostic ---------------
 
 (deftest value-summary-survives-a-throwing-tostring
-  (testing "rf2-210uq — `:head` called `(str v)` on values the framework
-            knows nothing about, so a hostile `toString` threw out of the
-            summariser and destroyed the failure it was describing. No
-            `(str v)` remains, on any leg"
+  (testing "no leg calls `(str v)` on a value the framework knows nothing
+            about, so a hostile `toString` cannot throw out of the
+            summariser and destroy the failure it is describing"
     (let [boom (js-obj)]
       (set! (.-toString boom) (fn [] (throw (js/Error. "boom"))))
       (is (= {:type :scalar} (diag/value-summary boom))
@@ -139,8 +136,8 @@
 ;; ---- MIRROR PARITY vs re-frame.error/diag-value-summary -------------------
 
 (def ^:private parity-corpus
-  "A value corpus spanning every `value-summary` branch, including the
-  historic 24-char head boundary (over/under), sentinel-bearing dynamic map
+  "A value corpus spanning every `value-summary` branch, including strings
+  either side of 24 chars, sentinel-bearing dynamic map
   keys and a hiccup-shaped vector. Each value is fed to BOTH summariser
   twins; the summaries must be `=`."
   [nil
@@ -152,7 +149,7 @@
    #{:x :y :z}
    ""
    "short"
-   "boundary-exactly-24-chrs"                              ;; exactly the old limit
+   "boundary-exactly-24-chrs"                              ;; exactly 24 chars
    "a string that is definitely longer than twenty-four characters"
    :ws.app/request
    'reagent2.template/as-element
