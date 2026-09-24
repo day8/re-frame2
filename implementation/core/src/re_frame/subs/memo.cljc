@@ -104,7 +104,7 @@
   capture buffers only frame-tagged traces). Mirrors the `:where
   :app-db` / `:where :event` traces."
   [value query-v sub-id sub-meta frame-id]
-  ;; KEY-presence, not value truthiness (rf2-6eh5h): a present nil / false
+  ;; KEY-presence, not value truthiness: a present nil / false
   ;; `:schema` is a declaration — consult the validator seam, which
   ;; delegates the exact token. Only an ABSENT key skips the consult.
   (if (and sub-meta (contains? sub-meta :schema))
@@ -165,10 +165,9 @@
                        `:added` chrome without inferring from
                        `:prev-value nil`. Not wire-sensitive. Per
                        Spec 009 §`:rf.sub/run`.
-    :cascade?        — SENSE (rf2-p4cd9c): reactive-graph propagation, NOT
-                       the event-pipeline-run sense — kept per the glw1bh
-                       sense-guard (and it is public Spec 009 wire vocab:
-                       `:rf.sub/cascade?`). `true` when this is a layer-2+
+    :cascade?        — SENSE: reactive-graph propagation, NOT the
+                       event-pipeline-run sense (it is public Spec 009 wire
+                       vocab: `:rf.sub/cascade?`). `true` when this is a layer-2+
                        sub (an upstream SUB drove the recompute); `false`
                        for a layer-1 sub (an app-db path change drove it).
     :cause-sub       — for a cascade, the upstream declared query-vector
@@ -195,12 +194,13 @@
   ### Privacy — handled at the trace chokepoint, NOT here
 
   `:prev-value` and `:value` are wire-value-sensitive app data, but they
-  are emitted RAW here and redacted DOWNSTREAM by the existing
+  are emitted RAW here and redacted DOWNSTREAM by the
   `re-frame.classification/project-sub-tags` chokepoint that `re-frame.trace/
-  build-event` already runs for every `:rf.sub/run` event. That chokepoint
-  resolves the sub's sensitive/large state from process-scoped marks +
-  the sub-output propagation table — NEVER by reading the frame's app-db
-  container.
+  build-event` runs for every `:rf.sub/run` event. That chokepoint projects
+  from the sub's own registration classification — the
+  `:rf.sub/classification` carrier stamped below, else the registrar's
+  declaration for the sub-id; there is no sub-output propagation (EP-0025)
+  — NEVER by reading the frame's app-db container.
 
   This is deliberate and load-bearing: calling the schema-first
   `elision/elide-wire-value` walker here would `deref` one of the frame's
@@ -210,14 +210,16 @@
   frame container for every layer-2+ sub — breaking the glitch-free
   `db → layer-1 → layer-2` layering (the sub would recompute on ANY
   matching container change, not just its own input's). The
-  marks chokepoint reads only process-scoped atoms, so it is
-  reaction-safe. A schema-`:sensitive?` sub egresses `:prev-value` /
-  `:value` as `:rf/redacted`; `:value-changed?` stays a plain boolean.
+  registration-classification projection reads only that captured
+  declaration and the process-scoped registrar, so it is reaction-safe. A
+  sub whose registration declares `:sensitive` output paths egresses those
+  paths of `:prev-value` / `:value` as `:rf/redacted`; `:value-changed?`
+  stays a plain boolean.
 
   The whole attribution branch (the enriched tag map) sits inside
   `(if rf.interop/debug-enabled? ...)` so Closure DCE folds it out under
   `:advanced` + `goog.DEBUG=false`; the unattributed base tag is emitted
-  on the production path so the op-type vocabulary is unchanged there.
+  on the production path so the op-type vocabulary is the same there.
   `prev-value`/`prev-in-vals` arrive pre-resolved from the memo
   wrapper's volatile cells — no extra cache read.
 
@@ -234,16 +236,15 @@
   ;; transitive sub-miss errors). The emit MUST sit inside the scope.
   ;;
   ;; `sub-scope` arrives PRE-BUILT from the memo wrapper's closure rather
-  ;; than being derived here (rf2-zxv06). It is a pure function of
+  ;; than being derived here. It is a pure function of
   ;; `(:sub query-id sub-meta)`, all three fixed for the life of the cache
-  ;; entry, so deriving it per recompute rebuilt an identical record — plus
-  ;; its `:trigger-handler` source-coord map — on every write, in
+  ;; entry, so deriving it per recompute would rebuild an identical record —
+  ;; plus its `:trigger-handler` source-coord map — on every write, in
   ;; production, where the whole trace body around it is DCE-ed. This is
-  ;; the treatment `views.cljs` already gives a view's scope (pre-computed
-  ;; once at `reg-view`); the sub path was the outlier. The scope is still
-  ;; bound on every recompute and every slot still reads the same, so the
-  ;; always-on readers — the EP-0027 `make-frame`-in-handler guard and the
-  ;; `:dispatch-id` correlation reads — are untouched.
+  ;; the treatment `views.cljs` gives a view's scope (pre-computed once at
+  ;; `reg-view`). The scope is bound on every recompute and every slot reads
+  ;; the same, so the always-on readers — the EP-0027 `make-frame`-in-handler
+  ;; guard and the `:dispatch-id` correlation reads — see the same scope.
   ;;
   ;; `body-arg` is the value the user's body is called with, SHAPED BY THE
   ;; WRAPPER that built this reaction rather than by a runtime flag: the lone
@@ -251,7 +252,7 @@
   ;; `:frame-state`), and the resolved inputs as a VECTOR in producer order —
   ;; `[]`, `[v]`, `[a b]` — for a DECLARED dependency list, at every count,
   ;; whether the declaration is a literal `{:inputs [[:a]]}` or a producer fn
-  ;; (Spec 006 §Subscription input producers; ruled on rf2-kuky.45). Those are
+  ;; (Spec 006 §Subscription input producers). Those are
   ;; the only two shapes, and each wrapper knows which one it is, so there is
   ;; nothing to dispatch on here. `in-vals` still arrives raw, because the
   ;; cascade attribution below diffs it positionally against `input-signals`.
@@ -275,13 +276,14 @@
         ;; (op-type vocabulary parity with the prod path); the attribution
         ;; slots ride the dev gate so Closure DCEs the enriched tag map
         ;; under :advanced. `:prev-value` / `:value` are emitted RAW —
-        ;; the existing `re-frame.classification/project-sub-tags` chokepoint
-        ;; (run by `rf.trace/build-event`) redacts them from process-scoped
-        ;; marks without a reactive container deref. See the ns docstring
-        ;; §Privacy for why we MUST NOT elide here.
+        ;; the `re-frame.classification/project-sub-tags` chokepoint
+        ;; (run by `rf.trace/build-event`) redacts them from the sub's
+        ;; registration classification without a reactive container deref.
+        ;; See the `validate-and-trace` docstring §Privacy for why we MUST
+        ;; NOT elide here.
         (if rf.interop/debug-enabled?
-          ;; `cascade?` here = REACTIVE-GRAPH propagation (kept sense,
-          ;; rf2-p4cd9c): true iff this sub has upstream SUB inputs (layer-2+).
+          ;; `cascade?` here = REACTIVE-GRAPH propagation: true iff this
+          ;; sub has upstream SUB inputs (layer-2+).
           ;; NOT the event-pipeline-run sense; public wire key :rf.sub/cascade?.
           (let [cascade?  (boolean (seq input-signals))
                 cause-sub (changed-cause-sub prev-in-vals in-vals input-signals)
@@ -345,7 +347,7 @@
                                   ;; (only computed values are redacted).
                                   :rf.sub/inputs         (vec input-signals)
                                   :rf.sub/cause-sub      cause-sub
-                                  ;; rf2-vxgfnd.220 — carry the EXACT classification
+                                  ;; Carry the EXACT classification
                                   ;; declaration captured for THIS reaction (the
                                   ;; authoritative image-local / global `sub-meta`
                                   ;; the schema validator above also reads) so the
@@ -471,7 +473,7 @@
   under `:advanced` + `goog.DEBUG=false`).
 
   `sub-scope` is the wrapper's pre-built HandlerScope — the same constant
-  the recompute path binds (rf2-zxv06)."
+  the recompute path binds."
   [query-id query-v frame-id sub-scope input-paths-unchanged]
   (when rf.interop/debug-enabled?
     (rf.trace/with-handler-scope
@@ -483,7 +485,7 @@
                     :rf.sub/reason                :input-value-equal
                     :rf.sub/input-paths-unchanged input-paths-unchanged}))))
 
-;; ---- the movement-witness short-circuit (rf2-gncxk.1) --------------------
+;; ---- the movement-witness short-circuit ----------------------------------
 ;;
 ;; The two FIXED-ARITY-1 wrappers below guard the user's body with a
 ;; structural `(= last-seen new-value)`. That guard is NOT dead code — the
@@ -533,11 +535,11 @@
   frame's ONE physical container — a `cljs.core/Atom` under the React-hook
   spine, an `r/atom` under Reagent — whose fan-out is not movement-gated
   and which therefore cannot implement the protocol. With nil here the
-  guard expression below is byte-for-byte the one that shipped. Reagent /
+  guard expression below reduces to the plain `=` memo compare. Reagent /
   reagent-slim `Reaction`s, the plain-atom derived value (JVM and CLJS) and
-  test-react's derived value likewise answer nil, so those substrates see
-  no behavioural change at all — two extra pointer compares per recompute,
-  zero allocation.
+  test-react's derived value likewise answer nil, so those substrates get
+  exactly that compare and pay only two extra pointer compares per
+  recompute, zero allocation.
 
   Nil-tolerant: the parametric input-error recovery path constructs no
   fixed-arity-1 wrapper, but a caller with no resolved source may pass nil
@@ -565,8 +567,7 @@
   `source-container` is the reaction's LONE signal source (the app-db /
   runtime-db projection, or the whole frame-state container). It is used
   for one thing: to resolve the movement witness once at construction — see
-  §The movement-witness short-circuit above. Pre-alpha posture, so it is a
-  plain positional parameter with no compatibility arity."
+  §The movement-witness short-circuit above."
   [body-fn query-id query-v frame-id sub-meta source-container]
   (let [last-db     (volatile! ::unset)
         last-result (volatile! nil)
@@ -640,8 +641,7 @@
 
   `source-container` is the reaction's LONE signal source — here the
   upstream sub's own derived container — used only to resolve the movement
-  witness once at construction (§The movement-witness short-circuit above).
-  Pre-alpha posture: plain positional parameters, no compatibility arity."
+  witness once at construction (§The movement-witness short-circuit above)."
   [body-fn query-id query-v frame-id input-signals sub-meta source-container]
   (let [last-v0     (volatile! ::unset)
         last-result (volatile! nil)
