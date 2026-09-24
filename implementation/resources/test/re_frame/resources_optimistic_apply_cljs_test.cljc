@@ -1,13 +1,14 @@
 (ns re-frame.resources-optimistic-apply-cljs-test
-  "EP-0019 slice 2 — optimistic APPLY (phase 1.5) + snapshot-inverse recording
-  + the `:optimistic` / `:optimistic-tags` API grammar (rf2-byl7bk.1).
+  "EP-0019 — optimistic APPLY (phase 1.5) + snapshot-inverse recording
+  + the `:optimistic` / `:optimistic-tags` API grammar.
 
-  This slice applies the FORWARD optimistic patch to the resource cache BEFORE
-  the request settles, recording the truthful INVERSE (a snapshot of each
-  touched entry + its `:revision` at apply time) on the mutation instance row's
-  reserved `:patch-summary` `:snapshot-id` / `:rollback` slots. The SETTLE
-  protocol (commit / rollback / reconcile + the conflict rule) is the NEXT
-  slice; these tests pin only the apply + recording contract:
+  The FORWARD optimistic patch lands in the resource cache BEFORE the request
+  settles, recording the truthful INVERSE (a snapshot of each touched entry +
+  its `:revision` at apply time) on the mutation instance row's reserved
+  `:patch-summary` `:snapshot-id` / `:rollback` slots. The SETTLE protocol
+  (commit / rollback / reconcile + the conflict rule) is tested in
+  `resources-optimistic-settle-cljs-test`; these tests pin only the apply +
+  recording contract:
 
     1. APPLY-BEFORE-SETTLE — the optimistic patch lands in the cache at execute
        time, before any reply (phase 1.5); the entry's `:revision` bumps.
@@ -82,7 +83,7 @@
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 (defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
-;; rf2-8iciw8 — `:rf.runtime/mutations` is keyed on the instance id's CEDN-1
+;; `:rf.runtime/mutations` is keyed on the instance id's CEDN-1
 ;; byte `key-id` (`rf.resources.state/key-id`), not the raw id; resolve through it.
 (defn- instance [instance-id] (get-in (runtime-db) [:rf.runtime/mutations (rf.resources.state/key-id instance-id)]))
 (defn- patch-summary [instance-id] (:patch-summary (instance instance-id)))
@@ -199,13 +200,13 @@
 ;; ===========================================================================
 
 (deftest optimistic-remove-tombstones-the-entry-in-place-and-records-before
-  ;; rf2-pkkft — an optimistic remove writes a TOMBSTONE (`:data nil`,
+  ;; An optimistic remove writes a TOMBSTONE (`:data nil`,
   ;; `:status :idle`) IN PLACE rather than dissoc'ing the entry. The card still
   ;; disappears from the view (no data), but the ENTRY survives to carry the
   ;; owner-liveness facts the settle protocol needs: a dissoc'd entry cannot
   ;; record an owner releasing mid-flight (`detach-owner` is a no-op on a nil
-  ;; entry), so a failed reply restored the pre-apply snapshot verbatim and
-  ;; RESURRECTED the departed owner, pinning the entry for the frame's life.
+  ;; entry), so a failed reply would restore the pre-apply snapshot verbatim
+  ;; and RESURRECT the departed owner, pinning the entry for the frame's life.
   (reg-article-resource!)
   (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
                {:article {:slug "w" :title "Doomed"}})
@@ -232,7 +233,7 @@
     (testing "the tombstone KEEPS the live facts a remove never owned"
       (let [e (entry article-key)]
         (is (= #{[:v :d]} (:active-owners e))
-            "the owner still holds the entry — this is what a dissoc destroyed")
+            "the owner still holds the entry — this is what a dissoc would destroy")
         (is (seq (:tags e)) "tags ride through, so an invalidation can still reach the key")
         (is (= (:resource/key (entry article-key)) article-key) "identity is intact")))
     (testing "the tombstone is an authoritative durable write, so it BUMPS :revision"
@@ -246,8 +247,7 @@
           "the whole removed entry is snapshotted so the settle can restore it")
       (is (= (:revision (entry article-key)) (:applied-revision inv))
           "the baseline is the revision the apply LEFT the tombstone at — a
-           concrete number now, never the retired `:rf.optimistic/removed`
-           sentinel"))))
+           concrete number, never a sentinel"))))
 
 ;; ===========================================================================
 ;; 5. Tag-addressed optimistic — :optimistic-tags patches EVERY tag-matched
