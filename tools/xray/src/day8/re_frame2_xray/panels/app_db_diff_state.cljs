@@ -315,7 +315,12 @@
   (green). Without this the freshly-created machine / spawn / route
   slice rendered identically to an unchanged one and the per-event diff
   was near-invisible — the focused epoch's actual change (a new instance
-  appearing) carried no visual marker at all."
+  appearing) carried no visual marker at all.
+
+  rf2-3x7nj.24.2 — the mirror, on the VALUE side: `h/removed` marks a
+  slice present in the pre-image and gone now. The body passes the
+  inspector's absent-value marker as `:value` beside the real `:before`,
+  which the inspector draws as a struck-through removed ghost."
   ([value before render-id title]
    (value-body value before render-id title nil))
   ([value before render-id title instance-id]
@@ -370,7 +375,13 @@
         ;; `added` (this whole slice is new this epoch → `:added? true`),
         ;; or a real pre-image (diff against it → `:before`).
         added?      (= h/added before)
-        has-before? (and (not added?) (not= h/no-diff before))]
+        has-before? (and (not added?) (not= h/no-diff before))
+        ;; rf2-3x7nj.24.2 — and the mirror on the VALUE side: `removed`
+        ;; (the whole slice is gone this epoch). The inspector reads its
+        ;; absent-value marker against a real `:before` as a removal, and
+        ;; draws the prior value struck-through in place (spec/004
+        ;; §Removed slots render in place).
+        removed?    (= h/removed value)]
     ;; rf2-7sdja — App-DB does NOT use `:popup-affordance?` (Mike's
     ;; live-testing call 2026-05-26). The side panel has plenty of
     ;; horizontal room; the whole-tree inspector renders comfortably
@@ -400,7 +411,7 @@
     ;; error is a PLAIN fn in head position.
     [ei/edn-inspector-view
      {:mount-id mount-id
-      :value    (f/display-value value)
+      :value    (if removed? ei/missing-sentinel (f/display-value value))
       :opts     (cond-> {:panel-id :rf.xray/app-db
                          :site-id  site-id
                          :default-expanded-depth 3
@@ -512,7 +523,12 @@
          chip   (redacted-modified-chip redacted-modified)
          title  (cond-> [:span "app-db"]
                   (some? chip) (conj chip))
-         empty? (and (map? top) (empty? top))]
+         ;; rf2-3x7nj.24.2 — empty only if the pre-image was empty too. A
+         ;; user-domain db this epoch CLEARED (`{}` after a non-empty
+         ;; `before`) takes the value path, so the cleared keys render
+         ;; struck-through rather than as a db that never held any.
+         empty? (and (map? top) (empty? top)
+                     (not (and (map? before) (seq before))))]
      (section-shell
        {:testid       "rf-xray-app-db-state-top"
         :title        title

@@ -251,7 +251,8 @@
      :reason       {:kind :reactive :subs [...]} | {:kind :structural}
                    | {:kind :none}                 ; unmount
      :triggered-by <sub-id>?    ; rf2-8wrzz.1 — the SINGLE cause sub
-     :elapsed-ms   <number>?}   ; rf2-8wrzz.1 — render wall-clock
+     :elapsed-ms   <number>?    ; rf2-8wrzz.1 — render wall-clock
+     :deref-subs   [<query-v> ...]?}  ; rf2-3x7nj.24.3 — this render's read-set
 
   `:triggered-by` (the per-view re-render cause) + `:elapsed-ms` (render
   timing) ride the `:rf.view/rendered` op from rf2-8wrzz.1; the flow
@@ -282,7 +283,10 @@
                                :action     (if mount? :mount :rerender)
                                :reason     (compute-view-reason deref-subs changed-set)}
                         (some? triggered-by) (assoc :triggered-by triggered-by)
-                        (some? elapsed-ms)   (assoc :elapsed-ms elapsed-ms)))
+                        (some? elapsed-ms)   (assoc :elapsed-ms elapsed-ms)
+                        ;; rf2-3x7nj.24.3 — THIS instance's read-set, which
+                        ;; routes the flow graph's sub-instance edges.
+                        (seq deref-subs)     (assoc :deref-subs (vec deref-subs))))
 
                     (= :rf.view/unmounted op)
                     {:view-id    view-id
@@ -455,9 +459,11 @@
 
   Returns `{:level-1 [row ...] :level-2 [row ...]}` where each row:
 
-    Level 1: {:sub-id _ :changed? bool :coord {...}? :readers [view-id ...]?}
-    Level 2: {:sub-id _ :changed? bool :input-kind _
-              :inputs [<input-sub-id> ...] :coord {...}? :readers [...]?}
+    Level 1: {:sub-id _ :query-v _? :changed? bool :coord {...}?
+              :readers [view-id ...]?}
+    Level 2: {:sub-id _ :query-v _? :changed? bool :input-kind _
+              :inputs [<input-sub-id> ...] :input-query-vs [<query-v> ...]?
+              :coord {...}? :readers [...]?}
 
   Level partitioning keys off the topology entry's `:input-kind`
   (rf2-e3acps): `:db` is Level 1 (reads app-db directly), `:static` /
@@ -485,19 +491,28 @@
      (reduce
        (fn [acc sub-run]
          (let [sub-id     (:sub-id sub-run)
+               query-v    (:query-v sub-run)
                topo-entry (get topo sub-id)
                changed?   (boolean (:value-changed? sub-run))
                coord      (topology-coord topo-entry)
                sub-rdrs   (get rdrs sub-id)]
+           ;; rf2-3x7nj.24.3 — each row is one INSTANCE, so it carries its
+           ;; concrete `:query-v`; a `:static` Level-2 row also carries its
+           ;; declared input query-vs, which name the input instance its
+           ;; flow-graph edge starts from.
            (if (level-1? topo-entry)
              (update acc :level-1 conj
                      (cond-> {:sub-id sub-id :changed? changed?}
+                       (some? query-v) (assoc :query-v query-v)
                        coord          (assoc :coord coord)
                        (seq sub-rdrs)  (assoc :readers (vec sub-rdrs))))
              (update acc :level-2 conj
                      (cond-> {:sub-id     sub-id :changed? changed?
                               :input-kind (:input-kind topo-entry)
                               :inputs     (topology-input-sub-ids topo-entry)}
+                       (some? query-v) (assoc :query-v query-v)
+                       (vector? (:inputs topo-entry))
+                       (assoc :input-query-vs (:inputs topo-entry))
                        coord          (assoc :coord coord)
                        (seq sub-rdrs)  (assoc :readers (vec sub-rdrs)))))))
        {:level-1 [] :level-2 []}

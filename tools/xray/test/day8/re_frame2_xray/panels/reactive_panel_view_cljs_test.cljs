@@ -383,6 +383,35 @@
       (is (re-find #"no change \(short-circuits" legend-text) "no-change swatch labelled")
       (is (re-find #"unmounted / destroyed" legend-text) "teardown swatch labelled"))))
 
+;; ---- graph instances keep distinct React keys (rf2-3x7nj.24.3) ---------
+
+(deftest flow-graph-list-instances-render-distinct-react-keys
+  (testing "rf2-3x7nj.24.3 — three instances of one view over three cells
+            of one parametric sub render as three sibling `<g>`s per
+            column with three DIFFERENT React keys, not one key thrice"
+    (facade/install!)
+    (rf/make-frame {:id :rf/xray})
+    (seed-reactive-data!
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-2-subs []
+       :level-1-subs (vec (for [id [1 2 3]]
+                            {:sub-id :todo/by-id :query-v [:todo/by-id id]
+                             :changed? true :readers [:app/todo-row]}))
+       :view-rows (vec (for [[token id] [[11 1] [12 2] [13 3]]]
+                         {:view-id :app/todo-row :render-key [:app/todo-row token]
+                          :deref-subs [[:todo/by-id id]]
+                          :action :rerender :reason {:kind :structural}}))})
+    (let [tree   (panel-tree)
+          keys-of (fn [prefix]
+                    (mapv #(:key (rf.test-helpers/attrs %))
+                          (rf.test-helpers/find-by-testid-prefix tree prefix)))
+          subs   (keys-of "rf-xray-reactive-node-l1-")
+          views  (keys-of "rf-xray-reactive-view-node-")]
+      (is (= 3 (count subs)) "three sub-instance nodes")
+      (is (= 3 (count (distinct subs))) "with three distinct React keys")
+      (is (= 3 (count views)) "three view-instance nodes")
+      (is (= 3 (count (distinct views))) "with three distinct React keys"))))
+
 ;; ---- unchanged-subs disclosure keys by concrete query-v (rf2-cj2yx) ----
 
 (deftest unchanged-rows-key-and-label-by-concrete-query-v

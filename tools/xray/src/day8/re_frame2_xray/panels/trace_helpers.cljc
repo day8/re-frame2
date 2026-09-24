@@ -416,16 +416,30 @@
 
   `:event` is resolved by operation: `:rf.event/dispatched` is the
   DISPATCH trigger, every other event op (run-start / run-end) is the
-  HANDLER body. Errors / warnings classify by the stage where they
-  occurred (their area's mapping), defaulting to HANDLER — the view
-  rides the severity colour on the edge regardless (spec/023 §7)."
-  [{:keys [operation] :as row-or-ev}]
-  (let [a (area row-or-ev)]
-    (case a
-      :event   (if (= operation :rf.event/dispatched) :DISPATCH :HANDLER)
-      :error   :HANDLER
-      :warning :HANDLER
-      (get area->stage a :HANDLER))))
+  HANDLER body.
+
+  Errors / warnings classify by the stage where they OCCURRED (spec/023
+  §3a) — the view rides the severity colour on the edge regardless
+  (spec/023 §7). rf2-3x7nj.24.4: an op whose own namespace names a step
+  takes that step (`:rf.cofx/skipped-on-platform` → COEFFECT,
+  `:rf.fx/skipped-on-platform` → SIDE-EFFECTS); an `:rf.error/*` /
+  `:rf.warning/*` op, which names none, takes `preceding` — the stage of
+  the nearest non-severity row before it in fire order, which
+  `project-rows` threads — and HANDLER only when nothing precedes it.
+  The 1-arity has no fire order to read, so it answers that fallback."
+  ([row-or-ev] (stage row-or-ev nil))
+  ([{:keys [operation] :as row-or-ev} preceding]
+   (let [a (area row-or-ev)]
+     (case a
+       :event   (if (= operation :rf.event/dispatched) :DISPATCH :HANDLER)
+       ;; The op's own family, read with the severity op-type set
+       ;; aside; `area->stage` has no `:event` entry, so a family-less
+       ;; `:rf.error/*` op (which `area` sends to `:event`) finds none.
+       (:error :warning)
+       (or (get area->stage (area (dissoc row-or-ev :op-type)))
+           preceding
+           :HANDLER)
+       (get area->stage a :HANDLER)))))
 
 (defn stage-label
   "The uppercase stage label for a row's STAGE — the Epoch panel's own
@@ -954,11 +968,25 @@
   dispatches `:id`). Filtering it here is the projection-time guard the
   bead prescribed, and it keeps `row-key` keying on the stable `:id`
   alone — no positional fallback, honouring the anti-positional-key
-  contract (`project-feed-from-epoch-rows-carry-no-row-index-slot`)."
+  contract (`project-feed-from-epoch-rows-carry-no-row-index-slot`).
+
+  rf2-3x7nj.24.4 — the walk threads the stage of the last non-severity
+  row, so an error / warning row labels the step it occurred in rather
+  than a constant EVENT HANDLER (see `stage`)."
   [events]
-  (into [] (comp (filter (comp some? :id))
-                 (map project-row))
-        events))
+  (first
+    (reduce (fn [[rows preceding] ev]
+              (let [row (project-row ev)
+                    s   (stage ev preceding)
+                    row (cond-> row
+                          (not= s (:stage row))
+                          (assoc :stage        s
+                                 :stage-label  (epoch-badge/label s)
+                                 :stage-colour (epoch-badge/colour s)))]
+                [(conj rows row)
+                 (if (#{:error :warning} (:area row)) preceding s)]))
+            [[] nil]
+            (filter (comp some? :id) events))))
 
 ;; ---- band projection (spec/023 §2 · §4) ---------------------------------
 ;;

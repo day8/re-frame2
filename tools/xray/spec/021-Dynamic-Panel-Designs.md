@@ -565,6 +565,10 @@ FLOW`), not the prior depth-first indented tree. Columns, left → right:
 - **View** node → `success`-tinted box labelled `(rerendered)`; it is the cascade's leaf and focus.
 - **Shared subscription** → a sub with edges to **two or more views** is shared; the topology (two
   edges) carries the "one sub drives N views" fact (a small `×N` may annotate it).
+- **Nodes are instances, not registrations** (rf2-3x7nj.24.3) → one sub node per concrete query-v,
+  one view node per rendered component instance (its render-key). A sub instance's edge goes to the
+  view instances whose own read-set (`:rf.view/deref-subs`) holds its query-v, so a list of N rows
+  over one parametric sub draws N sub nodes, each wired to its own row's view node.
 
 **Cascade scope — flows are NOT in the reactive graph.** The graph is strictly **app-db → subs →
 views**. Flows mutate state — they belong to the handling pipeline (the Epoch panel's FLOW step,
@@ -993,6 +997,8 @@ bottom:
 An absent or empty reserved area renders **nothing** — no section, no placeholder
 (rf2-jcdvo: `current-state-sections` filters it at projection time, pinned by the App-DB
 suite's "no placeholder card for empty reserved area" test). Only APP STATE always renders.
+With a focused epoch, emptiness covers **both** sides: an area the epoch emptied (the last
+machine destroyed, a pending navigation cleared) still renders, showing what was removed (§4.3).
 The reserved areas are exactly `:rf/machines`, `:rf/spawned`, `:rf/route`,
 `:rf/pending-navigation` and `:rf/elision` (`reserved-area-order`); there is no `SYSTEM-IDS`
 area. The `:rf/*` names are section LABELS: since EP-0001 the reserved areas are read off the
@@ -1058,6 +1064,18 @@ every slot `no-diff`. The TOP user-domain section needs no sentinel —
 its `:before-top` is the whole prior user-domain map, so a NEW
 user-domain key already classifies `:added` per-key inside the diff
 engine.
+
+**The removed side (rf2-3x7nj.24.2).** The mirror sits in the `:value`
+slot: an instance / singleton present in the focused epoch's
+`:db-before` and **absent** from `:db-after` (a destroyed machine, a
+cleared pending navigation) is kept as an entry whose `:value` is the
+`removed` sentinel and whose `:before` is its prior state. `value-body`
+hands the shared renderer its absent-value marker beside that
+`:before`, so the prior value draws in place as a struck-through
+removed ghost ([004 §Removed slots render in place](004-App-DB-Diff.md#removed-slots-render-in-place-the-absence-marker-never-escapes-rf2-8pfkk)).
+The TOP again needs no sentinel: a user-domain db cleared to `{}` diffs
+against its whole prior map, so its keys render struck-through rather
+than as the empty-state placeholder.
 
 ### §4.4 Cascade overlay — downstream subs — RETIRED 2026-05-22 (rf2-kbxgj · rf2-ilubp)
 

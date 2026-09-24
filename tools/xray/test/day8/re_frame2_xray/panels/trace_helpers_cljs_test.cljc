@@ -615,11 +615,49 @@
         "epoch-lifecycle ops ride the DISPATCH step's muted grey")))
 
 (deftest stage-cross-cutting-error-warning-classify-by-occurrence
-  (testing "rf2-aqusw: error / warning ops still classify to a stage so
-            the column labels their phase; the view rides the severity
-            colour on the edge (spec/023 §7)"
+  (testing "rf2-3x7nj.24.4: an error / warning row labels the step where it
+            OCCURRED (spec/023 §3a), not a constant EVENT HANDLER. Driven
+            through `project-rows` over a fire-ordered epoch, because the
+            chronology is the input"
+    (let [rows  (h/project-rows
+                  [{:id 1  :op-type :rf.event :operation :rf.event/dispatched}
+                   {:id 2  :op-type :error    :operation :rf.error/no-such-handler}
+                   {:id 3  :op-type :rf.event :operation :rf.event/run-start}
+                   {:id 4  :op-type :warning  :operation :rf.cofx/skipped-on-platform}
+                   {:id 5  :op-type :rf.event :operation :rf.event/run-end}
+                   {:id 6  :op-type :rf.fx    :operation :rf.fx/handled}
+                   {:id 7  :op-type :error    :operation :rf.error/fx-handler-exception}
+                   {:id 8  :op-type :warning  :operation :rf.fx/skipped-on-platform}
+                   {:id 9  :op-type :rf.sub   :operation :rf.sub/run}
+                   {:id 10 :op-type :error    :operation :rf.error/sub-exception}
+                   {:id 11 :op-type :warning  :operation :rf.warning/db-nil-coerced}
+                   {:id 12 :op-type :rf.view  :operation :rf.view/rendered}])
+          by-id (into {} (map (juxt :id identity)) rows)]
+      (is (= :SIDE-EFFECTS (:stage (by-id 7)))
+          "an fx that throws occurred in the effect step")
+      (is (= "EFFECT HANDLERS" (:stage-label (by-id 7)))
+          "and its label + colour follow the stage")
+      (is (= (epoch-badge/colour :SIDE-EFFECTS) (:stage-colour (by-id 7))))
+      (is (= :SUBSCRIPTIONS (:stage (by-id 10)))
+          "a sub that throws occurred in the subscription step")
+      (is (= :SUBSCRIPTIONS (:stage (by-id 11)))
+          "consecutive severity rows share the step before them")
+      (is (= :DISPATCH (:stage (by-id 2)))
+          "an error before the handler ran sits in the dispatch step")
+      (is (= :COEFFECT (:stage (by-id 4)))
+          "a severity op whose own namespace names a step takes that step,
+           whatever precedes it")
+      (is (= :SIDE-EFFECTS (:stage (by-id 8))))
+      (is (= [:DISPATCH :HANDLER :HANDLER :SIDE-EFFECTS :SUBSCRIPTIONS :VIEWS]
+             (mapv (comp :stage by-id) [1 3 5 6 9 12]))
+          "control — the non-severity rows keep their own steps")))
+  (testing "a severity row with nothing before it, or read alone, falls back
+            to HANDLER; one whose namespace names a step does not"
+    (is (= :HANDLER (:stage (first (h/project-rows [{:id 1 :op-type :error
+                                                     :operation :rf.error/x}])))))
     (is (= :HANDLER (h/stage {:op-type :error :operation :rf.error/x})))
-    (is (= :HANDLER (h/stage {:op-type :warning :operation :rf.warning/x})))))
+    (is (= :HANDLER (h/stage {:op-type :warning :operation :rf.warning/x})))
+    (is (= :COEFFECT (h/stage {:op-type :warning :operation :rf.cofx/skipped-on-platform})))))
 
 (deftest stage-label-reuses-the-epoch-badge-label
   (testing "rf2-aqusw: the stage column label IS the Epoch panel's own
@@ -1029,6 +1067,22 @@
           triples (h/db-changed-diff-triples
                     {:db-before db :db-after db})]
       (is (= [] triples)))))
+
+(deftest db-changed-diff-triples-skip-an-equal-but-rebuilt-leaf
+  (testing "rf2-3x7nj.24.5 — the empty-diff promise holds by VALUE, as the
+            runtime's db-changed does: a leaf the handler rebuilt equal adds
+            no phantom `~ [:todos] X → X` row beside the real change"
+    (let [before  {:loading? true :todos [{:id 1 :done false}]}
+          ;; the handler: `(update :todos #(vec (remove :done %)))`, nothing done
+          after   (-> before
+                      (assoc :loading? false)
+                      (update :todos #(vec (remove :done %))))
+          triples (h/db-changed-diff-triples {:db-before before :db-after after})]
+      (is (= [[:modified [:loading?]]] (mapv (juxt :op :path) triples)))
+      (is (= [] (h/db-changed-diff-triples
+                  {:db-before before
+                   :db-after  (update before :todos #(vec (remove :done %)))}))
+          "db-before = db-after (not identical) → []"))))
 
 (deftest db-changed-diff-triples-nested-and-top-level-paths
   (testing "the diff covers both top-level and nested-key changes"
