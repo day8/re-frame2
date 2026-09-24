@@ -1,5 +1,5 @@
 (ns re-frame.ssr-request-durable-fact-test
-  "rf2-aqwvhh — durable request-derived facts use the RECORDABLE boundary
+  "Durable request-derived facts use the RECORDABLE boundary
   pattern, NOT the ambient `:rf.server/request` read.
 
   EP-0017 §1 + Spec 011 §Durable request-derived facts: `:rf.server/request`
@@ -23,7 +23,7 @@
   missing provided fact, AND the contrast that the ambient `:rf.server/request`
   value is NOT recorded on the token (the symptom the pattern avoids).
 
-  ## Posture split (rf2-lwtlk)
+  ## Posture split
 
   Everything this namespace pins is production-real — the durable app-db
   writes, the fail-closed throw, the absence of the ambient request from the
@@ -31,12 +31,12 @@
   TRACE in `missing-provided-request-fact-fails-loud`. Trace emission runs
   through `trace/emit-error!`, gated on `interop/debug-enabled?` and read once
   at namespace-load time, so under `-Dre-frame.debug=false` the recorder sees
-  nothing. That one assertion is kept verbatim inside a
+  nothing. That one assertion sits inside a
   `(when interop/debug-enabled? …)` arm; the fail-closed contract it sits
   beside — the throw, its `:rf.error/id`, and the absent durable write — is
   what a production server observes and runs in both postures.
 
-  `ambient-request-read-is-not-recorded-on-the-token` gained a positive pin
+  `ambient-request-read-is-not-recorded-on-the-token` carries a positive pin
   that the `:rf.cofx` record EXISTS before asserting what is not in it, so
   the two negatives cannot pass by the record being absent altogether."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -118,7 +118,7 @@
           (is (some? ex) "dispatch threw rather than silently delivering nil")
           (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data ex)))
               "the throw is :rf.error/missing-required-cofx (fail-closed)")
-          ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). The
+          ;; Dev-instrumentation arm (see ns docstring). The
           ;; fail-closed contract is pinned by the throw and its
           ;; `:rf.error/id` above, both production-real; this is the dev
           ;; trace restating the same category on the trace bus.
@@ -149,7 +149,7 @@
           (reset! seen-cofx (:rf.cofx ctx))
           {}))
       (rf/dispatch-sync [:req/inspect-record] {:frame server-frame})
-      ;; rf2-lwtlk — pin that there IS a record to inspect before asserting
+      ;; Pin that there IS a record to inspect before asserting
       ;; what is missing from it. Without this the two negatives below would
       ;; also hold if `:rf.cofx` were absent from the context entirely, which
       ;; is a different (and much worse) world than the one under test.
