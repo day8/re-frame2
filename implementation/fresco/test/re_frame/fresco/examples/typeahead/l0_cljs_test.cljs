@@ -80,8 +80,7 @@
 ;; `make-reset-runtime-fixture` restores the registrar to the baseline it
 ;; captured when the `use-fixtures` FORM was evaluated, so a handler
 ;; registered after that form is wiped before the first row runs and every
-;; dispatch of it is a silent no-op. That is the slice authoring report's
-;; third finding, met here for a third time.
+;; dispatch of it is a silent no-op.
 ;; ---------------------------------------------------------------------------
 
 (rf/reg-event ::unguarded-suggestions
@@ -197,7 +196,7 @@
             "every keystroke past the threshold issues its own request")))))
 
 ;; ---------------------------------------------------------------------------
-;; Stale-reply suppression — the bead's named acceptance, and its control
+;; Stale-reply suppression, and its control
 ;; ---------------------------------------------------------------------------
 
 (deftest a-late-reply-cannot-clobber-a-newer-term
