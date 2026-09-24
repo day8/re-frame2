@@ -46,19 +46,16 @@
   than a flag somebody has to remember to clear, and \"reset\" is a
   `dissoc` rather than a re-copy.
 
-  ## THERE IS NO `:revision` KEY, AND ITS ABSENCE WAS MEASURED
+  ## THERE IS NO `:revision` KEY, AND THE EDITOR NEEDS NONE
 
-  An earlier draft of this application carried one: a `{slug n}` counter,
-  a `(fnil inc 0)` in two handlers, a subscription, and `::h/revision` on
-  both text fields. It was written from HD-019's reset law and from the
-  sentence that used to stand here — *a discard that only removed the
-  draft would leave the field showing what the user typed*.
+  HD-019's reset law invites one — a `{slug n}` counter, a `(fnil inc 0)`
+  in two handlers, a subscription, and `::h/revision` on both text fields
+  — on the reasoning that *a discard that only removed the draft would
+  leave the field showing what the user typed*.
 
-  That sentence is false of this application, and the way it was found is
-  the only reason to keep talking about it: the counter's bump was deleted
-  from `::discard` and the browser lane did not move — 1474 tests, 9154
-  assertions, zero failures, exactly the control. The bookkeeping was
-  inert.
+  That reasoning is false of this application: a discard that only
+  removes the draft resets the field, so the counter would be inert
+  bookkeeping.
 
   It is inert for a mechanical reason worth carrying, because it decides
   when a consumer needs one. `impl.codec`'s `revision-key` states the
@@ -71,8 +68,8 @@
   body re-runs whatever the counter does.
 
   **`::h/revision` is therefore the door for a reset that leaves every
-  other read the body makes `=`** — not, as the first report had it, for a
-  field that outlives its reset. This field outlives its reset and needs
+  other read the body makes `=`** — not for a field that outlives its
+  reset. This field outlives its reset and needs
   nothing. `flow-dom-cljs-test`'s reset section witnesses both halves: the
   discard that works, and a DOM drifted by a write React never saw, which
   the same re-render repairs."
