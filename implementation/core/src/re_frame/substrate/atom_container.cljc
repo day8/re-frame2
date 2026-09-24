@@ -12,7 +12,7 @@
 
   Note `make-derived-value` is NOT shared — plain-atom reifies
   `IDisposable` under CLJS for sub-cache ref-count symmetry, while
-  test-react deliberately does not (rf2-pyp3n). That divergence is real
+  test-react deliberately does not. That divergence is real
   and stays per-adapter.")
 
 (defn make-state-container [initial-value]
