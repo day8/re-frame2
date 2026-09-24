@@ -179,19 +179,6 @@
    registration's policy.)"
   {:resource :linearlite/board :params {}})
 
-;; A counter for client-minted ids. The moment an optimistic card appears it
-;; needs a stable React key, but the server hasn't named the issue yet — so we
-;; hand it a `tmp-N` id to tide it over. On commit the success reply carries the
-;; row the server created (real id and all) and the commit patch swaps it in for
-;; the temporary card, so the temporary id never outlives the round trip; a
-;; rollback just removes the card that never landed.
-(defonce ^:private optimistic-id-seq (atom 0))
-
-(defn- next-issue-id
-  "Mint the next client-side placeholder id (`tmp-N`)."
-  []
-  (str "tmp-" (swap! optimistic-id-seq inc)))
-
 (defn- upsert-issue
   "Add an issue to the board's `:issues`, or replace it if its id is already
    there (keeping its place in line). Pure, and shared by the create + edit
@@ -485,10 +472,11 @@
 ;; ============================================================================
 ;;
 ;; The only state app-db carries here is UI chrome: the failure toggle, the
-;; new-issue draft, and the id of the card being inline-retitled. The issue
-;; board itself is *not* in app-db — the resource owns it. These three are
-;; ordinary slices in the usual loop: an event writes, a sub reads, the view
-;; reads the sub.
+;; new-issue draft, and the id of the card being inline-retitled — plus the
+;; `:next-tmp-id` counter `:linearlite/create-issue` allocates from (below). The
+;; issue board itself is *not* in app-db — the resource owns it. The three UI
+;; slices are ordinary slices in the usual loop: an event writes, a sub reads,
+;; the view reads the sub.
 
 (rf/reg-event :linearlite/set-fail-next-write
   (fn [{:keys [db]} [_ on?]] {:db (assoc db :fail-next-write? on?)}))
@@ -517,10 +505,24 @@
 ;; the board passively; the runtime does the real work — apply the optimistic
 ;; patch, send the request, commit or roll back on the reply.
 
+;; A client-minted id for the new card. The moment an optimistic card appears it
+;; needs a stable React key, but the server hasn't named the issue yet — so we
+;; hand it a `tmp-N` id to tide it over. On commit the success reply carries the
+;; row the server created (real id and all) and the commit patch swaps it in for
+;; the temporary card, so the temporary id never outlives the round trip; a
+;; rollback just removes the card that never landed.
+;;
+;; The id is allocated from a `:next-tmp-id` counter in app-db, not a
+;; module-level atom bumped mid-handler, because it lands in durable state: the
+;; mutation's `:params`, its instance key `[:create tmp-id]` and the optimistic
+;; card. So it must be a function of recorded state — replay the same events into
+;; a fresh frame and you get the same ids (docs/core/coeffects.md, §Fresh ids:
+;; the minting ladder, rung 1).
 (rf/reg-event :linearlite/create-issue
   (fn [{:keys [db]} [_ title]]
-    (let [tmp-id (next-issue-id)]
-      {:db (assoc db :new-issue-draft "")
+    (let [n      (:next-tmp-id db 1)
+          tmp-id (str "tmp-" n)]
+      {:db (assoc db :new-issue-draft "" :next-tmp-id (inc n))
        :fx [[:dispatch [:rf.mutation/execute
                         {:mutation :linearlite/create-issue
                          :params   {:id tmp-id :title title}
