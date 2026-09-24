@@ -1,5 +1,5 @@
 (ns re-frame.frame-destroy-generation-provenance-cljs-test
-  "rf2-cq0yi — `destroy-frame!` RELEASES the destroyed frame's
+  "`destroy-frame!` RELEASES the destroyed frame's
   generation-provenance row.
 
   `re-frame.live-frame` keeps one private process-global row per frame naming
@@ -9,34 +9,32 @@
   public `make-frame` writes one, and `reproject-live-frame!` threads the same
   pool back on every re-resolution.
 
-  Nothing removed the row. `destroy-frame!` released the frame record and a
-  dozen other frame-keyed side tables and left this one standing, so destroying
-  N never-reused ids left N permanent keys — and on the 2-arity, the caller's
-  whole explicit descriptor-pool object graph stayed reachable through them.
-  Spec 002 §Destroy makes `destroy-frame!` the single normative teardown
-  boundary every frame-scoped table hangs its cleanup off, so the residue was a
-  contract violation as well as a leak; the source comment classified it as
-  harmless \"dev-process memory\", but the write is unconditional in the PUBLIC
-  constructor and the documented per-request SSR recipe mints a fresh gensym
-  id, constructs, renders and destroys in a `finally` — one retained row per
-  request served, for the life of the server. Exactly the shape rf2-uejlj
-  fixed one layer up for the Fresco frame-ops row.
+  A row left standing once `destroy-frame!` has released the frame record and
+  its other frame-keyed side tables would mean destroying N never-reused ids
+  leaves N permanent keys — and on the 2-arity, the caller's whole explicit
+  descriptor-pool object graph would stay reachable through them. Spec 002
+  §Destroy makes `destroy-frame!` the single normative teardown boundary every
+  frame-scoped table hangs its cleanup off, so such residue would be a contract
+  violation as well as a leak. Nor is it harmless dev-process memory: the
+  write is unconditional in the PUBLIC constructor, and the documented
+  per-request SSR recipe mints a fresh gensym id, constructs, renders and
+  destroys in a `finally` — one retained row per request served, for the life
+  of the server. The Fresco frame-ops row has the same shape one layer up.
 
-  The fix is `live-frame/release-frame-generation-pool!`, published as
+  The release is `live-frame/release-frame-generation-pool!`, published as
   `:live-frame/on-frame-destroyed!` and invoked from `destroy-frame!`'s step-6
   auxiliary-cleanup pass beside its siblings.
 
   Every case below starts from a COMPLETE late-bind registry, so none of them
   can see whether that publication survives a hot reload of the producing
   namespace — see `live_frame_teardown_hook_reload_jvm_test`, which constructs
-  the discriminating state (once-flag latched, this one key missing) that the
-  audit of PR #8887 measured.
+  the discriminating state (once-flag latched, this one key missing).
 
   ## Why each case asserts PRESENCE before it asserts absence
 
   A leak is an ABSENCE, and \"the key is gone after teardown\" passes trivially
   against a build where `make-frame` never wrote the key at all — a different
-  bug, and one this file would then certify as fixed. So every case here proves
+  bug, and one this file would then certify as working. So every case here proves
   the row was THERE while the frame was live before it proves it is gone after,
   and the churn case pins the exact count in both directions rather than
   probing one selected key.
@@ -103,7 +101,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest make-frame-publishes-the-destroy-release-hook-rf2-cq0yi
-  (testing "rf2-cq0yi: the release is published at `re-frame.live-frame`'s NS
+  (testing "the release is published at `re-frame.live-frame`'s NS
             LOAD, which strictly precedes any `make-frame`, so it is bound
             before the first row can exist. This pins the REGISTRATION half
             directly: a release function that is never published is a silent
@@ -113,8 +111,7 @@
             What this case CANNOT see is whether the publication re-arms on a
             hot reload — every case here starts from a complete registry, which
             is green whether the key is published at load time or from the
-            `make-frame`-rooted once-body. That distinction is the audit of
-            PR #8887 and is pinned by
+            `make-frame`-rooted once-body. That distinction is pinned by
             `live_frame_teardown_hook_reload_jvm_test`."
     (let [f (rf/make-frame {:id :cq0yi-hook/main})]
       (is (some? (rf.late-bind/get-fn :live-frame/on-frame-destroyed!))
@@ -126,7 +123,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest destroy-frame-releases-ordinary-generation-provenance-rf2-cq0yi
-  (testing "rf2-cq0yi: an ORDINARY one-arity `make-frame` records a row whose
+  (testing "an ORDINARY one-arity `make-frame` records a row whose
             VALUE is nil (meaning: resolved against the live source store), and
             `destroy-frame!` releases it along with the frame record"
     (let [id :cq0yi-ordinary/main]
@@ -146,16 +143,17 @@
         (testing "after teardown BOTH are gone"
           (is (not (live? id)) "the frame record was destroyed")
           (is (not (row? id))
-              "the provenance row was RELEASED — pre-fix it survived for the
-               remainder of the process"))))))
+              "the provenance row was RELEASED — a surviving row would stay for
+               the remainder of the process"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The explicit-pool (2-arity) row, across two same-id incarnations
 ;; ---------------------------------------------------------------------------
 
 (deftest destroy-frame-releases-explicit-pool-provenance-across-incarnations-rf2-cq0yi
-  (testing "rf2-cq0yi: the 2-arity records the caller's EXACT descriptor pool —
-            the object graph the leak kept reachable — and teardown releases it.
+  (testing "the 2-arity records the caller's EXACT descriptor pool — the
+            object graph a leaked row would keep reachable — and teardown
+            releases it.
             Two same-id incarnations with DISTINCT pool objects also pin that
             the release is incarnation-correct: a STALE exact-value destroy of A
             must not strip successor B's row."
@@ -187,16 +185,16 @@
           (is (not (row? id))))))))
 
 ;; ---------------------------------------------------------------------------
-;; Churn — the SSR-per-request shape the leak was measured on
+;; Churn — the SSR-per-request shape
 ;; ---------------------------------------------------------------------------
 
 (deftest destroy-frame-returns-provenance-table-to-baseline-under-churn-rf2-cq0yi
-  (testing "rf2-cq0yi: the failure was unbounded GROWTH, not one stale key, so
+  (testing "the failure mode is unbounded GROWTH, not one stale key, so
             the churn case pins the whole table's cardinality in both directions
             rather than probing a selected id. 100 fresh anonymous frames is the
             documented per-request SSR shape (a fresh id, construct, render,
-            destroy in a `finally`) — pre-fix this left 100 permanent rows and
-            the after-destroy count equalled the after-create count."
+            destroy in a `finally`) — a leak would leave 100 permanent rows and
+            the after-destroy count would equal the after-create count."
     (let [n        100
           baseline (count (provenance))
           frames   (vec (repeatedly n #(rf/make-frame {})))]
@@ -209,4 +207,4 @@
         (rf/destroy-frame! f))
       (testing "every row is released, exactly back to the captured baseline"
         (is (= baseline (count (provenance)))
-            "pre-fix this read (baseline + 100)")))))
+            "a leak would read (baseline + 100)")))))
