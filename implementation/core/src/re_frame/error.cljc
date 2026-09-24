@@ -319,7 +319,7 @@
              | :string | :number | :boolean | :nil | :fn | :scalar
      :count  <int>}    ;; collection / string element count
 
-  **The summary is content-free BY CONSTRUCTION (rf2-210uq).** Every value
+  **The summary is content-free BY CONSTRUCTION.** Every value
   it can carry is either a member of the closed `:type` vocabulary above or
   an integer count, so no expression here is derived from the input's
   CONTENT. That makes the serialized summary a fixed size whatever arrives
@@ -327,14 +327,13 @@
   caller may hand this function a session token, a password or an
   attacker-chosen key set without further thought.
 
-  It did not always hold. The summary previously carried a `:head` (a raw
-  24-char prefix of the printed value, which reproduced a short secret
-  WHOLE and a long one's prefix, and which was not bounded at all for
-  keywords/symbols) and a map's `:keys` (every top-level key, uncapped and
+  Two tempting additions would break that. A `:head` (a raw prefix of the
+  printed value) would reproduce a short secret WHOLE and a long one's
+  prefix; a map's `:keys` (every top-level key) would be uncapped and
   unsanitised, though app-controlled keys carry content and an
-  attacker-sized key set grew the 'bounded' summary without limit). Both
-  are gone. `(str v)` is gone with them, so an unknown host value whose
-  `toString` throws no longer destroys the failure being described.
+  attacker-sized key set would grow the 'bounded' summary without limit.
+  Nor does it call `(str v)`, so an unknown host value whose `toString`
+  throws cannot destroy the failure being described.
 
   SIZE IS DELIBERATELY KEPT. `:count` is what makes the summary useful
   rather than merely safe — 'a 4000-char string where a keyword was
@@ -389,7 +388,7 @@
 ;; ---- cycle-safe diagnostic printing --------------------------------------
 ;;
 ;; A validator that rejects a malformed form correctly but EXPLODES while
-;; explaining why is still broken on hostile input (rf2-9s68n). Diagnostics
+;; explaining why is still broken on hostile input. Diagnostics
 ;; across the framework build their messages with `(pr-str v)` over the
 ;; offending runtime value, and on ClojureScript that is a live
 ;; stack-overflow: `cljs.core`'s printer has exactly TWO branches that
@@ -403,15 +402,15 @@
 ;; So an author who writes `[ThemeContext.Provider {…}]` on the hiccup tier
 ;; — the ordinary mistake `:rf.error/invalid-hiccup-head` exists to catch,
 ;; and one reachable straight from the shipped `re-frame.ssr/render-to-
-;; string` — got `RangeError: Maximum call stack size exceeded` and NO
+;; string` — would get `RangeError: Maximum call stack size exceeded` and NO
 ;; message at all. React 19's `createContext` returns an object carrying a
 ;; `Provider` key that points back at the context itself, so `ctx.Provider`
 ;; IS a cycle; the defect is a property of the foreign object graph rather
 ;; than of React, and a hand-built `(unchecked-set o "self" o)` reproduces
 ;; it exactly.
 ;;
-;; `re-frame.ssr.hash/canonical-edn-into` met the same crossing from the
-;; other side (rf2-56iys) and STOPS at those two predicates: a hash wants
+;; `re-frame.ssr.hash/canonical-edn-into` meets the same crossing from the
+;; other side and STOPS at those two predicates: a hash wants
 ;; one identity-free token, so collapsing every foreign value is right
 ;; there. A DIAGNOSTIC wants the opposite — it exists to show the author
 ;; their value — so this elides the strict minimum instead:
@@ -423,8 +422,8 @@
 ;; inspection:
 ;;
 ;;   **An input from which no cycle is reachable is returned IDENTICAL, so
-;;   its diagnostic is byte-identical to the one it produced before this
-;;   pair existed.** `safe-form` scans first and only rebuilds when the scan
+;;   its diagnostic is byte-identical to plain `pr-str`'s.** `safe-form`
+;;   scans first and only rebuilds when the scan
 ;;   finds a cycle; on the JVM it is `identity` outright (no foreign
 ;;   objects, and no cyclic value can be built from the persistent
 ;;   collections these walks otherwise see).
@@ -445,7 +444,7 @@
 ;; untrusted value into a diagnostic without harm?" (that one for content
 ;; safety, this one for termination).
 ;;
-;; rf2-y1jbaq (never stringify an unescaped hiccup form to the wire): this
+;; Never stringify an unescaped hiccup form to the wire: this
 ;; does NOT widen the wire surface. The elision token is a fixed constant
 ;; carrying no input-derived text, so the only content it can add to any
 ;; surface is content an ACYCLIC form of the same shape already put there.
