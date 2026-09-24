@@ -246,8 +246,8 @@
   rf2-9dj21r — true when a transition candidate opts in to the EXTERNAL
   restart axis (`:reenter? true`). Spec 005 §Self-transitions + XState v5:
   a TARGETED transition is INTERNAL by default — its own `:exit`/`:entry`
-  do not re-run — and only `:reenter? true` makes a self / proper-ancestor
-  / compound-declared-descendant target EXTERNAL (re-run `:exit`+`:entry`,
+  do not re-run — and only `:reenter? true` makes a self /
+  compound-declared-descendant target EXTERNAL (re-run `:exit`+`:entry`,
   restart the target's `:after` timers + tear-down-and-respawn its `:spawn`
   children). This matches the engine's `(true? (:reenter? transition))`
   read (`re-frame.machines.transition`). Only a map candidate can carry it;
@@ -344,8 +344,8 @@
   distinguish it (no exit/entry re-trigger).
 
   rf2-9dj21r — a TARGETED transition is INTERNAL BY DEFAULT (XState v5 /
-  Spec 005 §Self-transitions): a self / ancestor / compound-declared-
-  descendant target does NOT re-run the target's own `:exit`/`:entry`
+  Spec 005 §Self-transitions): a self / compound-declared-descendant
+  target does NOT re-run the target's own `:exit`/`:entry`
   unless the candidate opts in with `:reenter? true`. That EXTERNAL
   restart axis (`reenter?`) is carried onto every edge so a `:reenter?
   true` transition charts + exports DISTINCTLY from its internal default

@@ -96,15 +96,16 @@
     comment, and the import cannot recover it.
   - `:entry` / `:exit` state actions — omitted; neither the names nor a
     comment carrying them survive the export.
-  - INTERNAL-default self / proper-ancestor SELF-TRANSITION semantics
-    — re-frame2 / XState v5 make a targeted transition INTERNAL by
+  - INTERNAL-default SELF-TRANSITION semantics — re-frame2 / XState v5
+    make a transition targeting its own declaring state INTERNAL by
     default (the targeted state's OWN `:exit` / `:entry` do NOT re-run);
     W3C SCXML's `type=\"internal\"` only changes the transition domain
     for a COMPOUND source whose target is a PROPER DESCENDANT (the one
-    case where the export IS the exact equivalent). For a self-target
-    (source == target) or a proper-ancestor target, SCXML ALWAYS
-    re-enters the source regardless of `type`, so the re-frame2 internal
-    default has no exact SCXML equivalent. The export emits
+    case where the export IS the exact equivalent). A proper-ancestor
+    target loses nothing: SCXML and re-frame2 both exit and re-enter the
+    ancestor whatever the `type`. For a self-target (source == target),
+    SCXML ALWAYS re-enters the source regardless of `type`, so the
+    re-frame2 internal default has no exact SCXML equivalent. The export emits
     `type=\"internal\"` to record the intended axis and references the
     source state's REAL declared id, and the local `scxml->spec`
     round-trips the `:same-state` sentinel exactly — but a STRICT
@@ -469,12 +470,13 @@
 
   SCXML's `type=\"internal\"` is strictly equivalent to `external` for a
   COMPOUND source whose target is a PROPER DESCENDANT (the only case where
-  W3C `getTransitionDomain` differs); for a self / proper-ancestor target
-  it is an irreducible LOSS — SCXML re-enters the source on a self-target
-  regardless of `type`, whereas re-frame2's internal default does NOT
-  re-run the source's own exit/entry. `type=\"internal\"` records the
-  intended axis (and is the exact equivalent for the descendant case); the
-  irreducible self/ancestor loss is documented in API.md §Not supported
+  W3C `getTransitionDomain` differs); a proper-ancestor target restarts the
+  ancestor under either `type`, in SCXML and in re-frame2 alike; for a
+  self-target it is an irreducible LOSS — SCXML re-enters the source on a
+  self-target regardless of `type`, whereas re-frame2's internal default
+  does NOT re-run the source's own exit/entry. `type=\"internal\"` records
+  the intended axis (and is the exact equivalent for the descendant case);
+  the irreducible self-target loss is documented in API.md §Not supported
   rather than papered over by the local round-trip oracle. The decoder
   inverts this axis: `type=\"external\"` ⇒ `:reenter? true`, any other
   value (incl. `internal` / absent) ⇒ the internal default."

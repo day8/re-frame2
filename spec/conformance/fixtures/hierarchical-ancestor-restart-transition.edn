@@ -1,10 +1,11 @@
 ;; Conformance fixture: machine/hierarchical-ancestor-restart-transition
 ;;
-;; External (`:reenter? true`) transition to a PROPER ANCESTOR on the active
-;; path (the LCCA ancestor-RESTART geometry — rf2-emz8l). A transition from a
-;; descendant leaf whose `:target` names a PROPER ANCESTOR A (by absolute
-;; vector) is internal BY DEFAULT (XState-v5, rf2-eicq0); `:reenter? true`
-;; makes it EXTERNAL. The Least Common COMPOUND Ancestor of {source, A} is
+;; Transition to a PROPER ANCESTOR on the active path (the LCCA
+;; ancestor-RESTART geometry). A transition from a descendant leaf whose
+;; `:target` names a PROPER ANCESTOR A (by absolute vector) restarts A with
+;; or without `:reenter?` — the ordinary SCXML / XState LCCA rule; this
+;; fixture carries `:reenter? true`, which is a no-op for this shape. The
+;; Least Common COMPOUND Ancestor of {source, A} is
 ;; A's PARENT — so the exit set is A's whole active subtree INCLUDING A, the
 ;; transition action fires at the LCCA boundary, then A re-enters and
 ;; re-descends its `:initial` chain. Net effect: A's :exit + :entry both fire
