@@ -5,12 +5,12 @@
   the `:epoch/run-cause` late-bind hook and consumed
   by `views.cljs` at `:rf.view/rendered` emit time to stamp the per-render
   trace's `:cause-event-id` / `:cause-subs` / `:value-changed-subs` and to
-  enforce the per-run view-render cap via `:rendered-so-far`
-  (rf2-25zo2 / rf2-8wrzz.1). It is a single-reduce walk over the frame's
+  enforce the per-run view-render cap via `:rendered-so-far`. It is a
+  single-reduce walk over the frame's
   in-flight capture buffer with FOUR distinct accumulators, a `sub-cap`
   bound, first-seen dedup, and a conditional output map. A regression in any accumulator
   (cause-event-id capture, the dedup, the value-changed subset, the cap
-  counter) or in the empty-buffer shape would have shipped green.
+  counter) or in the empty-buffer shape would ship green without this suite.
 
   `run-cause` names the event-pipeline run that drove the render/sub, keyed off
   `:rf.event/run-start`, not a reactive-graph run.
@@ -35,11 +35,11 @@
 
 ;; ---- fixture --------------------------------------------------------------
 ;;
-;; rf2-yw1w1u — canonical capture/restore fixture. Snapshots the
+;; Canonical capture/restore fixture. Snapshots the
 ;; registrar at ns-load + restores around each test, fires the epoch
 ;; reset-hook table (history / listeners / config-to-default), and the
 ;; `:init-fn` re-applies the suite's non-default `:trace-events-keep 5`
-;; (NOT the shipped 50 = :depth; Mike pair-debug 2026-05-27) through the
+;; (NOT the shipped 50 = :depth) through the
 ;; public `configure!` boundary — no test ns reaches into the private
 ;; `state/config` var for fixture reset.
 (use-fixtures :each
@@ -155,7 +155,7 @@
         (is (= 10 (count (:cause-subs result)))
             "well under the default 100 cap — all subs surface")))))
 
-;; ---- value-changed-subs: the changed subset (rf2-8wrzz.1) -----------------
+;; ---- value-changed-subs: the changed subset ------------------------------
 
 (deftest value-changed-subs-is-the-changed-subset
   (testing ":value-changed-subs is the SUBSET of subs whose :sub/run
@@ -204,8 +204,8 @@
           "repeats collapse — :value-changed-subs is a deduped set"))))
 
 (deftest value-changed-subs-respects-sub-cap
-  (testing ":value-changed-subs is INDEPENDENTLY bounded by `sub-cap`
-            (rf2-7n0kf). The value-changed scan is independent of the
+  (testing ":value-changed-subs is INDEPENDENTLY bounded by `sub-cap`.
+            The value-changed scan is independent of the
             first-seen `:subs` scan, so it carries its own cap guard. A
             pathological run with > sub-cap distinct value-changed
             sub-ids must NOT grow the set past sub-cap — that is the
