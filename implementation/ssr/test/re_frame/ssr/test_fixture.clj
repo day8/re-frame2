@@ -1,17 +1,10 @@
 (ns re-frame.ssr.test-fixture
-  "Shared `:each` reset fixture for ssr-artefact JVM tests. Per rf2-i3qc0
-  (audit rf2-asmj1 §TC5).
+  "Shared `:each` reset fixture for ssr-artefact JVM tests.
 
-  Pre-rf2-i3qc0 the same 7-12-line `reset-runtime` body was duplicated
-  across seven test files (ssr_end_to_end_test, ssr_head_test,
-  ssr_request_cofx_test, ssr_compatibility_checks_test,
-  ssr_source_coord_test, ssr_teardown_load_test, ssr_conformance_test).
-  Each copy reset the same registrar / frame / flows / schemas /
-  side-channel atoms and reloaded the same `routing` / `ssr` /
-  `machines` namespaces. Drifting copies (one resets an atom another
-  doesn't; one declares the fn `^:private`, another doesn't)
-  invited the kind of cross-test-bleed that the side-channel atoms
-  exist to prevent.
+  Per-file copies of a reset body drift (one resets an atom another
+  doesn't; one declares the fn `^:private`, another doesn't), inviting
+  the kind of cross-test-bleed that the side-channel atoms exist to
+  prevent.
 
   The canonical reset is here. Test namespaces call
   `(use-fixtures :each tf/reset-runtime)` and inherit a uniform reset
@@ -26,16 +19,18 @@
   `(schemas/clear-schemas-by-frame!)`.
 
   SSR side-channel atoms (Spec 011 §Per-request frame teardown). All
-  three slots are keyed by frame-id; stale entries from prior tests
+  are keyed by frame-id; stale entries from prior tests
   would otherwise bleed process-wide:
     - `re-frame.ssr.request/request-slots`        — the active HTTP request
     - `re-frame.ssr.response/response-slots`      — the HTTP response accumulator
     - `re-frame.ssr.error-listener/pending-error-traces`
                                                   — per-frame buffer of error trace events
+    - `re-frame.ssr.install`'s install ledger     — hydration-payload claims
+                                                    (payload ids are frame ids)
 
   Adapter — `(rf/init! ssr/adapter)` installs the SSR-aware adapter map.
 
-  Namespace-load-time registrations — clear-all! wiped the
+  Namespace-load-time registrations — clear-all! wipes the
   registrations re-frame.routing / re-frame.ssr / re-frame.ssr.head /
   re-frame.machines installed at ns-load. `:reload` re-evaluates the
   ns-body so `:rf/hydrate`, `:rf.route/navigate`, `:rf.server/*` fxs,
@@ -46,8 +41,7 @@
 
   - One source of truth for the reset shape — drift between test files
     is impossible by construction.
-  - Adding a new side-channel atom (e.g. when a future rf2-* introduces
-    one) touches exactly one file.
+  - Adding a new side-channel atom touches exactly one file.
   - The reset matches the production teardown shape closely; any
     divergence is an immediate signal that either the tests are
     cheating or the teardown is incomplete."
@@ -75,8 +69,8 @@
   (rf.schemas/clear-schemas-by-frame!)
   ;; SSR side-channel atoms — direct refs into the producing sub-ns
   ;; rather than the (private) façade aliases. Same atoms either way;
-  ;; this avoids the `(resolve ...)` reflective dance the legacy
-  ;; per-file fixtures used to reach the ^:private façade vars.
+  ;; this avoids a `(resolve ...)` reflective dance to reach the
+  ;; ^:private façade vars.
   (reset! rf.ssr.request/request-slots {})
   (reset! rf.ssr.response/response-slots {})
   (reset! rf.ssr.error-listener/pending-error-traces {})
@@ -84,9 +78,9 @@
   ;; frame id), so a claim left by a prior test would make the next test's
   ;; first hydrate look like a sibling root's second one.
   (rf.ssr.install/reset-installed-payloads!)
-  ;; Per rf2-4gvb4 — the flows artefact's per-frame `last-inputs` memo
+  ;; The flows artefact's per-frame `last-inputs` memo
   ;; table is reset through the public `flows/reset-last-inputs!` seam
-  ;; (the atom itself is now private to the flows artefact). Spec 013
+  ;; (the atom itself is private to the flows artefact). Spec 013
   ;; §Flow re-evaluation trigger.
   (rf.flows/reset-last-inputs!)
   (rf/init! rf.ssr/adapter)
@@ -98,9 +92,9 @@
   (require 're-frame.ssr     :reload)
   (require 're-frame.ssr.head :reload)
   (require 're-frame.machines :reload)
-  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`, and
+  ;; EP-0002: `init!` does not synthesise `:rf/default`, and
   ;; framework operation + registration surfaces (dispatch / reg-flow /
-  ;; reg-app-schema / current-frame-id / …) now require a carried frame
+  ;; reg-app-schema / current-frame-id / …) require a carried frame
   ;; stamp. Register `:rf/default` explicitly and pin it as the body's
   ;; ambient scope — the carried-invariant equivalent of wrapping every
   ;; test in `(with-frame :rf/default …)`. SSR tests that drive their own
