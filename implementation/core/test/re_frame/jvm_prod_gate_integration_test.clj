@@ -1,5 +1,5 @@
 (ns re-frame.jvm-prod-gate-integration-test
-  "rf2-f7qj4 — READ THIS FIRST. Despite the namespace's name, this suite is
+  "READ THIS FIRST. Despite the namespace's name, this suite is
   NOT THE LOAD-TIME GATE.
 
   `re-frame.interop/debug-enabled?` is a `def` read ONCE, at namespace-load
@@ -22,57 +22,50 @@
       a fresh JVM with the property on the command line, for a defect that
       only reproduces at load time.
 
-  Why the distinction is load-bearing: rf2-9c2jf was a TOTAL `dispatch-sync`
-  failure under the documented production gate — handler run ZERO times — and
-  it stayed green for as long as it existed. Part of why nobody caught it is
-  that the roster of suites calling themselves \"production gate\" tests looked
-  full, and a reviewer reading the file list had no way to see that not one of
-  them ran under the gate.
+  Why the distinction is load-bearing: a defect can make `dispatch-sync` fail
+  TOTALLY under the documented production gate — handler run ZERO times —
+  while every rebinding suite stays green. A roster of suites calling
+  themselves \"production gate\" tests looks full, and a reviewer reading the
+  file list has no way to see which of them run under the gate.
 
   ## What this suite pins
 
-  Per rf2-vnjfg (MEDIUM finding): with `rf.interop/debug-enabled?` REBOUND to
+  With `rf.interop/debug-enabled?` REBOUND to
   `false`, the dev surfaces (trace ring buffer, trace listener fan-out,
   registry trace emits) drop to their no-op floor — the call-time-read
   equivalent of what CLJS `:advanced` + `goog.DEBUG=false` gets from Closure
   DCE.
 
-  The companion epoch suite (`re-frame.epoch.jvm-prod-gate-test`,
-  rf2-0la4f) rebinds the same Var for the epoch artefact and carries the same
+  The companion epoch suite (`re-frame.epoch-jvm-prod-gate-test`)
+  rebinds the same Var for the epoch artefact and carries the same
   caveat.
 
   The unit-level vocabulary semantics live in
   `re-frame.interop-debug-gate-test`; this suite is the end-to-end
   integration story.
 
-  ## Why every negative assertion below is paired with a WITNESS (rf2-s0y22)
+  ## Why every negative assertion below is paired with a WITNESS
 
   Two of the claims here are ABSENCES — an empty ring buffer, a silent trace
   listener. An absence is satisfied by two different worlds: the gate elided
-  the trace (the claim), or the dispatch never happened at all (a defect).
-  rf2-9c2jf was the second world — `dispatch-sync` running its handler ZERO
-  times under the documented gate — and a bare `(is (empty? …))` cannot tell
-  them apart. It reports green for both, which is what let rf2-9c2jf live.
-  `trace-buffer-inert-when-debug-disabled`'s failure message even ASSERTED the
-  distinction (\"no event landed despite dispatch firing\") while the assertion
-  under it could not establish it.
+  the trace (the claim), or the dispatch never happened at all (a defect —
+  `dispatch-sync` running its handler ZERO times under the documented gate).
+  A bare `(is (empty? …))` cannot tell them apart; it reports green for both.
+  Without the witnesses, deleting the two `dispatch-sync` calls below would
+  leave this file green.
 
-  Measured, not argued: with the two `dispatch-sync` calls below removed, the
-  pre-rf2-s0y22 file passed this artefact's required production-gate lane at
-  exit 0, counts unchanged.
-
-  So each of those deftests now asserts, beside the absence, that the dispatch
+  So each of those deftests asserts, beside the absence, that the dispatch
   it is reasoning about actually landed: the handler's app-db write is read
   back through `app-db-of`. That converts \"nothing was recorded\" from an
   unfalsifiable statement into a conditional one — the run did the work AND the
   gate kept none of it. Do not delete a witness to \"simplify\" a test; the
-  witness is the half that makes the other half mean something. This is the
-  same discipline rf2-t7qh8 applied to the epoch sibling
-  (`re-frame.epoch-jvm-prod-gate-test`), spelled the same way on purpose.
+  witness is the half that makes the other half mean something. The epoch
+  sibling (`re-frame.epoch-jvm-prod-gate-test`) follows the same discipline,
+  spelled the same way on purpose.
 
   `dispatched-at-retired-cofx-stamped-regardless-of-gate`'s two `(not
-  (contains? … :dispatched-at))` assertions are also absences, and they are
-  deliberately left alone: they read a value returned SYNCHRONOUSLY by
+  (contains? … :dispatched-at))` assertions are also absences, and they
+  carry no witness: they read a value returned SYNCHRONOUSLY by
   `build-envelope` rather than a side effect of a dispatch, and the
   `:rf/time-ms` assertions in the same deftest already fail if that envelope
   ever comes back empty or nil, under both gate states. The vacuous world is
@@ -90,10 +83,10 @@
 (def ^:private build-envelope
   "Pull the private envelope builder — the dispatch envelope is not
   exposed to user handlers, so the EP-0017 `:rf.cofx` recordable-coeffect
-  stamping (rf2-s9ss0t) is asserted directly against `build-envelope`'s output."
+  stamping is asserted directly against `build-envelope`'s output."
   #'rf.router/build-envelope)
 
-;; rf2-s0y22 — the witness read. See the docstring section above: it is what
+;; The witness read. See the docstring section above: it is what
 ;; separates "the gate elided the trace" from "nothing happened".
 (defn- app-db-of [frame-id]
   (:rf.db/app (rf/frame-state-value frame-id)))
@@ -103,7 +96,7 @@
     {:adapter rf.substrate.plain-atom/adapter}))
 
 (deftest trace-buffer-inert-when-debug-disabled
-  (testing "Per rf2-vnjfg: when the JVM debug gate is off (the SSR
+  (testing "When the JVM debug gate is off (the SSR
             production posture), trace events stop landing in the
             retain-N ring buffer. The buffer surface becomes
             inert — no allocation, no append, no storage."
@@ -119,7 +112,7 @@
            landed despite dispatch firing"))))
 
 (deftest trace-listener-silent-when-debug-disabled
-  (testing "Per rf2-vnjfg: a registered trace listener does NOT fire
+  (testing "A registered trace listener does NOT fire
             when the JVM debug gate is off. The dev observability
             surface drops to no-op so the SSR process does not
             retain in-heap traces of user input."
@@ -139,7 +132,7 @@
             "trace listener saw zero events under disabled gate")))))
 
 (deftest always-on-event-emit-still-fires-when-debug-disabled
-  (testing "Per Spec 009 §Event-emit + rf2-rirbq: the always-on
+  (testing "Per Spec 009 §Event-emit: the always-on
             event-emit substrate fires REGARDLESS of the debug
             gate. Production observability (Datadog, Honeycomb,
             ...) must survive the SSR production posture — that's
@@ -158,17 +151,16 @@
              — always-on means always-on")))))
 
 (deftest dispatched-at-retired-cofx-stamped-regardless-of-gate
-  (testing "Per EP-0010 rider b (rf2-s9ss0t): `:dispatched-at` is RETIRED
-            in the same change that lands the envelope stamp — no
-            coexistence window. Its diagnostic dispatch-time need is the
+  (testing "Per EP-0010 rider b: the envelope carries no `:dispatched-at`.
+            Its diagnostic dispatch-time need is the
             trace event `:time` stamp (Spec 009), not a second envelope
-            field. The replacement causal-time fact is
+            field. The causal-time fact is
             `(:rf/time-ms (:rf.cofx envelope))`, which — unlike the
             dev-gated `:dispatch-id` — is stamped UNCONDITIONALLY because
             recordable coeffects are DURABLE causal data that durable writes
             fold, not a diagnostic."
     (rf/make-frame {:id :rf/default})
-    (testing ":dispatched-at is gone under BOTH gate states"
+    (testing ":dispatched-at is absent under BOTH gate states"
       (with-redefs [rf.interop/debug-enabled? true]
         (is (not (contains? (build-envelope [:noop] {}) :dispatched-at))
             "no :dispatched-at even with the dev gate ON"))
@@ -186,7 +178,7 @@
               ":rf/time-ms present + numeric under the prod gate OFF — durable, not dev-gated"))))))
 
 (deftest always-on-error-emit-still-fires-when-debug-disabled
-  (testing "Per Spec 009 §Error-emit + rf2-bacs4: the always-on
+  (testing "Per Spec 009 §Error-emit: the always-on
             error-emit substrate fires REGARDLESS of the debug gate.
             The corpus-wide listener path survives the SSR production
             posture — error observability is not a dev-only concern."
