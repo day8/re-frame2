@@ -74,13 +74,13 @@
   ## Composition with `::h/prevent`
 
   A route-link's click is the cancelable-navigation case the prevent head
-  was built for, and the composition is the existing grammar: the
+  was built for, and the composition is the ordinary grammar: the
   caller's `:on-click` rides the navigate vector's `:veto` slot; a
   `[::h/prevent [:app/event]]` there lowers to the ordinary prevent
   closure; routing runs it FIRST and stands down on `defaultPrevented`.
   One click, one semantic event — the navigation, or the app intent that
-  cancelled it. See intent.cljs §The navigate head for the click-time
-  half."
+  cancelled it. See intent.cljs, `navigate-head` and `navigate-handler`,
+  for the click-time half."
   (:require [re-frame.fresco.impl.error :refer [fail!]]
             [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
             [re-frame.late-bind :as rf.late-bind]))
