@@ -9,29 +9,29 @@
   inside a region. Only the parallel ROOT's own `:on` / `:after` (the ancestor
   fallback) takes region-qualified targets.
 
-  Two registration sites therefore have to reject a region-sourced
-  cross-region target, and before rf2-ovhj only the first of them did:
+  Two registration sites therefore reject a region-sourced cross-region
+  target:
 
-    - a region STATE-NODE's `:on` — already rejected (the target resolves
-      against the region's own `:states` and lands nowhere), but with a
-      GENERIC \"does not resolve\" message that left the author to work out
-      why a target they can see in the machine map does not exist; and
-    - the region BODY's own root `:on` — the region ancestor fallback — which
-      `validate-transition-targets!` never walked at all. ANY target
-      registered cleanly there, cross-region or plainly missing, and the
-      runtime then committed the unresolved vector verbatim into the region's
+    - a region STATE-NODE's `:on` — the target resolves against the region's
+      own `:states` and lands nowhere, and a GENERIC \"does not resolve\"
+      message would leave the author to work out why a target they can see
+      in the machine map does not exist; and
+    - the region BODY's own root `:on` — the region ancestor fallback. Were
+      `validate-transition-targets!` not to walk it, ANY target would
+      register cleanly there, cross-region or plainly missing, and the
+      runtime would commit the unresolved vector verbatim into the region's
       state slot: `{:a [:b :two], :b :one}` — a nonsense configuration, no
       error, no trace.
 
-  Both now fail loud at registration with `:rf.error/machine-unresolved-target`
-  (the existing taxonomy member — a well-shaped target resolving to no declared
-  state is exactly what it names), and the message NAMES the sibling region and
-  the two sanctioned spellings for cross-region movement.
+  Both fail loud at registration with `:rf.error/machine-unresolved-target`
+  (a well-shaped target resolving to no declared state is exactly what it
+  names), and the message NAMES the sibling region and the two sanctioned
+  spellings for cross-region movement.
 
   The controls matter as much as the rejections: a legitimate in-region target
   of the SAME SHAPE — a nested `[:b :two]` path where `:b` is a real state of
   the declaring region that happens to SHADOW a sibling region's name — must
-  still register and still resolve."
+  register and resolve."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.machines :as rf.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
@@ -111,7 +111,7 @@
                            :states  {:one {} :two {}}}
                        :b {:initial :one
                            :states  {:one {} :two {}}}}}))
-        "the region root :on was the unwalked slot — any target registered cleanly")))
+        "the region root :on is walked — unwalked, it would register any target cleanly")))
 
 (deftest region-root-on-bare-keyword-unresolved-target-rejected
   (testing "a bare-keyword region-root :on target that names no state is rejected"
@@ -132,7 +132,7 @@
 (def shadowing-control
   "Region `:a` declares a real compound state whose key SHADOWS sibling region
   `:b`'s name. `[:b :two]` is a legitimate in-region absolute path here — same
-  shape as the rejected target, different meaning — and must keep working."
+  shape as the rejected target, different meaning — and must work."
   {:type    :parallel
    :data    {}
    :regions {:a {:initial :one
@@ -146,7 +146,7 @@
     (is (fn? (rf.machines/make-machine-handler shadowing-control))
         "a real in-region path is not a cross-region target just because its head shares a region's name"))
 
-  (testing "and it still moves the declaring region, not the sibling"
+  (testing "and it moves the declaring region, not the sibling"
     (let [{snap :snapshot} (rf.machines/machine-transition
                              shadowing-control
                              {:state {:a :one :b :one} :data {}}
@@ -168,10 +168,10 @@
                                m {:state {:a :one :b :one} :data {}} [:go])]
         ;; The region ancestor fallback stamps the VECTOR path form (`[:two]`)
         ;; rather than the bare keyword a state-node `:on` would leave — a
-        ;; pre-existing normalisation detail, pinned here so the control cannot
+        ;; normalisation detail, pinned here so the control cannot
         ;; be read as asserting the keyword form.
         (is (= [:two] (:a (:state snap)))
-            "the region-root :on still fires")
+            "the region-root :on fires")
         (is (= :one (:b (:state snap)))
             "and the sibling region is untouched")))))
 
@@ -190,27 +190,27 @@
 
 ;; ---- 4. THE THREE SANCTIONED SPELLINGS — and the limit that separates them
 ;;
-;; rf2-569h RULED 2026-09-08: a region-sourced cross-region `:target` stays
-;; REJECTED, and Spec 005 §Cross-region coordination now teaches the three
-;; spellings that DO reach across regions. These cases pin the two that are
-;; easy to get wrong, so the taught example cannot rot silently:
+;; A region-sourced cross-region `:target` is REJECTED, and Spec 005
+;; §Cross-region coordination teaches the three spellings that DO reach
+;; across regions. These cases pin the two that are easy to get wrong, so
+;; the taught example cannot rot silently:
 ;;
 ;;   (a) a transition on the TARGET region guarded on the source region's
 ;;       `:all-state` — it works, but it is NOT an exact substitute for a
-;;       native cross-region transition;
-;;   (b) the same machine plus a TARGETLESS handler on the target region's own
-;;       active leaf — the leaf wins the leaf→root walk, so the region-root
-;;       `:on` carrying rule (a) is never consulted. `pick-transition`
-;;       (`machines/transition.cljc`) consults the region body's own root `:on`
-;;       "only when no state-path node handled the event";
-;;   (c) a source-owned `:raise`, which keeps SOURCE-SIDE selection and so
-;;       still reaches the sibling in exactly the configuration that defeats
-;;       (a) — paired here with its no-raise control.
+;;       native cross-region transition: the same machine plus a TARGETLESS
+;;       handler on the target region's own active leaf wins the leaf→root
+;;       walk, so the region-root `:on` carrying (a) is never consulted.
+;;       `pick-transition` (`machines/transition.cljc`) consults the region
+;;       body's own root `:on` "only when no state-path node handled the
+;;       event";
+;;   (b) a source-owned `:raise`, which keeps SOURCE-SIDE selection and so
+;;       reaches the sibling in exactly the configuration that defeats (a) —
+;;       paired here with its no-raise control.
 ;;
-;; The third spelling, the root's atomic region-qualified fallback, is already
+;; The third spelling, (c) the root's atomic region-qualified fallback, is
 ;; pinned by `root-region-qualified-target-is-the-sanctioned-cross-region-spelling`
 ;; above; its own limit (atomic suppression the moment any region competes) is
-;; pinned in `final_region_sourcing_test.clj` under rf2-hu69.
+;; pinned in `final_region_sourcing_test.clj`.
 
 (def ^:private wizard-helper
   "Two regions: `:wizard` and `:helper`. `[:help]` always moves the wizard on;
@@ -270,8 +270,8 @@
                                                                   :action :ask-for-hint}}}
                                               :step3 {}}}
                            :helper {:initial :closed
-                                    ;; the SAME targetless :help that defeated
-                                    ;; spelling (a) is still declared here.
+                                    ;; the SAME targetless :help that defeats
+                                    ;; spelling (a) is declared here too.
                                     :states  {:closed {:on {:help             {}
                                                             :helper/show-hint {:target :hint}}}
                                               :hint   {}}}}}]
