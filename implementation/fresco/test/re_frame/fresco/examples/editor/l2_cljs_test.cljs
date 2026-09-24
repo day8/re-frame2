@@ -81,9 +81,8 @@
         "NOT substituted, NOT refused, and not linted: the marker KEYWORD
          is what reaches the handler, lands in app-db and renders as text.
          The failure is silent at every layer. This application therefore
-         writes the positional
-         shape at every marker-carrying intent, and says so at
-         `examples.editor.events`")
+         writes the positional shape at every marker-carrying intent, and
+         says so at `examples.editor.events`")
     (is (not= "typed" (get-in dispatched [1 :value]))
         "stated in the other direction, because this is the assertion a
          reader should be able to find: what the user typed is NOWHERE in
