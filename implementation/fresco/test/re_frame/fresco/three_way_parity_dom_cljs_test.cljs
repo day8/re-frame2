@@ -25,12 +25,11 @@
   ## Hydration is deliberately NOT here
 
   It belongs to the *per-surface SSR/hydration witnesses*. Writing a
-  two-route hydration row here would put a
-  second authority on the same claim ahead of the one that owns it, and
-  the two would drift on the first policy change.
-  The server bytes each route produces ARE measured, in the node-lane
-  sibling; what happens when React meets those bytes on a client is the
-  hydration witnesses' subject.
+  two-route hydration row here would put a second authority on the same
+  claim ahead of the one that owns it, and the two would drift on the
+  first policy change. The server bytes each route produces ARE
+  measured, in the node-lane sibling; what happens when React meets
+  those bytes on a client is the hydration witnesses' subject.
 
   ## One door for both routes, and why that is the honest shape
 
