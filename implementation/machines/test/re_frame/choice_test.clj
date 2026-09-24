@@ -2,7 +2,7 @@
   "`:type :choice` transient states.
 
   Covers:
-    - desugaring `:type :choice` / `:choice` onto the existing `:always`
+    - desugaring `:type :choice` / `:choice` onto the `:always`
       eventless-transition mechanism (distinct authoring intent, ONE
       mechanism);
     - registration-time fail-loud validation (the `:type` / `:choice`
@@ -106,7 +106,7 @@
                           :states {:c {:choice [{:target :d}]} :d {}}})))))
 
 (deftest choice-rejects-function-form
-  (testing "a function-valued :choice is REJECTED (A2 / C1 operator-ruled divergence)"
+  (testing "a function-valued :choice is REJECTED — choice candidates are declarative data"
     (is (= :rf.error/machine-bad-choice
            (reg-error-id {:initial :c
                           :states {:c {:type :choice :choice (fn [_] :d)} :d {}}})))))
