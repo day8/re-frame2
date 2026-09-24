@@ -46,6 +46,9 @@
        [[:label {:html-for "e"} "Email"]          "<label for=\"e\">Email</label>"]
        [[:svg {:view-box "0 0 10 10"}]            "<svg viewBox=\"0 0 10 10\"></svg>"]
        [[:td {:col-span 2} "x"]                   "<td colSpan=\"2\">x</td>"]
+       ;; rf2-u0xpc — Reagent's prop is `panose1`, which react-dom writes
+       ;; verbatim (its alias row is keyed on `panose-1`)
+       [[:svg {:panose-1 "2 0 0 0"}]              "<svg panose1=\"2 0 0 0\"></svg>"]
        ;; React spellings, as keywords and as a string key
        [[:div {:className "c"}]                   "<div class=\"c\"></div>"]
        [[:div.x {:className "c"}]                 "<div class=\"x c\"></div>"]
