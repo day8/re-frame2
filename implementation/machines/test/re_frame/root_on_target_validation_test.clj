@@ -18,8 +18,7 @@
    4. a VALID root :on target registers cleanly AND fires correctly at
       runtime (the ancestor-fallback semantics are unaffected);
    5. a :type :parallel root's :on is NOT double-validated here — its
-      region-qualified shape is `validate-parallel!`'s job, unaffected by
-      this addition."
+      region-qualified shape is `validate-parallel!`'s job."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as rf.machines]
@@ -91,7 +90,7 @@
       (rf/reg-machine :rf.root-on-tv/valid m)
       (rf/dispatch-sync [:rf.root-on-tv/valid [:next]])
       (is (= :b (:state (rf.machines.test-support/snapshot :rf.root-on-tv/valid)))
-          "(precondition) local :on transition still works")
+          "(precondition) local :on transition works")
       (rf/dispatch-sync [:rf.root-on-tv/valid [:logout]])
       (is (= :signed-out (:state (rf.machines.test-support/snapshot :rf.root-on-tv/valid)))
           "the root :on ancestor fallback fired from ANY state, landing on the top-level target"))))
@@ -99,10 +98,10 @@
 ;; ---- (5) a parallel root's :on is unaffected (validate-parallel!'s job) ---
 
 (deftest parallel-root-on-unaffected-by-this-check
-  (testing "a :type :parallel root's region-qualified :on still validates via validate-parallel!, not this new check"
+  (testing "a :type :parallel root's region-qualified :on validates via validate-parallel!, not the non-parallel root check"
     (is (nil? (rf.machines/validate-machine!
                 {:type    :parallel
                  :on      {:go-all {:target [[:a :two] [:b :two]]}}
                  :regions {:a {:initial :one :states {:one {} :two {}}}
                            :b {:initial :one :states {:one {} :two {}}}}}))
-        "a valid region-qualified root :on validates cleanly (unaffected by the non-parallel-only addition)")))
+        "a valid region-qualified root :on validates cleanly (unaffected by the non-parallel root check)")))
