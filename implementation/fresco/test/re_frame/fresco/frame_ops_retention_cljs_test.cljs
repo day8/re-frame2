@@ -3,25 +3,25 @@
 
   `impl.frames/!frame-ops` holds one row per frame — the `capture-frame`
   bundle and the ambient dispatch closure over it, pinned to the
-  incarnation that minted them. Until this bead the table's ONLY eviction
-  was [[re-frame.fresco.impl.frames/frame-row]]'s replace branch: the
-  SUCCESSOR's first lookup under the same key. That works for a client id,
-  which is reused across incarnations, and it is inert for an id that can
-  never recur.
+  incarnation that minted them. [[re-frame.fresco.impl.frames/frame-row]]'s
+  replace branch evicts a row on the SUCCESSOR's first lookup under the
+  same key. That works for a client id, which is reused across
+  incarnations, and it is inert for an id that can never recur.
 
   `server/render` mints exactly such an id — `fresh-frame-id`'s
-  `(gensym \"request-\")` — so every request served left a row that
-  nothing would ever look up again, each retaining that request's
-  captured bundle. Linear growth in requests served, in a process built
-  to be long-lived.
+  `(gensym \"request-\")` — so with that eviction alone every request
+  served would leave a row that nothing would ever look up again, each
+  retaining that request's captured bundle: linear growth in requests
+  served, in a process built to be long-lived.
 
   ## What these rows measure, and why in this order
 
-  §1 is the general claim and §2 the one that motivated it, and §1 comes
-  first because the repair is general: the row belongs to an INCARNATION,
-  so the moment that incarnation is destroyed the row is unreadable by
-  anything and the eviction is `destroy-frame!`'s to make. The SSR path
-  is the case where the omission is unbounded rather than merely untidy.
+  §1 is the general claim and §2 the case where it matters most, and §1
+  comes first because the rule is general: the row belongs to an
+  INCARNATION, so the moment that incarnation is destroyed the row is
+  unreadable by anything and the eviction is `destroy-frame!`'s to make.
+  The SSR path is the case where a missed eviction is unbounded rather
+  than merely untidy.
 
   §1's first assertion is its own control. `!frame-ops` is populated by
   RENDER — `run-once` binds `(frame-dispatch frame-kw)` around every
@@ -30,7 +30,7 @@
   `collector/frame-dispatch`, the exact door a body run takes, and
   asserts its presence before asking whether destruction removes it.
 
-  §2 takes the bead's ACCEPTANCE literally: read the table's
+  §2 measures boundedness directly: read the table's
   `fresco.ssr` rows after one request, serve three more, and read them
   again. Bounded means the two readings agree at zero; leaking means the
   second is three higher. Its own control is `runtime/body-runs`, so a
@@ -112,7 +112,7 @@
              "destruction is the eviction"))))
 
 ;; ---------------------------------------------------------------------------
-;; 2 — the case that made it unbounded: one row per REQUEST
+;; 2 — the case that would be unbounded: one row per REQUEST
 ;; ---------------------------------------------------------------------------
 
 (deftest a-server-render-leaves-no-row-behind
@@ -137,5 +137,5 @@
         (is (= 0 after-1)
             "one request leaves no per-request row")
         (is (= after-1 after-4)
-            (str "and three more leave the reading unchanged — under the "
-                 "leak this read " after-4 " against " after-1))))))
+            (str "and three more leave the reading unchanged — this "
+                 "read " after-4 " against " after-1))))))
