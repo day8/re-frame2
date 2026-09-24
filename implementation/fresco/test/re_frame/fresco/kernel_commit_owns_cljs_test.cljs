@@ -115,7 +115,7 @@
   "A frame with a known db. `IS_REACT_ACT_ENVIRONMENT` is set outright
   because a server render is not inside React's `act` queue and the helper
   that carries this line in the prototype lives in the bench tree, which
-  the freeze gate forbids this package from importing."
+  is off this package's classpath."
   []
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
   (rf/make-frame {:id frame-id})
