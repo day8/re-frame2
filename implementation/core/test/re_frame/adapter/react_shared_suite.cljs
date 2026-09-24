@@ -1,23 +1,21 @@
 (ns re-frame.adapter.react-shared-suite
   "Parameterised, substrate-agnostic test suite for the React-shaped
-  adapters (UIx) — rf2-sx77q.
+  adapters (UIx, and fresco's React substrate).
 
-  WHY THIS EXISTS. The React-hook adapters (UIx, and Helix until its
-  removal at S7/W13, rf2-d6epb) wire their entire public surface
+  WHY THIS EXISTS. The React-hook adapters wire their entire public surface
   out of the SAME `re-frame.substrate.spine/make-react-spine` factory;
   the only differences are
   the substrate name string, the gensym prefixes, and which host's
-  `use-memo` / `use-callback` / `use-context` are passed in. Their tests
-  were, accordingly, ~20 near-byte-identical file PAIRS (~40 files)
-  differing only by the substrate prefix and the id keyword (rf2-sx77q
-  audit D1). A change to one was routinely hand-copied to the other; the
-  docstrings literally cross-referenced their siblings.
+  `use-memo` / `use-callback` / `use-context` are passed in. Per-adapter
+  test files would therefore be near-byte-identical copies differing only
+  by the substrate prefix and the id keyword, with every change
+  hand-copied between them.
 
   WHAT THIS DOES. Every spine-shared behaviour is asserted ONCE here, as
   a plain `defn` that takes the per-adapter config map and runs
   `cljs.test/is` / `testing` against the *installed* adapter. The
-  per-adapter entry file (`uix_react_shared_cljs_test.cljs`) is thin: a
-  fixture installing the
+  per-adapter entry files (`uix_react_shared_cljs_test.cljs`, fresco's
+  `substrate_react_shared_cljs_test.cljs`) are thin: a fixture installing the
   adapter, plus one `deftest` per shared fn that forwards the config. The
   suite cannot drift between substrates by construction — any future
   React-hook adapter picks up the whole surface by adding one entry file.
@@ -46,34 +44,33 @@
                    constant (UIx's is its `spec/api-manifest.edn` rows
                    minus `adapter`; Fresco publishes a different set)}
 
-  COVERAGE (closes rf2-sx77q gaps G2/G3/G4/G5 for the React-hook adapters):
-    - dispose MUST (1) sub-cache walk + best-effort poison tolerance (G3)
+  COVERAGE (for the React-hook adapters):
+    - dispose MUST (1) sub-cache walk + best-effort poison tolerance
     - dispose MUST (2) idempotent root drain
     - dispose MUST (3) clears the hiccup-emitter cell
     - dispose MUST (4) post-dispose delegation throws :adapter-disposed
     - source-coord DOM stamping: annotate / with-attrs merge /
-      user-attr-wins / fragment-exempt / format-shape split (G2)
+      user-attr-wins / fragment-exempt / format-shape split
     - view-id (data-rf-view) stamping alongside source-coord
-    - frame-context corrupted `_currentValue` emit + recover (G4)
+    - frame-context corrupted `_currentValue` emit + recover
     - warn-once fires EXACTLY once per id across renders, per-id, not
-      global (G5)
+      global
     - write-after-destroy nil-container guard
 
-  DOM/BROWSER TWINS (rf2-5or96 — the DOM-split remainder of rf2-p4736).
-  Two twin clusters defined substrate-specific component vars (UIx
-  `defui`/`$`/uix-hooks) that
-  the suite cannot mint at runtime. Approach A — the substrate-specific
+  DOM/BROWSER TWINS. Two clusters need substrate-specific component vars
+  (UIx `defui`/`$`/uix-hooks) that
+  the suite cannot mint at runtime. The substrate-specific
   components are built in each entry file and handed in via the cfg map
   (`:render-element`, the probe vars, observation atoms, frame keywords),
   while the orchestration + every assertion lives here as one source:
 
     - after-render: ns-load smoke (node-safe) + mount/schedule/drain
-      act-driven behaviour (rf2-334d9)
-    - use-sub: useSyncExternalStore post-dispatch values
-      (rf2-518sp), frame-provider 1-arg resolution, 2-arg explicit-frame
-      pinning (rf2-rcgsc / rf2-y0db2), refcount cleanup on unmount
-      (rf2-7g959), stable-deps-key one-subscribe-across-N-renders spy
-      assertions (rf2-mwft2)
+      act-driven behaviour
+    - use-sub: useSyncExternalStore post-dispatch values,
+      frame-provider 1-arg resolution, 2-arg explicit-frame
+      pinning, refcount cleanup on unmount,
+      stable-deps-key one-subscribe-across-N-renders spy
+      assertions
 
   These DOM assertions self-gate on `(browser?)` — under :node-test
   (which discovers the `-dom-cljs-test` entry files via `cljs-test$`)
@@ -82,7 +79,7 @@
   (:require ["react" :as React]
             ["react-dom/client" :as react-dom-client]
             ;; Test-only: react-dom/server gives matching SSR markup for the
-            ;; hydrate-branch assertion (rf2-ee38b.1). Lives in the suite
+            ;; hydrate-branch assertion. Lives in the suite
             ;; (a test ns), never in a production bundle.
             ["react-dom/server" :as react-dom-server]
             [cljs.test :refer-macros [is testing async]]
@@ -101,7 +98,7 @@
             [re-frame.ssr :as rf.ssr]
             [re-frame.schemas.malli]
             [re-frame.http.managed :as rf.http.managed]
-            ;; rf2-cdmle — canned-stub fxs gate on explicit test-support
+            ;; Canned-stub fxs gate on explicit test-support
             ;; require; the http-managed suite uses :fx-overrides into
             ;; both fx ids.
             [re-frame.http.test-support :as rf.http.test-support]
@@ -119,7 +116,7 @@
 ;; helpers
 ;; ===========================================================================
 
-;; rf2-5g21s — `react-element-attr` is hoisted into the dependency-free
+;; `react-element-attr` lives in the dependency-free
 ;; `re-frame.adapter.react-test-support` so the narrow elision-prod twins
 ;; can share it without dragging this heavy suite into their build. The
 ;; suite consumes the same single source of truth.
@@ -148,7 +145,7 @@
   around `thunk`. Returns the vector of joined-message strings observed on
   EITHER channel (React reports the void-element-children violation via
   `console.error`). Restores both originals on the way out, even if thunk
-  throws. Used by the rf2-ghfkkk void-root DOM mount test to assert React
+  throws. Used by the void-root DOM mount test to assert React
   raised no void-element diagnostic."
   [thunk]
   (let [calls     (atom [])
@@ -195,8 +192,8 @@
   return nil — the ONE published route to a loaded adapter's warn-once
   cache, and the very hook `make-reset-runtime-fixture` fires between
   tests. The suite reaches the seam exactly as the fixture does; no
-  adapter needs to re-export the raw spine thunk for tests to drive it
-  (rf2-6r9j.36). Throws when no producer registered the key — that is a
+  adapter needs to re-export the raw spine thunk for tests to drive it.
+  Throws when no producer registered the key — that is a
   spine-wiring failure the caller wants loud, not a silent no-op."
   []
   (if-let [hook (rf.late-bind/get-fn :adapter/clear-warn-once-caches!)]
@@ -226,7 +223,7 @@
     (let [thrown (try (rf.substrate.adapter/make-state-container {}) nil
                       (catch :default e e))]
       (is (some? thrown) "delegation call after dispose threw")
-      ;; rf2-vvixub — message is a human sentence + the trailing
+      ;; The message is a human sentence + the trailing
       ;; [:rf.error/<id>] token; assert the token substring + the
       ;; canonical :rf.error/id, not exact keyword-equality.
       (is (= :rf.error/adapter-disposed (:rf.error/id (ex-data thrown)))
@@ -278,11 +275,10 @@
                 "the frame's sub-cache atom was reset to {} by the walk")))))))
 
 (defn assert-dispose-walk-best-effort
-  "MUST (1) best-effort (rf2-sx77q G3): a throwing per-entry dispose does
-  NOT abort the rest of the walk. The behaviour is spine-shared but was
-  previously pinned ONLY on the Reagent adapter. Pin it on the React
-  adapters too so a future spine refactor that drops the per-entry
-  try/catch is caught on every substrate."
+  "MUST (1) best-effort: a throwing per-entry dispose does NOT abort the
+  rest of the walk. The behaviour is spine-shared, so it is pinned on the
+  React adapters as well as on Reagent: a spine refactor that drops the
+  per-entry try/catch is caught on every substrate."
   [{:keys [adapter substrate-kw name]}]
   (testing (str name " — MUST (1) best-effort: a throwing entry does not abort the walk")
     (let [fid-a (mint-kw substrate-kw "best-effort-a")
@@ -301,7 +297,7 @@
         ;; throws (a bare object with no IDisposable impl). The walk's
         ;; per-entry try must CAPTURE the throw and still drain the rest
         ;; of fid-a AND fid-b — then rethrow it once the drain is done
-        ;; (rf2-ss8x; Spec 006 §Adapter disposal lifecycle).
+        ;; (Spec 006 §Adapter disposal lifecycle).
         (let [cache-a      (:sub-cache (rf.frame/frame fid-a))
               poison-entry {:reaction (js-obj "not" "a reaction")}]
           (swap! cache-a assoc [:poison] poison-entry)
@@ -314,7 +310,7 @@
                               (catch :default e e))]
               (is (not= ::returned-normally thrown)
                   "the poison entry's cleanup failure reached the caller rather
-                  than being discarded — a silent nil here is what let
+                  than being discarded — a silent nil here would let
                   rf/destroy-adapter! report success over a failed teardown"))
             (doseq [r reactions]
               (is (contains? @disposed r)
@@ -325,7 +321,7 @@
                 "frame-b's cache was still cleared after the throwing entry")))))))
 
 ;; ===========================================================================
-;; source-coord DOM stamping (Spec 006 §Source-coord annotation) — G2
+;; source-coord DOM stamping (Spec 006 §Source-coord annotation)
 ;; ===========================================================================
 
 (defn assert-source-coord-annotates-dom-root
