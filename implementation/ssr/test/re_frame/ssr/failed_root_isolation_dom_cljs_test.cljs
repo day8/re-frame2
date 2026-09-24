@@ -1,5 +1,5 @@
 (ns re-frame.ssr.failed-root-isolation-dom-cljs-test
-  "Failed-root isolation against a REAL DOM (S5-C) — the browser half of
+  "Failed-root isolation against a REAL DOM — the browser half of
   `re-frame.ssr.failed-root-isolation-cljs-test`.
 
   The host-neutral suite proves the boundary from explicitly-supplied
@@ -28,14 +28,12 @@
             [re-frame.ssr.manifest :as rf.ssr.manifest]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]))
 
-;; rf2-qj4g — COLD-START the adapter slot rather than assuming it is empty.
-;; `init!` is idempotent only for the adapter ALREADY SEATED (rf2-kuky.1);
-;; handed a DIFFERENT one it raises `:rf.error/adapter-already-installed`
-;; instead of silently ignoring the call. This ns runs in the shared node
-;; bundle beside suites that seat Reagent / UIx / plain-atom, so a bare
-;; `init!` here was a NO-OP whenever one of them ran first — every test
-;; below then exercised the SSR flow on somebody else's substrate and
-;; passed for the wrong reason. Destroy first, seat the adapter this ns
+;; COLD-START the adapter slot rather than assuming it is empty.
+;; `init!` is idempotent only for the adapter ALREADY SEATED; handed a
+;; DIFFERENT one it raises `:rf.error/adapter-already-installed`. This ns
+;; runs in the shared node bundle beside suites that seat Reagent / UIx /
+;; plain-atom, so a bare `init!` here would meet whichever adapter one of
+;; them left seated. Destroy first, seat the adapter this ns
 ;; NAMES, and destroy again on the way out so the slot is left cold for
 ;; whichever namespace the runner reaches next.
 (use-fixtures :once
@@ -64,8 +62,8 @@
   because the runtime resolves the platform as
   `(or (-> rec :config :platform) (interop/active-platform))` and the
   host-wide marker is already `:client` on CLJS.
-  `the-fixture-frames-are-actually-platform-tagged` is what keeps that
-  accident from coming back."
+  `the-fixture-frames-are-actually-platform-tagged` is what catches that
+  accident."
   []
   (let [fid (keyword "rf.isolation.dom" (str "f" (swap! frame-counter inc)))]
     (rf/make-frame {:id fid :platform :client})
