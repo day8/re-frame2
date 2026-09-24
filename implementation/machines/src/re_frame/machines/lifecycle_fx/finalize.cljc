@@ -22,12 +22,13 @@
        load-time TYPE outliving every instance (rf2-xjee).
     5. Mint the completion carrier into the parent — the reserved event
        `[<parent-id> [:rf.machine.spawn/done <invoke-id> <completion>]]`
-       (`dispatch-spawn-done!`), or, for an ERROR leaf whose `:spawn` parent
-       declares `:on-error`, the reserved failure event instead. The parent's
-       handler boundary routes the completion to its `:spawn :on-done` fold or
-       to the `:spawn-all` join fold; because it is an EVENT, the parent may
-       also ADVANCE on it (`:always`, or an explicit `:on` clause) rather than
-       only folding data.
+       (`dispatch-spawn-done!`), or, for the ERROR leaf of a single-`:spawn`
+       child, the reserved failure event instead — whether or not the parent
+       declares `:on-error` (rf2-3x7nj.41.1). The parent's handler boundary
+       routes the completion to its `:spawn :on-done` fold or to the
+       `:spawn-all` join fold; because it is an EVENT, the parent may also
+       ADVANCE on it (`:always`, or an explicit `:on` clause) rather than only
+       folding data.
 
   The carrier is minted LAST, after teardown, so the parent never observes a
   completed child that is still alive.
@@ -137,6 +138,12 @@
   off its `:rf/join-child` membership record (`:child-id` / `:spawned-id` /
   `:attempt` / `:work-generation`), which is what lets the parent's join fold
   reject a straggler from a superseded attempt.
+
+  rf2-3x7nj.41.1 — `:error?` is true only for a JOIN child: the join counts
+  failures itself, into `:failed` and `:on-any-failed`. A single-`:spawn`
+  child's failure rides `dispatch-spawn-error!` instead, so what this carrier
+  hands a single-`:spawn` parent — at its `:on-done` fold and at any
+  `:rf.machine.spawn/done` transition — is always a success.
 
   Dispatched (not raised) because the parent is a SEPARATE actor — symmetric
   with `dispatch-spawn-error!` and with how the spawn fx dispatches `:start`
@@ -379,11 +386,12 @@
         ;; Per Spec 005 §Final states §`:on-error` (XState v5 invoke
         ;; `onError`): a `:final?` leaf MAY also declare `:error? true` — a
         ;; designated ERROR terminal. When a `:spawn`-spawned child finishes
-        ;; via an error leaf AND its spawning parent declares `:spawn :on-error`,
-        ;; the runtime routes the failure to a PARENT TRANSITION (control flow,
-        ;; not just observability) instead of the `:data`-only `:on-done`
-        ;; callback. A plain `:final?` leaf keeps firing `:on-done`. `error-leaf?`
-        ;; is computed above (cross-region scan for parallel).
+        ;; via an error leaf, the runtime routes the failure to the parent as
+        ;; the FAILURE event, resolved by the parent's `:spawn :on-error` or an
+        ;; explicit `:on {:rf.machine.spawn/error …}` (control flow, not just
+        ;; observability), and never to the `:data`-only `:on-done` callback.
+        ;; A plain `:final?` leaf keeps firing `:on-done`. `error-leaf?` is
+        ;; computed above (cross-region scan for parallel).
         ;; A `:spawn-all` child's private membership is the canonical REPLY
         ;; source of its parent/invoke coordinates (per-child spawn args use the
         ;; distinct `:rf/spawn-all-id`, so no public single-spawn `:rf/invoke-id`
@@ -435,30 +443,21 @@
                       (some? join-work-generation)
                       (assoc :work-generation join-work-generation)
                       (some? completed-at) (assoc :completed-at completed-at))
-        ;; (1) Find parent's `:on-done` / `:on-error`, if this is a `:spawn`-
-        ;; spawned actor. The parent's spec carries the `:spawn` map at
-        ;; `invoke-id`. Resolve the parent's spec from the registrar (a
-        ;; singleton parent) OR, for a NESTED spawn whose parent is itself a
-        ;; spawned actor (no per-instance registration), from the parent's own
-        ;; snapshot `:rf/machine-type`.
-        parent-path (rf.machines.paths/snapshot-path parent-id)
-        parent-snap (when parent-id (get-in runtime-db parent-path))
-        parent-reg  (when parent-id (rf.registrar/lookup :event parent-id))
-        parent-meta (when parent-id
-                      (cond
-                        (:rf/machine? parent-reg) (:rf/machine parent-reg)
-                        :else                     (rf.machines.lifecycle-fx.resolver/spec-from-snapshot parent-snap)))
-        spawn-spec  (when (and parent-meta invoke-id)
-                      (rf.machines.lifecycle-fx.resolver/spawn-spec-at parent-meta invoke-id))
-        ;; `:on-error` is a transition spec (not a fn) — its PRESENCE on the
-        ;; resolved `:spawn` map decides whether the error-leaf trigger routes
-        ;; to a parent transition. The transition itself is resolved natively
-        ;; by the parent's engine (`pick-spawn-error-transition`) when the
-        ;; dispatched `[:rf.machine.spawn/error …]` event arrives, so finalize
-        ;; only decides "fire the dispatch?" here.
-        on-error?   (and error-leaf?
-                         parent-id
-                         (some? (:on-error spawn-spec)))
+        ;; (1) Choose the carrier. The ERROR leaf of a single-`:spawn` child
+        ;; (it carries `:rf/invoke-id`) rides the FAILURE carrier whatever the
+        ;; parent declared (rf2-3x7nj.41.1). The parent's engine resolves it
+        ;; natively (`pick-spawn-error-transition`): its `:spawn :on-error`,
+        ;; else an explicit `:on {:rf.machine.spawn/error …}` walked leaf to
+        ;; root and then the root `:on`, else nothing. So the done carrier
+        ;; only ever carries a success, and the `:on-done` fold and any
+        ;; `:on {:rf.machine.spawn/done …}` need no failure guard.
+        ;;
+        ;; This gate used to ask whether the parent's `:spawn` map declared
+        ;; `:on-error`, and a failure without one rode the DONE carrier into
+        ;; the success fold and the success transitions. A `:spawn-all` join
+        ;; child carries no `:rf/invoke-id`, so its error leaf stays on the
+        ;; done carrier with `:error? true`, which the join counts itself.
+        failure-carrier? (and error-leaf? parent-id invoke-id)
         ;; Per EP-0011 §Machine Completion / Managed-Effects §Stale
         ;; suppression: the one reachable machine-supersession
         ;; case is a `:spawn`-spawned child reaching `:final?` AFTER its
@@ -496,10 +495,11 @@
         ;; initial snapshot and RESURRECT the parent to fold a dead child's
         ;; result into it. Spec 005 §Destroy is silent-idempotent forbids
         ;; exactly this reading; the same amendment stands at `destroy/
-        ;; actor-live?`. `parent-reg` is still the right source for `parent-meta`
-        ;; above — resolving the `:spawn` spec is what the DEFINITION is FOR;
-        ;; only the liveness question changes. A non-machine entry squatting at
-        ;; the parent address still counts, exactly as before.
+        ;; actor-live?`. Resolving the parent's `:spawn` spec is what the
+        ;; DEFINITION is FOR, and the parent's own engine does that when the
+        ;; carrier arrives; only the liveness question is asked here. A
+        ;; non-machine entry squatting at the parent address still counts,
+        ;; exactly as before.
         ;;
         ;; The predicate is SHARED with the action-exception producer
         ;; (`registration`'s child-action-failure projection), which asks the
@@ -776,28 +776,31 @@
           ;; down by now — finality means teardown (D4) — so what reaches the
           ;; parent is a value, never a live child.
           ;;
-          ;; Two carriers, chosen by which hook the parent declared:
+          ;; Two carriers, chosen by how the child finished and which spawn
+          ;; form spawned it — never by which hooks the parent declared:
           ;;
           ;;   - Per Spec 005 §Final states §`:on-error`: an ERROR leaf under a
-          ;;     `:spawn` parent that declares `:on-error` routes to the
-          ;;     reserved FAILURE event, which resolves natively through the
-          ;;     parent's macrostep (`pick-spawn-error-transition`), firing the
-          ;;     declarative `:on-error` transition — the XState `invoke onError`
-          ;;     control flow. That carrier keeps its own id because an uncaught
-          ;;     child ACTION EXCEPTION produces it too, and an exception is not
-          ;;     a completion. The dispatched payload is the RAW error
-          ;;     (`result`); the parent transition reads it off `:event`.
+          ;;     single `:spawn` routes to the reserved FAILURE event, which
+          ;;     resolves natively through the parent's macrostep
+          ;;     (`pick-spawn-error-transition`) — its declarative `:on-error`
+          ;;     transition (the XState `invoke onError` control flow), else an
+          ;;     explicit `:on {:rf.machine.spawn/error …}`, else nothing. That
+          ;;     carrier keeps its own id because an uncaught child ACTION
+          ;;     EXCEPTION produces it too, and an exception is not a
+          ;;     completion. The dispatched payload is the RAW error (`result`);
+          ;;     the parent transition reads it off `:event`.
           ;;
           ;;   - Otherwise the reserved COMPLETION event (Spec 005 §Child
           ;;     completion protocol) — the one carrier both spawn forms share.
-          ;;     A `:spawn` child sends its `:invoke-id` and result, and the
-          ;;     parent folds `:on-done` then advances on its ordinary
+          ;;     A `:spawn` child sends its `:invoke-id` and its SUCCESS result,
+          ;;     and the parent folds `:on-done` then advances on its ordinary
           ;;     macrostep. A `:spawn-all` join child additionally sends the
           ;;     exact-attempt coordinate off its `:rf/join-child` membership
           ;;     record, and the parent folds it into the join. An ERROR leaf
           ;;     under a `:spawn-all` parent rides this same carrier with
           ;;     `:error? true` — failure control flow under a join is
-          ;;     `:on-any-failed`, not a per-child transition.
+          ;;     `:on-any-failed`, not a per-child transition, and the join
+          ;;     skips that child's `:on-done` fold.
           ;;
           ;; A STALE completion (the parent died first) mints NEITHER: there is
           ;; no live parent to receive it, and §Stale suppression says the app
@@ -807,8 +810,9 @@
           ;; rf2-xjee — that "NEITHER" is now enforced ONCE, around the whole
           ;; choice, rather than on the completion arm alone. The failure arm
           ;; used to sit OUTSIDE the stale guard (`stale-spawn?` itself carried
-          ;; a `(not on-error?)` conjunct, so an on-error finish could never be
-          ;; classified stale), which is precisely how a dead parent came to be
+          ;; a `(not on-error?)` conjunct — the gate this arm then keyed on — so
+          ;; an on-error finish could never be classified stale), which is
+          ;; precisely how a dead parent came to be
           ;; re-created from its initial snapshot to receive its child's
           ;; failure. Deleting that conjunct is not sufficient on its own while
           ;; the arm bypasses the guard, and guarding the arm is not sufficient
@@ -820,7 +824,7 @@
           ;; only while that spawn attempt is still current.
           (when-not stale-spawn?
             (cond
-              on-error?
+              failure-carrier?
               (rf.machines.lifecycle-fx.spawn-error/dispatch-spawn-error!
                 frame-id parent-id invoke-id result (:rf/invoke-attempt child-data))
 

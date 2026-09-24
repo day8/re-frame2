@@ -137,15 +137,18 @@
   Per Spec 005 §Final states §`:on-error` (XState v5 invoke
   `onError`): an uncaught child action exception is a control-flow `:on-error`
   trigger in addition to the observability trace. When the
-  THROWING actor is a `:spawn`-spawned child whose spawning parent declares
-  `:spawn :on-error`, route the failure to the parent's declarative
-  `:on-error` transition via `rf.machines.lifecycle-fx.spawn-error/dispatch-spawn-error!` — additive to
-  (not a replacement for) the trace above, which still fires for every action
-  exception. `ctx` carries the failing actor's runtime-db and snapshot (whose
-  `:data` was stamped with `:rf/parent-id` / `:rf/invoke-id` at spawn time);
-  the exception envelope rides as the parent transition's `:event` payload so
-  a guard / action can branch on it. Singletons (no parent) and parents that
-  declare no `:on-error` route nowhere — the trace IS the signal."
+  THROWING actor is a single-`:spawn` child of a live parent, route the
+  failure to the parent as the failure event via
+  `rf.machines.lifecycle-fx.spawn-error/dispatch-spawn-error!`, whether or not
+  the parent declares `:spawn :on-error` (rf2-3x7nj.41.1). The parent's engine
+  resolves it: `:on-error`, else an explicit `:on {:rf.machine.spawn/error …}`,
+  else nothing. That is additive to (not a replacement for) the trace above,
+  which still fires for every action exception. `ctx` carries the failing
+  actor's runtime-db and snapshot (whose `:data` was stamped with
+  `:rf/parent-id` / `:rf/invoke-id` at spawn time); the exception envelope
+  rides as the parent transition's `:event` payload so a guard / action can
+  branch on it. Singletons (no parent) and `:spawn-all` join children (no
+  `:rf/invoke-id`) route nowhere — the trace IS the signal."
   [ctx event reason info]
   (let [{:keys [machine-id frame-id runtime-db snapshot]} ctx
         ex         (:exception info)
@@ -201,28 +204,34 @@
          :reason            reason
          :recovery          :no-recovery}))
     ;; Additive control-flow routing. Read the spawning
-    ;; parent / invoke-id off the child's stamped `:data`; if the parent
-    ;; is still LIVE and declares `:spawn :on-error`, dispatch the failure into
-    ;; it. The error payload carries the exception envelope so the parent
-    ;; transition's guard / action can branch on it.
+    ;; parent / invoke-id off the child's stamped `:data`; if the child is a
+    ;; single-`:spawn` child (it carries `:rf/invoke-id`) and its parent is
+    ;; still LIVE, dispatch the failure into it. The error payload carries the
+    ;; exception envelope so the parent transition's guard / action can branch
+    ;; on it.
     ;;
-    ;; rf2-xjee — LIVENESS IS ASKED FIRST, AND IT IS A SEPARATE QUESTION FROM
-    ;; RESOLVABILITY. `parent-declares-on-error?` resolves the parent's spec
-    ;; through its `reg-machine` DEFINITION, which now survives the parent's
-    ;; teardown — so it keeps answering `true` for a parent that no longer
-    ;; exists, and the dispatch below would then be answered by D5 lazy
-    ;; re-creation at the dead address: the runtime would RESURRECT a destroyed
-    ;; parent from its initial snapshot in order to hand it a dead child's
-    ;; exception. This is the action-exception twin of the error-leaf route in
-    ;; `finalize`, and it reads the SAME `parent-instance-live?` predicate so
-    ;; the two cannot drift. D5 itself is untouched — an ordinary AUTHORED
-    ;; event still re-creates the address; what is fenced is framework-owned
-    ;; failure delivery.
+    ;; rf2-3x7nj.41.1 — whether the parent declares `:spawn :on-error` is NOT
+    ;; asked. That question used to gate this dispatch, which left spec 005
+    ;; §`:on-error` arm 2 (an explicit `:on {:rf.machine.spawn/error …}` with
+    ;; no `:on-error`) unreachable. The parent's engine resolves both arms,
+    ;; exactly as it does for the error-leaf twin in `finalize`.
+    ;;
+    ;; rf2-xjee — LIVENESS IS ASKED FIRST. The parent's `reg-machine`
+    ;; DEFINITION survives its teardown, so anything that resolves through it
+    ;; keeps answering for a parent that no longer exists, and the dispatch
+    ;; below would then be answered by D5 lazy re-creation at the dead
+    ;; address: the runtime would RESURRECT a destroyed parent from its
+    ;; initial snapshot in order to hand it a dead child's exception. This is
+    ;; the action-exception twin of the error-leaf route in `finalize`, and it
+    ;; reads the SAME `parent-instance-live?` predicate so the two cannot
+    ;; drift. D5 itself is untouched — an ordinary AUTHORED event still
+    ;; re-creates the address; what is fenced is framework-owned failure
+    ;; delivery.
     (let [child-data (:data snapshot)
           parent-id  (:rf/parent-id child-data)
           invoke-id  (:rf/invoke-id child-data)]
       (when (and (rf.machines.lifecycle-fx.spawn-error/parent-instance-live? runtime-db parent-id)
-                 (rf.machines.lifecycle-fx.spawn-error/parent-declares-on-error? runtime-db parent-id invoke-id))
+                 (some? invoke-id))
         (rf.machines.lifecycle-fx.spawn-error/dispatch-spawn-error!
           frame-id parent-id invoke-id
           {:rf.error/id       :rf.error/machine-action-exception
@@ -676,7 +685,12 @@
   `suppress-stale-spawn-carrier` (rf2-3x7nj.9.3). A parent that declares no
   `:on-done` rides through untouched — the carrier then simply reaches the
   engine as an ordinary reserved event the parent may or may not have a
-  transition for."
+  transition for.
+
+  No failure guard is needed here (rf2-3x7nj.41.1): a single-`:spawn` child's
+  failure never rides this carrier. `finalize` sends it as
+  `[:rf.machine.spawn/error …]` whether or not the parent declares
+  `:on-error`."
   [ctx invoke-id completion]
   (let [on-done (:on-done (rf.machines.lifecycle-fx.resolver/spawn-spec-at (:machine ctx) invoke-id))]
     (if on-done
