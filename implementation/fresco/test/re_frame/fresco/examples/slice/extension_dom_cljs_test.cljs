@@ -9,8 +9,8 @@
   breaks takes its region down and leaves the page around it working.
 
   `flow-dom-cljs-test` is the sibling this file assumes: it owns the
-  edit flow, and the two conventions it established are kept here
-  unchanged — a Fresco intent dispatches synchronously so `hm/settle!`
+  edit flow, and this file follows its two conventions — a Fresco
+  intent dispatches synchronously so `hm/settle!`
   is all a click owes, while a ROUTE-LINK and an async reply both leave
   work merely enqueued and are waited on with `hm/settle-until!`, the
   facade's door for that kind.
@@ -210,7 +210,7 @@
                text, handing row one's mounted node, its open disclosure
                and its scroll position to a different article. This is a
                measurement of what React did with the keys the body wrote —
-               the substrate does not police them (PR #8026)")
+               the substrate does not police them")
           (is (= ["false" "false" "false"]
                  (attrs-of m ".tags-toggle" "aria-expanded"))
               "and no row on this page inherited the open disclosure: the
