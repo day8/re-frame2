@@ -140,7 +140,9 @@ It MUST:
   {:assertions […]})` form whose authored atoms are merged with the source
   variant's already-declared `:assertions` (additive, round-trips through
   the registrar), authored via `:extends` of the source — NOT hidden UI
-  state.
+  state. `:script` and `:plays` are not inherited through `:extends`, so
+  the form re-declares the source's own verbatim: the regression test
+  replays the story, then checks the expectations against its end state.
 
 It is reachable from the Controls panel (`add expectations…`, beside
 `save as new variant…`) and the command palette (`Add expectations to this
