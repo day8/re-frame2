@@ -1,14 +1,14 @@
 (ns re-frame.adapter.reagent-slim-sub-dispose-real-unmount-dom-cljs-test
-  "rf2-ty246 — does a REAL React unmount of a subscribing `reg-view` emit
+  "Does a REAL React unmount of a subscribing `reg-view` emit
   `:rf.sub/dispose` for the view's OWN query, on the reagent-slim (ratom)
   adapter?
 
   The stock-Reagent twin of this file is
   `re-frame.sub-dispose-real-unmount-dom-cljs-test`; read its header for the
-  full statement of the defect and of why the assertions are paired the way
+  full statement of the contract and of why the assertions are paired the way
   they are. This file exists separately because the two adapters are two
-  shipped substrates telling the same story, and because the reagent-slim test
-  tree carried NO `:rf.sub/dispose` coverage of any kind before this item.
+  shipped substrates telling the same story, and this is the reagent-slim test
+  tree's `:rf.sub/dispose` coverage on a real unmount.
 
   WHY IT IS A COPY RATHER THAN A REQUIRE. The slim tree cannot require the
   stock-Reagent test namespace — that would drag `reagent.*` across the
@@ -21,10 +21,10 @@
   `-remove-watch` disposes itself when its last watcher drops and it has no
   `auto-run`, and its `dispose!` removes upstream watches BEFORE firing its
   on-dispose callbacks — so a component unmount tears the sub Reaction down
-  through auto-dispose, and re-frame's on-dispose closure `dissoc`s the slot
-  with no decrement of its own `:ref-count` and no `emit-dispose!`.
-
-  STATUS ON ARRIVAL: both tests below FAIL against the unfixed tree, by design.
+  through auto-dispose, and it is re-frame's on-dispose closure
+  (`build-and-cache!*` in `re-frame.subs`) that evicts the slot. That eviction
+  site is therefore where the `:rf.sub/dispose` must fire; a silent `dissoc`
+  there fails both tests below.
 
   TEST-ONLY. The ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test`
   build discovers it; the `:node-test` runner also loads it, where the body
@@ -103,12 +103,11 @@
 ;; ===========================================================================
 
 (deftest slim-real-unmount-emits-sub-dispose-for-the-views-own-query
-  "rf2-ty246 — reagent-slim: mount a subscribing `reg-view` for real, unmount
+  "reagent-slim: mount a subscribing `reg-view` for real, unmount
    it for real, and require one `:rf.sub/dispose` `:no-more-derefers` for the
    view's OWN query alongside its one `:rf.view/unmounted`.
 
-   FAILS against the unfixed tree: the slot is evicted by Reaction auto-dispose
-   and dissoc'd silently."
+   A slot evicted by Reaction auto-dispose and dissoc'd silently fails it."
   (if-not (browser?)
     (is true ":node-test: no DOM — the :browser-test runner exercises the assertions")
     (async done
@@ -119,7 +118,7 @@
             unmounts (atom [])
             done?    (atom false)
             done!    (fn [] (when (compare-and-set! done? false true) (done)))]
-        (rf/make-frame {:id frame-kw :doc "rf2-ty246 slim real-unmount probe frame"})
+        (rf/make-frame {:id frame-kw :doc "slim real-unmount probe frame"})
         (rf/reg-event :rf.ty246.slim/seed (fn [_ _] {:db {:n 1}}))
         (rf/reg-event :rf.ty246.slim/bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
         (rf/dispatch-sync [:rf.ty246.slim/seed] {:frame frame-kw})
@@ -169,8 +168,8 @@
 
             ;; ---- :ref-count is a READER count, not a RENDER tally ----------
             ;; See the stock-Reagent twin for the full statement. One mounted
-            ;; reader is one reference however many times it renders; against
-            ;; the unfixed tree the post-re-render read is 2.
+            ;; reader is one reference however many times it renders; a render
+            ;; tally would read 2 after the re-render.
             (is (= 1 (:ref-count (slot frame-kw query-v)))
                 (str "one mounted reader is one reference; got "
                      (pr-str (:ref-count (slot frame-kw query-v)))))
@@ -212,7 +211,7 @@
 ;; ===========================================================================
 
 (deftest slim-strict-mode-real-unmount-emits-sub-dispose-and-view-unmounted
-  "rf2-ty246 — reagent-slim under `React.StrictMode`, driven by `act`.
+  "reagent-slim under `React.StrictMode`, driven by `act`.
    Everything is measured as a DELTA across the GENUINE unmount, because the
    strict double-mount legitimately churns the sub-cache first."
   (if-not (browser?)
@@ -227,7 +226,7 @@
             done?        (atom false)
             done!        (fn [] (when (compare-and-set! done? false true) (done)))
             act-fn       (get-act)]
-        (rf/make-frame {:id frame-kw :doc "rf2-ty246 slim StrictMode real-unmount probe frame"})
+        (rf/make-frame {:id frame-kw :doc "slim StrictMode real-unmount probe frame"})
         (rf/reg-event :rf.ty246.slim/sseed (fn [_ _] {:db {:n 1}}))
         (rf/dispatch-sync [:rf.ty246.slim/sseed] {:frame frame-kw})
         (rf/reg-sub :rf.ty246.slim/sn (fn [db _] (:n db)))
