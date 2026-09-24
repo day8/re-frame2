@@ -1,5 +1,5 @@
 (ns day8.re-frame2-machines-viz.theme.tokens
-  "Design tokens for the Machines-Viz chart (rf2-o9arp).
+  "Design tokens for the Machines-Viz chart.
 
   ## Why machines-viz owns its own tokens
 
@@ -10,50 +10,42 @@
   to render a chart. The slice the chart needs is small (palette +
   two font stacks + the motion seam) so we publish it here.
 
-  The palette mirrors Xray's `theme/tokens` at the values level —
-  the two will track each other until a CSS-variable migration
-  consolidates them. Host applications can override the palette by
-  wrapping `MachineChart` in a context that rebinds these vars (a
-  v1.x affordance; the current chart consumes the dark palette
-  directly).
+  The palette mirrors Xray's `theme/tokens` at the values level (see
+  `dark-palette` for the drift gates). A host picks the chart's palette
+  through the `MachineChart` `:theme` prop (`theme-palette`).
 
-  ## Light + dark palettes (rf2-usord)
+  ## Light + dark palettes
 
   Both `dark-palette` (the default Xray surface) and `light-palette`
   (lighter hosts) are catalogued here. The `palettes` map keys both
-  by theme name (`:dark` / `:light`) so the substrate-adapter
-  `MachineChart` re-exports resolve via the `:theme` prop. `tokens`
-  remains an alias of `dark-palette` for back-compat with the existing
-  inline-style call sites — a light-theme host either passes the light
-  palette through `with-alpha`'s three-arg arity OR (downstream)
-  consumes the per-theme CSS-variable surface once the consolidation
-  lands.
+  by theme name (`:dark` / `:light`) so `MachineChart` resolves them
+  via the `:theme` prop. `tokens` is an alias of `dark-palette` for the
+  inline-style call sites that read it directly — a light-theme host
+  either passes the light palette through `with-alpha`'s three-arg
+  arity OR consumes the per-theme CSS-variable surface (`css-var`).
 
   ## Tint helper
 
-  rf2-pyvmr — `with-alpha` resolves a token key to its hex value
+  `with-alpha` resolves a token key to its hex value
   and returns an `rgba(...)` string. Eliminates inline hex literals
   in chart code; a palette shift propagates through every tint
   without a per-call-site edit.
 
   ## Motion seam
 
-  rf2-xfx6l / rf2-2sez0 — the chart's transition glow (the sole
-  remaining continuous animation surface, fired one beat on event-
-  fire) interpolates its `animation-duration` through the same
-  `--rf-xray-motion-scale` CSS custom property Xray publishes at
-  `:root`. The chart's host (Xray today) ensures the variable is
-  set; when machines-viz ships standalone the chart's own inline
-  `<style>` block declares the variable + the
+  The chart's transition glow (its only animation surface, fired one
+  beat on event-fire) interpolates its `animation-duration` through
+  the same `--rf-xray-motion-scale` CSS custom property Xray publishes
+  at `:root`. A host such as Xray sets the variable; standalone, the
+  chart's own inline `<style>` block declares the variable + the
   `prefers-reduced-motion` override so the chart honours the user's
   setting without a host-side install. See `chart`
-  `chart-stylesheet`. The heartbeat-pulse animation was retired
-  2026-05-20 (rf2-2sez0) — only `:glow-duration-ms` remains in the
-  motion catalogue.
+  `chart-stylesheet`. The motion catalogue carries only
+  `:glow-duration-ms`.
 
   ## Visual constants
 
-  rf2-g6cig — chart-shape constants (corner radius, stroke widths,
+  Chart-shape constants (corner radius, stroke widths,
   paddings, font sizes, durations) live in `visual-constants` so
   the chart's visual character is locked in one map rather than
   scattered across magic numbers."
@@ -64,24 +56,21 @@
 
 (def dark-palette
   "Dark-theme colour tokens — the GitHub-style blue/neutral Figma
-  palette (rf2-ad7zx.13). A strict SUBSET of Xray's `dark-palette`:
-  every key here also exists in Xray at the SAME hex value (drift-gates
+  palette. A strict SUBSET of Xray's `dark-palette`: every key here
+  also exists in Xray at the SAME hex value (drift-gates
   `machines-viz-dark-palette-keys-subset-of-xray` +
-  `xray-and-machines-viz-dark-palettes-match-values`, rf2-593jn / was
-  rf2-z7ms8) so the chart renders identically whether embedded by Xray,
-  Story, the read-only viewer, or a user dev shell.
+  `xray-and-machines-viz-dark-palettes-match-values`) so the chart
+  renders identically whether embedded by Xray, Story, the read-only
+  viewer, or a user dev shell.
 
-  rf2-593jn — machines-viz publishes ONLY the tokens its chart actually
-  consumes. Xray's chrome-only tokens (`:chrome-ribbon-*`, `:active-bg`/
-  `:active-text`, `:diff-*`, `:syntax-*`, `:bg-issue-row`,
-  `:selected-row-bg`) are NOT mirrored here — the chart never reads them,
-  and the relaxed subset gate no longer forces a no-op mirror for each
-  new Xray chrome token.
+  Machines-viz publishes ONLY the tokens its chart consumes. Xray's
+  chrome-only tokens (`:chrome-ribbon-*`, `:active-bg`/`:active-text`,
+  `:diff-*`, `:syntax-*`, `:bg-issue-row`, `:selected-row-bg`) are NOT
+  mirrored here — the chart never reads them, and the gate is a subset
+  check, so a new Xray chrome token needs no no-op mirror.
 
-  The orange-identity scheme (`brand`, `accent-dynamic`, `accent-static`,
-  the per-mode colour swap) is removed; the Figma export carries a
-  SINGLE accent (blue). `:info` is the cool categorical blue distinct
-  from `:accent`."
+  The palette carries a SINGLE accent (blue), as the Figma export does.
+  `:info` is the cool categorical blue distinct from `:accent`."
   {:bg-0           "#161616"
    :bg-1           "#1c1c1c"
    :bg-2           "#242424"
@@ -106,19 +95,18 @@
    :dim            "#6e7681"
    :hover          "#2a2a2a"
 
-   ;; violation wash (rf2-xgeag · value mirror with Xray)
+   ;; violation wash (value mirror with Xray)
    :bg-violation   "#3a1f25"
 
    ;; functional categorical hues (spec/022 carve-out)
    ;; Two pink/violet-family hues — see Xray's `dark-palette` block for
-   ;; rationale. The values gate (rf2-z7ms8) requires these to match
-   ;; Xray's values; this mirror is updated alongside rf2-cgm4f.
+   ;; rationale. The values gate requires these to match Xray's values.
    :green          "#3fb950"
    :yellow         "#d29922"
    :orange         "#FB923C"
    :red            "#F87171"
-   :magenta        "#a855f7"   ; violet-500 — was #E879F9 pre-rf2-cgm4f
-   :magenta-pink   "#ec4899"   ; pink-500 — added rf2-cgm4f
+   :magenta        "#a855f7"   ; violet-500
+   :magenta-pink   "#ec4899"   ; pink-500
    :info           "#79c0ff"
 
    :red-deep       "#a83a3a"
@@ -126,7 +114,7 @@
    :white          "#ffffff"})
 
 (def light-palette
-  "Light-theme colour tokens (rf2-usord). Mirrors
+  "Light-theme colour tokens. Mirrors
   `day8.re-frame2-xray.theme.tokens/light-palette` at the values level
   so the chart renders identically whether embedded by Xray, Story,
   the read-only viewer, or a user dev shell whose host runs a light
@@ -136,9 +124,7 @@
   contrast on a white canvas.
 
   Hosts that want the chart to render against a light background pass
-  this palette through the `:palette` render option (or via the
-  `:theme :light` prop on the substrate-adapter `MachineChart`
-  re-exports — wiring lives downstream)."
+  `:theme :light` to `MachineChart`, which resolves this palette."
   {:bg-0           "#fbfbfb"
    :bg-1           "#f5f5f5"
    :bg-2           "#ffffff"
@@ -163,19 +149,18 @@
    :dim            "#8c959f"
    :hover          "#e8e8e8"
 
-   ;; violation wash (rf2-xgeag · value mirror with Xray)
+   ;; violation wash (value mirror with Xray)
    :bg-violation   "#fde0e3"
 
    ;; functional categorical hues
    ;; Two pink/violet-family hues — see Xray's `light-palette` block for
-   ;; rationale. The values gate (rf2-z7ms8) requires these to match
-   ;; Xray's values; this mirror is updated alongside rf2-cgm4f.
+   ;; rationale. The values gate requires these to match Xray's values.
    :green          "#1a7f37"
    :yellow         "#9a6700"
    :orange         "#C2570F"
    :red            "#C84444"
-   :magenta        "#9333ea"   ; violet-600 — was #B146C2 pre-rf2-cgm4f
-   :magenta-pink   "#db2777"   ; pink-600 — added rf2-cgm4f
+   :magenta        "#9333ea"   ; violet-600
+   :magenta-pink   "#db2777"   ; pink-600
    :info           "#0550ae"
 
    :red-deep       "#9A3030"
@@ -183,22 +168,20 @@
    :white          "#ffffff"})
 
 (def palettes
-  "Map of theme-name → palette map (rf2-usord). Mirrors Xray's
-  `theme/tokens/themes`. The downstream substrate-adapter
-  `MachineChart` exports look this up by the `:theme :dark | :light`
-  prop; absent that, hosts can pick a palette from this map directly
-  and pass it through the `with-alpha` helper's three-arg arity."
+  "Map of theme-name → palette map. Mirrors Xray's
+  `theme/tokens/themes`. `theme-palette` looks the `MachineChart`
+  `:theme :dark | :light` prop up here; hosts can also pick a palette
+  from this map directly and pass it through the `with-alpha` helper's
+  three-arg arity."
   {:dark  dark-palette
    :light light-palette})
 
 (def tokens
-  "Backwards-compatible alias for the dark palette — same shape
-  Xray's `tokens` map exposes so the chart's `(:bg-1 tokens)` style
-  call sites read identically. The light theme is layered on top via
-  the `:palette` render option (rf2-usord); the inline-style reads in
-  `chart.nodes`, `chart.edges`, `chart.cljs` and the overlays continue
-  to resolve through this alias until the CSS-variable migration
-  consolidates the indirection."
+  "Alias for the dark palette — the same shape Xray's `tokens` map
+  exposes, so `(:bg-1 tokens)` style call sites read identically. The
+  light theme reaches the chart through the `:theme` prop
+  (`theme-palette`); a call site that reads this alias paints the dark
+  palette."
   dark-palette)
 
 ;; ---- font stacks -------------------------------------------------------
@@ -214,16 +197,15 @@
   "Inter, system-ui, -apple-system, Segoe UI, sans-serif")
 
 (def chart-label-stack
-  "rf2-az6e2 — the chart-label font token. The structured topology
-  visual grammar uses SANS for state / event / tag / action labels
-  (structure-first reading; the prior mono lean was a category-error
-  carryover from data-grid surfaces). Aliases `sans-stack`; a host that
-  wants a different chart-label face overrides this Var. Mono survives
+  "The chart-label font token. The structured topology visual grammar
+  uses SANS for state / event / tag / action labels (structure-first
+  reading; mono is a data-grid face). Aliases `sans-stack`; a host that
+  wants a different chart-label face overrides this Var. Mono is used
   ONLY for the raw-EDN context-panel values, where it aids data
   scanning."
   sans-stack)
 
-;; ---- tint helper (rf2-pyvmr) -------------------------------------------
+;; ---- tint helper -------------------------------------------------------
 
 (defn- parse-hex-byte
   "Parse a two-character hex string to an int (0..255). Portable
@@ -251,8 +233,8 @@
   `rgba(<r>, <g>, <b>, <alpha>)` string. `alpha` is a fraction in
   `[0.0, 1.0]`.
 
-  Pure data → string; JVM-portable. rf2-pyvmr eliminates inline hex /
-  rgba literals from chart code — a palette shift on the source token
+  Pure data → string; JVM-portable. It keeps inline hex / rgba
+  literals out of chart code — a palette shift on the source token
   propagates to every tint without a per-call-site edit.
 
   Returns the token's solid hex unchanged when `alpha` is `nil` or
@@ -269,22 +251,22 @@
                (str "rgba(" r ", " g ", " b ", " alpha ")")
                hex)))))
 
-;; ---- chart semantic tokens (rf2-az6e2) ---------------------------------
+;; ---- chart semantic tokens ---------------------------------------------
 ;;
-;; rf2-az6e2 — the structured topology grammar needs a small set of
+;; The structured topology grammar needs a small set of
 ;; SEMANTIC chart roles (neutral container header/body, dividers,
 ;; event-chip fill/border, pseudo-state marker, edge quiet/active).
 ;; Rather than add a bespoke role key per surface, `chart-tokens`
 ;; DERIVES the semantic roles from the EXISTING base-palette entries,
 ;; parameterised by the active palette — so theme support is real (a
 ;; `:light` host resolves every chart role against `light-palette`)
-;; without inflating the base palette. (rf2-593jn relaxed the
-;; Xray↔machines-viz drift gate to a subset check, so machines-viz may
-;; now add a genuinely-consumed token; but derivation remains the
-;; cleaner shape for roles that are pure functions of the base hues.)
+;; without inflating the base palette. (The Xray↔machines-viz drift
+;; gate is a subset check, so machines-viz may add a genuinely-consumed
+;; token; derivation is the cleaner shape for roles that are pure
+;; functions of the base hues.)
 
 (defn chart-tokens
-  "rf2-az6e2 — resolve the chart's SEMANTIC role tokens against a base
+  "Resolve the chart's SEMANTIC role tokens against a base
   `palette` (`dark-palette` / `light-palette`, or any palette of the
   same shape). Returns a flat map of hex / rgba strings the node + edge
   renderers read for the structured visual grammar.
@@ -307,14 +289,14 @@
          accent-blue runtime marker).
     :edge-quiet / :edge-active / :edge-fired / :edge-guard-blocked
        — source→event quiet segment, event→target / active, fired-epoch,
-         and the GUARD-BLOCKED no-op edge (rf2-fzrzlw — a pink/error
-         hue marking a transition whose guard rejected it).
+         and the GUARD-BLOCKED no-op edge (a pink/error hue marking a
+         transition whose guard rejected it).
     :text-primary / :text-secondary / :text-tertiary
        — re-exported off the palette so a renderer reads one map.
     :active / :focus / :sim / :final
        — runtime-state accents (active = :info, focus = :accent, etc.).
     :final-error
-       — the error-final OUTER-RING hue (rf2-b4loj). STATIC error-hue
+       — the error-final OUTER-RING hue. STATIC error-hue
          signalling an `:error?` terminal (a re-frame2 extension that
          routes the spawning parent's `:on-error`), distinct from the
          quiet success-final ring; does not displace the runtime
@@ -347,7 +329,7 @@
       :edge-quiet  (with-alpha :border-default 0.55 palette)
       :edge-active (g :info)
       :edge-fired  (g :accent)
-      ;; rf2-fzrzlw — the GUARD-BLOCKED no-op edge hue. A transition
+      ;; The GUARD-BLOCKED no-op edge hue. A transition
       ;; whose guard evaluated fail/threw paints PINK so the operator
       ;; sees which edge the event hit AND that a guard rejected it (a
       ;; no-op emits no `:rf.machine/transition`, so the fired set is
@@ -366,7 +348,7 @@
       :focus  (g :accent)
       :sim    (g :yellow)
       :final  (g :text-secondary)
-      ;; rf2-b4loj — the error-final OUTER RING hue. A `:error?` final
+      ;; The error-final OUTER RING hue. A `:error?` final
       ;; (Spec 005 §:final?) is a re-frame2 EXTENSION: a child finishing
       ;; via it routes the spawning parent's `:spawn` `:on-error`
       ;; transition (vs `:on-done`). The chart must not hide a distinction
@@ -377,8 +359,8 @@
       ;; clobbering the other. NOT XState/Stately parity — XState has no
       ;; first-class error-final flag; this is re-frame2 semantic clarity.
       :final-error (g :error)
-      ;; tints used for runtime washes (kept subtle — border/header/glow
-      ;; carry the runtime signal, not the whole fill, per the bead)
+      ;; tints used for runtime washes (subtle — border/header/glow
+      ;; carry the runtime signal, not the whole fill)
       :active-wash (with-alpha :info   0.14 palette)
       :focus-wash  (with-alpha :accent 0.12 palette)
       :sim-wash    (with-alpha :yellow 0.14 palette)
@@ -386,7 +368,7 @@
       :glow-fired  (with-alpha :accent 0.18 palette)})))
 
 (defn edge-color
-  "rf2-dt5b1 — the SINGLE source of an edge's stroke + arrowhead colour
+  "The SINGLE source of an edge's stroke + arrowhead colour
   given its runtime flags, resolved against a `chart-tokens` map `ct`.
 
   Both the renderer (`chart.edges/edge-stroke`, painting the SVG path)
@@ -394,11 +376,11 @@
   the arrowhead paints) route through this fn so a stroke and its
   arrowhead can never disagree on colour for the same edge state.
 
-  Ordering (XState/Stately gold standard): `blocked?` (rf2-fzrzlw — the
-  edge's guard rejected the event this epoch) wins OUTRIGHT so the pink
+  Ordering (XState/Stately gold standard): `blocked?` (the edge's guard
+  rejected the event this epoch) wins OUTRIGHT so the pink
   guard-blocked hue overrides the affordance-blue / fired / active on
-  that specific edge — the attempted-and-rejected edge must stand out
-  (bead design call (2)); then `fired?` (the edge traversed THIS epoch)
+  that specific edge — the attempted-and-rejected edge must stand out;
+  then `fired?` (the edge traversed THIS epoch)
   wins over `focused?` / `active?` so a fired arm reads as 'what just
   happened' in the FIRED hue; focused / active share the ACTIVE hue;
   everything else is the resting QUIET hue.
@@ -412,16 +394,16 @@
     :else                 (:edge-quiet ct)))
 
 (defn theme-palette
-  "rf2-az6e2 — resolve a `:theme` keyword (`:dark` / `:light`) to its
+  "Resolve a `:theme` keyword (`:dark` / `:light`) to its
   base palette via `palettes`. nil / unknown → `dark-palette` (the Xray
   default surface). The `MachineChart` `:theme` prop flows through here
   ONCE per render; the resolved palette threads through the projector
-  onto every node/edge `:data` so the renderers paint the active theme
-  (theme support made real, rf2-az6e2). Independent of `:density`."
+  onto every node/edge `:data` so the renderers paint the active theme.
+  Independent of `:density`."
   [theme]
   (get palettes theme dark-palette))
 
-;; ---- CSS-variable theming (rf2-uv1on) ----------------------------------
+;; ---- CSS-variable theming ----------------------------------------------
 
 (defn css-var
   "Resolve `token-key` to a `var(--rf-xray-<key>, <hex-fallback>)`
@@ -436,9 +418,9 @@
   from `dark-palette` (the chart's default surface) so a host that
   does NOT publish the variables still renders correctly.
 
-  Pure data → string; JVM-portable. rf2-uv1on uses it for the
-  `:after`-ring overlay chrome so light + dark both flow through
-  `var(--*)` per the bead's theming requirement."
+  Pure data → string; JVM-portable. The chart overlays (the
+  `:after`-ring overlay among them) paint through it so light + dark
+  both flow through `var(--*)`."
   ([token-key] (css-var token-key dark-palette))
   ([token-key palette]
    (let [hex (get palette token-key)]
@@ -446,7 +428,7 @@
        (str "var(--rf-xray-" (name token-key) ", " hex ")")
        (str "var(--rf-xray-" (name token-key) ")")))))
 
-;; ---- motion seam (rf2-xfx6l) -------------------------------------------
+;; ---- motion seam -------------------------------------------------------
 
 (def motion
   "Motion-axis tokens (mirrors Xray's `theme/tokens/motion`).
@@ -454,14 +436,12 @@
   - `:scale-var-name`        — CSS custom property name; consumers
                                interpolate it into their inline
                                `animation-duration: calc(...)`.
-  - `:glow-duration-ms`      — transition-edge glow flash duration
-                               (rf2-xfx6l).
+  - `:glow-duration-ms`      — transition-edge glow flash duration.
 
   The duration interpolates through `--rf-xray-motion-scale`
   (collapsed to 0.001 under `prefers-reduced-motion: reduce`).
 
-  rf2-2sez0 — `:pulse-duration-ms` retired 2026-05-20 with the
-  heartbeat-pulse animation. Active-state emphasis is now static."
+  There is no pulse duration: active-state emphasis is static."
   {:scale-var-name   "--rf-xray-motion-scale"
    :glow-duration-ms 400})
 
@@ -483,7 +463,7 @@
 
 (defn glow-animation-css
   "Build the canonical FIRED/FOCUSED edge + event-node glow
-  `animation` shorthand (rf2-4o43j8).
+  `animation` shorthand.
 
   The motion grammar (`spec/Principles.md` §chart animation) requires
   this to be **event-driven and finite**: it fires ONE iteration on a
@@ -502,12 +482,10 @@
   (str glow-keyframe-name " " (duration-css (:glow-duration-ms motion))
        " ease-out forwards"))
 
-;; rf2-dt5b1 — the deterministic tag-pill colour rotation
-;; (`tag-pill-palette` / `tag-pill-color`, rf2-m1b88 / rf2-a2b55) was
-;; RETIRED. `chart.nodes/tag-pill` renders every state-tag chip in ONE
-;; neutral style (`:container-header-bg` fill + `:state-border` border +
-;; `:text-secondary` text): structure wins over annotation colour for the
-;; topology view, so the chart reads as containment + transition flow,
-;; not a rainbow of tag hues. Tag IDENTITY survives on the chip's
-;; `data-tag` / `title` attrs + the state-node's `data-tags`. The rotation
-;; had no live caller (it coloured nothing the renderer paints).
+;; There is no tag-pill colour rotation. `chart.nodes/tag-pill` renders
+;; every state-tag chip in ONE neutral style (`:container-header-bg` fill
+;; + `:state-border` border + `:text-secondary` text): structure wins
+;; over annotation colour for the topology view, so the chart reads as
+;; containment + transition flow, not a rainbow of tag hues. Tag IDENTITY
+;; rides the chip's `data-tag` / `title` attrs + the state-node's
+;; `data-tags`.
