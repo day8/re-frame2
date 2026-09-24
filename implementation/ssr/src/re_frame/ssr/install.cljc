@@ -73,7 +73,7 @@
 
   No reconciliation, no retry, no re-render. A conflicting root fails and
   **nothing else moves** — the installed payload and every root already
-  using it are untouched, which is [06 §2]'s failure scoping, not a
+  using it are untouched, which is [004C §7]'s failure scoping, not a
   failed-root isolation mechanism (that lives in `re-frame.ssr.boot`). There is no
   Layer-2 per-response page registry here either: this is the CLIENT-side
   install ledger, keyed by payload id, and it takes no position on how a
