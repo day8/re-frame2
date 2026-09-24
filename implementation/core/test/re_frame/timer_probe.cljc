@@ -29,7 +29,8 @@
   reservation — are deliberately not built: either would mint a second
   \"run an event later\" beside `:dispatch-later` and a THIRD debounce
   mechanism beside machine `:after` and HTTP request-id supersession, an
-  EP-0007 hazard with no consumer to justify it. The probe proves the inheritance claim; it ships no surface.
+  EP-0007 hazard with no consumer to justify it. The probe proves the
+  inheritance claim; it ships no surface.
 
   ## The nine properties, minimally
 
