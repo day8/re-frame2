@@ -144,7 +144,7 @@
     (is (nil? (entry (feed-key :is1/feed))))))
 
 ;; ===========================================================================
-;; 1b. the SCALAR :has-data? / :state subs over an infinite feed (rf2-3fynns)
+;; 1b. the SCALAR :has-data? / :state subs over an infinite feed
 ;;
 ;;   The scalar `:rf.resource/has-data?` and `:rf/resource` subs ALSO
 ;;   apply to an infinite feed (Spec 016 §Subscriptions — the family is
@@ -345,8 +345,8 @@
 
 (deftest missing-page-accessor-raises-at-merge
   (testing "a non-vector page with NO :page->items raises at the merge site
-            (R3, loud over guessing — the runtime-detected error wave-2
-            deferred to the merge layer). Asserted at the MERGE layer
+            (R3, loud over guessing — the error is detected at runtime, in
+            the merge layer). Asserted at the MERGE layer
             (`rf.resources.state/merge-pages->items` / the framework-owned `merged-items`
             projection) — a sub-body throw is otherwise routed to the runtime
             error path, the same level the sub-unresolved-scope test asserts at."
@@ -382,7 +382,7 @@
                       (:rf.error/id (ex-data ex))))))))))
 
 ;; ===========================================================================
-;; 8. the merge is framework-owned and PURE (R3; rf2-3x7nj.10.2)
+;; 8. the merge is framework-owned and PURE (R3)
 ;; ===========================================================================
 
 (deftest items-merge-is-a-pure-function-of-the-pages
