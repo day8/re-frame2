@@ -183,10 +183,9 @@
   `(is (identical? reg2 …))` that FAILS reports
   `RangeError: Maximum call stack size exceeded` instead of a diagnosis.
   Sabotaging the runtime's `release-cell!` turns four of them into stack
-  overflows. A
-  witness whose failure message is unreadable is most of the way to not
-  being a witness, so the identity is compared here and the boolean is
-  what the assertion prints."
+  overflows. A witness whose failure message is unreadable is most of
+  the way to not being a witness, so the identity is compared here and
+  the boolean is what the assertion prints."
   [a b]
   (identical? a b))
 
