@@ -481,10 +481,10 @@
 (deftest a-revision-on-an-uncontrolled-field-is-refused-at-source
   (testing "HS-07's refusal arm: `::h/revision` on a `:defaultValue`
             field is refused. It is a row because the reserved
-            vocabulary's validation
-            has to run on the SERVER too — one that ran on the client
-            alone would let this page be baked and would fail only at
-            adoption, which is the most expensive place to find it"
+            vocabulary's validation has to run on the SERVER too — one
+            that ran on the client alone would let this page be baked and
+            would fail only at adoption, which is the most expensive place
+            to find it"
     (fresh!)
     (let [e (try (server-html [bad-revision {}]) nil
                  (catch :default e e))
