@@ -140,8 +140,7 @@
   ;; no case for: `Brackets.exe` on all three platforms, and on Windows
   ;; `Cursor.exe` too (the registry stores the capitalised process name while
   ;; the switch matches lowercase `cursor`). Either would launch the bare file,
-  ;; exit 0, and make this endpoint answer 200 to a coordinate-bearing request
-  ;; (rf2-1i1ec audit).
+  ;; exit 0, and make this endpoint answer 200 to a coordinate-bearing request.
   ;;
   ;; So the probe asks the dependency instead of predicting it: resolve the
   ;; editor with the same `guessEditor` the launch will use, then ask
@@ -184,10 +183,10 @@
        ;; COLUMN ALONE is a coordinate. `build-file-spec` normalises a
        ;; column with no line to `path:1:<column>`, so a `column=7` request
        ;; asks the launcher for 1:7 and can lose it exactly as a line-bearing
-       ;; one can. Gating this probe on `line` alone let every column-only
+       ;; one can. Gating this probe on `line` alone would let every column-only
        ;; auto-detect launch past the capability check entirely, so a
        ;; position-blind binary could strip `:1:7`, exit 0 and win a 200 that
-       ;; suppressed the coordinate-preserving fallback (rf2-1i1ec audit).
+       ;; suppresses the coordinate-preserving fallback.
        ;;
        ;; The normalisation is repeated here rather than derived from the
        ;; file spec: `line||1` is the same rule `build-file-spec` applies, and
@@ -289,7 +288,7 @@
   endpoint never consumes it) and stderr is drained CONCURRENTLY on its own
   thread. OS pipes are bounded, so a child that fills an undrained pipe blocks
   on the write and never reaches `process.exit` — the parent would then time
-  out waiting for an exit its own undrained pipe prevents (rf2-j538f7.21). A
+  out waiting for an exit its own undrained pipe prevents. A
   bounded head of stderr is retained as the failure diagnostic.
 
   `line` and `column` are ALSO passed as their own argv tokens, not only
@@ -422,9 +421,9 @@
   without a lookup but RESOLVES anything it cannot parse as one. So a literal
   is returned only where `getByName` must take its literal branch: a dotted
   quad with every octet at most 255, or a colon form led by a hex digit or `:`,
-  which `getByName` either parses or refuses. The looser filter this replaced
-  let `127.0.0.999`, `1.2.3.456` and `.::1` through to a name lookup, and a
-  hosts-file entry for any of them admitted it as loopback (rf2-8fms7)."
+  which `getByName` either parses or refuses. A looser filter would let
+  `127.0.0.999`, `1.2.3.456` and `.::1` through to a name lookup, and a
+  hosts-file entry for any of them would admit it as loopback."
   [remote-addr]
   (when (and (string? remote-addr) (not (str/blank? remote-addr)))
     (let [s       (str/trim remote-addr)
@@ -537,7 +536,7 @@
 
 (defn ^:private json-resp
   "A JSON answer. It sets no CORS header: the only client posts a RELATIVE URL,
-  so every real request is same-origin (rf2-3x7nj.38.2). Every answer carries a
+  so every real request is same-origin. Every answer carries a
   body, which keeps shadow-http from rewriting a nil-body answer to 304."
   [status m]
   {:status  status
@@ -602,7 +601,7 @@
             ;; A 200 here is a claim that the COORDINATE arrived, not merely
             ;; that a process exited. Where the launcher would drop it,
             ;; decline before spawning so the client's coordinate-preserving
-            ;; `editor://` URI fallback gets its turn (rf2-1i1ec).
+            ;; `editor://` URI fallback gets its turn.
             (position-would-be-dropped? cmd line column)
             (json-resp 422 {:ok false :error position-unsupported-error})
 
@@ -627,7 +626,7 @@
   request URI onto each root, and shadow-http hands `:uri` over un-normalised,
   so a `..` segment walks out of the root to any `index.html` on disk. shadow's
   static file handler refuses the same path; push-state is the one handler in
-  the chain without that guard (rf2-3x7nj.38.1)."
+  the chain without that guard."
   [uri]
   (boolean (re-find #"(^|[/\\])\.\.([/\\]|$)" (str uri))))
 
@@ -638,9 +637,9 @@
   Naming a `:handler` REPLACES that default. `start-build-server` in
   `shadow.cljs.devtools.server.dev-http` falls back to
   `shadow.http.push-state/handle` only when no handler is named, and serves
-  the file roots with index files off, so answering 404 here made every wired
-  port 404 at `/` — only `/index.html` loaded, and every printed `/#/stories`
-  URL failed (rf2-78s0d). A page load the roots did not resolve therefore goes
+  the file roots with index files off, so answering 404 here would make every
+  wired port 404 at `/` — only `/index.html` would load, and every printed
+  `/#/stories` URL would fail. A page load the roots did not resolve therefore goes
   to shadow's push-state handler, which answers exactly as it does on a port
   with no handler: the first root's `index.html` for a request accepting HTML.
 
