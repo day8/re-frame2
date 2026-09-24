@@ -1,45 +1,40 @@
 (ns re-frame.ssr.ring.streaming-writer-trace-test
   "Pin the writer thread's load-bearing trace emission and frame teardown
-  composition. Per rf2-u91hb (audit follow-on from the rare-corner-cases
-  sweep).
+  composition.
 
-  ## Why this fills a real gap
+  ## What this covers
 
-  `streaming_robustness_test` covers four behaviours of the streaming
+  `streaming_robustness_test` pins four behaviours around the streaming
   writer's `catch Throwable` arm:
 
     1. broken-pipe absorbed, OutputStream closed by `finally`,
     2. real-network disconnect cleans up,
     3. root-view throw fails closed to a non-200 on the request thread
-       (rf2-r06pc — the shell render moved off the writer; a root-view
-       throw never reaches the daemon writer now),
+       (the shell renders off the writer; a root-view
+       throw never reaches the daemon writer),
     4. daemon thread name carries the frame-id.
 
-  What it does NOT cover — and what `re-frame.ssr.ring.streaming/run-
-  streaming-writer!` line 180 explicitly produces — is the
-  `:rf.error/ssr-streaming-writer-failed` trace event itself. The
-  streaming.cljc docstring (line 22-23) names the trace as the
-  load-bearing observability signal for writer-thread failures, but
-  no test grep'd anywhere in the suite finds an assertion on the
-  trace keyword: `ssr-streaming-writer-failed` appears only in the
-  impl + docstrings.
+  Those four assert absence-of-escape and pipe-close, not the
+  `:rf.error/ssr-streaming-writer-failed` trace event that
+  `re-frame.ssr.ring.streaming/run-streaming-writer!` emits when the arm
+  absorbs a write failure, which Spec 011 §Failure semantics names as the
+  load-bearing observability signal for writer-thread failures.
 
-  That's the gap this ns fills. Trace observability is a production-
+  This ns pins that emit. Trace observability is a production-
   monitoring contract — apps registering trace listeners for the
-  failure category MUST see events fire. If a refactor of
-  `run-streaming-writer!` drops the trace emit by accident (it would
-  pass every existing robustness test, since those only assert
-  absence-of-escape and pipe-close), the gap re-opens silently and
-  ops loses the signal.
+  failure category MUST see events fire. A refactor of
+  `run-streaming-writer!` that dropped the emit from the broken-pipe path
+  would pass those four, and
+  ops would lose the signal silently.
 
-  Second gap covered here: the per-request frame destroy on a render
-  failure. Post rf2-r06pc a shell-render throw (root-view throw) fails
+  Second, the per-request frame destroy on a render
+  failure. A shell-render throw (root-view throw) fails
   closed on the REQUEST thread and tears the frame down INLINE (the
   shell-render catch arm in `stream-handler`), before any writer thread
   is spawned. The continuation/final-payload writer-body throws that
-  DO still reach the daemon thread tear the frame down in the spawned-
+  DO reach the daemon thread tear the frame down in the spawned-
   thread `finally`. Either way the destroy MUST run; this ns pins the
-  composition the existing tests test independently."
+  composition the other tests test independently."
   (:require [clojure.set]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -57,23 +52,23 @@
 (use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
 ;; ===========================================================================
-;; The trace emit itself — the gap streaming_robustness_test left open.
+;; The trace emit on a broken-pipe write failure.
 ;; ===========================================================================
 
 (deftest writer-catch-arm-emits-ssr-streaming-writer-failed-trace
-  (testing "rf2-u91hb: when run-streaming-writer!'s outer catch arm
+  (testing "when run-streaming-writer!'s outer catch arm
             absorbs a throw, it MUST emit :rf.error/ssr-streaming-
             writer-failed on the trace bus per the streaming.cljc /
-            streaming.clj failure-semantics contract. The existing
-            robustness tests pin absorb behaviour + pipe-close, but
-            never the trace itself — a refactor that silently drops
-            the emit would pass every existing test."
+            streaming.clj failure-semantics contract. The
+            broken-pipe robustness test pins absorb behaviour +
+            pipe-close only; a refactor that silently drops
+            the emit would pass it."
     (let [pipe-in  (PipedInputStream. 1024)
           pipe-out (PipedOutputStream. pipe-in)
           _        (.close pipe-in)] ;; pre-broken pipe — every write throws
       ;; Drive the writer body directly against the pre-broken pipe.
-      ;; rf2-r06pc — the writer no longer resolves/renders the shell
-      ;; (that moved to the request thread); we hand it a PRE-RENDERED
+      ;; The writer does not resolve/render the shell
+      ;; (the request thread does); we hand it a PRE-RENDERED
       ;; shell. The first chunk write of the shell prefix hits the
       ;; pre-broken pipe → IOException → the catch arm runs and emits
       ;; the trace.
@@ -111,21 +106,20 @@
 ;; Shell-render-throw composition with frame destroy — when the shell
 ;; render throws (root-view throw), the per-request frame MUST still be
 ;; destroyed so its app-db + side-channel slots are released. Pin the
-;; composition the existing tests test independently.
+;; composition the other tests test independently.
 ;;
-;; rf2-r06pc — a root-view / shell-walk throw now fails closed on the
+;; A root-view / shell-walk throw fails closed on the
 ;; REQUEST thread (before the head commits + before any writer is
 ;; spawned): the shell-render catch arm projects a non-200 error page AND
-;; tears the frame down inline. So this is now a SYNCHRONOUS teardown on
+;; tears the frame down inline. So this is a SYNCHRONOUS teardown on
 ;; the request thread (no spawned-thread `finally` to wait on, no
-;; InputStream body to drain). The frame-no-leak contract is unchanged —
-;; only the mechanism moved earlier.
+;; InputStream body to drain).
 ;; ===========================================================================
 
 (deftest stream-handler-destroys-frame-when-shell-render-throws
-  (testing "rf2-u91hb / rf2-r06pc: when the shell render throws (root-view
+  (testing "when the shell render throws (root-view
             throw), the per-request frame's app-db / sub-cache / side-
-            channel slots MUST still be released. Post rf2-r06pc the
+            channel slots MUST still be released. The
             teardown happens INLINE on the request thread (the shell-
             render fail-closed catch arm), not in a spawned-thread
             finally — the throw never reaches a writer thread. Without
@@ -142,13 +136,13 @@
           ;; Frame ids BEFORE the request — baseline.
           baseline-fids (disj (rf.frame/frame-ids) :rf/default)
           response (handler {:uri "/" :request-method :get})]
-      ;; rf2-r06pc — the shell render threw on the request thread, so the
+      ;; The shell render threw on the request thread, so the
       ;; response is the projected non-200 error page (an ordinary String
       ;; body), NOT a streamed InputStream. The frame teardown already ran
       ;; inline by the time the handler returned.
       (is (= 500 (:status response))
           "root-view throw fails closed to a non-200 projected error page
-           on the request thread (rf2-r06pc)")
+           on the request thread")
       (is (not (instance? InputStream (:body response)))
           "no streamed InputStream body — the chunked response was never
            committed (the shell render failed before the head commit)")
@@ -160,10 +154,10 @@
                  (vec leaked)))))))
 
 ;; ===========================================================================
-;; Writer-failure PHASE context (rf2-l1qgjw issue 2)
+;; Writer-failure PHASE context
 ;; ===========================================================================
 ;;
-;; The writer-failed trace now names WHICH chunk phase was in flight when
+;; The writer-failed trace names WHICH chunk phase was in flight when
 ;; the post-commit write threw (`:phase`), the continuation `:boundary-id`
 ;; when the failure is inside a continuation drain, and a coarse
 ;; `:committed?`. These tests force DIFFERENT writer phases to throw and
@@ -219,7 +213,7 @@
          first)))
 
 (deftest writer-failed-trace-carries-distinct-phase-per-chunk
-  (testing "rf2-l1qgjw: forcing different writer chunks to throw produces
+  (testing "forcing different writer chunks to throw produces
             writer-failed traces with DISTINCT :phase tags (shell-prefix
             vs final-payload vs suffix), all marked :committed? true"
     (rf/reg-event :rf.test.phase/init
@@ -260,14 +254,14 @@
         (is (true? (-> ev :tags :committed?))
             ":committed? true on every writer phase (post-head-commit)")
         (is (= :truncate-and-close (:recovery ev))
-            ":recovery hoisted to top-level, unchanged"))
+            ":recovery hoisted to top-level as :truncate-and-close on every phase"))
       ;; No :boundary-id outside a continuation drain.
       (doseq [ev [prefix-ev final-ev suffix-ev]]
         (is (not (contains? (:tags ev) :boundary-id))
             "no :boundary-id tag outside a continuation phase")))))
 
 (deftest writer-failed-trace-carries-boundary-id-on-continuation-phase
-  (testing "rf2-l1qgjw: a write throw during a continuation drain tags the
+  (testing "a write throw during a continuation drain tags the
             trace :phase :continuation-template AND :boundary-id <id>, so
             ops correlate the failure to a specific deferred subtree"
     (rf/reg-event :rf.test.phase/init-sb
@@ -303,7 +297,7 @@
             ":committed? true — the continuation phase is post-head-commit")))))
 
 ;; ===========================================================================
-;; EP-0008 (rf2-hhutya) — the writer-failed record reaches the ALWAYS-ON
+;; EP-0008 — the writer-failed record reaches the ALWAYS-ON
 ;; register-error-listener! axis under production hardening (debug-off),
 ;; WITHOUT touching the wire (the chunked 200 is already committed —
 ;; NON-PROJECTING). The dev-trace pin above runs debug-ON; this is its
@@ -311,7 +305,7 @@
 ;; ===========================================================================
 
 (deftest hhutya-writer-failed-reaches-always-on-listener-under-debug-off
-  (testing "rf2-hhutya: when run-streaming-writer!'s catch arm absorbs a
+  (testing "when run-streaming-writer!'s catch arm absorbs a
             post-commit write throw under `interop/debug-enabled? = false`,
             it ALSO fans :rf.error/ssr-streaming-writer-failed out on the
             always-on register-error-listener! axis (alongside the dev
