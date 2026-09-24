@@ -2,14 +2,14 @@
   "The render-state contract for a NON-LOCAL renderer — the state a settled
   server frame hands to a renderer that does not share its heap (the Node
   sidecar in `implementation/ssr-node`), and the door that renderer uses to
-  seed a fresh frame of its own from it. Per Spec 011 §SSR and the
-  ssr-node crossing ruling (rf2-8arzr, shared contract S3).
+  seed a fresh frame of its own from it. Per Spec 011 §SSR and its
+  non-local renderer contract (the ssr-node crossing).
 
   ## Two partitions, the payload's envelope, a DISTINCT policy
 
   The projection is the frame's coherent frame-state — BOTH partitions —
-  in the SAME envelope the hydration payload already carries and the
-  client's `:rf/hydrate` already installs:
+  in the SAME envelope the hydration payload carries and the
+  client's `:rf/hydrate` installs:
 
       {:rf/app-db     {<top-level app-db key>     <value> …}
        :rf/runtime-db {<top-level runtime-db key> <value> …}}
@@ -32,7 +32,7 @@
   construction-time error — `:rf.error/ssr-missing-payload-policy`, the
   payload family's id reused with `:opt :render-state` in its ex-data —
   because a renderer that read the whole frame by default would be the
-  whole-app-db-by-accident egress the payload policy was written to
+  whole-app-db-by-accident egress the payload policy exists to
   prevent, one wire over.
 
   Or, for a projection the allowlist vocabulary cannot express, an escape
@@ -57,12 +57,12 @@
   route `:current` slice redact / elide their classified paths, the
   routing slice narrows to its durable `:current`, and the elision
   declaration registry is never carried (it is refused in the allowlist at
-  construction; rf2-ybn1yb). The rendered markup goes to the browser, so a
+  construction). The rendered markup goes to the browser, so a
   value the app classifies `:sensitive` is a value the render should not
   be able to print in the first place — projecting it here keeps the
   sidecar unable to — unless the host permits it, with the same
   `:payload-include-sensitive` permit the payload honours, so both halves
-  agree (rf2-hjz4r). The permit applies inside this policy's own app-db
+  agree. The permit applies inside this policy's own app-db
   allowlist; the fn escape hatch applies no classification and gets no
   permit (a projector wanting one calls the 3-arity itself).
 
@@ -90,8 +90,8 @@
   `{:rf/app-db {\":todos\" \"[…]\"} :rf/runtime-db {\":rf.runtime/routing\" \"{…}\"}}`,
   key text -> EDN text, so the sidecar can enforce its entry-owned
   allowlists WITHOUT decoding application data. `deserialize` is its
-  inverse under the bundled safe reader. The adapter (`re-frame.ssr.ring.node`,
-  slice D) names the JSON fields (`state` / `runtime`); this namespace
+  inverse under the bundled safe reader. The adapter (`re-frame.ssr.ring.node`)
+  names the JSON fields (`state` / `runtime`); this namespace
   keeps the envelope keys so both ends of the crossing speak the
   hydration payload's vocabulary.
 
@@ -103,8 +103,8 @@
   hydration concerns — no hydration metadata, no compatibility-check fxs,
   no machine timer re-arm, no resources reconcile (that hook orphans SSR
   owners and plans refetches: client semantics, wrong for a renderer that
-  must see exactly what the JVM saw). It is the framework's answer to the
-  gap `implementation/ssr-node/README.md` declined to close in a sidecar:
+  must see exactly what the JVM saw). It closes, in the framework, the
+  gap `implementation/ssr-node/README.md` leaves open in the sidecar:
   the install path is `re-frame.frame/replace-frame-state!`, the same
   explicit frame-state write surface epoch restore uses.
 
@@ -214,7 +214,7 @@
         (throw-malformed-policy!
           (str ":runtime-db names :rf.runtime/elision — the per-frame "
                "classification registry never crosses a wire (its keys are "
-               "classified paths; rf2-ybn1yb), and a renderer has no use for "
+               "classified paths), and a renderer has no use for "
                "it: the classified values are already projected here")
           render-state))
       opts)
@@ -307,7 +307,7 @@
 ;; is a synchronous call from application code whose caller can handle the
 ;; refusal, and half-projected markup for a dead frame is worse than a loud
 ;; one. Recorded on the `:rf.error/frame-destroyed` row of Spec 009
-;; §Error contract (rf2-t6yr) — do not "fix" this to recover.
+;; §Error contract — do not "fix" this to recover.
 (defn- require-live-frame! [frame-id]
   (when-not (rf.frame/frame frame-id)
     (rf.error/throw-error!
@@ -326,8 +326,8 @@
         app-slice  (if (seq app-keys)
                      ;; Allowlist FIRST, then the frame-scoped egress walk over
                      ;; the survivors, exactly as the payload builder orders it
-                     ;; — the host's permit included, inside THIS allowlist
-                     ;; (rf2-hjz4r), so the render and the payload agree.
+                     ;; — the host's permit included, inside THIS allowlist,
+                     ;; so the render and the payload agree.
                      (rf.ssr.payload-policy/project-app-db-egress
                        (select-keys app-db app-keys) frame-id permits)
                      {})
