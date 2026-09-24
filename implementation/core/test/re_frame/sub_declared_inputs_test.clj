@@ -1,7 +1,7 @@
 (ns re-frame.sub-declared-inputs-test
   "Tests for DECLARED subscription inputs — `(reg-sub id {:inputs …} body)`
-  (rf2-kuky.46; ruled on rf2-kuky.45; Spec 006 §Subscription input producers,
-  Spec 008 §`compute-sub` algorithm, API §`reg-sub` `:inputs`).
+  (Spec 006 §Subscription input producers, Spec 008 §`compute-sub` algorithm,
+  API §`reg-sub` `:inputs`).
 
   A subscription declares its dependencies ONCE, in the metadata map, and a
   declared dependency list ALWAYS reaches the body as a VECTOR — at zero, one
@@ -11,8 +11,8 @@
 
   Coverage:
     - parser: literal / fn / Var / `[]` accepted; malformed literals, an
-      explicit `nil`, and over-specification with the retired `:<-` or a second trailing
-      fn all raise `:rf.error/reg-sub-bad-args` AT REGISTRATION
+      explicit `nil`, and over-specification with a `:<-` chain or a second
+      trailing fn all raise `:rf.error/reg-sub-bad-args` AT REGISTRATION
     - `:inputs` is a KNOWN registration key (no unknown-key warning) and is
       LIFTED, never stored twice — `handler-meta` carries the runtime-owned
       slots and no `:inputs`
@@ -22,14 +22,14 @@
       `subscribe-once`, pure `compute-sub`) for 0 / 1 / N inputs and for map,
       vector and nil upstream values
     - the SAME body under `{:inputs [[:a]]}` and `{:inputs (fn [_] [[:a]])}`
-      returns the same value on every path (the second reviewer's acceptance)
-    - single-source readers (`:db` / `:runtime-db` / `:frame-state`) still
+      returns the same value on every path
+    - single-source readers (`:db` / `:runtime-db` / `:frame-state`)
       receive their bare CONTAINER value — the delivery collapse is
       \"single-source kind → container; declared dependencies → vector\", not
       \":db → db; else → vector\"
     - `sub-topology` reports a literal declaration as `:static` with its edges
       and a producer as the `:parametric` sentinel
-    - the retired `:<-` chain and two-fn tail are refused at registration"
+    - the `:<-` chain and two-fn tail are refused at registration"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.subs :as rf.subs]
@@ -141,7 +141,7 @@
            (reg-sub-error :x {:inputs nil} (fn [db _] db))))))
 
 (deftest inputs-cannot-be-combined-with-the-transitional-grammars
-  (testing "`:inputs` beside the retired `:<-` chain or a second trailing fn is refused"
+  (testing "`:inputs` beside a `:<-` chain or a second trailing fn is refused"
     (rf/reg-sub :a (fn [db _] (:a db)))
     (is (= :rf.error/reg-sub-bad-args
            (reg-sub-error :x {:inputs [[:a]]} :<- [:a] (fn [in _] in))))
@@ -149,7 +149,7 @@
            (reg-sub-error :x {:inputs [[:a]]} (fn [_] [[:a]]) (fn [in _] in))))))
 
 (deftest inputs-with-no-computation-fn-is-refused
-  (testing "`:inputs` still requires exactly one trailing computation fn"
+  (testing "`:inputs` requires exactly one trailing computation fn"
     (is (= :rf.error/reg-sub-bad-args (reg-sub-error :x {:inputs [[:a]]})))
     (is (= :rf.error/reg-sub-bad-args (reg-sub-error :x {:inputs [[:a]]} :not-a-fn)))))
 
@@ -170,9 +170,8 @@
 ;; however the vocabulary is spelled. `lower-inline-sub` normalizes the RAW
 ;; metadata and lifts AFTER, so `:inputs` IS present at the check there — the
 ;; inline path is the only one where the `:sub` vocabulary entry is load-
-;; bearing. Verified by planting the removal of `:inputs` from
-;; `reg-meta/known-bare-keys`: the public-path form passed unchanged; the
-;; inline form below goes red.
+;; bearing. With `:inputs` removed from `reg-meta/known-bare-keys`, the
+;; public-path form would still pass while the inline form below goes red.
 (deftest ^:requires-debug inputs-is-a-known-registration-key
   (testing "`:inputs` does not warn as an unknown registration key"
     (let [acc     (atom [])
@@ -197,7 +196,7 @@
         ;; that never fired.
         (reset! acc [])
         (rf.subs/lower-inline-sub :typo {:inpts [[:a]]} (fn [db _] db))
-        (is (warned?) "control: an unknown bare key still warns")
+        (is (warned?) "control: an unknown bare key does warn")
         (finally (rf.trace.tooling/unregister-listener! ::inputs-warnings))))))
 
 (deftest a-literal-declaration-does-not-require-its-upstream-to-exist-yet
@@ -313,7 +312,7 @@
       (rf/unsubscribe [:doubled]))))
 
 (deftest a-declared-input-node-memoises-on-an-equal-upstream-value
-  (testing "the single-declared-input specialisation still short-circuits on an
+  (testing "the single-declared-input specialisation short-circuits on an
             `=`-equal upstream value — `[v0]` delivery does not cost the memo hit"
     (let [runs (atom 0)]
       (rf/reg-sub :n (fn [db _] (:n db)))
@@ -335,7 +334,7 @@
 (deftest single-source-readers-still-receive-their-container-value
   (testing "`:db` / `:runtime-db` / `:frame-state` bodies receive the CONTAINER
             value, not a vector — the collapse is by single-source KIND, not
-            by \"anything that is not :db\" (rf2-kuky.45 correction 1)"
+            by \"anything that is not :db\""
     (rf/reg-sub :app-reader (fn [db _] {:seen db}))
     (rf.subs/reg-runtime-sub :runtime-reader (fn [rdb _] {:runtime-map? (map? rdb)}))
     (rf.subs/reg-frame-state-sub :frame-reader
@@ -347,7 +346,7 @@
       (is (= {:runtime-map? true} (rf/subscribe-once [:runtime-reader])))
       (is (= #{:rf.db/app :rf.db/runtime}
              (:partitions (rf/subscribe-once [:frame-reader])))
-          "a `:frame-state` body still receives the WHOLE frame-state value")
+          "a `:frame-state` body receives the WHOLE frame-state value")
       (let [frame-state {:rf.db/app db :rf.db/runtime {}}]
         (is (= #{:rf.db/app :rf.db/runtime}
                (:partitions (rf.subs/compute-sub [:frame-reader] frame-state))))
@@ -372,13 +371,13 @@
       (is (= {:input-kind :static :inputs []} (edge :zero)))
       (is (= {:input-kind :db :inputs []} (edge :a))))))
 
-;; ---- the retired grammars are REFUSED at registration ---------------------
+;; ---- the `:<-` and two-fn grammars are REFUSED at registration ------------
 ;;
-;; rf2-kuky.50 deleted the v1 declared-input chain and the two-trailing-fn `input-fn`
-;; tail. Both now raise `:rf.error/reg-sub-bad-args` whose message names
-;; `:inputs` and the migration rule, so a call site the sweep missed fails
-;; LOUDLY at namespace load rather than registering with a delivery shape the
-;; runtime no longer has an arm for.
+;; There is no v1 declared-input chain and no two-trailing-fn `input-fn` tail.
+;; Both raise `:rf.error/reg-sub-bad-args` whose message names `:inputs` and
+;; the migration rule, so an old-style call site fails LOUDLY at namespace
+;; load rather than registering with a delivery shape the runtime has no arm
+;; for.
 
 (defn- reg-sub-refusal
   "Register `args` and return the refusal `:reason` string it raised, or
@@ -390,7 +389,7 @@
          (:reason (ex-data e)))))
 
 (deftest the-retired-spellings-are-refused-naming-inputs-and-the-migration-rule
-  (testing "each retired shape raises reg-sub-bad-args, named and actionable"
+  (testing "each refused shape raises reg-sub-bad-args, named and actionable"
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (doseq [[label args]
@@ -413,11 +412,11 @@
       (is (nil? (rf.registrar/lookup :sub (first args)))
           (str label " was never registered")))))
 
-;; ---- delivery agrees on all three paths, with the bare arms gone ----------
+;; ---- delivery agrees on all three paths, with no bare arms ----------------
 
 (deftest declared-inputs-deliver-a-vector-at-zero-one-and-many
   (testing "reactive / subscribe-once / compute-sub agree, and every declared
-            count arrives as a VECTOR — there is no bare-for-one arm left"
+            count arrives as a VECTOR — there is no bare-for-one arm"
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :zero  {:inputs []}           (fn [in _] {:seen in}))
@@ -450,12 +449,12 @@
       (seed! db)
       (is (= {:reactive {:seen db} :once {:seen db} :compute {:seen db}}
              (read-three-ways [:db/seen] db))
-          "a layer-1 reader still receives the bare app-db value")
+          "a layer-1 reader receives the bare app-db value")
       (let [rt (rf.frame/frame-runtime-db-value :rf/default)]
         (is (= {:reactive {:seen rt} :once {:seen rt} :compute {:seen rt}}
                (read-three-ways [:rt/seen] rt))
-            "a :runtime-db reader still receives the bare runtime-db value"))
+            "a :runtime-db reader receives the bare runtime-db value"))
       (let [fs @(rf.frame/frame-state-container :rf/default)]
         (is (= {:reactive {:seen fs} :once {:seen fs} :compute {:seen fs}}
                (read-three-ways [:fs/seen] fs))
-            "a :frame-state reader still receives the whole frame-state value")))))
+            "a :frame-state reader receives the whole frame-state value")))))
