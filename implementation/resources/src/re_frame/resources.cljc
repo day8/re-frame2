@@ -26,8 +26,8 @@
 
   The registrations live HERE (not in the siblings) so a
   `(require 're-frame.resources :reload)` on a fresh registrar
-  (`clear-all!` test fixture) re-wires every handler — the long-
-  established consumer-test pattern, mirroring `re-frame.routing` /
+  (`clear-all!` test fixture) re-wires every handler — the consumer-test
+  pattern, mirroring `re-frame.routing` /
   `re-frame.machines`.
 
   ## Optionality + bundle isolation
@@ -70,13 +70,10 @@
             ;; published on BOTH runtimes whenever resources is loaded — the
             ;; epoch tool-pair consults it on every off-box record projection.
             [re-frame.resources.trace-egress :as rf.resources.trace-egress]
-            ;; No require of `re-frame.resources.tooling` on EITHER runtime
-            ;; (rf2-kuky.86). The JVM-only require existed solely to back the
-            ;; `resource-algebra-view` / `resource-cache-algebra-view` facade
-            ;; aliases; those are retired, so the facade now reaches the
-            ;; bundle-isolated tooling sibling on neither runtime. JVM tools
-            ;; and conformance fixtures name `re-frame.resources.tooling/<name>`
-            ;; directly, as CLJS consumers already did.
+            ;; No require of `re-frame.resources.tooling` on EITHER runtime:
+            ;; the facade reaches the bundle-isolated tooling sibling on
+            ;; neither runtime. JVM tools, CLJS consumers and conformance
+            ;; fixtures name `re-frame.resources.tooling/<name>` directly.
             [re-frame.resources.work-ledger :as rf.resources.work-ledger]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -87,22 +84,22 @@
 ;; bridge, conformance, tests, examples) see one surface.
 
 (def reg-resource    rf.resources.registry/reg-resource)
-;; rf2-kuky.80: no public `clear-resource` re-export here — the registrar inverse
-;; is the one kind-keyed `(rf/clear :resource id)`. The registry fn below stays as
+;; No public `clear-resource` re-export here — the registrar inverse
+;; is the one kind-keyed `(rf/clear :resource id)`. The registry fn below is
 ;; the late-bind hook target.
-;; rf2-kuky.31: no `resource-meta` / `resource-ids` re-exports here. The
-;; registrar grammar every tool already speaks IS the introspection surface:
+;; No `resource-meta` / `resource-ids` re-exports here. The
+;; registrar grammar every tool speaks IS the introspection surface:
 ;;   (keys (rf/registrations {:source :store :kind :resource}))
 ;;   (:rf/resource (rf/handler-meta {:source :store :kind :resource :id id}))
-;; `rf.resources.registry/resource-meta` survives as the artefact's own
+;; `rf.resources.registry/resource-meta` is the artefact's own
 ;; shorthand for that projection; it is not a public name.
 
-;; rf2-kuky.86: no `resource-algebra-view` / `resource-cache-algebra-view`
+;; No `resource-algebra-view` / `resource-cache-algebra-view`
 ;; facade aliases. The derivation/process algebra views of registered
 ;; resources (static) and of a frame's live cache entries (live) — a resource
 ;; being the canonical PROCESS member of the algebra (Derivations §Process) —
 ;; ship NO public accessor (Derivations §Resources expose process nodes). The
-;; bodies stay in the bundle-isolated `re-frame.resources.tooling`, which every
+;; bodies live in the bundle-isolated `re-frame.resources.tooling`, which every
 ;; consumer requires directly: Xray and the conformance fixtures statically,
 ;; `re-frame.derivation.graph` through `requiring-resolve` on the JVM. No
 ;; `re-frame.core` facade export either.
@@ -112,10 +109,10 @@
 ;; transport the resources use, with success-time resource invalidation /
 ;; patch / populate; `clear-mutation` is the registration-lifecycle removal.
 (def reg-mutation    rf.resources.mutation-registry/reg-mutation)
-;; rf2-kuky.80: no public `clear-mutation` re-export here — the registrar inverse
-;; is the one kind-keyed `(rf/clear :mutation id)`. The registry fn below stays as
+;; No public `clear-mutation` re-export here — the registrar inverse
+;; is the one kind-keyed `(rf/clear :mutation id)`. The registry fn below is
 ;; the late-bind hook target.
-;; rf2-kuky.31: no `mutation-meta` / `mutation-ids` re-exports here — the
+;; No `mutation-meta` / `mutation-ids` re-exports here — the
 ;; generic registrar read plus the `:rf/mutation` inner-key projection:
 ;;   (keys (rf/registrations {:source :store :kind :mutation}))
 ;;   (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id id}))
@@ -133,11 +130,11 @@
 ;; resolution boundaries (`{:from-db ...}` scope, route entry, mutation
 ;; settle), per Spec 016 §Named resource-scope resolvers.
 (def reg-resource-scope     rf.resources.scope-registry/reg-resource-scope)
-;; rf2-kuky.80: no public `clear-resource-scope` re-export here — the registrar inverse
-;; is the one kind-keyed `(rf/clear :resource-scope id)`. The registry fn below stays as
+;; No public `clear-resource-scope` re-export here — the registrar inverse
+;; is the one kind-keyed `(rf/clear :resource-scope id)`. The registry fn below is
 ;; the late-bind hook target.
 (def resolve-resource-scope rf.resources.scope-registry/resolve-resource-scope)
-;; rf2-kuky.31: no `scope-resolver-meta` / `scope-resolver-ids` re-exports —
+;; No `scope-resolver-meta` / `scope-resolver-ids` re-exports —
 ;;   (keys (rf/registrations {:source :store :kind :resource-scope}))
 ;;   (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id id}))
 
@@ -174,7 +171,7 @@
        :extra    {:opts (dissoc opts :frame)}}))
   (let [;; A live frame VALUE is accepted wherever its id is (Spec 002):
         ;; normalize it to the id both frame readers below are keyed by, or a
-        ;; value would read a live entry as a silent nil (rf2-ym12).
+        ;; value would read a live entry as a silent nil.
         frame      (rf.frame/frame-target->id frame)
         ;; A `{:from-db <id>}` scope on the introspection target resolves
         ;; against the frame's app-db value (the same db the
@@ -214,7 +211,7 @@
            ":frame <frame-id>}. Per Spec 016 §Mutations.")
       {:recovery :pass-frame
        :extra    {:opts (dissoc opts :frame)}}))
-  (let [;; A live frame VALUE reads the same row as its id (rf2-ym12), exactly
+  (let [;; A live frame VALUE reads the same row as its id, exactly
         ;; as in `resource-state` above.
         runtime-db (rf.frame/frame-runtime-db-value (rf.frame/frame-target->id frame))]
     (get-in runtime-db (rf.resources.mutation-runtime/instance-path instance))))
@@ -300,7 +297,7 @@
 (rf.fx/reg-fx :rf.resource/cancel-poll-timers
            rf.resources.timers/cancel-poll-timers-meta
            rf.resources.timers/cancel-poll-timers-handler)
-;; Client hydration timer rearm (rf2-omahf, rf2-2ojds). Emitted by the
+;; Client hydration timer rearm. Emitted by the
 ;; `:rf/hydrate` handler, gated on the `:resources/rearm-after-hydration!` hook's
 ;; presence, so it runs AFTER the payload's runtime-db has committed:
 ;; `commit-frame-effects!` installs both partitions before `run-fx-effects!`
@@ -317,8 +314,8 @@
     nil))
 
 ;; A time-consuming resource / mutation handler DECLARES the
-;; framework-stamped causal-time fact `:rf/time-ms` via `:rf.cofx/requires`
-;; through `:rf.cofx/requires`. Under declared-only delivery the runtime stages
+;; framework-stamped causal-time fact `:rf/time-ms` via `:rf.cofx/requires`.
+;; Under declared-only delivery the runtime stages
 ;; EXACTLY the facts a handler declares, FLAT in the coeffects map — nothing
 ;; implicit, including `:rf/time-ms` (re-frame.cofx ns docstring; the router
 ;; stamps it on the dispatch envelope's `:rf.cofx`, but the handler only
@@ -406,7 +403,7 @@
                      framework-authority-meta
                      (rf.resources.events/with-classification-lowering
                        rf.resources.events/adopt-route-owner-handler))
-;; rf2-y8jjk — the release-side twin of `adopt-owner`: release an owner from a
+;; The release-side twin of `adopt-owner`: release an owner from a
 ;; SUBSET of the identities it holds. Dispatched by the route planner on a
 ;; same-token REPLAN (`:rf.route/replan-resources`) for exactly the identities
 ;; the new plan dropped, ordered AFTER the attach fx; clears no route slot (the
@@ -416,10 +413,10 @@
                      framework-authority-meta
                      (rf.resources.events/with-classification-lowering
                        rf.resources.events/release-owner-identities-handler))
-;; rf2-x76af2.14 — clear-scope / remove settle in-flight work rows terminal
+;; Clear-scope / remove settle in-flight work rows terminal
 ;; `:cancelled`, and a cancellation is a COMPLETION: its terminal outcome carries
 ;; the event's causal `:completed-at` (from the declared-flat `:rf/time-ms`),
-;; symmetric with every reply-driven cancellation (rf2-rl27r2). Declare
+;; symmetric with every reply-driven cancellation. Declare
 ;; `time-meta` (framework-authority + the `:rf/time-ms` cofx) so the causal time
 ;; is delivered flat and the handler can stamp it onto the cancelled work row.
 (rf.events/reg-event :rf.resource/clear-scope
@@ -529,10 +526,10 @@
 ;; reply/lifecycle handlers — a `:populates` can CREATE a brand-new registered-
 ;; resource entry the elision registry never lowered a declaration for, so
 ;; without the reconcile the per-frame registry drifts out of step with
-;; `:entries` and a fine-grained-classified field would ride egress verbatim
-;; (rf2-x76af2.13). The reconcile is idempotent + value-independent, so it is
-;; safe to add and rides unchanged when a handler makes no durable write.
-;; rf2-825mzj — the mutation INSTANCE-mutating handlers ALSO lower each live
+;; `:entries` and a fine-grained-classified field would ride egress verbatim.
+;; The reconcile is idempotent + value-independent, so it is
+;; safe on every handler and rides unchanged when a handler makes no durable write.
+;; The mutation INSTANCE-mutating handlers ALSO lower each live
 ;; instance's owner-declared projection-relative `:sensitive` / `:large`
 ;; classification into the per-frame elision registry (under `:source :mutation`,
 ;; via `with-mutation-classification-lowering`), so a `:sensitive [[:params
@@ -563,11 +560,11 @@
                      (rf.resources.events/with-classification-lowering
                        (with-mutation-classification-lowering
                          rf.resources.mutation-events/execute-handler)))
-;; rf2-pk4i6.1#6 — `:rf.mutation/clear` settles the cleared instances' in-flight
+;; `:rf.mutation/clear` settles the cleared instances' in-flight
 ;; work rows terminal `:cancelled`, and a cancellation is a COMPLETION, so it
 ;; declares the causal `:rf/time-ms` for their `:completed-at` exactly as the
-;; resource-side `:rf.resource/clear-scope` / `:rf.resource/remove` siblings do
-;; (rf2-x76af2.14). Declared-only delivery: without this the handler would not
+;; resource-side `:rf.resource/clear-scope` / `:rf.resource/remove` siblings
+;; do. Declared-only delivery: without this the handler would not
 ;; SEE the framework-stamped fact at all.
 (rf.events/reg-event :rf.mutation/clear
                      time-meta
@@ -591,9 +588,9 @@
 ;; Passive mutation subs. Per Spec 016 §Mutations.
 (rf.resources.mutation-subs/register-subs!)
 
-;; rf2-3ej3xu — the dispatched-event trace projection for
+;; The dispatched-event trace projection for
 ;; `[:rf.mutation/execute …]`. The execute payload's classification lives on
-;; the MUTATION spec named INSIDE the args (per-owner, the SAME rf2-825mzj
+;; the MUTATION spec named INSIDE the args (per-owner, the SAME
 ;; declaration surface the durable instance + continuation reply read), not on
 ;; the `:rf.mutation/execute` event registration, so the core event-vector
 ;; projection chokepoint (`re-frame.classification/redact-event-by-registration`)
@@ -643,9 +640,8 @@
 
 (rf.late-bind/set-fn! :resources/on-frame-destroyed! release-resources-host-caches!)
 
-;; Revalidation is a FRAME PROPERTY, like URL ownership (rf2-kuky.33,
-;; following routing's `:url-bound?` fold — rf2-g8pbwg, API-shrink #6). The
-;; frame's `:revalidate-on` config key — a set drawn from the closed enum
+;; Revalidation is a FRAME PROPERTY, like routing's `:url-bound?` URL
+;; ownership. The frame's `:revalidate-on` config key — a set drawn from the closed enum
 ;; `#{:focus :reconnect}` — is honoured by the frame (re-)registration
 ;; lifecycle: this hook fires at the END of BOTH `upsert-frame!` branches,
 ;; AFTER the container is live and `:initial-events` ran, so the listeners a
@@ -692,7 +688,7 @@
    ;; late-bind table so `re-frame.core`'s `reg-mutation` / `clear-mutation`
    ;; / `mutation-state` wrappers reach the producing impl without a
    ;; static :require. There are no `:resources/resource-meta` /
-   ;; `:resources/mutation-meta` hooks (rf2-kuky.31): the registered spec is
+   ;; `:resources/mutation-meta` hooks: the registered spec is
    ;; read through the generic `rf/handler-meta` plus the `:rf/resource` /
    ;; `:rf/mutation` inner-key projection, which needs no artefact at all.
    :resources/reg-mutation   reg-mutation
@@ -727,8 +723,8 @@
    ;; reaches it without a static :require on resources.
    :resources/project-resource-trace-egress
    rf.resources.trace-egress/project-resource-trace-egress
-   ;; The same owner classification, reached by SLOT rather than by op
-   ;; (rf2-1kiuj). An `ensure` lowers into effects that address the work BY its
+   ;; The same owner classification, reached by SLOT rather than by op.
+   ;; An `ensure` lowers into effects that address the work BY its
    ;; scoped key, so the family's keys ride `:rf.fx/args` / `:rf.event/fx` on
    ;; `:rf.fx/*` / `:rf.error/*` rows — which the namespace routing above never
    ;; reaches, and which the app-db-rooted walk cannot classify. The epoch
