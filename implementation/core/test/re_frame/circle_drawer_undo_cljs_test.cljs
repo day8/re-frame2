@@ -1,13 +1,13 @@
 (ns re-frame.circle-drawer-undo-cljs-test
   "Behavioural contract for the Circle Drawer example's undo/redo engine
-  (`seven-guis.circle-drawer.core` — rf2-r5rsgz). The 7GUIs undo/redo
+  (`seven-guis.circle-drawer.core`). The 7GUIs undo/redo
   challenge keeps history-as-data via a single `:drawer/undoable`
-  interceptor plus sibling `:drawer/undo` / `:drawer/redo` events; before
-  this test only its ns-load schema-scoping was covered
-  (`re-frame.example-frame-scoping-cljs-test`), never the actual behaviour.
+  interceptor plus sibling `:drawer/undo` / `:drawer/redo` events;
+  `re-frame.example-frame-scoping-cljs-test` covers only its ns-load
+  schema-scoping, and this namespace covers the behaviour.
 
-  Why HERE and not under examples/: the example tree is test-free
-  (rf2-8cevm), and the entry ns is a Reagent-coupled `.cljs`-only namespace.
+  Why HERE and not under examples/: the example tree is test-free,
+  and the entry ns is a Reagent-coupled `.cljs`-only namespace.
   Requiring it under the consolidated `:node-test` build fires its ns-load
   `reg-interceptor` / `reg-event` forms; we then drive the real handlers with
   `dispatch-sync` — the same posture as the sibling example tests.
