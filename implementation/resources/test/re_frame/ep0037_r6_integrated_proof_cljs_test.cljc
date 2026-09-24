@@ -30,10 +30,10 @@
   enough surface to exercise a parent/leaf branch, a guard, a link and an SSR
   round trip. Extra pages would add wall-clock, not evidence.
 
-  Beyond the six, the file closes integration arms no per-slice suite reaches,
-  because they only exist BETWEEN slices:
+  Beyond the six, the file closes integration arms no per-row suite reaches,
+  because they only exist BETWEEN rows:
 
-    * DOOR PARITY over the effective plan (row 2). The per-slice suites prove
+    * DOOR PARITY over the effective plan (row 2). The per-row suites prove
       cause-parametric targets for a resource-FREE route, and branch
       composition through one door. That five doors produce the same branch
       AND the same resource identity set is proven by `every-door-plans-the-
@@ -470,7 +470,7 @@
 ;; ===========================================================================
 ;; Door parity over the EFFECTIVE plan (row 2)
 ;;
-;;     The per-slice suites prove cause-parametric targets for a resource-free
+;;     The per-row suites prove cause-parametric targets for a resource-free
 ;;     route (routing_plan_seam_test) and branch composition through ONE door
 ;;     (resources_route_cljs_test). Neither proves that FIVE doors agree on the
 ;;     branch AND on the resource identity set — the integration claim.
