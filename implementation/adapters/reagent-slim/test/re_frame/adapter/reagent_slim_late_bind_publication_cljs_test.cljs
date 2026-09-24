@@ -1,6 +1,6 @@
 (ns re-frame.adapter.reagent-slim-late-bind-publication-cljs-test
-  "Per rf2-swoks - pin the late-bind hook list the Reagent Slim adapter
-  publishes at ns-load time. A future refactor that adds, removes, or
+  "Pin the late-bind hook list the Reagent Slim adapter
+  publishes at ns-load time. A refactor that adds, removes, or
   renames a hook trips this test.
 
   The Reagent Slim adapter publishes via two mechanisms:
@@ -14,7 +14,7 @@
         `:adapter/make-reaction`, `:adapter/add-on-dispose!`,
         `:adapter/dispose!`, `:adapter/reactive?`,
         `:adapter/after-render`, `:adapter/derived-container?`, and
-        `:adapter/arm-hiccup-emitter-if-unarmed!` (rf2-h9szm — the
+        `:adapter/arm-hiccup-emitter-if-unarmed!` (the
         routed, precedence-safe install-replay arm for the SSR emitter).
 
     (2) `late-bind/chain-fn!` - chained hooks where every contributor
@@ -37,7 +37,7 @@
   "Every late-bind hook the Reagent Slim adapter publishes at ns-load."
   #{:adapter/current-frame
     :adapter/current-component
-    ;; rf2-7ds8 — reagent2's own hiccup → React element walk, published by
+    ;; reagent2's own hiccup → React element walk, published by
     ;; the ratom family alone. The twin of `:adapter/current-component`
     ;; directly above it: a caller that crosses a hiccup island into React
     ;; with some OTHER ratom build's walk gets a subtree rendered by that
@@ -47,13 +47,13 @@
     :adapter/ratom
     :adapter/ratom?
     :adapter/make-reaction
-    ;; rf2-8cnxg — push-path activation for a `make-derived-value` result,
+    ;; Push-path activation for a `make-derived-value` result,
     ;; published by the ratom family alone (`reagent2.ratom/activate!`).
     :adapter/activate-derived-value!
     :adapter/add-on-dispose!
     :adapter/dispose!
     :adapter/reactive?
-    ;; rf2-ty246 — the reaction currently capturing derefs, i.e. the IDENTITY
+    ;; The reaction currently capturing derefs, i.e. the IDENTITY
     ;; behind `:adapter/reactive?`'s boolean. `re-frame.subs` holds ONE
     ;; reference per (owning reaction, cache slot) and releases it on that
     ;; owner's dispose, so it needs the owner itself and not merely the fact
@@ -82,9 +82,9 @@
        set))
 
 (deftest reagent-slim-adapter-publishes-expected-hook-set
-  (testing "rf2-swoks: every hook key the Reagent Slim adapter publishes
+  (testing "Every hook key the Reagent Slim adapter publishes
             at ns-load is registered in the late-bind table after the
-            adapter ns has loaded. A future refactor that drops or
+            adapter ns has loaded. A refactor that drops or
             renames a hook trips this test."
     (doseq [k expected-hook-keys]
       (is (some? (rf.late-bind/get-fn k))
@@ -92,7 +92,7 @@
                " through the late-bind hook table at ns-load")))))
 
 (deftest reagent-slim-adapter-hooks-cross-checked-against-directory
-  (testing "rf2-swoks: the Reagent Slim adapter's expected hook set is
+  (testing "The Reagent Slim adapter's expected hook set is
             exactly the set listed in the authoritative late-bind
             directory (`re-frame.late-bind.directory/hooks`)."
     (is (= expected-hook-keys
