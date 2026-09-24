@@ -2,16 +2,15 @@
   "Pins the reagent-slim adapter's `dispose-adapter!` four-MUST list
   items 2 (release host-specific resources: drain active React roots)
   and 3 (discard internal caches: clear the hiccup-emitter) — Spec 006
-  §Adapter disposal lifecycle, rf2-7v82h.
+  §Adapter disposal lifecycle.
 
-  Before rf2-7v82h the slim adapter's `dispose-adapter!` only ran the
-  per-frame sub-cache walk (MUST 1); it never tracked active React
-  roots and never cleared the SSR hiccup-emitter, so an
+  A `dispose-adapter!` that ran only the per-frame sub-cache walk
+  (MUST 1), never tracking active React roots and never clearing the SSR
+  hiccup-emitter, would let an
   `init! → render → dispose-adapter!` cycle (test fixtures, hot-reload,
-  SSR string-serialise without mount) left React roots mounted and the
-  installed emitter alive across teardown. The Reagent adapter already
-  honoured both MUSTs (reagent.cljs:100-137); this brings slim to
-  parity.
+  SSR string-serialise without mount) leave React roots mounted and the
+  installed emitter alive across teardown. The Reagent adapter honours
+  both MUSTs too; this file pins them for slim.
 
   Strategy mirrors `re-frame.adapter-render-cljs-test`: spy on
   `reagent2.dom.client`'s create-root / render / unmount via
@@ -60,7 +59,7 @@
 
 (deftest dispose-adapter-drains-stranded-active-roots
   (testing "dispose-adapter! unmounts every root mounted-but-not-unmounted
-            (the headless / hot-reload path) — rf2-7v82h MUST 2"
+            (the headless / hot-reload path) — MUST 2"
     (let [unmount-calls (atom [])
           root-a        (make-fake-root :a)
           root-b        (make-fake-root :b)
@@ -95,7 +94,7 @@
 (deftest dispose-adapter-does-not-double-unmount-explicitly-unmounted-roots
   (testing "a root whose unmount thunk already fired is removed from the
             active set, so dispose-adapter! does NOT unmount it again
-            — rf2-7v82h MUST 2 (the thunk disj's itself before unmount)"
+            — MUST 2 (the thunk disj's itself before unmount)"
     (let [unmount-calls (atom [])
           root-live     (make-fake-root :live)
           root-gone     (make-fake-root :gone)
@@ -123,8 +122,8 @@
 
 (deftest dispose-adapter-tolerates-throwing-root
   (testing "one root whose unmount throws does not strand the rest of
-            the drain — rf2-7v82h MUST 2 (per-root try/catch) — and the
-            failure is then rethrown rather than discarded (rf2-ss8x)"
+            the drain — MUST 2 (per-root try/catch) — and the
+            failure is then rethrown rather than discarded"
     (let [unmount-calls (atom [])
           sentinel      (ex-info "boom" {:root :bad})
           bad-root      (make-fake-root :bad)
@@ -162,7 +161,7 @@
 (deftest dispose-adapter-clears-hiccup-emitter
   (testing "dispose-adapter! resets the SSR hiccup-emitter to nil so the
             installed fn (which captures re-frame.ssr state) does not
-            survive teardown — rf2-7v82h MUST 3"
+            survive teardown — MUST 3"
     ;; Install an emitter and prove render-to-string resolves it.
     (rf.adapter.reagent-slim/set-hiccup-emitter!
       (fn [tree _opts] (str "EMITTED:" (pr-str tree))))
