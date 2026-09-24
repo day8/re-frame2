@@ -6,13 +6,12 @@
   pass, a declared `:fallback` stands in its place, and React's own
   post-hydration pass swaps it for the foreign component. That is a real,
   user-visible transition on every hydrated Fresco page carrying a
-  client-only crossing — and until this suite existed, nothing in the
-  instrumentation stream said it had happened. The debugging question
-  *is this region showing its fallback or its live subtree?* had no
-  answer.
+  client-only crossing, and `:rf.ssr/host-adopted` is what says in the
+  instrumentation stream that it happened — the answer to the debugging
+  question *is this region showing its fallback or its live subtree?*
 
-  It has one now, and these rows pin the properties that make it worth
-  having rather than noise.
+  These rows pin the properties that make it worth having rather than
+  noise.
 
   ## The claims
 
@@ -46,13 +45,12 @@
   Adoption is React's own business: `adopted?` answers `false` from its
   SERVER snapshot and `true` from its client one, and only a real client
   renderer over a real document ever moves between them. Node has no
-  document, so a Node-only suite could asserts nothing but absences —
-  and an absence-only suite is exactly what let the first draft of this
-  mechanism ship broken. (It did: the crossing cell's transitions were
-  guarded with `identical?` on keyword literals, which is `false` in a
-  dev build, so the trace never fired at all while every no-trace row
-  stayed green. [[re-frame.fresco.impl.codec/mint-adoption-crossing]]
-  carries the post-mortem.)
+  document, so a Node-only suite could assert nothing but absences —
+  and an absence-only suite stays green over a trace that never fires.
+  (A crossing cell guarded with `identical?` on keyword literals, which
+  is `false` in a dev build, is exactly that: every no-trace row green,
+  and the trace silent. [[re-frame.fresco.impl.codec/mint-adoption-crossing]]
+  says why the cell is two booleans instead.)
 
   So rows 2 and 3 drive the REAL gate, the REAL crossing cell and the
   REAL emit through `renderToString`, stubbing only `adopted?` — the one
@@ -180,9 +178,8 @@
   (let [host (mint! "crossing-chart")
         page [:div
               ;; TWO sites of ONE declaration. The grain claim is not
-              ;; decoration: the retired predecessor was root-scoped
-              ;; because the substrate that emitted it was, and fresco's
-              ;; is per-declaration. A per-SITE implementation passes
+              ;; decoration: fresco's announcement is per-declaration,
+              ;; neither per-root nor per-site. A per-SITE implementation passes
               ;; every other assertion in this file and fails this one.
               [host {:label "revenue"}]
               [host {:label "costs"}]]
