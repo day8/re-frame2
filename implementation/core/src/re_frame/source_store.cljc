@@ -1,18 +1,17 @@
 (ns re-frame.source-store
   "The provenance-preserving registration source store (EP-0023 §Registration
-  Source Store, the foundation slice rf2-32siq3.2).
+  Source Store).
 
   ## Why a source store exists
 
-  Spec 001's historical registrar is a `(kind, id) → descriptor` resolver map:
+  The Spec 001 registrar is a `(kind, id) → descriptor` resolver map:
   the *last* `reg-*` for a `(kind, id)` clobbers any earlier one, regardless of
   which namespace authored it. That last-write-wins rule is correct for the
   hot-reload case (a namespace re-evaluates and replaces its own registration)
   but wrong for the image-isolation case (two surfaces both register
   `[:event :boot/init]` with different meanings) — it silently drops one.
 
-  EP-0023 partially supersedes that rule. `reg-*` still updates the resolver
-  map (the default-image runtime path, unchanged here), but it ALSO writes to
+  EP-0023 narrows that rule. `reg-*` updates the resolver map AND writes to
   this provenance-preserving source store, keyed one slot deeper:
 
       source slot = [kind id provenance-namespace]
@@ -24,16 +23,16 @@
       same kind + id + different namespace   → BOTH descriptors retained
                                                (the image-isolation path)
 
-  ## What this slice does and does NOT do
+  ## What this namespace does and does NOT do
 
-  This is the FOUNDATION slice. It builds only the store that preserves all
-  provenance-tagged descriptors. It deliberately makes **no** assembly or
-  selection decision — it does not project a sealed `[kind id]` resolver, does
-  not run `:include-ns` globs, does not detect or reject cross-namespace
-  collisions, and does not build framework-standard sets. Those are the image
-  constructor (slice .3) and image assembly (slice .4). The store simply keeps
-  every provenance-distinct descriptor alive so a later slice has the full set
-  to select from.
+  It is only the store that preserves all provenance-tagged descriptors. It
+  deliberately makes **no** assembly or selection decision — it does not
+  project a sealed `[kind id]` resolver, does not run `:include-ns` globs, does
+  not detect or reject cross-namespace collisions, and does not build
+  framework-standard sets. Those belong to the image constructor
+  (`re-frame.image`) and image assembly (`re-frame.image-assembly`). The store
+  simply keeps every provenance-distinct descriptor alive so assembly has the
+  full set to select from.
 
   ## `:rf.provenance/ns` — the canonical namespace string
 
@@ -41,7 +40,7 @@
   `reg-*` descriptor carries `:rf.provenance/ns` as a **canonical string** —
   the source-code namespace the registration was authored in. It is a
   production descriptor field, not optional debug metadata: `:include-ns`
-  selection (slice .3) reads it, equality is ordinary string equality.
+  selection (`re-frame.image`) reads it, equality is ordinary string equality.
 
   The EP's implementation requirement is:
 
@@ -163,13 +162,13 @@
   generation integer while holding DIFFERENT descriptor pools. The
   resolved-generation cache folds this identity alongside `store-generation` so
   two distinct stores at the same generation never alias each other's sealed
-  generation (rf2-1x2zuc).
+  generation.
 
   The active store atom is the right identity: atoms compare and hash by
   reference identity, so the same store yields the same key leg (a HIT for an
   unchanged store) and distinct stores yield distinct key legs (a MISS — no
   cross-store aliasing). A bare integer or symbol would NOT do: integers alias
-  across stores (the bug), and there is no stable per-store name. The atom never
+  across stores, and there is no stable per-store name. The atom never
   escapes the cache key — the cache map holds it as an opaque key leg, never
   dereferences it, and the public boundary never exposes it."
   []
@@ -230,7 +229,7 @@
     3. otherwise the `:ns` of the live `rf.source-coords/*pending-coords*`
        binding, canonicalized.
 
-  Step 3 is the PRODUCTION-ELISION path (rf2-32siq3.22). The descriptor's `:ns`
+  Step 3 is the PRODUCTION-ELISION path. The descriptor's `:ns`
   slot (step 2) only survives in DEV: a reg-* macro captures coords into
   `*pending-coords*`, and the registration fn folds them into the stored
   metadata via `rf.source-coords/merge-coords` — but in CLJS production
@@ -249,10 +248,10 @@
   the nil-provenance slot. Nil-provenance descriptors still occupy ONE slot per
   `(kind, id)` (they cannot be image-isolation-distinguished — they have no
   namespace), so a later programmatic re-register of the same `(kind, id)`
-  replaces it. They are NOT silently dropped: a later image-assembly slice
+  replaces it. They are NOT silently dropped: image assembly
   still sees them.
 
-  The stored descriptor is stamped with `:kind` and `:id` (rf2-32siq3.21).
+  The stored descriptor is stamped with `:kind` and `:id`.
   They are the store KEY, so the stamp is deterministic — and image assembly
   reads `(:kind descriptor)` / `(:id descriptor)` (`descriptor-kind+id`,
   `check-supported-kinds!`), so a registered descriptor selected by
@@ -261,18 +260,18 @@
   keyed by them), so the store stamps its own provenance-tagged copy here.
 
   This is additive to `registrar/register!`'s resolver-map write — the store
-  preserves every provenance-distinct descriptor; the resolver map remains the
-  unchanged default-image runtime path until a later slice projects from here."
+  preserves every provenance-distinct descriptor, and image assembly
+  (`re-frame.image-assembly`) projects sealed generations from it."
   [kind id descriptor]
   (let [pn   (canonical-ns (or (get descriptor provenance-ns-key)
                                (:ns descriptor)
                                ;; Production-surviving fallback: the live
-                               ;; *pending-coords* binding's :ns (rf2-32siq3.22).
+                               ;; *pending-coords* binding's :ns.
                                (:ns rf.source-coords/*pending-coords*)))
         ;; Stamp `:kind` / `:id` (the store key, so deterministic) — image
-        ;; assembly reads them off the descriptor (rf2-32siq3.21) — plus the
+        ;; assembly reads them off the descriptor — plus the
         ;; canonical provenance string so `(rf/handler-meta {:source :store :kind kind :id id})` consumers
-        ;; and `:include-ns` selection (slice .3) read a string at
+        ;; and `:include-ns` selection read a string at
         ;; :rf.provenance/ns. When there is no provenance (programmatic path),
         ;; leave the key off rather than store a nil — absence is the honest
         ;; signal "no source namespace".
@@ -285,7 +284,7 @@
 
 ;; ---- queries --------------------------------------------------------------
 ;;
-;; Read surfaces for a later image-assembly slice (and tests). None of these
+;; Read surfaces for image assembly (and tests). None of these
 ;; make a selection decision — they expose the retained, provenance-tagged
 ;; descriptors as data.
 
@@ -307,8 +306,8 @@
 
 (defn all-descriptors
   "Return every retained descriptor for `kind` as a flat seq across all
-  `(id, provenance-ns)` slots, or an empty seq when the kind has none. A later
-  image-assembly slice selects from this set by `:include-ns` and validates
+  `(id, provenance-ns)` slots, or an empty seq when the kind has none. Image
+  assembly selects from this set by `:include-ns` and validates
   collisions; this fn makes no such decision."
   [kind]
   (for [[_id ns->desc] (get @(active-source-store) kind)
@@ -385,7 +384,7 @@
   asserting pool behaviour starts clean; pool entries are harmless to retain in
   production (the pool is never reset there).
 
-  PROCESS-DEFAULT-ONLY BY CONTRACT (EP-0023 §Image co-fix F2): this always
+  PROCESS-DEFAULT-ONLY BY CONTRACT (EP-0023 §Registration Source Store): this always
   targets `kind->id->ns->descriptor` and bumps that store's generation directly,
   IGNORING any bound `*source-store*` — it is a fixture-reset surface that runs
   against the default store. A bound store is reset via its own seating
@@ -406,7 +405,7 @@
       'source-store/clear-all!
       (str "source-store/clear-all! was invoked while a bound `*source-store*` "
            "binding is in flight. clear-all! is a PROCESS-DEFAULT-ONLY fixture "
-           "reset (EP-0023 §Image co-fix F2): it always targets the default store "
+           "reset (EP-0023 §Registration Source Store): it always targets the default store "
            "and would silently clear+bump the WRONG store here, leaving the bound "
            "store stale with an un-bumped generation. Reset a bound store via "
            "its own seating path, not this surface.")
