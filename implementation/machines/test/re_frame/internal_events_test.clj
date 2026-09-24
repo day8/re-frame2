@@ -149,8 +149,8 @@
              :internal-events #{:tick}
              :actions {:kick (fn [_] {:fx [[:raise [:tick]]]})}
              :states {:waiting {:on {:go {:target :armed :action :kick}}}
-                      ;; :armed's :entry self-raises :tick, which the
-                      ;; machine handles internally → :checking.
+                      ;; The :go transition's :kick action raises :tick,
+                      ;; which :armed handles internally → :checking.
                       :armed {:on {:tick {:target :checking}}}
                       :checking {}}}]
       (rf/reg-machine :iet/raise m)
