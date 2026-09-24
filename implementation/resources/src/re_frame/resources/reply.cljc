@@ -18,7 +18,7 @@
 
   Because resources lower through managed HTTP, the transport delivers its
   CANONICAL reply envelope (`{:status :ok :value v …}` / `{:status :error
-  :error <:rf.http/* envelope> …}`, rf2-ibksxg — there is no longer a
+  :error <:rf.http/* envelope> …}`; there is no
   `{:kind :success/:failure}` public reshape) appended as the last arg of
   the internal reply event (Spec 014 §Reply addressing). This namespace
   re-lifts that transport reply — reading `:value` on success and `:error`
@@ -45,7 +45,7 @@
        :correlation  {:scope … :generation … :rf.reply/resource-key …
                       :mutation/id … :instance/id …}}
 
-  **The `:value` / `:result` reconciliation (kh9jz6).** The decoded result
+  **The `:value` / `:result` reconciliation.** The decoded result
   on the *reply map* is `:value` for EVERY family (HTTP, resource, mutation)
   — there is no per-family synonym (EP-0007 one-name-per-fact). The durable
   resource entry stores it under `:data`, and the durable mutation INSTANCE
@@ -73,7 +73,7 @@
   (which calls `re-frame.elision/elide-wire-value`) — never a family-private
   elider (Managed-Effects §Tracing).
 
-  ## Why there is no `target-obsolete?` gate here (rf2-wwfn7q)
+  ## Why there is no `target-obsolete?` gate here
 
   HTTP carries an `actor-destroy-target-obsolete?` predicate
   (`re-frame.http.reply`) that lowers a destroyed-actor reply to `:stale`/
@@ -142,7 +142,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Transport-payload extractors (Spec 014 §Reply addressing). The managed-HTTP
 ;; transport APPENDS its CANONICAL reply envelope as the LAST arg of the
-;; framework-internal reply event (rf2-ibksxg — one canonical dialect, no
+;; framework-internal reply event (one canonical dialect, no
 ;; `{:kind :success/:failure}` reshape):
 ;;   [:rf.*.internal/succeeded <verification-payload> {:status :ok    :value <data> …}]
 ;;   [:rf.*.internal/failed    <verification-payload> {:status :error :error <envelope> …}]
@@ -151,7 +151,7 @@
 ;; inline DURABLE-LAYER spelling the direct-dispatch test shape falls back to
 ;; (`:data` for a resource entry, `:result` for a mutation instance). One
 ;; shared failure extractor + one fallback-key-parameterized success extractor
-;; (rf2-366u0g) so the two surfaces never drift.
+;; so the two surfaces never drift.
 ;; ---------------------------------------------------------------------------
 
 (defn transport-success-value
@@ -160,7 +160,7 @@
   as `http-result` (arg 3); read its `:value`. Falls back to an inline value
   on the verification payload under `fallback-key` (the direct-dispatch test
   shape, no transport in the loop) — `:data` for a resource entry, `:result`
-  for a mutation instance (kh9jz6 / EP-0007: `:value` is the reply-map
+  for a mutation instance (EP-0007: `:value` is the reply-map
   spelling; `:data` / `:result` are the durable-layer spellings)."
   [verification-payload http-result fallback-key]
   (if (contains? http-result :value)
@@ -170,12 +170,12 @@
 (defn transport-failure-envelope
   "Extract the failure envelope from a managed-HTTP failure reply. The
   transport appends the canonical `{:status :error :error <:rf.http/*
-  envelope> …}` map as `http-result` (arg 3, rf2-ibksxg); read its `:error`
+  envelope> …}` map as `http-result` (arg 3); read its `:error`
   (the closed `:rf.http/*` failure shape, the same envelope the durable entry
   `:error` / `:refresh-error` carries — Spec 016 §Status semantics; an abort
   rides under `:error` on a `:status :cancelled` reply too). Falls back to an
   inline `:error` on the verification payload (the direct-dispatch test
-  shape). Identical for the resource and mutation surfaces (rf2-366u0g)."
+  shape). Identical for the resource and mutation surfaces."
   [verification-payload http-result]
   (if (contains? http-result :error)
     (:error http-result)
