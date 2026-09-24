@@ -27,18 +27,17 @@
 ;;
 ;; ## Release
 ;;
-;; Ships on the EXISTING `story-v*` tag alongside `day8/re-frame2-story`
+;; Ships on Story's `story-v*` tag alongside `day8/re-frame2-story`
 ;; and `day8/re-frame2-mcp-base` — one glob for the shipping pair so the
-;; three cannot skew (rf2-4u3t1). Story and mcp-base deploy AHEAD of it
+;; three cannot skew. Story and mcp-base deploy AHEAD of it
 ;; on that tag; the release workflow swaps `:local/root` →
 ;; `:mvn/version` before invoking clein, identical to the adapter jars.
 ;;
-;; Structural dedup used to arrive here as `day8/de-dupe`, a `:git/url`
-;; runtime coordinate `clein pom` drops silently — so a jar cut from this
-;; deps.edn would have published a pom missing it, with no yank to undo
-;; that. Mike ruled route (b) on rf2-2ii52: the codec is vendored into
-;; `re-frame.mcp-base.dedup`, so it now arrives with mcp-base and this
-;; artefact's every runtime coordinate is one a pom can express.
+;; Structural dedup arrives with mcp-base (the codec lives in
+;; `re-frame.mcp-base.dedup`), so every runtime coordinate of this
+;; artefact is one a pom can express. A `:git/url` runtime coordinate
+;; would be dropped silently by `clein pom`, and a jar cut from this
+;; deps.edn would publish a pom missing it, with no yank to undo that.
 {:paths ["src"]
  :deps  {;; Story is the agent surface's read substrate. Every MCP
          ;; tool routes through `re-frame.story`'s public query API
@@ -52,7 +51,7 @@
          ;; the overflow-marker shape.
          day8/re-frame2-mcp-base {:local/root "../mcp-base"}
 
-         ;; JSON wire format. Cheshire is the project's existing JSON
+         ;; JSON wire format. Cheshire is the project's JSON
          ;; library (implementation/http uses it via requiring-resolve);
          ;; we declare it as a direct runtime dep here because every
          ;; JSON-RPC frame round-trips through it.
@@ -61,8 +60,8 @@
  :aliases
  {:test {:extra-paths ["test"
                        ;; The login_form Story testbed, for
-                       ;; `re-frame.story-mcp.login-form-testbed-test` only
-                       ;; (rf2-fmrgj): it pins that story-mcp holds the
+                       ;; `re-frame.story-mcp.login-form-testbed-test` only:
+                       ;; it pins that story-mcp holds the
                        ;; tutorial's flagship subject on the JVM. Test-only;
                        ;; the published jar carries no testbed.
                        "../story/testbeds"]
