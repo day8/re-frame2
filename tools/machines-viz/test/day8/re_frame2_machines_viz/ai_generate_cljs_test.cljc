@@ -1,5 +1,5 @@
 (ns day8.re-frame2-machines-viz.ai-generate-cljs-test
-  "Pure-data tests for the AI-generate surface (rf2-1bncf · v1.1).
+  "Pure-data tests for the AI-generate surface.
 
   Coverage:
 
@@ -91,7 +91,7 @@
     (is (str/includes? ai/system-prompt ":regions"))))
 
 ;; ---------------------------------------------------------------------------
-;; EP-0011 — error-final completion status (rf2-g89c97)
+;; EP-0011 — error-final completion status
 ;;
 ;; Spec 005 §:final? lets a terminal carry `:error? true` — an error final
 ;; lowers to the uniform reply envelope as `:status :error` and routes the
@@ -217,7 +217,7 @@
       (is (= :ai-generate/invalid-spec (:rf.error/id (ex-data ex)))))))
 
 ;; ---------------------------------------------------------------------------
-;; EP-0015 — error ex-data carries NO raw LLM payload (rf2-8nzxib)
+;; EP-0015 — error ex-data carries NO raw LLM payload
 ;;
 ;; The resolver response can carry user prompt artefacts or LLM-returned
 ;; secrets/source text, and the parsed spec can embed runtime :data;
