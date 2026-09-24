@@ -7,14 +7,14 @@
   after ambient resolver scope has unwound, so one-shot reads and imperative
   teardown name the captured frame explicitly. Ordinary reactive deref stays in
   `:reagent-render`, acquired once per render owner through `r/with-let` — and
-  since rf2-ty246 it is NOT released by hand: a render-phase read is owned by the
+  it is NOT released by hand: a render-phase read is owned by the
   render owner, which holds one reference per (owning reaction, slot) and releases
   it when Reagent destroys that owner. The imperative hook-owned subscription is
-  the other case and still pairs its own explicit teardown, because it is acquired
+  the other case and pairs its own explicit teardown, because it is acquired
   in `:component-did-mount`, outside any reactive context.
 
   Browser-only because the proof needs real React class mount/unmount ordering.
-  The `-dom-cljs-test` suffix selects the existing `:browser-test` build; the
+  The `-dom-cljs-test` suffix selects the `:browser-test` build; the
   consolidated node build loads the namespace but takes the no-DOM branch."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [reagent.core :as r]
@@ -127,17 +127,16 @@
          ;; does NOT release during StrictMode's transient class
          ;; will-unmount/did-mount replay.
          ;;
-         ;; NO HAND RELEASE HERE, SINCE rf2-ty246 — and the absence is the
+         ;; NO HAND RELEASE HERE — and the absence is the
          ;; point of the recipe, not an omission. This acquisition happens in
          ;; the RENDER PHASE, so the adapter holds one reference per (owning
          ;; reaction, slot) and releases it when this render owner disposes.
-         ;; The `(rf/unsubscribe frame render-query)` that used to sit in this
-         ;; `finally` was a SECOND release of that one reference: invisible
-         ;; while a single owner held the slot, and a premature disposal as
-         ;; soon as a sibling held the same query — which is exactly the
-         ;; two-owner shape this very test mounts. The `:render-release`
-         ;; marker stays, because the assertions below count render-owner
-         ;; teardowns and that has not changed.
+         ;; An `(rf/unsubscribe frame render-query)` in this `finally` would
+         ;; be a SECOND release of that one reference: invisible while a
+         ;; single owner held the slot, and a premature disposal as soon as a
+         ;; sibling held the same query — which is exactly the two-owner shape
+         ;; this very test mounts. The `:render-release` marker is here
+         ;; because the assertions below count render-owner teardowns.
          (r/with-let [render-reaction (subscribe render-query)]
            (let [value @render-reaction]
              (record! :render {:value value})
@@ -239,7 +238,7 @@
                   ;; remainder of the run synchronously, so a rejection handler
                   ;; downstream of the step that finished the row claims
                   ;; whatever a LATER namespace throws, prints it against this
-                  ;; row's label, and fires `done` a second time (rf2-e8kc).
+                  ;; row's label, and fires `done` a second time.
                   ;; The CAS in `done!` swallows that second call; it cannot
                   ;; swallow the misattributed `is false`.
                   report! (fn [err]
@@ -354,7 +353,7 @@
                   cleanup! #(try (act-fn (fn [] (rdc/unmount root)))
                                  (catch :default _ nil))
                   ;; Reports; it does NOT finish — as above, and for the same
-                  ;; reason (rf2-e8kc).
+                  ;; reason.
                   report! (fn [err]
                             (is false (str "Form-3 retarget fixture threw: " (pr-str err)))
                             nil)
@@ -451,7 +450,7 @@
                         [klass :strict-one]]
                   cleanup! #(try (rdc/unmount root) (catch :default _ nil))
                   ;; Reports; it does NOT finish — as above, and for the same
-                  ;; reason (rf2-e8kc). This row has no synchronous terminal
+                  ;; reason. This row has no synchronous terminal
                   ;; path, so the chain's tail is the row's only exit.
                   report! (fn [err]
                             (is false (str "Form-3 StrictMode fixture threw: " (pr-str err)))
@@ -515,26 +514,24 @@
                   (.then (fn [_] (cleanup!) (done!)))))))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-rjjry + rf2-ynved — the exceptional imperative-subscription recipe must be
+;; The exceptional imperative-subscription recipe must be
 ;; LIVE and instance-safe, and it must be so on its own.
 ;;
 ;; The copy-pasteable Form-3 (guided-views-m11.md §M-11) re-feeds an
-;; imperative widget as a sub's value changes. It used to do that with an
-;; `add-watch` on the acquired reaction, and this fixture used to mirror that —
-;; but only because it stood an external `ratom/run!` DRIVER beside the mounts to
-;; "keep the lazy reaction on the push path". That driver was not a test
-;; convenience: it was the missing runtime step, hand-supplied. Without it the
-;; recipe's `add-watch` sat on a reaction that had never captured its sources and
-;; so could never fire — rf2-8cnxg's defect, shipped to consumers (rf2-ynved).
+;; imperative widget as a sub's value changes. An `add-watch` on the acquired
+;; reaction would sit on a reaction that had never captured its sources and so
+;; could never fire — unless something external, such as a `ratom/run!` DRIVER
+;; beside the mounts, kept the lazy reaction on the push path. Such a driver is
+;; no test convenience: it is the missing runtime step, hand-supplied.
 ;;
-;; The recipe now owns its subscription: each mount creates a per-mount
-;; `r/track!` in `:component-did-mount` and `r/dispose!`s it at unmount. The
-;; scaffolding is GONE from this file — the liveness under test is the recipe's
-;; own. Delete the `r/track!` from `gauge-class` and
+;; The recipe owns its subscription: each mount creates a per-mount
+;; `r/track!` in `:component-did-mount` and `r/dispose!`s it at unmount. This
+;; file stands no driver beside the mounts — the liveness under test is the
+;; recipe's own. Delete the `r/track!` from `gauge-class` and
 ;; `one-change-feeds-every-mount` fails on the assertion of that name.
 ;;
-;; Equal `(frame, query-v)` subscriptions still SHARE one reaction; instance
-;; safety (rf2-rjjry) now falls out structurally rather than from a per-mount
+;; Equal `(frame, query-v)` subscriptions SHARE one reaction; instance
+;; safety falls out structurally rather than from a per-mount
 ;; `gensym` key — two mounts are two independent reactive owners of one node,
 ;; with no shared callback registry to clobber or strip.
 ;; ---------------------------------------------------------------------------
@@ -593,7 +590,7 @@
             reaction's ref-count balances back to zero. Nothing outside the
             fixture keeps the reaction on the push path — the liveness proved
             here is the recipe's own, and deleting the r/track! from gauge-class
-            fails this test (rf2-ynved, rf2-rjjry)."
+            fails this test."
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test exercises the two-mount fixture")
       (async done
@@ -676,7 +673,7 @@
             replayed did-mount creates a fresh tracker and the intervening
             will-unmount disposes the previous one — and a post-replay update
             still feeds the widget; a real unmount then returns the ref-count to
-            zero (rf2-ynved, rf2-rjjry)."
+            zero."
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test exercises StrictMode balance")
       (async done
@@ -693,7 +690,7 @@
                   rc    (fn [] (ref-count (cache-state frame-a) gauge-query))
                   cleanup! #(try (rdc/unmount root) (catch :default _ nil))
                   ;; Reports and RELEASES; it does NOT finish — as above, and
-                  ;; for the same reason (rf2-e8kc). `cleanup!` stays HERE
+                  ;; for the same reason. `cleanup!` stays HERE
                   ;; rather than riding the tail: the success path unmounts the
                   ;; root in-chain as a step under test, so only the failure
                   ;; arm can still have a mounted root to drop.
@@ -731,7 +728,7 @@
                   (.then (fn [_] (done!)))))))))))
 
 ;; ===========================================================================
-;; rf2-ty246 — the interval between two owners of one shared slot
+;; The interval between two owners of one shared slot
 ;; ===========================================================================
 ;;
 ;; WHY A SEPARATE DEFTEST. `outer-capture-is-instance-and-frame-exact` above
@@ -742,7 +739,7 @@
 ;; visible: a hand release paired with the render owner's own release walks the
 ;; shared slot 2 -> 1 -> 0 and disposes it underneath the surviving sibling,
 ;; while a test that samples only after both owners die reads `{}` either way
-;; and passes. The property was named by that test and guarded by neither.
+;; and passes. That test names the property; this one guards it.
 ;;
 ;; It is not folded into that scenario because dropping and restoring a sibling
 ;; mints extra lifecycle events, and that scenario counts `:will-unmount`
@@ -750,7 +747,7 @@
 ;; leaves its bookkeeping untouched.
 
 (deftest surviving-sibling-keeps-the-shared-slot-when-the-other-owner-goes
-  (testing "rf2-ty246: with two render owners over one shared query, the
+  (testing "with two render owners over one shared query, the
             departure of ONE leaves the slot live and singly-held — the
             interval the sibling scenario never samples"
     (if-not (browser?)
