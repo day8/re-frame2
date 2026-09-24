@@ -1,30 +1,29 @@
 (ns re-frame.flows-mid-walk-write-settle-cljs-test
   "Spec 013 §Sequencing — a `:fx` walk that WRITES frame state settles the
-  frame's flows (rf2-3x7nj.9.7).
+  frame's flows.
 
   A flow may read machine state (`[:rf.db/runtime :rf.runtime/machines
   :snapshots <id> ...]` is Spec 013's own example input). The flow pass is the
   router's outermost `:after`, so it runs BEFORE the `:fx` walk. The machine
   lifecycle effects `:rf.machine/update-snapshot`, `:rf.machine/destroy` and
   `:rf.machine/spawn` write runtime-db DURING that walk — after the pass that
-  would have acted on it. Before the fix nothing asked for a settle, so a flow
-  over the snapshot kept publishing the pre-write value until some later,
-  unrelated event happened to drain the frame. Worse, a continuation the same
-  handler queued read the stale flow and could persist that wrong decision.
+  would have acted on it. Without a settle, a flow over the snapshot would
+  keep publishing the pre-write value until some later, unrelated event
+  happened to drain the frame. Worse, a continuation the same handler queued
+  would read the stale flow and could persist that wrong decision.
 
-  The fix is generic rather than per-writer: when the walk leaves the frame's
-  state container non-`identical?` to its value at walk start, and the frame
-  holds at least one flow, the walk requests the SAME one head-inserted settle
-  the reserved flow effects already request. A per-writer list was rejected
-  because it was wrong on day one — both reviews of this defect missed spawn,
-  whose bootstrap dispatch is FIFO and so runs BEHIND a continuation queued
-  ahead of it.
+  The settle is generic rather than per-writer: when the walk leaves the
+  frame's state container non-`identical?` to its value at walk start, and the
+  frame holds at least one flow, the walk requests the SAME one head-inserted
+  settle the reserved flow effects request. A per-writer list is easy to get
+  wrong — spawn is the easy one to miss, because its bootstrap dispatch is
+  FIFO and so runs BEHIND a continuation queued ahead of it.
 
-  The CONTROLS below matter as much as the regressions: a walk that writes
+  The CONTROLS below matter as much as the settle tests: a walk that writes
   nothing, a machine transition (which commits through the pending runtime-db
   effect the flow pass already reads), a frame with NO flows and a dry run
   must all enqueue ZERO settles. Without the flows guard, 50 `update-snapshot`
-  dispatches on a flow-free frame became 100 events.
+  dispatches on a flow-free frame would become 100 events.
 
   Lives in core's test tree because core's `:test` classpath carries both the
   machines and the flows artefacts; neither artefact's own `:test` alias
@@ -113,7 +112,7 @@
       {:fx [[:rf.machine/update-snapshot {:rf/machine-id :pm/m :rf/patch patch}]]})))
 
 ;; ---------------------------------------------------------------------------
-;; Regressions — RED before the fix, GREEN after
+;; The settle — each assertion reads the stale value without it
 ;; ---------------------------------------------------------------------------
 
 (deftest update-snapshot-settles-a-flow-over-the-snapshot
@@ -127,13 +126,13 @@
 
     (rf/dispatch-sync [:p/patch {:state :busy}])
     (is (= :busy (:state (snapshot :pm/m))) "the patch landed on the snapshot")
-    ;; THE DEFECT, `:state` leg. Red before the fix: `:idle`.
+    ;; The `:state` leg. Without the settle: `:idle`.
     (is (= :busy (:mstate (db)))
         "the flow over the snapshot's :state is fresh after the ONE dispatch")
 
     (rf/dispatch-sync [:p/patch {:data {:note "patched"}}])
     (is (= "patched" (get-in (snapshot :pm/m) [:data :note])))
-    ;; THE DEFECT, `:data` leg. Red before the fix: "orig".
+    ;; The `:data` leg. Without the settle: "orig".
     (is (= "patched" (:mnote (db)))
         "the flow over the snapshot's :data is fresh after the ONE dispatch")))
 
@@ -146,7 +145,7 @@
 
     (rf/dispatch-sync [:p/destroy])
     (is (nil? (snapshot :pm/m)) "the actor's snapshot is gone")
-    ;; Red before the fix: `:idle` / "orig" survive the actor.
+    ;; Without the settle: `:idle` / "orig" would survive the actor.
     (is (nil? (:mstate (db))) "the :state flow reads the absence")
     (is (nil? (:mnote (db))) "the :data flow reads the absence")))
 
@@ -164,8 +163,8 @@
               [:dispatch [:p/record]]]}))
 
     (rf/dispatch-sync [:p/patch-then-record])
-    ;; Red before the fix: `:idle` — the continuation ran before any drain had
-    ;; re-read the snapshot, and persisted that wrong decision.
+    ;; Without the settle: `:idle` — the continuation would run before any
+    ;; drain had re-read the snapshot, and persist that wrong decision.
     (is (= :busy (:recorded (db)))
         "the continuation recorded the post-patch flow value")))
 
@@ -187,12 +186,13 @@
 
     (rf/dispatch-sync [:p/spawn])
     (is (= :born (:state (snapshot :c/one))) "precondition — the child spawned")
-    ;; Red before the fix: nil — the continuation ran before the bootstrap.
+    ;; Without the settle: nil — the continuation would run before the
+    ;; bootstrap.
     (is (= :born (:child-seen (db)))
         "the continuation queued ahead of the spawn saw the newborn's state")))
 
 ;; ---------------------------------------------------------------------------
-;; Controls — green before and after
+;; Controls — no settle
 ;; ---------------------------------------------------------------------------
 
 (deftest an-ordinary-transition-is-already-fresh
