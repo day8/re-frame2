@@ -20,7 +20,7 @@
 
 (defwrapper reg-resource
   "Per Spec 016 §Public API §Registration. Register a resource — a named,
-  cached read of remote/external state. Per rf2-wvh95f F1 the canonical 3-slot
+  cached read of remote/external state. The canonical 3-slot
   grammar is `(reg-resource resource-id metadata request-fn)`: the `:request`
   fetch fn is the third VALUE slot, and `metadata` carries the REQUIRED,
   fail-closed `:scope` policy (`:rf.scope/global` |
@@ -45,7 +45,7 @@
    :ex-data {:resource-id resource-id}}
   ([resource-id] :delegate))
 
-;; rf2-kuky.31: no `resource-meta` wrapper. Reading a resource's registered
+;; There is no `resource-meta` wrapper. Reading a resource's registered
 ;; spec needs no artefact at all — it is the generic registrar read plus the
 ;; documented `:rf/resource` inner-key projection:
 ;;   (:rf/resource (rf/handler-meta {:source :store :kind :resource :id id}))
@@ -59,12 +59,12 @@
   {:hook :resources/resource-state :artefact resources-artefact :on-absent :throw}
   ([opts] :delegate))
 
-;; ---- Mutations (rf2-dwme29, EP-0003 §Mutations — first public-beta gate) --
+;; ---- Mutations (EP-0003 §Mutations) ---------------------------------------
 
 (defwrapper reg-mutation
   "Per Spec 016 §Deferred slices / EP-0003 §Mutations. Register a mutation
   — a named, causal WRITE to remote state that, on success, invalidates /
-  patches / populates cached resource reads. Per rf2-wvh95f F1 the canonical
+  patches / populates cached resource reads. The canonical
   3-slot grammar is `(reg-mutation mutation-id metadata request-fn)`: the
   `:request` write fn (a Spec 014 managed-HTTP args map) is the third VALUE
   slot, and `metadata` carries the REQUIRED `:params-schema`, plus optional
@@ -90,7 +90,7 @@
    :ex-data {:mutation-id mutation-id}}
   ([mutation-id] :delegate))
 
-;; rf2-kuky.31: no `mutation-meta` wrapper —
+;; There is no `mutation-meta` wrapper —
 ;;   (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id id}))
 
 (defwrapper mutation-state
@@ -101,21 +101,21 @@
   {:hook :resources/mutation-state :artefact resources-artefact :on-absent :throw}
   ([opts] :delegate))
 
-;; ---- Named resource-scope resolvers (rf2-hls77w, EP-0016 D3 slice 2) ------
+;; ---- Named resource-scope resolvers (EP-0016 D3) --------------------------
 
 (defwrapper reg-resource-scope
   "Per Spec 016 §Named resource-scope resolvers (`reg-resource-scope`) /
   EP-0016 Decision 3. Register a PURE named scope resolver under `scope-id`
   — the one scope-resolution currency reused by resource registration,
   route resources, event-side ensure, subscriptions, invalidation
-  descriptors, populate/patch/remove targets, and `clear-scope`. Per rf2-bqstzr
-  the canonical 3-slot grammar is `(reg-resource-scope scope-id metadata
+  descriptors, populate/patch/remove targets, and `clear-scope`.
+  The canonical 3-slot grammar is `(reg-resource-scope scope-id metadata
   resolve-fn)`: the `:resolve` fn is the value slot, and `metadata` carries the
   declared `:inputs` map `{name [:db <rf-path>]}` (+ optional `:doc`). The
   `:resolve` first arg is ALWAYS the resolved inputs map. `:inputs` is
   REQUIRED — to read the whole db, declare it on the root path
   (`{:inputs {:db [:db []]}}`); tooling's `:whole-db?` mark is derived from
-  that declaration. The shipped input source is `[:db <rf-path>]`; `[:runtime …]`
+  that declaration. The supported input source is `[:db <rf-path>]`; `[:runtime …]`
   is reserved and rejected loudly. A `nil` resolve result is FAIL-CLOSED at
   every scope-requiring site (never an implicit global). Referenced via
   `{:from-db <scope-id>}`. Late-bound via `:resources/reg-resource-scope`."
@@ -141,7 +141,7 @@
   resolve the named resolver `scope-id` against the supplied `db` value,
   returning a canonical concrete scope or nil — a plain function over the
   resolver registry, NOT an effect (no app-state / dispatch side effects).
-  It is a PURE data helper (rf2-ru73k6 F3): it routes through the trace-free
+  It is a PURE data helper: it routes through the trace-free
   `resolve-scope*-pure` evaluator and so does NOT emit
   `:rf.resource/scope-resolved` — a passive read advertised as pure carries
   no observability side effect. The CAUSAL resolution boundaries that DO carry
