@@ -24,8 +24,7 @@
      two safeguards each through their own fault fixture.  None is pinned
      in-process: a summary predicate is upstream `cljs.test`'s, and the
      mere presence of a `[:cljs.test/default :end-run-tests]` method is
-     ClojureScript's own no-op — neither is evidence about this runner
-     (rf2-6r9j.89).
+     ClojureScript's own no-op — neither is evidence about this runner.
    - console.warn CAPTURE COMPAT: the ns-load `console.warn` stub does
      not break the local save/shim/restore capture pattern that
      warning-assertion tests use — a shim installed over the stub still
@@ -166,10 +165,10 @@
   ;; registry, which cannot be injected here — so the registry lookup is the
   ;; only part this cannot reach, and the RULE is exercised directly.
   ;;
-  ;; It used to be a handwritten COPY of the predicate, which is a false
-  ;; green by construction: production could stop matching qualified symbols
-  ;; entirely and this stayed green (rf2-6r9j.76). `select-syms` below only
-  ;; RENDERS the returned vars as symbols; it makes no selection decision.
+  ;; A handwritten COPY of the predicate would be a false green by
+  ;; construction: production could stop matching qualified symbols entirely
+  ;; and the copy would stay green. `select-syms` below only RENDERS the
+  ;; returned vars as symbols; it makes no selection decision.
   (let [test-vars   [(fake-var 'my.ns 'a-test)
                      (fake-var 'my.ns 'b-test)
                      (fake-var 'other.ns 'c-test)]
@@ -199,9 +198,10 @@
       ;; key by `=`, above that it hashes. A qualified selector is matched
       ;; against a symbol rebuilt from a var's `{:ns :name}` METADATA, whose
       ;; parts are symbols, not strings — `=` to the reader's `ns/name` but
-      ;; not hash-equal to it — so every qualified selector silently stopped
-      ;; matching at the ninth. Found by driving the shipped selector; the
-      ;; copied predicate this row replaced could not see it (rf2-6r9j.76).
+      ;; not hash-equal to it — so unless the selector rebuilds it through
+      ;; `str`, every qualified selector silently stops matching at the
+      ;; ninth. Only the shipped selector can show this; a copied predicate
+      ;; could not.
       (let [many-vars (mapv #(fake-var 'many.ns (symbol (str "t" %))) (range 9))
             many-syms (mapv #(symbol "many.ns" (str "t" %)) (range 9))]
         (is (= many-syms
@@ -263,7 +263,7 @@
           "matched selectors drop out; unmatched ones survive in order"))))
 
 ;; ----------------------------------------------------------------------
-;; Whole-suite test-count floor (rf2-qqzmf) — the pure half.
+;; Whole-suite test-count floor — the pure half.
 ;;
 ;; `unmatched-selectors` above guards the `--test=` path. The whole-suite
 ;; path has the same hazard for a different reason: shadow-cljs's
@@ -300,13 +300,13 @@
           (str (pr-str bad) " must be rejected, not coerced")))))
 
 ;; ----------------------------------------------------------------------
-;; NO in-process failure-exit unit test lives here, deliberately (rf2-6r9j.89).
+;; NO in-process failure-exit unit test lives here, deliberately.
 ;;
-;; The one that did asserted upstream `cljs.test/successful?`'s own
+;; Such a test could only assert upstream `cljs.test/successful?`'s own
 ;; behaviour, and that SOME method is registered for
 ;; `[:cljs.test/default :end-run-tests]` — but ClojureScript itself defines a
 ;; no-op method under exactly that key (cljs/test.cljs), so neither clause
-;; said anything about this runner.  Invoking the real defmethod in-process
+;; would say anything about this runner.  Invoking the real defmethod in-process
 ;; is not an option either: it calls `js/process.exit`.
 ;;
 ;; The decision is pinned end-to-end instead, by the process rows below:
@@ -354,8 +354,9 @@
     ;; SILENCING stub is installed — not just that the call returns nil
     ;; (native console.warn also returns undefined while still EMITTING the
     ;; warning text).  This fails if a regression drops the stub and the
-    ;; runner falls back to native `console.warn`, which would reintroduce
-    ;; green-path warning noise — the slice's core operational contract.
+    ;; runner falls back to native `console.warn`, which would let
+    ;; green-path warning noise through — the runner's core operational
+    ;; contract.
     (is (true? (.-rf-test-quiet-silenced (.-warn js/console)))
         (str "the live console.warn must be the identifiable silencing stub"
              " (marker present) — a missing marker means native console.warn"
@@ -390,11 +391,10 @@
   "RF2_SPAWN_TIMEOUT_MS")
 
 (def ^:private default-spawn-timeout-ms
-  "Hard ceiling for a spawned focused runner (rf2-hofhx).
+  "Hard ceiling for a spawned focused runner.
 
-  THIS IS A BACKSTOP, NOT A PERFORMANCE ASSERTION.  The previous 60 s
-  value was justified by the claim that `a correctly-exiting child
-  returns in well under a second`.  That was never true of this build.
+  THIS IS A BACKSTOP, NOT A PERFORMANCE ASSERTION.  A correctly-exiting
+  child does NOT return in well under a second on this build.
   `out/node-test.js` is a dev-mode loader: every spawn re-`require`s the
   whole consolidated node-test output — measured on this tree at 4201
   modules / 484 MB — so a perfectly healthy child costs
@@ -403,24 +403,22 @@
     ~30-450 s  while sibling worker checkouts saturate the machine
                (measured: 449 s, and the child still exited 0)
 
-  Against a 60 s ceiling that starves a HEALTHY child to death, and the
-  resulting failure is indistinguishable at a glance from a regression:
-  spawnSync reports ETIMEDOUT with both child streams empty.  The field
-  report has the failure count tracking box load on an unchanged tree,
-  0 -> 9 -> 18 -> 9.
+  A 60 s ceiling would starve a HEALTHY child to death, and the resulting
+  failure is indistinguishable at a glance from a regression: spawnSync
+  reports ETIMEDOUT with both child streams empty, and the failure count
+  tracks box load on an unchanged tree.
 
-  Raising it does NOT weaken the fail-fast contract.  That contract is
+  A generous ceiling does NOT weaken the fail-fast contract.  That contract is
   pinned separately and strictly by `spawn-timeout-kills-a-hanging-child`,
   which proves a never-exiting child is SIGTERM-killed using its own 1.5 s
   ceiling.  This constant only bounds how long a wedged child may stall
   the suite before that same mechanism ends it.
 
   WHY 600 s AND NOT SOMETHING TIGHTER.  The two errors are not symmetric.
-  Too tight costs a false RED on an honest change — the failure this bead
-  is about, which burns a 15-minute suite and a human diagnosis every time
-  it fires.  Too loose costs one wedged child sitting for a few extra
-  minutes before the mechanism above ends it anyway, in a scenario that has
-  never been observed.  On an unloaded CI runner a child costs ~10 s, so
+  Too tight costs a false RED on an honest change, which burns a 15-minute
+  suite and a human diagnosis every time it fires.  Too loose costs one
+  wedged child sitting for a few extra minutes before the mechanism above
+  ends it anyway.  On an unloaded CI runner a child costs ~10 s, so
   this ceiling is never approached there and the choice is free; it is only
   reachable on a developer box running several checkouts, which is exactly
   the case that must not go red.  600 s is set above the slowest HEALTHY
@@ -506,11 +504,10 @@
   A spawn killed at the ceiling is STILL A FAILURE — a run whose child never
   started has verified nothing, and downgrading it to a skip would be a
   fail-open gate.  But it is a failure of the BOX, not of the diff under
-  test, and the bare `spawnSync ... ETIMEDOUT` it used to print gave a
-  reader nothing to tell those apart: both child streams are empty, so it
-  reads exactly like a runner that produced no output.  That ambiguity cost
-  real diagnosis time (rf2-hofhx), so the ETIMEDOUT case names the ceiling,
-  the knob that moves it, and what the child was actually doing."
+  test, and a bare `spawnSync ... ETIMEDOUT` gives a reader nothing to
+  tell those apart: both child streams are empty, so it reads exactly like
+  a runner that produced no output.  So the ETIMEDOUT case names the
+  ceiling, the knob that moves it, and what the child was actually doing."
   [err]
   (str "spawning the real runner must not error; got: " (pr-str err)
        (when (and (some? err) (= "ETIMEDOUT" (.-code err)))
@@ -555,7 +552,7 @@
         ;; The fixture ns holds exactly TWO test vars, so `Ran 2` is also the
         ;; end-to-end proof that a SIMPLE symbol selects EVERY var in the
         ;; namespace — `Ran 1` would mean the namespace branch selected only
-        ;; one. Its qualified-symbol sibling is the row below (rf2-6r9j.76).
+        ;; one. Its qualified-symbol sibling is the row below.
         (is (some #(str/starts-with? % "Ran 2 tests") non-blank)
             (str "the namespace selector must run BOTH vars in the fixture"
                  " ns, and the `Ran ...` summary must still be present;"
@@ -566,9 +563,9 @@
 (deftest real-shadow-node-qualified-selector-runs-exactly-that-var
   (testing "--test=<ns>/<var> runs exactly that var, not its whole namespace"
     ;; The shipped selector's QUALIFIED-symbol branch, end to end.
-    ;; `--test=<ns>/<var>` is a documented CLI form (`--help` names it) that
-    ;; had no process-level proof at all: every other spawn here selects a
-    ;; namespace or nothing (rf2-6r9j.76).  Paired with the `Ran 2` pin
+    ;; `--test=<ns>/<var>` is a documented CLI form (`--help` names it), and
+    ;; every other spawn here selects a namespace or nothing, so this row is
+    ;; its only process-level proof.  Paired with the `Ran 2` pin
     ;; above — same fixture ns, two vars — the two rows discriminate the two
     ;; branches: a runner treating a qualified symbol as a namespace selector
     ;; runs both HERE, one that dropped the namespace branch runs one THERE.
@@ -633,10 +630,10 @@
       (is (not (str/includes? stdout "Ran "))
           (str "the suite must NOT have run; a `Ran ...` summary means the"
                " false-green fall-through to run-all-tests; got:\n" stdout))))
-  ;; NO clean-focused-invocation control here, deliberately (rf2-6r9j.92).
-  ;; It spawned the exact `--test=re-frame.test-quiet-green-fixture-cljs-test`
+  ;; NO clean-focused-invocation control here, deliberately. It would spawn
+  ;; the exact `--test=re-frame.test-quiet-green-fixture-cljs-test`
   ;; invocation `real-shadow-node-green-run-is-quiet` above already spawns,
-  ;; and asserted a strict subset of that row's pins — no spawn error, exit 0,
+  ;; and assert a strict subset of that row's pins — no spawn error, exit 0,
   ;; no `Unknown arg` — for the price of another whole-bundle child start.
   ;; That row IS the positive control that valid args are not rejected.
   )
@@ -679,8 +676,7 @@
 ;; This row is ALSO the ordinary printed-failure/exit-status agreement pin: a
 ;; red run prints its `FAIL in` block and must exit nonzero, and the unarmed
 ;; control proves the exit tracks the real result rather than always being
-;; nonzero. A separate regression used to spawn this same armed/unarmed pair
-;; a second time for exactly those assertions (rf2-6r9j.89).
+;; nonzero.
 
 (deftest red-run-replays-warnings-and-exits-nonzero
   (testing "a red run replays the buffered console.warn diagnostic"
@@ -753,7 +749,8 @@
 ;; correct (never a false green) but the tail of the diagnostic context is
 ;; lost. This drives the REAL runner across a process boundary against the
 ;; ring-cap-filling volume fixture and asserts the NEWEST warning (replayed
-;; LAST — the exact byte range the async bug drops) survives to the output.
+;; LAST — the exact byte range an async write would drop) survives to the
+;; output.
 ;; Synchronous fd writes make the guarantee independent of whether Node's
 ;; stderr stream is synchronous for the current host and destination.
 
@@ -797,9 +794,9 @@
 ;; `execute-cli` seeds `process.exitCode = 1` before running so a run that
 ;; never dispatches the defmethod still fails.
 ;;
-;; An ORDINARY red or green run traverses NEITHER — both already exited
-;; correctly before either safeguard existed, so a regression could delete
-;; either one and every ordinary row stayed green (rf2-6r9j.89). Each
+;; An ORDINARY red or green run traverses NEITHER — both exit correctly
+;; without either safeguard, so deleting either one would leave every
+;; ordinary row green. Each
 ;; safeguard therefore gets a run that ENTERS its own failure mode, driven
 ;; against `re-frame.test-quiet-exit-integrity-fixture-cljs-test`, and each
 ;; fixture emits a reached-state marker: a nonzero child status by itself is
@@ -880,7 +877,8 @@
           (str "no unmatched selector may explain the exit; got:\n" stdout))
       ;; The CORE pin: exit 1 out of `process.exitCode`, drained after a green
       ;; run that never called `js/process.exit`. Without `seed-failure-exit!`
-      ;; this child exits 0 — the silent false green the seed exists to stop.
+      ;; this child would exit 0 — the silent false green the seed exists to
+      ;; stop.
       (is (= 1 status)
           (str "a run that never dispatches the exit defmethod must drain"
                " with the SEEDED 1, never 0; got status " status
@@ -893,8 +891,8 @@
 ;; applies a single `:timeout` + `:maxBuffer` policy to every spawn so a
 ;; wedged or runaway child fails fast with a diagnostic rather than
 ;; hanging the whole CLJS suite.  This pins the fail-fast behaviour itself
-;; via a deliberately-hanging child so a future change cannot silently
-;; drop the timeout: a child that never exits must surface a SIGTERM
+;; via a deliberately-hanging child so the timeout cannot be silently
+;; dropped: a child that never exits must surface a SIGTERM
 ;; timeout, not block forever.  We spawn the node binary directly on a
 ;; tiny inline program (no runner needed) with a SHORT explicit timeout so
 ;; the test stays fast.
