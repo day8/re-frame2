@@ -365,14 +365,14 @@
   (_try-capture [this f]
     ;; Mirror stock Reagent: on the success branch SET `state` to the
     ;; recomputed value here (and return it); on the throw branch capture
-    ;; the error in BOTH `state` and `caught`. `_run` must NOT overwrite
-    ;; `state` in check mode (`(when-not check (set! state res))`) — doing
-    ;; so clobbers the captured error (`_try-capture`'s catch returns the
-    ;; value of `(set! dirty? false)`, i.e. `false`, not the error), so a
-    ;; throwing queued/flush! recompute would leave `state` = false instead
-    ;; of the error AND notify watchers of a spurious `false` change.
-    ;; Returning the new state keeps `_run`'s
-    ;; `notify-watches! … res` reflecting the recompute on the success path.
+    ;; the error in BOTH `state` and `caught`, and return the error. `_run`
+    ;; does NOT set `state` in check mode (`(when-not check (set! state
+    ;; res))`): `_try-capture` owns `state` on both branches, so a throwing
+    ;; queued/flush! recompute leaves `state` holding the error, never a
+    ;; catch-block return value such as the `false` of `(set! dirty? false)`,
+    ;; and watchers see no spurious `false` change. Returning the new state
+    ;; keeps `_run`'s `notify-watches! … res` reflecting the recompute on
+    ;; the success path.
     (try
       (set! caught nil)
       (set! state (deref-capture f this))
