@@ -20,13 +20,13 @@
       Domain (non-`:rf/*`) events emit the benign no-op.
 
     - `:rf.error/machine-bad-state-form` — `state-path` throws on a
-      `:state` that is neither keyword nor vector (transition.cljc:232).
+      `:state` that is neither keyword nor vector (transition.cljc).
       A pure-engine guard with no registration backstop.
 
     - `:rf.error/machine-bad-guard-form` / `:rf.error/machine-bad-action-
       form` — `resolve-guard` / `resolve-action` throw at TRANSITION TIME
       when a `:guard` / `:action` ref is neither fn, keyword, nor nil
-      (transition.cljc:54 / :65). Both resolvers are called OUTSIDE the
+      (transition.cljc). Both resolvers are called OUTSIDE the
       `evaluate-guard` / `run-action` try-blocks, so a bad FORM (vs a
       throwing body) propagates straight out of `machine-transition`.
       The registration validator only checks keyword refs RESOLVE — it
@@ -45,8 +45,7 @@
 
     - `chase-ref` one-level indirection — a `{:short-name :registered-id}`
       binding map resolves the short-name to the registered fn through
-      one hop (transition.cljc:30-42). The indirection + dangling-tail
-      behaviour was exercised only transitively.
+      one hop (transition.cljc).
 
   All assertions are pure functions of their arguments — no frame, no
   dispatch loop, no app-db, no wall-clock — so they are deterministic by
@@ -102,12 +101,12 @@
       (is (= 1 (count no-op-evs))
           "exactly one benign no-op trace for a domain event")
       (is (zero? (count (filter #{:rf.error/machine-unhandled-event} ops)))
-          "the retired error advisory is NEVER emitted")
+          "no :rf.error/machine-unhandled-event advisory is emitted")
       (testing "the no-op is op-type :rf.machine (NOT :error / :warning) so it
        is benign / not an issue"
         (is (= :rf.machine (:op-type (first no-op-evs)))
             "op-type is the machine-activity family, not a severity"))
-      (testing "the no-op carries {:actor-id :event :state} per Spec 009 (rf2-yyvtk5 — live actor INSTANCE)"
+      (testing "the no-op carries {:actor-id :event :state} per Spec 009 (the live actor INSTANCE)"
         (let [{:keys [tags]} (first no-op-evs)]
           (is (= :probe/unhandled (:actor-id tags)))
           (is (not (contains? tags :machine-id))
@@ -121,7 +120,7 @@
       (is (= :a (:state s)) "state unchanged"))))
 
 (deftest reserved-rf-unhandled-event-does-not-emit-the-no-op
-  (testing "rf2-t4582 — a reserved-:rf/* lifecycle event that resolves to no
+  (testing "a reserved-:rf/* lifecycle event that resolves to no
    transition does NOT emit the unhandled-no-op (it is framework init, not an
    unknown USER event). Covers the spawn kick-off, a stories lifecycle ping,
    and the bare reserved root"
@@ -134,7 +133,7 @@
         (is (zero? (count no-op-evs))
             (str "NO unhandled-no-op for reserved-namespace event " ev))
         (is (zero? (count (filter #{:rf.error/machine-unhandled-event} ops)))
-            (str "no retired error advisory for " ev " (severity unchanged)")))))
+            (str "no error advisory for " ev " (the ping stays benign)")))))
 
   (testing "the reserved-namespace ping still returns an unchanged snapshot
    (no transition, no churn — benign, just unlabelled)"
@@ -201,7 +200,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; :rf.error/machine-bad-state-form — state-path throws on a malformed
-;; :state (transition.cljc:232). No registration backstop; pure-engine guard.
+;; :state (transition.cljc). No registration backstop; pure-engine guard.
 ;; ---------------------------------------------------------------------------
 
 (deftest state-path-rejects-malformed-state
@@ -234,7 +233,7 @@
 ;; ---------------------------------------------------------------------------
 ;; :rf.error/machine-bad-guard-form / :rf.error/machine-bad-action-form —
 ;; resolve-guard / resolve-action throw at TRANSITION TIME on a ref that is
-;; neither fn, keyword, nor nil (transition.cljc:54 / :65). Both resolvers
+;; neither fn, keyword, nor nil (transition.cljc). Both resolvers
 ;; run OUTSIDE the evaluate-guard / run-action try, so a bad FORM (as
 ;; opposed to a throwing body) propagates out of machine-transition.
 ;; ---------------------------------------------------------------------------
@@ -348,7 +347,7 @@
   (testing "a state's :always value that is an unrecognised form (a number)
    throws the CATEGORISED :rf.error/machine-bad-always out of the macrostep
    that lands on it — NOT a raw uncategorised platform throw (an `assoc` on
-   a non-map candidate, rf2-0k0f3x). `:b`'s malformed :always is evaluated
+   a non-map candidate). `:b`'s malformed :always is evaluated
    as soon as the transition from :a lands there (§Eventless :always fires
    after any transition that lands in this state)"
     (let [spec {:id      :probe/bad-always
@@ -452,7 +451,7 @@
 ;; ---------------------------------------------------------------------------
 ;; chase-ref one-level indirection — a {:short-name :registered-id} binding
 ;; resolves the short-name to the registered fn through ONE hop
-;; (transition.cljc:30-42). Exercised here through the public guard surface.
+;; (transition.cljc). Exercised here through the public guard surface.
 ;; ---------------------------------------------------------------------------
 
 (deftest chase-ref-resolves-one-level-of-indirection
