@@ -1,19 +1,17 @@
 (ns re-frame.success-path-call-site-test
-  "Per rf2-twt7m Change 1 — `:rf.trace/call-site` rides success-path trace
-  events.
+  "`:rf.trace/call-site` rides success-path trace events.
 
-  Mirror to `success_path_trigger_handler_test` (rf2-lf84g) for the
+  Mirror to `success_path_trigger_handler_test` for the
   call-site slot. Where trigger-handler names the registration site of
   the in-scope handler, call-site names the **invocation line** of the
   surface macro (`rf/dispatch`, `rf/dispatch-sync`, `rf/subscribe`).
 
-  Originally introduced (rf2-ts1a) for error events only; widened by
-  rf2-twt7m so success-path traces — starting with `:rf.event/dispatched`
-  itself — also carry the dispatch-site coord. The Event lens redesign
-  (rf2-zh2qc) and any consumer building click-to-source UX on the
-  enqueue trace would otherwise lose the slot.
+  Error events and success-path traces — `:rf.event/dispatched` itself
+  included — both carry the dispatch-site coord. The Event lens and any
+  consumer building click-to-source UX on the enqueue trace would otherwise
+  lose the slot.
 
-  Locked shape (per rf2-ts1a):
+  Locked shape:
 
     {:ns <sym> :file <string> :line <int> :column <int>}
 
@@ -24,7 +22,7 @@
 
   JVM-only — the dynamic-var binding mechanism is platform-agnostic.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   `:rf.trace/call-site` is DEV-ONLY BY DESIGN and there is no production
   channel that carries it — checked, not assumed. `core-call-site-macros/gate`
@@ -32,27 +30,27 @@
   the gate OUTERMOST, so under `-Dre-frame.debug=false` the coord map is never
   built; `rf.router/process-event!` additionally re-gates the read
   (`(rf.trace/with-call-site (when rf.interop/debug-enabled? (:rf.trace/call-site
-  opts)) …)`); and the coord does NOT ride the dispatch envelope, so the
-  `(:envelope m)` probe that rescued `substrate-source-test` in rf2-d2841's
-  fourth pass has nothing to read here. Every trace assertion below is
+  opts)) …)`); and the envelope's `:call-site` slot is stamped only under
+  that same gate (the key is omitted in production), so the `(:envelope m)`
+  probe `substrate-source-test` uses has nothing to read here. Every trace assertion below is
   therefore guarded.
 
-  What keeps this file off the class-2 list (a namespace reported green having
-  executed nothing) is the OTHER branch of that gate. `plain` — the production
-  expansion of `rf/dispatch-sync` — is a distinct code path from the stamped
-  one, and until this lane existed NOTHING had ever executed it: every suite
-  ran in dev posture, where the `if` always selects `stamped`. So each case
+  What keeps this file from reporting green having executed nothing is the
+  OTHER branch of that gate. `plain` — the production expansion of
+  `rf/dispatch-sync` — is a distinct code path from the stamped one, and a
+  dev-posture suite never executes it, because there the `if` always selects
+  `stamped`. So each case
   keeps an always-on witness that the branch this posture selected actually
   reached the router and drove the cascade to completion — handler ran, db
-  committed, fx executed, child dispatch delivered. Under the gate that is
-  first-ever coverage of the production expansion; under dev it is a control
+  committed, fx executed, child dispatch delivered. Under the gate that
+  covers the production expansion; under dev it is a control
   proving the guarded arm below is not being skipped for a bad reason.
 
-  ONE VACUOUS PASS CAME OFF (rf2-d2841 class 4): `event-dispatched-fn-form-
-  omits-call-site` certified the fn-form path with
-  `(not (contains? enqueue :rf.trace/call-site))` over the nil an empty trace
-  ring yields — `(contains? nil k)` is false for every k, so under the gate it
-  certified the fn-form by never looking at it."
+  ONE NEGATIVE IS GUARDED FOR VACUITY: `event-dispatched-fn-form-
+  omits-call-site` asserts `(not (contains? enqueue :rf.trace/call-site))`,
+  which over the nil an empty trace ring yields — `(contains? nil k)` is false
+  for every k — would under the gate certify the fn-form by never looking at
+  it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
@@ -75,7 +73,7 @@
   (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
-  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
+  ;; EP-0002: `init!` does not synthesise `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
@@ -99,11 +97,11 @@
 (defn- events-of [evs op]
   (filterv #(= op (:operation %)) evs))
 
-;; ---- always-on dispatch witness (rf2-d2841) -------------------------------
+;; ---- always-on dispatch witness -------------------------------------------
 ;;
 ;; The call-site macros expand to `(if rf.interop/debug-enabled? <stamped>
 ;; <plain>)`. Under `-Dre-frame.debug=false` the PLAIN branch runs, and no
-;; suite had ever executed it. These probes assert that whichever branch this
+;; dev-posture suite executes it. These probes assert that whichever branch this
 ;; posture selected reached the router and ran the cascade to completion.
 
 (defn- register-probe-fx!
@@ -120,7 +118,7 @@
     (is (keyword? (:frame env))
         (str "the " where " envelope resolved a target frame"))))
 
-;; ---- Change 1 — `:rf.event/dispatched` carries `:rf.trace/call-site` ---------
+;; ---- `:rf.event/dispatched` carries `:rf.trace/call-site` --------------------
 
 (deftest event-dispatched-success-carries-call-site
   (testing ":rf.event/dispatched (success path) carries :rf.trace/call-site
@@ -134,7 +132,7 @@
                         (fn []
                           (rf/dispatch-sync [:rf2-twt7m/noop])))
             [enqueue] (events-of evs :rf.event/dispatched)]
-        ;; ALWAYS-ON (rf2-d2841): whichever branch of the macro gate this
+        ;; ALWAYS-ON: whichever branch of the macro gate this
         ;; posture selected reached the router and committed.
         (assert-dispatched envelopes :top "macro dispatch-sync")
         (is (true? (:rf2-twt7m/ran? (rf/app-db-value :rf/default)))
@@ -162,7 +160,7 @@
                           (rf/dispatch-sync [:rf2-twt7m/top-level])))
             [enqueue] (events-of evs :rf.event/dispatched)]
         (assert-dispatched envelopes :top "macro dispatch-sync")
-        ;; rf2-d2841 — GUARDED: top-level-vs-`:tags` is a TRACE-SHAPE claim, and
+        ;; GUARDED: top-level-vs-`:tags` is a TRACE-SHAPE claim, and
         ;; no trace event exists under `-Dre-frame.debug=false`.
         (when rf.interop/debug-enabled?
           (is (contains? enqueue :rf.trace/call-site)
@@ -183,14 +181,14 @@
                         (fn []
                           (rf.router/dispatch-sync! [:rf2-twt7m/fn-form])))
             [enqueue] (events-of evs :rf.event/dispatched)]
-        ;; ALWAYS-ON (rf2-d2841): the fn-form seam — the one the macro's
+        ;; ALWAYS-ON: the fn-form seam — the one the macro's
         ;; production branch expands to — dispatches identically. That is the
         ;; substance the gate's prod branch relies on.
         (assert-dispatched envelopes :top "rf.router/dispatch-sync! fn-form")
         (is (true? (:rf2-twt7m/fn-ran? (rf/app-db-value :rf/default)))
             "the fn-form dispatch committed its db change in this posture")
-        ;; rf2-d2841 — class-4 vacuous under the gate: `enqueue` is nil there,
-        ;; so the negative certified the fn-form by never looking at it.
+        ;; Vacuous under the gate: `enqueue` is nil there,
+        ;; so the negative would certify the fn-form by never looking at it.
         (when rf.interop/debug-enabled?
           (is (some? enqueue) ":rf.event/dispatched fired")
           (is (not (contains? enqueue :rf.trace/call-site))
@@ -201,8 +199,8 @@
 (deftest cascade-success-traces-carry-call-site
   (testing "every success-path trace emitted INSIDE the cascade (e.g.
    :rf.event/db-changed, :rf.fx/do-fx, :rf.fx/handled) carries the
-   dispatch's call-site — rf2-twt7m Change 1 widens the hoist to
-   match the trigger-handler treatment (rf2-lf84g)"
+   dispatch's call-site — the hoist matches the trigger-handler
+   treatment"
     (let [envelopes (atom {})]
       (register-probe-fx! envelopes)
       (rf/reg-fx :rf2-twt7m/my-fx (fn [_ _] :ok))
@@ -220,10 +218,10 @@
             [dbc]     (events-of evs :rf.event/db-changed)
             [dof]     (events-of evs :rf.fx/do-fx)
             [handled] (events-of evs :rf.fx/handled)]
-        ;; ALWAYS-ON (rf2-d2841): the cascade the guarded hoist claim is about
+        ;; ALWAYS-ON: the cascade the guarded hoist claim is about
         ;; runs to completion in BOTH postures — parent fx, child dispatch and
-        ;; the child's own commit. Under the gate this is the first execution
-        ;; the macro's production branch has ever had through a real cascade.
+        ;; the child's own commit. Under the gate this drives the macro's
+        ;; production branch through a real cascade.
         (assert-dispatched envelopes :parent "cascade parent")
         (assert-dispatched envelopes :child  "cascade child")
         (is (true? (:child? (rf/app-db-value :rf/default)))
@@ -234,7 +232,7 @@
           (is (some? handled) ":rf.fx/handled fired")
           ;; The macro stamps a call-site onto the opts map;
           ;; `process-event!` binds it via `with-dispatch-id+call-site`;
-          ;; every emit inside the cascade hoists it (rf2-twt7m).
+          ;; every emit inside the cascade hoists it.
           (is (contains? dbc :rf.trace/call-site)
               ":rf.event/db-changed carries the dispatch's call-site")
           (is (contains? dof :rf.trace/call-site)
