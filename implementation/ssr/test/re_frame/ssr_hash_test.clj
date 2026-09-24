@@ -8,7 +8,7 @@
     'FNV-1a 32-bit over a canonical EDN serialisation of the render-tree
      (depth-first traversal; attribute maps in sorted-key order; nil pruned).'
 
-  This file pins the **nil pruning** rule (rf2-6djjl). Without it, the
+  This file pins the **nil pruning** rule. Without it, the
   ubiquitous `{:class (when condition? :selected)}` shape produces
   `{:class nil}` on one side and `{}` on the other, and the trees hash
   differently despite being structurally equivalent.
@@ -63,13 +63,13 @@
         "canonical-edn returns nil for nil input — parent's keep/remove prunes it")))
 
 (deftest canonical-edn-non-nil-fast-path-unchanged
-  (testing "trees with no nil values produce byte-identical canonical EDN
-            to the pre-fix behaviour — important because the JVM↔CLJS
+  (testing "trees with no nil values produce the plain canonical EDN, with
+            nothing pruned — important because the JVM↔CLJS
             parity test (hash_check_cljs_test.cljs) pins '9d7457ef' for
             [:div {:class \"x\"} [:p \"hi\"]]."
     (is (= "[:div {:class \"x\"} [:p \"hi\"]]"
            (rf.ssr.hash/canonical-edn [:div {:class "x"} [:p "hi"]]))
-        "no-nil tree serialises to the pre-fix canonical form")))
+        "no-nil tree serialises to the plain canonical form")))
 
 ;; ---- render-tree-hash ------------------------------------------------------
 
@@ -77,7 +77,7 @@
   (testing "{:class nil} and {} hash identically per Spec 011 §Hydration-mismatch"
     (is (= (rf.ssr.hash/render-tree-hash [:div {:class nil}])
            (rf.ssr.hash/render-tree-hash [:div {}]))
-        "the common (when condition? :class) shape no longer triggers spurious mismatch")
+        "the common (when condition? :class) shape triggers no spurious mismatch")
     (is (= (rf.ssr.hash/render-tree-hash [:div {:id "x" :class nil}])
            (rf.ssr.hash/render-tree-hash [:div {:id "x"}]))
         "nil-valued attr pruned alongside live attrs")))
@@ -92,20 +92,20 @@
         "interior nil child pruned")))
 
 ;; ===========================================================================
-;; rf2-mff1ht — map ordering must be a TOTAL order (str-colliding keys)
+;; Map ordering must be a TOTAL order (str-colliding keys)
 ;;
-;; `append-map!` sorted entries by `(comp str key)`, which is NOT a total
+;; Sorting entries by `(comp str key)` would NOT be a total
 ;; order: a keyword `:a` and a string `":a"` both `str` to `":a"`, so
-;; `sort-by` falls back to source iteration/insertion order. Two maps that
-;; are `=` in Clojure (`{:a 1 ":a" 2}`) could then canonicalise to
+;; `sort-by` would fall back to source iteration/insertion order. Two maps
+;; that are `=` in Clojure (`{:a 1 ":a" 2}`) could then canonicalise to
 ;; different EDN strings and hash differently depending only on how the
-;; map was constructed — a false hydration mismatch. The fix sorts by the
-;; canonical-EDN form of the key (`:a` vs the quoted `":a"`), a total
+;; map was constructed — a false hydration mismatch. `append-map!` sorts by
+;; the canonical-EDN form of the key (`:a` vs the quoted `":a"`), a total
 ;; cross-runtime-stable order.
 ;; ===========================================================================
 
 (deftest render-tree-hash-stable-for-str-colliding-keys
-  (testing "rf2-mff1ht: a map mixing a keyword `:a` and a string `\":a\"`
+  (testing "a map mixing a keyword `:a` and a string `\":a\"`
             (whose `str` forms collide) hashes IDENTICALLY regardless of
             insertion/construction order"
     (let [a-first     (array-map :a 1 ":a" 2)
@@ -150,11 +150,11 @@
          to the same tree with all nils pruned")))
 
 ;; ===========================================================================
-;; rf2-dl9yg TC-2 — :doctype? + :render-hash composition
+;; :doctype? + :render-hash composition
 ;; ===========================================================================
 ;;
 ;; The two opts interact subtly: hash injection runs on the hiccup root
-;; BEFORE stringification (rf2-lxwse), so the doctype prepend lands after
+;; BEFORE stringification, so the doctype prepend lands after
 ;; the hash attribute has been stamped — `data-rf-render-hash` rides on
 ;; the root DOM element, not on the doctype declaration. Pin the
 ;; composition.
@@ -196,7 +196,7 @@
           "no hash attribute without :render-hash"))))
 
 (deftest emit-hash-opt-is-inert
-  (testing "the retired `:emit-hash?` opt is now an ordinary unknown key —
+  (testing "there is no `:emit-hash?` opt; it is an ordinary unknown key —
             no marker, no throw (the emitter does not validate its opts)"
     (let [tree [:div "x"]]
       (is (= "<div>x</div>" (rf.ssr.emit/render-to-string tree {:emit-hash? true}))
@@ -205,26 +205,26 @@
              (rf.ssr.emit/render-to-string tree {:doctype? true :emit-hash? true}))
           ":emit-hash? does not disturb the other opts"))))
 
-;; ---- rf2-jsa2ml: raw-fn hiccup heads hash identity-free -------------------
+;; ---- raw-fn hiccup heads hash identity-free -------------------------------
 
 (deftest render-tree-hash-drops-raw-fn-identity
-  (testing "rf2-jsa2ml — a raw-fn hiccup head (`[my-component props]`, the
+  (testing "a raw-fn hiccup head (`[my-component props]`, the
             deref'd defn VALUE idiomatic to Reagent/UIx SSR) has NO
             cross-runtime-stable identity: (.toString fn) is class +
             identity-hashcode on the JVM but the JS source on CLJS. The server
             hashes the raw render tree and the client re-hashes the SAME tree,
-            so a fn `.toString` in the canonical EDN made byte-identical HTML
-            hash differently — a spurious :rf.ssr/hydration-mismatch that
-            CRASHES under :on-mismatch :hard-error. The fix serialises every
-            raw fn head to the fixed identity-free token `#fn[]`."
+            so a fn `.toString` in the canonical EDN would make byte-identical
+            HTML hash differently — a spurious :rf.ssr/hydration-mismatch that
+            CRASHES under :on-mismatch :hard-error. So every raw fn head
+            serialises to the fixed identity-free token `#fn[]`."
     (let [f1 (fn [_] [:span "a"])
           f2 (fn [_] [:span "a"])]
       (is (= "#fn[]" (rf.ssr.hash/canonical-edn f1))
           "a raw fn serialises to the identity-free token, not #fn[<toString>]")
       ;; The decisive property: two DISTINCT fn objects standing for the same
       ;; logical view (server's deref'd defn vs client's) hash identically.
-      ;; Before the fix f1/f2 had different identity-hashcodes in their
-      ;; toString → different canonical EDN → different hashes → false mismatch.
+      ;; f1/f2 have different identity-hashcodes in their toString, so a
+      ;; toString-bearing canonical EDN → different hashes → false mismatch.
       (is (not= (.toString f1) (.toString f2))
           "sanity: the two fn objects DO have divergent toStrings (the trap)")
       (is (= (rf.ssr.hash/render-tree-hash [:div [f1 {:x 1}]])
@@ -241,10 +241,10 @@
            (rf.ssr.hash/canonical-edn #'clojure.core/identity))
         "a Var reference keeps its stable #'ns/name print form")))
 
-;; ---- rf2-0ypnnk: whole-valued doubles canonicalise cross-runtime ----------
+;; ---- whole-valued doubles canonicalise cross-runtime ----------------------
 
 (deftest whole-valued-doubles-canonicalise-hash-and-html-consistently
-  (testing "rf2-0ypnnk — a whole-valued double is serialised WITHOUT the
+  (testing "a whole-valued double is serialised WITHOUT the
             trailing .0 in BOTH the render-tree hash AND the emitted HTML, so
             the JVM `9.0`/`0.0` match the CLJS `9`/`0` (CLJS unifies 1.0→1).
             The two surfaces MUST agree — child AND attribute position — or
