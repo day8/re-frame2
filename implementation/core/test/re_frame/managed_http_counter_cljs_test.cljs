@@ -18,8 +18,8 @@
   own failure mode is worse than a no-op: a status the handler's `cond` does
   not enumerate falls through to the initiation arm and RE-ISSUES the request.
 
-  It belongs in the framework test tree, NOT under `examples/` (examples stay
-  test-free per rf2-8cevm). It `:require`s `managed-http-counter.core` (a
+  It belongs in the framework test tree, NOT under `examples/` (examples are
+  test-free). It `:require`s `managed-http-counter.core` (a
   Reagent-coupled `.cljs`-only entry ns — its ns-load registers the events /
   subs / fx, and transitively `re-frame.http.managed`) so it runs under the
   consolidated `:node-test` CLJS build, whose source paths include
@@ -102,7 +102,7 @@
            Cancel button names (Spec 014 example E puts :request-id at the top
            level of the :rf.http/managed map, beside :request and :reply-to)")
       (is (= [:http-counter/+1] (:reply-to args))
-          "and still addresses its reply back at the same handler, so the
+          "and addresses its reply back at the same handler, so the
            cancellation envelope lands on the cond below")
       (is (= :loading (:http-counter/status (rf/app-db-value f)))
           "the UI parks in :loading while that request is live"))))
@@ -138,9 +138,9 @@
           (str "re-frame.reply/validate-reply must accept the fixture; problems="
                (pr-str (rf.reply/validate-reply cancelled-reply)))))
 
-    ;; TOMBSTONE (rf2-bh5nx). The July pre-alpha migration retired the
-    ;; top-level `:cancel/reason` key in favour of the namespaced
-    ;; `:rf.reply/cancel-reason`. This block carries the retired spelling ON
+    ;; TOMBSTONE. There is no top-level `:cancel/reason` key; the reason rides
+    ;; the namespaced `:rf.reply/cancel-reason`. This block carries the
+    ;; retired spelling ON
     ;; PURPOSE, to pin it ABSENT — a tree-wide census that reads it as drift
     ;; and "fixes" it destroys the guard. The teeth are real: the retired
     ;; spelling is rejected as :rf.reply/cancelled-missing-reason even though
