@@ -1,10 +1,9 @@
 (ns re-frame.live-run-frame-resolution-cljs-test
   "EP-0023 §Frame-derived live registration resolution — the OPERATIONAL
-  acceptance (rf2-uejnt3). Slice .9 (rf2-32siq3.9) landed the resolution SEAM
-  (`rf.registrar/*generation*` + `live-frame/call-with-frame-resolution`) and proved
-  it routes `rf.registrar/lookup` when bound MANUALLY. This suite proves the seam is
-  now invoked from the LIVE event run (rf2-p4cd9c: renamed live-cascade ->
-  live-run — the run sense, one real dispatch's traversal): a REAL
+  acceptance. The resolution SEAM (`rf.registrar/*generation*` +
+  `live-frame/call-with-frame-resolution`) routes `rf.registrar/lookup` when
+  bound. This suite proves the seam is invoked from the LIVE event run (one real
+  dispatch's traversal): a REAL
   `(rf/dispatch [...] {:frame F})` (and
   a real `(rf/subscribe [...] {:frame F})`) resolves the event / sub handler
   through the TARGET frame's resolved image generation END-TO-END — NOT
@@ -16,28 +15,30 @@
   `[:counter/value]` writes/returns one value; the frame's IMAGE registers the
   SAME ids with a DIFFERENT impl. A frame-targeted dispatch/subscribe must run
   the IMAGE's impl, proving `router/process-event!` and `subs/subscribe` wrap the
-  event run with `call-with-frame-resolution` (rf2-uejnt3). A realm-only / no-image
+  event run with `call-with-frame-resolution`. A realm-only / no-image
   frame is unaffected (absence-is-default).
 
-  ## One runnable image-loaded frame (EP-0024 §One live frame registry, rf2-tu2vr7)
+  ## One runnable image-loaded frame (EP-0024 §One live frame registry)
 
   `make-frame` returns a SINGLE runnable image-loaded frame VALUE: it
   creates/updates its backing runnable record (app-db / queue / sub-cache /
-  lifecycle, via `make-frame`) keyed by the frame's runnable-id, and the resolved
+  lifecycle) keyed by the frame's runnable-id, and the resolved
   image GENERATION lives ON that record (the `:generation` slot), so an event
-  stream runs against an image with no separate `make-frame` pairing. EP-0024
-  collapsed the two-registry model to ONE: dispatch / subscribe re-derive the
+  stream runs against an image with no separately-made record to pair it with.
+  There is ONE registry (EP-0024): dispatch / subscribe re-derive the
   generation from the record by id (a frame VALUE and its id resolve the same
-  generation). The cases below still call `make-frame` first (harmless —
-  `make-frame {:id :counter/main}` idempotently updates the same record); the
-  router drains that record and `process-event!` derives the generation from the
-  record of the same id. The `two-frames-from-one-image-keep-…` test exercises
-  the collapse directly — two RUNNABLE values built from ONE image keep
-  INDEPENDENT app-db + sub-cache, no `make-frame` in sight.
+  generation). Most cases below first call `make-frame` without `:images`
+  (harmless — the later `make-frame` with `:images` updates that same record in
+  place); the router drains that record and `process-event!` derives the
+  generation from the record of the same id. The
+  `two-frames-from-one-image-keep-…` test exercises the single record directly —
+  two RUNNABLE values built from ONE image keep INDEPENDENT app-db + sub-cache,
+  with no image-less `make-frame` in sight.
 
   Fixtures snapshot/restore the registrar via `make-reset-runtime-fixture`
-  (NOT `rf.registrar/clear-all!`, per the .9 isolation note) and clear the
-  process-local live-frame registry between cases. `.cljc` ending `-cljs-test`
+  (NOT `rf.registrar/clear-all!`, which would wipe the shared node-test-bundle
+  registrations) and reset the ONE `rf.frame/frames` registry between cases.
+  `.cljc` ending `-cljs-test`
   rides `npm run test:cljs` AND `clojure -M:test`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -56,7 +57,7 @@
 ;; the ambient `:rf/default` scope (we drive explicit `{:frame …}` targets). The
 ;; runtime fixture resets the ONE `frame/frames` registry between cases — clearing
 ;; every record AND its generation — so an `:id` from one case does not collide
-;; with the next (no separate live-frame index to clear, rf2-ji3tvy).
+;; with the next (there is no separate live-frame index to clear).
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
@@ -139,7 +140,7 @@
             IMAGE registers the SAME id writing :image. A REAL
             (rf/dispatch-sync [:counter/inc] {:frame :counter/main}) runs the
             IMAGE handler END-TO-END — proving process-event! wraps the run
-            with call-with-frame-resolution (rf2-uejnt3), NOT a manual binding."
+            with call-with-frame-resolution, NOT a manual binding."
     ;; A runnable frame RECORD under :counter/main (EP-0013 substrate).
     (rf/make-frame {:id :counter/main :doc "image-loaded counter frame"})
     ;; The GLOBAL handler — the value the run would write if it (wrongly)
@@ -171,7 +172,7 @@
             IMAGE registers the SAME id returning :image. A REAL
             (rf/subscribe [:counter/value] {:frame :counter/main}) builds the IMAGE sub
             END-TO-END — proving subscribe wraps the build with
-            call-with-frame-resolution (rf2-uejnt3)."
+            call-with-frame-resolution."
     (rf/make-frame {:id :counter/main :doc "image-loaded counter frame"})
     ;; GLOBAL sub.
     (rf/reg-sub :counter/value (fn [_db _] :global))
@@ -220,15 +221,15 @@
 
 ;; ===========================================================================
 ;; 4. ABSENCE-IS-DEFAULT — a frame with NO image-loaded object resolves through
-;;    the global registrar EXACTLY as before (every realm-only / single-realm
-;;    frame is byte-identical).
+;;    the global registrar.
 ;; ===========================================================================
 
 (deftest no-image-frame-resolves-through-the-global-registrar
   (testing "a runnable frame with NO live-frame image OBJECT (a realm-only /
             EP-0013 frame) resolves a frame-targeted dispatch + subscribe through
-            the GLOBAL registrar unchanged — the load-bearing absence-is-default
-            fall-through that keeps every existing caller byte-identical"
+            the GLOBAL registrar — the load-bearing absence-is-default
+            fall-through that keeps every image-less caller on the global
+            registrar"
     (rf/make-frame {:id :plain/main :doc "no image-loaded object for this frame"})
     (rf/reg-event :plain/set
       (fn [{:keys [db]} _] {:db (assoc db :written-by :global)}))
@@ -275,24 +276,22 @@
              image's step handler too (coherent across the drain)")))))
 
 ;; ===========================================================================
-;; 6. THE COLLAPSE HEADLINE (EP-0023 collapse slice 1, rf2-32siq3.32) — two
-;;    RUNNABLE objects built from ONE image keep INDEPENDENT app-db + sub-cache.
-;;    This is the previously-impossible `.31 blocker-1` proof: before the
-;;    collapse a `make-frame` object had NO runnable state, so it could not run
-;;    an event stream at all without a paired `make-frame` record. Now ONE object
-;;    carries both the image generation AND its own runnable record.
+;; 6. ONE RUNNABLE OBJECT — two RUNNABLE objects built from ONE image keep
+;;    INDEPENDENT app-db + sub-cache. ONE object carries both the image
+;;    generation AND its own runnable record, so it runs an event stream with no
+;;    separately-made record to pair it with.
 ;; ===========================================================================
 
 (deftest two-frames-from-one-image-keep-independent-state
-  (testing "two runnable frames built from the SAME image — NO make-frame, NO
-            shared id — maintain INDEPENDENT app-db and sub-cache: each frame's
+  (testing "two runnable frames built from the SAME image — NO pre-made record,
+            NO shared id — maintain INDEPENDENT app-db and sub-cache: each frame's
             event stream mutates only its own state, and each frame's subscribe
             builds its own reaction (EP-0023 §Frame — the live frame object owns
             app-db + subscription cache; two frames that run the same generation
             still have independent state)"
     ;; ONE image carries the runnable inc handler + the value sub. A GLOBAL
     ;; version of each exists only so we can prove the image's impl ran (not the
-    ;; global) — neither frame is paired with a make-frame.
+    ;; global) — neither frame is paired with a pre-made record.
     (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (assoc db :n :global)}))
     (rf/reg-sub   :counter/value (fn [_db _] :global))
     (let [pool [(event-desc "ex.counter" :counter/inc
@@ -300,7 +299,7 @@
                 (sub-desc   "ex.counter" :counter/value (fn [db _] (:n db)))]
           img  (rf.image/image {:id :ex/counter :select-ns {:include ["ex.counter"]}})
           ;; TWO direct (no-id) runnable objects from the SAME image, seeded with
-          ;; DIFFERENT initial-db. No make-frame, no shared frame id.
+          ;; DIFFERENT initial-db. No pre-made record, no shared frame id.
           fa   (rf.live-frame/make-frame {:images [img] :initial-events [[:rf/set-db {:n 0}]]}   pool)
           fb   (rf.live-frame/make-frame {:images [img] :initial-events [[:rf/set-db {:n 100}]]} pool)]
       ;; The objects are distinct runnable frames sharing one image generation.
@@ -337,14 +336,14 @@
 
 ;; ===========================================================================
 ;; 7. DIRECT-OBJECT RUNNABILITY (the spec harness form) — a no-id object is
-;;    runnable end-to-end without any make-frame pairing (EP-0023 §Frame).
+;;    runnable end-to-end without any pre-made record (EP-0023 §Frame).
 ;; ===========================================================================
 
 (deftest direct-no-id-object-is-runnable-end-to-end
   (testing "the spec's local-harness form: a no-id frame OBJECT is dispatched +
             subscribed directly (object via the `{:frame …}` opt for both) and
             runs the image's handlers against the object's OWN runnable state —
-            NO make-frame, NO frame id (EP-0023 §Frame — a direct object is a
+            NO pre-made record, NO frame id (EP-0023 §Frame — a direct object is a
             local reference a harness uses directly)"
     (let [pool  [(event-desc "ex.counter" :counter/inc
                              (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
@@ -363,17 +362,16 @@
             "after destroy the object's backing record is gone")))))
 
 ;; ===========================================================================
-;; 8. THE {:frame …} OPTS FORM IS THE ONE EXPLICIT-TARGET SHAPE (API-shrink #1,
-;;    rf2-csbbwu) — the EP-0023-era frame-FIRST positional `(rf/dispatch-sync
-;;    frame [...])` / `(rf/dispatch frame [...])` sugar is DELETED entirely:
-;;    every sig is `[event]` / `[event opts]`, no `vector?` shape-
+;; 8. THE {:frame …} OPTS FORM IS THE ONE EXPLICIT-TARGET SHAPE — there is no
+;;    frame-FIRST positional `(rf/dispatch-sync frame [...])` /
+;;    `(rf/dispatch frame [...])` form: every sig is `[event]` / `[event opts]`, no `vector?` shape-
 ;;    discrimination on the first arg. `opts`'s `:frame` routes the carried
 ;;    TARGET (a frame-id keyword OR a live frame OBJECT) identically for both
 ;;    dispatch and subscribe.
 ;; ===========================================================================
 
 (deftest opts-form-routes-object-and-keyword-targets-end-to-end
-  (testing "EP-0023 §Public API + API-shrink #1: (rf/dispatch-sync event {:frame
+  (testing "EP-0023 §Public API: (rf/dispatch-sync event {:frame
             f}) and (rf/dispatch event {:frame f}) target the carried frame —
             for BOTH a live frame OBJECT and a frame-id keyword — END-TO-END
             through the target frame's image"
@@ -406,9 +404,9 @@
               "both the queued and the sync opts-form dispatches ran the image inc"))))))
 
 (deftest former-frame-first-dispatch-no-longer-resolves
-  (testing "the DELETED frame-first positional form — (dispatch-sync frame
-            event) — no longer targets the named frame (API-shrink #1,
-            rf2-csbbwu). `frame` (a frame value, never a vector) is now read
+  (testing "there is no frame-first positional form — (dispatch-sync frame
+            event) does not target the named frame. `frame` (a frame value,
+            never a vector) is read
             as `event` and `event` (a vector) as `opts`; `(:frame opts)` on a
             vector is nil, so the call never resolves the intended target —
             whether it throws or silently misses, the object's OWN image
@@ -424,15 +422,15 @@
         (catch #?(:clj Throwable :cljs :default) _ nil))
       (is (= 0 (:n (rf/app-db-value obj)))
           "the object's OWN app-db was NOT mutated by the image inc — the
-           former frame-first call never reached the intended handler"))))
+           frame-first call never reached the intended handler"))))
 
 ;; ===========================================================================
-;; 8b. INLINE :registrations FN-BODY ROUTES THROUGH DISPATCH (rf2-ffc6s0)
-;;     — the EP-0023 gap: an image built from inline `:registrations` with a
-;;     REAL fn body must wire that handler into the dispatch / subscribe /
+;; 8b. INLINE :registrations FN-BODY ROUTES THROUGH DISPATCH
+;;     — an image built from inline `:registrations` with a
+;;     REAL fn body wires that handler into the dispatch / subscribe /
 ;;     fx / cofx path identically to a `:include-ns`-selected registration.
-;;     Before the fix the inline body lowered ONLY to `:impl` (inert data),
-;;     so a frame-targeted dispatch resolved the descriptor but ran nothing
+;;     An inline body lowered ONLY to `:impl` (inert data) would let a
+;;     frame-targeted dispatch resolve the descriptor but run nothing
 ;;     (`rf.registrar/handler` reads `:handler-fn`, an event needs `:interceptors`).
 ;;     EP-0023 §Image Fragments: "Both paths should lower to the same runtime
 ;;     descriptor shape."
@@ -442,7 +440,7 @@
   (testing "an image built from INLINE :registrations with a REAL event fn body
             runs that handler END-TO-END under a frame-targeted dispatch — the
             inline body lowers to the same runnable descriptor shape a
-            :include-ns-selected handler carries (rf2-ffc6s0)"
+            :include-ns-selected handler carries"
     (rf/make-frame {:id :inline/main :doc "inline-image counter frame"})
     ;; A GLOBAL handler the run would (wrongly) execute if it resolved through
     ;; the global registrar — present so the assertion proves the IMAGE ran.
@@ -469,7 +467,7 @@
 (deftest inline-registrations-sub-fn-body-runs-through-subscribe
   (testing "an image built from INLINE :registrations with a REAL layer-1 sub
             fn body computes that sub END-TO-END under a frame-targeted
-            subscribe (rf2-ffc6s0)"
+            subscribe"
     (rf/make-frame {:id :inline/main :doc "inline-image counter frame"})
     (rf/reg-sub :counter/value (fn [_db _] :global))
     (let [img (rf.image/image
@@ -544,8 +542,7 @@
 
 (deftest inline-registrations-fx-fn-body-runs-through-pipeline
   (testing "an image built from INLINE :registrations with a REAL fx fn body
-            runs that effect END-TO-END when an inline event handler emits it
-            (rf2-ffc6s0)"
+            runs that effect END-TO-END when an inline event handler emits it"
     (rf/make-frame {:id :inline/main :doc "inline-image fx frame"})
     (let [fired (atom [])
           img (rf.image/image
@@ -561,9 +558,8 @@
           "the INLINE fx handler ran — its fn body executed with the emitted args"))))
 
 ;; ===========================================================================
-;; 9. IMAGE HOT-RELOAD VIA RE-`MAKE-FRAME` (rf2-lxwpob folded the dedicated
-;;    `reload-images!` verb into re-construction, EP-0023 collapse slice 2,
-;;    rf2-32siq3.32) — re-calling `make-frame` against the SAME `:id` with a
+;; 9. IMAGE HOT-RELOAD VIA RE-`MAKE-FRAME` — re-calling `make-frame` against
+;;    the SAME `:id` with a
 ;;    NEW `:images` vector swaps the generation while PRESERVING FRAME MEMORY
 ;;    (app-db continues); the reload diff is a READ (`generation-diff` over two
 ;;    `frame-generation` values), not a bespoke verb. A no-id (direct-object)
