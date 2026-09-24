@@ -1,13 +1,12 @@
 (ns re-frame.late-bind-missing-test
-  "Per rf2-5b6x — assert the documented missing-artefact error contract for
+  "Assert the documented missing-artefact error contract for
   the http artefact's `re-frame.core` re-exports.
 
   Each per-feature split (schemas / machines / routing / flows / http /
   ssr) raises a documented `:rf.error/<artefact>-artefact-missing`
   ex-info when a consumer calls a re-exported surface but the artefact
-  is absent from the classpath. The contract was previously only
-  documented in prose; this test pins the runtime behaviour against
-  regression.
+  is absent from the classpath. This test pins that runtime behaviour,
+  not just the prose.
 
   Strategy: the http artefact IS on the classpath here (the test ns
   requires `re-frame.http.managed`, which fires the late-bind hook
@@ -16,11 +15,11 @@
   assertion, then restore it in `finally`. Identical mechanism as the
   test would use on CLJS.
 
-  Per Spec 002 §The late-bind seam, rf2-5kpd (http split), and the
+  Per Spec 002 §The late-bind seam and the
   prose at the call sites in `re-frame.core`.
 
   The stub family — `with-request-stubs` and the raw install/uninstall
-  pair — is NOT a `re-frame.core` façade export (rf2-ntwwyt, rf2-kuky.13)
+  pair — is NOT a `re-frame.core` façade export
   and carries no hook / throw contract, so it is not exercised here.
   `reg-http-interceptor` is the http artefact's re-export that does."
   (:require [clojure.test :refer [deftest is testing]]
@@ -45,10 +44,10 @@
         (rf.late-bind/set-fn! hook-key original)))))
 
 ;; The stub family (`with-request-stubs` plus the raw install/uninstall pair)
-;; is not a `re-frame.core` façade export (rf2-ntwwyt, rf2-kuky.13) — it
+;; is not a `re-frame.core` façade export — it
 ;; carries no late-bind hook and no missing-artefact throw contract; tests
 ;; call all three directly on `re-frame.http.test-support`. The per-frame
-;; interceptor re-exports are what retain the contract.
+;; interceptor re-exports are what carry the contract.
 
 (deftest reg-http-interceptor-raises-when-http-artefact-missing
   (testing "rf/reg-http-interceptor raises :rf.error/http-artefact-missing when the :http/reg-http-interceptor hook is nil"
@@ -59,7 +58,7 @@
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)
               "reg-http-interceptor throws when the http artefact is absent")
-          ;; rf2-vvixub — message is the human :reason + trailing
+          ;; The message is the human :reason + trailing
           ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
           ;; not exact keyword-equality.
           (is (re-find #"\[:rf\.error/http-artefact-missing\]" (.getMessage thrown))
