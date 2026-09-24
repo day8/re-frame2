@@ -8,11 +8,10 @@
   remains anchored to the mount epoch. Cases use multiple distinct events so a
   one-epoch attribution lag cannot pass unnoticed.
 
-  THE POST-SETTLE-EMIT SIMULATION TECHNIQUE — the bug is a TIMING bug: the
-  emit fires OUTSIDE the in-flight cascade, after `settle!` already harvested
-  + committed the record. In a synchronous JVM `dispatch-sync`, every trace
-  emits INSIDE the cascade, so the lag is structurally unreproducible — which
-  so the suite reproduces the real
+  THE POST-SETTLE-EMIT SIMULATION TECHNIQUE — attribution is a TIMING
+  question: the emit fires OUTSIDE the in-flight cascade, after `settle!` has
+  harvested + committed the record. In a synchronous JVM `dispatch-sync`, every
+  trace emits INSIDE the cascade, so the suite reproduces the real
   React-commit / React-deref timing directly: dispatch a cascade (it settles
   and commits its record), THEN emit a `:rf.sub/run` / `:rf.view/render` via
   `trace/emit!` with NO `*handler-scope*` and an empty in-flight buffer —
@@ -20,43 +19,39 @@
   re-render / reaction recompute after the drain. The runtime's back-fill
   (`capture/capture-event!` → `state/back-fill-*!` / `resolve-render-epoch`)
   then attributes the emit to the cascade that CAUSED it. No browser needed;
-  the simulation isolates the attribution logic the three fixes turn on.
+  the simulation isolates the attribution logic.
 
   INVARIANTS COVERED (each `deftest` is keyed `inv-N-...` to the invariant
-  it guards; each FAILS if its corresponding fix is reverted):
+  it guards; each FAILS if the attribution it pins regresses):
 
     inv-1  `:rf.sub/run` attributed to its OWN cascade across ≥2 distinct
-           cascades (rf2-wi900).
+           cascades.
     inv-2  `:rf.view/rendered` / `:rf.view/render` attributed to its CAUSING
-           cascade, not the commit-time / next epoch (rf2-qs6dl).
+           cascade, not the commit-time / next epoch.
     inv-3  a late MOUNT render attributed to the mount/initialise epoch ONLY,
-           not double-filed onto the first post-mount cascade (rf2-vh1k3).
-    inv-4  `:rf.sub/value-changed?` + `:rf.sub/cause-sub` land on the correct epoch
-           (rf2-wi900 / rf2-l1jz8).
+           not double-filed onto the first post-mount cascade.
+    inv-4  `:rf.sub/value-changed?` + `:rf.sub/cause-sub` land on the correct epoch.
     inv-5  a view re-render whose own subs did NOT change is NOT spuriously
-           attributed (the rf2-vh1k3 value-change-per-view discriminator).
+           attributed (the value-change-per-view discriminator).
     inv-6  an out-of-cascade ORPHAN emit (`:rf.frame/created` and the general
            class) stays UNCORRELATED — never a new epoch, never folded into
-           the NEXT dequeued event's `:trace-events` (rf2-avvwm, a P1
-           regression from #1952's per-event epoch boundary). The fourth
-           out-of-cascade-emit-attribution member:
-           unlike the post-settle render / sub-run / mount cases (back-filled
+           the NEXT dequeued event's `:trace-events`.
+           Unlike the post-settle render / sub-run / mount cases (back-filled
            to their CAUSING cascade), an orphan belongs to NO cascade and is
            dropped at the capture seam.
     inv-7  a tool / inspector frame's OWN render (a view rendered under a
            `:rf.trace/frame-no-emit? true` frame) never lands in the INSPECTED
            app frame's epoch `:renders` — the frame-no-emit gate suppresses the
-           render-trace emit at source, so no back-fill ever runs (rf2-tqlmq,
-           the cross-frame / observer sibling of inv-3). The defect: Xray's
-           own `shell-view` rendered ONE LEVEL ABOVE its `:rf/xray`
-           frame-provider, so its `:rf.view/rendered` carried `:frame :rf/default`
-           (fall-through) and back-filled into the inspected app's boot epoch.
-           The fix wraps `shell-view` in the frame-provider AT THE MOUNT so its
+           render-trace emit at source, so no back-fill ever runs (the
+           cross-frame / observer sibling of inv-3). A view rendered ABOVE its
+           trace-disabled frame-provider would carry `:frame :rf/default`
+           (fall-through) and back-fill into the inspected app's boot epoch,
+           so Xray wraps `shell-view` in the frame-provider AT THE MOUNT and its
            render resolves to the trace-disabled frame; this invariant pins that
            the gate then suppresses the emit (so the observer cannot pollute the
            observed tape).
 
-  Supporting cases pin the boundary behaviour each fix also relies on:
+  Supporting cases pin the boundary behaviour each attribution rule relies on:
   in-flight emits ride their own cascade (not back-filled); the back-fill
   re-fans the corrected record to listeners (Xray caches at settle time);
   an orphan emit before any cascade is a silent no-op; mount-burst tails are
@@ -81,7 +76,7 @@
 
 ;; ---- fixture ---------------------------------------------------------------
 ;;
-;; rf2-yw1w1u — canonical capture/restore fixture. Snapshots the
+;; Canonical capture/restore fixture. Snapshots the
 ;; registrar at ns-load + restores around each test, and fires the epoch
 ;; reset-hook table (history / listeners / config-to-default) so the
 ;; shared attribution atoms (`state/last-settled-epoch`,
@@ -90,10 +85,9 @@
 ;; The `:init-fn` adds two suite-specific steps the shared fixture
 ;; doesn't own:
 ;;   - `(rf/configure! {:epoch-history {:trace-events-keep 5}})` — the
-;;     suite's non-default keep (NOT the shipped 50 = :depth; Mike
-;;     pair-debug 2026-05-27), through the public boundary so no test ns
-;;     reaches into the private `state/config` var.
-;;   - `(trace/clear-frame-no-emit!)` — rf2-tqlmq: the per-frame
+;;     suite's non-default keep (NOT the shipped 50 = :depth), through the
+;;     public boundary so no test ns reaches into the private `state/config` var.
+;;   - `(trace/clear-frame-no-emit!)` — the per-frame
 ;;     trace-emission gate (`:rf.trace/frame-no-emit?`) is process-sticky
 ;;     and NOT a reset-hook-table row; inv-7 registers a trace-disabled
 ;;     observer frame, so clear the set between tests.
@@ -116,8 +110,8 @@
   "Emit a `:rf.view/rendered` at React-COMMIT timing — op-type `:rf.view`,
   tags carrying `:rf.view/render-key` + `:frame`, fired post-settle (empty
   buffer). Mirrors the POST-render `:rf.view/rendered` emit, which is what
-  the `:renders` projection sources from (rf2-8wrzz.1 — the op that carries
-  per-view cause + timing). Pass a `view-id` (canonical `[view-id 0]`
+  the `:renders` projection sources from (the op that carries per-view
+  cause + timing). Pass a `view-id` (canonical `[view-id 0]`
   render-key) or a full render-key tuple."
   [frame-id view-or-rk]
   (let [render-key (if (vector? view-or-rk) view-or-rk [view-or-rk 0])]
@@ -131,7 +125,7 @@
   post-settle (empty buffer, no `:rf.trace/dispatch-id`). Mirrors
   `re-frame.views/emit-view-unmounted!`, which fires at React
   componentWillUnmount / useEffect cleanup AFTER the cascade that removed
-  the view settled (rf2-59hx3). Pass a `view-id` (canonical `[view-id 0]`
+  the view settled. Pass a `view-id` (canonical `[view-id 0]`
   render-key) or a full render-key tuple."
   [frame-id view-or-rk]
   (let [render-key (if (vector? view-or-rk) view-or-rk [view-or-rk 0])
@@ -143,7 +137,7 @@
 
 (defn- emit-sub-run!
   "Emit a reactive `:rf.sub/run` at React-DEREF timing — op-type `:rf.sub/run`,
-  tags carrying `:rf.sub/id` + `:rf.sub/query-v` + `:frame` plus the rf2-l1jz8
+  tags carrying `:rf.sub/id` + `:rf.sub/query-v` + `:frame` plus the
   value-change attribution, fired post-settle (empty buffer, NO
   `:rf.sub/reader-render-key` — a post-settle reactive recompute fires outside any
   render binding). Mirrors `re-frame.subs.memo/validate-and-trace`. Optional
@@ -164,7 +158,7 @@
 (defn- emit-mount-sub-run!
   "Emit a `:rf.sub/run` at MOUNT timing — the SYNCHRONOUS in-render deref at
   first-paint. `*render-key*` is bound on that path, so the runtime stamps
-  `:rf.sub/reader-render-key` (the rf2-vh1k3 read-set-learning signal that teaches
+  `:rf.sub/reader-render-key` (the read-set-learning signal that teaches
   which subs the view reads). The first recompute always reports
   value-changed? true."
   [frame-id sub-id reader-rk prev-value value]
@@ -216,16 +210,14 @@
 
 ;; ===========================================================================
 ;; INVARIANT 1 — :rf.sub/run attributed to its OWN cascade across ≥2 cascades
-;;                (rf2-wi900)
 ;; ===========================================================================
 
 (deftest inv-1-sub-run-attributed-to-its-own-cascade-multi-cascade
-  (testing "rf2-wi900 — a sub-run that fires AFTER its cascade settled
+  (testing "a sub-run that fires AFTER its cascade settled
             (React-deref timing) is attributed to the cascade that CAUSED it,
             not the next in-flight cascade. Two cascades that recompute
-            DIFFERENT subs must each carry their OWN sub-run. THE multi-cascade
-            assertion the whole class of escapes was missing — pre-fix A's
-            sub-run leaked into B's epoch (the one-epoch lag)."
+            DIFFERENT subs must each carry their OWN sub-run — a one-epoch
+            lag would leak A's sub-run into B's epoch."
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed         (fn [{:keys [db]} _] {:db {:title "a" :counter 0}}))
     (rf/reg-event :title-loaded (fn [{:keys [db]} _] {:db (assoc db :title "loaded")}))
@@ -258,11 +250,11 @@
           (is (contains? (sub-run-ids b) :counter)
               "cascade B carries its OWN :counter sub-run")
           (is (not (contains? (sub-run-ids b) :title))
-              "cascade B does NOT carry cascade A's lagged :title sub-run —
-               THE LAG IS GONE"))))))
+              "cascade B does NOT carry cascade A's :title sub-run —
+               no one-epoch lag"))))))
 
 (deftest inv-1-in-flight-sub-run-rides-current-cascade
-  (testing "rf2-wi900 — a sub-run that fires WITH a cascade in flight
+  (testing "a sub-run that fires WITH a cascade in flight
             (synchronous deref — a handler that subscribes, an SSR render)
             belongs to that cascade and is buffered normally, NOT back-filled.
             Pins that the post-settle back-fill does not poach in-flight
@@ -288,7 +280,7 @@
            back-filled to a prior settled epoch)"))))
 
 (deftest inv-1-orphan-sub-run-before-any-cascade-is-noop
-  (testing "rf2-wi900 — a sub-run that fires before any cascade has settled
+  (testing "a sub-run that fires before any cascade has settled
             (no last-settled epoch for the frame) is a silent no-op: no record
             materialises, no listener fan-out, no throw."
     (rf/make-frame {:id :test/main})
@@ -301,7 +293,7 @@
           "no listener fan-out for a sub-run with no causing cascade"))))
 
 ;; ===========================================================================
-;; rf2-j1ec6.1 — :rf.epoch/sensitive? rollup recomputed on back-fill
+;; :rf.epoch/sensitive? rollup recomputed on back-fill
 ;; ===========================================================================
 ;;
 ;; THE CONTRACT (Security.md:109 §Sensitive rollup at the record level): when
@@ -310,14 +302,14 @@
 ;; (off-box shippers, recorder drop-gates) branch on the boolean rollup the
 ;; same way they branch on the per-trace-event `:sensitive?` stamp.
 ;;
-;; THE BUG: `build-record` computes the rollup ONCE at settle time from the
-;; settle-time events. A post-settle back-fill of a `:sensitive?`-stamped
+;; WHY A RECOMPUTE: `build-record` computes the rollup ONCE at settle time from
+;; the settle-time events. A post-settle back-fill of a `:sensitive?`-stamped
 ;; trace event (a sensitive reactive recompute riding React-deref timing)
-;; appended a sensitive event to `:trace-events` but left the rollup
-;; stale-false — so a coarse drop-gate consumer would NOT drop a record whose
-;; only sensitive content arrived via back-fill.
+;; appends a sensitive event to `:trace-events`; a rollup left stale-false
+;; would let a coarse drop-gate consumer keep a record whose only sensitive
+;; content arrived via back-fill.
 ;;
-;; THE FIX (mayor-ruled option a, fail-CLOSED): the back-fill swap OR's the
+;; THE RULE (fail-CLOSED): the back-fill swap OR's the
 ;; rollup with the appended event's RAW sensitivity (the pure splice inside
 ;; `state/back-fill-event!`), flipping false→true.
 
@@ -327,7 +319,7 @@
   recompute emits (the `:sensitive?` tag wins in `trace/compute-sensitive?`
   and is hoisted to the envelope top level). Post-settle (empty buffer, no
   render-key) so the runtime back-fills it into the most-recently-settled
-  epoch (rf2-wi900 path)."
+  epoch (the post-settle back-fill path)."
   [frame-id sub-id prev-value value]
   (rf.trace/emit! :rf.sub :rf.sub/run
                {:rf.sub/id             sub-id
@@ -341,12 +333,12 @@
                 :rf.sub/cause-sub      nil}))
 
 (deftest sensitive-rollup-recomputed-on-back-fill
-  (testing "rf2-j1ec6.1 — a post-settle back-fill of a :sensitive?-stamped
+  (testing "a post-settle back-fill of a :sensitive?-stamped
             sub-run flips the record-level :rf.epoch/sensitive? rollup
             false→true, keeping Security.md:109 literally true post-back-fill
-            (the rollup considers :trace-events overlap). Pre-fix the rollup
-            stayed stale-false — a coarse drop-gate consumer would not drop
-            a record whose only sensitive content arrived via back-fill."
+            (the rollup considers :trace-events overlap). A stale-false rollup
+            would let a coarse drop-gate consumer keep a record whose only
+            sensitive content arrived via back-fill."
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
@@ -372,10 +364,10 @@
             "the back-filled trace event carries the :sensitive? stamp")
         ;; THE INVARIANT — the rollup was OR'd true at the back-fill swap.
         (is (true? (:rf.epoch/sensitive? r))
-            "rf2-j1ec6.1 — back-filled sensitivity flips the record rollup true")))))
+            "back-filled sensitivity flips the record rollup true")))))
 
 (deftest non-sensitive-back-fill-leaves-rollup-false
-  (testing "rf2-j1ec6.1 — a back-fill of a NON-sensitive sub-run does NOT
+  (testing "a back-fill of a NON-sensitive sub-run does NOT
             flip the rollup (the OR is fail-CLOSED, not fail-open): a clean
             cascade with a clean back-fill stays false."
     (rf/make-frame {:id :test/main})
@@ -397,16 +389,16 @@
 
 ;; ===========================================================================
 ;; INVARIANT 2 — :rf.view/rendered / :rf.view/render attributed to its CAUSING
-;;                cascade, not the commit-time / next epoch (rf2-qs6dl)
+;;                cascade, not the commit-time / next epoch
 ;; ===========================================================================
 
 (deftest inv-2-render-attributed-to-its-causing-cascade-multi-cascade
-  (testing "rf2-qs6dl — a render that fires AFTER its cascade settled
+  (testing "a render that fires AFTER its cascade settled
             (React-commit timing) is attributed to the cascade that CAUSED it,
             not the next in-flight cascade. Two cascades that re-render
-            DIFFERENT views must each carry their OWN render. Pre-fix A's
-            title-view render leaked into B's epoch — a counter-inc epoch
-            reporting title-view, which is IMPOSSIBLE."
+            DIFFERENT views must each carry their OWN render. A one-epoch lag
+            would leak A's title-view render into B's epoch — a counter-inc
+            epoch reporting title-view, which is IMPOSSIBLE."
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed         (fn [{:keys [db]} _] {:db {:title "a" :counter 0}}))
     (rf/reg-event :title-loaded (fn [{:keys [db]} _] {:db (assoc db :title "loaded")}))
@@ -434,11 +426,11 @@
           (is (contains? (rendered-view-ids b) :counter-view)
               "cascade B carries its OWN counter-view render")
           (is (not (contains? (rendered-view-ids b) :title-view))
-              "cascade B does NOT carry cascade A's lagged title-view render —
-               THE LAG IS GONE (a counter-inc cannot re-render title-view)"))))))
+              "cascade B does NOT carry cascade A's title-view render —
+               no one-epoch lag (a counter-inc cannot re-render title-view)"))))))
 
 (deftest inv-2-in-flight-render-rides-current-cascade
-  (testing "rf2-qs6dl — a render that fires WITH a cascade in flight
+  (testing "a render that fires WITH a cascade in flight
             (synchronous flush — SSR / a render inside the cascade) belongs to
             that cascade and is buffered normally, NOT back-filled."
     (rf/make-frame {:id :test/main})
@@ -459,7 +451,7 @@
            back-filled to a prior settled epoch)"))))
 
 (deftest inv-2-orphan-render-before-any-cascade-is-noop
-  (testing "rf2-qs6dl — a render that fires before any cascade has settled
+  (testing "a render that fires before any cascade has settled
             (no last-settled epoch) is a silent no-op: no record, no fan-out,
             no throw."
     (rf/make-frame {:id :test/main})
@@ -474,17 +466,16 @@
 ;; ===========================================================================
 ;; INVARIANT 3 — a late MOUNT render attributed to the mount/initialise epoch
 ;;                ONLY, not double-filed onto the first post-mount cascade
-;;                (rf2-vh1k3)
 ;; ===========================================================================
 
 (deftest inv-3-late-mount-render-attributed-to-mount-epoch-only
-  (testing "rf2-vh1k3 — a late MOUNT render (a freshly-mounted view whose
+  (testing "a late MOUNT render (a freshly-mounted view whose
             render commits AFTER the next cascade settled, with UNCHANGED
             inputs) is attributed to its MOUNT epoch, NOT the cascade that
-            happens to be settling. THE escape rf2-qs6dl + rf2-wi900 left:
-            their multi-cascade tests re-render a DIFFERENT view each cascade,
-            never a view that mounts in epoch A and commits a late mount-burst
-            tail in epoch B with unchanged inputs."
+            happens to be settling. The multi-cascade tests above re-render a
+            DIFFERENT view each cascade; this one covers a view that mounts in
+            epoch A and commits a late mount-burst tail in epoch B with
+            unchanged inputs."
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
     (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
@@ -524,7 +515,7 @@
                (its ::counter sub changed 0 → 1)")
           (is (not (contains? (rendered-keys i) tv-rk))
               "counter-inc epoch does NOT carry title-view's late mount render
-               (the rf2-vh1k3 defect: pre-fix it spuriously appeared here)")
+               (a mount-burst tail is not a counter-inc re-render)")
 
           (is (contains? (rendered-keys m) tv-rk)
               "the mount epoch carries title-view's mount render")
@@ -532,7 +523,7 @@
               "the mount epoch carries counter-view's mount render"))))))
 
 (deftest inv-3-mount-render-tail-into-mount-epoch-is-deduped
-  (testing "rf2-vh1k3 — a mount-burst tail render that resolves back to its
+  (testing "a mount-burst tail render that resolves back to its
             mount epoch (where the instance already rendered) is de-duped: it
             does not add a second :renders row for the same render-key."
     (rf/make-frame {:id :test/main})
@@ -559,7 +550,7 @@
            the late mount-burst tail is de-duped, not appended again"))))
 
 (deftest inv-3-genuine-re-render-of-mounted-view-rides-its-cascade
-  (testing "rf2-vh1k3 — once a view has mounted, a LATER genuine re-render
+  (testing "once a view has mounted, a LATER genuine re-render
             (its own inputs change in a subsequent cascade) is attributed to
             THAT cascade, not redirected back to the mount epoch. The
             mount-epoch anchor only governs mount-burst tails — it must not
@@ -592,16 +583,16 @@
                to the mount epoch"))))))
 
 (deftest inv-3-keep-0-render-attributed-via-sub-runs-to-current-epoch
-  (testing "rf2-bhglx — with `:trace-events-keep 0` every record's raw
+  (testing "with `:trace-events-keep 0` every record's raw
             `:trace-events` are elided while the structured `:sub-runs` rows are
             RETAINED (the memory/privacy posture). A genuine re-render's
             value-change evidence then lives ONLY in the newest epoch's
-            `:sub-runs`. Pre-fix `value-changed-epoch-for` scanned only
-            `:trace-events` and broke at the first trace-elided record (the
-            NEWEST one under keep-0), so it found no value-change and the render
-            was mis-attributed to the mount/default epoch. The fix consults the
+            `:sub-runs`. A scan of `:trace-events` alone would stop at the first
+            trace-elided record (the NEWEST one under keep-0), find no
+            value-change and mis-attribute the render to the mount/default
+            epoch, so `value-changed-epoch-for` consults the
             structured `:sub-runs` (learned dep + `:value-changed? true`) when
-            the raw stream is absent, so the render lands on the CURRENT epoch."
+            the raw stream is absent, and the render lands on the CURRENT epoch."
     (rf/configure! {:epoch-history {:trace-events-keep 0}})
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
@@ -635,13 +626,13 @@
                     (:sub-runs inc-rec))
               "the value-changing :counter sub-run is in the current epoch's
                structured :sub-runs")
-          ;; The fix: the genuine re-render lands on the CURRENT epoch (its
-          ;; cause). Pre-fix the scan found no value-change (raw traces elided,
-          ;; structured rows ignored), resolved to the mount epoch where cv-rk
-          ;; already had its mount render, and the re-render was DEDUP'd away —
-          ;; so the current epoch carried NO cv-rk render at all.
+          ;; The genuine re-render lands on the CURRENT epoch (its cause). A
+          ;; scan that ignored the structured rows would find no value-change
+          ;; (raw traces elided), resolve to the mount epoch where cv-rk
+          ;; already has its mount render, and DEDUP the re-render away —
+          ;; leaving the current epoch with NO cv-rk render at all.
           (is (contains? (rendered-keys inc-rec) cv-rk)
-              "rf2-bhglx — the re-render is attributed to the current epoch via
+              "the re-render is attributed to the current epoch via
                its :sub-runs value-change, even with raw traces elided")
           ;; The mount epoch carries its OWN mount render (correct), but NOT a
           ;; second one — the re-render did not also collapse onto it.
@@ -651,16 +642,15 @@
 
 ;; ===========================================================================
 ;; INVARIANT 4 — :rf.sub/value-changed? + :rf.sub/cause-sub land on the correct epoch
-;;                (rf2-wi900 / rf2-l1jz8)
 ;; ===========================================================================
 
 (deftest inv-4-value-changed-and-cause-sub-land-on-correct-epoch
-  (testing "rf2-wi900 / rf2-l1jz8 — a post-settle sub-run's value-change
+  (testing "a post-settle sub-run's value-change
             attribution (`:rf.sub/value-changed?` / `:rf.sub/prev-value` / `:value`) AND its
             cascade attribution (`:rf.sub/cause-sub` / `:rf.sub/cascade?`) ride the cascade
-            that CAUSED the recompute, not the next epoch. This is the exact
-            defect Mike reproduced: a counter-inc 1→2 epoch must show the
-            counter sub's NEW value (2), not the prior cascade's lagged result.
+            that CAUSED the recompute, not the next epoch. A counter-inc 1→2
+            epoch must show the counter sub's NEW value (2), not the prior
+            cascade's lagged result.
             Two cascades, distinct values + distinct cause-subs, each pinned to
             its own epoch."
     (rf/make-frame {:id :test/main})
@@ -694,7 +684,7 @@
           (is (= true (:cascade? a-counter)) "A's sub-run is marked cascaded")
 
           ;; Cascade B's value-change attribution: 1 → 2, in B's epoch — NOT
-          ;; the lagged prior value. The smoking gun.
+          ;; the lagged prior value.
           (is (= 1 (:prev-value b-counter)) "B's :prev-value is the pre-bump 1")
           (is (= 2 (:value b-counter))
               "B's :value is THIS cascade's result (2), not the lagged prior 1")
@@ -708,7 +698,7 @@
                smearing one epoch's value onto the other"))))))
 
 (deftest inv-4-back-fill-renotifies-listeners-with-corrected-attribution
-  (testing "rf2-wi900 — back-filling a post-settle sub-run re-fans the
+  (testing "back-filling a post-settle sub-run re-fans the
             corrected record out to epoch listeners so snapshot consumers
             (Xray's per-cascade Views subs table, which caches epoch-history
             at settle time) re-sync to the corrected :sub-runs +
@@ -737,7 +727,7 @@
               "the re-fanned sub-run carries the corrected value-change flag"))))))
 
 (deftest inv-4-render-back-fill-renotifies-listeners
-  (testing "rf2-qs6dl — the render sibling of the re-fan: back-filling a
+  (testing "the render sibling of the re-fan: back-filling a
             post-settle render re-fans the corrected record so the Xray Views
             / Reactive panel re-syncs to the corrected :renders."
     (rf/make-frame {:id :test/main})
@@ -760,12 +750,12 @@
 
 ;; ===========================================================================
 ;; INVARIANT 5 — a view re-render whose own subs did NOT change is NOT
-;;                spuriously attributed (the rf2-vh1k3 value-change-per-view
+;;                spuriously attributed (the value-change-per-view
 ;;                discriminator)
 ;; ===========================================================================
 
 (deftest inv-5-unchanged-view-re-render-not-spuriously-attributed
-  (testing "rf2-vh1k3 — the load-bearing discriminator. When a cascade
+  (testing "the load-bearing discriminator. When a cascade
             settles and TWO views commit post-settle renders — one whose own
             sub CHANGED, one whose own subs re-deref'd UNCHANGED — only the
             value-changed view is attributed to that cascade. The unchanged
@@ -819,7 +809,6 @@
 ;; INVARIANT 6 — an out-of-cascade ORPHAN emit (:rf.frame/created and the
 ;;                general class) stays UNCORRELATED: not a new epoch, and not
 ;;                folded into the next dequeued event's :trace-events
-;;                (rf2-avvwm — P1 regression from #1952 epoch-per-event)
 ;; ===========================================================================
 ;;
 ;; The fourth member of this suite's "which epoch does an out-of-cascade emit
@@ -829,9 +818,9 @@
 ;; to NO cascade at all — `make-frame` runs `:initial-events` via dispatch-sync
 ;; FIRST (which settles its own epoch), THEN emits `:rf.frame/created` with no
 ;; in-flight cascade and no `:rf.trace/dispatch-id`. Per Spec 009 §Dispatch correlation
-;; it must stay uncorrelated. Pre-rf2-avvwm it lingered in the capture buffer
-;; and the NEXT dequeued event's harvest vacuumed it in as that epoch's FIRST
-;; :trace-events entry (the per-event-epoch boundary stranded it).
+;; it must stay uncorrelated. Left in the capture buffer, it would be vacuumed
+;; in by the NEXT dequeued event's harvest as that epoch's FIRST
+;; :trace-events entry.
 
 (defn- trace-ops
   "The [op-type operation] pairs in an epoch record's :trace-events, in
@@ -840,7 +829,7 @@
   (mapv (juxt :op-type :operation) (:trace-events record)))
 
 (deftest inv-6-frame-created-not-folded-into-next-epoch
-  (testing "rf2-avvwm — :rf.frame/created, emitted by make-frame AFTER :initial-events'
+  (testing ":rf.frame/created, emitted by make-frame AFTER :initial-events'
             epoch already settled, must NOT appear in the NEXT dequeued event's
             :trace-events. Mirrors the parallel-frames :below repro: boot the
             frame with :initial-events, then dispatch a user event; that event's
@@ -873,7 +862,7 @@
             "every :event-op trace in the :inc epoch belongs to [:inc]")))))
 
 (deftest inv-6-orphan-not-correlated-on-the-record
-  (testing "rf2-avvwm — the orphan carries no :rf.trace/dispatch-id, so no epoch's
+  (testing "the orphan carries no :rf.trace/dispatch-id, so no epoch's
             :trace-events should reference it. Belt-and-braces on the
             correlation contract: walk every retained epoch's :trace-events
             and assert none is a :frame op."
@@ -889,17 +878,17 @@
                "'s :trace-events")))))
 
 (deftest inv-6-harvest-discards-orphan-uncorrelated
-  (testing "rf2-avvwm + rf2-ee38b — direct unit test on the harvest seam. An
+  (testing "direct unit test on the harvest seam. An
             orphan event (no :rf.trace/dispatch-id) that reaches the capture
             buffer is NOT folded into the settling event's harvest; only the
             settling event's own :rf.trace/dispatch-id traces are returned.
 
-            Per the rf2-ee38b correctness review: the harvest is now
+            The harvest is
             self-cleaning — an orphan (nil dispatch-id) has no settle event to
-            ever reclaim it, so retaining it (the prior behaviour) left it in
+            ever reclaim it, so retaining it would leave it in
             the buffer indefinitely (re-grouped + re-retained on every
-            subsequent harvest). It is now DISCARDED at this seam, so the
-            harvest no longer relies on the upstream capture guard being
+            subsequent harvest). It is DISCARDED at this seam, so the
+            harvest does not rely on the upstream capture guard being
             perfect."
     (let [frame :test/harvest
           ;; Hand-craft a buffer: an orphan with no :rf.trace/dispatch-id, then a
@@ -925,16 +914,16 @@
              self-cleaning, not reliant on the upstream guard")))))
 
 (deftest inv-6b-harvest-retains-child-marker-for-its-own-settle
-  (testing "rf2-ee38b / rf2-bhglx — the self-cleaning harvest must NOT discard a
+  (testing "the self-cleaning harvest must NOT discard a
             CHILD's dispatch-id marker: a non-nil dispatch-id that differs from
             the settling event's id is a child's `:event/dispatched` marker
             (fired during the parent's do-fx) and stays buffered for the child's
             own settle (Spec 009 §Dispatch correlation: one dispatch-id = one
             epoch). Only nil-id orphans are dropped.
 
-            rf2-bhglx — the retained marker is kept VERBATIM (no private survival
+            The retained marker is kept VERBATIM (no private survival
             counter); claim-based retention holds it until the child's run-start
-            claims it. Bare map equality is the right assertion now."
+            claims it. Bare map equality is the right assertion."
     (let [frame      :test/harvest-child
           run-start  {:op-type :rf.event :operation :rf.event/run-start
                       :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id 1 :rf.trace/event-id :parent}}
@@ -958,7 +947,7 @@
         (rf.epoch.state/drop-frame-buffer! frame)))))
 
 (deftest inv-6c-harvest-retains-child-marker-across-sibling-settles
-  (testing "rf2-bhglx — a child's `:event/dispatched` marker (fired during the
+  (testing "a child's `:event/dispatched` marker (fired during the
             parent's do-fx, carrying the CHILD's id) must survive EVERY
             intervening sibling settle until the child's own run-start claims it.
             Ordinary `:dispatch` fx children go to the router FIFO TAIL
@@ -967,9 +956,9 @@
             epoch must still get its queue-time dispatch/source row (parent-
             dispatch-id, source, origin, call-site) and parent-child causality.
 
-            The earlier rf2-fxowr count-based reclaim DROPPED the marker after
+            A count-based reclaim would DROP the marker after
             one intervening harvest, which is exactly this legitimate
-            interleaving — the bug rf2-bhglx fixes. Memory is bounded by the
+            interleaving. Memory is bounded by the
             terminal paths that clear the whole buffer (drain-interrupt / depth-
             halt / rejected dispatch), proven by inv-6c-bound below; it is NOT
             bounded by a per-marker harvest count."
@@ -994,7 +983,7 @@
           (is (not-any? #(= 99 (-> % :tags :rf.trace/dispatch-id)) h)
               "the child marker is never folded into a sibling's epoch")
           (is (= [child-mark] (rf.epoch.state/buffer-for frame))
-              "rf2-bhglx — the child marker survives this sibling settle, kept
+              "the child marker survives this sibling settle, kept
                VERBATIM for the child's own settle")))
       ;; Finally the child itself settles — its run-start claims the marker.
       (rf.epoch.state/buffer-event! frame (rs 99 :child))
@@ -1010,14 +999,14 @@
       (rf.epoch.state/drop-frame-buffer! frame))))
 
 (deftest inv-6c-bound-stranded-marker-cleared-by-terminal-path
-  (testing "rf2-bhglx — a child that NEVER runs to a settle (handler
+  (testing "a child that NEVER runs to a settle (handler
             unregistered, frame destroyed / drain-interrupted, depth-halt clears
             the queue) leaves its marker stranded, but it does NOT accrete: the
             terminal path that ends the child's life clears the WHOLE buffer.
             `drop-frame-buffer!` (frame destroy / discard) and the no-run-start
             full clear-and-return (rejected dispatch) both wipe the stranded
-            marker. This is the memory bound that replaces the rf2-fxowr harvest-
-            count reclaim — bounded by lifecycle, not by a per-marker counter."
+            marker. This is the memory bound — bounded by lifecycle, not by a
+            per-marker harvest counter."
     (let [frame    :test/harvest-stranded-bound
           stranded {:op-type :rf.event :operation :rf.event/dispatched
                     :tags {:rf.trace/dispatch-id 99 :rf.trace/event-id :child-never-ran}}]
@@ -1041,16 +1030,16 @@
             "and clears it — the stranded marker does not accrete")))))
 
 (deftest inv-6c-bead-sibling-queued-behind-parent-does-not-drop-child
-  (testing "rf2-bhglx (the bead's named scenario) — queue B behind parent A; A
+  (testing "queue B behind parent A; A
             dispatches child C (C's `:event/dispatched` marker rides A's window
             but carries C's id, and C goes to the FIFO TAIL behind B). When B
             settles BEFORE C, B's harvest must NOT consume C's marker; C must
             still receive its `:event/dispatched` marker at its own settle, while
             neither A nor B carries it.
 
-            Pre-rf2-bhglx the count-1 reclaim dropped C's marker on B's harvest
-            (the one allowed intervening pass), so C lost its queue-time dispatch
-            row. The harvest seam is the exact locus; this drives it directly to
+            A count-1 reclaim would drop C's marker on B's harvest
+            (the one allowed intervening pass), so C would lose its queue-time
+            dispatch row. The harvest seam is the exact locus; this drives it directly to
             stay deterministic (the FIFO timing is unreproducible in synchronous
             dispatch-sync)."
     (let [frame    :test/bead-abc
@@ -1080,7 +1069,7 @@
             "A does NOT carry C's dispatch marker"))
 
       ;; B settles next (it was queued ahead of FIFO-tail C). B must leave C's
-      ;; marker alone — this is the exact harvest the count-1 reclaim broke.
+      ;; marker alone — this is the exact harvest a count-1 reclaim would break.
       (rf.epoch.state/buffer-event! frame b-rs)
       (rf.epoch.state/buffer-event! frame b-body)
       (let [b-harvest (rf.epoch.state/harvest-buffer-for-event! frame)]
@@ -1088,7 +1077,7 @@
         (is (not-any? #(= :C (-> % :tags :rf.trace/dispatch-id)) b-harvest)
             "B does NOT carry C's dispatch marker")
         (is (= [c-mark] (rf.epoch.state/buffer-for frame))
-            "rf2-bhglx — C's marker SURVIVES B's intervening settle (not dropped
+            "C's marker SURVIVES B's intervening settle (not dropped
              by a harvest-count reclaim)"))
 
       ;; C finally settles — claims its own marker (+ queue-time dispatch row).
@@ -1105,24 +1094,25 @@
 ;; inv-6d — a frame-LIFECYCLE emit for a SIBLING frame, fired while frame A's
 ;;          cascade scope is bound (dynamic frame management from inside a
 ;;          handler / fx), must NOT strand a foreign-dispatch-id marker in the
-;;          sibling frame's capture buffer (rf2-7eel71).
+;;          sibling frame's capture buffer.
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The live vector is RE-REGISTRATION: EP-0027 forbids handler-time frame
 ;; CREATION (make-frame throws when `*handler-scope*` is bound), but a handler /
 ;; fx re-registering an ALREADY-EXISTING sibling frame B is unguarded and DOES
 ;; emit `:rf.frame/re-registered {:frame B}` while A's `:rf.trace/dispatch-id`
-;; is in scope. Pre-fix, `build-event` stamped A's id onto that marker; at the
-;; capture seam frame-id resolved to B, the marker's dispatch-id was NON-nil so
-;; the orphan-drop arm was bypassed, and it buffered into B forever — B never
-;; runs an event carrying A's id, so every `harvest-buffer-for-event!` on B
-;; retained it as 'theirs', and a later depth-halt swept the phantom into B's
-;; halt record. The fix keeps frame-lifecycle emits UNCORRELATED (op-type
-;; `:rf.frame` never inherits the cascade dispatch-id), so the marker arrives
-;; with nil id and the existing orphan-drop arm keeps it out of B's buffer.
+;; is in scope. Were `build-event` to stamp A's id onto that marker, the
+;; capture seam would resolve frame-id to B, the NON-nil dispatch-id would
+;; bypass the orphan-drop arm, and the marker would buffer into B forever — B
+;; never runs an event carrying A's id, so every `harvest-buffer-for-event!` on
+;; B would retain it as 'theirs', and a later depth-halt would sweep the
+;; phantom into B's halt record. Frame-lifecycle emits therefore stay
+;; UNCORRELATED (op-type `:rf.frame` never inherits the cascade dispatch-id),
+;; so the marker arrives with nil id and the orphan-drop arm keeps it out of
+;; B's buffer.
 
 (deftest inv-6d-nested-re-registration-does-not-strand-marker-in-sibling
-  (testing "rf2-7eel71 — re-registering a SIBLING frame from inside another
+  (testing "re-registering a SIBLING frame from inside another
             frame's fx must not strand a `:rf.frame/re-registered` marker in the
             sibling frame's capture buffer."
     (rf/make-frame {:id :test/main})
@@ -1142,11 +1132,11 @@
         "specifically, the cross-frame :rf.frame/re-registered marker is absent")))
 
 (deftest inv-6d-nested-re-registration-strand-not-swept-into-later-halt-record
-  (testing "rf2-7eel71 — a later depth-halt of the sibling frame B produces no
-            phantom `:rf.frame/re-registered` in its :halted-depth record. Pre-fix
-            the stranded marker (foreign dispatch-id) survived every :loop settle
-            as 'theirs' and `commit-halt-record!`'s full harvest swept it into the
-            halt record's :trace-events."
+  (testing "a later depth-halt of the sibling frame B produces no
+            phantom `:rf.frame/re-registered` in its :halted-depth record. A
+            stranded marker (foreign dispatch-id) would survive every :loop settle
+            as 'theirs' and `commit-halt-record!`'s full harvest would sweep it
+            into the halt record's :trace-events."
     (rf/make-frame {:id :test/main})
     (rf/make-frame {:id :test/modal :drain-depth 5})
     (rf/reg-fx :test/re-reg-modal (fn [_ frame-id] (rf/make-frame {:id frame-id :drain-depth 5})))
@@ -1156,7 +1146,8 @@
         {:db (update (or db {}) :n (fnil inc 0))
          :fx [[:dispatch [:loop]]]}))
 
-    ;; Re-register B mid-cascade (strands the marker in B's buffer, pre-fix).
+    ;; Re-register B mid-cascade (the emit that could strand a marker in B's
+    ;; buffer).
     (rf/dispatch-sync [:app/reopen] {:frame :test/main})
     ;; Drive B to a depth-halt; the trailing :halted-depth record full-harvests
     ;; B's buffer.
@@ -1172,20 +1163,18 @@
 
 ;; ===========================================================================
 ;; INVARIANT 7 — a tool / inspector frame's OWN render never pollutes the
-;;                INSPECTED app frame's epoch :renders (rf2-tqlmq — the
+;;                INSPECTED app frame's epoch :renders (the
 ;;                cross-frame / observer sibling of inv-3)
 ;; ===========================================================================
 ;;
-;; The LIVE repro (build :examples/standard-epochs): the :rf/default boot epoch's
-;; :renders carried ["shell-view" 27] (mount + update) — Xray's OWN shell-view,
-;; the observer, leaking into the observed app's render tape. Root cause:
 ;; `shell-view` is a `reg-view` (its :rf.view/rendered carries
-;; `(provider/current-frame)`), but mount.cljs rendered it BARE — its own
-;; `[frame-provider {:frame :rf/xray}]` sat INSIDE its body around the panels —
-;; so `shell-view`'s OWN render resolved `current-frame` to `:rf/default` by
-;; fall-through and back-filled into the inspected app's boot epoch.
+;; `(provider/current-frame)`). Rendered BARE — with its own
+;; `[frame-provider {:frame :rf/xray}]` INSIDE its body around the panels —
+;; `shell-view`'s OWN render would resolve `current-frame` to `:rf/default` by
+;; fall-through and back-fill into the inspected app's boot epoch: the
+;; observer leaking into the observed app's render tape.
 ;;
-;; The fix (mount-wrap) moves the provider OUT one level so `shell-view`'s own
+;; The mount-wrap puts the provider OUT one level so `shell-view`'s own
 ;; render resolves to the trace-disabled `:rf/xray` frame. This invariant pins
 ;; the load-bearing consequence: a `:rf.view/rendered` tagged with a
 ;; `:rf.trace/frame-no-emit? true` frame is SUPPRESSED at `trace/emit!` (the
@@ -1193,11 +1182,11 @@
 ;; disabled?`), so the back-fill machinery never even sees it and the observed
 ;; frame's :renders stays clean. The contrapositive case proves the test
 ;; discriminates: the SAME render, were it tagged with the app frame
-;; (the pre-fix fall-through), DOES land — i.e. the suppression, not some
+;; (the fall-through), DOES land — i.e. the suppression, not some
 ;; unrelated filter, is what keeps the tape clean.
 
 (deftest inv-7-tool-frame-render-does-not-pollute-inspected-app-epoch
-  (testing "rf2-tqlmq — a render emitted under a trace-disabled (tool /
+  (testing "a render emitted under a trace-disabled (tool /
             inspector) frame, while an APP frame has a settled epoch in flight,
             does NOT land in the app frame's epoch :renders. The frame-no-emit
             gate suppresses the emit at source so no back-fill runs. The
@@ -1235,19 +1224,18 @@
           (is (not (contains? (rendered-view-ids e) :shell-view))
               "the inspector's shell-view render did NOT leak into the
                inspected app frame's epoch :renders — the frame-no-emit gate
-               suppressed the emit before any back-fill (rf2-tqlmq)")
+               suppressed the emit before any back-fill")
           (is (empty? (rendered-view-ids e))
               "the app frame's epoch carries NO renders at all from the
                observer's post-settle commit — the observer is invisible to the
                observed tape"))))))
 
 (deftest inv-7-contrapositive-untagged-render-still-back-fills
-  (testing "rf2-tqlmq — the discriminator. The SAME post-settle render, were it
-            tagged with the APP frame (the PRE-fix fall-through: shell-view
-            rendering above its provider resolved to the app's :rf/default), DOES
+  (testing "the discriminator. The SAME post-settle render, were it
+            tagged with the APP frame (the fall-through: shell-view
+            rendering above its provider resolves to the app's :rf/default), DOES
             back-fill into the app epoch. Proves inv-7's clean result is the
-            frame-no-emit SUPPRESSION at work, not an unrelated filter — and is
-            the exact leak the bug exhibited."
+            frame-no-emit SUPPRESSION at work, not an unrelated filter."
     (let [app :test/app]
       (rf/make-frame {:id app})
       (rf/reg-event :app/seed (fn [{:keys [db]} _] {:db {:counter 0}}))
@@ -1256,19 +1244,19 @@
       (rf/dispatch-sync [:app/seed] {:frame app})
       (rf/dispatch-sync [:app/inc]  {:frame app})
       (let [app-epoch (last-epoch app)]
-        ;; Render tagged with the APP frame (NOT trace-disabled) — the pre-fix
-        ;; fall-through. This is precisely the leak the live repro showed.
+        ;; Render tagged with the APP frame (NOT trace-disabled) — the
+        ;; fall-through leak.
         (emit-render! app :shell-view)
 
         (let [e (epoch-by-id app app-epoch)]
           (is (contains? (rendered-view-ids e) :shell-view)
               "a render tagged with the (non-disabled) app frame DOES back-fill
-               into the app epoch — this is the leak the mount-wrap fixes by
-               retagging shell-view's render with the trace-disabled frame"))))))
+               into the app epoch — the leak the mount-wrap prevents by
+               tagging shell-view's render with the trace-disabled frame"))))))
 
 ;; ===========================================================================
-;; rf2-8wrzz.1 — the :renders projection carries per-view cause + timing
-;;               threaded from the post-render :rf.view/rendered op
+;; The :renders projection carries per-view cause + timing
+;; threaded from the post-render :rf.view/rendered op
 ;; ===========================================================================
 
 (defn- render-row-for
@@ -1277,7 +1265,7 @@
   (some #(when (= render-key (:render-key %)) %) (:renders record)))
 
 (deftest renders-projection-carries-triggered-by-and-elapsed-ms
-  (testing "rf2-8wrzz.1 — a :rf.view/rendered op carrying :rf.view/triggered-by
+  (testing "a :rf.view/rendered op carrying :rf.view/triggered-by
             + :rf.view/elapsed-ms (the per-view cause + timing) lands those slots
             on the cascade's :renders projection row, end-to-end. The projection
             sources from the POST-render :rf.view/rendered op precisely so it
@@ -1307,7 +1295,7 @@
           ":mount? is preserved on the :renders row"))))
 
 (deftest renders-projection-omits-triggered-by-on-structural-render
-  (testing "rf2-8wrzz.1 — a structural re-render (no :rf.view/triggered-by on
+  (testing "a structural re-render (no :rf.view/triggered-by on
             the op — none of the view's own subs changed) lands a :renders row
             WITHOUT :triggered-by; :elapsed-ms still rides."
     (rf/make-frame {:id :test/main})
@@ -1328,12 +1316,12 @@
       (is (= 0.3 (:elapsed-ms row)) ":elapsed-ms still preserved"))))
 
 ;; ===========================================================================
-;; rf2-9gquv — the :renders projection carries :cause-event-id (the cascade
+;; The :renders projection carries :cause-event-id (the cascade
 ;;             whose handler-body invalidated a reactive input this view read)
 ;; ===========================================================================
 ;;
 ;; The false-green guard at the projection boundary. The :rf.view/rendered op
-;; stamps :rf.view/cause-event-id (views.cljs, rf2-1cc03) exactly as the
+;; stamps :rf.view/cause-event-id (views.cljs) exactly as the
 ;; :rf.sub/run op stamps :rf.sub/cause-event-id, and the render row must
 ;; carry it through: if a projected render row keyed as nil, the Story
 ;; causal/cascade :view surface would silently measure 0 and an over-render
@@ -1341,11 +1329,11 @@
 ;; carries the cause end-to-end, mirroring the sub-row.
 
 (deftest renders-projection-carries-cause-event-id
-  (testing "rf2-9gquv — a :rf.view/rendered op carrying :rf.view/cause-event-id
+  (testing "a :rf.view/rendered op carrying :rf.view/cause-event-id
             (the cascade that invalidated a reactive input this view read)
             lands :cause-event-id on the :renders projection row, end-to-end —
-            the slot the Story :view causal surface reads. Pre-fix render-row
-            dropped it and the surface silently measured 0 (false GREEN)."
+            the slot the Story :view causal surface reads. A render-row that
+            dropped it would leave the surface silently measuring 0 (false GREEN)."
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -1366,7 +1354,7 @@
            the :sub-runs row carries :cause-event-id (capture.cljc)"))))
 
 (deftest renders-projection-omits-cause-event-id-on-structural-render
-  (testing "rf2-9gquv — a render OUTSIDE any cascade (mount / structural —
+  (testing "a render OUTSIDE any cascade (mount / structural —
             the op carries no :rf.view/cause-event-id) lands a :renders row
             WITHOUT :cause-event-id. OMITTED-vs-nil parity with the sub-row:
             absent tag → absent slot, never an attributed nil."
@@ -1386,13 +1374,13 @@
           ":cause-event-id absent when the op carried no cause tag"))))
 
 ;; ===========================================================================
-;; rf2-dq2b7 — mount-attribution atom merge: epoch-id + deps share one entry
+;; mount-attribution: epoch-id + deps share one entry
 ;; ===========================================================================
 
 (deftest mount-attribution-coexists-on-single-entry
-  (testing "rf2-dq2b7 — `record-mount-epoch!` and `record-render-deps!`
+  (testing "`record-mount-epoch!` and `record-render-deps!`
             update DIFFERENT slots on the SAME `(frame, render-key)` entry
-            in the merged `mount-attribution` atom. Cross-population must
+            in the single `mount-attribution` atom. Cross-population must
             not clobber the sibling slot, and the public accessors read
             each slot independently."
     (let [frame      :test/dq2b7
@@ -1414,14 +1402,14 @@
       (is (= #{:sub/a :sub/b} (rf.epoch.state/render-deps-for frame render-key))
           "deps slot survived the mount-epoch write — single entry, two slots")
 
-      ;; First-sighting invariant survives the merge: a second
+      ;; First-sighting invariant holds on the shared entry: a second
       ;; record-mount-epoch! must NOT overwrite the anchor.
       (rf.epoch.state/record-mount-epoch! frame render-key :epoch/ninety-nine)
       (is (= :epoch/one (rf.epoch.state/mount-epoch-for frame render-key))
           "re-recording a mount epoch does not move the anchor (first-sighting)")
 
       ;; Single-wipe contract: one `drop-frame-mount-attribution!` clears
-      ;; BOTH slots; the bead's "four wipers → two" lift.
+      ;; BOTH slots.
       (rf.epoch.state/drop-frame-mount-attribution! frame)
       (is (nil? (rf.epoch.state/mount-epoch-for frame render-key))
           "mount-epoch cleared by drop-frame-mount-attribution!")
@@ -1429,7 +1417,7 @@
           "deps cleared by the same wipe — one swap clears both slots"))))
 
 (deftest mount-attribution-frame-scoping
-  (testing "rf2-dq2b7 — `mount-attribution` is keyed by (frame × render-key);
+  (testing "`mount-attribution` is keyed by (frame × render-key);
             dropping one frame's entry does not affect a sibling frame's
             anchor or read-set."
     (let [render-key [:shared-view 0]]
@@ -1451,26 +1439,26 @@
       (is (nil? (rf.epoch.state/mount-epoch-for :test/dq2b7-b render-key))))))
 
 ;; ===========================================================================
-;; rf2-bgapd — mount-attribution is bounded across instance churn: a view
+;; mount-attribution is bounded across instance churn: a view
 ;;             instance's entry is pruned on its per-instance UNMOUNT, not
 ;;             retained until whole-frame destroy
 ;; ===========================================================================
 ;;
-;; THE LEAK (epoch senior-dev review, rf2-bgapd): the render-key is
+;; WHY PER-INSTANCE: the render-key is
 ;; `[view-id instance-token]` and each MOUNT mints a fresh `instance-token`
 ;; (a churning row / re-opened modal / route-scoped component remounts under a
 ;; NEW render-key every time). `mount-attribution` is keyed by that render-key
-;; and accumulated an entry (an `:epoch-id` anchor + a `:deps` sub-id set) on
-;; first sighting, removed ONLY by `drop-frame-mount-attribution!` (whole-frame
-;; destroy) — never on per-instance unmount. So for a live frame over a long
-;; churning session the map grew without bound — exactly the long-running
+;; and gains an entry (an `:epoch-id` anchor + a `:deps` sub-id set) on
+;; first sighting. Were entries removed ONLY by `drop-frame-mount-attribution!`
+;; (whole-frame destroy), a live frame over a long churning session would grow
+;; the map without bound — exactly the long-running
 ;; time-travel scenario the epoch surface exists to serve.
 ;;
-;; THE FIX: `record-unmount!` now calls `drop-render-key-mount-attribution!`
+;; So `record-unmount!` calls `drop-render-key-mount-attribution!`
 ;; after the trace back-fill, evicting the unmounting instance's entry.
 
 (deftest drop-render-key-mount-attribution-prunes-single-instance
-  (testing "rf2-bgapd — `drop-render-key-mount-attribution!` evicts ONE
+  (testing "`drop-render-key-mount-attribution!` evicts ONE
             render-key's entry (anchor + read-set) and leaves sibling
             render-keys in the same frame untouched."
     (let [frame :test/bgapd
@@ -1499,13 +1487,14 @@
           "idempotent prune left the surviving entry intact"))))
 
 (deftest unmount-prunes-mount-attribution-bounded-across-churn
-  (testing "rf2-bgapd — THE leak guard. Mount N instances (each a fresh
+  (testing "THE leak guard. Mount N instances (each a fresh
             instance-token → fresh render-key), settle a cascade so the live
             frame is real, then UNMOUNT every instance. The frame's
             `mount-attribution` must NOT retain the unmounted instances'
             entries — it shrinks back toward empty (bounded), NOT retained
-            until whole-frame destroy. Pre-fix every ever-mounted instance
-            left a permanent entry; the map grew without bound across churn."
+            until whole-frame destroy. Without the prune every ever-mounted
+            instance would leave a permanent entry and the map would grow
+            without bound across churn."
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed       (fn [{:keys [db]} _] {:db {:rows (vec (range 5))}}))
     (rf/reg-event :drop-rows  (fn [{:keys [db]} _] {:db (assoc db :rows [])}))
@@ -1546,9 +1535,9 @@
         (is (nil? (rf.epoch.state/render-deps-for :test/main rk))
             (str "instance " rk "'s read-set pruned on unmount — not retained")))
 
-      ;; And the unmount is STILL observable in its causing cascade's
-      ;; :trace-events — the rf2-59hx3 back-fill is preserved alongside the
-      ;; rf2-bgapd prune (the prune evicts the attribution map, NOT the
+      ;; And the unmount is observable in its causing cascade's
+      ;; :trace-events — the unmount back-fill coexists with the
+      ;; prune (the prune evicts the attribution map, NOT the
       ;; recorded trace).
       (let [drop-epoch (last-epoch :test/main)]
         (is (= :drop-rows (:event-id drop-epoch)))
@@ -1558,12 +1547,12 @@
                     (map #(-> % :tags :rf.view/render-key))
                     set))
             "every instance's unmount is back-filled into the drop-rows
-             cascade's :trace-events (rf2-59hx3 preserved) even though its
-             attribution entry was pruned (rf2-bgapd)")))))
+             cascade's :trace-events even though its
+             attribution entry was pruned")))))
 
 ;; ===========================================================================
 ;; INVARIANT 8 — a view UNMOUNT is back-filled into its CAUSING cascade's
-;;                :trace-events, not silently dropped (rf2-59hx3)
+;;                :trace-events, not silently dropped
 ;; ===========================================================================
 ;;
 ;; The teardown sibling of inv-2 (render) and inv-1 (sub-run). A
@@ -1571,14 +1560,14 @@
 ;; removed the view settled — so it arrives at `capture-event!` with an empty
 ;; in-flight buffer and no `:rf.trace/dispatch-id`.
 ;;
-;; THE GAP (Mike-confirmed, button-deck button 13): pre-rf2-59hx3 the unmount
-;; was NOT in render-ops / sub-run-ops, so it fell through to the orphan-drop
-;; branch (no in-flight cascade + no dispatch-id) and was SILENTLY DROPPED.
-;; The view teardown produced no signal anywhere in the epoch record, so
-;; Xray's VIEWS-step `unmounted-views-rows` (which reads `:rf.view/unmounted`
-;; off `:trace-events`) had nothing to surface — an invisible absence.
+;; WHY IT IS ROUTED: an unmount outside render-ops / sub-run-ops would fall
+;; through to the orphan-drop branch (no in-flight cascade + no dispatch-id)
+;; and be SILENTLY DROPPED. The view teardown would leave no signal anywhere
+;; in the epoch record, so Xray's VIEWS-step `unmounted-views-rows` (which
+;; reads `:rf.view/unmounted` off `:trace-events`) would have nothing to
+;; surface — an invisible absence.
 ;;
-;; THE FIX: route the post-settle unmount through the SAME back-fill
+;; So the post-settle unmount routes through the SAME back-fill
 ;; mechanism renders + sub-runs use (`:epoch/record-unmount!`), attributing
 ;; it to the most-recently-settled epoch (the cascade that caused the
 ;; teardown). The unmount carries no structured projection row, so it rides
@@ -1595,12 +1584,11 @@
        set))
 
 (deftest inv-8-view-unmount-back-filled-into-its-causing-cascade
-  (testing "rf2-59hx3 — a :rf.view/unmounted that fires AFTER the cascade
+  (testing "a :rf.view/unmounted that fires AFTER the cascade
             that removed the view settled (React-teardown timing) is
             back-filled into that causing cascade's :trace-events, NOT
-            silently dropped. THE regression guard: pre-fix the unmount hit
-            the orphan-drop branch and produced no signal, so Xray's VIEWS
-            step had nothing to surface (button-deck button 13)."
+            silently dropped — the orphan-drop branch would leave no signal,
+            and Xray's VIEWS step nothing to surface."
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed         (fn [{:keys [db]} _] {:db {:show-child? true}}))
     (rf/reg-event :hide-child   (fn [{:keys [db]} _] {:db (assoc db :show-child? false)}))
@@ -1617,7 +1605,7 @@
         (is (contains? (unmounted-view-ids e) :child-view)
             "the hide-child cascade carries the child-view unmount in its
              :trace-events — the teardown is OBSERVABLE, not a silent
-             absence (pre-fix it was dropped at the capture seam)")
+             absence")
         ;; The unmount carries no structured :renders row — it is a teardown,
         ;; not a render. It rides ONLY :trace-events, where Xray reads it.
         (is (not (contains? (rendered-view-ids e) :child-view))
@@ -1625,7 +1613,7 @@
              render; it surfaces via :trace-events only")))))
 
 (deftest inv-8-unmount-attributed-to-its-own-cascade-multi-cascade
-  (testing "rf2-59hx3 — two cascades that tear down DIFFERENT views each
+  (testing "two cascades that tear down DIFFERENT views each
             carry their OWN unmount, attributed to the cascade that caused
             it (no one-epoch lag, no cross-attribution). The multi-cascade
             assertion mirroring inv-2 for renders."
@@ -1658,7 +1646,7 @@
               "cascade B does NOT carry cascade A's lagged view-a unmount"))))))
 
 (deftest inv-8-in-flight-unmount-rides-current-cascade
-  (testing "rf2-59hx3 — an unmount that fires WITH a cascade in flight (a
+  (testing "an unmount that fires WITH a cascade in flight (a
             synchronous teardown inside a drain) belongs to that cascade and
             is buffered normally, NOT back-filled. Pins that the post-settle
             routing does not poach an in-flight unmount."
@@ -1682,7 +1670,7 @@
            back-filled to a prior settled epoch)"))))
 
 (deftest inv-8-orphan-unmount-before-any-cascade-is-noop
-  (testing "rf2-59hx3 — an unmount that fires before any cascade has settled
+  (testing "an unmount that fires before any cascade has settled
             (no last-settled epoch for the frame) is a silent no-op: no
             record materialises, no listener fan-out, no throw."
     (rf/make-frame {:id :test/main})
@@ -1696,7 +1684,7 @@
 
 ;; ===========================================================================
 ;; INVARIANT 9 — restore-induced post-settle activity does NOT back-fill into
-;;                a STALE epoch (rf2-w4q9gt)
+;;                a STALE epoch
 ;; ===========================================================================
 ;;
 ;; The time-travel sibling of inv-1 / inv-2 / inv-8. A successful `restore-epoch!`
@@ -1704,15 +1692,15 @@
 ;; the `last-settled-epoch` anchor on its own. Left untouched, the anchor keeps
 ;; pointing at whatever event settled most recently BEFORE the restore.
 ;;
-;; THE BUG: a restore triggers a repaint / subscription recompute / unmount of
+;; THE HAZARD: a restore triggers a repaint / subscription recompute / unmount of
 ;; the rewound view tree. Those fire post-settle (React commit / deref / teardown
-;; timing), so `record-render!` / `record-sub-run!` / `record-unmount!` read the
-;; stale `last-settled-epoch-id` and back-fill the restore-induced activity into
-;; the UNRELATED most-recent pre-restore epoch — corrupting that later epoch's
-;; historical `:renders` / `:sub-runs` / `:trace-events` for a frame that has
-;; been rewound past it.
+;; timing), so against a stale `last-settled-epoch-id`, `record-render!` /
+;; `record-sub-run!` / `record-unmount!` would back-fill the restore-induced
+;; activity into the UNRELATED most-recent pre-restore epoch — corrupting that
+;; later epoch's historical `:renders` / `:sub-runs` / `:trace-events` for a
+;; frame that has been rewound past it.
 ;;
-;; THE FIX (restored-target attribution, mirroring the replace-* injection
+;; RESTORED-TARGET ATTRIBUTION (mirroring the replace-* injection
 ;; siblings which re-anchor to their synthetic epoch): `perform-restore!` sets
 ;; `last-settled-epoch` to the RESTORED-TARGET epoch on success. Restore-induced
 ;; repaint then attributes to the epoch whose state is now installed — the
@@ -1721,11 +1709,11 @@
 ;; listeners) untouched.
 
 (deftest inv-9-restore-induced-render-does-not-backfill-into-stale-epoch
-  (testing "rf2-w4q9gt — after a restore to an OLDER epoch, a restore-induced
+  (testing "after a restore to an OLDER epoch, a restore-induced
             render fires post-settle. It must NOT back-fill into the unrelated
-            pre-restore last-settled epoch. THE corruption: pre-fix the anchor
-            still named the most-recent epoch the frame was rewound PAST, so the
-            repaint smeared into that epoch's :renders."
+            pre-restore last-settled epoch. A stale anchor would name the
+            most-recent epoch the frame was rewound PAST, smearing the repaint
+            into that epoch's :renders."
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
     (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
@@ -1756,8 +1744,8 @@
           ;; THE INVARIANT — the restore-induced render did NOT land in the
           ;; stale epoch the frame was rewound past.
           (is (not (contains? (rendered-view-ids stale) :counter-view))
-              "rf2-w4q9gt — restore-induced render did NOT back-fill into the
-               stale pre-restore epoch (the corruption is gone)")
+              "restore-induced render did NOT back-fill into the
+               stale pre-restore epoch")
           ;; And it attributes to the RESTORED-TARGET epoch instead — the epoch
           ;; whose state is now installed (restored-target attribution).
           (let [target (epoch-by-id :test/main target-epoch)]
@@ -1766,7 +1754,7 @@
                  epoch — the honest cause of the repaint")))))))
 
 (deftest inv-9-restore-induced-sub-run-does-not-backfill-into-stale-epoch
-  (testing "rf2-w4q9gt — the SUBS sibling. A restore-induced reactive recompute
+  (testing "the SUBS sibling. A restore-induced reactive recompute
             (React-deref timing) must not land in the stale pre-restore epoch's
             :sub-runs. Mirrors inv-1 across a time-travel rewind."
     (rf/make-frame {:id :test/main})
@@ -1788,14 +1776,14 @@
         (let [stale  (epoch-by-id :test/main stale-epoch)
               target (epoch-by-id :test/main target-epoch)]
           (is (not (contains? (sub-run-ids stale) :counter))
-              "rf2-w4q9gt — restore-induced sub-run did NOT back-fill into the
+              "restore-induced sub-run did NOT back-fill into the
                stale pre-restore epoch")
           (is (contains? (sub-run-ids target) :counter)
               "the restore-induced sub-run attributes to the restored-target
                epoch"))))))
 
 (deftest inv-9-restore-induced-unmount-does-not-backfill-into-stale-epoch
-  (testing "rf2-w4q9gt — the UNMOUNT sibling. A restore that rewinds past a view
+  (testing "the UNMOUNT sibling. A restore that rewinds past a view
             spawn tears that view down; the post-settle unmount must not land in
             the stale pre-restore epoch's :trace-events. Mirrors inv-8."
     (rf/make-frame {:id :test/main})
@@ -1816,14 +1804,14 @@
         (let [stale  (epoch-by-id :test/main stale-epoch)
               target (epoch-by-id :test/main target-epoch)]
           (is (not (contains? (unmounted-view-ids stale) :transient-view))
-              "rf2-w4q9gt — restore-induced unmount did NOT back-fill into the
+              "restore-induced unmount did NOT back-fill into the
                stale pre-restore epoch's :trace-events")
           (is (contains? (unmounted-view-ids target) :transient-view)
               "the restore-induced unmount attributes to the restored-target
                epoch"))))))
 
 (deftest inv-9-failed-restore-leaves-attribution-anchor-unchanged
-  (testing "rf2-w4q9gt — a FAILED restore (unknown epoch-id) must NOT touch the
+  (testing "a FAILED restore (unknown epoch-id) must NOT touch the
             last-settled anchor: it returns before the re-anchor, leaving the
             frame's attribution exactly as the most-recent real cascade left it.
             Post-failure activity still attributes to that genuine last-settled
@@ -1845,7 +1833,7 @@
 
       ;; THE INVARIANT — the anchor is untouched.
       (is (= (:epoch-id live-epoch) (rf.epoch.state/last-settled-epoch-id :test/main))
-          "rf2-w4q9gt — a failed restore left the last-settled anchor unchanged")
+          "a failed restore left the last-settled anchor unchanged")
 
       ;; A subsequent post-settle render still attributes to the genuine
       ;; last-settled epoch (the failed restore changed nothing).
@@ -1856,7 +1844,7 @@
              epoch — the re-anchor is success-only")))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-arzb9o — a post-restore repaint whose STALE (newer) pre-restore epoch
+;; A post-restore repaint whose STALE (newer) pre-restore epoch
 ;;               carries value-changed sub-run evidence must still attribute to
 ;;               the RESTORED-TARGET epoch, not the stale newer one.
 ;; ---------------------------------------------------------------------------
@@ -1868,22 +1856,22 @@
 ;; view. `perform-restore!` re-anchors WITHOUT truncating the ring, so the NEWER
 ;; pre-restore epochs survive — and in a real substrate they carry the
 ;; value-changed sub-run evidence for the very view now being repainted. An
-;; UNBOUNDED scan returns that stale newer epoch, OVERRIDING the re-anchor:
+;; UNBOUNDED scan would return that stale newer epoch, OVERRIDING the re-anchor:
 ;;   (b) stale has no prior `:renders` row for the view → the render is
-;;       back-filled INTO the stale epoch (the corruption inv-9 claims fixed);
+;;       back-filled INTO the stale epoch (the corruption inv-9 guards against);
 ;;   (a) stale already has a `:renders` row for the view → the de-dup arm SKIPS
 ;;       the back-fill → the repaint is silently absorbed (target gets nothing).
 ;;
-;; The inv-9 tests above MISS this: their headless cascades seed NO value-change
-;; evidence in the stale epoch, so the scan misses everywhere and falls through
-;; to the re-anchored default — the anchor "works" only because the scan never
-;; fires. These two tests seed the stale evidence a real substrate produces and
+;; The inv-9 tests above do not reach this: their headless cascades seed NO
+;; value-change evidence in the stale epoch, so the scan misses everywhere and
+;; falls through to the re-anchored default. These two tests seed the stale
+;; evidence a real substrate produces and
 ;; pin the anchor bound (`value-changed-epoch-for` starts at the last-settled
 ;; anchor index, so records newer than the restored target are excluded). Both
-;; FAIL on the pre-fix unbounded scan; both PASS after the anchor bound.
+;; FAIL against an unbounded scan.
 
 (deftest inv-9-post-restore-render-not-backfilled-into-stale-value-change-epoch
-  (testing "rf2-arzb9o (case b) — a post-restore repaint whose STALE newer epoch
+  (testing "case b — a post-restore repaint whose STALE newer epoch
             carries value-changed sub-run evidence for the view (but no prior
             render row) must NOT be back-filled into that stale epoch; it
             attributes to the restored-target epoch."
@@ -1925,7 +1913,7 @@
           (let [stale  (epoch-by-id :test/main stale-epoch)
                 target (epoch-by-id :test/main target-epoch)]
             (is (not (contains? (rendered-view-ids stale) :counter-view))
-                "rf2-arzb9o — the repaint did NOT back-fill into the stale newer
+                "the repaint did NOT back-fill into the stale newer
                  epoch, even though that epoch carries value-change evidence")
             (is (contains? (rendered-view-ids target) :counter-view)
                 "the repaint attributes to the restored-target epoch — the
@@ -1933,10 +1921,10 @@
                  epoch")))))))
 
 (deftest inv-9-post-restore-render-not-absorbed-by-stale-dedup
-  (testing "rf2-arzb9o (case a) — when the STALE newer epoch ALSO already holds a
-            render row for the view, the pre-fix scan resolves the post-restore
-            repaint to the stale epoch and the de-dup arm SILENTLY ABSORBS it
-            (target gets nothing). The anchor bound must resolve to the target
+  (testing "case a — when the STALE newer epoch ALSO already holds a
+            render row for the view, an unbounded scan would resolve the
+            post-restore repaint to the stale epoch and the de-dup arm would
+            SILENTLY ABSORB it (target gets nothing). The anchor bound must resolve to the target
             so the repaint is recorded there."
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
@@ -1971,35 +1959,34 @@
 
           (let [target (epoch-by-id :test/main target-epoch)]
             (is (contains? (rendered-view-ids target) :counter-view)
-                "rf2-arzb9o — the repaint attributes to the restored-target
-                 epoch; pre-fix the scan resolved to the stale newer epoch and
-                 the de-dup arm silently absorbed the repaint (target got
-                 nothing)")))))))
+                "the repaint attributes to the restored-target
+                 epoch; an unbounded scan would resolve to the stale newer epoch
+                 and the de-dup arm would silently absorb the repaint (target
+                 gets nothing)")))))))
 
 ;; ===========================================================================
-;; rf2-qh13yf — back-fill splice is SNAPSHOT-CONSISTENT under interleaved
-;;               eviction at ring cap
+;; Back-fill splice is SNAPSHOT-CONSISTENT under interleaved
+;; eviction at ring cap
 ;; ===========================================================================
 ;;
-;; THE BUG: `state/back-fill-event!` resolved the record's ring index against
-;; ONE `@histories` deref (`epoch-index (history-for frame-id) epoch-id`), then
-;; read the record off a SECOND deref and `update-in`'d at the up-front index.
-;; Its docstring justified the single up-front resolution by "within-frame
-;; drain is single-threaded, so no append can shift it" — but the back-fill
+;; WHY ONE SNAPSHOT: resolving the record's ring index against ONE
+;; `@histories` deref (`epoch-index (history-for frame-id) epoch-id`), then
+;; reading the record off a SECOND deref and `update-in`-ing at the up-front
+;; index, is unsafe. The back-fill
 ;; fires at React COMMIT / DEREF / TEARDOWN time, OUTSIDE any drain, so a real
 ;; cascade `record!` for the SAME frame can append between the two derefs. At
 ;; ring CAP that append EVICTS the front record and shifts every index down by
-;; one, so the stale up-front index named (and spliced) the WRONG record.
+;; one, so a stale up-front index would name (and splice) the WRONG record.
 ;;
-;; THE FIX (rf2-qh13yf): the index AND the spliced record are re-derived from
+;; So `state/back-fill-event!` re-derives the index AND the spliced record from
 ;; the SINGLE CAS-retried `@histories` value, INSIDE the one `swap!` update fn.
 ;; The splice therefore always lands on the record whose `:epoch-id` matches,
 ;; regardless of any interleaved append / eviction.
 ;;
 ;; These tests reproduce the eviction-shift deterministically (single-threaded
 ;; — drive `record!` to evict between capturing the target and back-filling it),
-;; then assert the back-fill is index-shift-IMMUNE. They hit the ACTUAL failing
-;; path: a stale-index splice would surface as a row on the WRONG epoch (or a
+;; then assert the back-fill is index-shift-IMMUNE. They exercise the splice
+;; path directly: a stale-index splice would surface as a row on the WRONG epoch (or a
 ;; row on a surviving record when the target was evicted).
 
 (defn- bf-sub-event
@@ -2016,7 +2003,7 @@
    :row   {:sub-id sub-id :value value}})
 
 (deftest qh13yf-back-fill-splices-target-by-id-not-stale-index
-  (testing "rf2-qh13yf — when an eviction at ring cap SHIFTS the target
+  (testing "when an eviction at ring cap SHIFTS the target
             epoch's index between the back-fill's would-be index resolution
             and its splice, the splice lands on the epoch matching epoch-id
             (re-derived inside the swap), NOT the stale positional neighbour."
@@ -2070,7 +2057,7 @@
               "the index-1 neighbour is untouched and still the same epoch"))))))
 
 (deftest qh13yf-back-fill-of-evicted-target-is-nil-no-wrong-splice
-  (testing "rf2-qh13yf — when the target epoch is EVICTED before the back-fill
+  (testing "when the target epoch is EVICTED before the back-fill
             runs, the back-fill resolves no index in the live ring, returns nil,
             and splices NOTHING into the record that took its old position
             (a stale up-front index would have spliced the evicted target's old
@@ -2103,15 +2090,15 @@
 
 ;; ===========================================================================
 ;; INVARIANT 10 — a post-settle sub-return / sub-override SCHEMA FAILURE rides
-;;                its sub-run's epoch, not the orphan drop (rf2-3x7nj.17.4)
+;;                its sub-run's epoch, not the orphan drop
 ;; ===========================================================================
 ;;
 ;; The failure sibling of inv-1. A sub's `:schema` is checked as it
 ;; recomputes, so a post-settle recompute emits its `:rf.sub/run` AND, when
 ;; the schema rejects the value, a `:rf.error/schema-validation-failure` with
-;; the same routing tags (`:frame`, no `:rf.trace/dispatch-id`). The run was
-;; back-filled but the failure fell through to the orphan-drop branch, so
-;; Xray showed the replaced `nil` as a clean SUBSCRIPTIONS row, outcome `:ok`.
+;; the same routing tags (`:frame`, no `:rf.trace/dispatch-id`). Were the run
+;; back-filled while the failure fell through to the orphan-drop branch, Xray
+;; would show the replaced `nil` as a clean SUBSCRIPTIONS row, outcome `:ok`.
 ;;
 ;; The recompute here is REAL — a `:schema`-bearing `reg-sub` derefed on the
 ;; plain-atom substrate after `dispatch-sync` returned — so both traces come
@@ -2144,7 +2131,7 @@
   (rf/reg-event :cart/other (fn [{:keys [db]} _] {:db (assoc db :other true)})))
 
 (deftest inv-10-post-settle-sub-return-failure-rides-its-sub-run-epoch
-  (testing "rf2-3x7nj.17.4 — a recompute after the cascade settled lands its
+  (testing "a recompute after the cascade settled lands its
             :sub-return failure in the same (last-settled) epoch as its
             :rf.sub/run, exactly once, and re-fans the corrected record"
     (register-cart!)
@@ -2199,7 +2186,7 @@
           (rf/unregister-listener! :epoch ::watch))))))
 
 (deftest inv-10-in-flight-sub-return-failure-rides-its-own-cascade-once
-  (testing "rf2-3x7nj.17.4 — a handler that derefs the failing sub records the
+  (testing "a handler that derefs the failing sub records the
             failure in ITS cascade exactly once: buffered, not back-filled,
             not doubled"
     (register-cart!)
@@ -2223,7 +2210,7 @@
             "nothing was back-filled into the previously settled epoch")))))
 
 (deftest inv-10-post-settle-sub-override-failure-is-back-filled
-  (testing "rf2-3x7nj.17.4 — the render-phase :sub-override failure, emitted
+  (testing "the render-phase :sub-override failure, emitted
             with the same routing tags as :sub-return, lands in the
             last-settled epoch"
     (register-cart!)
