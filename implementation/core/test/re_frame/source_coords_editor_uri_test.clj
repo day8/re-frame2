@@ -1,5 +1,5 @@
 (ns re-frame.source-coords-editor-uri-test
-  "JVM tests for `re-frame.source-coords.editor-uri` (rf2-evgf5).
+  "JVM tests for `re-frame.source-coords.editor-uri`.
 
   Pure data → data — the same expected URIs verify on the CLJS side via
   `re-frame.source-coords-editor-uri-cljs-test`."
@@ -125,7 +125,7 @@
     ;; :custom is a map-shape, not a member of the keyword set.
     (is (not (contains? rf.source-coords.editor-uri/known-editors :custom)))))
 
-;; ---- forbidden schemes (rf2-vwcsq) --------------------------------------
+;; ---- forbidden schemes --------------------------------------------------
 
 (deftest custom-rejects-javascript-scheme
   (testing "{:custom javascript:...} returns nil (in-tab script execution gate)"
@@ -174,11 +174,11 @@
     (is (some? (rf.source-coords.editor-uri/editor-uri {:custom "org-protocol://capture?path={path}"}  sample-coord)))
     (is (some? (rf.source-coords.editor-uri/editor-uri {:custom "vscode-insiders://file/{path}:{line}"} sample-coord)))
     (is (some? (rf.source-coords.editor-uri/editor-uri {:custom "file://{path}"}                       sample-coord))))
-  (testing "rf2-ox357n: an UNKNOWN, uncatalogued, non-dangerous custom
+  (testing "An UNKNOWN, uncatalogued, non-dangerous custom
             scheme passes through — there is no positive allowlist, so a
             future editor's scheme is NOT a silent dead button"
-    ;; `lapce:` is a real editor scheme that was never in the old
-    ;; allowlist; under denylist-only it must produce a clickable URI.
+    ;; `lapce:` is a real editor scheme that no catalogue names; under the
+    ;; denylist it must produce a clickable URI.
     (is (= "lapce://open?file=src/app/views.cljs&line=42"
            (rf.source-coords.editor-uri/editor-uri {:custom "lapce://open?file={path}&line={line}"} sample-coord)))
     ;; A wholly-made-up scheme also passes — the gate rejects ONLY the
@@ -195,7 +195,7 @@
                  uri))))))
 
 (deftest editor-uri-does-not-reject-forbidden-scheme-substring
-  (testing "the gate matches the LEADING scheme only, so `editor-uri` still
+  (testing "the gate matches the LEADING scheme only, so `editor-uri`
             returns a URI when a substring elsewhere in the path looks like a
             forbidden scheme"
     ;; A path that contains "javascript:" deep inside is not the scheme.
@@ -208,21 +208,19 @@
                  {:custom "myeditor://open?file={path}"}
                  {:file "javascript:not-a-scheme.cljs" :line 1 :column 1})))))
 
-;; ---- public forbidden-scheme? predicate (rf2-ox357n) ---------------------
+;; ---- public forbidden-scheme? predicate ----------------------------------
 ;;
-;; rf2-ox357n removed the positive allowlist (allowed-uri? /
+;; There is no positive allowlist (no allowed-uri? /
 ;; allowed-editor-uri-schemes) — the spec mandates a scheme-REJECTION list,
 ;; not an allowlist (Security.md / Tool-Pair.md §Editor URI scheme
-;; allowlist). `forbidden-scheme?` is now PUBLIC so the tool `open!` seams
-;; can re-apply the cheap denylist at the pre-resolved `{:uri ...}` handoff.
+;; allowlist). `forbidden-scheme?` is PUBLIC so the tool `open!` seams can
+;; re-apply the cheap denylist at the pre-resolved `{:uri ...}` handoff.
 ;;
-;; Each test here has a twin in the rf2-vwcsq block above: that block drives
-;; the `editor-uri` BUILDER, this one drives the `forbidden-scheme?` PREDICATE
-;; directly. rf2-9e4lf: the substring pair was the one that collided — both
-;; deftests were named `forbidden-scheme-substring-is-not-rejected`, so when
-;; this block landed (f2b24e146f) its test silently replaced the builder-level
-;; one, which had not run since. The axis is which surface is under test, so
-;; that is what the two names now say.
+;; Each test here has a twin in the forbidden-schemes block above: that block
+;; drives the `editor-uri` BUILDER, this one drives the `forbidden-scheme?`
+;; PREDICATE directly. The twins' names say which surface is under test —
+;; were two twins to share one name, the later `deftest` would silently
+;; replace the earlier one.
 
 (deftest forbidden-scheme-rejects-the-three-known-bad
   (testing "forbidden-scheme? is true for javascript: / data: / vbscript:"
@@ -231,7 +229,7 @@
     (is (rf.source-coords.editor-uri/forbidden-scheme? "vbscript:msgbox(1)"))))
 
 (deftest forbidden-scheme-is-case-insensitive
-  (testing "rf2-ox357n: bad schemes are rejected regardless of casing"
+  (testing "bad schemes are rejected regardless of casing"
     (is (rf.source-coords.editor-uri/forbidden-scheme? "JavaScript:alert(1)"))
     (is (rf.source-coords.editor-uri/forbidden-scheme? "JAVASCRIPT:alert(1)"))
     (is (rf.source-coords.editor-uri/forbidden-scheme? "Data:text/html,xxx"))
@@ -246,9 +244,9 @@
     (is (rf.source-coords.editor-uri/forbidden-scheme? "  vbscript:msgbox(1)"))))
 
 (deftest forbidden-scheme-passes-everything-else
-  (testing "rf2-ox357n: NO positive allowlist — every non-dangerous scheme
-            passes (built-in editors, catalogued long-tail, AND unknown
-            custom schemes that the old allowlist would have dead-buttoned)"
+  (testing "NO positive allowlist — every non-dangerous scheme passes
+            (built-in editors, catalogued long-tail, AND unknown custom
+            schemes an allowlist would dead-button)"
     ;; Built-in + catalogued.
     (is (not (rf.source-coords.editor-uri/forbidden-scheme? "vscode://file/src/x.cljs:1:1")))
     (is (not (rf.source-coords.editor-uri/forbidden-scheme? "cursor://file/src/x.cljs:1:1")))
@@ -256,13 +254,13 @@
     (is (not (rf.source-coords.editor-uri/forbidden-scheme? "subl://open?path=src/x.cljs")))
     (is (not (rf.source-coords.editor-uri/forbidden-scheme? "vim://src/x.cljs")))
     (is (not (rf.source-coords.editor-uri/forbidden-scheme? "file:///abs/path/src/x.cljs")))
-    ;; http: / https: now PASS — the old allowlist rejected these, the
+    ;; http: / https: PASS — an allowlist would reject these, the
     ;; denylist does not (the spec says do NOT over-gate; only the three
     ;; script schemes are XSS vectors).
     (is (not (rf.source-coords.editor-uri/forbidden-scheme? "http://localhost:3000/x")))
     (is (not (rf.source-coords.editor-uri/forbidden-scheme? "https://localhost:3000/x")))
     ;; Unknown custom non-dangerous schemes pass — the whole point of
-    ;; dropping the allowlist.
+    ;; having no allowlist.
     (is (not (rf.source-coords.editor-uri/forbidden-scheme? "lapce://open?file=src/x.cljs&line=1")))
     (is (not (rf.source-coords.editor-uri/forbidden-scheme? "future-editor-9://src/x.cljs:1:1")))))
 
@@ -280,13 +278,13 @@
     (is (not (rf.source-coords.editor-uri/forbidden-scheme? "vscode://file/src/has-javascript:x.cljs:1:1")))
     (is (not (rf.source-coords.editor-uri/forbidden-scheme? "myeditor://open?file=javascript:not-a-scheme.cljs")))))
 
-;; ---- project-root prefix (rf2-zfy1e) -------------------------------------
+;; ---- project-root prefix -------------------------------------------------
 ;;
-;; Per rf2-zfy1e: source-coord `:file` is classpath-relative; editor URI
+;; Source-coord `:file` is classpath-relative; editor URI
 ;; handlers reject relative paths ("Path does not exist"). The 3-arg form
 ;; takes a `:project-root` opt that prefixes the file string before the
 ;; scheme builder runs. Both Unix and Windows-flavoured roots are
-;; supported; absolute source-coord paths are passed through unchanged.
+;; supported; absolute source-coord paths are passed through verbatim.
 
 (deftest project-root-prefixes-relative-file
   (testing "{:project-root ...} is prepended to a relative source-coord :file"
@@ -325,7 +323,7 @@
              {:project-root "/abs/root"})))))
 
 (deftest project-root-nil-or-blank-leaves-file-verbatim
-  (testing "nil project-root falls back to v1 behaviour (file ships verbatim)"
+  (testing "nil project-root leaves the file verbatim"
     (is (= "vscode://file/src/x.cljs:1:1"
            (rf.source-coords.editor-uri/editor-uri :vscode {:file "src/x.cljs"} nil)))
     (is (= "vscode://file/src/x.cljs:1:1"
@@ -339,7 +337,7 @@
            (rf.source-coords.editor-uri/editor-uri :vscode {:file "src/x.cljs"} {:project-root "   "})))))
 
 (deftest two-arg-form-still-works
-  (testing "2-arg form is equivalent to 3-arg with nil opts (back-compat seam)"
+  (testing "2-arg form is equivalent to 3-arg with nil opts"
     (is (= (rf.source-coords.editor-uri/editor-uri :vscode sample-coord)
            (rf.source-coords.editor-uri/editor-uri :vscode sample-coord nil)))
     (is (= (rf.source-coords.editor-uri/editor-uri :idea sample-coord)
@@ -380,7 +378,7 @@
                           {:project-root "/should-not-apply"})))))
 
 (deftest absolute-source-coord-file-is-not-prefixed
-  (testing "absolute :file passes through unchanged regardless of project-root"
+  (testing "absolute :file passes through verbatim regardless of project-root"
     ;; POSIX absolute.
     (is (= "vscode://file//etc/already-abs.cljs:1:1"
            (rf.source-coords.editor-uri/editor-uri :vscode
@@ -413,12 +411,12 @@
     (is (nil? (rf.source-coords.editor-uri/editor-uri :vscode nil {:project-root "/abs"})))))
 
 (deftest panel-gallery-regression-rf2-zfy1e
-  (testing "regression: the panel-gallery testbed coord shape resolves to an
+  (testing "the panel-gallery testbed coord shape resolves to an
             absolute URI when the host has plumbed :project-root through"
-    ;; Recreates the bead's exact failure: source-coord file shipped as
-    ;; `panel_gallery/event_detail_stories.cljs` (classpath-relative);
-    ;; with a local checkout as the project root, the URI must
-    ;; absolute-path the file the OS-side editor handler resolves.
+    ;; The testbed's source-coord file is classpath-relative
+    ;; (`panel_gallery/event_detail_stories.cljs`); with a local checkout as
+    ;; the project root, the URI must absolute-path the file the OS-side
+    ;; editor handler resolves.
     (is (= (str "vscode://file/"
                 "C:/Users/me/code/my-app/tools/xray/testbeds/"
                 "panel_gallery/event_detail_stories.cljs:115:3")

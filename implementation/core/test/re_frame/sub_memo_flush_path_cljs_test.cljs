@@ -1,6 +1,6 @@
 (ns re-frame.sub-memo-flush-path-cljs-test
-  "rf2-gncxk — WHICH callers reach the layer-1 memo guard, and on which of
-  them can it actually HIT?
+  "WHICH callers reach the layer-1 memo guard, and on which of them can it
+  actually HIT?
 
   `subs.memo/make-layer-1-memoised-body` guards the user's sub body with
   `(= @last-db db)`. The wrapper is handed to the substrate as a
@@ -15,17 +15,16 @@
 
     * `flush!` — the WRITE path, run once per dirty entry at epoch drain.
 
-  rf2-gncxk was filed on a proof that the guard is guaranteed to MISS on
-  the flush path: `flush!` runs only if the value was marked dirty, which
-  happens only if the source's `notify` fired, which requires movement by
-  `rf=` — and `rf=` moved implies `=` differs.
+  A tempting argument says the guard is guaranteed to MISS on the flush
+  path: `flush!` runs only if the value was marked dirty, which happens only
+  if the source's `notify` fired, which requires movement by `rf=` — and
+  `rf=` moved implies `=` differs.
 
-  **THAT PROOF IS FALSE, and the correction is the whole point of this
-  namespace** (rf2-gncxk.1's design pass; merged-PR audit #7233). It
-  establishes \"the source moved since the source's PREVIOUS NOTIFY\". The
-  guard asks a DIFFERENT question — \"did the input move since THE WRAPPER
-  LAST RAN\" — and two reachable interleavings separate them, in both of
-  which the guard correctly HITS on the flush path even for `:db`:
+  **THAT ARGUMENT IS FALSE, and the correction is the whole point of this
+  namespace.** It establishes \"the source moved since the source's PREVIOUS
+  NOTIFY\". The guard asks a DIFFERENT question — \"did the input move since
+  THE WRAPPER LAST RAN\" — and two reachable interleavings separate them, in
+  both of which the guard correctly HITS on the flush path even for `:db`:
 
     * **(a) DEREF-BETWEEN.** The source moves P → N and marks the sub
       dirty. Anything derefs the sub before the drain reaches its queued
@@ -38,16 +37,16 @@
       dedups, so ONE flush arrives with A′ against `last-db` = A: the
       source moved twice by `rf=`, `=` says equal.
 
-  So no fast path may key on \"am I on the flush path?\". The landed fix
-  (rf2-gncxk.1) keys on an exact fact about the SOURCE instead — the
+  So no fast path may key on \"am I on the flush path?\". The movement
+  witness keys on an exact fact about the SOURCE instead — the
   `re-frame.movement/IMovementWitness` departure value — and this namespace
   is where its consumer-side obligation is pinned: **C1, VERDICT-
   PRESERVING**. The witness may only skip a comparison whose answer it
   already determines, so every deftest below asserts a `{hit, miss}`
   verdict that must be bit-identical with and without it.
 
-  There IS still an asymmetry between the single-source kinds, and the
-  first two tests pin it. All three share this one wrapper
+  There IS an asymmetry between the single-source kinds, and the first two
+  tests pin it. All three share this one wrapper
   (`rf.subs/single-source-input-kinds`); what differs is what sits between the
   sub and the physical frame-state atom:
 
@@ -136,11 +135,10 @@
 ;; ---------------------------------------------------------------------------
 ;; :db, NO INTERLEAVING — a value-equal commit never reaches the guard at all
 ;;
-;; Narrowed by merged-PR audit #7233. This test proves exactly one scenario:
-;; a lone value-equal commit with nothing interleaved. It does NOT prove the
-;; general claim its old name (`db-sub-guard-never-hits-on-the-flush-path`)
-;; made — see the two interleaving tests below, where the guard DOES hit on
-;; the flush path for a `:db` sub.
+;; This test proves exactly one scenario: a lone value-equal commit with
+;; nothing interleaved. It does NOT prove that the guard never hits on the
+;; flush path for a `:db` sub — see the two interleaving tests below, where
+;; the guard DOES hit on the flush path for a `:db` sub.
 ;; ---------------------------------------------------------------------------
 
 (deftest db-sub-value-equal-commit-never-reaches-the-guard
@@ -166,14 +164,14 @@
                  so the memo guard is not reached on the flush path at all"))
           (is (= 42 @r))
           (is (= 1 @runs)
-              "body still has not re-run — the projection's rf= gate stopped
+              "body has not re-run — the projection's rf= gate stopped
                propagation, and the deref-path guard absorbed the fresh object")
           ;; A genuine move DOES reach the sub, and with nothing interleaved
           ;; the guard MISSES there — the comparison is paid and fails. That
-          ;; is the case rf2-gncxk was filed on; it is the wrapper's FIRST
-          ;; invocation after a movement, and it is exactly the one the
-          ;; landed movement witness proves in advance (`-moved-from` is
-          ;; still `identical?` to `last-db` here, so the `=` walk is
+          ;; is the case the tempting argument describes; it is the wrapper's
+          ;; FIRST invocation after a movement, and it is exactly the one the
+          ;; movement witness proves in advance (`-moved-from` is
+          ;; `identical?` to `last-db` here, so the `=` walk is
           ;; skipped and the verdict is the same miss).
           (rf/dispatch-sync [:bump])
           (is (= 43 @r))
@@ -182,12 +180,11 @@
 ;; ---------------------------------------------------------------------------
 ;; :frame-state, NO INTERLEAVING — the guard hits on the flush path anyway
 ;;
-;; The one kind that needs no interleaving to get there, which is why it was
-;; the original counterexample. It is ALSO the kind the landed witness cannot
+;; The one kind that needs no interleaving to get there, which makes it the
+;; simplest counterexample. It is ALSO the kind the movement witness cannot
 ;; touch: a raw physical container does not implement `IMovementWitness`, so
-;; `subs.memo`'s `witness-src` is nil here and the guard expression is
-;; byte-for-byte the one that shipped (pinned in
-;; `movement_witness_cljs_test.cljs`).
+;; `subs.memo`'s `witness-src` is nil here and the guard reduces to the plain
+;; `=` comparison (pinned in `movement_witness_cljs_test.cljs`).
 ;; ---------------------------------------------------------------------------
 
 (deftest frame-state-sub-guard-does-hit-on-the-flush-path
@@ -221,7 +218,7 @@
                 "and the hit is load-bearing: the body did NOT re-run on a
                  value-equal commit (Spec 006 §Invalidation algorithm)"))
           (is (= 42 @r))
-          ;; A genuine move still recomputes, so the sub is demonstrably live
+          ;; A genuine move recomputes, so the sub is demonstrably live
           ;; and wired — the assertions above are not passing vacuously.
           (rf/dispatch-sync [:bump])
           (is (= 43 @r))
@@ -230,10 +227,9 @@
 ;; ---------------------------------------------------------------------------
 ;; :db WITH INTERLEAVING — the guard hits on the flush path here too
 ;;
-;; Added by merged-PR audit #7233. These are the two cases rf2-gncxk.1's
-;; design pass named when it falsified the bead's own premise, and neither
-;; had a consumer-level pin: `movement_witness_cljs_test.cljs` pins the
-;; SOURCE's W1/W2, not the wrapper's C1 verdict along these paths.
+;; These are interleavings (a) and (b) from the ns docstring.
+;; `movement_witness_cljs_test.cljs` pins the SOURCE's W1/W2; these pin the
+;; wrapper's C1 verdict along these paths.
 ;;
 ;; Both interpose from a watcher on the app-db projection. That watcher runs
 ;; inside the projection's own `notify` fan-out — so the witness is already
@@ -251,7 +247,7 @@
             `flush!` then arrives with N against N, where the guard HITS.
 
             C1: the witness must NOT short-circuit that. After the interleaved
-            read `last-db` holds N while `-moved-from` still holds P, so the
+            read `last-db` holds N while `-moved-from` holds P, so the
             `identical?` proof term fails and the `=` walk is performed — and
             returns the hit. This is the structural reason the optimisation
             cannot fire twice running on one movement."
@@ -279,8 +275,8 @@
             (is (pos? flush-skips)
                 "and the queued `flush!` then found its input `=` to what that
                  deref had already left in `last-db`: the guard HIT on the
-                 FLUSH path, for a `:db` sub. The premise rf2-gncxk was filed
-                 on says this cannot happen."))
+                 FLUSH path, for a `:db` sub. The tempting argument says this
+                 cannot happen."))
           (is (= 43 @r) "the sub projects the moved value")
           (is (= 2 @runs)
               "and the flush-path hit was load-bearing: ONE body run for one
@@ -318,7 +314,7 @@
           ;; transition!` — the same write boundary the router commit uses —
           ;; and its re-entrant `with-epoch` cannot drain (the outer
           ;; `drain-scheduler!` holds `flushing?`), so the two writes coalesce
-          ;; into one flush exactly as the design pass described.
+          ;; into one flush exactly as interleaving (b) describes.
           (add-watch proj ::return-to-equal
                      (fn [_ _ _ _]
                        (when (zero? @returns)
@@ -335,5 +331,5 @@
             (is (= 1 @runs)
                 "and the hit is load-bearing: the body did NOT re-run anywhere
                  across A -> B -> A'"))
-          (is (= 42 @r) "the sub still projects the returned-to value")
+          (is (= 42 @r) "the sub projects the returned-to value")
           (is (= 1 @runs)))))))

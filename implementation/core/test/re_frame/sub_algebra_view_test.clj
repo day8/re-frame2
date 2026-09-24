@@ -1,7 +1,7 @@
 (ns re-frame.sub-algebra-view-test
   "Tests for the STATIC derivation/process algebra view of subscriptions
-  (EP-0014 slice-2, rf2-gge6mf). Per [spec/Derivations.md] (graduated from
-  EP-0014) and the `:rf/derivation-node` shape in [spec/Spec-Schemas.md].
+  (EP-0014 slice-2). Per [spec/Derivations.md] and the
+  `:rf/derivation-node` shape in [spec/Spec-Schemas.md].
 
   `re-frame.subs.tooling/sub-algebra-view` lowers every registered
   subscription — a layer-1 `:db` reader, a static declared-input sub, a parametric
@@ -17,27 +17,26 @@
   source coordinates. The live cache-entry view (the realized parametric
   edges) is the CLJS counterpart, pinned in the reagent runtime suite.
 
-  Slice-2 ships NO public accessor (EP-0014 issue-1 disposition): the view
-  lives in the bundle-isolated `re-frame.subs.tooling` sibling and is consumed
-  by Xray + the conformance fixtures, which name that sibling directly. There
-  is no `re-frame.core/sub-algebra-view` public facade export and — since
-  rf2-kuky.86 — no `re-frame.subs` JVM convenience alias either.
+  There is NO public accessor (EP-0014 issue-1 disposition): the view lives
+  in the bundle-isolated `re-frame.subs.tooling` sibling and is consumed by
+  Xray + the conformance fixtures, which name that sibling directly. There is
+  no `re-frame.core/sub-algebra-view` public facade export and no
+  `re-frame.subs` JVM convenience alias either.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   The ALGEBRA is posture-independent and asserted without a guard: the fixed
   classifications, the per-kind declared-input lowering, the output fact id,
   the `:derive` token, `:schema`, and the registry semantics all run under
   `scripts/test-core-prod-gate.sh` as well as `clojure -M:test`. This is the
-  same shape `sub-topology-test` took in the second rf2-d2841 pass — the
-  topology around the metadata is production-real; only the REFLECTION
-  METADATA on it is not.
+  same shape as `sub-topology-test` — the topology around the metadata is
+  production-real; only the REFLECTION METADATA on it is not.
 
   Two slots are reflection metadata and elided in production: the auto-
   captured `:source` coords (`:ns` / `:line` / `:file`, suppressed by
   `source-coords/merge-coords` under the gate) and `:doc` (stripped at the
-  `rf.registrar/register!` chokepoint). Their assertions are kept verbatim
-  inside `(when rf.interop/debug-enabled? …)` arms marked `rf2-d2841` —
+  `rf.registrar/register!` chokepoint). Their assertions sit inside
+  `(when rf.interop/debug-enabled? …)` arms —
   including the negative in `no-schema-or-doc-when-absent`, which under the
   gate would pass because `:doc` is elided WHOLESALE rather than because this
   registration omitted it. `:schema` is load-bearing and stays outside the
@@ -88,7 +87,7 @@
     (is (map? (rf.subs.tooling/sub-algebra-view)))))
 
 (deftest facade-publishes-no-algebra-view-alias
-  ;; rf2-kuky.86 — the absence pin that replaced the JVM presence pin. The
+  ;; The absence pin: the
   ;; views ship NO public accessor (Derivations §Subscriptions expose algebra
   ;; views): the `defn`s stay in `re-frame.subs.tooling` and `re-frame.subs`
   ;; re-exports neither, so production CLJS bundles DCE the bodies and every
@@ -98,12 +97,12 @@
         "sub-algebra-view is not a public name on the subs facade")
     (is (nil? (ns-resolve 're-frame.subs 'sub-cache-algebra-view))
         "sub-cache-algebra-view is not a public name on the subs facade"))
-  (testing "the sibling's other JVM aliases are untouched"
+  (testing "the sibling's other JVM aliases resolve"
     (is (some? (ns-resolve 're-frame.subs 'sub-topology))
         "sub-topology keeps its JVM alias")
     (is (some? (ns-resolve 're-frame.subs 'sub-cache-snapshot))
         "sub-cache-snapshot keeps its JVM alias"))
-  (testing "the tooling sibling still publishes both algebra views"
+  (testing "the tooling sibling publishes both algebra views"
     (is (some? (ns-resolve 're-frame.subs.tooling 'sub-algebra-view)))
     (is (some? (ns-resolve 're-frame.subs.tooling 'sub-cache-algebra-view)))))
 
@@ -200,7 +199,7 @@
     (let [node ((rf.subs.tooling/sub-algebra-view) :rf.route/params)]
       (is (some? node))
       (is (has-fixed-classifications? node)
-          "a runtime sub is still an ephemeral / on-demand / cache-entry derivation")
+          "a runtime sub is also an ephemeral / on-demand / cache-entry derivation")
       (is (= [:fact :rf.route/params] (:output node)))
       (is (= [[:runtime []]] (:inputs node))
           "the runtime sub reads the runtime-db partition — declared input is [:runtime []]")
@@ -229,11 +228,11 @@
     (rf/reg-sub :n (fn [db _] (:n db)))
     (let [node ((rf.subs.tooling/sub-algebra-view) :n)
           source (:source node)]
-      ;; Always-on witness (rf2-d2841): the sub is lowered into the algebra
+      ;; Always-on witness: the sub is lowered into the algebra
       ;; regardless of posture — the precondition for reading any coord off it.
       (is (some? node)
           "the registration is projected into the algebra view in BOTH postures")
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+      ;; Dev-instrumentation arm (see ns docstring §Posture split).
       ;; Source coords are reflection metadata, elided in production.
       (when rf.interop/debug-enabled?
         (is (some? source) ":source map is present when the registration carried coords")
@@ -252,7 +251,7 @@
       ;; retained in production — no guard.
       (is (= :app.money/amount (:schema node))
           "the declared output :schema surfaces as a node fact")
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+      ;; Dev-instrumentation arm (see ns docstring §Posture split).
       (when rf.interop/debug-enabled?
         (is (= "a priced item" (:doc node)))))))
 
@@ -263,7 +262,7 @@
       ;; `:schema` is retained in production, so its absence here really is
       ;; "the registration did not supply one" — posture-independent.
       (is (not (contains? node :schema)))
-      ;; rf2-d2841 — dev-instrumentation arm. A NEGATIVE about a key the gate
+      ;; Dev-instrumentation arm. A NEGATIVE about a key the gate
       ;; elides WHOLESALE: outside the arm it passes because `:doc` never
       ;; exists in production, not because this registration omitted it.
       (when rf.interop/debug-enabled?

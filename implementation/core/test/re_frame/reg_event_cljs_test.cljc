@@ -1,26 +1,24 @@
 (ns re-frame.reg-event-cljs-test
-  "EP-0018 Slice Z (rf2-xhfxcs.14): narrow tests for the ONE public event form
+  "EP-0018 Slice Z: narrow tests for the ONE public event form
   `reg-event` — coeffects in, a closed effects map out, under the bare name.
   Per Spec 002 §Event handlers, Spec 001 §Registry model, and EP-0018 §1/§4/§5.
 
-  Slice Z COLLAPSED registration to this one form: `reg-event-db` /
-  `reg-event-fx` are REMOVED and public `reg-event-ctx` is demoted — the three
-  retired names survive only as throwing stubs (this suite was the additive-
-  window coexistence suite; that premise is gone, so the coexistence assertions
-  are replaced by stub-removal assertions).
+  Registration has this one form: there is no `reg-event-db` /
+  `reg-event-fx` and no public `reg-event-ctx` — the three retired names exist
+  only as throwing stubs, and this suite pins those stubs.
 
   `reg-event` registers under registry kind :event with the ONE framework
-  wrapper `:rf/event-handler` (`:rf/default? true`); the historical
-  `:event/kind` sub-tag is gone. These tests pin that shape plus the :db/:fx
-  effect semantics and uniform `:rf.cofx/requires` support (the EP-0017 hole
-  the collapse closes).
+  wrapper `:rf/event-handler` (`:rf/default? true`); there is no
+  `:event/kind` sub-tag. These tests pin that shape plus the :db/:fx
+  effect semantics and uniform `:rf.cofx/requires` support (which closes the
+  EP-0017 hole).
 
   `.cljc` so the suite runs under BOTH the bounded core JVM gate and
   `npm run test:cljs`. Harness mirrors `cofx_cljs_test.cljc` — the shared
   `rf.test-support/make-reset-runtime-fixture` wraps every body in
   `(with-frame :rf/default …)` so the ambient `dispatch-sync` calls resolve.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   Everything this file is about — the registry shape, the interceptor chain,
   the `:db` / `:fx` effect semantics, `:rf.cofx/requires` — is production-real
@@ -32,7 +30,7 @@
   `rf.registrar/register!` chokepoint in production (Spec 001 §Production
   elision contract; `re-frame.doc-metadata-prod-elision-test` owns that
   contract). Its assertion is kept verbatim inside a
-  `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`."
+  `(when rf.interop/debug-enabled? …)` arm."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
@@ -53,15 +51,15 @@
 (deftest reg-event-registers-under-event-kind
   (testing "reg-event registers under registry kind :event with the ONE
             framework wrapper :rf/event-handler and NO :event/kind sub-tag
-            (EP-0018 Slice Z — the per-kind ids and the :event/kind tag are
-            gone)"
+            (EP-0018 Slice Z — there are no per-kind ids and no :event/kind
+            tag)"
     (rf/reg-event :reg-event-test/shape
       (fn [{:keys [db]} _] {:db (assoc db :marker :v)}))
     (let [meta (rf/handler-meta {:source :store :kind :event :id :reg-event-test/shape})]
       (is (some? meta)
           "reg-event registers under registry kind :event")
       (is (not (contains? meta :event/kind))
-          "the :event/kind sub-tag is gone (one form, no kind)")
+          "there is no :event/kind sub-tag (one form, no kind)")
       (is (= [:rf/event-handler] (mapv :id (:interceptors meta)))
           "the framework wrapper is the one :rf/event-handler interceptor"))))
 
@@ -74,7 +72,7 @@
       {:doc "doc" :interceptors [:reg-event-test/noop]}
       (fn [{:keys [db]} _] {:db db}))
     (let [meta (rf/handler-meta {:source :store :kind :event :id :reg-event-test/with-icpt})]
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+      ;; Dev-instrumentation arm (see ns docstring §Posture split).
       ;; `:doc` is pure-documentation metadata, stripped at the `register!`
       ;; chokepoint under `-Dre-frame.debug=false`.
       (when rf.interop/debug-enabled?
@@ -138,7 +136,7 @@
         "neither the nil nor the {} handler disturbed app-db")))
 
 ;; ===========================================================================
-;; 3. :rf.cofx/requires support (EP-0017 hole closed — REQUIRED by the bead)
+;; 3. :rf.cofx/requires support (closes the EP-0017 hole)
 ;; ===========================================================================
 
 (deftest reg-event-supports-rf-cofx-requires
@@ -184,7 +182,7 @@
           "the parsed entry vector is stored for the satisfaction step"))))
 
 ;; ===========================================================================
-;; 4. The retired names are throwing stubs (EP-0018 Slice Z removal)
+;; 4. The retired names are throwing stubs (EP-0018 Slice Z)
 ;; ===========================================================================
 
 (defn- stub-throw-id
@@ -206,10 +204,10 @@
          (:reason (ex-data e)))))
 
 (deftest retired-reg-event-names-throw-their-removal-stubs
-  (testing "EP-0018 Slice Z: the former additive coexistence is gone —
-            reg-event-db / reg-event-fx are REMOVED and public reg-event-ctx is
-            demoted; the three retired names are throwing stubs that register
-            nothing and raise their naming hard error"
+  (testing "EP-0018 Slice Z: there is no additive coexistence —
+            reg-event-db / reg-event-fx / reg-event-ctx are retired names,
+            throwing stubs that register nothing and raise their naming hard
+            error"
     (is (= :rf.error/reg-event-db-removed
            (stub-throw-id #(rf/reg-event-db :reg-event-test/via-db (fn [_ _] nil))))
         "reg-event-db raises :rf.error/reg-event-db-removed")
@@ -233,11 +231,11 @@
         "only the reg-event handler committed; the retired-name stubs registered nothing")))
 
 (deftest reg-event-ctx-removed-names-reg-interceptor-not-arrow-interceptor
-  ;; Cross-wave coherence (rf2-0adhqs.12): EP-0022 demoted `->interceptor` to a
-  ;; framework-internal lowering constructor and made `reg-interceptor` the ONE
-  ;; public authoring form. The EP-0018 reg-event-ctx-removed stub must therefore
-  ;; point users at `reg-interceptor`, NOT the internal lowering constructor
-  ;; (`->interceptor*`; the coord-capturing macro itself is deleted — rf2-93sxp).
+  ;; Cross-EP coherence: under EP-0022 `->interceptor*` is a framework-internal
+  ;; lowering constructor and `reg-interceptor` is the ONE public authoring
+  ;; form. The EP-0018 reg-event-ctx-removed stub therefore points users at
+  ;; `reg-interceptor`, NOT the internal lowering constructor (there is no
+  ;; coord-capturing `->interceptor` macro).
   (testing "the reg-event-ctx-removed :reason names reg-interceptor"
     (let [reason (stub-throw-reason
                    #(rf/reg-event-ctx :reg-event-test/ctx-reason (fn [_ _] nil)))]
@@ -248,8 +246,7 @@
           "the recovery does NOT name ->interceptor (internal-only post-EP-0022)"))))
 
 ;; ===========================================================================
-;; 5. :rf/set-db — the framework-standard app-db seeding event (EP-0027,
-;;    rf2-v1xzoo)
+;; 5. :rf/set-db — the framework-standard app-db seeding event (EP-0027)
 ;; ===========================================================================
 
 (defn- handler-throw-id
@@ -303,8 +300,8 @@
         "[:rf/set-db 5] (non-map) fails :rf.error/set-db-bad-value")
     (is (= :rf.error/set-db-bad-value (handler-throw-id [:rf/set-db "nope"]))
         "[:rf/set-db \"nope\"] (non-map) fails :rf.error/set-db-bad-value"))
-  (testing "EXTRA trailing args fail with :rf.error/set-db-bad-value (rf2-izy3b2)
-            — :rf/set-db takes exactly one map argument; extras were previously
+  (testing "EXTRA trailing args fail with :rf.error/set-db-bad-value
+            — :rf/set-db takes exactly one map argument; extras are never
             silently ignored"
     (is (= :rf.error/set-db-bad-value (handler-throw-id [:rf/set-db {:n 0} :junk]))
         "[:rf/set-db {:n 0} :junk] (extra arg) fails :rf.error/set-db-bad-value")

@@ -1,23 +1,23 @@
 (ns re-frame.interop-dispose-registry-test
-  "Per rf2-tnnln — the JVM on-dispose callback storage must not leak
+  "The JVM on-dispose callback storage must not leak
   reactions in long-lived SSR processes.
 
-  The prior design held on-dispose callbacks in a process-wide
-  strong-ref `atom`-of-map keyed by reaction identity. Correctness
-  relied on PERFECT dispose symmetry: every `add-on-dispose!`'d
-  reaction had to reach `dispose!`, or the reaction (and its whole
-  layer-2+ input chain + compute-fn) was pinned in the registry
+  Holding on-dispose callbacks in a process-wide strong-ref
+  `atom`-of-map keyed by reaction identity would make correctness
+  rely on PERFECT dispose symmetry: every `add-on-dispose!`'d
+  reaction would have to reach `dispose!`, or the reaction (and its whole
+  layer-2+ input chain + compute-fn) would stay pinned in the registry
   forever — the GC could not reclaim it even when nothing else
   referenced it. For Spec 011's frame-per-request SSR profile (a JVM
   server that churns frames continuously) that is a real leak surface.
 
-  The fix carries the callbacks ON the reaction object (an
+  So the callbacks ride ON the reaction object (an
   `rf.interop/make-reaction` `Reaction` deftype with a mutable callbacks
   field), mirroring the CLJS plain-atom adapter. An orphaned reaction
   is therefore GC-reclaimable along with its callbacks.
 
   This suite pins:
-   (a) dispose symmetry / ordering / idempotency behaviour is unchanged;
+   (a) dispose symmetry / ordering / idempotency behaviour;
    (b) an un-disposed (orphaned) reaction is reclaimed by GC — the
        behavioural delta the weak storage exists to deliver."
   (:require [clojure.test :refer [deftest is testing]]
@@ -86,7 +86,7 @@
       (is (= [:x :y] @fired)
           "second dispose! on the fallback path is a no-op"))))
 
-;; ---- the leak fix: an orphaned reaction is GC-reclaimable -----------------
+;; ---- an orphaned reaction is GC-reclaimable -------------------------------
 
 (defn- gc-reclaimed?
   "Return true when the referent of `wref` is reclaimed within a few GC
@@ -104,17 +104,18 @@
                            (recur (dec attempts))))))
 
 (deftest orphaned-reaction-is-gc-reclaimable
-  (testing "Per rf2-tnnln: a reaction registered with an on-dispose callback
+  (testing "A reaction registered with an on-dispose callback
             (including the production sub-cache shape, where the callback
             CLOSES OVER the reaction) but NEVER explicitly disposed is still
-            reclaimed by GC. Pre-fix the global strong-ref registry pinned it
-            forever; on-object storage ties its lifetime to the reaction."
+            reclaimed by GC. On-object storage ties the callbacks' lifetime
+            to the reaction, where a global strong-ref registry would pin it
+            forever."
     (let [wref (let [r (rf.interop/make-reaction (fn [] :leaky))]
                  ;; Register a callback that closes over the reaction itself
                  ;; — the exact shape `re-frame.subs`'s sub-cache disposal
                  ;; closure has (it captures `reaction` for an identity
-                 ;; guard). Under the old global strong-ref registry this
-                 ;; pinned the reaction: registry value -> closure -> reaction.
+                 ;; guard). A global strong-ref registry would pin the
+                 ;; reaction through it: registry value -> closure -> reaction.
                  (rf.interop/add-on-dispose! r (fn [] (identical? r r)))
                  ;; Deliberately DO NOT dispose! — simulate an orphaned
                  ;; reaction (partial-teardown bug / exception before the

@@ -264,18 +264,18 @@
     (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
                  (rf.path/instantiate [:a '?x] {})))))
 
-;; ---- rf2-ehkut7: instantiate validates the substituted binding ------------
+;; ---- instantiate validates the substituted binding -----------------------
 ;;
 ;; `instantiate` is a CONCRETE-path PRODUCER (its result feeds get/put/over),
 ;; so it routes the substituted result through `normalize-concrete` — the
-;; SAME validated boundary frame classification and resource scope use
-;; (rf2-w9x5fv). A binding whose VALUE is outside the concrete-segment domain
+;; SAME validated boundary frame classification and resource scope use.
+;; A binding whose VALUE is outside the concrete-segment domain
 ;; (a fn / host object / composite vector|map|set, or a literal
 ;; `[:rf.path/param …]` data form) FAILS CLOSED with `:rf.error/bad-path`
 ;; rather than silently smuggling a non-portable segment into a path
-;; presented as concrete. The defect class this closes is exactly the
+;; presented as concrete. The defect class this guards is exactly the
 ;; silent-non-portable-segment leak `normalize-concrete` exists to prevent;
-;; pre-fix `instantiate` substituted the binding unchecked.
+;; an `instantiate` that substituted the binding unchecked would leak it.
 
 (deftest instantiate-rejects-non-concrete-binding
   (testing "a function-valued binding fails closed with :rf.error/bad-path"
@@ -308,7 +308,7 @@
                       (ex-data e)))]
       (is (= [:nope] (:bad-segment data))
           ":bad-segment surfaces the non-concrete binding value")))
-  (testing "every concrete-domain binding STILL instantiates (no regression)"
+  (testing "every concrete-domain binding instantiates (the check rejects only non-concrete values)"
     (is (= [:billing :invoices :by-id "iid" :email]
            (rf.path/instantiate [:billing :invoices :by-id '?invoice-id :email]
                              {:invoice-id "iid"}))
@@ -321,13 +321,13 @@
     (is (= [:a nil :c] (rf.path/instantiate [:a '?x :c] {:x nil}))
         "present-nil is a legal concrete segment — must NOT be rejected")))
 
-;; ---- vector-index container policy (rf2-orcbow point 5) ------------------
+;; ---- vector-index container policy ---------------------------------------
 ;;
 ;; The intermediate-container policy (Conventions §Path laws) defines the
 ;; vector-index case EXPLICITLY rather than letting a host `assoc` throw.
 ;; The generative laws above prove put-lookup / put-put hold for every
-;; generated path, but the SPECIFIC vector-vs-map behaviour was only inferred
-;; from them. These direct examples PIN the intended policy so a change to
+;; generated path, but the SPECIFIC vector-vs-map behaviour is only implied
+;; by them. These direct examples PIN the intended policy so a change to
 ;; `container-for` is caught:
 ;;
 ;;   - a vector holds an entry ONLY at an in-range non-negative integer index;
@@ -376,7 +376,7 @@
     (is (= {:present? true :value nil}
            (rf.path/lookup (rf.path/put [10 20 30] [1] nil) [1])))))
 
-;; ---- concrete paths + explicit root (rf2-orcbow concrete-path coverage) ---
+;; ---- concrete paths + explicit root --------------------------------------
 ;;
 ;; A concrete `:rf/path` is a vector of EDN segments; the empty vector `[]`
 ;; is the explicit root path (Conventions §Path shape). normalize coerces any
@@ -394,9 +394,9 @@
   (testing "the empty vector is the canonical root path"
     (is (= [] (rf.path/normalize [])))
     (is (= [] (rf.path/normalize (list))))
-    ;; rf2-w9x5fv item 1: the root path is the EXPLICIT empty vector [], and a
+    ;; The root path is the EXPLICIT empty vector [], and a
     ;; nil path fails closed with :rf.error/bad-path — an omitted path is NOT
-    ;; silently the whole value. (Hardened from the prior nil->[] coercion.)
+    ;; silently the whole value.
     (is (= :rf.error/bad-path
            (try (rf.path/normalize nil) nil
                 (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
@@ -412,14 +412,14 @@
                 (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
                   (:rf.error/id (ex-data e))))))))
 
-;; ---- rf2-t3cfil: the SHARED concrete-segment domain predicate ------------
+;; ---- the SHARED concrete-segment domain predicate ------------------------
 ;;
 ;; `re-frame.path/segment?` is the public membership predicate for the shared
 ;; concrete-segment domain (Conventions §Segment domain) — the upper bound a
 ;; consumer (flows / resources / routing) narrows from but never widens past,
 ;; and the predicate counterpart of `normalize-concrete`'s fail-closed
-;; validation. Promoted from the private `valid-segment?` so flows' reg-flow
-;; validator delegates to it rather than re-enumerating the domain. These pin
+;; validation. Flows' reg-flow validator delegates to it rather than
+;; re-enumerating the domain. These pin
 ;; the domain so a consumer's narrowing stays anchored to one definition.
 
 (deftest segment-domain-predicate
@@ -449,14 +449,14 @@
                 (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
                   (:rf.error/id (ex-data e))))))))
 
-;; ---- rf2-ujmc3u: segment? shares the CEDN-1 safe-integer range -----------
+;; ---- segment? shares the CEDN-1 safe-integer range -----------------------
 ;;
 ;; The shared path vocabulary MUST NOT be wider than canonical EDN identity
 ;; (Conventions §Segment domain limits integer segments to the CEDN-1 safe-
-;; integer range). The prior `segment?` admitted EVERY `integer?`, so a
-;; consumer keying off it could accept an integer segment the canonicalizer
+;; integer range). A `segment?` that admitted EVERY `integer?` would let a
+;; consumer keying off it accept an integer segment the canonicalizer
 ;; rejects — a path that cannot be portably compared, printed, routed, or
-;; digested. `segment?` now composes `re-frame.identity/safe-segment-integer?`,
+;; digested. `segment?` composes `re-frame.identity/safe-segment-integer?`,
 ;; the SAME predicate the CEDN-1 encoder enforces, so the two surfaces agree.
 
 (deftest segment-integer-shares-cedn1-safe-range
@@ -493,14 +493,13 @@
                 (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
                   (:rf.error/id (ex-data e))))))))
 
-;; ---- thrown-error shape conformance for bad-path! (rf2-krrv87) ------------
+;; ---- thrown-error shape conformance for bad-path! ------------------------
 ;;
 ;; `bad-path!` routes through `rf.error/throw-error!` rather than hand-rolling
 ;; the ex-info, so its message LEADS with the human sentence and TRAILS with
 ;; the `[:rf.error/bad-path]` greppability token (Spec 009 §The thrown-error
 ;; shape, rules 1+4) and its ex-data carries the canonical `:where` /
-;; `:recovery` slots. A bare-keyword message (the retired shape) regressing
-;; back in would fail these.
+;; `:recovery` slots. A bare-keyword message would fail these.
 
 (deftest bad-path-thrown-error-shape
   (testing "a nil path throw carries the canonical thrown-error shape"

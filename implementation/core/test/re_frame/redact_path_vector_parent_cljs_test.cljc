@@ -1,12 +1,13 @@
 (ns re-frame.redact-path-vector-parent-cljs-test
-  "rf2-3x7nj.4.4 — `re-frame.privacy/redact-path` guarded `assoc-in` only
-  against a NON-associative parent, and a vector IS associative. The
-  path-overlap arm derives payload-relative redaction paths from the DB's
-  classification, not from the payload's shape, so a keyword segment landing on
-  a vector in the payload made `assoc-in` throw (`Key must be integer` on the
-  JVM, `Vector's key for assoc must be a number` on CLJS). The router computes
-  that redaction in `prepare-handler-ctx`, outside the interceptor chain's
-  capture, so the throw escaped `dispatch-sync` and the event was lost.
+  "`re-frame.privacy/redact-path` writes only through a parent that can TAKE
+  the leaf segment — guarding against a merely NON-associative parent would not
+  do, because a vector IS associative. The path-overlap arm derives
+  payload-relative redaction paths from the DB's classification, not from the
+  payload's shape, so a keyword segment landing on a vector in the payload would
+  make `assoc-in` throw (`Key must be integer` on the JVM, `Vector's key for
+  assoc must be a number` on CLJS). The router computes that redaction in
+  `prepare-handler-ctx`, outside the interceptor chain's capture, so such a
+  throw would escape `dispatch-sync` and the event would be lost.
 
   Always-on: the router's redaction runs on every dispatch in every posture, so
   no posture tag. Dual-runtime `.cljc`."
@@ -41,7 +42,7 @@
         "an out-of-range integer segment is a no-op — it never appends")
     (is (= [:e {:auth "tok"}]
            (rf.privacy/redact-event [:e {:auth "tok"}] [[:auth :password]]))
-        "a scalar parent stays the no-op it was")))
+        "a scalar parent is a no-op")))
 
 (deftest path-focused-dispatch-with-a-vector-payload-commits
   (testing "a classified path under a path-focused handler's slice meets a

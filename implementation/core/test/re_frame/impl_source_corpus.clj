@@ -3,35 +3,30 @@
   `.clj` / `.cljc` / `.cljs` source, and the ONE definition of it that the
   source-scanning conformance ratchets share.
 
-  ## Why this namespace exists (rf2-2cu7f)
+  ## Why this namespace exists
 
   Two ratchets scan this corpus for the emit / fan-out sites they govern:
   `re-frame.error-catalogue-channel-conformance-test` (every emitted
   `:rf.*` diagnostic category carries a Spec 009 catalogue row) and
   `re-frame.egress-chokepoint-conformance-test` (every always-on
-  union-record fan-out caller routes through `project-egress`). Both used
-  to carry their OWN copy of the enumeration — the second one's comment
-  said \"reused verbatim from error_catalogue_channel_conformance_test\",
-  which is exactly how a copy drifts and exactly how one fix leaves the
-  other broken. They now share this.
+  union-record fan-out caller routes through `project-egress`). They share
+  this ONE definition, because two copies of an enumeration drift, and a
+  fix to one copy leaves the other broken.
 
-  Both copies enumerated artefact roots as `.listFiles(implementation/)`
-  mapped to `<child>/src` — DEPTH 1. The four adapter artefacts nest one
-  level deeper, at `implementation/adapters/<name>/src`, so they were not
-  roots and were never walked: 14 production files invisible to both
-  ratchets. `implementation/adapters/*/src` DOES arm the `implementation`
-  JVM tier, so on an adapter PR both suites were armed, ran, walked past
-  the adapter tree entirely, and reported green — an uncatalogued
-  `:rf.error/*` channel or an unrouted payload-bearing fan-out added in an
-  adapter passed both ratchets. Measured at the fix: 377 files walked with
-  zero adapter files, against 425 / 14 for the repo's other two
-  source-scanning lints over the same tree.
+  The adapter artefacts nest one level deeper than the rest, at
+  `implementation/adapters/<name>/src`. A DEPTH-1 enumeration
+  (`.listFiles(implementation/)` mapped to `<child>/src`) would not treat
+  them as roots and would never walk them. `implementation/adapters/*/src`
+  DOES arm the `implementation` JVM tier, so on an adapter PR both suites
+  would arm, run, walk past the adapter tree entirely, and report green —
+  an uncatalogued `:rf.error/*` channel or an unrouted payload-bearing
+  fan-out added in an adapter would pass both ratchets.
 
   `src-roots` therefore finds roots by RECURSIVE SEARCH for directories
-  named `src`, which cannot re-drift when the next artefact nests, and
-  `corpus-cross-check` is the floor that would have caught the original —
-  the suites' sanity tests asserted only `(seq roots)`, which 16 roots and
-  zero adapter files satisfy perfectly well.
+  named `src`, which cannot drift when the next artefact nests, and
+  `corpus-cross-check` is the floor that catches a narrowed walk — a
+  sanity test asserting only `(seq roots)` is satisfied perfectly well by
+  a walk that skips every adapter file.
 
   ## JVM-only
 
@@ -53,16 +48,14 @@
   "`implementation/`, resolved from the JVM test CWD.
 
   The JVM lane runs each artefact's tests from that artefact's own
-  directory (rf2-0hxm), so from `implementation/core/` the tree is `..` —
+  directory, so from `implementation/core/` the tree is `..` —
   the same anchor `no-rf-default-floor-lint-test` and
-  `warn-once-clear-governance-test` already use. The other candidates
+  `warn-once-clear-governance-test` use. The other candidates
   cover a REPL run from a different working directory.
 
   A candidate is accepted only if it actually CARRIES `core/src`. The walk
-  below is recursive and so has a blast radius: the enumeration this
-  replaced also tried `../..` — the repo ROOT — which was inert against a
-  depth-1 `.listFiles` (no top-level directory has a `src` child) but under
-  recursion would have swept `tools/`, `examples/` and `migration/` into
+  below is recursive and so has a blast radius: a candidate of `../..` —
+  the repo ROOT — would sweep `tools/`, `examples/` and `migration/` into
   two ratchets scoped to `implementation/`. Identifying the root positively
   is what makes the recursion safe."
   (->> ["../../implementation" ".." "../implementation"]
@@ -74,7 +67,7 @@
   "Every artefact's non-test source root under `implementation/`, found by
   recursive search for directories named `src`.
 
-  Depth-independent BY CONSTRUCTION (rf2-2cu7f): `implementation/core/src`
+  Depth-independent BY CONSTRUCTION: `implementation/core/src`
   sits at depth 1, `implementation/adapters/reagent/src` at depth 2, and a
   future artefact may nest deeper still. A `src` directory reached through
   a `test/` path is not production source and is dropped."
@@ -132,15 +125,13 @@
   "Where the two enumerations DISAGREE, as
   `{:missing #{path…} :extra #{path…}}` — both empty when they agree.
 
-  `:missing` is source the path-shaped walk finds and `src-roots` does not:
-  the rf2-2cu7f failure exactly, and against the depth-1 enumeration it
-  names all 14 adapter files. `:extra` is the converse — a root reaching
-  outside `implementation/**/src/`.
+  `:missing` is source the path-shaped walk finds and `src-roots` does not
+  — against a depth-1 enumeration it names every adapter file. `:extra` is
+  the converse — a root reaching outside `implementation/**/src/`.
 
-  This is the floor the two suites lacked. Their sanity tests asserted
-  `(seq roots)` and nothing about coverage, so a walk that found 16 of 20
-  roots and skipped an entire artefact family passed as readily as a
-  correct one. Two enumerations of two different shapes over one corpus is
+  This is the coverage floor. A sanity test asserting `(seq roots)` and
+  nothing about coverage passes a walk that skips an entire artefact
+  family as readily as a correct one. Two enumerations of two different shapes over one corpus is
   a claim a silent narrowing cannot satisfy — and it also pins these two
   ratchets to the same corpus as the repo's other source-scanning lints,
   so the four cannot drift apart about what `implementation/` means."

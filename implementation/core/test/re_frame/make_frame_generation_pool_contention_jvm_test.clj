@@ -1,5 +1,5 @@
 (ns re-frame.make-frame-generation-pool-contention-jvm-test
-  "rf2-rt4jz, contended — only the attempt the engine ADMITS may touch a frame
+  "Under contention, only the attempt the engine ADMITS may touch a frame
   id's generation-provenance row.
 
   THE ADMISSION CONTRACT. `rf.frame/upsert-frame!` reserves an id for exactly one
@@ -9,29 +9,29 @@
   reaches an adapter callback, a setup cascade or a teardown — and so it never
   leaves a trace of having tried.
 
-  WHAT BROKE IT. `make-frame` writes a SECOND process-global store beside the
-  frame record — `frame-generation-pool`, the row naming which descriptor pool
-  a frame's current generation was resolved against (rf2-rf3zgt) — and rf2-rt4jz
-  moved that write BEFORE the engine commit, which is right for a reason that
-  has nothing to do with contention (the `:initial-events` cascade runs INSIDE
-  the commit and reprojects against the row; see
-  `make-frame-generation-pool-window-jvm-test`). Before the commit is also
-  before ADMISSION, and that is what this namespace is about:
+  THE SECOND STORE. `make-frame` writes a SECOND process-global store beside
+  the frame record — `frame-generation-pool`, the row naming which descriptor
+  pool a frame's current generation was resolved against — and writes it BEFORE
+  the engine commit, which is right for a reason that has nothing to do with
+  contention (the `:initial-events` cascade runs INSIDE the commit and
+  reprojects against the row; see `make-frame-generation-pool-window-jvm-test`).
+  Before the commit is also before ADMISSION, and that is what this namespace
+  is about. Written outside the reservation:
 
-    - a rejected same-id contender published its own pool into the shared table
-      on its way to being told it had lost. Reprojection is a READ of that
+    - a rejected same-id contender would publish its own pool into the shared
+      table on its way to being told it had lost. Reprojection is a READ of that
       table, takes no reservation, and runs on any thread — so a reader landing
-      in the loser's interval re-resolved the WINNER's live frame against the
-      LOSER's pool and swapped the result on. The frame ran descriptors nobody
-      asked for, sourced from a construction that never happened.
+      in the loser's interval would re-resolve the WINNER's live frame against
+      the LOSER's pool and swap the result on. The frame would run descriptors
+      nobody asked for, sourced from a construction that never happened.
 
-    - the rollback had the same shape in reverse. `restore-frame-generation-pool!`
-      undoes the write by restoring the value read at write time; computed
-      outside any reservation, that undo can land on a row a NEWER owner has
-      since written.
+    - the rollback would have the same shape in reverse.
+      `restore-frame-generation-pool!` undoes the write by restoring the value
+      read at write time; computed outside any reservation, that undo could land
+      on a row a NEWER owner has since written.
 
-  THE REPAIR is not a defensive read and not a re-write after the fact. It is to
-  put the publication, the commit and the rollback inside the SAME exact per-id
+  THE RESERVATION is not a defensive read and not a re-write after the fact:
+  the publication, the commit and the rollback run inside the SAME exact per-id
   reservation the frame revision is made under
   (`rf.frame/call-with-frame-construction-claim!`), so a losing attempt throws
   before its first `swap!` and a winning attempt cannot interleave with any
@@ -55,9 +55,9 @@
       per-frame reprojection both sweeps call.
 
   JVM-scoped because contention is: CLJS is single-threaded, so no second
-  attempt can be in flight at all, and the repair is common `.cljc` code that
-  simply never loses there. Its SINGLE-THREADED half — the ordering wart the
-  cascade reaches on both hosts — is covered by
+  attempt can be in flight at all, and the reservation is common `.cljc` code
+  that simply never loses there. Its SINGLE-THREADED half — the write-before-
+  commit ordering the cascade depends on, on both hosts — is covered by
   `make-frame-generation-pool-window-jvm-test` and, on CLJS,
   `live-frame-reload-cljs-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -71,7 +71,7 @@
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 ;; ---------------------------------------------------------------------------
-;; White-box handles. The defect lives entirely in the relationship between two
+;; White-box handles. The property lives entirely in the relationship between two
 ;; pieces of private process-local bookkeeping — the provenance table and the
 ;; per-id construction reservations — so the reproduction observes both
 ;; directly, exactly as its two sibling namespaces do.
@@ -222,21 +222,21 @@
             (is (exclusively-reserved? target)
                 "control: the winner holds the id's reservation")
 
-            ;; THE CONTENDER. It loses admission — and pre-fix it had already
-            ;; published pool V1 into the shared table before finding out.
+            ;; THE CONTENDER. It loses admission before it can publish pool V1
+            ;; into the shared table.
             (is (= :rf.error/frame-construction-in-progress
                    (err-id #(rf.live-frame/make-frame {:id target :images [img]} pool-v1)))
                 "the same-id contender is rejected by the engine")
 
             (is (= [] @log)
                 (str "the rejected contender wrote nothing to the provenance "
-                     "table — pre-fix it published pool V1 there and then "
-                     "restored it, a window any reader on any thread could "
+                     "table — publishing pool V1 there and then restoring it "
+                     "would open a window any reader on any thread could "
                      "land in"))
             (is (= [] @moved)
                 (str "no reprojection was offered a pool the winner had not "
-                     "sealed — pre-fix the reader in that window re-resolved "
-                     "the live frame against V1 and swapped it on"))
+                     "sealed — a reader in such a window would re-resolve "
+                     "the live frame against V1 and swap it on"))
             (is (= ::inc-v2 (inc-impl target))
                 "the live frame is still running the pool its owner sealed")
             (is (= pool-v2 (pool-row target))
@@ -281,8 +281,8 @@
               {:from pool-v2 :to pool-v1 :reserved? true}]
              @log)
           (str "the publication and its rollback both ran while the id was "
-               "exclusively reserved — pre-fix both ran outside every "
-               "reservation, so a same-id successor could be interleaved "
+               "exclusively reserved — outside every reservation a "
+               "same-id successor could be interleaved "
                "between them"))
       (is (= pool-v1 (pool-row id))
           "the failed re-construction preserved the ORIGINAL row"))))

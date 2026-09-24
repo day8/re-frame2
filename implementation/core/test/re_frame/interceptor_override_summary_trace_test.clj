@@ -1,5 +1,5 @@
 (ns re-frame.interceptor-override-summary-trace-test
-  "Per rf2-9vx0jk (EP-0022 trace surfacing) — Spec 009 §`:tags` interceptor
+  "EP-0022 trace surfacing — Spec 009 §`:tags` interceptor
   family. The router stamps a SINGLE dev-only `:rf.interceptor/override-summary`
   tag onto the `:rf.event/run-start` TRACE emit when this dispatch's merged
   per-frame + per-call `:interceptor-overrides` actually acted on the resolved
@@ -19,42 +19,40 @@
       the id-only shape FAIL-CLOSED.
 
   Attach point is `:rf.event/run-start` (NOT `:rf.event/dispatched`, which
-  fires at enqueue BEFORE override resolution) per the ruling's timing
-  requirement. Dev-only / production-elision is pinned separately by the
+  fires at enqueue BEFORE override resolution). Dev-only / production-elision
+  is pinned separately by the
   `re-frame.elision-probe` + `scripts/check-elision.cjs` gate (the run-start
   emit body — and the summary construction feeding it — DCE under :advanced).
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
-  The docstring above already says the summary is DEV-ONLY — the run-start emit
-  body and the summary construction feeding it both DCE. So the six
-  dispatch-driven cases failed under `scripts/test-core-prod-gate.sh` and their
-  summary assertions are guarded.
+  The summary is DEV-ONLY — the run-start emit body and the summary
+  construction feeding it both DCE — so the dispatch-driven cases guard
+  their summary assertions for `scripts/test-core-prod-gate.sh`.
 
-  THE SUMMARY IS A REPORT ABOUT SOMETHING THAT IS NOT DEV-ONLY, and that is
-  what was missing. `:interceptor-overrides` REMOVE and REPLACE entries on the
+  THE SUMMARY IS A REPORT ABOUT SOMETHING THAT IS NOT DEV-ONLY.
+  `:interceptor-overrides` REMOVE and REPLACE entries on the
   resolved chain in every posture; the tag merely narrates it. Every case
-  therefore grew an always-on witness that reads the chain's ACTUAL BEHAVIOUR
+  therefore carries an always-on witness that reads the chain's ACTUAL BEHAVIOUR
   — recording interceptors that append their own id as they run — so
   the claims that `::log-a` was removed and that `::log-x` was replaced by
-  `::stub-x` are now
+  `::stub-x` are
   proven where they matter, in the posture that ships. Under the gate that is
-  first-ever coverage of override resolution; in dev it is a control that the
+  the coverage of override resolution; in dev it is a control that the
   guarded tag agrees with the chain it describes.
 
   The four `marks-projection-*` cases need no guard at all:
   `rf.classification/project-trace-event` is a pure fn over a SYNTHETIC event and
   is not gated on `rf.interop/debug-enabled?` — `marks-projection-redacts-non-ref-
-  payload` proves it, since a no-op projection would fail it. They were already
-  green under the gate for a real reason, which is the distinction this pass
-  keeps having to make.
+  payload` proves it, since a no-op projection would fail it. They are green
+  under the gate for a real reason.
 
-  TWO VACUOUS PASSES CAME OFF (rf2-d2841 class 4): `summary-absent-on-no-
-  override-path` and `summary-absent-with-empty-override-map` each certify the
-  override-free hot path with `(is (nil? (run-start-summary …)))` — nil because
-  the trace ring is empty, not because the tag was omitted. Their always-on
-  replacements assert the un-overridden chain ran INTACT, which the absence of
-  a tag was standing in for."
+  `summary-absent-on-no-override-path` and
+  `summary-absent-with-empty-override-map` certify the override-free hot path
+  with `(is (nil? (run-start-summary …)))`, which is VACUOUS under the gate —
+  nil because the trace ring is empty, not because the tag was omitted — so
+  that assertion is guarded, and each case also asserts always-on that the
+  un-overridden chain ran INTACT, which the absence of a tag stands in for."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
@@ -74,7 +72,7 @@
   (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
-  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`.
+  ;; `init!` does not synthesise `:rf/default`, so register it here.
   (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
@@ -91,7 +89,7 @@
   `:rf.interceptor/override-summary` tag from the single `:rf.event/run-start`
   trace event. nil when the tag is absent.
 
-  rf2-d2841 — the one-emit assertion is a TRACE-SHAPE claim and is guarded;
+  The one-emit assertion is a TRACE-SHAPE claim and is guarded;
   under `-Dre-frame.debug=false` there are no run-start emits at all, so
   asserting `(= 1 (count run-starts))` there would fail for a posture reason
   rather than a defect."
@@ -110,7 +108,7 @@
        (finally
          (rf/unregister-listener! :trace ::cap))))))
 
-;; ---- always-on chain witness (rf2-d2841) ----------------------------------
+;; ---- always-on chain witness ----------------------------------------------
 ;;
 ;; The summary REPORTS an override; the override itself is production
 ;; behaviour. A recording interceptor appends its own id as it runs, so the
@@ -141,9 +139,9 @@
       {:interceptors [::log-a]}
       (fn [{:keys [db]} _] {:db db}))
     (let [summary (run-start-summary [:sum/run])]
-      ;; ALWAYS-ON (rf2-d2841): the un-overridden chain ran INTACT — which is
-      ;; what "no override fired" means. The nil-tag assertion below was
-      ;; class-4 vacuous under the gate: nil because the trace ring is empty,
+      ;; ALWAYS-ON: the un-overridden chain ran INTACT — which is
+      ;; what "no override fired" means. The nil-tag assertion below is
+      ;; vacuous under the gate: nil because the trace ring is empty,
       ;; not because the tag was omitted.
       (is (= [::log-a] @ran) "the authored chain ran unmodified")
       (when rf.interop/debug-enabled?
@@ -158,8 +156,8 @@
       {:interceptors [::log-a]}
       (fn [{:keys [db]} _] {:db db}))
     (let [summary (run-start-summary [:sum/run] {:interceptor-overrides {}})]
-      ;; ALWAYS-ON (rf2-d2841): an EMPTY override map leaves the chain intact.
-      ;; The nil-tag assertion was class-4 vacuous under the gate.
+      ;; ALWAYS-ON: an EMPTY override map leaves the chain intact.
+      ;; The nil-tag assertion is vacuous under the gate.
       (is (= [::log-a] @ran) "an empty override map left the chain unmodified")
       (when rf.interop/debug-enabled?
         (is (nil? summary)
@@ -177,7 +175,7 @@
       (fn [{:keys [db]} _] {:db db}))
     (let [summary (run-start-summary [:sum/run]
                                      {:interceptor-overrides {::log-a nil}})]
-      ;; ALWAYS-ON (rf2-d2841): the removal HAPPENED — `::log-a` did not run,
+      ;; ALWAYS-ON: the removal HAPPENED — `::log-a` did not run,
       ;; `::log-b` did. That is the fact the guarded tag reports.
       (is (= [::log-b] @ran) "the removed interceptor did not run; its sibling did")
       (when rf.interop/debug-enabled?
@@ -197,7 +195,7 @@
       (fn [{:keys [db]} _] {:db db}))
     (let [summary (run-start-summary [:sum/run]
                                      {:interceptor-overrides {::log-x ::stub-x}})]
-      ;; ALWAYS-ON (rf2-d2841): the SUBSTITUTION happened — the stub ran in the
+      ;; ALWAYS-ON: the SUBSTITUTION happened — the stub ran in the
       ;; replaced entry's slot and the original did not run at all.
       (is (= [::stub-x] @ran) "the replacement ran in place of the original")
       (when rf.interop/debug-enabled?
@@ -219,7 +217,7 @@
     (let [summary (run-start-summary [:sum/run]
                                      {:interceptor-overrides {::log-a nil
                                                               ::log-b ::stub-b}})]
-      ;; ALWAYS-ON (rf2-d2841): removal and substitution compose — only the
+      ;; ALWAYS-ON: removal and substitution compose — only the
       ;; stub ran, in the position the replaced entry held.
       (is (= [::stub-b] @ran)
           "the removed entry is gone and the replaced entry ran as its stub")
@@ -244,7 +242,7 @@
     ;; override-fallthrough candidate, NOT something that took effect.
     (let [summary (run-start-summary [:sum/run]
                                      {:interceptor-overrides {::not-in-chain nil}})]
-      ;; ALWAYS-ON (rf2-d2841): an unmatched override key leaves the chain
+      ;; ALWAYS-ON: an unmatched override key leaves the chain
       ;; untouched — the production statement of ":count 0".
       (is (= [::log-a] @ran) "an unmatched override key changed nothing")
       (when rf.interop/debug-enabled?
@@ -269,7 +267,7 @@
       (fn [{:keys [db]} _] {:db db}))
     (rf/with-frame :sum/framed
       (let [summary (run-start-summary [:sum/run] {:frame :sum/framed})]
-        ;; ALWAYS-ON (rf2-d2841): a PER-FRAME override acts on the chain in
+        ;; ALWAYS-ON: a PER-FRAME override acts on the chain in
         ;; production too — the frame-scoped removal is not a dev affordance.
         (is (= [::log-b] @ran) "the per-frame override removed ::log-a from the chain")
         (when rf.interop/debug-enabled?
@@ -290,10 +288,10 @@
     (let [summary (run-start-summary [:sum/run]
                                      {:interceptor-overrides {::log-a ::stub-a}})
           all-ids (concat (:matched summary) (:replaced summary) (:removed summary))]
-      ;; ALWAYS-ON (rf2-d2841): the substitution under scrutiny really happened,
+      ;; ALWAYS-ON: the substitution under scrutiny really happened,
       ;; so the guarded value-safety claim below is about a real summary rather
       ;; than an empty one. `(seq all-ids)` over the empty concat the gate
-      ;; yields would otherwise have gone red for a posture reason.
+      ;; yields would otherwise go red for a posture reason.
       (is (= [::stub-a] @ran) "the replacement ran in place of the original")
       (when rf.interop/debug-enabled?
         (is (seq all-ids))

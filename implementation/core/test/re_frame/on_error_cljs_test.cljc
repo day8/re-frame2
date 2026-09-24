@@ -1,7 +1,7 @@
 (ns re-frame.on-error-cljs-test
-  "Per rf2-bacs4 — exercise the corpus-wide `register-error-listener!`
-  registry (the single always-on error observability surface; the
-  per-frame `:on-error` recovery policy was REMOVED per rf2-hiqtk8 —
+  "Exercise the corpus-wide `register-error-listener!`
+  registry (the single always-on error observability surface; there is no
+  per-frame `:on-error` recovery policy —
   recovery is framework-owned via the per-category typed defaults, not an
   app-steering policy):
 
@@ -10,21 +10,20 @@
     - Unregistering a listener stops it receiving subsequent events.
     - The error-record shape is TIGHT: exactly
       `{:error :event :event-id :frame :time :exception :elapsed-ms}`.
-    - `:elapsed-ms` is an integer on every platform (rf2-ph8pa
-      contract).
+    - `:elapsed-ms` is an integer on every platform.
 
   Runs under `:node-test` / `:browser-test` / `clojure -M:test`. The CLJS
   production-mode counterpart lives in `re-frame.on-error-elision-prod-test`
   — that suite pins the same contract under `:advanced` + `goog.DEBUG=false`.
 
-  ## Posture (rf2-mlh1h)
+  ## Posture
 
   POSTURE-INDEPENDENT throughout, and that is the point of the namespace.
   Every assertion here captures through the ALWAYS-ON `:errors` stream, never
   the dev-only `:trace` stream, so this namespace is deliberately NOT on
   `scripts/test-core-prod-gate.sh`'s exclusion roster and runs under
   `-Dre-frame.debug=false` as well as in the ordinary suite. It is therefore
-  the production witness for the rf2-mszrz / rf2-n4x74b component-attribution
+  the production witness for the component-attribution
   contract (`:failing-id` + `:reason` lifted onto the record for the
   interceptor and coeffect categories, and NOT stamped for handler-exception,
   whose failing id already equals `:event-id`). Keep it that way: an
@@ -42,23 +41,23 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn []
-                ;; Per rf2-bacs4: the listener registry is a `defonce`
+                ;; The listener registry is a `defonce`
                 ;; atom that survives test re-runs. Clear before each
                 ;; test so a listener registered by one test doesn't
                 ;; leak into the next.
                 (rf.error-emit/clear-error-listeners!))}))
 
 ;; ============================================================================
-;; rf2-bacs4 — corpus-wide register-error-listener!
+;; Corpus-wide register-error-listener!
 ;; ============================================================================
 
 (deftest error-listener-fires-on-handler-exception
-  (testing "Per rf2-bacs4: a registered listener receives exactly one
+  (testing "A registered listener receives exactly one
             tight error-record per `:rf.error/handler-exception`. The
             record's shape is fixed: `:error :event :event-id :frame
             :time :exception :elapsed-ms`, plus `:source-coord` when
             the failing handler was registered via the public macro
-            path (per rf2-3un2g §Always-on error-coord registry —
+            path (per Spec 001's always-on error-coord registry —
             programmatic registrations omit the slot rather than nil
             it; the macro-path test below sees it present)."
     (let [seen (atom [])]
@@ -80,7 +79,7 @@
         (is (number? (:time r))              ":time is a wall-clock millis number")
         (is (integer? (:elapsed-ms r))       ":elapsed-ms is an integer ms count")
         (is (not (neg? (:elapsed-ms r)))     ":elapsed-ms is non-negative")
-        ;; Per rf2-3un2g: `:source-coord` rides the tight record when the
+        ;; `:source-coord` rides the tight record when the
         ;; failing handler was registered via the public macro path. The
         ;; coord rides the always-on parallel `error-coords-by-id`
         ;; registry, so this slot survives `goog.DEBUG=false` (Sentry-
@@ -88,7 +87,7 @@
         (is (= #{:error :event :event-id :frame :time :exception :elapsed-ms
                  :source-coord}
                (set (keys r)))
-            "record carries the tight rf2-bacs4 keys plus rf2-3un2g
+            "record carries the tight keys plus
              :source-coord — no trace-bus enrichment beyond that")
         (let [sc (:source-coord r)]
           (is (symbol?  (:ns   sc)))
@@ -96,46 +95,43 @@
           (is (string?  (:file sc))))))))
 
 (deftest captured-refusal-escapes-no-caller-and-reaches-no-host-channel
-  ;; rf2-fu75 — the witness for Spec 009 §What IS available in production
-  ;; channel #5. That channel used to say that "a re-frame2 event handler that
-  ;; throws in production still surfaces" at `window.onerror`. It does not, and
-  ;; the code says so in terms: `re-frame.interceptor/invoke-before` and
+  ;; The witness for Spec 009 §What IS available in production channel #5. A
+  ;; re-frame2 event handler that throws in production does NOT surface at
+  ;; `window.onerror`, and the code says so in terms:
+  ;; `re-frame.interceptor/invoke-before` and
   ;; `invoke-after` CAPTURE the throw into `:rf/interceptor-error` rather than
   ;; re-throwing it, and `re-frame.router/emit-pipeline-exception!`'s docstring
   ;; states the reason — "the drain must not abort". Nothing propagates out of
   ;; `dispatch-sync`, so the host's uncaught machinery never sees the failure
   ;; and this `:errors` stream is the ONLY channel it reaches.
   ;;
-  ;; The stale claim cost a finder four browser runs (rf2-06lp): they hunted a
-  ;; `:rf.mutation/execute` guard that was never missing, because the refusal it
-  ;; DID raise reached no channel they were watching. This suite is where the
-  ;; corrected sentence becomes checkable — the complaint-catalogue conformance
-  ;; gates bind register↔spec by ERROR ID, so a prose correction reds nothing
-  ;; on its own.
+  ;; A finder watching the host channel hunts a failure that never reaches it.
+  ;; This suite is where the channel-#5 sentence is checkable — the
+  ;; complaint-catalogue conformance gates bind register↔spec by ERROR ID, so a
+  ;; prose correction reds nothing on its own.
   ;;
   ;; TWO-SIDED ON PURPOSE, and neither half alone is the contract. Assert only
   ;; "nothing escaped" and a runtime that swallowed the failure entirely passes.
   ;; Assert only "a record arrived" and a runtime that ALSO re-threw passes —
-  ;; which is precisely the shape the old spec sentence described. Both must
-  ;; hold at once, per case.
+  ;; which is precisely the shape a wrong spec sentence would describe. Both
+  ;; must hold at once, per case.
   ;;
   ;; THREE refusal classes, because the capture is not handler-specific: a
-  ;; throwing handler, the rf2-04tx effect-map-envelope refusal, and a
+  ;; throwing handler, the effect-map-envelope refusal, and a
   ;; completely unregistered event id. Deliberately NOT asserting that nothing
-  ;; is PRINTED — the reason being the SETTLED rule now, not an open question.
-  ;; rf2-fu75 / PR #8108 ruled it: an UNOWNED promoted error DOES additionally
+  ;; is PRINTED — the rule is settled: an UNOWNED promoted error DOES additionally
   ;; reach `console.error` in a dev build — but only on a browser host, and
   ;; only while nothing ROUTED the record
   ;; (`rf.error-emit/report-unowned-error!`). Registering ANY `:errors` listener
   ;; takes corpus-wide ownership and silences the fallback for every category,
-  ;; which is precisely what the recorder below does. (Since rf2-kuky.18 that is
-  ;; one of TWO ownership arms — the other is the record's frame having routed it
-  ;; to a registered `:observability :errors` sink — but the listener arm is
-  ;; unchanged and is the one this witness exercises.) So nothing this witness
+  ;; which is precisely what the recorder below does. (That is one of TWO
+  ;; ownership arms — the other is the record's frame having routed it to a
+  ;; registered `:observability :errors` sink — and the listener arm is the one
+  ;; this witness exercises.) So nothing this witness
   ;; raises is unowned, and this node lane has no `js/document` to print from
   ;; either — two independent reasons there is no fallback here for such an
   ;; assertion to observe. Whether some suite SHOULD pin that printing is a
-  ;; separate call, and nobody has made it.
+  ;; separate call this suite does not make.
   (let [seen     (atom [])
         settled! (fn [event]
                    ;; ::returned iff the dispatch returned normally; the
@@ -152,7 +148,7 @@
       (is (= [:rf.error/handler-exception] (mapv :error @seen))
           "and the :errors stream carried it — the failure was not swallowed"))
 
-    (testing "the rf2-04tx effect-map envelope refusal — same silence"
+    (testing "the effect-map envelope refusal — same silence"
       (reset! seen [])
       (rf/reg-event :fu75/foreign-fx (fn [_ _] {:db {} :fu75/not-an-fx-key 1}))
       (is (= ::returned (settled! [:fu75/foreign-fx]))
@@ -192,7 +188,7 @@
            defensive across listeners"))))
 
 (deftest error-listener-unregister-stops-delivery
-  (testing "Per rf2-bacs4: unregistering a listener stops it receiving
+  (testing "Unregistering a listener stops it receiving
             subsequent events. Re-registering under the same id
             reattaches it."
     (let [seen (atom [])]
@@ -214,7 +210,7 @@
           "listener fired again after re-registration under the same id"))))
 
 (deftest listener-elapsed-ms-is-integer
-  (testing "Per rf2-bacs4 §Record shape + rf2-ph8pa contract:
+  (testing "Record shape:
             `:elapsed-ms` MUST be an integer on every platform. CLJS
             `performance.now()` returns a float; the substrate
             rounds at the boundary so the contract holds."
@@ -231,13 +227,12 @@
              CLJS performance.now())")))))
 
 ;; ============================================================================
-;; (removed) rf2-vnjfg handler-meta :sensitive? error-path redaction
+;; No handler-meta :sensitive? error-path redaction
 ;; ----------------------------------------------------------------------------
-;; The handler-meta `:sensitive?` annotation has been removed. Redaction on
-;; the error-emit substrate is now driven exclusively by the per-path elision
+;; There is no handler-meta `:sensitive?` annotation. Redaction on
+;; the error-emit substrate is driven exclusively by the per-path elision
 ;; wire-walker (per-frame `[:rf.runtime/elision]` runtime-db registry, populated from app-schema
-;; `:sensitive?` slot meta). Path-marked classification supersedes the
-;; previous handler-level enforcement.
+;; `:sensitive?` slot meta).
 ;; ============================================================================
 
 (deftest non-sensitive-handler-error-payload-flows-through
@@ -259,24 +254,23 @@
         (is (= :err/normal-throw (first (:event r))))))))
 
 ;; ============================================================================
-;; rf2-2hvga (= B / widen) — the corpus-wide error-emit listener (#4) is BROAD
+;; The corpus-wide error-emit listener (#4) is BROAD
 ;; ----------------------------------------------------------------------------
 ;; Every catalogued production-reachable RUNTIME `:rf.error/*` fans out through
 ;; the always-on listener — NOT just handler-exception. These DEV-mode tests
-;; pin that the previously dev-trace-ONLY categories now ALSO reach the listener
+;; pin that these categories reach the listener, not only the dev trace
 ;; (frame-destroyed via dispatch / dispatch-sync / subscribe; no-such-handler;
 ;; no-such-sub; compute-sub sub-exception). The CLJS production-mode counterpart
 ;; (under `:advanced` + `goog.DEBUG=false`) lives in
 ;; `re-frame.on-error-elision-prod-test` — production-survival is the crux.
 ;;
-;; Recovery is framework-owned (the per-category typed defaults); the per-frame
-;; `:on-error` recovery policy was REMOVED (rf2-hiqtk8, collapsing the rf2-2hvga
-;; axis-2 / recovery-policy-eligible column). The listener is the single
+;; Recovery is framework-owned (the per-category typed defaults); there is no
+;; per-frame `:on-error` recovery policy. The listener is the single
 ;; always-on observability surface.
 ;; ============================================================================
 
 (deftest listener-fires-on-frame-destroyed-dispatch
-  (testing "Per rf2-2hvga (= B / recover-but-emit): `dispatch` to a
+  (testing "`dispatch` to a
             destroyed / unknown frame RECOVERS (no-op) AND fans
             `:rf.error/frame-destroyed` out through the always-on
             corpus-wide listener (axis 1)."
@@ -290,7 +284,7 @@
       (let [r (first @seen)]
         (is (= :rf.error/frame-destroyed (:error r)))
         (is (= :gone/frame (:frame r)) ":frame names the target frame")
-        ;; EP-0015 issue 1 (rf2-t55hxg.18) — the `:event` slot is projected
+        ;; EP-0015 issue 1 — the `:event` slot is projected
         ;; through `elide-wire-value` against the record's frame. Here the
         ;; frame is UNRESOLVABLE (never registered), so there is no
         ;; classification policy to consult and the slot FAILS CLOSED: the
@@ -298,9 +292,9 @@
         ;; under no policy. The structural `:event-id` keyword still survives
         ;; for observability — it is not a user-value tree slot.
         ;;
-        ;; WHAT-STAYS counter-pin (rf2-alk8a): a DISPATCHED event vector is
+        ;; WHAT-STAYS counter-pin: a DISPATCHED event vector is
         ;; PAYLOAD, not identity, so it stays `:rf/redacted` under the
-        ;; unresolvable frame. alk8a's raw egress is SUBSCRIBE-realm-only (see
+        ;; unresolvable frame. The raw identity egress is SUBSCRIBE-realm-only (see
         ;; `listener-fires-on-frame-destroyed-subscribe`), NOT a blanket raw —
         ;; the `:op :subscribe` stamp is the discriminator, and no `:op` rides
         ;; this dispatch emit's op-nil path.
@@ -309,7 +303,7 @@
         (is (= :whatever (:event-id r)))))))
 
 (deftest listener-fires-on-frame-destroyed-dispatch-sync
-  (testing "Per rf2-2hvga: `dispatch-sync` to a destroyed / unknown
+  (testing "`dispatch-sync` to a destroyed / unknown
             frame RECOVERS (no-op) AND fans `:rf.error/frame-destroyed`
             through the always-on listener."
     (let [seen (atom [])]
@@ -322,7 +316,7 @@
       (is (= :gone/frame (:frame (first @seen)))))))
 
 (deftest listener-fires-on-frame-destroyed-subscribe
-  (testing "Per rf2-2hvga: `subscribe` to a destroyed / unknown frame
+  (testing "`subscribe` to a destroyed / unknown frame
             RECOVERS (returns nil) AND fans `:rf.error/frame-destroyed`
             through the always-on listener. The teardown-race shape —
             subscribe arriving against a vanished frame — recovers
@@ -336,13 +330,13 @@
       (let [r (first @seen)]
         (is (= :rf.error/frame-destroyed (:error r)))
         (is (= :gone/frame (:frame r)))
-        ;; rf2-alk8a (Option A — RAW): the attempted query-v is IDENTITY
-        ;; (rf2-zwgqe / Spec 015), so it egresses on `:event` VERBATIM even
+        ;; RAW: the attempted query-v is IDENTITY
+        ;; (Spec 015), so it egresses on `:event` VERBATIM even
         ;; under an unresolvable frame — the subscribe emitters stamp
         ;; `:op :subscribe`, routing `:event` raw through
-        ;; `raw-identity-query-vector-event?`. rf2-t55hxg.18's fail-closed guards
+        ;; `raw-identity-query-vector-event?`. The fail-closed rule guards
         ;; policy-walked VALUE slots (dispatched event vectors — see
-        ;; `listener-fires-on-frame-destroyed-dispatch`, still `:rf/redacted`),
+        ;; `listener-fires-on-frame-destroyed-dispatch`, which stays `:rf/redacted`),
         ;; NOT identity slots, which never consult frame policy.
         (is (= [:any-sub] (:event r))
             ":event egresses the query vector raw (identity)")
@@ -350,7 +344,7 @@
             ":op :subscribe stamped on the always-on subscribe-realm record")))))
 
 (deftest listener-fires-on-frame-destroyed-after-destroy-frame
-  (testing "Per rf2-2hvga + Spec 002 §Destroy: after `destroy-frame!`,
+  (testing "Per Spec 002 §Destroy: after `destroy-frame!`,
             a subsequent dispatch / subscribe RECOVERS and emits
             `:rf.error/frame-destroyed` through the always-on listener —
             the genuine use-after-destroy case (not just unknown-id)."
@@ -366,10 +360,10 @@
       (is (every? #(= :doomed/frame (:frame %)) @seen)))))
 
 (deftest listener-fires-on-no-such-handler
-  (testing "Per rf2-2hvga (= B / widen): a dispatch to a never-registered
+  (testing "A dispatch to a never-registered
             handler fans `:rf.error/no-such-handler` through the
-            always-on listener — a production-meaningful runtime error
-            that was previously dev-trace-only."
+            always-on listener — a production-meaningful runtime error,
+            not only a dev-trace one."
     (let [seen (atom [])]
       (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
@@ -382,9 +376,9 @@
         (is (= :rf/default (:frame r)))))))
 
 (deftest listener-fires-on-no-such-sub
-  (testing "Per rf2-2hvga (= B / widen): a subscribe to a never-registered
+  (testing "A subscribe to a never-registered
             sub fans `:rf.error/no-such-sub` through the always-on
-            listener (previously dev-trace-only)."
+            listener, not only the dev trace."
     (let [seen (atom [])]
       (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
@@ -397,12 +391,12 @@
         (is (= :rf/default (:frame r)))))))
 
 (deftest listener-fires-on-compute-sub-exception
-  (testing "Per rf2-2hvga (= B / widen) — SETTLES rf2-kjf3m.3: a sub that
+  (testing "A sub that
             throws while resolving via the PURE `compute-sub` path fans
             `:rf.error/sub-exception` through the always-on listener.
-            Previously trace-only — under production hardening it would
+            Trace-only, under production hardening it would
             recover to nil with no always-on emission (the fail-open
-            class rf2-vvwmi closed for the reactive path)."
+            class the reactive path also closes)."
     (let [seen (atom [])]
       (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
@@ -414,13 +408,13 @@
         (is (some? (:exception r)) ":exception present on the record")))))
 
 ;; ============================================================================
-;; rf2-goum9x — the fx / cofx production error categories fan out through the
+;; The fx / cofx production error categories fan out through the
 ;; ----------------------------------------------------------------------------
-;; always-on error-emit listener, not the dev trace alone. Before this fix
-;; these three categories went ONLY through `trace/emit-error!` (DCE'd under
-;; CLJS `:advanced` + `goog.DEBUG=false`), so a thrown registered fx, an
-;; unknown fx-id, an override misconfiguration, or an unknown cofx-id vanished
-;; from production observability — even though Spec 009 §Error event catalogue
+;; always-on error-emit listener, not the dev trace alone. Routed ONLY
+;; through `trace/emit-error!` (DCE'd under CLJS `:advanced` +
+;; `goog.DEBUG=false`), a thrown registered fx, an unknown fx-id, an override
+;; misconfiguration, or an unknown cofx-id would vanish from production
+;; observability — although Spec 009 §Error event catalogue
 ;; lists them as production-reachable runtime errors and Spec 011 maps
 ;; `:rf.error/fx-handler-exception` to a 500 off the always-on substrate.
 ;;
@@ -432,9 +426,9 @@
 ;; ============================================================================
 
 (deftest listener-fires-on-fx-handler-exception
-  (testing "Per rf2-goum9x: a registered fx that throws fans
+  (testing "A registered fx that throws fans
             `:rf.error/fx-handler-exception` through the always-on
-            listener (previously dev-trace-only). The throw is recovered
+            listener, not only the dev trace. The throw is recovered
             (the fx is skipped) and the cascade continues."
     (let [seen (atom [])]
       (rf.error-emit/register-error-listener! :test/recorder
@@ -454,7 +448,7 @@
         (is (some? (:exception r)) ":exception present on the record")))))
 
 (deftest fx-handler-exception-recovery-is-isolated-siblings-fire
-  (testing "Per rf2-goum9x acceptance: the fx-handler-exception fan-out
+  (testing "The fx-handler-exception fan-out
             preserves fx-walk semantics — the throwing fx is skipped, the
             SIBLING fx in the same :fx vector still fire, and app-db is
             NOT rolled back."
@@ -476,10 +470,10 @@
           ":db committed before the :fx walk — the fx throw does NOT roll it back"))))
 
 (deftest listener-fires-on-no-such-fx
-  (testing "Per rf2-goum9x: an unknown fx-id fans `:rf.error/no-such-fx`
-            through the always-on listener (previously dev-trace-only).
+  (testing "An unknown fx-id fans `:rf.error/no-such-fx`
+            through the always-on listener, not only the dev trace.
             The fx is dropped; the cascade continues.
-            Per rf2-g0mep the record also NAMES the unknown fx-id."
+            The record also NAMES the unknown fx-id."
     (let [seen (atom [])]
       (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
@@ -491,7 +485,7 @@
         (is (= [:goum9x/run-unknown-fx] (:event r)))
         (is (= :goum9x/run-unknown-fx (:event-id r)))
         (is (= :rf/default (:frame r)))
-        ;; rf2-g0mep — `:event-id` is the DISPATCHING event, so the
+        ;; `:event-id` is the DISPATCHING event, so the
         ;; unregistered fx-id is a DISTINCT failing component and Spec 009's
         ;; attribution rule applies: `fx.cljc` stamps `:failing-id` on the
         ;; trace-payload and `emit-error-both!` lifts it onto this record.
@@ -505,9 +499,9 @@
             "the unaddressable args do NOT ride the always-on record")))))
 
 (deftest listener-fires-on-override-fallthrough
-  (testing "Per rf2-goum9x: an `:fx-overrides` entry redirecting to an
+  (testing "An `:fx-overrides` entry redirecting to an
             unregistered fx-id fans `:rf.error/override-fallthrough`
-            through the always-on listener (previously dev-trace-only).
+            through the always-on listener, not only the dev trace.
             The runtime falls back to the registered fx."
     (let [seen  (atom [])
           fired (atom false)]
@@ -529,7 +523,7 @@
             "fell back to the registered fx (:replaced-with-default recovery)")))))
 
 (deftest listener-fires-on-unregistered-cofx
-  (testing "EP-0017 (succeeds rf2-goum9x): a `:rf.cofx/requires` declaration
+  (testing "EP-0017: a `:rf.cofx/requires` declaration
             referencing an UNREGISTERED cofx-id (the typo case) fans
             `:rf.error/unregistered-cofx` through the always-on listener. Per
             EP-0017 §7 the dispatch is rejected (no-recovery) — typos die loudly
@@ -547,22 +541,22 @@
         (is (= :rf/default (:frame r)))))))
 
 ;; ============================================================================
-;; rf2-n4x74b — component-attributed off-box record carries :failing-id.
+;; Component-attributed off-box record carries :failing-id.
 ;; ----------------------------------------------------------------------------
 ;; For the categories whose failing component is DISTINCT from the dispatched
 ;; event — a user interceptor (`:rf.error/interceptor-exception`) or a coeffect
 ;; supplier (`:rf.error/coeffect-exception`) — the always-on record's
-;; `:event-id` slot carries the EVENT id, so the classified failing component id
-;; (interceptor / cofx id) + `:reason` used to ride ONLY the dev-trace tags
-;; (DCE'd under `goog.DEBUG=false`). An off-box shipper saw the category but not
-;; WHICH component failed. The fix lifts `:failing-id` + `:reason` onto the
-;; always-on record for these categories (and ONLY these — handler-exception and
-;; the sub-* categories, whose failing id already EQUALS `:event-id`, are
-;; unchanged, keeping the tight record shape).
+;; `:event-id` slot carries the EVENT id. On the dev-trace tags alone (DCE'd
+;; under `goog.DEBUG=false`) the classified failing component id (interceptor /
+;; cofx id) + `:reason` would be invisible off-box: a shipper would see the
+;; category but not WHICH component failed. So `:failing-id` + `:reason` are
+;; lifted onto the always-on record for these categories (and ONLY these —
+;; handler-exception and the sub-* categories, whose failing id already EQUALS
+;; `:event-id`, carry neither, keeping the tight record shape).
 ;; ============================================================================
 
 (deftest interceptor-exception-record-carries-failing-interceptor-id
-  (testing "Per rf2-n4x74b: a user interceptor whose :after throws fans
+  (testing "A user interceptor whose :after throws fans
             `:rf.error/interceptor-exception` through the always-on listener
             with the EVENT id in `:event-id` AND the failing INTERCEPTOR id in
             `:failing-id` (distinct from the event) — so an off-box shipper
@@ -581,16 +575,16 @@
                     @seen)]
         (is (some? r) "listener received :rf.error/interceptor-exception")
         (is (= :n4x74b/with-throwing-interceptor (:event-id r))
-            ":event-id carries the EVENT id (unchanged)")
+            ":event-id carries the EVENT id")
         (is (= :n4x74b/boom-after (:failing-id r))
             ":failing-id carries the failing INTERCEPTOR id (distinct from the
-             event) — the off-box record now attributes the component (rf2-n4x74b)")
+             event) — the off-box record attributes the component")
         (is (string? (:reason r))
             ":reason rides the always-on record too")
         (is (some? (:exception r)) ":exception present")))))
 
 (deftest interceptor-before-exception-record-carries-failing-interceptor-id
-  (testing "Per rf2-n4x74b: the :before-phase variant — an interceptor whose
+  (testing "The :before-phase variant — an interceptor whose
             :before throws is attributed to the interceptor id on the always-on
             record too (the same classification applies to both phases)."
     (let [seen (atom [])]
@@ -610,7 +604,7 @@
             ":failing-id carries the failing interceptor id on the :before path too")))))
 
 (deftest coeffect-exception-record-carries-failing-cofx-id
-  (testing "Per rf2-n4x74b: a coeffect supplier that throws during context
+  (testing "A coeffect supplier that throws during context
             assembly fans `:rf.error/coeffect-exception` through the always-on
             listener. The always-on record carries the failing COFX id in
             `:failing-id` (the supplier id, distinct from the dispatched event)
@@ -631,14 +625,14 @@
         (is (some? r) "listener received :rf.error/coeffect-exception")
         (is (= :n4x74b/boom-cofx (:failing-id r))
             ":failing-id carries the failing COFX supplier id (distinct from the
-             event-id slot) — the off-box record attributes the component (rf2-n4x74b)")
+             event-id slot) — the off-box record attributes the component")
         (is (string? (:reason r))
             ":reason rides the always-on record too")))))
 
 (deftest handler-exception-record-omits-redundant-failing-id
-  (testing "Per rf2-n4x74b: for handler-exception the failing id EQUALS the
+  (testing "For handler-exception the failing id EQUALS the
             event id, so NO redundant `:failing-id` is stamped — the tight
-            record shape is unchanged (the lift is guarded on failing-id being
+            record shape holds (the lift is guarded on failing-id being
             DISTINCT from event-id)."
     (let [seen (atom [])]
       (rf.error-emit/register-error-listener! :test/recorder
@@ -656,11 +650,10 @@
             ":event-id carries the event id (the failing handler IS the event)")))))
 
 ;; ----------------------------------------------------------------------------
-;; rf2-mlh1h — the residue of the rf2-mszrz attribution contract the four
-;; twins above do not reach.
+;; The part of the attribution contract the four twins above do not reach.
 ;;
 ;; They pin `:failing-id` on the always-on record, which is the load-bearing
-;; half and the half rf2-mlh1h was filed about. But rf2-mszrz's contract also
+;; half. But the contract also
 ;; discriminates the two INTERCEPTOR PHASES, and `:phase` is deliberately NOT
 ;; lifted: `rf.error-emit/emit-error-both!` lifts exactly `:failing-id` +
 ;; `:reason`, keeping the record tight. So in production the phase is
@@ -672,8 +665,8 @@
 ;;
 ;; The dev-posture assertions in `re-frame.interceptor-test`'s
 ;; `pipeline-exception-attributed-to-true-component` read `:phase` off the
-;; trace tags directly. That arm is correct and stays; this is its
-;; production-axis counterpart, in the rf2-7vk3z twin shape.
+;; trace tags directly. That arm is correct; this is its
+;; production-axis counterpart, in the same twin shape.
 ;; ----------------------------------------------------------------------------
 
 (defn- record-for
@@ -690,7 +683,7 @@
     (some (fn [x] (when (= category (:error x)) x)) @seen)))
 
 (deftest interceptor-exception-record-discriminates-phase-in-production
-  (testing "Per rf2-mlh1h: `:phase` is not lifted onto the tight always-on
+  (testing "`:phase` is not lifted onto the tight always-on
             record, so an off-box shipper tells a `:before` failure from an
             `:after` one through `:reason` alone. Both phases pinned here, in
             every posture."
@@ -722,7 +715,7 @@
           ":reason names the failing interceptor, agreeing with :failing-id"))))
 
 (deftest coeffect-exception-record-keeps-the-event-in-event-id
-  (testing "Per rf2-mlh1h: the lift is GUARDED on `:failing-id` differing from
+  (testing "The lift is GUARDED on `:failing-id` differing from
             `:event-id`, so the coeffect twin above only means what it claims
             if `:event-id` really carries the dispatched EVENT. Pin the other
             half of that pair — otherwise a supplier id in BOTH slots would
@@ -741,20 +734,19 @@
           "the two are DISTINCT — exactly the condition the lift is guarded on"))))
 
 ;; ============================================================================
-;; rf2-bxud9v — sub error records carry the failing SUB's source-coord.
+;; Sub error records carry the failing SUB's source-coord.
 ;; ----------------------------------------------------------------------------
 ;; The always-on `error-coords-by-id` registry is keyed by `[registry-kind
-;; id]`. A `reg-sub` stores coords under `[:sub sub-id]`, but
-;; `dispatch-on-error!` previously looked source coords up under the
-;; hardcoded `[:event event-id]` — so the production error records for the
-;; sub categories (whose `:event-id` slot carries a SUB id) OMITTED the
-;; failing sub's `:source-coord`. The fix is a kind-aware lookup
-;; (`rf.error-emit/error-source-coord`) that resolves the sub categories under
-;; `[:sub …]`. These tests pin that the records now carry the right coord.
+;; id]`. A `reg-sub` stores coords under `[:sub sub-id]`, so a lookup under the
+;; hardcoded `[:event event-id]` would leave the production error records for
+;; the sub categories (whose `:event-id` slot carries a SUB id) without the
+;; failing sub's `:source-coord`. The lookup is kind-aware
+;; (`rf.error-emit/error-source-coord`) and resolves the sub categories under
+;; `[:sub …]`. These tests pin that the records carry the right coord.
 ;; ============================================================================
 
 (deftest sub-input-fn-error-record-carries-sub-source-coord
-  (testing "Per rf2-bxud9v: a parametric `input-fn` throw fans
+  (testing "A parametric `input-fn` throw fans
             `:rf.error/sub-input-fn-exception` through the always-on
             listener with `query-id` in `:event-id`. The record's
             `:source-coord` must resolve under `[:sub …]` (kind-aware
@@ -780,15 +772,15 @@
         ;; The kind-aware lookup resolves the coord under [:sub sub-id].
         (let [sc (:source-coord r)]
           (is (some? sc)
-              "record carries :source-coord resolved under [:sub …] (rf2-bxud9v)")
+              "record carries :source-coord resolved under [:sub …]")
           (is (symbol?  (:ns   sc)) ":source-coord :ns is the defining ns symbol")
           (is (integer? (:line sc)) ":source-coord :line is the reg-sub line")
           (is (string?  (:file sc)) ":source-coord :file is the defining file"))))))
 
 (deftest sub-exception-record-carries-sub-source-coord
-  (testing "Per rf2-bxud9v: a reactive sub whose body throws fans
+  (testing "A reactive sub whose body throws fans
             `:rf.error/sub-exception` through the always-on listener;
-            its `:source-coord` resolves under `[:sub …]` now that the
+            its `:source-coord` resolves under `[:sub …]` because the
             reactive call site supplies `query-id` in `:event-id` and the
             lookup is kind-aware."
     (let [seen (atom [])]
@@ -802,34 +794,33 @@
       (let [r (some (fn [x] (when (= :rf.error/sub-exception (:error x)) x)) @seen)]
         (is (some? r) "listener received :rf.error/sub-exception")
         (is (= :bxud9v/body-throws (:event-id r))
-            "the failing sub-id rides :event-id (rf2-bxud9v)")
+            "the failing sub-id rides :event-id")
         (is (some? (:exception r)) ":exception present on the record")
         (let [sc (:source-coord r)]
           (is (some? sc)
-              "record carries :source-coord resolved under [:sub …] (rf2-bxud9v)")
+              "record carries :source-coord resolved under [:sub …]")
           (is (symbol?  (:ns   sc)))
           (is (integer? (:line sc)))
           (is (string?  (:file sc))))))))
 
 ;; ============================================================================
-;; rf2-xgkgx — frame-destroyed source-coord is OPERATION-REALM AWARE.
+;; Frame-destroyed source-coord is OPERATION-REALM AWARE.
 ;; ----------------------------------------------------------------------------
 ;; `:rf.error/frame-destroyed` is the one realm-AMBIGUOUS category: an event-id
 ;; and a sub-id may legitimately SHARE a keyword because they live in SEPARATE
-;; registries (`[:event id]` vs `[:sub id]`). The pre-fix resolution probed
-;; `[:sub]` then `[:event]`, so a `:dispatch` frame-destroyed whose id ALSO
-;; named a subscription was attributed to the WRONG realm (the subscription's
+;; registries (`[:event id]` vs `[:sub id]`). A resolution that probed
+;; `[:sub]` then `[:event]` would attribute a `:dispatch` frame-destroyed whose
+;; id ALSO names a subscription to the WRONG realm (the subscription's
 ;; coord). The captured-frame stale-op seam stamps the
 ;; exact failing `:op` onto the always-on record; `rf.error-emit/error-source-coord`
-;; now pivots on it — `:dispatch` / `:dispatch-sync` → the EVENT coord,
+;; pivots on it — `:dispatch` / `:dispatch-sync` → the EVENT coord,
 ;; `:subscribe` → the SUBSCRIPTION coord. That coord steering is the INTERNAL
 ;; use this namespace exercises — `:op` read back out of the record's
-;; attribution. It is not the whole of the slot's status: `:op` is RATIFIED
-;; PUBLIC on this category wherever the emit site knows the realm (rf2-a2x2w —
-;; see `router/emit-frame-destroyed!`, the Spec 009 `:rf.error/frame-destroyed`
+;; attribution. It is not the whole of the slot's status: `:op` is
+;; PUBLIC on this category wherever the emit site knows the realm (see
+;; `router/emit-frame-destroyed!`, the Spec 009 `:rf.error/frame-destroyed`
 ;; row, and `FrameDestroyedTags` in Spec-Schemas, which declares it), so it is
-;; NOT a hidden slot. This header stated the narrow reading as a global claim,
-;; contradicting all three; corrected under rf2-6g6e.
+;; NOT a hidden slot.
 ;;
 ;; These drive the exact seam `capture-frame`'s superseded-op fence uses
 ;; (`emit-error-both!` with the
@@ -868,9 +859,9 @@
     @seen))
 
 (deftest frame-destroyed-dispatch-resolves-the-event-coord-on-same-keyword-collision
-  (testing "rf2-xgkgx — a `:dispatch` frame-destroyed record whose id is
+  (testing "A `:dispatch` frame-destroyed record whose id is
             registered as BOTH an event AND a same-keyword subscription
-            resolves the EVENT coord. The pre-fix `[:sub]`-first probe picked
+            resolves the EVENT coord. A `[:sub]`-first probe would pick
             the subscription's coord (the WRONG realm)."
     (rf.source-coords/forget-error-coords!)
     (rf.source-coords/remember-error-coords! :event :xgkgx.collide/a xgkgx-event-coord)
@@ -883,7 +874,7 @@
             ":dispatch resolves the EVENT coord, not the same-keyword sub's")))))
 
 (deftest frame-destroyed-dispatch-sync-shares-the-dispatch-event-realm
-  (testing "rf2-xgkgx — `:dispatch-sync` shares the dispatch realm: it resolves
+  (testing "`:dispatch-sync` shares the dispatch realm: it resolves
             the EVENT coord, never the same-keyword subscription's."
     (rf.source-coords/forget-error-coords!)
     (rf.source-coords/remember-error-coords! :event :xgkgx.collide/b xgkgx-event-coord)
@@ -894,7 +885,7 @@
           ":dispatch-sync resolves the EVENT coord"))))
 
 (deftest frame-destroyed-subscribe-resolves-the-sub-coord-on-same-keyword-collision
-  (testing "rf2-xgkgx — the INVERSE collision direction: a `:subscribe`
+  (testing "The INVERSE collision direction: a `:subscribe`
             frame-destroyed record whose id is registered as BOTH resolves the
             SUBSCRIPTION coord, never the same-keyword event's."
     (rf.source-coords/forget-error-coords!)
@@ -905,17 +896,15 @@
       (is (= xgkgx-sub-coord (:source-coord (first records)))
           ":subscribe resolves the SUB coord, not the same-keyword event's"))))
 
-;; The fourth arm, `:capture`, was covered here until 2026-09-04 (rf2-xtqs).
-;; The realm was the retired ui `(frame)` read's alone (rf2-0yp7w) and its enum
-;; value is gone from `FrameDestroyedTags`, so the arm no longer exists to pin.
-;; The deleted case was also VACUOUS about `:capture`: it passed a nil id, and
-;; `error-source-coord` short-circuits on a nil id before it ever reaches the
-;; realm `case`, so the assertion held for every op keyword alike. What it
-;; actually pinned — an absent `:source-coord` slot rather than a nil one — is
-;; the next deftest's subject, which keeps it under a live realm.
+;; There is no `:capture` arm: `FrameDestroyedTags` has no `:capture` realm.
+;; A case for it would also be VACUOUS here: with a nil id
+;; `error-source-coord` short-circuits before it ever reaches the
+;; realm `case`, so the assertion would hold for every op keyword alike. What it
+;; would actually pin — an absent `:source-coord` slot rather than a nil one — is
+;; the next deftest's subject, under a live realm.
 
 (deftest frame-destroyed-programmatic-registration-omits-the-coord
-  (testing "rf2-xgkgx — a `:dispatch` frame-destroyed for an id with NO captured
+  (testing "A `:dispatch` frame-destroyed for an id with NO captured
             coords (a programmatic registration that bypassed the macro path)
             omits the `:source-coord` slot rather than niling it."
     (rf.source-coords/forget-error-coords!)
@@ -927,22 +916,21 @@
             "no captured coords ⇒ the :source-coord slot is ABSENT, not nil")))))
 
 ;; ============================================================================
-;; rf2-7xlvt — CORE capture-frame stale-op source-coord is OPERATION-REALM EXACT
+;; CORE capture-frame stale-op source-coord is OPERATION-REALM EXACT
 ;; ----------------------------------------------------------------------------
 ;; The synchronous capture pre-check seam — `router/emit-captured-frame-
 ;; superseded!`, reached from `core/capture-dispatch!` + `core/capture-
 ;; subscribe!` — recover-but-emits `:rf.error/frame-destroyed` when a
-;; `capture-frame` op finds its pinned incarnation superseded. Before rf2-7xlvt
-;; it DROPPED the already-known operation realm, so `rf.error-emit/error-source-
-;; coord` fell back to the legacy `[:sub]`-then-`[:event]` probe (the correct
-;; fallback for the realm-ambiguous bare router / subs emitters, UNSOUND here
-;; where the realm IS known). That misattributed a stale captured DISPATCH to a
-;; same-keyword SUBSCRIPTION's coord, and a stale captured SUBSCRIBE to an
-;; unrelated EVENT's coord (instead of OMITTING `:source-coord`). This seam
-;; KNOWS the realm (`:dispatch` / `:dispatch-sync` / `:subscribe`); it now
-;; carries it through the shared frame-destroyed emit boundary so the resolved
+;; `capture-frame` op finds its pinned incarnation superseded. This seam
+;; KNOWS the realm (`:dispatch` / `:dispatch-sync` / `:subscribe`) and
+;; carries it through the shared frame-destroyed emit boundary, so the resolved
 ;; coord names the correct definition (dispatch → `[:event]`, subscribe →
 ;; `[:sub]`) — or is omitted when the realm's own coord is genuinely absent.
+;; Dropping the realm would fall back to the `[:sub]`-then-`[:event]` probe (the
+;; correct fallback for the realm-ambiguous bare router / subs emitters, UNSOUND
+;; here where the realm IS known), misattributing a stale captured DISPATCH to a
+;; same-keyword SUBSCRIPTION's coord, and a stale captured SUBSCRIBE to an
+;; unrelated EVENT's coord (instead of OMITTING `:source-coord`).
 ;;
 ;; These drive the REAL capture seam (a `capture-frame` api pinned to a live
 ;; frame, then destroyed + reseated as a same-id successor) against distinct
@@ -959,7 +947,7 @@
 
 (defn- capture-superseded-record
   "Pin a `capture-frame` api to a LIVE frame, destroy that frame and reseat a
-  same-id successor B (superseding the pin exactly like the bead's repro), run
+  same-id successor B (superseding the pin), run
   `seed` to populate the always-on `error-coords-by-id` registry, then invoke
   the captured `op-key` op (`:dispatch` / `:dispatch-sync` / `:subscribe`) with
   the vector `[id]`. The synchronous `capture-target-superseded?` pre-check sees
@@ -989,9 +977,9 @@
     (rf.source-coords/remember-error-coords! :sub   id xlvt-sub-coord)))
 
 (deftest stale-captured-dispatch-resolves-the-event-coord-not-the-collision-sub
-  (testing "rf2-7xlvt — a stale captured `:dispatch` whose id is BOTH an event
-            AND a same-keyword sub resolves the EVENT coord. Pre-fix the realm
-            was dropped and the `[:sub]`-first fallback stole the sub's coord."
+  (testing "A stale captured `:dispatch` whose id is BOTH an event
+            AND a same-keyword sub resolves the EVENT coord. Dropping the realm
+            would let the `[:sub]`-first fallback steal the sub's coord."
     (let [records (capture-superseded-record :dispatch :audit/collide
                                              (seed-both :audit/collide))]
       (is (= 1 (count records)) "exactly one always-on record per stale op")
@@ -1001,7 +989,7 @@
             "stale captured dispatch resolves the EVENT coord, never the collision sub's")))))
 
 (deftest stale-captured-dispatch-sync-shares-the-event-realm
-  (testing "rf2-7xlvt — a stale captured `:dispatch-sync` shares the dispatch
+  (testing "A stale captured `:dispatch-sync` shares the dispatch
             realm: the EVENT coord, never the same-keyword sub's."
     (let [records (capture-superseded-record :dispatch-sync :audit/collide
                                              (seed-both :audit/collide))]
@@ -1010,7 +998,7 @@
           "stale captured dispatch-sync resolves the EVENT coord"))))
 
 (deftest stale-captured-subscribe-resolves-the-sub-coord-not-the-collision-event
-  (testing "rf2-7xlvt — the inverse collision direction: a stale captured
+  (testing "The inverse collision direction: a stale captured
             `:subscribe` whose id is BOTH resolves the SUB coord, never the
             same-keyword event's."
     (let [records (capture-superseded-record :subscribe :audit/collide
@@ -1020,10 +1008,10 @@
           "stale captured subscribe resolves the SUB coord"))))
 
 (deftest stale-captured-subscribe-omits-coord-when-only-event-registered
-  (testing "rf2-7xlvt — a stale captured `:subscribe` for an id that is ONLY an
+  (testing "A stale captured `:subscribe` for an id that is ONLY an
             EVENT (no sub coord) OMITS `:source-coord` rather than stealing the
-            unrelated event's. Pre-fix the `[:sub]`-then-`[:event]` fallback
-            returned the EVENT coord — the wrong realm."
+            unrelated event's. The `[:sub]`-then-`[:event]` fallback
+            would return the EVENT coord — the wrong realm."
     (let [records (capture-superseded-record
                     :subscribe :audit/collide
                     (fn [] (rf.source-coords/remember-error-coords!
@@ -1035,10 +1023,10 @@
             "no sub coord ⇒ :source-coord is ABSENT, never the unrelated event's")))))
 
 (deftest stale-captured-dispatch-omits-coord-when-only-sub-registered
-  (testing "rf2-7xlvt — the inverse omit: a stale captured `:dispatch` for an id
+  (testing "The inverse omit: a stale captured `:dispatch` for an id
             that is ONLY a SUB (no event coord) OMITS `:source-coord` rather than
-            stealing the unrelated sub's. Pre-fix the `[:sub]`-first fallback
-            returned the SUB coord — the wrong realm."
+            stealing the unrelated sub's. The `[:sub]`-first fallback
+            would return the SUB coord — the wrong realm."
     (let [records (capture-superseded-record
                     :dispatch :audit/collide
                     (fn [] (rf.source-coords/remember-error-coords!
@@ -1050,12 +1038,12 @@
             "no event coord ⇒ :source-coord is ABSENT, never the unrelated sub's")))))
 
 ;; ============================================================================
-;; rf2-a2x2w — the LATE captured-op frame-destroyed rejections are REALM-EXACT
-;;   + `:op` realm attribution is RATIFIED PUBLIC on captured-op recovery records
+;; The LATE captured-op frame-destroyed rejections are REALM-EXACT
+;;   + `:op` realm attribution is PUBLIC on captured-op recovery records
 ;; ----------------------------------------------------------------------------
-;; rf2-7xlvt (above) repaired the SYNCHRONOUS capture PRE-CHECK seam
-;; (`emit-captured-frame-superseded!`). Two later rejection seams still DROPPED
-;; the realm — so `error-source-coord` fell back to the legacy
+;; Beside the SYNCHRONOUS capture PRE-CHECK seam above
+;; (`emit-captured-frame-superseded!`), two later rejection seams carry the
+;; realm too — dropping it would fall back to the
 ;; `[:sub]`-then-`[:event]` probe (correct only for the realm-ambiguous bare
 ;; router/subs emitters): (1) the router's A→B incarnation-mismatch fences in
 ;; `dispatch!` / `dispatch-sync!` and the subscribe mismatch in `subs`, reached
@@ -1078,8 +1066,8 @@
   ONE liveness check `capture-target-superseded?` makes) destroy A and reseat a
   same-id successor B BEFORE handing back A's (true) liveness. The pre-check thus
   sees A LIVE (not superseded), delegates to the ordinary bare-id resolve, which
-  lands on B — firing the LATE A→B fence (rf2-dlld6 / rf2-7w1im), the seam this
-  bead makes realm-exact. `seed` populates the always-on error-coord registry.
+  lands on B — firing the LATE A→B fence, the seam these cases pin as
+  realm-exact. `seed` populates the always-on error-coord registry.
   Returns the vector of always-on records the `:errors` listener saw."
   [op-key id seed]
   (let [fid :a2x2w/target]
@@ -1110,11 +1098,11 @@
       @seen)))
 
 (deftest late-superseded-dispatch-resolves-the-event-coord-not-the-collision-sub
-  (testing "rf2-a2x2w (gap 1, dispatch) — a captured `:dispatch` rejected at the
+  (testing "A captured `:dispatch` rejected at the
             LATE A→B router fence whose id is BOTH an event AND a same-keyword sub
-            resolves the EVENT coord, realm-exact via the threaded `:op`; pre-fix
-            the late fence dropped the realm and the `[:sub]`-first fallback stole
-            the sub's coord."
+            resolves the EVENT coord, realm-exact via the threaded `:op`; a late
+            fence that dropped the realm would let the `[:sub]`-first fallback
+            steal the sub's coord."
     (let [records (late-superseded-records :dispatch :audit/collide (seed-both :audit/collide))]
       (is (= 1 (count records)) "exactly one always-on record per late rejection")
       (let [r (first records)]
@@ -1122,10 +1110,10 @@
         (is (= xlvt-event-coord (:source-coord r))
             "late captured dispatch resolves the EVENT coord, never the collision sub's")
         (is (= :dispatch (:op r))
-            "rf2-a2x2w: the ratified-public `:op` realm rides the captured-op record")))))
+            "the public `:op` realm rides the captured-op record")))))
 
 (deftest late-superseded-dispatch-sync-shares-the-event-realm
-  (testing "rf2-a2x2w (gap 1, dispatch-sync) — a captured `:dispatch-sync` at the
+  (testing "A captured `:dispatch-sync` at the
             LATE fence shares the dispatch event realm: the EVENT coord."
     (let [records (late-superseded-records :dispatch-sync :audit/collide (seed-both :audit/collide))]
       (is (= 1 (count records)))
@@ -1134,7 +1122,7 @@
       (is (= :dispatch-sync (:op (first records)))))))
 
 (deftest late-superseded-subscribe-resolves-the-sub-coord-not-the-collision-event
-  (testing "rf2-a2x2w (gap 1, subscribe) — a captured `:subscribe` at the LATE
+  (testing "A captured `:subscribe` at the LATE
             subscribe fence whose id is BOTH resolves the SUB coord, never the
             same-keyword event's."
     (let [records (late-superseded-records :subscribe :audit/collide (seed-both :audit/collide))]
@@ -1144,12 +1132,12 @@
       (is (= :subscribe (:op (first records)))))))
 
 (deftest late-superseded-subscribe-omits-coord-when-only-event-registered
-  (testing "rf2-a2x2w (gap 1 — the EXACT bead repro) — a captured `:subscribe`
+  (testing "A captured `:subscribe`
             rejected at the LATE subscribe fence for an id that is ONLY an EVENT
             (no sub coord) OMITS `:source-coord` rather than STEALING the
-            unrelated event's. Pre-fix the late subscribe fence dropped the realm
-            and the `[:sub]`-then-`[:event]` fallback returned the EVENT coord —
-            exactly the wrong-realm record the bead's repro captured."
+            unrelated event's. A late subscribe fence that dropped the realm
+            would let the `[:sub]`-then-`[:event]` fallback return the EVENT
+            coord — the wrong-realm record."
     (let [records (late-superseded-records
                     :subscribe :audit/collide
                     (fn [] (rf.source-coords/remember-error-coords!
@@ -1162,7 +1150,7 @@
         (is (= :subscribe (:op r)) "the `:subscribe` realm still rides the record")))))
 
 (deftest late-superseded-dispatch-omits-coord-when-only-sub-registered
-  (testing "rf2-a2x2w (gap 1, inverse omit) — a captured `:dispatch` at the LATE
+  (testing "The inverse omit: a captured `:dispatch` at the LATE
             fence for an id that is ONLY a SUB OMITS `:source-coord` rather than
             stealing the unrelated sub's."
     (let [records (late-superseded-records
@@ -1177,12 +1165,12 @@
         (is (= :dispatch (:op r)))))))
 
 (deftest ordinary-address-directed-frame-destroyed-omits-op-and-keeps-fallback
-  (testing "rf2-a2x2w (keyset ratification — the negative) — an ORDINARY
+  (testing "The negative: an ORDINARY
             address-directed DISPATCH into an unknown frame carries NO `:op`
-            realm slot (the tight record keyset is PRESERVED). rf2-alk8a narrows
-            this to the DISPATCH path only: a dispatched event vector is PAYLOAD,
+            realm slot (the tight record keyset holds). That is the DISPATCH
+            path only: a dispatched event vector is PAYLOAD,
             so it keeps op-omission, its per-path elision, and its
-            unresolvable-frame fail-closed. The ordinary SUBSCRIBE path now
+            unresolvable-frame fail-closed. The ordinary SUBSCRIBE path
             stamps `:op :subscribe` because a query vector is IDENTITY (see
             `ordinary-subscribe-frame-destroyed-stamps-op-egresses-raw-resolves-sub-coord`)."
     (let [seen (atom [])]
@@ -1195,20 +1183,20 @@
             "ordinary address-directed DISPATCH frame-destroyed carries NO `:op` — tight keyset preserved")))))
 
 ;; ============================================================================
-;; rf2-alk8a — the ORDINARY address-directed SUBSCRIBE frame-destroyed path
+;; The ORDINARY address-directed SUBSCRIBE frame-destroyed path
 ;;   stamps `:op :subscribe`, egresses the query vector RAW, and resolves the
-;;   `:source-coord` under the EXACT `[:sub id]` realm (never the legacy
+;;   `:source-coord` under the EXACT `[:sub id]` realm (never the
 ;;   `[:sub]`-then-`[:event]` fallback that could steal a same-keyword event's
 ;;   coord). These drive the REAL runtime path (`rf/subscribe-once` into a
 ;;   missing frame), NOT a simulated `emit-error-both!` call — so they pin the
 ;;   emitter stamp end-to-end. RAW because a subscription's query vector is
-;;   IDENTITY (rf2-zwgqe / Spec 015 "pass identifiers, not secrets"); the
-;;   rf2-t55hxg.18 fail-closed guards policy-walked VALUE slots, which identity
+;;   IDENTITY (Spec 015 "pass identifiers, not secrets"); the
+;;   fail-closed rule guards policy-walked VALUE slots, which identity
 ;;   slots never consult.
 ;; ============================================================================
 
 (deftest ordinary-subscribe-frame-destroyed-stamps-op-egresses-raw-resolves-sub-coord
-  (testing "rf2-alk8a — an ORDINARY address-directed subscribe into a missing
+  (testing "An ORDINARY address-directed subscribe into a missing
             frame stamps `:op :subscribe`, egresses the query vector RAW on
             `:event`, and resolves its `:source-coord` under the EXACT `[:sub
             id]` realm even when the id is ALSO registered as a same-keyword
@@ -1225,18 +1213,18 @@
       (let [r (first @seen)]
         (is (= :rf.error/frame-destroyed (:error r)))
         (is (= :subscribe (:op r))
-            "the ordinary subscribe path now stamps the `:subscribe` realm (rf2-alk8a)")
+            "the ordinary subscribe path stamps the `:subscribe` realm")
         (is (= [:alk8a/collide] (:event r))
-            ":event egresses the query vector RAW (identity, rf2-zwgqe)")
+            ":event egresses the query vector RAW (identity)")
         (is (= xgkgx-sub-coord (:source-coord r))
             ":source-coord resolves the SUB coord realm-exact, never the collision event's")))))
 
 (deftest ordinary-subscribe-frame-destroyed-omits-coord-for-same-keyword-event-only
-  (testing "rf2-alk8a (SOURCE-COORD UPGRADE — the anti-stealing case) — an
+  (testing "The anti-stealing case: an
             ordinary subscribe into a missing frame for an id registered ONLY as
             a same-keyword EVENT OMITS `:source-coord` rather than STEALING the
-            event's. Pre-fix the op-nil path's `[:sub]`-then-`[:event]` fallback
-            returned the unrelated EVENT coord; the `:op :subscribe` stamp
+            event's. The op-nil path's `[:sub]`-then-`[:event]` fallback
+            would return the unrelated EVENT coord; the `:op :subscribe` stamp
             resolves `[:sub id]` (a miss) and omits the slot."
     (rf.source-coords/forget-error-coords!)
     (rf.source-coords/remember-error-coords! :event :alk8a/event-only xgkgx-event-coord)
@@ -1252,12 +1240,12 @@
             "no sub coord ⇒ :source-coord ABSENT, never the same-keyword event's")))))
 
 (deftest non-recovery-categories-fan-out-to-listener
-  (testing "Per rf2-2hvga (= B / widen): every catalogued production-
+  (testing "Every catalogued production-
             reachable runtime `:rf.error/*` — frame-destroyed,
             no-such-handler, no-such-sub, sub-exception — fans out
             through the always-on listener (the single observability
             surface). Recovery is the framework's per-category typed
-            default; there is no app-steering policy (rf2-hiqtk8)."
+            default; there is no app-steering policy."
     (let [listener-saw (atom #{})]
       (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! listener-saw conj (:error record))))
@@ -1277,7 +1265,7 @@
           "the always-on listener received every category"))))
 
 ;; ============================================================================
-;; rf2-u0zz5 — atomicity contract: any pre-install throw aborts the event
+;; Atomicity contract: any pre-install throw aborts the event
 ;; ----------------------------------------------------------------------------
 ;; The `:db` install is the single, deferred, all-or-nothing commit
 ;; boundary. ANY throw before it — handler, interceptor `:after`, or the

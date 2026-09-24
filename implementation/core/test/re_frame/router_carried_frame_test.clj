@@ -1,5 +1,5 @@
 (ns re-frame.router-carried-frame-test
-  "Per rf2-9wa0lf (EP-0002 chain bead 2/11) — the router honours the
+  "The router honours the
   carried-invariant frame contract (Spec 002 §Frame target resolution —
   the carried invariant; EP-0002 §Dispatch And Router / Reference Impl
   Plan §3).
@@ -31,7 +31,7 @@
   JVM-only — the dynamic-var scope tier and the require-or-raise logic
   are platform-agnostic.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   Both error categories this file asserts on are ALWAYS-ON, so the split here
   is NOT a guard — it is a change of AXIS. `:rf.error/no-frame-context` fans
@@ -46,7 +46,7 @@
   The one genuinely dev-only claim is `NO :rf.event/dispatched` — a negative
   over the trace stream, which under `-Dre-frame.debug=false` is empty for
   every dispatch, enqueued or not. It is kept verbatim inside a
-  `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`. Its production
+  `(when rf.interop/debug-enabled? …)` arm. Its production
   counterpart is the always-on one immediately above it: an
   `:rf.error/no-frame-context` record on the `:errors` axis IS the
   before-enqueue rejection, since the emit site sits at envelope-build time."
@@ -88,7 +88,7 @@
     a))
 
 (defn- record-errors!
-  "Attach an ALWAYS-ON `:errors` listener and return its atom (rf2-d2841).
+  "Attach an ALWAYS-ON `:errors` listener and return its atom.
   The corpus-wide error-emit registry survives production elision — it is
   the axis Sentry-style shippers read — so counts taken off it are
   posture-independent. Records are the tight error-record map, keyed by
@@ -120,12 +120,12 @@
               ":operation tags the dispatch surface")))
       (rf/unregister-listener! :trace ::bare)
       (rf.error-emit/unregister-error-listener! ::bare-errors)
-      ;; ALWAYS-ON axis (rf2-d2841): the count reads the corpus-wide error-emit
+      ;; ALWAYS-ON axis: the count reads the corpus-wide error-emit
       ;; registry, which survives production elision, so "exactly one fired"
       ;; is a claim about the production wire and not about the dev ring.
       (is (= 1 (count (errors-of errs :rf.error/no-frame-context)))
           "exactly one always-on :rf.error/no-frame-context error fired")
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+      ;; Dev-instrumentation arm (see ns docstring §Posture split).
       ;; A NEGATIVE over the trace stream: under `-Dre-frame.debug=false` the
       ;; stream is empty whether or not the event was enqueued, so outside the
       ;; arm this would report "caught before enqueue" for free.
@@ -219,9 +219,8 @@
           "the held dispatch ran against the captured frame despite no scope"))))
 
 (deftest bind-fn-after-unwind-works
-  (testing "re-frame.frame/bind-fn (the internal relocated frame-bound-fn*
-            dynamic-rebinding primitive, API-shrink #1 rf2-csbbwu) re-
-            establishes the captured scope so an inner bare dispatch
+  (testing "re-frame.frame/bind-fn (the internal dynamic-rebinding
+            primitive) re-establishes the captured scope so an inner bare dispatch
             resolves the captured frame after unwind"
     (rf/make-frame {:id :app/main :doc "scope frame"})
     (rf/reg-event :app/inc {:frame :app/main}
@@ -258,11 +257,11 @@
     (let [errs (record-errors! ::bad-explicit-errors)]
       (binding [rf.frame/*current-frame* nil]
         ;; An explicit target that does not resolve to a frame-record is
-        ;; recover-but-emit (rf2-2hvga): no throw, but a
+        ;; recover-but-emit: no throw, but a
         ;; :rf.error/frame-destroyed always-on error.
         (rf/dispatch-sync [:app/noop] {:frame :rf/default}))
       (rf.error-emit/unregister-error-listener! ::bad-explicit-errors)
-      ;; ALWAYS-ON axis (rf2-d2841): `:rf.error/frame-destroyed` is in the
+      ;; ALWAYS-ON axis: `:rf.error/frame-destroyed` is in the
       ;; promoted set that fans to the corpus-wide error-emit registry, so
       ;; BOTH assertions — the positive AND the "not the other category"
       ;; negative — stay load-bearing under the production gate. The negative

@@ -1,5 +1,5 @@
 (ns re-frame.override-capture-trace-test
-  "Per rf2-yigokd — Spec-Schemas §`:rf/epoch-record` + Tool-Pair §Replay. The
+  "Spec-Schemas §`:rf/epoch-record` + Tool-Pair §Replay. The
   router stamps the envelope's OWN per-call + lexical `:fx-overrides` (as
   `build-envelope` merges `*fx-overrides*` under the per-call opt) and
   per-call `:interceptor-overrides` onto the `:rf.event/run-start` TRACE emit
@@ -18,9 +18,9 @@
       opt, same precedence as the live override-application path.
     * `:interceptor-overrides` rides verbatim (EDN by construction).
     * The PER-FRAME override tier is excluded — only the envelope's own
-      per-call + lexical keys are captured (per the ruling's pinned scope).
+      per-call + lexical keys are captured (the pinned scope).
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   What is captured, and where from, are two claims. `:fx-overrides` /
   `:interceptor-overrides` are slots on the DISPATCH ENVELOPE that
@@ -40,12 +40,12 @@
   marker-ization exists only on the emit path; the envelope holds the raw fn,
   which is exactly why the marker is worth asserting.
 
-  Two vacuous passes were found and moved. `override-free-dispatch-omits-both-tags`
-  is a pair of `(not (contains? tags ...))` rows, and under the gate `tags` is
-  nil — `contains?` of nil is false for every key, so both certified
-  \"absent\" over an event that never existed. They now sit in the arm, beside a
-  new always-on partner asserting the ENVELOPE omits the keys, which is the
-  claim that survives."
+  `override-free-dispatch-omits-both-tags` carries a pair of
+  `(not (contains? tags ...))` rows, and under the gate `tags` is nil —
+  `contains?` of nil is false for every key, so outside the arm both would
+  certify \"absent\" over an event that never existed. They sit in the arm,
+  beside an always-on partner asserting the ENVELOPE omits the keys, which is
+  the claim that survives."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
@@ -73,7 +73,7 @@
     (rf/register-listener! :trace id (fn [ev] (swap! acc conj ev)))
     acc))
 
-;; rf2-d2841 — the ALWAYS-ON read. The override maps the trace CAPTURES are
+;; The ALWAYS-ON read. The override maps the trace CAPTURES are
 ;; slots on the dispatch envelope, and a user fx-handler receives the envelope
 ;; verbatim, so the composition can be inspected with no trace involvement.
 (def ^:private captured-envelope (atom nil))
@@ -85,7 +85,7 @@
   `dispatch-opts`), and return the single `:rf.event/run-start` trace event's
   `:tags` map — nil in production posture, where nothing is emitted.
 
-  Side effect (rf2-d2841): the handler runs an `:ovc/probe` fx that stashes the
+  Side effect: the handler runs an `:ovc/probe` fx that stashes the
   dispatch ENVELOPE in `captured-envelope`, so the caller can read the same
   override maps off the always-on surface."
   ([event-v] (run-start-tags event-v nil))
@@ -111,13 +111,13 @@
   (testing "no per-call overrides => neither tag rides the run-start emit"
     (let [tags (run-start-tags [:ovc/run])
           env  @captured-envelope]
-      ;; ---- ALWAYS-ON (rf2-d2841): the ENVELOPE carries no override maps ----
+      ;; ---- ALWAYS-ON: the ENVELOPE carries no override maps ----
       (is (some? env) "the dispatch envelope reached the fx-handler ctx")
       (is (empty? (:fx-overrides env))
           "an override-free dispatch composes no :fx-overrides at all")
       (is (empty? (:interceptor-overrides env))
           "nor any :interceptor-overrides")
-      ;; ---- rf2-d2841 dev arm. VACUOUS OUTSIDE IT: under the gate `tags` is
+      ;; ---- Dev arm. VACUOUS OUTSIDE IT: under the gate `tags` is
       ;;      nil and `(contains? nil k)` is false for every key, so both rows
       ;;      would certify "absent" over an emit that never happened.
       (when rf.interop/debug-enabled?
@@ -129,7 +129,7 @@
    verbatim"
     (let [tags (run-start-tags [:ovc/run]
                                {:fx-overrides {:ovc/real :ovc/stub}})]
-      ;; ALWAYS-ON (rf2-d2841): the composed envelope IS the thing captured.
+      ;; ALWAYS-ON: the composed envelope IS the thing captured.
       (is (= {:ovc/real :ovc/stub} (:fx-overrides @captured-envelope))
           "the id-redirect composes onto the dispatch envelope")
       (when rf.interop/debug-enabled?
@@ -140,11 +140,11 @@
    :rf/fn-override at the emission site — the fn never rides the tag"
     (let [tags (run-start-tags [:ovc/run]
                                {:fx-overrides {:ovc/real (fn [_ _] :ran)}})]
-      ;; ALWAYS-ON (rf2-d2841): the ENVELOPE holds the RAW fn — which is
+      ;; ALWAYS-ON: the ENVELOPE holds the RAW fn — which is
       ;; precisely why marker-izing it at the emission site is worth pinning.
       (is (fn? (:ovc/real (:fx-overrides @captured-envelope)))
           "the envelope carries the fn value itself")
-      ;; rf2-d2841 — the marker-ization exists only on the emit path.
+      ;; Dev arm — the marker-ization exists only on the emit path.
       (when rf.interop/debug-enabled?
         (is (= {:ovc/real :rf/fn-override} (:rf.event/fx-overrides tags)))))))
 
@@ -153,7 +153,7 @@
    :fx-overrides, same precedence as the live override-application path"
     (let [tags (rf/with-fx-overrides {:ovc/lexical :ovc/lexical-stub}
                  (run-start-tags [:ovc/run]))]
-      ;; ALWAYS-ON (rf2-d2841): the MERGE is envelope composition, not a
+      ;; ALWAYS-ON: the MERGE is envelope composition, not a
       ;; trace-side reconstruction.
       (is (= {:ovc/lexical :ovc/lexical-stub}
              (:fx-overrides @captured-envelope))
@@ -175,7 +175,7 @@
     (let [expected {::some-icpt nil [:ovc/path-icpt [:cart]] nil}
           tags (run-start-tags [:ovc/run]
                                {:interceptor-overrides expected})]
-      ;; ALWAYS-ON (rf2-d2841).
+      ;; ALWAYS-ON.
       (is (= expected (:interceptor-overrides @captured-envelope))
           "the parameterized [id arg] key rides the envelope verbatim")
       (when rf.interop/debug-enabled?
@@ -183,7 +183,7 @@
 
 (deftest per-frame-only-fx-override-is-not-captured
   (testing "a per-frame-only :fx-overrides entry (no per-call, no lexical) is
-   NOT captured — the run-start tag omits it, matching the ruling's pinned
+   NOT captured — the run-start tag omits it, matching the pinned
    per-call + lexical scope"
     (reset! captured-envelope nil)
     (rf/reg-fx :ovc/probe (fn [m _] (reset! captured-envelope (:envelope m))))
@@ -192,7 +192,7 @@
     (let [acc (collect-traces! ::cap)]
       (try
         (rf/dispatch-sync [:ovc/run] {:frame :ovc/framed})
-        ;; ---- ALWAYS-ON (rf2-d2841): the per-frame tier is a FRAME property,
+        ;; ---- ALWAYS-ON: the per-frame tier is a FRAME property,
         ;;      so it is genuinely absent from the envelope rather than merely
         ;;      absent from an emit that did not happen.
         (is (some? @captured-envelope) "the dispatch envelope reached the fx ctx")

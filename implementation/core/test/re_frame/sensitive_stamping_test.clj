@@ -5,8 +5,8 @@
   path-scoped handler is driven by the classified `:sensitive` app-db
   overlap (the per-frame elision registry, written by the commit-plane
   classification effects under `:source :effect`), NOT schema-attached
-  `{:sensitive? true}` slot props (which no longer feed that registry) and no
-  longer a frame annotation."
+  `{:sensitive? true}` slot props (which do not feed that registry) and not a
+  frame annotation."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
@@ -34,11 +34,11 @@
   (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.elision :reload)
   (require 're-frame.schemas :reload)
-  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
+  ;; EP-0002: `init!` does not synthesise `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
-  ;; `{:frame …}` opts in the test bodies still win.
+  ;; `{:frame …}` opts in the test bodies win.
   (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
@@ -64,12 +64,12 @@
       (is (not (contains? ev :sensitive?))))))
 
 (deftest handler-meta-sensitive-no-longer-stamps-events
-  (testing "The handler-meta `:sensitive?` annotation has been removed.
-            The `:sensitive?` stamp is now driven exclusively by the
-            schema-derived overlap (see `schema-auto-redaction-*` tests
-            below). A handler-meta `:sensitive?` value is preserved on
-            the registrar's stored meta (registry is opaque) but is no
-            longer consulted by the trace surface."
+  (testing "There is no handler-meta `:sensitive?` annotation. The
+            `:sensitive?` stamp is driven exclusively by the classified
+            app-db overlap (see the `frame-class-auto-redaction-*` tests
+            below). A handler-meta `:sensitive?` value sits on the
+            registrar's stored meta (registry is opaque) but is not
+            consulted by the trace surface."
   (rf/reg-event :sensitive/cross-cutting
                    {:sensitive? true}   ;; stored, not consulted
                    (fn [{:keys [db]} _]
@@ -83,7 +83,7 @@
         (is (seq matches) (str op " was emitted"))
         (doseq [ev matches]
           (is (not (true? (:sensitive? ev)))
-              (str op " is NOT stamped sensitive (handler-meta annotation removed)"))))))))
+              (str op " is NOT stamped sensitive (handler-meta annotation not consulted)"))))))))
 
 (deftest frame-class-auto-redaction-for-path-scoped-handler
   (testing "A frame-sensitive app-db path installs redaction without
@@ -155,7 +155,8 @@
   (let [all   (rf/trace-buffer :rf/default {:flat true})
         sens  (rf/trace-buffer :rf/default {:flat true :sensitive? true})
         plain (rf/trace-buffer :rf/default {:flat true :sensitive? false})]
-    (is (pos? (count sens)) "schema-driven sensitive events present in the buffer")
+    (is (pos? (count sens))
+        "classification-driven sensitive events present in the buffer")
     (is (pos? (count plain)))
     (is (= (count all) (+ (count sens) (count plain))))
     (doseq [ev sens]  (is (true? (:sensitive? ev))))
@@ -169,16 +170,16 @@
   (is (identical? rf/sensitive? rf.privacy/sensitive?)))
 
 (deftest sensitive-predicate-fails-closed-on-a-malformed-stamp
-  ;; rf2-kuky.8 — the `:rf/trace-event` schema types `:sensitive?` as a
+  ;; The `:rf/trace-event` schema types `:sensitive?` as a
   ;; boolean, so a string / keyword / number stamp is a contract violation:
   ;; some producer has coerced the boolean into the wrong shape. The only
   ;; safe reading of a violation on THIS axis is the conservative one.
   ;;
-  ;; This was `(true? (:sensitive? ev))`, which read every one of these as
-  ;; NOT sensitive and forwarded the event — fail-OPEN in exactly the case
-  ;; where the producer has already proved unreliable. The MCP wire
-  ;; (`re-frame.mcp-base.sensitive/sensitive-stamp?`) had ruled the other
-  ;; way; the framework predicate now matches it.
+  ;; A `(true? (:sensitive? ev))` reading would treat every one of these as
+  ;; NOT sensitive and forward the event — fail-OPEN in exactly the case
+  ;; where the producer has already proved unreliable. The framework
+  ;; predicate matches the MCP wire's classifier
+  ;; (`re-frame.mcp-base.sensitive/sensitive-stamp?`).
   (testing "a non-boolean truthy stamp counts as SENSITIVE"
     (is (true? (rf/sensitive? {:sensitive? "true"})))
     (is (true? (rf/sensitive? {:sensitive? "false"}))

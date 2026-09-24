@@ -44,11 +44,11 @@
               (rf.reply/validate-reply {:status :ok})))
     (is (some #(= :rf.reply/ok-has-error (:rf.reply/problem %))
               (rf.reply/validate-reply {:status :ok :value 1 :error {:kind :x}}))))
-  (testing "a PRESENT :error key on :ok — including a nil placeholder — is rejected (rf2-o7pqbm finding 3)"
+  (testing "a PRESENT :error key on :ok — including a nil placeholder — is rejected"
     ;; The contract says :error is ABSENT for :ok (omit optional fields when
-    ;; absent rather than fill a nil sentinel). A {:status :ok :error nil}
-    ;; reply previously slipped through because validation rejected only
-    ;; `(some? error)`; it now rejects a present-but-nil :error too.
+    ;; absent rather than fill a nil sentinel). A validator that rejected only
+    ;; `(some? error)` would let a {:status :ok :error nil} reply slip through;
+    ;; validation rejects a present-but-nil :error too.
     (is (some #(= :rf.reply/ok-has-error (:rf.reply/problem %))
               (rf.reply/validate-reply {:status :ok :value 1 :error nil}))
         "{:status :ok :error nil} fails — :error should be OMITTED on :ok, not nil-filled")
@@ -145,13 +145,12 @@
            :correlation  {:request-id [:article/by-id 42]}}))))
 
 (deftest data-only-invariant-rejects-non-edn-host-objects
-  ;; rf2-o7pqbm finding 4 — the host-handle docstring named JS Date / RegExp
-  ;; (and the JVM counterparts) among the rejected host objects, but the
-  ;; predicate never checked them. The detector and its documented contract
-  ;; are now ALIGNED: a Date / RegExp (a non-EDN host object that neither
-  ;; round-trips through the EDN reader nor compares by value) is a host handle
-  ;; and fails the data-only invariant on BOTH runtimes — a durable timestamp
-  ;; is an epoch-millisecond long (EP-0010), never a host Date.
+  ;; The host-handle detector and its documented contract are ALIGNED on
+  ;; JS Date / RegExp and their JVM counterparts: a Date / RegExp (a non-EDN
+  ;; host object that neither round-trips through the EDN reader nor compares
+  ;; by value) is a host handle and fails the data-only invariant on BOTH
+  ;; runtimes — a durable timestamp is an epoch-millisecond long (EP-0010),
+  ;; never a host Date.
   (testing "a host Date in the reply is a host handle (CLJS js/Date, JVM java.util.Date)"
     (let [d #?(:cljs (js/Date.) :clj (java.util.Date.))]
       (is (some #(= :rf.reply/host-handle (:rf.reply/problem %))
@@ -204,7 +203,7 @@
     (is (nil? (rf.reply/normalize-target nil)))))
 
 ;; ---------------------------------------------------------------------------
-;; Group 1b'' — MALFORMED target rejection (rf2-o7pqbm finding 1+2). The
+;; Group 1b'' — MALFORMED target rejection. The
 ;; descriptor's `:event` is REQUIRED and is an event-vector prefix
 ;; (Managed-Effects §The reply target). A descriptor missing `:event`, or
 ;; carrying a non-vector / empty / non-keyword-headed `:event`, must FAIL
@@ -265,7 +264,7 @@
              (rf.reply/complete mapped {:status :ok :value 7}))))))
 
 ;; ---------------------------------------------------------------------------
-;; Group 1b' — the reply-target-as-data contract (rf2-r16hfc item 1). A
+;; Group 1b' — the reply-target-as-data contract. A
 ;; normalized target may carry the EPHEMERAL non-data slot `::post` (the
 ;; functor accumulator fn) while in-flight, but a target that could become
 ;; DURABLE must be data-only. `durable-target` strips the ephemeral and asserts
@@ -441,12 +440,12 @@
            (:rf.reply/stale-reason (:reply (rf.reply/suppress [:x] {:g 1} {:g 2})))))))
 
 (deftest suppress-extra-cannot-override-stale-boundary
-  (testing "rf2-waawic — `extra` CANNOT override the stale boundary: threading a
+  (testing "`extra` CANNOT override the stale boundary: threading a
             natural success reply as extra still produces a valid :status :stale
             reply with NO :value (the correctness boundary is structural)"
     ;; The dangerous caller mistake the guardrail closes: passing a complete
     ;; natural-completion reply (status :ok, a :value, work-status :completed)
-    ;; as `extra`. Before the fix `merge` let those win; now the stale fields
+    ;; as `extra`. A plain `merge` would let those win; the stale fields
     ;; are forced and :value is stripped.
     (let [{:keys [reply deliver?]}
           (rf.reply/suppress nil {:g 1} {:g 2}
@@ -469,12 +468,12 @@
       (is (rf.reply/valid-reply? reply) (str (rf.reply/validate-reply reply))))))
 
 (deftest suppress-is-universally-non-delivering
-  (testing "rf2-j538f7.14 — a stale outcome NEVER app-delivers: `suppress`
+  (testing "a stale outcome NEVER app-delivers: `suppress`
             returns :deliver? false for EVERY target — no app/data target can
             make a superseded completion deliver, and there is no per-target
             opt-in or authority to pass"
-    ;; A plain short form, a descriptor, a descriptor spelling the removed
-    ;; :dispatch-stale? flag (now inert data), and a descriptor forging a truthy
+    ;; A plain short form, a descriptor, a descriptor spelling the retired
+    ;; :dispatch-stale? flag (inert data), and a descriptor forging a truthy
     ;; authority datum of any spelling — ALL are non-delivering. There is NO
     ;; app-callable issuer to obtain delivery authority; the boundary is
     ;; structural, not a check a caller can pass.
@@ -491,9 +490,9 @@
         (is (not (contains? reply :value)) "a stale reply carries NO value — no app-state mutation")))))
 
 ;; ---------------------------------------------------------------------------
-;; Group 3b — NO public stale-delivery issuer (rf2-j538f7.14). The former
+;; Group 3b — NO public stale-delivery issuer. There is no
 ;; `with-stale-authority` / `stale-authority?` / `StaleDeliveryCapability`
-;; capability dance is DELETED: `re-frame.reply` exposes no operation that
+;; capability dance: `re-frame.reply` exposes no operation that
 ;; creates, returns, copies, or attaches stale-delivery authority. App code that
 ;; directly requires the namespace cannot mint delivery for a superseded
 ;; completion, and a framework/tool test that wants to OBSERVE a stale reply
@@ -503,7 +502,7 @@
 
 #?(:clj
    (deftest no-public-stale-delivery-issuer
-     (testing "rf2-j538f7.14 AC1 — the reply namespace exposes NO public
+     (testing "the reply namespace exposes NO public
                operation that mints/attaches stale-delivery authority"
        (let [publics (set (keys (ns-publics 're-frame.reply)))]
          (doseq [sym '[with-stale-authority stale-authority?
@@ -511,10 +510,10 @@
                        stale-delivery-capability]]
            (is (not (contains? publics sym))
                (str sym " must not be a public var — no app-callable "
-                    "stale-delivery issuer remains")))))))
+                    "stale-delivery issuer exists")))))))
 
 (deftest observer-self-dispatches-a-stale-reply-on-its-own-authority
-  (testing "rf2-j538f7.14 AC3 — a framework/tool OBSERVER reads (:reply outcome)
+  (testing "a framework/tool OBSERVER reads (:reply outcome)
             and dispatches it on its OWN authority; nothing capability-bearing
             rides the target, and the suppress outcome itself never delivers"
     (let [carried {:g 1}
@@ -572,9 +571,9 @@
           "the shared walker fails closed when no frame policy is reachable"))))
 
 ;; ---------------------------------------------------------------------------
-;; Group 5 — Spec 009 thrown-error shape (rf2-tqlwzr). Every reply throw now
+;; Group 5 — Spec 009 thrown-error shape. Every reply throw
 ;; routes through the central builder: it exposes the canonical `:rf.error/id`
-;; discriminator (alongside the preserved reply-specific `:rf.error/kind`), a
+;; discriminator (alongside the reply-specific `:rf.error/kind`), a
 ;; human `:reason` sentence, a `:where`, and a message that LEADS with the
 ;; sentence and TRAILS with the `[:rf.error/<id>]` token (never a bare keyword).
 ;; ---------------------------------------------------------------------------
@@ -621,7 +620,7 @@
         ":reason is the required human sentence")))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-70h9wn — `walk-find-host-handle-bounded`, the budget-bounded sibling
+;; `walk-find-host-handle-bounded`, the budget-bounded sibling
 ;; the dev-only event-payload serialisability lint reuses. Same detection +
 ;; walk as `walk-find-host-handle`, but stops early (returns nil — a false
 ;; negative, the safe direction for an advisory surface) once the node budget

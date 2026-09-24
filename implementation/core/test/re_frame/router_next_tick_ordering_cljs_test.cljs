@@ -1,14 +1,14 @@
 (ns re-frame.router-next-tick-ordering-cljs-test
   "Host-ordering contract for the router's drain scheduling primitive
-  (`rf.interop/next-tick`), per Spec 002 §Drain scheduling — task, not microtask
-  and rf2-t8xyuk.
+  (`rf.interop/next-tick`), per Spec 002 §Drain scheduling — task, not
+  microtask.
 
   The router schedules its drain via `rf.interop/next-tick` = `goog.async.nextTick`,
   which is a **macrotask** (a next-turn TASK), NOT a microtask. These tests PIN
-  exactly that boundary — the whole guarantee the runtime makes — so a future
+  exactly that boundary — the whole guarantee the runtime makes — so a
   change cannot silently swap the primitive to a true microtask
-  (`js/queueMicrotask` / a resolved-`Promise` job) to match the historically
-  wrong \"microtask\" prose the bead corrected.
+  (`js/queueMicrotask` / a resolved-`Promise` job) to match a mistaken
+  \"microtask\" description.
 
   The distinguishing observation the event-loop contract makes available: a
   microtask scheduled from the same synchronous stack ALWAYS runs at the host's
@@ -16,7 +16,7 @@
   fires AFTER a `js/queueMicrotask` peer, it is a macrotask; if it fired before,
   it would be a microtask. Both tests turn on exactly that gap.
 
-  What these tests deliberately do NOT assert (rf2-iweic): WHICH task mechanism
+  What these tests deliberately do NOT assert: WHICH task mechanism
   Closure selects. `goog.async.nextTick` prefers a native `setImmediate`, else a
   `MessageChannel`/`postMessage` emulation, and falls back to `setTimeout(cb, 0)`
   where neither exists. All three are tasks, so every assertion below holds on
@@ -83,7 +83,7 @@
         ;; macrotask contract the drain has NOT run when this fires. Were the
         ;; drain a microtask (scheduled at dispatch time, i.e. before this one),
         ;; it would have run first and :at-microtask would be true — the exact
-        ;; regression this test fails on.
+        ;; swap this test fails on.
         (js/queueMicrotask
           (fn []
             (swap! observed assoc :at-microtask

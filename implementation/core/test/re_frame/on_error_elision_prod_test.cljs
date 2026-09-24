@@ -1,15 +1,15 @@
 (ns re-frame.on-error-elision-prod-test
-  "Per rf2-bacs4 — the corpus-wide `register-error-listener!` registry is
+  "The corpus-wide `register-error-listener!` registry is
   the always-on error observability surface; off-box observability
   shippers (Sentry / Honeybadger / Rollbar) wire through it. It MUST fire
   even when the CLJS trace surface is compile-time elided in production
   builds (`:advanced` + `goog.DEBUG=false`). This file pins that the
-  listener registry survives elision. (The per-frame `:on-error` recovery
-  policy was REMOVED per rf2-hiqtk8 — recovery is framework-owned via the
+  listener registry survives elision. (There is no per-frame `:on-error`
+  recovery policy — recovery is framework-owned via the
   per-category typed defaults, not an app-steering policy.)
 
-  Companion to `re-frame.trace-listener-elision-prod-test` (rf2-2zdu)
-  and `re-frame.source-coord-dom-elision-prod-test` (rf2-uwg5). The
+  Companion to `re-frame.trace-listener-elision-prod-test`
+  and `re-frame.source-coord-dom-elision-prod-test`. The
   shared runner is `re-frame.prod-elision-runner`; the shadow-cljs
   build is `:browser-test-prod-elision` (`:advanced` +
   `{goog.DEBUG false}`).
@@ -28,7 +28,7 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter
      :init-fn (fn []
-                ;; Per rf2-bacs4: clear the listener registry between
+                ;; Clear the listener registry between
                 ;; tests — defonce means it would otherwise leak.
                 (rf.error-emit/clear-error-listeners!))}))
 
@@ -46,10 +46,10 @@
     (is (nil? (rf/dispatch-sync [:prod/quiet-throw]))
         "dispatch-sync returns nil; the drain settled after the exception")))
 
-;; ---- rf2-bacs4 corpus-wide listener survives goog.DEBUG=false -----------
+;; ---- corpus-wide listener survives goog.DEBUG=false ---------------------
 
 (deftest error-emit-listener-fires-under-prod
-  (testing "Per rf2-bacs4: under `:advanced` + `goog.DEBUG=false`, a
+  (testing "Under `:advanced` + `goog.DEBUG=false`, a
             registered corpus-wide error-emit listener MUST fire for
             every handler exception — the trace surface is gone but
             the always-on error-emit substrate delivers the tight
@@ -96,17 +96,17 @@
       (is (= 1 (count @seen))
           "the sibling listener still received the record under prod"))))
 
-;; ---- (removed) rf2-vnjfg handler-meta :sensitive? redaction under prod ---
+;; ---- no handler-meta :sensitive? redaction under prod -------------------
 ;;
-;; The handler-meta `:sensitive?` annotation has been removed. Per-path
+;; There is no handler-meta `:sensitive?` annotation. Per-path
 ;; elision (the per-frame `[:rf.runtime/elision]` runtime-db registry, populated from app-schema
 ;; `:sensitive?` slot meta) is the load-bearing privacy surface on the
 ;; error-emit path under prod.
 
-;; ---- rf2-3un2g :source-coord rides the prod error-emit substrate --------
+;; ---- :source-coord rides the prod error-emit substrate -------------------
 
 (deftest source-coord-rides-error-record-under-prod
-  (testing "Per rf2-3un2g Policy B: under `:advanced` + `goog.DEBUG=false`,
+  (testing "Per Spec 001 Policy B: under `:advanced` + `goog.DEBUG=false`,
             the tight error-record passed to corpus-wide listeners MUST
             include `:source-coord` for handlers registered via the
             public macro path. The coord rides the always-on parallel
@@ -140,14 +140,14 @@
              coords-form literal under :advanced + goog.DEBUG=false)")))))
 
 (deftest registry-meta-stripped-of-coord-keys-under-prod
-  (testing "Per rf2-3un2g Policy A: under `:advanced` + `goog.DEBUG=false`
+  (testing "Per Spec 001 Policy A: under `:advanced` + `goog.DEBUG=false`
             the public `rf/handler-meta` MUST NOT carry `:ns` / `:file`
             / `:line` / `:column` coord-keys. Xray Open-in-editor and
             re-frame-pair are dev-only — production bundles strip the
             coord-keys from the registry-meta surface; coords for
             error-emit ride the always-on parallel registry instead.
 
-            Per rf2-9wwkcm (Spec 001 §Production elision contract, Policy 3)
+            Per Spec 001 §Production elision contract, Policy 3,
             the user-supplied pure-documentation key `:doc` is ALSO stripped
             from the public meta in production — it has zero production
             runtime / observability use. Load-bearing keys (`:tags` /
@@ -159,7 +159,7 @@
     (let [meta (rf/handler-meta {:source :store :kind :event :id :rf2-3un2g/prod-meta-strip})]
       (is (some? meta))
       (is (not (contains? meta :doc))
-          "user-supplied :doc is stripped in prod (pure documentation, rf2-9wwkcm)")
+          "user-supplied :doc is stripped in prod (pure documentation)")
       (is (= #{:probe} (:tags meta))
           "load-bearing :tags retained — the doc strip is surgical")
       (is (not (contains? meta :ns))     ":ns absent in prod meta")
@@ -167,23 +167,23 @@
       (is (not (contains? meta :line))   ":line absent in prod meta")
       (is (not (contains? meta :column)) ":column absent in prod meta"))))
 
-;; ---- end rf2-3un2g block -------------------------------------------------
+;; ---- end :source-coord block ---------------------------------------------
 
 ;; ==========================================================================
-;; rf2-2hvga (= B / widen) — every widened :rf.error/* category survives
-;; production elision. THE CRUX: these categories were previously dev-trace-
-;; ONLY (`trace/emit-error!`), which DCEs under `:advanced` + `goog.DEBUG=
-;; false`, so a frame-destroyed / no-such-handler / no-such-sub / compute-sub
-;; throw lost its diagnostic entirely in production. Now they ALSO fan out
+;; Every always-on :rf.error/* category survives production elision. THE
+;; CRUX: on the dev trace alone (`trace/emit-error!`), which DCEs under
+;; `:advanced` + `goog.DEBUG=false`, a frame-destroyed / no-such-handler /
+;; no-such-sub / compute-sub throw would lose its diagnostic entirely in
+;; production. These categories ALSO fan out
 ;; through the always-on error-emit listener (surface #4), which survives
 ;; `goog.DEBUG=false`. Each test here is the production-mode counterpart
 ;; of the dev-mode test in `re-frame.on-error-cljs-test`. Recovery is
 ;; framework-owned (the per-category typed defaults); there is no
-;; app-steering policy (rf2-hiqtk8).
+;; app-steering policy.
 ;; ==========================================================================
 
 (deftest frame-destroyed-dispatch-listener-survives-prod
-  (testing "Per rf2-2hvga: under `:advanced` + `goog.DEBUG=false`, a
+  (testing "Under `:advanced` + `goog.DEBUG=false`, a
             `dispatch` to an unknown frame RECOVERS (no-op) AND fans
             `:rf.error/frame-destroyed` through the always-on listener —
             the dev trace is gone, the listener record survives."
@@ -195,7 +195,7 @@
       (let [r (first @seen)]
         (is (= :rf.error/frame-destroyed (:error r)))
         (is (= :gone/frame (:frame r)))
-        ;; EP-0015 issue 1 (rf2-t55hxg.18) — the `:event` slot is projected
+        ;; EP-0015 issue 1 — the `:event` slot is projected
         ;; against the record's frame, which is UNRESOLVABLE here. With no
         ;; classification policy to consult the slot FAILS CLOSED to
         ;; `:rf/redacted` (it must not leak the attempted event vector under
@@ -208,7 +208,7 @@
         (is (= :whatever (:event-id r)))))))
 
 (deftest frame-destroyed-dispatch-sync-listener-survives-prod
-  (testing "Per rf2-2hvga: `dispatch-sync` to an unknown frame emits
+  (testing "`dispatch-sync` to an unknown frame emits
             `:rf.error/frame-destroyed` through the always-on listener
             under `goog.DEBUG=false`."
     (let [seen (atom [])]
@@ -220,7 +220,7 @@
       (is (= :gone/frame (:frame (first @seen)))))))
 
 (deftest frame-destroyed-subscribe-listener-survives-prod
-  (testing "Per rf2-2hvga: `subscribe` to an unknown / destroyed frame
+  (testing "`subscribe` to an unknown / destroyed frame
             RECOVERS (nil) AND emits `:rf.error/frame-destroyed` through
             the always-on listener under `goog.DEBUG=false` — the
             teardown-race shape stays observable in production."
@@ -232,13 +232,13 @@
       (let [r (first @seen)]
         (is (= :rf.error/frame-destroyed (:error r)))
         (is (= :gone/frame (:frame r)))
-        ;; rf2-alk8a (Option A — RAW): a subscription's query vector is IDENTITY
-        ;; (rf2-zwgqe / Spec 015 "pass identifiers, not secrets"), so it egresses
+        ;; RAW: a subscription's query vector is IDENTITY
+        ;; (Spec 015 "pass identifiers, not secrets"), so it egresses
         ;; on `:event` VERBATIM even under an unresolvable frame — the subscribe
         ;; emitters stamp `:op :subscribe`, which routes `:event` raw through
-        ;; `raw-identity-query-vector-event?`. rf2-t55hxg.18's fail-closed guards
+        ;; `raw-identity-query-vector-event?`. The fail-closed rule guards
         ;; policy-walked VALUE slots (dispatched event vectors — see
-        ;; `frame-destroyed-dispatch-listener-survives-prod`, still `:rf/redacted`),
+        ;; `frame-destroyed-dispatch-listener-survives-prod`, which stays `:rf/redacted`),
         ;; NOT identity slots, which never consult frame policy. The raw egress
         ;; holds in production (`goog.DEBUG=false`), not just dev.
         (is (= [:any-sub] (:event r))
@@ -247,10 +247,10 @@
             ":op :subscribe stamped on the always-on subscribe-realm record")))))
 
 (deftest no-such-handler-listener-survives-prod
-  (testing "Per rf2-2hvga (= B / widen): a dispatch to a never-registered
+  (testing "A dispatch to a never-registered
             handler emits `:rf.error/no-such-handler` through the
-            always-on listener under `goog.DEBUG=false` (previously
-            dev-trace-only — silent in production)."
+            always-on listener under `goog.DEBUG=false` (dev-trace-only,
+            it would be silent in production)."
     (let [seen (atom [])]
       (rf.error-emit/register-error-listener! :prod/recorder
                                    (fn [record] (swap! seen conj record)))
@@ -261,7 +261,7 @@
         (is (= :rf/default (:frame r)))))))
 
 (deftest no-such-sub-listener-survives-prod
-  (testing "Per rf2-2hvga (= B / widen): a subscribe to a never-registered
+  (testing "A subscribe to a never-registered
             sub emits `:rf.error/no-such-sub` through the always-on
             listener under `goog.DEBUG=false`."
     (let [seen (atom [])]
@@ -274,14 +274,14 @@
         (is (= :rf/default (:frame r)))))))
 
 (deftest compute-sub-exception-listener-survives-prod
-  (testing "Per rf2-2hvga (= B / widen) — SETTLES rf2-kjf3m.3: a sub that
+  (testing "A sub that
             throws while resolving via the PURE `compute-sub` path emits
             `:rf.error/sub-exception` through the always-on listener
-            under `goog.DEBUG=false`. THIS is the fail-open class kjf3m.3
-            flagged: under production hardening compute-sub previously
-            recovered to nil with NO always-on emission → a silent 200
-            for an SSR harness driving subs via compute-sub. Now the
-            listener record survives elision."
+            under `goog.DEBUG=false`. THIS is the fail-open class: without
+            it, under production hardening compute-sub would recover to
+            nil with NO always-on emission → a silent 200 for an SSR
+            harness driving subs via compute-sub. The listener record
+            survives elision."
     (let [seen (atom [])]
       (rf.error-emit/register-error-listener! :prod/recorder
                                    (fn [record] (swap! seen conj record)))
@@ -294,20 +294,20 @@
         (is (some? (:exception r)))))))
 
 ;; ==========================================================================
-;; rf2-goum9x — the fx / cofx production error categories survive prod
+;; The fx / cofx production error categories survive prod
 ;; elision. THE CRUX: a thrown registered fx
 ;; (`:rf.error/fx-handler-exception`), an unknown fx-id
 ;; (`:rf.error/no-such-fx`), an override misconfiguration
 ;; (`:rf.error/override-fallthrough`), and an unknown cofx-id
-;; (`:rf.error/unregistered-cofx`) were previously dev-trace-ONLY, so they lost
-;; their diagnostic entirely under `:advanced` + `goog.DEBUG=false` — even
-;; though Spec 009 catalogues them as production-reachable and Spec 011 maps
-;; fx-handler-exception to a 500 off the always-on substrate. Now they fan
+;; (`:rf.error/unregistered-cofx`) on the dev trace alone would lose
+;; their diagnostic entirely under `:advanced` + `goog.DEBUG=false` —
+;; although Spec 009 catalogues them as production-reachable and Spec 011 maps
+;; fx-handler-exception to a 500 off the always-on substrate. They fan
 ;; out through the always-on listener (axis 1), which survives elision.
 ;; ==========================================================================
 
 (deftest fx-handler-exception-listener-survives-prod
-  (testing "Per rf2-goum9x: under `:advanced` + `goog.DEBUG=false`, a
+  (testing "Under `:advanced` + `goog.DEBUG=false`, a
             registered fx that throws fans `:rf.error/fx-handler-exception`
             through the always-on listener — so the SSR error projector
             (which rides this substrate) can fail-closed to 500 and off-box
@@ -328,11 +328,11 @@
         (is (some? (:exception r)))))))
 
 (deftest no-such-fx-listener-survives-prod
-  (testing "Per rf2-goum9x: an unknown fx-id fans `:rf.error/no-such-fx`
+  (testing "An unknown fx-id fans `:rf.error/no-such-fx`
             through the always-on listener under `goog.DEBUG=false`.
-            Per rf2-g0mep the record NAMES the unknown fx-id under that gate —
-            this is the posture the defect was invisible in, because the fx-id
-            rode only `:rf.fx/id` on the DCE'd dev-trace tags."
+            The record NAMES the unknown fx-id under that gate — the posture
+            in which an fx-id riding only `:rf.fx/id` on the DCE'd dev-trace
+            tags would be invisible."
     (let [seen (atom [])]
       (rf.error-emit/register-error-listener! :prod/recorder
                                    (fn [record] (swap! seen conj record)))
@@ -345,10 +345,10 @@
         (is (= :rf/default (:frame r)))
         (is (= :goum9x/prod-never (:failing-id r))
             ":failing-id names the UNKNOWN fx-id under `goog.DEBUG=false`
-             (rf2-g0mep) — the whole point of the always-on record")))))
+             — the whole point of the always-on record")))))
 
 (deftest override-fallthrough-listener-survives-prod
-  (testing "Per rf2-goum9x: an `:fx-overrides` redirect to an unregistered
+  (testing "An `:fx-overrides` redirect to an unregistered
             fx-id fans `:rf.error/override-fallthrough` through the
             always-on listener under `goog.DEBUG=false`."
     (let [seen (atom [])]
@@ -364,7 +364,7 @@
         (is (= :rf/default (:frame r)))))))
 
 (deftest reserved-fx-override-listener-survives-prod
-  (testing "Per rf2-uh5ic5 / Spec 009 §Error event catalogue: under
+  (testing "Per Spec 009 §Error event catalogue: under
             `:advanced` + `goog.DEBUG=false`, a rejected `:fx-overrides`
             entry targeting a REJECT-tier reserved fx-id fans
             `:rf.error/reserved-fx-override` through the always-on
@@ -395,7 +395,7 @@
             ":frame names the frame the override was rejected in")))))
 
 (deftest unregistered-cofx-listener-survives-prod
-  (testing "EP-0017 (succeeds rf2-goum9x): a `:rf.cofx/requires` declaring an
+  (testing "EP-0017: a `:rf.cofx/requires` declaring an
             UNREGISTERED cofx-id fans `:rf.error/unregistered-cofx` through the
             always-on listener under `goog.DEBUG=false` (the typo case is a
             production-survivable correctness contract)."
@@ -411,8 +411,7 @@
         (is (some? r) "listener received :rf.error/unregistered-cofx under prod")
         (is (= :rf/default (:frame r)))))))
 
-;; (removed) sensitive-handler-error-record-redacted-under-prod
-;; The handler-meta `:sensitive?` annotation has been removed. Redaction on
-;; the error-emit substrate is now driven exclusively by the per-path elision
-;; wire-walker — see the rf2-3un2g block above for the prod-survivable
+;; There is no handler-meta `:sensitive?` annotation. Redaction on
+;; the error-emit substrate is driven exclusively by the per-path elision
+;; wire-walker — see the :source-coord block above for the prod-survivable
 ;; substrate contract.

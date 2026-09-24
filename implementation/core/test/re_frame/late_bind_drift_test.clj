@@ -1,26 +1,21 @@
 (ns re-frame.late-bind-drift-test
-  "Per rf2-n2j0 — drift detection between the late-bind hook
+  "Drift detection between the late-bind hook
   directory (`re-frame.late-bind.directory/hooks`) and the actual
   `(late-bind/set-fn! ...)` call sites scattered across every artefact
   under `implementation/`.
 
-  Pre-rf2-n2j0 the directory lived in an 85-line `^:doc` metadata
-  string on the `hooks` atom in `re-frame.late_bind.cljc`. The
-  metadata silently drifted: keys were published with no entry
-  (`:trace/emit!`, `:routing/route-link`, `:machines/spawn-all-init-fx`,
-  `:epoch/replace-app-db!`, `:schemas/reg-app-schemas`,
-  `:http/register-managed-machine!`, and several `:machines/after-*`
-  effect handlers), and entries claimed producers that never landed
-  in tree. This test pins both directions:
+  An unchecked directory drifts silently: keys get published with no
+  entry, and entries claim producers that never land in tree. This
+  test pins both directions:
 
     1. Every key the directory mentions is published by at least one
        in-tree call site.
     2. Every published key has a directory entry.
 
   Mechanism: walk every `.clj{c,s}` file under `implementation/` and
-  match three publication shapes — `(late-bind/set-fn! <keyword> ...)`,
+  match four publication shapes — `(late-bind/set-fn! <keyword> ...)`,
   `(substrate-adapter/route-hook! adapter <keyword> ...)`,
-  `(late-bind/chain-fn! <keyword> ...)`, and the rf2-rtk2e map-form
+  `(late-bind/chain-fn! <keyword> ...)`, and the map-form
   `(late-bind/set-fns! {<keyword> <fn> ...})` (every key inside the
   map body counts). Filter to source files (skip `test/` paths — test
   files temporarily flip hooks for isolation but don't publish new
@@ -38,16 +33,16 @@
 (def ^:private repo-implementation-root
   "Absolute path to the `implementation/` directory at the repo root.
 
-  Anchored to a CLASSPATH RESOURCE, not the working directory (rf2-55j4s3).
-  The earlier `(io/file \"..\")` form assumed the JVM cwd was
-  `implementation/core/` so that `..` reached `implementation/`. That holds
+  Anchored to a CLASSPATH RESOURCE, not the working directory.
+  A `(io/file \"..\")` form would assume the JVM cwd is
+  `implementation/core/` so that `..` reaches `implementation/`. That holds
   for the canonical per-artefact gate (`clojure -M:test` run from
   `implementation/core/`, which is what CI runs) but SILENTLY MIS-SCOPES the
   scan under the combined `implementation/deps.edn :test` alias: run from
-  `implementation/`, `..` resolves to the REPO ROOT, so the source walk picks
-  up `set-fn!` sites under `tools/` (e.g. `:subs/resolve-sub-override` in
-  `tools/story/`) that the core directory legitimately does not document —
-  the scan then reports phantom orphans.
+  `implementation/`, `..` resolves to the REPO ROOT, so the source walk would
+  pick up `set-fn!` sites under `tools/` (e.g. `:subs/resolve-sub-override` in
+  `tools/story/`) that the core directory legitimately does not document, and
+  the scan would report phantom orphans.
 
   Resolving from `(io/resource \"re_frame/late_bind/directory.cljc\")` — the
   on-disk location of the core source that DECLARES the directory under test —
@@ -93,39 +88,38 @@
 
   The keyword grammar follows the late-bind convention of namespaced
   keywords with `/` separator. Namespace portion may contain `.`
-  (e.g. `:trace.tooling/deliver!`, rf2-qwm0a). The regex is
+  (e.g. `:trace.tooling/deliver!`). The regex is
   intentionally loose on whitespace so multi-line forms match.
 
   The `rf.` alias prefix is OPTIONAL. spec/Conventions.md
   §Require-alias dialect makes `rf.late-bind` the canonical alias, and
-  this scan reads every artefact's src tree — including the ones still
-  spelling it `late-bind` while that migration completes. Both spellings
-  denote the same publication, so both must count as one."
+  a bare `late-bind` spelling denotes the same publication, so both
+  count as one."
   #"\((?:rf\.)?late-bind/set-fn!\s+(:[a-zA-Z][a-zA-Z0-9.!?*+\-]*/[a-zA-Z][a-zA-Z0-9!?*+\-]*)")
 
 (def ^:private route-hook-call-re
   "Match `(substrate-adapter/route-hook! adapter :namespace/key ...`.
 
-  Per rf2-0d35 every CLJS adapter publishes its substrate-specific
+  Every CLJS adapter publishes its substrate-specific
   `:adapter/*` hooks through `route-hook!` (which wraps the impl in a
   current-adapter routing closure and chains to the previously-
   registered handler). The wrapper invokes `set-fn!`
   internally — the drift scan must treat both call shapes as
   equivalent publications. Both the canonical `rf.substrate.adapter`
-  alias and the pre-migration `substrate-adapter` spelling match."
+  alias and the bare `substrate-adapter` spelling match."
   #"\((?:rf\.substrate\.adapter|substrate-adapter)/route-hook!\s+\S+\s+(:[a-zA-Z][a-zA-Z0-9.!?*+\-]*/[a-zA-Z][a-zA-Z0-9!?*+\-]*)")
 
 (def ^:private chain-fn-call-re
   "Match `(late-bind/chain-fn! :namespace/key ...` and the bare
   `(chain-fn! :namespace/key ...` form.
 
-  Per rf2-1fh5h chained hooks are published through `chain-fn!`
+  Chained hooks are published through `chain-fn!`
   (which calls `set-fn!` internally, wrapping the step-fn in a
   chain-into-previous closure). Drift scan treats this call shape as
   equivalent to direct `set-fn!` publication.
 
-  The `late-bind/` alias prefix is OPTIONAL, in either spelling
-  (rf2-z79p8): the canonical
+  The `late-bind/` alias prefix is OPTIONAL, in either spelling:
+  the canonical
   warn-once-clear chokepoint `register-warn-once-clear-fn!` lives INSIDE
   `re-frame.late-bind` and calls `chain-fn!` unqualified there, so the
   authoritative `:adapter/clear-warn-once-caches!` publication is a bare
@@ -138,7 +132,7 @@
   capture group returns the map body (everything between `{` and the
   matching `})`).
 
-  Per rf2-rtk2e: feature artefacts publish their late-bind contract as
+  Feature artefacts publish their late-bind contract as
   a single map of `hook-key → fn` entries rather than a column of 15+
   individual `set-fn!` calls. The drift scan must treat each key in the
   map body as a publication. Multiline-friendly (the map typically spans
@@ -166,7 +160,7 @@
 
 (defn- match-set-fns-block-keys
   "Extract every fully-qualified hook key from every
-  `(late-bind/set-fns! { ... })` block in `content`. Per rf2-rtk2e the
+  `(late-bind/set-fns! { ... })` block in `content`. The
   map-form publication is an equivalent shape to per-entry `set-fn!`
   calls; the drift scan reaches each key by walking the block body.
   Comments inside the map body are stripped first so a `;;` mention of
@@ -235,7 +229,7 @@
   directory entry whose key is published directly names the ns that
   actually carries the `set-fn!` call — not merely an ns that exists in
   tree and happens to share a prefix with the real publisher
-  (`re-frame.schemas` vs `re-frame.schemas.malli`, rf2-bf4d8r)."
+  (`re-frame.schemas` vs `re-frame.schemas.malli`)."
   []
   (reduce (fn [acc f]
             (if-let [ns-sym (ns-of-file f)]
@@ -293,12 +287,12 @@
                (str/join "\n  " stale))))))
 
 (deftest every-directly-published-entry-names-its-set-fn-ns
-  (testing "Each directly-published entry's :producer-ns is the ns carrying its (late-bind/set-fn! :key ...) site (rf2-bf4d8r)"
+  (testing "Each directly-published entry's :producer-ns is the ns carrying its (late-bind/set-fn! :key ...) site"
     ;; Stronger than `every-directory-entry-has-a-real-producer`, which only
-    ;; checked that the claimed ns's `(ns ...)` form exists SOMEWHERE in tree.
-    ;; That let `:schemas/humanize-explain!` claim `re-frame.schemas` while the
-    ;; sole publisher was `re-frame.schemas.malli` — the claimed ns exists, so
-    ;; the looser gate stayed green. This gate pins a DIRECTLY-published entry
+    ;; checks that the claimed ns's `(ns ...)` form exists SOMEWHERE in tree.
+    ;; That would let `:schemas/humanize-explain!` claim `re-frame.schemas`
+    ;; while the sole publisher is `re-frame.schemas.malli` — the claimed ns
+    ;; exists, so the looser gate stays green. This gate pins a DIRECTLY-published entry
     ;; (one whose key has a literal `set-fn!` call site) to that real site: at
     ;; least one claimed producer ns must be a ns that directly publishes the
     ;; key. Scoped to direct `set-fn!` publications only — keys published via
@@ -351,10 +345,10 @@
   Anchored to the literal `Returns the {` … `}` delimiters so ONLY the exact
   delimited roster — not the per-field prose that follows it (`:record is …`,
   `:silenced-cbs is a {cb-id → generation} map …`, `:baseline-silence-seq is
-  the terminal-silence counter …`) — is what the drift pin reads. The earlier
-  str/includes? gate matched any field ANYWHERE in the description, so dropping
-  a field from this roster left its later prose mention and stayed green — the
-  false-green rf2-0st1f gives real teeth."
+  the terminal-silence counter …`) — is what the drift pin reads. A
+  str/includes? gate would match any field ANYWHERE in the description, so
+  dropping a field from this roster would leave its later prose mention and
+  stay green."
   #"Returns the \{([^}]*)\}")
 
 (def ^:private simple-keyword-re
@@ -365,25 +359,25 @@
 
 (def ^:private epoch-destroy-bundle-roster
   "The EXACT terminal-evidence bundle :epoch/snapshot-frame-destroyed returns
-  and threads to :epoch/on-frame-destroyed (rf2-vxgfnd.151 / .265 / .285).
+  and threads to :epoch/on-frame-destroyed.
   This is the authoritative expectation the directory description's
   `Returns the {…}` roster is pinned against: any addition, removal, or rename
   must update BOTH this set and the description roster in lockstep, or
   `epoch-destroy-bundle-directory-pins-exact-roster` fails. The runtime
-  producer/consumer contract (re-frame.epoch.listeners) stays the behavioural
+  producer/consumer contract (re-frame.epoch.listeners) is the behavioural
   authority; this pin only guards the central late-bind ABI description."
   #{:record :listener-snapshot :silenced-cbs :baseline-silence-seq})
 
 (deftest epoch-destroy-bundle-directory-pins-exact-roster
-  (testing "The :epoch/snapshot-frame-destroyed entry pins the EXACT terminal-evidence bundle roster (rf2-0st1f)"
+  (testing "The :epoch/snapshot-frame-destroyed entry pins the EXACT terminal-evidence bundle roster"
     ;; The producer (re-frame.epoch.listeners/snapshot-terminal-destroy-evidence!)
     ;; and the consumer (on-frame-destroyed!) thread a four-field bundle across
     ;; re-arm and the A->B->nil ABA; omitting any field from the central late-bind
-    ;; directory makes it an incomplete ABI description (rf2-q5xq4a). This pins the
+    ;; directory makes it an incomplete ABI description. This pins the
     ;; EXACT delimited `Returns the {…}` roster: a per-field str/includes? check is
     ;; a false-green because every field is ALSO named in the per-field explanatory
     ;; prose, so dropping one from the roster leaves its later mention and passes
-    ;; anyway (rf2-0st1f). Extracting the roster block and comparing the exact field
+    ;; anyway. Extracting the roster block and comparing the exact field
     ;; set gives it teeth — add/remove/rename a roster field and this fails unless
     ;; `epoch-destroy-bundle-roster` above is updated in lockstep.
     (let [desc         (:description (rf.late-bind.directory/entry :epoch/snapshot-frame-destroyed))
@@ -407,44 +401,44 @@
                  "producer/consumer ABI is the runtime authority)."))))))
 
 (def ^:private reprojection-hook-keys
-  "The two live-frame reprojection hooks whose descriptions rf2-9c2jf made
-  false. `make-frame` seals a generation UNCONDITIONALLY, so gating the
-  MAINTAINER of that generation froze every frame's view of the registration
-  pool at construction time — under `-Dre-frame.debug=false` a `reg-*` after
-  `make-frame` dispatched as `:rf.error/no-such-handler` while
-  `registrar/lookup` held the handler. The gate is gone; the directory rows
-  described it for another two PRs anyway (rf2-h8l4x)."
+  "The two live-frame reprojection hooks, whose maintainer carries no debug
+  gate. `make-frame` seals a generation UNCONDITIONALLY, so gating the
+  MAINTAINER of that generation would freeze every frame's view of the
+  registration pool at construction time — under `-Dre-frame.debug=false` a
+  `reg-*` after `make-frame` would dispatch as `:rf.error/no-such-handler`
+  while `registrar/lookup` holds the handler."
   [:live-frame/mark-projection-dirty! :live-frame/flush-projection!])
 
 (def ^:private retired-gate-phrases
-  "Phrasings that assert the RETIRED debug gate on the reprojection wiring.
-  Matched case-insensitively against the two `reprojection-hook-keys`
-  descriptions. Narrow on purpose — this is a tripwire on two rows that have
-  already drifted once, not a general description-accuracy framework."
+  "Phrasings that assert a debug gate on the reprojection wiring, which has
+  none. Matched case-insensitively against the two `reprojection-hook-keys`
+  descriptions. Narrow on purpose — this is a tripwire on two rows, not a
+  general description-accuracy framework."
   ["dev-only" "debug-gated" "stops mutating after boot"])
 
 (deftest reprojection-hooks-are-not-described-as-dev-only
-  (testing "The two live-frame reprojection rows describe an UNGATED maintainer (rf2-h8l4x / rf2-9c2jf)"
-    ;; `late_bind_drift_test` pins key/publisher parity, which is precisely why
-    ;; this drift survived PR #7114: the keys never moved, only the story about
-    ;; them stayed false. The directory is the normative inventory an author
-    ;; consults to learn whether a hook is production-live, so a row that
-    ;; re-acquires the retired rationale re-seeds the defect class.
+  (testing "The two live-frame reprojection rows describe an UNGATED maintainer"
+    ;; The tests above pin key/publisher parity only, so a row whose keys stay
+    ;; put while its story goes false passes them. The directory is the
+    ;; normative inventory an author consults to learn whether a hook is
+    ;; production-live, so a row that re-asserts a debug gate re-seeds the
+    ;; defect class.
     (doseq [k reprojection-hook-keys]
       (let [desc (:description (rf.late-bind.directory/entry k))]
         (is (some? desc) (str k " must have a directory entry"))
         (let [lowered (str/lower-case (or desc ""))
               stale   (filter #(str/includes? lowered %) retired-gate-phrases)]
           (is (empty? stale)
-              (str k " re-asserts the retired debug gate: "
+              (str k " re-asserts a debug gate: "
                    (pr-str (vec stale)) "\n"
-                   "rf2-9c2jf removed it — keeping a frame's sealed generation in "
+                   "There is none — keeping a frame's sealed generation in "
                    "step with the registration pool is a CORRECTNESS invariant, not "
                    "a diagnostic, and the production elision is preserved by "
                    "REACHABILITY from `make-frame` (only "
                    "`ensure-reprojection-installed!` publishes these keys) rather "
                    "than by an `interop/debug-enabled?` gate."))
-          (is (str/includes? (or desc "") "rf2-9c2jf")
-              (str k " dropped its rf2-9c2jf citation. The row must keep saying WHY "
-                   "the maintainer is ungated, or the next author reinstates the "
-                   "gate and reproduces the release blocker.")))))))
+          (is (str/includes? lowered "correctness")
+              (str k " does not say WHY the maintainer is ungated. The row must "
+                   "name it a CORRECTNESS matter rather than a diagnostic, or the "
+                   "next author reinstates the gate and freezes each frame's view "
+                   "of the registration pool at construction time.")))))))

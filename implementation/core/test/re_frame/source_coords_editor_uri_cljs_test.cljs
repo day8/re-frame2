@@ -1,5 +1,5 @@
 (ns re-frame.source-coords-editor-uri-cljs-test
-  "CLJS smoke tests for `re-frame.source-coords.editor-uri` (rf2-evgf5).
+  "CLJS smoke tests for `re-frame.source-coords.editor-uri`.
 
   The pure helper is JVM + CLJS portable; the bulk of the matrix lives
   in the JVM test ns. This file verifies the CLJS build path resolves
@@ -43,7 +43,7 @@
     (is (not (rf.source-coords.editor-uri/has-source? nil)))))
 
 (deftest forbidden-custom-schemes-on-cljs
-  (testing "javascript: / data: / vbscript: custom URIs return nil on CLJS (rf2-vwcsq)"
+  (testing "javascript: / data: / vbscript: custom URIs return nil on CLJS"
     (is (nil? (rf.source-coords.editor-uri/editor-uri {:custom "javascript:alert(1)"}                 coord)))
     (is (nil? (rf.source-coords.editor-uri/editor-uri {:custom "JavaScript:alert(1)"}                 coord)))
     (is (nil? (rf.source-coords.editor-uri/editor-uri {:custom "data:text/html,<script>x</script>"}   coord)))
@@ -52,20 +52,20 @@
     (is (nil? (rf.source-coords.editor-uri/editor-uri {:custom " javascript:alert(1)"}                coord)))))
 
 (deftest legitimate-custom-schemes-pass-on-cljs
-  (testing "ordinary custom editor templates still resolve on CLJS"
+  (testing "ordinary custom editor templates resolve on CLJS"
     (is (some? (rf.source-coords.editor-uri/editor-uri {:custom "jetbrains://idea/{path}:{line}"}      coord)))
     (is (some? (rf.source-coords.editor-uri/editor-uri {:custom "subl://open?path={path}&line={line}"} coord)))
     (is (some? (rf.source-coords.editor-uri/editor-uri {:custom "emacsclient://open?file={path}"}      coord))))
-  (testing "rf2-ox357n: an UNKNOWN, non-dangerous custom scheme passes
+  (testing "an UNKNOWN, non-dangerous custom scheme passes
             through on CLJS — no positive allowlist, no silent dead button"
     (is (= "lapce://open?file=src/app/views.cljs&line=42"
            (rf.source-coords.editor-uri/editor-uri {:custom "lapce://open?file={path}&line={line}"} coord)))
     (is (some? (rf.source-coords.editor-uri/editor-uri {:custom "future-editor-9://{path}:{line}"} coord)))))
 
-;; ---- public forbidden-scheme? predicate (rf2-ox357n) ---------------------
+;; ---- public forbidden-scheme? predicate ----------------------------------
 
 (deftest forbidden-scheme-on-cljs
-  (testing "rf2-ox357n: the public denylist predicate round-trips on CLJS"
+  (testing "the public denylist predicate round-trips on CLJS"
     ;; the three known-bad schemes are forbidden, case-insensitively +
     ;; leading-whitespace tolerant
     (is (rf.source-coords.editor-uri/forbidden-scheme? "javascript:alert(1)"))
@@ -86,7 +86,7 @@
     (is (not (rf.source-coords.editor-uri/forbidden-scheme? "")))
     (is (not (rf.source-coords.editor-uri/forbidden-scheme? "no-scheme-here")))))
 
-;; ---- project-root prefix (rf2-zfy1e) -------------------------------------
+;; ---- project-root prefix -------------------------------------------------
 
 (deftest project-root-cljs-smoke
   (testing "{:project-root ...} prefixes the relative source-coord file on CLJS"

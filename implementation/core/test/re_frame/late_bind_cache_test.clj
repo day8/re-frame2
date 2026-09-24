@@ -1,12 +1,12 @@
 (ns re-frame.late-bind-cache-test
-  "Per rf2-0kfd4 (testcov-core G1 + G2) — behavioural coverage for the
+  "Behavioural coverage for the
   late-bind sticky resolution cache and the `chain-fn!` runtime
   composition contract.
 
-  These are rf2-f72pd hot-path machinery: every dispatch / subscribe
+  This is hot-path machinery: every dispatch / subscribe
   resolves `:trace/emit!`, `:adapter/current-frame`, `:router/dispatch!`,
   `:epoch/capture-event`, … through `get-fn-cached`. The documented
-  invariants previously had ZERO assertions:
+  invariants:
 
     G1 — `get-fn-cached` / `invalidate-cache!` (late_bind.cljc):
       (a) a resolved fn is cached and re-served,
@@ -131,7 +131,7 @@
           "the very next get-fn-cached serves the newly-published fn — no stale slot"))))
 
 ;; =============================================================================
-;; rf2-rtk2e — set-fns! map-form publication
+;; set-fns! map-form publication
 ;; =============================================================================
 
 (deftest set-fns!-publishes-every-entry-equivalently-to-set-fn!
@@ -267,16 +267,16 @@
           "chain-fn! invalidated the cache slot so the next dispatch sees the chained hook"))))
 
 ;; =============================================================================
-;; rf2-d9x8 — a lookup that overlaps a republication must not RESTORE the
+;; A lookup that overlaps a republication must not RESTORE the
 ;; superseded fn after the replacement's invalidation has run.
 ;;
 ;; `set-fn!` publishes into `hooks` and THEN drops the cache slot. A reader
-;; that had already read the old fn out of `hooks` used to insert it
-;; unconditionally afterwards, repopulating the slot the publication had just
-;; cleared — permanently, until some later invalidation. On the JVM that is a
-;; supported hot-reload path: an event running while a developer reloads
-;; `re-frame.flows` keeps the OLD `:flows/run-flows-on-db` on every subsequent
-;; event, with an uncached lookup disagreeing with runtime behaviour.
+;; that had already read the old fn out of `hooks` and inserted it
+;; unconditionally afterwards would repopulate the slot the publication had
+;; just cleared — permanently, until some later invalidation. On the JVM that
+;; is a supported hot-reload path: an event running while a developer reloads
+;; `re-frame.flows` would keep the OLD `:flows/run-flows-on-db` on every
+;; subsequent event, with an uncached lookup disagreeing with runtime behaviour.
 ;;
 ;; The interleaving is driven through the real `set-fn!` / `get-fn-cached`,
 ;; parking the reader at the memo-insert seam (`cache-resolution!`) — the exact
@@ -284,7 +284,7 @@
 ;; =============================================================================
 
 (deftest racing-lookup-cannot-restore-a-superseded-fn
-  (testing "rf2-d9x8: after a completed replacement publication, EVERY later
+  (testing "After a completed replacement publication, EVERY later
             cached lookup serves the replacement — a reader that resumes
             mid-insert holding the old fn cannot resurrect it"
     (let [k       :test/d9x8-race

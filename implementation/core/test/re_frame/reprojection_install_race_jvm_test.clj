@@ -1,46 +1,46 @@
 (ns re-frame.reprojection-install-race-jvm-test
-  "rf2-9c2jf (the MERGED-PR-#7114 audit reopen) — a PARTIALLY-INSTALLED
-  reprojection must never be observable as INSTALLED.
+  "A PARTIALLY-INSTALLED reprojection must never be observable as INSTALLED.
 
-  THE DEFECT. `re-frame.live-frame/ensure-reprojection-installed!` used to
-  publish its once-flag with `compare-and-set!` FIRST and perform the three side
-  effects the flag PROMISES afterwards:
+  THE DEFECT CLASS. A `re-frame.live-frame/ensure-reprojection-installed!`
+  that published its once-flag with `compare-and-set!` FIRST and performed the
+  three side effects the flag PROMISES afterwards
 
       (when (compare-and-set! reprojection-installed? false true)   ;; publish
         (rf.registrar/add-registration-hook! reproject-on-registration-change!)
         (rf.late-bind/set-fn! :live-frame/mark-projection-dirty! …)
         (rf.late-bind/set-fn! :live-frame/flush-projection!      …))
 
-  `compare-and-set!` ELECTS one installer; it does not make the LOSERS WAIT for
-  that installer to finish. A second `make-frame` on another thread reads the
-  flag as `true` while the elected installer is still between the CAS and the
-  hook, concludes the wiring is in place, and proceeds to SEAL ITS GENERATION —
-  the seal `rf.registrar/lookup` resolves every `(kind, id)` through
-  (`call-with-frame-resolution`). A `reg-event` issued in that window fires NO
-  hook, because no hook exists yet. When the elected installer finally finishes
-  there is no dirty mark left for anything to flush, so that second frame stays
-  PERMANENTLY STALE: `dispatch` reports `:rf.error/no-such-handler` for a
-  handler `rf.registrar/lookup` is holding at that very moment. That is the
-  original rf2-9c2jf release blocker, recreated WITHOUT the debug gate.
+  would race. `compare-and-set!` ELECTS one installer; it does not make the
+  LOSERS WAIT for that installer to finish. A second `make-frame` on another
+  thread would read the flag as `true` while the elected installer is still
+  between the CAS and the hook, conclude the wiring is in place, and proceed to
+  SEAL ITS GENERATION — the seal `rf.registrar/lookup` resolves every
+  `(kind, id)` through (`call-with-frame-resolution`). A `reg-event` issued in
+  that window would fire NO hook, because no hook exists yet. When the elected
+  installer finished there would be no dirty mark left for anything to flush,
+  so that second frame would stay PERMANENTLY STALE: `dispatch` would report
+  `:rf.error/no-such-handler` for a handler `rf.registrar/lookup` is holding at
+  that very moment — the failure `re-frame.prod-gate-dispatch-jvm-test`
+  guards, reached WITHOUT the debug gate.
 
   THE INVARIANT, stated as this namespace tests it: *completion is observable
-  only after every side effect the flag promises is in place.* The repair
-  publishes the flag LAST and serializes the whole once-body under a JVM
-  monitor, so a concurrent caller either does the install or BLOCKS until the
-  installer has finished it — it can never pass the boundary early.
+  only after every side effect the flag promises is in place.* The once-body
+  publishes the flag LAST and runs serialized under a JVM monitor, so a
+  concurrent caller either does the install or BLOCKS until the installer has
+  finished it — it can never pass the boundary early.
 
   THE HARNESS. Both tests open the window DETERMINISTICALLY with a
   `with-redefs` barrier on one of the three side effects, so the installer
   thread parks INSIDE the once-body with the flag in whatever state the
   implementation put it in. No sleeps decide anything: the negative assertion
-  (\"the second caller has NOT returned\") is the one the fix makes IMPOSSIBLE
-  to violate — with the fix the second caller is blocked on a monitor the
+  (\"the second caller has NOT returned\") is the one the monitor makes
+  IMPOSSIBLE to violate — the second caller is blocked on a monitor the
   installer holds until the test releases it, so it cannot return at any
-  timeout; without the fix it returns in microseconds.
+  timeout; a publish-first install would return in microseconds.
 
     * `install-boundary-not-passable-before-the-registration-hook` parks at the
       FIRST side effect (the registrar hook) and pins the full stale-frame end
-      state — the exact reproduction the audit recorded.
+      state.
     * `install-boundary-not-passable-before-the-flush-late-bind` parks at the
       LAST side effect (`:live-frame/flush-projection!`, the read-time flush
       consult whose removal twin `:live-frame/mark-projection-dirty!` the
@@ -48,8 +48,8 @@
       pins that even the final publication precedes observability.
 
   CLJS IS UNAFFECTED and has no counterpart here: it is single-threaded, so no
-  second caller can observe the once-body mid-flight. The repair keeps the CLJS
-  path lock-free (publish-last only).
+  second caller can observe the once-body mid-flight. The CLJS path is
+  lock-free (publish-last only).
 
   THE FIXTURE REWINDS THE ONCE-FLAG. `reprojection-installed?` is a process-wide
   `defonce`, so by the time this namespace runs some earlier `make-frame` has
@@ -124,21 +124,21 @@
 
 (use-fixtures :each reset-runtime)
 
-;; A latch we expect to FIRE waits this long; the fix makes every such wait
-;; return promptly, so the number only bounds a hang.
+;; A latch we expect to FIRE waits this long; the monitor-serialized install
+;; makes every such wait return promptly, so the number only bounds a hang.
 (def ^:private ^:const settle-ms 10000)
 
-;; A latch we expect NOT to fire waits this long. With the fix the second caller
+;; A latch we expect NOT to fire waits this long. The second caller
 ;; is parked on a monitor the barriered installer holds, so no value of this
-;; number can produce a false failure; without the fix it returns immediately,
-;; so no value can produce a false pass either.
+;; number can produce a false failure; a publish-first install would return
+;; immediately, so no value can produce a false pass either.
 (def ^:private ^:const window-ms 2000)
 
 (defn- await! [^CountDownLatch latch ^long ms]
   (.await latch ms TimeUnit/MILLISECONDS))
 
 ;; ---------------------------------------------------------------------------
-;; 1. The audit's reproduction: park at the FIRST side effect (the registrar
+;; 1. The stale-frame reproduction: park at the FIRST side effect (the registrar
 ;;    registration hook) and show the second frame go permanently stale.
 ;; ---------------------------------------------------------------------------
 

@@ -1,5 +1,5 @@
 (ns re-frame.no-rf-default-floor-lint-test
-  "EP-0002 (rf2-9o48ih) — the carried-invariant STATIC conformance lint.
+  "EP-0002 — the carried-invariant STATIC conformance lint.
 
   Appendix G of EP-0002 (\"shift detection left\") asks that the
   `:rf/default`-as-absence-repair sweep be promoted from a prose `rg`
@@ -17,21 +17,19 @@
       as the frame argument of a delegated/recursive call (e.g. a
       `defwrapper` single-arity that recurses `([id] [:rf/default id])`,
       injecting the default the impl would otherwise resolve from the
-      carried scope — the rf2-vl5xsp floor), and
+      carried scope), and
     - `(or… :rf/default)` resolution floor
 
-  in PRODUCTION source. `:rf/default` remains a perfectly legal EXPLICIT
+  in PRODUCTION source. `:rf/default` is a perfectly legal EXPLICIT
   frame id (a migration may pick it, a test may register + select it) — the
   ban is on using it as an *absence repair*, not on the keyword itself.
 
-  Scope (rf2-wwt8a3): both `implementation/**/src/` (the production
+  Scope: both `implementation/**/src/` (the production
   reference) AND `tools/**/src/` — Xray, story, story-mcp, the pair-MCP,
-  machines-viz, the template + testbed-support. EP-0002's own Audit
-  Evidence named the tool tree as the DENSEST `:rf/default` surface and
-  the most likely place ambient frame assumptions creep back, yet the
-  shipped lint covered one tree of five (SS-12's sweep ambition was
-  \"docs skills tools implementation spec\"). The tools are clean today;
-  this lint is the guard that keeps them clean. Both trees are reached by
+  machines-viz, the template + testbed-support. EP-0002's Audit
+  Evidence names the tool tree as the DENSEST `:rf/default` surface and
+  the most likely place ambient frame assumptions creep back. The tools
+  are clean; this lint is the guard that keeps them clean. Both trees are reached by
   filesystem walk — the lint reads files as text (`slurp`), so no
   classpath dependency on `tools/` is introduced. `test/` is excluded in
   BOTH trees: test fixtures legitimately register + select `:rf/default`
@@ -58,7 +56,7 @@
   (-> (io/file "..") .getCanonicalFile))
 
 (def ^:private repo-tools-root
-  "Absolute path to the sibling `tools/` tree (rf2-wwt8a3). From
+  "Absolute path to the sibling `tools/` tree. From
   `implementation/core/`, `../../tools` reaches it. The walk is pure
   text — `slurp` over the files — so this adds no classpath edge from
   the core test artefact to `tools/`."
@@ -91,24 +89,24 @@
   (let [idx (.indexOf line ";")]
     (if (neg? idx) line (subs line 0 idx))))
 
-;; POSSESSIVE ON PURPOSE (rf2-ep7u) — do not "simplify" this back to the
+;; POSSESSIVE ON PURPOSE — do not "simplify" this to the
 ;; natural greedy spelling #"\"(?:\\.|[^\"\\])*\"".
 ;;
-;; THE DEFECT. Java compiles a quantified group to a `Loop` node and matches a
+;; THE HAZARD. Java compiles a quantified group to a `Loop` node and matches a
 ;; greedy loop by RECURSING once per iteration, so scanning an N-character
 ;; quoted span costs N stack frames. Past a threshold set by the thread's stack
-;; size the greedy form throws `StackOverflowError` — and because the throw
-;; happens inside the `for` that builds `offenders`, it surfaces as
+;; size the greedy form would throw `StackOverflowError` — and because the throw
+;; happens inside the `for` that builds `offenders`, it would surface as
 ;; `expected: (empty? offenders)` beneath this lint's own `:rf/default` prose,
-;; i.e. it reads exactly like a genuine floor finding on a PR that introduced
-;; none. It is DETERMINISTIC in span length; what varies between runs is the
-;; stack, which is why re-running "fixed" it and why re-running is not a remedy.
+;; i.e. it would read exactly like a genuine floor finding on a PR that
+;; introduced none. It is DETERMINISTIC in span length; what varies between runs
+;; is the stack, which is why re-running is not a remedy.
 ;; This lint's step also runs FIRST in test.yml's `jvm-repo-source-walks` job,
-;; whose seven walks are each guarded to run even after an earlier one fails
-;; (rf2-gf3y), so the crash reds THIS step alone while the six behind it still
+;; whose seven walks are each guarded to run even after an earlier one fails,
+;; so a crash would red THIS step alone while the six behind it still
 ;; run — which makes it easier to read, not harder.
 ;;
-;; THE REPAIR IS THE SAME LANGUAGE, not merely a faster one. The two branches
+;; THE POSSESSIVE FORM MATCHES THE SAME LANGUAGE, not merely faster. The two branches
 ;; are DISJOINT — `[^\"\\]` excludes both the backslash and the quote, `\\.`
 ;; requires a backslash — so at most one applies at any position and the loop
 ;; never has a choice to backtrack into. Undoing an iteration could only matter
@@ -127,7 +125,7 @@
   "Replace every double-quoted string span on the line with a space, so a
   `:rf/default` that appears only inside string DATA — an MCP tool's
   descriptor / hint prose like `\"-> {:frames [:rf/default :stories]}\"`
-  (rf2-wwt8a3, dense in `tools/re-frame2-pair-mcp`) — is not mistaken for
+  (dense in `tools/re-frame2-pair-mcp`) — is not mistaken for
   a live `[:rf/default …]` positional floor. A real floor is code, never
   string content, so this can only REDUCE false positives, never mask a
   genuine floor."
@@ -168,7 +166,7 @@
   "A `[:rf/default <sym>]` POSITIONAL floor — `:rf/default` synthesised as
   the leading (frame) element of a vector literal that is then passed
   positionally to a delegated/recursive call, ahead of one or more
-  further args. This is the rf2-vl5xsp shape: a `defwrapper` single-arity
+  further args. This is the `defwrapper` shape: a single-arity
   whose recursion body is `[:rf/default id]`, injecting the default frame
   the late-bound impl would otherwise resolve from the carried scope.
 
@@ -195,7 +193,7 @@
 
 (deftest no-rf-default-absence-repair-in-production-source
   (testing "no production source — `implementation/**/src/` OR
-            `tools/**/src/` (rf2-wwt8a3) — synthesises `:rf/default` from
+            `tools/**/src/` — synthesises `:rf/default` from
             missing frame context — none of `(or … :rf/default)`,
             `:or {frame-id :rf/default}`, or the positional
             `[:rf/default <sym>]` floor. EP-0002 carried invariant: absence
@@ -216,26 +214,26 @@
                (str/join "\n  " offenders))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-ep7u — rows that grade THE INSTRUMENT rather than the corpus.
+;; Rows that grade THE INSTRUMENT rather than the corpus.
 ;;
 ;; The lint above walks a corpus that changes under it, so it cannot pin its own
-;; scanner. These two do. The first is the crash; the second is the contract the
-;; crash fix must not buy its way out of.
+;; scanner. These two do. The first pins constant stack; the second is the
+;; contract constant stack must not buy its way out of.
 ;; ---------------------------------------------------------------------------
 
 (defn- long-span
-  "`n` characters of string CONTENT — the thing whose length drove the old
-  pattern's recursion depth."
+  "`n` characters of string CONTENT — the thing whose length would drive a
+  greedy pattern's recursion depth."
   [n]
   (str/join (repeat n "x")))
 
 (deftest string-literal-strip-is-constant-stack
-  (testing "a long quoted span is STRIPPED rather than overflowing the stack
-            (rf2-ep7u). The superseded greedy group recursed once per character
-            of span, so this threw `StackOverflowError` — and did it under
+  (testing "a long quoted span is STRIPPED rather than overflowing the stack.
+            A greedy group recurses once per character of span, so it would
+            throw `StackOverflowError` here — under
             `expected: (empty? offenders)`, reading as a floor finding. 20000 is
             an order of magnitude past the longest span in the real corpus and
-            far past any plausible thread stack, so restoring the greedy form
+            far past any plausible thread stack, so the greedy form
             turns this row RED rather than leaving it a hollow pass."
     (is (= "(def x  )"
            (strip-string-literals (str "(def x \"" (long-span 20000) "\")")))))
@@ -249,13 +247,13 @@
 (deftest string-literal-strip-preserves-the-lint-contract
   (testing "`:rf/default` inside string DATA is stripped, so it is not read as a
             live positional floor — the false positive the strip exists to
-            remove (rf2-wwt8a3 MCP descriptor prose)."
+            remove (MCP descriptor prose)."
     (is (empty? (offending-lines
                   "(def hint \"-> {:frames [:rf/default :stories]}\")"))))
 
-  (testing "and it is still stripped when the span is LONG. A repair that bought
-            constant stack by declining to scan long lines would pass the crash
-            row above and let this false positive straight back in."
+  (testing "and it is stripped when the span is LONG too. A scanner that bought
+            constant stack by declining to scan long lines would pass the
+            constant-stack row above and let this false positive straight back in."
     (is (empty? (offending-lines
                   (str "(def hint \"" (long-span 3000)
                        " [:rf/default :stories]\")")))))

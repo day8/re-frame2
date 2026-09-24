@@ -1,29 +1,25 @@
 (ns re-frame.sub-cache-test
   "Tests for the per-frame sub-cache disposal contract (Spec 006
-  §Reference counting and disposal, rf2-cmfln).
+  §Reference counting and disposal).
 
   The cache uses **synchronous ref-count disposal**: when the last
   subscriber drops (`unsubscribe` drives the 1 → 0 transition), the
   cache slot is evicted IN-TICK. The reaction is disposed, the on-
   dispose callback releases input refs (cascading layer-2+), and the
-  slot is dissoc'd. No deferred-grace timer, no batched dispose.
+  slot is dissoc'd. No deferred-grace timer, no batched dispose — the
+  surface under test is the single sync path.
 
-  Pre-rf2-cmfln these tests covered both `grace=0` (synchronous) and
-  `grace>0` (deferred) paths; the deferred-grace mechanism has been
-  retired (clean swap per pre-alpha) so the surface under test is the
-  single sync path.
-
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   Every assertion here is posture-independent — it holds in the ordinary
   `clojure -M:test` suite AND under the real production gate
   (`scripts/test-core-prod-gate.sh`, `-Dre-frame.debug=false`) — UNLESS it sits
-  inside a `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`. Those arms
-  observe the DEV `:trace` stream, whose emit sites are gated on
-  `rf.interop/debug-enabled?`; under the gate the framework emits none of it BY
-  DESIGN. The assertions are kept verbatim, they simply stop dragging their
-  semantic neighbours — the cache's ref-count/disposal contract, the recovery
-  value of a missing sub, the post-reload sub body — out of the production lane."
+  inside a `(when rf.interop/debug-enabled? …)` arm. Those arms observe the DEV
+  `:trace` stream, whose emit sites are gated on `rf.interop/debug-enabled?`;
+  under the gate the framework emits none of it BY DESIGN. The guard keeps
+  those assertions from dragging their semantic neighbours — the cache's
+  ref-count/disposal contract, the recovery value of a missing sub, the
+  post-reload sub body — out of the production lane."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -41,8 +37,8 @@
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
   (rf/init! rf.substrate.plain-atom/adapter)
-  ;; EP-0002 (rf2-jue6sp): `init!` no longer synthesises `:rf/default`,
-  ;; and ambient subscribe / unsubscribe / clear-sub-cache! now require a
+  ;; EP-0002: `init!` does not synthesise `:rf/default`,
+  ;; and ambient subscribe / unsubscribe / clear-sub-cache! require a
   ;; carried frame stamp (no `:rf/default` floor). These cache tests
   ;; exercise the ambient read surface against a single conventional app
   ;; frame, so the fixture registers `:rf/default` explicitly and pins it
@@ -71,7 +67,7 @@
   [query-v]
   (get-in @(:sub-cache (rf.frame/frame :rf/default)) [query-v]))
 
-;; ---- cache-entry shape pins Spec 006 §Cache shape (rf2-spnfk) --------------
+;; ---- cache-entry shape pins Spec 006 §Cache shape --------------------------
 ;;
 ;; Spec 006 §Cache shape advertises EXACTLY {:reaction :inputs :ref-count}.
 ;; This test pins that key-set so a phantom slot (:value / :on-dispose /
@@ -110,7 +106,7 @@
 ;; ---- synchronous disposal --------------------------------------------------
 
 (deftest sync-disposal-on-last-unsubscribe
-  (testing "ref-count → 0 disposes the cache slot synchronously (rf2-cmfln)"
+  (testing "ref-count → 0 disposes the cache slot synchronously"
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
@@ -141,9 +137,9 @@
     (rf/unsubscribe [:n])
     (is (not (contains? (cache-keys) [:n])))))
 
-;; ---- rf2-cmfln: no recompute between ref-count → 0 and dispose -----------
+;; ---- no recompute between ref-count → 0 and dispose ----------------------
 ;;
-;; The bead's acceptance #2/#3 require that no wasted sub-runs fire between
+;; No wasted sub-runs may fire between
 ;; the moment ref-count drops to zero and the moment the reaction is
 ;; disposed. With sync dispose the two events happen in the same tick on
 ;; the same call site — there is no observable gap. This test pins the
@@ -154,7 +150,7 @@
 (deftest no-recompute-between-zero-ref-count-and-dispose
   (testing "after the last unsubscribe, a state change does NOT re-invoke
             the sub's compute fn — the reaction has been disposed
-            synchronously, its watch on app-db unwound (rf2-cmfln #2/#3)"
+            synchronously, its watch on app-db unwound"
     (let [recompute-count (atom 0)]
       (rf/reg-event :seed   (fn [{:keys [db]} _]      {:db {:n 0}}))
       (rf/reg-event :update (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
@@ -180,11 +176,10 @@
           "cache slot disposed synchronously")
       (let [count-after-dispose @recompute-count]
 
-        ;; Subsequent app-db changes MUST NOT recompute. Pre-rf2-cmfln
-        ;; the deferred-grace mechanism kept the slot alive for ~50ms;
-        ;; any state change in that window would recompute the sub
-        ;; (wasted work) before the timer fired. Sync dispose eliminates
-        ;; that window: the reaction is dead before this call returns.
+        ;; Subsequent app-db changes MUST NOT recompute. A deferred-grace
+        ;; timer would keep the slot alive for a window in which any state
+        ;; change recomputes the sub (wasted work). Sync dispose leaves no
+        ;; window: the reaction is dead before this call returns.
         (rf/dispatch-sync [:update 2])
         (is (= count-after-dispose @recompute-count)
             "compute fn did NOT run after the last unsubscribe — there
@@ -194,8 +189,8 @@
         (rf/dispatch-sync [:update 3])
         (rf/dispatch-sync [:update 4])
         (is (= count-after-dispose @recompute-count)
-            "subsequent state changes still do not recompute — sync
-             dispose closed the window entirely")))))
+            "subsequent state changes do not recompute either — sync
+             dispose leaves no window")))))
 
 ;; ---- clear-sub-cache! ----------------------------------------------------
 
@@ -230,7 +225,7 @@
 ;; ---- subscribe-once teardown is synchronous ------------------------------
 ;;
 ;; subscribe-once's whole lifetime — subscribe, deref, dispose — completes
-;; in the calling tick. Per rf2-cmfln this is the same path every
+;; in the calling tick. This is the same path every
 ;; unsubscribe drives (sync), so the test asserts the user-visible shape:
 ;; the slot is gone when subscribe-once returns.
 
@@ -269,18 +264,17 @@
     (rf/unsubscribe [:n])
     (is (not (contains? (cache-keys) [:n])))))
 
-;; ---- subscribe-once {:frame} opts-map call-shape (rf2-bfadc6) -------------
+;; ---- subscribe-once {:frame} opts-map call-shape --------------------------
 ;;
-;; Per rf2-bfadc6 (Mike ruled OPTION A): `subscribe-once` has the public
-;; `{:frame}` opts-map call-shape `(subscribe-once query-v {:frame f})`,
-;; parallel to `subscribe` (EP-0024). API-shrink #1 (rf2-csbbwu) DELETED the
-;; frame-first positional form entirely — every sig is `[query-v]` /
-;; `[query-v opts]`, no `vector?` shape-discrimination. This closes the
-;; misbinding footgun EP-0024 closed for `subscribe`: an author who learned
+;; `subscribe-once` has the public `{:frame}` opts-map call-shape
+;; `(subscribe-once query-v {:frame f})`, parallel to `subscribe` (EP-0024).
+;; There is no frame-first positional form — every sig is `[query-v]` /
+;; `[query-v opts]`, no `vector?` shape-discrimination. That closes the
+;; misbinding footgun EP-0024 closes for `subscribe`: an author who learned
 ;; `(subscribe [:x] {:frame f})` writes the SAME shape here and the runtime
 ;; binds `f` as the frame (not `[:x]` as a frame-id and `{:frame f}` as a
-;; query-v). `unsubscribe` deliberately does NOT gain this form (guard test
-;; below) — it stays frame-first-only.
+;; query-v). `unsubscribe` deliberately has NO such form (guard test below)
+;; — it is frame-first-only.
 
 (defn- frame-cache-keys
   "The set of query-vectors currently cached in frame `frame-id`."
@@ -289,7 +283,7 @@
 
 (deftest subscribe-once-opts-map-binds-the-named-frame
   (testing "(subscribe-once query-v {:frame f}) reads frame f from OUTSIDE its
-            scope — the opts-map call-shape parallel to subscribe (rf2-bfadc6)"
+            scope — the opts-map call-shape parallel to subscribe"
     (rf/make-frame {:id :bfadc6/left :doc "left frame"})
     (rf/make-frame {:id :bfadc6/right :doc "right frame"})
     (rf/reg-event :seed (fn [{:keys [db]} [_ v]] {:db {:v v}}))
@@ -310,25 +304,24 @@
           "opts-map subscribe-once disposes its slot in-tick (right)"))))
 
 (deftest subscribe-once-former-frame-first-no-longer-resolves
-  (testing "the DELETED frame-first positional form — (subscribe-once
-            frame-id query-v) — no longer targets the named frame
-            (API-shrink #1, rf2-csbbwu). `frame-id` (a keyword) is now read
-            as `query-v` and `query-v` (a vector) as `opts`; `(:frame opts)`
-            on a vector is nil, so it falls to the 1-arity ambient path,
-            where `(first query-v)` on the keyword throws — it fails LOUDLY
-            rather than silently misrouting."
+  (testing "there is no frame-first positional form — (subscribe-once
+            frame-id query-v) does not target the named frame. `frame-id`
+            (a keyword) is read as `query-v` and `query-v` (a vector) as
+            `opts`; `(:frame opts)` on a vector is nil, so it falls to the
+            1-arity ambient path, where `(first query-v)` on the keyword
+            throws — it fails LOUDLY rather than silently misrouting."
     (rf/make-frame {:id :bfadc6/f :doc "frame f"})
     (rf/reg-event :seed (fn [{:keys [db]} [_ v]] {:db {:v v}}))
     (rf/reg-sub :v (fn [db _] (:v db)))
     (rf/dispatch-sync [:seed :the-value] {:frame :bfadc6/f})
     (binding [rf.frame/*current-frame* nil]
-      ;; Public opts-map form still resolves.
+      ;; The public opts-map form resolves.
       (is (= :the-value (rf/subscribe-once [:v] {:frame :bfadc6/f}))
           "opts-map (subscribe-once query-v {:frame f}) resolves the value")
-      ;; The former frame-first shape now throws rather than resolving.
+      ;; The frame-first shape throws rather than resolving.
       (is (thrown? IllegalArgumentException
                    (rf/subscribe-once :bfadc6/f [:v]))
-          "the deleted frame-first shape fails loudly, never silently"))))
+          "the frame-first shape fails loudly, never silently"))))
 
 (deftest subscribe-once-opts-map-with-empty-opts-uses-ambient
   (testing "(subscribe-once query-v {}) with no :frame key falls through to the
@@ -341,15 +334,15 @@
     (is (= 7 (rf/subscribe-once [:n] {}))
         "opts map with no :frame reads the ambient (established-scope) frame")
     (is (not (contains? (cache-keys) [:n]))
-        "still one-shot — the slot is disposed in-tick")))
+        "one-shot — the slot is disposed in-tick")))
 
 (deftest unsubscribe-did-NOT-gain-an-opts-map-form
-  (testing "unsubscribe stays FRAME-FIRST (rf2-bfadc6 Option A) — it does NOT
+  (testing "unsubscribe is FRAME-FIRST — it does NOT
             accept (unsubscribe query-v {:frame f}). A map second-arg is NOT a
             frame target: the 2-arity treats arg1 as the frame-first target and
             arg2 (the {:frame f} MAP) as the query-v, which keys nothing in the
             cache — so it does NOT tear down the entry a real subscribe made.
-            This is the negative guard that no opts-map overload was added."
+            This is the negative guard that there is no opts-map overload."
     (rf/make-frame {:id :bfadc6/u :doc "frame u"})
     (rf/reg-event :seed (fn [{:keys [db]} [_ v]] {:db {:v v}}))
     (rf/reg-sub :v (fn [db _] (:v db)))
@@ -365,13 +358,13 @@
     (rf/unsubscribe [:v] {:frame :bfadc6/u})
     (is (contains? (frame-cache-keys :bfadc6/u) [:v])
         "the {:frame …}-as-second-arg call did NOT tear down the entry —
-         unsubscribe has NO opts-map form (frame-first only, by ruling)")
+         unsubscribe has NO opts-map form (frame-first only)")
     ;; The real, frame-first teardown DOES evict it.
     (rf/unsubscribe :bfadc6/u [:v])
     (is (not (contains? (frame-cache-keys :bfadc6/u) [:v]))
-        "the frame-first (unsubscribe frame-id query-v) form still tears down")))
+        "the frame-first (unsubscribe frame-id query-v) form tears down")))
 
-;; ---- subscribe-before-register does NOT cache (rf2-l9u5) -----------------
+;; ---- subscribe-before-register does NOT cache ----------------------------
 ;;
 ;; Per Spec 006 §What happens when a sub references an unknown sub:
 ;; subscribing to an unregistered sub-id emits :rf.error/no-such-sub and
@@ -388,14 +381,14 @@
     ;; Subscribe BEFORE the sub is registered.
     (let [r1 (rf/subscribe [:my-sub])]
       (is (some? r1)
-          "subscribe still returns a (nil-yielding) reaction so callers don't deref nil")
+          "subscribe returns a (nil-yielding) reaction so callers don't deref nil")
       (is (nil? @r1)
           "the reaction yields nil per :replaced-with-default recovery")
       (is (not (contains? (cache-keys) [:my-sub]))
-          "the no-such-sub miss MUST NOT be cached (rf2-l9u5)"))
+          "the no-such-sub miss MUST NOT be cached"))
 
     ;; Now register the sub. First-time registration does NOT fire the
-    ;; replacement hook — the boot-order fix is "don't cache on miss",
+    ;; replacement hook — boot order is handled by "don't cache on miss",
     ;; not "invalidate on first register".
     (rf/reg-sub :my-sub (fn [db _] (:n db)))
     (is (not (contains? (cache-keys) [:my-sub]))
@@ -422,10 +415,10 @@
     (is (= 11 @(rf/subscribe [:lazy-sub]))
         "after registration, the cache is fresh and the real body runs")))
 
-;; ---- clear-sub does NOT clear the per-frame cache (rf2-79tl) -------------
+;; ---- clear-sub does NOT clear the per-frame cache ------------------------
 ;;
-;; v2 preserves v1's contract: clear-sub removes the registration but
-;; leaves cached reactions in place. Cache eviction is a separate
+;; clear-sub removes the registration but leaves cached reactions in
+;; place, as in v1. Cache eviction is a separate
 ;; concern, owned by clear-sub-cache!, hot-reload (re-register)
 ;; and frame disposal.
 
@@ -440,17 +433,17 @@
       (is (contains? (cache-keys) [:n])))
 
     (rf/clear :sub :n)
-    ;; Cache slot survives clear-sub — this is the documented v1 contract.
+    ;; Cache slot survives clear-sub — the documented contract, as in v1.
     (is (contains? (cache-keys) [:n])
         "clear-sub leaves the cache slot in place; use clear-sub-cache! to evict")
     (is (nil? (rf.registrar/lookup :sub :n))
         "the registration is gone")
 
-    ;; Subsequent subscribe reuses the cached reaction (reading the
-    ;; still-derived value), even though the registration is gone.
+    ;; Subsequent subscribe reuses the cached reaction (reading its derived
+    ;; value), even though the registration is gone.
     (let [r2 (rf/subscribe [:n])]
       (is (= 7 @r2)
-          "cache hit serves the previously-derived value"))
+          "cache hit serves the value already derived"))
 
     ;; clear-sub-cache! is the explicit follow-up that fully resets.
     (rf/clear-sub-cache! :rf/default)
@@ -472,14 +465,14 @@
     (is (= #{[:a] [:b]} (cache-keys))
         "clearing every :sub REGISTRATION leaves the runtime cache slots
          standing — the two are different axes, which is why
-         `clear-sub-cache!` keeps its own name (rf2-kuky.80)")
+         `clear-sub-cache!` has its own name")
     (is (= {} (rf.registrar/registrations :sub))
         "every :sub registration is gone")
 
     (rf/clear-sub-cache! :rf/default)
     (is (empty? (cache-keys)))))
 
-;; ---- idempotent unsubscribe (rf2-zikr) ------------------------------------
+;; ---- idempotent unsubscribe -----------------------------------------------
 ;;
 ;; Per Spec 006 §Reference counting and disposal: `unsubscribe` is
 ;; ref-count-based. Calling it past zero (cleanup in both a teardown hook
@@ -488,7 +481,7 @@
 ;; slot is gone, the underlying entry-lookup misses).
 
 (deftest unsubscribe-past-zero-is-idempotent
-  (testing "calling unsubscribe more than once for the same sub-id does not throw or schedule extra work (rf2-zikr / rf2-cmfln)"
+  (testing "calling unsubscribe more than once for the same sub-id does not throw or schedule extra work"
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
@@ -518,7 +511,7 @@
     (is (not (contains? (cache-keys) [:n]))
         "unsubscribe against a missing entry leaves the cache untouched")))
 
-;; ---- rf2-2rtt6.25: the identity-guarded release ----------------------------
+;; ---- the identity-guarded release ------------------------------------------
 ;;
 ;; `rf.subs/unsubscribe-if-reaction` is `unsubscribe` for a holder whose
 ;; reference can outlive its slot — the React-hook spine's render-phase
@@ -536,7 +529,7 @@
 ;; one-shot) is pinned in the React shared suite.
 
 (deftest unsubscribe-if-reaction-releases-only-its-own-reaction
-  (testing "a guarded release decrements while the slot still holds ITS reaction (rf2-2rtt6.25)"
+  (testing "a guarded release decrements while the slot holds ITS reaction"
     (rf/reg-event :init (fn [_ _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
@@ -546,8 +539,8 @@
       (is (= 2 (entry-ref-count [:n])) "two subscribers")
 
       ;; A FOREIGN object never held this slot — the guard rejects it and the
-      ;; call changes nothing. (Pre-guard, a by-key decrement would have
-      ;; silently stolen one of the two live references.)
+      ;; call changes nothing. (An unguarded by-key decrement would silently
+      ;; steal one of the two live references.)
       (rf.subs/unsubscribe-if-reaction :rf/default [:n] (Object.))
       (is (= 2 (entry-ref-count [:n]))
           "a release naming a reaction the slot does not hold is a no-op")
@@ -560,7 +553,7 @@
       (rf/unsubscribe [:n]))))
 
 (deftest unsubscribe-if-reaction-takes-the-ordinary-in-tick-dispose
-  (testing "the guarded release's 1 → 0 edge disposes in-tick and cascades (rf2-2rtt6.25)"
+  (testing "the guarded release's 1 → 0 edge disposes in-tick and cascades"
     (rf/reg-event :init (fn [_ _] {:db {:a 2}}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :double {:inputs [[:a]]} (fn [[a] _] (* 2 a)))
@@ -580,7 +573,7 @@
            other reader"))))
 
 (deftest unsubscribe-if-reaction-no-ops-against-a-successor-entry
-  (testing "a release held across a hot-reload eviction cannot touch the rebuilt slot (rf2-2rtt6.25)"
+  (testing "a release held across a hot-reload eviction cannot touch the rebuilt slot"
     (rf/reg-event :init (fn [_ _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
@@ -608,7 +601,7 @@
         (rf/unsubscribe [:n])))))
 
 (deftest unsubscribe-if-reaction-no-ops-after-cache-clear-and-frame-destroy
-  (testing "a release arriving after an explicit teardown is a clean no-op (rf2-2rtt6.25)"
+  (testing "a release arriving after an explicit teardown is a clean no-op"
     (rf/reg-event :init (fn [_ _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
@@ -622,7 +615,7 @@
           "releasing into an emptied cache neither throws nor resurrects a slot"))
 
     ;; (b) frame destroy — the frame is gone, so there is no cache to reach.
-    (rf/make-frame {:id ::doomed :doc "rf2-2rtt6.25 frame-destroy guard probe"})
+    (rf/make-frame {:id ::doomed :doc "frame-destroy guard probe"})
     (rf.frame/replace-app-db! ::doomed {:n 7})
     (let [stale (rf/subscribe [:n] {:frame ::doomed})]
       (rf/destroy-frame! ::doomed)
@@ -634,17 +627,17 @@
     (is (nil? (rf.subs/unsubscribe-if-reaction nil [:n] nil))
         "a nil frame target is a no-op, not an NPE")))
 
-;; ---- rf2-f3rd: layer-2+ disposal decrements input ref-counts --------------
+;; ---- layer-2+ disposal decrements input ref-counts ------------------------
 ;;
 ;; Per Spec 006 §Reference counting and disposal — disposal cascades clause:
 ;; when a layer-2 sub disposes, its layer-1 inputs lose one reader each;
 ;; if they were held only by that layer-2 sub, they cascade to disposal in
-;; the same tick (sync). Pre-fix, `compute-and-cache!`'s `add-on-dispose!`
-;; callback only dissoc'd the parent slot and never decremented the input
-;; ref-counts that `subscribe` incremented during construction — so input
-;; ref-counts leaked. The fix walks `:input-signals` and calls
-;; `unsubscribe` on each input symmetrically with the construction-time
-;; `subscribe` calls. These tests pin the symmetric invariant.
+;; the same tick (sync). An `add-on-dispose!` callback that only dissoc'd
+;; the parent slot would never decrement the input ref-counts that
+;; `subscribe` incremented during construction — so input ref-counts would
+;; leak. `compute-and-cache!`'s on-dispose releases each input from
+;; `:input-signals` symmetrically with the construction-time `subscribe`
+;; calls. These tests pin the symmetric invariant.
 
 (deftest layer-2-disposal-decrements-input-ref-counts
   (testing "disposing a layer-2 sub decrements ref-counts on every declared input"
@@ -802,7 +795,7 @@
     (is (not (contains? (cache-keys) [:a])))
     (is (not (contains? (cache-keys) [:b])))))
 
-;; ---- rf2-agpv2.2: input ref-count must not leak on the not-cached path ----
+;; ---- input ref-count must not leak on the not-cached path -----------------
 ;;
 ;; `compute-and-cache!` subscribes each layer-2+ declared input (bumping its
 ;; ref-count) BEFORE it re-resolves the frame to read `:sub-cache`. The
@@ -812,10 +805,11 @@
 ;; `compute-and-cache!`'s re-resolution, `cache` is nil: the parent
 ;; reaction is built and returned but never cached and never dispose-wired,
 ;; so without the compensating release the just-subscribed inputs leak
-;; forever. We reproduce the narrow seam deterministically by redefining
+;; forever. The test reproduces the narrow seam deterministically by redefining
 ;; `rf.frame/frame` to return the live record while the inputs are resolved,
 ;; then nil on the parent's cache-read re-resolution (= "frame destroyed at
-;; the seam"). The fix releases the inputs on that not-cached path.
+;; the seam"). `compute-and-cache!` releases the inputs on that not-cached
+;; path.
 
 (deftest layer-2-input-refs-released-when-frame-destroyed-mid-build
   (testing "a layer-2 build whose parent cache-read sees a destroyed frame
@@ -854,15 +848,15 @@
       ;; The parent [:sum] was NOT cached (cache was nil at the read).
       (is (not (contains? (cache-keys) [:sum]))
           "[:sum] was not cached — the destroyed-frame seam")
-      ;; THE FIX: the inputs subscribed during the layer-2 build were
-      ;; released on the not-cached path, so they cascaded to ref-count 0
-      ;; and disposed. Pre-fix they would sit orphaned at ref-count 1.
+      ;; The inputs subscribed during the layer-2 build are released on the
+      ;; not-cached path, so they cascade to ref-count 0 and dispose.
+      ;; Without that release they would sit orphaned at ref-count 1.
       (is (not (contains? (cache-keys) [:a]))
-          "input :a released (no orphaned ref) — rf2-agpv2.2")
+          "input :a released (no orphaned ref)")
       (is (not (contains? (cache-keys) [:b]))
-          "input :b released (no orphaned ref) — rf2-agpv2.2"))))
+          "input :b released (no orphaned ref)"))))
 
-;; ---- rf2-agpv2.3: no-such-sub trace tag-shape matches Spec 009 -------------
+;; ---- no-such-sub trace tag-shape matches Spec 009 --------------------------
 ;;
 ;; Spec 009 §Error catalogue documents `:rf.error/no-such-sub` tags as
 ;; `:rf.sub/id` / `:unresolved-input` / `:resolved-inputs`. Spec/Ownership
@@ -870,7 +864,7 @@
 ;; `NoSuchSubTags` projection in Spec-Schemas is non-canonical. This pins
 ;; the emit to the canonical shape so tooling keying off the documented tag
 ;; names finds them. Recovery (nil-yielding reaction, not cached) is
-;; unchanged and covered by `subscribe-before-register-does-not-cache`.
+;; covered by `subscribe-before-register-does-not-cache`.
 
 (deftest no-such-sub-trace-tags-match-spec-009
   (testing "subscribing an unregistered sub emits Spec-009 tag-shape"
@@ -882,7 +876,7 @@
       (let [r (rf/subscribe [:missing/sub])]
         (is (nil? @r) ":replaced-with-default — the reaction yields nil"))
       (rf/unregister-listener! :trace ::no-such)
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
+      ;; Dev-instrumentation arm (see ns docstring §Posture split). The
       ;; production-real half of this contract is the RECOVERY — the miss does
       ;; not throw, it yields nil — asserted above in both postures; the tag
       ;; SHAPE is a statement about what dev tooling reads off the trace.
@@ -901,11 +895,11 @@
               (is (= [] (:resolved-inputs tags))
                   ":resolved-inputs is empty — the miss is detected before input resolution")
               (is (contains? tags :frame) ":frame tag retained for routing")
-              ;; The pre-fix shape MUST be gone.
+              ;; There is no :rf.sub/query-v tag.
               (is (not (contains? tags :rf.sub/query-v))
-                  "the pre-fix :rf.sub/query-v tag is gone (aligned to Spec 009)"))))))))
+                  "there is no :rf.sub/query-v tag (Spec 009 shape)"))))))))
 
-;; ---- ref-counting and hot-reload smoke (relocated from smoke_test.clj, rf2-zqar3) ----
+;; ---- ref-counting and hot-reload smoke -------------------------------------
 
 (deftest sub-cache-ref-counting
   (testing "subscribe / unsubscribe pair tracks ref-count and disposes on zero"
@@ -945,7 +939,7 @@
       ;; After re-registration, the next subscribe-once sees the new fn.
       (is (= 70 (rf/subscribe-once [:answer]))
           "after re-registration the new sub body is used")
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
+      ;; Dev-instrumentation arm (see ns docstring §Posture split). The
       ;; INVALIDATION this deftest is named for is the `(= 70 …)` above — a
       ;; stale cached reaction would still answer 7 — and that runs in both
       ;; postures; the replacement NOTICE is a hot-reload developer signal.
@@ -959,7 +953,7 @@
             "expected :rf.registry/handler-replaced trace")))))
 
 ;; ===========================================================================
-;; rf2-jue6sp (EP-0002 §Subscriptions And Read Helpers) — ambient read
+;; EP-0002 §Subscriptions And Read Helpers — ambient read
 ;; surfaces require a carried frame; absence is :rf.error/no-frame-context,
 ;; NOT a silent read of an invented :rf/default.
 ;;
@@ -978,7 +972,7 @@
 (deftest subscribe-frameless-read-raises-no-frame-context
   (testing "1-arity subscribe / subscribe-once / unsubscribe / clear-sub-cache!
             under NO established scope raise :rf.error/no-frame-context
-            instead of falling through to :rf/default (rf2-jue6sp)"
+            instead of falling through to :rf/default"
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     ;; Unwind the fixture's with-frame :rf/default scope → genuinely no
@@ -1009,7 +1003,7 @@
 
 (deftest subscribe-under-with-frame-resolves-the-scope
   (testing "1-arity subscribe under with-frame routes to the scope's frame —
-            the ambient form still works INSIDE a real scope (rf2-jue6sp)"
+            the ambient form works INSIDE a real scope"
     (rf/make-frame {:id :jue/scoped :doc "explicit non-default scope"})
     (rf/reg-event :seed (fn [{:keys [db]} [_ v]] {:db {:v v}}))
     (rf/reg-sub :v (fn [db _] (:v db)))
@@ -1023,7 +1017,7 @@
 (deftest subscribe-wrong-frame-prevention-for-reads
   (testing "ambient reads land on the ESTABLISHED scope's frame, never bleed
             into a sibling frame — the carried-invariant read isolation
-            (rf2-jue6sp; wrong-frame prevention for READS as well as writes)"
+            (wrong-frame prevention for READS as well as writes)"
     (rf/make-frame {:id :jue/left :doc "left frame"})
     (rf/make-frame {:id :jue/right :doc "right frame"})
     (rf/reg-event :seed (fn [{:keys [db]} [_ v]] {:db {:v v}}))
@@ -1043,21 +1037,21 @@
             "ambient read under :jue/right resolves :jue/right")))))
 
 ;; ===========================================================================
-;; rf2-ts3fuk — unsubscribe frame-target normalization SYMMETRY
+;; Unsubscribe frame-target normalization SYMMETRY
 ;; ===========================================================================
 ;;
-;; EP-0023 (rf2-32siq3.32) made the 2-arity SUBSCRIBE target accept either a
-;; frame-id KEYWORD or a live frame OBJECT (`rf/make-frame`'s return value),
-;; normalizing an object to its runnable-id ADDRESS via
-;; `rf.frame/frame-target->id` before keying the sub-cache. UNSUBSCRIBE (and the
-;; `subscribe-once` teardown that delegates to it) did NOT route its target
-;; through the same normalizer: it called `(rf.frame/frame frame-id)` on the raw
-;; target. A frame OBJECT (a map) is not a key in `rf.frame/frames`, so
-;; `(rf.frame/frame <object>)` returned nil, `unsubscribe` short-circuited at its
-;; `when-let`, and the live cache entry SUBSCRIBE created (keyed by the
-;; runnable-id) was never torn down — an asymmetric-targeting ref-count leak.
+;; Under EP-0023 the 2-arity SUBSCRIBE target accepts either a frame-id
+;; KEYWORD or a live frame OBJECT (`rf/make-frame`'s return value), normalizing
+;; an object to its runnable-id ADDRESS via `rf.frame/frame-target->id` before
+;; keying the sub-cache. UNSUBSCRIBE (and the `subscribe-once` teardown that
+;; delegates to it) must route its target through the same normalizer. Calling
+;; `(rf.frame/frame frame-id)` on the raw target would not do: a frame OBJECT (a
+;; map) is not a key in `rf.frame/frames`, so `(rf.frame/frame <object>)`
+;; returns nil, `unsubscribe` would short-circuit at its `when-let`, and the
+;; live cache entry SUBSCRIBE created (keyed by the runnable-id) would never be
+;; torn down — an asymmetric-targeting ref-count leak.
 ;;
-;; The fix normalizes unsubscribe's target through the SAME
+;; Unsubscribe normalizes its target through the SAME
 ;; `rf.frame/frame-target->id` path, so a subscribe-then-unsubscribe pair targets
 ;; the same frame for EVERY supported spelling (object OR keyword, in either
 ;; position). These tests subscribe in a frame and unsubscribe with an
@@ -1077,10 +1071,9 @@
   projection (which would collide with the framework standards in this fixture),
   so the frame is self-contained. EP-0027: app-db seeding is a setup EVENT — the
   image registers a local `:ts3fuk/seed` ({:db new-db}) and the seed rides
-  `:initial-events`. (`:rf/set-db` — the framework-standard seed — lands in a
-  parallel image-registry bead; an inline-image local seed exercises the same
-  `:initial-events` path without that dependency.) `opts` may carry `:id` and
-  `:seed-db`."
+  `:initial-events`. (The inline image's local seed exercises the same
+  `:initial-events` path as the framework-standard `:rf/set-db`.) `opts` may
+  carry `:id` and `:seed-db`."
   [{:keys [seed-db] :as opts}]
   (rf.live-frame/make-frame
     (merge {:images [(rf/image {:id :ts3fuk/img
@@ -1093,7 +1086,7 @@
 (deftest unsubscribe-object-target-tears-down-the-entry
   (testing "subscribe with a frame OBJECT then unsubscribe with the SAME object
             evicts the cache entry — the object target normalizes through the
-            same path on BOTH operations (rf2-ts3fuk). A no-id make-frame object
+            same path on BOTH operations. A no-id make-frame object
             carries a gensym runnable-id, so the object map and its address are
             genuinely different spellings of the same frame."
     ;; No-id (direct) frame object — its runnable-id is a gensym, distinct from
@@ -1104,18 +1097,19 @@
         (is (= 7 @r) "object-target subscribe reads the frame's seeded app-db")
         (is (contains? (object-cache-keys frame-obj) [:n])
             "the entry is cached in the frame's runnable record"))
-      ;; Unsubscribe via the SAME OBJECT target. Pre-fix this hit
-      ;; (rf.frame/frame <object>) → nil and was a silent no-op, leaking the entry.
+      ;; Unsubscribe via the SAME OBJECT target. Without normalization this
+      ;; would hit (rf.frame/frame <object>) → nil and be a silent no-op,
+      ;; leaking the entry.
       (rf/unsubscribe frame-obj [:n])
       (is (not (contains? (object-cache-keys frame-obj) [:n]))
           "the entry is torn down — unsubscribe normalized the object target
-           symmetrically with subscribe (the rf2-ts3fuk fix)")
+           symmetrically with subscribe")
       (rf/destroy-frame! frame-obj))))
 
 (deftest unsubscribe-mixed-spelling-targets-are-symmetric
   (testing "subscribe and unsubscribe accept the SAME frame in different
             spellings (object vs. runnable-id keyword) interchangeably — the
-            entry is evicted whichever spelling teardown uses (rf2-ts3fuk)"
+            entry is evicted whichever spelling teardown uses"
     (testing "subscribe by KEYWORD id, unsubscribe by the equivalent OBJECT"
       (let [frame-obj (make-n-frame {:id :ts3fuk/a :seed-db {:n 1}})
             rid       (rf.frame/frame-target->id frame-obj)]
@@ -1140,9 +1134,9 @@
 
 (deftest subscribe-once-object-target-disposes-synchronously
   (testing "subscribe-once with a frame OBJECT target leaves NO live cache entry
-            — its internal teardown unsubscribe now normalizes the object target
+            — its internal teardown unsubscribe normalizes the object target
             symmetrically, so the one-shot read's slot is disposed in-tick
-            instead of leaking (rf2-ts3fuk)"
+            instead of leaking"
     (let [frame-obj (make-n-frame {:seed-db {:n 9}})]
       (is (= 9 (rf/subscribe-once [:n] {:frame frame-obj}))
           "object-target subscribe-once returns the seeded value")

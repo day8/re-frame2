@@ -1,5 +1,5 @@
 (ns re-frame.movement-witness-cljs-test
-  "rf2-gncxk.1 — the `re-frame.movement/IMovementWitness` contract, pinned on
+  "The `re-frame.movement/IMovementWitness` contract, pinned on
   the ONE implementor in this repo: the React-hook spine's derived container.
 
   Spec 006 §Movement witness (optional) states three obligations. Two bind an
@@ -21,7 +21,7 @@
   Also pinned here: the structural fact `:frame-state` depends on. A raw
   physical container does NOT implement the protocol, so
   `subs.memo`'s `witness-src` resolves nil for a `:frame-state` sub and its
-  guard expression is byte-for-byte the one that shipped. That is a property
+  guard reduces to the plain `(= seen db)` equality check. That is a property
   of the container, not a courtesy of the consumer, and it is what keeps the
   `:frame-state` flush-path memo hit alive.
 
@@ -125,7 +125,7 @@
             the frame's one physical container, whose fan-out is not
             movement-gated — so it cannot satisfy W2 and does not implement
             the protocol. `subs.memo`'s `witness-src` is therefore nil there
-            and the guard is unchanged."
+            and the guard is the plain equality check."
     (let [src (make-state-container {:n 1})]
       (is (not (satisfies? rf.movement/IMovementWitness src))
           "a raw base container publishes no witness — absence is the correct

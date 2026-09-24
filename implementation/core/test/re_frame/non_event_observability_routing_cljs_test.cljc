@@ -1,28 +1,28 @@
 (ns re-frame.non-event-observability-routing-cljs-test
-  "EP-0008 / rf2-ntv9i9.1 + .2 — the NON-EVENT always-on records reach the
+  "EP-0008 — the NON-EVENT always-on records reach the
   FRAME-OWNED observability sinks.
 
-  ## The gap (rf2-ntv9i9.1 finding #1 / rf2-ntv9i9.2 #1)
+  ## The route
 
   Spec 015 §Frame-owned observability sink policy: EVERY production-reachable
   `:rf.error/*` record routes to the owning frame's declared
   `:observability :errors` sinks ALONGSIDE the corpus-wide
   `register-error-listener!` fan-out. The EVENT-centric path
-  (`dispatch-on-error!`) already did this via `rf.observability/route-error!`.
-  But the EP-0008 NON-EVENT records — the frame-teardown report
+  (`dispatch-on-error!`) does this via `rf.observability/route-error!`.
+  The EP-0008 NON-EVENT records — the frame-teardown report
   (`:rf.error/frame-teardown-failed`, carrying `:hook-failures`) and the
-  promoted SSR categories — fanned out ONLY to the corpus-wide listener
-  registry (the ADVANCED integration API) and BYPASSED the frame sinks. The
-  flagship teardown report was invisible to the NORMAL production Datadog /
-  Sentry sink model.
+  promoted SSR categories — need a route of their own: fanned out ONLY to
+  the corpus-wide listener registry (the ADVANCED integration API) they
+  would BYPASS the frame sinks, leaving the flagship teardown report
+  invisible to the NORMAL production Datadog / Sentry sink model.
 
-  `rf.error-emit/dispatch-error-record!` now ALSO calls
-  `rf.observability/route-error-record!` (a NEW non-event route): a pre-built
+  `rf.error-emit/dispatch-error-record!` therefore ALSO calls
+  `rf.observability/route-error-record!` (the non-event route): a pre-built
   union record carrying a resolvable `:frame` is projected into a canonical
   `:rf.observe/error` shape and routed through `project-egress` to that
   frame's `:errors` sinks.
 
-  ## The projection / raw-payload property (rf2-ntv9i9.1 #3)
+  ## The projection / raw-payload property
 
   The corpus-wide listener carries the RAW `:exception` (the off-box-shipper
   API — Sentry needs the stack); the frame-owned sink route PROJECTS the
@@ -44,8 +44,8 @@
     (e) FAIL-CLOSED: a frame with no `:errors` policy routes nothing to a
         sink; a FRAMELESS (`:frame nil`) record routes nothing to a sink
         yet STILL reaches the corpus-wide listener. Both arms hold here
-        because NO PROCESS DEFAULT IS DECLARED in this suite — since
-        rf2-kuky.67 a frame omitting `:errors` inherits the default's, and a
+        because NO PROCESS DEFAULT IS DECLARED in this suite — a frame
+        omitting `:errors` inherits the default's, and a
         frameless record reaches the default under an explicitly nil
         governing frame. What survives unconditionally is the narrower
         claim: no frame's policy is borrowed for either. The default's own
@@ -85,7 +85,7 @@
 ;; ===========================================================================
 
 (deftest teardown-report-routes-projected-to-frame-error-sink
-  (testing "rf2-ntv9i9.1/.2 — a non-event :rf.error/frame-teardown-failed
+  (testing "a non-event :rf.error/frame-teardown-failed
             record carrying a resolvable :frame reaches the frame's declared
             :observability :errors sink (PROJECTED), AND the corpus-wide
             listener STILL receives it (the two routes are parallel)."
@@ -127,7 +127,7 @@
 ;; ===========================================================================
 
 (deftest sensitive-ex-data-redacted-in-frame-sink-projection
-  (testing "rf2-ntv9i9.1 #3 — a sensitive path folded into a :hook-failures
+  (testing "a sensitive path folded into a :hook-failures
             entry's exception ex-data is REDACTED in the frame sink's projected
             record (the frame route projects under frame classification),
             while the corpus-wide listener carries it raw (the off-box-shipper
@@ -147,8 +147,8 @@
       (rf/make-frame {:id :obs/sensitive :observability
                       {:errors [{:sink :test.sinks/sentry
                                  :rf.egress/profile :rf.egress/off-box-observability}]}})
-      ;; EP-0025: classify the path via the commit-plane effect path (the
-      ;; durable frame annotation is removed) so the projector redacts it.
+      ;; EP-0025: classify the path via the commit-plane effect path (there
+      ;; is no durable frame annotation) so the projector redacts it.
       (rf.frame/swap-runtime-db! :obs/sensitive
         (fn [rt] (rf.elision/apply-classification-effects rt
                    {:sensitive [[:hook-failures :exception-data :token]]})))
@@ -178,7 +178,7 @@
 ;; ===========================================================================
 
 (deftest exception-dropped-under-public-error-profile
-  (testing "rf2-ntv9i9.1 #3 — a non-event record routed to a sink on the
+  (testing "a non-event record routed to a sink on the
             :rf.egress/public-error profile has its :exception DROPPED (a
             client-safe projection never carries internal raw values), while
             the structural slots survive."
@@ -207,7 +207,7 @@
 ;; ===========================================================================
 
 (deftest no-errors-policy-routes-nothing-to-sink
-  (testing "rf2-ntv9i9.1/.2 — a frame with NO :observability :errors policy
+  (testing "a frame with NO :observability :errors policy
             routes nothing to a sink, even though one is registered (the
             corpus listener still fires — that's not frame-policy gated)."
     (let [sink-seen     (atom [])
@@ -227,7 +227,7 @@
           "the corpus-wide listener still fired (not frame-policy gated)"))))
 
 (deftest frameless-record-routes-nothing-to-sink-but-reaches-listener
-  (testing "rf2-ntv9i9.1/.2 — a FRAMELESS (:frame nil) record (the pre-frame
+  (testing "a FRAMELESS (:frame nil) record (the pre-frame
             SSR hydration-parse path) routes nothing to a frame sink (it has
             no frame-owned policy by definition), yet STILL reaches the
             corpus-wide listener (the frameless always-on precedent holds)."
@@ -254,7 +254,7 @@
              (:error (first @listener-seen)))))))
 
 (deftest unresolved-frame-routes-nothing-to-sink
-  (testing "rf2-ntv9i9.1/.2 — a record naming a NEVER-REGISTERED frame routes
+  (testing "a record naming a NEVER-REGISTERED frame routes
             nothing to a sink (no :rf/default synthesis), but still reaches
             the corpus-wide listener."
     (let [sink-seen     (atom [])
@@ -279,7 +279,7 @@
 ;; ===========================================================================
 
 (deftest buggy-sink-isolated-on-non-event-route
-  (testing "rf2-ntv9i9.1/.2 — a throwing sink on the non-event route is
+  (testing "a throwing sink on the non-event route is
             dropped (sibling isolation); the sibling sink + the corpus-wide
             listener still receive the record."
     (let [good-seen     (atom [])
@@ -308,11 +308,11 @@
           "the corpus-wide listener still received the record"))))
 
 ;; ===========================================================================
-;; The new non-event frame-sink route is published as a late-bind hook.
+;; The non-event frame-sink route is published as a late-bind hook.
 ;; ===========================================================================
 
 (deftest route-error-record-late-bind-hook-is-published
-  (testing "rf2-ntv9i9.1 — observability publishes the
+  (testing "observability publishes the
             `:observability/route-error-record` late-bind hook so
             rf.error-emit/dispatch-error-record! reaches the frame-sink route
             without a static require (load-cycle break)."

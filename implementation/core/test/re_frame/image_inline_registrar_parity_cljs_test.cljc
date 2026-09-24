@@ -1,29 +1,28 @@
 (ns re-frame.image-inline-registrar-parity-cljs-test
-  "rf2-3x7nj.5.1 — an inline image `:reg-fx` / `:reg-cofx` / `:reg-event`
+  "An inline image `:reg-fx` / `:reg-cofx` / `:reg-event`
   registration lowers through its kind's OWN registrar preparation, so it means
   exactly what the same declaration means in `reg-*` (EP-0026 §Inline
   Registration Grammar: the inline contract is exactly the registrar's
   contract, neither a looser superset nor a stricter subset).
 
-  Before the fix the fx / cofx lowerings returned only their runnable slots and
-  the event lowering overwrote the authored `:interceptors` with the
-  wrapper-only chain. The authored metadata therefore lived ONLY under the
-  descriptor's nested `:metadata`, while every runtime reader looks at the TOP
-  LEVEL, where `reg-*` puts it:
+  Every runtime reader looks at the descriptor's TOP LEVEL, where `reg-*` puts
+  the authored metadata. A lowering that returned only the runnable slots, or
+  overwrote the authored `:interceptors` with the wrapper-only chain, would
+  leave that metadata ONLY under the nested `:metadata`, so:
 
-    * an inline `{:platforms #{:client}}` fx / cofx ran on `:server`;
-    * an inline `{:sensitive …}` fx / cofx carried no registration
-      classification, so the egress redaction derived from it had nothing to
-      redact;
-    * an inline event's declared `:interceptors` guard never ran, and a guard
-      the image did not select passed assembly's missing-reference check;
+    * an inline `{:platforms #{:client}}` fx / cofx would run on `:server`;
+    * an inline `{:sensitive …}` fx / cofx would carry no registration
+      classification, so the egress redaction derived from it would have
+      nothing to redact;
+    * an inline event's declared `:interceptors` guard would never run, and a
+      guard the image did not select would pass assembly's missing-reference
+      check;
     * the registration-time validators (retired keys, malformed
       classification, `:boundary?` without `:schema`, the interceptor-chain
-      shape, the cofx grade checks) never ran.
+      shape, the cofx grade checks) would never run.
 
   Every row pairs the inline declaration with a `reg-*` CONTROL carrying the
-  identical metadata, so what is pinned is PARITY with the registrar rather
-  than a restatement of the fix.
+  identical metadata, so what is pinned is PARITY with the registrar.
 
   Platform rows ask `runs-on-platform?` with an EXPLICIT platform argument
   instead of dispatching: the host's active platform is `:server` on the JVM

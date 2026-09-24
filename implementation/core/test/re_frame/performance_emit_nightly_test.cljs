@@ -1,15 +1,11 @@
 (ns re-frame.performance-emit-nightly-test
-  "Spec 009 §Performance instrumentation — runtime call-site emission
-  (rf2-e3j8l, migrated from `tools/xray/testbeds/perf_counter/spec.cjs`).
+  "Spec 009 §Performance instrumentation — runtime call-site emission.
 
-  This file replaces the Playwright spec at
-  `tools/xray/testbeds/perf_counter/spec.cjs` (deleted in the same
-  commit). The Playwright assertion was: drive a real click in a perf-
-  enabled browser bundle, then check that
+  Drives real dispatches through a perf-enabled build, then checks that
   `performance.getEntriesByType('measure')` carries at least one entry
-  per `rf:` bucket (`rf:event:*`, `rf:sub:*`, `rf:fx:*`, `rf:render:*`).
+  per headless `rf:` bucket (`rf:event:*`, `rf:sub:*`, `rf:fx:*`).
 
-  Migrated here as pure CLJS because the User-Timing emission is a CORE
+  It is pure CLJS because the User-Timing emission is a CORE
   concern — every call site lives in `implementation/core/src/re_frame/`
   (router.cljc / subs/memo.cljc / fx.cljc / views.cljs) — and the
   emission contract is fully exercisable at the unit-test level once
@@ -46,7 +42,7 @@
   render tree, which is browser-only (covered by the bundle-presence
   grep in `scripts/check-perf-bundle.cjs`, plus the per-call macro
   round-trip in `re-frame.performance-cljs-test`). The naming
-  convention and macro shape for `:render` is already locked by
+  convention and macro shape for `:render` is locked by
   `performance-cljs-test/build-name-shape` —
   `(rf.performance/build-name :render :my.app/page)` returns
   `\"rf:render:my.app/page\"`. The bracketing macro itself is identical
@@ -62,14 +58,14 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter}))
 
-;; Buffer retention for this runner (rf2-2yv859). The bracket now CLEARS
+;; Buffer retention for this runner. The bracket CLEARS
 ;; each measure right after emit (`retain-entries?` default off), so a
 ;; synchronous `getEntriesByType('measure')` snapshot taken after a drain
-;; finds an empty buffer — that's the leak fix working. This nightly
+;; finds an empty buffer — that's the clear-after-emit contract working. This nightly
 ;; runner sets `:closure-defines {re-frame.performance/retain-entries?
 ;; true}` (alongside `enabled? true`) so the entries PERSIST in the
 ;; retained buffer and these emission assertions can read them
-;; synchronously. The clear-after-emit (leak-fix) behaviour itself is
+;; synchronously. The clear-after-emit behaviour itself is
 ;; unit-tested in `re-frame.performance-cljs-test` — a synchronous
 ;; PerformanceObserver read is unreliable on the node runner (delivery is
 ;; a microtask), so retention is the robust way to assert the entry
@@ -187,9 +183,7 @@
             that touches every headless surface (event handler emits
             :db + :fx; downstream subscribe forces a sub recompute)
             produces at least one entry in EACH of the three headless
-            buckets (event / sub / fx). Mirrors the integration
-            assertion that the deleted `tools/xray/testbeds/perf_counter/
-            spec.cjs` used to make against a live browser bundle."
+            buckets (event / sub / fx)."
     (when rf.performance/enabled?
       (clear-measures!)
       (let [log-calls (atom [])]

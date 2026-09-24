@@ -1,21 +1,21 @@
 (ns re-frame.image-cljs-test
   "EP-0023 §Image / §Namespace-Selected Images / §Image Fragments + EP-0026
-  §Image Keys / §Namespace Selection — the foundation slice (rf2-32siq3.3,
-  rf2-dlvmpc): `rf/image` constructor, the normalized image value, the glob
+  §Image Keys / §Namespace Selection — the image foundation: `rf/image`
+  constructor, the normalized image value, the glob
   grammar, the `:select-ns` selection map, inline `:registrations`, and the PURE
   `select-descriptors` selector against SYNTHETIC descriptor collections.
 
-  EP-0026 (rf2-dlvmpc) RETIRED the EP-0023 image keys `:include-ns` /
-  `:exclude-ns` / `:replace` / `:replace-standard` / `:rf.image/requires`: the
-  public image value accepts ONLY `:id`, `:select-ns`, and `:registrations`, and
-  a retired key fails loud (`:rf.error/invalid-image`). Namespace selection now
-  uses the single `:select-ns {:include [globs] :exclude [globs]}` map (the
-  normalized internal slots `:rf.image/include-ns` / `:rf.image/exclude-ns` the
-  selector runs are unchanged). Composition resolves by IMAGE ORDER (the later
-  image wins) — there is no declared-winner `:replace` map and no image-declared
-  capability surface.
+  The public image value accepts ONLY `:id`, `:select-ns`, and
+  `:registrations`; the retired EP-0023 image keys `:include-ns` /
+  `:exclude-ns` / `:replace` / `:replace-standard` / `:rf.image/requires` fail
+  loud (`:rf.error/invalid-image`). Namespace selection
+  uses the single `:select-ns {:include [globs] :exclude [globs]}` map,
+  normalized into the internal slots `:rf.image/include-ns` /
+  `:rf.image/exclude-ns` the selector runs. Composition resolves by IMAGE ORDER
+  (the later image wins) — there is no declared-winner `:replace` map and no
+  image-declared capability surface.
 
-  Pins the bead's enumerated coverage:
+  Pins the enumerated coverage:
 
     * single `*` (exactly one segment);
     * `**` (zero AND multiple segments);
@@ -101,7 +101,7 @@
     (is (false? (rf.image/ns-matches? "shop.**.http" "shop.cart.https")))))
 
 (deftest consecutive-double-stars-collapse-and-bound-backtracking
-  ;; M3 guard (EP-0023 code-quality): consecutive `**` runs collapse to one
+  ;; Consecutive `**` runs collapse to one
   ;; `**` before matching, so a pathological pattern can never trigger the
   ;; matcher's exponential-backtracking worst case. The collapse is semantics-
   ;; preserving: a run of `**`s accepts exactly the segment sets a single `**`
@@ -244,14 +244,13 @@
                   (:rf.error/id (ex-data e))))))))
 
 ;; ============================================================================
-;; EP-0026 (rf2-dlvmpc) — the RETIRED EP-0023 image keys FAIL LOUD. The public
+;; The RETIRED EP-0023 image keys FAIL LOUD (EP-0026). The public
 ;; image value accepts ONLY :id, :select-ns, :registrations; a spec carrying any
 ;; of :include-ns / :exclude-ns / :replace / :replace-standard / :rf.image/requires
 ;; throws :rf.error/invalid-image at construction (so a stale example cannot keep
-;; working by accident — EP-0026 §Backwards Compatibility). The declared-winner
-;; :replace / :replace-standard model is gone (composition resolves by image
-;; order); image-declared host capabilities (:rf.image/requires) are removed
-;; end-to-end.
+;; working by accident — EP-0026 §Backwards Compatibility). Composition resolves
+;; by image order, with no declared-winner map, and there are no image-declared
+;; host capabilities.
 ;; ============================================================================
 
 (deftest retired-ep0023-image-keys-fail-loud
@@ -311,7 +310,7 @@
       (is (not (contains? (by-id :counter/inc) :rf.provenance/ns))))))
 
 ;; EP-0026 §Inline Registration Grammar — the EP-0023 metadata-only [id metadata]
-;; tuple is RETIRED (fsd822). A 2-tuple's second slot is the handler BODY, not
+;; tuple is RETIRED. A 2-tuple's second slot is the handler BODY, not
 ;; metadata; for the four supported inline kinds the body is a FUNCTION, so a map
 ;; in the body slot is unambiguously the retired metadata-only form and fails
 ;; loud. To attach metadata, use the 3-tuple [id metadata body].
@@ -342,7 +341,7 @@
                           #"\[:rf\.error/invalid-image\]"
                           (rf.image/image {:registrations {:reg-event [:not-a-tuple]}})))))
 
-;; EP-0026 §Inline Registration Grammar (fsd822) — inline tuple ARITY is exact:
+;; EP-0026 §Inline Registration Grammar — inline tuple ARITY is exact:
 ;; [id body] (metadata defaults to {}) and [id metadata body] (explicit
 ;; metadata). EVERY inline registration carries a body. [id], [], non-vectors,
 ;; and 4+-tuples fail loud at rf/image rather than being coerced. The EP-0023
@@ -403,10 +402,10 @@
 
 (deftest inline-rejects-non-map-metadata-slot
   ;; The middle slot of a 3-tuple [id metadata body] MUST be a registration
-  ;; metadata MAP (EP-0026). A non-seqable non-map (a number) previously crashed
-  ;; RAW at the `(seq metadata)` guard; a seqable non-map (a string / vector) was
-  ;; previously SILENTLY accepted and stamped as junk `:metadata`. Both must now
-  ;; fail loud with the canonical `:rf.error/invalid-image` shape.
+  ;; metadata MAP (EP-0026). Without a map check, a non-seqable non-map (a
+  ;; number) would crash RAW at a `(seq metadata)` guard, and a seqable non-map
+  ;; (a string / vector) would be SILENTLY accepted and stamped as junk
+  ;; `:metadata`. Both fail loud with the canonical `:rf.error/invalid-image` shape.
   (testing "a non-seqable metadata slot (a number) throws :rf.error/invalid-image, not a raw host crash"
     (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
                           #"\[:rf\.error/invalid-image\]"
@@ -448,8 +447,8 @@
 ;; ============================================================================
 
 (defn- desc
-  "A synthetic registered descriptor — the source store's output shape this
-  slice consumes. The ONLY load-bearing field is :rf.provenance/ns (the
+  "A synthetic registered descriptor — the source store's output shape the
+  selector consumes. The ONLY load-bearing field is :rf.provenance/ns (the
   source-code namespace). :kind/:id/:impl are carried through untouched."
   [provenance-ns kind id]
   {:rf.provenance/ns provenance-ns

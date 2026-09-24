@@ -1,17 +1,17 @@
 (ns re-frame.seven-guis-cells-parser-cljs-test
-  "Parser/evaluator boundary regression for the Cells example (rf2-4n4ds3).
+  "Parser/evaluator boundary tests for the Cells example.
 
   The Cells grid is 26×100 (A1..Z100), but `cell-re` is only a *syntactic* gate
   (`^[A-Z]\\d{1,3}$`) that also admits out-of-grid refs like A0, A101, or Z999.
-  Before the fix those parsed as `{:cell …}` nodes and evaluated as empty cells
-  (a silent 0); now `in-grid?` / `cell-ref?` reject them, and a formula carrying
-  one fails loud at parse time.
+  Parsed as `{:cell …}` nodes, those would evaluate as empty cells (a silent
+  0); `in-grid?` / `cell-ref?` reject them, and a formula carrying one fails
+  loud at parse time.
 
-  These belong in the framework test tree, NOT under examples/ (examples stay
-  test-free per rf2-8cevm). They exercise the example's PURE parser/evaluator
-  fns by requiring `seven-guis.cells.core` — a Reagent-coupled `.cljs`-only
+  These belong in the framework test tree, NOT under examples/ (examples are
+  test-free). They exercise the example's PURE parser/evaluator fns by
+  requiring `seven-guis.cells.core` — a Reagent-coupled `.cljs`-only
   namespace — so they run under the consolidated `:node-test` CLJS build, which
-  has `../examples/reagent` on its source paths and is the only runtime where
+  has `../examples/core` on its source paths and is the only runtime where
   this example's ns-load + handlers actually execute (mirrors the classpath
   reach of `re-frame.example-frame-scoping-cljs-test`)."
   (:require [cljs.test :refer-macros [deftest is testing]]
@@ -96,7 +96,7 @@
       (is (re-find #"A1\.\.Z100" msg)    "states the valid range"))))
 
 (deftest parse-formula-accepts-in-grid-refs
-  (testing "valid refs — including row 100 — still parse to a real AST"
+  (testing "valid refs — including row 100 — parse to a real AST"
     (doseq [raw ["=(+ A1 B2)"
                  "=(+ A100 1)"    ;; row 100 is a real cell
                  "=(* Z100 2)"
@@ -118,16 +118,16 @@
 
 (deftest evaluate-out-of-grid-ref-fails-loud-not-silent-zero
   (testing "an off-grid ref surfaces the parse error — it is NOT silently
-            treated as an empty cell (the rf2-4n4ds3 bug)"
+            treated as an empty cell"
     (let [v (cells/evaluate-cell "A1" {"A1" (cell-entry "=(+ A101 1)")} #{})]
-      ;; Before the fix A101 parsed as {:cell "A101"} → empty cell 0 → v = 1.
-      ;; After: the formula fails to parse, so the value is the parse-error
+      ;; Parsed as {:cell "A101"}, A101 would be an empty cell 0 → v = 1.
+      ;; Instead the formula fails to parse, so the value is the parse-error
       ;; pair, never the misleading 1.
       (is (cells/parse-error? v))
       (is (not= 1 v)))))
 
 ;; ===========================================================================
-;; evaluate-cell — cycle guard (rf2-1r1dm7)
+;; evaluate-cell — cycle guard
 ;; ===========================================================================
 ;;
 ;; The example's docstring promises "Cycles (A1 -> B1 -> A1) caught by a
@@ -145,7 +145,7 @@
            (cells/evaluate-cell "A1" {"A1" (cell-entry "=(+ A1 1)")} #{})))))
 
 ;; ===========================================================================
-;; evaluate-cell / evaluate-ast — the typed error taxonomy (rf2-1r1dm7)
+;; evaluate-cell / evaluate-ast — the typed error taxonomy
 ;; ===========================================================================
 ;;
 ;; "Bad arithmetic turned into typed error markers — the evaluator never
@@ -159,7 +159,7 @@
   (testing "a divisor that COMPUTES to zero is caught too"
     (is (= :error/div-by-zero
            (cells/evaluate-cell "A1" {"A1" (cell-entry "=(/ 10 (- 3 3))")} #{}))))
-  (testing "a non-zero division still computes"
+  (testing "a non-zero division computes normally"
     (is (= 3 (cells/evaluate-cell "A1" {"A1" (cell-entry "=(/ 6 2)")} #{})))))
 
 (deftest evaluate-cell-text-in-arithmetic-marks-type-error
@@ -180,15 +180,16 @@
     (is (= :error/eval (cells/evaluate-ast true {} #{})))))
 
 ;; ===========================================================================
-;; value->display — the marker→hash display mapping (rf2-3xn8qr)
+;; value->display — the marker→hash display mapping
 ;; ===========================================================================
 ;;
 ;; The evaluator emits typed keyword markers; the grid's `value->display` must
-;; translate EVERY one to a spreadsheet hash-code. A marker with no mapping falls
-;; through to `(str value)` and leaks its raw `:error/…` keyword into the cell —
-;; which is exactly what used to happen to `:error/unknown-op` (a list whose head
-;; is not + - * /, reachable from real user input like `=(1 2)`): the display
-;; cond had no branch for it, so the cell rendered the literal ":error/unknown-op".
+;; translate EVERY one to a spreadsheet hash-code. A marker with no
+;; `error-marker->hash` entry would fall through to `(str value)` and leak its
+;; raw `:error/…` keyword into the cell. `:error/unknown-op` (a list whose head
+;; is not + - * /, reachable from real user input like `=(1 2)`) is the marker
+;; most easily missed: without its entry the cell would render the literal
+;; ":error/unknown-op".
 
 (deftest value->display-maps-every-error-marker-to-a-hash-code
   (testing "each typed error marker shows its spreadsheet hash-code, never a raw
@@ -210,14 +211,14 @@
 (deftest unknown-op-formula-renders-hash-not-raw-keyword
   (testing "=(1 2) — a list whose head is a number, not an operator — reaches the
             evaluator as :error/unknown-op, and the grid maps it to a hash-code
-            rather than leaking the raw ':error/unknown-op' keyword (rf2-3xn8qr)"
+            rather than leaking the raw ':error/unknown-op' keyword"
     (let [v (cells/evaluate-cell "A1" {"A1" (cell-entry "=(1 2)")} #{})]
       (is (= :error/unknown-op v)
           "the evaluator emits the typed marker for a non-operator-headed list")
       (is (= "#OP?" (cells/value->display v))
           "the grid maps :error/unknown-op to its hash-code")
       (is (not (re-find #":error/" (cells/value->display v)))
-          "no raw keyword leaks to the grid — the bug was the missing display branch"))))
+          "no raw keyword leaks to the grid — `error-marker->hash` maps the marker"))))
 
 ;; ===========================================================================
 ;; evaluate-cell / evaluate-ast — arithmetic + empty-cell semantics
@@ -257,7 +258,7 @@
           (str (pr-str s) " must not parse as a number")))))
 
 ;; ===========================================================================
-;; tokenise / parse-tokens / parse-formula — the parse boundary (rf2-1r1dm7)
+;; tokenise / parse-tokens / parse-formula — the parse boundary
 ;; ===========================================================================
 
 (deftest tokenise-splits-parens-and-atoms
@@ -293,15 +294,16 @@
     (is (not (cells/parse-error? (cells/parse-formula "=(+ 1 2)"))))))
 
 ;; ===========================================================================
-;; evaluate-cell — settled dependencies are reused, not re-walked (rf2-gwye.53)
+;; evaluate-cell — settled dependencies are reused, not re-walked
 ;; ===========================================================================
 ;;
 ;; A chain where each cell doubles the one before — A2 =(+ A1 A1), A3
-;; =(+ A2 A2), … — used to re-walk the same subtree at every reference:
-;; T(n) = 2·T(n-1) + 1, so A21 alone cost 2,097,151 evaluate-cell visits and a
-;; valid 21-cell sheet froze the UI thread. The work is counted through a cell
-;; map that tallies every entry lookup — the evaluator makes one per cell it
-;; visits — so the assertion is a deterministic operation count, not a clock.
+;; =(+ A2 A2), … — would, without reuse, re-walk the same subtree at every
+;; reference: T(n) = 2·T(n-1) + 1, so A21 alone would cost 2,097,151
+;; evaluate-cell visits and a valid 21-cell sheet would freeze the UI thread.
+;; The work is counted through a cell map that tallies every entry lookup —
+;; the evaluator makes one per cell it visits — so the assertion is a
+;; deterministic operation count, not a clock.
 
 (defn- counting-cells
   "`m` behind an `ILookup` that bumps `counter` on every lookup."
@@ -326,7 +328,7 @@
           v       (cells/evaluate-cell "A21" (counting-cells (chain 21 1 doubling) lookups) #{})]
       (is (= 1048576 v))
       (is (= 21 @lookups)
-          "each of the 21 cells is read once — the exponential re-walk read 2,097,151")))
+          "each of the 21 cells is read once — an exponential re-walk would read 2,097,151")))
   (testing "control: the equal-depth single-reference chain costs the same 21 visits"
     (let [lookups (atom 0)
           v       (cells/evaluate-cell "A21" (counting-cells (chain 21 1 plus-one) lookups) #{})]
@@ -337,9 +339,9 @@
           after  (assoc before "A1" (cell-entry "2"))]
       (is (= 1048576 (cells/evaluate-cell "A21" before #{})))
       (is (= 2097152 (cells/evaluate-cell "A21" after #{})) "editing A1 moves A21")
-      (is (= 1048576 (cells/evaluate-cell "A21" before #{})) "the old snapshot still reads its own value")))
+      (is (= 1048576 (cells/evaluate-cell "A21" before #{})) "the unedited snapshot reads its own value")))
   (testing "reuse does not stand in for the cycle guard: closing the chain into a
-            loop still reads #CYCLE, and still in one visit per cell"
+            loop reads #CYCLE, in one visit per cell"
     (let [lookups (atom 0)
           looped  (assoc (chain 21 1 doubling) "A1" (cell-entry "=(+ A21 1)"))]
       (is (= :error/cycle

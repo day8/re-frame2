@@ -1,6 +1,6 @@
 (ns re-frame.performance-cljs-test
   "Spec 009 §Performance instrumentation — `re-frame.performance/mark-and-measure`
-  round-trip (rf2-du3i).
+  round-trip.
 
   CLJS-only: the macro's only platform behaviour is the
   `performance.measure` (options-bag form) + per-emit `clearMeasures`
@@ -13,17 +13,15 @@
    2. Helper round-trip with `enabled?` either branch — when false (the
       default :node-test build) no entry lands; when true (a bundle that
       flips the goog-define) the entry is emitted then cleared after each
-      call (observer-first contract, rf2-2yv859) so the buffer does not
+      call (observer-first contract) so the buffer does not
       accumulate, and ZERO marks are allocated (options-bag form).
    3. Macro shape — body forms run, return value preserved.
 
   Bundle-isolation / bundle-presence under `:advanced` lives in
   `scripts/check-perf-bundle.cjs`. The integration smoke landing the
   three headless `rf:` measure entries from a real drain lives in
-  `re-frame.performance-emit-nightly-test` (rf2-e3j8l, nightly only
-  via the `:node-test-perf-nightly` shadow-cljs build) — migrated from
-  the deleted Playwright spec at
-  `tools/xray/testbeds/perf_counter/spec.cjs`."
+  `re-frame.performance-emit-nightly-test` (nightly only
+  via the `:node-test-perf-nightly` shadow-cljs build)."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.performance :as rf.performance :include-macros true]))
 
@@ -37,7 +35,7 @@
 
 (defn- count-rf-marks
   "Count mark entries whose `.name` starts with `rf:`. The bracket must
-  allocate ZERO marks (options-bag measure form, rf2-2yv859)."
+  allocate ZERO marks (options-bag measure form)."
   []
   (->> (.getEntriesByType js/performance "mark")
        (map #(.-name %))
@@ -76,7 +74,7 @@
                        [a b 3]))))))
 
 (deftest mark-and-measure-clears-after-emit-when-enabled
-  (testing "Observer-first contract (rf2-2yv859): when `enabled?` is true
+  (testing "Observer-first contract: when `enabled?` is true
             at compile time (and `retain-entries?` is off — the default),
             each mark-and-measure call clears its measure by name right
             after emit, so the host's User-Timing buffer does NOT
@@ -92,10 +90,9 @@
             "the measure buffer stays empty — cleared after each emit, no leak")))))
 
 (deftest mark-and-measure-allocates-no-marks-when-enabled
-  (testing "The options-bag measure form (rf2-2yv859) passes numeric
+  (testing "The options-bag measure form passes numeric
             start/end timestamps, so ZERO `performance.mark` entries are
-            allocated — two-thirds of the old per-bracket buffer growth
-            is gone. No `rf:` mark entry lands regardless of the
+            allocated. No `rf:` mark entry lands regardless of the
             retain-entries? flag."
     (when rf.performance/enabled?
       (clear-measures!)

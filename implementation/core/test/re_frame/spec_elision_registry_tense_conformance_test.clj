@@ -1,7 +1,7 @@
 (ns re-frame.spec-elision-registry-tense-conformance-test
-  "rf2-qgsp2o — the spec-content PIN that keeps `spec/Tool-Pair.md` and
-  `spec/Security.md` from teaching the RETIRED app-db elision registry
-  `[:rf/runtime :elision …]` in CURRENT TENSE.
+  "The spec-content PIN that keeps `spec/Tool-Pair.md` and
+  `spec/Security.md` from teaching an app-db elision registry at
+  `[:rf/runtime :elision …]` — there is none — in CURRENT TENSE.
 
   ## What this pins
 
@@ -15,28 +15,20 @@
   values. Both `spec/Tool-Pair.md §Direct-read privacy` and
   `spec/Security.md §Direct-read privacy` are the authoritative direct-read
   privacy contract that pair / off-box tools follow, so their prose MUST name
-  the live runtime-db registry, not the retired app-db one.
+  the live runtime-db registry, not an app-db path.
 
-  ## Provenance — re-homed from the skills corpus (rf2-qgsp2o)
+  ## Where this guard lives
 
-  This invariant was previously the `tool-pair-spec-elision-registry-is-
-  runtime-db-not-app-db` / `security-spec-elision-registry-is-runtime-db-not-
-  app-db` guards inside the since-removed
-  `skills/shared/tests/tool_pair_surfaces_test.clj` (the whole
-  `skills/shared/` tree was retired under rf2-fqjys).
-  rf2-u3anaj (#5509) slimmed that skills leaf to a routing index and removed
-  its second-spec token-pinning suite, per the `exact semantics tested by the
-  owning suites` acceptance — which left this spec-content invariant with NO
-  guard. It is re-homed HERE, into the core JVM suite that owns the elision
-  registry and already hosts the sibling direct-read-privacy source pins
+  This spec-content invariant lives in the core JVM suite, which owns the
+  elision registry and hosts the sibling direct-read-privacy source pins
   (`egress_chokepoint_conformance_test`, `error_catalogue_channel_conformance_
-  test`). The predicate is carried over verbatim (retired-history framing is
-  allowed; only a CURRENT-TENSE app-db reference fails).
+  test`). Retired-history framing is allowed; only a CURRENT-TENSE app-db
+  reference fails.
 
   ## How the guard works
 
-  For each of the two spec files: scan its lines for the retired app-db path
-  form `[:rf/runtime :elision` and DROP any line whose sentence frames the
+  For each of the two spec files: scan its lines for the app-db path form
+  `[:rf/runtime :elision` and DROP any line whose sentence frames the
   mention as retired history (`retired` / `no longer` / `legacy` / `formerly`
   / `used to` / `briefly sat`). Any surviving line is a CURRENT-TENSE claim of
   the dead registry and fails the gate. The regex keys on the two-keyword
@@ -45,7 +37,7 @@
   disturbed.
 
   A sanity anchor (`spec-files-read-and-still-teach-the-live-registry`) fails
-  loud if either file cannot be resolved / read, or no longer contains the
+  loud if either file cannot be resolved / read, or does not contain the
   live `[:rf.runtime/elision` form at all — so a moved / renamed / gutted
   section cannot make the absence check pass vacuously.
 
@@ -85,12 +77,11 @@
       (when (.isFile f) (slurp f)))))
 
 ;; ---------------------------------------------------------------------------
-;; The current-tense app-db elision-registry predicate (carried over verbatim
-;; from the removed skills guard, rf2-kvpr74 → re-homed rf2-qgsp2o)
+;; The current-tense app-db elision-registry predicate
 ;; ---------------------------------------------------------------------------
 
 (defn- retired-framing?
-  "True if the line names the legacy path inside an explicit retired-history
+  "True if the line names the app-db path inside an explicit retired-history
   framing (so it is documentation OF the retirement, not a live claim)."
   [line]
   (let [l (str/lower-case line)]
@@ -102,7 +93,7 @@
                  (str/includes? l "briefly sat")))))
 
 (defn- current-tense-app-db-elision-lines
-  "Return the lines of `md` that reference the retired app-db elision registry
+  "Return the lines of `md` that reference the app-db elision registry path
   `[:rf/runtime :elision …]` in a CURRENT-TENSE framing (i.e. not inside a
   retired-history sentence)."
   [md]
@@ -116,10 +107,10 @@
 
 (deftest spec-files-read-and-still-teach-the-live-registry
   (testing "Sanity: the repo root resolved from the JVM test CWD and BOTH
-            guarded spec files were read and still teach the live runtime-db
+            guarded spec files were read and teach the live runtime-db
             `[:rf.runtime/elision` registry. A nil root, an unread file, or a
-            file that no longer mentions the live registry would make the
-            absence check below pass vacuously — fail loud instead (rf2-qgsp2o)."
+            file that does not mention the live registry would make the
+            absence check below pass vacuously — fail loud instead."
     (is (some? repo-root)
         (str "repo root did not resolve from the JVM test CWD — expected a "
              "candidate whose spec/" (first guarded-spec-files) " exists "
@@ -133,16 +124,15 @@
                  "gate."))
         (when body
           (is (str/includes? body "[:rf.runtime/elision")
-              (str "spec/" file-name " no longer mentions the live runtime-db "
+              (str "spec/" file-name " does not mention the live runtime-db "
                    "`[:rf.runtime/elision` registry at all — the direct-read "
                    "privacy section was moved or gutted, which would make the "
                    "current-tense-app-db absence check pass vacuously. Confirm "
-                   "the section still lives here (or re-home this pin).")))))))
+                   "the section lives here (or re-home this pin).")))))))
 
 (deftest tool-pair-spec-elision-registry-is-runtime-db-not-app-db
   (testing "spec/Tool-Pair.md direct-read privacy does NOT teach the app-db
-            [:rf/runtime :elision] registry in current tense (rf2-qgsp2o,
-            re-homed from rf2-kvpr74)"
+            [:rf/runtime :elision] registry in current tense"
     (let [bad (current-tense-app-db-elision-lines (spec-md "Tool-Pair.md"))]
       (is (empty? bad)
           (str "spec/Tool-Pair.md references the RETIRED app-db "
@@ -154,7 +144,7 @@
 
 (deftest security-spec-elision-registry-is-runtime-db-not-app-db
   (testing "spec/Security.md does NOT teach the app-db [:rf/runtime :elision]
-            registry in current tense (rf2-qgsp2o, re-homed from rf2-kvpr74)"
+            registry in current tense"
     (let [bad (current-tense-app-db-elision-lines (spec-md "Security.md"))]
       (is (empty? bad)
           (str "spec/Security.md references the RETIRED app-db "

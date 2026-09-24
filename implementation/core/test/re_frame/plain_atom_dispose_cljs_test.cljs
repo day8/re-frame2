@@ -1,16 +1,17 @@
 (ns re-frame.plain-atom-dispose-cljs-test
   "CLJS coverage for the plain-atom adapter's participation in the
-  sub-cache disposal / ref-count contract (rf2-uatcy).
+  sub-cache disposal / ref-count contract.
 
   On the JVM the plain-atom adapter rides `re-frame.interop`'s (the .clj)
   direct `add-on-dispose!` / `dispose!` implementation, so the layer-2+
-  input-release path already works (pinned by the JVM
+  input-release path works there (pinned by the JVM
   `re-frame.sub-cache-test`). On CLJS `re-frame.interop` routes those calls
   through the `:adapter/add-on-dispose!` / `:adapter/dispose!` late-bind
-  hooks — which the plain-atom adapter did NOT publish, and its derived
-  value reified no disposal protocol. The consequence was a monotonic
-  leak: a layer-2+ sub's declared-input ref-counts never decremented on slot
-  evict, pinning the inputs in the cache until `clear-sub-cache!`.
+  hooks, which the plain-atom adapter publishes, and its derived value
+  reifies the disposal protocol. An adapter that did neither would leak
+  monotonically: a layer-2+ sub's declared-input ref-counts would never
+  decrement on slot evict, pinning the inputs in the cache until
+  `clear-sub-cache!`.
 
   These tests run a CLJS-plain-atom host (the SSR / headless-on-CLJS
   shape) and pin the symmetric input-release contract per Spec 006
@@ -24,7 +25,7 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
-;; Per rf2-cmfln: sub-cache disposal is synchronous on derefer-count → 0;
+;; Sub-cache disposal is synchronous on derefer-count → 0;
 ;; no grace-period to configure.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -36,7 +37,7 @@
   (get-in @(:sub-cache (rf.frame/frame :rf/default)) [query-v :ref-count]))
 
 (deftest layer-2-disposal-decrements-input-ref-counts-on-cljs-plain-atom
-  (testing "rf2-uatcy — disposing a layer-2 sub on the CLJS-plain-atom
+  (testing "disposing a layer-2 sub on the CLJS-plain-atom
             adapter decrements ref-counts on every declared input and cascades
             their disposal, mirroring the JVM contract"
     (rf/reg-event :init(fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
@@ -58,10 +59,10 @@
       (is (= 1 (entry-ref-count [:a])) "input :a ref-count = 1 after layer-2 build")
       (is (= 1 (entry-ref-count [:b])) "input :b ref-count = 1 after layer-2 build"))
 
-    ;; Dispose the parent (sole subscriber drops → sync dispose, rf2-cmfln).
-    ;; Pre-fix the input-release callback never registered (no published
-    ;; :adapter/dispose! hook, no IDisposable on the derived value) so
-    ;; :a / :b leaked here.
+    ;; Dispose the parent (sole subscriber drops → sync dispose).
+    ;; Without a published :adapter/dispose! hook and IDisposable on the
+    ;; derived value, the input-release callback would never register and
+    ;; :a / :b would leak here.
     (rf.subs/unsubscribe :rf/default [:sum])
 
     (is (not (contains? (cache-keys) [:sum])) "parent disposed")
@@ -71,7 +72,7 @@
         "input :b disposed via cascade (ref-count → 0) — no leak")))
 
 (deftest layer-2-disposal-respects-shared-inputs-on-cljs-plain-atom
-  (testing "rf2-uatcy — a shared input is decremented by exactly one when
+  (testing "a shared input is decremented by exactly one when
             one of its layer-2 holders disposes; it survives while another
             holder remains"
     (rf/reg-event :init(fn [{:keys [db]} _] {:db {:a 2 :b 3 :c 4}}))
@@ -103,7 +104,7 @@
         ":c disposed via cascade")))
 
 (deftest layer-3-disposal-cascades-on-cljs-plain-atom
-  (testing "rf2-uatcy — disposal cascades recursively through a layer-3
+  (testing "disposal cascades recursively through a layer-3
             chain on the CLJS-plain-atom adapter"
     (rf/reg-event :init(fn [{:keys [db]} _] {:db {:a 2}}))
     (rf/reg-sub :a (fn [db _] (:a db)))
@@ -123,18 +124,19 @@
     (is (not (contains? (cache-keys) [:a])))))
 
 (deftest dispose-is-re-entrant-safe-on-cljs-plain-atom
-  (testing "rf2-kmuc46 — the plain-atom CLJS derived value's -dispose is
-            re-entrant safe + idempotent (rf2-1bzlai): a -dispose re-entered
+  (testing "the plain-atom CLJS derived value's -dispose is
+            re-entrant safe + idempotent: a -dispose re-entered
             from inside an on-dispose callback (and a plain second call) fires
             every registered callback EXACTLY once"
     ;; Reach the derived-value constructor via the public adapter map (the
-    ;; ctor is artefact-private). Pre-fix -dispose had no `disposed?` guard: a
-    ;; callback that re-entered -dispose re-deref'd the still-full callback
-    ;; vector (the `reset!` ran only AFTER the doseq), firing every callback a
-    ;; SECOND time. On a real host that double-fires an input-release callback,
-    ;; decrementing a still-referenced input's ref-count one extra time →
-    ;; premature eviction. The fix flips the guard FIRST and snapshots-and-
-    ;; clears the callbacks before firing (mirroring the spine).
+    ;; ctor is artefact-private). Without the `disposed?` guard, a
+    ;; callback that re-entered -dispose would re-deref the still-full
+    ;; callback vector (were the `reset!` to run only AFTER the doseq), firing
+    ;; every callback a SECOND time. On a real host that double-fires an
+    ;; input-release callback, decrementing a still-referenced input's
+    ;; ref-count one extra time → premature eviction. `-dispose` flips the
+    ;; guard FIRST and snapshots-and-clears the callbacks before firing
+    ;; (mirroring the spine).
     (let [make-dv (:make-derived-value rf.substrate.plain-atom/adapter)
           dv      (make-dv [(atom 0)] identity)
           fires   (atom 0)]

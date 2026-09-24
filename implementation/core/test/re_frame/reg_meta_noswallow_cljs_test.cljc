@@ -1,5 +1,5 @@
 (ns re-frame.reg-meta-noswallow-cljs-test
-  "No-silent-swallow on `reg-*` registration METADATA KEYS (rf2-x68lzo).
+  "No-silent-swallow on `reg-*` registration METADATA KEYS.
 
   Per Conventions §No silent swallow: a BARE (unqualified) registration-metadata
   key the framework does not recognise MUST signal — an unknown bare key warns
@@ -15,27 +15,27 @@
   exercised through their underlying registration fns (the enforcement lives in
   the fns, not the macro layer).
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   The no-silent-swallow contract has TWO enforcement tiers and they do not
   share a posture. The RETIRED-key tier is a `throw` and is always-on —
-  `retired-spec-key-hard-errors-per-registrar` was already green under
-  `scripts/test-core-prod-gate.sh` for a real reason, and stays unguarded. The
+  `retired-spec-key-hard-errors-per-registrar` holds under
+  `scripts/test-core-prod-gate.sh` for a real reason, and is unguarded. The
   UNKNOWN-key tier is a `:rf.warning/unknown-registration-key` emit on the
-  dev trace bus, so under `-Dre-frame.debug=false` nothing is emitted and
-  `unknown-bare-key-warns-per-registrar` failed.
+  dev trace bus, so under `-Dre-frame.debug=false` nothing is emitted and an
+  unguarded `unknown-bare-key-warns-per-registrar` would fail.
 
-  The warning assertions are guarded; what stays always-on beside them is the
+  The warning assertions are guarded; what is always-on beside them is the
   half of the contract production DOES honour — the registration nevertheless
-  SUCCEEDED and the id is resolvable in the registrar (the cascade continued).
+  SUCCEEDS and the id is resolvable in the registrar (the cascade continues).
 
-  TEN VACUOUS PASSES CAME OFF (rf2-d2841 class 1 — a negative over an empty
-  trace ring), five per deftest across the five registrar kinds:
+  The NEGATIVE warning assertions are guarded too — a negative over an empty
+  trace ring is vacuous — five per deftest across the five registrar kinds:
   `namespaced-and-known-keys-pass-silently-per-registrar` and
   `schema-v2-key-passes-where-spec-would-fail` both certify the absence of an
-  unknown-key warning with `(is (empty? warns))` over a stream that carries no
-  at all under the gate. Both deftests were GREEN there, each on one real
-  assertion (the no-throw) and five free ones."
+  unknown-key warning with `(is (empty? warns))` over a stream that carries
+  nothing at all under the gate. Unguarded, both deftests would be GREEN
+  there on one real assertion (the no-throw) and five free ones."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.interop :as rf.interop]
             [re-frame.events :as rf.events]
@@ -48,7 +48,7 @@
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; `clear-all!` gives each test a clean registrar, but in the shared
-;; `:node-test` bundle (rf2-ezbzvm) it also drops sibling namespaces'
+;; `:node-test` bundle it also drops sibling namespaces'
 ;; ns-load registrations (e.g. reg-view'd components other suites render).
 ;; Snapshot first and restore in `finally` so the clean-slate is scoped to
 ;; this test and cross-namespace registrations survive.
@@ -134,14 +134,14 @@
       (testing (str kind)
         (let [warns (with-captured-warnings
                       #(register! kind id {:doc "ok" :bogus-key 1}))]
-          ;; ALWAYS-ON (rf2-d2841): the registration nevertheless SUCCEEDED — no
+          ;; ALWAYS-ON: the registration nevertheless SUCCEEDED — no
           ;; throw, and the id is resolvable in the registrar. That is the half
           ;; of §No silent swallow a production build honours: an unknown key
           ;; is a nudge, never a rejection, and the cascade continues.
           (is (some? (rf.registrar/lookup kind id))
               "the registration succeeded despite the unknown key")
-          ;; rf2-d2841 — the WARNING is a dev-trace emit; nothing is emitted
-          ;; under `-Dre-frame.debug=false`.
+          ;; Dev-instrumentation arm: the WARNING is a dev-trace emit;
+          ;; nothing is emitted under `-Dre-frame.debug=false`.
           (when rf.interop/debug-enabled?
             (is (= 1 (count warns))
                 (str "reg-" (name kind) " emits exactly one unknown-key warning"))
@@ -175,8 +175,8 @@
                    " with known + namespaced keys must not throw; got " (pr-str @ed)))
           (is (some? (rf.registrar/lookup kind id))
               "the namespaced-extension registration landed")
-          ;; rf2-d2841 — class-1 vacuous under the gate: the warning stream is
-          ;; empty for EVERY key there, carve-out or typo.
+          ;; Dev-instrumentation arm — vacuous under the gate: the warning
+          ;; stream is empty for EVERY key there, carve-out or typo.
           (when rf.interop/debug-enabled?
             (is (empty? warns)
                 (str "no unknown-key warning for known + namespaced keys; got "
@@ -196,6 +196,6 @@
                            (str "reg-" (name kind) " accepts `:schema`")))]
           (is (some? (rf.registrar/lookup kind id))
               "the `:schema`-bearing registration landed")
-          ;; rf2-d2841 — class-1 vacuous under the gate, same shape as above.
+          ;; Dev-instrumentation arm — vacuous under the gate, as above.
           (when rf.interop/debug-enabled?
             (is (empty? warns) "`:schema` is a known key — no unknown-key warning")))))))

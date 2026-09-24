@@ -1,16 +1,14 @@
 (ns re-frame.image-assembly-cljs-test
   "EP-0023 §Image Validation / §Image Composition / §Image Patching And
-  Overrides — the ASSEMBLY slice (rf2-32siq3.4): resolve image values into a
+  Overrides — image ASSEMBLY: resolve image values into a
   SEALED, VALIDATED `[kind id]` generation and fail loud before a frame runs.
 
   Sections 1-2 + 6+ pin EP-0023 assembly coverage (projection, dedupe,
   unsupported kind, references, structured diagnostics). Sections 3, 3b, 5, 9
-  are UPDATED to EP-0026 §Layered Resolution (rf2-6ls85a): the EP-0023
-  declared-`:replace`/`:replace-standard` winner model is replaced by
-  deterministic IMAGE-ORDER layering. EP-0026 (rf2-dlvmpc) further RETIRED the
-  image-capability surface end-to-end — there is no `:rf.image/requires`, no
-  `check-capabilities!`, and no `:rf.gen/requires` on the generation — so the
-  capability-check coverage that lived here is removed.
+  pin EP-0026 §Layered Resolution: a `[kind id]` defined by several images
+  resolves by deterministic IMAGE-ORDER layering, the later image winning.
+  There is no image-capability surface — no `:rf.image/requires`, no
+  `check-capabilities!`, and no `:rf.gen/requires` on the generation.
 
   Pins the enumerated coverage:
 
@@ -51,7 +49,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Synthetic registered descriptors (mirror the source-store output shape the
-;; selector consumes — slice .3's test helper). The load-bearing field for
+;; selector consumes). The load-bearing field for
 ;; selection is :rf.provenance/ns; :impl distinguishes a real collision from a
 ;; dedupe.
 ;; ---------------------------------------------------------------------------
@@ -115,8 +113,8 @@
       (testing "resolve-descriptor reads one descriptor for a (kind, id)"
         (is (= ::cart-add (:handler-fn (rf.image-assembly/resolve-descriptor gen :event :cart/add))))
         (is (= ::http-post (:impl (rf.image-assembly/resolve-descriptor gen :fx :cart.http/post)))))
-      (testing "the generation carries the kinds present (EP-0026 retired
-                :rf.gen/requires with the image-capability feature)"
+      (testing "the generation carries the kinds present, and no
+                :rf.gen/requires"
         (is (= #{:event :sub :fx} (rf.image-assembly/generation-kinds gen)))
         (is (not (contains? gen :rf.gen/requires))))
       (testing "the sealed generation is an inert immutable value"
@@ -327,11 +325,10 @@
           "assembly succeeds — the standard ref is not an app-supplied reference"))))
 
 ;; ===========================================================================
-;; 7. Image capabilities — RETIRED (EP-0026 rf2-dlvmpc). The image-declared
-;;    host-capability surface (:rf.image/requires / make-frame :capabilities /
-;;    :rf.gen/requires) and the assembly check-capabilities! fn are removed
-;;    end-to-end, so this section's coverage is gone. The :rf.image/requires key
-;;    failing loud at rf/image construction is pinned in image-cljs-test
+;; 7. There is no image-declared host-capability surface (:rf.image/requires /
+;;    make-frame :capabilities / :rf.gen/requires) and no assembly
+;;    check-capabilities! fn. The :rf.image/requires key failing loud at
+;;    rf/image construction is pinned in image-cljs-test
 ;;    (retired-ep0023-image-keys-fail-loud).
 ;; ===========================================================================
 
@@ -399,7 +396,7 @@
   (testing "an ANONYMOUS image (no :id) in a MULTI-image composition fails loud —
             it is un-nameable in the shadow report, so it cannot participate in
             composition (rf/image contract). The shadow report thus never carries
-            a degenerate {:image nil :shadowed-by nil} entry (rf2-x76af2.30)"
+            a degenerate {:image nil :shadowed-by nil} entry"
     (testing "the EXACT repro: two anonymous images COLLIDING on a [kind id] →
               :rf.error/image-duplicate-image-id, NOT a degenerate nil/nil shadow"
       (let [pool  [(reg-desc "app.a" :event :x ::a)
@@ -428,8 +425,7 @@
 (deftest single-anonymous-image-still-assembles
   (testing "a SINGLE anonymous image (the local-test / example case) still
             assembles — the anonymous rule applies only to MULTI-image
-            compositions, where the shadow report must name each image
-            (rf2-x76af2.30)"
+            compositions, where the shadow report must name each image"
     (let [pool [(reg-desc "app.a" :event :x ::a)]
           anon (rf.image/image {:select-ns {:include ["app.a"]}})
           gen  (rf.image-assembly/assemble [anon] pool)]
@@ -438,7 +434,7 @@
           "a lone image produces no cross-image shadow"))))
 
 ;; ===========================================================================
-;; 9b. Cross-image SHADOW REPORT (EP-0026 §Shadow Report, rf2-ke7w5j) — a flat
+;; 9b. Cross-image SHADOW REPORT (EP-0026 §Shadow Report) — a flat
 ;;     [{:registration [kind id] :image <defined-in> :shadowed-by <winner>}]
 ;;     list on :rf.gen/shadows; chains name the FINAL winner per loser.
 ;; ===========================================================================
@@ -523,7 +519,7 @@
              (rf.image-assembly/generation-shadows gen))))))
 
 ;; ===========================================================================
-;; 10. Resource → resource-scope resolver reference validation (rf2-32siq3.25)
+;; 10. Resource → resource-scope resolver reference validation
 ;;     A :resource descriptor whose spec's :scope is {:from-db <id>} references a
 ;;     :resource-scope resolver that MUST be selected into the generation.
 ;; ===========================================================================
@@ -583,7 +579,7 @@
 (deftest resource-missing-scope-ref-ex-data-is-structured
   (testing "the resource missing-scope-resolver diagnostic carries image, [kind
             id], provenance ns, source coordinate, the missing [:resource-scope
-            id] reference, and a repair path (rf2-32siq3.26)"
+            id] reference, and a repair path"
     (let [pool [(resource-desc "shop.articles" :article/by-slug
                                {:from-db :shop/session})]
           img  (rf.image/image {:id :shop/img :select-ns {:include ["shop.articles"]}})
@@ -598,13 +594,13 @@
       (is (= :select-the-missing-registration-or-fix-the-reference (:recovery d))))))
 
 ;; ===========================================================================
-;; 11. Structured diagnostics audit (rf2-32siq3.26) — every enriched assembly
-;;     failure carries rf.image/[kind id]/provenance/repair where applicable.
+;; 11. Structured diagnostics — every assembly failure carries
+;;     rf.image/[kind id]/provenance/repair where applicable.
 ;; ===========================================================================
 
 (deftest interceptor-missing-ref-ex-data-carries-provenance
-  (testing "the (existing) interceptor missing-reference diagnostic now also
-            carries the referencing descriptor's provenance ns + source
+  (testing "the interceptor missing-reference diagnostic carries the
+            referencing descriptor's provenance ns + source
             coordinate alongside rf.image/[kind id]/missing-reference/recovery"
     (let [pool [(assoc (reg-desc "app.core" :event :cart/add ::add)
                        :interceptors [:my.audit/guard])]
@@ -621,7 +617,7 @@
 
 (deftest unsupported-kind-ex-data-carries-provenance
   (testing "the unsupported-kind diagnostic carries rf.image/kind/id/provenance
-            ns/coordinate/recovery (rf2-32siq3.26)"
+            ns/coordinate/recovery"
     (let [pool [{:rf.provenance/ns "weird.ns" :kind :not-a-kind :id :x/y
                  :handler-fn ::w}]
           img  (rf.image/image {:id :w/img :select-ns {:include ["weird.ns"]}})

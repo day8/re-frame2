@@ -1,7 +1,7 @@
 (ns re-frame.interop-late-bind-cljs-test
-  "Per rf2-oa9z — coverage for the no-adapter / unset-hook branch of
+  "Coverage for the no-adapter / unset-hook branch of
   every reactive-substrate fn in `re-frame.interop`. Per Spec 002
-  §Interop layer and rf2-s36l, the reactive-substrate surfaces
+  §Interop layer, the reactive-substrate surfaces
   (`ratom`, `ratom?`, `make-reaction`, `add-on-dispose!`, `dispose!`,
   `reactive?`) dispatch through the late-bind hook table:
 
@@ -15,13 +15,12 @@
   Each call site uses `(when-let [hook ...] ...)` or
   `(if-let [hook ...] (hook ...) <default>)` — so an absent hook must
   return nil / false rather than throw. Adapter-uninstall tooling
-  (rf2-s36l) depends on this — if a regression made the call sites
-  throw on absent-hook, the swap-back-to-no-adapter path during dev
-  would break loudly.
+  depends on this — call sites that threw on an absent hook would
+  break the swap-back-to-no-adapter path during dev loudly.
 
-  Pre-rf2-oa9z no test exercised the absent-hook branch. The in-tree
+  The in-tree
   shadow-cljs build loads multiple adapter ns's at once, so the hooks
-  are always populated at test time — we flip them to nil in a
+  are always populated at test time — these tests flip them to nil in a
   try / finally so cross-test isolation stays clean.
 
   Source: implementation/core/src/re_frame/interop.cljs:75 ff."
@@ -100,9 +99,9 @@
 
 (deftest after-render-returns-nil-when-hook-absent
   (testing "rf.interop/after-render returns nil (does not throw) when :adapter/after-render is unset"
-    ;; after-render is the only late-bound surface that is not on the
-    ;; rf2-oa9z list explicitly but follows the same when-let pattern;
-    ;; covering it pins the same contract for the same call shape.
+    ;; after-render is not in the list above but follows the same
+    ;; when-let pattern; covering it pins the same contract for the same
+    ;; call shape.
     (with-hook-as-nil :adapter/after-render
       (fn []
         (is (nil? (rf.interop/after-render (fn [] :nothing)))

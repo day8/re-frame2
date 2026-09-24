@@ -1,5 +1,5 @@
 (ns re-frame.observability-routing-cljs-test
-  "EP-0015 §9 (rf2-t55hxg.7) — frame-owned observability sink routing, END
+  "EP-0015 §9 — frame-owned observability sink routing, END
   TO END. The CENTRAL §9 claim, exercised through a REAL dispatch:
 
   > App authors declare a sink under frame `:observability`; the runtime
@@ -7,9 +7,9 @@
   > sink's egress profile BEFORE the sink sees it; sinks consume
   > already-projected records only.
 
-  This is the unmet graduation gate for `:rf.egress/off-box-observability`
-  (EP issue 3 — the profile must be exercised by a real hosted-monitoring
-  sink) AND the e2e leg rf2-t55hxg.4 presupposes. Distinct from
+  This is the graduation gate for `:rf.egress/off-box-observability`
+  (EP-0015 issue 3 — the profile must be exercised by a real
+  hosted-monitoring sink). Distinct from
   `re-frame.projection-cljs-test` (which unit-tests `project-egress` on a
   hand-built record): here a genuine `dispatch-sync` drives the router's
   cascade trailers, which build the `:rf.observe/handled-event` record and
@@ -17,7 +17,7 @@
   handler-exception drives `rf.error-emit/dispatch-on-error!`, which routes the
   `:rf.observe/error` record to a frame-declared error sink.
 
-  Pins the legs the bead enumerates:
+  Pins these legs:
 
     - a handled-event record reaches the declared sink, PROJECTED (the
       frame's sensitive app-db path is redacted; the off-box default omits
@@ -77,7 +77,7 @@
                       {:handled-events [{:sink :test.sinks/datadog
                                          :rf.egress/profile :rf.egress/off-box-observability}]}})
       ;; EP-0025: classify [:auth :token] sensitive via the commit-plane
-      ;; effect path (the durable frame annotation is removed) so the
+      ;; effect path (there is no durable frame annotation) so the
       ;; projector has policy to apply.
       (rf.frame/swap-runtime-db! :obs/main
         (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :token]]})))
@@ -142,7 +142,7 @@
                       {:errors [{:sink :test.sinks/sentry
                                  :rf.egress/profile :rf.egress/off-box-observability}]}})
       ;; EP-0025: classify [:auth :token] sensitive via the commit-plane
-      ;; effect path (the durable frame annotation is removed) so the
+      ;; effect path (there is no durable frame annotation) so the
       ;; projector redacts it inside the error record's :event tree slot.
       (rf.frame/swap-runtime-db! :obs/err
         (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :token]]})))
@@ -166,16 +166,16 @@
              the sink received an already-projected record")))))
 
 (deftest error-event-redacted-by-event-registration-marks-not-frame-app-db
-  (testing "ADVERSARIAL (rf2-qe6v1u — EP-0015 event args are REGISTRATION-owned):
+  (testing "ADVERSARIAL (EP-0015 event args are REGISTRATION-owned):
             a handler registered with `reg-event {:sensitive [[:password]]}` and
             a frame that declares NO matching `:sensitive {:app-db …}` path must
             STILL have the sensitive event arg redacted on the off-box `:errors`
             sink. Event args are registration-owned transient payloads, projected
             through the EVENT registration's marks at the trust boundary — not
-            (only) the frame's app-db classification. Before the fix the error
-            record's :event slot was walked only against frame app-db policy, so a
+            (only) the frame's app-db classification. Walking the error
+            record's :event slot only against frame app-db policy would leak a
             handler-declared-sensitive arg with no frame app-db classification
-            leaked the raw password off-box."
+            off-box as the raw password."
     (let [seen (atom [])]
       (rf/register-observability-sink! :test.sinks/sentry2
                                        (fn [record] (swap! seen conj record)))
@@ -262,14 +262,14 @@
       (is (= :rf.observe/handled-event (:kind (first @seen)))))))
 
 ;; ---------------------------------------------------------------------------
-;; 5. Producer attribution survives the sink route (rf2-kuky.65).
+;; 5. Producer attribution survives the sink route.
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `error-emit/dispatch-on-error!` builds the corpus-wide record with the
 ;; producer's component attribution merged in (`:failing-id` / `:reason` for the
 ;; interceptor + cofx categories, `:flow-id` + `:where :flow-eval` for flow-eval,
 ;; plus `:source-coord`). The frame-owned sink route must carry the SAME
-;; structural attribution: once the corpus-wide `:errors` stream retires, the
+;; structural attribution: with no public corpus-wide `:errors` stream, the
 ;; sink is the ONLY production door, so a sink that never learns WHICH
 ;; interceptor / cofx failed is lost diagnosis, not redundancy.
 ;;
@@ -278,10 +278,10 @@
 ;; `:reason` is free-form prose that interpolates app values — the coeffect
 ;; categories fold the thrown exception's own message into it — so it rides
 ;; `:tags`, walked and redacted under frame classification, exactly as the
-;; non-event `route-error-record!` route already treats it.
+;; non-event `route-error-record!` route treats it.
 
 (deftest error-sink-record-carries-producer-component-attribution
-  (testing "rf2-kuky.65: a throwing user interceptor delivers a projected
+  (testing "a throwing user interceptor delivers a projected
             :rf.observe/error whose :failing-id names the INTERCEPTOR and is
             distinct from :event-id — the same attribution the corpus-wide
             record carries — with :source-coord alongside it"
@@ -341,7 +341,7 @@
             ":reason is NOT lifted onto the summary surface")))))
 
 (deftest error-sink-record-carries-coeffect-supplier-attribution
-  (testing "rf2-kuky.65: a throwing COEFFECT SUPPLIER — the other category whose
+  (testing "a throwing COEFFECT SUPPLIER — the other category whose
             failing component is distinct from the dispatched event — delivers a
             projected :rf.observe/error to the frame-owned sink whose :failing-id
             names the SUPPLIER, distinct from the :event-id. The interceptor legs
@@ -395,7 +395,7 @@
             ":reason is NOT lifted onto the summary surface on this route either")))))
 
 (deftest classified-reason-redacts-whole-slot-while-attribution-survives
-  (testing "rf2-kuky.65: `:reason` rides :tags precisely so a frame CAN reach it.
+  (testing "`:reason` rides :tags precisely so a frame CAN reach it.
             With [:reason] CLASSIFIED sensitive the projector redacts that slot
             WHOLE (:rf/redacted — the interpolated supplier message goes with it)
             while the structural :failing-id and :source-coord survive beside it.
@@ -438,11 +438,11 @@
             "the structural :source-coord survives beside it too")))))
 
 (deftest error-sink-attribution-survives-public-error-profile
-  (testing "rf2-kuky.65 + rf2-z1332c: under :rf.egress/public-error the
+  (testing "under :rf.egress/public-error the
             projector drops :exception, and the component attribution SURVIVES
             that profile on the sink route — while the CONTROL, a frame-
             classified sensitive path inside the error's :event, is still
-            redacted, so the fix widened nothing that escapes"
+            redacted, so attribution widens nothing that escapes"
     (let [seen (atom [])]
       (rf/register-observability-sink! :test.sinks/public
                                        (fn [record] (swap! seen conj record)))
@@ -468,4 +468,4 @@
             "CONTROL: :rf.egress/public-error still drops :exception")
         (is (redacted? (get-in (:event r) [1 :auth :token]))
             "CONTROL: the frame-classified sensitive path inside :event is still
-             redacted — the attribution fix widened nothing that escapes")))))
+             redacted — attribution widens nothing that escapes")))))

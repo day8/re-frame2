@@ -1,24 +1,25 @@
 (ns re-frame.schema-presence-seams-test
-  "rf2-6eh5h — declaration presence is KEY-presence at every core-side
+  "Declaration presence is KEY-presence at every core-side
   Spec 010 validation seam.
 
   The schemas artefact's own suite (`re-frame.schemas-presence-test`) pins
   the meta-bearing hot path (`run-validation`) and the production boundary
-  interceptor. This namespace pins the census of core-owned consumer seams
-  that used to test the schema VALUE for truthiness:
+  interceptor. This namespace pins the census of core-owned consumer seams,
+  each of which tests declaration KEY-presence where a truthiness test of the
+  schema VALUE would silently skip a present nil / false token:
 
    - **Recordable cofx** (`re-frame.cofx/validate-recordable-value!`) —
-     used `(if-let [schema (:schema meta)] …)`, so a present nil / false
-     token silently skipped the always-on production hard error.
+     an `(if-let [schema (:schema meta)] …)` would skip the always-on
+     production hard error.
    - **Sub override** (`re-frame.subs.override-schema/validate-sub-override!`)
-     — used `(and schema …)`.
+     — an `(and schema …)` would skip validation.
    - **Sub return outer gate** (`re-frame.subs.memo/maybe-validate-sub!`)
-     — gated the `:schemas/validate-sub!` consult on `(:schema sub-meta)`
-     truthiness, bypassing the (now presence-correct) validator seam.
-   - **Fx-args outer gate** (`re-frame.fx` walk) — gated `validate-fx!`
-     on `(:schema meta)` truthiness.
+     — gating the `:schemas/validate-sub!` consult on `(:schema sub-meta)`
+     truthiness would bypass the presence-correct validator seam.
+   - **Fx-args outer gate** (`re-frame.fx` walk) — gating `validate-fx!`
+     on `(:schema meta)` truthiness would skip it.
 
-  Contract pinned per AC 3: a present falsey token is delegated exactly
+  Contract pinned: a present falsey token is delegated exactly
   once and the surface takes its documented recovery; an omitted key
   remains a no-op (the validator is never consulted)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]

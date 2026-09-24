@@ -1,11 +1,11 @@
 (ns re-frame.interceptor-runtime-complete-cljs-test
-  "EP-0022 Slice C (rf2-0adhqs.3) — runtime completion of the registered-
-  interceptor surface. Adversarial coverage for the three pieces:
+  "EP-0022 — the runtime of the registered-interceptor surface.
+  Adversarial coverage for its pieces:
 
     1. Standard `:rf.interceptor/path` FULL contract (Spec 002 §Standard
        `:rf.interceptor/path` rules 1-5), especially RULE 4: an unchanged
        focused slice widens back to the ORIGINAL full app-db OBJECT, so the
-       frame-commit `identical?` no-op (rf2-ekq28v) survives end-to-end
+       frame-commit `identical?` no-op survives end-to-end
        through a real dispatch + commit. Plus rule 3 (no-`:db` → no synthetic
        `:db`), rule 5 (changed slice widens), nested paths, root path `[]`,
        and `:rf.error/path-interceptor-bad-path` on a non-vector arg.
@@ -18,8 +18,11 @@
 
     3. `re-frame.interceptor/->interceptor*` is the internal lowering
        constructor — NOT public authoring (the public form is
-       `reg-interceptor`), and off the `re-frame.core` facade (rf2-93sxp) —
-       but the constructor still produces a working executable interceptor.
+       `reg-interceptor`), and off the `re-frame.core` facade —
+       but the constructor produces a working executable interceptor.
+
+    4. The interceptor-registry resolution seams: `resolve-chain`,
+       `chain-needs-resolution?` and `resolve-factory`, called directly.
 
   Dual-runtime (.cljc): runs on JVM (`clojure -M:test`) and CLJS
   (`npm run test:cljs`)."
@@ -280,11 +283,11 @@
                  :before (fn [ctx] (assoc-in ctx [:coeffects :db ::lowered?] true)))]
       (is (= :lower/test (:id icpt)))
       (is (fn? (:before icpt)))
-      ;; EP-0022 reference-only flip (rf2-0adhqs.9): the lowered value is NOT a
-      ;; legal chain entry — chains carry refs. Register the lowered value at
+      ;; Chains are reference-only (EP-0022): the lowered value is NOT a
+      ;; legal chain entry. Register the lowered value at
       ;; the reg-interceptor boundary (the authoring input accepts a value),
-      ;; then reference it by id. The lowering constructor still produces a
-      ;; chain-executable value; it just reaches the chain via a ref now.
+      ;; then reference it by id. The lowering constructor produces a
+      ;; chain-executable value that reaches the chain via a ref.
       (rf/reg-interceptor :lower/test icpt)
       (rf/reg-event :lower/run
         {:interceptors [:lower/test]}
@@ -293,7 +296,7 @@
       (is (::lowered? (rf/app-db-value :rf/default))
           "the lowered interceptor ran in the chain (via a registered ref)")))
 
-  (testing "the lowered value is rejected as an INLINE chain entry (reference-only flip)"
+  (testing "the lowered value is rejected as an INLINE chain entry (chains are reference-only)"
     (let [icpt (rf.interceptor/->interceptor*
                  :id     :lower/inline
                  :before identity)]
@@ -319,26 +322,25 @@
     (is (some? (rf/handler-meta {:source :store :kind :interceptor :id :pub/authored}))
         "reg-interceptor produced a registered, addressable program member")
     ;; The lowering constructor lives ONLY on its owning namespace
-    ;; (rf2-93sxp — the facade no longer carries `->interceptor*`; the absence
+    ;; (the facade does not carry `->interceptor*`; the absence
     ;; is pinned on both platforms by
     ;; re-frame.facade-internal-constructors-cljs-test). This test pins the
     ;; BEHAVIORAL contract: authoring goes through reg-interceptor, while
-    ;; `re-frame.interceptor/->interceptor*` remains a working internal
+    ;; `re-frame.interceptor/->interceptor*` is a working internal
     ;; lowering seam (above).
     (is (fn? rf.interceptor/->interceptor*)
-        "->interceptor* is retained on re-frame.interceptor as the internal lowering constructor")))
+        "->interceptor* lives on re-frame.interceptor as the internal lowering constructor")))
 
 ;; ===========================================================================
-;; PIECE 4 — interceptor-registry resolution-seam coverage gaps
-;; (review rf2-0adhqs.11: gcmgio, 4oubli, 0f9vnr, xb3mpk)
+;; PIECE 4 — interceptor-registry resolution seams
 ;; ===========================================================================
 
 ;; ---------------------------------------------------------------------------
-;; rf2-gcmgio — resolve-chain's DISPATCH-TIME inline loud-fail + malformed arms
+;; resolve-chain's DISPATCH-TIME inline loud-fail + malformed arms
 ;;
 ;; The reg-event registration-time guard (events/validate-meta-interceptors!)
-;; fires first on the public path, so every existing inline-rejection test hits
-;; THAT seam (`:where rf/reg-event`), never the dispatch-time resolve-chain arm.
+;; fires first on the public path, so an inline-rejection test through reg-event
+;; hits THAT seam (`:where rf/reg-event`), never the dispatch-time resolve-chain arm.
 ;; resolve-chain's `(interceptor-value? entry) -> throw-inline-interceptor-removed!`
 ;; (and the `:else -> throw-invalid-ref!`) arm is a defensive belt-and-braces
 ;; that is effectively unreachable through reg-event — but it is a live,
@@ -395,10 +397,10 @@
           "the framework default passed through untouched (not rejected as an inline value)"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-4oubli — chain-needs-resolution? predicate's three branches
+;; chain-needs-resolution? predicate's three branches
 ;;
 ;; The hot-path predicate the resolution seams use to SKIP the resolve walk for
-;; all-default chains. Three branches, all untested:
+;; all-default chains. Three branches:
 ;;   (a) false for a chain that is ONLY the framework default-wrapper (the
 ;;       common no-authored-chain shape — the hot-path skip);
 ;;   (b) true when a REFERENCE is present (resolve-chain must resolve it);
@@ -433,15 +435,15 @@
           "an inline value alongside the framework default still forces the walk"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-0f9vnr — resolve-factory's deliberate :rf.error/* propagate-verbatim
+;; resolve-factory's deliberate :rf.error/* propagate-verbatim
 ;; vs. wrap-as-factory-arity discrimination.
 ;;
 ;; resolve-factory catches factory throws and DISCRIMINATES: a factory raising
 ;; its own structured :rf.error/* ex-info (has :rf.error/id in ex-data)
 ;; propagates VERBATIM; any other throw is wrapped as
-;; :rf.error/interceptor-factory-arity. The existing path-bad-path-arg test only
-;; covers the verbatim leg via the STANDARD path factory — leaving the generic
-;; discrimination (a CUSTOM factory, both legs) untested.
+;; :rf.error/interceptor-factory-arity. The path-bad-path-arg test covers the
+;; verbatim leg only via the STANDARD path factory; these pin the generic
+;; discrimination (a CUSTOM factory, both legs).
 ;; ---------------------------------------------------------------------------
 
 (deftest resolve-factory-wraps-plain-throw-as-factory-arity
@@ -476,7 +478,7 @@
           "the original ex-data survived intact (verbatim propagation)"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-xb3mpk — resolve-factory's final cond :else arm: a :factory whose builder
+;; resolve-factory's final cond :else arm: a :factory whose builder
 ;; returns a value that is NEITHER a static descriptor NOR an executable
 ;; interceptor (e.g. a keyword, a number, an empty map {}) — throws
 ;; :rf.error/interceptor-factory-arity ("returned a value that is neither …").

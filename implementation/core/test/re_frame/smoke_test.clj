@@ -4,23 +4,23 @@
   pipeline actually work?' tests. Conformance fixtures are a separate
   TODO.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   Every assertion here is posture-independent — it must hold in the ordinary
   `clojure -M:test` suite AND under the real production gate
   (`scripts/test-core-prod-gate.sh`, `-Dre-frame.debug=false`) — UNLESS it sits
-  inside a `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`.
+  inside a `(when rf.interop/debug-enabled? …)` arm.
 
   Those arms observe the DEV `:trace` stream (and the debug-gated view
   annotations), whose emit sites are gated on `rf.interop/debug-enabled?` — read
   once at namespace-load time on the JVM, constant-folded away by Closure under
   `goog.DEBUG=false`. Under the gate the framework emits none of it BY DESIGN,
-  so the assertions are correct dev-posture coverage; they are kept verbatim and
-  merely declare the posture they are about, so the semantics they used to be
-  bundled with can run in the production lane. Where a semantic sibling did not
-  previously exist — the `dispatch-sync`-in-handler ban, the machine
-  spawn/destroy fx — one was ADDED against a production-visible witness rather
-  than the trace being dropped."
+  so the assertions are correct dev-posture coverage; they declare the posture
+  they are about, so the semantics beside them run in the production lane.
+  Where a trace assertion has no natural semantic sibling — the
+  `dispatch-sync`-in-handler ban, the machine spawn/destroy fx — a
+  production-visible witness sits beside it, so the trace is never the only
+  evidence."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
@@ -48,7 +48,7 @@
   ;; entry from a prior deftest can leak into a subsequent same-keyed
   ;; flow registration and cause its first evaluation to no-op (the
   ;; new-inputs would =-equal the stale last-inputs). Clear it here so
-  ;; cross-test order can't introduce hidden flakiness. See rf2-xsfj.
+  ;; cross-test order can't introduce hidden flakiness.
   (rf.flows/reset-last-inputs!)
   (rf/init! rf.substrate.plain-atom/adapter)
   ;; Framework events / fx / subs are registered at namespace-load time
@@ -58,16 +58,16 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
-  ;; rf2-o1bp: registry-introspection-round-trip exercises
+  ;; registry-introspection-round-trip exercises
   ;; reg-http-interceptor which is late-bound through the http-managed
   ;; artefact. Reload so the :http/reg-http-interceptor hook is
   ;; published across runs.
   (require 're-frame.http.managed :reload)
-  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
+  ;; EP-0002: `init!` does not synthesise `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
-  ;; `{:frame …}` opts in the test bodies still win.
+  ;; `{:frame …}` opts in the test bodies win.
   (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
@@ -82,7 +82,7 @@
     (let [meta (rf/handler-meta {:source :store :kind :event :id :counter/inc})]
       (is (some? meta))
       (is (fn? (:handler-fn meta)))
-      ;; EP-0018 collapsed the event family to one form — no :event/kind sub-tag.
+      ;; EP-0018: the event family has one form — no :event/kind sub-tag.
       (is (not (contains? meta :event/kind))))))
 
 ;; ---- end-to-end dispatch --------------------------------------------------
@@ -112,8 +112,8 @@
 ;; ---- standard interceptors ------------------------------------------------
 ;;
 ;; The path / unwrap interceptor contracts live in interceptor_test.clj —
-;; that namespace pins every retained Spec 002 interceptor primitive with
-;; deeper coverage than this smoke layer ever did (rf2-zqar3 deduplication).
+;; that namespace pins every Spec 002 interceptor primitive with deeper
+;; coverage than this smoke layer.
 
 (deftest compute-sub-against-supplied-db
   (testing "compute-sub evaluates a sub against a supplied db value"
@@ -131,9 +131,9 @@
     (is (nil? (rf/compute-sub [:no-such-sub] {})))))
 
 (deftest compute-sub-emits-sub-exception-on-body-throw
-  ;; rf2-cos61: prior to the fix, compute-sub silently swallowed body
-  ;; throws and returned nil — diverging from the reactive sibling
-  ;; (`subs.memo/validate-and-trace`) which emits :rf.error/sub-exception
+  ;; compute-sub must not silently swallow body throws and return nil —
+  ;; that would diverge from the reactive sibling
+  ;; (`subs.memo/validate-and-trace`), which emits :rf.error/sub-exception
   ;; per Spec 009 §Error contract. Pin parity here: SSR + JVM-runnable
   ;; consumers must see the same debuggable signal the reactive path
   ;; produces.
@@ -142,9 +142,9 @@
     (let [traces (atom [])]
       (rf/register-listener! :trace ::boom (fn [ev] (swap! traces conj ev)))
       (is (nil? (rf/compute-sub [:boom] {}))
-          "compute-sub still returns nil (recovery :replaced-with-default)")
+          "compute-sub returns nil (recovery :replaced-with-default)")
       (rf/unregister-listener! :trace ::boom)
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
+      ;; Dev-instrumentation arm (see ns docstring §Posture split). The
       ;; production-real half — the throw is CAUGHT and recovery is
       ;; `:replaced-with-default` (nil), not a propagated exception — is the
       ;; `(is (nil? …))` above, which runs in both postures.
@@ -172,7 +172,7 @@
       (rf/register-listener! :trace ::boom2 (fn [ev] (swap! traces conj ev)))
       (is (nil? (rf/compute-sub [:n*2] {:n 7})))
       (rf/unregister-listener! :trace ::boom2)
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring §Posture split).
       (when rf.interop/debug-enabled?
         (is (some (fn [e]
                     (and (= :rf.error/sub-exception (:operation e))
@@ -190,7 +190,7 @@
       (is (nil? (rf/subscribe-once [:n] {:frame :missing/frame}))
           "subscribe-once returns nil")
       (rf/unregister-listener! :trace ::missing)
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
+      ;; Dev-instrumentation arm (see ns docstring §Posture split). The
       ;; production-real half — neither call THROWS, both recover to nil — is
       ;; the two `(is (nil? …))` assertions above, which run in both postures.
       (when rf.interop/debug-enabled?
@@ -200,10 +200,9 @@
                   @traces)
             "expected :rf.error/frame-destroyed trace with :replaced-with-default")))))
 
-;; sub-cache-ref-counting and sub-hot-reload-invalidates-cache moved to
-;; sub_cache_test.clj; flows-are-frame-scoped and
-;; flow-hot-reload-invalidates-last-inputs moved to flows artefact's
-;; flows_test.clj (rf2-zqar3 cohort split).
+;; sub-cache-ref-counting and sub-hot-reload-invalidates-cache live in
+;; sub_cache_test.clj; flow-hot-reload-invalidates-last-inputs and the
+;; per-frame flow-store tests live in the flows artefact's flows_test.clj.
 
 (deftest subscriber-captures-frame
   (testing "subscriber closes over the current frame so closures don't need to thread it"
@@ -235,13 +234,13 @@
           {}))
       (rf/dispatch-sync [:nested])
       (rf/unregister-listener! :trace ::dsih)
-      ;; SEMANTIC, posture-independent (rf2-d2841): the ban is enforcement,
+      ;; SEMANTIC, posture-independent: the ban is enforcement,
       ;; not advice — the nested event is REJECTED, so `:outer`'s handler
       ;; never runs and its `:db` write never lands. That is the half a
       ;; production build carries.
       (is (nil? (:ran? (rf/app-db-value :rf/default)))
           "the nested event was rejected — :outer's handler never ran")
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring §Posture split).
       (when rf.interop/debug-enabled?
         (is (some (fn [ev]
                     (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
@@ -251,7 +250,7 @@
             "expected :rf.error/dispatch-sync-in-handler trace event")))))
 
 (deftest sync-dispatch-from-handler-body-routes-to-handlers-frame
-  ;; Per rf2-l5q3 — the router binds `rf.frame/*current-frame*` to the
+  ;; The router binds `rf.frame/*current-frame*` to the
   ;; envelope's :frame for the duration of process-event!, so a
   ;; synchronous `(rf/dispatch ...)` from inside a handler body picks
   ;; up the in-flight event's frame (not :rf/default). The CLJS
@@ -283,7 +282,7 @@
         ":rf/default sees nothing — the dispatch was scoped to :tenant-a")))
 
 (deftest current-frame-inside-handler-reports-handlers-frame
-  ;; Per rf2-l5q3 — `(rf/current-frame-id)` consults the dynamic-var tier
+  ;; `(rf/current-frame-id)` consults the dynamic-var tier
   ;; first. With the router's per-handler binding of
   ;; `rf.frame/*current-frame*` to the envelope's :frame, the call site
   ;; reports the handler's frame, not :rf/default. This is the contract
@@ -313,18 +312,17 @@
         (rf/dispatch-sync [:rf-l5q3.jvm.cf/observe-default])
         (is (= :rf/default @observed-current-frame))))))
 
-;; ---- snapshot-of RETIRED (rf2-t3lftq — API-shrink #3) ---------------------
+;; ---- There is no snapshot-of ----------------------------------------------
 ;;
-;; `snapshot-of` (an empirically zero-caller convenience over
-;; `(get-in (rf/app-db-value frame-id) path)`) was deleted from the facade —
-;; pre-alpha, no back-compat alias. The path-scoped-read + explicit-frame
-;; contract it used to pin is covered directly by `app-db-value` reads
-;; elsewhere in this suite (`(get-in (rf/app-db-value frame-id) path)`).
+;; The facade has no `snapshot-of` convenience over
+;; `(get-in (rf/app-db-value frame-id) path)`, and no alias for one. The
+;; path-scoped-read + explicit-frame contract is covered directly by
+;; `app-db-value` reads in this suite (`(get-in (rf/app-db-value frame-id)
+;; path)`).
 
 (deftest app-db-value-path-scoped-read-with-explicit-frame
-  (testing "(get-in (rf/app-db-value frame-id) path) is the retained
-            path-scoped read — the replacement for the retired
-            snapshot-of convenience"
+  (testing "(get-in (rf/app-db-value frame-id) path) is the path-scoped
+            read — there is no snapshot-of convenience"
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:user {:id 7 :name "ada"}
                                       :counts {:hits 3}}}))
     (rf/dispatch-sync [:seed])
@@ -346,7 +344,7 @@
     (is (nil? (get-in (rf/app-db-value :nonexistent) [:n]))
         "missing frame yields nil rather than throwing")))
 
-;; ---- app-schemas (rf2-vvsh) ----------------------------------------------
+;; ---- app-schemas ---------------------------------------------------------
 
 (deftest app-schemas-returns-registered-schema-map
   (testing "app-schemas returns {path → registration-metadata} for every
@@ -361,9 +359,9 @@
       (is (= [:vector :string]    (:schema (get m [:todos])))))
     (is (= [:map [:id :uuid]] (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:user]})))
         "app-schema-meta agrees with app-schemas for individual paths"))
-  (testing "rf2-kuky.84 — :frame is REQUIRED; the keyword sugar, the bare
-            frame value and the no-arg ambient form are all refused with the
-            catalogued :rf.error/no-frame-context"
+  (testing ":frame is REQUIRED; the keyword sugar, the bare frame value and
+            the no-arg ambient form are all refused with the catalogued
+            :rf.error/no-frame-context"
     (doseq [f [#(rf.schemas/app-schemas :rf/default)
                #(rf.schemas/app-schemas nil)
                #(rf.schemas/app-schemas {})
@@ -428,9 +426,9 @@
           "initial value correct: 5*5 = 25")
       (rf/dispatch-sync [:stable/touch-unrelated] {:frame f})
       (is (= 25 (rf/compute-sub [:stable/squared] (rf/app-db-value f)))
-          "value still correct after a value-equal app-db replacement"))))
+          "value correct after a value-equal app-db replacement"))))
 
-;; ---- compute-sub per-call memoisation (rf2-gyxm3) -------------------------
+;; ---- compute-sub per-call memoisation -------------------------------------
 ;;
 ;; `compute-sub` threads a per-call `{query-v -> value}` memo through its
 ;; declared-input recursion so each DISTINCT sub in the dependency graph computes
@@ -460,8 +458,8 @@
             multiplicatively"
     (let [leaf-calls (atom 0)]
       ;; Graph: top <- {l1,l2} ; l1 <- leaf ; l2 <- leaf ; leaf <- (db).
-      ;; Pre-fix, `leaf` resolves twice (once per l1/l2 path); the memo
-      ;; collapses it to one.
+      ;; Without the memo, `leaf` would resolve twice (once per l1/l2 path);
+      ;; the memo collapses it to one.
       (rf/reg-sub :memo/leaf (fn [db _] (swap! leaf-calls inc) (:base db)))
       (rf/reg-sub :memo/l1 {:inputs [[:memo/leaf]]} (fn [[x] _] (* x 2)))
       (rf/reg-sub :memo/l2 {:inputs [[:memo/leaf]]} (fn [[x] _] (* x 3)))
@@ -501,10 +499,9 @@
 ;; ---- machine ---------------------------------------------------------------
 ;;
 ;; pure-machine-transition / machine-always-microstep / machine-raise-pre-commit
-;; moved to machines artefact's machine_transition_purity_test.clj
-;; (rf2-zqar3 cohort split — all three exercise the pure
-;; rf.machines/machine-transition surface; co-located with the rest of the
-;; pure-transition contract tests).
+;; live in the machines artefact's machine_transition_purity_test.clj (all
+;; three exercise the pure rf.machines/machine-transition surface; co-located
+;; with the rest of the pure-transition contract tests).
 
 ;; ---- flows ----------------------------------------------------------------
 
@@ -536,9 +533,8 @@
            (rf.routing/route-url {:to :files/get :params {:rest "a/b c/d"}})))
     (let [m (rf.routing/match-url "/files/a/b%20c/d")]
       (is (= "a/b c/d" (:rest (:params m))))))
-  (testing "query keys and values are encoded / decoded. rf2-5ifai:
-            the bare route declares no :query vocabulary, so the key
-            stays a string."
+  (testing "query keys and values are encoded / decoded. The bare route
+            declares no :query vocabulary, so the key stays a string."
     (rf/reg-route :search {} "/search")
     (is (= "/search?q=hello%20world"
            (rf.routing/route-url {:to :search :params {} :query {:q "hello world"}})))
@@ -563,7 +559,7 @@
                 (tree-seq coll? seq exp))
           "with-frame expansion references *current-frame*"))
     ;; reg-view (defn-shape per Spec 001 §Allowed forms of the middle slot) defs the symbol and
-    ;; registers under (keyword (str *ns*) (str sym)). Per rf2-hzos the
+    ;; registers under (keyword (str *ns*) (str sym)). The
     ;; expansion is (do (binding [...] (reg-view* ...)) (def sym (view ...)) id)
     ;; — the terminal id makes the macro return its primary id (matching
     ;; the reg-* return-value contract pinned in spec/Conventions.md).
@@ -600,7 +596,7 @@
       (rf/register-listener! :trace ::vh (fn [ev] (swap! traces conj ev)))
       (verify-fn :rf/default "client-hash-Y")
       (rf/unregister-listener! :trace ::vh)
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
+      ;; Dev-instrumentation arm (see ns docstring §Posture split). The
       ;; production-real half — `rf/hydrate` really stashed the server hash
       ;; under `[:rf.runtime/ssr :hydration]`, which is the state
       ;; `verify-hydration!` compares against — is asserted above, in both
@@ -638,7 +634,7 @@
   (testing "destroy-frame! emits one :rf.machine.lifecycle/destroyed per active machine, carrying :reason :parent-frame-destroyed"
     (rf/make-frame {:id :tenant-a :doc "tenant"})
     ;; Seed a machine snapshot directly into the RUNTIME-DB partition
-    ;; (EP-0001 rf2-vzld77 — machine snapshots are durable runtime-db state)
+    ;; (EP-0001 — machine snapshots are durable runtime-db state)
     ;; so we don't need to run a full machine through this test.
     (rf/reg-event :seed-machines
       (fn [{rt :rf.db/runtime} _]
@@ -647,8 +643,8 @@
                    {:flow/login    {:state :authed   :data {}}
                     :flow/checkout {:state :pending  :data {}}})}))
     (rf/dispatch-sync [:seed-machines] {:frame :tenant-a})
-    ;; SEMANTIC, posture-independent (rf2-d2841): the two active machines were
-    ;; really there to be signalled, and the teardown really happened.
+    ;; SEMANTIC, posture-independent: the two active machines are really
+    ;; there to be signalled, and the teardown really happens.
     (is (= #{:flow/login :flow/checkout}
            (set (keys (get-in (:rf.db/runtime (rf/frame-state-value :tenant-a))
                               [:rf.runtime/machines :snapshots]))))
@@ -659,7 +655,7 @@
       (rf/unregister-listener! :trace ::df)
       (is (not (contains? (rf/frame-ids) :tenant-a))
           ":tenant-a and its machine snapshots are gone after destroy-frame!")
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
+      ;; Dev-instrumentation arm (see ns docstring §Posture split). The
       ;; per-machine SIGNAL is a developer/tooling notification: it rides the
       ;; dev `:trace` stream only, so under the production gate there is
       ;; nothing to count.
@@ -690,9 +686,9 @@
                                         :start      [:begin]}
                                :on    {:done :idle}}}}
           handler (rf.machines/make-machine-handler machine)]
-      ;; rf2-ywv74m — the spawned child TYPE must be REGISTERED before it is
-      ;; spawned (the implicit "spec-less spawn" path is removed; an
-      ;; unregistered `:machine-id` now rejects fail-closed with
+      ;; The spawned child TYPE must be REGISTERED before it is spawned
+      ;; (there is no implicit "spec-less spawn" path; an unregistered
+      ;; `:machine-id` rejects fail-closed with
       ;; `:rf.error/machine-spawn-unregistered-type`). Register a minimal
       ;; `:worker` child so each spawn is accepted and fires its
       ;; `:rf.machine.spawn/spawned` trace.
@@ -706,7 +702,7 @@
         (rf/dispatch-sync [:flow [:start]] {:frame :left})
         (rf/dispatch-sync [:flow [:start]] {:frame :right})
         (rf/unregister-listener! :trace ::sids)
-        ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
+        ;; Dev-instrumentation arm (see ns docstring §Posture split). The
         ;; frame-scoping CONTRACT this deftest is named for is the
         ;; `:rf/spawn-counter` pair below, read straight out of each frame's
         ;; runtime-db — production-real state, asserted in both postures.
@@ -717,7 +713,7 @@
                 "two :rf.machine.spawn/spawned traces — one per frame")
             (is (every? #(= :worker %) ids)
                 "both spawned the :worker machine")))
-        ;; Per rf2-gr8q the spawn-counter is no longer a per-process
+        ;; The spawn-counter is not a per-process
         ;; atom — it lives inside each parent machine's snapshot at
         ;; `:rf/spawn-counter`. Frame-scoping is inherited from
         ;; per-frame app-db isolation: each frame owns its own copy of
@@ -740,11 +736,10 @@
   (testing ":rf.machine/spawn and :rf.machine/destroy traverse fx without :rf.error/no-such-fx"
     (let [traces (atom [])]
       (rf/register-listener! :trace ::spawn (fn [ev] (swap! traces conj ev)))
-      ;; rf2-ywv74m — register the spawned child TYPE before the spawn fx; the
-      ;; implicit "spec-less spawn" path is removed and an unregistered
-      ;; `:machine-id` now rejects fail-closed
-      ;; (`:rf.error/machine-spawn-unregistered-type`), so the spawn/destroy
-      ;; traces would never fire.
+      ;; Register the spawned child TYPE before the spawn fx: there is no
+      ;; implicit "spec-less spawn" path, and an unregistered `:machine-id`
+      ;; rejects fail-closed (`:rf.error/machine-spawn-unregistered-type`), so
+      ;; without it the spawn/destroy traces would never fire.
       (rf/reg-machine :worker {:initial :running :data {} :states {:running {}}})
       (rf/reg-event :do-spawn
         (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id :worker
@@ -753,7 +748,7 @@
                         [:rf.machine/destroy :worker#1]]}))
       (rf/dispatch-sync [:do-spawn])
       (rf/unregister-listener! :trace ::spawn)
-      ;; SEMANTIC, posture-independent (rf2-d2841). "Traversed fx without
+      ;; SEMANTIC, posture-independent. "Traversed fx without
       ;; :rf.error/no-such-fx" read through the trace stream is a VACUOUS pass
       ;; under the production gate — an empty trace ring satisfies `not-any?`
       ;; just as well as a correct one. So pin what each fx actually DID, in
@@ -766,7 +761,7 @@
             ":rf.machine/spawn was handled — it allocated :worker#1")
         (is (= {} (:snapshots machines-rt))
             ":rf.machine/destroy was handled — :worker#1's snapshot is gone"))
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring §Posture split).
       (when rf.interop/debug-enabled?
         (is (some #(= :rf.machine.spawn/spawned (:operation %)) @traces)
             "expected :rf.machine.spawn/spawned trace")
@@ -837,7 +832,7 @@
           :authed      {}
           :locked-out  {}}})
 
-      ;; Subs over the machine snapshot. EP-0001 (rf2-vzld77): machine
+      ;; Subs over the machine snapshot. EP-0001: machine
       ;; snapshots are durable runtime-db state, so this composes off the
       ;; framework `:rf/machine` sub (which reads the runtime-db projection)
       ;; rather than reaching into a raw db path.
@@ -882,11 +877,11 @@
     (let [f (rf.frame/make-anon-frame-record! {})]
       (rf/dispatch-sync [:test/tiny [:tick]] {:frame f})
       (rf/dispatch-sync [:test/tiny [:tick]] {:frame f})
-      ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
+      ;; EP-0001: machine snapshots are durable runtime-db state.
       (let [rt (:rf.db/runtime (rf/frame-state-value f))]
-        ;; Per rf2-gr8q the snapshot carries `:rf/spawn-counter` seeded
-        ;; by `synthesise-initial-snapshot`. This machine never spawns,
-        ;; so the slot stays empty (`{}`).
+        ;; The snapshot carries `:rf/spawn-counter` seeded by
+        ;; `re-frame.machines.parallel/build-initial-snapshot`. This machine
+        ;; never spawns, so the slot stays empty (`{}`).
         (is (= {:state :idle :data {:n 2} :rf/spawn-counter {}}
                (get-in rt [:rf.runtime/machines :snapshots :test/tiny]))
             "machine snapshot exists at the spec'd path")
@@ -903,8 +898,8 @@
 
 ;; Every registered machine-id, read through the same generic registrar query
 ;; filtered on the `:rf/machine?` discriminator. There is no per-kind
-;; `machines` accessor (retired, rf2-kuky.31) — this filter IS the contract
-;; (Spec 005 §Querying machines).
+;; `machines` accessor — this filter IS the contract (Spec 005 §Querying
+;; machines).
 (defn- machine-ids []
   (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
               (rf/registrations {:source :store :kind :event}))))
@@ -950,13 +945,13 @@
         (is (nil? (machine-spec :test/never-registered))
             "unregistered ids return nil"))
 
-      (testing "the retired per-kind `machine-meta` alias is GONE from re-frame.machines
-                (rf2-kuky.31 — the generic read above replaces it)"
+      (testing "there is no per-kind `machine-meta` alias in re-frame.machines
+                — the generic read above is the contract"
         (is (nil? (ns-resolve 're-frame.machines 'machine-meta))
             "re-frame.machines/machine-meta must not be re-introduced")))))
 
 (deftest retired-per-kind-registry-aliases-are-absent
-  ;; rf2-kuky.31. Every per-kind `<kind>-ids` / `<kind>-meta` accessor is a
+  ;; Every per-kind `<kind>-ids` / `<kind>-meta` accessor is a
   ;; second encoding of the one registrar grammar every tool already speaks:
   ;;   (keys (rf/registrations {:source :store :kind k}))
   ;;   (rf/handler-meta {:source :store :kind k :id id})
@@ -977,14 +972,14 @@
     (doseq [sym '[resource-meta mutation-meta]]
       (is (nil? (ns-resolve 're-frame.core sym))
           (str "re-frame.core/" sym " must not be re-introduced"))))
-  (testing "resource-meta / mutation-meta survive ARTEFACT-INTERNALLY, so the
-            resources runtime keeps its own shorthand for the projection"
+  (testing "resource-meta / mutation-meta exist ARTEFACT-INTERNALLY, so the
+            resources runtime has its own shorthand for the projection"
     (is (some? (ns-resolve 're-frame.resources.registry 'resource-meta)))
     (is (some? (ns-resolve 're-frame.resources.mutation-registry 'mutation-meta)))))
 
-;; ssr-with-fx-override and ssr-end-to-end moved to the ssr artefact's
-;; ssr_end_to_end_test.clj (rf2-zqar3 cohort split — co-located with the
-;; rest of the SSR request-lifecycle coverage).
+;; ssr-with-fx-override and ssr-end-to-end live in the ssr artefact's
+;; ssr_end_to_end_test.clj, co-located with the rest of the SSR
+;; request-lifecycle coverage.
 
 (deftest reg-view-jvm
   (testing "reg-view registers a view that render-to-string resolves
@@ -993,11 +988,11 @@
     (rf/reg-view* :greet
       (fn [name] [:p "hello " [:strong name]]))
 
-    ;; rf2-j81hs — `[(rf/view :greet) "world"]`, not `[:greet "world"]`.
+    ;; `[(rf/view :greet) "world"]`, not `[:greet "world"]`.
     ;; A keyword head is a DOM / custom element on every host; the emitter
-    ;; no longer probes the registry for it.
+    ;; does not probe the registry for it.
     ;;
-    ;; rf2-8vi4q — in a DEV build the registered handle's root also carries
+    ;; In a DEV build the registered handle's root also carries
     ;; the two debug-gated view annotations (data-rf2-source-coord /
     ;; data-rf-view — their exact bytes are pinned in
     ;; `re-frame.ssr-source-coord-test`), so assert the RESOLUTION
@@ -1006,11 +1001,11 @@
     (let [html (rf.ssr/render-to-string [(rf/view :greet) "world"])]
       (is (clojure.string/includes? html "hello <strong>world</strong>")
           "render-to-string resolves a callable head")
-      ;; SEMANTIC, posture-independent (rf2-d2841): the resolved view's root
+      ;; SEMANTIC, posture-independent: the resolved view's root
       ;; really is a <p> element — with attributes in dev, bare in production.
       (is (re-find #"^<p[ >]" html)
           "the resolved view's <p> root is present")
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The two
+      ;; Dev-instrumentation arm (see ns docstring §Posture split). The two
       ;; view annotations are debug-gated, so the root is bare `<p>` under
       ;; the production gate and attributed `<p …>` in dev.
       (when rf.interop/debug-enabled?
@@ -1020,10 +1015,10 @@
         "view returns the registered render fn")
     (is (nil? (rf/view :no-such-view))))
 
-  (testing "rf2-j81hs — the keyword spelling is an ELEMENT even though
-            `:greet` is registered. Pinned here, in the core smoke test,
-            because this is the one-line statement of the grammar a
-            reader is most likely to meet first."
+  (testing "the keyword spelling is an ELEMENT even though `:greet` is
+            registered. Pinned here, in the core smoke test, because this is
+            the one-line statement of the grammar a reader is most likely to
+            meet first."
     (rf/reg-view* :greet
       (fn [name] [:p "hello " [:strong name]]))
     (is (= "<greet>world</greet>"
@@ -1053,14 +1048,14 @@
       (is (clojure.string/starts-with? (r2s [:html [:body]] {:doctype? true})
                                        "<!DOCTYPE html>")))))
 
-;; ---- rf2-o1bp: registrations / handler-meta ------------------------------
+;; ---- registrations / handler-meta ----------------------------------------
 ;;
-;; Per test-coverage-review-2026-05-12 P3-17: the introspection re-exports
-;; (`registrations`, `handler-meta`). They're used inside fixtures and the
-;; source-coords tests but no single deftest pins their cross-kind round-trip.
-;; This test registers handlers across the canonical kinds, then walks the
-;; introspection surfaces against each. (rf2-i4hk4b removed the `handler-ids`
-;; projection — the id set is `(set (keys (registrations kind)))`.)
+;; The introspection re-exports (`registrations`, `handler-meta`) are used
+;; inside fixtures and the source-coords tests; this deftest pins their
+;; cross-kind round-trip. It registers handlers across the canonical kinds,
+;; then walks the introspection surfaces against each. There is no
+;; `handler-ids` projection — the id set is
+;; `(set (keys (registrations kind)))`.
 
 (deftest registry-introspection-round-trip
   (testing "rf/registrations, rf/handler-meta cover every
@@ -1095,10 +1090,10 @@
     (rf/reg-route :rf2-o1bp/route1 {} "/rf2-o1bp/landing")
 
     ;; ---- :flow --------------------------------------------------------
-    ;; Per rf2-en00bk flows live OUTSIDE the registrar — `reg-flow` writes
+    ;; Flows live OUTSIDE the registrar — `reg-flow` writes
     ;; only to the flows artefact's own per-frame store (`flows`, keyed
     ;; `{frame-id {flow-id flow-map}}`), the single source of truth. The
-    ;; `:flow` registrar kind stays RESERVED-but-empty (like `:http-
+    ;; `:flow` registrar kind is RESERVED-but-empty (like `:http-
     ;; interceptor`); introspection of registered flows goes through
     ;; `rf.flows/flow-meta` / `rf.flows/flows-snapshot`, asserted in the flows
     ;; artefact's own tests. The fixture's ambient `(with-frame :rf/default …)`
@@ -1107,8 +1102,7 @@
 
     ;; ---- :http-interceptor --------------------------------------------
     ;; reg-http-interceptor uses its own per-frame atom (not the
-    ;; registrar). The bead lists :http-interceptor among the kinds to
-    ;; register across; we still exercise the surface so the late-bind
+    ;; registrar). The surface is exercised here anyway so the late-bind
     ;; hook is touched.
     (rf/reg-http-interceptor :rf2-o1bp/interceptor1 {:before identity})
 
@@ -1118,7 +1112,7 @@
     (rf/reg-error-projector :rf2-o1bp/err1 (fn [_ _] {}))
 
     ;; ---- app-db schema -----------------------------------------------
-    ;; Per rf2-0frdi / rf2-cq1ak app-db schemas live OUTSIDE the registrar
+    ;; App-db schemas live OUTSIDE the registrar
     ;; — `reg-app-schema` writes only to the schemas artefact's own
     ;; per-frame side-table (`rf.schemas/schemas-by-frame`). There is NO
     ;; `:app-schema` registrar kind. Introspection of registered app-db
@@ -1128,7 +1122,7 @@
     (rf/reg-app-schema [:rf2-o1bp/path] :any)
 
     ;; ---- (1) the id set per kind — the (set (keys (registrations kind)))
-    ;;          projection that replaced the removed rf/handler-ids (rf2-i4hk4b)
+    ;;          projection (there is no rf/handler-ids)
     (testing "(set (keys (rf/registrations {:source :store :kind kind}))) enumerates ids per kind"
       (let [ids-of          (fn [kind]
                               (set (keys (rf/registrations {:source :store
@@ -1150,21 +1144,21 @@
         (is (contains? cofx-ids :rf2-o1bp/cofx1))
         (is (contains? view-ids :rf2-o1bp/view1))
         (is (contains? route-ids :rf2-o1bp/route1))
-        ;; Per rf2-en00bk `:flow` is a RESERVED-but-EMPTY registrar kind —
-        ;; reg-flow writes only to the flows artefact's per-frame store. Per
-        ;; rf2-kuky.30 the query path no longer answers `{}` for it (an
-        ;; authoritative-looking empty catalogue over a store that lives
-        ;; elsewhere); it THROWS, naming the owning read.
+        ;; `:flow` is a RESERVED-but-EMPTY registrar kind — reg-flow writes
+        ;; only to the flows artefact's per-frame store. The query path does
+        ;; not answer `{}` for it (that would be an authoritative-looking
+        ;; empty catalogue over a store that lives elsewhere); it THROWS,
+        ;; naming the owning read.
         (is (thrown? clojure.lang.ExceptionInfo (ids-of :flow))
             "querying the reserved-empty :flow slot throws rather than answering {}")
         (is (some? (rf.flows/flow-meta {:frame :rf/default :id :rf2-o1bp/flow1}))
             "the flow IS introspectable via rf.flows/flow-meta (the per-frame store)")
         (is (contains? ep-ids :rf2-o1bp/err1))
-        ;; Per rf2-cq1ak `:app-schema` is NOT a registrar kind — no
+        ;; `:app-schema` is NOT a registrar kind — no
         ;; assertion here. App-db schema introspection goes through
         ;; `rf.schemas/app-schemas` (returns `{path → registration-metadata}`).
         (is (not (rf.registrar/valid-kind? :app-schema))
-            ":app-schema is NOT a registrar kind (rf2-cq1ak)")))
+            ":app-schema is NOT a registrar kind")))
 
     ;; ---- (2) registrations returns {id → metadata} per kind -----------
     (testing "(rf/registrations {:source :store :kind kind}) returns {id → metadata}"
@@ -1193,14 +1187,13 @@
       (let [m (rf/handler-meta {:source :store :kind :route :id :rf2-o1bp/route1})]
         (is (= "/rf2-o1bp/landing" (:path m))
             ":route metadata carries :path"))
-      ;; Flows carry :output-path and :inputs. Per rf2-en00bk they are NOT in
-      ;; the registrar; the per-frame store is the single source of truth, read
-      ;; via `rf.flows/flow-meta`. Per rf2-kuky.30 a `:flow` query THROWS
-      ;; and names that door, rather than answering the nil which reads as
-      ;; "no such flow".
+      ;; Flows carry :output-path and :inputs. They are NOT in the registrar;
+      ;; the per-frame store is the single source of truth, read via
+      ;; `rf.flows/flow-meta`. A `:flow` query THROWS and names that door,
+      ;; rather than answering a nil that would read as "no such flow".
       (is (thrown? clojure.lang.ExceptionInfo
             (rf/handler-meta {:source :store :kind :flow :id :rf2-o1bp/flow1}))
-          "a :flow query throws :rf.error/registrar-kind-not-queryable (rf2-kuky.30)")
+          "a :flow query throws :rf.error/registrar-kind-not-queryable")
       (let [m (rf.flows/flow-meta {:frame :rf/default :id :rf2-o1bp/flow1})]
         (is (= [:rf2-o1bp/flow-output] (:output-path m)))
         (is (= [] (:inputs m))))

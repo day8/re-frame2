@@ -1,25 +1,21 @@
 (ns re-frame.observation-render-law-drift-test
-  "rf2-vxgfnd.167 — the REPO-WIDE render-law drift gate.
+  "The REPO-WIDE render-law drift gate.
 
-  The retired per-epoch render law (`rf2-vxgfnd.66` / PR #5790) falsely
-  equated an event/derivation EPOCH with a UI notification, component
-  render, or React commit — the shape that lets a reader infer that every
-  epoch closes a UI batch (`epoch-close notify` → React work). The shipped
-  scheduler does not work that way: an epoch is a WRITE / EVIDENCE unit; the
-  owner-notification's `mark-dirty` schedules a render/commit that flushes at
-  a later pending host checkpoint (coalesced across a batch), decoupled from
-  epoch count (the host-checkpoint contract itself is `rf2-vxgfnd.166`).
+  There is no per-epoch render law. The retired law equates an
+  event/derivation EPOCH with a UI notification, component render, or React
+  commit — the shape that lets a reader infer that every epoch closes a UI
+  batch (`epoch-close notify` → React work). The scheduler does not work that
+  way: an epoch is a WRITE / EVIDENCE unit; the owner-notification's
+  `mark-dirty` schedules a render/commit that flushes at a later pending host
+  checkpoint (coalesced across a batch), decoupled from epoch count.
 
   ## Why this gate is repo-wide, and why the roster comes from git
 
-  #5790's sweep missed the residue because it reasoned about DIRECTORIES: it
-  treated `ai/` as wholly gitignored and therefore out of scope. That premise
-  was false — `git ls-files ai/` lists force-tracked files, including the
-  24-file `new-substrate-codex` design manual that presents itself as
-  normative. A directory-walking census repeats exactly that mistake, and the
-  earlier version of THIS gate had the narrower form of the same flaw: it read
-  one hardcoded `io/resource` path, so it stayed green while the named residue
-  stood everywhere else.
+  A sweep that reasons about DIRECTORIES misses residue: treating an ignored
+  directory as wholly out of scope skips every force-tracked file beneath it.
+  A directory-walking census repeats exactly that mistake, and a gate that
+  reads one hardcoded `io/resource` path has the narrower form of the same
+  flaw: it stays green while the named residue stands everywhere else.
 
   So the census is `git ls-files` — the tracked-file set itself, which by
   construction includes force-tracked files beneath ignored directories. It
@@ -79,12 +75,12 @@
 
 (def ^:private forbidden-render-law-res
   "The retired-per-epoch-render-law shapes. `epoch-close` (or `epoch close`)
-  adjacent to UI-scheduling verbs is the exact #5790-missed residue; the
+  adjacent to UI-scheduling verbs is the core residue shape; the
   `<ui-verb> … per … epoch` shape catches the sibling `one notification /
   render per epoch` / `rendered once per epoch` / `React work per input
   epoch` phrasings. `commit` is deliberately EXCLUDED from the per-epoch arm
   because the core spine's derivation-epoch cache/commit law is legitimate
-  per-epoch terminology (bead: must not be blindly replaced); the
+  per-epoch terminology (it must not be blindly replaced); the
   `epoch-close` arm still catches an `epoch-close … commit` UI claim.
 
   Note that HYPHENATED `per-epoch` never matches: the second arm requires
@@ -111,7 +107,7 @@
    (str "the core spine's own glitch-free derivation law — a multi-input derived "
         "value notifies once per coherent input epoch. That is a DERIVATION-layer "
         "statement about recompute coherence, not a claim about UI notification, "
-        "render, or React commit counts, and the bead explicitly preserves it")})
+        "render, or React commit counts, and this gate preserves it")})
 
 (defn- offending-lines
   "`[line-no line]` pairs of `content` carrying a retired render-law claim."
@@ -130,13 +126,13 @@
   "Scan every tracked, prose-bearing file. Returns
   `{:scanned n :chars n :hits {path [[line-no line] …]}}`.
 
-  `:chars` and NOT `:bytes` (rf2-2rtt6.135): `slurp` hands back a DECODED
+  `:chars` and NOT `:bytes`: `slurp` hands back a DECODED
   `String`, so `(count content)` is UTF-16 code units — which is not the file's
   size on disk for any file carrying a non-ASCII character, and this corpus is
   full of em-dashes. The figure is a pure anti-vacuity magnitude check (\"did we
   actually read the corpus, or silently census nothing?\"), a same-vs-same
-  comparison against a floor, so the honest fix is to say what it counts rather
-  than to re-encode 500+ files' content to satisfy a name."
+  comparison against a floor, so the key says what it counts rather than
+  re-encoding 500+ files' content to satisfy a name."
   []
   (let [root  (repo-root)
         _     (assert root "repository root not found — the drift census cannot be built")
@@ -163,7 +159,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest drift-census-is-not-vacuous
-  (testing "rf2-vxgfnd.167: the roster comes from `git ls-files` and is real —
+  (testing "the roster comes from `git ls-files` and is real —
             a census that silently shrank to nothing must FAIL, not pass"
     (let [{:keys [scanned chars missing]} @census-result]
       (is (> scanned 500)
@@ -176,7 +172,7 @@
           (str "tracked paths absent from the working tree: " (pr-str missing))))))
 
 (deftest drift-patterns-actually-detect-the-retired-law
-  (testing "rf2-vxgfnd.167: the matcher itself works — a seeded claim in each
+  (testing "the matcher itself works — a seeded claim in each
             retired shape is detected, and the legitimate hyphenated
             `per-epoch` storage terminology is NOT"
     (doseq [seeded ["the epoch-close notify drives React work"
@@ -205,18 +201,18 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest no-tracked-file-teaches-the-retired-per-epoch-render-law
-  (testing "rf2-vxgfnd.167: no tracked file equates an epoch with a UI
+  (testing "no tracked file equates an epoch with a UI
             notification / render / React commit — no `epoch-close notify`, no
             `render/react/notification per epoch`. An epoch is a write/evidence
             unit; `mark-dirty` schedules the render/commit at a later host
-            checkpoint (rf2-vxgfnd.166), decoupled from epoch count."
+            checkpoint, decoupled from epoch count."
     (let [offenders (apply dissoc (:hits @census-result) (keys allowlist))]
       (is (empty? offenders)
           (str "Tracked files teach the RETIRED per-epoch render law. An "
                "epoch-close does NOT cause a notification / render / React "
                "commit — `mark-dirty` schedules UI work at a later pending "
-               "host checkpoint, decoupled from epoch count (rf2-vxgfnd.167 / "
-               ".166). If a hit is legitimate per-epoch EVIDENCE or "
+               "host checkpoint, decoupled from epoch count. "
+               "If a hit is legitimate per-epoch EVIDENCE or "
                "derivation-cache terminology, prefer hyphenating it "
                "(`per-epoch`); allowlist it only with a stated reason. "
                "Offending lines:\n  "
@@ -226,10 +222,10 @@
                            (str path ":" n "  " line))))))))
 
 (deftest allowlist-carries-no-stale-entries
-  (testing "rf2-vxgfnd.167: every allowlisted path still exists and still
+  (testing "every allowlisted path still exists and still
             matches. An entry whose file was fixed or deleted is stale, and a
-            stale exemption must RED rather than rot — the same failure mode
-            that let #5790's directory-ignore premise survive unexamined."
+            stale exemption must RED rather than rot — the failure mode that
+            lets a directory-ignore premise survive unexamined."
     (let [{:keys [hits]} @census-result
           root           (repo-root)]
       (doseq [[path reason] allowlist]
@@ -241,24 +237,22 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Adversarial (negative): the LEGITIMATE per-epoch EVIDENCE terminology must
-;; survive — the bead forbids a blind global scrub of every `epoch` mention.
+;; survive — a blind global scrub of every `epoch` mention is forbidden.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private legitimate-per-epoch-terms
-  "The per-epoch EVIDENCE / derivation-cache axes rf2-vxgfnd.167 requires the
-  sweep to PRESERVE. They were pinned against one hardcoded `io/resource`
-  path — `re_frame/substrate/observation.cljc` — until the internal
-  observation port was retired on 2026-08-21 (rf2-63t1i). Pinning them
-  against the tracked corpus instead is what this namespace's own docstring
-  already argues for: a single hardcoded path is how the EARLIER version of
-  this gate stayed green while residue stood everywhere else."
+  "The per-epoch EVIDENCE / derivation-cache axes the sweep must PRESERVE.
+  They are pinned against the tracked corpus rather than one hardcoded
+  `io/resource` path, which is what this namespace's own docstring argues
+  for: a single hardcoded path can stay green while residue stands
+  everywhere else."
   ["frame-epoch" "registry-epoch" "commit-epoch"])
 
 (deftest preserves-legitimate-per-epoch-evidence-terms
-  (testing "rf2-vxgfnd.167: the sweep must PRESERVE the legitimate per-epoch
+  (testing "the sweep must PRESERVE the legitimate per-epoch
             evidence axes (`:frame-epoch` / `:registry-epoch`) and the
             derivation `commit-epoch` law — a blind textual scrub of every
-            `epoch` mention is itself a regression the bead calls out."
+            `epoch` mention is itself a regression."
     (let [root  (repo-root)
           _     (assert root "repository root not found")
           paths (filterv scannable? (tracked-files root))
@@ -275,7 +269,7 @@
       (doseq [term legitimate-per-epoch-terms]
         (is (some #(str/includes? % term) texts)
             (str "legitimate per-epoch evidence term `" term "` no longer "
-                 "appears anywhere in the tracked corpus; rf2-vxgfnd.167 "
+                 "appears anywhere in the tracked corpus; the gate "
                  "requires the per-epoch EVIDENCE/derivation-cache "
                  "terminology be kept, only the retired per-epoch RENDER law "
                  "removed."))))))

@@ -1,5 +1,5 @@
 (ns re-frame.platform-gating-test
-  "JVM coverage for per-frame platform gating (rf2-pgma, rf2-kuky.77).
+  "JVM coverage for per-frame platform gating.
 
   Per Spec 011 §Effect handling on the server: the runtime tracks the
   active platform (`:server` or `:client`) so `reg-fx`/`reg-cofx`
@@ -17,7 +17,7 @@
        body and unchanged dispatch. The gate is the load-bearing
        observable: tagging the frame flips the trace shape.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   Both contract points are production-real and are asserted WITHOUT a
   posture guard: the untagged default, the per-frame override, and the
@@ -28,7 +28,7 @@
   `:rf.fx/skipped-on-platform` is a bare `trace/emit!` warning (fx.cljc
   §handle-one-fx) with no always-on twin, so under the real gate nothing is
   emitted BY DESIGN. Its assertions are kept verbatim inside a
-  `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841` — including the
+  `(when rf.interop/debug-enabled? …)` arm — including the
   negative on the tagged-client leg, which over an empty ring would pass
   whether the gate passed or skipped."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -49,11 +49,11 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
-  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
+  ;; EP-0002: `init!` does not synthesise `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
-  ;; `{:frame …}` opts in the test bodies still win.
+  ;; `{:frame …}` opts in the test bodies win.
   (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
@@ -99,7 +99,7 @@
 
       (is (false? @fired?)
           "the :client-only fx did NOT run — the untagged frame is :server on the JVM")
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring §Posture split).
       ;; `:rf.fx/skipped-on-platform` is a bare `trace/emit!` warning with no
       ;; always-on twin; the SKIP it reports is asserted above and runs in
       ;; both postures.
@@ -128,7 +128,7 @@
 
       (is (true? @fired?)
           "the :client-only fx ran because the FRAME's platform is :client")
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). A NEGATIVE
+      ;; Dev-instrumentation arm (see ns docstring §Posture split). A NEGATIVE
       ;; over the trace ring: under `-Dre-frame.debug=false` the ring is empty
       ;; by design, so `empty?` would pass whether the gate passed or skipped.
       ;; The production-visible half of "the gate passed" is `@fired?` above.
@@ -141,7 +141,7 @@
 
 (deftest per-frame-platform-is-isolated-not-process-wide
   (testing "two frames in the SAME process resolve different platforms —
-            the whole point of deleting the host-wide marker"
+            there is no host-wide platform marker"
     (rf/make-frame {:id :platform-gating-test/iso-untagged})
     (rf/make-frame {:id :platform-gating-test/iso-client :platform :client})
     (rf/make-frame {:id :platform-gating-test/iso-server :platform :server})

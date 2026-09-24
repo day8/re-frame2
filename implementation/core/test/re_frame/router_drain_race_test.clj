@@ -1,17 +1,17 @@
 (ns re-frame.router-drain-race-test
-  "Per rf2-ynk7 §single-drainer invariant: stress-test the JVM-only
-  race between the executor thread's `next-tick` drain callback and a
-  main-thread `dispatch-sync!` drain. Before the fix, the
-  `[:sync-only :sync-only]` corruption (double-peek of one envelope,
-  drop of another) reproduced at ~4 fails / 1000 iters; after the fix
-  the property should hold across many thousands of iterations.
+  "Per Spec 002 §Run-to-completion §single-drainer invariant: stress-test
+  the JVM-only race between the executor thread's `next-tick` drain callback
+  and a main-thread `dispatch-sync!` drain. A drainer that admitted both
+  threads would produce the `[:sync-only :sync-only]` corruption
+  (double-peek of one envelope, drop of another) at ~4 fails / 1000 iters;
+  the property must hold across many thousands of iterations.
 
-  This file is the production-side companion to rf2-lmkk #442's test-
-  only stabilisation. The rf2-lmkk fix wrapped
-  `async-dispatch-resolves-after-current-drain` in a
-  `with-redefs [interop/next-tick ...]` that bypasses the executor; this
-  file targets the SAME failure shape without bypassing the executor —
-  exercising the actual production code path the bead's fix lives in."
+  This file is the production-side companion to
+  `async-dispatch-resolves-after-current-drain` (`re-frame.drain-test`),
+  which wraps itself in a `with-redefs [interop/next-tick ...]` that
+  bypasses the executor; this file targets the SAME failure shape without
+  bypassing the executor — exercising the actual production code path the
+  single-drainer lock lives in."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -29,7 +29,7 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
-  ;; EP-0002 (rf2-9wa0lf): establish a `:rf/default` frame SCOPE so the
+  ;; EP-0002: establish a `:rf/default` frame SCOPE so the
   ;; single-drainer stress test's ambient top-level `dispatch` /
   ;; `dispatch-sync` calls resolve a target (the carried-invariant
   ;; contract — no synthesised default floor). `concurrent-dispatch-
@@ -41,30 +41,27 @@
 
 (use-fixtures :each reset-runtime)
 
-;; The stress iteration count is set to keep CI under ~60s on the JVM
-;; while staying well above the per-1000 failure-rate threshold the
-;; pre-fix code exhibited (~4/1000). 5000 iterations on the fixed code
-;; should land at 0/5000 with high confidence — the new lower bound on
-;; the failure-rate-after-fix is 0.
+;; The stress iteration count keeps CI under ~60s on the JVM while staying
+;; well above the per-1000 failure rate an unlocked drainer exhibits
+;; (~4/1000). 5000 iterations should land at 0/5000 with high confidence.
 (def ^:private stress-iters
   (or (some-> (System/getenv "RF2_YNK7_STRESS_ITERS") Long/parseLong)
       5000))
 
 (deftest single-drainer-invariant-stress
-  ;; rf2-ynk7 — Spec 002 §Run-to-completion §single-drainer invariant.
-  ;; Pre-fix the same scenario produced ~4 fails / 1000 iters with the
-  ;; race producing `[:sync-only :sync-only]` (the async envelope was
-  ;; peek'd twice and a different envelope was dropped by the trailing
-  ;; pop). Post-fix the CAS on `:drain-lock` admits a single drainer at
-  ;; a time; the spin-CAS-wait in `drain-block!` keeps `dispatch-sync`'s
+  ;; Spec 002 §Run-to-completion §single-drainer invariant.
+  ;; Without a single drainer the same scenario produces ~4 fails / 1000
+  ;; iters, the race producing `[:sync-only :sync-only]` (the async envelope
+  ;; peek'd twice and a different envelope dropped by the trailing pop).
+  ;; The CAS on `:drain-lock` admits a single drainer at a time; the spin-CAS-wait in `drain-block!` keeps `dispatch-sync`'s
   ;; cascade-settled-before-return contract intact even when the
   ;; executor is mid-drain.
   ;;
   ;; This test does NOT use `with-redefs [interop/next-tick ...]` — the
   ;; real JVM executor MUST be in the picture for the race window to
-  ;; appear. rf2-lmkk #442's test variant uses the with-redefs form
+  ;; appear. The drain-test variant uses the with-redefs form
   ;; because it pins a different property (the executor's callback
-  ;; ordering); this test pins the underlying race fix.
+  ;; ordering); this test pins the underlying race.
   (testing (str "no [:sync-only :sync-only] corruption across "
                 stress-iters " iterations")
     (rf/reg-event :outside-async
@@ -95,12 +92,13 @@
           ;; Schedule the async dispatch FIRST. Its drain callback rides
           ;; the real `interop/next-tick` → JVM single-thread executor.
           (rf/dispatch [:outside-async-stress])
-          ;; Then run a sync drain. Pre-fix: race window between the
+          ;; Then run a sync drain. The race window sits between the
           ;; executor's wake-up and main thread's drain on the SAME
-          ;; queue. Both threads could peek the same envelope.
+          ;; queue; without a single drainer both threads could peek the
+          ;; same envelope.
           (rf/dispatch-sync [:sync-only-stress])
           ;; Wait for the async cascade to settle. If we time out, the
-          ;; async event was dropped (the original race shape).
+          ;; async event was dropped (the race shape).
           (let [d (deref done 5000 :timeout)]
             (when (= :timeout d)
               (swap! failures conj {:iter i :reason :timeout :order @order})))
@@ -126,10 +124,10 @@
   ;; under high contention — every dispatched event runs exactly once,
   ;; no envelope is dropped, no envelope is double-processed.
   ;;
-  ;; Per rf2-ynk7 this is the broader correctness property the bead
-  ;; named: at most one thread inside `drain!` at any instant; the
-  ;; orphan window (envelope queued between empty-check and lock
-  ;; release) closed by the release-under-locking-router seam.
+  ;; This is the broader single-drainer correctness property: at most one
+  ;; thread inside `drain!` at any instant; the orphan window (envelope
+  ;; queued between empty-check and lock release) is closed by the
+  ;; orphan-prevention seam.
   (testing "N submitter threads + sync drain — no events lost or duplicated"
     (let [n-submitters 8
           per-thread   200

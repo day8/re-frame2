@@ -9,7 +9,7 @@
   Pattern-*.md section. Each test stays under ~50 lines — pin the shape,
   not every edge case.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   Every pattern's SHAPE is production-real and is asserted WITHOUT a posture
   guard, so this namespace runs in the ordinary `clojure -M:test` suite AND
@@ -19,7 +19,7 @@
   the stale-`:after`-timer leg of `pattern-stale-detection-shape`. It is a
   `trace/emit!` with no always-on twin, so under the real gate nothing is
   emitted BY DESIGN; its assertion is kept verbatim inside a
-  `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`. The SUPPRESSION
+  `(when rf.interop/debug-enabled? …)` arm. The SUPPRESSION
   the trace reports — a stale timer leaving the snapshot unchanged — is the
   production-real half and stays outside the arm."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -38,12 +38,12 @@
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
   (rf/init! rf.substrate.plain-atom/adapter)
-  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
+  ;; EP-0002: `init!` does not synthesise `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
-  ;; `{:frame …}` opts in the test bodies still win. A top-level
-  ;; `make-frame …:initial-events` still drain synchronously — the lifecycle
+  ;; `{:frame …}` opts in the test bodies win. A top-level
+  ;; `make-frame …:initial-events` drain synchronously — the lifecycle
   ;; async/sync split keys off `*handler-scope*` (a real cascade), not
   ;; this ambient scope.
   (rf/make-frame {:id :rf/default})
@@ -290,7 +290,7 @@
   → commit; mismatch → suppress and emit :rf.machine.timer/stale-after.
 
   Scenario: a single `:loading` state with `:after`. Leaving and re-entering
-  it advances the epoch; an in-flight timer captured at the prior entry now
+  it advances the epoch; an in-flight timer captured at the prior entry then
   carries a stale epoch that won't match the live one."
   (let [machine {:initial :idle
                  :data    {}
@@ -332,7 +332,7 @@
           (is (= 3 (get-in s4 [:data :rf/after-epoch [:loading]]))
               "the live epoch is untouched by the stale firing — the suppression
                did not consume or reset it")
-          ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+          ;; Dev-instrumentation arm (see ns docstring §Posture split).
           (when rf.interop/debug-enabled?
             (is (some (fn [ev]
                         (and (= :rf.machine.timer/stale-after (:operation ev))

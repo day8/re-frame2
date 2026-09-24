@@ -4,13 +4,13 @@
   auto-id derivation
   rule, the `^{:rf/id ...}` metadata override, the lexical
   `dispatch`/`subscribe` injection, the Form-2 closure case, and the
-  compile-error contract for non-defn-shape bodies. Per rf2-d0pi.
+  compile-error contract for non-defn-shape bodies.
 
   These tests run on the JVM. CLJS-specific Reagent rendering lives in
   the runtime / hot-reload CLJS test files; the macro logic here lives
-  in re-frame.core (JVM-loadable). Per rf2-4lc9o the legacy
-  `re-frame.views-macros` import path was cut; the expander helpers
-  moved to `re-frame.core`."
+  in re-frame.core (JVM-loadable). There is no
+  `re-frame.views-macros` namespace; the expander helpers live in
+  `re-frame.core`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -169,7 +169,7 @@
       (is (some? v))
       (is (fn? @v)))))
 
-;; ---- return-value contract (rf2-hzos) ------------------------------------
+;; ---- return-value contract -----------------------------------------------
 ;;
 ;; Per Conventions §`reg-*` return-value convention: every `reg-*` macro
 ;; returns its primary id — the keyword the caller registered with. The
@@ -199,8 +199,8 @@
 ;; ---- expander helpers expose stable shape --------------------------------
 
 (deftest expand-reg-view-helper-shape
-  (testing "rf/expand-reg-view returns a (do binding+def+id) form. Per
-            rf2-hzos: the terminal expression is the id (so the macro's
+  (testing "rf/expand-reg-view returns a (do binding+def+id) form.
+            The terminal expression is the id (so the macro's
             return value is the id, matching the reg-* return-value
             contract). The penultimate form is the auto-def of the Var."
     (let [exp     (rf/expand-reg-view {:line 1 :column 1}
@@ -212,13 +212,12 @@
       (is (= 'def (first def-form)))
       (is (= 'my-widget (second def-form)))))
 
-  ;; rf2-atsv regression guard. The bug shape was an outer
-  ;; (def x (reg-view :id ...)) wrapper that double-def'd against the
-  ;; macro's own internal def. rf2-d0pi removed the substrate by making
-  ;; reg-view defn-shape — the macro itself emits the (single) def, and
-  ;; the legacy outer-def wrapper no longer compiles. Pin: exactly ONE
-  ;; def in the full expansion, no matter the input shape.
-  (testing "rf2-atsv: expansion contains exactly one def form"
+  ;; Double-def guard. An outer (def x (reg-view :id ...)) wrapper would
+  ;; double-def against the macro's own internal def. reg-view is
+  ;; defn-shape — the macro itself emits the (single) def, and an
+  ;; outer-def wrapper does not compile. Pin: exactly ONE def in the full
+  ;; expansion, no matter the input shape.
+  (testing "expansion contains exactly one def form"
     (letfn [(count-defs [form]
               (cond
                 (and (seq? form) (= 'def (first form)))
@@ -251,7 +250,7 @@
     (is (nil? (rf/parse-reg-view-args '((reagent.core/create-class {}))))
         "a list where the args vector should be is invalid")))
 
-;; ---- compile-time component-shape fold (rf2-yfbx, Stage 4-C, rf2-6hyy) ---
+;; ---- compile-time component-shape fold -----------------------------------
 ;;
 ;; reagent-slim's `reagent2.impl.component` ships a `classify-form-body`
 ;; helper consumed by `expand-reg-view` via `requiring-resolve`. The
@@ -261,7 +260,7 @@
 ;; absence-graceful path: when the helper is NOT on the classpath, the
 ;; macro emits an unstamped expansion (UIx-only builds).
 ;;
-;; Per the rf2-yfbx decision: NO separate `defview` macro. The fold is
+;; There is NO separate `defview` macro. The fold is
 ;; in `reg-view`'s expansion — that is the canonical view-registration
 ;; surface.
 
@@ -280,12 +279,12 @@
 
 (deftest reg-view-fold-graceful-without-reagent-slim
   ;; This test pins the classpath-sensitive fold contract of `expand-reg-view`
-  ;; (rf2-yfbx). It is conditioned on a CLASSPATH PRECONDITION rather than
-  ;; assuming one (rf2-55j4s3): the canonical per-artefact core gate has
+  ;; It is conditioned on a CLASSPATH PRECONDITION rather than
+  ;; assuming one: the canonical per-artefact core gate has
   ;; reagent-slim ABSENT, but the combined `implementation/deps.edn` `:test`
   ;; alias puts `day8/reagent-slim` on the classpath — under which the
   ;; macro DOES (and must) stamp the form tag, so a blanket
-  ;; `(nil? (:reagent2/form ...))` assertion fired a phantom failure. We
+  ;; `(nil? (:reagent2/form ...))` assertion would fire a phantom failure. We
   ;; branch on the live precondition so the test asserts the correct half of
   ;; the contract under EITHER classpath, losing no coverage: absence ⇒
   ;; no tag stamped; presence ⇒ a tag stamped.

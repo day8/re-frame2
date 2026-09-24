@@ -1,5 +1,5 @@
 (ns re-frame.resource-failure-trace-redaction-test
-  "Per rf2-7qbxbm (originally rf2-zljx0j restore) — the ON-BOX
+  "The ON-BOX
   (DCE'd-in-production) leg of the resource / mutation FAILURE trace egress.
 
   The `:rf.resource/failed` / `:rf.resource/page-failed` / `:rf.mutation/failed`
@@ -7,18 +7,15 @@
   (`:body` / `:body-text` / `:detail`) echoing submitted form fields — under
   `:error` / `:page-error`. Without a clause for it, that envelope would pass
   through the on-box dev-trace chokepoint
-  (`re-frame.classification/project-trace-event`, formerly
-  `re-frame.marks/project-trace-event`) verbatim to on-box listeners / epoch
+  (`re-frame.classification/project-trace-event`) verbatim to on-box
+  listeners / epoch
   capture. `project-trace-event`'s resource-failure clause summarizes the
   envelope slot to `:rf/redacted`.
 
   This is the ON-BOX sibling of the OFF-BOX coverage in
-  `re-frame.epoch.epoch-egress-resource-trace-test` (which exercises the
-  `project-egress` corpus leg). These assertions originally lived in
-  `re-frame.marks-test` (PR #4849, rf2-7qbxbm); the EP-0025 marks purge deleted
-  `marks_test.clj`, dropping them. They are restored here against the current
-  registry-read classification model — note the clause is OPERATION-keyed (not
-  registry-derived), so it does not depend on the removed marks re-derivation.
+  `re-frame.epoch-egress-resource-trace-test` (which exercises the
+  `project-egress` corpus leg). The clause is OPERATION-keyed (not
+  registry-derived), so it does not depend on any registry re-derivation.
 
   Production elision of the whole projection cost is pinned separately by the
   `re-frame.elision-probe` + `scripts/check-elision.cjs` gate."
@@ -26,7 +23,7 @@
             [re-frame.classification :as rf.classification]
             [re-frame.privacy :as rf.privacy]))
 
-;; ---- rf2-7qbxbm: resource/mutation FAILURE :error / :page-error envelope ---
+;; ---- resource/mutation FAILURE :error / :page-error envelope ---------------
 
 (def ^:private http-failure-envelope
   "The raw `:rf.http/*` failure reply echoing a submitted form field. The
@@ -50,7 +47,7 @@
       :else       false)))
 
 (deftest resource-failed-error-envelope-redacted-on-box
-  (testing "rf2-7qbxbm (on-box leg): a :rf.resource/failed trace's :error HTTP
+  (testing "on-box leg: a :rf.resource/failed trace's :error HTTP
             failure envelope is summarized to :rf/redacted; structural status
             tags ride; no raw secret survives"
     (let [projected (rf.classification/project-trace-event
@@ -71,7 +68,7 @@
           "no raw response-body secret survives on the projected trace"))))
 
 (deftest resource-page-failed-page-error-envelope-redacted-on-box
-  (testing "rf2-7qbxbm (on-box leg): a :rf.resource/page-failed trace's
+  (testing "on-box leg: a :rf.resource/page-failed trace's
             :page-error envelope (load-more third error channel) is redacted"
     (let [projected (rf.classification/project-trace-event
                       {:operation :rf.resource/page-failed
@@ -85,7 +82,7 @@
           "no raw secret survives"))))
 
 (deftest mutation-failed-error-envelope-redacted-on-box
-  (testing "rf2-7qbxbm (on-box leg): a :rf.mutation/failed trace's :error
+  (testing "on-box leg: a :rf.mutation/failed trace's :error
             envelope is redacted; the mutation id structural tag rides"
     (let [projected (rf.classification/project-trace-event
                       {:operation :rf.mutation/failed
@@ -103,7 +100,7 @@
           "no raw secret survives"))))
 
 (deftest unrelated-trace-with-scalar-error-keyword-untouched
-  (testing "rf2-7qbxbm guard: the resource-failure clause is keyed on the
+  (testing "guard: the resource-failure clause is keyed on the
             FAILURE ops, so an UNRELATED trace carrying a scalar :error status
             keyword (not an HTTP envelope) is NOT swept up — no over-redaction"
     (let [projected (rf.classification/project-trace-event

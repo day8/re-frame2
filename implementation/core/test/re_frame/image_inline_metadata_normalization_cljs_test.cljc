@@ -1,16 +1,13 @@
 (ns re-frame.image-inline-metadata-normalization-cljs-test
-  "rf2-mt1cvi — inline image metadata is DOC-normalized UNIFORMLY across every
+  "Inline image metadata is DOC-normalized UNIFORMLY across every
   supported inline registration kind: event, sub, fx, and cofx.
 
   The registrar contract makes `:doc` PURE documentation stripped in production
-  for every `reg-*` surface (`registrar/strip-pure-documentation`). Inline image
-  assembly previously applied that contract to `:reg-sub` ONLY: a production-mode
-  reproduction through the REAL `re-frame.image` + `image-assembly/lower-inline-
-  descriptor` yielded `:reg-event` with `:doc` at BOTH the descriptor top level
-  AND its nested `:metadata`, and `:reg-fx` / `:reg-cofx` with `:doc` under
-  nested `:metadata` — only `:reg-sub` was clean. That paid unwanted production
-  bytes and made inline registration semantics kind-dependent (bead rf2-mt1cvi,
-  the cross-kind follow-up exposed by PR #5902).
+  for every `reg-*` surface (`registrar/strip-pure-documentation`), and inline
+  image assembly applies that contract to every inline kind. Applying it to one
+  kind only would leave production descriptors of the other kinds carrying
+  `:doc` at the top level and under nested `:metadata`, paying unwanted
+  production bytes and making inline registration semantics kind-dependent.
 
   This suite is the CROSS-KIND matrix + the production-elision SENTINEL. For each
   supported inline kind it drives the LIVE image + assembly-side lowering (the
@@ -19,7 +16,7 @@
 
     * DEV (gate on): authored `:doc` survives — under the nested `:metadata`
       (every kind), and at the top level for the kinds whose lowering spreads
-      authored metadata there (every kind since rf2-3x7nj.5.1);
+      authored metadata there (every kind);
     * PRODUCTION (gate off): `:doc` is absent at the descriptor top level AND
       under nested `:metadata` for EVERY kind, while the load-bearing witness key
       and the runnable slots are retained.
@@ -34,22 +31,22 @@
   them (a cycle), so the test requires them directly to exercise the LIVE
   lowering.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   Section 1's SUBJECT is the dev half of the contract — authored `:doc`
   surviving for tooling — and it is unreachable under
   `scripts/test-core-prod-gate.sh`, where `rf.interop/debug-enabled?` is already
   false at load and `registrar/strip-pure-documentation` has removed `:doc`
-  before the descriptor is built. The two `:doc` rows are therefore kept
-  verbatim inside a `(when rf.interop/debug-enabled? …)` arm.
+  before the descriptor is built. The two `:doc` rows therefore sit
+  inside a `(when rf.interop/debug-enabled? …)` arm.
 
-  Everything else in section 1 is posture-independent and STAYS OUTSIDE it —
+  Everything else in section 1 is posture-independent and sits OUTSIDE it —
   the `:kind` echo, the load-bearing `[:audit]` witness key nested and (for the
   spreading kinds) hoisted, and the runnable `:handler-fn` slot. Those are what
   make sections 2 and 3 mean something: without them \"no `:doc` anywhere\"
   would also be satisfied by a lowering that produced nothing at all.
 
-  Sections 2 and 3 run in BOTH postures unchanged. Their
+  Sections 2 and 3 run identically in BOTH postures. Their
   `with-redefs [rf.interop/debug-enabled? false]` is a no-op under the real gate
   (the var is already false) and the assertions are the production claim
   itself, so they are load-bearing on both sides."
@@ -67,8 +64,8 @@
 
 ;; ---------------------------------------------------------------------------
 ;; The supported-kind matrix. `:spreads-meta?` marks the kinds whose lowering
-;; hoists authored metadata onto the descriptor TOP LEVEL — since rf2-3x7nj.5.1
-;; every kind does, as its `reg-*` stores it — so each must be clean of `:doc`
+;; hoists authored metadata onto the descriptor TOP LEVEL — every kind does, as
+;; its `reg-*` stores it — so each must be clean of `:doc`
 ;; at the top level too, not just under `:metadata`.
 ;; ---------------------------------------------------------------------------
 
@@ -105,8 +102,8 @@
       (let [d (assemble section (keyword "counter" (str label "-doc"))
                         {:doc "author note" :tags [:audit]} body)]
         (is (= kind (:kind d)) "kind is preserved")
-        ;; rf2-d2841 — `:doc` retention is the DEV half of the contract, elided
-        ;; at source under -Dre-frame.debug=false. Kept verbatim.
+        ;; `:doc` retention is the DEV half of the contract, elided
+        ;; at source under -Dre-frame.debug=false.
         (when rf.interop/debug-enabled?
           (is (= "author note" (get-in d [:metadata :doc]))
               "nested [:metadata :doc] retained in dev"))

@@ -1,5 +1,5 @@
 (ns re-frame.redact-interceptor-test
-  "Per rf2-461sp — `(rf.privacy/redact-interceptor paths)` positional interceptor.
+  "`(rf.privacy/redact-interceptor paths)` positional interceptor.
 
   The third composition site for `:sensitive?` (per [Security.md
   §Behavioural MUSTs across the privacy surface](spec/Security.md)):
@@ -8,9 +8,10 @@
     2. Trace surface (`:run-start` / `:run-end` / `:rf.event/db-changed` /
        `:rf.error/handler-exception`) sees `:rf/redacted` at the named
        payload keys.
-    3. Composes orthogonally with registration-meta `:sensitive? true`
-       (which stamps `:sensitive? true` on every emitted trace event).
-    4. Composes additively with schema-derived redaction
+    3. Does not stamp `:sensitive?` itself — the trace-event `:sensitive?`
+       stamp is driven only by the frame's classified sensitive-path overlap
+       (there is no registration-meta `:sensitive?` annotation).
+    4. Composes additively with the frame-classification redaction
        (`:rf/schema-redaction` interceptor; the user-installed
        interceptor extends `:rf/redacted-event` rather than overwriting).
     5. Composes independently with the epoch off-box projection
@@ -37,11 +38,11 @@
   (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.elision :reload)
   (require 're-frame.schemas :reload)
-  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
+  ;; EP-0002: `init!` does not synthesise `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
-  ;; `{:frame …}` opts in the test bodies still win.
+  ;; `{:frame …}` opts in the test bodies win.
   (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
@@ -65,15 +66,15 @@
 ;; ---- public-API + interceptor-shape sanity --------------------------------
 
 (deftest redact-interceptor-is-not-on-the-public-facade
-  ;; EP-0015 §7 (rf2-mngp4o): `redact-interceptor` is REMOVED from the
-  ;; public `re-frame.core` façade. It survives only as the internal
+  ;; EP-0015 §7: `redact-interceptor` is NOT on the public `re-frame.core`
+  ;; façade. It exists only as the internal
   ;; `re-frame.privacy/redact-interceptor` helper (router plumbing + this
-  ;; test). The negative assertion pins the demotion so a re-export would
-  ;; fail loudly.
+  ;; test). The negative assertion pins that, so a re-export would fail
+  ;; loudly.
   (is (nil? (ns-resolve 're-frame.core 'redact-interceptor))
       "EP-0015 §7: redact-interceptor must NOT be published from re-frame.core")
   (is (fn? rf.privacy/redact-interceptor)
-      "the internal re-frame.privacy/redact-interceptor helper still exists"))
+      "the internal re-frame.privacy/redact-interceptor helper exists"))
 
 (deftest redact-interceptor-returns-interceptor-with-paths
   (testing "the returned interceptor map exposes its paths on `:paths` so the
@@ -172,20 +173,21 @@
           db-changed (first (events-of evs :rf.event/db-changed))]
       (is (= "scalar" (get-in db-changed [:tags :rf.event/v 1]))))))
 
-;; ---- rf2-agpv2.4: a non-associative parent value is a redaction no-op -----
+;; ---- a non-associative parent value is a redaction no-op ------------------
 
 (deftest redact-path-with-scalar-parent-does-not-abort-the-event
   (testing "a 2+-segment redact path whose intermediate is a non-associative
             scalar is a no-op — it must NOT throw inside the `:before` chain
-            and abort the event. Pre-fix the `(some? …)` parent guard let a
-            non-nil scalar through, and `assoc-in` recursed into it
+            and abort the event. A `(some? …)` parent guard would let a
+            non-nil scalar through, and `assoc-in` would recurse into it
             (\"cannot assoc onto a String\"), turning a privacy-redaction
             into a dropped event (classified :rf.error/interceptor-exception,
-            no :db commit, no :fx). The fix guards with `associative?`."
+            no :db commit, no :fx). `redact-path` writes only through a
+            parent that can take the leaf segment."
     (let [seen (atom nil)]
       ;; Redact path [:auth :password] but the payload's :auth is a SCALAR
       ;; string, so the parent (get-in payload [:auth]) is non-nil but
-      ;; non-associative — the exact mis-declaration the bead calls out.
+      ;; non-associative — the exact mis-declaration this pins.
       (rf/reg-interceptor :rf/redact-interceptor
         (rf.privacy/redact-interceptor [[:auth :password]]))
       (rf/reg-event :auth/scalar-parent
@@ -212,13 +214,13 @@
         (is (= "a-token-string" (get-in db-changed [:tags :rf.event/v 1 :auth]))
             "the non-associative parent passed through unredacted (no-op)")))))
 
-;; ---- (removed) composition with handler-meta `:sensitive?` ---------------
+;; ---- no handler-meta `:sensitive?` ----------------------------------------
 ;;
-;; The handler-meta `:sensitive?` annotation has been removed. The trace-
-;; surface `:sensitive?` stamp is now driven only by the schema-derived
-;; overlap (see `composes-additively-with-schema-redaction` below).
+;; There is no handler-meta `:sensitive?` annotation. The trace-surface
+;; `:sensitive?` stamp is driven only by the classified sensitive-path
+;; overlap (see `composes-additively-with-frame-class-redaction` below).
 
-;; ---- composition with schema-derived redaction (additive) -----------------
+;; ---- composition with frame-classification redaction (additive) -----------
 
 (deftest composes-additively-with-frame-class-redaction
   (testing "when both a frame-sensitive app-db path AND a user
@@ -266,9 +268,9 @@
         (is (= :rf/redacted (get-in db-changed [:tags :rf.event/v 1 :token])))))))
 
 (deftest redact-interceptor-alone-does-not-stamp-sensitive-scope
-  (testing "regression — `redact-interceptor` is a payload-scrub, NOT a scope
+  (testing "`redact-interceptor` is a payload-scrub, NOT a scope
             stamper. The `:sensitive?` boolean on emitted events is the
-            registration-meta / schema-derived signal only."
+            classification-derived signal only."
     (rf/reg-interceptor :rf/redact-interceptor
       (rf.privacy/redact-interceptor [[:password]]))
     (rf/reg-event :plain/scrub
@@ -278,7 +280,7 @@
                       #(rf/dispatch-sync [:plain/scrub {:password "shh"}]))
           run-start (run-start-of evs)]
       (is (not (true? (:sensitive? run-start)))
-          "no schema overlap, no handler-meta — no `:sensitive?` stamp"))))
+          "no classified overlap — no `:sensitive?` stamp"))))
 
 ;; ---- composition: handler exception path picks up the scrub ---------------
 

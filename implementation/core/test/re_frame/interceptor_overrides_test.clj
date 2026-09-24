@@ -1,9 +1,8 @@
 (ns re-frame.interceptor-overrides-test
-  "Per rf2-4jci1.2 — Spec/002 §`:interceptor-overrides` (lines 1108-1139)
-  + §Per-frame and per-call overrides §merge. REFERENCE-ONLY since the
-  EP-0022 flip (rf2-0adhqs.9): chains carry interceptor REFS, and override
-  replacements are a REF (or `nil` to remove) — value-valued overrides are
-  retired.
+  "Spec/002 §`:interceptor-overrides` (lines 1108-1139)
+  + §Per-frame and per-call overrides §merge. REFERENCE-ONLY (EP-0022):
+  chains carry interceptor REFS, and override replacements are a REF (or
+  `nil` to remove) — a value-valued override is rejected.
 
   Per-call `{:interceptor-overrides {:my-app/logging nil}}` AND
   per-frame `(make-frame {:id :f :interceptor-overrides {...}})` MUST walk
@@ -17,9 +16,8 @@
   Per-call wins over per-frame on key conflict (matches `:fx-overrides`
   precedence per Spec 002 §Per-frame and per-call overrides §merge).
 
-  Pre-fix the `:interceptor-overrides` key was accepted by
-  `build-envelope` and stored on the envelope but no code path read
-  it back. This test pins the consume-side wiring."
+  This test pins the consume-side wiring: an `:interceptor-overrides` key
+  accepted on the envelope must actually act on the assembled chain."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -42,7 +40,7 @@
   (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
-  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
+  ;; `init!` does not synthesise `:rf/default`, and
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
@@ -100,7 +98,7 @@
           "the ::stub-x ref fired in place of the original ::log-x interceptor"))))
 
 (deftest value-valued-override-replacement-rejected
-  (testing "an inline interceptor VALUE as an override replacement is rejected (value-valued overrides retired)"
+  (testing "an inline interceptor VALUE as an override replacement is rejected (overrides are reference-only)"
     (let [log (atom [])]
       (reg-logger! log ::log-y)
       (rf/reg-event :test/run
@@ -176,18 +174,18 @@
              @log)
           "both interceptors fired in standard before/after sandwich"))))
 
-;; ---- rf2-nnpimw — per-FRAME value-rejection (the per-call arm is covered above) --
+;; ---- per-FRAME value-rejection (the per-call arm is covered above) ------------
 ;;
 ;; `override-replacement` (router.cljc) rejects an inline interceptor VALUE
 ;; replacement (non-ref, non-nil) with `:rf.error/interceptor-override-invalid`
-;; — value-valued overrides retired (EP-0022). The per-call arm is pinned by
+;; — overrides are reference-only (EP-0022). The per-call arm is pinned by
 ;; `value-valued-override-replacement-rejected` above; the per-FRAME override
-;; path runs the SAME `override-replacement`, but the per-frame value-rejection
-;; arm was not pinned. This pins it.
+;; path runs the SAME `override-replacement`, and this pins its value-rejection
+;; arm.
 
 (deftest per-frame-value-valued-override-replacement-rejected
   (testing "an inline interceptor VALUE as a per-FRAME override replacement is rejected
-            (value-valued overrides retired — same as the per-call arm)"
+            (overrides are reference-only — same as the per-call arm)"
     (let [log (atom [])]
       (reg-logger! log ::log-pf)
       (rf/make-frame {:id :test/bad-frame-override :interceptor-overrides
@@ -202,7 +200,7 @@
             (rf/dispatch-sync [:test/run] {:frame :test/bad-frame-override}))
           "the per-frame value-valued replacement is rejected at chain assembly"))))
 
-;; ---- rf2-nnpimw — override-key-matches? direct unit (all arms) ---------------
+;; ---- override-key-matches? direct unit (all arms) ----------------------------
 ;;
 ;; `override-key-matches?` (interceptor_registry.cljc) keys an
 ;; `:interceptor-overrides` map entry against a resolved chain entry per Spec
@@ -212,7 +210,7 @@
 
 (deftest override-key-matches?-all-arms
   (let [K rf.interceptor-registry/authored-ref-key]
-    (testing "Per rf2-nnpimw — override-key-matches? for every documented arm"
+    (testing "override-key-matches? for every documented arm"
 
       (testing "bare-keyword key"
         (is (true? (rf.interceptor-registry/override-key-matches? :my/ic {:id :my/ic K :my/ic}))
@@ -243,17 +241,17 @@
         (is (false? (rf.interceptor-registry/override-key-matches? [:my/ic :a :b] {:id :my/ic}))
             "a 3-vector key is not an [id arg] ref and falls through to false")))))
 
-;; ---- rf2-iz3v0r — ref= canonical-bytes fallback + fail-soft catch (unit) -----
+;; ---- ref= canonical-bytes fallback + fail-soft catch (unit) -------------------
 ;;
-;; `ref=` (interceptor_registry.cljc) has two undertested arms: (1) the
+;; `ref=` (interceptor_registry.cljc) has two arms the override walk exercises
+;; only end-to-end, pinned here at the unit level: (1) the
 ;; canonical-bytes fallback (via `rf.identity/identical-identity?`) that makes two
-;; arg spellings differing only in map-key order match — exercised end-to-end by
-;; the override walk but not pinned at the unit level; (2) the fail-soft catch
+;; arg spellings differing only in map-key order match; (2) the fail-soft catch
 ;; that returns false (not throws) when canonicalization throws on a non-EDN
 ;; arg.
 
 (deftest ref=-fast-structural-and-canonical-fallback
-  (testing "Per rf2-iz3v0r — the fast `=` path and the canonical-bytes fallback"
+  (testing "The fast `=` path and the canonical-bytes fallback"
     (testing "fast structural `=` short-circuit"
       (is (true? (rf.interceptor-registry/ref= :my/ic :my/ic))
           "two identical bare-keyword refs are =")
@@ -271,7 +269,7 @@
           "different bare keywords are not ref="))))
 
 (deftest ref=-fail-soft-on-non-edn-arg
-  (testing "Per rf2-iz3v0r — when canonicalization throws on a non-EDN arg,
+  (testing "When canonicalization throws on a non-EDN arg,
             ref= fail-softs to false rather than letting the throw escape the
             override walk."
     (let [f1 (fn [] :a)

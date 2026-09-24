@@ -1,13 +1,13 @@
 (ns re-frame.observability-process-default-cljs-test
-  "rf2-kuky.67 — the PROCESS-DEFAULT observability policy
+  "Spec 015 §The process default — the PROCESS-DEFAULT observability policy
   `(rf/configure! {:observability …})`, and the frameless / unresolved-owner
   routing it exists to carry.
 
   Two claims, and the second is why the first is structural rather than a
   convenience:
 
-  1. **Declared once per process.** A multi-frame app restated its Sentry
-     policy on every `make-frame` call. Precedence is PER STREAM: a frame
+  1. **Declared once per process.** Without it a multi-frame app would
+     restate its Sentry policy on every `make-frame` call. Precedence is PER STREAM: a frame
      that DECLARES a stream uses its own entries for it, one that OMITS the
      stream inherits the default's, and `{:errors []}` on a frame is that
      frame's opt-out. Exactly ONE source is consulted per record per stream,
@@ -27,7 +27,7 @@
 
   Pins:
 
-    (a) Q1/Q5 per-stream precedence: a frame with NO `:observability`
+    (a) per-stream precedence: a frame with NO `:observability`
         inherits the default and is delivered to ONCE, projected under its
         OWN classification — witnessed on the TREE slot, and in the strong
         form by two inheriting frames whose differing classifications project
@@ -35,17 +35,17 @@
         out; a frame declaring the same sink id gets exactly ONE delivery; a
         frame declaring only `:handled-events` still inherits the default's
         `:errors`.
-    (b) Q2 absent vs empty: `{:observability nil}` CLEARS; a malformed
+    (b) absent vs empty: `{:observability nil}` CLEARS; a malformed
         policy throws `:rf.error/bad-frame-classification` with
         `:where 'rf/configure!` at CALL time.
-    (c) Q3 frameless: a `:frame nil` record reaches the default with tree
+    (c) frameless: a `:frame nil` record reaches the default with tree
         slots redacted and summary ids intact — and a live UNRELATED ambient
         frame that is CARRIED at emit time is still not consulted.
-    (d) Q4 unresolved owner: a `route-frame? false` teardown report reaches
+    (d) unresolved owner: a `route-frame? false` teardown report reaches
         the default and NOT a same-id successor's sink — nor a live CARRIED
         bystander's — keeping its stale `:frame` id as a diagnostic while its
         tree payload fails closed.
-    (e) Q6/Q7: an explicit `:rf.egress/local-raw` entry on the default is
+    (e) raw hook and ownership: an explicit `:rf.egress/local-raw` entry on the default is
         the sanctioned cross-frame raw hook; a delivery to a REGISTERED
         default sink OWNS the record (a non-zero delivered-count), while an
         entry naming an unregistered sink does not.
@@ -98,7 +98,7 @@
 ;;                            its declared paths redact, undeclared siblings
 ;;                            ride raw, and the slot is a MAP.
 ;;   nil governing frame   -> the whole `:tags` slot FAILS CLOSED to
-;;                            `:rf/redacted` (rf2-kuky.5).
+;;                            `:rf/redacted`.
 ;;
 ;; Every pin below that names a live owner therefore reads the tree slot. That
 ;; is what makes them fail under a `resolve-route` returning `[entries nil]`
@@ -133,11 +133,11 @@
    :auth  {:token "secret" :user "ann"}})
 
 ;; ===========================================================================
-;; (a) Q1 per-stream precedence + Q5 exactly-one-source.
+;; (a) Per-stream precedence + exactly-one-source.
 ;; ===========================================================================
 
 (deftest frame-without-policy-inherits-the-process-default
-  (testing "rf2-kuky.67 Q1 — an error on a frame declaring NO :observability
+  (testing "an error on a frame declaring NO :observability
             reaches the process-default sink ONCE, projected under THAT
             frame's classification (the frame is the governing frame even
             when the ENTRIES came from the default)."
@@ -169,7 +169,7 @@
              — inheritance moved the entries, never the authority")))))
 
 (deftest inheriting-frames-own-classification-governs-the-projection
-  (testing "rf2-kuky.67 Q1 — the strong form: a frame inheriting the process
+  (testing "the strong form: a frame inheriting the process
             default's entries is projected under ITS OWN classification, and
             two inheriting frames whose classifications DIFFER project the same
             payload differently. Inheritance moves the sink list; the redaction
@@ -201,7 +201,7 @@
              payload rides raw — the two differ only by WHICH frame governs")))))
 
 (deftest frame-empty-stream-is-the-opt-out
-  (testing "rf2-kuky.67 Q2 — `{:errors []}` on a FRAME declares the stream and
+  (testing "`{:errors []}` on a FRAME declares the stream and
             names no sink, so it opts that frame OUT of the process default.
             Declaration is read by KEY PRESENCE, not truthiness."
     (let [seen (atom [])]
@@ -215,7 +215,7 @@
           "an empty stream on the frame routes NOTHING — not an inherit"))))
 
 (deftest same-sink-in-both-sources-is-delivered-once
-  (testing "rf2-kuky.67 Q5 — a sink id named by BOTH the frame's entries and
+  (testing "a sink id named by BOTH the frame's entries and
             the process default's is invoked ONCE. Exactly one policy source
             is consulted per record per stream, so the duplicate rule is a
             consequence of per-stream precedence rather than a de-dupe pass."
@@ -231,7 +231,7 @@
           "one delivery, not two"))))
 
 (deftest precedence-is-per-stream-not-whole-map
-  (testing "rf2-kuky.67 Q1 — a frame declaring ONLY :handled-events still
+  (testing "a frame declaring ONLY :handled-events still
             inherits the process default's :errors. Whole-map replacement is
             rejected: declaring one stream must not silently disable the
             other."
@@ -249,11 +249,11 @@
           ":errors still inherited even though :handled-events was declared"))))
 
 ;; ===========================================================================
-;; (b) Q2 — clear, and fail-loud validation at CALL time.
+;; (b) Clear, and fail-loud validation at CALL time.
 ;; ===========================================================================
 
 (deftest explicit-nil-clears-the-default
-  (testing "rf2-kuky.67 Q2 — `{:observability nil}` CLEARS the process
+  (testing "`{:observability nil}` CLEARS the process
             default. Read by key PRESENCE: omitting the key leaves the
             default untouched, an explicit nil removes it."
     (let [seen (atom [])]
@@ -274,7 +274,7 @@
           "an explicit nil cleared it — no second delivery"))))
 
 (deftest malformed-default-fails-loud-at-configure-time
-  (testing "rf2-kuky.67 Q2 — a malformed process default throws
+  (testing "a malformed process default throws
             :rf.error/bad-frame-classification with :where 'rf/configure! at
             CALL time, under the SAME closed grammar make-frame applies. A
             policy that installed silently would only surface as a dropped
@@ -298,16 +298,16 @@
       (is (nil? (rf.observability/current-observability-config))))))
 
 ;; ===========================================================================
-;; (c) Q3 — the FRAMELESS records, and the ambient-frame property.
+;; (c) The FRAMELESS records, and the ambient-frame property.
 ;; ===========================================================================
 
 (deftest frameless-record-reaches-the-default-fail-closed
-  (testing "rf2-kuky.67 Q3 — a `:frame nil` record (the shape
+  (testing "a `:frame nil` record (the shape
             :rf.error/no-frame-context and fresco's compute-sub
             :rf.error/sub-exception carry BY CONSTRUCTION) reaches the
             process default, projected under an EXPLICITLY nil governing
-            frame: tree slots are :rf/redacted, summary ids intact. Before
-            the default it reached no sink at all."
+            frame: tree slots are :rf/redacted, summary ids intact. Without
+            a default it would reach no sink at all."
     (let [seen (atom [])]
       (rf/register-observability-sink! :test.sinks/sentry
                                        (fn [r] (swap! seen conj r)))
@@ -328,7 +328,7 @@
              frame — no frame's classification vouched for its contents")))))
 
 (deftest a-live-ambient-frame-policy-is-not-consulted-for-a-frameless-record
-  (testing "rf2-kuky.67 Q3 (the rf2-kuky.5 property) — with a live UNRELATED
+  (testing "the nil-governing-frame property — with a live UNRELATED
             frame declaring its own :errors sink, a FRAMELESS record still
             goes only to the PROCESS DEFAULT. An ambient frame is not an
             owner: `:frame nil` says *this record has no governing frame*,
@@ -347,7 +347,7 @@
       ;; is not ambient at all, so emitting outside `with-frame` would leave
       ;; `resolve-current-frame` nil and the pin would pass on a runtime that
       ;; happily fell through to the carried scope. This binding is the whole
-      ;; exposure — `:frame nil` is read by KEY PRESENCE (rf2-kuky.5), so an
+      ;; exposure — `:frame nil` is read by KEY PRESENCE, so an
       ;; explicit nil must beat a frame that IS in scope, resolvable and live.
       (classify-frame! :obs.default/ambient)
       (rf/with-frame :obs.default/ambient
@@ -367,11 +367,11 @@
              payload and shipped `:auth :user` raw.")))))
 
 ;; ===========================================================================
-;; (d) Q4 — unresolved owner. The producer's authority bit, not an id test.
+;; (d) Unresolved owner. The producer's authority bit, not an id test.
 ;; ===========================================================================
 
 (deftest stale-owner-report-reaches-the-default-not-a-successor
-  (testing "rf2-kuky.67 Q4 — a record emitted with `route-frame?` FALSE (an
+  (testing "a record emitted with `route-frame?` FALSE (an
             exact-incarnation teardown report, after that incarnation was
             dissociated) reaches the PROCESS DEFAULT and NOT the same-id
             successor's sink. The stale :frame id is KEPT as a diagnostic and
@@ -424,11 +424,11 @@
              successor's nor the carried bystander's — walked this payload")))))
 
 ;; ===========================================================================
-;; (e) Q6 raw cross-frame hook + Q7 console-fallback ownership.
+;; (e) Raw cross-frame hook + console-fallback ownership.
 ;; ===========================================================================
 
 (deftest local-raw-profile-is-the-sanctioned-cross-frame-hook
-  (testing "rf2-kuky.67 Q6 — an explicit `:rf.egress/local-raw` entry on the
+  (testing "an explicit `:rf.egress/local-raw` entry on the
             process default is the ONE sanctioned way to see records across
             frames unprojected. It is a projection PROFILE on the
             :rf.observe/* record, not a second routing model and not an
@@ -447,7 +447,7 @@
            off-box profile fails closed on a nil governing frame"))))
 
 (deftest a-registered-default-sink-owns-the-record
-  (testing "rf2-kuky.67 Q7 — the console fallback (rf2-kuky.18) keys on the
+  (testing "the console fallback keys on the
             DELIVERED count, so a process-default delivery to a REGISTERED
             sink owns the record exactly as a frame's policy would, while an
             entry naming an UNREGISTERED sink does not. Declaring a policy is
@@ -466,7 +466,7 @@
 ;; ===========================================================================
 
 (deftest current-config-reflects-the-process-default
-  (testing "rf2-kuky.67 — `rf/current-config` reports the declared default
+  (testing "`rf/current-config` reports the declared default
             verbatim, and OMITS the key when none is declared (absent, never
             a fabricated nil — this fn's standing rule)."
     (is (not (contains? (rf/current-config) :observability))

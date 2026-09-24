@@ -1,14 +1,13 @@
 (ns re-frame.notebook-markdown-cljs-test
   "Contract tests for the Notebook example's hand-rolled markdown renderer
-  (`notebook.core` — rf2-kpvpmj). The preview pane renders USER-TYPED
+  (`notebook.core`). The preview pane renders USER-TYPED
   markdown through a pure `string -> hiccup` parser
   (`markdown->hiccup` / `inline-md->hiccup` / `split-by-regex` /
   `render-block`) whose link handling leans on a SECURITY-relevant
-  `safe-href` scheme allowlist — and, before this test, had ZERO backing
-  coverage.
+  `safe-href` scheme allowlist.
 
-  Why HERE and not under examples/: the example tree is test-free
-  (rf2-8cevm), and `notebook.core` is a Reagent-coupled `.cljs`-only entry
+  Why HERE and not under examples/: the example tree is test-free,
+  and `notebook.core` is a Reagent-coupled `.cljs`-only entry
   namespace. These pure parser fns therefore run under the consolidated
   `:node-test` CLJS build, which has `../examples/core` on its source paths
   and is the only runtime where this example's ns actually loads — the same
@@ -16,7 +15,7 @@
 
   Note the DISTINCT sibling: `realworld-shared.markdown/safe-url?`
   (re-frame.realworld-markdown-cljs-test) is a SEPARATE, CommonMark-library
-  implementation for the RealWorld app — it is already thoroughly tested and
+  implementation for the RealWorld app — it is thoroughly tested there and
   is NOT the code under test here. `notebook.core`'s hand-rolled `safe-href`
   + parser are their own surface.
 
@@ -38,10 +37,10 @@
   3. markdown->hiccup STRUCTURE. Headings, bold, italic, inline code, and
      ordered/unordered lists render to the expected tags.
 
-  Plus a regression guard for rf2-9tllom — the control-char-broken scheme
-  vectors (`java<TAB>script:` and friends) that a browser collapses back to
-  a live `javascript:` before resolving the link must now be REJECTED, both
-  by `safe-href` in isolation and end-to-end through `markdown->hiccup`
+  Plus a guard on the control-char-broken scheme vectors
+  (`java<TAB>script:` and friends) that a browser collapses back to a live
+  `javascript:` before resolving the link: they are REJECTED, both by
+  `safe-href` in isolation and end-to-end through `markdown->hiccup`
   (no live `:a`/`:href`)."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.walk :as walk]
@@ -152,23 +151,23 @@
     (is (nil? (safe-href nil)))))
 
 ;; ===========================================================================
-;; 1b. rf2-9tllom REGRESSION — control-char-obfuscated schemes are REJECTED
+;; 1b. CONTROL-CHAR-OBFUSCATED schemes are REJECTED
 ;; ===========================================================================
 
 (deftest safe-href-rejects-control-char-obfuscated-schemes
-  ;; rf2-9tllom regression guard. A control char (TAB / LF / CR / a leading
-  ;; C0 control such as SOH) spliced into a scheme token breaks the anchored
-  ;; scheme regex, so the OLD safe-href misclassified the value as scheme-LESS
-  ;; and returned it verbatim -> a LIVE `:a {:href ...}`. Browsers strip these
+  ;; A control char (TAB / LF / CR / a leading C0 control such as SOH)
+  ;; spliced into a scheme token breaks an anchored scheme regex, so a
+  ;; safe-href matching the raw value would misclassify it as scheme-LESS
+  ;; and return it verbatim -> a LIVE `:a {:href ...}`. Browsers strip these
   ;; control chars before resolving the scheme, so `java<TAB>script:alert(1)`
-  ;; fires as `javascript:` on click — a classic allowlist-evasion XSS. The
-  ;; fix strips every ASCII control + space char BEFORE scheme detection, then
-  ;; default-denies the de-obfuscated (non-allowlisted) scheme. Every vector
-  ;; below must now be REJECTED (nil).
+  ;; fires as `javascript:` on click — a classic allowlist-evasion XSS.
+  ;; safe-href strips every ASCII control + space char BEFORE scheme
+  ;; detection, then default-denies the de-obfuscated (non-allowlisted)
+  ;; scheme. Every vector below must be REJECTED (nil).
   (let [tab (str (char 9))  lf  (str (char 10)) cr  (str (char 13))
         soh (str (char 1))  vt  (str (char 11)) ff  (str (char 12))
         nul (str (char 0))  del (str (char 127))]
-    (testing "a control char breaking the scheme token no longer smuggles a
+    (testing "a control char breaking the scheme token does not smuggle a
               script/data scheme past the allowlist"
       (doseq [href [(str "java" tab "script:alert(1)")   ;; embedded TAB
                     (str "java" lf "script:alert(1)")    ;; embedded LF
@@ -184,7 +183,7 @@
                     (str "vb" cr "script:msgbox(1)")     ;; obfuscated vbscript:
                     (str "javascript:alert(1)" del)]]    ;; trailing DEL (0x7F)
         (is (nil? (safe-href href))
-            (str "rf2-9tllom: control-char-obfuscated scheme "
+            (str "control-char-obfuscated scheme "
                  (pr-str href) " must be rejected (nil)"))))))
 
 ;; ===========================================================================
@@ -216,7 +215,7 @@
             (str "no live :href for unsafe scheme " (pr-str scheme)))))))
 
 (deftest control-char-obfuscated-link-degrades-to-inert-span
-  ;; rf2-9tllom, end-to-end through the full markdown->hiccup pipeline: a
+  ;; End-to-end through the full markdown->hiccup pipeline: a
   ;; markdown link whose scheme is broken by a control char must degrade to
   ;; the inert [:span.nb-unsafe-link] — no live :a, no :href — exactly like a
   ;; plain `javascript:` link, so the browser never gets a chance to collapse

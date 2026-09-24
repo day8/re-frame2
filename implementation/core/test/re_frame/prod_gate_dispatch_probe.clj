@@ -1,5 +1,5 @@
 (ns re-frame.prod-gate-dispatch-probe
-  "The CHILD half of `re-frame.prod-gate-dispatch-jvm-test` (rf2-9c2jf).
+  "The CHILD half of `re-frame.prod-gate-dispatch-jvm-test`.
 
   This namespace is NOT a test namespace — cognitect-test-runner discovers
   `.*-test$` only, so nothing here runs on the ordinary suite. It is a `-main`
@@ -9,14 +9,14 @@
   ## Why a separate JVM rather than `with-redefs`
 
   `re-frame.interop/debug-enabled?` is read ONCE, at namespace-load time, from
-  the `re-frame.debug` system property. Every existing \"production gate\" suite
-  rebinds that Var with `with-redefs` AFTER the framework has loaded, which
-  cannot exercise anything the gate decided at load time — and the rf2-9c2jf
-  defect was exactly that: a load-time `defonce` whose body was skipped, so the
-  frame-generation freshener was never installed and every handler registered
-  after `make-frame` dispatched as `:rf.error/no-such-handler`. A test that
-  cannot fail under the real property is worthless for this class of bug, so the
-  gate has to be set before the JVM loads `re-frame.interop`.
+  the `re-frame.debug` system property. A \"production gate\" suite that
+  rebinds that Var with `with-redefs` AFTER the framework has loaded cannot
+  exercise anything the gate decided at load time — and the defect this probe
+  guards is exactly that: a load-time `defonce` whose body is skipped would
+  leave the frame-generation freshener uninstalled, so every handler registered
+  after `make-frame` would dispatch as `:rf.error/no-such-handler`. A test that
+  cannot fail under the real property is worthless for this class of defect, so
+  the gate has to be set before the JVM loads `re-frame.interop`.
 
   Reports its observations as one EDN map on stdout, prefixed by
   `result-marker`. Assertions live in the parent."
@@ -35,7 +35,7 @@
 (def ^:private event-id :rf2-9c2jf/bump)
 
 (defn probe
-  "Run the rf2-9c2jf scenario and return the observation map.
+  "Run the make-frame-then-register scenario and return the observation map.
 
   The ORDER is the whole point: `make-frame` FIRST, `reg-event` SECOND. A frame
   seals an image generation at construction (EP-0026 §Default Image — every
@@ -43,7 +43,7 @@
   through that generation, not the registrar atom), and the registration lands
   after the seal. Nothing in re-frame2 orders all registrations before all frame
   construction, so this is an ordinary app/REPL/test sequence — and under the
-  production gate it used to silently no-op."
+  production gate a gated generation maintainer would make it silently no-op."
   []
   (let [runs   (atom 0)
         errors (atom [])]
