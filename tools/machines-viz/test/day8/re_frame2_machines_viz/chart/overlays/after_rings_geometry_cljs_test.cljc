@@ -1,6 +1,5 @@
 (ns day8.re-frame2-machines-viz.chart.overlays.after-rings-geometry-cljs-test
-  "Pure-data tests for the xyflow `:after`-ring overlay geometry
-  (rf2-uv1on · xyflow Phase 2).
+  "Pure-data tests for the xyflow `:after`-ring overlay geometry.
 
   The overlay walks the rendered DOM to find each bearing node's
   bounding rect; this geometry layer turns those rects + the overlay
@@ -63,10 +62,8 @@
                             {:left 0 :top 0 :width 10 :height 10}))
       "zero-width node (not laid out yet) → no ring"))
 
-;; rf2-ee38b.21 — the byte-identical `state->node-testid` helper was
-;; removed from `after_rings_geometry`; the canonical node-id → testid
-;; helper now lives once on `overlay-anchor/node->testid` (pinned by
-;; `overlay_anchor_cljs_test`).
+;; The node-id → testid helper is `overlay-anchor/node->testid`, pinned by
+;; `overlay_anchor_cljs_test`.
 
 ;; ---- overlay-rings (the seam the CLJS overlay drives) ------------------
 
