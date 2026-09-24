@@ -161,6 +161,39 @@
            "defaults its prefix, to that registered type.")
       {:recovery :no-recovery})))
 
+(defn- clear-rejected-mirror!
+  "Remove the parent's `[:data :rf/spawned <invoke-id>]` entry for a REJECTED
+  declarative `:spawn`. The transition reducer binds that mirror when it
+  allocates the child's address, before this fx decides; the install writes it
+  beside the registry slot on success (`install-spawn!`), and each rejection
+  clears it, so the mirror never names an actor the parent does not own — one
+  that was never born, or another parent's live child.
+
+  Removes only an entry naming THIS spawn's address, and prunes an emptied
+  `:rf/spawned` map as the teardown projection does. A spawn with no
+  `:rf/parent-id` / `:rf/invoke-id` (hand-emitted) has no mirror, so this is a
+  no-op for it. Bound to the event owner's exact incarnation, like the install.
+  Returns nil."
+  [frame-id args]
+  (let [parent-id (:rf/parent-id args)
+        invoke-id (:rf/invoke-id args)
+        address   (pre-allocated-actor-id args)
+        spawned   (rf.machines.paths/snapshot-path parent-id :data :rf/spawned)]
+    (when (and parent-id invoke-id (some? address)
+               (= address (get-in (rf.frame/frame-runtime-db-value frame-id)
+                                  (conj spawned invoke-id))))
+      (let [clear       (fn [rt]
+                          (let [rt' (update-in rt spawned dissoc invoke-id)]
+                            (if (empty? (get-in rt' spawned))
+                              (update-in rt' (rf.machines.paths/snapshot-path parent-id :data)
+                                         dissoc :rf/spawned)
+                              rt')))
+            owner-token (rf.frame/current-event-owner-token)]
+        (if owner-token
+          (rf.frame/swap-runtime-db-exact! frame-id owner-token clear)
+          (rf.frame/swap-runtime-db! frame-id clear))))
+    nil))
+
 (defn- reject-unregistered-spawn!
   "Emit the always-on `:rf.error/machine-spawn-unregistered-type` and reject
   the spawn. A `:machine-id` that resolves to no registered spec is rejected
@@ -620,7 +653,8 @@
                          ;; Write the parent's `:rf/spawned`
                          ;; mirror beside the registry slot it mirrors: the
                          ;; teardown projection clears the two TOGETHER, so the
-                         ;; install writes them together. The reducer binds the
+                         ;; install writes them together (and a rejected spawn
+                         ;; clears the mirror, `clear-rejected-mirror!`). The reducer binds the
                          ;; mirror too, but a macrostep that exits and
                          ;; re-enters the spawning state drains the old child's
                          ;; destroy FIRST, and that clear takes the successor's
@@ -823,7 +857,9 @@
       `:rf.error/machine-spawn-unregistered-type` and return without
       installing anything — no snapshot, no slot, no
       spawned-id allocation, no spawn-order record, no trace, no `:start`
-      dispatch. There is no implicit \"spec-less spawn\" lifecycle.
+      dispatch — and clear the parent's `[:data :rf/spawned <invoke-id>]`
+      entry the reducer bound (`clear-rejected-mirror!`). There is no
+      implicit \"spec-less spawn\" lifecycle.
    1. Resolve the spawn's machine spec (`:machine-id` from the registrar
       OR an inline `:definition`).
    2. Initialise the actor's snapshot at `[:rf.runtime/machines
@@ -912,7 +948,8 @@
       ;; prepared entry).
       (and (not (spawn-all-prepared? frame-id args))
            (unregistered-spawn-type? args))
-      (reject-unregistered-spawn! frame-id (:machine-id args))
+      (do (clear-rejected-mirror! frame-id args)
+          (reject-unregistered-spawn! frame-id (:machine-id args)))
 
       :else
       ;; Step 0c — an invalid inline `:definition` rejects
@@ -986,7 +1023,9 @@
   actor, and emit `:rf.error/machine-spawn-all-duplicate-id`. Returns nil, so
   the caller's cascade gate suppresses the whole spawn — no snapshot, no
   spawn-order entry, no `:rf.machine.spawn/spawned`, no `:start` dispatch —
-  exactly as the schema-reject and unregistered-TYPE paths do.
+  exactly as the schema-reject and unregistered-TYPE paths do. The rejecting
+  parent's `:rf/spawned` mirror entry, which names the occupant's address, is
+  cleared (`clear-rejected-mirror!`).
 
   ONE CATEGORY FOR ONE FAILURE. `:rf.error/machine-spawn-all-duplicate-id`
   is the name for \"two distinct spawns resolve to one actor address and
@@ -1075,6 +1114,7 @@
                           "refused again on every retry. Name an :id-prefix no "
                           "declarative spawn uses, so the hand-emitted spawn "
                           "allocates into an EMPTY address namespace."))]
+    (clear-rejected-mirror! frame-id args)
     (rf.trace/emit-error! :rf.error/machine-spawn-all-duplicate-id
                        {:machine-id machine-id
                         :failing-id spawned-id
@@ -1648,22 +1688,37 @@
   no incarnation to lose, symmetric with `continue?`'s `(constantly true)`.
   Returns the new runtime-db slice, or nil on owner loss.
 
-  `mirror`, when supplied (the live-join accept path), is written in the SAME
-  swap at the parent's `[:data :rf/spawned <invoke-id>]` — the children map the
-  slot's `:children` mirrors. The exit-cascade clear removes
-  slot and mirror together, so the seed writes them together: a macrostep that
-  exits and re-enters the `:spawn-all` state drains the old batch's clear FIRST,
-  taking the successor batch's freshly bound mirror with it."
+  `mirror` is set in the SAME swap at the parent's
+  `[:data :rf/spawned <invoke-id>]`: the children map the slot's `:children`
+  mirrors on the live-join accept path, and nil — the entry removed, an emptied
+  `:rf/spawned` map pruned — when `value` is the reject sentinel. The exit-cascade
+  clear removes slot and mirror together, so the seed moves them together on
+  both outcomes: a macrostep that exits and re-enters the `:spawn-all` state
+  drains the old batch's clear FIRST, taking the successor batch's freshly bound
+  mirror with it, and a rejected batch leaves no children map naming actors that
+  were never spawned."
   ([frame-id owner-token parent-id invoke-id value]
    (write-spawned-slot! frame-id owner-token parent-id invoke-id value nil))
   ([frame-id owner-token parent-id invoke-id value mirror]
-   (let [swap-fn (fn [rt]
-                   (cond-> (assoc-in rt (rf.machines.paths/spawned-path parent-id invoke-id) value)
-                     (and (some? mirror)
-                          (contains? (get-in rt (rf.machines.paths/snapshot-path)) parent-id))
-                     (assoc-in (conj (rf.machines.paths/snapshot-path parent-id :data :rf/spawned)
-                                     invoke-id)
-                               mirror)))]
+   (let [spawned (rf.machines.paths/snapshot-path parent-id :data :rf/spawned)
+         swap-fn (fn [rt]
+                   (let [rt' (assoc-in rt (rf.machines.paths/spawned-path parent-id invoke-id) value)]
+                     (cond
+                       (not (contains? (get-in rt' (rf.machines.paths/snapshot-path)) parent-id))
+                       rt'
+
+                       (some? mirror)
+                       (assoc-in rt' (conj spawned invoke-id) mirror)
+
+                       (not (contains? (get-in rt' spawned) invoke-id))
+                       rt'
+
+                       :else
+                       (let [rt'' (update-in rt' spawned dissoc invoke-id)]
+                         (if (empty? (get-in rt'' spawned))
+                           (update-in rt'' (rf.machines.paths/snapshot-path parent-id :data)
+                                      dissoc :rf/spawned)
+                           rt'')))))]
      (if owner-token
        (rf.frame/swap-runtime-db-exact! frame-id owner-token swap-fn)
        (rf.frame/swap-runtime-db! frame-id swap-fn)))))
@@ -1674,6 +1729,8 @@
   `:rf.machine/spawn` fx later in THIS entry vector reads it
   (`spawn-all-invoke-rejected?`) and suppresses itself, so a rejected invoke
   spawns NOTHING rather than orphaning registered siblings under no live join.
+  The same write removes the parent's `:rf/spawned` children map for the
+  invoke, which the transition reducer bound before this fx decided.
 
   Fenced on `(continue?)` and bound to A's raw owner token: the
   reject path fans callback-bearing records whose listeners can synchronously

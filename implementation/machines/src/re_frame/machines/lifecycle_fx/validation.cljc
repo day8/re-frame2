@@ -21,8 +21,11 @@
     - `validate-no-spawn-timeout-ms!` — rejects the unsupported
       `:timeout-ms` slot on `:spawn` / `:spawn-all`.
     - `validate-final-state!` — `:final?` shape.
-    - `validate-node-keys!` — reject unknown BARE state-node keys
-      (`:rf.error/machine-unknown-node-key`); namespaced keys pass.
+    - `validate-node-keys!` — reject unknown BARE state-node keys, and
+      root-only keys below the root (`:rf.error/machine-unknown-node-key`);
+      namespaced keys pass.
+    - `validate-node-transition-keys!` — reject unknown BARE keys on every
+      transition map (`:rf.error/machine-unknown-node-key` with `:slot`).
     - `validate-spawn-spec-keys!` — reject unknown BARE `:spawn` /
       `:spawn-all`-child keys (`:rf.error/machine-unknown-spawn-key`).
     - `validate-tags!` — reject a non-set `:tags` slot
@@ -1314,17 +1317,22 @@
 (defn- valid-after-delay-key?
   "Per Spec-Schemas §`:rf/state-node` `:after` (1699-1705):
   an `:after` map KEY (the delay) is well-formed iff it is one of the
-  three closed forms:
+  four closed forms:
 
     - a POSITIVE integer — literal milliseconds (the schema's `pos-int?`),
+    - an ISO-8601 duration STRING — `\"PT5S\"`, read by the parser the
+      `:timeout` duration uses (`rf.machines.timeout/valid-duration?`), so the
+      two delay slots accept the same strings and refuse the same `\"5s\"`
+      shorthand; the timer lowers it to milliseconds when it arms,
     - a NON-EMPTY vector — a subscription vector `[sub-id & args]`
       re-resolved at runtime (the schema's `[:vector :any]`),
     - a FUNCTION — `(fn [{:keys [snapshot]}] ms)` computed once at entry
       (the schema's `fn?`).
 
   Mirrors `transition/classify-delay-source`'s `{:literal :sub :fn}`
-  triad, but applied as a REGISTRATION gate so an invalid static key
-  (`-1`, `0`, `\"soon\"`, `nil`, `[]`) is rejected at `reg-machine` time
+  triad (an ISO string is a literal), but applied as a REGISTRATION gate so
+  an invalid static key (`-1`, `0`, `\"soon\"`, `\"5s\"`, `nil`, `[]`) is
+  rejected at `reg-machine` time
   rather than degrading to an `:rf.warning/no-clock-configured` no-op at
   fx time. Dynamic resolutions (a sub vector / fn that RETURNS an invalid
   ms at runtime) keep their fx-time warning — only the STATIC key shape is
@@ -1332,13 +1340,14 @@
   [delay-key]
   (boolean
     (or (and (integer? delay-key) (pos? delay-key))
+        (and (string? delay-key) (rf.machines.timeout/valid-duration? delay-key))
         (and (vector? delay-key) (seq delay-key))
         (fn? delay-key))))
 
 (defn- validate-after-delays!
   "Reject any `:after` map KEY that is not a positive
-  integer, a non-empty subscription vector, or a function, at
-  registration. Walks every transition-bearing node: each state node
+  integer, an ISO-8601 duration string, a non-empty subscription vector, or a
+  function, at registration. Walks every transition-bearing node: each state node
   (`walk-state-nodes`), every region root + the parallel root, and the
   flat-machine root — the same coverage the guard/action `:after` ref
   check applies, so an invalid delay key cannot hide on a root fallback
@@ -1361,9 +1370,11 @@
                      :rf.error/machine-bad-after-delay
                      (str "the :after delay key " (pr-str delay-key)
                           " on state " state-key " is invalid — an :after "
-                          "delay must be a POSITIVE integer (literal ms), a "
-                          "NON-EMPTY subscription vector ([sub-id & args]), or "
-                          "a function ((fn [{:keys [snapshot]}] ms)). Per "
+                          "delay must be a POSITIVE integer (literal ms), an "
+                          "ISO-8601 duration string (\"PT5S\", \"PT2M\"; not the "
+                          "\"5s\" shorthand), a NON-EMPTY subscription vector "
+                          "([sub-id & args]), or a function "
+                          "((fn [{:keys [snapshot]}] ms)). Per "
                           "Spec-Schemas §:rf/state-node :after.")
                      {:state     state-key
                       :slot      :after
@@ -1528,7 +1539,7 @@
   open user-metadata / extension carve-out and pass untouched. `:meta` is the
   sanctioned bare free slot for tooling metadata. This is the single home for the
   bare-key vocabulary — a grammar addition adds ONE key here alongside its schema
-  row.
+  row. The machine root also accepts `known-machine-root-extra-keys`.
 
   `:type :history` and `:type :choice` pseudo-states carry their OWN closed
   key-sets (`validate-history!` / `rf.machines.choice/validate-node-choice!`), so the node-key
@@ -1536,14 +1547,8 @@
   node-kind-specific error id."
   #{;; root-shape / pseudo-state
     :type :deep? :default-target :regions
-    ;; parallel-root region declaration order — the explicit registration
-    ;; contract (`rf.machines.parallel/normalise-region-order`); author-supplied OR derived
-    ;; and stamped once at registration. Root-only, but harmless on the set,
-    ;; exactly like `:regions`.
-    :region-order
-    ;; compound / data / declaration blocks (root-only, but harmless on the set)
-    :initial :states :data :schemas :internal-events
-    :guards :actions
+    ;; compound
+    :initial :states
     ;; lifecycle actions
     :entry :exit
     ;; declarative actor lifecycle
@@ -1556,16 +1561,26 @@
     :meta :source-coords :source-code})
 
 (def ^:private known-machine-root-extra-keys
-  "Keys legal ONLY on the machine ROOT (the registration-metadata that folds
-  onto the machine body per `registration/reg-machine*`), beyond the universal
-  `known-state-node-keys`. `:doc` is the registration doc string; `:sensitive` /
-  `:large` are the machine-level data-classification declarations
-  (projection-relative `:data` classification); `:schema` is the event-vector
-  boundary schema for the dispatched OUTER vector; `:raise-depth-limit` /
-  `:always-depth-limit` are the per-machine cycle-detection depth overrides
-  (`transition/raise-depth-limit-default`). These are meaningless on a child node
-  (the child-node walk uses the plain vocabulary)."
-  #{:doc :sensitive :large :schema :raise-depth-limit :always-depth-limit})
+  "Keys legal ONLY on the machine ROOT, beyond the universal
+  `known-state-node-keys`. Two groups:
+
+    - the machine's own blocks, which the runtime reads off the root alone:
+      `:data`, `:schemas`, `:internal-events`, the `:guards` / `:actions`
+      registries (a parallel region inherits the root's), and the parallel
+      root's `:region-order` (`rf.machines.parallel/normalise-region-order`
+      stamps it once at registration);
+    - the registration metadata that folds onto the machine body per
+      `registration/reg-machine*`: `:doc` is the registration doc string;
+      `:sensitive` / `:large` are the machine-level data-classification
+      declarations (projection-relative `:data` classification); `:schema` is
+      the event-vector boundary schema for the dispatched OUTER vector;
+      `:raise-depth-limit` / `:always-depth-limit` are the per-machine
+      cycle-detection depth overrides (`transition/raise-depth-limit-default`).
+
+  On a nested state or a parallel region body nothing reads them, so the
+  child-node walk refuses them as root-only."
+  #{:data :schemas :internal-events :guards :actions :region-order
+    :doc :sensitive :large :schema :raise-depth-limit :always-depth-limit})
 
 (def ^:private retired-spawn-spec-keys
   "Retired spawn-spec keys that carry their OWN dedicated retired-key rejection
@@ -1627,8 +1642,9 @@
   vocabulary. `:type :history` / `:type :choice` pseudo-states are SKIPPED — they
   carry their own closed key-sets validated elsewhere. Namespaced keys pass (the
   open extension carve-out). The MACHINE ROOT (`at-root?`) additionally accepts
-  the root-only registration-metadata keys (`:doc` / `:sensitive` / `:large` /
-  `:schema`) that fold onto the machine body — those are typos on a child node.
+  the root-only keys (`known-machine-root-extra-keys`: `:data`, `:guards`,
+  `:actions`, the registration metadata, …); on a nested state or a region body
+  the message names them as root-only.
 
   `:on-done` is placement-checked with the same id: it fires when a node's
   children complete, so it belongs on a compound (`:states`) or parallel
@@ -1640,18 +1656,27 @@
              (not (rf.machines.choice/choice-node? state-node)))
     (let [known     (cond-> known-state-node-keys
                        at-root? (into known-machine-root-extra-keys))
-          offending (unknown-bare-keys state-node known)]
+          offending (unknown-bare-keys state-node known)
+          root-only (filterv known-machine-root-extra-keys offending)]
       (when (seq offending)
         (throw (validation-error
                  :rf.error/machine-unknown-node-key
-                 (str "state " (key-label state-key) " declares unknown bare key(s) "
-                      (key-labels offending)
-                      " — a bare key outside the reserved state-node vocabulary "
-                      "reads as a typo (e.g. XState's :invoke for re-frame2's "
-                      ":spawn, or :on-entry for :entry) and would be silently "
-                      "ignored. Use :meta for tooling metadata, or a NAMESPACED "
-                      "key (:my.app/note) for a user extension. Valid keys: "
-                      (pr-str (vec (sort known))) ".")
+                 (if (seq root-only)
+                   (str "state " (key-label state-key) " declares root-only key(s) "
+                        (key-labels root-only)
+                        " — they belong on the machine root, which is the only "
+                        "place the runtime reads them, so on a nested state or a "
+                        "region body they would be silently ignored. Move them "
+                        "to the root. Valid keys here: "
+                        (pr-str (vec (sort known))) ".")
+                   (str "state " (key-label state-key) " declares unknown bare key(s) "
+                        (key-labels offending)
+                        " — a bare key outside the reserved state-node vocabulary "
+                        "reads as a typo (e.g. XState's :invoke for re-frame2's "
+                        ":spawn, or :on-entry for :entry) and would be silently "
+                        "ignored. Use :meta for tooling metadata, or a NAMESPACED "
+                        "key (:my.app/note) for a user extension. Valid keys: "
+                        (pr-str (vec (sort known))) "."))
                  {:state          state-key
                   :offending-keys offending
                   :valid-keys     known})))
@@ -1709,6 +1734,80 @@
     (check! (:spawn state-node) :spawn known-spawn-spec-keys)
     (doseq [child (get-in state-node [:spawn-all :children])]
       (check! child :spawn-all-child known-spawn-all-child-spec-keys))))
+
+(def ^:private known-transition-keys
+  "The closed BARE key vocabulary a transition map may declare, projected from
+  the Spec-Schemas `Transition` grammar, plus the DEBUG-only `:source-coords` /
+  `:source-code` the `reg-machine` macro co-locates on every transition map.
+  A bare key outside this set is refused with
+  `:rf.error/machine-unknown-node-key`; NAMESPACED keys pass."
+  #{:target :reenter? :guard :action :meta :source-coords :source-code})
+
+(def ^:private transition-key-spellings
+  "XState's transition keys, each with the re-frame2 spelling the refusal names."
+  {:cond     ":guard"
+   :actions  ":action (one fn or keyword; call several from one fn)"
+   :reenter  ":reenter?"
+   :internal "the default (omit it; a transition without :reenter? true is internal)"})
+
+(defn- validate-transition-keys!
+  "Refuse an unknown BARE key on any transition map in the slot value `v` — a
+  single map, a guarded candidate vector, or the keyword / path sugar (which
+  carries no keys). `slot` names the transition slot for the diagnostic and the
+  ex-data (`:on`, `:after`, `:always`, `:choice`, `:on-done`, `:on-timeout`,
+  `:spawn/on-error`, `:spawn/on-timeout`). A malformed value carries no
+  candidate maps here; its shape is refused by the slot's own validator.
+
+  Without it a misspelt key is silently inert: `{:targt :b}` is a targetless
+  no-op with no trace, `:cond` fires the transition unguarded, `:actions`
+  drops the action, and `:reenter` never re-enters. Per Conventions §No silent
+  swallow."
+  [state-key slot v]
+  (doseq [t (or (rf.machines.grammar/candidate-maps v) [])]
+    (let [offending (unknown-bare-keys t known-transition-keys)]
+      (when (seq offending)
+        (throw (validation-error
+                 :rf.error/machine-unknown-node-key
+                 (str "the " (pr-str slot) " transition on state "
+                      (key-label state-key) " declares unknown bare key(s) "
+                      (key-labels offending)
+                      " — a bare key outside the transition vocabulary would be "
+                      "silently ignored."
+                      (apply str (for [k offending
+                                       :let [s (transition-key-spellings k)]
+                                       :when s]
+                                   (str " " (pr-str k) " is " s ".")))
+                      " Use :meta for tooling metadata, or a NAMESPACED key "
+                      "(:my.app/note) for a user extension. Valid keys: "
+                      (pr-str (vec (sort known-transition-keys))) ".")
+                 {:state          state-key
+                  :slot           slot
+                  :offending-keys offending
+                  :valid-keys     known-transition-keys}))))))
+
+(defn- validate-node-transition-keys!
+  "Run `validate-transition-keys!` over every transition slot `node` declares —
+  a state node, the machine root, or a parallel region body — on the RAW
+  (pre-desugar) definition, so `:choice` candidates and `:on-timeout` specs are
+  named in the slot the author wrote. `:type :history` pseudo-states are
+  skipped: they carry no transition slot, and `validate-history!` refuses one."
+  [state-key node]
+  (when (and (map? node) (not (history-node? node)))
+    (let [check-map! (fn [slot m]
+                       (when (map? m)
+                         (doseq [[_ v] m]
+                           (validate-transition-keys! state-key slot v))))
+          spawn      (when (map? (:spawn node)) (:spawn node))]
+      (check-map! :on (:on node))
+      (check-map! :after (:after node))
+      (doseq [[slot v] [[:always (:always node)]
+                        [:choice (:choice node)]
+                        [:on-done (:on-done node)]
+                        [:on-timeout (:on-timeout node)]
+                        [:spawn/on-error (:on-error spawn)]
+                        [:spawn/on-timeout (:on-timeout spawn)]]
+              :when (some? v)]
+        (validate-transition-keys! state-key slot v)))))
 
 (defn- validate-tags!
   "Reject a NON-SET `:tags` slot on a state node at registration with
@@ -1819,15 +1918,18 @@
   names no declared state).
 
   Per Spec-Schemas §`:rf/state-node` `:after`: every `:after`
-  map KEY (the delay) must be a positive integer, a non-empty subscription
-  vector, or a function. Throws `:rf.error/machine-bad-after-delay` for a
-  static key that is none of those (`-1`, `0`, `\"soon\"`, `nil`, `[]`) —
+  map KEY (the delay) must be a positive integer, an ISO-8601 duration string
+  (the `:timeout` duration grammar), a non-empty subscription vector, or a
+  function. Throws `:rf.error/machine-bad-after-delay` for a static key that
+  is none of those (`-1`, `0`, `\"soon\"`, `\"5s\"`, `nil`, `[]`) —
   gated at registration rather than degrading to an fx-time
   `:rf.warning/no-clock-configured` no-op.
 
   Per Conventions §No silent swallow + §Reserved state-node keys /
   §Spawn-spec keys: every state node (root + descendants + parallel-region
-  roots) rejects an unknown BARE key with `:rf.error/machine-unknown-node-key`,
+  roots) rejects an unknown BARE key with `:rf.error/machine-unknown-node-key`
+  — a root-only key (`:data`, `:guards`, …) below the root included — and so
+  does every transition map in every transition slot (ex-data `:slot`),
   and every `:spawn` / `:spawn-all`-child spawn-spec rejects an unknown BARE key
   with `:rf.error/machine-unknown-spawn-key` (namespaced keys pass — the open
   extension carve-out). A non-set `:tags` slot is rejected with
@@ -1875,27 +1977,31 @@
   ;; typo (XState's `:invoke` / `:on-entry`) IS. `:type :history` / `:type
   ;; :choice` pseudo-states are skipped (their own closed key-sets validate them).
   ;; Per Conventions §No silent swallow + §Reserved state-node keys /
-  ;; §Spawn-spec keys.
+  ;; §Spawn-spec keys. Every transition map in every slot is held to the
+  ;; closed transition vocabulary the same way (`validate-node-transition-keys!`).
   ;; The machine ROOT is itself a state-node (it carries `:initial` / `:states`
-  ;; or `:regions`, plus root-only `:guards` / `:actions` / `:data` / `:schemas`
-  ;; — all KNOWN bare keys), and `walk-state-nodes` yields only the nodes UNDER
+  ;; or `:regions`, plus the root-only `:guards` / `:actions` / `:data` /
+  ;; `:schemas`), and `walk-state-nodes` yields only the nodes UNDER
   ;; `:states`, so validate the root explicitly (a typo'd top-level key —
   ;; `:innitial`, `:gaurds` — must not slip through).
   (validate-node-keys! :rf/root machine true)
+  (validate-node-transition-keys! :rf/root machine)
   (validate-tags! :rf/root machine)
   (doseq [[s n] (walk-state-nodes machine)]
     (validate-node-keys! s n false)
     (validate-spawn-spec-keys! s n)
+    (validate-node-transition-keys! s n)
     (validate-tags! s n))
   ;; A parallel region ROOT (a region body) is a state-node the plain
   ;; `walk-state-nodes` does NOT yield, so run the key / tags checks on each
   ;; region body too (a typo'd bare key on a region root must not slip through).
-  ;; A region body is NOT the machine root — the root-only registration-metadata
-  ;; keys (`:doc` / `:sensitive` / …) live on the machine root, not per region.
+  ;; A region body is NOT the machine root — the root-only keys (`:data` /
+  ;; `:guards` / `:doc` / …) live on the machine root, not per region.
   (when (rf.machines.parallel/parallel? machine)
     (doseq [[rn body] (:regions machine)]
       (validate-node-keys! rn body false)
       (validate-spawn-spec-keys! rn body)
+      (validate-node-transition-keys! rn body)
       (validate-tags! rn body)))
   ;; DESUGAR both named-intent grammars onto their underlying mechanisms
   ;; (`:timeout` → `:after`, `:choice` → `:always`) so every subsequent
@@ -1935,8 +2041,8 @@
     (validate-always-unguarded-targetless! (peek path) n))
   ;; Every transition slot's `:target` shape + resolution.
   (validate-transition-targets! machine)
-  ;; Every `:after` delay KEY must be a positive integer, a
-  ;; non-empty subscription vector, or a function — gated at registration
+  ;; Every `:after` delay KEY must be a positive integer, an ISO-8601
+  ;; duration string, a non-empty subscription vector, or a function — gated at registration
   ;; rather than degrading to an fx-time :rf.warning/no-clock-configured.
   (validate-after-delays! machine)
   ;; Validate guard/action references at construction time. machine-id
