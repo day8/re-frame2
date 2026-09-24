@@ -72,8 +72,7 @@
   order annotation, not a second event. Sized off the resolved density's
   `:event-chip-px` so the badge scales with the chip's typography across
   the compact / regular / cosy densities. Returns nil when `order` is
-  nil (a non-fork event carries NO badge) so a single transition is
-  unchanged.
+  nil: a non-fork event carries NO badge.
 
   `id` is the host node id (for the `data-testid`); `ct` is the resolved
   theme token map; `event-chip-px` the density font-size."
@@ -188,7 +187,7 @@
         ;; (EP-0017 consumer attachment), a JS array of compact id strings
         ;; (nil when the named callback declares no facts). `js->clj` back
         ;; to a CLJS vec for rendering; nil stays nil so an undeclared
-        ;; callback is visually unchanged.
+        ;; callback paints no requirement chip.
         guard-reqs  (some-> (.-guardRequires d) js->clj)
         action-reqs (some-> (.-actionRequires d) js->clj)
         focused?    (boolean (.-focused d))
@@ -342,11 +341,11 @@
                                    (:text-tertiary ct))
                           :font-weight (if blocked? 700 600)}}
            (str "IF " guard)])
-        ;; The EXTERNAL restart marker. A targeted transition is internal
-        ;; by default (XState v5 / Spec 005); a `↻` reenter chip makes a
-        ;; `:reenter? true` transition read DISTINCTLY from its internal
-        ;; default (re-runs `:exit`/`:entry`, restarts `:after` /
-        ;; `:spawn`), which is otherwise topologically identical.
+        ;; The `:reenter? true` marker. A `↻` reenter chip makes a
+        ;; transition carrying the flag (which restarts the declaring
+        ;; state: re-runs its `:exit`/`:entry`, restarts its `:after` /
+        ;; `:spawn`) read DISTINCTLY from the same transition without it,
+        ;; which is otherwise topologically identical.
         (when reenter?
           [:span {:data-testid (str "rf-mv-chart-event-reenter-" (.-id props))
                   :data-reenter "true"
@@ -389,8 +388,8 @@
        ;; `needs <id>` annotation surfacing the replay-critical host facts
        ;; the named guard / action declares via `:rf.cofx/requires`
        ;; (EP-0017). Each renders ONLY when its callback declared a non-
-       ;; empty diet, so an ordinary fact-free transition is visually
-       ;; unchanged.
+       ;; empty diet, so an ordinary fact-free transition paints no
+       ;; requirement row.
        (requires-chip :guard guard-reqs (.-id props) ct event-chip-action-px)
        (requires-chip :action action-reqs (.-id props) ct event-chip-action-px)
        ;; xyflow attachment points. Handles on every side so elkjs can
