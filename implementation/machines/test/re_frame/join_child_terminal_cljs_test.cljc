@@ -1,37 +1,36 @@
 (ns re-frame.join-child-terminal-cljs-test
-  "rf2-ir4t5v — every non-decisive `:spawn-all` child gets exactly one
+  "Every non-decisive `:spawn-all` child gets exactly one
   canonical JOIN-SIDE work terminal.
 
-  Pre-fix, the join machinery emitted terminal work-reply facts ONLY
-  through the final resolution trace. In an `:all` join, a child completing
-  before the decisive child was folded into `:done` silently — it never
-  received a canonical `:completed` reply — and was later reaped without
-  cancellation, so its work attempt ended with NO terminal status at all
-  (first child A statuses `[]`, decisive child B `[:completed]`). Failed
-  non-decisive folds had the analogous missing `:failed` fact. That
-  contradicts the closed one-terminal-per-work-attempt contract and
-  strands work-ledger/Xray projections.
+  Emitting terminal work-reply facts ONLY through the final resolution
+  trace would leave a gap. In an `:all` join, a child completing before the
+  decisive child would be folded into `:done` silently — never receiving a
+  canonical `:completed` reply — and later reaped without cancellation, so
+  its work attempt would end with NO terminal status at all. A failed
+  non-decisive fold would likewise miss its `:failed` fact. That would
+  contradict the closed one-terminal-per-work-attempt contract and
+  strand work-ledger/Xray projections.
 
-  Post-fix, the join publishes its terminal exactly once at the FIRST valid
+  So the join publishes its terminal exactly once at the FIRST valid
   fold via `:rf.machine.spawn-all/child-completed` when the fold is
   non-decisive, while the decisive child's rides the resolution trace — the
   two emits sit on opposite arms of the fold's `(:resolved? resolution)`
   split, so the join never double-publishes a child.
   Duplicate pre-resolution signals are suppressed by the exact-attempt
-  fold fence (rf2-nvxehu); post-resolution arrivals remain `:stale`; survivors
-  cancelled by `:any`/failure resolution still close exactly once as
+  fold fence; post-resolution arrivals are `:stale`; survivors
+  cancelled by `:any`/failure resolution close exactly once as
   `:cancelled`.
 
-  ONE OUTCOME, TWO ATTRIBUTIONS. Completion is now finality (Spec 005 §Child
+  ONE OUTCOME, TWO ATTRIBUTIONS. Completion is finality (Spec 005 §Child
   completion protocol): a join child reaches a `:final?` state, publishes its
   OWN `:rf.machine/done` reply and tears itself down, and only then does the
   runtime-minted carrier reach the parent's join. So a completing child's
   work-id carries TWO agreeing terminal rows — its own finality and the
-  join's — exactly as a cancelled survivor already carried two
+  join's — exactly as a cancelled survivor carries two
   (`:rf.machine.spawn/cancelled-on-join-resolution` + its own
-  `:rf.machine/destroyed`). What rf2-ir4t5v pins is the JOIN-side row
+  `:rf.machine/destroyed`). What this suite pins is the JOIN-side row
   (`join-terminals-for`), and that the rows never disagree on KIND; a raw
-  count of rows on the work-id is not the invariant and never was.
+  count of rows on the work-id is not the invariant.
 
   The file is named `*-cljs-test.cljc` so it's discovered by both
   cognitect-style JVM runs and shadow-cljs (`cljs-test$` ns-regexp)."
@@ -89,8 +88,8 @@
 (defn- join-terminals-for
   "The terminal statuses the JOIN published for `spawned-id` — its fold /
   resolution / survivor-cancellation authority — with the child's OWN
-  `:rf.machine/done` finality row removed. Completion IS finality now, so
-  every join child publishes that actor-side row itself; what rf2-ir4t5v pins
+  `:rf.machine/done` finality row removed. Completion IS finality, so
+  every join child publishes that actor-side row itself; what this suite pins
   is the JOIN-side row beside it."
   [spawned-id]
   (into [] (comp (remove #(= :rf.machine/done (first %))) (map second))
@@ -164,16 +163,15 @@
      :attempt    (:rf/attempt j)}))
 
 ;; ---------------------------------------------------------------------------
-;; the P2 repro — two-child :all success
+;; two-child :all success
 ;; ---------------------------------------------------------------------------
 
 (deftest non-decisive-completed-child-gets-exactly-one-completed-terminal
-  (testing "rf2-ir4t5v — two-child :all success: the NON-DECISIVE first
+  (testing "two-child :all success: the NON-DECISIVE first
             child A gets exactly ONE join-side :completed terminal, published
             at fold time; the DECISIVE child B gets exactly one, published by
             the resolution trace. Neither is double-published by the join and
-            neither is ever :cancelled. Pre-fix A's statuses were [] (no
-            terminal at all). Beside each sits the child's OWN
+            neither is ever :cancelled. Beside each sits the child's OWN
             `:rf.machine/done` finality row — completion IS finality, so the
             actor closes itself — and both rows carry the SAME work-id and the
             SAME status: one closed outcome, two agreeing attributions."
@@ -185,7 +183,7 @@
       (rf/dispatch-sync [a [:go]])
       (is (= [:completed] (join-terminals-for a))
           (str "non-decisive child A gets exactly one JOIN-side :completed at "
-               "fold time (pre-fix: []); saw " (terminal-rows-for a)))
+               "fold time; saw " (terminal-rows-for a)))
       (is (= [[:rf.machine/done :completed]
               [:rf.machine.spawn-all/child-completed :completed]]
              (terminal-rows-for a))
@@ -223,9 +221,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest non-decisive-failed-child-gets-exactly-one-failed-terminal
-  (testing "rf2-ir4t5v — an :all join with NO :on-any-failed folds a failure
+  (testing "an :all join with NO :on-any-failed folds a failure
             without resolving: the failed child closes exactly one :failed
-            terminal at fold time (the analogous missing-:failed fact)"
+            terminal at fold time"
     (let [j (reg-join-parent! :jct/p2 :jct/p2a :jct/p2b
                               {:join :all :on-all-complete [:all/done]})
           a (get-in j [:children :a])]
@@ -245,11 +243,11 @@
         (is (= :failed (:rf.reply/work-status tags)))))))
 
 ;; ---------------------------------------------------------------------------
-;; decisive success / decisive failure — resolution authority unchanged
+;; decisive success / decisive failure — the resolution authority
 ;; ---------------------------------------------------------------------------
 
 (deftest decisive-folds-keep-the-resolution-authority
-  (testing "rf2-ir4t5v — decisive folds publish through the resolution trace
+  (testing "decisive folds publish through the resolution trace
             ONLY: an :any success and an :on-any-failed failure each close
             the decisive child exactly once, with NO fold-time
             child-completed trace"
@@ -289,7 +287,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest duplicate-and-post-resolution-signals-add-no-terminals
-  (testing "rf2-ir4t5v — a duplicate pre-resolution completion (suppressed
+  (testing "a duplicate pre-resolution completion (suppressed
             :duplicate-completion) and a post-resolution straggler
             (:stale late-completion) leave the child's join-side terminal
             count at exactly one, and add no row of any kind"
@@ -307,7 +305,7 @@
       (is (= expected (terminal-rows-for a))
           "the duplicate added NO second terminal (suppressed, not re-published)")
       ;; Resolve, then :a's EXACT-CURRENT completion re-arrives post-resolution
-      ;; (the late-completion path is gated on the exact-attempt fence — rf2-ixjd48).
+      ;; (the late-completion path is gated on the exact-attempt fence).
       (rf/dispatch-sync [b [:go]])
       (is (true? (:resolved? (join-state :jct/p5))))
       (dispatch-forged! :jct/p5 (exact-completion :jct/p5 :a))
@@ -318,11 +316,11 @@
           "the straggler was classified through the stale late-completion path"))))
 
 ;; ---------------------------------------------------------------------------
-;; survivors still close exactly once as :cancelled
+;; survivors close exactly once as :cancelled
 ;; ---------------------------------------------------------------------------
 
 (deftest any-resolution-survivor-still-closes-exactly-once-cancelled
-  (testing "rf2-ir4t5v — an :any resolution's surviving sibling closes
+  (testing "an :any resolution's surviving sibling closes
             exactly one :cancelled terminal; the decisive completed child
             closes exactly one :completed and is never cancelled"
     (let [j (reg-join-parent! :jct/p6 :jct/p6a :jct/p6b
