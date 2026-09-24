@@ -1,12 +1,10 @@
 (ns re-frame.views-current-component-cljs-test
-  "Per rf2-wbnl — coverage for the no-adapter / no-component fall-through
+  "Coverage for the no-adapter / no-component fall-through
   semantics of `re-frame.views/current-frame`.
 
-  Pre-rf2-wbnl, views.cljs statically `:require`d `reagent.core` and
-  called `(reagent.core/current-component)` directly. Post-rf2-wbnl
-  views.cljs reads the in-flight component through the
-  `:adapter/current-component` late-bind hook, which the active adapter
-  installs at ns-load time.
+  views.cljs does not `:require` `reagent.core`; it reads the in-flight
+  component through the `:adapter/current-component` late-bind hook, which
+  the active adapter installs at ns-load time.
 
   Resolution chain (READER, per Spec 002 §Frame target resolution — the
   carried invariant, EP-0002):
