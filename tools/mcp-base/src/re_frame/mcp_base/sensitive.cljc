@@ -165,7 +165,7 @@
     (nil? stamp)   false
     ;; Anything else that's truthy is a contract violation. Drop and
     ;; log so the drift is visible. Falsy non-nil sentinels (none in
-    ;; the runtime today) would pass — but `false` and `nil` are the
+    ;; the runtime) would pass — but `false` and `nil` are the
     ;; only two falsy values in Clojure, so this is exhaustive.
     :else          (do (bump-malformed!)
                        (log-malformed! stamp)
@@ -308,7 +308,7 @@
      ;; `scrub-frame` returns `[scrubbed-frame dropped]` for one frame;
      ;; the slice-scrub returns `[kept dropped]` straight from `strip-fn`,
      ;; so the count rides the value the whole way down — no `volatile!`.
-     ;; Single walk over the snapshot, same cost as before.
+     ;; Single walk over the snapshot.
      (let [scrub-slice
            (fn [frame-map slice-key acc]
              (if-not (contains? frame-map slice-key)
