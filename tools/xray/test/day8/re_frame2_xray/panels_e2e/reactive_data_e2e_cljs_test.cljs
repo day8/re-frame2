@@ -50,8 +50,12 @@
   node gate; tracked as a follow-up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.image :as rf.image]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
+            [day8.re-frame2-xray.panels.reactive-panel-subs :as reactive-subs]
             [day8.re-frame2-xray.test-helpers.e2e-multi-frame :as e2e]
             [day8.re-frame2-xray.test-helpers.host-fixtures.counter :as counter]))
 
@@ -195,3 +199,86 @@
               ":ab/read-a recomputed (it fired) — it must NOT appear in :subs-skipped")
           (is (pos? (-> d :counts :subs-skipped))
               ":counts :subs-skipped tallies the real memo-hit set"))))))
+
+;; ---- static topology resolves through the OBSERVED frame (rf2-2jhet) ------
+
+(def ^:private review-host :review/host)
+(def ^:private review-inspector :review/inspector)
+
+(defn- review-host-image
+  "The observed app: a layer-1 `:review/base` and a DECLARED-INPUT
+  `:review/derived` over it, registered ONLY in this image. Nothing registers
+  either globally, so the host's topology is reachable only through the host
+  frame's own generation."
+  []
+  (rf.image/image
+    {:id            :review/host-image
+     :registrations
+     {:reg-sub [[:review/base {:file "review/host.cljs" :line 10}
+                 (fn [db _q] (:base db))]
+                [:review/derived {:inputs [[:review/base]]
+                                  :file   "review/host.cljs" :line 20}
+                 (fn [[base] _q] (inc base))]]}}))
+
+(defn- review-inspector-image
+  "The inspector, seated in its OWN image as Xray is: the ACTUAL
+  `:rf.xray/reactive-data` composite (and its panel-local toggle input),
+  selected from the namespace `install!` registered it under, plus inline
+  stand-ins for its three other inputs. It also carries a SAME-ID
+  `:review/derived` declared as a direct app-db reader, so an ambient
+  topology read inside the composite finds the INSPECTOR's declaration."
+  []
+  (rf.image/image
+    {:id            :review/inspector-image
+     :select-ns     {:include ["day8.re-frame2-xray.panels.reactive-panel-subs"]}
+     :registrations
+     {:reg-sub [[:rf.xray/focus (fn [db _q] (:focus db))]
+                [:rf.xray/epoch-history (fn [db _q] (:epoch-history db))]
+                [:rf.xray/setting (fn [_db _q] false)]
+                [:review/derived {:file "review/inspector.cljs" :line 99}
+                 (fn [db _q] (:inspector db))]]}}))
+
+(def ^:private review-epoch
+  {:epoch-id    :review/e1
+   :dispatch-id 1
+   :sub-runs    [{:sub-id :review/base :query-v [:review/base]
+                  :recomputed? true :value-changed? true}
+                 {:sub-id :review/derived :query-v [:review/derived]
+                  :recomputed? true :value-changed? true}]})
+
+(deftest reactive-data-resolves-topology-through-the-observed-frame
+  (testing "rf2-2jhet — with DISJOINT host and inspector images, the composite
+            partitions the host's subs by the HOST's declared topology: the
+            derived sub is Level 2 with its input edge and host source
+            coordinate, not a Level-1 app-db reader borrowed from the
+            inspector's same-id declaration or defaulted from an absent one"
+    (reactive-subs/install!)
+    (rf.live-frame/make-frame {:id review-host :images [(review-host-image)]} [])
+    (rf.live-frame/make-frame
+      {:id             review-inspector
+       :images         [(review-inspector-image)]
+       :initial-events [[:rf/set-db {:focus         {:frame       review-host
+                                                     :epoch-id    :review/e1
+                                                     :dispatch-id 1}
+                                     :epoch-history [review-epoch]}]]})
+    (is (not (contains? (rf.registrar/registrations :sub) :review/derived))
+        "control — the host's derived sub is absent from the global pool, so
+         only the host frame's generation can classify it")
+    (let [d (rf/with-frame review-inspector
+              @(rf/subscribe [:rf.xray/reactive-data]))]
+      (is (true? (:has-event-bundle? d))
+          "precondition — the composite selected the focused host epoch")
+      (is (= review-host (:frame d)))
+      (is (= [:review/base] (mapv :sub-id (:level-1-subs d)))
+          (str "only the host's layer-1 reader is Level 1; level-1-subs: "
+               (pr-str (:level-1-subs d))))
+      (is (= [{:sub-id         :review/derived
+               :query-v        [:review/derived]
+               :changed?       true
+               :input-kind     :static
+               :inputs         [:review/base]
+               :input-query-vs [[:review/base]]
+               :coord          {:file "review/host.cljs" :line 20 :ns nil}}]
+             (:level-2-subs d))
+          (str "the host's derived sub is Level 2 with the host's edge and "
+               "source coordinate; level-2-subs: " (pr-str (:level-2-subs d)))))))

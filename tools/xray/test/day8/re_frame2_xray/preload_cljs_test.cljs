@@ -174,3 +174,34 @@
       (finally
         (trace-collector/set-frameless-ring-depth!
           trace-collector/default-frameless-ring-depth)))))
+
+(deftest xray-frameless-ring-releases-evicted-events
+  (testing "rf2-wotl9 — eviction leaves a plain vector holding only the kept
+            events, on overflow and on shrink. A `subvec` view keeps its whole
+            backing vector reachable and later `conj`s extend that backing, so
+            the visible count stayed at the depth while every evicted payload
+            stayed live. A `PersistentVector` holds exactly its `count`
+            elements, so its type bounds what the ring retains — which a
+            count-only assertion cannot see."
+    (trace-collector/set-frameless-ring-depth! 3)
+    (try
+      (dotimes [i 50]
+        (trace-collector/seed-trace-for-test! {:id i :tags {}}))
+      (let [ring (trace-collector/frameless-events)]
+        (is (= [47 48 49] (mapv :id ring))
+            "overflow keeps the newest events, oldest-first")
+        (is (instance? PersistentVector ring)
+            (str "overflow materializes a fresh vector, not a view over every "
+                 "event ever pushed; got " (pr-str (type ring)))))
+      (trace-collector/set-frameless-ring-depth! 2)
+      (let [ring (trace-collector/frameless-events)]
+        (is (= [48 49] (mapv :id ring))
+            "shrinking drops the oldest events immediately")
+        (is (instance? PersistentVector ring)
+            (str "shrinking materializes a fresh vector, releasing the dropped "
+                 "events; got " (pr-str (type ring)))))
+      (trace-collector/clear-frameless-ring!)
+      (is (= [] (trace-collector/frameless-events)) "clear still empties the ring")
+      (finally
+        (trace-collector/set-frameless-ring-depth!
+          trace-collector/default-frameless-ring-depth)))))
