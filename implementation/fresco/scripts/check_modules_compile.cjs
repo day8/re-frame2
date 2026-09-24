@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// THE FRESCO PACKAGE'S WARNINGS-FATAL COMPILE — rf2-okhdf, rf2-peorl; its own
-// script since rf2-6c12m.1 moved the bench lane out of the package.
+// THE FRESCO PACKAGE'S WARNINGS-FATAL COMPILE.
 //
 //     npm run test:fresco-compile        # from implementation/
 //     node fresco/scripts/check_modules_compile.cjs --list
@@ -11,36 +10,34 @@
 // Two entry sources, both PRODUCT concerns that no other warnings-fatal
 // compile reaches:
 //
-//   1. THE OPTIONAL MODULES — motion, overlay, forms, native, server. They are
+//   1. THE OPTIONAL MODULES — motion, overlay, forms, native, server, substrate. They are
 //      unreachable from the public door BY CONSTRUCTION (the invariant
 //      `check_optional_module_reachability.py` enforces), so no compile that
 //      starts at the door sees them. Their own tests do compile them — under
 //      `:node-test-fresco`, which sets `:infer-externs false`, and under
 //      `:browser-test`, which infers and then exits 0 on the warnings like
 //      every other shadow build. Compiled in two places and JUDGED in none:
-//      four `:infer-warning`s on `(.. el -style -anchorName)` in
-//      `impl/overlay.cljs` lived on main until a worker read them off a
-//      browser build BY HAND (rf2-9zz0y). Under `:advanced` Closure renames a
-//      property it cannot see an extern for, so the trigger claim would have
-//      broken silently in every consumer that shipped an overlay.
+//      an `:infer-warning` on `(.. el -style -anchorName)` in
+//      `impl/overlay.cljs` would pass both. Under `:advanced` Closure renames a
+//      property it cannot see an extern for, so the trigger claim would
+//      break silently in every consumer that ships an overlay.
 //
 //      The entries are READ FROM THE ROSTER — `check_optional_module_
 //      reachability.py --module-namespaces` — never restated here. A
 //      hand-copied list would leave the NEXT optional module compiled by
 //      nothing while this gate went on reporting success; rowing a module in
-//      that roster is already mandatory, so the same edit buys this coverage.
+//      that roster is mandatory, so the same edit buys this coverage.
 //      It fails CLOSED in four directions — emitter missing, emitter erroring,
 //      an empty or collapsed list, a malformed namespace — because an entry
 //      source that quietly contributed nothing would leave the gate green over
 //      exactly the code it exists to cover. `check_modules_compile.test.cjs`
 //      pins each refusal.
 //
-//   2. THE TWO RE-HOMED CORE INSTRUMENTS — `re-frame.bench.read-attribution-cljs`
+//   2. THE TWO CORE ATTRIBUTION INSTRUMENTS — `re-frame.bench.read-attribution-cljs`
 //      and `re-frame.bench.write-attribution` under `core/test/re_frame/bench/`.
 //      Neither is named `*-cljs-test`, so `:node-test` and `:browser-test` do
-//      not select them, and nothing in the tree requires either one. Their own
-//      gate was deleted with `implementation/freehand/` (PR #8322); these two
-//      rows are the whole of the coverage it gave them (rf2-peorl). A stated
+//      not select them, and nothing in the tree requires either one, so these
+//      two rows are the whole of their compile coverage. A stated
 //      roster, and each row checked against disk: a moved, renamed or
 //      re-namespaced file REDS the gate rather than dropping out of it.
 //
@@ -51,11 +48,11 @@
 // `--config-merge`. `:browser` is MEASURED rather than assumed: the
 // instruments' closure reads DOM-element properties in core's `spine.cljs`
 // that only Closure's browser externs can infer, and the same rows under a
-// `:node-script` id raised four `:infer-warning`s there (rf2-bl0j). A dev
+// `:node-script` id raise four `:infer-warning`s there. A dev
 // `compile`, not a release: the classes closed here — a deleted def, a renamed
 // require, a dropped arity, an undeclared var, an un-externable property — are
 // resolved by the analyser before optimisation, and `:infer-warning` is bound
-// in both modes (mutation-proved on the overlay fault above).
+// in both modes (mutation-proved on the overlay shape above).
 //
 // CONTROL, re-run whenever this gate is touched: read a property no extern
 // declares on an UNTAGGED parameter. In `impl/overlay.cljs`, rewrite
@@ -64,14 +61,13 @@
 // expression (. anchor-id -anchorNameBogus)`; restore -> exit 0. Dropping the
 // `^js` on `claim-anchor!`'s `el` is NOT a control: that `el` is bound from
 // `(.getElementById js/document ...)`, which the analyser already types `js`,
-// so the hint is redundant and the mutation reads 0 warnings (measured on
-// PR #8752 and again on the PR that replaced this instruction).
+// so the hint is redundant and the mutation reads 0 warnings.
 //
 // ## Limits
 //
-// Anything that COMPILES. This proves the modules and the instruments still
-// BUILD; it executes nothing, and for the two Node instruments it never
-// claimed they still run under Node.
+// Anything that COMPILES. This proves the modules and the instruments
+// BUILD; it executes nothing, and for the two Node instruments it makes no
+// claim that they run under Node.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -82,16 +78,16 @@ const BUILD_ID = 'fresco-modules-compile';
 const OUT_DIR = 'out/fresco-modules-compile';
 const TAG = 'fresco-compile';
 
-// rf2-wlga — the SAME roster again under `:advanced`. Two gates looked as
-// though they already covered this and neither did: the pass above is a dev
+// The SAME roster again under `:advanced`. Two gates look as though they
+// cover this and neither does: the pass above is a dev
 // `compile`, and `npm run build:fresco-release` starts at the PUBLIC DOOR,
 // which by construction cannot reach an optional module (the invariant
 // `check_optional_module_reachability.py` enforces is exactly that no
-// door-rooted graph contains one — verified at source: the release build's
+// door-rooted graph contains one: the release build's
 // entry `re-frame.fresco.consumer-app` requires `re-frame.core`,
 // `re-frame.adapter.uix` and `re-frame.fresco`, and nothing reachable from
-// the door requires `impl.overlay`). So the modules were compiled twice and
-// OPTIMISED never, and `:advanced` is where a different class lives from the
+// the door requires `impl.overlay`). Without this pass the modules would be
+// compiled twice and OPTIMISED never, and `:advanced` is where a different class lives from the
 // analyser's: Closure renames a property no extern declares, DCE drops a
 // binding reached only through interop, and an npm default-vs-namespace
 // import mistake becomes `undefined` at runtime rather than a warning at
@@ -129,7 +125,7 @@ const REHOMED_BENCH_ENTRIES = [
 const MODULE_ROSTER = 'fresco/scripts/check_optional_module_reachability.py';
 const MODULE_ROSTER_FLAG = '--module-namespaces';
 
-// Five optional modules today, eight namespaces between them. The floor is a
+// The floor is a
 // COLLAPSE detector and not a count: it catches an emitter that has started
 // answering nothing while still exiting 0. Growth is the roster's business,
 // and this number is deliberately NOT raised to meet it.
@@ -241,9 +237,9 @@ function verifyRoster(rows, impl = IMPL) {
 // a summary the parser cannot find is a REFUSAL rather than a pass. The same
 // judgement the bench lane's `lane_build.cjs` makes, carried here rather than
 // required across the boundary — the lane is off this package's classpath on
-// purpose (rf2-6c12m.1). The two other readers of this line,
+// purpose. The two other readers of this line,
 // `scripts/check-examples-compile.cjs` and `scripts/compile-node-test.cjs`,
-// are deliberately not unified with it (rf2-040s1).
+// are deliberately not unified with it.
 // ---------------------------------------------------------------------------
 
 const ANSI_RE = /\x1B\[[0-9;]*m/g;
@@ -343,7 +339,7 @@ if (require.main === module) {
 
   if (!modules.ok) {
     console.error(
-      `[${TAG}] the optional-module entry source failed (rf2-okhdf): ${modules.reason}. ` +
+      `[${TAG}] the optional-module entry source failed: ${modules.reason}. ` +
         `Refusing to compile a set the optional modules may be missing from — ` +
         `nothing else in this repository compiles them where warnings are fatal.`,
     );
@@ -355,7 +351,7 @@ if (require.main === module) {
     console.error(
       `[${TAG}] ${rehomed.broken.length} roster row(s) in ${path.relative(IMPL, __filename)} no ` +
         `longer name a real namespace — refusing to compile a set they have silently ` +
-        `dropped out of (rf2-peorl):`,
+        `dropped out of:`,
     );
     for (const b of rehomed.broken) console.error(`  ${b}`);
     process.exit(1);
@@ -384,7 +380,7 @@ if (require.main === module) {
 
   console.error(`[${TAG}] ok — ${namespaces.length} namespaces compiled with zero warnings`);
 
-  // rf2-wlga — the same roster under `:advanced`. See RELEASE_OUT_DIR above
+  // The same roster under `:advanced`. See RELEASE_OUT_DIR above
   // for why this is not reachable from `build:fresco-release`.
   console.error(`[${TAG}] compiling the same ${namespaces.length} namespaces under :advanced -> ${RELEASE_OUT_DIR}`);
 
