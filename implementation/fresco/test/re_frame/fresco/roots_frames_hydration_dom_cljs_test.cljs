@@ -375,9 +375,8 @@
                     (testing "and the framework's own stream carried exactly
                               what the page did. Each root's Spec 011 emit is
                               gated on the window THAT root minted, so no
-                              root's closer can shut
-                              another root's window and no divergence React
-                              reported goes missing"
+                              root's closer can shut another root's window
+                              and no divergence React reported goes missing"
                       (is (= (count react-complaints) (count @seen))
                           (str "every divergence React reported reached the
                                 instrumentation stream; React said "
