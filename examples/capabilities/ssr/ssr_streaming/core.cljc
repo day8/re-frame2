@@ -164,13 +164,13 @@
     (card-slot :card.revenue :revenue [card-view :revenue])
     (card-slot :card.signups :signups [card-view :signups])
     (card-slot :card.latency :latency [card-view :latency])
-    ;; The failure-path card — same slot, same shape as the three above. It
-    ;; differs only in its deferred body, and only on the wire: its chunk
-    ;; carries the fallback HTML stamped `data-rf2-suspense-failed="1"` and
-    ;; no hydrate-delta script. A failure is just another way for a boundary
-    ;; to resolve. Client-side that missing delta is the whole story — no
-    ;; `:flaky` entry ever reaches app-db, so `card-view` renders its
-    ;; skeleton, matching the fallback the failed chunk left in the DOM.
+    ;; The failure-path card — same slot, same shape as the three above. Its
+    ;; body throws on the server, so its chunk carries the declared fallback
+    ;; stamped `data-rf2-suspense-failed="1"` and no hydrate-delta script,
+    ;; and the final payload names `:card.flaky` in its failed set. On the
+    ;; client the boundary reads that set and renders the fallback it
+    ;; declared, `[card-skeleton :flaky]`: `throwing-card` is never called in
+    ;; the browser, and `card-view` is not involved.
     (card-slot :card.flaky :flaky [throwing-card])]
    [:footer
     [:p "Each card above is an `ssr/boundary`."]]])
