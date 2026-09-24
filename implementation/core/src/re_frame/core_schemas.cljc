@@ -17,7 +17,7 @@
    :maven         "day8/re-frame2-schemas"
    :require-ns    "re-frame.schemas"})
 
-;; ONE FRAME SPELLING (rf2-kuky.84). The three side-table READS each take a
+;; ONE FRAME SPELLING. The three side-table READS each take a
 ;; single opts MAP with a REQUIRED `:frame` — no ambient default, no trailing
 ;; frame-target sniffing, no bare-frame-id sugar. A frameless or non-map call
 ;; raises the catalogued `:rf.error/no-frame-context`.
@@ -56,16 +56,11 @@
   {:hook :schemas/app-schemas-digest :artefact schemas-artefact :on-absent :nil}
   ([opts] :delegate))
 
-;; ---- validator-install wrappers — RETIRED (rf2-kuky.39) -------------------
+;; ---- validator install ---------------------------------------------------
 ;;
-;; Four `defwrapper`s lived here — a bundle installer plus one per-fn sibling
-;; each for validate, explain and print — served by four late-bind hooks.
-;; rf2-wad2fl had already removed their `re-frame.core` re-exports (the
-;; front-porch shrink), which left both the wrappers and their hooks with zero
-;; consumers; rf2-kuky.39 deleted the three per-fn siblings outright and made
-;; the validator port a VALUE behind one door. Install it through
-;; `re-frame.schemas/set-schema-fns!` on the OWNING namespace — which is where
-;; the front-porch boundary had already sent it.
+;; There is no core-side validator-install wrapper and no late-bind hook for
+;; one: the validator port is a VALUE behind one door. Install it through
+;; `re-frame.schemas/set-schema-fns!` on the OWNING namespace.
 
 (defwrapper reg-app-schema
   "Fn-form delegate that performs the late-bind lookup for
@@ -73,7 +68,7 @@
   the CLJS `def`-alias both route here, so the late-bind logic and the
   missing-artefact error message live in one place.
 
-  Per rf2-qm7k83 Part A `reg-app-schema` is an ordinary member of the
+  `reg-app-schema` is an ordinary member of the
   `reg-*` family — the schema is the POSITIONAL value slot:
   `(reg-app-schema path schema)` (2-slot) / `(reg-app-schema path metadata
   schema)` (3-slot, `metadata` carries the optional `:frame` target).
