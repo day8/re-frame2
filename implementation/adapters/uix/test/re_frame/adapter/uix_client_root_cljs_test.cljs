@@ -1,6 +1,6 @@
 (ns re-frame.adapter.uix-client-root-cljs-test
-  "rf2-kuky.56 — the UIx adapter's reusable client root: `client-root`,
-  `render!`, `unmount!` (Spec 006 §The client root). The node-safe half:
+  "The UIx adapter's reusable client root: `client-root`, `render!`,
+  `unmount!` (Spec 006 §The client root). The node-safe half:
   inert allocation, the inert-handle no-ops, and the element-slot guard on
   the trio path. The behaviour that needs a real React Root — create-once /
   update-later, hydrate-once / update-later, unmount idempotence and the
