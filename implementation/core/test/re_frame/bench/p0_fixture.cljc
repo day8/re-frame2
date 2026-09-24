@@ -13,10 +13,10 @@
 
   ## The witnesses
 
-  Deliberately the shapes the predecessor's cross-substrate report already
-  measured, so the P0 table slots into that record rather than starting a
-  second, incomparable one — but with the sub graph added on BOTH sides,
-  which is the thing the predecessor row never had.
+  Deliberately the shapes the cross-substrate report measures, so the P0
+  table slots into that record rather than starting a second, incomparable
+  one — but with the sub graph on BOTH sides, which that report's rows
+  lack.
 
     - **W1-list** — a large template: 300 rows under one boundary each,
       multi-class sugar, a style map, a `data-*` passthrough, and one
@@ -39,7 +39,7 @@
   make the NARROW row unmeasurable by construction — the row that prices
   localisation would price nothing.
 
-  ## The fan-out key space (rf2-5prok)
+  ## The fan-out key space
 
   `:p0/fan` is a fourth layer-1 subscription that exists so a heap arm can
   set the number of UNIQUE live query keys INDEPENDENTLY of the number of
@@ -57,21 +57,20 @@
   value-stable by construction, so key churn cannot enter what the arms
   measure.
 
-  ## The work census (rf2-n1b9h)
+  ## The work census
 
   Every write handler and every subscription computation below carries a
-  `rf.bench.p0-workcount/event!` or `rf.bench.p0-workcount/sub!` — the monotone work counters `rf2-n1b9h` reads
-  per measured window to split `rf2-77gz8`'s two surviving candidates.
+  `rf.bench.p0-workcount/event!` or `rf.bench.p0-workcount/sub!` — monotone
+  work counters read per measured window.
   Both are MACROS behind a `goog-define` that is false by default, so under
   `:advanced` an unarmed build constant-folds and dead-code-eliminates every
-  one of them and compiles the bundle it compiled before they existed. See
+  one of them and compiles the same bundle as a build without them. See
   `re-frame.bench.p0-workcount` for why that gate is the whole design: the
   handler bodies here are the write path every published allocation,
   retention and clock figure was taken on.
 
-  Owner: the operator-owned governance set that superseded the standard bead
-  rf2-2rtt6.1 on 2026-08-10, enumerated once in
-  `docs/design/fresco/studio/README.md`; this arm rf2-2rtt6.4."
+  Owner: the operator-owned governance set enumerated once in
+  `docs/design/fresco/studio/README.md`."
   (:require [re-frame.bench.p0-workcount :as rf.bench.p0-workcount]
             [re-frame.core :as rf]))
 
@@ -144,7 +143,7 @@
   `n` is the GLOBAL boundary index — root index × boundaries-per-root plus
   the cell's own index — because the roots of one arm share one frame and
   therefore one subscription cache. That sharing is the mechanism the whole
-  sweep is about (rf2-2rtt6.16): four roots rendering the same query
+  sweep is about: four roots rendering the same query
   vectors hold one reaction at ref-count 4, not four reactions."
   [n r j]
   (mod (+ (* n r) j) @fan-q))
@@ -169,15 +168,15 @@
   cannot begin from different data.
 
   `grid-width` is how many cells `:cells` holds, and it is A PROPERTY OF THE
-  SEEDED DB rather than a compile-time constant baked into three places
-  (rf2-2rtt6.140). [[cells-n]] is the default, so every caller that passes
+  SEEDED DB rather than a compile-time constant baked into three places.
+  [[cells-n]] is the default, so every caller that passes
   nothing gets the published page to the byte — the clock rows, the bulk
   rows, the fan-out sweep and the retention ladder all do.
 
   The allocation row is the one caller that states it, because
   `:p0/write-all` rebuilds 300 cells whether one boundary is mounted or
-  1,200 and that fixed cost is the thing that made the ladder
-  uncertifiable at any page size. There is nowhere for the width to drift
+  1,200 and that fixed cost makes the ladder uncertifiable at any page
+  size. There is nowhere for the width to drift
   to: [[fan-key]]'s modulus is Q, and `:p0/fan` folds into whatever grid
   the db it is handed actually holds."
   ([] (seed-db cells-n))
@@ -206,8 +205,8 @@
   ;; whose text differed with Q would be moving the floor it is differenced
   ;; against while claiming to move only the cache.
   ;;
-  ;; The modulus is READ OFF THE DB rather than off `cells-n`
-  ;; (rf2-2rtt6.140), so the grid width lives in exactly one place — the
+  ;; The modulus is READ OFF THE DB rather than off `cells-n`,
+  ;; so the grid width lives in exactly one place — the
   ;; seeded db — and cannot drift against the width a write rebuilds. It is
   ;; a field read on a `PersistentVector`: O(1), allocating nothing and
   ;; retaining nothing, which is why the retention rows that publish
@@ -225,7 +224,7 @@
   ;; for on every write. The floor arm has neither and says so.
   (rf/reg-event :p0/write-all
     (fn [{:keys [db]} [_ v]] (rf.bench.p0-workcount/event!) {:db (assoc db :cells (vec (repeat cells-n v)))}))
-  ;; THE BOUNDARY-PROPORTIONAL WRITE (rf2-2rtt6.140). Byte-for-byte the same
+  ;; THE BOUNDARY-PROPORTIONAL WRITE. Byte-for-byte the same
   ;; event through the same pipeline as `:p0/write-all` — an ordinary
   ;; re-frame event with an ordinary `:db` effect, dispatched synchronously —
   ;; differing in ONE term: the width of the vector rebuilt inside the
@@ -242,11 +241,11 @@
   ;; read-back, the canonical-DOM comparison and the floor subtraction are
   ;; all unchanged. B, E, Q and the key rule are untouched.
   ;;
-  ;; The old write ALSO changed data no boundary read — on the 24-boundary
-  ;; page 276 of the 300 rebuilt cells were read by nothing at all — and that
+  ;; `:p0/write-all` ALSO changes data no boundary reads — on the 24-boundary
+  ;; page 276 of the 300 rebuilt cells are read by nothing at all — and that
   ;; is the whole of the difference. It is machinery on both sides of the
-  ;; floor subtraction. `:p0/write-all` is left exactly as it is: its rows
-  ;; are published and it stays byte-identical.
+  ;; floor subtraction. `:p0/write-all` stays byte-identical, because its
+  ;; rows are published.
   (rf/reg-event :p0/write-page
     (fn [{:keys [db]} [_ v]] (rf.bench.p0-workcount/event!) {:db (assoc db :cells (vec (repeat (count (:cells db)) v)))}))
   (rf/reg-event :p0/write-one
