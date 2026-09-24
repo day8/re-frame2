@@ -25,39 +25,35 @@
   The :rf.server/* fx (set-status / set-header / append-header /
   set-cookie / delete-cookie / redirect) are registered by the runtime
   at re-frame.ssr namespace-load time (per Spec 011 §HTTP response
-  contract; resolved in rf2-8pif). The accumulator lives in a framework-
-  private side-channel atom keyed by frame-id (rf2-jbcmt — Spec 011
+  contract). The accumulator lives in a framework-
+  private side-channel atom keyed by frame-id (Spec 011
   §Response storage substrate; NOT in app-db, so it never rides the
   hydration payload); tests read the resolved shape via
   re-frame.ssr/get-response.
 
   ## Posture split
 
-  rf2-lwtlk — this namespace was the LAST entry on
-  `scripts/test-ssr-prod-gate.sh`'s known-red roster, and it comes off here.
-  Run under the real `-Dre-frame.debug=false` gate it was 109 red assertions
-  across 41 deftests. Almost none of that was a production defect: the
-  SECURITY GATES below (CR/LF and NUL in header values and cookie
-  attributes, the cookie-attribute grammar, the safe-redirect five-step
-  open-redirect gate) are production-live and were rejecting correctly the
-  whole time. What was dev-only was the OBSERVATION — every one of them was
-  watched through `re-frame.trace`, which the gate empties.
+  This namespace runs in the real `-Dre-frame.debug=false` lane
+  (`scripts/test-ssr-prod-gate.sh`). The SECURITY GATES below (CR/LF and
+  NUL in header values and cookie attributes, the cookie-attribute grammar,
+  the safe-redirect five-step open-redirect gate) are production-live and
+  reject in that lane. What is dev-only is the OBSERVATION through
+  `re-frame.trace`, which the gate empties.
 
-  So the split here is deliberately lopsided towards re-pointing rather
-  than guarding, because a `(when interop/debug-enabled? …)` arm around a
+  So the split here deliberately favours always-on captures over guards,
+  because a `(when interop/debug-enabled? …)` arm around a
   security assertion buys the lane nothing: the arm does not run in the
   posture that ships, and the gate it describes does.
 
-    ALWAYS-ON, re-pointed (the large majority). `capture-fx-traces!` and
-    `capture-safe-redirect-traces!` now read the production-survivable
+    ALWAYS-ON (the large majority). `capture-fx-traces!` and
+    `capture-safe-redirect-traces!` read the production-survivable
     `:errors` axis. `re-frame.fx`'s `emit-fx-error!` and
     `re-frame.ssr.response`'s `emit-safe-redirect-error!` both fan every
     rejection along BOTH axes, so the same failure is observable in a
-    release build — these assertions now adjudicate the posture that ships
-    instead of the one that does not.
+    release build — these assertions adjudicate the posture that ships.
 
-    DEV ARMS, kept VERBATIM inside `(when interop/debug-enabled? …)`. Three
-    things are genuinely dev-only and are marked `rf2-lwtlk` at each site:
+    DEV ARMS, inside `(when interop/debug-enabled? …)`. Three
+    things are genuinely dev-only and are marked DEV ARM at each site:
     the `:rf.warning/*` family (`:rf.ssr/multiple-status-set`,
     `-multiple-redirects`), the `:rf.ssr/hydration-mismatch` /
     head-mismatch traces, and the RICH diagnostics that the always-on
@@ -69,12 +65,11 @@
     the caller's unbounded URL components — see the `capture-safe-redirect-*`
     contracts).
 
-  NEGATIVES MOVED WITH THEIR POSITIVES. A `(is (empty? traces))` or
+  NEGATIVES TRAVEL WITH THEIR POSITIVES. A `(is (empty? traces))` or
   `(is (not-any? … ))` over the dev trace ring passes AUTOMATICALLY under
   this gate, where the ring is empty for every input — the quiet half of the
-  same false green. Each one below either moved into the dev arm beside the
-  positive it belongs to, or became REAL because its capture is now
-  always-on."
+  same false green. Each one below either sits in the dev arm beside the
+  positive it belongs to, or is REAL because its capture is always-on."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
@@ -87,7 +82,7 @@
             [re-frame.trace :as rf.trace]))
 
 ;; The canonical reset-runtime fixture lives in `re-frame.ssr.test-fixture`
-;; (rf2-i3qc0) — one source of truth for the registrar/side-channel/ns-
+;; — one source of truth for the registrar/side-channel/ns-
 ;; reload cycle that every ssr-artefact JVM test needs between :each.
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
@@ -112,7 +107,7 @@
   tree reflects the frame's current app-db. Used to compute a state-
   dependent hash that mirrors what a real client recompute would do.
 
-  rf2-j81hs — a view reference is a CALLABLE head (the Var `reg-view`
+  A view reference is a CALLABLE head (the Var `reg-view`
   defs, or `(rf/view :id)`), never a keyword: a keyword head is a DOM /
   custom element on every host, so it has nothing to resolve and is
   returned untouched. The `keyword?` guard is load-bearing — a keyword is
@@ -228,11 +223,11 @@
           (let [client-frame (rf.frame/make-anon-frame-record!
                                {:doc      "Hydrated client frame"
                                 :platform :client})
-                ;; rf2-nv3mua: in a real SSR deployment the server and client
+                ;; In a real SSR deployment the server and client
                 ;; carry the SAME logical frame id (e.g. `:app/main`) — the
                 ;; payload's `:rf/frame-id` is validated against the client
-                ;; hydration target and a present-and-different value is now
-                ;; (correctly) rejected as `:rf.error/hydration-frame-id-
+                ;; hydration target and a present-and-different value is
+                ;; rejected as `:rf.error/hydration-frame-id-
                 ;; mismatch`. This JVM lifecycle uses two distinct synthetic
                 ;; frame instances (one `:server`, one `:client`) to exercise
                 ;; both platforms in one process; re-stamp the payload's
@@ -240,12 +235,12 @@
                 ;; matches the frame it hydrates into (the deployment-shape
                 ;; invariant), exactly as `build-server-payload`-under-the-
                 ;; client-frame does in the boot helper tests. The payload-
-                ;; SHAPE assertions above (lines 159-166) still pin the
+                ;; SHAPE assertions above pin the
                 ;; server stamp on the as-built payload.
                 hydrate-payload (assoc payload :rf/frame-id client-frame)]
             (rf/dispatch-sync [:rf/hydrate hydrate-payload] {:frame client-frame})
             (let [client-db (rf/app-db-value client-frame)
-                  ;; EP-0001 (rf2-vzld77): the hydration metadata is durable
+                  ;; EP-0001: the hydration metadata is durable
                   ;; runtime-db state.
                   client-rt (:rf.db/runtime (rf/frame-state-value client-frame))]
               ;; The server's app-db replaced the client's empty app-db.
@@ -267,17 +262,17 @@
               (rf/unregister-listener! :trace ::match)
               (is (= server-hash client-hash-1)
                   "first client render hashes identically to the server hash")
-              ;; rf2-lwtlk DEV ARM — the `:rf.ssr/hydration-mismatch` TRACE
+              ;; DEV ARM — the `:rf.ssr/hydration-mismatch` TRACE
               ;; is dev-only (Spec 011 §Hydration mismatch: the recovery is
-              ;; `:warned-and-replaced`). rf2-tildz: the CATEGORY is no
-              ;; longer dev-only — it also fans an always-on record — but
+              ;; `:warned-and-replaced`). The CATEGORY is not
+              ;; dev-only — it also fans an always-on record — but
               ;; this assertion reads `@match-traces`, a TRACE listener, so
               ;; it is the trace channel that puts it in this arm, not the
               ;; category. This is also a NEGATIVE over the trace ring, so
               ;; under the production gate it would pass with hydration
-              ;; verification removed entirely — it moves into the arm WITH
+              ;; verification removed entirely — it sits in the arm WITH
               ;; the positive it discriminates against, not outside it. The
-              ;; hash equality above is the posture-independent half and stays
+              ;; hash equality above is the posture-independent half and runs
               ;; in this lane.
               (when rf.interop/debug-enabled?
                 (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %))
@@ -303,7 +298,7 @@
 
               (is (not= server-hash client-hash-2)
                   "mutating the hydrated db changes the render hash")
-              ;; rf2-lwtlk DEV ARM — the mismatch WARNING, kept verbatim. Its
+              ;; DEV ARM — the mismatch WARNING. Its
               ;; production-visible half is the hash inequality asserted just
               ;; above: the framework computes the divergence in every build,
               ;; and only the telling-you-about-it is dev-gated.
@@ -348,7 +343,7 @@
         (is (= 403 (:status (get-response f)))
             "last write wins — the response status is 403")
 
-        ;; rf2-lwtlk DEV ARM — the `:rf.warning/*` family is genuinely
+        ;; DEV ARM — the `:rf.warning/*` family is genuinely
         ;; dev-only: per Spec 011 §Multiple-status policy the POLICY is
         ;; last-write-wins and the warning is advice to the programmer, not
         ;; part of the response. The policy itself is asserted above and runs
@@ -461,8 +456,7 @@
             "append-header preserves source order")))))
 
 ;; ===========================================================================
-;; rf2-hbty2 — CRLF injection in set-header / append-header / redirect
-;; (security audit 2026-05-14 §P1.3)
+;; CRLF injection in set-header / append-header / redirect
 ;;
 ;; Header values flow from event-handler input through the
 ;; :rf.server/set-header / :rf.server/append-header / :rf.server/redirect
@@ -471,7 +465,7 @@
 ;; auth-related second headers. The fx boundary fails fast with
 ;; :rf.error/header-invalid-value / :rf.error/redirect-invalid-location.
 ;;
-;; Decision (flagged in PR): fail-fast rather than strip-and-warn — a
+;; Fail fast rather than strip-and-warn — a
 ;; header value containing CR/LF has no safe interpretation.
 ;; ===========================================================================
 
@@ -481,27 +475,26 @@
   the dev-trace shape `{:operation … :tags …}`. Strips both callbacks in
   `finally` so a failing body doesn't leak listeners.
 
-  rf2-lwtlk — WHY BOTH AXES, AND WHY THIS IS NOT A DEV ARM. This helper used
-  to listen on `:trace` alone. Under `-Dre-frame.debug=false` that ring is
-  empty, so roughly sixty assertions below — the CR/LF and NUL injection
-  gates on `set-header` / `append-header` / `redirect`, the whole
-  cookie-attribute grammar, the retired redirect spellings — saw nothing and
-  went red. NOT because the gates stopped working: every one of them is a
-  `throw` at the fx boundary in `re-frame.ssr.response`, unconditional in
-  every build, and it was rejecting correctly the whole time. It was the
-  OBSERVATION that was dev-only.
+  WHY BOTH AXES, AND WHY THIS IS NOT A DEV ARM. Under
+  `-Dre-frame.debug=false` the `:trace` ring is empty, so a `:trace`-only
+  helper would leave roughly sixty assertions below — the CR/LF and NUL
+  injection gates on `set-header` / `append-header` / `redirect`, the whole
+  cookie-attribute grammar, the retired redirect spellings — seeing nothing.
+  The gates themselves are a `throw` at the fx boundary in
+  `re-frame.ssr.response`, unconditional in every build; only the `:trace`
+  OBSERVATION is dev-only.
 
-  Guarding them would therefore have been the wrong repair twice over: it
+  Guarding them would therefore be wrong twice over: it
   would move a live security boundary's proof out of the posture that ships,
   and it would leave the lane asserting nothing about the artefact's most
-  load-bearing code. `re-frame.fx`'s `emit-fx-error!` already fans every
+  load-bearing code. `re-frame.fx`'s `emit-fx-error!` fans every
   contained fx exception through `error-emit/emit-error-both!` — axis 1 the
   ALWAYS-ON listener record (`{:error :event-id :frame :exception …}`, the
   off-box shipper's source), axis 2 the dev-only `trace/emit-error!` — so
-  the production-visible witness was there to be read.
+  the production-visible witness is there to be read.
 
-  The union is normalised so `expect-fx-error-keyword!` and `fx-error-extra`
-  are unchanged: both read only `(-> ev :tags :exception)`, and that is the
+  The union is normalised to one shape for `expect-fx-error-keyword!` and
+  `fx-error-extra`: both read only `(-> ev :tags :exception)`, and that is the
   SAME exception object on both axes (axis 1 carries it in `:exception`,
   axis 2 in `:tags :exception`). In a dev build both fire and the sequence
   carries two entries per error; no consumer counts them — each asks `seq`
@@ -527,8 +520,8 @@
 (defn- expect-fx-error-keyword!
   "Assert that the `traces` collection (output of `capture-fx-traces!`)
   carries an :rf.error/fx-handler-exception whose nested exception's
-  message contains `error-kw`'s name string. Both fx-side validators
-  (rf2-hbty2 / rf2-rpedl / rf2-vl8ir) throw with the error keyword as
+  message contains `error-kw`'s name string. The fx-side validators
+  throw with the error keyword as
   the ex-info message, so the substring check is reliable."
   [traces error-kw context-str]
   (let [hits (filter
@@ -544,8 +537,8 @@
 
 (defn- fx-error-extra
   "Return the `ex-data` of the first captured :rf.error/fx-handler-exception
-  trace whose inner exception carries `error-kw`. The collapsed cookie
-  contract (rf2-xrk4w1) stores WHICH attribute carried the injection char in
+  trace whose inner exception carries `error-kw`. The cookie
+  contract stores WHICH attribute carried the injection char in
   the ex-data's `:attribute` slot rather than in the error id, so tests assert
   the offending attribute here. nil when no captured trace matches."
   [traces error-kw]
@@ -556,11 +549,11 @@
         traces))
 
 (deftest ssr-set-header-rejects-crlf-injection
-  (testing "rf2-hbty2 §P1.3 — :rf.server/set-header with CR/LF/NUL in
+  (testing ":rf.server/set-header with CR/LF/NUL in
             value surfaces :rf.error/header-invalid-value as the inner
             cause of :rf.error/fx-handler-exception (fx exceptions are
             captured by the dispatch loop and re-emitted as traces;
-            rf2-hbty2 throws at the fx boundary)"
+            the gate throws at the fx boundary)"
     (rf/reg-event :hdr/inject-crlf
       (fn [_ _]
         {:fx [[:rf.server/set-header
@@ -574,7 +567,7 @@
         traces :rf.error/header-invalid-value
         "set-header with CRLF in value")))
 
-  (testing "rf2-hbty2 §P1.3 — bare LF / bare CR / NUL all rejected"
+  (testing "bare LF / bare CR / NUL all rejected"
     (doseq [hostile ["lf\nbad" "cr\rbad" (str "nul" (char 0) "bad")]]
       (rf/reg-event :hdr/probe-injection
         (fn [_ _]
@@ -587,7 +580,7 @@
           (str "hostile value " (pr-str hostile)))))))
 
 (deftest ssr-append-header-rejects-crlf-injection
-  (testing "rf2-hbty2 §P1.3 — :rf.server/append-header with CR/LF in
+  (testing ":rf.server/append-header with CR/LF in
             value surfaces :rf.error/header-invalid-value"
     (rf/reg-event :hdr/append-crlf
       (fn [_ _]
@@ -602,7 +595,7 @@
         "append-header with CRLF in value"))))
 
 (deftest ssr-redirect-rejects-crlf-injection
-  (testing "rf2-hbty2 §P1.3 — :rf.server/redirect with CR/LF in :location
+  (testing ":rf.server/redirect with CR/LF in :location
             surfaces :rf.error/redirect-invalid-location. The standard
             exploit shape: a `?next=…` query param that URL-decodes into
             literal CRLF would split the Location header on the wire."
@@ -617,12 +610,12 @@
         traces :rf.error/redirect-invalid-location
         "redirect with CRLF in :location")))
 
-  (testing "rf2-vngir — the retired :url / :to redirect-target spellings are
+  (testing "the retired :url / :to redirect-target spellings are
             REJECTED with :rf.error/redirect-retired-target-key (naming the
             canonical :location), not accepted as alternate target keys. The
             error fires BEFORE the no-target warning path so the vocabulary
             mistake is loud, not hidden behind a malformed-redirect warning.
-            (Pre-alpha EP-0007 one-name-per-fact prune — no back-compat alias.)"
+            (EP-0007 one-name-per-fact — no back-compat alias.)"
     (rf/reg-event :redirect/via-url
       (fn [_ _]
         {:fx [[:rf.server/redirect {:url "/ok"}]]}))
@@ -638,7 +631,7 @@
           (str ev " — retired redirect-target spelling rejected, names :location"))))))
 
 (deftest ssr-redirect-retired-spelling-diagnostic-names-location
-  (testing "rf2-vngir — the retired-spelling diagnostic NAMES the canonical
+  (testing "the retired-spelling diagnostic NAMES the canonical
             :location key (ex-data :canonical-key + a :reason mentioning
             :location). This is the failure-mode lock: the error must point
             the programmer at the right spelling, and must be DISTINCT from
@@ -667,13 +660,11 @@
           "the :reason text names :location so the programmer rewrites the spelling"))))
 
 (deftest ssr-redirect-trusted-path-has-no-url-shape-gate
-  (testing "rf2-ziv4gd — the caller-trusted :rf.server/redirect path applies
+  (testing "the caller-trusted :rf.server/redirect path applies
             NO structural URL-shape check: a `:location` carrying a raw
             space or other RFC 3986 shape quirk every browser accepts in a
-            `Location` header PASSES through unchanged (the structural gate
-            was removed — only the CR/LF/NUL header-splitting gate remains).
-            These shapes previously threw :rf.error/redirect-invalid-location;
-            they must now flow through."
+            `Location` header PASSES through unchanged (only the CR/LF/NUL
+            header-splitting gate applies)."
     (doseq [loc ["https://example.com/search?q=a b"   ;; raw unencoded space
                  "https://example.com/^"               ;; stray caret
                  "/path/{id"                            ;; unbalanced brace
@@ -688,7 +679,7 @@
             (str "raw URL-shape quirk passes through the caller-trusted "
                  "redirect path (no URL-shape gate): " (pr-str loc))))))
 
-  (testing "rf2-ziv4gd — regression guard: the caller-trusted redirect still
+  (testing "the caller-trusted redirect
             accepts arbitrary well-formed targets — absolute http(s) URLs to
             any origin, protocol-relative, relative refs, query / fragment /
             port / encoded-space edge cases — all flow through without error."
@@ -708,8 +699,8 @@
             (str "well-formed redirect :location flows through: " loc))))))
 
 (deftest ssr-redirect-crlf-nul-gate-survives-on-both-fx
-  (testing "rf2-ziv4gd — the CR/LF/NUL header-splitting gate is KEPT (the
-            real invariant). Each injection char in a :location still throws
+  (testing "the CR/LF/NUL header-splitting gate is the
+            real invariant. Each injection char in a :location throws
             :rf.error/redirect-invalid-location on the caller-trusted
             :rf.server/redirect path."
     (doseq [[label loc] [["CR"  "https://example.com/a\rb"]
@@ -724,9 +715,9 @@
                      (fn [] (rf/dispatch-sync [:redirect/crlf-nul] {:frame f})))]
         (expect-fx-error-keyword!
           traces :rf.error/redirect-invalid-location
-          (str ":rf.server/redirect still rejects " label " in :location")))))
+          (str ":rf.server/redirect rejects " label " in :location")))))
 
-  (testing "rf2-ziv4gd — the SHARED CR/LF/NUL gate also runs (throwing the
+  (testing "the SHARED CR/LF/NUL gate also runs (throwing the
             same :rf.error/redirect-invalid-location) on the caller-untrusted
             :rf.server/safe-redirect path — both fx keep the header-splitting
             invariant."
@@ -741,10 +732,10 @@
                      (fn [] (rf/dispatch-sync [:safe-redirect/crlf-nul] {:frame f})))]
         (expect-fx-error-keyword!
           traces :rf.error/redirect-invalid-location
-          (str ":rf.server/safe-redirect still rejects " label " in :location"))))))
+          (str ":rf.server/safe-redirect rejects " label " in :location"))))))
 
 (deftest ssr-header-clean-values-still-accepted
-  (testing "rf2-hbty2 — regression guard: legitimate header values still flow
+  (testing "legitimate header values flow
             through. Whitespace, semicolons, quoted-strings, full URLs are
             all valid (only CR/LF/NUL is banned)."
     (rf/reg-event :hdr/clean
@@ -830,8 +821,8 @@
   every non-`:error` slot rides onto `:tags`, `:recovery` defaults to
   `:no-recovery` — so an event handed to `ssr/project-error` from here is the
   event the runtime's own always-on projection listener would have handed it.
-  Copied deliberately from `re-frame.ssr-conformance-test` (rf2-76gom), which
-  solved the identical sourcing problem for the conformance corpus."
+  It is deliberately the same lift `re-frame.ssr-conformance-test` uses for
+  the identical sourcing problem in the conformance corpus."
   [record]
   {:op-type   :error
    :operation (:error record)
@@ -844,16 +835,16 @@
   BOTH axes and normalised to the projector's `{:operation :op-type :tags}`
   envelope.
 
-  rf2-lwtlk — the projector cluster below used to source its error events
-  from `re-frame.trace` alone. Under `-Dre-frame.debug=false` that ring is
-  empty, so `(some? err)` found nothing and the projections those tests exist
-  to pin were never exercised. The categories involved —
-  `:rf.error/no-such-handler` (promoted by rf2-ov56u),
+  Sourced from `re-frame.trace` alone, the projector cluster below would find
+  nothing under `-Dre-frame.debug=false`, where that ring is empty, so
+  `(some? err)` would fail and the projections those tests exist to pin
+  would never be exercised. The categories involved —
+  `:rf.error/no-such-handler`,
   `:rf.error/handler-exception`, and `:rf.error/sanitised-on-projection` —
   ALL ride the always-on axis in a release build; indeed
   `error-emit-projection-listener` is precisely what stamps `:status` on a
   production JVM, so the always-on record is the SOURCE OF TRUTH here and the
-  dev bus was the copy. Reading both means these assertions now adjudicate
+  dev bus is the copy. Reading both means these assertions adjudicate
   the production projection path rather than a dev artefact.
 
   A dev build sees both axes and the sequence carries the same failure twice;
@@ -891,8 +882,8 @@
       (is (nil? (:redirect (get-response f)))
           "no redirect — the 404 is a status-only response, body still renders")
 
-      ;; The error stream still carries the internal :rf.error/no-such-handler.
-      ;; rf2-ov56u promoted the URL-driven route miss onto the always-on axis,
+      ;; The error stream carries the internal :rf.error/no-such-handler.
+      ;; The URL-driven route miss rides the always-on axis,
       ;; so this reads in a release build too — which is the whole point: the
       ;; 404 above is produced BY this record on a production JVM.
       (let [err (some #(when (= :rf.error/no-such-handler (:operation %)) %) events)]
@@ -909,10 +900,10 @@
 
 (deftest ssr-default-error-projector-handler-exception
   (testing "a handler that throws at RENDER time → default projector → 500"
-    ;; rf2-vw5h1r / rf2-anehs6: the throwing dispatch is a RENDER-TIME
+    ;; The throwing dispatch is a RENDER-TIME
     ;; request dispatch against a live frame — NOT an :initial-events setup
-    ;; step. Construction-time :initial-events is now STRICT (EP-0027
-    ;; §Failure, Mike-ruled (a)): a THROWN setup step tears the partial frame
+    ;; step. Construction-time :initial-events is STRICT (EP-0027
+    ;; §Failure): a THROWN setup step tears the partial frame
     ;; down and is the OUTER :on-error transport path (Spec 011 §810), NOT a
     ;; projector-catches-it case. The error projector covers errors INSIDE
     ;; the render/cascade drain — exactly what a post-construction request
@@ -1051,13 +1042,12 @@
       (is (some #(= :rf.error/sanitised-on-projection (:operation %)) events)))))
 
 (deftest ssr-error-projector-configured-but-unregistered-surfaces-diagnostic
-  (testing "rf2-mlodrn — a frame that configures :ssr {:public-error-id …}
+  (testing "a frame that configures :ssr {:public-error-id …}
             naming an UNREGISTERED projector is a recognised-but-unhonourable
             config: project-error SURFACES a :rf.error/sanitised-on-projection
             diagnostic (:projection-failure-reason :missing-projector) instead
             of silently downgrading the projector's intended mapping to the
-            generic 500. Pre-rf2-mlodrn this fell back with NO dev trace and
-            NO always-on record."
+            generic 500."
     (let [project-error rf.ssr/project-error
           ;; A :public-error-id that was NEVER reg-error-projector'd.
           f             (rf.frame/make-anon-frame-record!
@@ -1065,7 +1055,7 @@
                            :ssr {:public-error-id   :myapp/never-registered
                                  :dev-error-detail? false}})
           ;; :no-such-handler would have projected to a 404 under a real
-          ;; projector — the misconfiguration silently made it a 500.
+          ;; projector — the misconfiguration turns it into a 500.
           {public :result
            events :events} (with-error-capture!
                              (fn [] (project-error
@@ -1074,9 +1064,9 @@
       (is (= 500 (:status public))
           "the locked generic-500 fallback still applies (boundary can't be bypassed)")
       (is (= :internal-error (:code public)))
-      ;; …but the misconfiguration is now OBSERVABLE — and, since rf2-lwtlk
-      ;; re-sourced this read, observable in the build that ships rather than
-      ;; only in the one the operator is not running.
+      ;; …but the misconfiguration is OBSERVABLE — and, because this read
+      ;; takes the always-on axis too, observable in the build that ships
+      ;; rather than only in the one the operator is not running.
       (let [diag (some #(when (= :rf.error/sanitised-on-projection (:operation %)) %)
                        events)]
         (is (some? diag)
@@ -1087,16 +1077,16 @@
         (is (= :myapp/never-registered (get-in diag [:tags :projector-id]))
             "the diagnostic names the unregistered configured id"))))
 
-  (testing "rf2-mlodrn — the plain default-fallback path (NO :public-error-id
+  (testing "the plain default-fallback path (NO :public-error-id
             configured) stays SILENT: with no :ssr config the frame resolves
             to the built-in default projector, which honours the mapping — so
-            there is no missing-projector diagnostic (the change is surgical
-            to the CONFIGURED-but-unregistered case, not noisy on the default
-            path)."
+            there is no missing-projector diagnostic (the diagnostic is
+            confined to the CONFIGURED-but-unregistered case, not noisy on
+            the default path)."
     (let [project-error rf.ssr/project-error
           f             (rf.frame/make-anon-frame-record! {:platform :server})
-          ;; rf2-ov56u: the 404 arm is gated on `:kind :route` — the
-          ;; URL-driven miss. `:tags {}` now projects 500, so the
+          ;; The 404 arm is gated on `:kind :route` — the
+          ;; URL-driven miss. `:tags {}` projects 500, so the
           ;; honoured-vs-fallen-back distinction this deftest is about
           ;; needs the route discriminator to be visible.
           {public :result
@@ -1107,54 +1097,52 @@
       (is (= 404 (:status public))
           "the built-in default projector maps a :kind :route
            :no-such-handler → 404 (honoured, not fallen-back)")
-      ;; rf2-lwtlk — this NEGATIVE is the one the roster called out by name.
-      ;; Sourced from the dev bus alone it passed AUTOMATICALLY under
+      ;; This NEGATIVE reads the always-on axis too. Sourced from the dev bus
+      ;; alone it would pass AUTOMATICALLY under
       ;; `-Dre-frame.debug=false`, where the ring is empty for every input:
-      ;; it would have reported "the default path is quiet" in a build where
-      ;; NOTHING can be heard. Reading the always-on axis too makes it a real
-      ;; discriminator again — it now fails if the default path ever starts
+      ;; it would report "the default path is quiet" in a build where
+      ;; NOTHING can be heard. Reading the always-on axis makes it a real
+      ;; discriminator — it fails if the default path ever starts
       ;; emitting a missing-projector diagnostic in production.
       (is (not-any? #(= :rf.error/sanitised-on-projection (:operation %)) events)
           "no sanitised-on-projection diagnostic on the default path — the
            default projector is registered, so it is not a missing-projector"))))
 
 ;; ===========================================================================
-;; rf2-ynjts.13 — default-error-projector-fn pure-unit case-arm coverage.
+;; default-error-projector-fn pure-unit case-arm coverage.
 ;; The end-to-end tests above drive :no-such-handler → 404 and
-;; :handler-exception → 500 through the live cascade, but the default
+;; :handler-exception → 500 through the live cascade; the default
 ;; projector fn's OTHER two enumerated arms — :no-such-route → 404 and
 ;; :schema-validation-failure → 400 (documented in error_projector.cljc) —
-;; had no direct assertion. These are pure (trace-event → public-error),
+;; are pinned here. These are pure (trace-event → public-error),
 ;; so unit-test the fn directly: deterministic, no frame/drain machinery.
 ;; ===========================================================================
 
 (deftest default-error-projector-fn-maps-all-enumerated-categories
-  (testing "rf2-ynjts.13 — the default projector's full case table per
+  (testing "the default projector's full case table per
             Spec 011 §Default projector. Exercises the fn directly (it is a
             public re-export: ssr/default-error-projector-fn)."
     (testing ":rf.error/no-such-handler with :kind :route → 404 :not-found
-              (rf2-ov56u — the arm is GATED on the route discriminator; the
+              (the arm is GATED on the route discriminator; the
               :kind :event / :kind :frame / kind-less cases are pinned in
               re-frame.ssr-route-miss-404-production-test)"
       (is (= {:status 404 :code :not-found :message "Page not found" :retryable? false}
              (rf.ssr/default-error-projector-fn {:operation :rf.error/no-such-handler
                                               :tags      {:kind :route}}))))
-    (testing ":rf.error/no-such-route → 404 :not-found (the second 404 arm —
-              previously untested)"
+    (testing ":rf.error/no-such-route → 404 :not-found (the second 404 arm)"
       (is (= {:status 404 :code :not-found :message "Page not found" :retryable? false}
              (rf.ssr/default-error-projector-fn {:operation :rf.error/no-such-route}))
           "no-such-route shares the 404 :not-found mapping with no-such-handler"))
     (testing ":rf.error/cofx-value-invalid → 400 :bad-request
-              UNCONDITIONALLY (rf2-57ehvw — a bad client-supplied request
+              UNCONDITIONALLY (a bad client-supplied request
               coeffect is client input, never a server-fault 500)"
       (is (= {:status 400 :code :bad-request :message "Invalid input" :retryable? false}
              (rf.ssr/default-error-projector-fn
                {:operation :rf.error/cofx-value-invalid
                 :tags      {:reason :non-edn-recordable-value}}))
-          "a non-recordable request coeffect (the category that REPLACED the
-           retired :rf.error/schema-validation-failure :where :cofx shape) is
-           a client-facing 400 — the regression this bead fixes was that it
-           projected 500")
+          "a non-recordable request coeffect (its own category, not a
+           :rf.error/schema-validation-failure :where :cofx shape) is
+           a client-facing 400, never a 500")
       (is (= {:status 400 :code :bad-request :message "Invalid input" :retryable? false}
              (rf.ssr/default-error-projector-fn
                {:operation :rf.error/cofx-value-invalid}))
@@ -1162,25 +1150,25 @@
            (unlike schema-validation-failure); the dispatch boundary is the
            client-input surface by construction"))
     (testing ":rf.error/schema-validation-failure with a CLIENT-surface
-              :where (:event) → 400 :bad-request (rf2-37o5by)"
+              :where (:event) → 400 :bad-request"
       (is (= {:status 400 :code :bad-request :message "Invalid input" :retryable? false}
              (rf.ssr/default-error-projector-fn
                {:operation :rf.error/schema-validation-failure
                 :tags      {:where :event}}))
           "an inbound-event payload failure is client-facing → 400"))
-    (testing ":rf.error/schema-validation-failure with the RETIRED :where
-              :cofx → 500 (rf2-57ehvw — the injection-time cofx-validation
-              path was retired; a bad request coeffect now rides its own
-              :rf.error/cofx-value-invalid category, so this stale shape is no
-              longer a client 400)"
+    (testing ":rf.error/schema-validation-failure with :where
+              :cofx → 500 (there is no injection-time cofx-validation
+              path; a bad request coeffect rides its own
+              :rf.error/cofx-value-invalid category, so this shape is
+              not a client 400)"
       (is (= rf.ssr/fallback-public-error
              (rf.ssr/default-error-projector-fn
                {:operation :rf.error/schema-validation-failure
                 :tags      {:where :cofx}}))
-          "the retired :where :cofx shape falls through to the locked
-           generic-500 — the live client-cofx 400 is :rf.error/cofx-value-invalid"))
+          "a :where :cofx shape falls through to the locked
+           generic-500 — the client-cofx 400 is :rf.error/cofx-value-invalid"))
     (testing ":rf.error/schema-validation-failure with a SERVER-surface
-              :where (:fx-args) → 500 (rf2-37o5by — gated 400 arm)"
+              :where (:fx-args) → 500 (gated 400 arm)"
       (is (= rf.ssr/fallback-public-error
              (rf.ssr/default-error-projector-fn
                {:operation :rf.error/schema-validation-failure
@@ -1210,16 +1198,16 @@
           "an event with no :operation falls through to 500 too"))))
 
 ;; ===========================================================================
-;; rf2-ynjts.13 — peek-response (pure) vs flush-response! / get-response
+;; peek-response (pure) vs flush-response! / get-response
 ;; (drain) read-surface contract. error_listener.cljc documents three reads:
 ;; peek-response does NOT drain pending error projections; flush-response!
 ;; and get-response DO. The drain-on-read is covered by the projector e2e
 ;; tests; the pure-read-does-NOT-drain invariant (and the bookkeeping-key
-;; stripping on both) had no direct assertion.
+;; stripping on both) is pinned here.
 ;; ===========================================================================
 
 (deftest peek-response-does-not-drain-flush-does
-  (testing "rf2-ynjts.13 — a buffered error trace is left intact by
+  (testing "a buffered error trace is left intact by
             peek-response (pure read) and only stamps :status when
             flush-response! / get-response drains it."
     (rf/reg-route :route/home {} "/")
@@ -1251,7 +1239,7 @@
             "the stamped 404 persists on the accumulator post-drain")))))
 
 (deftest peek-and-get-response-strip-bookkeeping-keys
-  (testing "rf2-ynjts.13 — both read surfaces strip the internal
+  (testing "both read surfaces strip the internal
             `:rf.server/_status-writes` / `:rf.server/_redirect-writes`
             bookkeeping keys, so a host adapter never sees them on the wire
             shape."
@@ -1307,7 +1295,7 @@
           (is (= {:status 301 :location "/canonical"} redirect)
               "last write wins — the response :redirect is the second write"))
 
-        ;; rf2-lwtlk DEV ARM — same shape as :rf.warning/multiple-status-set
+        ;; DEV ARM — same shape as :rf.warning/multiple-status-set
         ;; above: the last-write-wins POLICY is the contract and is asserted
         ;; posture-independently just above; the warning is programmer advice
         ;; and is dev-only by design.
@@ -1331,12 +1319,12 @@
 ;; emits a single :failing-id :rf/hydrate on any mismatch. :failing-id is a
 ;; GENERIC host-supplied attribution seam on verify-hydration!, NOT a value
 ;; the runtime toggles. This test exercises that SEAM: a host supplying its
-;; own attribution value (here :rf.ssr/head-mismatch — host-suppliable now,
+;; own attribution value (here :rf.ssr/head-mismatch — host-suppliable,
 ;; not v1-runtime-emitted) has it flow through to the trace. It proves the
 ;; seam + host attribution, NOT runtime head-detection. A dedicated
 ;; head-hash payload key + wire attribute that would let the runtime itself
-;; emit :rf.ssr/head-mismatch is reserved for the still-deferred post-v1
-;; head-only-hash extension (reg-head itself has already shipped).
+;; emit :rf.ssr/head-mismatch is reserved for a deferred post-v1
+;; head-only-hash extension (reg-head itself exists).
 
 (deftest host-supplied-failing-id-surfaced-on-unified-channel
   (testing "a host-supplied :failing-id override flows through verify-hydration! to the trace on the unified render-hash channel"
@@ -1346,13 +1334,13 @@
           ;; only :failing-id :rf/hydrate. Here the HOST supplies its own
           ;; attribution value through the seam (see verify-fn call below).
           ;;
-          ;; EP-0001 (rf2-tfepxu): the server-settled route slice rides the
+          ;; EP-0001: the server-settled route slice rides the
           ;; payload's `:rf/runtime-db` key (the hydrate handler installs it
-          ;; into the runtime-db partition under `:rf.runtime/routing`), NOT
-          ;; under the retired top-level `:rf/runtime` app-db root — which the
-          ;; post-commit guard now rejects as `:rf.error/legacy-runtime-root`.
+          ;; into the runtime-db partition under `:rf.runtime/routing`).
+          ;; There is no top-level `:rf/runtime` app-db root — the
+          ;; post-commit guard rejects one as `:rf.error/legacy-runtime-root`.
           ;; This test only asserts the server-hash stash, so the route slice
-          ;; is illustrative payload content placed in its post-EP home.
+          ;; is illustrative payload content placed in its runtime-db home.
           payload   {:rf/version     1
                      :rf/runtime-db  {:rf.runtime/routing {:current {:route-id :route/article :params {:id "123"}}}}
                      :rf/render-hash "head-hash-server-A"}
@@ -1365,7 +1353,7 @@
 
       (rf/register-listener! :trace ::head (fn [ev] (swap! traces conj ev)))
       ;; Client hash differs; the HOST supplies a :failing-id override
-      ;; (:rf.ssr/head-mismatch — host-suppliable now, not v1-runtime-emitted)
+      ;; (:rf.ssr/head-mismatch — host-suppliable, not v1-runtime-emitted)
       ;; and we assert the seam carries it through to the trace verbatim.
       (verify-fn f
                  "head-hash-client-B"
@@ -1373,20 +1361,20 @@
                   :first-diff-path [:head :title]})
       (rf/unregister-listener! :trace ::head)
 
-      ;; rf2-lwtlk DEV ARM — the host-supplied `:failing-id` seam puts a
+      ;; DEV ARM — the host-supplied `:failing-id` seam puts a
       ;; host's own attribution on the `:rf.ssr/hydration-mismatch` warning,
       ;; and THIS ASSERTION reads it off the dev-only TRACE (recovery
       ;; `:warned-and-replaced` — the client re-renders either way), which is
       ;; what puts it in this arm.
       ;;
-      ;; rf2-tildz: the SEAM itself is no longer dev-posture — `:failing-id`
+      ;; The SEAM itself is not dev-posture — `:failing-id`
       ;; is one of the structural slots the always-on record carries, and it
-      ;; is the body/head discriminator there, so a host's attribution now
+      ;; is the body/head discriminator there, so a host's attribution
       ;; reaches an off-box shipper in a `goog.DEBUG=false` build. Only the
       ;; CHANNEL this deftest watches is dev-posture. A production witness
       ;; for the record-borne `:failing-id` would belong in
-      ;; `ssr_error_emit_promotion_test`, which has no leg for this category
-      ;; yet. What is NOT dev-posture is the
+      ;; `ssr_error_emit_promotion_test`, which has no leg for this category.
+      ;; What is NOT dev-posture is the
       ;; payload stash asserted above: `:rf/hydrate` puts the server hash into
       ;; the runtime-db partition in every build, and that assertion runs in
       ;; this lane — which is why guarding here does not leave the deftest
@@ -1415,9 +1403,9 @@
                         @no-mismatch-traces)
               "no head-mismatch trace when client and server hashes agree"))))))
 
-;; ---- rf2-9v0f: default-response initial shape contract --------------------
+;; ---- default-response initial shape contract ------------------------------
 ;;
-;; Per test-coverage-review-2026-05-12 P3-16. Pin the documented keys of
+;; Pin the documented keys of
 ;; the SSR per-request response accumulator initial value.
 
 (deftest default-response-canonical-shape
@@ -1463,35 +1451,34 @@
             "the other return value is untouched — no shared mutable state")))))
 
 ;; ===========================================================================
-;; rf2-dl9yg TC-9 — direct error-projection-listener exercise (view-time path)
+;; Direct error-projection-listener exercise (view-time path)
 ;; ===========================================================================
 ;;
 ;; The handler-exception path is tested end-to-end through the Ring stack
-;; (ssr-ring `handler-render-error-projects-to-500`). The
+;; (ssr-ring `handler-render-error-projects-to-500`). This pins the
 ;; direct-ssr-layer equivalent — driving `error-projection-listener`
 ;; with a synthetic view-time-style exception trace and asserting the
-;; projector stamps the response — was not pinned. Add it.
+;; projector stamps the response.
 ;;
 ;; The listener consumes :error trace events bound to a server frame
 ;; and buffers them; `get-response` flushes the buffer through the
-;; active projector. The buffered-trace pattern is what shipped per
-;; rf2-asmj1 R*; the test reaches in via `re-frame.trace/emit!` so the
+;; active projector. The test reaches in via `re-frame.trace/emit!` so the
 ;; full path runs without involving the Ring adapter.
 
 (deftest direct-ssr-layer-projects-view-time-exception
-  ;; rf2-lwtlk — THE ONE DEFTEST IN THIS FILE THAT DRIVES THE DEV BUS AS ITS
+  ;; THE ONE DEFTEST IN THIS FILE THAT DRIVES THE DEV BUS AS ITS
   ;; INPUT, not merely as its observation. `trace/emit!` is a no-op under
-  ;; `-Dre-frame.debug=false`, so under the gate nothing was buffered, nothing
-  ;; projected, and `:status` stayed 200 — the subject was ABSENT, not merely
-  ;; unobservable, and re-pointing the READ could not fix it.
+  ;; `-Dre-frame.debug=false`, so under the gate nothing would be buffered,
+  ;; nothing projected, and `:status` would stay 200 — the subject is ABSENT,
+  ;; not merely unobservable, and reading another axis cannot fix it.
   ;;
-  ;; Guarding it wholesale was the wrong answer too: it would leave the
+  ;; Guarding it wholesale would be wrong too: it would leave the
   ;; SUBSTRATE that actually stamps `:status` on a production JVM
   ;; (`error-emit-projection-listener`, registered always-on in the
   ;; `re-frame.ssr` façade) with no direct exercise anywhere. So the deftest
-  ;; keeps its dev drive VERBATIM in an arm and gains the symmetric always-on
+  ;; keeps its dev drive in an arm beside the symmetric always-on
   ;; counterpart: the same synthetic error, injected on the other axis.
-  (testing "rf2-dl9yg TC9 / rf2-lwtlk — an always-on error RECORD tagged with a
+  (testing "an always-on error RECORD tagged with a
             server frame → error-emit-projection-listener buffers →
             get-response flushes → :status carries the default projector's 500.
             This is the production path: in a release build this listener, not
@@ -1517,8 +1504,8 @@
             "no redirect was set; the projector overwrites the status freely"))))
 
   (when rf.interop/debug-enabled?
-    (testing "rf2-dl9yg TC9 (dev arm) — the trace-cb buffering path. Kept
-              VERBATIM: `trace/emit!` cannot fire under the production gate,
+    (testing "(dev arm) the trace-cb buffering path.
+              `trace/emit!` cannot fire under the production gate,
               so this half is a genuine dev-posture contract rather than a
               dev-posture SPELLING of one."
       (let [f (rf.frame/make-anon-frame-record!
@@ -1542,15 +1529,15 @@
               "no redirect was set; the projector overwrites the status freely"))))))
 
 ;; ===========================================================================
-;; rf2-ooj41 — direct adapter-contract smoke
+;; Direct adapter-contract smoke
 ;; ===========================================================================
 ;;
 ;; The `ssr/adapter` Var is the SSR substrate adapter — eight of nine
 ;; slots implement the substrate contract cleanly; the ninth (`:render`)
 ;; deliberately throws because SSR uses render-to-string exclusively.
 ;; The shared test fixture installs the adapter on every `:each`, so
-;; the indirection is exercised constantly — but no test asserts the
-;; slot contents themselves. Add a direct check.
+;; the indirection is exercised constantly; these deftests assert the
+;; slot contents themselves.
 
 (deftest adapter-installs-ssr-render-to-string
   (testing "ssr/adapter wires re-frame.ssr/render-to-string into the
@@ -1582,7 +1569,7 @@
         (render-fn [:div] nil nil)
         (is false "render-fn must throw — did not")
         (catch clojure.lang.ExceptionInfo e
-          ;; rf2-vvixub — branch on the canonical :rf.error/id; the message is
+          ;; Branch on the canonical :rf.error/id; the message is
           ;; the human :reason sentence + the [:rf.error/<id>] token, NOT a bare
           ;; keyword (tests must not exact-equal the non-normative message).
           (is (= :rf.error/render-on-headless-adapter
@@ -1594,22 +1581,22 @@
               "ex-data carries a human :reason"))))))
 
 ;; ===========================================================================
-;; rf2-vngir (was rf2-ooj41) — retired redirect-target spellings (:url / :to)
+;; Retired redirect-target spellings (:url / :to)
 ;; are REJECTED, not normalised onto :location
 ;; ===========================================================================
 ;;
 ;; Spec 011 §Redirect contract: `:rf.server/redirect`'s redirect target is
 ;; keyed under `:location` — the canonical (and only) key, per EP-0007
 ;; one-name-per-fact (this fx writes an HTTP `Location` response header, so
-;; it uses header vocabulary). The pre-alpha `:url` / `:to` synonyms were
-;; pruned; `redirect-fx` now throws `:rf.error/redirect-retired-target-key`
+;; it uses header vocabulary). There are no `:url` / `:to` synonyms:
+;; `redirect-fx` throws `:rf.error/redirect-retired-target-key`
 ;; naming `:location` rather than silently normalising. There is no
-;; back-compat alias. These tests pin the rejection (formerly the alias
-;; normalisation, rf2-ooj41) AND that the resolved redirect slot is NOT
+;; back-compat alias. These tests pin the rejection AND that the resolved
+;; redirect slot is NOT
 ;; populated when a retired spelling is the only target key.
 
 (deftest redirect-retired-url-spelling-is-rejected
-  (testing "rf2-vngir: {:url \"...\"} is rejected with
+  (testing "{:url \"...\"} is rejected with
             :rf.error/redirect-retired-target-key (naming :location); it is
             NOT normalised onto :location, and the :redirect slot stays unset"
     (rf/reg-event :retired/url-redirect
@@ -1625,7 +1612,7 @@
           "the rejected redirect did NOT populate the :redirect slot"))))
 
 (deftest redirect-retired-to-spelling-is-rejected
-  (testing "rf2-vngir: {:to \"...\"} is rejected with
+  (testing "{:to \"...\"} is rejected with
             :rf.error/redirect-retired-target-key, even with an explicit
             :status — the retired-key check fires before the status path"
     (rf/reg-event :retired/to-redirect
@@ -1641,13 +1628,13 @@
           "the rejected redirect did NOT populate the :redirect slot"))))
 
 ;; ===========================================================================
-;; rf2-hyk9j TC-6 — redirect short-circuits projector status overwrite
+;; Redirect short-circuits projector status overwrite
 ;; ===========================================================================
 ;;
 ;; Per `error_listener.cljc:96-101` and Spec 011 §Redirect precedence:
 ;; when the response carries a `:redirect`, `apply-error-projection!`
 ;; must NOT overwrite the redirect's `:status` with the projector's
-;; status. Behaviour is correct in the impl; no test pinned it.
+;; status.
 
 (deftest redirect-suppresses-projector-status-overwrite
   (testing "a request that redirects AND surfaces an error trace → response :status
@@ -1662,11 +1649,11 @@
     (rf/reg-event :throw-from-handler
       (fn [_ _] (throw (ex-info "post-redirect failure" {}))))
 
-    ;; rf2-vw5h1r / rf2-anehs6: :redirect-then-error is a RENDER-TIME request
+    ;; :redirect-then-error is a RENDER-TIME request
     ;; dispatch against a live frame, NOT an :initial-events setup step. The
     ;; in-band handler-exception (from [:dispatch [:throw-from-handler]]) is
     ;; the projector's drain-time domain; were this a construction setup step,
-    ;; the now-STRICT :initial-events teardown (EP-0027 §Failure) would tear
+    ;; the STRICT :initial-events teardown (EP-0027 §Failure) would tear
     ;; the frame down and raise :rf.error/initial-events-step-failed instead.
     (let [f      (rf.frame/make-anon-frame-record!
                    {:platform  :server
@@ -1676,11 +1663,11 @@
                             (fn [] (rf/dispatch-sync [:redirect-then-error] {:frame f}))))
           resp   (get-response f)]
       ;; The handler-exception fired (drain-time). Read off the always-on
-      ;; axis as well as the dev bus (rf2-lwtlk): this assertion is the
+      ;; axis as well as the dev bus: this assertion is the
       ;; PREMISE of the two below it — without a real error there is nothing
       ;; for the projector to overwrite the redirect WITH, so sourcing it
-      ;; dev-only left the redirect-precedence claim resting on nothing under
-      ;; the production gate.
+      ;; dev-only would leave the redirect-precedence claim resting on nothing
+      ;; under the production gate.
       (is (some #(= :rf.error/handler-exception (:operation %)) events)
           "the handler-exception was emitted during the drain")
       ;; The redirect survived: response :status is 302, not 500.
@@ -1690,17 +1677,16 @@
           "the redirect map itself is unchanged"))))
 
 ;; ===========================================================================
-;; rf2-2brsn / parent rf2-zfm8v — :rf.server/safe-redirect (caller-untrusted)
+;; :rf.server/safe-redirect (caller-untrusted)
 ;; ===========================================================================
 ;;
-;; Per rf2-zfm8v (Mike decision, Option A — ship safe-redirect-fx alongside
-;; redirect-fx, 2026-05-14) the runtime ships TWO redirect fxs:
+;; The runtime ships TWO redirect fxs:
 ;;
 ;; - :rf.server/redirect       — caller-trusted; arbitrary :location strings.
 ;; - :rf.server/safe-redirect  — caller-untrusted; URL parse + scheme reject +
 ;;                               :relative-only? / :allow allowlist gating.
 ;;
-;; Mitigation for the open-redirect class (audit 2026-05-14 §P3.2): an
+;; Mitigation for the open-redirect class: an
 ;; attacker-controlled ?next=... URL parameter cannot redirect off-origin
 ;; when the app uses :rf.server/safe-redirect.
 ;;
@@ -1726,13 +1712,13 @@
   reading the ALWAYS-ON `:errors` axis and returning it normalised to the
   dev-trace shape `{:operation … :tags …}`.
 
-  rf2-lwtlk / rf2-6jqa8 — WHY THE ALWAYS-ON AXIS AND NOT A DEV ARM. This is
+  WHY THE ALWAYS-ON AXIS AND NOT A DEV ARM. This is
   the open-redirect gate: the one surface in this file where a dev-posture
-  proof would be actively misleading. rf2-6jqa8 PROMOTED these rejections
-  precisely so a production JVM stops swallowing them —
+  proof would be actively misleading. These rejections ride the always-on
+  axis precisely so a production JVM does not swallow them —
   `emit-safe-redirect-error!` fans axis 1 (`dispatch-safe-redirect-record!`,
   the record an off-box shipper sees) beside axis 2 (`trace/emit-error!`).
-  Reading axis 1 means the seventeen assertions below now prove the gate in
+  Reading axis 1 means the seventeen assertions below prove the gate in
   the build an attacker actually meets.
 
   ONLY axis 1, deliberately — several of these count (`(= 1 (count hits))`),
@@ -1748,8 +1734,8 @@
   assertions below discriminate on.
 
   Excluded ON PURPOSE, each for its own reason: `:location` (the caller's
-  URL), `:allowlist` (the application's own security configuration), and —
-  since rf2-6jqa8's second AUDIT-REOPEN — the raw `:scheme` and `:host`. The
+  URL), `:allowlist` (the application's own security configuration), and
+  the raw `:scheme` and `:host`. The
   last two look structural because they are parsed, but parsing says where a
   substring sat in the grammar, not who wrote it: a scheme is arbitrary text
   under RFC 3986 §3.1 and a rejected host is by construction a name the app
@@ -1774,11 +1760,10 @@
 (defn- capture-safe-redirect-dev-traces!
   "The DEV-ONLY companion to [[capture-safe-redirect-traces!]], reading
   `trace/emit-error!`'s axis-2 surface — which receives the diagnostics
-  WHOLE rather than projected. rf2-lwtlk: used at the handful of sites that
+  WHOLE rather than projected. Used at the handful of sites that
   read a tag `safe-redirect-record-slots` excludes from the always-on record
   by design — `:allowlist` (the app's own security configuration), `:host`
-  and the raw `:scheme` spelling (the caller's unbounded URL components,
-  excluded under rf2-6jqa8's second AUDIT-REOPEN)."
+  and the raw `:scheme` spelling (the caller's unbounded URL components)."
   [body-fn]
   (let [traces (atom [])
         tag    (keyword "rf2-lwtlk" (str "sr-dev-cap-" (name (gensym "c"))))]
@@ -1792,7 +1777,7 @@
 ;; --- Step 1: URL parse failure --------------------------------------------
 
 (deftest safe-redirect-rejects-unparseable-url
-  (testing "rf2-2brsn step 1: a :location that cannot be parsed as a URL
+  (testing "step 1: a :location that cannot be parsed as a URL
             → :rf.error/safe-redirect-invalid-url trace AND no :redirect
             is set on the response (the fx is a no-op on rejection)"
     (rf/reg-event :sr/unparseable
@@ -1815,7 +1800,7 @@
 ;; --- Step 2: scheme rejection ---------------------------------------------
 
 (deftest safe-redirect-rejects-javascript-scheme
-  (testing "rf2-2brsn step 2: javascript: scheme → :rf.error/safe-redirect-scheme-rejected
+  (testing "step 2: javascript: scheme → :rf.error/safe-redirect-scheme-rejected
             (XSS vector — script execution on click of the redirect)"
     (rf/reg-event :sr/javascript
       (fn [_ _]
@@ -1836,7 +1821,7 @@
           "rejection is a no-op"))))
 
 (deftest safe-redirect-rejects-data-scheme
-  (testing "rf2-2brsn step 2: data: scheme rejected (data-URL phishing)"
+  (testing "step 2: data: scheme rejected (data-URL phishing)"
     (rf/reg-event :sr/data
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect
@@ -1850,7 +1835,7 @@
           ":rf.error/safe-redirect-scheme-rejected fires with :scheme-class :data"))))
 
 (deftest safe-redirect-rejects-vbscript-scheme
-  (testing "rf2-2brsn step 2: vbscript: scheme rejected (IE-era VBScript exec)"
+  (testing "step 2: vbscript: scheme rejected (IE-era VBScript exec)"
     (rf/reg-event :sr/vbscript
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect
@@ -1864,7 +1849,7 @@
           ":rf.error/safe-redirect-scheme-rejected fires with :scheme-class :vbscript"))))
 
 (deftest safe-redirect-scheme-rejection-is-case-insensitive
-  (testing "rf2-2brsn step 2: JavaScript: / DATA: / VBScript: all rejected
+  (testing "step 2: JavaScript: / DATA: / VBScript: all rejected
             (case-insensitive scheme match per the lowercase-on-compare pattern)"
     (doseq [hostile ["JavaScript:alert(1)" "DATA:text/html,evil" "VBScript:evil"]]
       (rf/reg-event :sr/probe-case
@@ -1880,7 +1865,7 @@
 ;; --- Step 3: :relative-only? gate -----------------------------------------
 
 (deftest safe-redirect-relative-only-rejects-absolute-url
-  (testing "rf2-2brsn step 3: :relative-only? true AND URL has host →
+  (testing "step 3: :relative-only? true AND URL has host →
             :rf.error/safe-redirect-host-disallowed (:reason :relative-only-violation)"
     (rf/reg-event :sr/abs-with-relative-only
       (fn [_ _]
@@ -1899,7 +1884,7 @@
           (is (= :relative-only-violation (-> ev :tags :reason))
               ":reason discriminates the two host-disallowed modes")
           (is (nil? (-> ev :tags :host))
-              ":host is DEV-ONLY (rf2-6jqa8 second AUDIT-REOPEN) — a rejected
+              ":host is DEV-ONLY — a rejected
                host is by construction one the app did not authorise, so it is
                caller-authored text that could carry a sentinel and could be
                varied per request to flood a metrics dimension. The refusal is
@@ -1907,10 +1892,10 @@
       (is (nil? (:redirect (get-response f)))
           "rejection is a no-op"))
 
-    ;; rf2-lwtlk DEV ARM — `:host` on axis 2, where the diagnostics arrive
+    ;; DEV ARM — `:host` on axis 2, where the diagnostics arrive
     ;; whole and the reader is standing at their own process.
     (when rf.interop/debug-enabled?
-      (testing "rf2-2brsn step 3 (dev diagnostics): the dev trace names the
+      (testing "step 3 (dev diagnostics): the dev trace names the
                 rejected host itself"
         (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
               traces (capture-safe-redirect-dev-traces!
@@ -1919,7 +1904,7 @@
               ":host names the rejected host on the diagnostic axis"))))))
 
 (deftest safe-redirect-relative-only-accepts-relative-path
-  (testing "rf2-2brsn step 3 happy path: :relative-only? true + relative URL →
+  (testing "step 3 happy path: :relative-only? true + relative URL →
             redirect succeeds (no trace)"
     (rf/reg-event :sr/relative-ok
       (fn [_ _]
@@ -1940,7 +1925,7 @@
 ;; --- Step 4: :allow allowlist ---------------------------------------------
 
 (deftest safe-redirect-allowlist-rejects-off-allowlist-host
-  (testing "rf2-2brsn step 4: :allow supplied AND URL's host NOT in allow →
+  (testing "step 4: :allow supplied AND URL's host NOT in allow →
             :rf.error/safe-redirect-host-disallowed (:reason :not-in-allowlist)"
     (rf/reg-event :sr/not-in-allow
       (fn [_ _]
@@ -1959,23 +1944,23 @@
           (is (= :not-in-allowlist (-> ev :tags :reason))
               ":reason discriminates from the relative-only case")
           (is (nil? (-> ev :tags :host))
-              ":host is DEV-ONLY (rf2-6jqa8 second AUDIT-REOPEN) — see the
+              ":host is DEV-ONLY — see the
                dev arm below")))
       (is (nil? (:redirect (get-response f)))
           "rejection is a no-op"))
 
-    ;; rf2-lwtlk DEV ARM — the safe-redirect tags that are genuinely dev-only.
+    ;; DEV ARM — the safe-redirect tags that are genuinely dev-only.
     ;; `:allowlist` is deliberately absent from the always-on record:
     ;; `re-frame.ssr.egress/safe-redirect-record-slots` excludes it because an
     ;; application's own security configuration is unbounded policy data whose
-    ;; contents hand a reader the exact boundary being probed. `:host` joined
-    ;; it under rf2-6jqa8's second AUDIT-REOPEN for the mirror-image reason —
+    ;; contents hand a reader the exact boundary being probed. `:host` is excluded
+    ;; too, for the mirror-image reason —
     ;; it is the CALLER's unbounded string, on an arm where it is by
     ;; construction a name the app did not authorise. `:reason
     ;; :not-in-allowlist` discriminates the arm without either. Read off axis
     ;; 2, where the diagnostics arrive whole.
     (when rf.interop/debug-enabled?
-      (testing "rf2-2brsn step 4 (dev diagnostics): the dev trace carries the
+      (testing "step 4 (dev diagnostics): the dev trace carries the
                 rejected host and the allowlist vector itself, for the
                 programmer reading a log"
         (rf/reg-event :sr/not-in-allow-dev
@@ -1997,7 +1982,7 @@
               ":allowlist tag carries the allowlist vector for diagnostic clarity"))))))
 
 (deftest safe-redirect-allowlist-accepts-on-allowlist-host
-  (testing "rf2-2brsn step 4 happy path: host IN allowlist → redirect succeeds"
+  (testing "step 4 happy path: host IN allowlist → redirect succeeds"
     (rf/reg-event :sr/in-allow
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect
@@ -2014,7 +1999,7 @@
           ":location lands on the response :redirect slot"))))
 
 (deftest safe-redirect-allowlist-host-match-is-case-insensitive
-  (testing "rf2-lgmiw step 4: DNS hostnames are case-insensitive (RFC 1035
+  (testing "step 4: DNS hostnames are case-insensitive (RFC 1035
             §2.3.3) — a mixed-case host matches a lowercase :allow entry and
             the redirect succeeds with no trace"
     (rf/reg-event :sr/in-allow-mixed-case
@@ -2035,7 +2020,7 @@
 ;; --- Validation order: parse runs before scheme runs before policy --------
 
 (deftest safe-redirect-validation-order-parse-precedes-scheme
-  (testing "rf2-2brsn: a fundamentally-unparseable URL surfaces the parse
+  (testing "a fundamentally-unparseable URL surfaces the parse
             error, NOT the scheme error (validation runs in order — see
             Spec 009 §Error event catalogue)"
     (rf/reg-event :sr/order-parse-first
@@ -2056,7 +2041,7 @@
                (pr-str ops))))))
 
 (deftest safe-redirect-empty-location-rejected-as-invalid-url
-  (testing "rf2-2brsn step 1: an empty / blank :location string is rejected
+  (testing "step 1: an empty / blank :location string is rejected
             as :rf.error/safe-redirect-invalid-url — an empty redirect has
             no defensible interpretation"
     (rf/reg-event :sr/empty
@@ -2071,22 +2056,22 @@
       (is (nil? (:redirect (get-response f)))
           "rejection is a no-op"))))
 
-;; --- rf2-v3eg3 finding 1: scheme-bearing open-redirect BYPASS -------------
+;; --- scheme-bearing open-redirect BYPASS -----------------------------------
 ;;
-;; The pre-fix gate used java.net.URI.getHost as the policy discriminator
-;; and only rejected when host was truthy. Java reports a nil host for a
+;; A gate using java.net.URI.getHost as the policy discriminator, rejecting
+;; only when host is truthy, would be bypassed. Java reports a nil host for a
 ;; scheme-bearing OPAQUE URI (`http:evil.example.com` — scheme present,
 ;; no authority) and for a hierarchical URI with no authority
-;; (`http:/evil`). Those slipped BOTH the :relative-only? and the :allow
-;; host gates and populated :redirect — a browser given
-;; `Location: http:evil.example.com` navigates OFF-ORIGIN. The fix gates
+;; (`http:/evil`). Those would slip BOTH the :relative-only? and the :allow
+;; host gates and populate :redirect — a browser given
+;; `Location: http:evil.example.com` navigates OFF-ORIGIN. The gate works
 ;; on parsed-URL SHAPE: a relative reference is `scheme==nil AND
 ;; authority==nil`; anything else is non-relative and subject to the
 ;; host gates, and a scheme-bearing-but-host-less URL has no defensible
 ;; redirect interpretation.
 
 (deftest safe-redirect-rejects-scheme-bearing-opaque-http-bypass
-  (testing "rf2-v3eg3 finding 1: `http:evil.example.com` (opaque, host=nil)
+  (testing "`http:evil.example.com` (opaque, host=nil)
             is the open-redirect bypass — it MUST be rejected (no :redirect)
             under :relative-only?, under :allow, AND with no policy"
     (doseq [[label policy] [["no-policy"      {}]
@@ -2107,7 +2092,7 @@
                  "scheme-bearing opaque URI is rejected"))))))
 
 (deftest safe-redirect-rejects-scheme-bearing-opaque-https-bypass
-  (testing "rf2-v3eg3 finding 1: `https:evil.example.com` (opaque, host=nil)
+  (testing "`https:evil.example.com` (opaque, host=nil)
             rejected as :rf.error/safe-redirect-invalid-url
             (:reason :scheme-without-host)"
     (rf/reg-event :sr/opaque-https
@@ -2124,7 +2109,7 @@
           "rejection is a no-op"))))
 
 (deftest safe-redirect-rejects-mailto-scheme
-  (testing "rf2-v3eg3 finding 1: `mailto:user@example.com` — a non-http(s)
+  (testing "`mailto:user@example.com` — a non-http(s)
             scheme is rejected outright as scheme-rejected
             (:reason :scheme-not-allowed)"
     (rf/reg-event :sr/mailto
@@ -2147,12 +2132,12 @@
         (is (some #(= "mailto" (-> % :tags :scheme))
                   (capture-safe-redirect-dev-traces!
                     (fn [] (rf/dispatch-sync [:sr/mailto] {:frame f}))))
-            "rf2-lwtlk DEV ARM: the dev trace still names the scheme itself"))
+            "DEV ARM: the dev trace names the scheme itself"))
       (is (nil? (:redirect (get-response f)))
           "rejection is a no-op"))))
 
 (deftest safe-redirect-rejects-ftp-scheme
-  (testing "rf2-v3eg3 finding 1: `ftp:example.com` — non-http(s) scheme
+  (testing "`ftp:example.com` — non-http(s) scheme
             rejected outright (opaque form, host=nil)"
     (rf/reg-event :sr/ftp
       (fn [_ _]
@@ -2167,7 +2152,7 @@
           "rejection is a no-op"))))
 
 (deftest safe-redirect-rejects-protocol-relative-under-policy
-  (testing "rf2-v3eg3 finding 1: `//evil.example.com/path` (protocol-relative,
+  (testing "`//evil.example.com/path` (protocol-relative,
             authority=evil.example.com) is NOT a relative reference — it is
             rejected under :relative-only? and under :allow (host mismatch)"
     (doseq [[label policy expected-reason]
@@ -2189,9 +2174,9 @@
             (str "[" label "] no :redirect mutation"))))))
 
 (deftest safe-redirect-accepts-normal-relative-path-control
-  (testing "rf2-v3eg3 finding 1 CONTROL: a normal relative path still passes
-            cleanly under :relative-only? — the hardening did not over-reject
-            the legitimate same-origin case"
+  (testing "CONTROL: a normal relative path passes
+            cleanly under :relative-only? — the shape gate does not
+            over-reject the legitimate same-origin case"
     (rf/reg-event :sr/relative-control
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect
@@ -2208,9 +2193,9 @@
           ":status defaults to 302"))))
 
 (deftest safe-redirect-still-accepts-allowed-absolute-host-control
-  (testing "rf2-v3eg3 finding 1 CONTROL: a well-formed absolute http(s) URL
-            whose host IS in the allowlist still passes — the shape gate
-            did not break the legitimate absolute-redirect path"
+  (testing "CONTROL: a well-formed absolute http(s) URL
+            whose host IS in the allowlist passes — the shape gate
+            does not break the legitimate absolute-redirect path"
     (rf/reg-event :sr/abs-control
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect
@@ -2225,10 +2210,10 @@
       (is (= "https://app.example.com/dashboard" (-> resp :redirect :location))
           ":location passes through"))))
 
-;; --- CRLF defence-in-depth still holds ------------------------------------
+;; --- CRLF defence-in-depth ----------------------------------------------
 
 (deftest safe-redirect-also-rejects-crlf-injection
-  (testing "rf2-2brsn: the CRLF gate (rf2-hbty2) runs on safe-redirect too —
+  (testing "the CRLF gate runs on safe-redirect too —
             an attacker passing a CRLF-bearing location is presumably trying
             both vectors. Same fx-boundary throw as redirect-fx; the throw
             propagates as :rf.error/fx-handler-exception"
@@ -2244,27 +2229,27 @@
         "safe-redirect with CRLF in :location"))))
 
 ;; ===========================================================================
-;; rf2-z7gor — tag-name injection (emit) + header-name / cookie field
-;; validation (response) — security audit 2026-05-14 §P2
+;; Tag-name injection (emit) + header-name / cookie field
+;; validation (response)
 ;;
-;; Companion gates to the rf2-hbty2 header-value gate:
-;;   1. parse-tag-name handed the keyword's leading fragment straight to
-;;      `<...>` emission with no grammar check; a hostile keyword like
-;;      `(keyword "img src=x onerror=alert(1)")` bypassed the attribute
-;;      validator entirely. Validate the tag-name against the HTML5/SVG/
-;;      MathML element-name grammar and fail-fast on misuse.
-;;   2. set-header / append-header validated VALUES (rf2-hbty2) but
-;;      accepted any :name; set-cookie / delete-cookie stored the whole
-;;      cookie map verbatim. Validate header names against the RFC 7230
+;; Companion gates to the header-value gate:
+;;   1. A parse-tag-name that handed the keyword's leading fragment straight
+;;      to `<...>` emission with no grammar check would let a hostile keyword
+;;      like `(keyword "img src=x onerror=alert(1)")` bypass the attribute
+;;      validator entirely. The tag-name is validated against the HTML5/SVG/
+;;      MathML element-name grammar and fails fast on misuse.
+;;   2. Validating header VALUES alone would accept any :name, and storing
+;;      the cookie map verbatim would pass any field. Header names are
+;;      validated against the RFC 7230
 ;;      §3.2.6 token grammar and cookie fields against RFC 6265 §4.1.1
-;;      + the CR/LF/NUL ban — at the fx boundary so non-ring host
+;;      + the CR/LF/NUL ban — at the fx boundary, so non-ring host
 ;;      adapters get the same safety.
 ;; ===========================================================================
 
 (deftest ssr-render-rejects-hostile-tag-keywords
-  (testing "rf2-z7gor — a keyword carrying attribute-like injection in the
+  (testing "a keyword carrying attribute-like injection in the
             tag component is rejected by :rf.error/invalid-tag-name. The
-            two documented reproductions from the bead."
+            two documented reproductions."
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo #":rf\.error/invalid-tag-name"
           (rf.ssr/render-to-string [(keyword "img src=x onerror=alert(1)")] {}))
@@ -2274,7 +2259,7 @@
           (rf.ssr/render-to-string [(keyword "div> <script") "x"] {}))
         "tag-break-into-script injection rejected"))
 
-  (testing "rf2-z7gor — whitespace, separators, CTLs, empty all rejected"
+  (testing "whitespace, separators, CTLs, empty all rejected"
     (doseq [hostile [(keyword " ")
                      (keyword "a b")
                      (keyword "tag\rname")
@@ -2287,9 +2272,9 @@
             (rf.ssr/render-to-string [hostile] {}))
           (str "hostile tag-name " (pr-str hostile)))))
 
-  (testing "rf2-77l9w — admitting one namespaced colon segment does NOT
+  (testing "admitting one namespaced colon segment does NOT
             admit malformed colon shapes: a bare/leading/trailing/double
-            colon or an empty/ill-formed segment still throws"
+            colon or an empty/ill-formed segment throws"
     (doseq [hostile [(keyword ":rect")        ; leading colon — empty prefix
                      (keyword "svg:")         ; trailing colon — empty local
                      (keyword "a:b:c")        ; two colons — not a single ns
@@ -2301,8 +2286,8 @@
           (str "malformed namespaced tag-name " (pr-str hostile))))))
 
 (deftest ssr-render-accepts-legit-tag-keywords
-  (testing "rf2-z7gor — regression guard: HTML / SVG / MathML / custom
-            element names + the :tag#id.cls sugar all still flow"
+  (testing "HTML / SVG / MathML / custom
+            element names + the :tag#id.cls sugar all flow"
     (is (= "<div>x</div>"
            (rf.ssr/render-to-string [:div "x"] {})))
     (is (= "<my-component></my-component>"
@@ -2311,15 +2296,15 @@
            (rf.ssr/render-to-string [:svg] {})))
     (is (= "<foreignObject>a</foreignObject>"
            (rf.ssr/render-to-string [:foreignObject "a"] {}))
-        "SVG camelCase element names still parse")
+        "SVG camelCase element names parse")
     (is (= "<div id=\"main\" class=\"col-12 bold\">x</div>"
            (rf.ssr/render-to-string [:div#main.col-12.bold "x"] {}))
-        ":tag#id.cls sugar still parses (validator runs on the tag fragment)")
+        ":tag#id.cls sugar parses (validator runs on the tag fragment)")
     (is (= "<p>a</p><p>b</p>"
            (rf.ssr/render-to-string [:<> [:p "a"] [:p "b"]] {}))
         ":<> fragment renders children with no wrapper"))
 
-  (testing "rf2-77l9w — XML-namespaced SVG/MathML tags carry a single colon
+  (testing "XML-namespaced SVG/MathML tags carry a single colon
             segment and are admitted by the grammar"
     (is (= "<svg:rect></svg:rect>"
            (rf.ssr/render-to-string [:svg:rect] {}))
@@ -2329,11 +2314,11 @@
         "xlink-namespaced tag is accepted")
     (is (= "<svg:rect id=\"r\" class=\"c\"></svg:rect>"
            (rf.ssr/render-to-string [:svg:rect#r.c] {}))
-        "namespaced tag still composes with the #id.cls sugar")))
+        "namespaced tag composes with the #id.cls sugar")))
 
 (deftest ssr-set-header-rejects-invalid-name
-  (testing "rf2-z7gor — :rf.server/set-header with CRLF in :name surfaces
-            :rf.error/header-invalid-name (sister gate to rf2-hbty2's
+  (testing ":rf.server/set-header with CRLF in :name surfaces
+            :rf.error/header-invalid-name (sister gate to the
             header-value gate)"
     (rf/reg-event :hdr/crlf-in-name
       (fn [_ _]
@@ -2347,7 +2332,7 @@
         traces :rf.error/header-invalid-name
         "set-header with CRLF in :name")))
 
-  (testing "rf2-z7gor — separators / whitespace / empty all rejected"
+  (testing "separators / whitespace / empty all rejected"
     (doseq [hostile ["Bad: Name" "Bad Name" "" "with(parens)"
                      (str "nul" (char 0) "bad")]]
       (rf/reg-event :hdr/probe-name
@@ -2361,7 +2346,7 @@
           (str "hostile header name " (pr-str hostile)))))))
 
 (deftest ssr-append-header-rejects-invalid-name
-  (testing "rf2-z7gor — :rf.server/append-header with CRLF in :name surfaces
+  (testing ":rf.server/append-header with CRLF in :name surfaces
             :rf.error/header-invalid-name (same gate as set-header)"
     (rf/reg-event :hdr/append-crlf-name
       (fn [_ _]
@@ -2376,7 +2361,7 @@
         "append-header with CRLF in :name"))))
 
 (deftest ssr-set-cookie-rejects-invalid-fields
-  (testing "rf2-z7gor — :rf.server/set-cookie with CRLF in :name surfaces
+  (testing ":rf.server/set-cookie with CRLF in :name surfaces
             :rf.error/cookie-invalid-name (RFC 6265 §4.1.1 token grammar)"
     (rf/reg-event :ck/crlf-in-name
       (fn [_ _]
@@ -2390,7 +2375,7 @@
         traces :rf.error/cookie-invalid-name
         "set-cookie with CRLF in :name")))
 
-  (testing "rf2-z7gor / rf2-xrk4w1 — :rf.server/set-cookie with CRLF in :value
+  (testing ":rf.server/set-cookie with CRLF in :value
             surfaces the single catalogued :rf.error/cookie-invalid-attribute
             (offending attribute rides the :attribute payload slot)"
     (rf/reg-event :ck/crlf-in-value
@@ -2407,7 +2392,7 @@
       (is (= :value (:attribute (fx-error-extra traces :rf.error/cookie-invalid-attribute)))
           "the offending attribute (:value) rides the :attribute payload slot")))
 
-  (testing "rf2-z7gor / rf2-xrk4w1 — :rf.server/set-cookie with CRLF in :path
+  (testing ":rf.server/set-cookie with CRLF in :path
             surfaces :rf.error/cookie-invalid-attribute (:attribute :path)"
     (rf/reg-event :ck/crlf-in-path
       (fn [_ _]
@@ -2424,7 +2409,7 @@
       (is (= :path (:attribute (fx-error-extra traces :rf.error/cookie-invalid-attribute)))
           "the offending attribute (:path) rides the :attribute payload slot")))
 
-  (testing "rf2-z7gor / rf2-xrk4w1 — :rf.server/set-cookie with CRLF in :domain
+  (testing ":rf.server/set-cookie with CRLF in :domain
             surfaces :rf.error/cookie-invalid-attribute (:attribute :domain)"
     (rf/reg-event :ck/crlf-in-domain
       (fn [_ _]
@@ -2442,7 +2427,7 @@
           "the offending attribute (:domain) rides the :attribute payload slot"))))
 
 (deftest ssr-delete-cookie-rejects-invalid-fields
-  (testing "rf2-z7gor — :rf.server/delete-cookie runs the same validators
+  (testing ":rf.server/delete-cookie runs the same validators
             as set-cookie (it's sugar over set-cookie)"
     (rf/reg-event :ck/del-crlf-path
       (fn [_ _]
@@ -2458,13 +2443,13 @@
           "the offending attribute (:path) rides the :attribute payload slot"))))
 
 (deftest ssr-set-cookie-crlf-checks-every-attribute
-  (testing "rf2-kjf3m.1 / Spec 011 §CRLF fail-fast: :rf.server/set-cookie
+  (testing "Spec 011 §CRLF fail-fast: :rf.server/set-cookie
             CRLF-checks EVERY attribute the host adapter serialises —
             :max-age, :same-site, :expires — not just :value/:path/:domain.
             The fx boundary is the single enforcement point for non-Ring
             host adapters; a string :max-age sourced from request context
             must not re-enter the header line as CRLF-bearing payload."
-    ;; The concrete failing scenario from the bead: string :max-age
+    ;; The concrete attack: string :max-age
     ;; carrying a forged second Set-Cookie line.
     (testing ":max-age (string form) with CRLF → :rf.error/cookie-invalid-attribute (:attribute :max-age)"
       (rf/reg-event :ck/crlf-in-max-age
@@ -2500,9 +2485,9 @@
         (is (= :same-site (:attribute (fx-error-extra traces :rf.error/cookie-invalid-attribute)))
             "the offending attribute (:same-site) rides the :attribute payload slot")))
 
-    ;; rf2-xrk4w1 — a CRLF-bearing :expires is an INJECTION failure and now
-    ;; collapses onto :rf.error/cookie-invalid-attribute (:attribute :expires),
-    ;; ending the former overload of :rf.error/cookie-invalid-expires. That id
+    ;; A CRLF-bearing :expires is an INJECTION failure and
+    ;; lands on :rf.error/cookie-invalid-attribute (:attribute :expires),
+    ;; not on :rf.error/cookie-invalid-expires. That id
     ;; is reserved for a NON-integer epoch at the Ring materialiser (a shape
     ;; error, not an injection) — see the ssr-ring cookie tests.
     (testing ":expires with CRLF → :rf.error/cookie-invalid-attribute (:attribute :expires)"
@@ -2520,7 +2505,7 @@
           "set-cookie with CRLF in :expires")
         (let [extra (fx-error-extra traces :rf.error/cookie-invalid-attribute)]
           (is (= :rf.error/cookie-invalid-attribute (:rf.error/id extra))
-              "CRLF-in-:expires collapses onto the catalogued attribute id, NOT cookie-invalid-expires")
+              "CRLF-in-:expires lands on the catalogued attribute id, NOT cookie-invalid-expires")
           (is (= :expires (:attribute extra))
               "the offending attribute (:expires) rides the :attribute payload slot")
           (is (contains? extra :value)
@@ -2542,7 +2527,7 @@
               (str "hostile :max-age " (pr-str hostile) " rides the :attribute payload slot")))))))
 
 (deftest ssr-set-cookie-rejects-semicolon-attribute-delimiter
-  (testing "rf2-j538f7.16 / Spec 011 §Cookie shape: :rf.server/set-cookie
+  (testing "Spec 011 §Cookie shape: :rf.server/set-cookie
             rejects a raw `;` in every VERBATIM-concatenated attribute
             (:path / :domain / :max-age / :same-site / :expires). The `;` is
             the RFC 6265 §4.1.1 cookie-attribute delimiter — a value carrying
@@ -2574,7 +2559,7 @@
             (str "no cookie lands on the accumulator — `;` in " attr
                  " is a rejected no-op")))))
 
-  (testing "rf2-j538f7.16 — a `;` in cookie :value is DATA (the host serialiser
+  (testing "a `;` in cookie :value is DATA (the host serialiser
             percent-encodes it), so set-cookie ACCEPTS it and stores it
             verbatim on the accumulator — no over-rejection"
     (rf/reg-event :ck/semicolon-value
@@ -2590,7 +2575,7 @@
       (is (= "a;b" (:value (first cookies)))
           "the `;`-bearing :value is stored verbatim (encoding is host-adapter business)")))
 
-  (testing "rf2-j538f7.16 — :rf.server/delete-cookie runs the same delimiter
+  (testing ":rf.server/delete-cookie runs the same delimiter
             gate on :path and :domain (it is sugar over set-cookie)"
     (doseq [attr [:path :domain]]
       (rf/reg-event :ck/del-semicolon
@@ -2607,7 +2592,7 @@
             (str "delete-cookie `;` in " attr " rides the :attribute payload slot"))))))
 
 (deftest ssr-set-cookie-rejects-non-string-name-type
-  (testing "rf2-9t17id — a cookie :name that is neither a string nor a Named
+  (testing "a cookie :name that is neither a string nor a Named
             (keyword / symbol) is rejected at the fx boundary with the
             documented :rf.error/cookie-invalid-name, NOT a raw host
             ClassCastException. Exercised on the DIRECT fx-handler path — the
@@ -2636,16 +2621,16 @@
             (rf.ssr.response/delete-cookie-fx {:frame f} {:name 99 :path "/"}))
           "delete-cookie-fx runs the same cookie-name type guard")))
 
-  (testing "rf2-9t17id regression guard — the type gate still separates a
+  (testing "the type gate separates a
             Named from the values `(name n)` cannot survive, and a string
-            :name still lands.
+            :name lands.
 
-            NARROWED by rf2-dtpfv's audit: a keyword / symbol :name passes THIS
+            NARROWED: a keyword / symbol :name passes THIS
             gate (`(name :csrf)` is a fine token) and is then refused by the
             always-on SHAPE gate, because the schemas, Spec 011 §Cookie shape
             and Spec-Schemas all publish `:string` — admitting a Named here
-            meant `{:name :csrf}` was skipped in dev, landed in production, and
-            reached host adapters as a keyword. Same ordering as set-header:
+            would let `{:name :csrf}` be skipped in dev, land in production,
+            and reach host adapters as a keyword. Same ordering as set-header:
             grammar gate first with its own catalogued id, shape gate second.
             The full contract lives in `re-frame.ssr-reserved-fx-guards-test`."
     (let [f (rf.frame/make-anon-frame-record! {:platform :server})]
@@ -2662,7 +2647,7 @@
           "only the string-named cookie landed, and its :name is a string"))))
 
 (deftest ssr-set-cookie-clean-attributes-still-accepted
-  (testing "rf2-kjf3m.1 regression guard: legitimate cookie attributes still
+  (testing "legitimate cookie attributes
             flow — integer :max-age, keyword/string :same-site, a clean
             :expires string. The CRLF gate str-coerces and only bans
             CR/LF/NUL; benign values pass."
@@ -2685,8 +2670,8 @@
           ":same-site survives"))))
 
 (deftest ssr-clean-names-still-accepted
-  (testing "rf2-z7gor — regression guard: legitimate header names + cookie
-            field shapes still flow"
+  (testing "legitimate header names + cookie
+            field shapes flow"
     (rf/reg-event :clean/all
       (fn [_ _]
         {:fx [[:rf.server/set-header  {:name "Cache-Control"
@@ -2707,46 +2692,43 @@
       (is (= "stale"   (-> resp :cookies second :name))))))
 
 ;; ===========================================================================
-;; ssr-server-fx-args-schema-boundary — rf2-kjf3m.2
+;; ssr-server-fx-args-schema-boundary
 ;;
 ;; Spec 011 §Standard fx (line 438) + [Spec-Schemas §Standard fx args
 ;; schemas] declare the `:rf.fx.server/*-args` / `:rf.server/cookie`
 ;; schemas as REGISTERED, and assert "args validation runs as part of the
 ;; standard `:schema` boundary check" (per Spec 010 §Validation order step
-;; 5). Pre-rf2-kjf3m.2 the six `:rf.server/*` reg-fx calls carried no
-;; `:schema`, so that boundary never fired — a malformed arg (e.g. a
-;; string `:rf.server/set-status`) fell straight onto the response
-;; accumulator and onto the wire. These tests prove the boundary now
-;; fires: a structurally-malformed server fx arg is REJECTED at dispatch
+;; 5). Without a `:schema` on the `:rf.server/*` reg-fx calls that boundary
+;; would never fire — a malformed arg (e.g. a string `:rf.server/set-status`)
+;; would fall straight onto the response accumulator and onto the wire.
+;; These tests prove the boundary fires: a structurally-malformed server fx arg is REJECTED at dispatch
 ;; with `:rf.error/schema-validation-failure :where :fx-args`, the
 ;; offending fx is SKIPPED (Spec 010 §Per-step recovery row 5 — the
-;; accumulator is untouched), and well-formed args still pass.
+;; accumulator is untouched), and well-formed args pass.
 ;;
 ;; The schemas artefact (transitively Malli) is on the ssr JVM test
 ;; classpath and `re-frame.ssr.test-fixture` requires `re-frame.schemas`,
 ;; so the late-bind validator (`:schemas/validate-fx!`) is LIVE here.
 ;;
 ;; ---------------------------------------------------------------------------
-;; rf2-lwtlk / rf2-dtpfv — REWRITTEN AS A TWO-POSTURE CONTRACT
+;; A TWO-POSTURE CONTRACT
 ;;
-;; This deftest was the reason `ssr-end-to-end-test` stayed on the prod-gate
-;; roster after every other namespace in the artefact had come off. It was NOT
-;; ordinary trace spelling: under `-Dre-frame.debug=false` it failed for a REAL
-;; reason. `validate-fx!` is `(if interop/debug-enabled? (run-validation …)
-;; true)`, so the Spec 010 §Validation-order step-5 boundary did not run in a
-;; release build at all — and a malformed `:rf.server/*` fx therefore RAN, its
-;; args landing on the response accumulator that `ssr/get-response` publishes
-;; to every host adapter. `[:rf.server/set-status "not-an-int"]` really did
-;; leave a STRING on the HTTP status line.
+;; `validate-fx!` is `(if interop/debug-enabled? (run-validation …)
+;; true)`, so the Spec 010 §Validation-order step-5 boundary does not run in
+;; a release build at all — on its own it would let a malformed
+;; `:rf.server/*` fx RUN, its args landing on the response accumulator that
+;; `ssr/get-response` publishes to every host adapter, so
+;; `[:rf.server/set-status "not-an-int"]` would leave a STRING on the HTTP
+;; status line.
 ;;
-;; rf2-dtpfv ruled and fixed it: the reserved family now guards its OWN args
+;; So the reserved family guards its OWN args
 ;; unconditionally (`re-frame.ssr.response`), while the general step-5 gate for
 ;; USER fx stays dev-only — trust-the-programmer covers user declarations, and
 ;; validating every fx in every app to protect seven closed framework effects
 ;; is posture-hostile.
 ;;
-;; So the SEMANTICS below no longer differ by posture, and they are asserted
-;; unguarded in §1. What still differs, by design, is the RECOVERY PATH — and
+;; So the SEMANTICS below do not differ by posture, and they are asserted
+;; unguarded in §1. What differs, by design, is the RECOVERY PATH — and
 ;; that is the whole of the split:
 ;;
 ;;   dev + schemas : Malli step-5 rejects FIRST, the fx is `:skipped`, and the
@@ -2760,7 +2742,7 @@
 ;; fires. It is the claim both mechanisms exist to make, and it holds whichever
 ;; of them got there first — which is exactly why it belongs outside both arms.
 ;;
-;; `re-frame.ssr-reserved-fx-guards-test` is rf2-dtpfv's own acceptance suite
+;; `re-frame.ssr-reserved-fx-guards-test` is the guards' own acceptance suite
 ;; and reads the PURE accumulator (`ssr/peek-response`). This one is the
 ;; END-TO-END view: every read below goes through `get-response`, the public
 ;; host-adapter surface, after the error projection has drained.
@@ -2806,8 +2788,8 @@
   "The nine malformed reserved-fx calls this boundary refuses, as
   `[label fx-id fx-vec]`.
 
-  rf2-dtpfv made the REFUSAL itself posture-independent, so this table drives
-  only the two DIAGNOSTIC arms (§2 / §3), where the recovery path still
+  The REFUSAL itself is posture-independent, so this table drives
+  only the two DIAGNOSTIC arms (§2 / §3), where the recovery path
   differs by design. The ACCUMULATOR claims are heterogeneous — each fx family
   owns a different response slot — so they stay written out, unguarded, in §1."
   [[":rf.server/set-status with a non-int arg"
@@ -2865,16 +2847,16 @@
   ;; exist to make, and it holds whichever of them got there first. That is
   ;; why it sits outside both arms.
   ;; -------------------------------------------------------------------------
-  (testing "rf2-dtpfv — a malformed :rf.server/* fx never reaches the response
+  (testing "a malformed :rf.server/* fx never reaches the response
             accumulator, in EVERY build (Spec 011 §Standard fx / Spec-Schemas
             §Standard fx args schemas / Spec 010 §Validation order step 5)"
 
     (testing ":rf.server/set-status with a non-int arg"
-      ;; rf2-kjf3m.2's concrete failing scenario, and rf2-dtpfv's: a string
-      ;; status that rode straight onto the wire, saved only by one host
+      ;; The concrete attack: a string
+      ;; status that would ride straight onto the wire, saved only by one host
       ;; adapter's coercion.
       ;;
-      ;; rf2-37o5by — the default projector's 400 arm is GATED on a
+      ;; The default projector's 400 arm is GATED on a
       ;; CLIENT-surface `:where` (`:event` / `:cofx`). A server-fx arg failure
       ;; is a SERVER-side defect: a server handler built a malformed fx args
       ;; map. That is not bad client input, so it must NOT mislabel as a
@@ -2883,8 +2865,7 @@
         (is (not= "not-an-int" (:status response))
             "the malformed status was skipped — never reached the accumulator")
         (is (integer? (:status response))
-            "the wire status is an integer (the gap rf2-kjf3m.2 opened and
-             rf2-dtpfv closed in every build)")
+            "the wire status is an integer, in every build")
         (is (= 500 (:status response))
             "surfaced as 500 :internal-error — the 400 arm is gated to
              :where :event/:cofx")))
@@ -2932,10 +2913,10 @@
              §Redirect precedence step 1")))
 
     (testing ":rf.server/safe-redirect with a non-int :status"
-      ;; rf2-wtd8z finding 1: pre-fix safe-redirect carried only :platforms —
-      ;; no :schema — so a valid-location-but-non-int-:status arg passed the
-      ;; (absent) boundary and safe-redirect-fx's step-5 pass wrote the string
-      ;; :status straight onto the response accumulator.
+      ;; Without a :schema on safe-redirect, a valid-location-but-non-int-
+      ;; :status arg would pass the (absent) boundary and safe-redirect-fx's
+      ;; step-5 pass would write the string :status straight onto the
+      ;; response accumulator.
       (let [{:keys [response]} (drive-server-fx! [:rf.server/safe-redirect
                                                   {:location "/ok" :status "not-int"}])]
         (is (nil? (:redirect response))
@@ -2954,7 +2935,7 @@
 
     (testing ":rf.server/redirect with no target key PASSES — the warn path,
               not a rejection"
-      ;; rf2-ee38b.11 + the live half of decision rf2-cwfy2: a redirect with
+      ;; A redirect with
       ;; no :location/:url/:to is NOT a structural error — the schema is
       ;; permissive (all target keys optional, zero allowed) so the no-target
       ;; case PASSES the Spec 010 §step-5 boundary and falls through to the
@@ -2963,7 +2944,7 @@
       ;; the last line — it emits :rf.ssr/ssr-redirect-no-target + a 3xx with
       ;; no Location header so the defect is observable. A schema [:fn]
       ;; requiring a target would 400 here BEFORE the warn→302 path runs,
-      ;; contradicting ee38b.11. This is the NON-VACUITY control for the
+      ;; contradicting that path. This is the NON-VACUITY control for the
       ;; whole table above: without it, every §1 claim would be satisfied by
       ;; a boundary that refused everything.
       (let [{:keys [response]} (drive-server-fx! [:rf.server/redirect {:status 302}])]
@@ -2972,10 +2953,10 @@
              the adapter's warn+302 path takes over downstream"))))
 
   ;; -------------------------------------------------------------------------
-  ;; §2 — DEV ARM. The rich step-5 diagnostic, kept VERBATIM.
+  ;; §2 — DEV ARM. The rich step-5 diagnostic.
   ;; -------------------------------------------------------------------------
   (when rf.interop/debug-enabled?
-    (testing "rf2-lwtlk DEV ARM — with schemas live the Spec 010 §step-5
+    (testing "DEV ARM — with schemas live the Spec 010 §step-5
               boundary rejects FIRST, so the programmer gets the RICH
               diagnostic: :rf.error/schema-validation-failure :where :fx-args,
               naming the failing fx and path, with the fx :skipped and the
@@ -2987,7 +2968,7 @@
         (expect-fx-args-schema-failure!
           (:dev-traces (drive-server-fx! fx-vec)) fx-id label)))
 
-    (testing "rf2-lwtlk DEV ARM (the negative) — the permissive redirect
+    (testing "DEV ARM (the negative) — the permissive redirect
               schema does NOT reject the no-target case. This is a NEGATIVE
               over the dev trace ring, so under the production gate it would
               pass with the step-5 boundary removed altogether; it belongs in
@@ -3007,14 +2988,14 @@
   ;;      release build, and the one an off-box shipper actually receives.
   ;; -------------------------------------------------------------------------
   (when-not rf.interop/debug-enabled?
-    (testing "rf2-lwtlk PRODUCTION ARM — with step-5 compiled out, the
-              reserved fx's OWN guard (rf2-dtpfv, re-frame.ssr.response)
+    (testing "PRODUCTION ARM — with step-5 compiled out, the
+              reserved fx's OWN guard (re-frame.ssr.response)
               throws, `re-frame.fx` containment catches it, and
               `emit-fx-error!` fans an ALWAYS-ON
               :rf.error/fx-handler-exception naming the offending fx. That
               record is what reaches Sentry / Datadog / the frame-owned
               :observability :errors sink in the build that ships — unlike
-              the silent accumulator write this replaced, which was visible
+              a silent accumulator write, which would be visible
               only as a malformed HTTP response."
       (doseq [[label fx-id fx-vec] malformed-server-fx]
         (let [{:keys [records]} (drive-server-fx! fx-vec)
@@ -3028,7 +3009,7 @@
                    " saw: " (pr-str (mapv :failing-id hits)))))))))
 
 (deftest ssr-server-fx-args-schema-accepts-well-formed
-  (testing "rf2-kjf3m.2 — regression guard: well-formed server fx args pass
+  (testing "well-formed server fx args pass
             the :schema boundary cleanly (no :rf.error/schema-validation-
             failure) and land on the accumulator. The boundary rejects the
             malformed and admits the valid — it is not a blanket gate."
@@ -3047,7 +3028,7 @@
           traces (capture-schema-failures!
                    (fn [] (rf/dispatch-sync [:good/all] {:frame f})))
           resp   (get-response f)]
-      ;; rf2-lwtlk — DEV ARM. A negative over the dev trace ring passes
+      ;; DEV ARM. A negative over the dev trace ring passes
       ;; AUTOMATICALLY under `-Dre-frame.debug=false`, where the ring is
       ;; empty for every input, so outside an arm this would report "the
       ;; boundary admitted the valid" in a build that has no boundary. The
@@ -3070,9 +3051,9 @@
       (is (= {:status 302 :location "/dashboard"} (:redirect resp))
           "redirect landed")))
 
-  (testing "rf2-wtd8z finding 1 — a well-formed :rf.server/safe-redirect
+  (testing "a well-formed :rf.server/safe-redirect
             (string :location, int :status, boolean :relative-only?,
-            vector :allow) passes the new :rf.fx.server/safe-redirect-args
+            vector :allow) passes the :rf.fx.server/safe-redirect-args
             boundary cleanly and lands its redirect"
     (rf/reg-event :good/safe-redirect
       (fn [_ _]
@@ -3085,7 +3066,7 @@
           traces (capture-schema-failures!
                    (fn [] (rf/dispatch-sync [:good/safe-redirect] {:frame f})))
           resp   (get-response f)]
-      ;; rf2-lwtlk — DEV ARM, same reasoning as its sibling above: a negative
+      ;; DEV ARM, same reasoning as its sibling above: a negative
       ;; over an empty ring. The landing assertions that follow carry the
       ;; posture-independent half.
       (when rf.interop/debug-enabled?
@@ -3101,8 +3082,7 @@
           "the int :status flowed through"))))
 
 ;; ===========================================================================
-;; ssr-with-fx-override / ssr-end-to-end — relocated from core/smoke_test.clj
-;; (rf2-zqar3). The :fx-overrides redirect and the dispatch-sync →
+;; ssr-with-fx-override / ssr-end-to-end. The :fx-overrides redirect and the dispatch-sync →
 ;; render-to-string → embedded-hash flow are concise smoke complements to
 ;; ssr-full-request-lifecycle above; they pin the override + hash-emit
 ;; paths without the per-request frame ceremony.
@@ -3165,10 +3145,9 @@
     ;; registers through the plain-fn surface `reg-view*` with an explicit
     ;; id, giving an id to look the handle up by and no Var to reach for.
     ;;
-    ;; rf2-j81hs — this previously read "exercises the keyword-id
-    ;; [:pages/articles] hiccup head". That head no longer references a
+    ;; A keyword-id [:pages/articles] hiccup head references no
     ;; view on ANY host: a keyword head is a DOM / custom element
-    ;; everywhere, so `[:pages/articles]` now paints an empty
+    ;; everywhere, so `[:pages/articles]` would paint an empty
     ;; `<articles>` element and the assertions below would fail.
     (rf/reg-view* :pages/articles
       (fn []
