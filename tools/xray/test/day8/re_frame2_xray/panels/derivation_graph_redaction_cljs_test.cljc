@@ -62,9 +62,11 @@
        opaque identity across every position); the per-position + idempotence
        depth lives in derivation-conformance."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
+            [re-frame.identity :as rf.identity]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.panels.derivation-graph-helpers :as h]))
@@ -352,14 +354,33 @@
             :owner [:route :route/article 17]}]})
 
 (defn- contains-secret?
-  "Deep-walk `v`; true iff the raw secret token string appears ANYWHERE."
+  "Deep-walk `v`; true iff the raw secret token appears ANYWHERE, map keys
+  included: as a whole string leaf, EMBEDDED in a larger string (a CEDN-1
+  token such as `v[k::rf.scope/tenant s:\"<secret>\"]` carries the raw
+  value inside it), or inside the printed form of any other leaf, such as
+  a keyword or symbol built from it. The derivation-conformance
+  predicate, ported (rf2-3x7nj.20.1, rf2-413u0)."
   [v]
   (boolean
     (cond
-      (= v secret-token) true
-      (map? v)           (some contains-secret? (concat (keys v) (vals v)))
-      (coll? v)          (some contains-secret? v)
-      :else              false)))
+      (string? v) (str/includes? v secret-token)
+      (map? v)    (some contains-secret? (concat (keys v) (vals v)))
+      (coll? v)   (some contains-secret? v)
+      :else       (str/includes? (pr-str v) secret-token))))
+
+(deftest leak-predicate-catches-an-embedded-secret-rf2-413u0
+  ;; Every "no raw secret survives" assertion below is only as strong as
+  ;; `contains-secret?`. A handle minted from the CEDN-1 token instead of
+  ;; its digest carries the secret INSIDE a larger string, and a predicate
+  ;; matching only a leaf EQUAL to the secret let it pass — the defect
+  ;; rf2-3x7nj.20.1 fixed in derivation-conformance, ported here.
+  (let [leaking [:rf.resource/opaque (rf.identity/canonical-bytes secret-scope)]]
+    (is (not-any? #(= secret-token %) leaking)
+        "sanity: no leaf of the leaking handle EQUALS the secret")
+    (is (contains-secret? leaking)
+        "the predicate finds the secret embedded in the token string"))
+  (is (contains-secret? {:tenant (keyword "tenant" secret-token)})
+      "and in a keyword built from it"))
 
 (defn- projected-scoped-key?
   "True when `v` keeps the 3-tuple scoped-key SHAPE after projection —
