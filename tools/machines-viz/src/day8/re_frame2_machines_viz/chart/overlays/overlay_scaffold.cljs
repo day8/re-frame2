@@ -15,8 +15,8 @@
 
   CLJS-only: the lifecycle + DOM ref plumbing is browser-specific
   (`reagent.core/create-class`, `js/window`, `offsetParent`). The PURE
-  anchoring geometry stays in `overlay-anchor.cljc` so the JVM test
-  corpus keeps pinning it without loading Reagent."
+  anchoring geometry lives in `overlay-anchor.cljc` so the JVM test
+  corpus pins it without loading Reagent."
   (:require [reagent.core :as r]))
 
 (defn make-resizing-overlay-class
