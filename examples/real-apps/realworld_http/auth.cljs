@@ -27,7 +27,11 @@
             ;; own snapshot `:data` schema (AuthFlowData) is app-local.
             [realworld-shared.schema :as schema]
             [realworld-http.schema :as app-schema]
-            [realworld-http.http :as rh])
+            [realworld-http.http :as rh]
+            ;; For the comment form's empty defaults, which `:auth/clear-session`
+            ;; puts back. comments.cljs requires nothing of ours but `http`, so
+            ;; this closes no cycle.
+            [realworld-http.comments :as comments])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
@@ -208,11 +212,18 @@
   (fn [{:keys [db]} [_ user]]
     {:db (store-session-db db user)}))
 
+;; The unsent comment draft leaves with the session. It is the departing
+;; user's words, and `:comments/load` keeps the form on a SAME-slug re-entry
+;; (a refresh must not eat what the reader is typing), so without this the
+;; next account to open that article finds them in its own comment box. The
+;; form is a boot-time singleton here, seeded once rather than on route
+;; entry, so it goes back to its empty defaults rather than away.
 (rf/reg-event :auth/clear-session
   (fn [{:keys [db]} _]
     {:db (-> db
         (assoc-in [:auth :user] nil)
-        (assoc-in [:auth :token] nil))}))
+        (assoc-in [:auth :token] nil)
+        (assoc :comment-form (comments/comment-form-defaults)))}))
 
 ;; ONE definition of "we don't know who this is yet", used from two places that
 ;; must not be allowed to drift: the `:auth/restoring-session?` sub (views) and
@@ -420,6 +431,7 @@
     ;; ready for the next account to PUT onto its own settings) and the
     ;; authenticated feed's articles. The rule is that no per-user state
     ;; outlives the session; the auth slice is merely the part of it auth owns.
+    ;; (The unsent comment draft goes with `:auth/clear-session` itself.)
     ;; Both are plain event vectors, so this namespace needs no require on the
     ;; two that register them — settings.cljs already requires THIS one, and a
     ;; require back would close the cycle.

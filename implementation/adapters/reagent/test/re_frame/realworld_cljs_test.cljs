@@ -2832,6 +2832,33 @@
              (:body (rf/compute-sub [:comment-form/draft] (rf/frame-state-value f))))
           "a same-slug comments refresh leaves the in-progress draft alone"))))
 
+(defn- comment-draft-leaves-with-the-session-test []
+  ;; rf2-5yf3i — the PRINCIPAL crossing. The refresh rule above keeps the form
+  ;; on a same-slug re-entry, so a logout that left it alone handed alice's
+  ;; unsent words to the next account to open that article.
+  (with-held-comment-fx :realworld.test/comment-form-logout
+    (fn [f lowered]
+      ;; Credential-free machine signals, so the logout below runs the
+      ;; machine's own `:clear-session` action.
+      (rf/dispatch-sync [:auth/flow [:auth/login]] {:frame f})
+      (rf/dispatch-sync [:auth/flow [:auth/success]] {:frame f})
+      (is (= :authed (rf/compute-sub [:auth/state] (rf/frame-state-value f))) "alice is signed in")
+      (rf/dispatch-sync [:rf.route/handle-url-change "/article/alpha"] {:frame f})
+      (settle-comments-ok! f (req-by-id @lowered [:comments/load "alpha"]) "alpha")
+      (rf/dispatch-sync [:comment-form/edit-field :body "alice's unsent words"] {:frame f})
+      (rf/dispatch-sync [:auth/flow [:auth/logout]] {:frame f})
+      (is (nil? (rf/compute-sub [:auth/user] (rf/frame-state-value f))) "alice has logged out")
+      (rf/dispatch-sync [:auth/store-session {:username "bob" :email "b@b.c"
+                                              :token "jwt-bob" :bio nil :image nil}]
+                        {:frame f})
+      (rf/dispatch-sync [:rf.route/handle-url-change "/article/alpha"] {:frame f})
+      (is (= :fetching (:status (comments-slice* f)))
+          "the control - bob's entry to alpha is a same-slug REFRESH, the branch that keeps the form")
+      (is (= "" (:body (rf/compute-sub [:comment-form/draft] (rf/frame-state-value f))))
+          "so the empty box bob sees is the logout's doing, not a new-article reset")
+      (is (false? (rf/compute-sub [:comment-form/submitting?] (rf/frame-state-value f)))
+          "and it is a usable form at its defaults, not a missing one"))))
+
 (deftest realworld-comment-mutations-cross-slug
   (testing "a LATE alpha comment-submit SUCCESS cannot reset beta's form or
             splice alpha's saved comment into beta's list (rf2-84iek)"
@@ -2850,7 +2877,10 @@
     (comment-form-is-released-on-slug-change-test))
   (testing "…while a same-slug refresh leaves an in-progress draft alone
             (rf2-84iek)"
-    (comment-form-survives-same-slug-refresh-test)))
+    (comment-form-survives-same-slug-refresh-test))
+  (testing "…and a logout takes the unsent draft with it, so the next account
+            on the same article does not inherit it (rf2-5yf3i)"
+    (comment-draft-leaves-with-the-session-test)))
 
 ;; ============================================================================
 ;; article page — the SOCIAL settles stay owned by the route too (rf2-amhpk)
