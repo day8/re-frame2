@@ -69,18 +69,18 @@
   response-slots
   (atom {}))
 
-;; ---- the reserved `:rf.server/*` ARGS SHAPE gate (rf2-dtpfv) -------------
+;; ---- the reserved `:rf.server/*` ARGS SHAPE gate -------------------------
 ;;
-;; WHAT WAS BROKEN. Spec 010 §Validation-order step 5 validates an fx's args
+;; WHY IT EXISTS. Spec 010 §Validation-order step 5 validates an fx's args
 ;; against the `:schema` on its registration meta, and Spec 010 §Per-step
 ;; recovery row 5 says the offending fx is `:skipped`. That gate is
 ;; `re-frame.schemas.validate/validate-fx!`, whose body is
 ;; `(if interop/debug-enabled? (run-validation …) true)` — and
 ;; `interop/debug-enabled?` is read ONCE at namespace-load time. Under
 ;; `-Dre-frame.debug=false` the boundary therefore does not run AT ALL and
-;; nothing is skipped: a malformed reserved fx RUNS, and its args land on the
-;; per-request response accumulator that `ssr/get-response` publishes to every
-;; host adapter. Measured at that surface before this gate existed:
+;; nothing is skipped: without this gate a malformed reserved fx would RUN, and
+;; its args would land on the per-request response accumulator that
+;; `ssr/get-response` publishes to every host adapter:
 ;;
 ;;   [:rf.server/set-status "not-an-int"]              → :status "not-an-int"
 ;;   [:rf.server/set-header {:name "X-Foo"}]           → ["X-Foo" nil]
@@ -88,8 +88,8 @@
 ;;   [:rf.server/safe-redirect {:location "/ok"
 ;;                              :status "not-int"}]    → the malformed redirect
 ;;
-;; THE RULING (rf2-dtpfv, option (b)). The general step-5 gate for USER fx
-;; stays dev-only — trust-the-programmer covers user declarations, and paying
+;; THE RULE. The general step-5 gate for USER fx
+;; is dev-only — trust-the-programmer covers user declarations, and paying
 ;; a hot-path validation cost in every app to protect seven closed framework
 ;; effects is posture-hostile. What trust-the-programmer does NOT cover is the
 ;; framework's own wire-adjacent contract: these seven fx are a CLOSED set the
@@ -98,19 +98,19 @@
 ;; which build you are running. So the reserved family guards its own args
 ;; UNCONDITIONALLY, in every build.
 ;;
-;; This is not a new ownership pattern — it COMPLETES the one already in this
-;; file. `validate-header-name!` / `validate-header-value!` /
+;; This is the ownership pattern the wire-grammar gates in this file follow.
+;; `validate-header-name!` / `validate-header-value!` /
 ;; `validate-cookie-name!` / `validate-cookie-attr!` /
 ;; `validate-redirect-location!` all `error/throw-error!` unconditionally
 ;; before `swap-response!`, covering the CR/LF/NUL + token-grammar injection
 ;; surface. They are the WIRE-GRAMMAR half. This section is the SHAPE half:
 ;; the published TYPE contract of each args map (Spec 011 §Standard fx), which
-;; nothing enforced outside a debug build.
+;; nothing else enforces outside a debug build.
 ;;
 ;; MECHANISM — throw-through-containment, not skip-silently. The guards throw
 ;; the canonical `re-frame.error/throw-error!` BEFORE the first
 ;; `swap-response!`. The registered-fx containment in `re-frame.fx` then
-;; supplies the wanted semantics with zero new machinery: the accumulator is
+;; supplies the wanted semantics with no machinery of its own: the accumulator is
 ;; never mutated, sibling fx in the same `:fx` vector still run, an ALWAYS-ON
 ;; `:rf.error/fx-handler-exception` record survives production, and SSR's error
 ;; projection serves the sanitised 500. Fail-closed is right for a
@@ -119,44 +119,44 @@
 ;;
 ;; TAXONOMY — the line this gate does NOT cross. A malformed framework CALL is
 ;; a programmer error and throws. An untrusted-INPUT policy decision — a
-;; `:rf.server/safe-redirect` target that parses but points off-origin — stays
-;; the existing non-projecting emit-and-no-op (see `safe-redirect-fx`). A
-;; caller-untrusted `:location` that is a STRING reaches the five-step gate
-;; exactly as before; only a `:location` that is not a string at all (a
+;; `:rf.server/safe-redirect` target that parses but points off-origin — is
+;; the non-projecting emit-and-no-op (see `safe-redirect-fx`). A
+;; caller-untrusted `:location` that is a STRING reaches the five-step gate;
+;; only a `:location` that is not a string at all (a
 ;; missing key, a keyword, a URI object) is a call the programmer got wrong.
 ;;
-;; POSTURE. The recovery PATH still differs by build, and that is documented
+;; POSTURE. The recovery PATH differs by build, and that is documented
 ;; rather than hidden: dev-with-schemas gets the Malli step-5 skip plus its
 ;; rich `:where :fx-args` diagnostic and the page still renders; production (or
 ;; a schemas-less dev build) gets this guard's throw → containment → always-on
-;; record → sanitised 500. What no longer differs is the thing that matters:
+;; record → sanitised 500. What does not differ is the thing that matters:
 ;; `get-response` never yields a malformed `:rf/response` shape in ANY build.
 ;;
 ;; ONE SHAPE, NOT TWO. The guard here and the Malli `:rf.fx.server/*-args`
 ;; schemas in `re-frame.ssr.server-fx-schemas` are two enforcements of ONE
-;; published contract, so wherever they disagreed the accumulator was still
-;; posture-dependent — the defect above, wearing a smaller hat. The audit of
-;; the first fix found two such disagreements, and both are now settled the
-;; same way: by the shape Spec 011 §Standard fx publishes.
+;; published contract, so wherever they disagreed the accumulator would be
+;; posture-dependent again — the defect above, wearing a smaller hat. Two
+;; places they could disagree are settled the same way: by the shape Spec 011
+;; §Standard fx publishes.
 ;;
 ;;   AN OPTIONAL KEY PRESENT WITH `nil` IS ABSENT. `{:path nil}` and `{}` say
 ;;   the same thing in Clojure, and code that builds a cookie out of an options
 ;;   map (`{:secure (:secure? opts)}`) writes the first while meaning the
-;;   second. The guards read it that way already; the schemas did not, so
-;;   `{:secure nil}` was skipped in dev and persisted in production. The
-;;   optional slots are now `[:maybe …]` and BOTH halves read a present `nil`
-;;   as absent. A REQUIRED key is untouched — `{:value nil}` is still a missing
-;;   `:value`, and `nil` is still not a status.
+;;   second. The optional schema slots are `[:maybe …]`, so BOTH halves read a
+;;   present `nil` as absent; a schema that did not would skip `{:secure nil}`
+;;   in dev while the guard persisted it in production. A REQUIRED key is
+;;   different — `{:value nil}` is a missing `:value`, and `nil` is not a
+;;   status.
 ;;
-;;   A COOKIE `:name` IS A STRING. `validate-cookie-name!` admitted a keyword
+;;   A COOKIE `:name` IS A STRING. `validate-cookie-name!` admits a keyword
 ;;   or symbol (`(name n)` accepts either), while the schemas, Spec 011 §Cookie
-;;   shape and Spec-Schemas all published `:string` — so `{:name :csrf}` was
-;;   skipped in dev, landed in production, and reached every host adapter as a
-;;   keyword where the contract promised a string. Publishing the tolerance
-;;   instead would have handed every non-Ring adapter a `Named` to unwrap, and
-;;   pushing work onto adapters is the option this bead's ruling rejected. So
-;;   the fx boundary now holds `:name` to the published type, exactly as
-;;   `set-header-fx` holds a header `:name` to it. The Ring materialiser keeps
+;;   shape and Spec-Schemas all publish `:string` — so without a type check
+;;   `{:name :csrf}` would be skipped in dev, land in production, and reach
+;;   every host adapter as a keyword where the contract promises a string.
+;;   Publishing the tolerance instead would hand every non-Ring adapter a
+;;   `Named` to unwrap, pushing work onto adapters. So the fx boundary holds
+;;   `:name` to the published type, exactly as `set-header-fx` holds a header
+;;   `:name` to it. The Ring materialiser keeps
 ;;   its own `Named` tolerance: it is the last line for a host that writes the
 ;;   accumulator directly, which is defence-in-depth, not this contract.
 ;;
@@ -188,15 +188,13 @@
   EP-0015-safe SHAPE summary (`{:type … :count …}`), which is also
   precisely what a type violation needs to be diagnosable.
 
-  That summary is content-free BY CONSTRUCTION (rf2-210uq): it carries a
+  That summary is content-free BY CONSTRUCTION: it carries a
   closed-vocabulary `:type` keyword and an integer `:count`, and nothing
   else, so this site may hand it a session token without further thought.
-  It did NOT hold when this guard landed — the summary then carried a raw
-  24-char `:head` (a short token rode back whole) and a map's uncapped
-  `:keys` — which is why WHICH argument failed rides the separate `:key`
-  slot below rather than being recovered from the value. A structural
-  identifier travels through an explicitly trusted field; the summary is
-  never asked to guess that an app-supplied value is structural."
+  WHICH argument failed rides the separate `:key` slot below rather than
+  being recovered from the value: a structural identifier travels through
+  an explicitly trusted field, and the summary is never asked to guess that
+  an app-supplied value is structural."
   [fx-id arg-key value expected]
   (rf.error/throw-error!
     :rf.error/server-fx-args-invalid
@@ -224,10 +222,10 @@
 
 (defn- validate-status!
   "Throw `:rf.error/server-fx-args-invalid` unless `status` is an integer in
-  the RFC 9110 §15 status-code range. A non-integer status is the bead's
-  headline defect: it rode onto the accumulator, and only the Ring adapter's
+  the RFC 9110 §15 status-code range. Without it a non-integer status would
+  ride onto the accumulator, and only the Ring adapter's
   `fail-closed-status` (host-specific, and silent on a production JVM)
-  stopped it reaching a wire. Shared by `:rf.server/set-status` and by both
+  would stop it reaching a wire. Shared by `:rf.server/set-status` and by both
   redirect fx, whose `:status` flows through to `:status` per Spec 011
   §Redirect precedence step 1."
   [fx-id status]
@@ -248,7 +246,7 @@
 
 (def ^:private cookie-attr-shape
   "The published TYPE contract of the `:rf.server/cookie` attributes, as a
-  table of `[attr-key required? pred expected]`. Kept as an explicit literal
+  table of `[attr-key required? pred expected]`. Spelled as an explicit literal
   for the same reason `checked-cookie-attrs` below is: the accepted shape is
   auditable in place rather than implied by a call sequence.
 
@@ -263,7 +261,7 @@
   says. `ssr-reserved-fx-guards-test`'s acceptance corpus drives this table
   and the Malli schema from one literal so the two cannot drift.
 
-  `:name` is NOT here — it keeps its own richer gate
+  `:name` is NOT here — it has its own richer gate
   (`validate-cookie-name!`) for the nil / unsupported-type / token-grammar
   cases, and `validate-cookie!` then holds it to the published `:string` the
   same way `set-header-fx` holds a header `:name` to it."
@@ -286,7 +284,7 @@
 
   An explicit `nil` counts as absent for an OPTIONAL attribute — the same
   `(some? v)` convention `validate-cookie!` applies to the injection gate, the
-  reading every downstream consumer already takes (`ssr-ring`'s materialiser
+  reading every downstream consumer takes (`ssr-ring`'s materialiser
   appends `Path=` only `(when path)`), and the one Clojure gives a map entry
   whose value is `nil`. `re-frame.ssr.server-fx-schemas/cookie` spells the same
   rule `[:maybe …]` so the dev boundary cannot disagree with this one. For a
@@ -311,7 +309,7 @@
 ;; than the Ring materialiser so misuse surfaces with the dispatching
 ;; event in scope rather than as a deep host-adapter exception.
 ;;
-;; Decision: fail-fast (throw) rather than strip-and-warn. A header
+;; Fail fast (throw) rather than strip-and-warn. A header
 ;; value with CR/LF has no safe interpretation — strip-and-warn would
 ;; silently mutate the wire shape and leave a CRLF-shaped string-equal
 ;; comparison failing later in tests.
@@ -416,8 +414,8 @@
   (`(name cookie-name)` reads either) and is then refused by the always-on
   SHAPE gate in `validate-cookie!`, which holds `:name` to the `:string`
   Spec 011 §Cookie shape publishes. The split is deliberate and mirrors
-  `set-header-fx`: the values this gate refuses keep the specific catalogued
-  id they have always thrown, and what the type check adds — a name that is
+  `set-header-fx`: the values this gate refuses throw its specific
+  catalogued id, and what the type check adds — a name that is
   not a `Named` at all — is the case `(name cookie-name)` cannot survive."
   [cookie-name]
   (when (nil? cookie-name)
@@ -553,17 +551,17 @@
   rather than splitting the header on a non-Ring host."
   [fx-id cookie]
   (validate-args-map! fx-id cookie)
-  ;; Name first, so a name-less cookie keeps the catalogued
-  ;; `:rf.error/cookie-invalid-name` it has always thrown; SHAPE next
-  ;; (rf2-dtpfv), so a `:value`-less cookie no longer reaches the
-  ;; accumulator in a release build; the injection gate last, on values now
-  ;; known to be well-typed.
+  ;; Name first, so a name-less cookie throws the catalogued
+  ;; `:rf.error/cookie-invalid-name`; SHAPE next, so a `:value`-less cookie
+  ;; never reaches the accumulator in a release build; the injection gate
+  ;; last, on values known to be well-typed.
   (validate-cookie-name!  (:name cookie))
   ;; …then narrow `:name` to the published `:string`. A keyword / symbol name
   ;; passes the gate above — `(name :csrf)` is a fine token — but the schemas,
-  ;; Spec 011 §Cookie shape and Spec-Schemas all publish `:string`, so it was
-  ;; skipped in dev and persisted in production, reaching host adapters as a
-  ;; keyword where the contract promised a string. Same ordering as
+  ;; Spec 011 §Cookie shape and Spec-Schemas all publish `:string`, so without
+  ;; this narrowing it would be skipped in dev and persisted in production,
+  ;; reaching host adapters as a keyword where the contract promises a
+  ;; string. Same ordering as
   ;; `set-header-fx`: grammar gate first with its own catalogued id, shape gate
   ;; second.
   (validate-string-arg!   fx-id :name (:name cookie))
@@ -681,9 +679,9 @@
 (defn set-status-fx
   "Handler fn for `:rf.server/set-status`. Last-write-wins; multi-write
   emits `:rf.warning/multiple-status-set`. Throws
-  `:rf.error/server-fx-args-invalid` — in EVERY build (rf2-dtpfv) — unless
-  the status is an integer in 100–599, so a string status can no longer
-  reach `ssr/get-response`."
+  `:rf.error/server-fx-args-invalid` — in EVERY build — unless
+  the status is an integer in 100–599, so a string status never
+  reaches `ssr/get-response`."
   [{:keys [frame]} status]
   (validate-status! :rf.server/set-status status)
   (let [updated-response (swap-response!
@@ -701,16 +699,17 @@
   `:rf.error/header-invalid-name` on a name violating the RFC 7230
   §3.2.6 token grammar, and `:rf.error/header-invalid-value` on a value
   carrying CR/LF/NUL. Throws `:rf.error/server-fx-args-invalid` — in EVERY
-  build (rf2-dtpfv) — on a non-string `:name` / `:value`, so a `:value`-less
-  call can no longer put `[\"X-Foo\" nil]` on the accumulator."
+  build — on a non-string `:name` / `:value`, so a `:value`-less
+  call never puts `[\"X-Foo\" nil]` on the accumulator."
   [{:keys [frame]} {:keys [name value] :as args}]
   (validate-args-map!    :rf.server/set-header args)
   (validate-header-name! name)
   ;; The string gate runs AFTER the grammar gate so a nil / keyword `:name`
-  ;; keeps the catalogued `:rf.error/header-invalid-name` it has always
-  ;; thrown ("" and ":x-foo" both fail the token grammar); what it adds is
+  ;; throws the catalogued `:rf.error/header-invalid-name`
+  ;; ("" and ":x-foo" both fail the token grammar); what it adds is
   ;; the case the grammar cannot see — a symbol or a number, which `(str …)`
-  ;; renders as a perfectly legal token and which therefore used to pass.
+  ;; renders as a perfectly legal token and which would therefore pass the
+  ;; grammar gate alone.
   (validate-string-arg!  :rf.server/set-header :name  name)
   (validate-string-arg!  :rf.server/set-header :value value)
   (validate-header-value! name value)
@@ -725,7 +724,7 @@
   headers. Throws `:rf.error/header-invalid-name` on a name violating the
   RFC 7230 §3.2.6 token grammar, and `:rf.error/header-invalid-value` on a
   value carrying CR/LF/NUL. Throws `:rf.error/server-fx-args-invalid` — in
-  EVERY build (rf2-dtpfv) — on a non-string `:name` / `:value`; see
+  EVERY build — on a non-string `:name` / `:value`; see
   `set-header-fx` for why the string gate follows the grammar gate."
   [{:keys [frame]} {:keys [name value] :as args}]
   (validate-args-map!    :rf.server/append-header args)
@@ -745,14 +744,14 @@
   the RFC 6265 §4.1.1 token grammar, and the single catalogued
   `:rf.error/cookie-invalid-attribute` (carrying the offending
   `:attribute` + `:value` in its payload) on a CRLF/NUL-bearing
-  attribute string — rf2-z7gor gates the structured cookie at the fx
+  attribute string — the structured cookie is gated at the fx
   boundary so non-ring host adapters get the same safety the ring
-  materialiser (rf2-rpedl) provides at wire-write time, and rf2-xrk4w1
-  collapses the per-attribute injection failures onto the one catalogued
-  id the ring serialiser already throws. Throws
-  `:rf.error/server-fx-args-invalid` — in EVERY build (rf2-dtpfv) — on an
-  attribute violating its published type, so a `:value`-less cookie can no
-  longer reach `ssr/get-response`. `:name` is held to the published `:string`;
+  materialiser provides at wire-write time, and the per-attribute
+  injection failures share the one catalogued id the ring serialiser
+  throws. Throws
+  `:rf.error/server-fx-args-invalid` — in EVERY build — on an
+  attribute violating its published type, so a `:value`-less cookie never
+  reaches `ssr/get-response`. `:name` is held to the published `:string`;
   an optional attribute present with `nil` reads as absent."
   [{:keys [frame]} cookie-map]
   (validate-cookie! :rf.server/set-cookie cookie-map)
@@ -765,7 +764,7 @@
   "Handler fn for `:rf.server/delete-cookie`. Sugar over set-cookie
   with :max-age 0 and an empty :value. Applies the same name, path, and
   domain validation as `set-cookie-fx` — including the always-on
-  `:rf.error/server-fx-args-invalid` shape gate (rf2-dtpfv), which reaches
+  `:rf.error/server-fx-args-invalid` shape gate, which reaches
   this fx's caller-supplied `:path` / `:domain` through the synthesised
   cookie (`:value` / `:max-age` are framework-supplied and well-formed by
   construction)."
@@ -844,10 +843,10 @@
   schemes, and supports `:relative-only?` / `:allow [...]` policies.
   See Spec 011 §HTTP response contract §Standard fx.
 
-  Throws `:rf.error/server-fx-args-invalid` — in EVERY build (rf2-dtpfv) —
+  Throws `:rf.error/server-fx-args-invalid` — in EVERY build —
   on a non-string `:location` or a `:status` outside the integer 100–599
-  range. The documented NO-TARGET graceful path is untouched: `:location`
-  stays OPTIONAL, so a target-less redirect still sets `:redirect` and still
+  range. The documented NO-TARGET graceful path stands: `:location`
+  is OPTIONAL, so a target-less redirect sets `:redirect` and
   falls through to the adapter's `:rf.ssr/ssr-redirect-no-target` warn→3xx."
   [{:keys [frame]} redirect-map]
   (validate-args-map! :rf.server/redirect redirect-map)
@@ -855,9 +854,9 @@
   (let [;; The canonical and only redirect target key.
         location  (:location redirect-map)
         _         (when (some? location)
-                    ;; SHAPE first (rf2-dtpfv): the CR/LF/NUL gate below
-                    ;; `str`-coerces, so a keyword or URI object used to
-                    ;; sail through it and land on the accumulator.
+                    ;; SHAPE first: the CR/LF/NUL gate below
+                    ;; `str`-coerces, so a keyword or URI object would
+                    ;; otherwise sail through it and land on the accumulator.
                     (validate-string-arg! :rf.server/redirect :location location))
         _         (when (some? location)
                     ;; Shared CR/LF/NUL header-splitting gate only — the
@@ -921,7 +920,7 @@
 ;;      `a/b`). A protocol-relative `//evil.example.com` is NOT relative,
 ;;      and neither is `///evil.example.com`: java.net.URI reports that one
 ;;      with no authority at all, but a browser skips the extra slashes and
-;;      takes the next segment as the HOST (rf2-gwye.18).
+;;      takes the next segment as the HOST.
 ;;   4. :allow [...] supplied AND the URL is not a relative reference AND
 ;;      its host is not in the allowlist →
 ;;      :rf.error/safe-redirect-host-disallowed (:reason :not-in-allowlist).
@@ -1012,7 +1011,7 @@
 
   This is the RICH map: it goes to the dev trace as-is, and
   `dispatch-safe-redirect-record!` projects it down to a closed structural
-  subset before the always-on axis sees it (rf2-6jqa8 AUDIT-REOPEN — see
+  subset before the always-on axis sees it (see
   `egress/safe-redirect-record-tags`). That is the ordinary EP-0015
   relationship: a local operator sees their own process in full, and the
   off-box record is a strict projection of it, never a copy. Note that the
@@ -1020,20 +1019,20 @@
   classification of this map's `:scheme`, not a copy of it — so nothing here
   can widen the record by accident.
 
-  EP-0015 (rf2-6jqa8): `:location` is BY CONSTRUCTION caller-untrusted —
+  EP-0015: `:location` is BY CONSTRUCTION caller-untrusted —
   that is the entire reason `:rf.server/safe-redirect` exists as the sibling
   of the caller-trusted `:rf.server/redirect` — and a rejected target
   routinely looks like `?next=https://evil.example.com/cb?token=…`.
   `url-egress/redact-url-tag` — core's ONE URL-carrier policy, reachable from
-  here because it lives in the only artefact SSR depends on (rf2-6l2nc) —
+  here because it lives in the only artefact SSR depends on —
   scrubs the query / fragment carrier VALUES (keeping the structured path, and
   keeping the scheme and host, which on THIS path are the security signal)
   HERE, before the tags reach either axis. So the scrub covers the always-on
   production record exactly as it covers the dev trace.
 
-  What this map still carries, and why that is fine HERE: `:scheme` and
+  What this map carries, and why that is fine HERE: `:scheme` and
   `:host` are parsed out of the caller's URL, so they are caller-authored text
-  however structural they look — the premise the AUDIT-REOPEN corrected — and
+  however structural they look, and
   `:allowlist` is the call's own security configuration. All three are exactly
   right for a programmer reading their own process, and all three are excluded
   from the off-box record for that same reason. `:frame` is a frame id,
@@ -1043,23 +1042,23 @@
       (rf.privacy.url/redact-url-tag :location)))
 
 (defn- dispatch-safe-redirect-record!
-  "Fan the rejected redirect out on the ALWAYS-ON error axis (rf2-6jqa8) —
+  "Fan the rejected redirect out on the ALWAYS-ON error axis —
   the production-survivable sibling of the dev `trace/emit-error!` emitted
   beside it.
 
-  WHY. Until this promotion a rejection reached the outside world ONLY
-  through `trace/emit-error!`, gated on `interop/debug-enabled?`. The
+  WHY. `trace/emit-error!` is gated on `interop/debug-enabled?`. The
   five-step gate itself is production-real and REJECTS correctly under
-  `-Dre-frame.debug=false` — that half was never in doubt — but the
+  `-Dre-frame.debug=false`, but the
   rejection is a silent no-op on the wire (the fx returns nil, the response
-  carries no redirect), so on a production JVM an attacker-supplied
-  `?next=javascript:alert(1)` produced NO Sentry event, NO Datadog metric
-  and NO frame-owned `:observability :errors` record. A security team could
-  not see open-redirect probing against their own app.
+  carries no redirect), so with the dev trace alone an attacker-supplied
+  `?next=javascript:alert(1)` on a production JVM would produce NO Sentry
+  event, NO Datadog metric and NO frame-owned `:observability :errors`
+  record. A security team could not see open-redirect probing against their
+  own app.
 
-  Note the asymmetry that motivated it: the CRLF / NUL gate on the SAME fx
-  THROWS, so it rides `:rf.error/fx-handler-exception` and has always been
-  always-on. Two halves of one security surface had opposite production
+  The CRLF / NUL gate on the SAME fx THROWS, so it rides
+  `:rf.error/fx-handler-exception` and is always-on; without this record
+  the two halves of one security surface would have opposite production
   observability.
 
   The record is the general NON-EVENT union shape — this is not a dispatched-
@@ -1069,7 +1068,7 @@
   `ssr/boot` and `ssr/error-projector` use; a no-op when the hook is unbound.
   Returns nil.
 
-  EGRESS (rf2-6jqa8 AUDIT-REOPEN). `tags` arrives as the DIAGNOSTIC map — the
+  EGRESS. `tags` arrives as the DIAGNOSTIC map — the
   scrubbed `:location`, the `:host`, the `:allowlist`, everything the dev trace
   shows — and this function is the ONE place that reaches an off-box shipper,
   so it is where the diagnostics are projected down to
@@ -1082,16 +1081,16 @@
   Why a projection and not a wider scrub is argued in full in
   `re-frame.ssr.egress`; the short version is that a rejected target is an
   ARBITRARY FOREIGN URL, so the carrier scrub's keep-everything-but-the-
-  carriers shape left userinfo credentials, path-borne tokens and
+  carriers shape would leave userinfo credentials, path-borne tokens and
   attacker-chosen value-less query keys riding out verbatim.
 
   And why CLASSES rather than the parsed components themselves is the second
   half of the same argument: parsing tells you where a substring sat in the
-  grammar, not who wrote it. `:scheme` and `:host` were caller-authored on
-  every arm that carried them — a scheme is arbitrary text under RFC 3986
+  grammar, not who wrote it. `:scheme` and `:host` are caller-authored on
+  every arm that carries them — a scheme is arbitrary text under RFC 3986
   §3.1, a rejected host is by definition one the app did not authorise — so
   each could carry a sentinel and each could be varied per request to flood a
-  metrics dimension. The record now carries the classified `:scheme-class` and
+  metrics dimension. The record carries the classified `:scheme-class` and
   no host at all, leaving no value in it that the caller chose."
   [operation tags]
   (when-let [dispatch-error-record!
@@ -1106,7 +1105,7 @@
   "Fan a structured `:rf.error/safe-redirect-*` rejection along BOTH error
   axes and return nil so the fx body can `(or (emit-...) ...)` to a no-op.
 
-  Axis 1 is the ALWAYS-ON `error-emit` record (rf2-6jqa8) — the half that
+  Axis 1 is the ALWAYS-ON `error-emit` record — the half that
   reaches an off-box shipper in a production build, and which receives a
   closed STRUCTURAL PROJECTION of the map rather than the map. Axis 2 is the
   dev trace, which receives the diagnostics whole. The tag map is built once
@@ -1162,7 +1161,7 @@
   ;; vocabulary mistake.
   (validate-args-map! :rf.server/safe-redirect redirect-map)
   (reject-retired-redirect-keys! redirect-map)
-  ;; SHAPE gate (rf2-dtpfv), always-on, before anything is parsed. Note the
+  ;; SHAPE gate, always-on, before anything is parsed. Note the
   ;; taxonomy line this respects: a malformed CALL is a programmer error and
   ;; throws; an untrusted INPUT that is a well-typed string but points
   ;; off-origin stays the five-step gate's emit-and-no-op below. `:location`
@@ -1210,7 +1209,7 @@
         (cond
           ;; Step 1: parse failure
           (nil? parsed-uri)
-          ;; `:reason` is a closed framework keyword, not prose (rf2-6jqa8):
+          ;; `:reason` is a closed framework keyword, not prose:
           ;; this slot rides the always-on record off-box, where an
           ;; aggregatable value is worth more than a sentence — and free
           ;; prose on an attacker-influenced arm is how raw material finds
@@ -1238,7 +1237,7 @@
                 ;; The policy is based on URL shape, not host presence alone.
                 ;;
                 ;; A raw `//` prefix is a NETWORK-PATH reference whatever
-                ;; java.net.URI makes of it (rf2-gwye.18). URI parses
+                ;; java.net.URI makes of it. URI parses
                 ;; `///evil.example/path` with NO authority, yet a browser
                 ;; skips the extra slashes and navigates to
                 ;; https://evil.example/path. The prefix, not URI's
@@ -1300,7 +1299,7 @@
               ;; whose host java.net.URI cannot extract names none: step 2c
               ;; only catches that for a scheme-bearing URL, while a browser
               ;; still resolves a host for `//evil_example/path` and
-              ;; `///evil.example/path` (rf2-gwye.18). DNS hostnames are
+              ;; `///evil.example/path`. DNS hostnames are
               ;; case-insensitive (RFC 1035 §2.3.3), so lower-case both
               ;; sides — matching the header/cookie token-grammar
               ;; treatment elsewhere in this file.
