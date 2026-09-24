@@ -16,6 +16,8 @@
   Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
   selects it; under its old `-test` name it ran on the JVM only (rf2-1ep8)."
   (:require [clojure.test :refer [deftest is testing]]
+            [re-frame.story.plan :as rf.story.plan]
+            [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.ui.sidebar-signals :as rf.story.ui.sidebar-signals]))
 
 ;; ---- status axis ---------------------------------------------------------
@@ -154,3 +156,46 @@
       (is (= [] (:world-inputs sig)))
       (is (= :headless (get-in sig [:runner-requirement :value])))
       (is (= :fresh (get-in sig [:frame-binding :value]))))))
+
+;; ---- inherited + composed world: the chips agree with the plan -----------
+
+(deftest chips-read-the-world-extends-and-compose-pass-down
+  (testing "rf2-3x7nj.28.5: the sidebar hands `variant-signals` the RAW
+            registered body, as `variant-row` does. An `:extends` child of a
+            pinned variant, or a variant composing a seeding fragment,
+            renders on inherited / composed world, and its chips must say
+            so. The fidelity chips are compared against the compiled plan's
+            `[:world :fidelity]`, the producer of the rung."
+    (rf.story.registrar/clear-all!)
+    (try
+      (rf.story.registrar/reg-fragment* :fragment.fid/seeded {:db-seed {:n 1}})
+      (rf.story.registrar/reg-variant* :story.fid/pinned
+        {:sub-overrides {[:probe/n] 5}
+         :args          {:label "x"}
+         :network       {[:get "/api/cart"] {:reply {:ok {:items []}}}}
+         :fx-overrides  {:rf.http/fetch :stub}})
+      (rf.story.registrar/reg-variant* :story.fid/child
+        {:extends :story.fid/pinned
+         :setup   [[:probe/noop]]})
+      (rf.story.registrar/reg-variant* :story.fid/grandchild
+        {:extends :story.fid/child})
+      (rf.story.registrar/reg-variant* :story.fid/composed
+        {:compose [:fragment.fid/seeded]})
+      (let [signals (fn [vid]
+                      (rf.story.ui.sidebar-signals/variant-signals
+                        (rf.story.registrar/handler-meta :variant vid) :pending))
+            values  (fn [vid axis] (set (map :value (get (signals vid) axis))))]
+        (doseq [vid [:story.fid/pinned :story.fid/child
+                     :story.fid/grandchild :story.fid/composed]]
+          (is (= (get-in (rf.story.plan/variant-plan vid) [:world :fidelity] #{})
+                 (values vid :fidelity))
+              (str vid " — the fidelity chips are the plan's rungs")))
+        (is (= #{:sub-overrides :real-setup} (values :story.fid/child :fidelity))
+            "the child's picture still rests on the inherited pin")
+        (is (= #{:sub-overrides :real-setup} (values :story.fid/grandchild :fidelity))
+            "setup and pin both flow down two levels")
+        (is (= #{:db-seed} (values :story.fid/composed :fidelity))
+            "the composed fragment's seed is the variant's seed")
+        (is (= #{:args :network :fx-overrides} (values :story.fid/child :world-inputs))
+            "the inherited world inputs are the child's world inputs"))
+      (finally (rf.story.registrar/clear-all!)))))

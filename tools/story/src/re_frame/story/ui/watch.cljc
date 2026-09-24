@@ -88,10 +88,11 @@
   [body]
   (some-> body (dissoc :doc :source)))
 
-(defn- extends-ancestors
+(defn extends-ancestors
   "`body`'s `:extends` ancestors, nearest first, as `[id body]` pairs. An
   unregistered parent or a cycle ends the walk; plan construction refuses
-  both with its own error."
+  both with its own error. Public so the sidebar's signal chips walk the
+  same chain (`re-frame.story.ui.sidebar-signals/resolved-body`)."
   [body]
   (loop [pid (:extends body) seen #{} acc []]
     (let [parent (when (and pid (not (contains? seen pid)))
