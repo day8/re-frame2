@@ -688,7 +688,7 @@
 (defn get-handle
   "Read the host handle for `[frame-id work-id]` from the side table, or
   nil (when absent — already cleared, or a transport that records none).
-  Keyed on `[frame-id (work-id-id work-id)]` (rf2-9e0tyq) so a list- and a
+  Keyed on `[frame-id (work-id-id work-id)]` so a list- and a
   vector-params work-id never collapse in the side table."
   [frame-id work-id]
   (get @handle-table [frame-id (work-id-id work-id)]))
