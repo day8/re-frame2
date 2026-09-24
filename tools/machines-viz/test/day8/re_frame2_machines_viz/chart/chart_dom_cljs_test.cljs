@@ -1,17 +1,14 @@
 (ns day8.re-frame2-machines-viz.chart.chart-dom-cljs-test
-  "Browser-side CLJS visual-pin tests for the xyflow `MachineChart`
-  (rf2-y9j79 · xyflow Phase 2).
+  "Browser-side CLJS visual-pin tests for the xyflow `MachineChart`.
 
   ## Why this exists
 
-  xyflow Phase 1 (#1806) DELETED the JVM-side `.cljc` renderer tests
-  (the JVM can't load xyflow). This suite restores that coverage as
-  browser-side CLJS: it mounts the chart against a sample machine spec
+  The JVM can't load xyflow, so the rendered-chart coverage lives here
+  as browser-side CLJS: it mounts the chart against a sample machine spec
   and pins the rendered DOM — node count, edge count, the custom
   node/edge class + testid contract, and the Controls / MiniMap /
-  Background presence toggles. Per the saved-memory rule
-  (feedback_xray_story_cljs_unit_tests_not_playwright) these are
-  browser CLJS tests, NOT Playwright.
+  Background presence toggles. These are browser CLJS tests, NOT
+  Playwright.
 
   ## Mounting
 
@@ -33,8 +30,8 @@
   ## Target
 
   ns ends in `-dom-cljs-test` so it runs under the `:browser-test`
-  build (real DOM + headless Chromium) per `shadow-cljs.edn`
-  (rf2-2hrj8). Under `:node-test` (no DOM) every test short-circuits
+  build (real DOM + headless Chromium) per `shadow-cljs.edn`.
+  Under `:node-test` (no DOM) every test short-circuits
   via `(browser?)` and asserts a trivial truth so the suite stays
   green on both targets."
   (:require ["react"            :as React]
@@ -60,24 +57,22 @@
 
 (def ^:private tagged-machine
   "A machine whose idle state carries a state-tag, so the tags surface
-  on the state-node (data-tags + title attr, rf2-so5b0) is assertable.
-  Pre-rf2-so5b0 this machine drove the visible tag-pill density tests
-  (rf2-k647w); since tag pills retired in favour of a hover-only
-  tooltip, the same fixture exercises the new attr-surface."
+  on the state-node (the visible pill row + the data-tags / title attrs)
+  is assertable."
   {:initial :idle
    :states  {:idle    {:tags #{:initial-tag} :on {:start :loading}}
              :loading {:on {:done :idle}}}})
 
 (def ^:private namespaced-tag-machine
-  "rf2-vcnvj — a state carrying a NAMESPACED tag (`:door/open`) so the
-  tag-identity-preservation fix is assertable (the visible label + the
+  "A state carrying a NAMESPACED tag (`:door/open`) so tag
+  identity is assertable (the visible label + the
   `data-tag` attr must read `door/open`, not the truncated `open`)."
   {:initial :open
    :states  {:open {:tags #{:door/open} :on {:close :shut}}
              :shut {}}})
 
 (def ^:private machine-level-on-machine
-  "rf2-vcnvj — a flat machine with a top-level (machine-level) `:on`
+  "A flat machine with a top-level (machine-level) `:on`
   fallback (`:reset` → `:a`), so the single-root-chip projection +
   the root-context chrome are DOM-assertable on the live chart."
   {:initial :a
@@ -87,7 +82,7 @@
              :b {:on {:go :a}}}})
 
 (def ^:private success-and-error-finals
-  "rf2-b4loj — a machine with BOTH a plain success final (:ok) and an
+  "A machine with BOTH a plain success final (:ok) and an
   `:error?` error final (:boom), so the error-hue outer ring distinction
   is DOM-assertable. The error final routes the spawning parent's
   `:on-error` (a re-frame2 extension); the chart must paint it distinctly."
@@ -97,7 +92,7 @@
              :boom    {:final? true :error? true}}})
 
 (def ^:private parallel-machine
-  "A parallel machine: 2 regions, 2 states each (rf2-lkwev)."
+  "A parallel machine: 2 regions, 2 states each."
   {:type :parallel
    :regions {:audio   {:initial :playing
                        :states {:playing {:on {:pause :paused}}
@@ -107,7 +102,7 @@
                                 :off {:on {:lit :on}}}}}})
 
 (def ^:private parallel-root-fallback-machine
-  "rf2-3lrl2q — a parallel machine whose ROOT declares its own `:on`
+  "A parallel machine whose ROOT declares its own `:on`
   fallback (a multi-region target), so the synthetic `:parallel-root?`
   anchor chip projects. 4 real states (2 regions x 2 states each); the
   anchor chip is structural chrome, not a state."
@@ -121,7 +116,7 @@
                                 :off {:on {:lit :on}}}}}})
 
 (def ^:private history-machine
-  "rf2-3lrl2q — a compound with a `:type :history` pseudo-state
+  "A compound with a `:type :history` pseudo-state
   (`:hist`, NEVER occupiable per Spec 005 §History states). 4 real states
   (:off, :player, :player/stopped, :player/playing); `:hist` is chrome,
   not a state."
@@ -186,8 +181,8 @@
             (try (.removeChild (.-body js/document) node) (catch :default _ nil))))))))
 
 (defn- with-mounted-element
-  "rf2-qj6hoa — mount an ARBITRARY React `element` under act(), call
-  `(f node)` with the host node, then unmount. Used to render a single
+  "Mount an ARBITRARY React `element` under act(), call
+  `(f node)` with the host node, then unmount. Renders a single
   edge component (e.g. the fork connector) standalone so its rendered
   `<path>` styling is DOM-assertable WITHOUT mounting the full chart (and
   without racing the async elkjs layout pass — the connector carries no
@@ -238,7 +233,7 @@
 ;; ---- node / edge count --------------------------------------------------
 
 (deftest chart-renders-a-node-per-state
-  (testing "rf2-y9j79 — the chart mounts one xyflow node per state"
+  (testing "the chart mounts one xyflow node per state"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
@@ -254,7 +249,7 @@
               "data-node-count reflects the state count"))))))
 
 (deftest chart-renders-an-edge-per-transition
-  (testing "rf2-y9j79 — the chart's edge count reflects the transitions.
+  (testing "the chart's edge count reflects the transitions.
 
             The edge LABEL DOM (`rf-mv-chart-edge-<id>`) mounts via
             xyflow's EdgeLabelRenderer only AFTER the async elkjs
@@ -270,7 +265,7 @@
           (is (= "3" (.getAttribute root "data-edge-count"))
               "data-edge-count reflects the transition count"))))))
 
-;; ---- edge routing fallback (rf2-cz8v6, G2) ------------------------------
+;; ---- edge routing fallback (G2) -----------------------------------------
 ;;
 ;; Before the async elkjs pass resolves, edges carry no bend-points, so
 ;; the edge component renders the bezier fallback (`data-routed=false`).
@@ -282,7 +277,7 @@
 ;; threading). This DOM pin guards the LIVE fallback render.
 
 (deftest chart-edge-label-renders-bezier-fallback-before-layout
-  (testing "rf2-cz8v6 — on first commit (pre-elk-layout) an edge label
+  (testing "on first commit (pre-elk-layout) an edge label
             renders with data-routed=\"false\": no bend-points yet, so
             the edge takes the bezier fallback path. (The routed path
             arrives after the async layout the runner can't await; the
@@ -306,9 +301,9 @@
 ;; ---- final-state affordance ---------------------------------------------
 
 (deftest chart-marks-final-states
-  (testing "rf2-az6e2 — final states render the QUIET DOUBLE BORDER
-            (an outer ring node, testid `rf-mv-chart-final-ring-*`); the
-            prior ✓ check glyph is DROPPED (the doubled border is the
+  (testing "final states render the QUIET DOUBLE BORDER
+            (an outer ring node, testid `rf-mv-chart-final-ring-*`); there
+            is NO ✓ check glyph (the doubled border is the
             unambiguous final-state signal). idle-loading-done has two
             final states (:done, :failed)."
     (if-not (browser?)
@@ -319,12 +314,12 @@
           ;; The doubled border renders as an inner ring div per final node.
           (is (pos? (count-sel node "[data-testid^=\"rf-mv-chart-final-ring-\"]"))
               "a final-state double-border ring renders")
-          ;; The dropped ✓ glyph must NOT appear.
+          ;; No ✓ glyph appears.
           (is (not (re-find #"✓" (.-textContent node)))
-              "the ✓ check glyph is dropped (rf2-az6e2)"))))))
+              "no ✓ check glyph renders"))))))
 
 (deftest chart-error-final-rings-distinct-from-success
-  (testing "rf2-b4loj — an `:error?` final's outer ring carries the error
+  (testing "an `:error?` final's outer ring carries the error
             hue (data-error-final=\"true\") while a success final's ring
             keeps the quiet runtime-coupled border (data-error-final=
             \"false\"). The error-final is a re-frame2 extension (routes the
@@ -348,7 +343,7 @@
 ;; ---- Controls / MiniMap / Background presence ---------------------------
 
 (deftest chart-shows-controls-by-default
-  (testing "rf2-y9j79 — xyflow Controls render by default"
+  (testing "xyflow Controls render by default"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
@@ -358,7 +353,7 @@
               "xyflow Controls present by default"))))))
 
 (deftest chart-hides-controls-when-disabled
-  (testing "rf2-y9j79 — :show-controls? false drops the Controls"
+  (testing ":show-controls? false drops the Controls"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
@@ -369,7 +364,7 @@
               "no Controls when :show-controls? false"))))))
 
 (deftest chart-shows-minimap-when-enabled
-  (testing "rf2-y9j79 — :show-minimap? true mounts the MiniMap (off by
+  (testing ":show-minimap? true mounts the MiniMap (off by
             default)"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
@@ -387,7 +382,7 @@
                 "MiniMap present when :show-minimap? true")))))))
 
 (deftest chart-shows-background-by-default
-  (testing "rf2-y9j79 — the dot-grid Background renders by default"
+  (testing "the dot-grid Background renders by default"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
@@ -396,11 +391,11 @@
           (is (pos? (count-sel node ".react-flow__background"))
               "xyflow Background present by default"))))))
 
-;; ---- :density prop (rf2-k647w) ------------------------------------------
+;; ---- :density prop ------------------------------------------------------
 
 (deftest chart-data-density-defaults-to-regular
-  (testing "rf2-k647w — omitting :density surfaces data-density=\"regular\"
-            on the chart root (nil ≡ regular, the historical default)"
+  (testing "omitting :density surfaces data-density=\"regular\"
+            on the chart root (nil ≡ regular, the default)"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
@@ -410,7 +405,7 @@
               "data-density defaults to regular"))))))
 
 (deftest chart-data-density-reflects-prop
-  (testing "rf2-k647w — :density :compact / :cosy surface the matching
+  (testing ":density :compact / :cosy surface the matching
             data-density on the root, so hosts + tests read the active
             density without re-reading the bound prop"
     (if-not (browser?)
@@ -425,10 +420,10 @@
           (fn [root _node]
             (is (= "cosy" (.getAttribute root "data-density")))))))))
 
-;; ---- :theme prop + root chrome (rf2-az6e2) ------------------------------
+;; ---- :theme prop + root chrome ------------------------------------------
 
 (deftest chart-data-theme-defaults-to-dark
-  (testing "rf2-az6e2 — omitting :theme surfaces data-theme=\"dark\" on
+  (testing "omitting :theme surfaces data-theme=\"dark\" on
             the chart root (Xray default surface)."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
@@ -439,7 +434,7 @@
               "data-theme defaults to dark"))))))
 
 (deftest chart-data-theme-reflects-prop-and-is-density-independent
-  (testing "rf2-az6e2 — :theme :light surfaces data-theme=\"light\";
+  (testing ":theme :light surfaces data-theme=\"light\";
             :theme is INDEPENDENT of :density (both knobs surface their
             own attr)."
     (if-not (browser?)
@@ -453,12 +448,11 @@
               "density unaffected by theme — orthogonal knobs"))))))
 
 (deftest chart-renders-root-container-frame-with-title
-  (testing "rf2-q129z8 — the chart renders the synthetic ROOT-CONTAINER
+  (testing "the chart renders the synthetic ROOT-CONTAINER
             FRAME (the Stately-style named box wrapping the whole machine)
             whose HEADER carries the machine name; a non-parallel machine's
-            frame reports data-parallel=\"false\". This replaces the old
-            corner-pinned root title strip (the chrome now rides the frame
-            that hugs + tracks the topology)."
+            frame reports data-parallel=\"false\". The root chrome rides
+            the frame, which hugs + tracks the topology."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
@@ -474,7 +468,7 @@
             (is (re-find #"flow" (.-textContent title))
                 "the frame header carries the machine name")))))))
 
-;; ---- state-node :tags surface (rf2-so5b0) -------------------------------
+;; ---- state-node :tags surface -------------------------------------------
 
 (defn- state-node-el
   "Return the first `rf-mv-chart-node-*` state-node element in `node`.
@@ -483,15 +477,12 @@
   (.querySelector node "[data-testid^=\"rf-mv-chart-node-\"]"))
 
 (deftest chart-tags-surface-as-visible-pills-below-state-name
-  (testing "rf2-a2b55 — user-declared `:tags` (Spec 005) render as a
+  (testing "user-declared `:tags` (Spec 005) render as a
             VISIBLE pill row positioned BELOW the state name (Stately
-            graph view convention). rf2-so5b0 retired the visible row
-            on a diagnostic that misread Stately's tag chrome as
-            ancestor-path clutter; rf2-a2b55 restores the row.
+            graph view convention).
 
-            The `:data-tags` + `:title` attr surface rf2-so5b0
-            introduced is RETAINED in parallel so host-side
-            introspection + the native HTML hover tooltip still
+            The `:data-tags` + `:title` attr surface runs in parallel
+            so host-side introspection + the native HTML hover tooltip
             resolve a state's tags in bulk without parsing per-pill
             DOM.
 
@@ -500,10 +491,10 @@
             1. The `rf-mv-chart-state-tags` container row IS rendered.
             2. Each declared tag has a `rf-mv-chart-state-tag-<name>`
                pill chip rendered inside the row.
-            3. The tag set still surfaces on the state-node's
+            3. The tag set also surfaces on the state-node's
                `data-tags` attr (sorted space-joined string) for the
                host-introspection contract.
-            4. The tag set still surfaces on the state-node's `title`
+            4. The tag set also surfaces on the state-node's `title`
                attr (native HTML hover tooltip)."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
@@ -515,19 +506,19 @@
               "the visible tag-row container is rendered")
           (is (pos? (count-sel node "[data-testid=\"rf-mv-chart-state-tag-initial-tag\"]"))
               "the `:initial-tag` pill chip is rendered")
-          ;; 3 — data-tags retains the sorted joined tag set.
+          ;; 3 — data-tags carries the sorted joined tag set.
           (let [n (state-node-el node)]
             (is (some? n) "a state-node mounted")
             (is (= "initial-tag" (.getAttribute n "data-tags"))
                 "data-tags carries the sorted joined tag set")
-            ;; 4 — title attr retains the same string for hover.
+            ;; 4 — title attr carries the same string for hover.
             (is (= "initial-tag" (.getAttribute n "title"))
                 "title attr exposes tags for the native hover tooltip")
             (is (= "1" (.getAttribute n "data-tag-count"))
                 "data-tag-count reflects the tag set's size")))))))
 
 (deftest chart-empty-tag-set-omits-attr
-  (testing "rf2-so5b0 — a state with no declared tags renders an empty
+  (testing "a state with no declared tags renders an empty
             `data-tags` attr + no `title` (tags-driven tooltip). The
             empty-attr posture means DOM tests can pin presence-or-
             absence by attribute equality without an extra
@@ -545,7 +536,7 @@
                 "data-tag-count is 0 when no tags declared")))))))
 
 (deftest chart-namespaced-tag-preserves-declared-identity
-  (testing "rf2-vcnvj — a NAMESPACED state tag (`:door/open`) renders its
+  (testing "a NAMESPACED state tag (`:door/open`) renders its
             DECLARED identity (`door/open`) on the visible pill + the
             `data-tag` attr, NOT the truncated `open`. The `data-testid`
             keeps the namespace-collapsed segment (a `/` would break CSS /
@@ -564,7 +555,7 @@
                 "the visible pill label reads `door/open`, not `open`")))))))
 
 (deftest chart-machine-level-on-renders-single-root-sourced-chip
-  (testing "rf2-vcnvj — a machine-level (top-level `:on`) fallback renders
+  (testing "a machine-level (top-level `:on`) fallback renders
             EXACTLY ONE event chip on the live chart (the synthetic
             MACHINE-ROOT node sources it), NOT one chip per state, and the
             MACHINE-ROOT chip itself is present."
@@ -584,15 +575,14 @@
                      "[data-testid^=\"rf-mv-chart-event-\"][data-machine-level=\"true\"]"))
               "the machine-level fallback projects a single event chip, not one per state"))))))
 
-;; ---- root context chrome (rf2-vcnvj) ------------------------------------
+;; ---- root context chrome ------------------------------------------------
 
 (deftest chart-renders-root-container-context-band-from-static-shape
-  (testing "rf2-q129z8 — when a machine declares `:data`, the chart paints
+  (testing "when a machine declares `:data`, the chart paints
             the Context BAND inside the ROOT-CONTAINER frame header from the
             supplied `:context-band` (the static context shape the Xray
-            topology path derives). This replaces the old corner-pinned
-            Context panel — the Context now rides INSIDE the frame that hugs
-            the topology."
+            topology path derives). The Context rides INSIDE the frame that
+            hugs the topology."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
@@ -606,7 +596,7 @@
                 "the band reports both declared context keys")))))))
 
 (deftest chart-context-band-shows-inferred-badge-by-default
-  (testing "rf2-q129z8 / rf2-5tz9p — the root-container Context band carries
+  (testing "the root-container Context band carries
             an 'inferred from :data' badge by default, marking its
             key→type-caption contents as an INFERRED shape (the sole
             production feeder), not a declared schema and not the live
@@ -624,7 +614,7 @@
                 "the badge reads 'inferred from :data'")))))))
 
 (deftest chart-context-band-suppresses-inferred-badge-when-live
-  (testing "rf2-q129z8 / rf2-5tz9p — a host feeding LIVE :data values passes
+  (testing "a host feeding LIVE :data values passes
             `:context-band-inferred? false`; the inferred badge is then
             omitted (the band still renders the values)."
     (if-not (browser?)
@@ -642,7 +632,7 @@
               "no inferred badge when context-band-inferred? is false"))))))
 
 (deftest chart-context-band-shows-declared-badge-when-authoritative
-  (testing "rf2-3q4k5b (EP-0005) — a host feeding a DECLARED context shape
+  (testing "EP-0005 — a host feeding a DECLARED context shape
             (off a machine's `[:schemas :data]` schema) passes `:context-band-inferred?
             false`; the chart then drops the `inferred from :data` badge and
             shows a positive `declared` badge marking the shape AUTHORITATIVE."
@@ -662,13 +652,13 @@
             (is (= "declared" (.-textContent declared))
                 "the badge reads `declared`")))))))
 
-;; ---- rf2-8z1rca: the Context band fits in the reserved ELK top padding --
+;; ---- the Context band fits in the reserved ELK top padding --------------
 ;;
-;; The bug: the root-container frame's ELK TOP padding reserved only the
-;; title strip + a body-pad band, NOT the variable-height Context band the
-;; header ALSO paints — so with non-trivial context the first child laid out
-;; below the strip sat UNDER the painted band. The fix reserves
-;; `projection/context-band-height` on TOP for the frame. This DOM
+;; The root-container header paints a variable-height Context band below its
+;; title strip, so the frame's ELK TOP padding reserves
+;; `projection/context-band-height` on top of the title strip + body-pad
+;; band; reserving only the strip + body-pad would lay the first child UNDER
+;; the painted band whenever the context is non-trivial. This DOM
 ;; regression proves the rendered header (title strip + Context band) FITS
 ;; WITHIN the reserved ELK top padding the projection computes for the same
 ;; context-row count — i.e. ELK lays the first child below the rendered
@@ -677,7 +667,7 @@
 ;; here — see the async-layout note at the top of this ns.)
 
 (def ^:private context-rich-machine
-  "rf2-8z1rca — a flat machine declaring a 3-key `:data` so the chart paints
+  "A flat machine declaring a 3-key `:data` so the chart paints
   a NON-TRIVIAL (3-row) Context band in the root-container header — enough
   to make the band taller than the plain title-strip reservation."
   {:initial :a
@@ -686,7 +676,7 @@
              :b {:on {:go :a}}}})
 
 (deftest chart-context-band-fits-within-reserved-elk-top-padding
-  (testing "rf2-8z1rca — the rendered root-container HEADER (title strip +
+  (testing "the rendered root-container HEADER (title strip +
             Context band) is no taller than the ELK TOP padding the frame
             reserves (`data-reserved-top`, the SAME `context-band-height`
             value `->elk-children` feeds ELK), so the first child ELK lays
@@ -713,14 +703,14 @@
             (is (some? header) "the root-container header mounted")
             (is (some? band) "the Context band mounted (non-trivial context)")
             ;; The painted Context band is itself non-trivial — strictly
-            ;; taller than the plain body-pad band the OLD reservation gave.
+            ;; taller than the plain body-pad band.
             (is (> (.-offsetHeight band) (:container-body-pad vc-map))
                 "the 3-row Context band is taller than the plain body-pad band")
             ;; The reserved top INCLUDES the Context band (it exceeds the plain
             ;; title+body-pad band) — the wiring `->elk-children` applies.
             (is (> reserved-top (+ (:container-title-height vc-map)
                                    (:container-body-pad vc-map)))
-                "the reserved top includes the Context-band height (the fix)")
+                "the reserved top includes the Context-band height")
             ;; The whole rendered header (title strip + band) fits inside the
             ;; reserved ELK top padding — so a child laid out at the reserved
             ;; content edge starts BELOW the header, never under it.
@@ -728,10 +718,10 @@
                 "the rendered header height fits within the reserved ELK top padding")))))))
 
 (deftest chart-context-band-overflows-plain-title-reservation
-  (testing "rf2-8z1rca — the bug premise: with a non-trivial Context band the
-            rendered header is TALLER than the title-strip+body-pad band the
-            pre-8z1rca reservation gave, so the OLD top padding would have
-            laid the first child UNDER the band (what the fix reserves for)"
+  (testing "the premise: with a non-trivial Context band the
+            rendered header is TALLER than a title-strip+body-pad band, so a
+            top padding without the band allowance would lay the first child
+            UNDER the band (what the band reservation is for)"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
@@ -741,19 +731,19 @@
           (let [header (.querySelector node
                          "[data-testid^=\"rf-mv-chart-root-container-header-\"]")
                 vc-map vc/chart-regular
-                ;; the OLD (pre-8z1rca) top reservation: title strip + body-pad
-                ;; only — no Context-band allowance.
+                ;; A top reservation of title strip + body-pad only — no
+                ;; Context-band allowance.
                 old-top (+ (:container-title-height vc-map)
                            (:container-body-pad vc-map))]
             (is (some? header) "the root-container header mounted")
             (is (> (.-offsetHeight header) old-top)
-                "the rendered header overflows the pre-8z1rca top padding —
-                 the band would have sat over the first child without the fix")))))))
+                "the rendered header overflows a title+body-pad top padding —
+                 without the band allowance the band would sit over the first child")))))))
 
 ;; ---- empty / nil definition placeholders --------------------------------
 
 (deftest chart-renders-no-definition-placeholder
-  (testing "rf2-y9j79 — a nil definition renders the placeholder, not a
+  (testing "a nil definition renders the placeholder, not a
             canvas"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
@@ -774,10 +764,10 @@
                 (try (act-fn (fn [] (.unmount root))) (catch :default _ nil))
                 (try (.removeChild (.-body js/document) node) (catch :default _ nil))))))))))
 
-;; ---- parallel-region rendering (rf2-lkwev visual-pin) -------------------
+;; ---- parallel-region rendering (visual-pin) -----------------------------
 
 (deftest chart-renders-parallel-region-containers
-  (testing "rf2-y9j79 + rf2-lkwev — a parallel machine renders one
+  (testing "a parallel machine renders one
             dashed region container per region, with its child states
             inside"
     (if-not (browser?)
@@ -797,18 +787,17 @@
           (is (= "4" (.getAttribute root "data-node-count"))
               "data-node-count excludes the region containers"))))))
 
-;; ---- state-count excludes synthetic anchors + history (rf2-3lrl2q) -----
+;; ---- state-count excludes synthetic anchors + history -------------------
 ;;
-;; Pre-fix, `n-states` excluded only `:region?` / `:root-container?`, so
-;; the synthetic `:machine-root?` chip (a top-level `:on` fallback), the
-;; synthetic `:parallel-root?` chip (a parallel-root `:on`/`:after`/
-;; `:on-done`), and every `:history?` pseudo-state (never occupiable, Spec
-;; 005 §History states) rode along as +1 over-counts in BOTH
-;; `data-node-count` and the aria-label — with zero aria-label assertions
-;; pre-existing to catch it.
+;; `n-states` counts real states only. Excluding just `:region?` /
+;; `:root-container?` would let the synthetic `:machine-root?` chip (a
+;; top-level `:on` fallback), the synthetic `:parallel-root?` chip (a
+;; parallel-root `:on`/`:after`/`:on-done`), and every `:history?`
+;; pseudo-state (never occupiable, Spec 005 §History states) ride along as
+;; +1 over-counts in BOTH `data-node-count` and the aria-label.
 
 (deftest chart-node-count-excludes-machine-root-anchor
-  (testing "rf2-3lrl2q — a machine-level :on fallback mints a synthetic
+  (testing "a machine-level :on fallback mints a synthetic
             :machine-root? anchor chip; data-node-count + the aria-label
             must count only the 2 real states (:a, :b), not the anchor"
     (if-not (browser?)
@@ -822,7 +811,7 @@
               "the aria-label excludes the machine-root anchor chip"))))))
 
 (deftest chart-node-count-excludes-parallel-root-anchor
-  (testing "rf2-3lrl2q — a parallel-root :on fallback mints a synthetic
+  (testing "a parallel-root :on fallback mints a synthetic
             :parallel-root? anchor chip; data-node-count + the aria-label
             must count only the 4 real region states, not the anchor"
     (if-not (browser?)
@@ -836,7 +825,7 @@
               "the aria-label excludes the parallel-root anchor chip"))))))
 
 (deftest chart-node-count-excludes-history-pseudo-state
-  (testing "rf2-3lrl2q — a `:type :history` pseudo-state is NEVER
+  (testing "a `:type :history` pseudo-state is NEVER
             occupiable (Spec 005 §History states); data-node-count + the
             aria-label must count only the 4 real states, not the marker"
     (if-not (browser?)
@@ -849,7 +838,7 @@
           (is (str/includes? (.getAttribute root "aria-label") "with 4 states")
               "the aria-label excludes the history pseudo-state"))))))
 
-;; ---- compound substate parent linkage (rf2-xh1lm visual-pin) -----------
+;; ---- compound substate parent linkage (visual-pin) ----------------------
 ;;
 ;; xyflow v12 reads `userNode.parentId` (NOT the pre-v12 `parentNode`) and
 ;; populates its `parentLookup` from it. A node whose id is the parentId
@@ -857,17 +846,15 @@
 ;; `.react-flow__node` wrapper (`adoptUserNodes` → store
 ;; `parentLookup.has(id)` → `isParent: true` → `parent` class). Without
 ;; that class no child is adopted; children render at root + visually
-;; escape the container (the bug rf2-xh1lm fixed: substates rendered
-;; top-left of canvas while the empty `:active` container sat
-;; bottom-right). This DOM pin is layout-independent — the `.parent`
+;; escape the container (substates top-left of the canvas while the empty
+;; container sits bottom-right). This DOM pin is layout-independent — the `.parent`
 ;; class lands on first commit, before the async elkjs layout pass —
 ;; so the synchronous browser-test runner can assert it without
 ;; awaiting elk.
 
 (def ^:private compound-machine
-  "A compound machine: :authenticated contains 2 substates (rf2-xh1lm
-  regression fixture). Mirrors the `:ws/connection` shape that broke
-  pre-fix: a single compound parent + nested substates."
+  "A compound machine: :authenticated contains 2 substates — a single
+  compound parent + nested substates (the `:ws/connection` shape)."
   {:initial :unauth
    :states  {:unauth        {:on {:login :authenticated}}
              :authenticated {:initial :browsing
@@ -876,13 +863,13 @@
                              :on      {:logout :unauth}}}})
 
 (deftest chart-compound-container-gets-xyflow-parent-class
-  (testing "rf2-xh1lm — xyflow adopts compound substates via `parentId`,
+  (testing "xyflow adopts compound substates via `parentId`,
             which causes the parent node to receive the CSS class
             `parent` (the on-DOM marker that `parentLookup.has(id)` is
-            true). Pre-fix the projector emitted `:parentNode` (silently
-            ignored by v12) so no child was ever adopted and the parent
-            never got the class — substates rendered at root and escaped
-            their container. Mounts the compound fixture and asserts the
+            true). A projector emitting `:parentNode` (silently ignored
+            by v12) would get no child adopted and no class on the parent
+            — substates would render at root and escape their container.
+            Mounts the compound fixture and asserts the
             `:authenticated` container wrapper carries `.parent`."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
@@ -897,15 +884,13 @@
             (is (some? wrapper)
                 ":authenticated xyflow wrapper mounts")
             (is (.. wrapper -classList (contains "parent"))
-                "the compound wrapper carries .parent — xyflow's parentLookup adopted at least one child via :parentId (rf2-xh1lm)")))))))
+                "the compound wrapper carries .parent — xyflow's parentLookup adopted at least one child via :parentId")))))))
 
 (deftest chart-region-container-gets-xyflow-parent-class
-  (testing "rf2-xh1lm + rf2-lkwev — the same `.parent` adoption applies
-            to parallel-region containers. Pre-fix BOTH compound AND
-            region substates were unadopted (the projector emitted
-            `:parentNode` for both); the bead screenshot only captured
-            the compound symptom but the region path was equally broken.
-            This pin guards the region adoption too."
+  (testing "the same `.parent` adoption applies
+            to parallel-region containers: `:parentNode` would leave
+            region substates unadopted just as it would compound ones,
+            so this pin guards the region adoption too."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
@@ -919,7 +904,7 @@
               (is (.. wrapper -classList (contains "parent"))
                   (str "region " region-id " carries .parent — its child states were adopted via :parentId")))))))))
 
-;; ---- parallel-region ACTIVE chrome (rf2-80rm2, G4 visual-pin) -----------
+;; ---- parallel-region ACTIVE chrome (G4 visual-pin) ----------------------
 ;;
 ;; G1 lights the active region LEAF; G4 lights the region CONTAINER too, so
 ;; an active region reads as active at the zone level. The container surfaces
@@ -928,7 +913,7 @@
 ;; an inactive region's is `false` on first commit (no elk-layout dependency).
 
 (deftest chart-parallel-active-region-container-carries-active-chrome
-  (testing "rf2-80rm2 (G4) — with one region advanced past initial, that
+  (testing "G4 — with one region advanced past initial, that
             region's CONTAINER carries data-active=true while the still-
             initial region's container is false (the active-region chrome
             reads at the zone level, not just the leaf)"
@@ -959,7 +944,7 @@
                 ":display container stays inactive (no active leaf)")))))))
 
 (deftest chart-parallel-both-active-regions-light-their-containers
-  (testing "rf2-80rm2 (G4) — when BOTH regions have an active leaf, BOTH
+  (testing "G4 — when BOTH regions have an active leaf, BOTH
             region containers carry data-active=true simultaneously (the
             N-active-at-once read at the container level)"
     (if-not (browser?)
@@ -976,7 +961,7 @@
                         (array-seq containers))
                 "both region containers read active when both regions have an active leaf")))))))
 
-;; ---- parallel multi-active highlight (rf2-g2svr, G1) --------------------
+;; ---- parallel multi-active highlight (G1) -------------------------------
 ;;
 ;; The parity capability: a PARALLEL machine's `:current-state` is a
 ;; region-map, so N region leaves are active at once. The chart resolves
@@ -985,7 +970,7 @@
 ;; This is the browser visual-pin mirroring the JVM projection pins.
 
 (deftest chart-parallel-current-state-highlights-every-active-region
-  (testing "rf2-g2svr — a region-map :current-state lights up EVERY
+  (testing "a region-map :current-state lights up EVERY
             active region leaf at once: data-highlight-ids carries BOTH
             the :audio and :display active-leaf node-ids"
     (if-not (browser?)
@@ -997,7 +982,7 @@
          :current-state {:audio :paused :display :off}}
         (fn [root _node]
           (let [ids (set (str/split (.getAttribute root "data-highlight-ids") #"\s+"))]
-            ;; rf2-wnzha — region states are region-scoped ids now.
+            ;; region states carry region-scoped ids.
             (is (contains? ids (layout/region-scoped-id :audio [:paused]))
                 ":audio region's active leaf is in the active set")
             (is (contains? ids (layout/region-scoped-id :display [:off]))
@@ -1006,8 +991,8 @@
                 "exactly the two active region leaves, no more")))))))
 
 (deftest chart-flat-current-state-single-active-back-compat
-  (testing "rf2-g2svr — a flat (single-active) :current-state surfaces
-            ONE id on data-highlight-ids (no regression)"
+  (testing "a flat (single-active) :current-state surfaces
+            ONE id on data-highlight-ids"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
@@ -1018,7 +1003,7 @@
             (is (= loading-id (.getAttribute root "data-highlight-ids"))
                 "the lone active leaf surfaces on data-highlight-ids")))))))
 
-;; ---- fired-this-epoch edge highlight (rf2-qeemm, G3) --------------------
+;; ---- fired-this-epoch edge highlight (G3) -------------------------------
 ;;
 ;; The host (Xray) resolves the focused epoch's traversed edges via
 ;; `extract-fired-edge-ids` (CANONICAL ids) and passes them as
@@ -1042,7 +1027,7 @@
                  (:id e))))))
 
 (deftest chart-fired-event-node-renders-data-fired
-  (testing "rf2-qeemm (G3) + rf2-qo5xy — events-as-nodes paradigm:
+  (testing "G3 — events-as-nodes paradigm:
             passing :fired-edge-ids #{<idle→loading id>} marks the
             matching event-node (xyflow `rf2-event`) with
             data-fired=\"true\"; non-fired event-nodes carry
@@ -1063,7 +1048,7 @@
             ;; matches the inner header/guard/reenter/action spans, which
             ;; carry NO `data-node-id`; scoping keeps `others` to real nodes
             ;; so the every?-is-false assertion can't be polluted as more
-            ;; inner-span attrs land (rf2-6c2r83).
+            ;; inner-span attrs land.
             (let [fired-el (.querySelector
                              node (str "[data-testid=\"rf-mv-chart-event-" fired-ev-id "\"]"))
                   all-evs  (array-seq
@@ -1078,7 +1063,7 @@
                                        node "[data-testid^=\"rf-mv-chart-event-\"]")))))))))))
 
 (deftest chart-fired-edge-ids-surfaces-on-root
-  (testing "rf2-qeemm (G3) — the chart root surfaces the sorted fired set
+  (testing "G3 — the chart root surfaces the sorted fired set
             on data-fired-edge-ids; absent the prop the attr is empty"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
@@ -1096,9 +1081,9 @@
             (is (= "" (.getAttribute root "data-fired-edge-ids"))
                 "no fired set → empty data-fired-edge-ids")))))))
 
-;; ---- guard-blocked no-op edge highlight (rf2-fzrzlw) -------------------
+;; ---- guard-blocked no-op edge highlight ---------------------------------
 ;;
-;; The bead's repro: door in `:open`, `:door/close` blocked by the
+;; The canonical case: door in `:open`, `:door/close` blocked by the
 ;; `:may-close?` guard → no-op. The host resolves the blocked edge-ids via
 ;; `extract-guard-blocked-edge-ids` (from the named-guard guard-evaluated
 ;; fail/threw traces) and passes them as `:guard-blocked-edge-ids`. The
@@ -1107,14 +1092,14 @@
 ;; the sorted set on `data-guard-blocked-edge-ids`.
 
 (def ^:private guarded-door-machine
-  "rf2-fzrzlw — minimal door with a guarded `:door/close [may-close?]`
+  "Minimal door with a guarded `:door/close [may-close?]`
   (`:open` → `:closed`) so the guard-blocked no-op edge can be exercised."
   {:initial :closed
    :states  {:closed {:on {:door/open :open}}
              :open   {:on {:door/close {:target :closed :guard :may-close?}}}}})
 
 (deftest chart-guard-blocked-event-node-renders-data-guard-blocked
-  (testing "rf2-fzrzlw — passing :guard-blocked-edge-ids #{<close id>}
+  (testing "passing :guard-blocked-edge-ids #{<close id>}
             marks the matching event-node with data-guard-blocked=\"true\";
             non-blocked event-nodes carry data-guard-blocked=\"false\"."
     (if-not (browser?)
@@ -1148,7 +1133,7 @@
                                  (nil? (.getAttribute % "data-guard-blocked"))) others))))))))))
 
 (deftest chart-guard-blocked-edge-ids-surfaces-on-root
-  (testing "rf2-fzrzlw — the chart root surfaces the sorted guard-blocked
+  (testing "the chart root surfaces the sorted guard-blocked
             set on data-guard-blocked-edge-ids; absent the prop the attr
             is empty"
     (if-not (browser?)
@@ -1167,23 +1152,21 @@
             (is (= "" (.getAttribute root "data-guard-blocked-edge-ids"))
                 "no guard-blocked set → empty data-guard-blocked-edge-ids")))))))
 
-;; ---- compound-endpoint edges render in DOM (rf2-shv82, Issue 1) --------
+;; ---- compound-endpoint edges render in DOM ------------------------------
 ;;
-;; The bug: xyflow v12 silently drops every edge whose source or target
-;; is a compound node because the compound has no Handle children, so
-;; `getHandleBounds` returns null → `isNodeInitialized` returns false →
-;; `getEdgePosition` returns null → the edge never reaches the DOM. The
-;; fix adds invisible Handles to compound-node + parallel-region-node so
-;; xyflow accepts compound endpoints. These pins guard the renderer half
-;; (the projector half is pinned by projection_cljs_test).
+;; xyflow v12 silently drops every edge whose source or target is a node
+;; with no Handle children: `getHandleBounds` returns null →
+;; `isNodeInitialized` returns false → `getEdgePosition` returns null → the
+;; edge never reaches the DOM. So compound-node + parallel-region-node carry
+;; invisible Handles and xyflow accepts compound endpoints. These pins guard
+;; the renderer half (the projector half is pinned by projection_cljs_test).
 
 (def ^:private compound-endpoint-machine
   "Mirrors the testdeck `:ws/connection` shape at minimum size: a
   compound `:active` parent with parent-level transitions inherited by
   every leaf inside, plus an inbound transition from a sibling top-level
-  state. Reproduces the 4 compound-endpoint edge shapes the rf2-shv82
-  bead identified (compound-as-target, compound-as-source, compound
-  self-loop, sibling-into-compound)."
+  state. Covers the 4 compound-endpoint edge shapes (compound-as-target,
+  compound-as-source, compound self-loop, sibling-into-compound)."
   {:initial :idle
    :states  {:idle    {:on {:connect :active}}
              :active  {:initial :connecting
@@ -1194,11 +1177,11 @@
              :failed  {:on {:retry :active}}}})
 
 (deftest chart-data-edge-count-projected-matches-parsed
-  (testing "rf2-shv82 — the chart root carries
+  (testing "the chart root carries
             `data-edge-count-projected` (the projector output count) +
             `data-edge-count` (the parser output count). For a compound-
             endpoint machine the two must agree at the parser→projector
-            boundary so the silent-drop bug cannot recur there"
+            boundary so no edge is silently dropped there"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
@@ -1216,7 +1199,7 @@
                      expected ") — no projection-layer drop"))))))))
 
 (deftest chart-renders-compound-node-with-handle-class-targets
-  (testing "rf2-shv82 (Issue 1) — the compound node renders with .source +
+  (testing "the compound node renders with .source +
             .target Handle elements (xyflow's `getHandleBounds`
             specifically queries these classes; their presence is what
             makes `isNodeInitialized` return true → the edge survives the
@@ -1240,9 +1223,9 @@
                   "compound node has at least one .target Handle"))))))))
 
 (deftest chart-renders-parallel-region-with-handle-class-targets
-  (testing "rf2-shv82 (Issue 1) — the parallel-region container also
-            renders source + target Handle elements (mirrors the
-            compound-node fix). Same silent-drop mechanic applies to any
+  (testing "the parallel-region container also
+            renders source + target Handle elements (mirroring the
+            compound node). Same silent-drop mechanic applies to any
             edge whose endpoint is a region container."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
@@ -1261,16 +1244,14 @@
               (is (pos? (.-length targets))
                   "region container has at least one .target Handle"))))))))
 
-;; ---- multi-event NO-collapse DOM (rf2-o6vh7) ----------------------------
+;; ---- multi-event NO-collapse DOM ----------------------------------------
 ;;
-;; HISTORY: rf2-shv82 (Issue 2) shipped a self-loop perimeter fan; rf2-j10sm
-;; (Phase 2) replaced it with a multi-event sibling-collapse (N events on one
-;; `[source target]` pair → ONE arrow + N stacked labels via
-;; `data-sibling-index`/`data-sibling-count`). rf2-o6vh7 RETIRED the
-;; collapse: under events-as-nodes every event is its OWN node, so N events
-;; on one node are N DISTINCT event-nodes (no grouping, no leader/follower).
-;; This pins the no-collapse DOM contract — three events on `:idle` surface
-;; three DISTINCT event-nodes — and that no `data-sibling-*` attr survives.
+;; Under events-as-nodes every event is its OWN node, so N events on one
+;; node are N DISTINCT event-nodes — no sibling-collapse into ONE arrow + N
+;; stacked labels (`data-sibling-index`/`data-sibling-count`), no grouping,
+;; no leader/follower. This pins the no-collapse DOM contract — three events
+;; on `:idle` surface three DISTINCT event-nodes — and that no
+;; `data-sibling-*` attr appears.
 
 (def ^:private multi-self-loop-machine
   "Three self-loops on `:idle` (mirrors the testdeck `:disconnected`
@@ -1281,7 +1262,7 @@
                          :clear  {:action :clear-it}}}}})
 
 (deftest chart-multi-events-on-one-node-stay-distinct-event-nodes
-  (testing "rf2-o6vh7 — three events on one state render as THREE distinct
+  (testing "three events on one state render as THREE distinct
             event-nodes (no sibling-collapse). DOM evidence: three event-node
             roots (`data-variant`, unique to the event-node container) and
             ZERO `data-sibling-*` attrs."
@@ -1295,7 +1276,7 @@
           ;; testid prefix but no `data-variant`), so it counts distinct
           ;; event-nodes precisely.
           (let [event-nodes (.querySelectorAll node "[data-variant]")
-                ;; any element still carrying a retired sibling attr
+                ;; any element carrying a sibling-collapse attr
                 sibling-attr-els (.querySelectorAll
                                   node "[data-sibling-index],[data-sibling-count]")]
             ;; If event-nodes race the commit the count may lag; assert
@@ -1305,10 +1286,10 @@
               (is (= 3 (.-length event-nodes))
                   "three distinct events → three distinct event-nodes"))
             (is (zero? (.-length sibling-attr-els))
-                "no data-sibling-* attr survives the collapse retirement")
+                "no data-sibling-* attr renders")
             (is (number? (.-length event-nodes)))))))))
 
-;; ---- guarded-fork priority badge DOM (rf2-uw3vmi visual-pin) ------------
+;; ---- guarded-fork priority badge DOM (visual-pin) -----------------------
 ;;
 ;; The projector threads each guarded-fork branch's 1-based priority onto
 ;; the event-node `:data {:forkOrder}` (pinned in projection_cljs_test); the
@@ -1324,7 +1305,7 @@
 ;; synchronous browser-test runner can assert it without awaiting elk.
 
 (def ^:private gate-fork-machine
-  "rf2-uw3vmi — the gate testbed shape: `:gate/check` FORKS from `:idle` by
+  "The gate testbed shape: `:gate/check` FORKS from `:idle` by
   a guarded candidate VECTOR (first guard-pass wins: `:gate-high?` → :high,
   `:gate-low?` → :low, else the unguarded fallback → :rejected). `:gate/set`
   is a SEPARATE internal action-only transition on the SAME source (a
@@ -1340,7 +1321,7 @@
              :rejected {:on {:gate/reset :idle}}}})
 
 (deftest chart-guarded-fork-branches-render-priority-badges-1-2-3
-  (testing "rf2-uw3vmi — the gate `:gate/check` 3-way's branch event-nodes
+  (testing "the gate `:gate/check` 3-way's branch event-nodes
             render the numbered priority badge (testid
             rf-mv-chart-event-fork-badge-*) carrying data-fork-order 1, 2,
             and 3 — the visible affordance the projection :forkOrder pins
@@ -1366,7 +1347,7 @@
             (is (number? (.-length badges)))))))))
 
 (deftest chart-non-fork-event-nodes-render-no-priority-badge
-  (testing "rf2-uw3vmi — non-fork event-nodes render NO priority badge: the
+  (testing "non-fork event-nodes render NO priority badge: the
             gate's SEPARATE `:gate/set` trigger and the three single
             `:gate/reset` transitions carry no badge, and a plain machine
             with no guarded fork renders zero badges at all."
@@ -1397,11 +1378,11 @@
                 (is (< badges ev-nodes)
                     "fewer badges than event-nodes — the non-fork :gate/set + :gate/reset nodes carry none")))))))))
 
-;; ---- fork connector renderer styling (rf2-qj6hoa) -----------------------
+;; ---- fork connector renderer styling ------------------------------------
 ;; The projection suite proves `:forkConnector` edges EXIST + carry the
-;; decorative `:data` shape, but no DOM/render test pins that the RENDERER
-;; paints them DECORATIVE. Without a render pin a refactor of `edges.cljs`
-;; could turn a fork connector back into a normal transition edge (arrowhead
+;; decorative `:data` shape; it cannot see whether the RENDERER paints them
+;; DECORATIVE. Without a render pin a refactor of `edges.cljs`
+;; could turn a fork connector into a normal transition edge (arrowhead
 ;; + solid stroke + label) while every projection test stays green. This
 ;; mounts the REAL `edges/transition-edge` component with the REAL projector
 ;; fork-connector edge `:data` and asserts the rendered `<path>` is
@@ -1420,12 +1401,12 @@
     (first conns)))
 
 (deftest chart-fork-connector-renders-decorative
-  (testing "rf2-qj6hoa — a guarded-fork connector edge renders DECORATIVE:
+  (testing "a guarded-fork connector edge renders DECORATIVE:
             the `<path>` carries `stroke-dasharray \"1 3\"` (the tight dotted
             order chain, distinct from the internal self-transition's 4·3
             dash), a ROUND linecap, the neutral `:pseudo-marker` stroke, and
             NO markerEnd (arrowhead) — and the edge renders NO label div. A
-            renderer refactor that turned it back into a normal transition
+            renderer refactor that turned it into a normal transition
             edge would break these even while the projection pins stay green."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
@@ -1471,20 +1452,20 @@
               (is (zero? (count-sel node "[data-testid^=\"rf-mv-chart-edge-\"]"))
                   "the decorative connector renders no edge label"))))))))
 
-;; ---- enclosed event action chip rendering (rf2-ekniye) ------------------
+;; ---- enclosed event action chip rendering -------------------------------
 ;; The projector threads each transition's `:action` onto the event-node
 ;; `:data {:action}`, and the RENDERER (`chart.nodes.event-node`) paints it
 ;; as a subdued ENCLOSED action chip (`rf-mv-chart-event-action-*` testid +
-;; `data-action`, density-aware geometry). No DOM test pinned the chip
-;; contract, so a refactor could drop the enclosed styling while projection
-;; stays green. The gate's `:gate/set` is an action-only transition
+;; `data-action`, density-aware geometry). Projection cannot see the chip
+;; contract, so without a DOM pin a refactor could drop the enclosed styling
+;; while projection stays green. The gate's `:gate/set` is an action-only transition
 ;; (`{:action :set-level}`), so its event-node renders the chip; the
 ;; `:gate/check` / `:gate/reset` event-nodes carry NO action → NO chip. The
 ;; chip is part of the node body (layout-independent), so it mounts on the
 ;; first commit without awaiting elk.
 
 (deftest chart-action-bearing-event-renders-enclosed-action-chip
-  (testing "rf2-ekniye — an action-bearing event-node (the gate's
+  (testing "an action-bearing event-node (the gate's
             `:gate/set` → `:set-level`) renders the enclosed action chip:
             testid `rf-mv-chart-event-action-*` carrying `data-action`
             \"set-level\", with the ENCLOSED styling (`:container-header-bg`
@@ -1536,7 +1517,7 @@
             (is (number? (.-length chips)))))))))
 
 (deftest chart-non-action-event-nodes-render-no-action-chip
-  (testing "rf2-ekniye — event-nodes WITHOUT an action render NO action chip.
+  (testing "event-nodes WITHOUT an action render NO action chip.
             The gate's `:gate/check` branches + `:gate/reset` transitions are
             action-free, and a plain machine with no action-bearing
             transition renders zero action chips at all (so the chip is
@@ -1566,14 +1547,14 @@
                     "fewer chips than event-nodes — the action-free nodes carry none")))))))))
 
 ;; ---- :on-state-click contract: leaf body + compound title strip --------
-;; rf2-34ff3 — A-PRIME ruling. `:on-state-click` fires for REAL statechart-
+;; `:on-state-click` fires for REAL statechart-
 ;; state nodes: a LEAF state (its body) and a COMPOUND state (its TITLE
 ;; STRIP only — the compound BODY stays `pointer-events:none` so a click
 ;; inside it falls through to the nested leaf). The synthetic machine-root
 ;; chip + parallel-region containers are NOT click targets (the projector
 ;; threads `:onClick` onto leaf + compound `:data` only). These DOM pins
 ;; prove (1) the compound title click fires with the COMPOUND's path, and
-;; (2) a child-leaf click still fires (body pass-through preserved).
+;; (2) a child-leaf click fires too (the body passes it through).
 
 (defn- dispatch-click!
   "Dispatch a bubbling native click on `el` inside React's act() env so
@@ -1584,7 +1565,7 @@
     (act-fn (fn [] (.dispatchEvent el ev)))))
 
 (deftest chart-compound-title-strip-fires-on-state-click-with-compound-path
-  (testing "rf2-34ff3 — clicking a COMPOUND state's TITLE STRIP fires
+  (testing "clicking a COMPOUND state's TITLE STRIP fires
             `:on-state-click` with the COMPOUND's own path. The title strip
             re-enables pointer-events (`pointer-events:auto`) while the
             compound body stays `pointer-events:none` (leaf pass-through)."
@@ -1618,7 +1599,7 @@
                   "compound title click fires :on-state-click with the compound's path"))))))))
 
 (deftest chart-leaf-click-still-fires-on-state-click-body-pass-through
-  (testing "rf2-34ff3 — a LEAF state click still fires `:on-state-click`
+  (testing "a LEAF state click fires `:on-state-click`
             with the leaf's path. Two leaves are exercised: a TOP-LEVEL
             leaf (`:unauth`) and a SUBSTATE leaf NESTED inside the compound
             (`[:authenticated :browsing]`). The nested-leaf click proves the
@@ -1652,23 +1633,23 @@
               ;; Nested-leaf click: the compound body must NOT swallow it.
               (dispatch-click! browsing-el)
               (is (= [["unauth"] ["authenticated" "browsing"]] @clicks)
-                  "nested-leaf click still fires (compound body pass-through preserved)"))))))))
+                  "nested-leaf click fires too (the compound body passes it through)"))))))))
 
-;; ---- initial-marker painted dot radius (rf2-sxwqzs / rf2-k7kiiq) --------
+;; ---- initial-marker painted dot radius ----------------------------------
 ;;
-;; rf2-k7kiiq DISTINGUISHES two radii on the initial pseudo-state dot: the
+;; The chart DISTINGUISHES two radii on the initial pseudo-state dot: the
 ;; GEOMETRY radius (the full `:pseudo-radius`, which feeds the arm/arrowhead
 ;; math + the forward-flow invariant) and the PAINTED radius (`:pseudo-radius
 ;; − 0.5`, a tighter Stately-aligned dot). The −0.5px painted shrink lives ONLY
 ;; in the renderer (`chart.nodes/initial-marker` `dot-paint-r`) — the projection
 ;; tests cover offset / arrowhead / forward-flow but NEVER the actual painted
-;; `<circle r>`. rf2-sxwqzs pins it directly: the `rf-mv-chart-initial-marker-dot`
+;; `<circle r>`. This pins it directly: the `rf-mv-chart-initial-marker-dot`
 ;; circle renders with `r = pseudo-radius − 0.5` at every density. The glyph is a
 ;; node-body shape (no route), so it mounts on the FIRST commit — assertable
 ;; without awaiting the async elkjs layout pass (the chart_dom convention).
 
 (deftest chart-initial-marker-dot-paints-at-pseudo-radius-minus-half
-  (testing "rf2-sxwqzs / rf2-k7kiiq — the initial-marker dot
+  (testing "the initial-marker dot
             (`rf-mv-chart-initial-marker-dot`) renders its `<circle>` with
             radius `pseudo-radius − 0.5` (the PAINTED radius, distinct from the
             full GEOMETRY radius the glyph math reads) across compact / regular
