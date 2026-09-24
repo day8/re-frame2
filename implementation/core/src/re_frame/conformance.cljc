@@ -10,8 +10,7 @@
   (`submap?`, `check-trace-emissions`, `resolve-sub`). It lives in `core/src`
   (not `core/test`) precisely so per-feature artefacts' test suites reach it
   cross-classpath without pulling core's test tree — a runner's fixture
-  discovery, capability claims, execution loop, and reporting stay LOCAL
-  (rf2-wy414k).
+  discovery, capability claims, execution loop, and reporting stay LOCAL.
 
   Operator set:
 
@@ -58,7 +57,7 @@
     identity    :identity
     fixture     :item-amount"
   (:require [re-frame.error :as rf.error]
-            ;; rf2-j81hs — `[:view-ref id]` in a fixture view body resolves
+            ;; `[:view-ref id]` in a fixture view body resolves
             ;; to the registered handler-fn, so the DSL reads the registry.
             [re-frame.registrar :as rf.registrar]))
 
@@ -186,7 +185,7 @@
                       ;; Read from :data when present (machine bodies),
                       ;; else from :db (event bodies). The two contexts
                       ;; share the same shorthand.
-                      ;; EP-0001 (rf2-vzld77): a `[:rf.runtime/… …]` path in an
+                      ;; EP-0001: a `[:rf.runtime/… …]` path in an
                       ;; event body reads the RUNTIME-DB partition (the
                       ;; `:rf.db/runtime` coeffect), not app-db — durable
                       ;; machine / routing / SSR state lives there.
@@ -271,9 +270,9 @@
   rest of the map normally, then realise `:body` into `:derive`."
   [fx-id args ctx]
   (case fx-id
-    ;; rf2-bqstzr — `:rf.fx/reg-flow` now carries the 3-slot triple
+    ;; `:rf.fx/reg-flow` carries the 3-slot triple
     ;; `[flow-id metadata derive-fn]` (matching the `reg-flow` macro / fn). The
-    ;; fixture DSL still describes a flow with a single map `{:id … :inputs …
+    ;; fixture DSL describes a flow with a single map `{:id … :inputs …
     ;; :body … :output-path …}` (a data description, not the API call), so this
     ;; interpreter LOWERS that map into the triple: pull the `:id` out as the
     ;; first slot, realise `:body` → the pure `derive-fn` third slot, and leave
@@ -311,10 +310,10 @@
     ;; well-shaped `{:db .. :fx ..}` builder. This is the ONLY way the
     ;; corpus can author a handler that returns a MALFORMED effect-map —
     ;; the effect ops (`:set` / `:update` / `:fx`) always produce a
-    ;; well-shaped map, so the proactive fx shape-policing categories
+    ;; well-shaped map, so without it the proactive fx shape-policing categories
     ;; (`:rf.error/effect-map-shape` cases a/b/c and
     ;; `:rf.error/effect-handler-bad-return`, Spec 009 §Error contract)
-    ;; were previously unreachable from a fixture. A body carrying a
+    ;; would be unreachable from a fixture. A body carrying a
     ;; `:return-raw` step is always realised as event-fx (see
     ;; `needs-fx-handler?`) so the raw return reaches `commit-fx-effects`,
     ;; the policing site. Stashed under a private sentinel key the
@@ -333,12 +332,12 @@
                  (assoc ctx :db
                         (if (empty? path) v (assoc-in db path v))))
 
-    ;; EP-0001 (rf2-vzld77): seed / mutate the frame's RUNTIME-DB partition.
+    ;; EP-0001: seed / mutate the frame's RUNTIME-DB partition.
     ;; `:set-runtime [path value]` assoc-in's into the runtime-db value
     ;; threaded from the `:rf.db/runtime` coeffect; the realised event-fx
     ;; handler emits the accumulated value under `:rf.db/runtime`. Used by
-    ;; fixtures to seed / assert machine snapshots / route slice / etc. now
-    ;; that durable framework runtime state lives in runtime-db.
+    ;; fixtures to seed / assert machine snapshots / route slice / etc., since
+    ;; durable framework runtime state lives in runtime-db.
     :set-runtime (let [[_ path value] step
                        v   (resolve-value value ctx)
                        rdb (or (:runtime-db ctx)
@@ -375,7 +374,7 @@
     :dispatch  (let [ev (resolve-value (second step) ctx)]
                  (assoc ctx :fx (conj (or fx []) [:dispatch ev])))
 
-    ;; Per Cross-Spec Interaction §14 (rf2-60szl): a fixture may emit a
+    ;; Per Cross-Spec Interaction §14: a fixture may emit a
     ;; `[:dispatch-sync event-vec]` step from an fx handler body. The
     ;; realise-fx-handler invokes the runner's dispatch-sync! helper for
     ;; each such pair, which calls rf/dispatch-sync while mid-drain so
@@ -383,7 +382,7 @@
     :dispatch-sync (let [ev (resolve-value (second step) ctx)]
                      (assoc ctx :fx (conj (or fx []) [:dispatch-sync ev])))
 
-    ;; Per EP-0027 §Handler-time guard (rf2-emqiqk): an fx body may invoke
+    ;; Per EP-0027 §Handler-time guard: an fx body may invoke
     ;; `make-frame` while the originating handler cascade is in
     ;; flight (the `do-fx` walk runs under the router's `*handler-scope*`
     ;; binding). The construction engine rejects it LOUD —
@@ -394,8 +393,8 @@
     ;; it into the frame's app-db at `path` — making the guard discriminator a
     ;; pure-data `:final-app-db` observable (the host-agnostic lift of the
     ;; capture-into-atom shape the JVM/CLJS unit tests use). `:rf/no-error` is
-    ;; written when the construction did NOT throw (a regression that re-enabled
-    ;; mid-cascade construction).
+    ;; written when the construction did NOT throw (mid-cascade construction
+    ;; wrongly allowed).
     :make-frame-capture (let [[_ path child-id child-config] step
                               cid (resolve-value child-id ctx)
                               cfg (resolve-value child-config ctx)]
@@ -453,7 +452,7 @@
   [steps]
   (fn [cofx event]
     (let [db    (:db cofx)
-          ;; EP-0001 (rf2-vzld77): thread the runtime-db partition value so a
+          ;; EP-0001: thread the runtime-db partition value so a
           ;; `:set-runtime` step can seed / mutate it and the handler emits a
           ;; `:rf.db/runtime` effect.
           rdb   (:rf.db/runtime cofx)
@@ -493,16 +492,16 @@
   "Recursively replace every `[:view-ref <id> & args]` marker in `form`
   with `[(rf/view id) & args]` — a CALLABLE head this host can render.
 
-  rf2-j81hs. A conformance fixture is language-neutral EDN, so it cannot
-  spell a callable head; and a keyword head is now a DOM / custom element
-  on every host, so a fixture can no longer name a view by writing its id
+  A conformance fixture is language-neutral EDN, so it cannot
+  spell a callable head; and a keyword head is a DOM / custom element
+  on every host, so a fixture cannot name a view by writing its id
   as the head (`[:greeting \"world\"]` renders `<greeting>world</greeting>`).
   `[:view-ref :greeting \"world\"]` is the portable spelling — each port
   resolves it to whatever ITS substrate spells as \"callable head + args\".
 
   The marker is deliberately EXPLICIT rather than an implicit \"a keyword
   head here means a view\" rule: an implicit rule would recreate, at the
-  fixture layer, the exact server/client ambiguity this bead removed —
+  fixture layer, a server/client ambiguity over what a keyword head means —
   and fixtures are the artefact other implementations learn the grammar
   from, so they must not model a rule the grammar rejects.
 
@@ -532,12 +531,9 @@
 
     ;; `[:view-ref <id> & args]` — invoke a registered view HERE.
     ;;
-    ;; rf2-j81hs. Fixtures used to compose views by writing the view's id
-    ;; as a hiccup head (`[:streaming.test/comments-section]`) and letting
-    ;; the JVM SSR emitter resolve it through the registry. That
-    ;; resolution is gone: a keyword head is a DOM / custom element on
-    ;; every host, so the old spelling now renders
-    ;; `<comments-section></comments-section>`.
+    ;; A keyword head is a DOM / custom element on every host, so writing a
+    ;; view's id as a hiccup head (`[:streaming.test/comments-section]`)
+    ;; renders `<comments-section></comments-section>`, not the view.
     ;;
     ;; A fixture is language-neutral EDN read by every port, so it cannot
     ;; carry a Clojure `(rf/view :id)` form. This marker is the portable
@@ -545,10 +541,10 @@
     ;; ITS substrate spells as "callable head + args". Resolving to the
     ;; handler-fn here yields exactly `[(rf/view id) & args]`.
     ;;
-    ;; Deliberately EXPLICIT rather than re-teaching the runner that a
+    ;; Deliberately EXPLICIT rather than teaching the runner that a
     ;; keyword head means a view: an implicit rule at the fixture layer
-    ;; would recreate, one level down, the very server/client ambiguity
-    ;; this bead removed — and the fixtures are the artefact that OTHER
+    ;; would recreate, one level down, a server/client ambiguity over what
+    ;; a keyword head means — and the fixtures are the artefact that OTHER
     ;; implementations learn the grammar from, so they must not model a
     ;; rule the grammar rejects.
     (and (vector? form) (= :view-ref (first form)))
@@ -570,7 +566,7 @@
   Conventions:
     [:hiccup <tree>] — the body is the hiccup tree.
     [:event-arg n]   — indexes args (no event-id offset).
-    [:db-get path]   — reads from the implicit db (currently nil)."
+    [:db-get path]   — reads from the implicit db (nil in a view body)."
   [steps]
   (fn [& args]
     (let [hiccup-step (some (fn [s] (when (= :hiccup (first s)) s)) steps)
@@ -587,7 +583,7 @@
   to the body as if it were an 'event' — i.e. [:event-arg 1] resolves
   to the args value (the synthetic event is [fx-id args]).
 
-  Per Cross-Spec Interaction §14 (rf2-60szl) the body may also carry
+  Per Cross-Spec Interaction §14 the body may also carry
   `[:dispatch-sync event-vec]` — used by fixtures that pin the
   framework's `dispatch-sync-in-handler` ban. The op invokes the
   runner's `dispatch-sync!` helper, which calls `rf/dispatch-sync` while
@@ -609,16 +605,16 @@
       (when (not= db (:db final))
         (write-db! frame (:db final)))
       ;; Any :dispatch fx the body produced are enqueued on the same frame.
-      ;; Per rf2-60szl, :dispatch-sync forms are invoked synchronously
+      ;; :dispatch-sync forms are invoked synchronously
       ;; through the helper — the router's in-drain guard surfaces the
       ;; structured error when this fires inside a handler cascade.
       ;;
-      ;; Per rf2-emqiqk the :make-frame-capture pair
+      ;; The :make-frame-capture pair
       ;; invokes `make-frame` mid-cascade and CAPTURES the thrown
       ;; `:rf.error/id` into the originating frame's app-db at `path` (the guard
       ;; throw would otherwise be swallowed into `:rf.error/fx-handler-exception`
-      ;; by `do-fx`). `:rf/no-error` records a no-throw — a regression that
-      ;; re-enabled mid-cascade construction.
+      ;; by `do-fx`). `:rf/no-error` records a no-throw — mid-cascade
+      ;; construction wrongly allowed.
       (doseq [pair (:fx final)]
         (cond
           (and (vector? pair) (= :dispatch (first pair)))
@@ -645,7 +641,7 @@
   (letfn [(uses-cofx? [v]
             (and (vector? v)
                  (or (#{:cofx-key :cofx-without} (first v))
-                     ;; EP-0001 (rf2-vzld77): a `[:get [:rf.runtime/… …]]`
+                     ;; EP-0001: a `[:get [:rf.runtime/… …]]`
                      ;; value form reads the runtime-db coeffect, so the body
                      ;; needs the full cofx map (event-fx, not event-db).
                      (and (= :get (first v))
@@ -655,7 +651,7 @@
     (some (fn [step]
             (or (= :fx (first step))
                 (= :dispatch (first step))
-                ;; EP-0001 (rf2-vzld77): a `:set-runtime` body writes the
+                ;; EP-0001: a `:set-runtime` body writes the
                 ;; runtime-db partition (a `:rf.db/runtime` effect), which
                 ;; only the event-fx shape can return — so force event-fx.
                 (= :set-runtime (first step))
@@ -681,13 +677,13 @@
   so a registration site never branches on the DSL-internal body-shape.
 
   `body-shape` is an interpreter distinction (does the body read cofx / emit fx),
-  NOT a public `:event/kind` (EP-0018 removed the public event sub-kind model). A
+  NOT a public `:event/kind` (EP-0018: there is no public event sub-kind model). A
   `:db` body `(fn [db event] new-db)` is lifted to `(fn [cofx event] {:db …})` —
   read db from the coeffects, lower the returned db into a `{:db …}` effect (same
   observable behaviour); an `:fx` body is already the single form and passes
   through.
 
-  Shared harness primitive (rf2-wy414k) — the pair→single-form collapse lives
+  Shared harness primitive — the pair→single-form collapse lives
   in exactly one place so every conformance runner registers events identically."
   [[body-shape handler]]
   (case body-shape
@@ -697,16 +693,15 @@
 (defn collect-cofx-keys
   "Walk DSL body `steps` and return the SET of every cofx-id referenced via a
   `[:cofx-key K]` form. A runner uses the result to auto-wire a consuming
-  event's `:rf.cofx/requires` declaration (EP-0017 model — rf2-mrp8jg / rf2-g25p).
+  event's `:rf.cofx/requires` declaration (EP-0017 model).
 
-  Shared harness primitive (rf2-wy414k)."
+  Shared harness primitive."
   [steps]
   ;; `tree-seq` flattens the step tree; the transducer picks the `[:cofx-key K]`
-  ;; nodes and takes their `K` (rf2-b8goi — was a scratch atom + `doseq` walk).
-  ;; `tree-seq` also descends INTO a matched node where the hand-rolled walk
-  ;; stopped, so a `[:cofx-key K]` whose K nested a further `[:cofx-key …]`
-  ;; would now also be collected. Unreachable under the DSL grammar (a cofx-id
-  ;; is a keyword), and a superset either way — never a miss.
+  ;; nodes and takes their `K`. `tree-seq` also descends INTO a matched node,
+  ;; so a `[:cofx-key K]` whose K nested a further `[:cofx-key …]`
+  ;; would also be collected — unreachable under the DSL grammar (a cofx-id
+  ;; is a keyword), and a superset either way, never a miss.
   (into #{}
         (comp (filter #(and (vector? %) (= :cofx-key (first %))))
               (map second))
@@ -714,13 +709,13 @@
 
 (defn realise-cofx-supplier
   "DSL body `steps` → a value-returning cofx supplier `(fn [] value)` (EP-0017
-  model — rf2-mrp8jg). Each `:set` step declares the value the supplier returns;
+  model). Each `:set` step declares the value the supplier returns;
   the runtime delivers it FLAT under the cofx-id when a handler declares it via
-  `:rf.cofx/requires`. The `:set` value passes through `eval-value*` (rf2-g25p)
+  `:rf.cofx/requires`. The `:set` value passes through `eval-value*`
   so reflection forms resolve; multiple `:set` steps run in order and the last
   wins (single-delivery convention).
 
-  Shared harness primitive (rf2-wy414k)."
+  Shared harness primitive."
   [steps]
   (fn []
     (reduce (fn [v step]
@@ -745,10 +740,10 @@
 ;;          {:kind :layer-2 :inputs [[:other-sub]] :body fn}
 
 (defn- runtime-db-sub-steps?
-  "EP-0001 (rf2-vzld77): a fixture sub body whose FIRST step is a
+  "EP-0001: a fixture sub body whose FIRST step is a
   `[:get [:rf.runtime/… …]]` read against a reserved runtime-db key is a
   framework runtime-db reader — the durable machine / routing / SSR state
-  now lives in the runtime-db partition. Such a sub registers via
+  lives in the runtime-db partition. Such a sub registers via
   `reg-runtime-sub` so its `db`-position arg is the runtime-db value."
   [steps]
   (let [first-step (first steps)]
@@ -763,7 +758,7 @@
   [steps]
   (let [first-step (first steps)]
     (cond
-      ;; EP-0001 (rf2-vzld77): a `[:get [:rf.runtime/… …]]` body reads the
+      ;; EP-0001: a `[:get [:rf.runtime/… …]]` body reads the
       ;; runtime-db partition (machine snapshots / route slice / etc.). Same
       ;; layer-1 pipeline shape, but `:kind :runtime-db` so the runner
       ;; registers it via `reg-runtime-sub` (the `db`-position arg is the
@@ -792,7 +787,7 @@
          :inputs [[input-sub-id]]
          ;; A DECLARED dependency list arrives as a VECTOR at every count, so
          ;; the fold destructures its one input rather than reducing over the
-         ;; singleton wrapper (rf2-kuky.50).
+         ;; singleton wrapper.
          :body   (fn [[input-val] _query]
                    (reduce reducer
                            (if mapper (map mapper input-val) input-val)))})
@@ -817,7 +812,7 @@
 
 ;; ---- expectation-matcher primitives --------------------------------------
 ;;
-;; Pure, host-neutral matchers shared by every conformance runner (rf2-wy414k).
+;; Pure, host-neutral matchers shared by every conformance runner.
 ;; A runner's fixture selection, capability claims, execution loop, and
 ;; reporting stay LOCAL; only these stable comparison primitives are shared.
 
@@ -826,7 +821,7 @@
   Recurses into nested maps so partial expectations on nested slices work (e.g.
   a fixture asserting only a subset of an app-db slice or a trace-tag map).
 
-  Shared harness primitive (rf2-wy414k)."
+  Shared harness primitive."
   [expected actual]
   (cond
     (and (map? expected) (map? actual))
@@ -848,7 +843,7 @@
   the fixture doesn't care about). Returns a vector of failure-message strings
   (empty on full match).
 
-  Shared harness primitive (rf2-wy414k)."
+  Shared harness primitive."
   [actual-traces expected-traces]
   (loop [actual   actual-traces
          expected expected-traces
@@ -891,7 +886,7 @@
   implicit-frame default is a TEST-HARNESS query-normalisation convention, so
   each runner passes its own default from its test tree — keeping this src/
   primitive free of a positional frame-floor shape while still sharing the
-  query-shape normalisation itself (rf2-wy414k)."
+  query-shape normalisation itself."
   [default-frame entry]
   (if (and (vector? entry)
            (= 2 (count entry))
