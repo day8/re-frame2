@@ -1,5 +1,5 @@
 'use strict';
-// THE SERVICE (rf2-hic-056) — validate, admit, render, release.
+// THE SERVICE — validate, admit, render, release.
 //
 // ## ONE CORE API, AND THE STRING IS A WRAPPER OVER IT
 //
@@ -10,8 +10,7 @@
 // caller is not asking for a second semantics, it is declining a
 // convenience. Were the primitive the string, every layer beneath it
 // would already hold the assumption that there is exactly one, and
-// unwinding that later is the retrofit the bead is trying to avoid
-// paying for.
+// streaming would mean a retrofit through all of them.
 //
 // Nothing between the render module and the transport ever holds "the
 // body". The isolate posts each chunk as the module emits it, the
@@ -56,8 +55,8 @@ const { PROTOCOL_VERSION } = require('./protocol.cjs');
  * application — every receiver between here and the module builds a
  * `Refusal`, so anything else got past all of them — and it is the one
  * class of failure nothing upstream will have logged. Without this the
- * wording handed to the caller would again be the only copy in existence,
- * which is the trade `isolate.cjs`'s `reportIsolateFault` exists to refuse.
+ * wording handed to the caller would be the only copy in existence, which
+ * is the trade `isolate.cjs`'s `reportIsolateFault` exists to refuse.
  */
 function reportUncontractedFault(err) {
   const trace = err && err.stack ? err.stack : String(err);
@@ -134,41 +133,29 @@ class Service {
             return;
           }
           // THE LAST RECEIVER, and it states the same law as the other
-          // three (rf2-2hmg). This arm used to put `String(error)` on the
-          // public refusal, on the reading that it was unreachable and
-          // would carry only this package's own text if it were not.
-          // Neither half survived being measured.
+          // three: the contract's wording, never `String(error)`. What
+          // arrives here is not guaranteed to be this package's own text.
+          // A request value that fails to structured-clone makes
+          // `postMessage` throw `DataCloneError` synchronously inside
+          // `render()`'s executor, which passes through no receiver that
+          // could make it a `Refusal` — and a `DataCloneError` names the
+          // value it choked on, so `String(error)` would interpolate the
+          // CALLER'S value into a message published on the widest surface
+          // this package has, the egress this file's header says does not
+          // exist.
           //
-          // It was reached by an ORDINARY IN-PROCESS CALL. `validatePartition`
-          // used to return the caller's own partition object rather than a
-          // copy, so the object the validator inspected and the object
-          // `postMessage` structured-clones were one object read twice — and
-          // anything with an accessor on it (a getter, a Proxy, a lazily
-          // materialised row out of a serializer) could be a string on the
-          // first read and unclonable on the second. `postMessage` then threw
-          // `DataCloneError` synchronously inside `render()`'s executor,
-          // which never passed through a receiver that could have made it a
-          // `Refusal`.
+          // A caller cannot reach this that way: `validateRequest` reads
+          // every field exactly once and returns what it read, so a request
+          // that validates is a request that clones.
           //
-          // And the text was the CALLER'S, not ours: a `DataCloneError` names
-          // the value it choked on, so the caller's own value was
-          // interpolated into a message published on the widest surface this
-          // package has — the egress this file's header says does not exist.
-          //
-          // THAT ROUTE IS CLOSED (rf2-ey07): `validateRequest` now reads every
-          // field exactly once and returns what it read, so a request that
-          // validates is a request that clones.
-          //
-          // THE ARM ITSELF WAS NEVER THE DEFECT AND IS NOT REMOVED, and being
-          // unreachable from a caller is not a reason to remove it. It is what
-          // guarantees `renderFrames` throws nothing but a `Refusal`, which
-          // is the property every transport is written against; deleting it
-          // would let a raw `Error` reach `statusFor` with no code at all —
-          // and `isolate.cjs`'s `render` deliberately lets a `postMessage`
-          // that throws reject RAW rather than dressing it as a `Refusal`,
-          // precisely so this arm is what states the wording and writes the
-          // operator's copy. Only the wording was ever wrong, and the
-          // contract already owns the wording.
+          // BEING UNREACHABLE FROM A CALLER IS NOT A REASON TO REMOVE THE
+          // ARM. It is what guarantees `renderFrames` throws nothing but a
+          // `Refusal`, which is the property every transport is written
+          // against; deleting it would let a raw `Error` reach `statusFor`
+          // with no code at all — and `isolate.cjs`'s `render` deliberately
+          // lets a `postMessage` that throws reject RAW rather than dressing
+          // it as a `Refusal`, precisely so this arm is what states the
+          // wording and writes the operator's copy.
           reportUncontractedFault(error);
           renderFailure = new Refusal(CODE.RENDER_THREW, RENDER_THREW_REFUSAL, {});
         },
