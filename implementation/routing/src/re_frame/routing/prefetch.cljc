@@ -56,20 +56,20 @@
   `rf.routing.address/prefetch-address-error` proves the request is a closed
   `:rf/route-address`; it cannot know whether that destination is REGISTERED, or
   whether the supplied `:params` / `:query` satisfy the route's declared schemas.
-  While the structural gate was the only gate, prefetch warmed destinations a
-  real activation refuses: `{:to :route/does-not-exist}` returned `{}` after a
-  SUCCESS summary trace, and a registered `/probe/:id` with `:id` omitted reached
-  the warm hook as `{:params {}}` — the WRONG resource identity — where the same
+  With the structural gate alone, prefetch would warm destinations a real
+  activation refuses: `{:to :route/does-not-exist}` would return `{}` after a
+  SUCCESS summary trace, and a registered `/probe/:id` with `:id` omitted would
+  reach the warm hook as `{:params {}}` — the WRONG resource identity — where the same
   address through `route-url` raises `:rf.error/no-such-route` /
   `:rf.error/missing-route-param`.
 
   So the destination resolves through `rf.routing.registry/route-url`, the ONE
   named-destination resolution / validation boundary the programmatic door
-  already lowers to (Spec 012 §Bidirectional URL ↔ params): the only surface that
+  lowers to (Spec 012 §Bidirectional URL ↔ params): the only surface that
   adjudicates a NAMED address against the route's registration AND its `:params`
   / `:query` schemas. Prefetch owns no URL (no history, no slice), so the built
   URL is discarded — the boundary is consulted for its VERDICT, which is exactly
-  the fact prefetch was missing. No new resolver, no new public surface.
+  the fact prefetch needs.
 
   Returns nil when the destination resolves, else the
   `:rf.error/prefetch-bad-address` payload `{:reason <kw> :keys [<offending>]}`
@@ -83,7 +83,7 @@
   `:rf.error/route-url-validation` embeds `:value` (the caller's raw params /
   query) and `:error` (a Malli explainer that reproduces the failing value
   verbatim) — the URL-carrier class the navigate door has to redact at its own
-  emit site (`navigate/redact-route-error-tags`, rf2-zsm03). A trace tag is an
+  emit site (`navigate/redact-route-error-tags`). A trace tag is an
   egress surface the route's `:sensitive` classification cannot reach, so this
   carries the offending KEY and the route id and never a value."
   [address]
@@ -136,7 +136,7 @@
     ;; gate (is this a closed `:rf/route-address`?) and then the DESTINATION
     ;; gate (does that address resolve to a registered, schema-valid
     ;; destination?). `or` short-circuits, so a malformed request never reaches
-    ;; the registry and the structural `:reason` still wins — Spec 012 §Route-plan
+    ;; the registry and the structural `:reason` wins — Spec 012 §Route-plan
     ;; prefetch's "an invalid address rejects BEFORE planning".
     (if-let [bad (or (rf.routing.address/prefetch-address-error request)
                      (destination-error request))]
@@ -156,14 +156,13 @@
       (let [;; The destination lowers to the ONE ResolvedTarget seam every
             ;; navigation door lowers to (`rf.routing.resolve/resolved-target`), so a warm
             ;; plan is built from the SAME facts the activation will commit —
-            ;; including the route's declared `:query-defaults`. Prefetch
-            ;; resolving the address itself is what made R3's headline capability
-            ;; silently inert for a route declaring defaults (rf2-kqxe6.23):
-            ;; hovering warmed `{:tab nil}` while the click activated
-            ;; `{:tab :overview}`, so the same link produced TWO cache entries —
-            ;; the warm one ownerless, GC-eligible and never reused, and the
-            ;; click arriving as a fresh `:attempt 1`. No error, no warning; the
-            ;; feature simply did nothing.
+            ;; including the route's declared `:query-defaults`. Resolving the
+            ;; address inside prefetch would leave prefetch silently inert for a
+            ;; route declaring defaults: hovering would warm `{:tab nil}` while
+            ;; the click activates `{:tab :overview}`, so the same link would
+            ;; produce TWO cache entries — the warm one ownerless, GC-eligible
+            ;; and never reused, and the click arriving as a fresh `:attempt 1`.
+            ;; No error, no warning; the feature would simply do nothing.
             {:keys [route-id params query fragment]}
             (rf.routing.resolve/resolved-target {:route-id (:to request)
                                        :params   (:params request {})
