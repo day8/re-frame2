@@ -2,7 +2,7 @@
   "JVM tests for `:rf.warning/schema-validator-unavailable` — the
   one-time process-lifecycle warning that fires from `reg-app-schema`
   / `reg-app-schemas` when the Malli adapter is unloaded AND the
-  framework-default validator is still installed (rf2-fq7d2).
+  framework-default validator is still installed.
 
   Background — Spec 010 §Recommended soft-pass: the schemas artefact
   ships with a Malli-delegating default validator that returns true
@@ -12,7 +12,7 @@
   wired up validates nothing. The warning surfaces this once per
   process.
 
-  Post-rf2-v96fh the `re-frame.schemas` facade auto-requires the Malli
+  The `re-frame.schemas` facade auto-requires the Malli
   adapter, so the common path keeps the hook bound and the warning is
   effectively reserved for a substitute-validator port or this test's
   deliberate unbind (see `with-unbound-malli-validate`, which simulates
@@ -128,8 +128,7 @@
 
 (deftest warning-suppressed-when-set-schema-fns-installs-validate
   (testing "set-schema-fns! with a {:validate ...} bundle also counts as
-            'explicit opt-out' — non-default validator-fn after the swap
-            (rf2-13meg)"
+            'explicit opt-out' — non-default validator-fn after the swap"
     (with-trace-recorder! [recorded]
       (with-unbound-malli-validate
         (fn []
@@ -152,8 +151,7 @@
             ;; Restore the slot for sibling tests — the fixture restores the
             ;; validator-fn but NOT the process-global late-bind hook table.
             ;; Mirrors `with-unbound-malli-validate`'s prior-capture/restore so
-            ;; this stub does not leak a trivially-true validator process-wide
-            ;; (rf2-hydpaf).
+            ;; this stub does not leak a trivially-true validator process-wide.
             (when prior
               (rf.late-bind/set-fn! :schemas/malli-validate prior))))
         (is (empty? (warnings-of recorded
