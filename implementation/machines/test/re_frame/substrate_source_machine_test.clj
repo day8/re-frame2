@@ -4,7 +4,7 @@
   platform-agnostic `.cljc` so the assertions hold uniformly across CLJS
   reagent / plain-atom / JVM hosts.
 
-  | new `:source` value | stamped by                            | when                                                    |
+  | `:source` value     | stamped by                            | when                                                    |
   |---------------------|---------------------------------------|---------------------------------------------------------|
   | `:after-timer`      | machine substrate's `:after` timer path| timer's delay elapses + substrate dispatches trigger   |
   | `:machine-spawn`    | spawn-fx + `:rf.machine/spawn` handler | substrate dispatches the spawned actor's `:start` event|
@@ -33,8 +33,8 @@
             ;; Source-axis tests register listeners through `trace.tooling`
             ;; directly (not rf.machines.test-support/with-trace-capture): each listener FILTERS
             ;; on a specific :operation at capture time and the test reads
-            ;; `@seen` in the surrounding `let` — kept as inline try/finally
-            ;; blocks (which already guarantee unregister).
+            ;; `@seen` in the surrounding `let` — so they use inline try/finally
+            ;; blocks (which guarantee unregister).
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
@@ -80,7 +80,7 @@
           (is (some? timer-ev)
               "the substrate dispatched :rf.machine.timer/after-elapsed via the timer-fire path")
           (is (= :after-timer (:source timer-ev))
-              ":source :after-timer stamped on the timer dispatch (rf2-ejtpd)")
+              ":source :after-timer stamped on the timer dispatch")
           (is (= [:after-source/flow [:rf.machine.timer/after-elapsed 1000 1 [:loading]]]
                  (get-in timer-ev [:tags :rf.event/v]))
               "the dispatched event vector carries the machine id + synthetic trigger")
@@ -88,7 +88,7 @@
           ;; `:after-timer` carries the axis. No separate
           ;; `:rf/dispatch-origin` tag rides alongside.
           (is (nil? (get-in timer-ev [:tags :rf/dispatch-origin]))
-              ":rf/dispatch-origin retired per rf2-1ve9h — `:source` carries the axis"))
+              "no :rf/dispatch-origin tag — `:source` carries the axis"))
         (finally (rf.trace.tooling/unregister-listener! ::after-src))))))
 
 ;; ---- :machine-spawn ------------------------------------------------------
@@ -132,7 +132,7 @@
           (is (some? spawn-ev)
               "the substrate dispatched the spawned actor's :start event")
           (is (= :machine-spawn (:source spawn-ev))
-              ":source :machine-spawn stamped on the spawn dispatch (rf2-ejtpd)"))
+              ":source :machine-spawn stamped on the spawn dispatch"))
         (finally (rf.trace.tooling/unregister-listener! ::spawn-src))))))
 
 (deftest machine-spawn-synthetic-spawned-stamps-source-machine-spawn
@@ -167,13 +167,13 @@
           (is (some? synthetic-ev)
               "the substrate dispatched the synthetic [:rf.machine.spawn/spawned] event")
           (is (= :machine-spawn (:source synthetic-ev))
-              ":source :machine-spawn stamped on the synthetic spawn dispatch (rf2-ejtpd)"))
+              ":source :machine-spawn stamped on the synthetic spawn dispatch"))
         (finally (rf.trace.tooling/unregister-listener! ::spawn-src2))))))
 
 ;; ---- :machine-action (actor messages) -----------------------------------
 
 (deftest machine-action-dispatch-stamps-source-machine-action
-  (testing ":dispatch fx from a machine handler stamps :source :machine-action (rf2-c3990)"
+  (testing ":dispatch fx from a machine handler stamps :source :machine-action"
     ;; When the parent envelope carries `:rf.machine/internal? true` (the
     ;; router stamps this on every machine-handler invocation), the
     ;; `:dispatch` fx handler stamps the child envelope with
@@ -206,11 +206,11 @@
           (is (some? downstream-ev)
               "the machine-emitted :dispatch reached the downstream handler")
           (is (= :machine-action (:source downstream-ev))
-              ":source :machine-action stamped on the machine-emitted child envelope (rf2-c3990)"))
+              ":source :machine-action stamped on the machine-emitted child envelope"))
         (finally (rf.trace.tooling/unregister-listener! ::machine-action))))))
 
 (deftest non-machine-dispatch-still-stamps-source-fx-dispatch
-  (testing ":dispatch fx from a NON-machine event handler retains :source :fx-dispatch (rf2-c3990)"
+  (testing ":dispatch fx from a NON-machine event handler retains :source :fx-dispatch"
     ;; The :machine-action stamp is conditional on the parent envelope
     ;; carrying `:rf.machine/internal? true`. Ordinary event handlers
     ;; that emit `:dispatch` keep the `:fx-dispatch` stamp — this
@@ -269,7 +269,7 @@
             "at least one :always microstep trace was emitted")
         (let [step (first @microsteps)]
           (is (= :always (:source step))
-              ":source :always stamped on the microstep trace (rf2-ejtpd)")
+              ":source :always stamped on the microstep trace")
           (is (= :b (get-in step [:tags :from])))
           (is (= :c (get-in step [:tags :to]))))
         (finally (rf.trace.tooling/unregister-listener! ::always-src))))))
