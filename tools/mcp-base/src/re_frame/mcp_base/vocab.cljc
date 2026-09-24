@@ -22,7 +22,7 @@
                 Owned by the MCP servers; not part of the framework
                 runtime vocabulary.
 
-  `:rf.size/*` — the size-elision MARKER, and since rf2-kuky.93 nothing
+  `:rf.size/*` — the size-elision MARKER and nothing
                  else: `:rf.size/large-elided`. Owned jointly with the
                  framework's `rf/project-egress` walker (Conventions
                  §Reserved namespaces; Spec 009 §Size elision in traces).
@@ -196,7 +196,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; :rf.egress/* — the framework egress-opts keys a server relays inward
-;; (rf2-kuky.93: one namespace for the whole closed opts map). NOT wire keys.
+;; (one namespace for the whole closed opts map). NOT wire keys.
 ;; ---------------------------------------------------------------------------
 
 (def include-large-opt
