@@ -343,7 +343,7 @@
 ;; `:rf/transition-pure` fallback. `parallel/reduce-regions` re-stamps the live
 ;; parent-id onto the synthetic region-spec, so both `:spawn :on-done` AND
 ;; `:spawn :on-error` resolve region-scoped end-to-end. The
-;; resolvers (`pick-spawn-done-transition` / `pick-spawn-error-transition`)
+;; resolvers (`resolver/spawn-spec-at` / `pick-spawn-error-transition`)
 ;; strip the region-name prefix off the invoke-id so the hook fires at the
 ;; region's own state level — exactly as `pick-after-transition` does.
 ;;
