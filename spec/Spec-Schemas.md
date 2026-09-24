@@ -946,29 +946,32 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:exception-message :string]])
 
 (def CoeffectExceptionTags
-  ;; A registered coeffect's injection body threw during the :before chain.
-  ;; `:failing-id` is the fully-qualified cofx id; `:phase` is
-  ;; :before. Distinct from NoSuchCofxTags (unregistered id, trace-and-
-  ;; continue) — this is a registered cofx whose injection logic threw,
-  ;; aborting the event. No `:handler-id` (the handler never ran).
+  ;; A registered coeffect supplier (or recordable generator) threw at
+  ;; context assembly, before the interceptor chain runs. `re-frame.cofx`
+  ;; is the one emitter. `:rf.cofx/id` and `:failing-id` are the cofx id;
+  ;; `:rf.trace/event-id` is the event whose assembly failed; `:phase` is
+  ;; :before. Distinct from NoSuchCofxTags (unregistered id) — this is a
+  ;; registered cofx whose supplier threw, which fails the event: the
+  ;; handler is skipped, nothing staged is committed, and the event settles
+  ;; `:error`. No `:handler-id` (the handler never ran).
   [:map
    [:category          [:= :rf.error/coeffect-exception]]
+   [:rf.cofx/id        :keyword]
    [:failing-id        :keyword]
+   [:rf.trace/event-id :keyword]
    [:reason            :string]
-   [:event             [:vector :any]]
-   [:event-id          {:optional true} :keyword]
    [:frame             {:optional true} :keyword]
    [:phase             {:optional true} [:enum :before]]
-   [:exception         {:optional true} :any]
-   [:exception-message :string]])
+   [:exception         {:optional true} :any]])
 
 (def InterceptorExceptionTags
   ;; A user interceptor's :before or :after slot threw.
   ;; `:failing-id` is the throwing interceptor's :id; `:phase` discriminates
   ;; :before (pre-handler) from :after (post-handler teardown / reshape).
-  ;; No `:handler-id` (the failure was not the handler). Excludes framework
-  ;; auto-wrappers (handler-wrapper → HandlerExceptionTags; cofx injector →
-  ;; CoeffectExceptionTags).
+  ;; No `:handler-id` (the failure was not the handler). Excludes the
+  ;; framework handler-wrapper (→ HandlerExceptionTags). A coeffect supplier
+  ;; throws at context assembly, before the chain runs, and `re-frame.cofx`
+  ;; emits CoeffectExceptionTags for it.
   [:map
    [:category          [:= :rf.error/interceptor-exception]]
    [:failing-id        :keyword]
@@ -2384,16 +2387,16 @@ The schemas above are *open* (Malli's default `[:map ...]`) — consumers receiv
 > **Owner:** [002-Frames §Per-event drain](002-Frames.md)
 > **Status:** v1-required
 
-When an interceptor's `:before` or `:after` function throws, the chain runner records the failure into the context map under two paired keys before continuing or short-circuiting. Each captured error is a `{:phase :id :exception}` record; it additionally carries `:rf/cofx-id` when the failing component is a coeffect supplier that threw at context assembly (so the router can attribute a coeffect-supplier throw to the fully-qualified cofx id rather than the bare interceptor `:id`):
+When an interceptor's `:before` or `:after` function throws, the chain runner records the failure into the context map under two paired keys before continuing or short-circuiting. Each captured error is a `{:phase :id :exception}` record. A coeffect supplier that throws at context assembly never reaches the chain, so it is never captured here: `re-frame.cofx` emits `:rf.error/coeffect-exception` for it (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)):
 
 ```clojure
 (def InterceptorContextErrorKeys
   [:map
    ;; The FIRST error captured during chain execution — the original cause.
-   ;; Trace code reads this (its captured `:id` / `:rf/cofx-id` / `:phase`)
+   ;; Trace code reads this (its captured `:id` / `:phase`)
    ;; to fire the component-attributed error category —
-   ;; `:rf.error/handler-exception` (the event handler), `:rf.error/coeffect-exception`
-   ;; (a cofx injection), or `:rf.error/interceptor-exception` (a user
+   ;; `:rf.error/handler-exception` (the event handler) or
+   ;; `:rf.error/interceptor-exception` (a user
    ;; interceptor :before/:after). Singleton: once set, subsequent failures
    ;; do NOT overwrite it (preserves the root cause).
    [:rf/interceptor-error  {:optional true} :any]
@@ -2410,7 +2413,7 @@ Semantics (the contract ports must uphold):
 1. **Singleton-FIRST / vector-ALL.** `:rf/interceptor-error` is set *once* — to the first throw observed. `:rf/interceptor-errors` collects *every* throw in order; subsequent entries append.
 2. **`:before` failures short-circuit subsequent `:before` stages.** Remaining `:before` interceptors are skipped; the handler is also skipped.
 3. **`:after` pass runs in full** regardless of `:before` failures — interceptors that allocate cleanup-on-`:after` resources must always get their `:after` call. An `:after` throw appends to `:rf/interceptor-errors` but does not abort the remaining `:after` stages.
-4. **Trace emission tracks the singleton, attributed to the true failing component.** The trace stream emits one error event per chain execution — keyed off `:rf/interceptor-error`. The category is derived from the captured component identity: `:rf.error/handler-exception` when the throwing `:id` is the handler-wrapper (`:rf/event-handler` — the one framework auto-wrapper, EP-0018), `:rf.error/coeffect-exception` when the captured error carries `:rf/cofx-id` (a coeffect supplier threw at context assembly), and `:rf.error/interceptor-exception` otherwise (a user interceptor's `:before`/`:after`, with `:phase` discriminating the two). The `:failing-id` tag carries the true component id (event id / cofx id / interceptor id), NOT a blanket event id. Consumers wanting the full failure set read `:rf/interceptor-errors` from the post-drain context snapshot directly.
+4. **Trace emission tracks the singleton, attributed to the true failing component.** The trace stream emits one error event per chain execution — keyed off `:rf/interceptor-error`. The category is derived from the captured component identity: `:rf.error/handler-exception` when the throwing `:id` is the handler-wrapper (`:rf/event-handler` — the one framework auto-wrapper, EP-0018), and `:rf.error/interceptor-exception` otherwise (a user interceptor's `:before`/`:after`, with `:phase` discriminating the two). The `:failing-id` tag carries the true component id (event id / interceptor id), NOT a blanket event id. A coeffect supplier that throws at context assembly never reaches the chain: `re-frame.cofx` emits `:rf.error/coeffect-exception` itself, and the event settles `:error` with nothing installed. Consumers wanting the full failure set read `:rf/interceptor-errors` from the post-drain context snapshot directly.
 
 Both keys are namespaced under `:rf/`, so user-installed interceptors that read or write context entries don't collide with the runtime-owned slots. Per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned), user code MUST NOT write to either key.
 
