@@ -1,21 +1,23 @@
 (ns re-frame.adapter.uix-effect-frame-deps-dom-cljs-test
-  "rf2-tug6 — an imperative `use-effect` listener follows the frame its
-  component is rendered under, across a PROVIDER SWAP.
+  "An imperative `use-effect` listener follows the frame its component is
+  rendered under, across a PROVIDER SWAP.
 
   ## The defect
 
   The canonical outer/inner recipe in `implementation/adapters/uix/README.md`
   installs a DOM listener from `use-effect` and dispatches from it through the
-  ops map `use-frame` returns. The effect closed over TWO reactive values —
-  the domain prop and `dispatch` — and named only the prop in its deps vector.
+  ops map `use-frame` returns. The effect closes over TWO reactive values —
+  the domain prop and `dispatch` — and the defect is a deps vector naming
+  only the prop.
 
   `use-frame`'s bundle is reference-stable for one resolved frame INCARNATION
   and a NEW map once the surrounding `frame-provider` retargets
   (`re-frame.adapter.use-frame/use-frame`'s render-phase memo is keyed on the
-  frame AND its incarnation token). So a provider swap re-renders the mounted
-  component with a B-locked `dispatch` in hand — and React, told only that the
-  prop is unchanged, does NOT re-run the effect. The listener installed under
-  A stays installed, and the next DOM event dispatches into A.
+  frame AND its incarnation token). So, with only the prop named, a provider
+  swap re-renders the mounted component with a B-locked `dispatch` in hand —
+  and React, told only that the prop is unchanged, does NOT re-run the
+  effect. The listener installed under A stays installed, and the next DOM
+  event dispatches into A.
 
   That is an isolation break, not staleness: frames are isolated contexts, so
   a write into still-live A raises nothing at all. It just lands in the frame
@@ -37,9 +39,9 @@
   vector, marked `^:lint/disable` so UIx's exhaustive-deps linter reads the
   omission as deliberate rather than warning on it. It is the control this
   suite would otherwise be missing: without it, a green here could equally
-  mean the fix works or that the swap never reached the component. It fails
-  in the specific way the bead describes — the second event lands in A again,
-  and B never hears it.
+  mean the deps vector works or that the swap never reached the component.
+  It fails in the specific way described above — the second event lands in A
+  again, and B never hears it.
 
   The recipe component is compiled here with its real spelling
   (`uix/use-effect` + `rf.adapter.uix/use-frame` + a UIx `use-ref` on a DOM
@@ -54,7 +56,7 @@
   does not drain it). The README teaches `dispatch`; nothing about the
   dependency differs.
 
-  TOOTH: put the recipe component's deps back to `[tile-id]` and
+  TOOTH: cut the recipe component's deps to `[tile-id]` and
   `imperative-effect-follows-the-frame-across-a-provider-swap` fails exactly
   where the negative control below already fails.
 
@@ -128,9 +130,9 @@
     ($ :div {:ref ref :class "tile"})))
 
 (defui stale-tile-inner
-  "The recipe as it read before rf2-tug6 — identical but for the deps vector,
-  which names the domain prop alone. `^:lint/disable` because the omission is
-  the subject here, not a mistake for UIx's linter to report."
+  "The recipe with the frame dependency omitted — identical but for the deps
+  vector, which names the domain prop alone. `^:lint/disable` because the
+  omission is the subject here, not a mistake for UIx's linter to report."
   [{:keys [tile-id]}]
   (let [ref                     (uix/use-ref)
         {:keys [dispatch-sync]} (rf.adapter.uix/use-frame)]
@@ -158,20 +160,20 @@
   gets them fresh from the reset fixture.
 
   The ambient `:rf/default` dynamic scope the fixture installs is cleared for
-  the duration. Since rf2-kuky.62 that is belt-and-braces rather than
-  load-bearing — `use-frame` reads React context ONLY, so a bound
-  `*current-frame*` cannot mask the provider — but it is kept, and this row
-  is a reason the rule matters: while `use-frame` resolved the dynamic-var
-  tier FIRST, leaving the fixture's binding in place made both renders
-  resolve the SAME frame and the suite passed while proving nothing. Same
-  `binding` the shared React suite's provider rows take."
+  the duration. That is belt-and-braces rather than load-bearing —
+  `use-frame` reads React context ONLY, so a bound `*current-frame*` cannot
+  mask the provider — but it keeps this row honest: were `use-frame` to
+  resolve the dynamic-var tier FIRST, leaving the fixture's binding in place
+  would make both renders resolve the SAME frame, and the suite would pass
+  while proving nothing. Same `binding` the shared React suite's provider
+  rows take."
   [act-fn component]
   (reset! effect-log [])
   (rf/reg-event ::finished
                 (fn [{:keys [db]} [_ tile-id]]
                   {:db (update db :hits (fnil conj []) tile-id)}))
-  (rf/make-frame {:id frame-a :doc "rf2-tug6 — provider target A"})
-  (rf/make-frame {:id frame-b :doc "rf2-tug6 — provider target B"})
+  (rf/make-frame {:id frame-a :doc "provider target A"})
+  (rf/make-frame {:id frame-b :doc "provider target B"})
   (binding [rf.frame/*current-frame* nil]
    (let [mount-node (.createElement js/document "div")
          root       (react-dom-client/createRoot mount-node)
@@ -250,4 +252,4 @@
           (is (nil? b)
               (str "and B — the frame the component is now rendered under — "
                    "never heard it. This is what the recipe's deps vector "
-                   "prevents (rf2-tug6)")))))))
+                   "prevents")))))))
