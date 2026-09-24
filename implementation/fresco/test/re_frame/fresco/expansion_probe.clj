@@ -1,32 +1,26 @@
 (ns re-frame.fresco.expansion-probe
   "**WHAT ONLY THE COMPILER KNOWS, HANDED TO THE SUITE AS DATA**.
 
-  This artefact has no JVM test lane and that is the CORRECT outcome —
-  `implementation/fresco/deps.edn` says so and waives the runner's
-  coverage floor for it, because every namespace the package ships needs
-  React and every suite it owns is therefore ClojureScript on the Node
-  lane. One fact about the hooks namespace is nevertheless a fact about
-  the ANALYSER, which runs on the JVM before that lane exists: a
-  namespace's public var list — the membership a census pin is a
-  deterministic act OVER — is the analyser's, and ClojureScript has no
-  `ns-publics` at runtime.
+  Every namespace the package ships needs React, so nearly every suite it
+  owns is ClojureScript on the Node lane — the hooks-island suite that
+  calls this macro among them. One fact about the hooks namespace is
+  nevertheless a fact about the ANALYSER, which runs on the JVM before
+  that lane exists: a namespace's public var list — the membership a
+  census pin is a deterministic act OVER — is the analyser's, and
+  ClojureScript has no `ns-publics` at runtime.
 
   It is read here, at expansion, and emitted as ordinary quoted data into
   the compiled test. The suite then asserts on it with `is` like any other
-  value, in the one lane this repository actually runs — no JVM lane, no
-  golden snapshot.
+  value, on the Node lane — no JVM test, no golden snapshot.
 
-  ## It carries no `deftest`, and the JVM probe lane still finds zero
+  ## It carries no `deftest`, and the JVM lane never loads it
 
-  The artefact's `clojure -M:test` alias is a classpath probe whose
-  correct outcome is zero tests, and this file does not disturb it: the
-  runner discovers by namespace NAME and requires only what its test
+  The artefact's `clojure -M:test` lane runs the `.cljc` slot-rule
+  equivalence pin and nothing else, and this file does not disturb it:
+  the runner discovers by namespace NAME and requires only what its test
   pattern matches, which `re-frame.fresco.expansion-probe` deliberately
-  does not. That was measured rather than assumed — a deliberately
-  unresolvable `:require` planted at the top of this file leaves the
-  lane green, which is the only proof that the lane never reads it. So
-  the artefact's `deps.edn` note stands unchanged: if a JVM-runnable
-  SUITE ever lands in `test/`, that is when `--probe` comes off."
+  does not. An unresolvable `:require` planted at the top of this file
+  leaves the lane green, which is the proof that the lane never loads it."
   (:require [cljs.analyzer.api :as ana-api]
             [re-frame.fresco.native]))
 
