@@ -1,7 +1,7 @@
 (ns re-frame2-pair-mcp.tools.replay-epoch
   "Tool: replay-epoch — strict replay of a retained epoch, in ONE call.
 
-  Per spec/Tool-Pair.md §Replay (rf2-ov144): re-drive the named epoch's
+  Per spec/Tool-Pair.md §Replay: re-drive the named epoch's
   recorded event through the app's own handlers with the RAW
   argument-bearing `:trigger-event`, the recorded post-generation
   `:rf.cofx` token under `:rf.cofx/mint-policy :strict`, and the record's
@@ -10,9 +10,8 @@
   (`(rf/replay-epoch! frame-id epoch-id {:origin :pair})`). Nothing
   crosses the wire but the id: the caller never reads, copies or
   re-supplies the event / cofx / override payloads that the projected
-  epoch pages deliberately expose only with `:rf/redacted` args
-  (rf2-nm611o). This is what the `dispatch {replay true …}` recipe could
-  not offer an off-box agent.
+  epoch pages deliberately expose only with `:rf/redacted` args. The
+  `dispatch {replay true …}` recipe cannot offer an off-box agent this.
 
   ## Gate — dispatch authority, NOT the writes gate
 
@@ -78,7 +77,7 @@
             ;; replay-epoch's runtime arglist is ([epoch-id]
             ;; [epoch-id frame-id]) — the frame is the SECOND arg, exactly
             ;; like restore-epoch.
-            ;; rf2-fzbj.6 — the epoch-id is EXTERNAL EDN, so it rides as
+            ;; The epoch-id is EXTERNAL EDN, so it rides as
             ;; quoted literal data rather than printed source.
             id-form (ef/rt-quote epoch-id)
             call (if frame
