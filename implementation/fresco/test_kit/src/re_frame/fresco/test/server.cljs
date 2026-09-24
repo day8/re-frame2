@@ -12,9 +12,8 @@
   per-request frame id produces a document that differs run to run, and
   hydration then reports the difference as a mismatch on somebody else's
   machine. This probe is where that is caught: on the server, in a test,
-  before a page ships. It used to sit on the product door as
-  `server/render-twice` (naming-ledger row 50); it moved here under
-  rf2-6c12m.15 because nothing a running host does calls it.
+  before a page ships. It lives in the kit rather than on the product
+  door because nothing a running host does calls it.
   Design record: docs/design/fresco/product/naming-ledger.md row 50."
   (:require [re-frame.fresco.server :as rf.fresco.server]))
 
