@@ -394,9 +394,8 @@
   "The attribute value is exactly <ns>:<sym>:<line>:<col> — a programmatic
   reg-view* with no macro-captured coords degrades to <ns>:<sym>:?:?.
 
-  This split (asserting the format independently of the presence test)
-  closes rf2-sx77q G2: R/S carried a dedicated format-shape deftest the
-  React adapters lacked."
+  The format is asserted independently of the presence test, so a shape
+  drift is named on its own."
   [{:keys [substrate-kw name]}]
   (testing (str name " — source-coord: attribute format is <ns>:<sym>:<line>:<col>")
     (let [id      (mint-kw substrate-kw "sc-format")
@@ -483,20 +482,20 @@
               "the explicit {:line 42 :column 7} coords land in the attribute"))))))
 
 ;; ===========================================================================
-;; React DevTools display-name (Spec 006 §React DevTools support item 1, as
-;; amended by rf2-976bw) — the name a React-hook substrate publishes to the
+;; React DevTools display-name (Spec 006 §React DevTools support item 1) —
+;; the name a React-hook substrate publishes to the
 ;; developer is the view-id's rf.performance/display projection, and it is the
 ;; SAME STRING the `rf:render:<id>` measure carries.
 ;;
-;; The pre-amendment spelling was `(str id)`, which keeps a keyword's leading
-;; colon: DevTools read `:cart/total-line` while the bracket wrote
-;; `rf:render:cart/total-line`. Both halves were separately well-formed and
-;; separately pinned — which is exactly why they could drift. The assertions
-;; below are equalities BETWEEN the halves, not shape checks on each.
+;; A `(str id)` spelling would keep a keyword's leading colon: DevTools would
+;; read `:cart/total-line` while the bracket wrote `rf:render:cart/total-line`.
+;; Two halves that are separately well-formed and separately pinned can drift,
+;; so the assertions below are equalities BETWEEN the halves, not shape checks
+;; on each.
 ;; ===========================================================================
 
 (defn assert-display-name-matches-render-measure
-  "rf2-976bw: the spine's `wrap-view` names its component head with
+  "The spine's `wrap-view` names its component head with
   `rf.performance/entry-id` — the same builder `rf.performance/build-name` calls —
   so the DevTools name and the `rf:render:` measure are ONE identifier.
   Headless (node-safe); the mounted counterpart is
@@ -504,7 +503,7 @@
 
   cfg keys: :substrate-kw, :name, :wrap-view."
   [{:keys [substrate-kw name wrap-view]}]
-  (testing (str name " — displayName is the entry-id projection, equal to the rf:render: id (rf2-976bw)")
+  (testing (str name " — displayName is the entry-id projection, equal to the rf:render: id")
     (let [id      (mint-kw substrate-kw "display-name-one-identifier")
           head    (wrap-view id {} (fn [] (React/createElement "span" #js {} "hi")))
           visible (.-displayName ^js head)]
@@ -527,13 +526,13 @@
 
 ;; ===========================================================================
 ;; React `:key` parity (Spec 006 §Source-coord annotation — CRITICAL key
-;; preservation note) — rf2-pt0u2, follow-up to rf2-1anbp
+;; preservation note)
 ;;
-;; rf2-1anbp pinned the Reagent path: a call-site ^{:key} propagates to
+;; On the Reagent path a call-site ^{:key} propagates to
 ;; React. The React-hook substrates (UIx) take a different route —
 ;; the React `:key` rides the substrate's own `createElement` / `$` at the
-;; call site, NOT Reagent's hiccup-metadata extraction. The hazard that
-;; remains is the wrap-view pass itself: `inject-source-coord-attr` and
+;; call site, NOT Reagent's hiccup-metadata extraction. The hazard on this
+;; route is the wrap-view pass itself: `inject-source-coord-attr` and
 ;; `append-unmount-sentinel` both `React/cloneElement` the user's root
 ;; output, and `cloneElement` is documented to preserve the `key` slot
 ;; (see spine.cljs `inject-source-coord-attr` / `append-unmount-sentinel`
@@ -545,7 +544,7 @@
 ;; ===========================================================================
 
 (defn assert-reg-view-react-key-preserved
-  "rf2-pt0u2: a registered view whose root React element carries a `:key`
+  "A registered view whose root React element carries a `:key`
   emerges from wrap-view's cloneElement passes (source-coord injection +
   unmount-sentinel append) with that key intact. Across a seq of views
   carrying distinct per-item keys the keys stay distinct — no collision.
@@ -577,17 +576,17 @@
                  (pr-str keys)))))))
 
 ;; ===========================================================================
-;; void-element unmount-sentinel (rf2-ghfkkk) — wrap-view must NOT attach a
+;; void-element unmount-sentinel — wrap-view must NOT attach a
 ;; child to a void DOM root (input / img / br / …). React rejects children on
 ;; void elements and would raise a void-element error / break hydration; the
 ;; sentinel must ride as a Fragment SIBLING instead. Headless structural
-;; assertion (runs under node-test for BOTH UIx via the macro); the
+;; assertion (runs under node-test for every entry file via the macro); the
 ;; DOM-mount counterpart (no warning + exactly-one :rf.view/unmounted) lives
 ;; in `assert-void-root-view-unmount-no-warning` (browser gate).
 ;; ===========================================================================
 
 (defn assert-void-root-view-sentinel-is-fragment-sibling
-  "rf2-ghfkkk: a registered view whose root is a VOID DOM element emerges
+  "A registered view whose root is a VOID DOM element emerges
   from the wrap-view passes as a `React.Fragment` holding the user's void
   element (source-coord + data-rf-view attrs intact, and crucially NO
   children) plus the unmount sentinel as a SIBLING — never as a child of
@@ -629,26 +628,25 @@
                 "data-rf-view still annotates the void root")))))))
 
 ;; ===========================================================================
-;; frame-context corrupted `_currentValue` (Spec 009 §Error contract) — G4
+;; frame-context corrupted `_currentValue` (Spec 009 §Error contract)
 ;; ===========================================================================
 
 (defn assert-frame-context-corrupted
   "Corruption-detection + recovery for a non-keyword `_currentValue` on
-  the shared frame-context. Pinned on U/H per the audit; this is the
-  shared, parameterised version (rf2-sx77q G4). The corruption path lives
+  the shared frame-context. The corruption path lives
   in `re-frame.adapter.context/function-component-current-frame`, which
   both React adapters wire into their `:adapter/current-frame` slot.
 
-  EP-0002 (rf2-69r7ui): the corruption recovery is now `:no-frame-context`
+  The corruption recovery is `:no-frame-context` (EP-0002)
   — `function-component-current-frame` returns **nil** (NOT a synthesised
   `:rf/default`) on a disturbed boundary, so a public frame-scoped op
   reading that nil fails loudly with `:rf.error/no-frame-context`. The
-  corruption is still reported as its own distinct
+  corruption is reported as its own distinct
   `:rf.error/frame-context-corrupted` category so a disturbed boundary is
   not silently folded into ordinary 'no scope'."
   [{:keys [substrate-kw name]}]
   (testing (str name " — frame-context: corrupted _currentValue emits + recovers to nil")
-    ;; EP-0002 (rf2-9o48ih): the reset-runtime fixture establishes an ambient
+    ;; The reset-runtime fixture establishes an ambient
     ;; `*current-frame*` :rf/default scope (the carried-invariant equivalent of
     ;; wrapping every adapter test in `(with-frame :rf/default …)`). The
     ;; React-context corruption tier is the SECOND tier of
@@ -694,7 +692,7 @@
                 (rf/current-frame-id))
               "adapter-routed public read raises no-frame-context on a corrupted boundary")
           (let [errs (corruption-traces traces)]
-            ;; EP-0002 (rf2-9o48ih): the public `current-frame-id` resolves
+            ;; The public `current-frame-id` resolves
             ;; through the `:adapter/current-frame` routed-hook chain. In the
             ;; multi-adapter node-test build (Reagent + UIx all loaded)
             ;; that ambient resolution can read `_currentValue` more than once,
@@ -713,32 +711,24 @@
           (set! (.-_currentValue ^js rf.adapter.context/frame-context) original)))))))
 
 ;; ===========================================================================
-;; frame-provider CORE branches (rf2-7kjz8 / rf2-z7hfp) — folded from UIx's
-;; uix_frame_provider_branches_cljs_test.cljs and Helix's
-;; helix_frame_provider_children_cljs_test.cljs.
+;; frame-provider CORE branches
 ;;
-;; rf2-z7hfp — MOVE THE SEAM UP. These assertions pin the substrate-
-;; agnostic frame-resolution + children-coercion logic, which now lives
-;; in `re-frame.substrate.spine/build-frame-provider-element` (the shared
+;; These assertions pin the substrate-agnostic frame-resolution +
+;; children-coercion logic, which lives in
+;; `re-frame.substrate.spine/build-frame-provider-element` (the shared
 ;; CORE the native per-substrate `frame-provider` component delegates to).
-;; Previously they invoked each adapter's public `frame-provider` DIRECTLY
-;; as a CLJS fn (the cfg `:frame-provider` slot) because that surface WAS a
-;; plain re-exported spine fn. With the seam moved up the public surface is
-;; a NATIVE substrate component (`defui` / `defnc`) that is NOT directly
-;; CLJS-invocable (UIx's `glue-args` would read nil; Helix's
-;; `extract-cljs-props` throws in dev on a map). So the shape assertions
-;; target the core builder directly — including the rf2-7kii2 JS-array
-;; children branch the trailing-`$`-children unification added — and the
-;; END-TO-END `$`-shape propagation (the formerly-bespoke-patched class)
-;; is pinned by each adapter's `frame-provider-trailing-children-propagate-
-;; frame` DOM regression test (rf2-9ok1s / rf2-8svnm / rf2-7kii2). Both
-;; halves are substrate-shared: the core logic here, the native-shell-
-;; under-`$` behaviour in the DOM twins.
+;; The public `frame-provider` surface is a NATIVE substrate component
+;; (`defui`) that is NOT directly CLJS-invocable (UIx's `glue-args` would
+;; read nil), so the shape assertions target the core builder directly —
+;; including the JS-array children branch the trailing-`$`-children idiom
+;; needs — and the END-TO-END `$`-shape propagation is pinned by each
+;; adapter's `frame-provider-trailing-children-propagate-frame` DOM
+;; regression test. Both halves are substrate-shared: the core logic here,
+;; the native-shell-under-`$` behaviour in the DOM twins.
 ;;
-;; Naming follows the UIx-direction per rf2-uqlce: `provider-element-
-;; frame-kw` / `provider-element-children` describe what the slot
-;; SEMANTICALLY MEANS (the frame-kw the Context.Provider hands down vs the
-;; children prop).
+;; `provider-element-frame-kw` / `provider-element-children` describe what
+;; the slot SEMANTICALLY MEANS (the frame-kw the Context.Provider hands down
+;; vs the children prop).
 ;;
 ;; Substrate-agnostic: no cfg `:frame-provider` needed — `name` only, for
 ;; the assertion message.
@@ -763,7 +753,7 @@
 
 (defn assert-frame-provider-missing-frame-raises-no-frame-context
   "(build-frame-provider-element nil [...]) — no frame at all — is a
-  CONFIGURATION ERROR under EP-0002 (rf2-69r7ui). There is no
+  CONFIGURATION ERROR under EP-0002. There is no
   `(or frame-kw :rf/default)` floor: the core builder emits + throws
   `:rf.error/no-frame-context` rather than synthesising a default, so a
   tooling-generated tree that elides the frame fails loudly."
@@ -775,8 +765,8 @@
 
 (defn assert-frame-provider-nil-frame-raises-no-frame-context
   "(build-frame-provider-element nil [...]) — explicit nil frame — is the
-  same CONFIGURATION ERROR as the missing case (EP-0002, rf2-69r7ui): the
-  `(or frame-kw :rf/default)` floor is gone, so a nil frame raises
+  same CONFIGURATION ERROR as the missing case (EP-0002): there is no
+  `(or frame-kw :rf/default)` floor, so a nil frame raises
   `:rf.error/no-frame-context` rather than defaulting."
   [{:keys [name]}]
   (testing (str name " — frame-provider core: nil frame raises no-frame-context")
@@ -786,7 +776,7 @@
 
 (defn assert-frame-provider-named-frame-preserved
   "A supplied frame keyword is preserved on the provider element's value
-  slot. Sanity-check counterpart to the default-fallback assertions."
+  slot. Sanity-check counterpart to the missing/nil-frame assertions."
   [{:keys [name]}]
   (testing (str name " — frame-provider core: named frame keyword preserved")
     (let [el (rf.substrate.spine/build-frame-provider-element :tenant-a [:fake-child])]
@@ -795,7 +785,7 @@
 
 (defn assert-frame-provider-single-child-coerced-to-vector
   "(build-frame-provider-element :session child-a) — a single child (NOT
-  a collection, e.g. Helix's lone trailing `$` child) — does not throw and
+  a collection, e.g. a lone trailing `$` child) — does not throw and
   is coerced to a one-element children sequence by the core's `:else`
   normalisation branch. Pins the single-child coercion."
   [{:keys [name]}]
@@ -830,15 +820,14 @@
             "sequential children produced a two-element children slot")))))
 
 (defn assert-frame-provider-js-array-children-spread
-  "rf2-7kii2 — the native trailing-`$`-children idiom hands the core a JS
-  ARRAY for multiple children (UIx's `(cljs.core/array …)` via `glue-args`,
-  Helix's `(into-array …)` via `extract-cljs-props`). `array?` must be
+  "The native trailing-`$`-children idiom hands the core a JS
+  ARRAY for multiple children (UIx's `(cljs.core/array …)` via
+  `glue-args`). `array?` must be
   detected and the array SPREAD into positional args, so the children
   reach `createElement` as N distinct args (not a single nested-array
-  child). This pins the array branch the trailing-children unification
-  added."
+  child). This pins that array branch."
   [{:keys [name]}]
-  (testing (str name " — frame-provider core: JS-array children spread to positional args (rf2-7kii2)")
+  (testing (str name " — frame-provider core: JS-array children spread to positional args")
     (let [a :child-a
           b :child-b
           el (rf.substrate.spine/build-frame-provider-element :session #js [a b])]
@@ -852,17 +841,16 @@
         (is (= b (aget kids 1)) "second child preserved positionally")))))
 
 ;; ===========================================================================
-;; warn-once fires-once (Spec 006 §Documented exemption) — G5
+;; warn-once fires-once (Spec 006 §Documented exemption)
 ;; ===========================================================================
 
 (defn assert-warn-once-fires-once
   "The per-id non-DOM-root warning fires EXACTLY once across renders,
   is keyed per-id (not global), and re-arms after the clear hook.
 
-  Closes rf2-sx77q G5: the React adapters previously tested only the
-  *clear* chain hook, never the fire-once semantics itself. The cache is
-  spine-produced (`rf.substrate.spine/make-warn-once-cache`) so the contract is
-  substrate-identical — but it was pinned only on Reagent."
+  The cache is spine-produced (`rf.substrate.spine/make-warn-once-cache`), so
+  the contract is substrate-identical and is pinned here on the React
+  adapters as well as on Reagent."
   [{:keys [wrap-view substrate-kw name]}]
   (testing (str name " — warn-once: fires exactly once per id across renders")
     (let [id          (mint-kw substrate-kw "warn-once-multi")
@@ -903,16 +891,15 @@
       (is (some #(str/includes? % (clojure.core/name id-b)) warns) "id-b's warning fired"))))
 
 ;; ===========================================================================
-;; write-after-destroy nil-container guard (rf2-ft2b / rf2-4tzyq)
+;; write-after-destroy nil-container guard
 ;; ===========================================================================
 
 (defn assert-write-after-destroy-guard
   "replace-container! with a nil container is a documented no-op +
   :rf.error/write-after-destroy (the guard is substrate-agnostic; this
-  pins it through the installed React adapter). EP-0008 / rf2-500ech
-  promoted the category from the DCE'd :rf.warning onto the always-on
-  axis — same destroy-race the dispatch/subscribe paths surface as
-  :rf.error/frame-destroyed."
+  pins it through the installed React adapter). The category is on the
+  always-on axis (EP-0008), not a DCE'd :rf.warning — the same destroy-race
+  the dispatch/subscribe paths surface as :rf.error/frame-destroyed."
   [{:keys [substrate-kw name]}]
   (testing (str name " — write-after-destroy: nil container no-ops with error")
     (let [fid      (mint-kw substrate-kw "race-frame")
@@ -938,7 +925,7 @@
 
 ;; ===========================================================================
 ;; render-time parity contracts (Spec 001 §Hot-reload / Spec-Schemas
-;; §`:rf/epoch-record`) — port of `*_parity` twins
+;; §`:rf/epoch-record`)
 ;; ===========================================================================
 
 (defn assert-view-re-register-causes-rerender
@@ -983,18 +970,16 @@
       (is (= :ran @out-from-fn) "the wrapped fn invokes the user fn"))))
 
 ;; ===========================================================================
-;; reg-event metadata-map :interceptors superset form (rf2-bpmszk) — port of
-;; `*_events`. SUPERSEDES the rf2-bbea metadata-misuse warning coverage:
-;; `:interceptors` inside the metadata-map is now the documented superset home
-;; (the rf2-iczn3 resolution). These assertions pin that the superset form and
-;; retired positional vector rejection behave correctly under the installed
-;; React adapter's late-bind stack.
+;; reg-event metadata-map :interceptors superset form. `:interceptors` inside
+;; the metadata-map is the documented superset home. These assertions pin that
+;; the superset form and the rejection of a positional interceptor vector
+;; behave correctly under the installed React adapter's late-bind stack.
 ;; ===========================================================================
 
-;; EP-0022 reference-only flip (rf2-0adhqs.9): an INLINE interceptor value in a
-;; `:interceptors` chain now throws `:rf.error/inline-interceptor-removed` at
-;; registration — chain entries must be REFERENCES. The formerly-inline
-;; `:test/noop` (and the `:test/ctx-probe` interceptor value) are registered
+;; Chains are reference-only (EP-0022): an INLINE interceptor value in a
+;; `:interceptors` chain throws `:rf.error/inline-interceptor-removed` at
+;; registration — chain entries must be REFERENCES. `:test/noop` and
+;; `:test/ctx-probe` are registered
 ;; up front via `reg-interceptor` and referenced by their bare keyword ids in
 ;; the chains below. The chain is stored UNRESOLVED in handler-meta, so a
 ;; referenced entry reads back as its bare keyword (NOT a resolved map) — hence
@@ -1008,13 +993,12 @@
 
 (defn assert-reg-event-meta-interceptors-threads-the-chain
   "reg-event threads the metadata-map `:interceptors` superset chain into the
-  registrar's effective chain — observed under the installed adapter
-  (rf2-bpmszk, the rf2-iczn3 resolution; supersedes rf2-bbea / rf2-ta4b5).
-  EP-0018 collapsed the db/fx/ctx triple to ONE form whose handler wraps under
-  the single `:rf/event-handler` interceptor id, and full-context work is an
-  interceptor `:before`. EP-0022 (rf2-0adhqs.9) made chains reference-only, so
-  the chain entries are the authored bare-keyword refs (stored UNRESOLVED) ahead
-  of the framework wrapper. Pins the registrar + trace tier compose with the
+  registrar's effective chain — observed under the installed adapter.
+  There is ONE registration form, whose handler wraps under the single
+  `:rf/event-handler` interceptor id (EP-0018), and full-context work is an
+  interceptor `:before`. Chains are reference-only (EP-0022), so the chain
+  entries are the authored bare-keyword refs (stored UNRESOLVED) ahead of the
+  framework wrapper. Pins the registrar + trace tier compose with the
   React adapter's late-bind hook stack."
   [{:keys [substrate-kw name]}]
   (rf/reg-interceptor :test/noop {:before identity :after identity})
@@ -1055,8 +1039,7 @@
             (fn [{:keys [db]} _] {:db db}))))))
 
 ;; ===========================================================================
-;; render-to-string + late-bind chain wiring (rf2-gc5v9 / rf2-y9spn /
-;; rf2-4z7bp) — port of `*_render_to_string`
+;; render-to-string + late-bind chain wiring
 ;; ===========================================================================
 
 (defn- a-mock-emitter
@@ -1069,8 +1052,7 @@
   "Before the emitter is installed, render-to-string throws ExceptionInfo
   whose ex-message is ':rf.error/no-hiccup-emitter-bound' and whose
   ex-data carries :reason + an EP-0015-safe :render-tree/summary — the
-  SHAPE of the tree, never the raw tree (rf2-gc5v9 / rf2-y9spn /
-  rf2-uwqale)."
+  SHAPE of the tree, never the raw tree."
   [{:keys [set-emitter! render-to-string name]}]
   (testing (str name " — render-to-string throws when no emitter is installed")
     (set-emitter! nil)
