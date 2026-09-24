@@ -1,30 +1,29 @@
 ;;;; tests/runtime/dry_run_rollback_failure_pin_test.clj
 ;;;;
 ;;;; Babashka-runnable STRUCTURAL PIN for the dry-run rollback-failure
-;;;; SAFETY contract in `preload/re_frame2_pair/runtime.cljs` (rf2-glg4uo).
+;;;; SAFETY contract in `preload/re_frame2_pair/runtime.cljs`.
 ;;;;
-;;;; The defect: `dispatch-dry-run`'s `:else` branch used to return
-;;;; `:ok? true :rolled-back? false` + a human-readable `:rollback-hint`
-;;;; when `restore-epoch!` returned false — CONTRADICTING its own
-;;;; docstring (which lists `:reason :rollback-failed` as an `:ok? false`
-;;;; failure). Because the MCP tool routes isError purely on
-;;;; `(false? (:ok? result))`, that read GREEN over a MUTATED live app-db
-;;;; (the would-be epoch's db IS now the live db + a spurious epoch left
-;;;; in the ring). A dry-run whose whole contract is "no observable
+;;;; `dispatch-dry-run`'s docstring lists `:reason :rollback-failed` as an
+;;;; `:ok? false` failure, and the code must agree. When the rollback fails,
+;;;; the would-be epoch's db IS the live db (plus a spurious epoch left in
+;;;; the ring), and the MCP tool routes isError purely on
+;;;; `(false? (:ok? result))` — so an `:ok? true :rolled-back? false` return
+;;;; carrying a human-readable `:rollback-hint` would read GREEN over a
+;;;; MUTATED live app-db. A dry-run whose whole contract is "no observable
 ;;;; effect" must NOT report success when it in fact mutated the app.
 ;;;;
 ;;;; This refusal-branch wiring pin complements the real-frame coverage in
 ;;;; tests/fixture/test/re_frame2_pair/runtime_dry_run_test.cljs. The rollback
-;;;; now uses replace-frame-state! with the captured pre-call state (rf2-ep8a4).
-;;;; Why this pin remains structural:
+;;;; uses replace-frame-state! with the captured pre-call state.
+;;;; Why this pin is structural:
 ;;;;
 ;;;; `preload/re_frame2_pair/runtime.cljs` is CLJS-only (loaded via
 ;;;; shadow-cljs `:devtools :preloads`) so it does not run under bb, and
 ;;;; `dispatch-dry-run` needs a LIVE re-frame2 frame (`rf/dispatch-sync`,
 ;;;; `rf/replace-frame-state!`, `rf/epoch-history`). We therefore pin the
 ;;;; SOURCE-level contract: the not-rolled-back arm returns the documented
-;;;; `:ok? false :reason :rollback-failed` shape and the old silent-green
-;;;; `:rollback-hint` key is GONE. The MCP-boundary routing (isError on
+;;;; `:ok? false :reason :rollback-failed` shape and carries no silent-green
+;;;; `:rollback-hint` key. The MCP-boundary routing (isError on
 ;;;; :ok? false AND the belt-and-braces :rolled-back? false guard) is
 ;;;; covered by the real cljs.test unit + conformance suites at
 ;;;; tools/re-frame2-pair-mcp/test/.
@@ -73,7 +72,7 @@
 ;; ---------------------------------------------------------------------------
 ;; The runtime must ATTEMPT a rollback, and the two arms of that attempt
 ;; must carry the documented shapes: success -> :ok? true, failure ->
-;; :ok? false :reason :rollback-failed. This is the core of rf2-glg4uo.
+;; :ok? false :reason :rollback-failed.
 ;; ---------------------------------------------------------------------------
 
 (deftest dispatch-dry-run-is-defined
@@ -97,7 +96,7 @@
       (is (= false (:ok? else-kv))
           (str "the NOT-rolled-back arm MUST return :ok? false — a dry-run "
                "whose rollback failed left the live app MUTATED and must not "
-               "read as success (rf2-glg4uo). It returned "
+               "read as success. It returned "
                (pr-str (:ok? else-kv))))
       (is (= :rollback-failed (:reason else-kv))
           "the failed-rollback arm carries the documented :reason :rollback-failed")
@@ -105,21 +104,20 @@
           "the failed-rollback arm carries a :hint for manual re-restore"))))
 
 ;; ---------------------------------------------------------------------------
-;; The old silent-green shape must be DELETED. If `:rollback-hint` (the
-;; :ok? true + human-string signal that read GREEN over a mutated db)
-;; reappears, dry-run has regressed to reporting success on a failed
-;; rollback — the exact defect rf2-glg4uo closed.
+;; The silent-green shape must be absent. A `:rollback-hint` (an
+;; :ok? true + human-string signal that reads GREEN over a mutated db)
+;; means dry-run reports success on a failed rollback.
 ;; ---------------------------------------------------------------------------
 
 (deftest silent-green-rollback-hint-is-gone
   (is (not (rt/form-contains? #(= % :rollback-hint) ddr-form))
-      (str "the old :rollback-hint key (an :ok? true + string signal that "
-           "read GREEN over a mutated live db) MUST be deleted — a failed "
-           "rollback is an :ok? false :reason :rollback-failed failure now")))
+      (str "a :rollback-hint key (an :ok? true + string signal that "
+           "reads GREEN over a mutated live db) MUST be absent — a failed "
+           "rollback is an :ok? false :reason :rollback-failed failure")))
 
 ;; ---------------------------------------------------------------------------
-;; The docstring already documented :rollback-failed as an :ok? false
-;; failure path; pin that the code now honours it (docstring + code agree).
+;; The docstring documents :rollback-failed as an :ok? false failure path;
+;; pin it, so docstring and code agree.
 ;; ---------------------------------------------------------------------------
 
 (deftest docstring-documents-rollback-failed-as-failure
