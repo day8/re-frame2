@@ -1,5 +1,5 @@
 (ns re-frame.registrar-alias-concordance-cljs-test
-  "Pins the `re-frame.core` REGISTRAR CONCORDANCE (rf2-kuky.23).
+  "Pins the `re-frame.core` REGISTRAR CONCORDANCE.
 
   THE DEFECT THIS SUITE EXISTS FOR. `re-frame.core` declares its `reg-*`
   registration surfaces TWICE: once as macros, emitted from a single
@@ -7,12 +7,10 @@
   `defreg-event-macro`) in the facade's `#?(:clj …)` branch, and once as
   same-name CLJS value aliases (`(def reg-x owning/reg-x)`) in its
   `#?(:cljs …)` branch — Convention A, so a higher-order caller can write
-  `(map rf/reg-sub …)` where a macro cannot ride. The alias half was a
-  hand-written list and it DRIFTED: five registrars (`reg-flow`,
-  `reg-mutation`, `reg-head`, `reg-error-projector`,
-  `reg-http-interceptor`) had a macro and no alias, so inside one artefact
-  `(map rf/reg-resource …)` compiled and `(map rf/reg-mutation …)` did not.
-  Nothing in the corpus tripped on it, which is exactly why a hand list
+  `(map rf/reg-sub …)` where a macro cannot ride. The alias half is a
+  hand-written list, and a hand list DRIFTS: a registrar with a macro and no
+  alias works in call position while `(map rf/reg-x …)` fails to compile.
+  Nothing in the corpus trips on that, which is exactly why a hand list
   drifts unnoticed — hence a pin rather than a one-off repair.
 
   DERIVED, NOT RESTATED. Both halves are read out of `re_frame/core.cljc`
