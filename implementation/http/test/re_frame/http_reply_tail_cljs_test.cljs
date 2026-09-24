@@ -1,12 +1,12 @@
 (ns re-frame.http-reply-tail-cljs-test
-  "CLJS coverage for rf2-ln85eg — the RETRY-STORM half of the reply-tail leak.
+  "CLJS coverage for the RETRY-STORM half of a reply-tail throw.
 
   On CLJS the Fetch `.catch` is chained AFTER the `.then` that runs the
-  response cascade. Pre-fix a throwing `:after` interceptor over a 2xx
-  rejected the completion promise, and the `.catch` reclassified the throw
-  via `classify-cljs-error` as `:rf.http/transport` → `maybe-retry!`
-  RE-SENT the already-completed request (a retry-storm — each retry mints a
-  fresh handle that bypasses the once-only reply guard). Post-fix the
+  response cascade. Unfenced, a throwing `:after` interceptor over a 2xx
+  would reject the completion promise, and the `.catch` would reclassify the
+  throw via `classify-cljs-error` as `:rf.http/transport` → `maybe-retry!`
+  would RE-SEND the already-completed request (a retry-storm — each retry
+  mints a fresh handle that bypasses the once-only reply guard). The
   transport FENCES the reply tail (`dispatch-reply!` catches a
   post-transport-success throw), so the throw never reaches the `.catch`
   classifier: the request is fetched EXACTLY ONCE and the failure surfaces
@@ -38,12 +38,12 @@
   (filter #(= :rf.error/http-reply-tail-failed (:operation %)) @traces))
 
 (deftest ln85eg-cljs-after-throw-over-2xx-no-retry-storm
-  (testing "rf2-ln85eg (CLJS) — a throwing :after interceptor over a 2xx is
+  (testing "(CLJS) a throwing :after interceptor over a 2xx is
             fetched EXACTLY ONCE (no retry-storm re-sending the completed
             request), surfaces once as :rf.error/http-reply-tail-failed
             (NOT reclassified as :rf.http/transport), and delivers NO reply —
-            even under a :retry {:on #{:rf.http/transport}} policy that the
-            pre-fix leak would have triggered."
+            even under a :retry {:on #{:rf.http/transport}} policy that an
+            unfenced reply tail would trigger."
     (async done
       (rf/init! rf.adapter.reagent/adapter)
       (rf.frame/ensure-default-frame!)
@@ -74,8 +74,8 @@
             {:fx [[:rf.http/managed
                    {:request    {:url "/x"}
                     :decode     :json
-                    ;; the pre-fix leak misclassified the reply-tail throw as
-                    ;; :rf.http/transport and retried under exactly this policy.
+                    ;; a reply-tail throw misclassified as :rf.http/transport
+                    ;; would retry under exactly this policy.
                     :retry      {:on           #{:rf.http/transport}
                                  :max-attempts 5
                                  :backoff      {:base-ms 20 :factor 1 :max-ms 20}}
@@ -109,6 +109,6 @@
                                          @traces))
                          "the reply-tail throw was NOT reclassified as :rf.http/transport")))
             (.catch (fn [e]
-                      (is false (str "rf2-ln85eg — unexpected: " e))
+                      (is false (str "unexpected: " e))
                       nil))
             (.then (fn [_] (restore) (done))))))))
