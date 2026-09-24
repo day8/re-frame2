@@ -7,12 +7,11 @@
   cap + dedup + elision pipeline) plus a
   short `## Routing rules` index of which tool to reach for.
 
-  IT DOES NOT ENUMERATE THE TOOLS (rf2-wyza). It used to — a 33-entry
-  `## Tool catalogue` that was 75% of the blob and the only section
-  that grew with the tool count, leaving 112 tokens of margin under
-  the wire cap. That enumeration duplicated the `tools/list`
-  descriptors the host already has at handshake, and a miss is
-  answered live by the `:unknown-tool` hint, which folds
+  IT DOES NOT ENUMERATE THE TOOLS. A `## Tool catalogue` would be most
+  of the blob and the only section that grows with the tool count,
+  eating the margin under the wire cap. It would also duplicate the
+  `tools/list` descriptors the host already has at handshake, and a
+  miss is answered live by the `:unknown-tool` hint, which folds
   `registry/tool-names` into the error. What the descriptors cannot
   carry is CROSS-tool judgement — each one's preference is buried in
   its own ~2,400-char paragraph — so this text keeps only that: the
@@ -31,7 +30,7 @@
   "Inline onboarding prose. Inline `(str ...)` of `\\n`-glued lines —
   see the ns docstring for the rationale (mirrors story-mcp).
 
-  Adding a tool does NOT oblige an edit here (rf2-wyza): `tools/list`
+  Adding a tool does NOT oblige an edit here: `tools/list`
   and the `:unknown-tool` hint carry the tool set. Edit this string
   when a routing JUDGEMENT changes — a new tool that supersedes an
   older route, or a preference that turned out to be wrong.
