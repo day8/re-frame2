@@ -1,5 +1,5 @@
 (ns re-frame.tags-test
-  "Per Spec 005 §State tags (Nine States Stage 1).
+  "Per Spec 005 §State tags (the Nine States pattern).
 
   State-tag semantics covered:
     - Flat machine: the snapshot's :tags is the active state's tag set.
@@ -212,10 +212,8 @@
                        :resolved {:tags #{:done}}}}]
       (rf/reg-machine :tags/sub m)
       (rf/dispatch-sync [:tags/sub [:no-op]])
-      ;; Direct read against app-db via compute-sub-style invocation.
-      ;; The sub registers via subs/reg-sub so dispatch-sync's drain
-      ;; doesn't gate the sub's value — we read it through the standard
-      ;; subscribe surface.
+      ;; The sub is a runtime sub (`reg-runtime-sub`) over the machines
+      ;; runtime-db; we read it through the standard subscribe surface.
       (is (= true  @(rf/subscribe [:rf.machine/has-tag? :tags/sub :loading]))
           ":loading is in the active tag set")
       (is (= true  @(rf/subscribe [:rf.machine/has-tag? :tags/sub :transient])))
