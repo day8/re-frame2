@@ -1,5 +1,5 @@
 (ns re-frame.source-coord-prod-elision-test
-  "Per rf2-3un2g: source-coord production-elision contract.
+  "Source-coord production-elision contract.
 
   Two surfaces, two policies:
 
@@ -24,20 +24,19 @@
   `with-redefs` the gate; the bundle probes pin the CODE-PATH absence
   in CLJS-prod by negative grep.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   Policy A's PROD half and the whole of Policy B are posture-independent and
-  run under `scripts/test-core-prod-gate.sh` unchanged. Under the real gate
+  run under `scripts/test-core-prod-gate.sh` as written. Under the real gate
   Policy A's `with-redefs` becomes a no-op over an already-false flag, which
   means the prod-lane run re-asserts the same claim against the LOAD-TIME
   gate rather than a rebind — the stronger evidence of the two, since
   `merge-coords` reads `rf.interop/debug-enabled?` at the point the macro-emitted
   `*pending-coords*` binding is consumed.
 
-  Policy A's DEV half — the public `handler-meta` still carrying `:ns` /
-  `:line` / `:file` for Xray / jump-to-source — is a claim about the gate
-  being ON, and is kept verbatim inside a `(when rf.interop/debug-enabled? …)`
-  arm marked `rf2-d2841`. Its always-on partner sits in the same body: the
+  Policy A's DEV half — the public `handler-meta` carrying `:ns` / `:line` /
+  `:file` for Xray / jump-to-source — is a claim about the gate being ON, and
+  sits inside a `(when rf.interop/debug-enabled? …)` arm. Its always-on partner sits in the same body: the
   PARALLEL `error-coords-by-id` registry is populated for that same
   registration in BOTH postures. That pairing is the actual contract of this
   file — one registration, coords stripped from the public surface and
@@ -59,11 +58,11 @@
 ;; ---- Policy A: registry-meta stripped under disabled debug gate ---------
 
 (deftest registry-meta-strips-coord-keys-under-disabled-debug-gate
-  (testing "Per rf2-3un2g Policy A: under `:advanced + goog.DEBUG=false`
+  (testing "Policy A: under `:advanced + goog.DEBUG=false`
             (modelled here as `with-redefs [rf.interop/debug-enabled? false]`)
             the public registry-meta returned by `rf/handler-meta` MUST
             NOT carry `:ns` / `:file` / `:line` / `:column` coord-keys.
-            The macro path still runs at JVM expansion time; only the
+            The macro path runs at JVM expansion time either way; only the
             `merge-coords` propagation into the public meta is
             suppressed."
     (with-redefs [rf.interop/debug-enabled? false]
@@ -72,29 +71,27 @@
                        (fn [{:keys [db]} _] {:db db}))
       (let [meta (rf/handler-meta {:source :store :kind :event :id :rf2-3un2g/prod-elide-event})]
         (is (some? meta))
-        ;; rf2-9wwkcm: `:doc` is now ALSO stripped from public registry-meta
-        ;; in prod (it is pure-documentation — zero production runtime /
-        ;; observability use). This supersedes the prior "doc preserved"
-        ;; assertion (the coord-keys were never the only strip — the
-        ;; classification widened to include the pure-documentation key).
+        ;; `:doc` is ALSO stripped from public registry-meta in prod (it is
+        ;; pure-documentation — zero production runtime / observability use),
+        ;; so the coord-keys are not the only strip.
         (is (not (contains? meta :doc))
-            "pure-documentation :doc absent from registry-meta in prod (rf2-9wwkcm)")
+            "pure-documentation :doc absent from registry-meta in prod")
         (is (not (contains? meta :ns))     ":ns absent from registry-meta in prod")
         (is (not (contains? meta :file))   ":file absent from registry-meta in prod")
         (is (not (contains? meta :line))   ":line absent from registry-meta in prod")
         (is (not (contains? meta :column)) ":column absent from registry-meta in prod")))))
 
 (deftest registry-meta-keeps-coord-keys-under-enabled-debug-gate
-  (testing "Per rf2-3un2g Policy A: the dev posture (default
-            `rf.interop/debug-enabled?` = true) preserves the historical
-            behaviour — `(rf/handler-meta ...)` returns the full coord-
-            map for Xray / re-frame-pair / IDE jump-to-source."
+  (testing "Policy A: the dev posture (default
+            `rf.interop/debug-enabled?` = true) carries the coords —
+            `(rf/handler-meta ...)` returns the full coord-map for Xray /
+            re-frame-pair / IDE jump-to-source."
     (rf/reg-event :rf2-3un2g/dev-keep-event
                      {:doc "kept"}
                      (fn [{:keys [db]} _] {:db db}))
     (let [meta (rf/handler-meta {:source :store :kind :event :id :rf2-3un2g/dev-keep-event})
           parallel (rf.source-coords/error-coords-for :event :rf2-3un2g/dev-keep-event)]
-      ;; ALWAYS-ON PARTNER (rf2-d2841). Policy A strips the PUBLIC surface in
+      ;; ALWAYS-ON PARTNER. Policy A strips the PUBLIC surface in
       ;; production; the parallel observability registry keeps the coords in
       ;; BOTH postures. Asserting the retained half beside the stripped half
       ;; is what makes "stripped" mean stripped-from-here rather than
@@ -105,7 +102,7 @@
       (is (some? (:ns   parallel)) ":ns survives on the always-on registry")
       (is (some? (:line parallel)) ":line survives on the always-on registry")
       (is (some? (:file parallel)) ":file survives on the always-on registry")
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+      ;; Dev-instrumentation arm (see ns docstring §Posture split).
       (when rf.interop/debug-enabled?
         (is (some? (:ns   meta)) ":ns present in registry-meta in dev")
         (is (some? (:line meta)) ":line present in registry-meta in dev")
@@ -114,7 +111,7 @@
 ;; ---- Policy B: error-emit substrate retains source-coord in prod --------
 
 (deftest error-record-includes-source-coord-under-disabled-debug-gate
-  (testing "Per rf2-3un2g Policy B: under the disabled debug gate, the
+  (testing "Policy B: under the disabled debug gate, the
             tight error-record passed to corpus-wide listeners (the
             Sentry/Honeybadger/Rollbar fan-out) MUST carry the failing
             handler's `:source-coord`. The coord rides the always-on
@@ -153,7 +150,7 @@
 ;; ---- programmatic registrations bypass the parallel registry -----------
 
 (deftest programmatic-registration-no-source-coord-in-error-record
-  (testing "Per rf2-3un2g: programmatic registrations (HoF, runtime
+  (testing "Programmatic registrations (HoF, runtime
             registration via the fn aliases — bypassing the macro
             path) leave `*pending-coords*` unbound, so the parallel
             `error-coords-by-id` registry stays empty for that
@@ -181,7 +178,7 @@
 ;; ---- error-coords-by-id atom semantics ----------------------------------
 
 (deftest error-coords-by-id-populated-on-registration
-  (testing "Per rf2-3un2g: every macro-driven registration populates the
+  (testing "Every macro-driven registration populates the
             parallel `error-coords-by-id` registry under `[:kind :id]`.
             The atom is the single source of truth for error-emit
             source-coord lookup."
