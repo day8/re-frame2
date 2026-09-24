@@ -1,5 +1,6 @@
 (ns re-frame.fresco.todo-support
-  "THE SHARED TO-DO FRAME the ported `arm1/*` witnesses read from.
+  "THE SHARED TO-DO FRAME the package's counterparts of the bench's
+  `arm1/*` witnesses read from.
 
   A boundary that reads nothing proves nothing about the read, so the
   witnesses for the frame doors, the one callback form and the minted-key
@@ -10,9 +11,9 @@
 
   ## Why this is not the bench tree's `front.dogfood`
 
-  The suites that became these witnesses read
+  The bench's `arm1/*` counterparts of these witnesses read
   `re-frame.bench.fresco.front.dogfood`, and this namespace is
-  deliberately NOT that file moved. Two reasons, and both are about the
+  deliberately NOT a copy of that file. Two reasons, and both are about the
   boundary between the package and the benchmark rather than about
   taste.
 
@@ -24,10 +25,10 @@
      benchmark's design rationale into `implementation/fresco/test/`
      invites the next reader to maintain it against a screen that lives
      somewhere else.
-  2. **The ids would collide.** `implementation/shadow-cljs.edn` puts
-     `freehand/test` and `fresco/test` on ONE `:node-test`
-     `:source-paths`, so both trees register into the same global
-     handler registry in the same build. A second `(rf/reg-event
+  2. **The ids would collide.** `bench/fresco/shadow-cljs.edn` puts
+     `implementation/fresco/test` on the bench's own `:source-paths`,
+     beside the bench tree, so one build can load both into the same
+     global handler registry. A second `(rf/reg-event
      :dogfood/toggle …)` would silently redefine the benchmark's, and
      whichever namespace loaded last would decide what the other one
      measured. The `:fresco.todo/*` prefix here cannot reach it.
