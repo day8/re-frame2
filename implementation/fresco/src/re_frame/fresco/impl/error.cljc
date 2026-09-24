@@ -79,11 +79,12 @@
   reason. Skipping it on the argument that the namespace is not going to
   finish loading anyway does not hold: a declaration refusal is
   routinely CAUGHT, by a module loader or by an HMR runtime whose already
-  mounted page keeps rendering, and the slot then named a `def` that
-  never completed. Every refusal raised afterwards — from an event
-  handler, a timer, ordinary code with no boundary anywhere on the stack
-  — inherited that dead declaration's `:view` and `:source` and pointed
-  its reader at a file that has nothing to do with the failure.
+  mounted page keeps rendering, and without the `finally` the slot would
+  then name a `def` that never completed. Every refusal raised afterwards
+  — from an event handler, a timer, ordinary code with no boundary
+  anywhere on the stack — would inherit that dead declaration's `:view`
+  and `:source` and point its reader at a file that has nothing to do
+  with the failure.
 
   Nothing is lost by closing it: `fail!` builds the whole ex-data
   before it throws, so the refusal on its way out already carries the
