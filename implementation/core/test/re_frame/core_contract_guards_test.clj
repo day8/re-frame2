@@ -1,6 +1,6 @@
 (ns re-frame.core-contract-guards-test
-  "Per rf2-0kfd4 (testcov-core G3 + G4 + G5 + G6) — guard contracts on
-  load-bearing internal seams that previously had no behavioural test.
+  "Guard contracts on load-bearing internal seams (G3 + G4 + G5 + G6),
+  each pinned by a behavioural test.
 
     G3 — `rf.registrar/register!` unknown-kind throw + `valid-kind?`
          (registrar.cljc). Registering a kind outside the closed v1 set
@@ -22,7 +22,7 @@
 
     G6 — `rf.subs/reg-sub` malformed-form throw `:rf.error/reg-sub-bad-args`
          (subs.cljc). reg-event / reg-view bad-args are pinned elsewhere;
-         the reg-sub rejection branch was not.
+         this pins the reg-sub rejection branch.
 
   Pure JVM unit. A fixture snapshots/restores the (private) registration
   and replacement hook atoms — there is no public clear for them, so a
