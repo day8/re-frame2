@@ -125,7 +125,7 @@
   header. The option must be an override because the runtime always seeds a
   default Content-Type.
 
-  Ordering / multi-value semantics of the fold are unchanged
+  Ordering / multi-value semantics are the fold's
   (`merge-pair-into-header-map`): per-name multi-value order preserved via
   `conj`, across-name order is the JDK HAMT iteration order — stable but
   not first-seen; Ring servers don't promise cross-name header order on the
