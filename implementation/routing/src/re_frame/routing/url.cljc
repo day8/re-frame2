@@ -2,13 +2,11 @@
   "URL encoding / decoding primitives for re-frame.routing.
 
   Per Spec 012 §Bidirectional URL ↔ params and §Routing failure
-  semantics (rf2-wbvme + rf2-4ic0f). Internal namespace; the public
+  semantics. Internal namespace; the public
   facade is `re-frame.routing` — direct consumers should reach for that
   facade. This ns isolates the encode/decode/parse primitives so the
   routing facade can compose them without the implementations
-  cluttering its cohesion surface.
-
-  Per the rf2-icrxv cohesion-split audit (Phase-2 Option C): URL seam.")
+  cluttering its cohesion surface.")
 
 ;; ---- trailing-slash normalisation ----------------------------------------
 ;; Per Spec 012 trailing-slash equivalence: `/cart` and `/cart/` name the
@@ -42,21 +40,21 @@
      A code point above U+FFFF is carried in a Java/JavaScript string as a
      SURROGATE PAIR — a high unit in U+D800–U+DBFF followed by a low unit
      in U+DC00–U+DFFF. Either half standing alone spells no code point at
-     all, so it has no UTF-8 encoding. The two hosts disagreed about what
+     all, so it has no UTF-8 encoding. The two hosts disagree about what
      to do with one:
 
      - `encodeURIComponent` throws `URIError: URI malformed`.
      - Java's UTF-8 encoder SUBSTITUTES, and `URLEncoder` runs it under
        the default (REPLACE) malformed-input action, so a lone surrogate
-       silently became the byte `0x3F` — a literal `?` — and came back as
+       silently becomes the byte `0x3F` — a literal `?` — and comes back as
        `%3F`. A lone high surrogate, a lone low surrogate and `a`+U+D800+`b`
-       encoded as `%3F`, `%3F` and `a%3Fb` (rf2-j3tud).
+       encode as `%3F`, `%3F` and `a%3Fb`.
 
      `%3F` is exactly what a legitimate literal `?` encodes to, so the
      substitution is not merely lossy — it ALIASES malformed route data
      onto a valid component that decodes back to a different string.
-     Under SSR the href/canonical-link/cache-key carried that alias while
-     the browser refused the same address outright, which is the
+     Under SSR the href/canonical-link/cache-key would carry that alias while
+     the browser refuses the same address outright, which is the
      host-dependent emission this namespace exists to rule out.
 
      WHAT THIS DOES NOT REJECT. The scan looks only at the surrogate
@@ -64,7 +62,7 @@
      valid: ASCII, every non-surrogate BMP character (`é`, `日`), and a
      well-formed surrogate PAIR, which still encodes to its astral code
      point's UTF-8 bytes (U+1F600 → `%F0%9F%98%80`). Over-rejecting
-     legitimate input would trade this bug for a worse one — the JVM
+     legitimate input would trade the aliasing for a worse defect — the JVM
      would then refuse addresses the browser happily emits."
      ^String [^String s]
      (let [n (.length s)]
@@ -102,10 +100,10 @@
   2. `URLEncoder`'s unescaped set is NARROWER. `encodeURIComponent`
      leaves the whole RFC-2396 *mark* set literal — `- _ . ! ~ * ' ( )`
      — while `URLEncoder` escapes five of those nine: `!` `'` `(` `)`
-     `~` (`- _ . *` already agree). Repairing only (1) left those five
-     divergent, so a legitimate slug like `draft~1` emitted
+     `~` (`- _ . *` already agree). Repairing only (1) would leave those five
+     divergent, so a legitimate slug like `draft~1` would emit
      `/articles/draft%7E1` from SSR and `/articles/draft~1` from the
-     hydrated client (rf2-j3tud).
+     hydrated client.
   3. `URLEncoder` encodes an UNPAIRED SURROGATE rather than refusing it,
      substituting `%3F` where `encodeURIComponent` throws `URIError`.
      `reject-unpaired-surrogates!` above supplies the missing refusal;
@@ -121,8 +119,8 @@
   first client tree is the Spec 011 hydration-mismatch class.
 
   CLJS is normative — it IS `encodeURIComponent`, the de-facto browser
-  reference the spec names — so the JVM moves to match it, exactly as
-  `url-decode` below already does for `+`.
+  reference the spec names — so the JVM matches it, exactly as
+  `url-decode` below does for `+`.
 
   The five unescapes are unambiguous: every `%XX` in `URLEncoder` output
   is one it generated, so a `%21` in that output can only have come from
@@ -155,7 +153,7 @@
   unpaired surrogate either — U+002F is outside the surrogate range, so
   no split point ever falls between the halves of a pair.
 
-  A TERMINAL run of `/` is data, not a separator (rf2-fzbj.12): the
+  A TERMINAL run of `/` is data, not a separator: the
   incoming-URL normaliser strips raw trailing slashes (`/cart` ≡
   `/cart/`), so a literal one could never survive `match-url`. It is
   encoded whole — `a/` emits `a%2F`, `/` emits `%2F` — which `match-url`
@@ -224,19 +222,18 @@
      character is appended VERBATIM. So the strict UTF-8 decoder sees
      exactly the bytes the percent escapes contributed, and nothing else.
 
-     THE SEAM IS THE POINT, and it is the whole of rf2-k2d2t's second
-     half. A Java string, like a JavaScript string, is a sequence of
-     UTF-16 CODE UNITS and may legally hold an UNPAIRED SURROGATE. Such a
-     code unit spells no code point, so it has no UTF-8 encoding at all —
-     and the previous JVM arm reached the byte level by escaping every
-     literal non-ASCII character with `String.getBytes(UTF_8)`, whose
-     REPLACE action silently turned that code unit into the byte `0x3F`,
-     a literal `?`. `decodeURIComponent` never encodes a literal at all:
-     it copies it straight to the output. So a lone U+D800 came back as
-     `?` on the JVM and as the raw code unit in the browser — the same
+     THE SEAM IS THE POINT. A Java string, like a JavaScript string, is a
+     sequence of UTF-16 CODE UNITS and may legally hold an UNPAIRED
+     SURROGATE. Such a code unit spells no code point, so it has no UTF-8
+     encoding at all — and escaping every literal non-ASCII character
+     with `String.getBytes(UTF_8)` to reach the byte level would silently
+     turn that code unit into the byte `0x3F`, a literal `?`, through its
+     REPLACE action. `decodeURIComponent` never encodes a literal at all:
+     it copies it straight to the output. So a lone U+D800 would come back
+     as `?` on the JVM and as the raw code unit in the browser — the same
      class of host divergence this namespace exists to rule out, and
      doubly bad because `?` is a legitimate character the lone surrogate
-     was thus ALIASED onto. Copying literals through, rather than
+     would be ALIASED onto. Copying literals through, rather than
      round-tripping them via bytes, is what removes the lossy step.
 
      WHAT THE SEAM DOES NOT WEAKEN. A PERCENT-ENCODED lone surrogate is a
@@ -249,13 +246,11 @@
      The seam is also what makes a TRUNCATED escape run fail closed
      against a following literal: `%C3é` flushes the single byte `C3` on
      its own, which is malformed, exactly as `decodeURIComponent` throws
-     there. The previous arm reached the same verdict by a different
-     route (`C3` concatenated with `é`'s lead byte is malformed too), so
-     that behaviour is preserved rather than restored.
+     there.
 
      Throws `IllegalArgumentException` for a structurally malformed
-     escape (`%`, `%a`, `%zz`) — the same class `URLDecoder` threw, which
-     is what `safe-url-decode`'s sentinel already catches."
+     escape (`%`, `%a`, `%zz`) — the same class `URLDecoder` throws, which
+     is what `safe-url-decode`'s sentinel catches."
      ^String [^String s]
      (let [n   (.length s)
            out (StringBuilder. n)
@@ -287,50 +282,49 @@
 
   HOST-SYMMETRIC: on both hosts this IS `decodeURIComponent`. The CLJS
   arm calls it; the JVM arm is `decode-percent-escapes` above, which
-  walks the string the way `decodeURIComponent` itself does. Reaching
-  that shape took THREE corrections to `java.net.URLDecoder`, and the
-  third is why `URLDecoder` is no longer in the path at all:
+  walks the string the way `decodeURIComponent` itself does. Matching
+  it takes THREE corrections over `java.net.URLDecoder`, and the
+  third is why `URLDecoder` is not in the path at all:
 
   1. `URLDecoder` is the `application/x-www-form-urlencoded` decoder, so
      it turns a bare `+` into a SPACE. `+` must stay a LITERAL `+` on
      both hosts, in path captures and query values alike: `+` → `+`,
-     `%2B` → `+`, `%20` → space, real spaces → space (rf2-9a9ix).
+     `%2B` → `+`, `%20` → space, real spaces → space.
   2. `URLDecoder` decodes bytes with the REPLACE malformed-input action,
      so an INVALID UTF-8 sequence is silently rewritten to U+FFFD and a
      string comes back; `decodeURIComponent` throws `URIError`. For
-     `%C0%80`, `%ED%A0%80`, `%FF` or `%E0%80%80` the JVM returned a
-     value and CLJS returned the nil sentinel, so `malformed-url?` read
-     FALSE on JVM and TRUE on CLJS (rf2-k2d2t).
+     `%C0%80`, `%ED%A0%80`, `%FF` or `%E0%80%80` a `URLDecoder` arm would
+     return a value where CLJS returns the nil sentinel, so `malformed-url?`
+     would read FALSE on JVM and TRUE on CLJS.
   3. Reaching a strict byte decoder by percent-escaping literal non-ASCII
-     characters — the first repair of (2) — pushed each literal through
+     characters would push each literal through
      `String.getBytes(UTF_8)`, whose REPLACE action turns an UNPAIRED
      SURROGATE code unit into the byte `0x3F`. `decodeURIComponent`
-     copies a literal to the output untouched, so a lone U+D800 came
-     back as `?` on the JVM and as the raw code unit in the browser
-     (rf2-k2d2t again). `decode-percent-escapes` never encodes a literal
+     copies a literal to the output untouched, so a lone U+D800 would come
+     back as `?` on the JVM and as the raw code unit in the browser.
+     `decode-percent-escapes` never encodes a literal
      at all; see its docstring for why the seam is where it is.
 
-  The consequence of (2) was a whole-tree Spec 011 mismatch on a
-  security-adjacent sink, and the server was the PERMISSIVE side: a
-  hostile URL failed closed to a route-miss in the browser but MATCHED
+  Left uncorrected, (2) would be a whole-tree Spec 011 mismatch on a
+  security-adjacent sink, with the server as the PERMISSIVE side: a
+  hostile URL would fail closed to a route-miss in the browser but MATCH
   under SSR, with replacement characters standing in for the bytes, so
-  the two hosts disagreed about whether the request was routable at all.
-  `safe-url-decode`'s fail-closed posture (see its docstring: \"hostile
-  URLs, partner integrations with broken escaping\") was not the posture
-  the JVM arm actually had.
+  the two hosts would disagree about whether the request is routable at
+  all, and `safe-url-decode`'s fail-closed posture (see its docstring:
+  \"hostile URLs, partner integrations with broken escaping\") would not
+  hold on the JVM.
 
-  Structural validation is unchanged in substance: `%`, `%a` and `%zz`
-  still throw `IllegalArgumentException`, now from the escape reader
-  rather than from `URLDecoder`. Its hex reader is ASCII-only on purpose
-  (see `hex-nibble`).
+  Structural validation: `%`, `%a` and `%zz` throw
+  `IllegalArgumentException` from the escape reader, whose hex reader is
+  ASCII-only on purpose (see `hex-nibble`).
 
   Per Spec 012 §Bidirectional URL ↔ params §`+` is a literal:
   `decodeURIComponent` is the de-facto reference, the browser is the
   canonical host, and the JVM matches it. A host-divergent decoder
   yields a different `:params` / `:query` slice for the same URL on JVM
   (SSR) vs CLJS (browser) — the exact Spec 011 hydration-mismatch class
-  the spec names there. All three corrections are conformance repairs to
-  that standing requirement, not new policy; §Route-miss ¶5 already
+  the spec names there. All three corrections implement that
+  requirement rather than add policy; §Route-miss ¶5
   requires malformed percent-encoding to fail the whole match closed."
   [s]
   #?(:clj  (decode-percent-escapes (str s))
@@ -349,9 +343,9 @@
   2. **Structurally well-formed escapes spelling INVALID UTF-8** —
      `%C0%80`, `%ED%A0%80`, `%FF`, `%E0%80%80`: every `%XX` parses, but
      the bytes are not a legal UTF-8 sequence (overlong, lone surrogate,
-     invalid lead byte). Until rf2-k2d2t the JVM arm returned a U+FFFD-
-     bearing string here while CLJS threw, so this sentinel — and with
-     it `malformed-url?` — was host-divergent on exactly the hostile
+     invalid lead byte). A JVM arm returning a U+FFFD-bearing string
+     here while CLJS throws would make this sentinel — and with
+     it `malformed-url?` — host-divergent on exactly the hostile
      input it exists for.
 
   `%EF%BF%BD` is NOT in class 2. It is the valid encoding of a real
@@ -420,8 +414,8 @@
 ;; The shared lexical/origin gate that classifies a URL-string nav target
 ;; as same-origin in-app vs external. Every URL-string navigation sink
 ;; (`:rf.route/url-requested` and `:rf.route/navigate {:url ...}`) fails closed
-;; through ONE classifier rather than each entry point re-deciding (and
-;; only one of three being wired). Per Spec 012 §Target form — URL-string:
+;; through ONE classifier rather than each entry point re-deciding.
+;; Per Spec 012 §Target form — URL-string:
 ;; the `{:url ...}` escape hatch is precisely for untrusted input
 ;; (deep-link handlers, server-redirect targets), the same class
 ;; `safe-in-app-url?` exists to gate.
@@ -476,15 +470,15 @@
   [url]
   #?(:cljs
      (try
-       ;; rf2-w3qgc: fail closed (classify EXTERNAL) for any non-string or
+       ;; Fail closed (classify EXTERNAL) for any non-string or
        ;; empty-string `url` BEFORE handing it to `js/URL`. JavaScript
        ;; stringifies non-strings — `new URL(null, base)` resolves to
        ;; `/null`, numbers to `/123`, objects via `toString` — so a nil /
        ;; number / boolean / object could otherwise resolve same-origin and
        ;; push a fabricated in-app URL. This is an untrusted-URL sink; the
-       ;; JVM / no-window fallback already fails closed via
+       ;; JVM / no-window fallback fails closed via
        ;; `safe-in-app-url?` (which rejects any non-string), so guarding
-       ;; here removes the host divergence and keeps the contract uniform.
+       ;; here keeps the contract uniform across hosts.
        (if-not (and (string? url) (seq url))
          true
          (if (and (exists? js/window) (.-location js/window))
@@ -498,7 +492,7 @@
        (catch :default _
          (not (safe-in-app-url? url))))
      :clj
-     ;; JVM / SSR: no browser origin — fail closed (rf2-3bv8o).
+     ;; JVM / SSR: no browser origin — fail closed.
      (not (safe-in-app-url? url))))
 
 #?(:cljs
@@ -510,7 +504,7 @@
 
 (defn request-url->app-url
   "Reduce an accepted `{:url …}` / `:rf.route/url-requested` reference to the
-  APP-RELATIVE path-form URL the rest of the cascade speaks (rf2-3x7nj.12.2).
+  APP-RELATIVE path-form URL the rest of the cascade speaks.
   Callers must already have confirmed the reference is in-app via
   `external-url?` — this only canonicalises, it does NOT gate.
 
@@ -529,11 +523,11 @@
       strips a base path and unwraps a `#/…` fragment exactly as the browser
       listener does.
 
-  Under the default history strategy with no base path the two agree with the
-  address-bar reading this used to take (`window.location.href` as the base,
-  no decode) — which is the only configuration that reading was right for:
-  under `with-base-path` or `hash-url-strategy` `?tab=2` matched a doubled base
-  or a different route. On the JVM, and on CLJS without a browser `Location`,
+  Under the default history strategy with no base path the two agree with an
+  address-bar reading (`window.location.href` as the base,
+  no decode) — the only configuration that reading is right for:
+  under `with-base-path` or `hash-url-strategy` it would match `?tab=2` to a
+  doubled base or a different route. On the JVM, and on CLJS without a browser `Location`,
   the reference is returned unchanged (the fail-closed lexical gate already
   classes origin-bearing and bare-relative references as external there)."
   [url current-app-url decode]
