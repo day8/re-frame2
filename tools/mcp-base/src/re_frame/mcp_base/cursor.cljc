@@ -63,11 +63,8 @@
   longer is rejected before parsing as a cheap DoS / malformed guard.
   1,024 characters is far past any legitimate cursor.
 
-  CHARACTERS, deliberately, and the name says so since rf2-2rtt6.132 — it
-  read `max-cursor-bytes` while the guard was, and remains, `(> (count s)
-  …)`. Renaming it rather than converting it to UTF-8 bytes is the
-  correct repair, for two reasons that were already true and a third
-  that settles it:
+  CHARACTERS, deliberately, rather than UTF-8 bytes — the guard is
+  `(> (count s) …)` — for two reasons and a third that settles it:
 
     - the guard runs BEFORE any decode, to bound PARSE cost, and parse
       cost scales with the characters the reader walks, not with the
@@ -80,9 +77,7 @@
 
   That last point is decisive: the cap's UNIT is not observable through
   `decode-cursor`, because the only inputs that could tell the two units
-  apart are refused either way. Converting would move no behaviour and
-  buy no honesty; the NAME was the only thing that could be wrong, and it
-  was."
+  apart are refused either way. A byte ruler would move no behaviour."
   1024)
 
 ;; ---------------------------------------------------------------------------
