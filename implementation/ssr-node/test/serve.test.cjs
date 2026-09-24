@@ -38,7 +38,7 @@ const LAUNCHER = path.join(PACKAGE_DIR, 'bin', 'serve.cjs');
 
 /** Worker boot is the slow part, and a cold box is slower than this one. */
 const BOOT_MS = 20000;
-/** A graceful close is milliseconds; this is the bound the acceptance names. */
+/** A graceful close is milliseconds; this is the bound the launcher is held to. */
 const STOP_MS = 5000;
 
 const withTimeout = (p, ms, what) =>
