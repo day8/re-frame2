@@ -1,5 +1,5 @@
 (ns re-frame.trace-listener-elision-prod-test
-  "Per Spec 009 §Production-elision contract (bead rf2-2zdu): under
+  "Per Spec 009 §Production builds: under
   `:advanced` + `goog.DEBUG=false`, the entire trace surface elides via
   the `re-frame.interop/debug-enabled?` gate. No listener callback should
   fire; no event-map should be allocated; no buffer push should happen.
@@ -21,16 +21,16 @@
       must also be a no-op.
 
   Companion to `re-frame.schemas-boundary-prod-test` (Spec 010 prod
-  smoke). Naming convention: files ending in `-prod-test.cljs` are
+  smoke). Naming convention: namespaces ending in `-elision-prod-test` are
   picked up ONLY by the `:browser-test-prod-elision` build. The default
-  `:browser-test` and `:node-test` builds use regexes `-cljs-test$` and
+  `:browser-test` and `:node-test` builds use regexes `.*-dom-cljs-test$` and
   `cljs-test$` and therefore do NOT pick up these files."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace :as rf.trace]
-            ;; rf2-qwm0a — listener surface (`register-listener!`
+            ;; The listener surface (`register-listener!`
             ;; etc.) lives in `re-frame.trace.tooling`.
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
