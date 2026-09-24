@@ -37,18 +37,17 @@
   arg-shape and `:substrate` guards); otherwise the machine-readable
   `isError` result naming `rf/init!` as the recovery.
 
-  ## Why a REFUSAL and not a run (rf2-c9t52)
+  ## Why a REFUSAL and not a run
 
   Story deliberately grades an actually-executed assertion-free variant
-  vacuously `:pass` (`re-frame.story.result` §Status), and that rule is
-  KEPT. What this guard removes is a different state wearing the same
-  answer: with no adapter installed the variant frame never obtains its
-  state substrate, so `:setup` dispatches reach nothing, the `:script`
-  plays nothing, and `rf.story/run-variant` still settles the ordinary
+  vacuously `:pass` (`re-frame.story.result` §Status). What this guard
+  refuses is a different state wearing the same answer: with no adapter
+  installed the variant frame never obtains its state substrate, so
+  `:setup` dispatches would reach nothing, the `:script` would play
+  nothing, and `rf.story/run-variant` would still settle the ordinary
   `:status :pass` envelope over `{}` and `[]` — a success-shaped NON-RUN
-  indistinguishable on the wire from a genuine green (measured under
-  rf2-3n3dk). Executed-and-silent and never-executed are different
-  states; only the first may be green.
+  indistinguishable on the wire from a genuine green. Executed-and-silent
+  and never-executed are different states; only the first may be green.
 
   The check is a PRE-flight, before `rf.story/run-variant` allocates, so the
   refusal costs no lifecycle work and cannot be confused with a run
@@ -149,14 +148,15 @@
   and `preview-variant` return the SAME settled-or-error vocabulary and
   can never drift in their blocking / failure policy.
 
-  ## The deadline covers the SYNCHRONOUS work (rf2-j538f7.31)
+  ## The deadline covers the SYNCHRONOUS work
 
   On the JVM `rf.story/run-variant` runs SYNCHRONOUSLY (a `[:wait ms]` step
   is an inline `Thread/sleep`), so it returns an ALREADY-settled future.
-  Deref'ing that settled future under `timeout-ms` is a no-op — the
-  advertised ceiling never bounds the real work, an over-budget run
-  reports a false `:pass`, and it monopolises the single-threaded stdio
-  loop for the full duration. To make the advertised bound REAL, the whole
+  Deref'ing that settled future under `timeout-ms` alone would be a no-op —
+  the advertised ceiling would never bound the real work, an over-budget
+  run would report a false `:pass`, and it would monopolise the
+  single-threaded stdio loop for the full duration. To make the advertised
+  bound REAL, the whole
   invoke-and-settle runs on a bounded worker `future` conveyed with this
   thread's dynamic bindings; the caller waits at most `timeout-ms`. When
   the deadline elapses the worker is CANCELLED (interrupting its
