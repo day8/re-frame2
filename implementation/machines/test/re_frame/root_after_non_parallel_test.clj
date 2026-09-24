@@ -8,7 +8,7 @@
   §Root-level `:after` scopes the feature to a `:type :parallel` root only,
   so `validate-non-parallel-root-after!` enforces the supported scope.
 
-  A parallel machine's REGION-ROOT `:after` (rf2-x76af2.10) has the SAME
+  A parallel machine's REGION-ROOT `:after` has the SAME
   unscheduled shape — it sits on the region body itself, not on an entered
   leaf, and `bootstrap-step` / `schedule-root-after-fx` never reach it — so it
   is rejected with the SAME category, keeping the runtime honest (no
@@ -22,9 +22,9 @@
    3. a root `:timeout` / `:on-timeout` on a flat machine — which LOWERS
       onto `:after` — is rejected via the SAME error category;
    4. a flat machine with NO root `:after` / `:timeout` is unaffected;
-   5. a `:type :parallel` root's `:after` is UNAFFECTED (still the
+   5. a `:type :parallel` root's `:after` is UNAFFECTED (the
       supported, scheduled, resolved feature);
-   6. a parallel machine's REGION-ROOT `:after` is rejected (rf2-x76af2.10);
+   6. a parallel machine's REGION-ROOT `:after` is rejected;
    7. a region-root `:timeout` / `:on-timeout` (lowered onto `:after`) is
       rejected via the SAME error category too."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -114,14 +114,14 @@
 
 ;; ---- (6) region-root :after on a :type :parallel machine — rejected --------
 ;;
-;; rf2-x76af2.10: a REGION-ROOT :after (on the region body itself, decl-path []
+;; A REGION-ROOT :after (on the region body itself, decl-path []
 ;; WITHIN the region) has the same unscheduled shape as a flat machine-root
 ;; :after — bootstrap-step schedules only the region's entered leaves, and
 ;; schedule-root-after-fx schedules only the MACHINE root's own :after — so it
-;; registered-but-never-fired. Reject it for consistency with the flat-root
+;; would register but never fire. Reject it for consistency with the flat-root
 ;; rule (a region body is structurally a flat/compound mini-machine). Pins the
-;; ALREADY-DESUGARED :after shape (distinct root cause from rf2-x76af2.7's
-;; desugar-cache miss).
+;; ALREADY-DESUGARED :after shape (the region desugar cache is a separate
+;; concern, pinned in `region_initial_desugar_test.clj`).
 
 (deftest region-root-after-rejected
   (testing "a parallel machine's region-root :after fails registration"
