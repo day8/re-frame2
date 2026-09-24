@@ -1,11 +1,10 @@
 (ns re-frame.example-login-form-slice-cljs-test
-  "Framework-tree regression for the login feature's FORM SLICE + password
+  "Framework-tree tests for the login feature's FORM SLICE + password
    PRIVACY — the `:auth.login/*` events owned by examples/core/login/model.cljc,
-   the substrate-free model shared across the Reagent/UIx login examples
-   (rf2-ppbvav). rf2-t83ail + the password-classification fix rf2-3fc89f.33.
+   the substrate-free model shared across the Reagent/UIx login examples.
 
    These belong in the framework test tree, NOT under examples/ (examples stay
-   test-free per rf2-8cevm). The ns requires the login feature's substrate-free
+   test-free). The ns requires the login feature's substrate-free
    model owner (`login.model`) so its events / subs / machine / schemas register
    at ns-load, then drives them directly. It runs under the consolidated
    `:node-test` CLJS build (`../examples/core` is on its source-paths) — the only
@@ -14,9 +13,8 @@
    `[:schemas :data]` boundary); this ns pins the SLICE + egress-privacy half.
 
    THE PASSWORD CROSSES THREE OBSERVATION BOUNDARIES, each classified by its own
-   owner (docs/core/how-to/keep-secrets-out-of-traces.md). This ns is the
-   regression that proves all three redact — the leak rf2-3fc89f.33 fixed was
-   the password shipping RAW at each:
+   owner (docs/core/how-to/keep-secrets-out-of-traces.md). This ns proves all
+   three redact — without them the password would ship RAW at each:
 
      1. DURABLE APP-DB. `:auth.login/initialise-form` returns a `:sensitive`
         classification effect for `[:auth :login-form :draft :password]` in the
@@ -38,7 +36,7 @@
         machine event. (clean-submit-* test)
 
    Both the machine hand-off and the HTTP request are captured via function-value
-   `:fx-overrides` (spec/002 §`:fx-overrides`, rf2-nrpj1) — the overrides run in
+   `:fx-overrides` (spec/002 §`:fx-overrides`) — the overrides run in
    place of the reserved `:dispatch` / real `:rf.http/managed` bodies, so we
    observe exactly what `submit-form` emits WITHOUT the machine + managed-HTTP
    running. Egress redaction is asserted via `rf/project-egress` (app-db) and a
@@ -104,7 +102,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest clean-submit-issues-sensitive-request-and-credential-free-machine-signal
-  (testing "rf2-3fc89f.33 — a clean submit issues the (sensitive) managed-HTTP
+  (testing "a clean submit issues the (sensitive) managed-HTTP
             request carrying the REAL password, nudges the machine with a
             CREDENTIAL-FREE :submit signal (no password anywhere in the machine
             event), blanks [:draft :password], clears :errors, latches
@@ -120,17 +118,17 @@
               "the password is blanked in the app-db slice draft after submit")
           (is (= "alice@example.com" (get-in s [:draft :email]))
               "only the SECRET is cleared — the email draft is left intact")
-          ;; rf2-fai6a8 — this machine-driven variant carries NO :status /
-          ;; :submitted / :submit-error mirror: the :auth.login/flow machine and
-          ;; its state tags own the submit/auth lifecycle, so the slice keeps no
-          ;; parallel status a view could read stale. Assert the mirror is gone
-          ;; on the clean branch (it used to advance :status to :submitting here).
+          ;; This machine-driven variant carries NO :status / :submitted /
+          ;; :submit-error mirror: the :auth.login/flow machine and its state
+          ;; tags own the submit/auth lifecycle, so the slice keeps no parallel
+          ;; status a view could read stale. Assert the mirror is absent on the
+          ;; clean branch.
           (is (not (contains? s :status))
               "no :status mirror — the machine + its state tags own the lifecycle")
           (is (not (contains? s :submitted))
-              "the vestigial :submitted field is gone from the slice")
+              "the slice carries no :submitted field")
           (is (not (contains? s :submit-error))
-              "the vestigial :submit-error field is gone from the slice")
+              "the slice carries no :submit-error field")
           (is (= {} (:errors s))
               "stale field errors were cleared on the clean branch")
           (is (true? (:submit-attempted? s))
@@ -158,7 +156,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest owner1-password-redacted-in-app-db-egress
-  (testing "rf2-3fc89f.33 (owner 1) — the draft password, classified :sensitive
+  (testing "(owner 1) the draft password, classified :sensitive
             at slice-init, is redacted in app-db egress under both a
             local-redacted and an off-box-tool profile, while the LIVE value
             stays readable and the non-secret email rides through"
@@ -189,7 +187,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest owner2-edit-password-event-redacted-in-trace
-  (testing "rf2-3fc89f.33 (owner 2) — :auth.login/edit-password carries the
+  (testing "(owner 2) :auth.login/edit-password carries the
             keystroke in a :sensitive map payload, so its dispatched-event trace
             redacts :value to :rf/redacted, while the handler still writes the
             REAL value to the draft; the non-secret email edit stays visible"
@@ -232,18 +230,18 @@
 ;; via function-value `:fx-overrides` — which bypasses the trace/classification
 ;; pipeline for those assertions. This sibling drives the SAME submit with the
 ;; trace pipeline live (only the real transport is neutralised) and sweeps the
-;; emitted stream: rf2-32ffq1 closed the two slots that used to carry the raw
-;; password here — the `:rf.event/fx` aggregate on `:rf.fx/do-fx` and the
-;; managed fx's `[:rf.fx/id :rf.fx/args]` slot — by honouring
-;; `:rf.http/managed`'s per-call `:sensitive?` flag at the generic fx-arg
-;; walk (the `:http/project-managed-fx-args` hook).
+;; emitted stream. Two slots would otherwise carry the raw password here —
+;; the `:rf.event/fx` aggregate on `:rf.fx/do-fx` and the managed fx's
+;; `[:rf.fx/id :rf.fx/args]` slot — and both redact because the generic
+;; fx-arg walk honours `:rf.http/managed`'s per-call `:sensitive?` flag (the
+;; `:http/project-managed-fx-args` hook).
 
 (def ^:private submit-pw-sentinel "PW-LOGIN-SENTINEL-32ffq1-c4d9")
 
 (defn- leaks-submit-pw? [x] (str/includes? (pr-str x) submit-pw-sentinel))
 
 (deftest clean-submit-trace-stream-never-leaks-password
-  (testing "rf2-32ffq1 — a clean submit's WHOLE emitted trace stream ships no
+  (testing "a clean submit's WHOLE emitted trace stream ships no
             raw password: the :rf.event/fx aggregate and the :rf.http/managed
             :rf.fx/handled slot redact the request body (per-call :sensitive?),
             while the fx itself still receives the REAL credential"
@@ -304,11 +302,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest invalid-submit-issues-nothing-and-retains-password
-  (testing "rf2-t83ail — an invalid draft (bad email + short password) fails the
+  (testing "an invalid draft (bad email + short password) fails the
             pre-submit Credentials validation: :errors is populated per field,
             :submit-attempted? latches, and NOTHING is issued (no machine signal,
             no HTTP). The password is RETAINED for the fix-up — nothing left the
-            box, so this is not the leak the fix guards."
+            box, so there is nothing to scrub."
     (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (seed-draft! f "not-an-email" "short")
       (let [dispatched (atom [])
@@ -322,7 +320,7 @@
           (is (contains? (:errors s) :password)
               "the short password produced a field error")
           (is (not (contains? s :status))
-              "rf2-fai6a8 — the slice carries no :status mirror on any branch;
+              "the slice carries no :status mirror on any branch;
                the machine owns the lifecycle, not a parallel slice field")
           (is (zero? (count @dispatched))
               "no machine signal — the invalid draft was not handed off")
@@ -333,7 +331,7 @@
                fix-up; the clear is coupled to a clean hand-off, not the click)"))))))
 
 (deftest partially-valid-submit-still-blocks-and-keeps-secret
-  (testing "rf2-t83ail — a valid email but a too-short password still fails
+  (testing "a valid email but a too-short password fails
             validation: only the :password error surfaces, nothing is issued,
             and the (short) password is retained"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
