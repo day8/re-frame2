@@ -1,36 +1,36 @@
 (ns re-frame.ssr-doc-example-form-action-dispatch-test
-  "rf2-iro6x ACCEPTANCE — the `/cart/add` worked example printed in
+  "ACCEPTANCE — the `/cart/add` worked example printed in
   `spec/Pattern-FormAction.md`, driven THROUGH THE ROUTER and READ BY THE JVM.
 
   WHY A SECOND SUITE BESIDE `ssr-doc-example-form-action-test`. That suite is
   deliberately posture-independent: every assertion is a pure call on extracted
   code, no frame, no dispatch, no `debug-enabled?` read. That is the right
-  shape for what it pins, and it is precisely the blind spot rf2-iro6x came
-  through — TWO defects lived in the page while it stayed green:
+  shape for what it pins, and it is precisely a blind spot — it stays green
+  over TWO page defects:
 
-    - The event's `:schema` was the STRICT `AddToCartSubmission`. A `:schema`
+    - An event `:schema` that is the STRICT `AddToCartSubmission`. A `:schema`
       rejection happens at the router, BEFORE the handler runs, so in a
-      development build `quantity=0` and `quantity=abc` never reached the
+      development build `quantity=0` and `quantity=abc` would never reach the
       custom 400 arm at all: no `[:rf.server/set-status 400]`, no repopulated
       `:draft`, no field errors. The identical handler under
-      `-Dre-frame.debug=false` returned the documented 400 — so the page
-      described the RELEASE build's behaviour and contradicted the DEV build's,
-      which is the one every reader runs first. Calling the handler fn directly
-      bypasses the router, so a handler-only suite cannot see this.
-    - The view claimed both-platform operation while carrying an unguarded
-      `js/parseInt`. `js` is a ClojureScript-only namespace: the form does not
-      compile on the JVM (`No such namespace: js`), so the SSR path the whole
-      pattern is about could never have rendered it. Reading the fence's
+      `-Dre-frame.debug=false` would return the documented 400 — so the page
+      would describe the RELEASE build's behaviour and contradict the DEV
+      build's, which is the one every reader runs first. Calling the handler fn
+      directly bypasses the router, so a handler-only suite cannot see this.
+    - A view that claims both-platform operation while carrying an unguarded
+      `js/parseInt`. `js` is a ClojureScript-only namespace: such a form does
+      not compile on the JVM (`No such namespace: js`), so the SSR path the
+      whole pattern is about could never render it. Reading the fence's
       `<input name=…>` attributes with a regex cannot see this either — only
       READING AND EVALUATING the form can.
 
   So this namespace adds exactly the two instruments the other one cannot
-  carry, plus the third thing rf2-iro6x asked for: that the action's
+  carry, plus a third check: that the action's
   registration CLASSIFIES the submitted token for ordinary event observation
   (`:sensitive [[:csrf-token]]`), which the schema's `:sensitive?` prop does
   not reach.
 
-  Everything under test is still read out of the page's own fences at run time
+  Everything under test is read out of the page's own fences at run time
   and evaluated — never transcribed — so a rewritten example that still works
   stays green and one that reintroduces a defect goes red naming the arm."
   (:require [clojure.java.io :as io]
@@ -194,11 +194,11 @@
       {:db (rf/app-db-value frame) :fx @effects})))
 
 ;; ===========================================================================
-;; (1) THE REGRESSION: an invalid field reaches the custom 400 arm IN DEV
+;; (1) An invalid field reaches the custom 400 arm IN DEV
 ;; ===========================================================================
 
 (deftest invalid-fields-reach-the-custom-400-arm-through-dispatch
-  (testing "rf2-iro6x: the event `:schema` is checked by the ROUTER, before the
+  (testing "the event `:schema` is checked by the ROUTER, before the
             handler. Point it at the strict field schema and a development
             build answers a bad `quantity` with a schema rejection instead of
             the page's documented 400 — no status, no repopulated draft, no
@@ -229,8 +229,8 @@
                 "and nothing reached the cart")))))))
 
 (deftest a-valid-submission-still-reaches-the-303-through-dispatch
-  (testing "rf2-iro6x control: the structural tripwire must not have softened
-            the happy path. A clean POST still reaches the canonical
+  (testing "control: the structural tripwire must not soften
+            the happy path. A clean POST reaches the canonical
             POST-redirect-GET on both postures."
     (install-action!)
     (doseq [debug? [true false]]
@@ -244,7 +244,7 @@
                 "the cart holds the editable fields only")))))))
 
 (deftest the-wire-body-reaches-the-400-through-the-page-seam-and-the-router
-  (testing "rf2-iro6x: the same claim end to end — from the bytes a browser
+  (testing "the same claim end to end — from the bytes a browser
             puts on the wire, through the page's own `decode-form-params`, into
             the router. A decodable-but-invalid `quantity=0` and an
             undecodable `quantity=abc` both land on the documented 400."
@@ -264,10 +264,10 @@
             (is (nil? (get-in db [:cart :items])))))))))
 
 (deftest the-event-tripwire-is-structural-while-the-handler-stays-strict
-  (testing "rf2-iro6x: the two halves of the fix, asserted against each other.
+  (testing "the two halves of the contract, asserted against each other.
             The event `:schema` must ADMIT the payload the 400 arm exists to
-            answer; the handler's own validation call must still REFUSE it. A
-            fix that relaxed both would be a disarm."
+            answer; the handler's own validation call must REFUSE it.
+            Relaxing both would be a disarm."
     (install-action!)
     (let [handler-form (first (forms (fence "rf/reg-event :cart/add-item")))
           event-schema (eval-in-ns (:schema (nth handler-form 2)))
@@ -279,8 +279,8 @@
             (str "the dev tripwire admits " (pr-str bad)
                  " so the handler's arm can answer it")))
       (is (not (m/validate fields {:item-id "sku-1" :quantity 0}))
-          "control: the FIELD schema still refuses a bad quantity — strict
-           handler validation was retained, not relaxed")
+          "control: the FIELD schema refuses a bad quantity — handler
+           validation is strict, not relaxed")
       (is (not (m/validate fields {:item-id "sku-1" :quantity "abc"}))
           "and an undecodable one")
       (is (m/validate fields {:item-id "sku-1" :quantity 2})
@@ -291,7 +291,7 @@
 ;; ===========================================================================
 
 (deftest the-view-compiles-on-the-jvm-and-keeps-the-native-post
-  (testing "rf2-iro6x: the page says the view runs on both platforms. An
+  (testing "the page says the view runs on both platforms. An
             unguarded `js/parseInt` makes that false — `js` is a
             ClojureScript-only namespace, so the form does not compile on the
             JVM at all (`No such namespace: js`) and the SSR path the whole
@@ -320,7 +320,7 @@
           "the submit interceptor is browser-only and absent on the JVM")
       (is (= #{"csrf-token" "item-id" "quantity"}
              (set (keep #(get-in % [1 :name]) inputs)))
-          "and every documented field is still rendered server-side")
+          "and every documented field is rendered server-side")
       (is (every? #(nil? (get-in % [1 :on-change])) inputs)
           "no browser-only change handler reaches the server render"))))
 
@@ -329,7 +329,7 @@
 ;; ===========================================================================
 
 (deftest the-registration-classifies-the-token-for-event-observation
-  (testing "rf2-iro6x (third finding): `:sensitive?` on a schema entry reaches
+  (testing "`:sensitive?` on a schema entry reaches
             ONE surface — the schema-VALIDATION-FAILURE trace (010). Ordinary
             observation of a dispatched event is a different surface: the event
             vector rides `:rf.event/v` on every successful dispatch, and
@@ -372,7 +372,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-published-helpers-are-the-ones-the-dispatched-arm-used
-  (testing "rf2-iro6x: the 400 arm's `:errors` map above came out of the
+  (testing "the 400 arm's `:errors` map above came out of the
             page's own `explain->errors`, not a transcription."
     (install-action!)
     (let [explain->errors (extracted 'explain->errors)
