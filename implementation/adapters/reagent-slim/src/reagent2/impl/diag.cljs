@@ -1,6 +1,6 @@
 (ns reagent2.impl.diag
   "EP-0015-safe diagnostic value summary for the day8/reagent-slim
-  artefact (rf2-uwqale).
+  artefact.
 
   Spec 015 §Data-Classification forbids raw application values in
   framework exception messages / ex-data: a hiccup head, child vector, or
@@ -9,7 +9,7 @@
   error handlers BEFORE the record projector (`project-egress`) can
   classify the original paths — path-based projection cannot recover a
   value that no longer sits at a path, and hiccup children can carry
-  app-owned sensitive/large values. The fix is to carry a SUMMARY of the
+  app-owned sensitive/large values. So a diagnostic carries a SUMMARY of the
   offending value (its type, and the size of a counted collection), never
   the value itself.
 
@@ -26,7 +26,7 @@
 
 (defn value-summary
   "EP-0015-safe SUMMARY of a value for a reagent-slim diagnostic message
-  or ex-data slot (Spec 015 §Data-Classification, rf2-uwqale). Returns a
+  or ex-data slot (Spec 015 §Data-Classification). Returns a
   small data map describing the value's SHAPE — never the value itself —
   so the diagnostic survives off-box capture without leaking app-owned
   sensitive/large hiccup content. Mirrors
@@ -38,13 +38,13 @@
              | :string | :number | :boolean | :nil | :fn | :scalar
      :count  <int>}
 
-  **Content-free BY CONSTRUCTION (rf2-210uq).** Every value the summary
+  **Content-free BY CONSTRUCTION.** Every value the summary
   can carry is either a member of the closed `:type` vocabulary above or
   an integer count, so nothing here is derived from the input's CONTENT
-  and the serialized summary is a fixed size whatever arrives. The former
-  `:head` (a raw 24-char prefix, unbounded for keywords/symbols) and map
-  `:keys` (uncapped, unsanitised, app-controlled) legs are gone; so is the
-  `(str v)` that let a hostile `toString` throw out of a diagnostic."
+  and the serialized summary is a fixed size whatever arrives. There is
+  no `:head` prefix leg (unbounded for keywords/symbols), no map `:keys`
+  leg (uncapped, unsanitised, app-controlled), and no `(str v)`, which
+  would let a hostile `toString` throw out of a diagnostic."
   [v]
   (cond
     (nil? v)     {:type :nil}
