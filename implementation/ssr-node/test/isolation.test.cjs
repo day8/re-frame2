@@ -124,14 +124,13 @@ test('the module boots once per isolate, not once per request', async () => {
   // be real and the cost would be absurd.
   //
   // THE ROW COUNTS BOOTS, and that is the whole of what makes it a
-  // witness. It used to assert `overlapMax === 1` on both responses and
-  // call that "the module was not re-required" — but `overlapMax` is
-  // render-concurrency state, and two SEQUENTIAL renders read 1 whether
-  // the hook is called never, once, or before every render. Neither
-  // asserted outcome discriminated the contract the row is named for, so
-  // the hook could have been removed with this file still green
-  // (rf2-6r9j.70). The fixture publishes a per-isolate boot count instead;
-  // the concurrency rows keep `overlapMax`, which is their subject.
+  // witness. `overlapMax === 1` on both responses would not discriminate
+  // the contract the row is named for: `overlapMax` is render-concurrency
+  // state, and two SEQUENTIAL renders read 1 whether the hook is called
+  // never, once, or before every render, so the hook could be removed
+  // with this file still green. The fixture publishes a per-isolate boot
+  // count for this row; the concurrency rows use `overlapMax`, which is
+  // their subject.
   await withService('reference', { isolates: 1 }, async (service) => {
     const a = await collect(service, req({ ':todos': '[]' }));
     const b = await collect(service, req({ ':todos': '[]' }));
