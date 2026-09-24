@@ -1,11 +1,10 @@
 (ns day8.re-frame2-machines-viz.chart.layout-cljs-test
   "Pure-data tests for the chart-layout graph projector.
 
-  Post rf2-gpzb4 (2026-05-21 xyflow migration) — the SVG-side
-  positioning primitives (`layout`, `layered-fallback`, `:x`/`:y`/
-  `:rank` on nodes, `:points` on edges) are gone; xyflow + elkjs own
-  positioning. This suite pins the substrate-agnostic graph parse
-  surface that survived the migration."
+  xyflow + elkjs own positioning, so the projector carries no
+  positioning primitives (no `:x`/`:y`/`:rank` on nodes, no `:points`
+  on edges). This suite pins the substrate-agnostic graph parse
+  surface."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.string :as str]
@@ -39,8 +38,8 @@
 
 (deftest project-definition-extracts-flat-machine-nodes
   (let [{:keys [nodes initial-path]} (layout/project-definition idle-loading-success)
-        ;; rf2-q129z8 — exclude the synthetic ROOT-CONTAINER frame node
-        ;; (`:path []`) that now wraps the whole machine.
+        ;; Exclude the synthetic ROOT-CONTAINER frame node
+        ;; (`:path []`) that wraps the whole machine.
         paths (set (map :path (remove :root-container? nodes)))]
     (is (= [:idle] initial-path))
     (is (= #{[:idle] [:loading] [:success] [:failed]} paths))
@@ -49,21 +48,20 @@
         "final states are flagged")))
 
 (deftest project-definition-flags-compound-initial
-  (testing "rf2-54s5a — a compound parent's :initial child is flagged
+  (testing "a compound parent's :initial child is flagged
             :initial? (xstate per-level initial semantics)"
     (let [{:keys [nodes]} (layout/project-definition compound-machine)
           browsing (first (filter #(= [:authenticated :browsing] (:path %)) nodes))]
       (is (true? (:initial? browsing))))))
 
 (deftest project-definition-wires-compound-parent-id
-  (testing "rf2-54s5a — compound substates carry :parent-id (the
-            parent's node-id) for xyflow `:parentId` nesting (rf2-xh1lm
-            — v12 reads `parentId`, not the pre-v12 `parentNode`).
+  (testing "compound substates carry :parent-id (the
+            parent's node-id) for xyflow `:parentId` nesting (v12 reads
+            `parentId`, not the pre-v12 `parentNode`).
 
-            rf2-q129z8 — a top-level state no longer carries NO parent; it
-            now nests under the synthetic ROOT-CONTAINER frame, so its
-            `:parent-id` is `root-container-id` (a nested substate still
-            points at its own compound parent)."
+            A top-level state nests under the synthetic ROOT-CONTAINER
+            frame, so its `:parent-id` is `root-container-id` (a nested
+            substate points at its own compound parent)."
     (let [{:keys [nodes]} (layout/project-definition compound-machine)
           browsing (first (filter #(= [:authenticated :browsing] (:path %)) nodes))
           unauth   (first (filter #(= [:unauth] (:path %)) nodes))]
@@ -78,7 +76,7 @@
     (is (contains? edge-pairs [[:loading] [:failed] :err]))))
 
 (deftest project-definition-emits-xyflow-shaped-edges
-  (testing "rf2-gpzb4 xyflow migration — every edge has :id, :source,
+  (testing "every edge has :id, :source,
             :target string ids (xyflow contract) AND :from-path,
             :to-path vectors (substrate-side contract)"
     (let [{:keys [edges]} (layout/project-definition idle-loading-success)]
@@ -90,7 +88,7 @@
       (is (every? :event-label edges) "every edge has the xstate label"))))
 
 (deftest project-definition-emits-xyflow-shaped-nodes
-  (testing "rf2-gpzb4 xyflow migration — every node has :id string
+  (testing "every node has :id string
             (xyflow contract) alongside :path (vector)"
     (let [{:keys [nodes]} (layout/project-definition idle-loading-success)]
       (is (every? :id nodes))
@@ -111,8 +109,8 @@
         "the compound parent carries the :compound? flag")))
 
 (deftest project-definition-projects-every-parallel-region
-  (testing "rf2-lkwev xyflow Phase 2 — full parallel-region rendering:
-            EVERY region projects (Phase 1 deferred all but the first)"
+  (testing "full parallel-region rendering: EVERY region
+            projects"
     (let [parallel {:type :parallel
                     :regions {:r1 {:initial :a :states {:a {:on {:go :b}}
                                                         :b {}}}
@@ -124,7 +122,7 @@
       (is (contains? paths [:a]))
       (is (contains? paths [:b]))
       (is (contains? paths [:x])
-          "rf2-lkwev — :r2's nodes NOW surface (full parallel layout)")
+          ":r2's nodes surface too (full parallel layout)")
       (is (contains? paths [:y]))
       ;; Both regions' edges surface.
       (is (= #{:go} (set (map :event edges)))
@@ -132,7 +130,7 @@
       (is (= 2 (count edges)) "one :go edge per region"))))
 
 (deftest project-definition-emits-region-container-nodes
-  (testing "rf2-lkwev — each parallel region surfaces a synthetic
+  (testing "each parallel region surfaces a synthetic
             :region? compound container node with a region-prefixed id"
     (let [parallel {:type :parallel
                     :regions {:audio   {:initial :playing
@@ -153,14 +151,14 @@
           "region containers carry their ordinal index for boundary colour"))))
 
 (deftest project-definition-tags-region-states-with-parent
-  (testing "rf2-lkwev — every state inside a region carries :region +
+  (testing "every state inside a region carries :region +
             :parent-id so the chart projector emits xyflow `:parentId`
-            sub-flow grouping (rf2-xh1lm — v12 reads `parentId`)"
+            sub-flow grouping (v12 reads `parentId`)"
     (let [parallel {:type :parallel
                     :regions {:r1 {:initial :a :states {:a {} :b {}}}
                               :r2 {:initial :x :states {:x {} :y {}}}}}
           {:keys [nodes]} (layout/project-definition parallel)
-          ;; rf2-q129z8 — exclude the synthetic ROOT-CONTAINER frame (it has
+          ;; Exclude the synthetic ROOT-CONTAINER frame (it has
           ;; no `:region` and no `:parent-id`; it is the wrapping frame, not a
           ;; region state).
           states (remove #(or (:region? %) (:root-container? %)) nodes)]
@@ -171,7 +169,7 @@
             ":r1 states point at the :r1 container")))))
 
 (deftest project-definition-region-edges-stay-region-local
-  (testing "rf2-lkwev — orthogonality: a region's edges never reference
+  (testing "orthogonality: a region's edges never reference
             a sibling region's node (regions are independent zones)"
     (let [parallel {:type :parallel
                     :regions {:r1 {:initial :a :states {:a {:on {:go :b}} :b {}}}
@@ -185,25 +183,25 @@
             "each edge stays within one region")))))
 
 (deftest region-node-id-is-prefixed-and-distinct
-  (testing "rf2-lkwev — region node-ids are region__-prefixed so they
-            never collide with a state node-id. rf2-ee38b.21 — segments
+  (testing "region node-ids are region__-prefixed so they
+            never collide with a state node-id. Segments
             are injectively escaped (the `/` ns separator → `_2f`)."
     (is (= "region__r1" (layout/region-node-id :r1)))
     (is (= "region__auth_2fmain" (layout/region-node-id :auth/main)))
     (is (not= (layout/region-node-id :r1) (layout/node-id [:r1]))
         "a region container id differs from the same-named state id")))
 
-;; ---- region-scoped node-ids (rf2-wnzha) --------------------------------
+;; ---- region-scoped node-ids --------------------------------------------
 ;;
-;; BUG (P2): pre-rf2-wnzha, `project-parallel` kept each region's in-region
-;; node-id verbatim, so two regions sharing a state NAME minted IDENTICAL
-;; ids — the canonical Spec 005 `:ingest` shape (three regions each with a
-;; `:done {:final? true}` leaf) collided all three `:done` nodes into one:
-;; xyflow dropped two, and `highlight-ids` mis-attributed the multi-active
-;; highlight across regions. The fix REGION-SCOPES every region-state id.
+;; `project-parallel` REGION-SCOPES every region-state id. Kept verbatim,
+;; two regions sharing a state NAME would mint IDENTICAL ids — the canonical
+;; Spec 005 `:ingest` shape (three regions each with a `:done {:final?
+;; true}` leaf) would collide all three `:done` nodes into one: xyflow would
+;; drop two, and `highlight-ids` would mis-attribute the multi-active
+;; highlight across regions.
 
 (deftest region-scoped-id-is-injective-across-regions
-  (testing "rf2-wnzha — the SAME state path in two DIFFERENT regions mints
+  (testing "the SAME state path in two DIFFERENT regions mints
             DISTINCT ids (region is part of the id namespace), but composes
             stably from the region container id + the in-region node-id"
     (is (= (str (layout/region-node-id :fetch) "__" (layout/node-id [:done]))
@@ -217,10 +215,10 @@
         "a region-scoped id differs from the bare in-region id")))
 
 (deftest project-definition-parallel-same-name-region-states-distinct-nodes
-  (testing "rf2-wnzha — the Spec 005 :ingest shape: three regions each
+  (testing "the Spec 005 :ingest shape: three regions each
             carrying a same-named `:done {:final? true}` leaf. All three
-            `:done` nodes must be PRESENT and DISTINCT (pre-fix they
-            collided into one node-id → xyflow dropped two)"
+            `:done` nodes must be PRESENT and DISTINCT (collided into one
+            node-id, xyflow would drop two)"
     (let [ingest {:type :parallel
                   :regions {:fetch    {:initial :loading
                                        :states {:loading {:on {:loaded :done}}
@@ -248,9 +246,9 @@
           "every projected node id is globally unique"))))
 
 (deftest project-definition-parallel-same-name-region-states-edges-region-scoped
-  (testing "rf2-wnzha — an intra-region edge to/from a shared-name state
-            resolves to that region's OWN scoped id (pre-fix the edge
-            endpoints collided across regions)"
+  (testing "an intra-region edge to/from a shared-name state
+            resolves to that region's OWN scoped id (no endpoint is shared
+            across regions)"
     (let [ingest {:type :parallel
                   :regions {:fetch    {:initial :loading
                                        :states {:loading {:on {:loaded :done}}
@@ -275,12 +273,11 @@
             "every edge id is distinct (no cross-region edge-id collision)")))))
 
 (deftest project-definition-region-top-level-on-no-machine-root-node
-  (testing "rf2-7i7t3 — a parallel region whose def carries a TOP-LEVEL :on
+  (testing "a parallel region whose def carries a TOP-LEVEL :on
             fallback must NOT project a malformed region-scoped MACHINE-ROOT
-            node. Pre-fix `project-flat` minted a `{:path [] :machine-root?
-            true}` node (rf2-vcnvj) for the region's top-level :on; the
-            region-scope then mangled it to the degenerate id
-            `region__fetch__` (trailing `__`, empty path segment) nested
+            node. A `{:path [] :machine-root? true}` node minted for the
+            region's top-level :on would be region-scoped to the degenerate
+            id `region__fetch__` (trailing `__`, empty path segment) nested
             INSIDE the region — a stray `root` chip. A region is a compound
             state, not a machine; its :on is an ordinary region-scoped
             fallback (XState v5)."
@@ -294,7 +291,7 @@
                                                 :done     {:final? true}}}}}
           {:keys [nodes edges]} (layout/project-definition ingest)
           node-ids (set (map :id nodes))
-          ;; rf2-q129z8 — the synthetic ROOT-CONTAINER frame id legitimately
+          ;; The synthetic ROOT-CONTAINER frame id legitimately
           ;; ends in `__` (a sentinel boundary no real node-id can mint, like
           ;; `machine-root-id`); exclude it from the trailing-`__` degeneracy
           ;; check, which targets the degenerate region-scoped empty-path id.
@@ -307,7 +304,7 @@
           "no degenerate `region__fetch__` (empty path segment) node")
       (is (every? #(not (str/ends-with? % "__")) region-node-ids)
           "no real node id ends in a trailing `__` (the degenerate root marker)")
-      ;; the region-level fallback edge IS still projected, sourced from the
+      ;; The region-level fallback edge IS projected, sourced from the
       ;; REGION CONTAINER (rid) into its in-region target — every edge
       ;; endpoint is a real projected node (no phantom/empty id).
       (doseq [e edges]
@@ -317,22 +314,20 @@
             (str "edge target " (:target e) " is a real node")))
       (let [fallback (first (filter :machine-level? edges))]
         (is (some? fallback)
-            "the region's top-level :on fallback edge is still projected")
+            "the region's top-level :on fallback edge is projected")
         (is (= (layout/region-node-id :fetch) (:source fallback))
             "the region fallback sources from the region container, not a phantom root")
         (is (= (layout/region-scoped-id :fetch [:loading]) (:target fallback))
             "the fallback resolves to the in-region target (:loading)")))))
 
 (deftest project-definition-region-top-level-targetless-on-anchors-to-container
-  (testing "rf2-pdvtxt — a parallel region whose def carries a TARGETLESS /
+  (testing "a parallel region whose def carries a TARGETLESS /
             action-only TOP-LEVEL :on fallback (`:on {:abort {:action :log}}`)
             must anchor that internal fallback edge to the REGION CONTAINER on
-            BOTH ends. Pre-fix, `project-parallel` re-pointed the SOURCE to the
-            region container but always region-scoped the TARGET via
-            `(region-scoped-id region-id (:to-path e))`; a targetless edge has
-            `:to-path []`, so the target became the degenerate `region__fetch__`
-            — the synthetic machine-root node `project-flat` deliberately
-            removed. This minted a phantom edge endpoint. The flat machine's
+            BOTH ends. Region-scoping the TARGET via
+            `(region-scoped-id region-id (:to-path e))` would turn a
+            targetless edge's `:to-path []` into the degenerate
+            `region__fetch__` — a phantom edge endpoint. The flat machine's
             internal machine-level fallback self-anchors target = source =
             machine-root; the region analogue is the region container."
     (let [ingest {:type :parallel
@@ -359,20 +354,20 @@
       ;; the internal fallback edge is region-container-anchored on both ends
       (let [fallback (first (filter :machine-level? edges))]
         (is (some? fallback)
-            "the region's targetless top-level :on fallback edge is still projected")
+            "the region's targetless top-level :on fallback edge is projected")
         (is (true? (:internal? fallback))
             "the targetless fallback stays flagged :internal? (a hanging action chip)")
         (is (= (layout/region-node-id :fetch) (:source fallback))
             "the internal fallback sources from the region container")
         (is (= (layout/region-node-id :fetch) (:target fallback))
             "the internal fallback TARGETS the region container too — never the
-             phantom `region__fetch__` node (the bug)")))))
+             phantom `region__fetch__` node")))))
 
 (deftest highlight-ids-same-name-region-states-attribute-per-region
-  (testing "rf2-wnzha (THE HIGHLIGHT FIX) — when two regions are both in a
-            same-named `:done` state, the multi-active highlight lights
-            EACH region's OWN `:done` node — not one node twice. Pre-fix
-            the colliding ids meant lighting region A's :done also lit B's"
+  (testing "when two regions are both in a same-named `:done`
+            state, the multi-active highlight lights EACH region's OWN
+            `:done` node — not one node twice (with colliding ids, lighting
+            region A's :done would also light B's)"
     (let [ingest {:type :parallel
                   :regions {:fetch    {:initial :loading
                                        :states {:loading {:on {:loaded :done}}
@@ -411,36 +406,36 @@
   (is (nil? (layout/highlight-id nil))))
 
 (deftest highlight-id-nil-for-region-map
-  (testing "rf2-g2svr — the single-active resolver returns nil for a
+  (testing "the single-active resolver returns nil for a
             region-map (a map is not a single-active state); the
             multi-active `highlight-ids` is the resolver for that arm"
     (is (nil? (layout/highlight-id {:data :loading :form :neutral})))))
 
-;; ---- highlight-ids — multi-active (rf2-yoe6e / rf2-g2svr, G1) -----------
+;; ---- highlight-ids — multi-active (G1) ----------------------------------
 ;;
 ;; Spec 005 §Snapshot shape: `:state` has three arms — flat keyword,
 ;; hierarchical path, OR a region-map (PARALLEL — N simultaneously-active
 ;; leaves). `highlight-ids` resolves ALL THREE to a SET of active-leaf
 ;; node-ids so the chart lights up EVERY active region at once (the §1.2
-;; parity bar in 001-Topology-Parity.md). These pins are the new
-;; capability: flat→1, compound→1 leaf, region-map→N, nested→deepest leaf.
+;; parity bar in 001-Topology-Parity.md). These pins cover each arm:
+;; flat→1, compound→1 leaf, region-map→N, nested→deepest leaf.
 
 (deftest highlight-ids-flat-keyword-is-singleton
-  (testing "rf2-g2svr — a flat-keyword `:state` resolves to a one-element
+  (testing "a flat-keyword `:state` resolves to a one-element
             set (the single-active case, set-wrapped)"
     (is (= #{(layout/node-id [:authing])}
            (layout/highlight-ids :authing)))))
 
 (deftest highlight-ids-compound-path-is-singleton-leaf
-  (testing "rf2-g2svr — a hierarchical path resolves to a one-element set
+  (testing "a hierarchical path resolves to a one-element set
             holding the DEEPEST leaf's id (node-id of the full path)"
     (is (= #{(layout/node-id [:authenticated :browsing])}
            (layout/highlight-ids [:authenticated :browsing])))))
 
 (deftest highlight-ids-region-map-is-the-set-of-active-leaves
-  (testing "rf2-g2svr (THE NEW CAPABILITY) — a PARALLEL snapshot's
-            region-map resolves to the SET of N active leaves, one per
-            region. rf2-wnzha — each region value resolves via
+  (testing "a PARALLEL snapshot's region-map resolves to the
+            SET of N active leaves, one per region. Each region value
+            resolves via
             `region-scoped-id` of the REGION + the in-region path
             (project-parallel region-scopes a state's node-id so two regions
             sharing a state NAME mint DISTINCT ids; the resolver mints the
@@ -454,7 +449,7 @@
              ids)))))
 
 (deftest highlight-ids-region-map-matches-parsed-region-state-ids
-  (testing "rf2-g2svr — the resolved set is exactly the set of node-ids
+  (testing "the resolved set is exactly the set of node-ids
             the parse minted for the active region states, so the
             projection will mark those real nodes :active (no phantom
             ids). Pins the resolver against the parser's actual output."
@@ -477,7 +472,7 @@
                (layout/region-scoped-id :video [:shown])} ids)))))
 
 (deftest highlight-ids-nested-region-value-resolves-to-deepest-leaf
-  (testing "rf2-g2svr — a region whose value is itself a vector path (a
+  (testing "a region whose value is itself a vector path (a
             compound region) resolves to the DEEPEST leaf, exactly as the
             single-compound case does. Spec 005: a compound region's
             value is a vector path INSIDE that region."
@@ -491,16 +486,16 @@
            one-per-path-segment"))))
 
 (deftest highlight-ids-empty-for-nil
-  (testing "rf2-g2svr — nil `:state` (no highlight) → the empty set (a
+  (testing "nil `:state` (no highlight) → the empty set (a
             SET, never nil — callers can always `contains?` it)"
     (is (= #{} (layout/highlight-ids nil)))))
 
 (deftest highlight-ids-empty-for-empty-region-map
-  (testing "rf2-g2svr — an empty region-map resolves to the empty set"
+  (testing "an empty region-map resolves to the empty set"
     (is (= #{} (layout/highlight-ids {})))))
 
 (deftest highlight-ids-subsumes-highlight-id-for-single-active
-  (testing "rf2-g2svr — for a single-active state, `highlight-ids` is
+  (testing "for a single-active state, `highlight-ids` is
             exactly `#{(highlight-id state)}` — the multi-active resolver
             is a strict superset of the single-active one"
     (doseq [state [:authing [:authenticated :browsing] [:a]]]
@@ -546,7 +541,7 @@
                              :action :log-it}))))
 
 (deftest edge-label-after-with-guard-and-action
-  (testing "rf2-a2b55 — `:after` event-segment renders as the Stately
+  (testing "`:after` event-segment renders as the Stately
             graph view clock glyph + `<ms>ms` suffix"
     (is (= "⌚ 1500ms [timeout?] / cleanup"
            (layout/edge-label {:event  :after-1500
@@ -555,7 +550,7 @@
                                :action :cleanup})))))
 
 (deftest edge-label-always-with-guard
-  (testing "rf2-a2b55 — `:always` event-segment renders as the
+  (testing "`:always` event-segment renders as the
             Stately graph view infinity glyph"
     (is (= "∞ [ready?]"
            (layout/edge-label {:event   :always
@@ -574,10 +569,10 @@
            (layout/edge-label {:event :submit
                                :guard :auth/authed?})))))
 
-;; ---- event-line (rf2-a2b55) --------------------------------------------
+;; ---- event-line --------------------------------------------------------
 
 (deftest event-line-event-only
-  (testing "rf2-a2b55 — `event-line` renders the visible event line
+  (testing "`event-line` renders the visible event line
             (event + guard, NO `/ action`); the action paints as a
             `+ <action>` pill on a separate row in the renderer."
     (is (= "submit"
@@ -588,7 +583,7 @@
          (layout/event-line {:event :submit :guard :authed?}))))
 
 (deftest event-line-event-with-action-strips-action
-  (testing "rf2-a2b55 — `event-line` does NOT emit `/ action`; that
+  (testing "`event-line` does NOT emit `/ action`; that
             text form is `edge-label`'s job. The action surfaces as a
             pill in the chart and as the full text in `:data-event`
             via `edge-label`."
@@ -602,14 +597,14 @@
                              :action :log-it}))))
 
 (deftest event-line-after-renders-clock-glyph
-  (testing "rf2-a2b55 — `:after` event-segment renders as ⌚ + <ms>ms"
+  (testing "`:after` event-segment renders as ⌚ + <ms>ms"
     (is (= "⌚ 1500ms [timeout?]"
            (layout/event-line {:event :after-1500
                                :after 1500
                                :guard :timeout?})))))
 
 (deftest event-line-always-renders-infinity-glyph
-  (testing "rf2-a2b55 — `:always` event-segment renders as ∞"
+  (testing "`:always` event-segment renders as ∞"
     (is (= "∞ [ready?]"
            (layout/event-line {:event   :always
                                :always? true
@@ -620,10 +615,10 @@
 ;; `name-of` is the single public helper `event-line` / `edge-label` /
 ;; `chart.projection` all build on to render a guard / action / entry /
 ;; exit value as a short label string. The keyword arms are exercised
-;; transitively by the edge-label tests above, but the two LOAD-BEARING
+;; transitively by the edge-label tests above; the two LOAD-BEARING
 ;; branches — an inlined `(fn ...)` guard/action, which the docstring
-;; calls out as the `#object[Function]` failure mode it guards — had no
-;; direct pin. These deterministic cases nail each arm.
+;; calls out as the `#object[Function]` failure mode it guards — need a
+;; direct pin of their own. These deterministic cases nail each arm.
 
 (deftest name-of-nil-passes-through
   (testing "nil → nil (cond-> arms upstream skip the segment entirely)"
@@ -635,9 +630,7 @@
 
 (deftest name-of-namespaced-keyword-preserves-ns
   (testing "a namespaced keyword renders `ns/name` so a guard like
-            `:auth/admin?` reads in full instead of losing its namespace
-            (the bug the rf2-ee38b.21 collapse of the old `safe-name`
-            duplicate fixed)"
+            `:auth/admin?` reads in full instead of losing its namespace"
     (is (= "auth/admin?" (layout/name-of :auth/admin?)))))
 
 (deftest name-of-named-fn-surfaces-name-meta
@@ -672,18 +665,18 @@
       (is (contains? labels "submit [authed?] / log-it"))
       (is (contains? labels "submit [anon?]")))))
 
-;; ---- self-transitions (rf2-ee38b.21) -----------------------------------
+;; ---- self-transitions --------------------------------------------------
 ;;
-;; Spec 005 §Self-transitions (XState v5, post-eicq0): a TARGETED self-
+;; Spec 005 §Self-transitions (XState v5 semantics): a TARGETED self-
 ;; transition (`:target :same-state` / a self keyword) is INTERNAL BY
 ;; DEFAULT — its own :exit/:entry do NOT re-run; only `:reenter? true`
-;; makes it EXTERNAL (rf2-9dj21r). Omitting `:target` is the targetless
-;; internal no-op (only :action runs). All chart as a self-loop (source ==
-;; target). Pre-fix, `:same-state` resolved to a phantom node-id and
-;; the internal form emitted nothing.
+;; makes it EXTERNAL. Omitting `:target` is the targetless internal no-op
+;; (only :action runs). All chart as a self-loop (source == target). A
+;; projector that resolved `:same-state` literally would mint a phantom
+;; node-id, and one that skipped the targetless form would emit nothing.
 
 (deftest project-definition-self-transition-same-state
-  (testing "rf2-ee38b.21 — `:target :same-state` resolves to the source
+  (testing "`:target :same-state` resolves to the source
             path itself (a true self-loop), NOT a phantom :same-state
             node"
     (let [m {:initial :a :states {:a {:on {:ping {:target :same-state}}} }}
@@ -700,7 +693,7 @@
           "no dangling :same-state node is minted"))))
 
 (deftest project-definition-internal-self-transition-omit-target
-  (testing "rf2-ee38b.21 — a transition that omits :target (internal —
+  (testing "a transition that omits :target (internal —
             runs only :action) charts as a self-anchored edge flagged
             :internal? rather than silently dropping"
     (let [m {:initial :a :states {:a {:on {:tick {:action :inc}}}}}
@@ -712,16 +705,16 @@
       (is (true? (:internal? tick)) "flagged internal")
       (is (= :inc (:action tick))))))
 
-;; ---- the :reenter? external-restart axis (rf2-9dj21r) ------------------
+;; ---- the :reenter? external-restart axis -------------------------------
 ;;
 ;; A TARGETED transition is INTERNAL by default; `:reenter? true` is the
 ;; EXTERNAL restart opt-in. The viz must carry the axis onto the edge so a
 ;; `:reenter? true` transition is STRUCTURALLY distinct from its internal
-;; default — pre-fix the two produced the SAME edge map (same id, same
-;; flags), so the chart could not tell them apart.
+;; default — without the axis the two would produce the SAME edge map (same
+;; id, same flags), and the chart could not tell them apart.
 
 (deftest project-definition-reenter-axis-distinct-from-internal-default
-  (testing "rf2-9dj21r — a `:reenter? true` self-target carries `:reenter?
+  (testing "a `:reenter? true` self-target carries `:reenter?
             true` on the edge; the internal-default one does NOT"
     (let [reenter  {:initial :a :states {:a {:on {:ping {:target :same-state
                                                           :reenter? true}}}}}
@@ -738,24 +731,24 @@
           "the two mint DISTINCT edge ids (so they can coexist; xyflow does
            not drop one as a duplicate)")))
 
-  (testing "rf2-9dj21r — `:reenter?` is read off a map candidate only;
+  (testing "`:reenter?` is read off a map candidate only;
             a bare keyword target never carries it"
     (let [m     {:initial :a :states {:a {:on {:go :b}} :b {}}}
           go    (first (filter #(= :go (:event %))
                                (:edges (layout/project-definition m))))]
       (is (not (contains? go :reenter?)))))
 
-  (testing "rf2-9dj21r — `layout/reenter?` reads the engine's
+  (testing "`layout/reenter?` reads the engine's
             `(true? (:reenter? transition))` axis"
     (is (true? (layout/reenter? {:target :same-state :reenter? true})))
     (is (false? (layout/reenter? {:target :same-state})))
     (is (false? (layout/reenter? {:target :same-state :reenter? false})))
     (is (false? (layout/reenter? :b)) "a bare keyword candidate is never reenter")))
 
-;; ---- wildcard `:*` (rf2-ee38b.21) --------------------------------------
+;; ---- wildcard `:*` -----------------------------------------------------
 
 (deftest project-definition-wildcard-event-label
-  (testing "rf2-ee38b.21 — the `:*` wildcard `:on` arm (Spec 005
+  (testing "the `:*` wildcard `:on` arm (Spec 005
             §Wildcard) renders as `* (any)`, not a bare `*` that reads
             like a real event"
     (let [m {:initial :a :states {:a {:on {:* :b}} :b {}}}
@@ -764,14 +757,14 @@
       (is (some? wild) "the wildcard transition is charted")
       (is (= "* (any)" (:event-label wild))))))
 
-;; ---- machine-level (top-level) :on fallback (rf2-ee38b.21) -------------
+;; ---- machine-level (top-level) :on fallback ----------------------------
 
 (deftest project-definition-machine-level-on-fallback
-  (testing "rf2-vcnvj — a top-level (machine-level) :on fallback
+  (testing "a top-level (machine-level) :on fallback
             (Spec 005 — `:on` valid per-state AND top-level) charts
             EXACTLY ONE edge, sourced from the synthetic MACHINE-ROOT
             node, flagged :machine-level? — NOT one back-edge per leaf
-            (the pre-vcnvj per-state repetition that scrambled ordering)"
+            (a per-state repetition would scramble ordering)"
     (let [m {:initial :a :on {:logout :a} :states {:a {} :b {}}}
           {:keys [nodes edges]} (layout/project-definition m)
           logout (filter #(= :logout (:event %)) edges)]
@@ -789,8 +782,8 @@
         (is (= [] (:path root)))))))
 
 (deftest project-definition-no-machine-level-on-emits-no-root-node
-  (testing "rf2-vcnvj — a machine with NO top-level :on keeps the
-            pre-vcnvj node set: no synthetic MACHINE-ROOT node leaks in"
+  (testing "a machine with NO top-level :on projects only
+            its own states: no synthetic MACHINE-ROOT node leaks in"
     (let [m {:initial :a :states {:a {:on {:go :b}} :b {}}}
           {:keys [nodes edges]} (layout/project-definition m)]
       (is (empty? (filter :machine-root? nodes))
@@ -799,7 +792,7 @@
       (is (not-any? :machine-level? edges)))))
 
 (deftest project-definition-machine-level-on-targets-top-level-state
-  (testing "rf2-vcnvj — a machine-level :on target is a TOP-LEVEL state,
+  (testing "a machine-level :on target is a TOP-LEVEL state,
             resolved at the root; the SINGLE projected edge lands on the
             top-level target regardless of which leaf inherits it at
             runtime"
@@ -818,11 +811,11 @@
           "sourced from the MACHINE-ROOT node, not a specific leaf"))))
 
 (deftest project-definition-machine-level-on-targetless-action-only
-  (testing "rf2-5uhdaz — a TARGETLESS (action-only) machine-level :on
+  (testing "a TARGETLESS (action-only) machine-level :on
             fallback self-anchors on the synthetic MACHINE-ROOT chip as an
             :internal? affordance (runtime fires the action + leaves the
-            state unchanged — XState v5 targetless semantics), mirroring
-            the parallel-root :on. Pre-fix it was silently DROPPED."
+            state as it is — XState v5 targetless semantics), mirroring
+            the parallel-root :on, rather than being silently DROPPED."
     (let [m {:initial :a
              :on      {:ping {:action :log-ping}}   ;; no :target
              :states  {:a {} :b {}}}
@@ -843,7 +836,7 @@
         (is (= layout/machine-root-id (:id root)))))))
 
 (deftest project-definition-machine-level-on-wildcard-targetless
-  (testing "rf2-5uhdaz — a `:*` wildcard machine-level :on with no target is
+  (testing "a `:*` wildcard machine-level :on with no target is
             an action-only inherited fallback too; it self-anchors on the
             MACHINE-ROOT chip rather than being dropped"
     (let [m {:initial :a
@@ -859,12 +852,12 @@
         (is (= layout/machine-root-id (:target e)))
         (is (= :audit (:action e)))))))
 
-;; ---- node-id injectivity (rf2-ee38b.21) --------------------------------
+;; ---- node-id injectivity -----------------------------------------------
 
 (deftest node-id-is-injective-over-hyphen-ns-underscore
-  (testing "rf2-ee38b.21 — distinct paths mint DISTINCT ids. The old
-            `[^a-zA-Z0-9_]`-collapse merged `:a/b`, `:a-b`, `:a_b` all
-            to `\"a_b\"` (React key collision dropped a node)"
+  (testing "distinct paths mint DISTINCT ids. A
+            `[^a-zA-Z0-9_]`-collapse would merge `:a/b`, `:a-b`, `:a_b` all
+            to `\"a_b\"` (a React key collision drops a node)"
     (let [ids (map (comp layout/node-id vector) [:a/b :a-b :a_b :logged-in :logged_in])]
       (is (= (count ids) (count (set ids)))
           "all five distinct keywords yield distinct ids")
@@ -873,17 +866,17 @@
       (is (not= (layout/node-id [:logged-in]) (layout/node-id [:logged_in]))))))
 
 (deftest node-id-distinct-from-region-container-id
-  (testing "rf2-ee38b.21 — a state literally named :region__foo cannot
+  (testing "a state literally named :region__foo cannot
             collide with a region container's id"
     (is (not= (layout/node-id [:region__foo])
               (layout/region-node-id :foo)))))
 
-;; ---- edge-id collision (rf2-ee38b.21) ----------------------------------
+;; ---- edge-id collision -------------------------------------------------
 
 (deftest project-definition-edge-ids-distinct-for-guarded-fork
-  (testing "rf2-ee38b.21 — a same-event/same-target fork that differs
+  (testing "a same-event/same-target fork that differs
             only by guard mints DISTINCT edge ids so xyflow keeps both
-            branches (pre-fix the ids collided → one branch dropped)"
+            branches (colliding ids would drop one branch)"
     (let [m {:initial :a
              :states  {:a {:on {:go [{:target :b :guard :g1}
                                      {:target :b :guard :g2}]}}
@@ -895,7 +888,7 @@
       (is (= 2 (count (set ids))) "their xyflow ids are distinct"))))
 
 (deftest project-definition-edge-ids-distinct-for-identical-candidates
-  (testing "rf2-ee38b.21 — even byte-identical candidates (same target,
+  (testing "even byte-identical candidates (same target,
             no guard/action) get distinct ids via the per-key ordinal"
     (let [m {:initial :a
              :states  {:a {:on {:go [{:target :b} {:target :b}]}}
@@ -905,10 +898,10 @@
       (is (= 2 (count ids)))
       (is (= 2 (count (set ids))) "ordinal disambiguates identical candidates"))))
 
-;; ---- entry / exit state actions (rf2-ee38b.21) -------------------------
+;; ---- entry / exit state actions ----------------------------------------
 
 (deftest project-definition-threads-entry-exit-onto-nodes
-  (testing "rf2-ee38b.21 — :entry / :exit state actions (Spec 005
+  (testing ":entry / :exit state actions (Spec 005
             §State nodes) surface as name strings on the parsed node"
     (let [m {:initial :a
              :states  {:a {:entry :on-enter :exit :on-leave}
@@ -922,17 +915,17 @@
       (is (not (contains? b :exit)) "absent exit is omitted"))))
 
 (deftest project-definition-no-entry-exit-when-absent
-  (testing "rf2-ee38b.21 — a state with no :entry / :exit carries
+  (testing "a state with no :entry / :exit carries
             neither key (cond-> skips the assoc)"
     (let [{:keys [nodes]} (layout/project-definition idle-loading-success)
           idle (first (filter #(= [:idle] (:path %)) nodes))]
       (is (not (contains? idle :entry)))
       (is (not (contains? idle :exit))))))
 
-;; ---- :final? is always boolean (rf2-ee38b.21) --------------------------
+;; ---- :final? is always boolean -----------------------------------------
 
 (deftest project-definition-final-flag-is-boolean
-  (testing "rf2-ee38b.21 — :final? is boolean-wrapped (false, not nil)
+  (testing ":final? is boolean-wrapped (false, not nil)
             for non-final states, matching its sibling flags"
     (let [{:keys [nodes]} (layout/project-definition idle-loading-success)
           idle    (first (filter #(= [:idle] (:path %)) nodes))
@@ -940,7 +933,7 @@
       (is (false? (:final? idle)) ":final? is false, not nil")
       (is (true?  (:final? success))))))
 
-;; ---- :error? error-terminal KIND threads through parse (rf2-b4loj) ------
+;; ---- :error? error-terminal KIND threads through parse ------------------
 ;;
 ;; An `:error?` final (Spec 005 §:final?) is a re-frame2 EXTENSION: a child
 ;; finishing via it routes the spawning parent's `:spawn` `:on-error` rather
@@ -957,7 +950,7 @@
              :boom    {:final? true :error? true}}})
 
 (deftest project-definition-threads-error-final-kind
-  (testing "rf2-b4loj — :error? threads onto the node ONLY for an :error?
+  (testing ":error? threads onto the node ONLY for an :error?
             final; a success final and every non-final node carry :error?
             false (boolean-wrapped, never nil)"
     (let [{:keys [nodes]} (layout/project-definition success-and-error-finals)
@@ -972,8 +965,8 @@
       (is (true? (:final? boom))))))
 
 (deftest project-definition-error-flag-needs-final
-  (testing "rf2-b4loj + rf2-j538f7.18 — a stray :error? on a NON-final node is
-            now REJECTED by the recursive grammar gate (:error? is only
+  (testing "a stray :error? on a NON-final node is
+            REJECTED by the recursive grammar gate (:error? is only
             meaningful on a :final? state). project-definition rejects the
             machine BEFORE graph construction and returns a value-free
             :definition-error carrying the canonical
@@ -991,7 +984,7 @@
           ":error? on a non-final node surfaces the canonical error-flag-without-final defect"))))
 
 (deftest project-definition-rejects-structurally-invalid-before-elk
-  (testing "rf2-j538f7.18 — a structurally-invalid definition is REJECTED
+  (testing "a structurally-invalid definition is REJECTED
             before graph construction: no nodes / edges are produced (nothing
             reaches ELK, no orphan edges to absent nodes), and the result
             carries the value-free canonical defect category so the chart
@@ -1011,12 +1004,12 @@
         (is (empty? edges) (str label ": no orphan edges to absent nodes"))
         (is (= expected (get-in definition-error [:defect :category]))
             (str label ": carries the canonical defect category"))
-        ;; rf2-oztox — the summary is content-free BY CONSTRUCTION, so what it
+        ;; The summary is content-free BY CONSTRUCTION, so what it
         ;; carries beside the category is CARDINALITY, never material read off
-        ;; the definition. `:keys` (every top-level key, uncapped) is gone, and
-        ;; this assertion — which pinned it — now pins its replacement. The
-        ;; full grammar is `definition-summary-is-content-free-by-construction`
-        ;; in the grammar-validation ns.
+        ;; the definition: no `:keys` (every top-level key, uncapped), but the
+        ;; top-level key COUNT and the defect's DEPTH. The full grammar is
+        ;; `definition-summary-is-content-free-by-construction` in the
+        ;; grammar-validation ns.
         (is (nil? (:keys definition-error))
             (str label ": no raw top-level key set rides the projection result"))
         (is (nil? (get-in definition-error [:defect :path]))
@@ -1035,15 +1028,14 @@
       (is (nil? definition-error) "a valid definition carries no :definition-error")
       (is (seq nodes) "a valid definition still projects nodes"))))
 
-;; ---- :on-done (XState onDone) completion edge (rf2-41goo) ---------------
+;; ---- :on-done (XState onDone) completion edge ---------------------------
 ;;
 ;; Spec 005 §The done-state signal: a COMPOUND node's `:on-done` advances
 ;; the OUTER flow to a SIBLING target when its `:final?` child is reached
 ;; (the machine KEEPS RUNNING). A PARALLEL-ROOT's `:on-done` runs
 ;; action/fx ONLY (no :target — registration rejects one), rendered as a
-;; TERMINAL completion affordance. Pre-rf2-41goo `:on-done` was NEVER
-;; parsed (zero matches across src/test), so the chart understated the
-;; real control flow.
+;; TERMINAL completion affordance. A chart that did not parse `:on-done`
+;; would understate the real control flow.
 
 (def checkout-on-done
   "Spec 005 §The done-state signal example: a sub-flow `:flow` inside a
@@ -1058,7 +1050,7 @@
              :next {:on {:reset [:flow]}}}})
 
 (deftest project-definition-compound-on-done-is-sibling-edge
-  (testing "rf2-41goo — a compound `:on-done` projects ONE completion edge
+  (testing "a compound `:on-done` projects ONE completion edge
             from the compound to its SIBLING target (resolved relative to
             the compound's OWN level), flagged :on-done?, carrying the
             done-path (the engine's done.state node)"
@@ -1075,13 +1067,13 @@
         (is (not (:internal? e)) "a targeted compound :on-done is a real sibling edge")))))
 
 (deftest project-definition-no-on-done-emits-no-completion-edge
-  (testing "rf2-41goo — a machine with no :on-done emits no :on-done? edge
+  (testing "a machine with no :on-done emits no :on-done? edge
             (no false-positive completion arrows)"
     (let [{:keys [edges]} (layout/project-definition compound-machine)]
       (is (empty? (filter :on-done? edges))))))
 
 (deftest project-definition-compound-on-done-guarded-candidate-vector
-  (testing "rf2-41goo — an :on-done candidate-vector (guarded forks)
+  (testing "an :on-done candidate-vector (guarded forks)
             projects each target-bearing arm as its own completion edge,
             mirroring the :on candidate-vector grammar"
     (let [m {:initial :flow
@@ -1110,7 +1102,7 @@
              :index    {:initial :building :states {:building {:on {:built :done}} :done {:final? true}}}}})
 
 (deftest project-definition-parallel-root-on-done-is-terminal-affordance
-  (testing "rf2-41goo — a PARALLEL-ROOT `:on-done` (action/fx-only, no
+  (testing "a PARALLEL-ROOT `:on-done` (action/fx-only, no
             :target — registration rejects one) projects a TERMINAL
             completion affordance (self-anchored, :internal?), NOT a
             sibling edge; carries the action + :parallel-root? flag"
@@ -1132,7 +1124,7 @@
             "the completion edge anchors on the parallel-root node")))))
 
 (deftest project-definition-parallel-without-on-done-emits-no-root-node
-  (testing "rf2-41goo — a parallel machine with NO :on-done leaks no
+  (testing "a parallel machine with NO :on-done leaks no
             synthetic parallel-root node + no completion edge"
     (let [m {:type :parallel
              :regions {:a {:initial :x :states {:x {:on {:go :y}} :y {}}}
@@ -1141,22 +1133,21 @@
       (is (empty? (filter :parallel-root? nodes)))
       (is (empty? (filter :on-done? edges))))))
 
-;; ---- root parallel `:on` projection (rf2-3v3gv1) ------------------------
+;; ---- root parallel `:on` projection -------------------------------------
 ;;
 ;; A `:type :parallel` machine's OWN top-level `:on` is the ANCESTOR FALLBACK
 ;; for its regions (Spec 005 §Root parallel `:on`, verified against
-;; xstate@5.32.0). Shipped runtime semantics: when no region-local transition
+;; xstate@5.32.0). Runtime semantics: when no region-local transition
 ;; handles the event the root `:on` fires, moving one or more REGION-QUALIFIED
-;; targets atomically (untargeted regions stay put). Pre-rf2-3v3gv1 the chart
-;; projection modelled the per-region `:on` fallbacks but DROPPED the parallel
-;; root's own `:on` entirely — so Xray could neither render the transition in
-;; topology nor highlight it on a focused event. The projection now sources
+;; targets atomically (untargeted regions stay put). The projection sources
 ;; each root `:on` edge from the synthetic MACHINE-ROOT chip into the region-
 ;; scoped target node (a targetless action-only root `:on` self-anchors on the
-;; chip as an internal affordance).
+;; chip as an internal affordance); dropping the root `:on` would leave Xray
+;; unable to render the transition in topology or highlight it on a focused
+;; event.
 
 (deftest project-definition-parallel-root-on-single-region-target
-  (testing "rf2-3v3gv1 — a root :on targeting ONE region `[:a :two]` projects
+  (testing "a root :on targeting ONE region `[:a :two]` projects
             ONE edge from the MACHINE-ROOT chip into region :a's :two node"
     ;; Mirrors spec/conformance/fixtures/parallel-root-on-single-region-target.
     (let [m {:type    :parallel
@@ -1182,7 +1173,7 @@
         (is (= layout/machine-root-id (:id root)))))))
 
 (deftest project-definition-parallel-root-on-multi-region-target
-  (testing "rf2-3v3gv1 — a root :on with MULTIPLE region-qualified targets
+  (testing "a root :on with MULTIPLE region-qualified targets
             `[[:a :x] [:b :y]]` projects ONE edge per region, both sourced
             from the MACHINE-ROOT chip; the untargeted region :c gets none"
     ;; Mirrors spec/conformance/fixtures/parallel-root-on-multi-region-target.
@@ -1207,7 +1198,7 @@
           "the untargeted region :c gets no root :on edge"))))
 
 (deftest project-definition-parallel-root-on-targetless-action-only
-  (testing "rf2-3v3gv1 — a TARGETLESS action-only root :on self-anchors on
+  (testing "a TARGETLESS action-only root :on self-anchors on
             the MACHINE-ROOT chip as an internal affordance (moves no region)"
     (let [m {:type    :parallel
              :on      {:ping {:action :log-ping}}   ;; no :target
@@ -1227,8 +1218,8 @@
           "the MACHINE-ROOT chip anchors the affordance"))))
 
 (deftest project-definition-parallel-without-root-on-leaks-no-machine-root
-  (testing "rf2-3v3gv1 — a parallel machine with NO root :on keeps the
-            pre-fix node/edge set: no MACHINE-ROOT chip, no root :on edge"
+  (testing "a parallel machine with NO root :on projects only
+            its regions' nodes and edges: no MACHINE-ROOT chip, no root :on edge"
     (let [m {:type :parallel
              :regions {:a {:initial :x :states {:x {:on {:go :y}} :y {}}}
                        :b {:initial :p :states {:p {:on {:go :q}} :q {}}}}}
@@ -1240,7 +1231,7 @@
           "no root :on edges"))))
 
 (deftest project-definition-parallel-root-on-edge-ids-distinct-and-stable
-  (testing "rf2-3v3gv1 — multi-region root :on edges mint DISTINCT stable ids
+  (testing "multi-region root :on edges mint DISTINCT stable ids
             (no xyflow duplicate-id drop) carrying the MACHINE-ROOT source"
     (let [m {:type    :parallel
              :on      {:advance {:target [[:a :x] [:b :y]]}}
@@ -1255,21 +1246,20 @@
       (is (every? #(str/starts-with? % layout/machine-root-id) ids)
           "each id reads from the MACHINE-ROOT source segment"))))
 
-;; ---- root parallel `:after` projection (rf2-m3otj2) ---------------------
+;; ---- root parallel `:after` projection ----------------------------------
 ;;
-;; A `:type :parallel` root MAY declare its own `:after` (rf2-wox0vd) — the
+;; A `:type :parallel` root MAY declare its own `:after` — the
 ;; TIMER-DRIVEN analog of the root `:on` ancestor fallback. It is root-owned
 ;; (scheduled at machine birth), and when it fires it runs its `:action` once
 ;; and atomically moves one or more REGION-QUALIFIED targets (untargeted
-;; regions stay put) — identical apply grammar to the root `:on`. Pre-rf2-m3otj2
-;; the chart collected ONLY the root `:on` and DROPPED the root `:after`, so a
-;; machine-lifetime timeout was invisible in topology. The projection now
-;; sources each root `:after` edge from the synthetic MACHINE-ROOT chip into
-;; the region-scoped target node, carrying `:after <delay>` +
-;; `:parallel-root-after? true`.
+;; regions stay put) — identical apply grammar to the root `:on`. The
+;; projection sources each root `:after` edge from the synthetic MACHINE-ROOT
+;; chip into the region-scoped target node, carrying `:after <delay>` +
+;; `:parallel-root-after? true`; dropping it would leave a machine-lifetime
+;; timeout invisible in topology.
 
 (deftest project-definition-parallel-root-after-single-region-target
-  (testing "rf2-m3otj2 — a root :after targeting ONE region `[:a :two]`
+  (testing "a root :after targeting ONE region `[:a :two]`
             projects ONE edge from the MACHINE-ROOT chip into region :a's
             :two node, carrying :after <delay>"
     (let [m {:type    :parallel
@@ -1295,7 +1285,7 @@
           "the synthetic MACHINE-ROOT chip is surfaced (anchors the :after)"))))
 
 (deftest project-definition-parallel-root-after-multi-region-target
-  (testing "rf2-m3otj2 — a root :after with MULTIPLE region-qualified targets
+  (testing "a root :after with MULTIPLE region-qualified targets
             `[[:a :two] [:b :two]]` projects ONE edge per region; the
             untargeted region gets none"
     (let [m {:type    :parallel
@@ -1314,7 +1304,7 @@
           "the untargeted region :c gets no root :after edge"))))
 
 (deftest project-definition-parallel-root-after-action-only
-  (testing "rf2-m3otj2 — a TARGETLESS action-only root :after self-anchors on
+  (testing "a TARGETLESS action-only root :after self-anchors on
             the MACHINE-ROOT chip as an internal affordance (moves no region)"
     (let [m {:type    :parallel
              :after   {2000 {:action :timeout-log}}   ;; no :target
@@ -1335,7 +1325,7 @@
           "the MACHINE-ROOT chip anchors the affordance"))))
 
 (deftest project-definition-parallel-root-after-only-mints-machine-root
-  (testing "rf2-m3otj2 — a parallel machine with ONLY a root :after (no root
+  (testing "a parallel machine with ONLY a root :after (no root
             :on) STILL mints the MACHINE-ROOT chip + a root edge"
     (let [m {:type    :parallel
              :after   {750 {:target [:a :two]}}
@@ -1350,7 +1340,7 @@
           "no plain root :on edge (there is no :on)"))))
 
 (deftest project-definition-parallel-root-on-and-after-coexist
-  (testing "rf2-m3otj2 / rf2-656ivk — a root :on AND a root :after to the SAME
+  (testing "a root :on AND a root :after to the SAME
             region target coexist as DISTINCT edges (no id collision)"
     (let [m {:type    :parallel
              :on      {:go {:target [:a :two]}}
@@ -1368,7 +1358,7 @@
       (is (= 2 (count (set ids)))
           "the :on and :after edges to the same target mint DISTINCT ids"))))
 
-;; ---- consumer-attachment requirements (rf2-skhlw2.1) -------------------
+;; ---- consumer-attachment requirements ----------------------------------
 ;;
 ;; EP-0017 / Spec 005 §Consumer attachment: a fact-consuming named guard /
 ;; action declares `:rf.cofx/requires` on its `:guards` / `:actions` entry
@@ -1378,8 +1368,8 @@
 (def cofx-machine
   "A machine whose named guard, transition action, entry action, and exit
   action each declare `:rf.cofx/requires`, plus a bare-fn guard / undeclared
-  action that declare nothing (so the no-facts case stays visually
-  unchanged). Mirrors Spec 005 §Consumer attachment's worked example."
+  action that declare nothing (so the no-facts case carries no requirement).
+  Mirrors Spec 005 §Consumer attachment's worked example."
   {:initial :idle
    :guards  {:within-window? {:rf.cofx/requires [:rf/time-ms]
                               :fn (fn [_] true)}
@@ -1405,7 +1395,7 @@
   (first (filter #(= ev (:event %)) edges)))
 
 (deftest cofx-requires-on-guard-and-action-edges
-  (testing "rf2-skhlw2.1 — a named guard / action declaring :rf.cofx/requires
+  (testing "a named guard / action declaring :rf.cofx/requires
             surfaces its declared IDS (compact strings) on the edge"
     (let [{:keys [edges]} (layout/project-definition cofx-machine)
           go-edge   (edge-with-event edges :go)
@@ -1414,15 +1404,15 @@
           "the guard's :rf.cofx/requires id surfaces")
       (is (= ["payment/retry-jitter-ms"] (:action-requires go-edge))
           "the action's :rf.cofx/requires id surfaces")
-      ;; the undeclared (bare-fn) guard/action edge carries NOTHING — the
-      ;; no-facts case is visually unchanged.
+      ;; The undeclared (bare-fn) guard/action edge carries NOTHING — the
+      ;; no-facts case renders no requirement.
       (is (nil? (:guard-requires noop-edge))
           "a bare-fn guard declares no requires → no key")
       (is (nil? (:action-requires noop-edge))
           "a bare-fn action declares no requires → no key"))))
 
 (deftest cofx-requires-on-entry-and-exit-nodes
-  (testing "rf2-skhlw2.1 — a named entry / exit action declaring
+  (testing "a named entry / exit action declaring
             :rf.cofx/requires surfaces its IDS on the state node"
     (let [{:keys [nodes]} (layout/project-definition cofx-machine)
           idle (first (filter #(= [:idle] (:path %)) nodes))]
@@ -1432,8 +1422,8 @@
           "the exit action's parameterized [id arg] requirement reads as id(arg)"))))
 
 (deftest cofx-requires-noop-for-fact-free-machine
-  (testing "rf2-skhlw2.1 — a machine declaring no :rf.cofx/requires anywhere
-            projects UNCHANGED (no requires keys appear)"
+  (testing "a machine declaring no :rf.cofx/requires anywhere
+            projects NO requires keys on any edge or node"
     (let [{:keys [edges nodes]} (layout/project-definition idle-loading-success)]
       (is (not-any? :guard-requires edges))
       (is (not-any? :action-requires edges))
@@ -1441,7 +1431,7 @@
       (is (not-any? :exit-requires nodes)))))
 
 (deftest cofx-requires-never-serialises-fn-or-source
-  (testing "rf2-skhlw2.1 — the surfaced requirements carry IDS only — never
+  (testing "the surfaced requirements carry IDS only — never
             the executable :fn nor any :source-* snippet"
     (let [{:keys [edges nodes]} (layout/project-definition cofx-machine)
           all (concat (mapcat (juxt :guard-requires :action-requires) edges)
@@ -1453,7 +1443,7 @@
           "no :fn / :source vocabulary leaks into the surfaced requirements"))))
 
 (deftest cofx-requires-machine-scoped-across-parallel-regions
-  (testing "rf2-skhlw2.1 — a region guard/action resolves its requires
+  (testing "a region guard/action resolves its requires
             against the MACHINE-LEVEL :guards/:actions (XState v5 scoping)"
     (let [m {:type    :parallel
              :guards  {:ready? {:rf.cofx/requires [:rf/time-ms]
@@ -1468,21 +1458,21 @@
           "a region guard resolves its requires against the machine registry"))))
 
 (deftest cofx-requires-region-aware-node-attribution-across-parallel-regions
-  (testing "rf2-d6n72g — region-aware `raw-node-at` NODE resolution: two
+  (testing "region-aware `raw-node-at` NODE resolution: two
             parallel regions SHARING an in-region state path (`[:active]`)
             but declaring DIFFERENT :entry / :exit actions with DISTINCT
             :rf.cofx/requires each surface their OWN node requires. This is
-            `raw-node-at`'s whole raison d'être (rf2-6l01c8): a projected
+            `raw-node-at`'s whole raison d'être: a projected
             node carrying `:region` pins to `[:regions <region> :states]`
             using its in-region `:path`, so a sibling region that shares the
-            path is NEVER cross-attributed. A regression to the naive
-            cross-region scan (return the first region whose states match the
-            path) would paint region :audio's entry-requires onto region
-            :video's same-named node. The pre-existing parallel cofx test
-            (`cofx-requires-machine-scoped-across-parallel-regions`) only
-            exercises a GUARD on an EDGE (via `attach-edge-requires`), never
-            the region-aware NODE path `attach-node-requires` +
-            `raw-node-at` drive — this pins that gap."
+            path is NEVER cross-attributed. A naive cross-region scan (return
+            the first region whose states match the path) would paint region
+            :audio's entry-requires onto region :video's same-named node. The
+            sibling parallel cofx test
+            (`cofx-requires-machine-scoped-across-parallel-regions`) exercises
+            only a GUARD on an EDGE (via `attach-edge-requires`); this one
+            pins the region-aware NODE path that `attach-node-requires` +
+            `raw-node-at` drive."
     (let [m {:type    :parallel
              :actions {:enter-a {:rf.cofx/requires [:audio.cofx/enter] :fn (fn [_] nil)}
                        :exit-a  {:rf.cofx/requires [:audio.cofx/exit]  :fn (fn [_] nil)}
@@ -1524,13 +1514,13 @@
            same-named node"))))
 
 (deftest raw-node-at-no-region-node-never-borrows-a-sibling-region
-  (testing "rf2-6r9j.122 — a node with a region-relative `:path` but NO
+  (testing "a node with a region-relative `:path` but NO
             `:region` resolves against the TOP-LEVEL `:states` only, and a
             parallel definition has none — so the answer is nil, never the
-            first region that happens to carry a state of that name. The
-            retired fallback scanned `(:regions definition)` in map order and
-            returned whichever region matched first, which is exactly the
-            wrong-region lifecycle attribution rf2-6l01c8 fixed; every node
+            first region that happens to carry a state of that name. A
+            fallback that scanned `(:regions definition)` in map order would
+            return whichever region matched first — a wrong-region lifecycle
+            attribution. Every node
             `project-parallel` mints carries `:region`, so nothing in the
             pipeline can reach this shape — a hand-built node that has lost
             its region identity gets nil rather than a plausible-looking
@@ -1544,12 +1534,12 @@
           "a no-:region region-relative node resolves to nil, not region
            :audio's raw node")
       (is (= {:entry :enter-a} (layout/raw-node-at m {:path [:active] :region :audio}))
-          "the :audio node still resolves strictly within its own region")
+          "the :audio node resolves strictly within its own region")
       (is (= {:entry :enter-b} (layout/raw-node-at m {:path [:active] :region :video}))
-          "the :video node still resolves strictly within its own region")))
-  (testing "rf2-6r9j.122 — flat / compound (no-`:region`) lookup is unchanged:
-            a top-level `:states` node and a nested compound descendant both
-            still resolve, and an absent path is still nil"
+          "the :video node resolves strictly within its own region")))
+  (testing "flat / compound (no-`:region`) lookup: a
+            top-level `:states` node and a nested compound descendant both
+            resolve, and an absent path is nil"
     (let [m {:initial :idle
              :states  {:idle {:entry :log}
                        :busy {:initial :step1
@@ -1563,20 +1553,20 @@
       (is (nil? (layout/raw-node-at m {:path []}))
           "the synthetic empty-path node is nil"))))
 
-;; ---- a REGION's OWN top-level :on-done (rf2-2ydc87) ---------------------
+;; ---- a REGION's OWN top-level :on-done ----------------------------------
 ;;
 ;; Spec 005 §Parallel `:on-done`: "A compound region reaching its own
 ;; :final? child raises a region-local done.state.<region-compound> that
 ;; the region's :on-done takes … exactly the compound case, scoped to one
-;; region." Mermaid (rf2-f8fgz5) and SCXML already project this; pre-fix
-;; the chart's `project-flat` never read a definition's own top-level
-;; `:on-done` (only a NESTED compound's, via `collect-state-edges`), so a
-;; 2-region parallel with region `:a`'s `:on-done` targeting sibling
-;; region `:b` projected ZERO `:on-done?` edges — a G9 cross-emitter-
-;; parity gap (001-Topology-Parity.md).
+;; region." Mermaid and SCXML project this, and so does the chart:
+;; `project-flat` reads a definition's own top-level `:on-done` as well as a
+;; NESTED compound's (via `collect-state-edges`), so a 2-region parallel
+;; with region `:a`'s `:on-done` targeting sibling region `:b` projects an
+;; `:on-done?` edge. Reading only the nested form would leave a G9
+;; cross-emitter-parity gap (001-Topology-Parity.md).
 
 (deftest project-definition-region-on-done-target-bearing-sibling-edge
-  (testing "rf2-2ydc87 — a region's own top-level :on-done with a KEYWORD
+  (testing "a region's own top-level :on-done with a KEYWORD
             target projects a ✓ done edge from the region's OWN container
             to the SIBLING region's container, matching SCXML's
             done.state.a -> b shape"
@@ -1604,7 +1594,7 @@
         (is (contains? (set (map :id nodes)) b-rid))))))
 
 (deftest project-definition-region-on-done-action-only-self-anchors
-  (testing "rf2-2ydc87 — a region's own top-level :on-done that is
+  (testing "a region's own top-level :on-done that is
             ACTION-ONLY (no target) self-anchors on the region's OWN
             container as a terminal completion affordance — mirrors how
             a nested compound's action-only :on-done self-anchors, and
@@ -1627,7 +1617,7 @@
         (is (= :log (:action e)))))))
 
 (deftest project-definition-region-without-on-done-emits-no-completion-edge
-  (testing "rf2-2ydc87 — a region declaring no :on-done emits no
+  (testing "a region declaring no :on-done emits no
             :on-done? edge (no false-positive completion arrows)"
     (let [m {:type    :parallel
              :regions {:a {:initial :x :states {:x {:on {:go :y}} :y {}}}
@@ -1635,18 +1625,18 @@
           {:keys [edges]} (layout/project-definition m)]
       (is (empty? (filter :on-done? edges))))))
 
-;; ---- :same-state at machine-root / region-root drops (rf2-v5wzjo) -------
+;; ---- :same-state at machine-root / region-root drops --------------------
 ;;
 ;; `collect-machine-edges`' own docstring declares a `:same-state`
-;; machine-level fallback STILL DROPPED ("there is no concrete root state
-;; to self-transition against at the top level"). Pre-fix,
-;; `resolve-target-path` returned `(vec [])` = `[]` for this shape — TRUTHY
-;; in Clojure — so the candidate survived as a real (non-internal) edge and
-;; minted a phantom edge to `(node-id [])` / `(region-scoped-id region-id
-;; [])`, both degenerate empty-ish ids no real node carries.
+;; machine-level fallback DROPPED ("there is no concrete root state to
+;; self-transition against at the top level"). A `resolve-target-path` that
+;; returned `(vec [])` = `[]` for this shape — TRUTHY in Clojure — would let
+;; the candidate survive as a real (non-internal) edge and mint a phantom
+;; edge to `(node-id [])` / `(region-scoped-id region-id [])`, both
+;; degenerate empty-ish ids no real node carries.
 
 (deftest project-definition-machine-root-same-state-drops-no-phantom-edge
-  (testing "rf2-v5wzjo — a machine-level :on candidate with :target
+  (testing "a machine-level :on candidate with :target
             :same-state is DROPPED (honouring collect-machine-edges'
             own docstring), not minted as a phantom edge to node-id \"\""
     (let [m {:initial :a
@@ -1661,7 +1651,7 @@
           "no synthetic MACHINE-ROOT chip is minted for a fully-dropped fallback"))))
 
 (deftest project-definition-region-root-same-state-drops-no-phantom-edge
-  (testing "rf2-v5wzjo — a PARALLEL REGION's own top-level :on candidate
+  (testing "a PARALLEL REGION's own top-level :on candidate
             with :target :same-state is likewise dropped, not region-
             scoped into a degenerate `region__<id>__` phantom edge"
     (let [m {:type    :parallel
@@ -1676,18 +1666,18 @@
       (is (not-any? #(= degenerate-id (:target %)) edges)
           "no degenerate region-scoped empty-path target (region__a__) leaks into the graph"))))
 
-;; ---- forbidden transitions: nil ≡ {} (rf2-oy49f1) ------------------------
+;; ---- forbidden transitions: nil ≡ {} -------------------------------------
 ;;
 ;; Spec 005 §Forbidden transitions declares `{:on {:logout {}}}` and
 ;; `{:on {:logout nil}}` RUNTIME-EQUIVALENT — both block parent-fallthrough
-;; for that event. Pre-fix `grammar/transition-candidates` had no `nil`
-;; branch (`cond`'s `:else []`), so a nil-spelled forbidden transition
-;; silently dropped to ZERO candidates while the `{}` spelling correctly
-;; rendered as a blocking chip — a reader saw `:logout` as still
-;; inherited/reachable at a state where the engine actually blocks it.
+;; for that event. `grammar/transition-candidates` gives `nil` its own
+;; branch: falling through to `cond`'s `:else []` would drop a nil-spelled
+;; forbidden transition to ZERO candidates while the `{}` spelling renders
+;; as a blocking chip, and a reader would see `:logout` as inherited and
+;; reachable at a state where the engine blocks it.
 
 (deftest project-definition-nil-forbidden-transition-matches-empty-map
-  (testing "rf2-oy49f1 — a nil-spelled forbidden transition (`:on {:logout
+  (testing "a nil-spelled forbidden transition (`:on {:logout
             nil}}`) projects the SAME internal blocking chip as the
             empty-map spelling (`{:on {:logout {}}}`), not silently
             dropped"
@@ -1698,7 +1688,7 @@
           nil-e (first (filter #(= :logout (:event %)) edges-nil))
           map-e (first (filter #(= :logout (:event %)) edges-map))]
       (is (some? nil-e) "the nil-spelled forbidden transition is NOT dropped")
-      (is (some? map-e) "the empty-map spelling still projects (baseline)")
+      (is (some? map-e) "the empty-map spelling projects too (baseline)")
       (is (true? (:internal? nil-e)) "nil spelling flags :internal? true, like {}")
       (is (= (dissoc nil-e :id) (dissoc map-e :id))
           "nil and {} project structurally-identical edges (bar the edge id)"))))
