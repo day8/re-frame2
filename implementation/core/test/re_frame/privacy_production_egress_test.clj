@@ -1,5 +1,5 @@
 (ns re-frame.privacy-production-egress-test
-  "rf2-r9bra — the PRODUCTION-SURVIVING half of the privacy surface.
+  "The PRODUCTION-SURVIVING half of the privacy surface.
 
   ## Why this namespace exists
 
@@ -8,15 +8,15 @@
   `(rf/register-listener! :trace …)`. That listener is dev-only: under the
   documented production posture (`-Dre-frame.debug=false` / `goog.DEBUG=false`)
   the framework emits no trace events at all, so every assertion in both suites
-  reads `nil` and the suites go red in the `jvm-core-prod-gate` lane.
+  reads `nil` there, and both are excluded from the `jvm-core-prod-gate` lane.
 
-  The redness is test SPELLING — but it left a genuine hole. Between them
-  those suites covered ZERO of the redaction that actually ships: the
+  That is test SPELLING — but it leaves a genuine hole. Between them
+  those suites cover ZERO of the redaction that actually ships: the
   always-on error-emit substrate (`re-frame.error-emit`, Spec 009 §What IS
   available in production) survives both gates and carries an `:event` slot
   to off-box shippers (Sentry / Datadog / Honeybadger). THAT is the surface a
-  production build can leak from, and nothing asserted against it in either
-  posture.
+  production build can leak from, and this namespace asserts against it in
+  both postures.
 
   ## What is pinned here
 
@@ -43,10 +43,10 @@
        ran an interceptor chain (`:rf.error/no-such-handler` below).
 
   A regression in ANY of the three is a production data-exposure defect, and
-  before this namespace existed none of the three had a test that could
-  observe it under the posture where it matters.
+  this namespace observes each of the three under the posture where it
+  matters.
 
-  ## Why each producer's observation is UNMASKED (rf2-r6zby)
+  ## Why each producer's observation is UNMASKED
 
   The three producers all end at the same place — the `:event` slot of one
   always-on record — so a test that merely watches that slot cannot say WHICH
@@ -55,7 +55,7 @@
   producers 1 and 2, and a masked test would stay green through the removal of
   the very code it claims to pin.
 
-  It does not mask them here, and that is now ASSERTED rather than argued.
+  It does not mask them here, and that is ASSERTED rather than argued.
   Producers 1 and 2 each open with a CONTROL: the wire-walker is run over the
   same event, in the same frame, in the same registry state, and must return it
   UNCHANGED. Only then is the redaction observed further down attributable to
@@ -66,7 +66,7 @@
   structure changes, so the controls are checked every run.
 
   If a control ever goes red, the walker has grown to cover that coordinate and
-  the producer beneath it has quietly become unobservable. The fix is to move
+  the producer beneath it has quietly become unobservable. The remedy is to move
   that test onto a coordinate the walker still cannot reach, NOT to delete the
   control and NOT to narrow the walker.
 
@@ -230,7 +230,7 @@
 
 (deftest always-on-record-honours-wire-walker-without-a-chain
   (testing "producer 3 — `:rf.error/no-such-handler` is emitted before any
-            interceptor chain is assembled, so `:rf/redacted-event` was never
+            interceptor chain is assembled, so `:rf/redacted-event` is never
             stashed. The record is nonetheless redacted, because
             `dispatch-on-error!` runs `rf.elision/elide-wire-value` over the
             per-frame declarations unconditionally. This is the belt-and-braces
