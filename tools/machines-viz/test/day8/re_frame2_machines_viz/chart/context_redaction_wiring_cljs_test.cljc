@@ -1,11 +1,11 @@
 (ns day8.re-frame2-machines-viz.chart.context-redaction-wiring-cljs-test
   "EP-0015 export-safety: the Context-band redaction WIRING through
-  `chart.projection/xyflow-graph` (rf2-vbo66r).
+  `chart.projection/xyflow-graph`.
 
   `context-redaction-cljs-test` pins the redact/display/classification
   helpers in isolation, and `chart-dom-cljs-test` renders the value-FREE
-  static context shape (so redaction is a no-op there). But nothing
-  verified that `xyflow-graph` actually WIRES the redaction: that it
+  static context shape (so redaction is a no-op there). Neither verifies
+  that `xyflow-graph` actually WIRES the redaction; this suite pins that it
 
     (a) applies redaction BY DEFAULT to a live `:context-band` (a
         `:context-band-sensitive` slot → `:rf/redacted`);
@@ -68,7 +68,7 @@
 ;; (a) redaction is applied BY DEFAULT to a live context-band
 
 (deftest xyflow-graph-redacts-sensitive-context-by-default
-  (testing "rf2-vbo66r — a live :context-band with a :context-band-sensitive
+  (testing "a live :context-band with a :context-band-sensitive
             slot is redacted BY DEFAULT (no :context-band-raw?): the sensitive
             row projects to the :rf/redacted sentinel and the secret VALUE
             appears in NO display row, while a non-sensitive slot renders"
@@ -88,7 +88,7 @@
           "the non-sensitive :count slot still renders its value"))))
 
 (deftest documented-recipe-redacts-a-machine-declared-secret
-  (testing "rf2-3x7nj.33.3 — a host following the API.md recipe for a machine
+  (testing "a host following the API.md recipe for a machine
             that declares its secret slot the canonical way (Spec 015 / Spec
             005: projection-relative `:sensitive [[:data :token]]`) gets it
             redacted in the band — and so in every image export"
@@ -124,7 +124,7 @@
        :context-band-large     large})))
 
 (deftest documented-recipe-whole-data-covers-keys-first-written-at-runtime
-  (testing "rf2-k7i6y — a machine declaring its WHOLE :data sensitive, whose
+  (testing "a machine declaring its WHOLE :data sensitive, whose
             initial :data is empty, later writes a token. The recipe redacts
             it: the token appears in NO display row, so in no export"
     (let [secret  "secret-at-runtime"
@@ -140,7 +140,7 @@
           machine {:initial :idle :data {} :states {:idle {}}}
           graph   (recipe-graph machine (array-map :token secret))]
       (is (str/includes? (value-for graph :token) secret))))
-  (testing "rf2-k7i6y — a whole-data :large elides a runtime-only value to the
+  (testing "a whole-data :large elides a runtime-only value to the
             content-free marker"
     (let [payload "LARGE-RUNTIME-PAYLOAD-xyzzy"
           machine {:initial :idle :large [[:data]] :data {} :states {:idle {}}}
@@ -153,7 +153,7 @@
 ;; (b) the sensitive / large sets are actually THREADED into the projection
 
 (deftest xyflow-graph-threads-sensitive-set-not-hardcoded
-  (testing "rf2-vbo66r — the SAME secret value is redacted ONLY when its key
+  (testing "the SAME secret value is redacted ONLY when its key
             is in :context-band-sensitive; with an empty set the projector
             passes it through. Proves the set is genuinely threaded into
             redact-context (not a hardcoded classification)"
@@ -172,7 +172,7 @@
           "key ∉ sensitive set → passes through (so the set was truly threaded)"))))
 
 (deftest xyflow-graph-threads-large-set-into-redaction
-  (testing "rf2-vbo66r — a :context-band-large slot elides to the canonical
+  (testing "a :context-band-large slot elides to the canonical
             content-FREE :rf.size/large-elided marker; the value's content
             never reaches a display row"
     (let [payload "SENSITIVE-BLOB-CONTENT-xyzzy"
@@ -190,7 +190,7 @@
 ;; (c) :context-band-raw? true is the explicit trusted-local opt-out
 
 (deftest xyflow-graph-context-band-raw-opts-out-of-redaction
-  (testing "rf2-vbo66r — :context-band-raw? true is the explicit
+  (testing ":context-band-raw? true is the explicit
             trusted-local opt-in that SKIPS redaction: the SAME sensitive
             slot that redacts by default now passes its raw value through"
     (let [secret "card-4111-1111-1111-1111"
@@ -211,7 +211,7 @@
 ;; (d) an unclassified band passes through unchanged; no band → no :context
 
 (deftest xyflow-graph-unclassified-context-passes-through
-  (testing "rf2-vbo66r — the default-on redaction never clobbers an
+  (testing "the default-on redaction never clobbers an
             UNclassified live value (the production value-free shape is a
             no-op under redaction)"
     (let [parsed (layout/project-definition flat-machine)
@@ -222,7 +222,7 @@
       (is (= "3" (value-for graph :count))        "ordinary number renders"))))
 
 (deftest xyflow-graph-no-context-band-emits-no-context
-  (testing "rf2-vbo66r — with no :context-band fed, the root-container
+  (testing "with no :context-band fed, the root-container
             carries no :context rows (the band gates on presence)"
     (let [parsed (layout/project-definition flat-machine)
           graph  (projection/xyflow-graph parsed {} {})]
