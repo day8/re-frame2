@@ -1,17 +1,16 @@
 (ns re-frame.completion-run-propagation-cljs-test
-  "rf2-ix8fd — run propagation crosses the machine COMPLETION edge.
+  "Run propagation crosses the machine COMPLETION edge.
 
-  rf2-gbzv9 carried Spec 002 §Run propagation across the SPAWN edge: the
+  Spec 002 §Run propagation crosses the SPAWN edge: the
   newborn actor's first event inherits the spawning envelope. The way BACK is
   two reserved carriers the runtime mints into the spawning parent when a
   child finishes: `[:rf.machine.spawn/done …]` (a plain `:final?` leaf under
   either spawn form, or a `:spawn-all` child's `:error?` leaf) and
   `[:rf.machine.spawn/error …]` (a single-`:spawn` child's `:error?` leaf, or
   an uncaught action exception, whether or not the parent declares
-  `:spawn :on-error`; rf2-3x7nj.41.1). Both used to be FRESH router
-  dispatches carrying only `{:frame … :source :machine-spawn}`.
-  So a per-call override reached every fx a child fired, but NOT the fx the
-  parent fired on resuming.
+  `:spawn :on-error`). Were they FRESH router dispatches carrying only
+  `{:frame … :source :machine-spawn}`, a per-call override would reach every
+  fx a child fires, but NOT the fx the parent fires on resuming.
 
   A carrier is minted while the child's handler processes the event that
   FINISHED it, so it is a child of THAT event. Pinned here:
@@ -26,7 +25,7 @@
       event carrying an override hands that override to the parent, while a
       child finished by a plain event hands over nothing, even when its SPAWN
       carried one;
-   4. a per-frame `:fx-overrides` still reaches the continuation, and with no
+   4. a per-frame `:fx-overrides` reaches the continuation too, and with no
       override at all the real fx runs (the probe is honest).
 
   Named `*-cljs-test.cljc` so BOTH the JVM run and the shadow-cljs node run
