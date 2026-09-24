@@ -11,7 +11,7 @@
   The recipes' own mounted suite builds a session whose draft ends EQUAL
   to the committed value, because in that application ending a session
   moves nothing else the field reads. **That arrangement does not
-  transplant**, and saying so is part of the deliverable: this module
+  transplant**: this module
   holds the draft in a record the field's own subscription reads, so
   ending a session always moves that read, always re-renders, and always
   re-commits. The recipes' experiment would test green here while proving
@@ -23,14 +23,13 @@
   untouched box; no draft exists, no `app-db` value moves, so nothing the
   field reads changes and nothing re-renders.
 
-  That row carries a CONTROL ARM rather than a comment, because the first
-  draft of it did not and was green for the wrong reason. It asserted
-  that deleting `::h/revision` from the element the module emits would
-  red it; the deletion was run, and the row stayed green — the caller's
-  revision is also a PROP of the boundary, so a bump re-renders the field
-  whether or not the prop is forwarded on to the `<input>`. The scope of
-  what the module can decide here is therefore narrower than it looked,
-  and [[constant-field]] is what makes it decidable: two fields, one page,
+  That row carries a CONTROL ARM rather than a comment, because without
+  one it is green for the wrong reason. Deleting `::h/revision` from the
+  element the module emits does not red it — the caller's revision is
+  also a PROP of the boundary, so a bump re-renders the field whether or
+  not the prop is forwarded on to the `<input>`. The scope of what the
+  module can decide here is therefore narrower than it looks, and
+  [[constant-field]] is what makes it decidable: two fields, one page,
   one prop of difference, and the reset visible on exactly one of them.
 
   The other half — that forwarding the trigger to the element guarantees
@@ -71,7 +70,7 @@
 
 (rf/reg-event ::seed-untitled
   {:doc "The same todo before anybody has titled it: `:title` absent, so
-         `::title` reads nil (rf2-3x7nj.7.1)."}
+         `::title` reads nil."}
   (fn [_ _] {:db {:todo     {todo {:title-revision 0}}
                   :showing? true}}))
 
@@ -252,7 +251,7 @@
         (finish m done)))))
 
 (deftest an-untitled-todo-is-an-empty-box-on-one-node
-  ;; rf2-3x7nj.7.1. The chapter's example for a todo with no `:title`:
+  ;; The chapter's example for a todo with no `:title`:
   ;; the committed value is nil and the module forwards its revision
   ;; beside it. The box must render, show the committed value — nothing —
   ;; whenever no draft is live, and keep ONE node while the value it shows
