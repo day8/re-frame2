@@ -1,19 +1,19 @@
 (ns re-frame.ssr.ring-e2e-validator-test
   "End-to-end JVM coverage for the SSR safety validators — observed at the
-  bytes-on-wire layer. Follow-on from rf2-ik4io (the browser-testbed
-  hydration coverage) per bead rf2-to8pm.
+  bytes-on-wire layer.
 
   ## Why this lives at the wire layer
 
   Three families of validators fail-fast on the JVM render path BEFORE
   any HTML bytes reach the client:
 
-    - tag-name grammar (rf2-z7gor) — `:rf.error/invalid-tag-name` from
+    - tag-name grammar — `:rf.error/invalid-tag-name` from
       `re-frame.ssr.emit/validate-tag-name!` when a hiccup keyword's
       tag-name component violates `[A-Za-z][A-Za-z0-9-]*`.
-    - header / redirect / cookie CRLF gates (rf2-hbty2, rf2-z7gor) —
-      `:rf.error/header-invalid-value`, `:rf.error/cookie-invalid-{path,
-      value,domain}`, `:rf.error/header-invalid-name`,
+    - header / redirect / cookie CRLF gates —
+      `:rf.error/header-invalid-value`, `:rf.error/cookie-invalid-attribute`
+      (the offending attribute in its `:attribute` slot),
+      `:rf.error/header-invalid-name`,
       `:rf.error/redirect-invalid-location` from
       `re-frame.ssr.response/validate-*` when a server-controlled string
       carries CR / LF / NUL (RFC 7230 §3.2.4 header-splitting vector).
@@ -21,15 +21,15 @@
   Each of these has tight unit-test coverage in the ssr artefact
   (`ssr_conformance_test.clj`, `ssr_end_to_end_test.clj`). Per Spec 011
   the validators throw structured `ex-info`s; the `re-frame.ssr.ring`
-  handler catches via its `:on-error` hook and emits a generic 500
-  (rf2-kzvwq: never .getMessage — no topology leak).
+  handler routes them through the SSR error projector and emits the
+  projector's generic 500 body (never .getMessage — no topology leak).
 
-  The browser testbed surfaces (rf2-ik4io) cover the hydration round-
+  The browser testbed surfaces cover the hydration round-
   trip from the CLIENT end. The client never sees the broken HTML —
   that's the point of fail-fast — so there's no client-side surface
   where these validators can be exercised end-to-end.
 
-  This namespace closes that loop on the JVM side. The shape:
+  This namespace exercises them end-to-end on the JVM side. The shape:
 
     1. Stand up a real Jetty server on an ephemeral port (port 0 →
        OS-assigned; read back via `(.getURI server)`).
@@ -38,27 +38,30 @@
        wire bytes — response status code, raw header values, body — not
        just Ring-map return values from a direct handler call.
     4. Assert: validator-triggering inputs produce a 500 (generic body,
-       no leak); no CR/LF in actual wire headers; the happy path still
+       no leak); no CR/LF in actual wire headers; the happy path
        returns 200.
 
-  ## Why this is the right loop-closer
+  ## Why bytes-on-wire
 
   Unit tests pin the validators in isolation. The Ring-level smoke tests
   in `ring_test.clj` exercise the validator → `:on-error` mapping via
   direct handler invocation. NEITHER guarantees that a real HTTP server
   preserves the contract — a host adapter could in principle re-serialise
   CR/LF, or Jetty's response writer could silently strip control chars.
-  Bytes-on-wire is the only contract that holds across host adapter
-  changes (rf2-ny6v7 → future ssr-pedestal / ssr-httpkit).
+  Bytes-on-wire is the only contract that holds across host
+  adapters.
 
   ## Test scope
 
-  Four tests:
+  Five tests:
 
-    1. `e2e-bad-tag-name-keyword-returns-500` — view emits a hiccup
+    1. `e2e-bad-tag-name-keyword-projects-through-projector` — view emits a hiccup
        keyword whose tag-name component is illegal under the validator
-       grammar; HTTP-GET returns 500 + 'Internal error' body; the
+       grammar; HTTP-GET returns 500 + the default projector's body; the
        throwable's keyword does not leak onto the wire.
+    1b. `e2e-render-time-and-drain-time-share-projector-pipeline` — a
+       render-time and a drain-time validator throw yield the same
+       projector-driven status.
     2. `e2e-crlf-bearing-cookie-value-rejected` — handler sets a cookie
        whose `:value` carries CR/LF; HTTP-GET returns 500; no Set-Cookie
        on the wire; no CR/LF byte sequences in any response header.
@@ -86,7 +89,7 @@
             [re-frame.ssr.ring :as rf.ssr.ring]
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
 
-;; rf2-i3qc0 / rf2-09iktm — canonical reset-runtime fixture; same shape as
+;; Canonical reset-runtime fixture; same shape as
 ;; `ring_test.clj`. Each test starts from a reset registrar with the SSR
 ;; adapter installed so the per-test registrations don't bleed.
 (use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
@@ -99,11 +102,11 @@
 ;; Server lifecycle helpers
 ;; ===========================================================================
 ;;
-;; rf2-l1qgjw — the ephemeral Jetty host (`ts/with-jetty`) + `java.net.http`
-;; GET (`ts/http-get`) now live in `re-frame.ssr.ring.test-support`. This
+;; The ephemeral Jetty host (`with-jetty`) + `java.net.http`
+;; GET (`http-get`) live in `re-frame.ssr.ring.test-support`. This
 ;; suite needs the `{:status :headers :body}` shape to run its CRLF-on-wire
-;; header scan, so it calls `ts/http-get` with `:with-headers? true`. The
-;; 10s read timeout (its requests are single, fast) stays explicit.
+;; header scan, so it calls `http-get` with `:with-headers? true`. The
+;; 10s read timeout (its requests are single, fast) is explicit.
 
 (def ^:private read-timeout-secs 10)
 
@@ -111,7 +114,7 @@
   "Issue a real HTTP GET and return `{:status :headers :body}` observed on
   the wire. `:headers` is java.net.http's `{name -> [val ...]}` multimap
   (preserved verbatim so the CRLF scan reads every value), via the shared
-  `ts/http-get` helper with a per-call client."
+  `test-support/http-get` helper with a per-call client."
   [port path]
   (rf.ssr.ring.test-support/http-get (rf.ssr.ring.test-support/new-http-client) port path read-timeout-secs
                :with-headers? true))
@@ -135,25 +138,25 @@
 ;; Test 1 — bad tag-name keyword → 500 via the SSR error projector
 ;; ===========================================================================
 ;;
-;; The tag-name validator (`re-frame.ssr.emit/validate-tag-name!`,
-;; rf2-z7gor) gates DOM tag-name components of hiccup keywords. A
+;; The tag-name validator (`re-frame.ssr.emit/validate-tag-name!`)
+;; gates DOM tag-name components of hiccup keywords. A
 ;; hostile keyword whose tag-name carries a space — i.e. a name
 ;; built via `(keyword \"has space\")` — surfaces as tag-name "has space",
 ;; which the validator rejects. The throw fires inside
 ;; `render-to-string`.
 ;;
-;; Per rf2-zwgsv (Mike decision rf2-i9f0g Option B) — render-time
+;; Render-time
 ;; throws flow through the SAME projector pipeline as drain-time
-;; fx/handler exceptions. The handler's outer try/catch is no longer
-;; reached for render-time validator failures; instead the pipeline
+;; fx/handler exceptions. The handler's outer try/catch is not
+;; reached for render-time validator failures; the pipeline
 ;; catches the throw, synthesises a `:rf.error/ssr-render-failed`
 ;; trace event, projects it via the active projector, and emits the
 ;; projector's `:message` / `:code` as the wire body. Same security
-;; boundary (rf2-kzvwq — no `.getMessage` leak); uniform contract
+;; boundary (no `.getMessage` leak); uniform contract
 ;; with the drain-time path (Tests 2/3 below).
 
 (deftest e2e-bad-tag-name-keyword-projects-through-projector
-  (testing "rf2-z7gor + rf2-zwgsv — hostile tag-name keyword surfaces as
+  (testing "hostile tag-name keyword surfaces as
             500 via the SSR error projector"
     (rf/reg-event :init/ok-bad-tag {:platforms #{:server}} (fn [_ _] {}))
     ;; The view body intentionally emits a tag-name component carrying a
@@ -174,21 +177,21 @@
               "tag-name validator throw surfaces as 500 on the wire —
                same status the drain-time projector path produces for
                fx/handler exceptions (Tests 2/3 below)")
-          ;; rf2-zwgsv: the body is now the projector's `:message`,
-          ;; not the pre-rf2-zwgsv fixed `\"Internal error\"` string.
+          ;; The body is the projector's `:message`,
+          ;; not the Ring :on-error fallback's fixed `\"Internal error\"` string.
           ;; Same contract as the CRLF tests below — both paths flow
           ;; through `apply-error-projection!`.
           (is (str/includes? body "Something went wrong")
-              "rf2-zwgsv: wire body carries the default projector's
+              "wire body carries the default projector's
                `:message` (Spec 011 §Default projector
                `fallback-public-error`)")
           (is (str/includes? body "internal-error")
-              "rf2-zwgsv: wire body carries the projector's `:code` —
+              "wire body carries the projector's `:code` —
                stable category for response-page templating")
           (is (not (= "Internal error" body))
-              "rf2-zwgsv: the pre-rf2-zwgsv fixed `\"Internal error\"`
-               string is gone — render-time throws now go through the
-               projector, not the Ring :on-error fallback")
+              "the Ring :on-error fallback's fixed `\"Internal error\"`
+               string is not the body — render-time throws go through the
+               projector")
           (is (not (str/includes? body "invalid-tag-name"))
               "the validator's :rf.error/invalid-tag-name keyword must
                not appear on the wire (topology disclosure surface)")
@@ -201,17 +204,17 @@
 ;; Test 1b — render-time + drain-time both yield the same status
 ;; ===========================================================================
 ;;
-;; rf2-zwgsv — the explicit unification proof. A render-time throw
+;; The explicit unification proof. A render-time throw
 ;; (bad tag-name keyword) and a drain-time throw (CRLF cookie value)
-;; both surface as the SAME projector-driven status. Pre-rf2-zwgsv
-;; the render-time path produced 500 via the Ring :on-error fallback
-;; (rf2-kzvwq) and the drain-time path produced 500 via the projector
-;; — the same number by coincidence (both default to 500) but two
+;; both surface as the SAME projector-driven status. Were the
+;; render-time path to produce its 500 via the Ring :on-error fallback
+;; while the drain-time path produced 500 via the projector, the
+;; statuses would match by coincidence (both default to 500) over two
 ;; different pipelines, two different body contracts. This test pins
 ;; them to one pipeline.
 
 (deftest e2e-render-time-and-drain-time-share-projector-pipeline
-  (testing "rf2-zwgsv — render-time validator throw + drain-time fx
+  (testing "render-time validator throw + drain-time fx
             throw produce identical projector-driven status + uniform
             body shape (both flow through `apply-error-projection!`)"
     ;; Path A: render-time throw via tag-name validator.
@@ -249,8 +252,8 @@
                      status (the unification contract)")
                 ;; Both paths run through the default projector →
                 ;; both carry `:internal-error` semantics and, since
-                ;; rf2-oytx7j classifies a projected 5xx as the error
-                ;; arm, both now render the PROJECTED error body (not the
+                ;; a projected 5xx is classified as the error
+                ;; arm, both render the PROJECTED error body (not the
                 ;; root): Path A because `render-to-string` threw; Path B
                 ;; because the drain-time 500 diverts to the error arm.
                 ;; Different trigger; SAME pipeline. The shared contract:
@@ -261,27 +264,28 @@
                     "Path A: projector-driven render-time body")
                 (is (string? body-b)
                     "Path B: drain-time 500 produces a wire body (the
-                     projected-error arm, rf2-oytx7j)")))))))))
+                     projected-error arm)")))))))))
 
 ;; ===========================================================================
 ;; Test 2 — CRLF-bearing cookie value → 500 status, no Set-Cookie on the wire
 ;; ===========================================================================
 ;;
 ;; `:rf.server/set-cookie` validates `:value` via
-;; `re-frame.ssr.response/validate-cookie-attr!` (rf2-z7gor). A
+;; `re-frame.ssr.response/validate-cookie-attr!`. A
 ;; CRLF-bearing value throws the catalogued
-;; `:rf.error/cookie-invalid-attribute` (carrying `:attribute :value`;
-;; rf2-xrk4w1) from the fx body during drain.
+;; `:rf.error/cookie-invalid-attribute` (carrying `:attribute :value`)
+;; from the fx body during drain.
 ;;
 ;; The throw fires INSIDE the drain — fx-handler exceptions are caught
 ;; by the runtime and surface as `:rf.error/fx-handler-exception` trace
 ;; events. The SSR error projector (`re-frame.ssr.error-listener`,
 ;; Spec 011 §Server error projection) buffers those traces and on
-;; `get-response` projects the last one through the active projector
+;; `flush-response-result!` projects the last one through the active projector
 ;; (default = `:internal-error` 500). The runtime stamps the projected
-;; status onto the response accumulator, then rendering of the root
-;; view proceeds normally — the projector's status owns the wire status
-;; but the page still renders (the spec'd surface for in-page error UX).
+;; status onto the response accumulator, and because a projected 5xx is
+;; classified as the error arm (Spec 011 §Drain-time error
+;; classification) the handler ships the projected error page, not the
+;; root view.
 ;;
 ;; The LOAD-BEARING wire assertion for the CRLF validator family is the
 ;; absence of CR/LF bytes in any actual header value on the wire — the
@@ -290,7 +294,7 @@
 ;; payload. Status 500 confirms the projector saw the error trace.
 
 (deftest e2e-crlf-bearing-cookie-value-rejected
-  (testing "rf2-z7gor — CRLF in cookie :value rejected before any wire byte emitted"
+  (testing "CRLF in cookie :value rejected before any wire byte emitted"
     (rf/reg-event :init/bad-cookie
       {:platforms #{:server}}
       (fn [_ _]
@@ -326,20 +330,20 @@
           (is (not (any-header-contains-crlf? headers))
               "no CR/LF/NUL bytes in any response header — the
                validator kept the hostile payload off the wire (the
-               whole point of rf2-z7gor / rf2-hbty2)"))))))
+               whole point of the CRLF validators)"))))))
 
 ;; ===========================================================================
 ;; Test 3 — CRLF-bearing header value → 500 status, no leak on the wire
 ;; ===========================================================================
 ;;
 ;; `:rf.server/set-header` validates `:value` via
-;; `re-frame.ssr.response/validate-header-value!` (rf2-hbty2). Same
+;; `re-frame.ssr.response/validate-header-value!`. Same
 ;; vector as the cookie test — RFC 7230 §3.2.4 explicitly bans CTLs
 ;; (including CR/LF) in `field-value`. The fx-handler throw is buffered
 ;; and projected as in Test 2.
 
 (deftest e2e-crlf-bearing-header-value-rejected
-  (testing "rf2-hbty2 — CRLF in header :value rejected before any wire byte emitted"
+  (testing "CRLF in header :value rejected before any wire byte emitted"
     (rf/reg-event :init/bad-header
       {:platforms #{:server}}
       (fn [_ _]
@@ -383,7 +387,7 @@
 ;;
 ;; Confirms the Jetty host wiring is not broken. If this test fails
 ;; while #1-#3 pass, the failure mode is the test harness, not the
-;; validators. The body assertions mirror the existing Ring-level smoke
+;; validators. The body assertions mirror the Ring-level smoke
 ;; in `ring_test.clj/handler-renders-html-with-status-and-headers` but
 ;; observe bytes-on-wire rather than the Ring map return value.
 
@@ -404,7 +408,7 @@
 
     (let [handler (rf.ssr.ring/ssr-handler
                     {:initial-events [[:init/ok]]
-                     ;; rf2-q1b96 — the RESOLVING root-view form. The
+                     ;; The RESOLVING root-view form. The
                      ;; data-rf-render-hash assertion below is what forces
                      ;; it: `[(rf/view :pages/greeting)]` renders the same
                      ;; bytes but carries no hash on either channel.
