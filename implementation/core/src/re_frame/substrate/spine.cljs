@@ -1,10 +1,9 @@
 (ns re-frame.substrate.spine
   "Shared substrate-spine helpers for React-shaped adapters that lack a
   native reactive-atom primitive (UIx and any future minimal-
-  React-wrapper substrate). UIx and Helix (removed at S7/W13,
-  rf2-d6epb) once duplicated this body byte-for-byte modulo gensym
-  prefixes, hook ns, and substrate-name strings; per-adapter wiring
-  goes through `make-react-spine`.
+  React-wrapper substrate). Per-adapter wiring goes through
+  `make-react-spine`, so an adapter supplies only its hook ns and
+  substrate-name strings rather than a copy of this body.
 
   Scope. This ns provides:
 
@@ -23,7 +22,7 @@
       `clear-warned-non-dom-roots!`, `wrap-view`) parameterised on the
       substrate-name string for the warning text.
     * `flush-views!` resolving `act` from the React namespace (React 19
-      is the adapter floor; subsumes rf2-jk7hr).
+      is the adapter floor).
     * A factory `make-react-spine` that produces the per-substrate
       hook-based surfaces (`use-current-frame`, `use-subscribe`,
       `frame-provider`, `register-context-provider`) given the
@@ -62,7 +61,7 @@
 ;; (Spec 006: "Non-CLJS implementations must satisfy the contract
 ;; explicitly").
 ;;
-;; The bug a naive spine has (rf2-i21f5): wiring one `add-watch` per
+;; The problem a naive spine has: wiring one `add-watch` per
 ;; source that recomputes-and-notifies INLINE means a layer-2+ sub with N
 ;; changed inputs recomputes once per changed input. The first source's
 ;; notify drives the downstream recompute; the second source's notify
@@ -80,7 +79,7 @@
 ;; immune (native batched `r/flush!`); the spine must satisfy the Phase
 ;; 1/2/3 contract explicitly.
 ;;
-;; The fix mirrors Reagent's batched flush. A single per-adapter
+;; The spine mirrors Reagent's batched flush. A single per-adapter
 ;; scheduler is shared by `replace-container!` (the only app-db mutation
 ;; entry point, Spec 006 §revertibility) and every `make-derived-value`.
 ;; `replace-container!` brackets its `reset!` in an epoch: source watches
@@ -109,7 +108,7 @@
   (`:escaped`, read/written by `drain-scheduler!` + `with-epoch`). A distinct
   object identity so a subscriber / recompute that throws `nil`/`false` (both
   legal CLJS throws) is still recorded and re-raised by PRESENCE — never masked
-  by a truthiness test (rf2-vxgfnd.203, rf2-qcmzc, rf2-2u4rw)."
+  by a truthiness test."
   (js-obj))
 
 (defn- pick-third
@@ -120,7 +119,7 @@
 
 (defn- sole-val
   "The single value of a one-entry map, WITHOUT the map-seq + `MapEntry`
-  `(val (first m))` allocates (rf2-2u4rw common-path preservation). `reduce-kv`
+  `(val (first m))` allocates. `reduce-kv`
   walks the backing array directly and returns the sole value; `nil`/`false`
   values survive (it returns whatever `pick-third` yields). Caller guarantees
   exactly one entry (the `(case (count ws) 1 …)` fast path)."
@@ -132,13 +131,13 @@
   own so multiple React-shaped adapters can coexist in a test bundle
   without sharing an epoch queue.
 
-  `:escaped` is the scheduler-lifetime EARLIEST-ESCAPE cell (rf2-2u4rw):
+  `:escaped` is the scheduler-lifetime EARLIEST-ESCAPE cell:
   the first thunk failure a drain contains, held by PRESENCE across the
   `with-epoch` body/finally boundary, so the earliest primary failure
   surfaces once (E1 over any later E2) after all owned work is attempted.
   One volatile per scheduler — no per-drain capture allocation.
 
-  `:source-coordinators` is the per-source fan-out registry (rf2-7ryt0): a
+  `:source-coordinators` is the per-source fan-out registry: a
   `js/Map` from a raw atom SOURCE to its single coordinating watch. A direct
   `reset!` fires that ONE watch, which brackets the whole dependent fan-out
   in a `with-epoch` — so a raw source mutation drains every dependent once
@@ -147,30 +146,30 @@
 
   `:queue` / `:queued` are the drain's SCRATCH — a JS array and a `js/Set`,
   mutated in place, rather than a `volatile!` holding a persistent vector
-  and a persistent set (rf2-jr76s). This is the same reasoning that already
-  made `depth` / `flushing?` volatiles one line above: both are written and
-  read only on the single-threaded JS event loop, and neither ever escapes
-  this scheduler. A persistent collection buys immutable sharing that nobody
+  and a persistent set. This is the same reasoning that makes `depth` /
+  `flushing?` volatiles one line above: both are written and read only on
+  the single-threaded JS event loop, and neither ever escapes this
+  scheduler. A persistent collection buys immutable sharing that nobody
   here can observe, and charges for it once per dirty entry: an app-db write
-  that marks D derived values dirty performs D `conj`s onto a growing HAMT
-  and D `disj`s as the drain consumes them, each copying its path. Measured
-  on a 300-subscription frame that was **1,706 bytes per dirty subscription
-  — 60% of the whole per-subscription cost of a narrow write**, and it grew
-  with D, because HAMT path length does.
+  that marks D derived values dirty would perform D `conj`s onto a growing
+  HAMT and D `disj`s as the drain consumes them, each copying its path.
+  Measured on a 300-subscription frame, that would be **1,706 bytes per
+  dirty subscription — 60% of the whole per-subscription cost of a narrow
+  write**, growing with D, because HAMT path length does.
 
   `js/Set` membership is SameValueZero, which for the function objects this
   set holds is reference identity — the same relation `contains?` on a
-  persistent set gave them (CLJS `=` on two distinct functions is
+  persistent set gives them (CLJS `=` on two distinct functions is
   `identical?`). Enqueue order, the double-enqueue guard, the drain order,
-  and the re-entrant append the running drain observes are all unchanged;
-  this is a representation change and nothing else."
+  and the re-entrant append the running drain observes are exactly what the
+  persistent collections would give; only the representation differs."
   []
   {:depth     (volatile! 0)   ;; open-epoch nesting depth
    :flushing? (volatile! false)
    :queue     (array)         ;; ordered queue of pending flush thunks (scratch)
    :queued    (js/Set.)       ;; identity set guarding double-enqueue (scratch)
-   :escaped   (volatile! capture-none) ;; earliest-escape cell (rf2-2u4rw)
-   :source-coordinators (js/Map.)}) ;; source -> fan-out coordinator (rf2-7ryt0)
+   :escaped   (volatile! capture-none) ;; earliest-escape cell
+   :source-coordinators (js/Map.)}) ;; source -> fan-out coordinator
 
 (defn- drain-scheduler!
   "Drain the scheduler's pending flush thunks in enqueue order until the
@@ -180,8 +179,8 @@
   notifies its watchers — which may enqueue downstream thunks that the
   same loop then drains, preserving topological order.
 
-  Per-thunk isolation WITH earliest-escape surfacing (rf2-l3lelt + rf2-qcmzc
-  + rf2-2u4rw). On the production sub graph a flush thunk never throws: the
+  Per-thunk isolation WITH earliest-escape surfacing. On the production sub
+  graph a flush thunk never throws: the
   spine compute-fn is `subs.memo/validate-and-trace`, which brackets the user
   sub body in `try/catch`, emits `:rf.error/sub-exception`, and recovers to
   nil. A non-catching compute-fn (a RAW derived value built by tooling/tests),
@@ -189,25 +188,25 @@
   re-raises after delivering every sibling), CAN throw though — and this
   seam owes THREE disciplines at once:
 
-    1. Don't STRAND the tail (rf2-l3lelt). A throw propagating out of a bare
-       drain loop stranded every downstream thunk still queued behind it:
-       the `finally` retained them in `@queue`, but their `dirty?` flag
-       stayed `true`, so `mark-dirty!` (guarded by `(when-not @dirty? …)`)
+    1. Don't STRAND the tail. A throw propagating out of a bare drain loop
+       would strand every downstream thunk still queued behind it: a
+       `finally` would retain them in `@queue`, but their `dirty?` flag
+       would stay `true`, so `mark-dirty!` (guarded by `(when-not @dirty? …)`)
        could never re-enqueue them on a later source change — a latent
        stuck-dirty strand. So each thunk runs inside its own `try/catch` and
        the loop drains every remaining thunk to completion regardless.
 
-    2. Don't SWALLOW the failure (rf2-qcmzc). The earlier per-thunk guard
-       DISCARDED every escape (`(catch :default _ nil)`), so a programmer
-       error in a raw derived value / subscriber vanished silently and the
-       fan-out's careful re-raise reached a dead end. Instead the loop
+    2. Don't SWALLOW the failure. A per-thunk guard that DISCARDED every
+       escape (`(catch :default _ nil)`) would make a programmer error in a
+       raw derived value / subscriber vanish silently, and the fan-out's
+       careful re-raise would reach a dead end. So the loop
        CAPTURES the escape by PRESENCE into the scheduler's `:escaped` cell
        (`capture-none`, not truthiness — `nil`/`false` are legal CLJS throws
        whose identity must survive), keeps draining the tail, restores queue/
        flushing state in the `finally`, and surfaces the escape through the
        caller/error channel — identity preserved, AFTER every sibling.
 
-    3. Preserve the EARLIEST across a SEEDED entry (rf2-2u4rw + rf2-7ryt0).
+    3. Preserve the EARLIEST across a SEEDED entry.
        The drain re-raises ONLY a STALE escape — one already present in
        `:escaped` at its entry — and leaves a FRESH escape (captured in THIS
        drain) in `:escaped` for the terminal `surface-escaped!` to surface.
@@ -217,10 +216,10 @@
        own E2 (drain semantics: E1 over E2). A clean-entry drain never
        re-raises — it captures and defers to `surface-escaped!`.
 
-       The direct-source fan-out has its OWN real terminal (rf2-7ryt0). A raw
-       `reset!` no longer fires N independent per-dependent watches into N
-       sequential depth-zero drains (which had no terminal for a sole/last
-       dependent and stranded the tail for 3+). Each raw atom source now owns
+       The direct-source fan-out has its OWN real terminal. A raw `reset!`
+       does not fire N independent per-dependent watches into N sequential
+       depth-zero drains (which would have no terminal for a sole/last
+       dependent and would strand the tail for 3+). Each raw atom source owns
        ONE coordinating watch (`ensure-source-coordinator!`) that brackets the
        WHOLE dependent fan-out in a single `with-epoch`: every dependent marks
        inside the epoch, the outermost close drains them once, and
@@ -229,8 +228,8 @@
 
   `:escaped` is a scheduler-lifetime volatile (allocated once by
   `make-scheduler`), so an ordinary empty/one-subscriber drain allocates
-  NOTHING here — the cursor is a loop binding, not a per-drain volatile
-  (rf2-2u4rw common-path preservation). The throwing thunk's own `dirty?`
+  NOTHING here — the cursor is a loop binding, not a per-drain volatile.
+  The throwing thunk's own `dirty?`
   was already cleared by `flush!` before `recompute`, so it leaves no stuck
   guard either."
   [{:keys [flushing? queue queued escaped] :as _scheduler}]
@@ -241,14 +240,14 @@
     ;; re-raises E1 as the earliest primary (over any drain E2).
     (let [stale-at-entry? (not (identical? capture-none @escaped))]
       (try
-        ;; Walk the live `@queue` by index rather than re-slicing the head: a
-        ;; thunk may `schedule-flush!` downstream thunks, which `conj` onto the
-        ;; same vector, so re-reading `(count @queue)` each step keeps the
+        ;; Walk the live `queue` by index rather than re-slicing the head: a
+        ;; thunk may `schedule-flush!` downstream thunks, which `.push` onto the
+        ;; same array, so re-reading `(alength queue)` each step keeps the
         ;; running loop observing newly-enqueued thunks in enqueue order. The
         ;; entry leaves `queued` and the cursor advances BEFORE the thunk runs,
-        ;; so a thunk that throws is already considered consumed (matching the
-        ;; old head-pop-before-call ordering). The per-thunk `try/catch`
-        ;; isolates a throwing thunk (drains the tail) AND retains its escape.
+        ;; so a thunk that throws is already considered consumed. The
+        ;; per-thunk `try/catch` isolates a throwing thunk (drains the tail)
+        ;; AND retains its escape.
         (loop [cursor 0]
           (when (< cursor (alength queue))
             (let [thunk (aget queue cursor)]
@@ -271,8 +270,7 @@
       ;; in THIS drain is left in `:escaped` for the terminal `surface-escaped!`
       ;; (the `with-epoch` / source-coordinator outermost close) to surface once
       ;; after all owned work is attempted. Re-raised OUTSIDE the try/finally so
-      ;; the `finally`'s resets can never mask the primary failure (rf2-qcmzc +
-      ;; rf2-2u4rw).
+      ;; the `finally`'s resets can never mask the primary failure.
       (when stale-at-entry?
         (let [e @escaped]
           (vreset! escaped capture-none)
@@ -281,8 +279,8 @@
 (defn- surface-escaped!
   "If the scheduler holds a retained earliest escape, clear it and re-raise it
   (by presence — `nil`/`false` survive). The terminal surfacing helper for
-  every `with-epoch` outermost close (rf2-2u4rw) — including the per-source
-  fan-out coordinator's (rf2-7ryt0): after the drain has attempted every owned
+  every `with-epoch` outermost close — including the per-source
+  fan-out coordinator's: after the drain has attempted every owned
   thunk and restored state, any escape a FRESH-capture drain deferred surfaces
   here, once."
   [{:keys [escaped] :as _scheduler}]
@@ -312,7 +310,7 @@
   `replace-container!` during a flush) only drain at the outermost boundary so
   coalescing spans the whole synchronous cascade.
 
-  Body/finally failure ordering (rf2-2u4rw). `body-thunk` (the bracketed
+  Body/finally failure ordering. `body-thunk` (the bracketed
   `reset!`) can queue work and THEN throw E1 — e.g. a `replace-container!`
   whose reset fires a watch that itself throws after other watches already
   enqueued flushes. The outermost close must still drain that queued tail, but
@@ -336,7 +334,7 @@
       (do
         ;; Body threw E1 → it escaped earliest, so it is the PRIMARY. Seed
         ;; `:escaped` before draining so the drain's own escape can't displace
-        ;; it (rf2-2u4rw with-epoch entry). A clean body leaves `:escaped`
+        ;; it. A clean body leaves `:escaped`
         ;; untouched; the drain then owns any flush escape.
         (when-not (identical? capture-none body-escaped)
           (when (identical? capture-none @escaped)
@@ -352,7 +350,7 @@
       (when-not (identical? capture-none body-escaped)
         (throw body-escaped)))))
 
-;; ---- direct-source fan-out coordinator (rf2-7ryt0) ------------------------
+;; ---- direct-source fan-out coordinator ------------------------------------
 ;;
 ;; A derived value's inputs are either the app-db root, a raw atom source
 ;; (`clojure.core/atom`), or an upstream derived value (`reify`). The two
@@ -366,29 +364,30 @@
 ;;   * A raw ATOM source fans out through the atom's OWN `-notify-watches`
 ;;     loop, which is UNCONTAINED: it fires each watch one at a time with no
 ;;     post-loop hook, and a throwing watch aborts the remaining watches.
-;;     Wiring one mark-dirty watch per dependent gave that fan-out no
+;;     Wiring one mark-dirty watch per dependent would give that fan-out no
 ;;     terminal — a `reset!` on a source with a sole/last-firing throwing
-;;     dependent parked the failure on `:escaped` until an unrelated later
-;;     drain, and with 3+ dependents an early throw surfaced mid-loop and
-;;     stranded the tail (rf2-7ryt0; the audit of #6210's exactly-two
-;;     deferral). No purely local drain rule can fix this: a sole dependent's
-;;     drain and an earlier-of-two dependent's drain have identical local
-;;     state, so any rule that surfaces the first would strand the second.
+;;     dependent would park the failure on `:escaped` until an unrelated
+;;     later drain, and with 3+ dependents an early throw would surface
+;;     mid-loop and strand the tail. No purely local drain rule can fix
+;;     this: a sole dependent's drain and an earlier-of-two dependent's drain
+;;     have identical local state, so any rule that surfaces the first would
+;;     strand the second.
 ;;
-;; The fix: give each raw atom source ONE coordinating watch that brackets
+;; So each raw atom source gets ONE coordinating watch that brackets
 ;; its whole dependent fan-out in a single `with-epoch`. Every dependent
 ;; marks inside the epoch (no per-dependent inline drain); the outermost
 ;; close drains all marked flushes once and `surface-escaped!` surfaces the
 ;; earliest failure AFTER all owned work is attempted — the same real
-;; terminal `replace-container!` gives, now for bare `reset!` too. The
+;; terminal `replace-container!` gives, for bare `reset!` too. The
 ;; coordinator lives on the scheduler's `:source-coordinators` map (keyed by
-;; source identity), reuses `with-epoch` + `:escaped` (no new failure store,
-;; no drain-model change), and is torn down when its last dependent disposes.
+;; source identity), reuses `with-epoch` + `:escaped` (no second failure
+;; store, no second drain model), and is torn down when its last dependent
+;; disposes.
 
 (defn- source-atom?
   "True when `s` is a plain reactive-atom source (`clojure.core/Atom`) — the
   case whose native `-notify-watches` loop is uncontained and needs a
-  coordinating fan-out terminal (rf2-7ryt0). False for a `reify` derived
+  coordinating fan-out terminal. False for a `reify` derived
   value (its `notify` already surfaces at the enclosing drain) and for any
   custom non-atom base container (kept on the direct per-dependent watch)."
   [s]
@@ -397,15 +396,15 @@
 (defn- invoke-dep-mark
   "Reducer that invokes the mark-fn of a `[dep-key mark-fn]` dependent entry,
   discarding accumulator + key. Hoisted (allocated once) so the coordinator's
-  fan-out over its dependent vector pays no per-mutation closure (rf2-7ryt0
-  hot-path preservation — `reduce` walks the vector directly)."
+  fan-out over its dependent vector pays no per-mutation closure (`reduce`
+  walks the vector directly)."
   [_ pair]
   ((nth pair 1))
   nil)
 
 (defn- ensure-source-coordinator!
   "Get-or-create the per-source fan-out coordinator for raw atom source `s`
-  on `scheduler` (rf2-7ryt0). The coordinator holds a vector of
+  on `scheduler`. The coordinator holds a vector of
   `[dep-key mark-fn]` dependent entries in an atom and installs exactly ONE
   real watch on `s`; that watch brackets the whole fan-out in `with-epoch`,
   so a direct `reset!` marks every dependent inside one epoch and surfaces
@@ -427,7 +426,7 @@
   exact inverse of one iteration of `make-derived-value-fn`'s install loop.
 
   A raw atom source's key is a dependent entry in that source's fan-out
-  coordinator (rf2-7ryt0): drop the entry, and when the coordinator has no
+  coordinator: drop the entry, and when the coordinator has no
   dependents left tear down its single real watch + registry slot. A reify
   derived source's key is a direct watch: remove it.
 
@@ -435,7 +434,7 @@
   dependent entry and `remove-watch` on an unheld key are both no-ops, and a
   source whose `ensure-source-coordinator!` threw before `.set` has no
   coordinator to find. That tolerance is what lets the failure-atomic
-  construction unwind (rf2-vxgfnd.292) replay this over the partially-acquired
+  construction unwind replay this over the partially-acquired
   key vector without first working out how far the loop got.
 
   ONE implementation, two callers: the construction unwind and the steady-state
@@ -463,7 +462,7 @@
 ;; through `useSyncExternalStore` in the spine's `use-subscribe` factory,
 ;; not through Reagent reactions.
 
-;; rf2-w1g0d2: `make-state-container` is the only point of the container
+;; `make-state-container` is the only point of the container
 ;; quartet that genuinely differs between the React-hook spine and the
 ;; ratom family — the React-only substrates seed a plain
 ;; `clojure.core/atom`, the ratom family seeds the substrate's reactive
@@ -520,7 +519,7 @@
 (defn activating-subscribe-container
   "Wrap a `subscribe-container` so an attaching observer ACTIVATES the
   container first, through the substrate's `activate!` op. Returns the
-  wrapped fn (rf2-gwye.47 / rf2-fzbj.29 F1).
+  wrapped fn.
 
   Spec 006 §`make-derived-value` requires PUSH — a derived container updates
   when any source changes, and `subscribe-container` works on it \"as on a base
@@ -573,7 +572,7 @@
 ;; by =. The derived container itself does not memoise; per the same
 ;; spec section that's the cache's job, not the substrate's.
 ;;
-;; Laziness (rf2-ee38b.1 P2). The derived value MUST NOT run `compute-fn`
+;; Laziness. The derived value MUST NOT run `compute-fn`
 ;; at construction time. `compute-fn` here is the core's memo wrapper —
 ;; it runs the user sub body and (in dev) emits `:rf.sub/run` via
 ;; `validate-and-trace`, and for a layer-2+ sub eagerly derefs the whole
@@ -600,13 +599,13 @@
   "The frozen per-slot MOVEMENT law, spelled
   spine-local for the React-hook derived-value fan-out gate: `Object.is(a,b)
   OR (= a b)`. Kept core-local (a transcription, NOT a `:require`) so core
-  depends on no view artefact. The load-bearing consequence for rf2-vxgfnd.203: `##NaN` is STABLE
+  depends on no view artefact. The load-bearing consequence: `##NaN` is STABLE
   (`Object.is(##NaN, ##NaN)` is true), so a derived value that stays NaN across
   a source tick reports NO movement and does not fan out — unlike raw `=`/`not=`,
   under which `(= ##NaN ##NaN)` is false so every NaN reads as fresh and fans
-  out on a no-move. (`-0.0`/`+0.0` still compare EQUAL via the `=` branch, as
-  the ruled law and the prior `not=` gate both give — no behaviour change
-  there; NaN→NaN is the sole pair this gate now treats differently.) One frozen
+  out on a no-move. (`-0.0`/`+0.0` compare EQUAL via the `=` branch, exactly as
+  a plain `not=` gate would; NaN→NaN is the sole pair this gate treats
+  differently from raw `=`.) One frozen
   relation across the direct adapter and the view layer, so the fan-out
   boundaries agree on cardinality."
   [a b]
@@ -630,10 +629,8 @@
 
   Single source of truth: the Reagent, reagent-slim and UIx
   adapters all build their recompute closure through this fn — one
-  implementation, three adapters, zero drift. The
-  arity-spec lifted
-  into the spine matches the `make-dispose-adapter!` shape
-  (rf2-jcjul); sourced from the rf2-fzrav perf-sweep findings."
+  implementation, three adapters, zero drift. The arity specialisation
+  lives in the spine, matching the `make-dispose-adapter!` shape."
   [source-containers compute-fn]
   (let [n (count source-containers)]
     (case n
@@ -652,7 +649,7 @@
   signature matches the substrate contract:
   `(sources compute-fn) -> derived-container`.
 
-  Single-recompute / single-notification (rf2-i21f5): a source-change
+  Single-recompute / single-notification: a source-change
   watch does NOT recompute or notify inline. It marks this derived value
   dirty (enqueues a single recompute-and-notify thunk on the scheduler).
   The epoch open by `replace-container!` defers the drain until the whole
