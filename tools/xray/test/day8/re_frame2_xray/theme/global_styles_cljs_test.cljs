@@ -9,6 +9,7 @@
   pure-data parts of the injection (`font-faces-css`, `motion-css`,
   `themes-css`, `grain-css`)."
   (:require [cljs.test :refer-macros [deftest is testing]]
+            [clojure.string :as str]
             [day8.re-frame2-xray.theme.global-styles :as gs]))
 
 ;; ---- font faces (rf2-5kfxe.1 + rf2-5kfxe.1 follow-up) ------------------
@@ -674,6 +675,26 @@
           "edge stroke remapped")
       (is (re-find #"\.react-flow__attribution\s*\{\s*display:\s*none" css)
           "attribution backplate hidden against the dark canvas"))))
+
+(deftest react-flow-xray-theme-css-is-scoped-to-xray-rf2-3x7nj-25-7
+  (testing "rf2-3x7nj.25.7 — `install!` appends the override to the HOST
+            document's head, so an unscoped `.react-flow` rule re-themed,
+            and hid the attribution of, every React Flow the host renders.
+            Each selector sits under Xray's own `[data-rf-xray-mode]`
+            surface (the shell root and every mount root carry it)."
+    (let [css       @#'gs/react-flow-xray-theme-css
+          selectors (->> (str/split css #"\}")
+                         (keep #(when-let [i (str/index-of % "{")] (subs % 0 i)))
+                         (mapcat #(str/split % #","))
+                         (map str/trim)
+                         (remove str/blank?))]
+      (is (some #(str/ends-with? % ".react-flow") selectors)
+          "sanity: the palette rule is found")
+      (is (some #(str/ends-with? % ".react-flow__attribution") selectors)
+          "sanity: the attribution rule is found")
+      (doseq [s selectors]
+        (is (str/starts-with? s "[data-rf-xray-mode] ")
+            (str "scoped under Xray's surface: " s))))))
 
 ;; ---- install! idempotence ----------------------------------------------
 
