@@ -1,18 +1,18 @@
 (ns re-frame.schemas.digest-parity-fixtures
   "Shared fixtures for the JVM↔CLJS app-schemas-digest byte-identity
-  parity tests (rf2-xssfv).
+  parity tests.
 
   Spec 010 §Digest algorithm pins the digest as cross-runtime
   byte-identical: a CLJS server and a CLJS client running the same
   schema set MUST produce the same `\"sha256:\" + 16-hex` string —
-  byte-for-byte. The empty-set vector (`sha256:e3b0c44298fc1c14`) was
-  pinned at rf2-0z1z; this namespace extends the corpus to multi-
-  schema, nested, with-props, primitive, and metadata-stripped cases
-  so port implementations (and future refactors of the digest
-  pipeline) can self-check against a wider surface.
+  byte-for-byte. This namespace carries the empty-set vector
+  (`sha256:e3b0c44298fc1c14`) beside multi-schema, nested, with-props,
+  primitive, and metadata-stripped cases so port implementations (and
+  refactors of the digest pipeline) can self-check against a wide
+  surface.
 
   Strategy mirrors `re-frame.source-coord-parity-test` /
-  `re-frame.source-coord-parity-cljs-test` (rf2-1q9de) — both runtimes
+  `re-frame.source-coord-parity-cljs-test` — both runtimes
   consume the SAME fixture map and pin the SAME expected literal. The
   literal IS the cross-host byte-comparison point; if either runtime's
   digest pipeline diverges from the canonical bytes, that runtime's
@@ -24,14 +24,13 @@
   first 64 bits of the SHA-256 over the canonical concatenation
   (line-sorted `<path-key> <sha256-hex>\\n`).
 
-  rf2-ujmc3u: the `<path-key>` is now the CEDN-1 `canonical-bytes` token
+  The `<path-key>` is the CEDN-1 `canonical-bytes` token
   stream of the path vector (`v[k::n]`), NOT `pr-str` of the vector
   (`[:n]`) — Conventions §Canonical EDN identity lists schema digest path
   keys among the canonical-identity surfaces, and `pr-str` is host-divergent
   for the non-keyword segments a concrete path may carry. The literals below
-  were repinned when the path-key encoding moved to `canonical-bytes`; the
-  empty-set literal (`sha256:e3b0c44298fc1c14`) is unchanged because the
-  empty schema set emits no path-key line."
+  are pinned over that encoding; the empty schema set emits no path-key
+  line."
   (:require [clojure.string :as str]
             [re-frame.schemas.digest]
             [re-frame.schemas.validator]))
@@ -60,8 +59,7 @@
 ;; input is fed directly to `compute-digest`; the expected string is
 ;; the canonical literal both runtimes MUST produce. The corpus covers:
 ;;
-;;   * empty-set      — already pinned at rf2-0z1z; carried here for
-;;                      single-source-of-truth.
+;;   * empty-set      — no lines; the SHA-256 of the empty string.
 ;;   * single-prim    — one path, primitive keyword schema (`:int`).
 ;;   * single-vector  — one path, vector schema (`[:int]`).
 ;;   * multi-schema   — two paths, vector schemas.
@@ -77,7 +75,7 @@
    :input     {}
    :expected  "sha256:e3b0c44298fc1c14"
    :rationale "SHA-256 of the empty string — the lines list collapses
-              to an empty concatenation. Carried from rf2-0z1z."})
+              to an empty concatenation."})
 
 (def single-prim
   {:label     "single-prim"
@@ -130,34 +128,34 @@
               `not= digest` invariant for the keyword-primitive
               surface."})
 
-;; ---- host-divergent PRINTER cases (rf2-k0hqk) -----------------------------
+;; ---- host-divergent PRINTER cases ------------------------------------------
 ;;
-;; Two scalar kinds did not survive `pr-str` deterministically, and both
-;; faked the SSR hydrate handshake's `:rf.ssr/schema-digest-mismatch`
-;; warning ("Deploy drift … Hydrating anyway") against byte-identical
-;; code:
+;; Two scalar kinds do not survive `pr-str` deterministically, and printed
+;; raw both would fake the SSR hydrate handshake's
+;; `:rf.ssr/schema-digest-mismatch` warning ("Deploy drift … Hydrating
+;; anyway") against byte-identical code:
 ;;
 ;;   * a FUNCTION — `[:map [:n pos-int?]]`, the idiom Spec 010's how-to
-;;     recommends — printed on the JVM as `#object[clojure.core$pos_int_
+;;     recommends — prints on the JVM as `#object[clojure.core$pos_int_
 ;;     QMARK_ 0x3aefae67 "…@3aefae67"]`, and that address is
-;;     `System/identityHashCode`, a fresh value in every process. The
-;;     digest therefore moved on every server restart.
-;;   * a WHOLE-NUMBER DOUBLE — `{:min 1.0}` — printed `1.0` on the JVM
+;;     `System/identityHashCode`, a fresh value in every process, so the
+;;     digest would move on every server restart.
+;;   * a WHOLE-NUMBER DOUBLE — `{:min 1.0}` — prints `1.0` on the JVM
 ;;     and `1` on CLJS, which has one numeric type and cannot tell the
 ;;     two apart.
 ;;
-;; THE TWO ARE NOT THE SAME KIND OF DEFECT, and the fixtures below are
+;; THE TWO ARE NOT THE SAME KIND OF HAZARD, and the fixtures below are
 ;; shaped by that difference rather than by symmetry.
 ;;
 ;; The double case is a genuine cross-runtime disagreement that the
-;; printer fix REMOVES — after it the two hosts agree — so it earns a
+;; canonicaliser REMOVES — the two hosts agree — so it earns a
 ;; shared pinned literal in `all-fixtures` beside every other cross-host
 ;; vector.
 ;;
 ;; The fn case cannot have one. The token is derived from the HOST's own
 ;; name for the function (`clojure.core$pos_int_QMARK_` on the JVM,
 ;; `cljs$core$pos_int_QMARK_` on CLJS, munged again to something
-;; build-specific under `:advanced`), so the fix buys per-host PROCESS
+;; build-specific under `:advanced`), so the token buys per-host PROCESS
 ;; STABILITY and not cross-runtime identity. A shared literal for it
 ;; would be a fixture that cannot pass on both hosts. What IS assertable
 ;; on both — and is what `fn-bearing-observations` reports — is that the
@@ -169,10 +167,10 @@
   {:label     "whole-number-double"
    :input     {[:n] [:int {:min 1.0 :max 10.0}]}
    :expected  "sha256:256998dfe0d8dc71"
-   :rationale "rf2-k0hqk — whole-number doubles in a schema props map.
+   :rationale "Whole-number doubles in a schema props map.
               `pr-str` of `1.0` is \"1.0\" on the JVM and \"1\" on CLJS,
-              so this ordinary Malli prop digested differently on the two
-              hosts and faked Deploy drift. The canonical form emits the
+              so, printed raw, this ordinary Malli prop would digest
+              differently on the two hosts and fake Deploy drift. The canonical form emits the
               integer the value denotes — the only direction that can
               agree, since CLJS cannot spell a `.0` suffix for a value it
               does not distinguish from an integer — so this literal is
@@ -194,8 +192,8 @@
 
 (def fn-bearing-schema
   "A schema carrying a bare predicate FUNCTION — the idiom Spec 010's
-  how-to recommends, and the shape whose digest was not process-stable
-  at all before rf2-k0hqk."
+  how-to recommends, and the shape whose raw `pr-str` is not
+  process-stable at all."
   [:map [:n pos-int?]])
 
 (def fn-bearing-other-schema
@@ -237,7 +235,7 @@
      :other-predicate-bytes     other
      ;; The token is name-derived, so no per-process address rides in it.
      :address-free?             (nil? (re-find #"0x[0-9a-f]+" bytes))
-     ;; `#object[…]` is the pre-fix host print — its absence is the
+     ;; `#object[…]` is the raw host print — its absence is the
      ;; legible statement that the canonicaliser, not `pr-str`, produced
      ;; these bytes.
      :object-print-free?        (not (str/includes? bytes "#object"))
@@ -310,7 +308,7 @@
    metadata-stripped-pair
    metadata-stripped-inner-pair])
 
-;; ---- ambient printer limits (rf2-gwye.14) ---------------------------------
+;; ---- ambient printer limits -----------------------------------------------
 ;;
 ;; A REPL or tool that binds `*print-length*` / `*print-level*` must neither
 ;; reach the digest bytes nor leave a truncated serialisation in the
