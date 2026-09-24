@@ -91,7 +91,7 @@
         "a machine action derives :rf.handler/source from the spec's :source-code (dev)")))
 
 (deftest frame-state-snapshot-carries-no-source-as-data
-  (testing "rf2-tlf4if: the frame-state egress snapshot strips ALL source-as-data
+  (testing "the frame-state egress snapshot strips ALL source-as-data
   keys — even after seeding app-db and starting a machine (runtime-db live)"
     (rf/reg-event :tlf4if/seed (fn [{:keys [db]} [_ n]] {:db {:seeded n}}))
     (rf/reg-machine :tlf4if/probed
