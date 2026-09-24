@@ -76,7 +76,8 @@ user-facing implementor docs and asserts:
      anchors into the implementor guide's prose, plus the `day8/re-frame2`
      core artifact inventory row in `spec/Conventions.md` (the L6 arm). The
      reduction replaced the Phase-2 contract mirror with a compact EP index
-     that LINKS the owners — `spec/004C-Roots-and-Mount.md` §7.1 and
+     that LINKS the owners — `spec/004C-Roots-and-Mount.md` §3,
+     `spec/006-ReactiveSubstrate.md` §The client root and
      `spec/002-Frames.md` §frame-root / §frame-provider — instead of
      restating them, so a guard requiring a second prose rendering of the
      runtime contract is the exact failure mode the reduction removed
@@ -84,8 +85,8 @@ user-facing implementor docs and asserts:
      guidance alive behind a required checker). Per the retirement protocol
      the old rule itself stated: every arm's row is deleted and the
      contracts they held are recorded as unguarded BY THIS SCRIPT — the
-     frame-root lifecycle stays normatively owned by spec/004C §7.1 and
-     spec/002 and exercised by the adapter DOM tests; the Conventions
+     frame-root lifecycle stays normatively owned by spec/004C §3, spec/006
+     §The client root and spec/002 and exercised by the adapter DOM tests; the Conventions
      inventory row (L6) is guarded only by spec review now. Adapter *status*
      was never scanned here — it is owned by
      `scripts/check_adapter_disposition.py` (rf2-vxgfnd.290).
@@ -374,8 +375,8 @@ def find_beadid_drift(files: list[Path]) -> tuple[list[str], int]:
 # the implementor guide, L6 over spec/Conventions.md's core artifact inventory
 # row) and their ARM-NOT-RUN coverage floor were deleted with the contract
 # mirror they pinned. The lifecycle contract's normative owners are
-# spec/004C-Roots-and-Mount.md §7.1 and spec/002-Frames.md §frame-root /
-# §frame-provider; nothing in this script reads them any more, and that is
+# spec/004C-Roots-and-Mount.md §3, spec/006-ReactiveSubstrate.md §The client
+# root and spec/002-Frames.md §frame-root / §frame-provider; nothing in this script reads them any more, and that is
 # recorded here deliberately rather than left to be noticed.
 # ---------------------------------------------------------------------------
 
