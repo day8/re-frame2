@@ -3,8 +3,7 @@
 
   This namespace is the suite's ONE home for the fixtures and probes the
   machines tests share — a single `frame-db` (`(:rf.db/runtime
-  (rf/frame-state-value id))`, rf2-t3lftq — API-shrink #3 retired the
-  dedicated `rf/runtime-db-value` reader), a
+  (rf/frame-state-value id))`), a
   single `snapshot` (`get-in db [:rf.runtime/machines :snapshots id]`), and a
   single trace-capture register/unregister helper — so machine storage,
   frame handling, and trace-listener cleanup have one place to track rather
@@ -46,8 +45,8 @@
 (defn runtime-db
   "The frame's runtime-db VALUE (where machine snapshots live, per
   EP-0001 / Conventions §Reserved runtime-db keys). Defaults to the
-  `:rf/default` frame. The single home for the `frame-db` helper the
-  machines tests repeated locally."
+  `:rf/default` frame. The single home for the `frame-db` helper, so no
+  machines test defines its own."
   ([] (runtime-db :rf/default))
   ([frame-id] (:rf.db/runtime (rf/frame-state-value frame-id))))
 
@@ -87,7 +86,7 @@
 (defn events-of
   "The captured events whose `:operation` equals `operation` (oldest
   first). Convenience over `(filter #(= operation (:operation %)) …)`,
-  the shape the suite filtered by hand."
+  so no test filters the stream by hand."
   [operation]
   (filterv #(= operation (:operation %)) (or (captured-events) [])))
 
