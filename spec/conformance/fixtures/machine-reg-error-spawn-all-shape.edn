@@ -20,7 +20,10 @@
 ;;   - A `:spawn-all` CHILD spec MUST NOT declare `:on-error` — failure
 ;;     control flow under a join is the block's `:on-any-failed` —
 ;;     `:rf.error/machine-unknown-spawn-key`. `:on-done` IS accepted on a
-;;     child spec: it folds the parent's `:data` at that child's finality.
+;;     child spec as a fn: it folds the parent's `:data` at that child's
+;;     finality. Any other child `:on-done` value — a transition map included —
+;;     is `:rf.error/machine-bad-on-done-clause`. EDN carries no fn, so the
+;;     fold itself is pinned by the host test suites, not here.
 ;;
 ;; Mode-B `:reg-machine` fixture pinning members of the registration-error
 ;; taxonomy (Spec 009 §The thrown-error shape). Each call's `:expect-error`
@@ -29,7 +32,7 @@
 {:fixture/id           :machine/reg-error-spawn-all-shape
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:actor/spawn-and-join :fsm/registration-validation}
- :fixture/doc          "A state node declaring both :spawn and :spawn-all throws :rf.error/machine-spawn-all-with-spawn; two :spawn-all children sharing an :id throw :rf.error/machine-spawn-all-duplicate-id; a removed :join {:n N} / {:fn pred} mode, the removed :cancel-on-decision? key, or the retired :on-child-done / :on-child-error child-vocabulary keys throw :rf.error/machine-spawn-all-bad-shape; :on-error on a child spec throws :rf.error/machine-unknown-spawn-key. The control case — a well-formed :spawn-all with distinct child :ids and a per-child :on-done fold — validates silently."
+ :fixture/doc          "A state node declaring both :spawn and :spawn-all throws :rf.error/machine-spawn-all-with-spawn; two :spawn-all children sharing an :id throw :rf.error/machine-spawn-all-duplicate-id; a removed :join {:n N} / {:fn pred} mode, the removed :cancel-on-decision? key, or the retired :on-child-done / :on-child-error child-vocabulary keys throw :rf.error/machine-spawn-all-bad-shape; :on-error on a child spec throws :rf.error/machine-unknown-spawn-key; a non-fn child :on-done throws :rf.error/machine-bad-on-done-clause. The control case — a well-formed :spawn-all with distinct child :ids — validates silently."
 
  :fixture/registry {}
  :fixture/handlers  {}
@@ -101,13 +104,23 @@
                             :failed {}}}
    :expect-error :rf.error/machine-unknown-spawn-key}
 
-  ;; (7) Control: a well-formed :spawn-all with distinct child :ids — and a
-  ;; per-child :on-done fold — validates silently.
+  ;; (7) A transition-shaped :on-done on a :spawn-all CHILD spec — rejected. A
+  ;; join child's :on-done is a :data fold (a fn); the join's own events own
+  ;; control flow.
+  {:call         :reg-machine
+   :definition   {:initial :gathering
+                  :states  {:gathering
+                            {:spawn-all {:children        [{:id :a :machine-id :worker/a
+                                                            :on-done {:target :failed}}]
+                                         :on-all-complete [:all/done]}}
+                            :failed {}}}
+   :expect-error :rf.error/machine-bad-on-done-clause}
+
+  ;; (8) Control: a well-formed :spawn-all with distinct child :ids validates
+  ;; silently.
   {:call       :reg-machine
    :definition {:initial :gathering
                 :states  {:gathering
-                          {:spawn-all {:children        [{:id :a :machine-id :worker/a
-                                                          :on-done (fn [{:keys [data result]}]
-                                                                     (assoc-in data [:results :a] result))}
+                          {:spawn-all {:children        [{:id :a :machine-id :worker/a}
                                                          {:id :b :machine-id :worker/b}]
                                        :on-all-complete [:all/done]}}}}}]}

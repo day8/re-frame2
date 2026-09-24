@@ -57,7 +57,9 @@
                                         :b {}}}
              :on-timeout     (with-state-a {:timeout 1000 :on-timeout {:target :b :reenter true}})
              :spawn/on-error (with-state-a {:spawn {:machine-id :tk/child
-                                                    :on-error   {:targt :b}}})}]
+                                                    :on-error   {:targt :b}}})
+             :spawn/on-done  (with-state-a {:spawn {:machine-id :tk/child
+                                                    :on-done    {:targt :b}}})}]
       (let [d (reg-error machine)]
         (is (= :rf.error/machine-unknown-node-key (:rf.error/id d))
             (str slot ": refused with the node-key id"))

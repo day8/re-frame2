@@ -90,3 +90,26 @@
   ([]                    [:rf.runtime/machines :spawned])
   ([parent-id]           [:rf.runtime/machines :spawned parent-id])
   ([parent-id invoke-id] [:rf.runtime/machines :spawned parent-id invoke-id]))
+
+(defn spawned-mirror-path
+  "Path (in the runtime-db value `db`) to the parent's
+  `[:data :rf/spawned <key>]` mirror entry for the `:spawned` slot at
+  `invoke-id`.
+
+  The slot's `invoke-id` is region-qualified under a `:type :parallel`
+  parent — its head names the owning region, so sibling regions' slots stay
+  distinct — while the mirror keys a region's spawn by the IN-REGION path, the
+  key a region action can name (a region name is not addressable from inside
+  a region, Spec 005 §Reserved snapshot-internal keys). A parallel parent's
+  snapshot `:state` is its region map, so a head naming one of those regions
+  is dropped; any other parent's mirror key is the `invoke-id` itself. Every
+  writer and clearer of the mirror reads its key here, so it always lands on
+  the entry the transition reducer bound."
+  [db parent-id invoke-id]
+  (let [state      (get-in db (snapshot-path parent-id :state))
+        mirror-key (if (and (map? state)
+                            (vector? invoke-id)
+                            (contains? state (first invoke-id)))
+                     (vec (rest invoke-id))
+                     invoke-id)]
+    (conj (snapshot-path parent-id :data :rf/spawned) mirror-key)))

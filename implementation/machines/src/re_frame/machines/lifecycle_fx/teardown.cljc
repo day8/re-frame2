@@ -17,7 +17,8 @@
        (declarative form)
     3. clear the PARENT snapshot's own `:rf/spawned` data slot at
        `[:rf.runtime/machines :snapshots parent-id :data :rf/spawned
-       invoke-id]` (declarative form) so the parent-side data slot
+       invoke-id]` (declarative form; for a region spawn the key is the
+       in-region path, `paths/spawned-mirror-path`) so the parent-side data slot
        (mechanism 1 — XState-context parity) mirrors the runtime registry
        (step 2) EXACTLY, per Spec 005:2938 (\"the `:rf/spawned` `:data`
        slot mirrors this registry slot exactly, in-snapshot\"). Without
@@ -66,7 +67,8 @@
   `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` slot is
   cleared AND the parent snapshot's own `:rf/spawned` data slot at
   `[:rf.runtime/machines :snapshots <parent-id> :data :rf/spawned
-  <invoke-id>]` is cleared, so the parent-side data slot mirrors the
+  <invoke-id>]` (the in-region key for a region spawn,
+  `paths/spawned-mirror-path`) is cleared, so the parent-side data slot mirrors the
   runtime registry EXACTLY (Spec 005:2938). Both the parent map /
   `:spawned` root AND the emptied parent-side `:rf/spawned` data map are
   pruned under the lazy-allocation invariant (matching how spawn
@@ -87,6 +89,10 @@
         clear-parent-data? (and track?
                                 (contains? (get-in db (rf.machines.paths/snapshot-path))
                                            parent-id))
+        ;; The mirror entry sits at the parent's IN-REGION key for a region
+        ;; spawn, while `invoke-id` is region-qualified.
+        mirror-path  (when clear-parent-data?
+                       (rf.machines.paths/spawned-mirror-path db parent-id invoke-id))
         ;; (1)+(2)+(3): the primary slot mutations. (3) clears the
         ;; PARENT snapshot's own `[:data :rf/spawned <invoke-id>]` slot so
         ;; the parent-side data slot (mechanism 1) mirrors the runtime
@@ -108,8 +114,7 @@
                        track?       (update-in (rf.machines.paths/spawned-path parent-id)
                                                 dissoc invoke-id)
                        clear-parent-data?
-                       (update-in (rf.machines.paths/snapshot-path parent-id :data :rf/spawned)
-                                  dissoc invoke-id))
+                       (update-in (pop mirror-path) dissoc (peek mirror-path)))
         ;; (4a): prune the per-parent `:spawned` map if empty.
         new-db       (cond-> new-db
                        (and track?
