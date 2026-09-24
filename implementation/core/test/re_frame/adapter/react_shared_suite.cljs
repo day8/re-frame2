@@ -1485,7 +1485,7 @@
           "expected :rf.error/sub-exception trace"))))
 
 ;; ===========================================================================
-;; :rf.view/rendered op (rf2-25zo2) — port of `*_view_rendered_op`
+;; :rf.view/rendered op
 ;; ===========================================================================
 
 (defn- record-view-rendered! []
@@ -1499,7 +1499,7 @@
 (defn assert-rf-view-rendered-fires-on-render
   ":rf.view/rendered fires on render — same emit site as every React
   adapter (the substrate-agnostic views.cljs frame-aware-view wrapper),
-  same tag shape (rf2-25zo2)."
+  same tag shape."
   [{:keys [substrate-kw name]}]
   (testing (str name " — :rf.view/rendered fires on render with the expected tag shape")
     (let [id     (mint-kw substrate-kw "view-rendered-sample")
@@ -1516,7 +1516,7 @@
 
 (defn assert-rf-view-rendered-attribution-in-cascade
   ":rf.view/rendered emitted inside a cascade carries :rf.view/cause-event-id +
-  :rf.view/cause-subs sourced from the in-flight epoch capture buffer (rf2-25zo2)."
+  :rf.view/cause-subs sourced from the in-flight epoch capture buffer."
   [{:keys [substrate-kw name]}]
   (testing (str name " — :rf.view/rendered in a cascade carries cause attribution")
     (let [n-sub      (mint-kw substrate-kw "view-rendered-n")
@@ -1542,11 +1542,11 @@
 
 (defn assert-rf-view-rendered-carries-render-args
   ":rf.view/rendered carries the view's positional render args/props under
-  :rf.view/render-args (rf2-rpgq8). Substrate-agnostic — the args are
+  :rf.view/render-args. Substrate-agnostic — the args are
   captured by the views.cljs frame-aware-view wrapper that every adapter
   composes, so a direct `((rf/view id) arg…)` invocation surfaces them
-  identically across Reagent / UIx. A no-arg render omits the slot
-  (additive — existing :rf.view/rendered consumers are unaffected)."
+  identically across Reagent / UIx. A no-arg render omits the slot, so
+  :rf.view/rendered consumers that ignore render args are unaffected."
   [{:keys [substrate-kw name]}]
   (testing (str name " — :rf.view/rendered carries :rf.view/render-args")
     (let [id     (mint-kw substrate-kw "view-rendered-args-sample")
@@ -1568,11 +1568,11 @@
               t  (:tags ev)]
           (is (some? ev) "an :rf.view/rendered event fired")
           (is (not (contains? t :rf.view/render-args))
-              "the slot is absent on a no-arg render (additive contract)"))
+              "the slot is absent on a no-arg render"))
         (rf.trace.tooling/unregister-listener! ::view-rendered-recorder)))))
 
 (defn assert-rf-view-rendered-render-args-elided
-  "PRIVACY (rf2-rpgq8 / Spec 009 §Privacy): render args are arbitrary user
+  "PRIVACY (Spec 009 §Privacy): render args are arbitrary user
   data, so :rf.view/render-args routes through the SAME emit-time elision
   chokepoint as every other user-data trace payload — the marks projection
   runs `elide-wire-value` against the frame's app-db elision registry. A
@@ -1611,8 +1611,7 @@
       (rf.trace.tooling/unregister-listener! ::view-rendered-recorder))))
 
 ;; ===========================================================================
-;; make-derived-value per-arity contract (rf2-eoy63) —
-;; port of `*_make_derived_value_arity_spec`
+;; make-derived-value per-arity contract
 ;; ===========================================================================
 
 (defn- mk-source [adapter v] ((:make-state-container adapter) v))
@@ -1620,7 +1619,7 @@
 (defn- mk-derive [adapter sources f] ((:make-derived-value adapter) sources f))
 
 (defn assert-derived-value-arities
-  "Per-arity pin for make-derived-value (rf2-eoy63): 0/1/2/≥3-arity paths
+  "Per-arity pin for make-derived-value: 0/1/2/≥3-arity paths
   + source-vector order preserved. Driven directly through the adapter map."
   [{:keys [adapter name]}]
   (testing (str name " — make-derived-value per-arity contract")
@@ -1658,8 +1657,7 @@
         (is (= 99 @derived))))))
 
 ;; ===========================================================================
-;; derived-value watch-baseline regression (rf2-66hb) —
-;; port of `*_derived_value_baseline`
+;; derived-value watch-baseline regression
 ;; ===========================================================================
 
 (defn- mk-subscribe [adapter container]
@@ -1667,19 +1665,19 @@
         unsub ((:subscribe-container adapter)
                container
                (fn [prev nu] (swap! calls conj [prev nu])))]
-    ;; rf2-ee38b.1: derived values are now LAZY (no eager compute at
+    ;; Derived values are LAZY (no eager compute at
     ;; construction). Deref once at subscribe time to establish the watch
     ;; baseline — exactly what the real sub-cache does on subscribe (it
     ;; reads the subscription's initial value). Without this, the first
     ;; source change would notify against the `unset` sentinel rather than
-    ;; the prior derived value, defeating the rf2-66hb no-spurious-first-
-    ;; notify guarantee. Production's useSyncExternalStore likewise calls
+    ;; the prior derived value, defeating the no-spurious-first-notify
+    ;; guarantee. Production's useSyncExternalStore likewise calls
     ;; getSnapshot (a deref) at subscribe.
     @container
     {:calls calls :unsub unsub}))
 
 (defn assert-derived-baseline-projections
-  "Watch-baseline regression (rf2-66hb): a derived projection that stays
+  "Watch-baseline regression: a derived projection that stays
   value-equal across a source update must NOT spuriously notify; real
   changes still notify exactly once. Covers odd?/count/key/boolean/vector
   projections."
@@ -1738,7 +1736,7 @@
 
 (defn assert-derived-baseline-sequence
   "The contract holds across a sequence of updates: only real = changes
-  emit (rf2-66hb)."
+  emit."
   [{:keys [adapter name]}]
   (testing (str name " — derived watch-baseline: only real = changes emit across a sequence")
     (let [src (mk-source adapter 0)
@@ -1756,7 +1754,7 @@
 
 (defn assert-derived-baseline-multi-source
   "Multi-source derived: each source's update recomputes; only = changes
-  emit (rf2-66hb)."
+  emit."
   [{:keys [adapter name]}]
   (testing (str name " — derived watch-baseline: multi-source recompute only emits on =-change")
     (let [a (mk-source adapter 1) b (mk-source adapter 2)
@@ -1772,7 +1770,7 @@
 
 ;; ===========================================================================
 ;; two-partition projection-equality invalidation (EP-0001 decision #7;
-;; Spec 006 §Frame-state container and partition projections) — rf2-0sr0ai
+;; Spec 006 §Frame-state container and partition projections)
 ;;
 ;; The plain-atom (JVM) pin lives in
 ;; `re-frame.partitioned-commit-test/{runtime-only-commit-does-not-
@@ -1786,8 +1784,8 @@
 ;; physical frame-state container, and the layer-1 sub body is a memoised
 ;; reaction over the projection.
 ;;
-;; These assertions pin, per React adapter, the FOUNDATION claim the EP
-;; partition work (#3507) relies on:
+;; These assertions pin, per React adapter, the FOUNDATION claim the
+;; partition design relies on:
 ;;   (1) a runtime-only commit leaves the app-db projection `=` and does
 ;;       NOT re-run an app-db layer-1 sub body;
 ;;   (2) an app-only commit leaves the runtime-db projection `=` and does
