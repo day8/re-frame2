@@ -16,7 +16,7 @@
   on every commit, so the per-instance record costs no ref, no map and no
   hook. Only the synchronous door reaches it: a queued dispatch has not
   moved the model by the end of the handler, so the wrapper is a no-op
-  there and the field converges one macrotask later as it always did.
+  there and the field converges one macrotask later.
 
   The composition carve-out is two halves because two writes can destroy
   a live composition and only one of them is ours: this converge, which
@@ -172,7 +172,7 @@
   The attribute that ships stays the author's. The `string?` guard makes
   it total: `:type 0` survives the codec as a number with no
   `toLowerCase`. The fold costs ~8 ns per call, about 0.1% of one field's
-  render, and a fold-on-miss variant was measured and rejected —
+  render; the fold-on-miss alternative is priced in
   docs/design/fresco/studio/controlled-input-two-implementations.md,
   §The type fold, priced."
   [tag js-props]
