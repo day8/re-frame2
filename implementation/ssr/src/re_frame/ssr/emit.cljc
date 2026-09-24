@@ -422,21 +422,76 @@
     :else
     attr-key))
 
+;; ---- javascript: URLs (rf2-w1hd8) ------------------------------------------
+;;
+;; react-dom's `setProp` swaps a `javascript:` URL for a URL that throws before
+;; it reaches `setAttribute`. It does so in five props on any element it does
+;; not treat as custom (`href`, `src`, `action`, `formAction`, `xlinkHref`), and
+;; in `data` on an `<object>`. The hydrating client paints through react-dom,
+;; and React does not patch an attribute at hydration. So a walker that wrote
+;; the value unchanged left a URL live on the hydrated page that the client's
+;; own render would have blocked. The walkers now paint what the client paints.
+;; The regex, the substituted URL, the prop set and the custom-element test are
+;; react-dom 19.3.0's, copied by intent;
+;; `re-frame.ssr-javascript-url-react-parity-test` pins them against the
+;; installed package.
+
+(def ^:private javascript-url-re
+  "react-dom 19.3.0's `isJavaScriptProtocol`, verbatim. It ignores case, skips
+  leading C0 controls and spaces, and allows a tab, LF or CR between letters."
+  #"(?i)^[\u0000-\u001F ]*j[\r\n\t]*a[\r\n\t]*v[\r\n\t]*a[\r\n\t]*s[\r\n\t]*c[\r\n\t]*r[\r\n\t]*i[\r\n\t]*p[\r\n\t]*t[\r\n\t]*:")
+
+(def ^:private blocked-javascript-url
+  "What react-dom 19.3.0 paints in place of a blocked `javascript:` URL."
+  "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')")
+
+(def ^:private javascript-url-props
+  "The React props react-dom blocks a `javascript:` URL in, on any element it
+  does not treat as custom. `data` joins them on an `<object>` only."
+  #{"href" "src" "action" "formAction" "xlinkHref"})
+
+(def ^:private react-non-custom-hyphenated-tags
+  "The hyphenated tags react-dom does NOT treat as custom elements."
+  #{"annotation-xml" "color-profile" "font-face" "font-face-src"
+    "font-face-uri" "font-face-format" "font-face-name" "missing-glyph"})
+
+(defn- block-javascript-url
+  "`attr-value` as the hydrating client paints it for `attr-key` on `tag-name`.
+  A `javascript:` URL in one of react-dom's URL props becomes the URL react-dom
+  substitutes; everything else is returned unchanged. See the section comment
+  above."
+  [tag-name attr-key attr-value]
+  (let [prop-name (cond
+                    (string? attr-key) attr-key
+                    (or (keyword? attr-key) (symbol? attr-key))
+                    (reagent-prop-name (name attr-key)))]
+    (if (and (string? attr-value)
+             (or (not (clojure.string/includes? tag-name "-"))
+                 (contains? react-non-custom-hyphenated-tags tag-name))
+             (or (contains? javascript-url-props prop-name)
+                 (and (= "data" prop-name) (= "object" tag-name)))
+             (re-find javascript-url-re attr-value))
+      blocked-javascript-url
+      attr-value)))
+
 (defn convert-dom-attrs
   "Convert a DOM element's merged attribute map the way the Reagent-tier
   client adapter plus react-dom does: every key becomes the attribute NAME the
   client paints (a string), and a keyword or symbol VALUE is written with
   `name`. `tag-name` is the element's parsed tag; a hyphenated (custom-element)
   tag keeps its author names verbatim. See the section comment above
-  (rf2-3x7nj.13.1)."
+  (rf2-3x7nj.13.1). A `javascript:` URL is blocked where react-dom blocks it
+  (`block-javascript-url`, rf2-w1hd8)."
   [tag-name attrs]
   (let [custom-element? (clojure.string/includes? tag-name "-")]
     (reduce-kv (fn [converted attr-key attr-value]
                  (assoc converted
                         (dom-attr-key custom-element? attr-key)
-                        (if (or (keyword? attr-value) (symbol? attr-value))
-                          (name attr-value)
-                          attr-value)))
+                        (block-javascript-url
+                         tag-name attr-key
+                         (if (or (keyword? attr-value) (symbol? attr-value))
+                           (name attr-value)
+                           attr-value))))
                {}
                attrs)))
 

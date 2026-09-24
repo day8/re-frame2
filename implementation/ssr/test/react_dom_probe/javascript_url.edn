@@ -1,0 +1,427 @@
+;; GENERATED FILE — do not hand-edit.
+;;
+;; react-dom `javascript:` URL evidence for rf2-w1hd8. `:painted` is
+;; the attribute value react-dom wrote, entity-decoded, which is the
+;; value the parsed attribute holds; `:markup` is the whole output it
+;; was read out of. The server and client builds apply one rule
+;; (`:rule` below, checked equal in both by the generator), so this is
+;; also what a hydrating react-dom client paints. Measured by
+;; `react_dom_probe/javascript_url.cjs` against the installed package;
+;; compared with the SSR hiccup emitters in
+;; `re_frame/ssr_javascript_url_react_parity_test.clj`.
+;;
+;; Regenerate from `implementation/`:
+;;   node ssr/test/react_dom_probe/javascript_url.cjs \
+;;     > ssr/test/react_dom_probe/javascript_url.edn
+{:react-dom-version "19.3.0"
+ :generated-by "implementation/ssr/test/react_dom_probe/javascript_url.cjs"
+ :rule "/^[\\u0000-\\u001F ]*j[\\r\\n\\t]*a[\\r\\n\\t]*v[\\r\\n\\t]*a[\\r\\n\\t]*s[\\r\\n\\t]*c[\\r\\n\\t]*r[\\r\\n\\t]*i[\\r\\n\\t]*p[\\r\\n\\t]*t[\\r\\n\\t]*:/i"
+ :blocked-url "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+ :rows
+ [
+  {:element "a" :prop "href" :attribute "href" :parent nil :label "plain"
+   :value   "javascript:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<a href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></a>"}
+  {:element "a" :prop "href" :attribute "href" :parent nil :label "mixed-case"
+   :value   "JaVaScRiPt:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<a href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></a>"}
+  {:element "a" :prop "href" :attribute "href" :parent nil :label "leading-spaces"
+   :value   "  javascript:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<a href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></a>"}
+  {:element "a" :prop "href" :attribute "href" :parent nil :label "leading-c0-controls"
+   :value   "\u0001\u001Fjavascript:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<a href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></a>"}
+  {:element "a" :prop "href" :attribute "href" :parent nil :label "tab-lf-cr-inside"
+   :value   "java\tscr\nipt\r:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<a href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></a>"}
+  {:element "a" :prop "href" :attribute "href" :parent nil :label "trailing-space"
+   :value   "javascript:alert(1) "
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<a href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></a>"}
+  {:element "a" :prop "href" :attribute "href" :parent nil :label "https"
+   :value   "https://example.com/?q=javascript:x"
+   :blocked? false
+   :painted "https://example.com/?q=javascript:x"
+   :markup  "<a href=\"https://example.com/?q=javascript:x\"></a>"}
+  {:element "a" :prop "href" :attribute "href" :parent nil :label "space-before-colon"
+   :value   "javascript :alert(1)"
+   :blocked? false
+   :painted "javascript :alert(1)"
+   :markup  "<a href=\"javascript :alert(1)\"></a>"}
+  {:element "a" :prop "href" :attribute "href" :parent nil :label "leading-no-break-space"
+   :value   "\u00A0javascript:alert(1)"
+   :blocked? false
+   :painted "\u00A0javascript:alert(1)"
+   :markup  "<a href=\"\u00A0javascript:alert(1)\"></a>"}
+  {:element "img" :prop "src" :attribute "src" :parent nil :label "plain"
+   :value   "javascript:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<link rel=\"preload\" as=\"image\" href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"/><img src=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"/>"}
+  {:element "img" :prop "src" :attribute "src" :parent nil :label "mixed-case"
+   :value   "JaVaScRiPt:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<link rel=\"preload\" as=\"image\" href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"/><img src=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"/>"}
+  {:element "img" :prop "src" :attribute "src" :parent nil :label "leading-spaces"
+   :value   "  javascript:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<link rel=\"preload\" as=\"image\" href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"/><img src=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"/>"}
+  {:element "img" :prop "src" :attribute "src" :parent nil :label "leading-c0-controls"
+   :value   "\u0001\u001Fjavascript:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<link rel=\"preload\" as=\"image\" href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"/><img src=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"/>"}
+  {:element "img" :prop "src" :attribute "src" :parent nil :label "tab-lf-cr-inside"
+   :value   "java\tscr\nipt\r:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<link rel=\"preload\" as=\"image\" href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"/><img src=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"/>"}
+  {:element "img" :prop "src" :attribute "src" :parent nil :label "trailing-space"
+   :value   "javascript:alert(1) "
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<link rel=\"preload\" as=\"image\" href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"/><img src=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"/>"}
+  {:element "img" :prop "src" :attribute "src" :parent nil :label "https"
+   :value   "https://example.com/?q=javascript:x"
+   :blocked? false
+   :painted "https://example.com/?q=javascript:x"
+   :markup  "<link rel=\"preload\" as=\"image\" href=\"https://example.com/?q=javascript:x\"/><img src=\"https://example.com/?q=javascript:x\"/>"}
+  {:element "img" :prop "src" :attribute "src" :parent nil :label "space-before-colon"
+   :value   "javascript :alert(1)"
+   :blocked? false
+   :painted "javascript :alert(1)"
+   :markup  "<link rel=\"preload\" as=\"image\" href=\"javascript :alert(1)\"/><img src=\"javascript :alert(1)\"/>"}
+  {:element "img" :prop "src" :attribute "src" :parent nil :label "leading-no-break-space"
+   :value   "\u00A0javascript:alert(1)"
+   :blocked? false
+   :painted "\u00A0javascript:alert(1)"
+   :markup  "<link rel=\"preload\" as=\"image\" href=\"\u00A0javascript:alert(1)\"/><img src=\"\u00A0javascript:alert(1)\"/>"}
+  {:element "form" :prop "action" :attribute "action" :parent nil :label "plain"
+   :value   "javascript:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<form action=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></form>"}
+  {:element "form" :prop "action" :attribute "action" :parent nil :label "mixed-case"
+   :value   "JaVaScRiPt:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<form action=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></form>"}
+  {:element "form" :prop "action" :attribute "action" :parent nil :label "leading-spaces"
+   :value   "  javascript:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<form action=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></form>"}
+  {:element "form" :prop "action" :attribute "action" :parent nil :label "leading-c0-controls"
+   :value   "\u0001\u001Fjavascript:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<form action=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></form>"}
+  {:element "form" :prop "action" :attribute "action" :parent nil :label "tab-lf-cr-inside"
+   :value   "java\tscr\nipt\r:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<form action=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></form>"}
+  {:element "form" :prop "action" :attribute "action" :parent nil :label "trailing-space"
+   :value   "javascript:alert(1) "
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<form action=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></form>"}
+  {:element "form" :prop "action" :attribute "action" :parent nil :label "https"
+   :value   "https://example.com/?q=javascript:x"
+   :blocked? false
+   :painted "https://example.com/?q=javascript:x"
+   :markup  "<form action=\"https://example.com/?q=javascript:x\"></form>"}
+  {:element "form" :prop "action" :attribute "action" :parent nil :label "space-before-colon"
+   :value   "javascript :alert(1)"
+   :blocked? false
+   :painted "javascript :alert(1)"
+   :markup  "<form action=\"javascript :alert(1)\"></form>"}
+  {:element "form" :prop "action" :attribute "action" :parent nil :label "leading-no-break-space"
+   :value   "\u00A0javascript:alert(1)"
+   :blocked? false
+   :painted "\u00A0javascript:alert(1)"
+   :markup  "<form action=\"\u00A0javascript:alert(1)\"></form>"}
+  {:element "button" :prop "formAction" :attribute "formAction" :parent nil :label "plain"
+   :value   "javascript:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<button formAction=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></button>"}
+  {:element "button" :prop "formAction" :attribute "formAction" :parent nil :label "mixed-case"
+   :value   "JaVaScRiPt:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<button formAction=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></button>"}
+  {:element "button" :prop "formAction" :attribute "formAction" :parent nil :label "leading-spaces"
+   :value   "  javascript:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<button formAction=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></button>"}
+  {:element "button" :prop "formAction" :attribute "formAction" :parent nil :label "leading-c0-controls"
+   :value   "\u0001\u001Fjavascript:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<button formAction=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></button>"}
+  {:element "button" :prop "formAction" :attribute "formAction" :parent nil :label "tab-lf-cr-inside"
+   :value   "java\tscr\nipt\r:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<button formAction=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></button>"}
+  {:element "button" :prop "formAction" :attribute "formAction" :parent nil :label "trailing-space"
+   :value   "javascript:alert(1) "
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<button formAction=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></button>"}
+  {:element "button" :prop "formAction" :attribute "formAction" :parent nil :label "https"
+   :value   "https://example.com/?q=javascript:x"
+   :blocked? false
+   :painted "https://example.com/?q=javascript:x"
+   :markup  "<button formAction=\"https://example.com/?q=javascript:x\"></button>"}
+  {:element "button" :prop "formAction" :attribute "formAction" :parent nil :label "space-before-colon"
+   :value   "javascript :alert(1)"
+   :blocked? false
+   :painted "javascript :alert(1)"
+   :markup  "<button formAction=\"javascript :alert(1)\"></button>"}
+  {:element "button" :prop "formAction" :attribute "formAction" :parent nil :label "leading-no-break-space"
+   :value   "\u00A0javascript:alert(1)"
+   :blocked? false
+   :painted "\u00A0javascript:alert(1)"
+   :markup  "<button formAction=\"\u00A0javascript:alert(1)\"></button>"}
+  {:element "use" :prop "xlinkHref" :attribute "xlink:href" :parent "svg" :label "plain"
+   :value   "javascript:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<svg><use xlink:href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></use></svg>"}
+  {:element "use" :prop "xlinkHref" :attribute "xlink:href" :parent "svg" :label "mixed-case"
+   :value   "JaVaScRiPt:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<svg><use xlink:href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></use></svg>"}
+  {:element "use" :prop "xlinkHref" :attribute "xlink:href" :parent "svg" :label "leading-spaces"
+   :value   "  javascript:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<svg><use xlink:href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></use></svg>"}
+  {:element "use" :prop "xlinkHref" :attribute "xlink:href" :parent "svg" :label "leading-c0-controls"
+   :value   "\u0001\u001Fjavascript:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<svg><use xlink:href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></use></svg>"}
+  {:element "use" :prop "xlinkHref" :attribute "xlink:href" :parent "svg" :label "tab-lf-cr-inside"
+   :value   "java\tscr\nipt\r:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<svg><use xlink:href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></use></svg>"}
+  {:element "use" :prop "xlinkHref" :attribute "xlink:href" :parent "svg" :label "trailing-space"
+   :value   "javascript:alert(1) "
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<svg><use xlink:href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></use></svg>"}
+  {:element "use" :prop "xlinkHref" :attribute "xlink:href" :parent "svg" :label "https"
+   :value   "https://example.com/?q=javascript:x"
+   :blocked? false
+   :painted "https://example.com/?q=javascript:x"
+   :markup  "<svg><use xlink:href=\"https://example.com/?q=javascript:x\"></use></svg>"}
+  {:element "use" :prop "xlinkHref" :attribute "xlink:href" :parent "svg" :label "space-before-colon"
+   :value   "javascript :alert(1)"
+   :blocked? false
+   :painted "javascript :alert(1)"
+   :markup  "<svg><use xlink:href=\"javascript :alert(1)\"></use></svg>"}
+  {:element "use" :prop "xlinkHref" :attribute "xlink:href" :parent "svg" :label "leading-no-break-space"
+   :value   "\u00A0javascript:alert(1)"
+   :blocked? false
+   :painted "\u00A0javascript:alert(1)"
+   :markup  "<svg><use xlink:href=\"\u00A0javascript:alert(1)\"></use></svg>"}
+  {:element "object" :prop "data" :attribute "data" :parent nil :label "plain"
+   :value   "javascript:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<object data=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></object>"}
+  {:element "object" :prop "data" :attribute "data" :parent nil :label "mixed-case"
+   :value   "JaVaScRiPt:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<object data=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></object>"}
+  {:element "object" :prop "data" :attribute "data" :parent nil :label "leading-spaces"
+   :value   "  javascript:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<object data=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></object>"}
+  {:element "object" :prop "data" :attribute "data" :parent nil :label "leading-c0-controls"
+   :value   "\u0001\u001Fjavascript:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<object data=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></object>"}
+  {:element "object" :prop "data" :attribute "data" :parent nil :label "tab-lf-cr-inside"
+   :value   "java\tscr\nipt\r:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<object data=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></object>"}
+  {:element "object" :prop "data" :attribute "data" :parent nil :label "trailing-space"
+   :value   "javascript:alert(1) "
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<object data=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></object>"}
+  {:element "object" :prop "data" :attribute "data" :parent nil :label "https"
+   :value   "https://example.com/?q=javascript:x"
+   :blocked? false
+   :painted "https://example.com/?q=javascript:x"
+   :markup  "<object data=\"https://example.com/?q=javascript:x\"></object>"}
+  {:element "object" :prop "data" :attribute "data" :parent nil :label "space-before-colon"
+   :value   "javascript :alert(1)"
+   :blocked? false
+   :painted "javascript :alert(1)"
+   :markup  "<object data=\"javascript :alert(1)\"></object>"}
+  {:element "object" :prop "data" :attribute "data" :parent nil :label "leading-no-break-space"
+   :value   "\u00A0javascript:alert(1)"
+   :blocked? false
+   :painted "\u00A0javascript:alert(1)"
+   :markup  "<object data=\"\u00A0javascript:alert(1)\"></object>"}
+  {:element "font-face" :prop "href" :attribute "href" :parent nil :label "plain"
+   :value   "javascript:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<font-face href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></font-face>"}
+  {:element "font-face" :prop "href" :attribute "href" :parent nil :label "mixed-case"
+   :value   "JaVaScRiPt:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<font-face href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></font-face>"}
+  {:element "font-face" :prop "href" :attribute "href" :parent nil :label "leading-spaces"
+   :value   "  javascript:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<font-face href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></font-face>"}
+  {:element "font-face" :prop "href" :attribute "href" :parent nil :label "leading-c0-controls"
+   :value   "\u0001\u001Fjavascript:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<font-face href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></font-face>"}
+  {:element "font-face" :prop "href" :attribute "href" :parent nil :label "tab-lf-cr-inside"
+   :value   "java\tscr\nipt\r:alert(1)"
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<font-face href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></font-face>"}
+  {:element "font-face" :prop "href" :attribute "href" :parent nil :label "trailing-space"
+   :value   "javascript:alert(1) "
+   :blocked? true
+   :painted "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')"
+   :markup  "<font-face href=\"javascript:throw new Error(&#x27;React has blocked a javascript: URL as a security precaution.&#x27;)\"></font-face>"}
+  {:element "font-face" :prop "href" :attribute "href" :parent nil :label "https"
+   :value   "https://example.com/?q=javascript:x"
+   :blocked? false
+   :painted "https://example.com/?q=javascript:x"
+   :markup  "<font-face href=\"https://example.com/?q=javascript:x\"></font-face>"}
+  {:element "font-face" :prop "href" :attribute "href" :parent nil :label "space-before-colon"
+   :value   "javascript :alert(1)"
+   :blocked? false
+   :painted "javascript :alert(1)"
+   :markup  "<font-face href=\"javascript :alert(1)\"></font-face>"}
+  {:element "font-face" :prop "href" :attribute "href" :parent nil :label "leading-no-break-space"
+   :value   "\u00A0javascript:alert(1)"
+   :blocked? false
+   :painted "\u00A0javascript:alert(1)"
+   :markup  "<font-face href=\"\u00A0javascript:alert(1)\"></font-face>"}
+  {:element "div" :prop "data" :attribute "data" :parent nil :label "plain"
+   :value   "javascript:alert(1)"
+   :blocked? false
+   :painted "javascript:alert(1)"
+   :markup  "<div data=\"javascript:alert(1)\"></div>"}
+  {:element "div" :prop "data" :attribute "data" :parent nil :label "mixed-case"
+   :value   "JaVaScRiPt:alert(1)"
+   :blocked? false
+   :painted "JaVaScRiPt:alert(1)"
+   :markup  "<div data=\"JaVaScRiPt:alert(1)\"></div>"}
+  {:element "div" :prop "data" :attribute "data" :parent nil :label "leading-spaces"
+   :value   "  javascript:alert(1)"
+   :blocked? false
+   :painted "  javascript:alert(1)"
+   :markup  "<div data=\"  javascript:alert(1)\"></div>"}
+  {:element "div" :prop "data" :attribute "data" :parent nil :label "leading-c0-controls"
+   :value   "\u0001\u001Fjavascript:alert(1)"
+   :blocked? false
+   :painted "\u0001\u001Fjavascript:alert(1)"
+   :markup  "<div data=\"\u0001\u001Fjavascript:alert(1)\"></div>"}
+  {:element "div" :prop "data" :attribute "data" :parent nil :label "tab-lf-cr-inside"
+   :value   "java\tscr\nipt\r:alert(1)"
+   :blocked? false
+   :painted "java\tscr\nipt\r:alert(1)"
+   :markup  "<div data=\"java\tscr\nipt\r:alert(1)\"></div>"}
+  {:element "div" :prop "data" :attribute "data" :parent nil :label "trailing-space"
+   :value   "javascript:alert(1) "
+   :blocked? false
+   :painted "javascript:alert(1) "
+   :markup  "<div data=\"javascript:alert(1) \"></div>"}
+  {:element "div" :prop "data" :attribute "data" :parent nil :label "https"
+   :value   "https://example.com/?q=javascript:x"
+   :blocked? false
+   :painted "https://example.com/?q=javascript:x"
+   :markup  "<div data=\"https://example.com/?q=javascript:x\"></div>"}
+  {:element "div" :prop "data" :attribute "data" :parent nil :label "space-before-colon"
+   :value   "javascript :alert(1)"
+   :blocked? false
+   :painted "javascript :alert(1)"
+   :markup  "<div data=\"javascript :alert(1)\"></div>"}
+  {:element "div" :prop "data" :attribute "data" :parent nil :label "leading-no-break-space"
+   :value   "\u00A0javascript:alert(1)"
+   :blocked? false
+   :painted "\u00A0javascript:alert(1)"
+   :markup  "<div data=\"\u00A0javascript:alert(1)\"></div>"}
+  {:element "my-widget" :prop "href" :attribute "href" :parent nil :label "plain"
+   :value   "javascript:alert(1)"
+   :blocked? false
+   :painted "javascript:alert(1)"
+   :markup  "<my-widget href=\"javascript:alert(1)\"></my-widget>"}
+  {:element "my-widget" :prop "href" :attribute "href" :parent nil :label "mixed-case"
+   :value   "JaVaScRiPt:alert(1)"
+   :blocked? false
+   :painted "JaVaScRiPt:alert(1)"
+   :markup  "<my-widget href=\"JaVaScRiPt:alert(1)\"></my-widget>"}
+  {:element "my-widget" :prop "href" :attribute "href" :parent nil :label "leading-spaces"
+   :value   "  javascript:alert(1)"
+   :blocked? false
+   :painted "  javascript:alert(1)"
+   :markup  "<my-widget href=\"  javascript:alert(1)\"></my-widget>"}
+  {:element "my-widget" :prop "href" :attribute "href" :parent nil :label "leading-c0-controls"
+   :value   "\u0001\u001Fjavascript:alert(1)"
+   :blocked? false
+   :painted "\u0001\u001Fjavascript:alert(1)"
+   :markup  "<my-widget href=\"\u0001\u001Fjavascript:alert(1)\"></my-widget>"}
+  {:element "my-widget" :prop "href" :attribute "href" :parent nil :label "tab-lf-cr-inside"
+   :value   "java\tscr\nipt\r:alert(1)"
+   :blocked? false
+   :painted "java\tscr\nipt\r:alert(1)"
+   :markup  "<my-widget href=\"java\tscr\nipt\r:alert(1)\"></my-widget>"}
+  {:element "my-widget" :prop "href" :attribute "href" :parent nil :label "trailing-space"
+   :value   "javascript:alert(1) "
+   :blocked? false
+   :painted "javascript:alert(1) "
+   :markup  "<my-widget href=\"javascript:alert(1) \"></my-widget>"}
+  {:element "my-widget" :prop "href" :attribute "href" :parent nil :label "https"
+   :value   "https://example.com/?q=javascript:x"
+   :blocked? false
+   :painted "https://example.com/?q=javascript:x"
+   :markup  "<my-widget href=\"https://example.com/?q=javascript:x\"></my-widget>"}
+  {:element "my-widget" :prop "href" :attribute "href" :parent nil :label "space-before-colon"
+   :value   "javascript :alert(1)"
+   :blocked? false
+   :painted "javascript :alert(1)"
+   :markup  "<my-widget href=\"javascript :alert(1)\"></my-widget>"}
+  {:element "my-widget" :prop "href" :attribute "href" :parent nil :label "leading-no-break-space"
+   :value   "\u00A0javascript:alert(1)"
+   :blocked? false
+   :painted "\u00A0javascript:alert(1)"
+   :markup  "<my-widget href=\"\u00A0javascript:alert(1)\"></my-widget>"}
+ ]}
