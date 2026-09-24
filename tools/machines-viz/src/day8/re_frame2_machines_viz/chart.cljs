@@ -22,7 +22,8 @@
       tree.
     - **`countdown-ring` / `sparkline` primitives** — live in
       `chart.primitives` since they are consumed OUTSIDE the chart
-      (Xray overlays, cluster sparklines).
+      canvas (the `chart.overlays.after-rings` overlay Xray mounts; a
+      host's stats surfaces).
     - **Viewport state** — xyflow owns zoom/pan/fit internally;
       hosts do not manage `{:scale :tx :ty}` slots.
 
@@ -339,7 +340,7 @@
   #js {:id "root"
        :layoutOptions (clj->js (elk-layout-options parsed layout-options
                                                    direction))
-       ;; rf2-0pmi2y — thread the RESOLVED direction so each guarded-fork
+       ;; Thread the RESOLVED direction so each guarded-fork
        ;; branch's `elk.position` within-layer hint lands on the cross axis of
        ;; the ACTUAL layout direction (X for `:tb`, Y for `:lr`). `:auto` routes
        ;; branchy forks to `:lr`, where the cross axis is Y, not X.
@@ -1035,7 +1036,8 @@
         ;; but mount happens BEFORE the async elk pass resolves: every
         ;; node renders at the default {x 0 y 0}, the one-shot fitView
         ;; fits to a degenerate cluster near the origin, and when real
-        ;; positions arrive the viewport is never re-fit. The fix:
+        ;; positions arrive the viewport would never be re-fit. So the
+        ;; chart:
         ;;
         ;;   1. Capture the xyflow instance via `:onInit`.
         ;;   2. After EVERY layout settle whose `this-key` differs
@@ -1228,7 +1230,7 @@
             ;; reparses once here and busts every downstream cache.
             parsed     (parse-topology! definition)
             ;; The semantic counts (state / transition / region) come from
-            ;; the SINGLE `layout/semantic-counts` helper (rf2-5fm165) so the
+            ;; the SINGLE `layout/semantic-counts` helper so the
             ;; chart root's `data-node-count` / `data-edge-count` / aria-label
             ;; and Xray's Dynamic / Static topology summaries agree by
             ;; construction. The state count excludes synthetic layout chrome
@@ -1237,9 +1239,9 @@
             ;; machine-level / parallel-root `:on` / `:after` / `:on-done`
             ;; fallback) and `:history?` pseudo-states (Spec 005 history
             ;; states are NEVER occupiable) — see `layout/synthetic-node?`.
-            ;; rf2-3lrl2q — pre-exclusion any machine using a top-level `:on`
-            ;; fallback, a parallel-root `:on`/`:after`/`:on-done`, or a
-            ;; `:type :history` node over-reported by +1 per anchor.
+            ;; Counting them would over-report any machine using a top-level
+            ;; `:on` fallback, a parallel-root `:on`/`:after`/`:on-done`, or a
+            ;; `:type :history` node by +1 per anchor.
             {n-states  :state-count
              n-regions :region-count
              n-trans   :transition-count} (layout/semantic-counts parsed)
@@ -1261,7 +1263,7 @@
             ;; The direction ELK is actually fed. On the opt-in path the
             ;; `:auto` sentinel resolves to the per-machine heuristic
             ;; (`:tb`/`:lr`); otherwise `direction` passes straight through
-            ;; unchanged (so `:tb`/`:lr` force exactly as before).
+            ;; (so `:tb`/`:lr` force their own direction).
             elk-direction (if adaptive?
                             (post-elk/resolve-direction direction parsed)
                             direction)
@@ -1319,8 +1321,8 @@
                   ;; axis transpose (§4.3.2) THEN the back-edge return-route
                   ;; detour (§4.3.1). On the DEFAULT / forced path
                   ;; `adaptive?` is false, so this is a no-op pass-through —
-                  ;; the result flows through unchanged. An error result is
-                  ;; also passed through untouched (banner path unchanged).
+                  ;; the result flows through unchanged. An error result also
+                  ;; passes through untouched, to the banner path.
                   (let [result (if (and adaptive?
                                         raw-result
                                         (seq (:positions raw-result))
@@ -1328,7 +1330,7 @@
                                  (post-elk/apply-post-elk raw-result parsed
                                                           elk-direction)
                                  raw-result)]
-                  ;; Stale-settle guard (rf2-x19xi). Each pass closes over
+                  ;; Stale-settle guard. Each pass closes over
                   ;; the `this-key` it was launched for; only the pass whose
                   ;; key is STILL the active `@layout-key` may commit. A
                   ;; superseded pass (the key changed while its Promise was
@@ -1459,21 +1461,21 @@
                          :border-radius "6px"}}
            "Machine definition is not introspectable — no topology to render."]
 
-          ;; rf2-j538f7.18 — a structurally-invalid definition was REJECTED by
+          ;; A structurally-invalid definition is REJECTED by
           ;; the recursive grammar gate (`chart.layout/project-definition`)
-          ;; BEFORE graph construction, so nothing reached ELK. Render a
+          ;; BEFORE graph construction, so nothing reaches ELK. Render a
           ;; rejection placeholder carrying the value-free canonical defect
           ;; category (`:rf.error/machine-*`) + the DEPTH the defect sits at —
           ;; never the raw definition. Must precede the empty-nodes branch (a
           ;; rejected definition also has empty `:nodes`).
           ;;
-          ;; rf2-oztox — this used to print the defect's `:path`, a vector of
-          ;; state ids read straight off the definition. `:definition` is a host
-          ;; prop, and the viewer's is decoded from a share URL, so on the
-          ;; rejection path those ids are precisely the material someone forged;
-          ;; `grammar/definition-summary` no longer carries them and this no
-          ;; longer prints them. `:depth` is the part of the path that survives
-          ;; being content-free, and it is the part a reader acts on.
+          ;; It prints the defect's `:depth`, never a `:path`: a path is a
+          ;; vector of state ids read straight off the definition. `:definition`
+          ;; is a host prop, and the viewer's is decoded from a share URL, so on
+          ;; the rejection path those ids are precisely the material someone
+          ;; forged; `grammar/definition-summary` does not carry them. `:depth`
+          ;; is the part of the path that survives being content-free, and it
+          ;; is the part a reader acts on.
           (:definition-error parsed)
           (let [{:keys [defect]} (:definition-error parsed)]
             [:div {:data-testid         (str testid "-invalid-definition")
