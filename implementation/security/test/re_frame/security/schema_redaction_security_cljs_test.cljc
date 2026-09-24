@@ -1,6 +1,6 @@
 (ns re-frame.security.schema-redaction-security-cljs-test
   "Adversarial-property security tier - schema-validation redaction
-  boundary (rf2-3cfvt, surface 2; the rf2-g5auo class).
+  boundary.
 
   ## The boundary
 
@@ -8,11 +8,11 @@
   schema slot, the `:rf.error/schema-validation-failure` trace MUST NOT
   carry the failing value verbatim - `:value` / `:received` / `:explain`
   redact to `:rf/redacted`, and the event is stamped top-level
-  `:sensitive? true`. rf2-g5auo was a real leak: a `:sensitive?` slot
-  nested INSIDE a collection (`:vector` / `:map-of` / `:tuple` /
-  `:sequential`) shipped the secret verbatim, because Malli's `:in` path
-  carries collection indices the walker's index-free decl paths never
-  match.
+  `:sensitive? true`. The hard case is a `:sensitive?` slot nested INSIDE
+  a collection (`:vector` / `:map-of` / `:tuple` / `:sequential`):
+  Malli's `:in` path carries collection indices that index-free decl
+  paths never match, so without index alignment the secret would ship
+  verbatim.
 
   ## Why property-style
 
@@ -25,13 +25,12 @@
   NEVER appears anywhere in the emitted trace (deep-walked). One escaped
   nesting shape = one leak.
 
-  ## Net property (verify-by-revert)
+  ## Net property
 
-  Reverting the `index-bearing-ops` / `align-in-path` alignment in
-  `schemas/walker.cljc` (the rf2-g5auo fix) makes the generated nesting
-  test go RED - the sentinel surfaces unredacted in the trace's
-  `:explain` for collection-nested slots. Confirmed by temporary local
-  revert + restore (see PR Quality gates)."
+  Without the `index-bearing-ops` / `align-in-path` alignment in
+  `schemas/walker.cljc`, the generated nesting test goes RED - the
+  sentinel surfaces unredacted in the trace's `:explain` for
+  collection-nested slots."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
@@ -49,7 +48,7 @@
 ;; dispatch), so a clean app-schema slate is all the harness requires.
 ;; CLJC-clean: the same fixture runs on JVM and node.
 ;;
-;; EP-0002 (rf2-gjq3ow): `reg-app-schema` + `validate-app-schema!` are
+;; EP-0002: `reg-app-schema` + `validate-app-schema!` are
 ;; context-required frame-local (no `:rf/default` floor). The adapter-less
 ;; reset fixture establishes no ambient scope, so the outer fixture below
 ;; pins `:rf/default` as the carried scope for the test body — the
@@ -81,7 +80,7 @@
   "Deep-walk `x`; true when the sentinel string appears anywhere (as a
   value - matched as a SUBSTRING - inside a collection, or inside a
   stringified form, e.g. a keyword or symbol form built from it). Thin
-  wrapper over the shared `gen/contains-string?` (rf2-n5bkm7), which
+  wrapper over the shared `gen/contains-string?`, which
   matches the sentinel as a substring."
   [x]
   (rf.security.gen/contains-string? x sentinel))
@@ -91,12 +90,12 @@
 ;; lives at an arbitrary collection/map nesting depth, with the sentinel
 ;; planted at that slot but a TYPE MISMATCH forcing a validation failure. The
 ;; recursive walk, the eleven wrapper arms, and the leaf are shared with the
-;; validation-invariant suite via `gen/nested-sensitive-generator` (rf2-iu6fqv;
-;; see that fn for each arm's rationale). This suite keeps its own sentinel and
-;; passes its own wrapper-arm order + a 1..6 depth, so its generated shapes are
-;; byte-identical to before (a failing draw still reproduces from its seed).
-;; The `:tuple`-before-`:map-of-key` order below is this suite's historical draw
-;; order, preserved deliberately - see the shared block comment on the drift.
+;; validation-invariant suite via `gen/nested-sensitive-generator` (see that
+;; fn for each arm's rationale). This suite passes its own sentinel, its own
+;; wrapper-arm order and a 1..6 depth, which fix its generated shapes (a
+;; failing draw reproduces from its seed). The `:tuple`-before-`:map-of-key`
+;; order below is this suite's own draw order - see the shared block comment
+;; on how the callers differ.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private gen-nested-sensitive
@@ -126,7 +125,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest sensitive-sentinel-never-leaks-at-arbitrary-nesting
-  (testing "rf2-g5auo - a :sensitive? slot at ANY generated collection/map
+  (testing "a :sensitive? slot at ANY generated collection/map
             nesting depth redacts: the sentinel never appears in the trace"
     (let [result (rf.security.gen/for-all
                    gen-nested-sensitive 300 11
@@ -143,12 +142,12 @@
                (pr-str (when result (dissoc result :threw))))))))
 
 ;; ---------------------------------------------------------------------------
-;; HOSTILE CORPUS - the exact rf2-g5auo shapes, pinned.
+;; HOSTILE CORPUS - the collection-nested sensitive shapes, pinned.
 ;; ---------------------------------------------------------------------------
 
 (deftest hostile-nesting-corpus-all-redacted
-  (testing "rf2-g5auo corpus - every named collection-nested sensitive shape
-            redacts the sentinel"
+  (testing "every named collection-nested sensitive shape redacts the
+            sentinel"
     (doseq [[label schema db]
             [["vector-of-map"
               [:vector [:map [:token {:sensitive? true} :string]]]
@@ -156,7 +155,7 @@
              ["map-of-value"
               [:map-of :string [:map [:secret {:sensitive? true} :string]]]
               {"a" {:secret [sentinel]}}]
-             ;; rf2-gocef0 / rf2-6ijdgh — the sensitive :map-of KEY sibling
+             ;; The sensitive :map-of KEY sibling
              ;; (the secret is the KEY, not the value). Both the key AND the
              ;; nested value carry the sentinel; both must redact.
              ["map-of-sensitive-key"
@@ -182,19 +181,20 @@
                  (pr-str (:tags v))))))))
 
 ;; ---------------------------------------------------------------------------
-;; HOSTILE CORPUS - the rf2-ss06u.1 / rf2-ss06u.2 egress leaks, pinned.
-;;   ss06u.1: a :set failure ships the failing ELEMENT VALUE in the
-;;            structural :path tag (Malli reports the value, not an index).
-;;   ss06u.2: a sensitive CONTAINER wrapped by :and/:or/:multi/:orn drops the
-;;            consumed-ancestor sensitivity in align-in-path's fallback, so
-;;            the failing value (and :explain) ride verbatim, unstamped.
+;; HOSTILE CORPUS - two egress leak classes, pinned.
+;;   :set:     a :set failure would ship the failing ELEMENT VALUE in the
+;;             structural :path tag (Malli reports the value, not an index).
+;;   wrappers: a sensitive CONTAINER wrapped by :and/:or/:multi/:orn would
+;;             lose the consumed-ancestor sensitivity in align-in-path's
+;;             fallback, so the failing value (and :explain) would ride
+;;             verbatim, unstamped.
 ;; The :set case asserts BOTH the value-bearing slots AND the :path tag carry
 ;; no sentinel; the wrapper cases assert the value-bearing slots are redacted
 ;; and stamped. One escaped shape = one egress leak.
 ;; ---------------------------------------------------------------------------
 
 (deftest ss06u-set-path-tag-carries-no-secret
-  (testing "rf2-ss06u.1 - a :set of sensitive maps must not ship the failing
+  (testing "a :set of sensitive maps must not ship the failing
             element value in ANY slot, including the structural :path tag"
     ;; The sentinel rides as a sibling :ssn (a plain string) so a leak would
     ;; surface it verbatim in :path even though the :token value is redacted.
@@ -212,11 +212,11 @@
           (str "the sentinel leaked somewhere in the trace: " (pr-str (:tags v)))))))
 
 (deftest map-of-sensitive-key-path-tag-carries-no-secret
-  (testing "rf2-gocef0 / rf2-6ijdgh - a :map-of with a :sensitive? KEY must not
-            ship the failing key VALUE in ANY slot, including the structural
-            :path tag; :path carries :rf/redacted for the key, not the secret.
-            The one collection-navigation-segment sibling pinned for its
-            neighbours (:set ss06u.1, :tuple, :cat/:catn) but not itself."
+  (testing "a :map-of with a :sensitive? KEY must not ship the failing key
+            VALUE in ANY slot, including the structural :path tag; :path
+            carries :rf/redacted for the key, not the secret. This completes
+            the collection-navigation-segment siblings (:set, :tuple,
+            :cat/:catn)."
     (let [v (failure-trace
               [:map-of [:string {:sensitive? true}] [:map [:age :int]]]
               {sentinel {:age [sentinel]}})]
@@ -237,7 +237,7 @@
           (str "the secret leaked somewhere in the trace: " (pr-str (:tags v)))))))
 
 (deftest ss06u-ancestor-sensitive-wrapper-corpus-all-redacted
-  (testing "rf2-ss06u.2 - a sensitive container whose failing leaf is under a
+  (testing "a sensitive container whose failing leaf is under a
             transparent :and/:or/:multi/:orn wrapper redacts + stamps"
     (doseq [[label schema db]
             [["and-ancestor"
@@ -266,7 +266,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest non-sensitive-collection-failure-not-over-redacted
-  (testing "rf2-g5auo - no regression: a collection failure where no slot is
+  (testing "no over-redaction: a collection failure where no slot is
             sensitive rides verbatim (the secret-detection is precise)"
     (let [v (failure-trace
               [:vector [:map [:name :string]]]
