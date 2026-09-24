@@ -1,10 +1,10 @@
 (ns re-frame.resources-derived-scope-sensitivity-cljs-test
-  "No derived-sensitivity propagation — EP-0025 (rf2-71dr8t) REMOVED the
-  named-scope-resolver derived-sensitivity inheritance arm (the EP-0016 wave's
-  fourth framework-known derivation graph). Per Spec 015 §No propagation, no
+  "No derived-sensitivity propagation — a resource does NOT inherit
+  sensitivity from the inputs of the named scope resolver that derives its
+  scope (EP-0025). Per Spec 015 §No propagation, no
   taint / Spec 016 §No derived-sensitivity propagation.
 
-  THE CONTRACT under test (the inversion of the removed engine):
+  THE CONTRACT under test:
 
     - classification does NOT propagate from a resolver's `:db` inputs to its
       derived scope — a resource whose `{:from-db <id>}` resolver reads a
@@ -12,11 +12,9 @@
       resource's OWN coarse `:sensitive?` / `:large?` claim governs its
       whole-entry disposition (`whole-entry-disposition`, frame-blind);
     - a resolver's `:rf.egress/output-sensitivity` claim is SILENTLY IGNORED
-      (not validated fail-closed — the key is gone);
-    - the propagation fns (`resolver-derived-sensitive?` /
-      `scope-derived-sensitive?` / `whole-entry-disposition-for`) are GONE.
+      (not validated fail-closed — it is not a resolver key).
 
-  Confirm-by-revert: a resource declared `:sensitive?` still redacts via its
+  Controls: a resource declared `:sensitive?` redacts via its
   own owner claim; a resource that reads a sensitive input but declares nothing
   serializes (the fail-OPEN the EP names — classify the path you care about).
 
@@ -60,7 +58,7 @@
   (rf/make-frame {:id frame-id})
   (rf.frame/swap-runtime-db! frame-id
     (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :user :username]]})))
-  ;; resolver reading the sensitive viewer-identity path — NO propagation now.
+  ;; resolver reading the sensitive viewer-identity path — NO propagation.
   (rf/reg-resource-scope :t/session
     {:inputs {:username [:db [:auth :user :username]]}}
     (fn [{:keys [username]} _ctx]
@@ -84,7 +82,7 @@
   (merge (rf.resources.state/empty-entry resource-id)
          {:status :loaded :data data :loaded-at 1000 :stale-at 9.0e15}))
 
-;; rf2-9e0tyq — re-key into the runtime's byte-`key-id` :entries shape, stamping
+;; Re-key into the runtime's byte-`key-id` :entries shape, stamping
 ;; each entry's `:resource/key`.
 (defn- runtime-db-with [entries]
   {rf.resources.state/resources-key {:entries (into {}
@@ -104,15 +102,12 @@
 
 ;; ===========================================================================
 ;; 1. :rf.egress/output-sensitivity is SILENTLY IGNORED, not validated.
-;;    (The propagation fns resolver-derived-sensitive? / scope-derived-sensitive?
-;;    / whole-entry-disposition-for are GONE — referencing one would be a
-;;    compile error, so their removal is enforced by the build itself.)
 ;; ===========================================================================
 
 (deftest output-sensitivity-key-silently-ignored
   (testing ":rf.egress/output-sensitivity on a resolver is silently ignored — it
-            does NOT throw (the propagation enum is gone; Spec 015 §No
-            propagation: the key is gone and silently ignored if present)"
+            does NOT throw (Spec 015 §No
+            propagation: the key is silently ignored if present)"
     (is (= :t/with-claim
            (rf/reg-resource-scope :t/with-claim
              {:inputs {:username [:db [:auth :user :username]]}
@@ -121,15 +116,15 @@
         "a resolver with :rf.egress/output-sensitivity registers cleanly")
     (testing "the key is not stored on the canonical spec"
       (is (nil? (:output-sensitivity (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id :t/with-claim}))))))
-    (testing "even a previously-invalid enum value is ignored (no fail-closed throw)"
+    (testing "even a misspelled value is ignored (no fail-closed throw)"
       (is (= :t/garbage-claim
              (rf/reg-resource-scope :t/garbage-claim
                {:inputs {:locale [:db [:i18n :locale]]}
-                :rf.egress/output-sensitivity :rf.egress/publik}   ;; was a fail-closed typo
+                :rf.egress/output-sensitivity :rf.egress/publik}   ;; a misspelled value
                (fn [{:keys [locale]} _] (when locale [:rf.scope/locale {:locale locale}]))))))))
 
 ;; ===========================================================================
-;; 3. Whole-entry disposition is the OWNER claim ALONE — no inheritance.
+;; 2. Whole-entry disposition is the OWNER claim ALONE — no inheritance.
 ;; ===========================================================================
 
 (deftest disposition-no-inheritance-from-sensitive-input
@@ -141,8 +136,8 @@
           "no propagation — the resource serializes despite the sensitive input"))))
 
 (deftest disposition-owner-declared-still-redacts
-  (testing "the OWNER-declared :sensitive? case is unchanged — :redact, via the
-            resource's own coarse claim (confirm-by-revert)"
+  (testing "the OWNER-declared :sensitive? case is :redact, via the
+            resource's own coarse claim (the control)"
     (rf/reg-resource :t/secret-feed
       {:scope         {:from-db :t/session}
        :sensitive?    true
@@ -161,7 +156,7 @@
       (is (= :omit (rf.resources.classification/whole-entry-disposition spec))))))
 
 ;; ===========================================================================
-;; 4. SSR projection END-TO-END — a resource that reads a sensitive input but
+;; 3. SSR projection END-TO-END — a resource that reads a sensitive input but
 ;;    declares nothing SERIALIZES (the fail-OPEN; no inheritance). A resource
 ;;    declared :sensitive? redacts via its own claim.
 ;; ===========================================================================
@@ -181,9 +176,9 @@
 
 (deftest ssr-owner-declared-sensitive-redacts-via-own-claim
   (testing "a resource declared :sensitive? is projected via its OWN coarse claim
-            — scope + params tokenized in the projected KEY, and (rf2-4bjep) the
+            — scope + params tokenized in the projected KEY, and the
             row withheld outright, since substituting both components leaves an
-            identity no live client derives (confirm-by-revert: the owner
+            identity no live client derives (the control: the owner
             boundary, not propagation)"
     (rf/reg-resource :t/secret-feed
       {:scope         {:from-db :t/session}
