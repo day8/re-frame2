@@ -168,9 +168,9 @@
   lowercase token) so a blank or typo'd channel cell still parses as a
   row and is validated downstream rather than silently dropped.
   Anchored at `^|` so it only matches genuine table rows, not prose
-  mentions of a category. The retired-row sentinel (a strikethrough
-  `~~:rf...~~` in column 1) does not match — group 1 requires the
-  back-ticked category as the first cell content."
+  mentions of a category, and group 1 requires the back-ticked category
+  as the first cell content, so a row whose first cell is anything else
+  does not match."
   #"^\|\s*`(:rf\.[^`]+)`\s*\|\s*`?:[^|`]+`?\s*\|([^|]*)\|")
 
 (def ^:private catalogue-heading-re
@@ -241,10 +241,11 @@
   (see `parse-catalogue-tag-rows`) rather than through the regex — the
   cell is long, link-bearing prose and a regex over it is a liability.
 
-  Anchored the same way `catalogue-row-re` is, so the retired-row
-  sentinel (a strikethrough `~~:rf...~~` first cell) does not match: a
-  struck row documents a category the runtime no longer emits and has no
-  live `:tags` payload to reconcile."
+  Anchored the same way `catalogue-row-re` is, so only a row whose first
+  cell is a back-ticked `:rf.` category parses. A first cell in any other
+  shape — a struck-through `~~:rf...~~`, as
+  `tags-column-arm-ignores-retired-rows` pins — names no category with a
+  `:tags` payload to reconcile."
   #"^\|\s*`(:rf\.[^`]+)`\s*\|")
 
 (def ^:private allowed-channels
@@ -1314,9 +1315,9 @@
   Either way the edit is deliberate, reviewable, and one line.
 
   The integer moves by exactly the pairings the same diff gains or loses: a
-  schema added with its row, a schema deleted with its row, or a row retired in
-  place (a retired row claims no Tags schema, even when the schema itself
-  survives in spec/Spec-Schemas.md as a member of a larger record schema). A
+  schema added with its row, a schema deleted with its row, or a row deleted
+  while its schema survives (a schema can live on in spec/Spec-Schemas.md as a
+  member of a larger record schema, and then no row claims it). A
   schema whose name the row's derivation never matches is claimed by nothing
   and diffed by nothing, so renaming it to the name-half derivation — the
   `StaleSuppressedTags` worked example — pairs it with no alias table and no
@@ -2299,8 +2300,8 @@
            mutation and not the arm"))))
 
 (deftest tags-column-arm-ignores-retired-rows
-  (testing "A struck-through row documents a category the runtime no longer
-            emits; it has no live `:tags` payload, so it must not pair."
+  (testing "A struck-through row names no live category and carries no
+            `:tags` payload to reconcile, so it must not pair."
     (let [rows (parse-catalogue-tag-rows
                  (catalogue-fixture
                    (str "| ~~`:rf.error/resource-route-plan`~~ | — | n/a (retired) "
