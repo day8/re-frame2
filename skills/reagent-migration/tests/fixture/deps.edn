@@ -1,4 +1,4 @@
-;; reagent-migration MIG-23 cold-start fixture classpath (rf2-vpdrf).
+;; reagent-migration MIG-23 cold-start fixture classpath.
 ;;
 ;; Pulls the local re-frame2 artefacts in as :local/root entries so the
 ;; fixture runs against the exact tree-of-truth in this repo. Same idiom
@@ -9,8 +9,8 @@
 ;; so "../../../../implementation/<artefact>" lands in the right place.
 ;;
 ;; The fixture needs core (rf/init!, rf/make-frame, the adapter
-;; lifecycle), ssr (re-frame.ssr/adapter — the server-side install the
-;; corrected MIG-23 server half shows), fresco (re-frame.fresco.server's
+;; lifecycle), ssr (re-frame.ssr/adapter — the server-side install
+;; MIG-23's server half shows), fresco (re-frame.fresco.server's
 ;; render — the server product door), and the stock Reagent adapter (the
 ;; migrating app's EXISTING client adapter, which MIG-15/MIG-23 keep).
 ;;
