@@ -36,8 +36,10 @@ Require `[re-frame.machines]` once at boot. The first `reg-machine` without it i
 
 The behavioural baseline is XState v6 — plain guard and action functions, optional
 schemas, explicit timeouts, choice states, private events, event-shaped
-completion. v5 helpers such as `assign`, `sendTo`, `raise`, and `setup()` map
-onto the data-first forms below.
+completion. v5 helper creators such as `assign`, `sendTo`, `raise`, and
+`enqueueActions` map onto the data-first forms below; v6's `setup()` /
+`createMachine({ guards, actions })` registries map onto the machine-local
+`:guards` / `:actions` maps.
 
 ## Mapping
 
@@ -53,13 +55,13 @@ onto the data-first forms below.
 | `initial` | `:initial` |
 | nested states | compound states with `:initial` + `:states` |
 | `type: "parallel"` | `:type :parallel` + `:regions` |
-| `type: "history"` | `:type :history` |
+| `type: "history"` | `:type :history` (`:default-target` is optional and falls back to the compound's `:initial`; v6 requires a history `target`) |
 | `type: "final"` | `:final? true` (auto-destroys; omit it on a resting leaf) |
 | `reenter: true` | `:reenter? true` |
 | `tags` | `:tags #{…}` |
 | `state.hasTag(tag)` | `@(rf/subscribe [:rf.machine/has-tag? id tag])` |
-| `guard` | `:guard` named in `:guards` |
-| `actions` / `assign` | `:action` returning `{:data … :fx …}` |
+| a condition inside the transition function (v5 `guard`) | `:guard` named in `:guards` |
+| the transition function's `{ context }` return + `enq(...)` (v5 `actions` / `assign`) | `:action` returning `{:data … :fx …}` |
 | `always` | `:always` |
 | `after` | `:after` |
 | timeout / onTimeout | `:timeout` + `:on-timeout` |
@@ -67,10 +69,10 @@ onto the data-first forms below.
 | `invoke` | `:spawn` |
 | `invoke` `onError` | `:spawn`'s `:on-error` transition |
 | multiple invokes / fan-out | `:spawn-all` |
-| `raise` | `:fx [[:raise [:tick]]]` |
-| `sendTo` | `:fx [[:dispatch [other-id [:their/event]]]]` — the id you hold IS the address |
+| `enq.raise` (v5 `raise`) | `:fx [[:raise [:tick]]]` |
+| `enq.sendTo` (v5 `sendTo`) | `:fx [[:dispatch [other-id [:their/event]]]]` — the id you hold IS the address |
 | `output` | `:output-key` on a final state |
-| `internalEvents` | `:internal-events #{…}` |
+| `schemas.internalEvents` (a map; the top-level `internalEvents` array is deprecated) | `:internal-events #{…}` |
 | TypeScript types / v6 `schemas` | `:schemas {:data … :output …}` |
 
 ## Machine definition
@@ -132,8 +134,9 @@ handler's.
 
 This is the most important behavioural difference.
 
-An XState action may perform work or use `assign` to update context. A re-frame2
-action returns a value:
+An XState v5 action performs work or uses `assign` to update context; in v6 an
+entry/exit function returns a `{ context }` patch and queues effects through
+`enq`. A re-frame2 action returns a value:
 
 ```clojure
 (fn [{data :data}]
