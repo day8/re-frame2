@@ -121,7 +121,7 @@ A flat-FSM-only port that declares **Q1 yes (flat FSM only)**, **Q2 no**, **Q3 n
 
 **The always-run families are not declared and cannot be opted out of.** `:core/*`, `:identity/*`, `:flow/*`, `:data-classification/*` and `:derivation/*` tag the Required rows above: a port never *declines* one, and a port scoring itself only against the families it declared is over-reporting.
 
-**But "not declinable" is not "every fixture runs".** The subset rule below is applied per *fixture*, not per family, so an always-run fixture that is **cross-tagged** with a gated capability runs only for a port that also claimed that capability. Most are not cross-tagged — `:identity/*` is wholly unconditional today, and the large majority of `:flow/*` and `:data-classification/*` fixtures are too. `:derivation/*` is the exception, and it is total: **every** current derivation fixture is cross-tagged, so a Q1=no port exercises none of the family. Its row in the [Part 3 family table](#part-3--conformance) carries the detail. Count coverage from the fixtures a claim set actually runs, never from the family list alone.
+**But "not declinable" is not "every fixture runs".** The subset rule below is applied per *fixture*, not per family, so an always-run fixture that is **cross-tagged** with a gated capability runs only for a port that also claimed that capability. Most are not cross-tagged — `:identity/*` is wholly unconditional, and the large majority of `:flow/*` and `:data-classification/*` fixtures are too. `:derivation/*` is the exception, and it is total: **every** derivation fixture is cross-tagged, so a Q1=no port exercises none of the family. Its row in the [Part 3 family table](#part-3--conformance) carries the detail. Count coverage from the fixtures a claim set actually runs, never from the family list alone.
 
 ---
 
@@ -156,7 +156,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 #### F2. Persistent data structures
 
-- **Why it matters.** Pulled from "encouraged" to **pattern-required** by [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility). Structural sharing makes "reverting" cheap (a pointer swap, not a deep copy). Without persistent structures the goal is unaffordable.
+- **Why it matters.** Made **pattern-required** by [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility). Structural sharing makes "reverting" cheap (a pointer swap, not a deep copy). Without persistent structures the goal is unaffordable.
 - **Options by host.**
     - **CLJS** — Clojure persistent collections (native).
     - **TypeScript** — Immer (copy-on-write) or [mori](https://swannodette.github.io/mori) or Immutable.js.
@@ -171,7 +171,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 #### F3. Reactive substrate
 
-- **Why it matters.** The runtime's reactive container for `app-db`, the change-tracking that drives view re-renders, and the render-tree → surface step. Substrate-decoupled per [006](006-ReactiveSubstrate.md). Adapter contract is locked at six required + two optional + one lifecycle function, with a [§Revertibility constraint](006-ReactiveSubstrate.md#revertibility-constraints-on-adapters) that adapter-internal state must be derivable from the frame value.
+- **Why it matters.** The runtime's reactive container for `app-db`, the change-tracking that drives view re-renders, and the render-tree → surface step. Substrate-decoupled per [006](006-ReactiveSubstrate.md). The adapter contract is six required + three optional + one lifecycle function, with a [§Revertibility constraint](006-ReactiveSubstrate.md#revertibility-constraints-on-adapters) that adapter-internal state must be derivable from the frame value.
 - **Options by host.** Every in-scope host targets React, so the substrate is the host's React-binding's state-and-reactivity bridge over the framework's container.
     - **CLJS** — Reagent (default; atop React) or plain-atom (JVM/headless/SSR). Other CLJS adapters (UIx) plug in via the same contract.
     - **TypeScript** — `useSyncExternalStore` against a hand-rolled atom-shaped store, or a signal library bridged through it (Solid `createSignal` + `createMemo`, MobX, Zustand, Jotai).
@@ -297,7 +297,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 - **Why it matters.** Trace events flow into a single per-application stream; subscribers listen. Synchronous, in-order, event-at-a-time delivery per [009 §Listener invocation rules](009-Instrumentation.md#listener-invocation-rules). Plus per-frame, event-keyed trace rings (per [009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-event-keyed-dev-only)) for tools that attach after events have fired.
 - **Options by host.** Hand-rolled per host; the contract is just "deliver each emitted trace map to every registered callback synchronously, on the runtime's emit call stack." Listener-invocation order is not contract — implementations may use any registry shape (sorted map, hash map, vector) that delivers each event to every registered listener exactly once.
-- **Reference-impl picks.** CLJS uses a single atom (the listener registry) plus per-frame ring-buffer atoms keyed by cascade; each emit walks the registry inline and routes the event into the in-flight frame's ring (frameless emits skip the ring entirely per the B3 ruling).
+- **Reference-impl picks.** CLJS uses a single atom (the listener registry) plus per-frame ring-buffer atoms keyed by cascade; each emit walks the registry inline and routes the event into the in-flight frame's ring (frameless emits skip the ring entirely, per [009 §Frameless trace events](009-Instrumentation.md#frameless-trace-events--live-stream-only-no-ring-storage)).
 - **Trade-offs.** Hot path: trace allocation must be cheap; listener invocation must short-circuit when no listeners are registered.
 
 #### T2. Performance API equivalent
@@ -437,9 +437,9 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 #### Sch3. Introspection API
 
-- **Why it matters.** `(app-schemas {:frame f})`, `(app-schema-meta {:frame f :path p})`, plus per-registration `(handler-meta kind id)` returning `:schema`.
+- **Why it matters.** `(app-schemas {:frame f})`, `(app-schema-meta {:frame f :path p})`, plus per-registration `(handler-meta {:source :store :kind kind :id id})` returning `:schema`.
 - **Options by host.** Falls out of **F1** + **Sch1**.
-- **Reference-impl picks.** CLJS exposes the schema-introspection accessors on the owning `re-frame.schemas` namespace, not the `re-frame.core` façade — only the `reg-app-schema` / `reg-app-schemas` registration macros are on the façade (per [010 §Schemas as a tooling and agent surface](010-Schemas.md#schemas-as-a-tooling-and-agent-surface)). `handler-meta` is a `re-frame.core` registrar-query surface and is unaffected.
+- **Reference-impl picks.** CLJS exposes the schema-introspection accessors on the owning `re-frame.schemas` namespace, not the `re-frame.core` façade — only the `reg-app-schema` / `reg-app-schemas` registration macros are on the façade (per [010 §Schemas as a tooling and agent surface](010-Schemas.md#schemas-as-a-tooling-and-agent-surface)). `handler-meta` is a `re-frame.core` registrar-query surface.
 - **Trade-offs.** Tooling and AI agents read this — make sure the schema is data, not opaque host objects.
 
 ### Machines (if Q1 is yes)
@@ -487,7 +487,7 @@ For each capability included in Part 1, the implementor makes the per-capability
     - **Source coords** — `:ns`/`:line`/`:file` keys on registration metadata.
     - **Dispatch + hot-swap + fx-stub** — `dispatch` opts (`:fx-overrides`), re-`reg-*` for hot-swap.
 - **Options by host.** Per host's REPL or live-attach surface: nREPL+CIDER (CLJS / Squint); Node-attached debugger over a dev-build module-replacement boundary for the JS-cross-compile hosts (TypeScript, Melange / ReScript / Reason, Fable, Scala.js, PureScript, Kotlin/JS); or a host-idiomatic REPL the build pipeline exposes. The framework primitives are host-agnostic across the eight.
-- **Reference-impl picks.** CLJS reference ships the trace surface, epoch history, and registrar query API in-tree (per [ audit](Tool-Pair.md#how-ai-tools-attach)). re-frame-pair is a separate library that consumes these.
+- **Reference-impl picks.** CLJS reference ships the trace surface, epoch history, and registrar query API in-tree (per [Tool-Pair §How AI tools attach](Tool-Pair.md#how-ai-tools-attach)). re-frame-pair is a separate library that consumes these.
 - **Trade-offs.** **No 10x dependency required** — re-frame2 is infrastructure-complete for AI-tool consumption. 10x and pair share the substrate.
 
 ### Managed HTTP (if Q8 is yes)
@@ -511,7 +511,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 #### Res1. Cache-scope identity
 
 - **Why it matters.** [016](016-Resources.md) makes resource identity and **fail-closed** cache scopes the contract's load-bearing pieces: two resource requests share a cache entry only when their identity *and* scope agree, and an unresolvable scope must fail rather than fall back to a global one. This is a direct consumer of the **F1** identity primitive's value-equality and serialisability.
-- **Options by host.** Falls out of **F1** — the canonical-identity encoding the `:identity/*` fixtures already pin is what makes two argument maps compare equal across hosts.
+- **Options by host.** Falls out of **F1** — the canonical-identity encoding the `:identity/*` fixtures pin is what makes two argument maps compare equal across hosts.
 - **Reference-impl picks.** CLJS keys the cache on the canonical form of `[resource-id args]` within the resolved scope.
 - **Trade-offs.** A host that keys on reference identity or on an unordered map's iteration order will dedupe inconsistently and fail the `:resources/dedupe` fixture. Fail-open scope resolution is the more dangerous variant — it silently serves one tenant's data to another.
 
@@ -561,7 +561,7 @@ The harness (per [conformance/README §How an implementation runs the corpus](co
 | `:identity/*` | nothing — always run | The canonical-identity byte contract behind the [Required](#required-not-gated-every-implementation-ships-these) identity-primitive row; a port's encoder is pinned against a frozen token stream. |
 | `:flow/*` | nothing — always run | [013](013-Flows.md) is v1-required. |
 | `:data-classification/*` | nothing — always run | [015](015-Data-Classification.md) is v1-required. |
-| `:derivation/*` | nothing declares it — but **every current fixture is cross-tagged**, so in practice Q1 | Graph inspection over the derivation/process algebra ([Derivations](Derivations.md)). The family is gated by no question, yet both fixtures also carry `:fsm/flat`, and `derivation-graph-algebra-full.edn` additionally carries `:flow/basic`, `:rf.http/managed` and two `:routing/*` tags. Under the subset rule a **Q1=no port therefore runs neither**, and a Q2/Q8=no port runs only the subs+machines one. Until a required-surface-only derivation fixture exists, do not report derivation coverage as unconditional. |
+| `:derivation/*` | nothing declares it — but **every fixture is cross-tagged**, so in practice Q1 | Graph inspection over the derivation/process algebra ([Derivations](Derivations.md)). The family is gated by no question, yet both fixtures also carry `:fsm/flat`, and `derivation-graph-algebra-full.edn` additionally carries `:flow/basic`, `:rf.http/managed` and two `:routing/*` tags. Under the subset rule a **Q1=no port therefore runs neither**, and a Q2/Q8=no port runs only the subs+machines one. With no required-surface-only derivation fixture in the corpus, do not report derivation coverage as unconditional. |
 | `:fsm/*` | Q1 yes **and** the matching capability claimed | FSM-richness axis. |
 | `:actor/*` | Q1 yes **and** the matching capability claimed | Actor-model axis. |
 | `:routing/*` | Q2 yes | |
@@ -570,7 +570,7 @@ The harness (per [conformance/README §How an implementation runs the corpus](co
 | `:rf.http/managed` | Q8 yes | A single tag rather than a `/*` axis — managed HTTP is one contract, claimed whole. |
 | `:resources/*` | Q9 yes | Implies Q8. |
 
-The **members** of `:fsm/*` and `:actor/*` are the claimable capabilities of [005 §Capability matrix](005-StateMachines.md#capability-matrix), which is their authority; the corpus is the roster of which of them a fixture actually exercises today. Read the two together rather than either alone — a capability can be claimable before the corpus covers it, and the corpus grows tags without the matrix moving.
+The **members** of `:fsm/*` and `:actor/*` are the claimable capabilities of [005 §Capability matrix](005-StateMachines.md#capability-matrix), which is their authority; the corpus is the roster of which of them a fixture actually exercises. Read the two together rather than either alone — a capability can be claimable before the corpus covers it, and the corpus grows tags without the matrix moving.
 
 See [conformance/README §Capability tagging worked example](conformance/README.md#capability-tagging-worked-example) for a five-fixture cross-section showing the tag conventions in practice on real corpus entries — useful as a copy-from reference when authoring the implementation's harness manifest.
 
