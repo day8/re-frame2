@@ -52,7 +52,7 @@ completion. v5 helper creators such as `assign`, `sendTo`, `raise`, and
 | `actor.getSnapshot()` | `@(rf/subscribe [:rf/machine id])` |
 | `actor.send(event)` | `(rf/dispatch [machine-id [event …]])` |
 | `createActor(machine).start()` | nothing to create: the first event, or `(rf/dispatch [machine-id [:rf.machine/start]])`, starts a registered machine |
-| `actor.stop()` | `:fx [[:rf.machine/destroy machine-id]]` — runs the active states' `:exit` actions before teardown, where `stop()` runs none |
+| `actor.stop()` | `:fx [[:rf.machine/destroy machine-id]]` — runs the active states' `:exit` actions before teardown, where `stop()` runs none, and destroys the children its `:spawn` / `:spawn-all` states track, as `stop()` stops children |
 | `snapshot.status` / `snapshot.output` after completion | the `:rf.machine/done` trace carries `:output`; the snapshot is gone, so `[:rf/machine id]` reads `nil` for a finished, destroyed or never-started machine alike |
 | `actor.subscribe({ complete })` | the `:rf.machine/done` trace, and `:rf.machine/destroyed` with its `:reason` |
 | sending to a done or stopped actor (a dead letter) | a singleton is re-born from `:initial` and handles the event; a destroyed spawned actor answers `:rf.error/no-such-handler` |
@@ -270,7 +270,8 @@ State-bound child work is `:spawn`:
  :on    {:cancel :idle}}
 ```
 
-The child is destroyed automatically when the parent leaves `:authenticating`.
+The child is destroyed automatically when the parent leaves `:authenticating`
+or is destroyed.
 `:on-done` folds the child's result into the parent's `:data`. `:on-error` is a
 transition.
 
