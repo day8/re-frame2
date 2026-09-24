@@ -452,7 +452,7 @@
            (rf.http.encoding/encode-body "already-encoded" nil))
         "a bare string is pass-through: body kept, content-type nil")))
 
-;; ---- run-accept — Spec 014 §`:accept` default normalisation (G2) ----------
+;; ---- run-accept — Spec 014 §`:accept` default normalisation ---------------
 ;;
 ;; The default `:accept` (nil accept-fn) is unconditionally
 ;; {:ok decoded}. The only call site (http-transport/handle-response!)
