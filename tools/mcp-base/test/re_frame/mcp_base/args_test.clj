@@ -74,7 +74,7 @@
 
 (deftest parse-positive-int-rejects-trailing-garbage
   (is (= 50 (rf.mcp-base.args/parse-positive-int "12abc" 50))
-      "trailing garbage falls back to default (was 12 on CLJS before the fix)")
+      "trailing garbage falls back to default (a raw js/parseInt would read 12)")
   (is (= 50 (rf.mcp-base.args/parse-positive-int "5xyz" 50)))
   (is (= 50 (rf.mcp-base.args/parse-positive-int "12 34" 50)) "internal whitespace rejected")
   (is (= 50 (rf.mcp-base.args/parse-positive-int "0x10" 50)) "hex-prefixed string rejected")
@@ -108,10 +108,10 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest parse-positive-int-out-of-domain-numerics-default-not-throw
-  (is (= 50 (rf.mcp-base.args/parse-positive-int ##Inf 50)) "##Inf defaults (was IllegalArgumentException)")
+  (is (= 50 (rf.mcp-base.args/parse-positive-int ##Inf 50)) "##Inf defaults (not IllegalArgumentException)")
   (is (= 50 (rf.mcp-base.args/parse-positive-int ##-Inf 50)) "##-Inf defaults")
-  (is (= 50 (rf.mcp-base.args/parse-positive-int ##NaN 50)) "##NaN defaults (was a real floor of 1)")
-  (is (= 50 (rf.mcp-base.args/parse-positive-int 1.0E20 50)) "1.0E20 defaults (was IllegalArgumentException)")
+  (is (= 50 (rf.mcp-base.args/parse-positive-int ##NaN 50)) "##NaN defaults (not a real floor of 1)")
+  (is (= 50 (rf.mcp-base.args/parse-positive-int 1.0E20 50)) "1.0E20 defaults (not IllegalArgumentException)")
   (is (= 50 (rf.mcp-base.args/parse-positive-int -1.0E20 50)) "-1.0E20 defaults"))
 
 (deftest parse-positive-int-in-domain-numerics-still-parse
@@ -130,9 +130,9 @@
   ;; (the cross-runtime contract). The CLJS mirror asserts the identical
   ;; value in cljs_branches_cljs_test.
   (is (= 50 (rf.mcp-base.args/parse-positive-int "9007199254740992" 50))
-      "one past the safe-integer ceiling defaults on BOTH hosts now (was parsed on JVM)")
+      "one past the safe-integer ceiling defaults on BOTH hosts, the JVM included")
   (is (= 9007199254740991 (rf.mcp-base.args/parse-positive-int "9007199254740991" 50))
-      "exactly the safe-integer ceiling is still accepted on both hosts"))
+      "exactly the safe-integer ceiling is accepted on both hosts"))
 
 ;; ---------------------------------------------------------------------------
 ;; fresh-keyword — positive-named intern for operator-gated write paths.
