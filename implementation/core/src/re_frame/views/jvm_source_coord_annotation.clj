@@ -6,19 +6,19 @@
   Per Spec 006 §Source-coord annotation and §View tagging contract the
   view-registration boundary is the single architectural home for the two
   dev-mode DOM annotations on EVERY host: `data-rf2-source-coord=\"<ns>:
-  <sym>:<line>:<col>\"` (rf2-z7f7 — maps a rendered node back to its
-  reg-view call site) and `data-rf-view=\"<str id>\"` (rf2-01il5 — the
-  view-id capture surface). The client stamps both at React render time;
-  this namespace stamps both on the server render's hiccup so the two
-  hosts emit the same evidence and a dev SSR page hydrates as a clean
-  ADOPTION rather than an attribute-mismatch (rf2-8vi4q).
+  <sym>:<line>:<col>\"` (maps a rendered node back to its reg-view call
+  site) and `data-rf-view=\"<str id>\"` (the view-id capture surface). The
+  client stamps both at React render time; this namespace stamps both on
+  the server render's hiccup so the two hosts emit the same evidence and a
+  dev SSR page hydrates as a clean ADOPTION rather than an
+  attribute-mismatch.
 
   ## Why here, and not in the SSR emitter
 
-  The rejected alternative (rf2-8vi4q Option A) stamped the annotation
-  inside the JVM SSR emitter's keyword-view branch. That branch is gone
-  (rf2-j81hs — a keyword head is a DOM element on every host), and it
-  never fired on the callable-head shape isomorphic pages actually use.
+  The JVM SSR emitter is the wrong home. It has no keyword-view branch (a
+  keyword head is a DOM element on every host), and a stamp inside such a
+  branch would never fire on the callable-head shape isomorphic pages
+  actually use.
   Annotation is a property of the REGISTERED VIEW, not of the emitter, so
   it lives at the registration boundary: `re-frame.core/reg-view*`'s `:clj`
   branch wraps the stored `:handler-fn` with `wrap-handler-fn` below, and
@@ -36,11 +36,11 @@
   ## The dialect is shared, not reinvented
 
   `format-source-coord` / `format-view-id` are the SAME implementation on
-  every host: rf2-5q0jv moved them into the neutral `.cljc` contract owner
+  every host: they live in the neutral `.cljc` contract owner
   `re-frame.source-coords` (co-located with their inverse parsers), and both
   the vars below and the CLJS `re-frame.adapter.context` counterparts are
-  thin aliases of it — so a JVM copy and a CLJS copy can no longer drift.
-  The hiccup walk here still mirrors
+  thin aliases of it — so there is no JVM copy and CLJS copy to drift apart.
+  The hiccup walk here mirrors
   `re-frame.views.source-coord-annotation`'s DOM-root branch exactly: merge
   both attributes onto a DOM-tag root, preserve any author-supplied value,
   recurse through Form-2 fns, skip fragment / callable-head roots. The
@@ -57,7 +57,7 @@
   `<line>` / `<col>` degrade to `?` when the coords were not captured
   (a programmatic `reg-view*` that bypassed the macro path). Per Spec 006
   §Source-coord annotation. JVM-side alias of the neutral cross-host owner
-  `re-frame.source-coords/format-source-coord` (rf2-5q0jv) — the single
+  `re-frame.source-coords/format-source-coord` — the single
   implementation both hosts share, pinned to one canonical literal by the
   `source-coord-parity` tests so it cannot drift."
   rf.source-coords/format-source-coord)
@@ -66,8 +66,7 @@
   "Render a registry id keyword as the `data-rf-view` attribute value —
   `(str id)`, so `:rf.foo/bar` → `\":rf.foo/bar\"` (leading colon
   included). Per Spec 006 §View tagging contract. JVM-side alias of the
-  neutral cross-host owner `re-frame.source-coords/format-view-id`
-  (rf2-5q0jv)."
+  neutral cross-host owner `re-frame.source-coords/format-view-id`."
   rf.source-coords/format-view-id)
 
 (defn- dom-tag-head?
@@ -75,8 +74,7 @@
   `:<>` and the Reagent interop heads `:>`, `:r>` and `:f>` are NOT DOM
   tags and are exempt from annotation, mirroring the client `dom-tag?`
   predicate per Spec 006. The interop heads carry the component at
-  position 1, where the splice below would otherwise land
-  (rf2-3x7nj.3.2)."
+  position 1, where the splice below would otherwise land."
   [head]
   (and (keyword? head)
        (not= :<> head)
