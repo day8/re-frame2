@@ -67,7 +67,7 @@
 ;; ---- JSON parse / encode --------------------------------------------------
 
 (deftest json-parse-keeps-string-keys
-  ;; rf2-3luf3: `parse-json` now parses with STRING keys (no recursive
+  ;; `parse-json` parses with STRING keys (no recursive
   ;; keywordisation). Envelope + known-arg keywordisation happens
   ;; downstream in `normalize-frame` (exercised via `read-frame`). This
   ;; closes the attacker-controlled-nested-key intern surface.
@@ -75,7 +75,7 @@
     (let [m (rf.story-mcp.protocol/parse-json "{\"method\":\"tools/list\",\"id\":1}")]
       (is (= "tools/list" (get m "method")))
       (is (= 1 (get m "id")))
-      (is (nil? (:method m)) "no keyword key — parse-json is string-keyed now"))))
+      (is (nil? (:method m)) "no keyword key — parse-json is string-keyed"))))
 
 (deftest normalize-frame-keywordises-envelope
   (testing "normalize-frame converts the JSON-RPC envelope keys to keywords"
@@ -133,7 +133,7 @@
         (catch clojure.lang.ExceptionInfo e
           (is (= :rf.error/story-mcp-json-parse-failure (:rf.error/id (ex-data e)))))))))
 
-;; NB (rf2-3luf3): `read-frame` is the INBOUND-frame reader — it
+;; NB: `read-frame` is the INBOUND-frame reader — it
 ;; normalises a request/notification frame and deliberately keywordises
 ;; ONLY the envelope + the bounded arg-key allowlist (nested `:result`
 ;; payload keys are NOT walked, since the server never reads its own
