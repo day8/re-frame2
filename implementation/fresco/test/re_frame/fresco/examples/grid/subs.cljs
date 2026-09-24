@@ -16,7 +16,7 @@
   every mounted cell's `get-in` and the equality gate on the OUTPUT is what
   keeps ninety-nine of them from notifying. Notification is what scales
   narrowly; recomputation scales with the grid — the per-keystroke census
-  counted 111 at 10x10 and 31 at 5x5 against two boundary bodies at both
+  publishes 111 at 10x10 and 31 at 5x5 against two boundary bodies at both
   sizes, and `grid.row-total-layer2-dom-cljs-test` re-reads the same figures
   (`docs/core/fresco/19-performance.md` §Scale the same
   topology to a grid).
