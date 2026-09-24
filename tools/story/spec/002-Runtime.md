@@ -317,10 +317,15 @@ and has no wall-clock deadline — the predicate is read once, and
 whatever is true at that moment decides the run. A loader whose
 readiness arrives asynchronously must therefore make that readiness
 observable *synchronously, inside the loader drain*. The supported
-route is to stub the effect with the `force-fx-stub` decorator (see
-[`005-SOTA-Features.md`](005-SOTA-Features.md) §`force-fx-stub`), so
-the response event dispatches within the drain; a variant that waits
-on the real network instead records `:rf.error/loader-incomplete`.
+routes answer the request inside the drain: `:network` for managed
+HTTP, whose canned reply is dispatched from the fx walk (see
+[`017-Testing-Story.md`](017-Testing-Story.md) §The network surface),
+or a first-class `:fx-overrides` redirect to a registered stub fx that
+dispatches the app's reply event. The `force-fx-stub` decorator (see
+[`005-SOTA-Features.md`](005-SOTA-Features.md) §`force-fx-stub`) is not
+such a route: it suppresses the effect and records the call, so no
+response event ever dispatches. A variant that waits on the real
+network instead records `:rf.error/loader-incomplete`.
 
 Stage 2 macro validates that
 `:loaders-complete-when` resolves to a registered event id or is a
@@ -463,8 +468,10 @@ should:
    then does not resume the run when it later does: the lifecycle
    parks at `:loading` and the runtime records
    `:rf.error/loader-incomplete` (see Never-complete below). To
-   exercise the settled state, stub the effect with `force-fx-stub`
-   so it resolves inside the drain, and
+   exercise the settled state, answer the request inside the drain:
+   `:network` for managed HTTP, or an `:fx-overrides` redirect to a
+   registered stub fx that dispatches the reply (`force-fx-stub` only
+   suppresses the effect, so nothing resolves), and
 2. Dispatch a follow-up event from the promise's `.catch` handler that
    either re-raises (taking the Throw route above) or records its own
    assertion via `:rf.assert/*`.
@@ -565,8 +572,9 @@ torn-down frame and may either no-op or surface as
    (story/reg-variant :story.feed/live
      {:loaders [[:feed/subscribe]]
       ;; Read ONCE, right after the loader drain: :feed/first-tick-received
-      ;; must already be on the tape by then — stub the socket fx with
-      ;; force-fx-stub so the first tick dispatches inside the drain.
+      ;; must already be on the tape by then — redirect the socket fx with
+      ;; :fx-overrides to a registered stub fx that dispatches the first
+      ;; tick, so it lands inside the drain.
       ;; Against a real socket this records :rf.error/loader-incomplete.
       :loaders-complete-when [[:feed/first-tick-received]]
       :script [[:dispatch-sync [:rf.assert/path-equals [:feed :latest] :some/expected]]]})

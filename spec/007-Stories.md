@@ -83,7 +83,7 @@ A variant is a **specific scenario** — one state of a story. Variants register
    :setup      [[:dispatch [:auth/initialise]]
                 [:dispatch [:auth/email-changed "alice@example.com"]]
                 [:dispatch [:auth/login-pressed]]]
-   :decorators [[:force-fx-stub :my-app/http {:status :pending}]]})
+   :decorators [[:rf.story/force-fx-stub :my-app/http {:status :pending}]]})
 ```
 
 (`:my-app/http` here is a placeholder for a user-supplied fx; the framework ships `:rf.http/managed` — see [014-HTTPRequests](014-HTTPRequests.md).)
@@ -159,7 +159,7 @@ Two registration forms are canonical, and authors choose by ergonomics:
               :loading           {:setup [[:dispatch [:auth/initialise]]
                                           [:dispatch [:auth/email-changed "alice@example.com"]]
                                           [:dispatch [:auth/login-pressed]]]
-                                  :decorators [[:force-fx-stub :my-app/http {:status :pending}]]}}})
+                                  :decorators [[:rf.story/force-fx-stub :my-app/http {:status :pending}]]}}})
 ```
 
 Both forms are first-class.
@@ -262,7 +262,7 @@ Decorators wrap stories with shared infrastructure: themes, layout containers, m
 
 1. **Hiccup wrapper.** A vector that wraps the rendered view.
 2. **Frame setup.** A function that mutates the story's frame at creation — pre-populates `app-db`, registers per-frame interceptors.
-3. **Fx override.** A declaration that swaps an fx for the lifetime of the variant — `[:force-fx-stub :my-app/http canned-response]`.
+3. **Fx override.** A declaration that swaps an fx for the lifetime of the variant — `[:rf.story/force-fx-stub :my-app/http canned-response]`.
 
 Each decorator vector in a variant body is `[<decorator-id> args...]` — id-valued (a keyword), not function-valued, per the variant-as-data discipline:
 
@@ -278,8 +278,8 @@ Each decorator vector in a variant body is `[<decorator-id> args...]` — id-val
 
 ;; Fx override — affects effects. The stub payload is data; any handler logic
 ;; lives in a registered event/fx handler that the decorator references by id.
-[:force-fx-stub :my-app/http {:status 200 :body {...}}]
-[:force-fx-stub :localstorage {:value nil}]
+[:rf.story/force-fx-stub :my-app/http {:status 200 :body {...}}]
+[:rf.story/force-fx-stub :localstorage {:value nil}]
 ```
 
 Decorators are themselves registered library artefacts — usually small libraries that ship as `re-frame.decorators.theme`, `re-frame.decorators.auth`, etc. Story authors `(:require ...)` the decorator library to register the ids, then reference each decorator by its keyword id from the variant body; decorators register hooks against the framework's interceptor and fx surfaces (no new framework primitives required).

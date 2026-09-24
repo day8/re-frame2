@@ -87,6 +87,10 @@ The fastest design-state path is to pin the value a subscription returns:
 This is excellent for UI exploration. You can show loading, empty, error, or
 permission-denied states before the full event path exists.
 
+Pins are a dev-build feature. A published static export compiles them out, so
+there the variant renders its real subscription values; a state you intend to
+publish should use a `:db-seed` or real setup.
+
 It is not proof of the subscription.
 
 ```clojure

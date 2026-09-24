@@ -47,25 +47,32 @@
   `\"no stub matched\"` transport failure — spec/017 §Network stubs, preserved
   rather than reimplemented.
 
-  ## Why the install alone is not enough (the rf2-shx4 audit of PR #9398)
+  ## Reaching the stub through a selected image (rf2-shx4, rf2-3x7nj.5.2)
 
-  `install-managed-request-stubs!` registers into the process SOURCE STORE. A
-  variant frame created with NO `:images` projects the whole store (EP-0026's
-  DEFAULT image), so it sees that registration — which is why the
-  default-image acceptance tests passed. A variant that DECLARES an app image
-  (or inherits one from its parent story) resolves through a SELECTED, sealed
-  generation instead, and the stub is unreachable there: an image selects by
-  `:rf.provenance/ns`, and a descriptor registered by a runtime `reg-fx` call
-  carries no source provenance at all, so NO namespace glob can select it. The
-  frame still receives the `:fx-overrides` redirect, but its generation cannot
-  resolve the target — and the request falls through to the REAL
-  `:rf.http/managed` transport.
+  `install-managed-request-stubs!` registers into the process SOURCE STORE
+  through the fn-alias `reg-fx` path, so the descriptor carries no
+  `:rf.provenance/ns`. A variant frame created with NO `:images` projects the
+  whole store (EP-0026's DEFAULT image), so it sees that registration. A
+  variant that DECLARES an app image (or inherits one from its parent story)
+  resolves through a SELECTED, sealed generation instead, and an image selects
+  by `:rf.provenance/ns`, so no namespace glob can select the stub. When the
+  rf2-shx4 audit of PR #9398 met this, nothing else supplied it either: the
+  frame received the `:fx-overrides` redirect, could not resolve the target,
+  and the request fell through to the REAL `:rf.http/managed` transport.
 
-  `fixture-image` closes that without widening the app image: it is a
-  library-owned image carrying EXACTLY ONE inline `:reg-fx` — the very handler
-  the install just registered, over the very same `FrameScopedRoutes` object.
-  `frames/compose-variant-images` layers it after the app images (so nothing
-  authored can shadow it) whenever the frame being allocated owns a fixture.
+  Since rf2-3x7nj.5.2 (PR #10300) an explicit composition is layered over the
+  FRAMEWORK BASE (`:rf/framework`): every loaded registration with no source
+  namespace whose id sits under the reserved `:rf` root. The stub id,
+  `:rf.http/managed-test-stub`, is one of them, so the base alone makes it
+  resolvable from a selected generation.
+
+  `fixture-image` predates the base and stays (the rf2-3x7nj.5.2 ruling keeps
+  it): a library-owned image carrying EXACTLY ONE inline `:reg-fx` — the very
+  handler the install just registered, over the very same `FrameScopedRoutes`
+  object. `frames/compose-variant-images` layers it after the app images (so
+  nothing authored can shadow it) whenever the frame being allocated owns a
+  fixture. It is now redundant but harmless: it shadows the base's entry for
+  the same handler, and the shadow report names `:rf/framework` as the loser.
   One implementation, one route map, two projections."
   (:require [re-frame.core     :as rf]
             [re-frame.frame    :as rf.frame]
@@ -183,11 +190,12 @@
       frame-id)))
 
 (defn fixture-image
-  "The library-owned image that makes the installed stub fx reachable through a
-  frame's SELECTED generation — `nil` when no Story fixture is installed.
+  "The library-owned image that projects the installed stub fx into a frame's
+  SELECTED generation — `nil` when no Story fixture is installed. The framework
+  base now carries the same fx as well, so this is redundant but kept.
 
-  Read the ns docstring §Why the install alone is not enough for the why. The
-  what is one line of image: a single inline `:reg-fx` republishing the handler
+  Read the ns docstring §Reaching the stub through a selected image for the
+  why. The what is one line of image: a single inline `:reg-fx` republishing the handler
   `install-managed-request-stubs!` just put in the source store, so the SAME
   closure over the SAME `FrameScopedRoutes` object answers on both projections.
   Nothing else rides along — the app image keeps its isolation, and only the

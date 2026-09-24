@@ -1175,7 +1175,7 @@ The `:variants` map desugars at macro-expansion time to N independent `reg-varia
    :setup      [[:dispatch [:auth/initialise]]
                 [:dispatch [:auth/email-changed "alice@example.com"]]
                 [:dispatch [:auth/login-pressed]]]
-   :decorators [[:force-fx-stub :rf.http/managed {:status :pending}]]})
+   :decorators [[:rf.story/force-fx-stub :rf.http/managed {:status :pending}]]})
 ```
 
 **Pattern-level discipline (per [007-Stories.md](007-Stories.md)):**

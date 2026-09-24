@@ -845,7 +845,7 @@ Body (one of three kinds per spec/007):
 {:doc  "..."
  :kind :fx-override
  :fx-id     <fx-id>                              ; the fx the decorator stubs
- :response  <data>}                              ; the stubbed response
+ :response  <data>}                              ; recorded with each stubbed call, never delivered
 ```
 
 **Closure caveat.** A decorator's `:wrap` slot *is* a function — but
@@ -959,18 +959,23 @@ but the inversion is worth naming because the same author can hit
 both in the same variant body.
 
 ```clojure
-;; Story-level :fx-override registered first (the "base mock");
+;; Story-level :fx-override registered first (the "base stub");
 ;; variant-level :fx-override registered second wins on collision.
-(story/reg-story :story.checkout/flow
-  {:decorators [[:force-fx-stub :http/managed
-                 {:response {:status 200 :body {:items []}}}]]})
+(story/reg-story :story.checkout.flow
+  {:decorators [[:rf.story/force-fx-stub :analytics/track {:from :story}]]})
 
-(story/reg-variant :story.checkout/flow/server-error
-  {:decorators [[:force-fx-stub :http/managed                       ;; SAME :fx-id
-                 {:response {:status 500 :body :rf.http/failed}}]]})
-;;                                                  ^^^^^^^^^^^^
-;;                                                  variant-level wins
+(story/reg-variant :story.checkout.flow/quiet-analytics
+  {:decorators [[:rf.story/force-fx-stub :analytics/track   ;; SAME :fx-id
+                 {:from :variant}]]})
+;;               ^^^^^^^^^^^^^^^^
+;;               variant-level wins: the stub-call log records {:from :variant}
 ```
+
+Whichever layer wins, the effect is suppressed and its response is
+data recorded in the stub-call log. It is never delivered to the app,
+so a stub cannot show a reply state; a server error replies through
+`:network` ([`017-Testing-Story.md`](017-Testing-Story.md) §The network
+surface).
 
 The registry is keyed by id, so re-registering a `:hiccup` decorator
 under the same id REPLACES the body (hot-reload semantics — see
@@ -1485,7 +1490,7 @@ fits in a single event, `:loaders-teardown` is the lightweight option.
   {:setup      [[:auth/initialise]
                 [:auth/email-changed "alice@example.com"]
                 [:auth/login-pressed]]
-   :decorators [[:force-fx-stub :http {:status :pending}]]})
+   :decorators [[:rf.story/force-fx-stub :http {:status :pending}]]})
 
 (story/reg-variant :story.auth.login-form/loading-with-prefill
   {:extends :story.auth.login-form/loading

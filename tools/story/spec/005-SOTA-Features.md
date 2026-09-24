@@ -28,39 +28,63 @@ install, configure, and learn — and each one carves out its own
 mental model for "what does mocking look like for *this* concern?"
 
 Story has it in **one primitive**: any effect handler you registered
-with `reg-fx` can be stubbed in three lines of variant body.
+with `reg-fx` can be stubbed with one decorator in the variant body.
+The stub **suppresses** the effect and records the call. It never
+answers. That makes it the *freeze* tool: the canvas shows the state
+the app is in while the effect is outstanding, or dead.
 
-Set up a variant that fails the checkout HTTP call:
+Set up a variant whose analytics pipeline is down:
+
+```clojure
+(story/reg-variant :story.checkout/analytics-down
+  {:extends    :story.checkout/happy-path
+   :decorators [[:rf.story/force-fx-stub :analytics/track {}]]})
+```
+
+Absorbing *is* "down": every `:analytics/track` the checkout emits is
+recorded, and none leaves the page. The same decorator suppresses a
+websocket send, a geolocation request, a storage write, a navigation,
+or anything else you `reg-fx`'d in your app. Same primitive, same
+variant body shape. No new dependency per fx kind, no new mental
+model per addon.
+
+A state that needs a *reply* is authored with a surface that delivers
+one. A failed checkout request replies through `:network`, the
+managed-HTTP affordance
+([`017-Testing-Story.md`](017-Testing-Story.md) §The network surface):
 
 ```clojure
 (story/reg-variant :story.checkout/network-failure
   {:extends :story.checkout/happy-path
-   :decorators [[:force-fx-stub :http/managed
-                 (constantly :rf.http/failed)]]})
+   :network {[:post "/api/checkout"]
+             {:reply {:failure {:kind :rf.http/http-5xx :status 503}}}}})
 ```
 
-Or fails analytics. Or websocket. Or geolocation. Or storage. Or
-navigation. Or anything else you `reg-fx`'d in your app:
+Any other effect replies through the app's own event. Dispatch it in
+`:setup`:
 
 ```clojure
-(story/reg-variant :story.checkout/analytics-down
-  {:extends :story.checkout/happy-path
-   :decorators [[:force-fx-stub :analytics/track
-                 (constantly nil)]]})
-
 (story/reg-variant :story.dashboard/ws-disconnected
   {:extends :story.dashboard/happy-path
-   :decorators [[:force-fx-stub :ws/send
-                 (constantly :ws/closed)]]})
-
-(story/reg-variant :story.profile/geo-denied
-  {:extends :story.profile/happy-path
-   :decorators [[:force-fx-stub :geo/locate
-                 (constantly {:status :denied})]]})
+   :setup   [[:dispatch [:dashboard/ws-closed {:code 1006}]]]})
 ```
 
-Same primitive. Same three-line decorator. Same variant body shape.
-No new dependency per fx kind, no new mental model per addon.
+or redirect the effect with first-class `:fx-overrides` to a
+registered stub fx that dispatches it:
+
+```clojure
+(rf/reg-fx :story.stub/geo-denied
+  (fn [_ctx {:keys [on-error]}]
+    (rf/dispatch (conj on-error {:status :denied}))))
+
+(story/reg-variant :story.profile/geo-denied
+  {:extends      :story.profile/happy-path
+   :fx-overrides {:geo/locate :story.stub/geo-denied}})
+```
+
+A reply authored this way exercises what the app does with that reply,
+the state transition downstream of it. It does not prove the request
+would have produced that reply.
 
 ### Why this is an architectural win, not a feature
 
@@ -93,30 +117,39 @@ body cites it the same way it cites any other decorator:
 
 ```clojure
 (story/reg-variant :story.auth.login-form/loading
-  {:decorators [[:force-fx-stub :http {:status :pending}]]
+  {:decorators [[:rf.story/force-fx-stub :http {:status :pending}]]
    :setup      [[:auth/initialise]
                 [:auth/login-pressed]]})
 ```
 
-The decorator accepts an fx-id and a response value (or a function
-of the fx's argument, for variants that need to inspect the dispatch
-payload before responding). It applies at frame creation; the stub
-is per-frame and per-variant, so two variants of the same story can
-stub the same fx with different responses without cross-talk.
+The id is `:rf.story/force-fx-stub` (the value of
+`re-frame.story.fx-stubs/force-fx-stub-id`). A bare `:force-fx-stub`
+names no registered decorator, so the run refuses before any phase
+(see [`017-Testing-Story.md`](017-Testing-Story.md) §The effect-override
+surface).
+
+The decorator takes an fx-id and a response. The response is
+DATA: the stub records it beside each call's payload in the per-frame
+stub-call log and returns nothing, so no reply event fires and nothing
+reaches app-db. It applies at frame creation; the stub is per-frame
+and per-variant, so two variants of the same story can stub the same
+fx with different recorded responses without cross-talk.
 
 For the full decorator surface — the `:fx-override` kind, the
-`:response` / `:fn` slots, the `:rf.assert/effect-emitted`
+`:response` slot, the `:rf.assert/effect-emitted`
 interaction — see [`004-Assertions.md`](004-Assertions.md)
 §`force-fx-stub` interaction and [`002-Runtime.md`](002-Runtime.md)
-§Decorator composition.
+§Decorator composition order.
 
 ### Test-mode integration
 
-A `:test`-tagged variant that stubs an fx behaves exactly like one
-that doesn't. `run-variant` returns the same
-`{:frame :app-db :assertions :elapsed-ms}` shape;
-the stubbed response participates in the variant's effective state
-the same way a real fx response would. Stories-as-tests pick up
+A `:test`-tagged variant that stubs an fx runs like one that
+doesn't. `run-variant` returns the same
+`{:frame :app-db :assertions :elapsed-ms}` shape. The stubbed fx still
+counts as emitted for `:rf.assert/effect-emitted`, which checks the
+fx-id only and sees neither the payload nor the response. Each call,
+with its payload and the recorded response, is in the stub-call log
+(`re-frame.story.frames/stub-call-log-for`). Stories-as-tests pick up
 "the analytics pipeline is dead" coverage for free.
 
 ## v1 panels (must-ship)
