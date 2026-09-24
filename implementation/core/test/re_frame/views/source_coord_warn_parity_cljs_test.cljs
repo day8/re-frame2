@@ -1,23 +1,19 @@
 (ns re-frame.views.source-coord-warn-parity-cljs-test
   "Cross-adapter parity for the non-DOM-root warning emitted by the two
-  source-coord annotation walks (rf2-9ex1i9):
+  source-coord annotation walks:
 
     * Reagent hiccup walk:
       `re-frame.views.source-coord-annotation/inject-source-coord-attr`
     * React-hook walk (UIx):
       `re-frame.substrate.spine/inject-source-coord-attr`
 
-  THE BUG: the React-hook walk warned whenever its output was non-element
-  AND non-nil (so a registered view returning a STRING or NUMBER warned);
-  the Reagent hiccup walk warned ONLY when the output was a vector. A
-  string-returning view therefore emitted a one-shot non-DOM-root console
-  warning under UIx but was SILENT under Reagent — an observable
-  cross-adapter inconsistency on a pair-tool warning surface. The message
-  TEXT was already shared (adapter/context) so it could not drift; the
-  TRIGGER condition had drifted. The fix unifies both walks on the honest
-  warn-on-ANY-non-nil-non-element predicate (a string root is equally
-  un-annotatable on both substrates), and `nil` stays silent on both (a
-  view legitimately renders nothing).
+  Both walks share the warn-on-ANY-non-nil-non-element predicate (a string
+  root is equally un-annotatable on both substrates), and `nil` stays silent
+  on both (a view legitimately renders nothing). The message TEXT is shared
+  (adapter/context), so it cannot drift; the TRIGGER condition can. A walk
+  that warned ONLY on a vector would leave a string-returning view SILENT
+  under Reagent while it warns under UIx — an observable cross-adapter
+  inconsistency on a pair-tool warning surface.
 
   These tests drive BOTH walks directly (no JSDOM, no adapter install) and
   assert their warn behaviour is IDENTICAL for a matrix of un-annotatable
@@ -80,8 +76,7 @@
 
 (deftest string-returning-view-warns-on-both-walks
   (testing "a reg-view'd component returning a STRING root warns on BOTH
-            walks (rf2-9ex1i9 — formerly silent under Reagent, warned under
-            UIx)"
+            walks"
     (is (= 1 (reagent-warned? "just a string"))
         "Reagent hiccup walk warns on a string root")
     (is (= 1 (spine-warned? "just a string"))
@@ -105,21 +100,21 @@
         "Reagent walk does not warn on a :div root")))
 
 (deftest fn-headed-vector-warns-on-reagent-walk
-  (testing "a fn/component-headed vector still warns on the Reagent walk
-            (the case that ALWAYS warned — regression guard that unifying
-            the predicate did not drop the original trigger)"
+  (testing "a fn/component-headed vector warns on the Reagent walk
+            (regression guard: the non-nil predicate keeps the vector
+            trigger)"
     (is (= 1 (reagent-warned? [(fn [] [:div]) "child"]))
-        "Reagent walk still warns on a fn-headed vector")))
+        "Reagent walk warns on a fn-headed vector")))
 
-;; ---- interop heads (rf2-3x7nj.3.2) ----------------------------------------
+;; ---- interop heads --------------------------------------------------------
 
 (deftest interop-head-roots-pass-through-the-reagent-walk
   (testing "Reagent's `:r>` (raw createElement) and `:f>` (function
             component) heads carry the COMPONENT at position 1, the slot a
-            DOM root's attrs map is spliced into. Treated as DOM tags, the
-            walk displaced the component: `:r>` handed React a CLJS map as
-            the element type (\"Element type is invalid\") and `:f>` rendered
-            the map instead of the user's fn — dev builds only. Like `:>`
+            DOM root's attrs map is spliced into. Treating them as DOM tags
+            would displace the component: `:r>` would hand React a CLJS map
+            as the element type (\"Element type is invalid\") and `:f>` would
+            render the map instead of the user's fn — dev builds only. Like `:>`
             and `:<>`, they must come back untouched with the one-shot
             non-DOM-root warning."
     (let [comp-fn (fn [] [:div])]
