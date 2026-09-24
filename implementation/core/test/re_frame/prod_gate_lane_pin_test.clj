@@ -1,5 +1,5 @@
 (ns re-frame.prod-gate-lane-pin-test
-  "rf2-f8x2i — the posture pin for the production-gate JVM lane.
+  "The posture pin for the production-gate JVM lane.
 
   ## What this exists to prevent
 
@@ -15,12 +15,11 @@
   lane that silently runs the wrong posture is worse than no lane: it reports
   coverage nobody has.
 
-  That is not a hypothetical. rf2-9c2jf was a total `dispatch-sync` failure
-  under the documented production gate that stayed green for as long as it
-  existed, because every suite calling itself a \"production gate\" test
-  rebinds `rf.interop/debug-enabled?` with `with-redefs` AFTER the framework has
-  loaded — and the flag is read ONCE, at namespace-load time, so `with-redefs`
-  cannot reach what the gate decided at load. `-Dre-frame.debug=false` on the
+  The stakes are concrete: a load-order defect can make `dispatch-sync` fail
+  totally under the documented production gate while every \"production gate\"
+  test that rebinds `rf.interop/debug-enabled?` with `with-redefs` AFTER the
+  framework has loaded stays green — the flag is read ONCE, at namespace-load
+  time, so `with-redefs` cannot reach what the gate decided at load. `-Dre-frame.debug=false` on the
   command line is the only thing that can.
 
   ## Why it is `^:prod-gate`-tagged rather than conditional
@@ -39,7 +38,7 @@
             [re-frame.interop :as rf.interop]))
 
 (deftest ^:prod-gate the-property-really-reached-this-jvm
-  (testing "rf2-f8x2i — `-Dre-frame.debug=false` is on THIS JVM's command line.
+  (testing "`-Dre-frame.debug=false` is on THIS JVM's command line.
             Red here means the lane's `:jvm-opts` never arrived, so every other
             assertion in the lane was made in dev posture."
     (is (= "false" (System/getProperty "re-frame.debug"))
@@ -49,9 +48,9 @@
              " `sh scripts/test-core-prod-gate.sh`"))))
 
 (deftest ^:prod-gate the-framework-really-read-the-gate
-  (testing "rf2-f8x2i — the load-time gate resolved to OFF. Red here with the
+  (testing "the load-time gate resolved to OFF. Red here with the
             assertion above green means the property arrived but
             `re-frame.interop` did not honour it, which is the load-order defect
-            class rf2-9c2jf belonged to."
+            class `re-frame.prod-gate-dispatch-jvm-test` guards."
     (is (false? rf.interop/debug-enabled?)
         "re-frame.interop/debug-enabled? must be false under the production gate")))
