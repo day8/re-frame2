@@ -91,8 +91,8 @@
 ;;
 ;; The PUBLIC target a dispatch / subscribe / destroy / app-db read / provider
 ;; addresses is a frame — a frame id KEYWORD OR a frame VALUE the lifecycle
-;; APIs return, ACCEPTED DIRECTLY EVERYWHERE (API-shrink #1, rf2-csbbwu — the
-;; API commits to ONE frame-target grammar; EP-0024 Operation target grammar).
+;; APIs return, ACCEPTED DIRECTLY EVERYWHERE (the API commits to ONE
+;; frame-target grammar; EP-0024 Operation target grammar).
 ;; For the ROUTING operations the two spellings are INTERCHANGEABLE: the value
 ;; is normalized to its id and the operation downstream is identical.
 ;; `destroy-frame!` is the SOLE exception — it accepts either, but reads a
@@ -138,7 +138,7 @@
 (def ^:const incarnation-token-key
   "Reserved key on a frame VALUE carrying the EXACT incarnation-identity token
   (the winning construction's `:drain-lock`, see `frame-incarnation-token`) the
-  `make-frame` call that produced the value installed (rf2-moftbs). Present ONLY
+  `make-frame` call that produced the value installed. Present ONLY
   on a value handed back by a fresh/idempotent construction — the opaque
   lifecycle-token AUTHORITY an owner (`with-new-frame`, Story replay, SSR
   per-request) consumes at cleanup so its teardown destroys EXACTLY the
@@ -165,12 +165,12 @@
 
   THE ONE VALIDATOR for the trailing `{:frame f}` opts map, shared by
   `rf/clear`, `re-frame.flows/…/clear-flow` and
-  `re-frame.http.middleware/clear-http-interceptor` (rf2-kuky.80). It exists
+  `re-frame.http.middleware/clear-http-interceptor`. It exists
   because a TOLERANT destructure of the same map is a SILENT MIS-CLEAR:
   `{:keys [frame]}` binds `frame` to nil on `{:fram :session}`, the ambient
   frame is then resolved, and the WRONG frame's registration is cleared with
-  no signal at all. rf2-s32bf closed that for the HTTP arm; rf2-kuky.80 gave
-  the identical door on flows the same guard, from one copy rather than two.
+  no signal at all. Every one of those doors takes the same guard, from one
+  copy.
   Per [Principles §No silent swallow](../../../../../spec/Principles.md).
 
   A frame VALUE is itself a map (it carries `:rf.frame/object`), so
@@ -183,8 +183,8 @@
              (frame-value? target)))))
 
 (defn frame-value->id
-  "INTERNAL normalization primitive (API-shrink #1, rf2-csbbwu removed the
-  public `rf/frame-value->id` facade accessor — every public surface accepts
+  "INTERNAL normalization primitive (there is no public
+  `rf/frame-value->id` facade accessor — every public surface accepts
   a frame value directly, so there is no app-facing need to unwrap one).
   Returns the frame id a frame value routes to (its `:rf.frame/id` when
   created with one, else its private `:rf.frame/<gensym>` runnable id).
@@ -199,7 +199,7 @@
   "Return the EXACT incarnation-identity token a fresh-construction frame VALUE
   carries (its `:rf.frame/incarnation-token` — the installed `:drain-lock`), or
   nil when `x` is a frame-id keyword, a derived-read frame value, or any value
-  built without a construction token (rf2-moftbs). A non-nil result is the
+  built without a construction token. A non-nil result is the
   opaque teardown AUTHORITY the one-argument `destroy-frame!` consumes so an
   owner's cleanup destroys EXACTLY the incarnation it created; nil selects the
   ADDRESS-directed path (destroy whatever incarnation is currently live under
@@ -216,8 +216,7 @@
   value) is returned UNCHANGED — so every keyword-target caller is
   byte-identical. The internal normalization seam dispatch / subscribe / destroy
   / app-db-read / frame-provider funnel a frame value through before keying
-  `frames`; the value is accepted EVERYWHERE a keyword id is (API-shrink #1,
-  rf2-csbbwu). Pure — the
+  `frames`; the value is accepted EVERYWHERE a keyword id is. Pure — the
   same normalization as `frame-value->id`."
   [target]
   (frame-value->id target))
@@ -243,7 +242,7 @@
 ;; the pre-dissoc portion of destruction. Values are opaque owner maps compared
 ;; ONLY by identity; their data fields are diagnostics, never authority. A claim
 ;; always names a SET of ids and installs all of them in one CAS, which is the
-;; unchanged primitive a multi-id plan preflight consumes.
+;; primitive a multi-id plan preflight consumes.
 ;;
 ;; There is deliberately no queue or generation counter. A conflicting claim
 ;; fails promptly on both hosts, avoiding callback-waits-for-contender deadlocks
@@ -293,7 +292,7 @@
 
   Returns an owner token, or nil on contention. Destruction uses this
   non-throwing form only after it has revalidated an exact live incarnation:
-  duplicate/concurrent destroy remains its established prompt nil no-op, while
+  duplicate/concurrent destroy is a prompt nil no-op, while
   public construction uses the typed throwing form below."
   [frame-ids kind]
   (let [owner {:kind      kind
@@ -397,7 +396,7 @@
 
   This is how a caller puts work of its OWN inside the frame transaction rather
   than beside it. `make-frame`'s generation-provenance publication and its
-  rollback are that work (rf2-rt4jz): they write a second process-global store
+  rollback are that work: they write a second process-global store
   that a reprojection reads, so they have to be admitted, ordered and rolled
   back under the same authority as the frame revision they describe.
 
@@ -409,10 +408,11 @@
 
   An outer preflight that already reserved `id` and handed it off is ADOPTED
   as-is: nothing is claimed and
-  nothing is released, so its window and its release point are unchanged, and
+  nothing is released, so its window and its release point stay the outer
+  preflight's, and
   `f`'s writes fall inside the reservation it is already holding. A hand-off
   that has already been SPENT is not adoption — the nested public entry claims
-  and loses normally, exactly as it did when the engine claimed for itself.
+  and loses normally, exactly as when the engine claims for itself.
   INTERNAL."
   [id kind f]
   (if (unspent-frame-construction-handoff? id)
@@ -490,8 +490,8 @@
 ;; events!` installs a listener on the always-on error-emit registry for the
 ;; duration of EACH `:initial-events` setup-step dispatch so an IN-BAND failure
 ;; — a handler-body throw the interceptor chain catches and surfaces as
-;; `:rf.error/handler-exception` (the `[:rf/set-db x]` bad-arg case, post
-;; rf2-izy3b2), or any other `:rf.error/*` recorded against THIS frame (a
+;; `:rf.error/handler-exception` (the `[:rf/set-db x]` bad-arg case),
+;; or any other `:rf.error/*` recorded against THIS frame (a
 ;; coeffect / interceptor / flow throw the chain captures rather than re-
 ;; raising) — is detected even though `dispatch-sync!` returns nil normally.
 ;; The registry keys by id (assoc/dissoc); the key MUST be UNIQUE per step so a
@@ -542,7 +542,7 @@
 
 (def ^:dynamic *current-frame* nil)
 
-;; ---- The REFUSAL tier — "no ambient frame is legal here" (rf2-2rtt6.122) --
+;; ---- The REFUSAL tier — "no ambient frame is legal here" -----------------
 ;;
 ;; The two scope tiers above answer WHICH frame is current. Neither can say
 ;; NO FRAME IS LEGAL HERE, and the difference is not academic: tier 1 is
@@ -560,13 +560,14 @@
 ;; the Fresco frame is genuinely in scope through tier 2 — and then
 ;; mutates the sub-cache during render, contributes ZERO collector edges,
 ;; and leaves a boundary that never re-renders when that subscription
-;; moves. It is a silent correctness failure whose only fence today is
-;; which adapter the host happened to install.
+;; moves. Without a refusal tier that is a silent correctness failure, fenced
+;; only by which adapter the host happened to install.
 ;;
 ;; So: a THIRD tier, at the ONE funnel every adapter already routes through
 ;; (`resolve-current-frame`). It is a tier and not a reshape — the readers
-;; are untouched, the hook is untouched, no adapter publishes anything new,
-;; and the ordinary path adds one nil-test on a var read.
+;; and the hook are the same ones every other extent uses, no adapter
+;; publishes anything extra, and the ordinary path pays one nil-test on a
+;; var read.
 ;;
 ;; WHAT THE REFUSAL REFUSES, precisely: the AMBIENT (React-context) tier
 ;; only. An explicitly CARRIED stamp still carries — `{:frame …}` opts never
@@ -576,7 +577,7 @@
 ;; refused extent, per EP-0002 ("frame identity is carried, not found") —
 ;; the refusal deletes the FINDING, never the carrying.
 ;;
-;; WITH ONE EXCEPTION, WHICH IS OPT-IN AND SUBSTRATE-DECLARED (rf2-nqj22).
+;; WITH ONE EXCEPTION, WHICH IS OPT-IN AND SUBSTRATE-DECLARED.
 ;; The sentence above is the rule wherever a carried stamp is the only frame
 ;; in play. It stops being the rule when the extent HAS a frame of its own
 ;; and the stamp names a different one: the body then reads and dispatches
@@ -591,14 +592,14 @@
 ;; carries — refusing that would make `with-frame` and `{:frame …}` disagree,
 ;; which is worse than the bug.
 ;;
-;; AND THE DECLARED FRAME IS ANSWERED TO THE PURE DOORS (rf2-t32wg). A
+;; AND THE DECLARED FRAME IS ANSWERED TO THE PURE DOORS. A
 ;; refusing extent may still expose its declared frame to the identity and
 ;; capture doors; stateful ambient operations remain refused. The fence
 ;; exists to keep reads on the substrate's collector and dispatches
 ;; frame-locked, and `current-frame-id` (identity only) and `capture-frame`'s
 ;; 0-arity (a frame-locked api, no subscription or dispatch at capture time)
-;; do neither — no edge, no mutation — so refusing them protected nothing and
-;; forced a substrate to mint a frame verb of its own. One semantic
+;; do neither — no edge, no mutation — so refusing them would protect nothing
+;; and force a substrate to mint a frame verb of its own. One semantic
 ;; distinction in core, keyed on the DECLARATION and checked AFTER the
 ;; mismatch, not a configurable admit-set.
 
@@ -631,25 +632,25 @@
   `:extent-frame` (below), and any additional detail, which is merged into
   the payload.
 
-  `:extent-frame` — THE FRAME THIS EXTENT IS RENDERING (rf2-nqj22). The one
+  `:extent-frame` — THE FRAME THIS EXTENT IS RENDERING. The one
   key core READS rather than passes through, and the only one that changes
   what the tier does — in two ways. A substrate that names it declares \"a
   body of mine has ONE frame\", and [[require-current-frame!]] then refuses
   a carried stamp that names a DIFFERENT one — because a body whose ambient
   ops target `:b` while its own reads, lowered intents and children target
   `:a` is two frames in one body, and frames are ISOLATED contexts. And it
-  ANSWERS that frame to the pure doors (rf2-t32wg): `:current-frame-id` and
+  ANSWERS that frame to the pure doors: `:current-frame-id` and
   `:capture-frame` resolve to it when nothing is carried, because an
   identity read and a capture make no edge and no mutation. Omit it (or
-  leave it nil) and the tier behaves exactly as it did before: the ambient
-  FIND is refused for every operation and any carried stamp wins, which is
+  leave it nil) and the tier refuses the ambient FIND for every operation
+  and any carried stamp wins, which is
   right for an extent that has no frame of its own to be mismatched against
   or to offer."
   nil)
 
 (def ^:private pure-frame-doors
   "The two operations a refusing extent still answers with its DECLARED
-  frame (rf2-t32wg; Spec 002 §The refusal tier). `:current-frame-id` only
+  frame (Spec 002 §The refusal tier). `:current-frame-id` only
   reports identity, and `:capture-frame` — the 0-arity — captures a
   frame-locked api and performs no subscription or dispatch at capture
   time, so neither makes the edge-less read or the render-phase mutation
@@ -664,8 +665,8 @@
   frame through the React-context tier raises `:rf.error/ambient-frame-refused`
   instead of silently succeeding. Returns the thunk's value.
 
-  This is the sentence a substrate could not previously say. A substrate
-  whose render extent imposes its own read discipline — a compiled-view
+  This is how a substrate says that no ambient frame is legal here. A
+  substrate whose render extent imposes its own read discipline — a compiled-view
   boundary that must observe every read to build its dependency edges, a
   collector that must see every subscription — establishes the extent
   around the code it owns, and an author who reaches past that discipline
@@ -680,9 +681,9 @@
   `with-frame` inside the extent still answers through `*current-frame*` —
   with the ONE exception a substrate opts into by naming `:extent-frame` on
   the refusal, which refuses a carried stamp that names a frame OTHER than
-  the one the extent is rendering (rf2-nqj22). Naming it also ADMITS the
+  the one the extent is rendering. Naming it also ADMITS the
   pure doors: `current-frame-id` and 0-arity `capture-frame` answer the
-  declared frame inside the extent (rf2-t32wg), while `subscribe`,
+  declared frame inside the extent, while `subscribe`,
   `dispatch` and every other stateful ambient operation stay refused.
   Nesting is not tracked and does not need to be — React renders a child
   fiber only after the parent's render function has returned, so this
@@ -710,18 +711,17 @@
 ;; `late-bind` so the trace tooling sibling can route emit-site trace events to
 ;; their owning frame's ring. Returns nil when no cascade is in flight
 ;; (frameless emits). The hook is sticky and read on every push-to-ring!.
-;; Normalized to the frame ID (rf2-h1vqa4): `with-frame` / `with-new-frame`
+;; Normalized to the frame ID: `with-frame` / `with-new-frame`
 ;; may bind a frame VALUE (`make-frame`'s token) into `*current-frame*`, and
 ;; ring attribution must key on the record id, never a value map.
 (rf.late-bind/set-fn! :frame/current-frame-id (fn [] (frame-value->id *current-frame*)))
 
 (defn- carried-frame-admitted-by
   "The carried (tier-1) stamp, normalized to an id, when `refusal` — the
-  in-effect refusal detail — ADMITS it; **nil** otherwise (rf2-nqj22).
+  in-effect refusal detail — ADMITS it; **nil** otherwise.
 
   A refusal that names no `:extent-frame` admits every carried stamp, which
-  is the pre-rf2-nqj22 contract and the right answer for an extent with no
-  frame of its own. One that names one admits only that frame: a body whose
+  is the right answer for an extent with no frame of its own. One that names one admits only that frame: a body whose
   ambient ops target `:b` while its own reads, lowered intents and children
   target `:a` is two frames in one body, and frames are ISOLATED contexts.
 
@@ -769,7 +769,7 @@
   Public frame-scoped operations that must have a frame call
   `require-current-frame!`, which is built on this reader.
 
-  A THIRD TIER GATES THE SECOND (rf2-2rtt6.122). While a substrate has
+  A THIRD TIER GATES THE SECOND. While a substrate has
   established a refusing extent ([[call-with-ambient-frame-refused]]), tier
   2 is WITHDRAWN and this reader answers from tier 1 alone — so a frame
   that is genuinely in scope is not *found* here, and
@@ -778,7 +778,7 @@
   rather than throwing: tooling and frame pickers running inside such an
   extent read 'no ambient frame', which is the truth.
 
-  AND TIER 1 ANSWERS ONLY FOR THE EXTENT'S OWN FRAME (rf2-nqj22). When the
+  AND TIER 1 ANSWERS ONLY FOR THE EXTENT'S OWN FRAME. When the
   refusal names an `:extent-frame`, a carried stamp naming some OTHER frame
   is not an ambient answer this extent will accept, and this reader says so
   by answering nil — see [[carried-frame-admitted-by]]. THE CHECK BELONGS
@@ -786,12 +786,12 @@
   funnel the catalogue describes it as: `subs/subscribe`'s 1-arity — the
   framework's per-read path, and the very op HD-002 clause (a) is about —
   inlines `(or (resolve-current-frame) (require-current-frame! …))` to keep
-  its error payload off the fast path (rf2-a8bw0), so a check living only in
-  the requiring primitive would have missed every ambient subscribe. Putting
+  its error payload off the fast path, so a check living only in
+  the requiring primitive would miss every ambient subscribe. Putting
   it in the reader makes every reader-first caller correct by construction
   and leaves that optimisation intact.
 
-  THE PURE-DOOR ADMISSION IS NOT HERE (rf2-t32wg). A reader never repairs
+  THE PURE-DOOR ADMISSION IS NOT HERE. A reader never repairs
   absence, and inside a refusing extent the honest answer is still that no
   ambient frame was FOUND — so this reader keeps answering nil, and
   `require-current-frame!` alone answers the extent's declared frame to
@@ -804,20 +804,20 @@
   ;; via `current-adapter`; it fires on every ambient resolution
   ;; (every ambient dispatch and every ambient subscribe).
   ;;
-  ;; NORMALIZED to the frame ID (rf2-h1vqa4): `with-frame` / `with-new-frame`
+  ;; NORMALIZED to the frame ID: `with-frame` / `with-new-frame`
   ;; may bind a frame VALUE (`make-frame`'s return token) into
   ;; `*current-frame*`. Every consumer of the ambient scope keys records /
   ;; rings / registries by the frame ID, so the reader yields the id — a
   ;; keyword target passes through unchanged (`frame-value->id` is identity
   ;; on non-values), and a value normalizes to its runnable id.
   ;;
-  ;; THE REFUSAL TIER (rf2-2rtt6.122) is one nil-test on a var read, and it
+  ;; THE REFUSAL TIER is one nil-test on a var read, and it
   ;; is the whole of what the ordinary path pays. When no extent has refused
-  ;; — every extent of every existing adapter — the expression evaluated is
-  ;; byte-for-byte the one that was here before. When an extent HAS refused,
+  ;; — every extent of every adapter — the expression evaluated is
+  ;; the plain two-tier read below. When an extent HAS refused,
   ;; resolution collapses to the CARRIED tier alone, which is exactly the
   ;; `:clj` branch: the React-context tier is withdrawn, an explicit
-  ;; `with-frame` still answers — for the extent's OWN frame (rf2-nqj22).
+  ;; `with-frame` still answers — for the extent's OWN frame.
   (if-some [refusal *ambient-frame-refusal*]
     (carried-frame-admitted-by refusal)
     (frame-value->id
@@ -872,7 +872,7 @@
   never a keyword — `NoFrameContextTags` in spec/Spec-Schemas.md declares the
   slot `:symbol`, and every call site in the corpus emits a quoted symbol.
 
-  `:reason` is always composed, and names BOTH halves of the repair (rf2-8747).
+  `:reason` is always composed, and names BOTH halves of the repair.
   EP-0002 resolves a frame three ways — **scope**, **hold** (carry), and
   **override** — and the enumerated \"three distinct ways\" cover only scope
   (1, 2) and override (3). The single most-travelled way to reach this error is
@@ -884,7 +884,7 @@
   explicit `(:dispatch (rf/capture-frame))` taken while the scope is live) and
   keeps the three scope/override ways behind an \"otherwise\". This is prose
   only: the discriminator is `:rf.error/id` and the machine-readable recovery
-  is `:recovery :supply-frame`, both unchanged — per Spec 009, nothing branches
+  is `:recovery :supply-frame` — per Spec 009, nothing branches
   on message bytes.
 
   `:rf.trace/dispatch-id` (the capture-site correlation key) is merged
@@ -942,19 +942,18 @@
   callers (frame pickers, tooling) read the nil from `current-frame` /
   `resolve-current-frame` and never reach here.
 
-  THE RECORD CARRIES THE PAYLOAD'S OWN `:reason` (rf2-6sqv). This category
+  THE RECORD CARRIES THE PAYLOAD'S OWN `:reason`. This category
   passes no `:exception` — the operation is invalid, nothing threw — so
-  before this the always-on record was seven slots of pure metadata
+  without it the always-on record would be seven slots of pure metadata
   (`{:error :event :event-id :frame :time :exception :elapsed-ms}`) and the
-  composed recovery ladder `no-frame-context-payload` had just built reached
-  the always-on axis NOWHERE. Measured, not inferred: an ordinary page load
-  printed `[re-frame2] {meta: null, cnt: 7, arr: Array(14), …}` to the
-  console and the ladder was not inside it, so no console formatter could
-  have recovered it. `:reason` / `:recovery` ride the EXISTING `attrs`
-  attribution seam `dispatch-on-error!` already provides for
+  composed recovery ladder `no-frame-context-payload` just built would reach
+  the always-on axis NOWHERE: a console line would show the record's
+  interior fields with no ladder inside, and no console formatter could
+  recover it. `:reason` / `:recovery` ride the `attrs`
+  attribution seam `dispatch-on-error!` provides for
   category-specific slots — the same seam flow-eval uses — and match the
   non-event union records (the frame-teardown report carries both). An
-  off-box shipper gains the sentence too."
+  off-box shipper gets the sentence too."
   [payload]
   (let [event-id (:event-id payload)]
     ;; Always-on listener registry (survives prod elision).
@@ -978,7 +977,7 @@
     payload))
 
 ;; ---- :rf.error/ambient-frame-refused — a frame was found but is not ------
-;; ---- reachable ambiently here (rf2-2rtt6.122) ----------------------------
+;; ---- reachable ambiently here ---------------------------------------------
 ;;
 ;; The fourth member of the frame-resolution error family, and it is a
 ;; DIFFERENT MISTAKE from the other three, which is the whole reason it has
@@ -1019,10 +1018,10 @@
   `:reason` is folded into the composed prose rather than replacing it, so
   the payload always says both what happened and what to do instead.
 
-  TWO REFUSALS, ONE ID, TWO SENTENCES (rf2-nqj22). `extra`'s
+  TWO REFUSALS, ONE ID, TWO SENTENCES. `extra`'s
   `:carried-frame` — set by [[require-current-frame!]] and by nothing else —
   says which refusal this is. Absent: nothing was carried, the ambient FIND
-  was refused, and the prose is the one that has always been here. Present:
+  was refused, and the prose is the generic refusal sentence. Present:
   a stamp WAS carried and it names a frame other than the extent's
   `:extent-frame`, so the composed sentence names BOTH frames and says why
   a carried stamp lost for once — because the generic sentence's closing
@@ -1078,7 +1077,7 @@
 (defn emit-ambient-frame-refused!
   "Surface `:rf.error/ambient-frame-refused` through the always-on error axis
   AND the dev-only trace surface, then return the payload — the same ladder
-  `emit-no-frame-context!` rides, because the failure it replaces (a
+  `emit-no-frame-context!` rides, because the failure it prevents (a
   boundary that silently stops re-rendering) is exactly as invisible in
   production as a frameless op is.
 
@@ -1103,7 +1102,7 @@
 ;; live frame value has carried an explicit-but-malformed target —
 ;; `{:frame "app"}`, `{:frame 7}`, `{:frame ['x]}`. `frame-provider` accepts
 ;; a frame TARGET — a frame-id keyword OR a live frame value (`make-frame`'s
-;; return token), API-shrink #1 rf2-csbbwu — so anything else is a
+;; return token) — so anything else is a
 ;; CONFIGURATION ERROR at the provider boundary, not an absence.
 ;;
 ;; This is reported as its OWN category so the three states stay distinct:
@@ -1116,7 +1115,7 @@
 ;; route descendants to a registered `:app` frame. Validating at the public
 ;; provider entry points stops the bad
 ;; value from ever reaching React Context. The raw-hiccup compatibility
-;; coercion at the reader boundary is intentionally preserved (the public
+;; coercion at the reader boundary is intentionally kept (the public
 ;; surfaces never write a non-keyword value, so prop-stringified keywords
 ;; reaching the reader only ever originate from raw `[:> Provider …]` mounts).
 
@@ -1138,7 +1137,7 @@
   axis AND the dev-only trace surface, then return the payload. Mirrors
   `emit-no-frame-context!`: production-survivable so a bad provider arg is
   observable where the dev trace is elided — including carrying the
-  payload's own `:reason` / `:recovery` onto the record (rf2-6sqv), which
+  payload's own `:reason` / `:recovery` onto the record, which
   this category needs for exactly the reason its sibling does: it passes no
   `:exception`, so without them the always-on record holds no message at all
   and the dev console can only print the bare category."
@@ -1160,8 +1159,7 @@
 (defn require-frame-provider-target!
   "Validate a public `frame-provider`'s `:frame` arg — accepts a frame-id
   KEYWORD or a live frame VALUE (`make-frame`'s return token), normalizing
-  either to the frame id via `frame-value->id` (API-shrink #1, rf2-csbbwu —
-  `frame-provider` teaches the same one frame-target grammar as `dispatch`
+  either to the frame id via `frame-value->id` (`frame-provider` teaches the same one frame-target grammar as `dispatch`
   / `subscribe` / `destroy-frame!`). A nil value routes to the
   `:rf.error/no-frame-context` path (absence — the provider
   establishes no usable scope). Any other non-nil value emits + throws
@@ -1214,14 +1212,14 @@
   level detection / pickers / tooling read the nil from the readers
   directly and never throw.
 
-  TWO ABSENCES, TWO ERRORS (rf2-2rtt6.122). When the reader returned nil
+  TWO ABSENCES, TWO ERRORS. When the reader returned nil
   because the enclosing render extent REFUSED the ambient tier
   ([[call-with-ambient-frame-refused]]), the mistake is not an absence and
   must not be reported as one: `:rf.error/ambient-frame-refused` is emitted
   and thrown instead, carrying the refusing substrate's own account of what
   to write there.
 
-  AND A MISMATCH IS A THIRD (rf2-nqj22). The reader now answers nil for one
+  AND A MISMATCH IS A THIRD. The reader also answers nil for one
   more reason: inside an extent that declared its own `:extent-frame`, a
   carried stamp naming a DIFFERENT frame is not an answer that extent will
   accept, because the body would then read and dispatch against one frame
@@ -1232,7 +1230,7 @@
   and `{:frame …}` disagree, which is strictly worse than the silence this
   closes.
 
-  AND THE PURE DOORS ARE ADMITTED (rf2-t32wg). When the reader answered nil
+  AND THE PURE DOORS ARE ADMITTED. When the reader answered nil
   because nothing was carried — the ambient FIND was refused — and the
   extent has DECLARED its frame, an `operation` in [[pure-frame-doors]]
   (`:current-frame-id`, `:capture-frame`) is answered that declared frame
@@ -1241,9 +1239,9 @@
   ordered AFTER the mismatch, so an enclosing `with-frame` naming a
   different frame is still refused rather than silently repaired to the
   extent's own; and it is keyed on the declaration, so an extent naming no
-  frame offers nothing and refuses exactly as before. Every other operation
+  frame offers nothing and refuses every operation. Every other operation
   — `:subscribe`, `:dispatch`, and whatever else resolves ambiently — is
-  refused unchanged.
+  refused.
 
   The discrimination costs the ordinary path nothing: it is read only after
   resolution has already failed."
@@ -1306,13 +1304,12 @@
 
 ;; ---- bind-fn — INTERNAL dynamic-rebinding carry primitive ------------------
 ;;
-;; API-shrink #1 (rf2-csbbwu): the public `frame-bound-fn` / `frame-bound-fn*`
-;; are REMOVED from the facade — `re-frame.core/capture-frame` is the ONE
-;; public HOLD primitive. `bind-fn`'s semantics are genuinely DIFFERENT from
+;; There is no public `frame-bound-fn` / `frame-bound-fn*` on the facade —
+;; `re-frame.core/capture-frame` is the ONE public HOLD primitive. `bind-fn`'s semantics are genuinely DIFFERENT from
 ;; `capture-frame`'s pre-bound `{:dispatch :dispatch-sync :subscribe}` op
 ;; bundle: it re-establishes `*current-frame*` around an ARBITRARY
 ;; already-held fn (including one that itself calls `current-frame-id` or
-;; other frame-scoped readers), so it survives here for the framework's own
+;; other frame-scoped readers), so it lives here for the framework's own
 ;; internal / test / tooling reach.
 
 (defn bind-fn
@@ -1330,7 +1327,7 @@
 
 ;; ---- lookup ---------------------------------------------------------------
 ;;
-;; WHAT ONE DISPATCH COSTS THIS REGISTRY, RECORDED (rf2-l260n). A single
+;; WHAT ONE DISPATCH COSTS THIS REGISTRY. A single
 ;; `dispatch-sync` of a one-line `:db`-writing handler re-resolves the registry
 ;; 124 times:
 ;;
@@ -1360,8 +1357,8 @@
 ;; (`emit-pipeline-trailers!`) already takes eight positional arguments. That
 ;; trades clarity for microseconds and is DELIBERATELY NOT TAKEN — the fence
 ;; density is the design: every hop that could outlive its incarnation asks. The
-;; one unconditionally free win here, dropping the literal-path `get-in` from
-;; these predicates, is already applied (rf2-sj5s7).
+;; one unconditionally free win here — keyword-invoke rather than a literal-path
+;; `get-in` in these predicates — is applied.
 
 (defn- frame-record-visible-to-current-actor?
   "True when raw registry record `f` is a live frame visible to this actor.
@@ -1369,7 +1366,7 @@
   Final records are process-visible. A FIRST construction's provisional record
   is visible only when the current dynamic construction owner is the record's
   exact owner AND that identity still holds `id` on this host thread. A
-  re-registration's provisional record is process-visible (rf2-3x7nj.2.1): it
+  re-registration's provisional record is process-visible: it
   stages a new config onto a LIVE frame whose runtime state, router and drain
   lock are the same objects, so it is not a half-construction, and hiding it
   would make a stable incarnation fail its own liveness checks on every other
@@ -1392,7 +1389,7 @@
   A first construction's provisional record is visible only to its exact
   construction owner on the owning host thread. Synchronous setup and lifecycle
   publication can therefore use the ordinary frame machinery, while unrelated
-  callers never observe the former live-looking pre-setup row. A
+  callers never observe a live-looking pre-setup row. A
   re-registration's staged revision is visible to every actor (the frame is
   live throughout), and final records have no owner restriction.
 
@@ -1495,12 +1492,12 @@
   compares the caller's acquire-time token against the token the marker carries
   by identity.
 
-  This is what closes rf2-vxgfnd.88's reciprocal Failure-2 (rf2-vxgfnd.94): in the
+  This is what keeps the post-dissoc window safe: in the
   JVM window between `destroy-frame!`'s step-9 `dissoc-frame!` and its terminal
   `finally`, incarnation A's marker is still set while a fresh same-id incarnation
   B is already live under the reused id. A ViewCell commit that ACQUIRED B (its
   captured token is B's) reads false here (B's token ≠ A's marker token), so B's
-  cell is not torn down by A's stale close authority — while the rf2-vxgfnd.61
+  cell is not torn down by A's stale close authority — while the
   in-flight case (a commit that acquired A while A is mid-teardown, still live
   pre-flip) reads true (A's token IS the marker token) and correctly joins A's
   teardown. Nil `token` (or no marker for `id`) reads false.
@@ -1550,14 +1547,14 @@
   per call; a consult that reads `:url-strategy` and nothing else was paying
   for the whole flattening to reach one key. Routing's
   `url-strategy-for-frame-id` runs once per rendered `route-link` — measured at
-  0.72 µs per link on the rf2-cno31 census probe, against a `route-url`
-  synthesis of 4.71 — and it is that caller this exists for.
+  0.72 µs per link, against a `route-url`
+  synthesis of 4.71 µs — and it is that caller this exists for.
 
   This is NOT a widening of what callers may depend on. The lifecycle fields
   `frame-meta` merges (`:created-at`, `:destroyed?`, `:listeners`) and the `:id`
   it stamps are disjoint from the config keys, so for any config key the two
   answer identically; a caller wanting the canonical reflection shape — every
-  tool — still calls `frame-meta`, which remains the only shape tools may
+  tool — still calls `frame-meta`, which is the only shape tools may
   depend on."
   [id]
   (:config (frame id)))
@@ -1840,10 +1837,10 @@
 (def ^:private inc-commit-epoch
   "`(fnil inc 0)`, hoisted. `fnil` is a CALL that builds a fresh closure —
   and, being multi-arity + variadic, an expensive one — so spelling it at
-  the `swap!` site below built a new one on every commit to express a
-  constant. Measured at 745 B per write on node V8 (rf2-78ejq), 21% of what
+  the `swap!` site below would build a new one on every commit to express a
+  constant: measured at 745 B per write on node V8, 21% of what
   a zero-subscription write costs. The value is the same function either
-  way; only the number of times it is constructed changes."
+  way; only the number of times it is constructed differs."
   (fnil inc 0))
 
 (defn- bump-commit-epoch!
@@ -1870,7 +1867,7 @@
 
   The tagged pair distinguishes a legitimate nil callback result from owner
   loss.  A destroy+throw is inert; a throw while the exact owner remains live
-  preserves the adapter's existing failure contract."
+  keeps the adapter's own failure contract."
   [id owner-token exact-owner? f]
   (if-not exact-owner?
     [::ok (f)]
@@ -1984,21 +1981,20 @@
 
 (defn replace-app-db!
   "Replace ONLY the app-db partition of `id`'s frame-state, leaving
-  runtime-db untouched (Spec 002 §Frame-state value accessors and mutators,
-  Mike ruling #1 / #10 — a db-shaped name never silently replaces
+  runtime-db untouched (Spec 002 §Frame-state value accessors and mutators
+  — a db-shaped name never silently replaces
   runtime-db). Atomic install through the one physical container. Returns
   the set of changed partition keys, or `nil` for an unknown / destroyed
-  frame. Internal write boundary used by the Tool-Pair `replace-app-db!` /
-  epoch `replace-app-db!` path."
+  frame. Internal single-partition write boundary."
   [id app-db]
   (commit-frame-transition! id {app-partition-key app-db}))
 
 (defn replace-runtime-db!
   "Replace ONLY the runtime-db partition of `id`'s frame-state, leaving
   app-db untouched (Spec 002 §Frame-state value accessors and mutators).
-  Internal single-partition helper retained for symmetry with
+  Internal single-partition helper, the sibling of
   `replace-app-db!`; the public/epoch-backed write surface is
-  `replace-frame-state!` (API-shrink #3, rf2-t3lftq). Atomic install through
+  `replace-frame-state!`. Atomic install through
   the one physical container. Returns the set of changed partition keys, or
   `nil` for an unknown / destroyed frame."
   [id runtime-db]
@@ -2008,18 +2004,17 @@
   "Atomically install `frame-state` — a PARTIAL frame-state map (any subset
   of `{:rf.db/app … :rf.db/runtime …}`) — into `id`'s one physical
   frame-state container: a PRESENT key replaces that partition, an ABSENT
-  key is carried forward UNCHANGED (rf2-t3lftq — API-shrink #3). A
+  key is carried forward UNCHANGED. A
   db-shaped key never silently touches the other partition; this is the
-  one explicit frame-state write surface (Mike ruling #10, preserved and
-  generalised). Both a caller-supplied app-only, runtime-only, or
+  one explicit frame-state write surface. Both a caller-supplied app-only, runtime-only, or
   both-partition map install in ONE atomic write. Returns the set of
   changed partition keys, or `nil` for an unknown / destroyed frame.
 
   This is a thin pass-through onto `commit-frame-transition!`, which
   already implements the present-replaces / absent-preserves contract —
   `replace-frame-state!` merely narrows `frame-state` to the two
-  recognized partition keys before delegating. Callers wanting the former
-  single-partition helpers compose a one-key map:
+  recognized partition keys before delegating. A single-partition write is
+  a one-key map:
   `(replace-frame-state! id {app-partition-key new-app-db})` /
   `(replace-frame-state! id {runtime-partition-key new-runtime-db})`.
 
@@ -2030,7 +2025,7 @@
   successor reseated under `id` after the caller captured its token can never
   receive the write. Epoch restore (`perform-restore!`) threads the token it
   validated preconditions against so a time-travel install lands only on the
-  exact frame incarnation it resolved (rf2-bjh6y)."
+  exact frame incarnation it resolved."
   ([id frame-state]
    (commit-frame-transition! id (select-keys frame-state [app-partition-key runtime-partition-key])))
   ([id owner-token frame-state]
@@ -2048,7 +2043,7 @@
   read-then-replace is effectively atomic — `commit-frame-transition!` is the
   only writer during fx drain. INTERNAL.
 
-  rf2-vxgfnd.155 — the 6-arity is the EXACT-INCARNATION variant used by the
+  The 6-arity is the EXACT-INCARNATION variant used by the
   callback-bearing flow-registry lifecycle writes (`clear-flow` / `reg-flow`
   output-mark refresh and path vacation). It resolves the write through
   `owner-token`'s own frame record (a same-id successor can never redirect it),
@@ -2070,7 +2065,7 @@
          ;; this is the second (and last) frame-state write chokepoint.
          (bump-commit-epoch! id)
          new-slice))
-     ;; Exact-incarnation write (rf2-vxgfnd.155). Resolve the record so the
+     ;; Exact-incarnation write. Resolve the record so the
      ;; write binds to A's own container; a same-id B cannot redirect it.
      (when-let [frame-record (frame id)]
        (when (identical? owner-token (:drain-lock frame-record))
@@ -2129,17 +2124,18 @@
   frame's runtime-db\" surface for framework subsystems' direct (out-of-
   cascade / mid-fx) writes (machine spawn / destroy / update-snapshot, the
   resources registry). A mid-fx write lands after the event's flow pass; the
-  `:fx` walk settles the frame's flows when it ends (Spec 013 §Sequencing,
-  rf2-3x7nj.9.7). Models `swap!` over the runtime-db partition;
+  `:fx` walk settles the frame's flows when it ends (Spec 013 §Sequencing).
+  Models `swap!` over the runtime-db partition;
   under the single-drainer invariant (Spec 002 §Single drainer per frame) the
   read-then-replace is effectively atomic. Per Spec 002 §The two-partition
-  frame contract — runtime-db is reserved BY CONVENTION (decision #4); this
+  frame contract — runtime-db is reserved BY CONVENTION (EP-0001 decision
+  #4); this
   is the framework-authority write surface."
   [id f & args]
   (swap-partition! id runtime-partition-key f args))
 
 (defn ^:no-doc swap-frame-db-exact!
-  "Exact-incarnation `swap-frame-db!` (rf2-vxgfnd.155): threads `owner-token`
+  "Exact-incarnation `swap-frame-db!`: threads `owner-token`
   so a synchronous container watch that destroys A and publishes a same-id B
   during the physical install neither redirects the write into B nor bumps B's
   commit epoch. A's write that linearized before the loss stands in A's
@@ -2149,7 +2145,7 @@
   (swap-partition! id app-partition-key f args owner-token true))
 
 (defn ^:no-doc swap-runtime-db-exact!
-  "Exact-incarnation `swap-runtime-db!` (rf2-vxgfnd.155) — the runtime-db
+  "Exact-incarnation `swap-runtime-db!` — the runtime-db
   sibling of `swap-frame-db-exact!`, used by the exact-aware elision-registry
   writes the flow lifecycle ops issue. Returns the new runtime-db slice, or
   nil on owner loss."
@@ -2173,15 +2169,14 @@
 ;;     the stale `last-inputs` row. A drain in that window sees the new flow
 ;;     with the OLD input cache and skips recompute on `=`-equal inputs.
 ;;
-;; The frame's `:drain-lock` is the existing single-drainer serialization
+;; The frame's `:drain-lock` is the single-drainer serialization
 ;; primitive (the router CAS-acquires it for the whole drain pass — see
 ;; `re-frame.router/drain-loop!`). `call-serialized-with-drain!` runs `f`
 ;; under that lock so the lifecycle mutation is mutually exclusive with any
 ;; concurrent drain, closing the windows above with ONE mechanism rather
 ;; than per-op reordering / token threading (which would touch the hot
-;; dirty-check path). The drain path itself is untouched — it still just
-;; CAS-acquires the lock as before; only the cold lifecycle ops now contend
-;; for it.
+;; dirty-check path). The drain path itself just CAS-acquires the lock;
+;; only the cold lifecycle ops contend for it on top.
 ;;
 ;; REENTRANCY is the load-bearing subtlety. `clear-flow` / `reg-flow` can be
 ;; invoked MID-DRAIN via the `:rf.fx/clear-flow` / `:rf.fx/reg-flow` effects
@@ -2251,18 +2246,14 @@
     (when-let [frame-record (frame frame-id)]
       (current-thread-is-drainer? frame-record))))
 
-;; rf2-wxy1c retired the by-frame-id `thread-owns-drain-serialization?` probe and
-;; its `:frame/thread-owns-drain-serialization?` late-bind publication. It existed
-;; for exactly one consumer — `re-frame.trace.tooling`, which asked it whether an
-;; outermost trace emit should drive its listener fan-out inline (off
-;; `fanout-monitor`) to avoid the rf2-jl75r AB-BA cycle. That question no longer
-;; arises: the trace tooling now DEFERS a drain-owned fan-out to the post-drain
-;; boundary the three `:drain-lock` regions establish
+;; There is no by-frame-id drain-ownership probe published to other
+;; namespaces. The trace tooling DEFERS a drain-owned listener fan-out to the
+;; post-drain boundary the three `:drain-lock` regions establish
 ;; (`rf.trace/call-with-deferred-listener-delivery` — `re-frame.router/drain-try!` /
 ;; `drain-block!` and `call-serialized-with-drain!` below), so the deferral scope
 ;; itself is the ownership evidence and no cross-namespace probe is needed. The
-;; private `current-thread-owns-drain-serialization?` above remains, serving the
-;; reentrancy fast-path it was written for.
+;; private `current-thread-owns-drain-serialization?` above serves only the
+;; reentrancy fast-path.
 
 (defn call-serialized-with-drain!
   "Run thunk `f` serialized against `frame-id`'s event drain, returning its
@@ -2286,7 +2277,7 @@
     in a `finally`.
 
   The cold acquire → run → release region is wrapped in
-  `rf.trace/call-with-deferred-listener-delivery` (rf2-wxy1c): trace events emitted
+  `rf.trace/call-with-deferred-listener-delivery`: trace events emitted
   inside a held cold section are delivered at that post-drain boundary, once the
   lock is down, rather than running arbitrary listener code under it. The
   already-owns branch inherits its owner's scope (the wrapper is nesting-aware),
@@ -2312,7 +2303,7 @@
                ;; free another thread may acquire it and stamp its own holder, so
                ;; clearing after the release could clobber that new owner.
                (reset! holder nil)
-               ;; Per rf2-x76af2.22 (a): the cold release must mirror the
+               ;; The cold release must mirror the
                ;; drainer's `try-release-on-empty!`. A `dispatch!` that arrived
                ;; DURING the hold set `:scheduled?` true and scheduled a
                ;; `drain-try!` that CAS-lost to us and gave up — and, because we
@@ -2434,8 +2425,8 @@
         ;; on the record BEFORE construction setup runs — an `:initial-events`
         ;; cascade then resolves through the frame's OWN image generation (not the
         ;; global registrar). EP-0027: a fresh frame ALWAYS starts with app-db
-        ;; `{}` (Spec 002 §Frames always start with app-db = {}). The old
-        ;; `:initial-db` seed is RETIRED — seeding app-db is now itself a setup
+        ;; `{}` (Spec 002 §Frames always start with app-db = {}). There is no
+        ;; `:initial-db` seed — seeding app-db is itself a setup
         ;; event (`[:rf/set-db {…}]` as the first `:initial-events` step), so the
         ;; whole of construction is one visible event script with no special-cased
         ;; direct write.
@@ -2443,14 +2434,14 @@
                       {app-partition-key     {}
                        runtime-partition-key {}})
         ;; Partition projections, constructed into locals under a
-        ;; FAILURE-ATOMIC boundary (rf2-vxgfnd.198). `make-derived-value`
+        ;; FAILURE-ATOMIC boundary. `make-derived-value`
         ;; returns an opaque value that may install a real host resource (a
         ;; source watch) and be externally owned by the adapter, so a PARTIAL
         ;; allocation — the app-db projection returns, then the runtime-db
         ;; projection throws — must not strand the first projection's watch on
         ;; a frame that never gets installed. When a LATER projection throws,
         ;; every EARLIER successfully-returned projection is disposed in
-        ;; REVERSE acquisition order through the existing `rf.interop/dispose!`
+        ;; REVERSE acquisition order through the `rf.interop/dispose!`
         ;; seam (the same seam `tear-down-partition-projections!` uses at
         ;; normal teardown), then the original construction error is
         ;; re-raised so `try-install-new-frame!` installs nothing. The
@@ -2490,11 +2481,11 @@
     ;; app-db / runtime-db are READ-ONLY projection reactions over the one
     ;; physical container — `make-derived-value` memoises on `=`, so a
     ;; runtime-only commit does not propagate to app subs (and vice versa),
-    ;; with no dirty flags (decision #7). The compute-fn is the bare keyword
+    ;; with no dirty flags (EP-0001 decision #7). The compute-fn is the bare keyword
     ;; lookup of the partition slice; `make-derived-value`'s recompute closure
     ;; arity-specialises the 1-source case so the projection costs a single
     ;; keyword invoke per recompute. Constructed above under a failure-atomic
-    ;; boundary (rf2-vxgfnd.198).
+    ;; boundary.
     :app-db      app-db
     :runtime-db  runtime-db
     :router      (atom {:queue rf.interop/empty-queue :scheduled? false})
@@ -2524,33 +2515,32 @@
     ;; The construction-only reserved `:rf.frame/generation` key is consumed
     ;; above into the `:generation` slot; it is stripped from the stored
     ;; `:config` so `frame-meta` / tooling never surface a one-shot construction
-    ;; input as durable frame config. (EP-0026, rf2-dlvmpc: the
-    ;; `:rf.frame/capabilities` config slot is gone with the image-capability
-    ;; feature.)
+    ;; input as durable frame config. (EP-0026: there is no
+    ;; `:rf.frame/capabilities` config slot.)
     ;; EP-0027: `:initial-events` is DURABLE frame config — it stays in `:config`
-    ;; so a destroy + re-`make-frame` (a full "reset" composition, rf2-lxwpob)
-    ;; can re-dispatch the recorded setup. The retired
-    ;; `:rf.frame/initial-db` reserved key is dissoc'd defensively (it is no
-    ;; longer threaded; `:initial-db` fails loud upstream).
+    ;; so a destroy + re-`make-frame` (a full "reset" composition)
+    ;; can re-dispatch the recorded setup. The reserved
+    ;; `:rf.frame/initial-db` key is dissoc'd defensively (nothing threads
+    ;; it; `:initial-db` fails loud upstream).
     :config     (dissoc config :rf.frame/generation :rf.frame/initial-db)}))
 
 (declare destroy-frame!)
 
 ;; ---- :initial-events normalizer + setup runner (EP-0027) ------------------
 ;;
-;; EP-0027 replaces the hand-written post-`make-frame` setup loop with one
-;; declarative key. `:initial-events` is an ordered vector of SETUP STEPS
+;; EP-0027: one declarative key stands in for a hand-written post-`make-frame`
+;; setup loop. `:initial-events` is an ordered vector of SETUP STEPS
 ;; dispatched synchronously, in order, into the frame at construction —
 ;; "`:initial-events` IS that loop, written as data" (EP-0027 §Abstract). The
 ;; normalizer below is PREFLIGHT validation (EP-0027 §Failure): it runs BEFORE
 ;; any step dispatches and BEFORE the frame container exists, so a bad shape
 ;; throws and leaves no frame registered. The runner then dispatches each step
-;; through the existing synchronous `dispatch-sync!` path — the same path the
-;; loop used — draining each to a fixed point before the next, tagging each with
+;; through the synchronous `dispatch-sync!` path — the same path such a
+;; loop would use — draining each to a fixed point before the next, tagging each with
 ;; `:source :frame-init` + its step index (EP-0027 §Provenance).
 ;;
 ;; The guiding rule (EP-0027 §Scope note): `:initial-events` is NO MORE CAPABLE
-;; than the loop it replaces. No replay tape, no snapshot, no atomic staging, no
+;; than the loop it stands in for. No replay tape, no snapshot, no atomic staging, no
 ;; outcome capture. The runner IS the loop.
 
 (defn- bad-event-vector?
@@ -2680,7 +2670,7 @@
 
 (def ^:private setup-step-failure-categories
   "The IN-BAND `:rf.error/*` categories that constitute a SETUP-STEP FAILURE
-  under strict construction (EP-0027 §Failure, rf2-vw5h1r) — the PRE-COMMIT
+  under strict construction (EP-0027 §Failure) — the PRE-COMMIT
   failures the interceptor chain CAPTURES (records into `:rf/interceptor-error`)
   and fans out on the always-on error-emit axis rather than re-raising, so
   `dispatch-sync!` returns nil normally. Each means the setup event itself
@@ -2699,8 +2689,8 @@
   POST-COMMIT failures are DELIBERATELY EXCLUDED: `:rf.error/fx-handler-
   exception` (an `:fx` handler threw AFTER the db committed) means the setup
   event SUCCEEDED — its `:db` write landed and is irreversible; only a best-
-  effort post-commit side-effect failed. Per the Mike-ruled FX atomicity
-  asymmetry (pre-commit transactional / post-commit best-effort, 2026-05-25),
+  effort post-commit side-effect failed. Per the FX atomicity
+  asymmetry (pre-commit transactional / post-commit best-effort),
   tearing the frame down on a post-commit fx throw would contradict that — the
   committed state stands and the fx throw is observed, not unwound. The SSR
   server error projector catches such render-walk / cascade fx throws (Spec 011
@@ -2717,7 +2707,7 @@
     :rf.error/flow-eval-exception})
 
 (defn- raise-setup-step-failed!
-  "STRICT CONSTRUCTION teardown (EP-0027 §Failure, rf2-vw5h1r). A setup step
+  "STRICT CONSTRUCTION teardown (EP-0027 §Failure). A setup step
   `idx` (`event`) failed — EITHER by an ESCAPING throw `cause` out of
   `dispatch-sync!`, OR by an IN-BAND `:rf.error/*` the chain captured (its
   always-on error record is `cause`'s stand-in via `captured`). Tear down the
@@ -2730,8 +2720,7 @@
   returned by `try-install-new-frame!`): teardown is exact-token-owned, so a
   setup step that (re-entrantly / concurrently) destroyed A and seated a same-id
   successor B before this rollback ran cannot make the stale A rollback destroy
-  B — the two-argument `destroy-frame!` no-ops unless A's token is still live
-  (rf2-wduv35)."
+  B — the two-argument `destroy-frame!` no-ops unless A's token is still live."
   [id idx event cause-ex cause-msg where-sym owner-token]
   (destroy-frame! id owner-token)
   (rf.error/throw-error!
@@ -2757,14 +2746,14 @@
   point before the next — exactly as the hand-written `dispatch-sync` loop would.
   `steps` is the already-validated vector from `normalize-initial-events`.
 
-  Each step is dispatched through `dispatch-sync!` (the same synchronous path the
-  loop used), with the step's `:opts` merged under construction provenance:
+  Each step is dispatched through `dispatch-sync!` (the same synchronous path
+  such a loop would use), with the step's `:opts` merged under construction provenance:
   `:source :frame-init` and the step's `:step-index`, and `:frame` forced to
   `id` (the EP forbids a caller-supplied `:frame`). By the time this returns the
   synchronous setup has settled; asynchronous effects started by setup are NOT
   awaited (EP-0027 §Construction).
 
-  STRICT CONSTRUCTION (EP-0027 §Failure, Mike-ruled 2026-06-23 rf2-vw5h1r):
+  STRICT CONSTRUCTION (EP-0027 §Failure):
   construction-time `:initial-events` is STRICT — the runtime's traced-and-
   recover leniency is a RUNTIME concern and does NOT apply here. ANY setup-step
   failure tears down the partially-created frame (`destroy-frame!`) so no half-
@@ -2780,7 +2769,7 @@
       so `dispatch-sync!` returns nil normally: a handler-body throw surfaced as
       `:rf.error/handler-exception` (the `[:rf/set-db x]` bad-arg case — its
       diagnostic is raised from INSIDE the `:rf/set-db` handler via
-      `rf.error/throw-error!`, post rf2-izy3b2), a user-interceptor throw
+      `rf.error/throw-error!`), a user-interceptor throw
       (`:rf.error/interceptor-exception`), a coeffect-supplier throw
       (`:rf.error/coeffect-exception`), or a flow throw
       (`:rf.error/flow-eval-exception`). The chain records these into
@@ -2797,10 +2786,10 @@
       (the event-emit axis), never `:rf.error/*`, so a successful step captures
       nothing and the listener is a no-op.
 
-  This replaces the former leniency where a handler-body throw during
-  construction was traced-and-recovered and the frame left ALIVE — which
-  contradicted the EP-0027 §Failure throw→teardown promise for exactly the
-  `[:rf/set-db x]` case (rf2-vw5h1r).
+  Without the in-band capture, a handler-body throw during construction
+  would be traced-and-recovered and the frame left ALIVE — contradicting
+  the EP-0027 §Failure throw→teardown promise for exactly the
+  `[:rf/set-db x]` case.
 
   `base-opts` carries construction provenance shared by every step — the
   `:rf.trace/call-site` of the `make-frame` declaration (gated on
@@ -2817,23 +2806,22 @@
   escaping-throw + in-band `raise-setup-step-failed!` branches and the
   runner-unavailable branch — destroys via the two-argument `destroy-frame! id
   owner-token`, so a rollback owns exactly the incarnation it constructed and
-  can never destroy a same-id successor that replaced it in the interim
-  (rf2-wduv35)."
+  can never destroy a same-id successor that replaced it in the interim."
   [id steps base-opts where-sym owner-token]
   (when (seq steps)
-    ;; rf2-jsokxu: the setup runner reaches `dispatch-sync!` via late-bind (the
+    ;; The setup runner reaches `dispatch-sync!` via late-bind (the
     ;; router requires frame, so a compile-time call would be a cyclic dep). If
     ;; the hook is NOT yet registered (re-frame.router not loaded — a standalone
     ;; re-frame.frame require with no router) we must NOT silently drop the
     ;; setup: the EP guiding rule is that `:initial-events` is NO LESS capable
-    ;; than the hand-written `dispatch-sync` loop it replaces (which would error
+    ;; than the hand-written `dispatch-sync` loop it stands in for (which would error
     ;; LOUDLY on an unresolved `dispatch-sync` var, never skip), and Conventions
     ;; §No silent swallow requires a recognised-but-unhonourable input to
     ;; signal. So when there ARE steps to run and the runner is unavailable,
     ;; fail loud — tear down the partial frame (the container was already swapped
     ;; into `frames` by the caller) and throw, naming that the router is not
-    ;; loaded. (The common path — re-frame.core requires re-frame.router, so the
-    ;; hook is published before any runtime frame construction — is unaffected.)
+    ;; loaded. (On the common path re-frame.core requires re-frame.router, so
+    ;; the hook is published before any runtime frame construction.)
     (if-let [dispatch-sync! (rf.late-bind/get-fn :router/dispatch-sync!)]
       ;; The always-on error-emit registry — the production-survivable axis the
       ;; router's IN-BAND error fan-out (handler / interceptor / cofx / flow
@@ -2897,8 +2885,8 @@
               ;; IN-BAND failure: dispatch-sync! returned nil normally but the
               ;; interceptor chain CAPTURED a throw and fanned it out on the
               ;; always-on error-emit axis (the `[:rf/set-db x]` bad-arg / any
-              ;; handler-body throw → `:rf.error/handler-exception`, post
-              ;; rf2-izy3b2). Strict construction treats it as a setup-step
+              ;; handler-body throw → `:rf.error/handler-exception`).
+              ;; Strict construction treats it as a setup-step
               ;; failure — tear down + raise, naming the captured category in the
               ;; cause text (no host throwable is carried; the chain swallowed it).
               (when-let [record @captured]
@@ -2909,12 +2897,11 @@
                   where-sym owner-token)))
             (recur (inc idx) (rest remaining)))))
       ;; The runner hook is unavailable but there ARE steps to run: fail loud
-      ;; rather than silently dropping the setup (rf2-jsokxu). Tear down the
+      ;; rather than silently dropping the setup. Tear down the
       ;; partial frame (the caller already swapped the container into `frames`)
       ;; so no half-created, never-setup frame is left live, then throw naming
       ;; that re-frame.router is not loaded. Teardown is exact-token-owned
-      ;; (`owner-token`) so it removes only the incarnation we installed
-      ;; (rf2-wduv35).
+      ;; (`owner-token`) so it removes only the incarnation we installed.
       (do
         (destroy-frame! id owner-token)
         (rf.error/throw-error!
@@ -2934,8 +2921,8 @@
 
 (defn- reject-retired-construction-keys!
   "PREFLIGHT guard (EP-0027 §Backwards-compat). `:on-create` and `:initial-db`
-  are RETIRED construction keys (pre-alpha, no shim). A construction map that
-  still supplies either fails LOUD with the dedicated `:rf.error/*` naming the
+  are RETIRED construction keys (there is no shim). A construction map that
+  supplies either fails LOUD with the dedicated `:rf.error/*` naming the
   `:initial-events` / `[:rf/set-db …]` replacement, BEFORE any frame is created.
   `where-sym` is the constructor symbol for the diagnostic."
   [config where-sym]
@@ -2969,13 +2956,13 @@
   exclusivity check + URL-ownership claim order, which anything reading URL
   ownership downstream depends on. Resources is second — a frame's
   `:revalidate-on` host focus/reconnect listeners are reconciled against the
-  frame's committed config (rf2-kuky.33)."
+  frame's committed config."
   [:routing/on-frame-registered!
    :resources/on-frame-registered!])
 
 (defn- fire-frame-registered-hook!
   "Fire the optional artefacts' POST-(RE-)REGISTRATION lifecycle extension
-  hooks (rf2-g8pbwg), by key, in `frame-registered-hook-keys` order. Each is
+  hooks, by key, in `frame-registered-hook-keys` order. Each is
   a no-op when its artefact is not loaded (both are optional).
 
   Called at the END of BOTH `upsert-frame!` branches below — first
@@ -2984,7 +2971,7 @@
   `:rf.frame/re-registered` emitted) — so the frame container is always
   guaranteed live by the time the hooks fire. This is THE frame
   (re-)registration lifecycle extension point: frames do not flow through
-  `registrar/register!` (rf2-h1vqa4 — the frames registry is the one store),
+  `registrar/register!` (the frames registry is the one store),
   so there is no registrar registration hook for frames.
 
   Consumed by routing (`:routing/on-frame-registered!` — maintains the
@@ -3130,7 +3117,7 @@
   construction rollback OWN that exact incarnation: a failed-setup / handler-
   guard teardown passes this token to the two-argument `destroy-frame!`, which
   can then only destroy the frame this call created, never a same-id successor
-  that replaced it in the interim (rf2-wduv35). A later re-read would repeat the
+  that replaced it in the interim. A later re-read would repeat the
   same check-then-act race the token closes."
   [id config policy-token owner]
   (when-not (contains? @frames id)
@@ -3154,7 +3141,7 @@
             (recur)))))))
 
 (defn- throw-frame-id-taken!
-  "Throw the typed `:rf.error/frame-id-taken` collision (rf2-vxgfnd.76) — the
+  "Throw the typed `:rf.error/frame-id-taken` collision — the
   create-exclusive (`:rf.frame/must-create?`) primitive a fresh-isolated-frame
   test contract rests on. Raised when an exclusive construction for
   `id` meets an already-live FINAL frame under the same id. Same-id overlap with
@@ -3176,20 +3163,20 @@
 
 (defn- deliver-incarnation-token!
   "Hand the EXACT installed incarnation token to an optional construction
-  `token-sink` (a `volatile!`) from INSIDE the construction transaction
-  (rf2-moftbs). `make-frame` passes a sink so it can embed the token on the
+  `token-sink` (a `volatile!`) from INSIDE the construction transaction.
+  `make-frame` passes a sink so it can embed the token on the
   returned frame VALUE without a post-return `frame-incarnation-token` re-sample
   of the registry — a re-sample a concurrent `destroy-frame!` + same-id reseat
   could race into handing back a successor's token. No-op when the caller passed
   no sink (`make-anon-frame-record!`, the `:rf/default` fixture, and the engine
-  tests, which take the id return unchanged). Returns nil."
+  tests, which take the id return). Returns nil."
   [token-sink token]
   (when token-sink (vreset! token-sink token))
   nil)
 
 (defn ^:no-doc upsert-frame!
   "PRIVATE frame ENGINE — atomic create-or-REFRESH (upsert) of the frame
-  record for `id` (rf2-h1vqa4). Called by `re-frame.live-frame/make-frame`
+  record for `id`. Called by `re-frame.live-frame/make-frame`
   (the public constructor `rf/make-frame`) and tightly-scoped engine tests
   ONLY — not a stable entry point.
 
@@ -3205,9 +3192,9 @@
     never REPLAYED. Hot-reload Just Works. This IS re-construction — the
     Clojure re-def model: re-declaring the same id refreshes config while
     durable state survives. `:initial-events` replay is ONLY the opt-in
-    full-replace composition (`destroy-frame!` then re-seat, rf2-lxwpob).
+    full-replace composition (`destroy-frame!` then re-seat).
 
-  SUBSTRATE OWNERSHIP (rf2-h1vqa4): the `frames` registry is the ONE store a
+  SUBSTRATE OWNERSHIP: the `frames` registry is the ONE store a
   seated frame lives in. Seating a frame writes NO registrar row and NO
   source-store descriptor — a frame is a LIVE runtime object, not a program
   member, so seating/reseating must never bump the registration source-store
@@ -3216,18 +3203,17 @@
   `frame-meta` / `frame-ids`, not the registrar query API.
 
   Returns the frame `id` on a successful create OR re-register (the documented
-  keyword return every existing caller + engine test relies on). The optional
+  keyword return every caller + engine test relies on). The optional
   3-arity `token-sink` (a `volatile!`) is an OUT-channel: on success the exact
   installed incarnation token (the record's `:drain-lock`) is delivered into it
   from INSIDE the construction transaction, so `make-frame` can embed exact
-  authority on the returned frame VALUE with no post-return registry re-sample
-  (rf2-moftbs). Passing no sink (the 2-arity) is byte-identical for every
-  existing caller."
+  authority on the returned frame VALUE with no post-return registry re-sample.
+  Passing no sink (the 2-arity) skips the delivery."
   ([id metadata] (upsert-frame! id metadata nil))
   ([id metadata token-sink]
   (let [;; The registry is keyed by the bare frame-id.
         config       (expand-preset metadata)
-        ;; INTERNAL create-exclusive mode (rf2-vxgfnd.76): when the caller
+        ;; INTERNAL create-exclusive mode: when the caller
         ;; threads `:rf.frame/must-create?`, a live final frame already present at
         ;; decide throws typed `:rf.error/frame-id-taken` instead of the ordinary
         ;; fall-through to a surgical re-registration. An in-flight same-id
@@ -3247,7 +3233,7 @@
         ;; config are installed (first-registration branch below).
         _              (reject-retired-construction-keys! config 'rf/make-frame)
         setup-steps    (normalize-initial-events (:initial-events config) 'rf/make-frame)
-        ;; EP-0015 §9: validate the surviving frame-owned policy key
+        ;; EP-0015 §9: validate the frame-owned policy key
         ;; (`:observability` sink policy) EARLY — pure, container-independent,
         ;; fail-loud. A retired `:sensitive` / `:large` frame key, an unknown
         ;; observability key, or a malformed sink entry throws here, BEFORE
@@ -3259,20 +3245,20 @@
         ;; runtime construction. No-op when the config carries no policy key
         ;; (the common case).
         ;;
-        ;; EP-0025: durable app-db classification is NO LONGER a frame
+        ;; EP-0025: durable app-db classification is NOT a frame
         ;; annotation — the `:sensitive` / `:large {:app-db …}` durable
-        ;; declaration moved to the commit-plane classification effects
+        ;; declaration lives in the commit-plane classification effects
         ;; (a `reg-event` returns `:sensitive` / `:large` alongside `:db`,
-        ;; `re-frame.elision`). HTTP carrier classification is NO LONGER a
-        ;; frame annotation either — the `:sensitive {:http …}` block moved
-        ;; onto the `:rf.http/managed` `reg-fx` registration (`:carriers`).
-        ;; So construction only VALIDATES the surviving `:observability` policy;
-        ;; it installs NOTHING into the elision registry. (The retired
-        ;; `:sensitive` and `:large` frame keys now fail loud.)
+        ;; `re-frame.elision`). HTTP carrier classification is NOT a
+        ;; frame annotation either — the `:sensitive {:http …}` block lives
+        ;; on the `:rf.http/managed` `reg-fx` registration (`:carriers`).
+        ;; So construction only VALIDATES the `:observability` policy;
+        ;; it installs NOTHING into the elision registry. (A `:sensitive`
+        ;; or `:large` frame key fails loud.)
         _              (when-let [validate (rf.late-bind/get-fn
                                             :frame-classification/validate!)]
                          (validate id config))
-        ;; rf2-ktmto9: routing-owned frame-config PREFLIGHT at the frame-config
+        ;; Routing-owned frame-config PREFLIGHT at the frame-config
         ;; COMMIT chokepoint. The routing artefact validates an explicitly-
         ;; declared `:url-strategy` (shape + host-required callable legs) against
         ;; the FINAL expanded config — here, alongside the other pure preflights,
@@ -3291,7 +3277,7 @@
         ;; or execute is worse than a dependency error (it would only fail
         ;; later, deep in a consult point). A `:url-bound?`-only config with no
         ;; `:url-strategy` key stays registrable before routing loads (the
-        ;; late-load case is unchanged).
+        ;; late-load case).
         _              (if-let [preflight-routing! (rf.late-bind/get-fn
                                                     :routing/preflight-frame-config!)]
                          (preflight-routing! id config)
@@ -3305,7 +3291,7 @@
                                   "boot, BEFORE the frame is constructed, so the "
                                   "strategy can be validated at registration time.")
                              {:extra {:frame id}})))
-        ;; rf2-kuky.33: the resources-owned `:revalidate-on` frame-config key
+        ;; The resources-owned `:revalidate-on` frame-config key
         ;; (the focus/reconnect host listeners the frame lifecycle installs) is
         ;; honoured by `:resources/on-frame-registered!`. When the config
         ;; declares it and the resources artefact is NOT loaded, fail loud HERE
@@ -3332,18 +3318,17 @@
         ;; installed token inside their own atomic updates, so teardown and exact
         ;; rollback cannot publish against the wrong revision.
         policy-token   (fresh-trace-policy-token)
-        ;; rf2-umsyo9: the frame-scoped TRACE POLICY writes (the suppression flag
+        ;; The frame-scoped TRACE POLICY writes (the suppression flag
         ;; + the `:rf.trace/events-retained` retention override) are process-global
         ;; stores SEPARATE from the `frames` registry, so the registry commit
-        ;; alone does NOT linearize them. PR #5776 ran them speculatively before
-        ;; the commit,
-        ;; which let a must-create LOSER — or a create/create loser — overwrite
+        ;; alone does NOT linearize them. Run speculatively before the commit,
+        ;; they would let a must-create LOSER — or a create/create loser — overwrite
         ;; the WINNER's trace policy for this id even though the loser installed
-        ;; nothing, corrupting the live winner's tracing. They now ride the sole
-        ;; transaction-owner branch via this thunk, so any admission loss is ZERO-WRITE
+        ;; nothing, corrupting the live winner's tracing. So they ride the sole
+        ;; transaction-owner branch via this thunk, and any admission loss is ZERO-WRITE
         ;; across every frame-owned store (the record AND its auxiliary
         ;; rf.trace/retention stores), while first-registration and ordinary
-        ;; re-registration still apply the winning config's policy EXACTLY ONCE.
+        ;; re-registration apply the winning config's policy EXACTLY ONCE.
         ;; Honoured on BOTH create and re-register so a hot-reload can flip either
         ;; flag either way; the won-create branch calls it BEFORE
         ;; `run-setup-events!` so an init-cascade against a trace-disabled tool
@@ -3377,16 +3362,16 @@
         apply-trace-policy!
         (fn []
           (apply-trace-policy-for! config policy-token))]
-    ;; SUBSTRATE OWNERSHIP (rf2-h1vqa4): deliberately NO `registrar/register!`
-    ;; here. A seated frame lives in the `frames` registry alone. The former
-    ;; `:frame` registrar row leaked into the registration SOURCE STORE
+    ;; SUBSTRATE OWNERSHIP: deliberately NO `registrar/register!`
+    ;; here. A seated frame lives in the `frames` registry alone. A
+    ;; `:frame` registrar row would leak into the registration SOURCE STORE
     ;; (`registrar/register!` → `source-store/record-descriptor!`), bumping the
     ;; source-store generation on every seat/reseat — invalidating the
     ;; resolved-image-generation cache (EP-0023) and marking the live-frame
     ;; reprojection dirty for a change that is NOT a registration-pool change.
-    ;; Routing (the one former consumer) reads frame config via
+    ;; Routing reads frame config via
     ;; `frame-meta` / `frame-ids`; the registrar `:frame` kind is reserved with
-    ;; an intentionally EMPTY slot (the `:flow` precedent, rf2-en00bk).
+    ;; an intentionally EMPTY slot (the `:flow` precedent).
     ;; One exact per-id reservation is acquired BEFORE the decision probe, any
     ;; adapter callback, provisional registry publication, trace-policy write,
     ;; synchronous setup, lifecycle trace, or extension hook. It is released in
@@ -3421,9 +3406,9 @@
               ;; succeed. Any throw destroys only this exact incarnation before
               ;; admission is released.
               (try
-                ;; EP-0025: no durable app-db classification install here anymore
-                ;; — the frame `:sensitive` / `:large {:app-db …}` annotation was
-                ;; removed in favour of the commit-plane classification effects.
+                ;; EP-0025: there is no durable app-db classification install
+                ;; here — durable classification is the commit-plane
+                ;; classification effects' job, not a frame annotation.
                 ;; A `:frame-init` `:initial-events` step that classifies a path
                 ;; runs (below) at creation, so init-cascade trace stays redacted.
                 ;; EP-0027 §Construction — FORBID handler-time frame construction.
@@ -3436,7 +3421,7 @@
                 ;; down before throwing so a handler-time construction leaves NO
                 ;; half-registered frame. Teardown owns `installed-token`, so it
                 ;; removes exactly the incarnation we just installed — never a
-                ;; concurrently-seated same-id successor (rf2-wduv35).
+                ;; concurrently-seated same-id successor.
                 (when rf.trace/*handler-scope*
                   (destroy-frame! id installed-token)
                   (rf.error/throw-error!
@@ -3451,7 +3436,7 @@
                          "top-level boot (rf/make-frame).")
                     {:recovery :construct-frames-in-view-or-top-level
                      :extra    {:frame id}}))
-                ;; rf2-umsyo9: apply the winning config's frame-scoped trace
+                ;; Apply the winning config's frame-scoped trace
                 ;; policy now that this create WON installation and passed the
                 ;; handler-time guard — BEFORE `run-setup-events!` so a
                 ;; trace-disabled tool frame's init cascade stays redacted, and
@@ -3477,7 +3462,7 @@
                   ;; `:drain-lock` `try-install-new-frame!` installed and
                   ;; finalization preserved by identity) from inside the
                   ;; transaction so `make-frame` embeds exact authority with no
-                  ;; post-return re-sample (rf2-moftbs).
+                  ;; post-return re-sample.
                   (do (deliver-incarnation-token! token-sink installed-token) id)
                   (throw-frame-construction-in-progress!
                     id :lifecycle-dead :destruction))
@@ -3520,7 +3505,7 @@
           ;; runtime state (app-db, sub-cache, queue) is preserved. EP-0027 §Reset
           ;; — the new `:initial-events` is RE-RECORDED into `:config`, never
           ;; REPLAYED (replay is the opt-in `destroy-frame!` then `make-frame`
-          ;; composition, rf2-lxwpob).
+          ;; composition).
           :else
           (let [observed      existing
                 stored-config (dissoc config
@@ -3566,7 +3551,7 @@
                   ;; replaces config/generation/trace-policy/construction), so the
                   ;; staged record's token IS the still-live incarnation token —
                   ;; hand it back so a re-`make-frame` value carries the SAME
-                  ;; authority as the original (rf2-moftbs).
+                  ;; authority as the original.
                   (do (deliver-incarnation-token! token-sink (:drain-lock staged)) id)
                   (throw-frame-construction-in-progress!
                     id :lifecycle-dead :destruction))
@@ -3616,12 +3601,11 @@
   holder of either. Pure map assembly; `id` is the public frame id (nil for a
   no-id direct value), `runnable-id` the record address.
 
-  EP-0027 retired `:initial-db`: app-db seeding is now a setup event
-  (`:initial-events`), so the constructed value no longer carries an
-  `:rf.frame/initial-db` slot. EP-0026 (rf2-dlvmpc) retired the
-  `:rf.frame/capabilities` slot with the image-capability feature.
+  App-db seeding is a setup event (`:initial-events`, EP-0027), so the
+  constructed value carries no `:rf.frame/initial-db` slot. There is no
+  `:rf.frame/capabilities` slot either (EP-0026).
 
-  rf2-moftbs: a fresh/idempotent construction threads its EXACT incarnation
+  A fresh/idempotent construction threads its EXACT incarnation
   `token` (the installed `:drain-lock`) through here so the returned value
   carries `:rf.frame/incarnation-token` — the opaque lifecycle-token authority
   an owner consumes so its `destroy-frame!` is incarnation-EXACT. A nil `token`
@@ -3664,9 +3648,9 @@
 ;; `record-teardown-failure!` only conj's when bound).
 (def ^:dynamic *teardown-hook-failures* nil)
 
-;; SENSE (rf2-p4cd9c): event-pipeline-run — bound around ONE dequeued event's
-;; run (`process-event!`), not the reactive graph. Renamed cascade->run per the
-;; glw1bh event-pipeline vocabulary (a run = one event's traversal).
+;; SENSE: event-pipeline-run — bound around ONE dequeued event's
+;; run (`process-event!`), not the reactive graph (a run = one event's
+;; traversal).
 ;;
 ;; Pre-run frame-state snapshot of the in-flight dequeued event, bound by
 ;; the router around `process-event!` (see `re-frame.router/run-one-pass!`).
@@ -3692,17 +3676,16 @@
   It lives in CORE because it closes over no view state whatever — only
   `*run-frame-state-before*` and the frame accessors above — so every substrate
   whose synchronous flush can publish a render phase reaches THIS one fn
-  without requiring anything from another view artefact (rf2-87ouj). One guard,
-  not one copy per substrate. No in-repo substrate calls it today — both callers
-  went with the retired donor view artefacts, and the guard stayed because the
-  law is core's rather than theirs. Contrast the convergence bound, which cannot be
-  shared this way: each substrate's `converge-flush!` closes over that substrate's
-  OWN cell registry, so there the two implementations are deliberately independent
-  and the `:where` slot disambiguates them (rf2-jew4k).
+  without requiring anything from another view artefact. One guard,
+  not one copy per substrate. No in-repo substrate calls it; the guard lives
+  here because the law is core's rather than any substrate's. Contrast a
+  convergence bound, which cannot be shared this way: it closes over the
+  substrate's OWN cell registry, so each substrate owns its own and the
+  `:where` slot disambiguates them.
 
   `*run-frame-state-before*` is bound around the current event-pipeline run and
   SURVIVES a handler destroying its own frame — a live registry scan cannot, since
-  destroy removes the active frame before the handler returns, which used to let a
+  destroy removes the active frame before the handler returns, which would let a
   destroy-self-then-flush call cross the guard and deliver render-phase work inside
   the still-open run. Throws BEFORE the caller touches its registry (no partial
   flush); a no-op outside any drain."
@@ -3726,7 +3709,7 @@
   forge ownership of a fresh same-id incarnation.
 
   Around the handler pipeline the router also records the dequeued dispatch
-  envelope under `:envelope` (rf2-ix8fd), read through `current-event-envelope`."
+  envelope under `:envelope`, read through `current-event-envelope`."
   nil)
 
 (defn ^:no-doc call-with-event-owner-token
@@ -3758,7 +3741,7 @@
   to another frame).
 
   For framework code that runs in a handler BODY and queues a child dispatch,
-  where no fx ctx `(:envelope m)` is in reach. The rf2-ix8fd case is the machine
+  where no fx ctx `(:envelope m)` is in reach. The motivating case is the machine
   completion carriers. Such code hands the result to `re-frame.fx/child-dispatch!`
   so the child inherits run propagation (Spec 002 §Run propagation). The
   envelope is the one the router DEQUEUED, before its machine-origin tag, so
@@ -3804,8 +3787,8 @@
                 (= id (:frame *event-owner*))
                 (identical? token (:token *event-owner*))))))
 
-;; SENSE (rf2-p4cd9c): event-pipeline-run — the run's causal time, bound
-;; alongside `*run-frame-state-before*`. Renamed cascade->run per glw1bh.
+;; SENSE: event-pipeline-run — the run's causal time, bound
+;; alongside `*run-frame-state-before*`.
 ;;
 ;; The in-flight dequeued event's causal `:rf/time-ms` (the
 ;; `:rf.cofx` `:rf/time-ms` stamped on its envelope at the causal
@@ -3876,10 +3859,10 @@
        a dev breadcrumb in long-lived SSR / test / tooling processes. This
        emit rides `rf.interop/debug-enabled?` (inside `rf.trace/emit-error!`) so
        production CLJS bundles DCE it — the per-hook dev visibility is KEPT
-       (only the always-on emission collapsed to the single report).
+       (only the always-on emission is collapsed to the single report).
 
-  Best-effort teardown semantics are preserved — the throw is swallowed
-  and teardown continues (`:recovery :ignored`)."
+  Teardown stays best-effort — the throw is swallowed and teardown
+  continues (`:recovery :ignored`)."
   [hook-key & args]
   (when-let [f (rf.late-bind/get-fn hook-key)]
     (try (apply f args)
@@ -3898,12 +3881,12 @@
   straight out of `destroy-frame!`'s `try` — notably
   `notify-machine-destruction!` (step 3), whose `teardown!` hook call,
   fallback `:rf.machine.lifecycle/destroyed` trace emits, and
-  trace-listener fan-out are all reachable throw sites (rf2-jt47s0). An
-  unguarded throw there left the frame LIVE + HALF-TORN-DOWN
+  trace-listener fan-out are all reachable throw sites. An
+  unguarded throw there would leave the frame LIVE + HALF-TORN-DOWN
   (`:destroyed?` never flipped, sub-cache intact, record not dissoc'd) —
-  the `:on-destroy` (step 2) had already run, so a subsequent
-  `destroy-frame!` saw the still-live record and RE-RAN the whole recipe,
-  re-firing the user `:on-destroy`. Guarding the step keeps teardown
+  the `:on-destroy` (step 2) has already run, so a subsequent
+  `destroy-frame!` would see the still-live record and RE-RUN the whole
+  recipe, re-firing the user `:on-destroy`. Guarding the step keeps teardown
   best-effort end-to-end. `step-key` labels the step in both channels."
   [step-key thunk]
   (try (thunk)
@@ -3970,7 +3953,7 @@
   Mechanism: the router catches handler throws and converts them to
   `:rf.error/handler-exception` — the internal teardown cascade does not
   re-throw. To surface the throw as the dedicated `:rf.error/on-destroy-handler-
-  exception` category (Mike's decision), we install a TRANSIENT listener
+  exception` category, we install a TRANSIENT listener
   on the ALWAYS-ON error-emit axis for the duration of the dispatch under a
   UNIQUE per-destroy key (a constant key would let a nested / overlapping
   destroy clobber the outer's listener and drop its dedicated record): any
@@ -4083,7 +4066,7 @@
   artefact there are no live `:exit` cascades to run and no actor
   handlers to unregister.
 
-  rf2-wjfm — the fallback's abort is FRAME-EXACT. An actor address is
+  The fallback's abort is FRAME-EXACT. An actor address is
   frame-LOCAL (Spec 014 §Abort on actor destroy §Frame scope), so the hook
   is called with the frame being destroyed as well as the address; its
   frame-less ANY-FRAME arity would sweep that address in every frame and
@@ -4099,7 +4082,7 @@
           abort-http (rf.late-bind/get-fn :http/abort-on-actor-destroy)]
       (doseq [[machine-id snapshot] machines]
         (when abort-http
-          ;; rf2-wjfm — `id` is the frame under destruction; passing it
+          ;; `id` is the frame under destruction; passing it
           ;; selects the hook's frame-scoped arity.
           (try (abort-http id machine-id)
                (catch #?(:clj Throwable :cljs :default) _ nil)))
@@ -4245,8 +4228,8 @@
   tooling). `subs.cache` requires `frame` (this ns), so the call is
   late-bound to keep the dependency one-directional. The fallback
   (hook unbound — only reachable if `re-frame.subs.cache` was never
-  loaded, e.g. a frame with subs but no subscribe path) preserves the
-  best-effort direct disposal so teardown never leaks reactions."
+  loaded, e.g. a frame with subs but no subscribe path) disposes directly,
+  best-effort, so teardown never leaks reactions."
   [id f]
   (when-let [cache (:sub-cache f)]
     (if-let [dispose-all! (rf.late-bind/get-fn :subs.cache/dispose-all-for-frame-destroy!)]
@@ -4322,7 +4305,7 @@
   fresh same-id frame has already published between registry dissoc and step 10.
 
   `terminal-evidence` is the bundle `snapshot-epoch-terminal-evidence!` captured
-  BEFORE dissoc (rf2-vxgfnd.151) — the epoch surface publishes A's terminal
+  BEFORE dissoc — the epoch surface publishes A's terminal
   facts from it rather than re-reading the now-shared id-keyed stores.
 
   This is the ONLY teardown step that runs AFTER `dissoc-frame!`, so a same-id
@@ -4331,7 +4314,7 @@
   like every other teardown step, but the dev-only
   `:rf.warning/teardown-hook-exception` trace is delivered under STRUCTURAL
   delivery so a same-id B's `:rf.trace/frame-no-emit?` policy can neither
-  suppress nor capture it (rf2-vxgfnd.152). Every PRE-dissoc teardown hook keeps
+  suppress nor capture it. Every PRE-dissoc teardown hook keeps
   ordinary bare-id policy — no same-id B can exist before dissoc, so their
   attribution is A's unambiguously."
   [id owner-token terminal-evidence]
@@ -4344,7 +4327,7 @@
                                      :safe-call-hook! ex))))))
 
 (defn- snapshot-epoch-terminal-evidence!
-  "rf2-vxgfnd.151 — snapshot the destroyed incarnation's terminal halted-destroy
+  "Snapshot the destroyed incarnation's terminal halted-destroy
   evidence (its `:halted-destroy` record + listener/silencing snapshot) while it
   is still the sole owner of its id-keyed epoch stores, i.e. BEFORE
   `dissoc-frame!`. A same-id successor can only be constructed after that dissoc,
@@ -4445,16 +4428,14 @@
                                               `capture-frame` bundle + ambient
                                               dispatch closure), whose own
                                               eviction is lazy and so never
-                                              fires for a per-request id
-                                              (rf2-uejlj).
+                                              fires for a per-request id.
          :live-frame/on-frame-destroyed!    — drop the frame's generation-
                                               provenance row (which descriptor
                                               pool its generation was resolved
                                               against). Written by every
                                               successful `make-frame` and read
                                               only while the frame is live, so
-                                              its lifetime is the frame's
-                                              (rf2-cq0yi).
+                                              its lifetime is the frame's.
     7. emit-frame-destroyed-trace!  — emit :frame/destroyed AFTER every
                                       feature cleanup hook has completed.
     7a. snapshot-epoch-terminal-    — bind A's terminal :halted-destroy
@@ -4468,12 +4449,12 @@
                                       those stores. The bundle is bound
                                       lexically here and published by step 10
                                       regardless of whether A still owns the
-                                      stores when it fires (rf2-vxgfnd.151).
+                                      stores when it fires.
                                       Taken BEFORE the step-8 ring release so a
                                       snapshot-hook failure's ordinary-delivery
                                       warning rides A's ring and is cleared by
                                       that release instead of recreating an
-                                      already-freed one (rf2-vxgfnd.244).
+                                      already-freed one.
                                       Best-effort: a throw is recorded on both
                                       Spec 009 channels and swallowed; a nil
                                       bundle (no epoch layer / debug disabled)
@@ -4484,7 +4465,7 @@
     9. dissoc-frame!                — remove from the `frames` atom. This IS
                                       the whole forget: the `frames` registry
                                       is the ONE store a seated frame lives in
-                                      (rf2-h1vqa4 — no registrar row exists).
+                                      (no registrar row exists).
     10. notify-epoch-listeners!     — fire the epoch hook so tools see
                                       :rf.epoch.cb/silenced-on-frame-destroy.
                                       This is the PUBLISH half of the epoch
@@ -4518,15 +4499,15 @@
   silent no-op — the outer call's teardown is already in flight and
   re-running the recipe would re-fire `:on-destroy`, re-run the
   machine cascade, and corrupt the half-torn-down state. Idempotent
-  destroy is the existing pattern (a destroyed frame's `(frame id)`
+  destroy is the general pattern (a destroyed frame's `(frame id)`
   lookup already returns nil, so a *later* `destroy-frame!` short-
   circuits at the outer `when-let`); the in-flight guard closes the
   RE-ENTRANT window before `mark-frame-destroyed!` flips the flag.
 
   EP-0024: the target may be a frame-id KEYWORD or a frame VALUE
   (`rf/make-frame`'s return token). A value is normalized to its id via
-  `frame-target->id` so the whole recipe keys the ONE registry's record
-  unchanged; `dissoc-frame!` IS the forget (the resolved generation rides the
+  `frame-target->id` so the whole recipe keys the ONE registry's record;
+  `dissoc-frame!` IS the forget (the resolved generation rides the
   record, dropped with it — one registry, no separate forget hook).
 
   The two-argument arity is incarnation-owned teardown: it is a silent no-op
@@ -4535,7 +4516,7 @@
   and the liveness flip CAS-checks the same token under the same lifecycle gate,
   so a stale teardown can never destroy a fresh same-id incarnation.
 
-  The one-argument arity chooses its authority from the TARGET (rf2-moftbs):
+  The one-argument arity chooses its authority from the TARGET:
   a fresh-construction frame VALUE carries its EXACT incarnation token
   (`frame-value-incarnation-token`), so the arity delegates to the
   incarnation-owned two-argument arity with it — an owner (`with-new-frame`,
@@ -4544,10 +4525,10 @@
   carried token no-ops). A frame-id KEYWORD, or a token-less derived-read VALUE,
   carries no authority and stays ADDRESS-directed: it pins whatever incarnation
   is currently live under the id at invocation and delegates. So keyword/ID
-  destruction remains explicitly address-directed while a returned frame value
-  gains coherent lifecycle-token semantics."
+  destruction is explicitly address-directed while a returned frame value
+  has coherent lifecycle-token semantics."
   ([target]
-   ;; rf2-moftbs: a fresh-construction frame VALUE carries EXACT incarnation
+   ;; A fresh-construction frame VALUE carries EXACT incarnation
    ;; authority (`:rf.frame/incarnation-token` — the installed `:drain-lock`).
    ;; Consume it so an owner's cleanup (`with-new-frame`, Story replay, SSR
    ;; per-request) destroys ONLY the incarnation it created; a stale carried
@@ -4577,8 +4558,8 @@
       ;; under that SAME lock, after revalidating the expected token.
       ;; `frame-incarnation-closing?` can therefore tell
       ;; this teardown apart from a fresh same-id replacement that goes live
-      ;; under the reused id before this destroy's `finally` clears the marker
-      ;; (rf2-vxgfnd.94). `contains?`/keys keep the bare-id semantics the
+      ;; under the reused id before this destroy's `finally` clears the marker.
+      ;; `contains?`/keys keep the bare-id semantics the
       ;; re-entrant guard relies on.
       ;; Capture the DESTROY-TIME frame-state value AFTER the exact-incarnation
       ;; claim / ordinary-queue cutoff and BEFORE cleanup or lifecycle mutation.
@@ -4626,14 +4607,14 @@
          (try
         (fire-on-destroy-event! id expected-incarnation-token f)
         ;; Step 3 rides the SAME best-effort boundary as the later
-        ;; `safe-call-hook!` steps (rf2-jt47s0). `notify-machine-destruction!`'s
+        ;; `safe-call-hook!` steps. `notify-machine-destruction!`'s
         ;; `teardown!` hook call, its fallback `:rf.machine.lifecycle/destroyed`
         ;; trace emits, and the trace-listener fan-out are all reachable throw
         ;; sites (a non-machines `:machines/teardown-on-frame-destroy!` consumer,
-        ;; or a throwing tap). Left unguarded, a throw here escaped the recipe
-        ;; BEFORE the liveness flip / sub-cache teardown — the frame stayed LIVE +
-        ;; half-torn-down with `:on-destroy` already run, so a retry re-ran the
-        ;; whole recipe and re-fired `:on-destroy`. Accumulated into
+        ;; or a throwing tap). Left unguarded, a throw here would escape the recipe
+        ;; BEFORE the liveness flip / sub-cache teardown — the frame would stay LIVE +
+        ;; half-torn-down with `:on-destroy` already run, so a retry would re-run the
+        ;; whole recipe and re-fire `:on-destroy`. Accumulated into
         ;; `*teardown-hook-failures*` + surfaced on the diagnostic trace, then
         ;; teardown continues so the frame is fully torn down exactly once.
         (safe-teardown-step! :frame/notify-machine-destruction!
@@ -4657,7 +4638,7 @@
         ;; a cold serialized op (e.g. a Tool-Pair write body) runs under that
         ;; op's `:serialized-holder` — either way the flip runs directly rather
         ;; than self-deadlocking, and the `frame-disposed-for-drain?` interrupt
-        ;; seam is unchanged.
+        ;; seam still applies.
         (when (call-serialized-with-drain!
                 id
                 (fn []
@@ -4683,7 +4664,7 @@
         ;; Drop every flow registered against the destroyed
         ;; frame plus its cached `last-inputs` rows and its pending
         ;; abandoned-output-path (vacation) state. There is NO `:flow`
-        ;; registrar slot to prune: per rf2-en00bk the `:flow` registrar
+        ;; registrar slot to prune: the `:flow` registrar
         ;; kind is RESERVED with an intentionally empty slot, and
         ;; `reg-flow` writes only to the flows artefact's own per-frame
         ;; `{frame-id {flow-id flow-map}}` store — the single source of
@@ -4728,7 +4709,7 @@
         ;; is absent (the artefact is optional).
         (safe-call-hook! :resources/on-frame-destroyed! id)
         ;; Abort the destroyed frame's still-in-flight PLAIN managed HTTP
-        ;; (rf2-j538f7.8) — ordinary event-handler `:rf.http/managed` work with
+        ;; — ordinary event-handler `:rf.http/managed` work with
         ;; no actor id, the exposed path that actor/resource teardown above does
         ;; NOT catch. Each frame-stamped live fetch/future + sleeping-backoff
         ;; handle is cancelled with the reply-suppressing `:reason
@@ -4740,7 +4721,7 @@
         ;; is absent.
         (safe-call-hook! :http/on-frame-destroyed! id)
         ;; Cancel + drop the destroyed frame's still-pending
-        ;; `:dispatch-later` host timers (rf2-uxz52g). Each arms a host-clock
+        ;; `:dispatch-later` host timers. Each arms a host-clock
         ;; timer whose thunk dispatches the deferred event into THIS frame;
         ;; left armed across destroy it fires a dead-on-arrival dispatch into
         ;; a torn-down frame, and its armed handle + captured closure leak
@@ -4760,25 +4741,25 @@
         ;; replaces the row. That bounds a client id, which is reused across
         ;; incarnations, and bounds nothing at all for an id that never gets a
         ;; successor — `re-frame.fresco.server/render` mints a fresh gensym per
-        ;; request, so a long-lived SSR process retained one bundle per request
-        ;; served (rf2-uejlj). Keyed and unconditional, needing no incarnation
+        ;; request, so without this a long-lived SSR process would retain one
+        ;; bundle per request served. Keyed and unconditional, needing no incarnation
         ;; token: a same-id successor is constructable only after the step-9
         ;; dissoc, so every row standing here is a dead incarnation's. Pure
         ;; RETENTION — the substrate's safety argument is that lazy replacement
-        ;; and is untouched by this. No-op when the day8/re-frame2-fresco
+        ;; and does not depend on this. No-op when the day8/re-frame2-fresco
         ;; artefact is absent (the hook is unbound).
         (safe-call-hook! :fresco/on-frame-destroyed! id)
-        ;; rf2-cq0yi — release the frame's generation-PROVENANCE row: the
+        ;; Release the frame's generation-PROVENANCE row: the
         ;; `re-frame.live-frame` side table naming which descriptor pool this
         ;; frame's current generation was resolved against (nil = the live
         ;; source store; a real descriptors value = `make-frame`'s 2-arity
-        ;; explicit pool). EVERY successful public `make-frame` writes one and
-        ;; nothing removed it: destroying N never-reused ids left N permanent
-        ;; rows, and the 2-arity additionally kept the caller's explicit
-        ;; descriptor pool reachable. Same shape as the Fresco row above, one
-        ;; layer down, and it bites for the same reason — the documented
+        ;; explicit pool). EVERY successful public `make-frame` writes one;
+        ;; without this release, destroying N never-reused ids would leave N
+        ;; permanent rows, and the 2-arity would additionally keep the caller's
+        ;; explicit descriptor pool reachable. Same shape as the Fresco row above,
+        ;; one layer down, and it bites for the same reason — the documented
         ;; per-request SSR recipe mints a fresh id per request, so a long-lived
-        ;; server accumulated one row per request served. Its only reader is
+        ;; server would accumulate one row per request served. Its only reader is
         ;; `live-frame/reproject-live-frame!`, already a no-op for a frame
         ;; carrying no generation, so the row is needed only while the frame is
         ;; live. Keyed and unconditional, needing no incarnation token: this
@@ -4789,7 +4770,7 @@
         ;; the load order); published at `re-frame.live-frame`'s NS LOAD, which
         ;; strictly precedes the first `make-frame`, so it is bound whenever a
         ;; row can exist — and re-armed on every hot reload of that ns, which a
-        ;; `defonce`-guarded once-body could not do (rf2-cq0yi).
+        ;; `defonce`-guarded once-body could not do.
         (safe-call-hook! :live-frame/on-frame-destroyed! id)
         ;; The shipped subsystems tear down via the named ordered hooks above.
         (emit-frame-destroyed-trace! id)
@@ -4797,13 +4778,13 @@
         ;; the forget. The frame's resolved generation rides the record's
         ;; `:generation` slot, so dropping the record drops it too — no separate
         ;; forget hook is needed.
-        ;; rf2-vxgfnd.151: snapshot A's terminal halted-destroy evidence while A
+        ;; Snapshot A's terminal halted-destroy evidence while A
         ;; is STILL the sole owner of its id-keyed epoch stores — before
         ;; dissoc-frame!, after which a same-id successor B can be constructed
         ;; and claim (dropping) those stores. The bundle is bound lexically to
         ;; A's exact destroy recipe and published by the post-dissoc epoch hook
         ;; regardless of whether A still owns the stores when it fires.
-        ;; rf2-vxgfnd.244: the snapshot is taken BEFORE the ring release below.
+        ;; The snapshot is taken BEFORE the ring release below.
         ;; The snapshot itself emits no trace on the happy path, but a snapshot-
         ;; hook FAILURE emits `:rf.warning/teardown-hook-exception` under
         ;; ordinary (non-structural) delivery — carrying A's bare frame id — so
@@ -4828,13 +4809,13 @@
           (serialize-frame-trace-policy!
            (fn []
              (safe-call-hook! :trace.tooling/release-frame-ring! id)
-             ;; rf2-zcl055: release the destroyed frame's trace-emission gate
+             ;; Release the destroyed frame's trace-emission gate
              ;; flag — the teardown counterpart to construction's
              ;; `rf.trace/set-frame-no-emit!`. A tool / inspector frame registered
-             ;; with `:rf.trace/frame-no-emit? true` (e.g. `:rf/xray`) otherwise
-             ;; leaves a permanent entry in trace.cljc's process-global
-             ;; `trace-disabled-frames` set (the ring IS freed above; the flag
-             ;; was not — a teardown asymmetry). Called directly (not via a
+             ;; with `:rf.trace/frame-no-emit? true` (e.g. `:rf/xray`) would otherwise
+             ;; leave a permanent entry in trace.cljc's process-global
+             ;; `trace-disabled-frames` set (the ring IS freed above; without this
+             ;; the flag would not be — a teardown asymmetry). Called directly (not via a
              ;; tooling hook) because `trace.cljc` is always loaded — the set +
              ;; predicate live on the core trace surface, same as construction.
              ;; Idempotent no-op for application frames (the common case).
@@ -4842,7 +4823,7 @@
           (dissoc-frame! id)
           ;; A PUBLIC destroy owns a :destruction reservation only through exact
           ;; registry removal. Release here (the recipe's finally is a harmless
-          ;; compare-release fallback) so the established post-dissoc window may
+          ;; compare-release fallback) so the post-dissoc window may
           ;; seat a fresh same-id incarnation before stale teardown diagnostics
           ;; finish. A construction rollback JOINED its outer :construction owner
           ;; and must leave that reservation for the constructor's own finally.
@@ -4883,23 +4864,22 @@
             (release-frame-construction! transaction-owner))
           (release-frame-destroy-claim! id expected-incarnation-token)))))))))))
 
-;; ---- reset-frame! — RETIRED (rf2-lxwpob) -----------------------------------
+;; ---- reset-frame! — throwing stub -------------------------------------------
 ;;
-;; `reset-frame!` (destroy-frame! + make-frame with the same config, full
-;; replace) was RETIRED in rf2-lxwpob (API-shrink #5, frame-lifecycle
-;; collapse): one axis (create/refresh via `make-frame`, destroy
-;; via `destroy-frame!`), not three verbs. A full replace is reproducible by
-;; composition — `(destroy-frame! id) (make-frame config)`, re-supplying the
-;; SAME config (which carries `:id`, and `:images` for an image-loaded frame,
-;; so the recreated frame keeps its resolved generation). There
-;; is no internal-only survivor: the mid-cascade atomicity guard this verb
-;; offered (reject BEFORE any teardown) has no equivalent in the two-call
-;; composition and is accepted as a retired guarantee — frame
-;; construction/destruction is already a top-level/view-only operation
+;; There is no `reset-frame!` verb (destroy-frame! + make-frame with the same
+;; config, full replace): the frame lifecycle is one axis (create/refresh via
+;; `make-frame`, destroy via `destroy-frame!`), not three verbs. A full replace
+;; is reproducible by composition — `(destroy-frame! id) (make-frame config)`,
+;; re-supplying the SAME config (which carries `:id`, and `:images` for an
+;; image-loaded frame, so the recreated frame keeps its resolved generation).
+;; There is no internal-only variant either: the mid-cascade atomicity guard a
+;; dedicated verb could offer (reject BEFORE any teardown) has no equivalent in
+;; the two-call composition, and that is accepted — frame
+;; construction/destruction is a top-level/view-only operation
 ;; (EP-0027), so the composition's non-atomicity only bites a call site that
-;; was already violating that rule.
+;; already violates that rule.
 ;;
-;; The name survives ONLY as a `^:no-doc` throwing stub (the project's
+;; The name exists ONLY as a `^:no-doc` throwing stub (the project's
 ;; actionable-removed-API pattern, like the EP-0018 `reg-event-db` / EP-0022
 ;; `rf/path` stubs): a stale `(rf/reset-frame! …)` call site resolves to a
 ;; real var and fails LOUDLY with `:rf.error/reset-frame-removed`, naming the
@@ -4909,7 +4889,7 @@
 ;; the `re-frame.core` facade in core.cljc.
 
 (defn ^:no-doc reset-frame!
-  "REMOVED in rf2-lxwpob (no alias). The dedicated reset verb is retired — a
+  "REMOVED (no alias). There is no dedicated reset verb — a
   full replace is `(destroy-frame! id) (make-frame config)`, re-supplying
   the SAME config (which carries `:id`, and `:images` for an image-loaded
   frame) the caller already holds. Calling `reset-frame!` is the hard error
@@ -4920,7 +4900,7 @@
   (rf.error/throw-error!
     :rf.error/reset-frame-removed
     'rf/reset-frame!
-    (str "`reset-frame!` is REMOVED (no alias, rf2-lxwpob) — a full frame "
+    (str "`reset-frame!` is REMOVED (no alias) — a full frame "
          "reset is reproducible by composition: `(destroy-frame! id) "
          "(make-frame config)`, re-supplying the SAME config (which "
          "carries `:id`, and `:images` for an image-loaded frame) you "
