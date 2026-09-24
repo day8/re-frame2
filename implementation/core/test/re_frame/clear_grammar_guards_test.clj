@@ -1,13 +1,10 @@
 (ns re-frame.clear-grammar-guards-test
-  "Fail-closed guards on `(rf/clear kind id ?opts)`'s OWN argument validation
-  (rf2-kuky.80).
+  "Fail-closed guards on `(rf/clear kind id ?opts)`'s OWN argument validation.
 
-  `rf/clear` is the one kind-keyed registrar inverse that replaced nine
-  per-kind `clear-*` names. Two of its three refusal paths had no pin
-  anywhere in the tree when this file landed: `:rf.error/registrar-clear-bad-request`
-  was asserted ONLY in the HTTP suites
-  (`re-frame.http-interceptors-test` / `-cljs-test`), which reach it through
-  the `:http-interceptor` kind and so exercise the frame-scoped arm alone.
+  `rf/clear` is the one kind-keyed registrar inverse; there are no per-kind
+  `clear-*` names. The HTTP suites (`re-frame.http-interceptors-test` /
+  `-cljs-test`) assert `:rf.error/registrar-clear-bad-request` only through
+  the `:http-interceptor` kind, and so exercise the frame-scoped arm alone.
 
   This file pins the two arms nothing else covers, both of which are
   argument validation in `re-frame.core` itself rather than in any artefact:
