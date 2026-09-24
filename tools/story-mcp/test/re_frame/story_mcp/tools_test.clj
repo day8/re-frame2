@@ -178,8 +178,8 @@
 
   ## Why `:dedup false` is the test-helper default
 
-  The dedup-eligible tools (`preview-variant`, `run-variant`,
-  per rf2-90eft) wrap their `:structuredContent`
+  The dedup-eligible tools (`preview-variant`, `run-variant`) wrap
+  their `:structuredContent`
   under `{:rf.mcp/dedup-table <cache>}` at the wire boundary when
   `:dedup` defaults to `true`. The tests in this corpus assert against
   the raw structured shape (`(:variant-id (:structuredContent r))`,
@@ -286,7 +286,7 @@
                     "snapshot-identity" "read-a11y-violations" "read-failures"]]
       (doseq [n ro-tools]
         (is (true? (get-in (by-name n) [:annotations :readOnlyHint]))
-            (str n " should have readOnlyHint true (rf2-94p8q matrix)")))))
+            (str n " should have readOnlyHint true (annotation matrix)")))))
   ;; preview-variant is on the destructive list. It dispatches
   ;; events into the variant's frame via the same `rf.story/run-variant`
   ;; lifecycle as `run-variant`; marking it read-only would be a
@@ -298,14 +298,14 @@
                       "unregister-variant"]]
       (doseq [n dest-tools]
         (is (true? (get-in (by-name n) [:annotations :destructiveHint]))
-            (str n " should have destructiveHint true (rf2-94p8q matrix)")))))
+            (str n " should have destructiveHint true (annotation matrix)")))))
   ;; The open-world axis is LOAD-BEARING and
   ;; must not drift silently. `run-variant` / `preview-variant` run the
   ;; author's lifecycle events/fx, which can reach external systems unless
   ;; the author stubbed them (fx-stubbing is an opt-in authoring surface,
   ;; not a universal default), so they MUST be open-world. EVERY other
   ;; tool is closed-world: reads, registry writes, static docs.
-  (testing "matrix: only the lifecycle-run tools are open-world (rf2-e6knrq)"
+  (testing "matrix: only the lifecycle-run tools are open-world"
     (let [open-world #{"run-variant" "preview-variant"}]
       (doseq [t rf.story-mcp.tools.registry/tool-registry
               :let [n (:name t)
@@ -314,10 +314,10 @@
           (is (true? ow)
               (str n " MUST be open-world (openWorldHint true): it runs the "
                    "author's lifecycle events/fx which can reach external "
-                   "systems unless explicitly stubbed (rf2-e6knrq finding 2)"))
+                   "systems unless explicitly stubbed"))
           (is (false? ow)
               (str n " MUST stay closed-world (openWorldHint false): it does "
-                   "not run the author's lifecycle (rf2-e6knrq finding 2)")))))))
+                   "not run the author's lifecycle")))))))
 
 (def ^:private tool-names-fixture
   "Canonical tool-name list. Single source of truth
@@ -359,14 +359,14 @@
       ;; Write
       (is (contains? names "register-variant"))
       (is (contains? names "unregister-variant"))
-      ;; Retired (rf2-5saz7): the blocking recorder bridge is NOT in the
-      ;; catalogue — its advertised capture window was transport-unreachable
-      ;; (the single stdio loop slept through it). An explicit rejection so
-      ;; a reintroduction of the descriptor turns this red, not just the
+      ;; There is no record-as-variant tool: a blocking recorder bridge would
+      ;; advertise a capture window no stdio transport can reach (the single
+      ;; stdio loop would sleep through it). An explicit rejection so a
+      ;; reintroduction of the descriptor turns this red, not just the
       ;; fixture-equality net below.
       (is (not (contains? names "record-as-variant"))
-          "record-as-variant was retired (rf2-5saz7); it must not reappear in the registry")))
-  (testing "registry name set matches the shared fixture exactly (rf2-36upq TE7)"
+          "record-as-variant must not appear in the registry — no stdio client can drive it")))
+  (testing "registry name set matches the shared fixture exactly"
     ;; The Node `stdio-roundtrip.js` round-trip asserts `tools/list`
     ;; against the same JSON file. A drift between code + tests on either
     ;; side surfaces here AND there in the same edit.
@@ -383,11 +383,11 @@
 ;; corpus, `stdio-roundtrip.js`, `end-to-end-story.cjs`). The CONSUMING
 ;; skill leaf — `skills/re-frame2/references/tooling/story-mcp-loop.md` —
 ;; names tools in PROSE: a count claim ("nineteen tools") and a per-step
-;; catalogue table. Nothing asserted those prose-named tools still exist
-;; in the registry, so a tool rename/removal left the leaf silently
-;; stale. (`scripts/check_skill_mcp_drift.py` covers a DIFFERENT axis:
-;; the SKILL.md YAML `allowed-tools:` front-matter, not this reference
-;; leaf's prose catalogue.) This deftest closes that arm.
+;; catalogue table. Without the deftest below nothing would assert those
+;; prose-named tools still exist in the registry, so a tool rename/removal
+;; would leave the leaf silently stale. (`scripts/check_skill_mcp_drift.py`
+;; covers a DIFFERENT axis: the SKILL.md YAML `allowed-tools:`
+;; front-matter, not this reference leaf's prose catalogue.)
 ;; ---------------------------------------------------------------------------
 
 (defn- artefact-root
@@ -478,8 +478,8 @@
                  "a rename/removal left "
                  "skills/re-frame2/references/tooling/story-mcp-loop.md stale. "
                  "Update the leaf (and re-verify the count claim)."))))
-    (testing "the author/run split is intact: run-side tools are named in handoff prose but kept OUT of the authoring catalogue (rf2-r2xswa)"
-      ;; The reframed leaf hands the run/self-heal loop to `re-frame2-pair`.
+    (testing "the author/run split is intact: run-side tools are named in handoff prose but kept OUT of the authoring catalogue"
+      ;; The leaf hands the run/self-heal loop to `re-frame2-pair`.
       ;; `run-variant`/`read-failures` must still appear in the leaf's prose
       ;; (the handoff names them) but must NOT be pulled into this skill's
       ;; authoring catalogue — that would re-imply this skill can drive the
@@ -491,7 +491,7 @@
         (is (not (contains? named t))
             (str "run-side tool '" t "' leaked into this skill's authoring "
                  "catalogue table — it belongs to the re-frame2-pair handoff, "
-                 "not this skill's allow-list (rf2-r2xswa split)")))))
+                 "not this skill's allow-list")))))
   ;; Count-claim ratchet: the leaf's "<count> tools" prose must equal the
   ;; live registry size. Catches an add/remove that updates the table but
   ;; leaves the headline count word stale (or vice-versa).
@@ -544,7 +544,7 @@
       (is (re-find #"nine `reg-\*` macros" text)
           "onboarding states the count is nine, not seven")
       (is (not (re-find #"seven `reg-\*` macros" text))
-          "the stale 'seven' count must be gone")
+          "the count must not read 'seven'")
       (is (re-find #":compose" text)
           "onboarding surfaces the :compose composition mechanism")))
   (testing "the get-story-instructions descriptor description names the composition surface"
@@ -557,11 +557,11 @@
       (is (re-find #"reg-check" desc) "descriptor names reg-check"))))
 
 (deftest get-story-instructions-agrees-with-the-variant-schema-and-tag-vocabulary
-  ;; rf2-3x7nj.34.2. Producer-derived: the onboarding text is checked against
-  ;; Story's own closed `:rf/variant` map and canonical tag sets, so a slot or
-  ;; tag that drifts on either side reds here. The text used to list `:expect`
-  ;; (a PLAN key the closed body schema refuses) as a `reg-variant` slot, and to
-  ;; say seven canonical tags ship when twelve do.
+  ;; Producer-derived: the onboarding text is checked against Story's own
+  ;; closed `:rf/variant` map and canonical tag sets, so a slot or tag that
+  ;; drifts on either side reds here — listing `:expect` (a PLAN key the closed
+  ;; body schema refuses) as a `reg-variant` slot, say, or claiming seven
+  ;; canonical tags ship when twelve do.
   (let [text   (-> (invoke "get-story-instructions" {}) :content first :text)
         ;; Keywords outside backtick code spans (a span such as `:state/*`
         ;; names an axis in the prose, not a slot or a tag).
@@ -609,7 +609,7 @@
     (is (= :story.button/primary (:variant-id s)))
     (is (string? (:share-url s)))
     (is (re-find #"story\.button(/|%2F)primary" (:share-url s)))
-    ;; :lifecycle is the loader STATE (retained adjunct); the verdict is
+    ;; :lifecycle is the loader STATE (an adjunct); the verdict is
     ;; the unified :status — preview speaks the same vocabulary run-variant
     ;; does, so a vacuous-pass preview reads :status :pass.
     (is (some? (:lifecycle s)))
@@ -626,7 +626,7 @@
     (is (error? r))
     (is (re-find #"variant-id" (-> r :content first :text)))))
 
-;; rf2-3fc89f.21 — on the JVM stdio host the substrate registry is
+;; On the JVM stdio host the substrate registry is
 ;; UNREACHABLE (no browser bridge), so `list-substrates` must return a
 ;; machine-readable capability-unavailable error, NOT a false-empty
 ;; `{:substrates []}` success an agent could mistake for 'no substrates
@@ -659,7 +659,7 @@
         (is (= [:reagent :uix] (:substrates s)) "the reached registry's ids, sorted")))))
 
 (deftest substrate-provider-availability-is-not-emptiness
-  ;; rf2-3fc89f.21 — availability is represented SEPARATELY from the
+  ;; Availability is represented SEPARATELY from the
   ;; returned collection. On a JVM host the CLJS-only registry has no Var,
   ;; so the provider seam is nil (UNAVAILABLE); a bound provider (browser
   ;; bridge / test) flips availability true and its `[]`/`#{}` then means
@@ -678,15 +678,15 @@
       (is (= #{:reagent} (rf.story-mcp.tools.cljs-resolve/registered-substrates-set))))))
 
 (deftest provider-seams-are-symmetric-no-silent-asymmetry
-  ;; rf2-jyjadg — the substrate + a11y provider seams default to the SAME
-  ;; posture: NEITHER auto-wires, so out of the box BOTH report unavailable
-  ;; and a browser-local host binds BOTH. This locks the both-consistent
-  ;; contract against a re-introduced asymmetry (the old bug: a CLJS
-  ;; substrate default that auto-wired while a11y stayed nil, leaving
-  ;; `read-a11y-violations` falsely capability-unavailable in a process
-  ;; where the panel was live). NOTE: the `#?(:cljs …)` reader-conditional
-  ;; defaults cannot be exercised from this JVM suite (no CLJS build hosts
-  ;; story-mcp); this guards the symmetry the source now documents, plus
+  ;; The substrate + a11y provider seams default to the SAME posture:
+  ;; NEITHER auto-wires, so out of the box BOTH report unavailable and a
+  ;; browser-local host binds BOTH. This locks the both-consistent contract
+  ;; against an asymmetry (a CLJS substrate default that auto-wired while
+  ;; a11y stayed nil would leave `read-a11y-violations` falsely
+  ;; capability-unavailable in a process where the panel was live). NOTE:
+  ;; the `#?(:cljs …)` reader-conditional defaults cannot be exercised from
+  ;; this JVM suite (no CLJS build hosts story-mcp); this guards the
+  ;; symmetry the source documents, plus
   ;; the seam INDEPENDENCE binding one must not imply the other.
   (testing "no binding ⇒ BOTH seams unavailable (the symmetric default)"
     (is (false? (rf.story-mcp.tools.cljs-resolve/substrate-provider-available?)))
@@ -742,7 +742,7 @@
       (is (= [":docz"] (:ignored-tags s))
           "the unresolved supplied name is echoed back as a diagnostic")
       (is (nil? (find-keyword "docz"))
-          "rf2-lqjbk: the unknown tag id MUST NOT have been interned")))
+          "the unknown tag id MUST NOT have been interned")))
   ;; A mixed known+unknown filter still applies the KNOWN tag and reports
   ;; the dropped name.
   (testing "mixed known+unknown filter applies the known tag and reports the ignored name"
@@ -754,7 +754,7 @@
       (is (= [":docz"] (:ignored-tags s))
           "the unknown name is reported, the known tag is honoured")
       (is (nil? (find-keyword "docz"))
-          "rf2-lqjbk: the unknown tag id MUST NOT have been interned")))
+          "the unknown tag id MUST NOT have been interned")))
   ;; The no-`:tags` call is the ONLY path that returns the unfiltered
   ;; registry — a supplied filter (even an all-unknown one) always filters.
   (testing "no :tags arg returns the unfiltered catalogue (no :ignored-tags slot)"
@@ -765,7 +765,7 @@
       (is (not (contains? s :ignored-tags))))))
 
 (deftest list-stories-scalar-tags-rejected
-  ;; rf2-ldfrp0: `:tags` advertises an array argument
+  ;; `:tags` advertises an array argument
   ;; (`{:type "array" :items s/kw-or-string}`). A malformed client that
   ;; sends a bare scalar string instead of `["docs"]` must NOT be silently
   ;; walked character-by-character (`(seq "docs")` => `(\d \o \c \s)`,
@@ -802,12 +802,12 @@
     (is (= "Primary button." (-> r :structuredContent :body :doc)))))
 
 (deftest get-variant-descriptor-matches-the-raw-body-it-returns
-  ;; rf2-3x7nj.34.2. The registrar stores a variant body RAW, `:extends`
-  ;; intact, and the plan compiler is the single merge authority (spec/017),
-  ;; so `get-variant` on a child answers the child's own slots and nothing
-  ;; inherited. Its descriptor used to promise the opposite ("the resolved
-  ;; EDN, with `:extends` already applied"). The behaviour is read off the
-  ;; tool first, then the descriptor is held to it.
+  ;; The registrar stores a variant body RAW, `:extends` intact, and the
+  ;; plan compiler is the single merge authority (spec/017), so `get-variant`
+  ;; on a child answers the child's own slots and nothing inherited — and its
+  ;; descriptor must not promise the opposite ("the resolved EDN, with
+  ;; `:extends` already applied"). The behaviour is read off the tool first,
+  ;; then the descriptor is held to it.
   (rf.story/reg-variant* :story.button/child {:doc "child" :extends :story.button/primary})
   (let [body    (-> (invoke "get-variant" {:variant-id "story.button/child"})
                     :structuredContent :body)
@@ -842,14 +842,14 @@
     (is (= [] (:parent-chain e)))
     (is (contains? e :merge) "the per-field merge rules are surfaced")
     (is (contains? e :effective-args) "arg resolution is surfaced")
-    ;; rf2-7k5mce: on this no-run path the frame is non-live; the value slots
-    ;; must ship the REAL resolved author data, not :rf/redacted (which the
-    ;; old fail-closed egress boundary produced while KEEPING the key, so a
-    ;; bare contains? check passed on garbage).
+    ;; On this no-run path the frame is non-live; the value slots must ship
+    ;; the REAL resolved author data, not :rf/redacted (which a fail-closed
+    ;; egress boundary would produce while KEEPING the key, so a bare
+    ;; contains? check would pass on garbage).
     (is (map? (:effective-args e))
-        "rf2-7k5mce: :effective-args is the real resolved args map, not :rf/redacted")
+        ":effective-args is the real resolved args map, not :rf/redacted")
     (is (not= :rf/redacted (:effective-args e))
-        "rf2-7k5mce: :effective-args is not over-redacted on the no-run frame")
+        ":effective-args is not over-redacted on the no-run frame")
     (is (contains? e :required-runner) "the plan's runner requirement is surfaced")))
 
 (deftest explain-variant-unknown
@@ -863,7 +863,7 @@
     (is (success? r))
     (is (every? (set (:canonical s))
                 [:dev :docs :test :screenshot :experimental :internal :agent]))
-    (testing "the canonical :state/* magnitude axis (rf2-k1k87) is part of the canonical set"
+    (testing "the canonical :state/* magnitude axis is part of the canonical set"
       (is (every? (set (:canonical s))
                   [:state/empty :state/small :state/medium :state/large :state/special])))))
 
@@ -926,12 +926,12 @@
     (is (success? r))
     ;; The seven dispatched assertions PLUS the THREE tape-evaluated
     ;; declarations: :rf.assert/schema-error and the causal pair
-    ;; :rf.assert/caused / :rf.assert/no-cascade-rerender (rf2-x76af2.17).
+    ;; :rf.assert/caused / :rf.assert/no-cascade-rerender.
     (is (= 10 (count (:canonical s))))
     (is (some #(= :rf.assert/path-equals (:id %)) (:canonical s)))
     (is (some #(= :rf.assert/no-warnings (:id %)) (:canonical s)))
     (is (some #(= :rf.assert/schema-error (:id %)) (:canonical s)))
-    ;; the causal pair now exposes payload + semantics, not just registered
+    ;; the causal pair exposes payload + semantics, not just registered
     (let [no-cascade (first (filter #(= :rf.assert/no-cascade-rerender (:id %))
                                     (:canonical s)))]
       (is (some? no-cascade) ":no-cascade-rerender is a canonical doc entry")
@@ -957,7 +957,7 @@
 (deftest list-assertions-registered-surfaces-browser-tier-families
   ;; The specific browser-tier ids the canonical doc-vec does
   ;; NOT cover but the plan compiler accepts: DOM, visual, a11y,
-  ;; reactive-count. A regression that re-narrowed :registered to the
+  ;; reactive-count. A regression that narrowed :registered to the
   ;; canonical eight would drop these and fail here.
   (testing ":registered carries the DOM / visual / a11y / reactive families"
     (let [r        (invoke "list-assertions" {})
@@ -983,7 +983,7 @@
             back (clojure.edn/read-string text)]
         (is (map? back))
         (is (= "Primary button." (:doc back))))))
-  (testing "rf2-vyacl: variant->edn ALSO emits structuredContent (it declares an outputSchema, so the SDK requires it)"
+  (testing "variant->edn ALSO emits structuredContent (it declares an outputSchema, so the SDK requires it)"
     ;; `variant->edn` declares an :outputSchema, so a text-only result
     ;; would trip the SDK's -32600. It mirrors the body into
     ;; structuredContent.
@@ -1044,7 +1044,7 @@
       (is (success? r))
       (is (vector? (:stories s)))
       (is (not (contains? s :total))
-          "small registry MUST NOT carry pagination metadata (wire shape unchanged)")
+          "small registry MUST NOT carry pagination metadata (bare wire shape)")
       (is (not (contains? s :next-cursor))))))
 
 (deftest list-stories-paginates-when-over-limit
@@ -1159,12 +1159,12 @@
       (is (true? (:has-more? s))))))
 
 (deftest list-tags-all-is-full-catalogue-under-pagination
-  ;; rf2-3jqwlh: `:all` is the FULL tag catalogue (canonical ∪ ALL custom),
-  ;; NOT canonical + the current page of custom. Before the fix a limit-5
-  ;; read returned an `:all` of 17 entries (12 canonical + 5 page) — silently
+  ;; `:all` is the FULL tag catalogue (canonical ∪ ALL custom), NOT
+  ;; canonical + the current page of custom. Page-scoped, a limit-5 read
+  ;; would return an `:all` of 17 entries (12 canonical + 5 page) — silently
   ;; omitting 45 custom tags behind a field literally named `:all`, with the
-  ;; only incompleteness signal on the `:custom` cursor. The agent that read
-  ;; `:all` from page one believed it had the whole catalogue.
+  ;; only incompleteness signal on the `:custom` cursor — and an agent
+  ;; reading `:all` from page one would believe it had the whole catalogue.
   (testing "a paginated list-tags returns the COMPLETE :all set (canonical ∪ all custom), not just the page"
     (doseq [n (range 50)]
       (rf.story/reg-tag (keyword (str "tag/pager" n)) {:doc ""}))
@@ -1211,7 +1211,7 @@
     ;; The verdict is the unified :status; there is no :passing? boolean.
     ;; A zero-assertion run is vacuously :pass.
     (is (= :pass (:status s)) "no assertions ⇒ vacuously :pass")
-    (is (not (contains? s :passing?)) "the retired :passing? boolean is gone")
+    (is (not (contains? s :passing?)) "there is no :passing? boolean")
     (is (vector? (:assertions s)))
     (is (vector? (:checks s)) "the unified :checks group is present")))
 
@@ -1221,20 +1221,19 @@
     (is (re-find #"not found" (-> r :content first :text)))))
 
 (deftest lifecycle-tools-refuse-with-no-adapter
-  ;; The NEGATIVE CONTROL for rf2-c9t52. `reset-story-and-config` installs
+  ;; The NEGATIVE CONTROL for the no-adapter refusal. `reset-story-and-config` installs
   ;; `plain-atom` before every test — exactly the boot a consuming project's
   ;; preloaded namespace performs — so this test REMOVES that boot for its own
   ;; duration via core's test-only cold-start seam, and restores it in a
   ;; `finally`. (The `:each` fixture re-installs regardless, so a failure here
   ;; cannot leak a cold adapter slot into a later test.)
   ;;
-  ;; Without the guard both lifecycle tools return the ORDINARY success
+  ;; Without the guard both lifecycle tools would return the ORDINARY success
   ;; envelope with `:status :pass` over an empty app-db and zero assertions —
   ;; a success-shaped NON-RUN. The distinction this pins is against
   ;; `run-variant-happy` directly above, which asserts the SAME variant is
   ;; vacuously `:pass` WITH an adapter installed: executed-and-assertion-free
-  ;; stays green (Story's intentional rule, untouched); never-executed is an
-  ;; error.
+  ;; stays green (Story's intentional rule); never-executed is an error.
   (try
     (is (true? (rf.story-mcp.tools.lifecycle/adapter-installed?))
         "precondition: the :each fixture installed plain-atom")
@@ -1303,7 +1302,7 @@
     (is (error? r))))
 
 (deftest run-opts-scalar-active-modes-rejected
-  ;; rf2-ldfrp0: `:active-modes` advertises an array argument
+  ;; `:active-modes` advertises an array argument
   ;; (`{:type "array" :items s/kw-or-string}`) on all three
   ;; `read-run-opts` callers. A malformed client that sends a bare scalar
   ;; string instead of `["mode-id"]` must NOT be silently walked
@@ -1324,7 +1323,7 @@
             "a stable :rf.error id rides the structuredContent")))))
 
 (deftest run-opts-non-map-cell-overrides-rejected
-  ;; rf2-ldfrp0: `:cell-overrides` advertises an object argument. A
+  ;; `:cell-overrides` advertises an object argument. A
   ;; malformed client that sends a bare scalar instead of a map must NOT
   ;; be silently DROPPED by `safe-cell-overrides`'s
   ;; `(when (map? overrides) ...)` guard (no overrides applied, no error
@@ -1341,22 +1340,21 @@
                (-> r :structuredContent :rf.error))
             "a stable :rf.error id rides the structuredContent")))))
 
-;; ---- rf2-sw1d: unknown run-option IDENTIFIERS are refused ----------------
+;; ---- unknown run-option IDENTIFIERS are refused ---------------------------
 ;;
 ;; The shape guards above reject a WRONGLY-TYPED run option. These reject a
 ;; correctly-shaped one carrying an identifier the server does not know.
-;; Before rf2-sw1d `read-run-opts`' bounded-allowlist coercion DROPPED the
-;; unknown id and the handler ran on: an agent that typo'd a mode or an
-;; override key got `:status :pass`, a share URL, or a visual-regression
+;; Were `read-run-opts`' bounded-allowlist coercion to DROP the unknown id
+;; and the handler run on, an agent that typo'd a mode or an override key
+;; would get `:status :pass`, a share URL, or a visual-regression
 ;; `:content-hash` for a DIFFERENT tuple than it asked for — a
-;; successful-looking WRONG result, the same class the substrate
-;; (rf2-3fc89f.21) and unknown-top-level-knob (rf2-ovmc5e) guards already
-;; refuse. The no-intern posture that introduced the drop is preserved:
-;; only the success is withdrawn (see the wire probes further down).
+;; successful-looking WRONG result, the same class the substrate and
+;; unknown-top-level-knob guards refuse. The no-intern posture holds:
+;; refusing an unknown id interns nothing (see the wire probes further down).
 
 (deftest run-opts-unknown-active-mode-rejected
   (doseq [tool-name ["preview-variant" "run-variant" "snapshot-identity"]]
-    (testing (str tool-name " refuses an unknown :active-modes id (rf2-sw1d)")
+    (testing (str tool-name " refuses an unknown :active-modes id")
       (let [r (invoke tool-name {:variant-id   "story.button/primary"
                                  :active-modes ["Mode.theme/darkk"]})
             s (:structuredContent r)]
@@ -1381,7 +1379,7 @@
   ;; "different scenario" this guard exists to refuse, so a mixed list must
   ;; reject whole rather than proceeding under the modes it recognised.
   (doseq [tool-name ["preview-variant" "run-variant" "snapshot-identity"]]
-    (testing (str tool-name " rejects a mixed known+unknown mode list atomically (rf2-sw1d)")
+    (testing (str tool-name " rejects a mixed known+unknown mode list atomically")
       (let [r (invoke tool-name {:variant-id   "story.button/primary"
                                  :active-modes [":Mode.theme/dark" "Mode.theme/nope"]})
             s (:structuredContent r)]
@@ -1392,7 +1390,7 @@
 
 (deftest run-opts-unknown-cell-override-key-rejected
   (doseq [tool-name ["preview-variant" "run-variant" "snapshot-identity"]]
-    (testing (str tool-name " refuses an unknown :cell-overrides key (rf2-sw1d)")
+    (testing (str tool-name " refuses an unknown :cell-overrides key")
       (let [r (invoke tool-name {:variant-id     "story.button/primary"
                                  :cell-overrides {"lable" "Override"}})
             s (:structuredContent r)]
@@ -1414,7 +1412,7 @@
   ;; VALID mode and a VALID override still execute end-to-end on all three
   ;; tools. Without this, a fix that rejected everything would pass the
   ;; rejection tests above.
-  (testing "a known mode + known override still runs / hashes (rf2-sw1d)"
+  (testing "a known mode + known override still runs / hashes"
     (doseq [tool-name ["preview-variant" "run-variant" "snapshot-identity"]]
       (let [r (invoke tool-name {:variant-id     "story.button/primary"
                                  :active-modes   [":Mode.theme/dark"]
@@ -1428,13 +1426,13 @@
 
 (deftest run-opts-mode-introduced-override-key-accepted-at-handler
   ;; The handler-level peer of `read-run-opts-allows-active-mode-introduced-
-  ;; cell-override-key` (rf2-to3q7): :theme is NOT a base arg of
+  ;; cell-override-key`: :theme is NOT a base arg of
   ;; story.button/primary but IS contributed by :Mode.theme/dark, and Story
   ;; merges mode args before cell-local overrides — so with that mode active
   ;; a :theme override is legitimate and must NOT be rejected as unknown.
   ;; This is why the guard validates modes FIRST and derives the override
   ;; allowlist under them.
-  (testing "an override for a MODE-INTRODUCED arg key is accepted (rf2-sw1d × rf2-to3q7)"
+  (testing "an override for a MODE-INTRODUCED arg key is accepted"
     (let [r (invoke "snapshot-identity" {:variant-id     "story.button/primary"
                                          :active-modes   [":Mode.theme/dark"]
                                          :cell-overrides {"theme" ":light"}})]
@@ -1448,10 +1446,10 @@
       (is (= ["theme"] (-> r :structuredContent :cell-overrides))))))
 
 (deftest run-opts-rejection-does-not-intern-over-the-wire
-  ;; The security invariant that motivated the original DROP is preserved by
-  ;; the REJECT: reporting a raw string does not intern it. Wire-level, so
-  ;; the no-intern ingress (rf2-3luf3) is exercised end to end.
-  (testing "a rejected unknown mode / override key never interns a keyword (rf2-sw1d)"
+  ;; The no-intern security invariant holds under the REJECT: reporting a raw
+  ;; string does not intern it. Wire-level, so the no-intern ingress is
+  ;; exercised end to end.
+  (testing "a rejected unknown mode / override key never interns a keyword"
     (let [mode-probe (str "Mode.rf2-sw1d/unknown-" (System/nanoTime))
           co-probe   (str "rf2-sw1d-co-" (System/nanoTime))]
       (is (nil? (find-keyword mode-probe)) "precondition: mode probe uninterned")
@@ -1463,9 +1461,9 @@
         (is (error? r1) "the unknown mode is refused")
         (is (error? r2) "the unknown override key is refused")
         (is (nil? (find-keyword mode-probe))
-            "rf2-sw1d: refusing an unknown mode MUST NOT intern it")
+            "refusing an unknown mode MUST NOT intern it")
         (is (nil? (find-keyword co-probe))
-            "rf2-sw1d: refusing an unknown override key MUST NOT intern it")))))
+            "refusing an unknown override key MUST NOT intern it")))))
 
 ;; `snapshot-identity` forwards `:cell-overrides`
 ;; into `rf.story/snapshot-identity`, where it perturbs the `:content-hash`
@@ -1495,7 +1493,7 @@
           "the same variant with a different cell-override must hash differently"))))
 
 (deftest read-a11y-violations-unavailable-on-jvm-host-is-error
-  ;; rf2-3fc89f.21 — the a11y-panel-state provider is UNREACHABLE on the
+  ;; The a11y-panel-state provider is UNREACHABLE on the
   ;; JVM stdio host (no bridge to the CLJS `violations-by-frame` atom), so
   ;; the read returns a machine-readable capability-unavailable error, NOT
   ;; a false-empty `{:violations []}` an agent could read as 'zero
@@ -1516,7 +1514,7 @@
   ;; A bound `*a11y-provider*` returns the by-frame violations map directly;
   ;; its findings ride through, and a frame with NO entry is an ORDINARY
   ;; empty success — the reached-and-empty answer that the JVM
-  ;; capability-unavailable error is now distinguishable from.
+  ;; capability-unavailable error is distinguishable from.
   (testing "provider REACHED with stored violations ⇒ success, findings surfaced"
     (let [vios [{:id "label" :impact "critical" :nodes [{:html "<input>"}]}]]
       (binding [rf.story-mcp.tools.cljs-resolve/*a11y-provider* (fn [] {:story.button/primary vios})]
@@ -1535,8 +1533,8 @@
             "no entry for this frame ⇒ reached-and-empty vec, not an error")))))
 
 (deftest read-a11y-violations-carries-incomplete-beside-violations
-  ;; rf2-0ae7o.2 — axe-core's INCOMPLETE results (checks it could not decide)
-  ;; ride beside `:violations` as an additive `:incomplete` slot, read through
+  ;; axe-core's INCOMPLETE results (checks it could not decide) ride beside
+  ;; `:violations` as an `:incomplete` slot, read through
   ;; the sibling `*a11y-incomplete-provider*` seam. An incomplete-only frame is
   ;; NOT a clean bill: an agent must see the undecided checks, not `[]` alone.
   (let [vios [{:id "label" :impact "critical" :nodes [{:html "<input>"}]}]
@@ -1548,7 +1546,7 @@
         (let [r (invoke "read-a11y-violations" {:variant-id "story.button/primary"})
               s (:structuredContent r)]
           (is (success? r))
-          (is (= vios (:violations s)) "the violations ride through verbatim, as before")
+          (is (= vios (:violations s)) "the violations ride through verbatim")
           (is (= incs (:incomplete s)) "the incomplete results ride beside them"))))
     (testing "an INCOMPLETE-ONLY frame does not read as clean: [] violations beside the undecided checks"
       (binding [rf.story-mcp.tools.cljs-resolve/*a11y-provider*            (fn [] {})
@@ -1779,7 +1777,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest register-variant-rejects-tagged-literal
-  (testing "EDN body containing a custom tagged literal is rejected (rf2-g9fje)"
+  (testing "EDN body containing a custom tagged literal is rejected"
     (rf.story-mcp.config/set-allow-writes! true)
     ;; Custom tags (non-EDN-built-in: not #inst / #uuid) route through the
     ;; reader's :default handler, which throws under the EDN
@@ -1793,7 +1791,7 @@
           "tagged literals route through the EDN-error message"))))
 
 (deftest register-variant-rejects-reader-eval-form
-  (testing "EDN body containing #=() does not evaluate (rf2-g9fje)"
+  (testing "EDN body containing #=() does not evaluate"
     (rf.story-mcp.config/set-allow-writes! true)
     ;; `#=(...)` is the read-time eval form. `clojure.edn/read-string`
     ;; ignores `*read-eval*` and rejects it as a tagged literal under
@@ -1805,7 +1803,7 @@
           "the #= eval form must be rejected before any side-effect can fire"))))
 
 (deftest register-variant-rejects-oversize-edn-body
-  (testing "EDN body exceeding the 64KB ceiling is rejected (rf2-g9fje)"
+  (testing "EDN body exceeding the 64KB ceiling is rejected"
     (rf.story-mcp.config/set-allow-writes! true)
     (let [big-doc (apply str (repeat (* 70 1024) \x))
           r       (invoke "register-variant"
@@ -1815,13 +1813,11 @@
       (is (re-find #"(?i)must be a map or a valid EDN string" (-> r :content first :text))
           "oversize payload routes through the EDN-error message"))))
 
-;; rf2-2rtt6.131 -- the 64KB ceiling is a UTF-8 BYTE budget, and the test
-;; above cannot see whether it is. Its fixture is `xxxx...`: on ASCII, UTF-16
-;; code units and UTF-8 bytes are the same number, so a code-unit ruler and a
-;; byte ruler agree and both go green. `read-edn-body` used to carry
-;; `#?(:clj (count (.getBytes body "UTF-8")) :cljs (count body))` -- one
-;; refusal with two rulers -- and the ASCII fixture is exactly why nobody
-;; noticed.
+;; The 64KB ceiling is a UTF-8 BYTE budget, and the test above cannot see
+;; whether it is. Its fixture is `xxxx...`: on ASCII, UTF-16 code units and
+;; UTF-8 bytes are the same number, so a code-unit ruler and a byte ruler
+;; agree and both go green -- one refusal measured with two rulers would
+;; pass that fixture unnoticed.
 ;;
 ;; A DISCRIMINATING fixture is one whose code-unit count sits comfortably
 ;; UNDER the cap while its wire-byte count sits comfortably OVER it, so a
@@ -1852,7 +1848,7 @@
 
 (deftest register-variant-rejects-oversize-multibyte-edn-body
   (testing "a body UNDER the cap in code units but OVER it in UTF-8 BYTES is
-            rejected (rf2-2rtt6.131) -- the ceiling counts wire bytes"
+            rejected -- the ceiling counts wire bytes"
     (rf.story-mcp.config/set-allow-writes! true)
     (doseq [[what ch n code-units bytes]
             [["3-byte BMP (em-dash)"   em-dash-3byte 30000 30009 90009]
@@ -1875,10 +1871,10 @@
               (str what ": through the size gate, not the registrar")))))))
 
 (deftest register-variant-admits-ascii-body-of-the-same-code-unit-length
-  (testing "the correction only ever TIGHTENS -- UTF-8 bytes are never fewer
+  (testing "the byte ruler only ever TIGHTENS -- UTF-8 bytes are never fewer
             than UTF-16 code units, so an ASCII body of the SAME code-unit
-            length as the rejected multibyte one still clears the size gate
-            (rf2-2rtt6.131). Nothing that used to pass the cap now refuses."
+            length as the rejected multibyte one still clears the size gate.
+            On ASCII the byte ruler admits exactly what a code-unit one would."
     (rf.story-mcp.config/set-allow-writes! true)
     (let [body (edn-doc-body "x" 30000)
           r    (invoke "register-variant"
@@ -1891,7 +1887,7 @@
           "the size gate does not fire on an under-cap ASCII body"))))
 
 (deftest register-variant-rejects-over-deep-edn-body
-  (testing "EDN body exceeding the 64-level depth ceiling is rejected (rf2-g9fje)"
+  (testing "EDN body exceeding the 64-level depth ceiling is rejected"
     (rf.story-mcp.config/set-allow-writes! true)
     ;; Build a 100-level nested map by string concatenation; well past the
     ;; 64 ceiling. The depth check runs AFTER `edn/read-string` parses, so
@@ -1954,7 +1950,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest register-variant-invalid-id-does-not-intern
-  (testing "an invalid :variant-id is rejected with NO interned keyword (rf2-tag30h)"
+  (testing "an invalid :variant-id is rejected with NO interned keyword"
     (rf.story-mcp.config/set-allow-writes! true)
     ;; precondition: the keyword is not already interned
     (is (nil? (find-keyword "not-story" "tag30h-invalid-A")))
@@ -1967,7 +1963,7 @@
           "the rejected id MUST NOT leave an interned keyword"))))
 
 (deftest register-variant-wide-object-body-rejected-without-interning
-  (testing "an object-form body with too many string keys is rejected BEFORE keywordising (rf2-tag30h)"
+  (testing "an object-form body with too many string keys is rejected BEFORE keywordising"
     (rf.story-mcp.config/set-allow-writes! true)
     ;; A shallow object with thousands of distinct unknown string keys —
     ;; under the depth cap but over the width cap. Pick a distinctive key.
@@ -1988,7 +1984,7 @@
             "the too-wide body never reaches the registrar")))))
 
 (deftest register-variant-narrow-object-body-still-registers
-  (testing "a normal object-form body (string keys, under the width cap) still registers (rf2-tag30h regression guard)"
+  (testing "a normal object-form body (string keys, under the width cap) still registers (regression guard)"
     (rf.story-mcp.config/set-allow-writes! true)
     (let [r (invoke "register-variant"
                     {:variant-id "story.button/objform"
@@ -2038,7 +2034,7 @@
   ;; `assert-writes-allowed` must stamp the gated-error payload with the
   ;; ACTUAL invoking tool name. Hardcoding `:tool "register-variant"` would
   ;; make the other caller (`unregister-variant`)
-  ;; return a gated error whose `:structuredContent :tool` slot LIED about
+  ;; return a gated error whose `:structuredContent :tool` slot LIES about
   ;; its origin. This test pins the slot to the actual tool name at each
   ;; callsite.
   (testing "gated error's :structuredContent :tool matches the invoking tool"
@@ -2055,23 +2051,23 @@
       (is (= "unregister-variant" (-> r :structuredContent :tool))))))
 
 ;; ---------------------------------------------------------------------------
-;; record-as-variant — RETIRED (rf2-5saz7)
+;; record-as-variant — not a tool
 ;;
-;; The blocking recorder bridge advertised a capture window no MCP client
-;; could reach: its handler slept the server's ONLY stdio dispatch loop for
-;; `:duration-ms`, so every producer available through the catalogue was
-;; sequenced OUTSIDE the window and the tool returned a green EMPTY capture.
-;; The tool is retired from the catalogue. The recorder primitives stay in
-;; `tools/story/` for their in-process/browser consumers; interactive canvas
-;; recording is performed through Pair in the attached CLJS runtime.
-;; These tests pin the ABSENCE: the retired name takes the server's existing
+;; A blocking recorder bridge would advertise a capture window no MCP client
+;; can reach: its handler would sleep the server's ONLY stdio dispatch loop
+;; for `:duration-ms`, so every producer available through the catalogue
+;; would be sequenced OUTSIDE the window and the tool would return a green
+;; EMPTY capture, so the catalogue carries no such tool. The recorder
+;; primitives live in `tools/story/` for their in-process/browser consumers;
+;; interactive canvas recording is performed through Pair in the attached
+;; CLJS runtime. These tests pin the ABSENCE: the name takes the server's
 ;; unknown-tool path, and the rejected call cannot start or alter a
 ;; recording.
 ;; ---------------------------------------------------------------------------
 
 (deftest record-as-variant-is-retired-method-not-found
-  ;; rf2-5saz7 acceptance 2: a tools/call naming the retired tool receives
-  ;; the server's EXISTING method-not-found response (-32601), and the Story
+  ;; A tools/call naming record-as-variant receives the server's ordinary
+  ;; method-not-found response (-32601), and the Story
   ;; recorder state is byte-equal before/after — the rejected call neither
   ;; starts nor alters a recording.
   (let [before (pr-str @rf.story.recorder/state)
@@ -2082,7 +2078,7 @@
                                        :duration-ms 0}}})
         after  (pr-str @rf.story.recorder/state)]
     (is (= rf.mcp-base.vocab/code-method-not-found (-> resp :error :code))
-        "the retired tool name is an unknown tool at the protocol level")
+        "record-as-variant is an unknown tool at the protocol level")
     (is (nil? (:result resp))
         "no tool result envelope on the rejected call")
     (is (= before after)
@@ -2184,10 +2180,10 @@
         "an unknown tool yields a protocol-level method-not-found")))
 
 (deftest dispatch-tools-call-non-map-arguments-is-invalid-params
-  (testing "rf2-2zym5e: a non-map `arguments` (scalar / array / string) is a
+  (testing "a non-map `arguments` (scalar / array / string) is a
             params-CONTAINER shape failure ⇒ -32602 invalid-params, NOT a
-            -32603 internal-error (the prior behaviour, where (keys non-map)
-            threw and was caught into a misleading server fault)"
+            -32603 internal-error (the misleading server fault an unguarded
+            (keys non-map) would throw)"
     (doseq [[label bad-args] [["a string" "foo"]
                               ["an array" ["a" "b"]]
                               ["a number" 42]
@@ -2203,7 +2199,7 @@
             "the error names the offending `arguments` container")))))
 
 (deftest dispatch-tools-call-absent-arguments-is-ok
-  (testing "rf2-2zym5e: omitted `arguments` is legal (no args) — the guard
+  (testing "omitted `arguments` is legal (no args) — the guard
             only rejects a PRESENT non-map container"
     (let [resp (rf.story-mcp.server/dispatch
                  {:jsonrpc "2.0" :id 42 :method "tools/call"
@@ -2234,7 +2230,7 @@
     (is (= {} (:result resp)))))
 
 (deftest dispatch-shutdown-empty-result
-  ;; `handle-shutdown` (server.cljc:110-115) — some agent hosts emit a
+  ;; `handle-shutdown` in server.cljc — some agent hosts emit a
   ;; `shutdown` request before closing stdin (it's not in the 2025-06-18
   ;; spec, but the server accepts + responds so a well-behaved client
   ;; doesn't see a timeout). Pins the empty-result happy arm + that the
@@ -2246,7 +2242,7 @@
     (is (nil? (:error resp)) "shutdown is a success, not an error")))
 
 (deftest dispatch-tools-call-non-string-name-invalid-params
-  ;; `handle-tools-call` (server.cljc:95-96) — the dispatcher's ONLY
+  ;; `handle-tools-call` in server.cljc — the dispatcher's ONLY
   ;; protocol-level invalid-params emit. A `tools/call` whose `:name` is
   ;; not a string (numeric, or omitted entirely) must yield -32602
   ;; invalid-params, distinct from the method-not-found path that an
@@ -2458,7 +2454,7 @@
       (is (true? (:allow-writes? cfg))))))
 
 (deftest boot-config-unknown-flag-logged-and-ignored
-  ;; `parse-args` (server.cljc:236-237) — the log-and-ignore branch for
+  ;; `parse-args` in server.cljc — the log-and-ignore branch for
   ;; an unrecognised flag. The MCP spec doesn't define CLI conventions,
   ;; so the parser is deliberately permissive: an unknown flag is logged
   ;; to *err* and skipped, leaving the config map untouched. Surrounding
@@ -2480,7 +2476,7 @@
               "recognised flag still parses around the ignored ones"))))))
 
 (deftest read-version-contract
-  ;; `read-version` (config.cljc:60-70) — feeds `:serverInfo :version` in
+  ;; `read-version` in config.cljc — feeds `:serverInfo :version` in
   ;; the `initialize` handshake. Best-effort: reads `VERSION` off the
   ;; classpath, falling back to "dev" when the resource is absent
   ;; (uberjar deploys, REPL hosts). The story-mcp test classpath carries
@@ -2544,7 +2540,7 @@
         (is (string? (:hint body)))))))
 
 (deftest cap-keeps-is-error-on-an-over-cap-failure
-  ;; rf2-3x7nj.35.3 — the cap applies to error results too (`invoke-tool`
+  ;; The cap applies to error results too (`invoke-tool`
   ;; routes them through it on purpose), so an over-cap FAILED call must
   ;; stay a failure. Without `isError` the marker is byte-for-byte what an
   ;; over-cap success returns: the agent cannot tell the call failed, and
@@ -2589,7 +2585,7 @@
       (is (true? (:isError r))
           "negative max-tokens surfaces as an isError tool-result")
       (is (not (overflow-marker? r))
-          "NOT the overflow lock-out a negative cap used to cause")
+          "NOT the overflow lock-out a negative cap would cause")
       (is (some? body) "result carries the :rf.mcp/invalid-arg rejection payload")
       (is (= :max-tokens (:arg body)))
       (is (= -1 (:value body)))
@@ -2629,23 +2625,20 @@
 ;;
 ;; Per spec/Tool-Pair.md §Direct-read privacy posture, every
 ;; pair-shaped tool that surfaces a live `:app-db` slice MUST route the
-;; value through `re-frame.elision/elide-wire-value` before egress, with
-;; off-box defaults (`:rf.egress/include-sensitive?` and
-;; `:rf.egress/include-large?` both default false). The cross-MCP
-;; `:include-sensitive` arg is the documented escape hatch.
+;; value through the egress boundary (`re-frame.core/project-egress`, via
+;; `rf.story-mcp.tools.egress/elide-app-db`) before egress, under the
+;; off-box defaults (the `:rf.egress/off-box-tool` profile: sensitive
+;; redacts, large elides). The cross-MCP `:include-sensitive` arg is the
+;; documented escape hatch.
 ;;
 ;; These tests pin the contract at the story-mcp surface: a sensitive
-;; slot declared through app-schema metadata on the variant's frame must
+;; slot classified on the variant's frame (the EP-0025 commit-plane
+;; `:sensitive` effect, applied by `declare-sensitive!` below) must
 ;; surface as `:rf/redacted` in the tool's response `:app-db` slot by
 ;; default, and as the raw value when the caller opts in via
 ;; `:include-sensitive true`. Assertion records carrying the top-level
 ;; `:sensitive? true` stamp must be dropped by default and included
 ;; when opted in.
-;;
-;; Pattern mirrors `implementation/schemas/test/re_frame/
-;; schemas_sensitive_test.clj`: schema metadata is the canonical
-;; per-slot declaration surface; story-mcp verifies its wire egress
-;; helper refreshes and consumes those declarations.
 ;; ---------------------------------------------------------------------------
 
 (defn- frame-container [variant-id]
@@ -2691,8 +2684,7 @@
   "The accumulated EP-0025 commit-plane classification-effect map for
   `variant-id` — `{:sensitive [[..]] :large [[..]]}` (a flat vector of
   `:rf/path`s per axis), omitting an empty axis. This is the value a
-  `reg-event` returns alongside `:db` to classify the paths; it replaced the
-  removed `make-frame` `:sensitive`/`:large {:app-db …}` annotation form."
+  `reg-event` returns alongside `:db` to classify the paths."
   [variant-id]
   (let [{:keys [sensitive large]} (get @declared-class variant-id)]
     (cond-> {}
@@ -2887,7 +2879,7 @@
           (is (identical? frame-db bypass)
               "include? true returns the SAME object — no walker rebuild")
           (is (= walked bypass)
-              "bypass output value-equals the previous walking-then-no-edit output")
+              "bypass output value-equals the walking-then-no-edit output")
           (is (= "TOPSECRET" (get bypass :secret))
               "top-level sensitive slot rides through")
           (is (= "DEEP" (get-in bypass [:nested :also-secret]))
@@ -2899,10 +2891,10 @@
 ;; `elide-app-db` scrubs the `:app-db` slot by PATH. When the SAME sensitive
 ;; value is re-keyed into `:effective-args` / `:snapshot` / an evidence tree
 ;; — at a tree position NOT at the declared app-db path — the
-;; path-based walker is structurally blind to it. EP-0025 removed the
-;; value-match (taint-by-equality) redaction that used to scrub such re-keyed
-;; copies (§"What is removed": value-match is propagation/taint by another
-;; name, which a hygiene helper does not earn). `scrub-rendered` now projects
+;; path-based walker is structurally blind to it. There is no value-match
+;; (taint-by-equality) redaction scrubbing such re-keyed copies (EP-0025
+;; §"What is removed": value-match is propagation/taint by another name,
+;; which a hygiene helper does not earn). `scrub-rendered` projects
 ;; the tree through `re-frame.core/project-egress`'s PATH-BASED
 ;; `:rf.observe/derived-tree` record: a value AT a classified app-db path that
 ;; happens to also occupy that path in the derived tree redacts, but a
@@ -2928,8 +2920,8 @@
     :else           false))
 
 (defn- tree-contains-marker?
-  "Deep search for a `:rf.size/large-elided` marker map anywhere in `tree`
-  (rf2-9o5ixx). The marker is `{:rf.size/large-elided {…}}`; this asserts a
+  "Deep search for a `:rf.size/large-elided` marker map anywhere in `tree`.
+  The marker is `{:rf.size/large-elided {…}}`; this asserts a
   large value was elided regardless of which slot/position it landed in."
   [tree]
   (cond
@@ -2941,9 +2933,9 @@
     :else        false))
 
 (deftest scrub-rendered-empty-collection-non-live-frame-stays-empty
-  ;; rf2-f2noru: an EMPTY derived tree carries nothing to protect on ANY
-  ;; frame. The non-live-frame fail-closed branch must NOT fire for it —
-  ;; before the fix, `project-egress` redacted even `[]` to the `:rf/redacted`
+  ;; An EMPTY derived tree carries nothing to protect on ANY frame. The
+  ;; non-live-frame fail-closed branch must NOT fire for it — routed through
+  ;; it, `project-egress` would redact even `[]` to the `:rf/redacted`
   ;; keyword on a non-live frame, breaking the `[:sequential :any]` shape the
   ;; run-variant error branch's `[]` evidence slots must keep.
   (testing "an empty [] projected against a NON-LIVE (unregistered) frame stays [] — never :rf/redacted"
@@ -2958,14 +2950,14 @@
         "fail-closed still stands for a non-empty tree on a non-live frame")))
 
 (deftest run-variant-error-branch-keeps-empty-evidence-on-non-live-frame
-  ;; rf2-f2noru: a throw BEFORE frame allocation (e.g. a plan-compile error in
-  ;; the variant body) is caught by tool-run-variant, which mints a unified
-  ;; result via `rf.story/run-result` — filling every `.4` evidence slot to `[]`.
+  ;; A throw BEFORE frame allocation (e.g. a plan-compile error in the variant
+  ;; body) is caught by tool-run-variant, which mints a unified result via
+  ;; `rf.story/run-result` — filling every evidence slot to `[]`.
   ;; The frame was never allocated, so it is NON-LIVE at egress. Each `[]`
   ;; slot must survive the egress projection as `[]` (a sequential), NOT be
   ;; redacted to the `:rf/redacted` keyword the `[:sequential :any]` schema
   ;; would reject.
-  (testing "run-variant catch branch on a non-live frame keeps [] evidence slots (rf2-f2noru)"
+  (testing "run-variant catch branch on a non-live frame keeps [] evidence slots"
     (with-clean-frame [vid :story.button/primary]
       ;; Force the NON-LIVE-frame shape: a plan-compile-class error throws
       ;; before run-variant would allocate the frame.
@@ -2981,7 +2973,7 @@
                 (str slot " is the empty evidence [] the frozen [:sequential :any] schema requires — not :rf/redacted"))))))))
 
 (deftest scrub-rendered-re-keyed-sensitive-ships-raw-fail-open
-  (testing "EP-0025 FAIL-OPEN: a sensitive value RE-KEYED into a derived tree at a non-app-db position ships RAW — value-match redaction was removed"
+  (testing "EP-0025 FAIL-OPEN: a sensitive value RE-KEYED into a derived tree at a non-app-db position ships RAW — there is no value-match redaction"
     (with-clean-frame [vid :story.button/primary]
       (let [db    {:public "ok" :token "TOPSECRET"}
             ;; A rendered hiccup tree that re-keys the sensitive value to a
@@ -3009,8 +3001,8 @@
     (with-clean-frame [vid :story.button/primary]
       ;; When the derived tree carries the classified value AT its declared
       ;; path (not re-keyed) — e.g. the egress projects the app-db slice — the
-      ;; PATH walker redacts it. This is the redaction story-mcp still
-      ;; guarantees post-purge.
+      ;; PATH walker redacts it. This is the redaction story-mcp
+      ;; guarantees.
       (let [db   {:public "ok" :auth {:token "TOPSECRET"}}]
         (seed-app-db! vid db)
         (declare-sensitive! vid [:auth :token])
@@ -3026,7 +3018,7 @@
               "benign sibling slots survive untouched"))))))
 
 (deftest scrub-rendered-include?-true-forwards-raw-value
-  (testing ":include? true bypasses the value-redaction walk entirely"
+  (testing ":include? true bypasses the redaction walk entirely"
     (with-clean-frame [vid :story.button/primary]
       (let [db     {:token "TOPSECRET"}
             hiccup [:input {:value "TOPSECRET"}]]
@@ -3055,24 +3047,24 @@
 ;; ---------------------------------------------------------------------------
 ;; EP-0025 FAIL-OPEN: no value-match ⇒ no over-scrub, no under-scrub.
 ;;
-;; The pre-EP-0025 value-based walk substituted EVERY derived-tree leaf `=` a
-;; declared-sensitive value, and needed an over-scrub guard (a short/common
-;; scalar like `0` shipped at a benign path was dropped from the secret set so
-;; benign leaves equal to it survived). EP-0025 REMOVED value-match entirely:
-;; a re-keyed copy ships RAW, so there is no over-scrub to guard against AND no
-;; under-scrub guarantee to keep. These tests pin the SHIPPED reality — benign
+;; A value-based walk would substitute EVERY derived-tree leaf `=` a
+;; declared-sensitive value, and would need an over-scrub guard (a
+;; short/common scalar like `0` shipped at a benign path would have to leave
+;; the secret set so benign leaves equal to it survived). There is no
+;; value-match: a re-keyed copy ships RAW, so there is no over-scrub to guard
+;; against AND no under-scrub guarantee to keep. These tests pin that — benign
 ;; leaves are never scrubbed (no value-match), and a uniquely-secret value
 ;; re-keyed off its app-db path ships raw (fail-open; classify the PATH to
 ;; redact).
 ;; ---------------------------------------------------------------------------
 
 (deftest scrub-rendered-benign-leaf-equal-to-secret-is-never-scrubbed
-  (testing "EP-0025 fail-open: no value-match ⇒ a benign leaf that merely EQUALS a sensitive scalar is never scrubbed (no over-scrub, the heuristic is gone)"
+  (testing "EP-0025 fail-open: no value-match ⇒ a benign leaf that merely EQUALS a sensitive scalar is never scrubbed (no over-scrub, no heuristic)"
     (with-clean-frame [vid :story.button/primary]
       ;; :http-status is sensitive and holds 0; the derived tree has many
-      ;; benign 0 leaves (tab-index, aria level). The removed value-match
-      ;; would have had to GUARD against scrubbing these; with no value-match
-      ;; they trivially survive.
+      ;; benign 0 leaves (tab-index, aria level). A value-match would have to
+      ;; GUARD against scrubbing these; with no value-match they trivially
+      ;; survive.
       (let [db     {:http-status 0          ; sensitive path
                     :public      "ok"}
             hiccup [:ul {:tabindex 0}
@@ -3090,11 +3082,11 @@
               "benign 0 leaves deep in the tree survive"))))))
 
 (deftest scrub-rendered-uniquely-secret-scalar-re-keyed-ships-raw-fail-open
-  (testing "EP-0025 fail-open: a uniquely-secret scalar RE-KEYED into a non-app-db tree position ships RAW — value-match (taint) was removed"
+  (testing "EP-0025 fail-open: a uniquely-secret scalar RE-KEYED into a non-app-db tree position ships RAW — there is no value-match (taint)"
     (with-clean-frame [vid :story.button/primary]
       ;; 7 is unique to the sensitive path; in the hiccup it sits at [1 :value]
-      ;; (a non-app-db position). Pre-EP-0025 value-match redacted it; now the
-      ;; path walker is blind to the re-keyed copy and it ships raw.
+      ;; (a non-app-db position). Value-match would redact it; the path
+      ;; walker is blind to the re-keyed copy and it ships raw.
       (let [db     {:pin    7
                     :public "ok"}
             hiccup [:input {:type "password" :value 7}]]
@@ -3128,16 +3120,16 @@
               "benign attribute values survive untouched"))))))
 
 ;; ---------------------------------------------------------------------------
-;; Path-based :app-db egress STILL redacts — the guarantee that survives.
+;; Path-based :app-db egress redacts — the guarantee.
 ;;
-;; EP-0025 removed value-match, but the path-based :app-db egress is KEPT and
-;; intact. A value AT its declared :sensitive / :large app-db path is redacted
-;; / elided in the :app-db slice. These tests pin the redaction story-mcp
-;; still guarantees — `elide-app-db` over the live frame slice.
+;; There is no value-match, but the path-based :app-db egress holds. A value
+;; AT its declared :sensitive / :large app-db path is redacted / elided in
+;; the :app-db slice. These tests pin the redaction story-mcp guarantees —
+;; `elide-app-db` over the live frame slice.
 ;; ---------------------------------------------------------------------------
 
 (deftest elide-app-db-sensitive-and-large-paths-redact-and-elide
-  (testing "PATH-based :app-db egress redacts a sensitive path and elides a large path (the kept guarantee)"
+  (testing "PATH-based :app-db egress redacts a sensitive path and elides a large path (the path guarantee)"
     (with-clean-frame [vid :story.button/primary]
       (let [token  "sk-live-DISTINCTIVE-TOPSECRET-9f8a7b6c"
             db     {:public "ok"
@@ -3158,7 +3150,7 @@
               "benign slots survive untouched"))))))
 
 (deftest elide-app-db-seq-indexed-sensitive-path-redacts
-  (testing "PATH-based :app-db egress redacts a seq-indexed :sensitive declaration [:tokens 0] (the kept guarantee)"
+  (testing "PATH-based :app-db egress redacts a seq-indexed :sensitive declaration [:tokens 0] (the path guarantee)"
     (with-clean-frame [vid :story.button/primary]
       (let [secret "uniq-seq-secret-TOPSECRET"
             db     {:public "ok"
@@ -3175,17 +3167,17 @@
               "the non-sensitive sibling element survives untouched"))))))
 
 ;; ---------------------------------------------------------------------------
-;; EP-0025 FAIL-OPEN — :large derived-tree elision was ALSO removed.
-;; EP-0025 removed value-match across BOTH egress axes. A :large blob RE-KEYED
+;; EP-0025 FAIL-OPEN — no :large derived-tree elision either.
+;; There is no value-match on EITHER egress axis. A :large blob RE-KEYED
 ;; into :snapshot / evidence / an explain value slot at a
 ;; non-app-db position is structurally invisible to the PATH walker, so it
 ;; ships RAW too — same fail-open posture as the :sensitive axis. The :app-db
-;; PATH elision (where the blob is AT its declared path) is KEPT and tested
+;; PATH elision (where the blob is AT its declared path) holds and is tested
 ;; above (`elide-app-db-sensitive-and-large-paths-redact-and-elide`).
 ;; ---------------------------------------------------------------------------
 
 (deftest scrub-rendered-large-value-re-keyed-ships-raw-fail-open
-  (testing "EP-0025 fail-open: a :large value RE-KEYED into a derived tree ships RAW — value-match (large axis) was removed"
+  (testing "EP-0025 fail-open: a :large value RE-KEYED into a derived tree ships RAW — there is no value-match on the large axis"
     (with-clean-frame [vid :story.button/primary]
       ;; A large blob lives at [:blob]; the view re-keys it into [:pre blob],
       ;; a non-app-db position. The :app-db egress elides [:blob], but the
@@ -3237,7 +3229,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest scrub-re-keyed-runtime-non-live-frame-ships-raw-under-named-exception
-  (testing "rf2-jwggld: a NON-LIVE variant frame ships the re-keyed runtime payload RAW under the named exception (not fail-closed)"
+  (testing "a NON-LIVE variant frame ships the re-keyed runtime payload RAW under the named exception (not fail-closed)"
     (with-clean-frame [vid :story.nonlive/never-allocated]
       ;; Never allocate the frame — it is NON-LIVE. (with-clean-frame only
       ;; binds + tears down; it does not allocate.)
@@ -3253,7 +3245,7 @@
             "the framework fail-closed marker must NOT apply to the re-keyed-runtime exception")))))
 
 (deftest scrub-re-keyed-runtime-non-live-frame-include?-true-still-raw
-  (testing "rf2-jwggld: include? true forwards the non-live re-keyed payload raw (trusted-local opt-out)"
+  (testing "include? true forwards the non-live re-keyed payload raw (trusted-local opt-out)"
     (with-clean-frame [vid :story.nonlive/never-allocated]
       (is (not (contains? (rf/frame-ids) vid)))
       (let [scrub-re-keyed-runtime (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-re-keyed-runtime)
@@ -3283,9 +3275,9 @@
 ;; regardless of WHICH derived tree re-surfaces the secret).
 ;;
 ;; The stub deliberately carries ONLY slots a real `rf.story/run-variant` can
-;; produce. `rendered-hiccup_retirement_test.clj` drives the REAL run through
+;; produce. `rendered_hiccup_retirement_test.clj` drives the REAL run through
 ;; the same handlers and pins that no rendered slot reaches the wire, so a
-;; stub cannot reintroduce the retired contract here (rf2-6r9j.13).
+;; stub cannot advertise a rendered slot here.
 
 (defn- secret-bearing-run-result
   "A unified-run-result-shaped value whose :app-db carries the secret at a
@@ -3331,9 +3323,9 @@
               s (:structuredContent r)]
           (is (success? r))
           (is (= :rf/redacted (get-in s [:app-db :token]))
-              "app-db PATH-redaction still holds — the kept guarantee")
+              "app-db PATH-redaction holds — the path guarantee")
           (is (= :rf/redacted (get-in s [:effective-args :token]))
-              "PATH still works: :effective-args carries :token at the classified path, so it redacts")
+              "PATH works: :effective-args carries :token at the classified path, so it redacts")
           ;; The snapshot nests the value under :db — not at the classified
           ;; [:token] position, so the path walk is blind and it ships raw.
           (is (tree-contains? (:snapshot s) "TOPSECRET")
@@ -3351,7 +3343,7 @@
               s (:structuredContent r)]
           (is (success? r))
           (is (= :rf/redacted (get-in s [:app-db :token]))
-              "app-db PATH-redaction still holds — the kept guarantee")
+              "app-db PATH-redaction holds — the path guarantee")
           (is (tree-contains? (:snapshot s) "TOPSECRET")
               "fail-open: snapshot nests the value under :db (off the classified path), so it ships RAW"))))))
 
@@ -3372,15 +3364,15 @@
               "opt-in surfaces the raw value in the derived :snapshot tree"))))))
 
 ;; ---------------------------------------------------------------------------
-;; run-variant's :narrative / :warnings / :sub-runs evidence slots must be
-;; value-redacted at egress. :narrative is a two-level evidence tree whose
+;; run-variant's :narrative / :warnings / :sub-runs evidence slots are
+;; PATH-projected at egress. :narrative is a two-level evidence tree whose
 ;; inner beats carry FULL :db-before / :db-after app-db snapshots
 ;; (evidence.cljc epoch-beat), so a declared-sensitive value — redacted in
-;; the top-level :app-db slot — would otherwise escape the MCP wire
-;; verbatim inside the narrative tree. :warnings (trace-event records) and
-;; :sub-runs (sub :value) carry the same leak class. These pin that all
-;; three are value-redacted at egress, with the same `:include-sensitive`
-;; opt-out as the sibling derived slots.
+;; the top-level :app-db slot — sits OFF its classified path inside the
+;; narrative tree and ships RAW (EP-0025 fail-open). :warnings (trace-event
+;; records) and :sub-runs (sub :value) re-key it the same way. These pin
+;; that all three ship re-keyed copies raw, with the same
+;; `:include-sensitive` opt-out as the sibling derived slots.
 ;; ---------------------------------------------------------------------------
 
 (deftest run-variant-narrative-ships-re-keyed-secret-raw-fail-open
@@ -3395,7 +3387,7 @@
               s (:structuredContent r)]
           (is (success? r))
           (is (= :rf/redacted (get-in s [:app-db :token]))
-              "app-db PATH-redaction still holds — the kept guarantee")
+              "app-db PATH-redaction holds — the path guarantee")
           ;; The evidence beats embed the token at non-root positions
           ;; (e.g. [0 :epochs 0 :db-before :token]); the path walk keyed at
           ;; [:token] from the tree root never reaches them ⇒ fail-open.
@@ -3427,16 +3419,15 @@
               "opt-in surfaces the raw value in :sub-runs"))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-5r6j96 — a run-variant timeout / exception ships a structuredContent
-;; that PASSES `valid-run-result?`. The catch branch used to hand-mint a
-;; partial map (`:status` / `:frame` / `:assertions` / `:checks` only),
-;; omitting the six `.4` evidence slots (`:schema-violations` / `:warnings`
-;; / `:effects` / `:sub-runs` / `:renders` / `:narrative`). An ABSENT key
-;; reads back as nil; `rf.story-mcp.tools.egress/scrub-rendered` had no nil short-circuit of
-;; its own, so a live-frame walk of nil returns nil unchanged — and the
-;; frozen `RunResult` schema declares each of those six slots
-;; `[:optional true] [:sequential :any]`: a PRESENT nil violates it (nil
-;; is not sequential). These pin the FIX end-to-end via the real
+;; A run-variant timeout / exception ships a structuredContent that PASSES
+;; `valid-run-result?`. A catch branch that hand-minted a partial map
+;; (`:status` / `:frame` / `:assertions` / `:checks` only) would omit the
+;; six evidence slots (`:schema-violations` / `:warnings` / `:effects` /
+;; `:sub-runs` / `:renders` / `:narrative`). An ABSENT key reads back as
+;; nil; `rf.story-mcp.tools.egress/scrub-rendered` returns nil for a nil
+;; tree — and the frozen `RunResult` schema declares each of those six
+;; slots `[:optional true] [:sequential :any]`: a PRESENT nil violates it
+;; (nil is not sequential). These pin the contract end-to-end via the real
 ;; `tool-run-variant` handler (the wire pipeline, not a hand-rolled
 ;; simulation of its internals) for both ways the catch branch is
 ;; genuinely reachable: `rf.story/run-variant` throwing synchronously, and
@@ -3486,18 +3477,18 @@
             (is (= [] (get s k)) (str k " defaults to [] rather than nil"))))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-j538f7.31 — the lifecycle :timeout-ms ceiling must bound the
-;; SYNCHRONOUS Story work, not just the post-return deref window.
+;; The lifecycle :timeout-ms ceiling must bound the SYNCHRONOUS Story work,
+;; not just the post-return deref window.
 ;;
 ;; On the JVM `rf.story/run-variant` executes synchronously (a `[:wait ms]`
 ;; step is an inline `Thread/sleep`), so it returns an ALREADY-settled
-;; future. The old `run-variant-blocking` deref'd that already-settled
-;; future under `:timeout-ms` — a no-op — so a variant whose synchronous
-;; work blew past the advertised ceiling still reported `:pass` (false
-;; green) AND monopolised the single-threaded stdio loop for the full
-;; wait. The regressions below use a REAL registered variant with a REAL
-;; `[:wait]` (not a `with-redefs` never-settling future) so they exercise
-;; the synchronous-constructor path this bug lives on. The advertised
+;; future. Deref'ing that already-settled future under `:timeout-ms` alone
+;; would be a no-op, so a variant whose synchronous work blew past the
+;; advertised ceiling would still report `:pass` (false green) AND
+;; monopolise the single-threaded stdio loop for the full wait. The tests
+;; below use a REAL registered variant with a REAL `[:wait]` (not a
+;; `with-redefs` never-settling future) so they exercise the
+;; synchronous-constructor path where that failure would live. The advertised
 ;; bound must be real: an over-budget synchronous run is BOUNDED near the
 ;; ceiling and reports the canonical `:error` verdict, never a false
 ;; `:pass`.
@@ -3562,7 +3553,7 @@
                  "elapsed=" elapsed "ms"))))))
 
 (deftest run-variant-short-wait-within-timeout-still-passes
-  (testing "a fast `[:wait]` well within :timeout-ms still settles :pass — the fix doesn't break the happy path"
+  (testing "a fast `[:wait]` well within :timeout-ms still settles :pass — the deadline doesn't break the happy path"
     (rf.story-mcp.config/set-allow-writes! true)
     (rf.story/reg-variant :story.button/quick-wait
       {:doc    "Short wait, comfortably inside the timeout."
@@ -3581,9 +3572,9 @@
 (deftest stdio-loop-freed-after-lifecycle-deadline
   (testing "a timed-out run-variant does NOT monopolise the single-threaded
             stdio loop — a following `ping` is answered bounded near the
-            ceiling, not held for the full Story wait (rf2-j538f7.31)"
+            ceiling, not held for the full Story wait"
     (rf.story/reg-variant :story.button/slow-loop
-      {:doc    "Runaway wait that would park the whole stdio loop pre-fix."
+      {:doc    "Runaway wait that would park the whole stdio loop without the deadline."
        :args   {:label "Slow"}
        :tags   #{:dev}
        :script [[:wait 3000]]})
@@ -3624,7 +3615,7 @@
             "the following ping IS answered — the loop was not monopolised past the deadline")))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-iapjh7: ONE lifecycle execution owner for both consumers
+;; ONE lifecycle execution owner for both consumers
 ;;
 ;; `run-variant` (tools.testing) + `preview-variant` (tools.dev) share the
 ;; `tools.lifecycle` execution owner — blocking invocation, timeout
@@ -3636,7 +3627,7 @@
 
 (deftest lifecycle-error-outcome-is-canonical
   (testing "error-outcome routes a throw through rf.story/run-result — canonical
-            shape, :status :error, every .4 evidence slot filled to [], plus
+            shape, :status :error, every evidence slot filled to [], plus
             the preserved :lifecycle :error + :frame slots"
     (let [outcome (rf.story-mcp.tools.lifecycle/error-outcome :story.some/variant
                                            (ex-info "boom" {}))]
@@ -3654,7 +3645,7 @@
 (deftest lifecycle-error-outcome-surfaced-by-both-consumers
   ;; A synchronous throw out of `rf.story/run-variant` must surface the SAME
   ;; canonical :error outcome through BOTH tools' real wire pipelines — the
-  ;; drift-proofing this refactor buys (preview no longer hand-mints a
+  ;; drift-proofing the shared owner buys (preview does not hand-mint a
   ;; partial map; it shares the owner). `preview-variant` additionally keeps
   ;; the `:lifecycle :error` slot it projects.
   (with-clean-frame [vid :story.button/primary]
@@ -3753,9 +3744,9 @@
               s (:structuredContent r)]
           (is (success? r))
           (is (= [:story.button/primary] (get-in s [:explain :source-chain]))
-              "plan-STRUCTURE ships raw, as it always did")
+              "plan-STRUCTURE ships raw")
           (is (= "DISTINCTIVE-EXPLAIN-SECRET" (get-in s [:explain :db-seed :auth :token]))
-              "author data: even the :db-seed slot AT the classified [:auth :token] path ships RAW — no longer redacted")
+              "author data: even the :db-seed slot AT the classified [:auth :token] path ships RAW — not redacted")
           (is (= "DISTINCTIVE-EXPLAIN-SECRET" (get-in s [:explain :effective-args :api-key]))
               "author data: the :effective-args value ships RAW")
           (is (= "DISTINCTIVE-EXPLAIN-SECRET" (get-in s [:explain :network [:get "/api/me"] :reply :token]))
@@ -3766,7 +3757,7 @@
               "nothing in the :explain map is redacted"))))))
 
 (deftest explain-variant-ships-sub-overrides-and-step-order-raw
-  (testing "rf2-7k5mce: :sub-overrides / :setup-order / :script-order are author data — they ship RAW with their public step structure intact"
+  (testing ":sub-overrides / :setup-order / :script-order are author data — they ship RAW with their public step structure intact"
     (with-clean-frame [vid :story.button/primary]
       (seed-app-db! vid {:auth {:token "DISTINCTIVE-SUBOVR-SECRET"}})
       (declare-sensitive! vid [:auth :token])
@@ -3792,24 +3783,24 @@
               "the non-value :validation structure inside :sub-overrides is preserved"))))))
 
 ;; ---------------------------------------------------------------------------
-;; explain-variant NO-RUN egress — the rf2-7k5mce regression pin.
+;; explain-variant NO-RUN egress — the regression pin.
 ;;
 ;; `explain-variant` is a documented NO-RUN tool (spec/API.md §explain-variant:
 ;; "Plan-derived data — no run, no live :app-db slice"): the documented
 ;; static-inspection flow (list-stories -> get-variant -> explain-variant) hits
 ;; it BEFORE any run-variant / preview-variant allocates the variant frame, so
-;; the frame is NON-LIVE. Under the old behaviour the value slots were
-;; projected through the framework egress boundary, which FAILS CLOSED on a
-;; non-live frame and redacted EVERY value slot to `:rf/redacted` — destroying
-;; the resolved args, final setup/script order, and network stubs even though
-;; nothing is runtime-sensitive. explain-variant now ships the author data raw.
+;; the frame is NON-LIVE. Projected through the framework egress boundary,
+;; which FAILS CLOSED on a non-live frame, EVERY value slot would redact to
+;; `:rf/redacted` — destroying the resolved args, final setup/script order,
+;; and network stubs even though nothing is runtime-sensitive. So
+;; explain-variant ships the author data raw.
 ;; ---------------------------------------------------------------------------
 
 (deftest explain-variant-no-run-non-live-frame-ships-value-slots-raw
-  (testing "explain-variant on a NON-LIVE frame (no run) ships the real author values, NOT :rf/redacted (rf2-7k5mce)"
-    ;; Guarantee the non-live-frame scenario the defect required — the frame is
-    ;; never allocated on the documented no-run inspection path. (A prior test
-    ;; could otherwise leave the frame live and mask the regression.)
+  (testing "explain-variant on a NON-LIVE frame (no run) ships the real author values, NOT :rf/redacted"
+    ;; Guarantee the non-live-frame scenario — the frame is never allocated
+    ;; on the documented no-run inspection path. (A prior test could
+    ;; otherwise leave the frame live and mask a regression.)
     (destroy-variant-frame! :story.button/primary)
     (is (nil? (frame-container :story.button/primary))
         "precondition: the variant frame is non-live (no run has allocated it)")
@@ -3830,7 +3821,7 @@
           (is (= "DISTINCTIVE-NORUN-VALUE" (get-in s path))
               (str path " ships the real author value RAW on the non-live frame"))
           (is (not= :rf/redacted (get-in s path))
-              (str path " is NOT over-redacted to :rf/redacted (the rf2-7k5mce defect)")))
+              (str path " is NOT over-redacted to :rf/redacted")))
         (is (= [[:dispatch [:auth/login {:token "DISTINCTIVE-NORUN-VALUE"}]]] (get-in s [:explain :setup-order]))
             ":setup-order ships its step payload raw")
         (is (= [[:dispatch [:api/call {:key "DISTINCTIVE-NORUN-VALUE"}]]] (get-in s [:explain :script-order]))
@@ -3845,34 +3836,33 @@
 ;; lands verbatim in node :html, and read-a11y-violations is :readOnlyHint
 ;; true (agent hosts AUTO-APPROVE it). axe DOM nodes are an inherently RE-KEYED
 ;; runtime payload class, so :violations route through the named
-;; `rf.story-mcp.tools.egress/scrub-re-keyed-runtime` exception (rf2-jwggld).
+;; `rf.story-mcp.tools.egress/scrub-re-keyed-runtime` exception.
 ;;
 ;; The helpers (`seed-app-db!` / `declare-sensitive!`) allocate the frame and
 ;; establish its declared-sensitive path; `scrub-re-keyed-runtime` reads that
-;; frame's live app-db itself and PATH-projects the violations tree. EP-0025
-;; removed value-match, so a value rendered into a node :html (a RE-KEYED DOM
-;; position the app-db path cannot reach) ships RAW under a LIVE frame
-;; (fail-open) — the cases below pin that shipped behaviour. A non-live frame
-;; ships the nodes raw under the documented carve-out (covered by the dedicated
-;; non-live split tests above). The co-hosted violations atom is supplied via
-;; the same var-of-atom stand-in the populated-path test uses.
+;; frame's live app-db itself and PATH-projects the violations tree. There is
+;; no value-match (EP-0025), so a value rendered into a node :html (a RE-KEYED
+;; DOM position the app-db path cannot reach) ships RAW under a LIVE frame
+;; (fail-open) — the cases below pin that behaviour. A non-live frame ships
+;; the nodes raw under the documented carve-out (covered by the dedicated
+;; non-live split tests above). The co-hosted violations are supplied through
+;; the `a11y-stand-in` provider seam below.
 ;; ---------------------------------------------------------------------------
 
 (defn- a11y-stand-in
   "A reached-provider seam for `rf.story-mcp.tools.cljs-resolve/*a11y-provider*`: a zero-arg
-  fn returning the by-frame violations map directly (rf2-3fc89f.21 — the
-  provider seam replaced the JVM-resolved var-of-atom). Binding this makes
+  fn returning the by-frame violations map directly. Binding this makes
   the a11y capability AVAILABLE, so the handler takes the reached-provider
   success path."
   [by-frame]
   (fn [] by-frame))
 
 (deftest read-a11y-violations-re-keyed-html-ships-raw-fail-open
-  (testing "EP-0025 fail-open: a declared-sensitive value rendered into an axe-core node :html is RE-KEYED off its app-db path, so it ships RAW — value-match removed (rf2-q8ebq.2 superseded)"
+  (testing "EP-0025 fail-open: a declared-sensitive value rendered into an axe-core node :html is RE-KEYED off its app-db path, so it ships RAW — there is no value-match"
     (with-clean-frame [vid :story.button/primary]
       ;; The frame app-db carries the secret at a declared-sensitive path; the
       ;; rendered DOM (axe-core node :html) embeds the SAME literal at a
-      ;; non-app-db position. EP-0025 removed value-match, so the re-keyed
+      ;; non-app-db position. With no value-match (EP-0025), the re-keyed
       ;; DOM copy ships raw. The public axe-core finding STRUCTURE is intact.
       (seed-app-db! vid {:auth {:token "DISTINCTIVE-A11Y-SECRET"}})
       (declare-sensitive! vid [:auth :token])
@@ -3894,7 +3884,7 @@
                 "non-sensitive node fields (CSS target selectors) pass through")))))))
 
 (deftest read-a11y-violations-includes-sensitive-violation-html-when-opted-in
-  (testing ":include-sensitive true forwards the raw axe-core node :html (gate open, rf2-q8ebq.2)"
+  (testing ":include-sensitive true forwards the raw axe-core node :html (gate open)"
     (rf.story-mcp.config/set-allow-sensitive-reads! true)
     (with-clean-frame [vid :story.button/primary]
       (seed-app-db! vid {:auth {:token "DISTINCTIVE-A11Y-SECRET"}})
@@ -3909,7 +3899,7 @@
                 "the documented opt-in surfaces the raw node :html")))))))
 
 (deftest read-a11y-violations-gate-closed-re-keyed-html-ships-raw-fail-open
-  (testing "EP-0025 fail-open: a RE-KEYED axe-core node :html ships RAW regardless of gate state — value-match removed (rf2-q8ebq.2 superseded)"
+  (testing "EP-0025 fail-open: a RE-KEYED axe-core node :html ships RAW regardless of gate state — there is no value-match"
     (is (false? (rf.story-mcp.config/sensitive-reads-allowed?)))
     (with-clean-frame [vid :story.button/primary]
       (seed-app-db! vid {:auth {:token "DISTINCTIVE-A11Y-SECRET"}})
@@ -3956,7 +3946,7 @@
         (is (success? r))
         (is (= 1 (:total s)) "only the non-sensitive record survives")
         (is (= 2 (:dropped-sensitive s))
-            "the count of dropped sensitive records rides the envelope (rf2-koq5m MUST)")))))
+            "the count of dropped sensitive records rides the envelope (MUST)")))))
 
 (deftest read-failures-omits-indicators-when-nothing-dropped
   (testing "neither indicator slot appears on a clean read (omit-when-zero MUST)"
@@ -4003,7 +3993,7 @@
         (is (contains? (get-in s [:app-db :blob]) :rf.size/large-elided)
             "the large slot is replaced by the :rf.size/large-elided marker")
         (is (pos-int? (:elided-large s))
-            "the count of elided leaves rides the envelope (rf2-koq5m MUST)")))))
+            "the count of elided leaves rides the envelope (MUST)")))))
 
 (deftest egress-with-indicators-honours-omit-when-zero
   ;; Unit pin on the egress helper itself — the omit-when-zero rule it
@@ -4025,7 +4015,7 @@
 ;; (`preview-variant` / `run-variant` / `read-failures`) plus the non-live
 ;; runtime tool
 ;; (`read-a11y-violations`'s runtime DOM `:violations`). `explain-variant` is
-;; NOT here (rf2-7k5mce): it is a no-run projection over the registry, so it
+;; NOT here: it is a no-run projection over the registry, so it
 ;; ships author data raw like `get-variant` and carries no gate knob.
 (def ^:private include-sensitive-tools
   ["preview-variant" "run-variant" "read-failures"
@@ -4052,9 +4042,9 @@
       (is (= (set include-sensitive-tools) carriers)
           "every descriptor carrying :include-sensitive must be in the pinned set, and vice versa")
       (is (= 4 (count carriers))
-          "the affected set is four tools (spec/002 §sensitive-read gate) — explain-variant ships author data raw (rf2-7k5mce)")
+          "the affected set is four tools (spec/002 §sensitive-read gate) — explain-variant ships author data raw")
       (is (not (contains? carriers "explain-variant"))
-          "explain-variant no longer carries :include-sensitive — it is author data, shipped raw like get-variant (rf2-7k5mce)"))))
+          "explain-variant carries no :include-sensitive — it is author data, shipped raw like get-variant"))))
 
 (def ^:private api-md
   "The consolidated public-API page, read relative to the `tools/story-mcp/`
@@ -4115,7 +4105,7 @@
 ;;      VALUES (preview-variant / run-variant / read-failures /
 ;;      read-a11y-violations), i.e. every descriptor that
 ;;      carries the slot (caller UX — no ghost knob). (explain-variant ships
-;;      author data raw and is not among them, rf2-7k5mce.)
+;;      author data raw and is not among them.)
 ;;   2. `:include-sensitive true` on a tool call is silently ignored at
 ;;      the egress helpers (defence-in-depth — even a caller who learned
 ;;      about the slot some other way can't exfiltrate raw values).
@@ -4212,7 +4202,7 @@
             (System/clearProperty "rf.story-mcp.allow-sensitive-reads")))))))
 
 ;; ---------------------------------------------------------------------------
-;; Agent-onboarding text parity (rf2-36upq S5)
+;; Agent-onboarding text parity
 ;;
 ;; `story-instructions-text` (tools/dev.cljc) is hand-copied from the spec.
 ;; CI must catch drift between the prose's canonical-tag list / assertion-id
@@ -4337,16 +4327,16 @@
           (System/clearProperty "rf.story-mcp.allow-writes"))))))
 
 ;; ---------------------------------------------------------------------------
-;; Boot-config sysprop > env precedence (rf2-09rfpu Finding 1)
+;; Boot-config sysprop > env precedence
 ;;
 ;; `read-boot-config` resolves each gate by SOURCE PRESENCE, not by a
-;; boolean OR over parsed truthiness. The old `or` form let an inherited
-;; env `true` re-enable a gate an operator explicitly disabled with a
+;; boolean OR over parsed truthiness: an `or` would let an inherited env
+;; `true` re-enable a gate an operator explicitly disabled with a
 ;; `-D...=false` sysprop. Env vars are read-only on the JVM, so the
 ;; precedence rule is unit-tested against the pure `rf.story-mcp.config/resolve-gate`
-;; helper (raw source strings as args) — the exact branch the prior
-;; `read-boot-config` test (sysprop alone / CLI overrides sysprop) could
-;; never stage because it could not set env=true.
+;; helper (raw source strings as args) — the exact branch a
+;; `read-boot-config` test (sysprop alone / CLI overrides sysprop) cannot
+;; stage because it cannot set env=true.
 ;; ---------------------------------------------------------------------------
 
 (deftest resolve-gate-explicit-sysprop-false-overrides-env-true
@@ -4394,15 +4384,15 @@
           (System/clearProperty "rf.story-mcp.allow-sensitive-reads"))))))
 
 ;; ---------------------------------------------------------------------------
-;; Lifecycle :timeout-ms cap (rf2-g9fje fix 3/3 / rf2-ovmc5e)
+;; Lifecycle :timeout-ms cap
 ;;
 ;; The single-threaded stdio loop parks for the full `:timeout-ms` window
 ;; — caller-supplied values clamp DOWN to `rf.story-mcp.tools.args/max-timeout-ms`
-;; (30 s, matches rf2-it1cd's `:rf.http/timeout-ms` baseline). A
+;; (30 s, matches the `:rf.http/timeout-ms` baseline). A
 ;; legitimately-slow variant runs against the cap; a hostile caller can't
 ;; park the loop indefinitely.
 ;;
-;; rf2-ovmc5e: `run-variant` AND `preview-variant` now share the same
+;; `run-variant` AND `preview-variant` share the same
 ;; bounded ceiling + tunable knob (`rf.story-mcp.tools.args/resolve-timeout-ms` +
 ;; `s/with-timeout-ms`); both descriptors advertise `:timeout-ms` so the
 ;; two lifecycle tools cannot drift in their blocking policy.
@@ -4437,13 +4427,13 @@
         "unparseable :timeout-ms falls back to the default")))
 
 ;; ---------------------------------------------------------------------------
-;; Protocol-side frame-length cap (rf2-g9fje fix 3/3)
+;; Protocol-side frame-length cap
 ;;
 ;; `BufferedReader.readLine` allocates unbounded memory for a one-line
 ;; frame that never sees a newline. The MCP server's stdio transport is
 ;; line-delimited per spec/2025-06-18/basic/transports; an attacker (or
 ;; a runaway producer) sending an unterminated frame would OOM the JVM.
-;; `read-frame` now caps each frame at `rf.story-mcp.protocol/max-frame-bytes` (4 MB,
+;; `read-frame` caps each frame at `rf.story-mcp.protocol/max-frame-bytes` (4 MB,
 ;; well above the largest legitimate MCP message); over-cap frames
 ;; throw `:rf.error/frame-too-large`, which the run-loop catches and
 ;; converts to a parse-error response.
@@ -4474,18 +4464,18 @@
           "post-cap recovery: stdio loop continues on the next frame"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-sibl4f — the frame cap is a UTF-8 BYTE budget, not a char count.
+;; The frame cap is a UTF-8 BYTE budget, not a char count.
 ;;
-;; The pre-fix `read-bounded-line` incremented its counter once per
-;; decoded Java char and bounded on (>= chars max-bytes). For multibyte
-;; UTF-8 input, decoded-char-count < wire-byte-count, so a frame whose
-;; UTF-8 byte length exceeded max-frame-bytes could slip under the cap
-;; while still being a multi-MB-over-budget wire payload — weakening the
-;; DoS bound the spec + error message promise. The fix re-derives each
-;; code point's UTF-8 byte width and bounds on the running byte total.
+;; A `read-bounded-line` that counted once per decoded Java char and
+;; bounded on (>= chars max-bytes) would under-count multibyte UTF-8 input
+;; (decoded-char-count < wire-byte-count), so a frame whose UTF-8 byte
+;; length exceeded max-frame-bytes could slip under the cap while still
+;; being a multi-MB-over-budget wire payload — weakening the DoS bound the
+;; spec + error message promise. The reader re-derives each code point's
+;; UTF-8 byte width and bounds on the running byte total.
 ;;
-;; The earlier oversize tests use only ASCII \x (char count == byte
-;; count), so they could not catch this drift.
+;; The oversize tests above use only ASCII \x (char count == byte
+;; count), so they cannot tell the two counters apart.
 ;; ---------------------------------------------------------------------------
 
 ;; Multibyte fixtures are built from `\uXXXX` / code-point escapes (pure
@@ -4564,12 +4554,11 @@
                 "supplementary-plane over-byte-budget frame rejected on the UTF-8 byte count")))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-lqjbk — parse-keyword → safe-keyword sweep
+;; No-intern keyword resolution on the read surface
 ;;
 ;; Caller-supplied keyword ids on the read surface MUST resolve through
-;; `args/safe-keyword` against a bounded set, NOT through the legacy
-;; `args/parse-keyword` which interns into the JVM's process-global
-;; keyword table. The tests below assert the no-intern property by
+;; `args/safe-keyword` against a bounded set, NOT through a plain `keyword`
+;; coercion, which interns into the JVM's process-global keyword table. The tests below assert the no-intern property by
 ;; calling each read-side tool with a fresh random-shaped id and
 ;; verifying that the underlying `find-keyword` returns nil after the
 ;; call (the rejection path didn't intern the string).
@@ -4578,7 +4567,7 @@
 (defn- find-kw
   "Find an existing interned keyword by namespace and name without
   interning. Returns nil when no such keyword has been interned —
-  the asserting probe for the rf2-lqjbk no-intern contract."
+  the asserting probe for the no-intern contract."
   [ns-str name-str]
   (find-keyword ns-str name-str))
 
@@ -4590,7 +4579,7 @@
       (is (error? r) "unknown story id must error")
       (is (re-find #"(?i)story not found" (-> r :content first :text)))
       (is (nil? (find-kw ns-str name-str))
-          "rf2-lqjbk: the unknown id MUST NOT have been interned"))))
+          "the unknown id MUST NOT have been interned"))))
 
 (deftest get-variant-unknown-id-does-not-intern
   (testing "unknown :variant-id rejects WITHOUT interning a fresh JVM keyword"
@@ -4600,7 +4589,7 @@
       (is (error? r))
       (is (re-find #"(?i)variant not found" (-> r :content first :text)))
       (is (nil? (find-kw ns-str name-str))
-          "rf2-lqjbk: the unknown id MUST NOT have been interned"))))
+          "the unknown id MUST NOT have been interned"))))
 
 (deftest read-failures-unknown-id-does-not-intern
   (testing "read-failures on an unknown :variant-id rejects WITHOUT interning"
@@ -4609,7 +4598,7 @@
           r        (invoke "read-failures" {:variant-id (str ns-str "/" name-str)})]
       (is (error? r))
       (is (nil? (find-kw ns-str name-str))
-          "rf2-lqjbk: the unknown id MUST NOT have been interned"))))
+          "the unknown id MUST NOT have been interned"))))
 
 (deftest list-stories-unknown-tag-does-not-intern
   (testing "list-stories filter with an unknown :tags entry skips it WITHOUT interning"
@@ -4617,16 +4606,15 @@
           r        (invoke "list-stories" {:tags [name-str "dev"]})]
       (is (success? r) "the known :dev tag still narrows; the unknown tag is dropped")
       (is (nil? (find-kw nil name-str))
-          "rf2-lqjbk: unknown tag id MUST NOT intern"))))
+          "unknown tag id MUST NOT intern"))))
 
 (deftest list-decorators-unknown-kind-rejects
-  ;; rf2-cdavyf — a SUPPLIED `:kind` outside the bounded enum is an
-  ;; agent-recoverable error, NOT a silent widen to the full catalogue.
-  ;; (Pre-fix the typo resolved to nil and was treated as no filter,
-  ;; returning EVERY decorator — hiding the caller's mistake behind a
-  ;; successful-looking full result.) The no-intern invariant (rf2-lqjbk)
-  ;; still holds: the unrecognised kind string never mints a fresh keyword.
-  (testing ":kind filter with an unrecognised value REJECTS WITHOUT interning (rf2-cdavyf)"
+  ;; A SUPPLIED `:kind` outside the bounded enum is an agent-recoverable
+  ;; error, NOT a silent widen to the full catalogue. (Treating the typo as
+  ;; nil, i.e. no filter, would return EVERY decorator — hiding the caller's
+  ;; mistake behind a successful-looking full result.) The no-intern
+  ;; invariant holds: the unrecognised kind string never mints a fresh keyword.
+  (testing ":kind filter with an unrecognised value REJECTS WITHOUT interning"
     (let [name-str (str "rf2-cdavyf-kind-" (System/nanoTime))
           r        (invoke "list-decorators" {:kind name-str})
           s        (:structuredContent r)]
@@ -4638,13 +4626,12 @@
           "lists the bounded enum so the agent can correct")
       (is (re-find #"(?i)unknown decorator kind" (-> r :content first :text)))
       (is (nil? (find-kw nil name-str))
-          "rf2-cdavyf / rf2-lqjbk: unknown kind name MUST NOT intern"))))
+          "unknown kind name MUST NOT intern"))))
 
 (deftest list-decorators-known-kind-and-absent-kind-still-work
-  ;; rf2-cdavyf — the reject path is PRESENT-but-unrecognised only. An
-  ;; absent `:kind` (no filter requested) and a valid `:kind` both still
-  ;; succeed.
-  (testing "absent :kind returns the full catalogue; a valid :kind filters (rf2-cdavyf)"
+  ;; The reject path is PRESENT-but-unrecognised only. An absent `:kind`
+  ;; (no filter requested) and a valid `:kind` both succeed.
+  (testing "absent :kind returns the full catalogue; a valid :kind filters"
     (let [no-filter (invoke "list-decorators" {})
           valid     (invoke "list-decorators" {:kind "hiccup"})]
       (is (success? no-filter) "absent :kind is the legitimate no-filter path")
@@ -4653,8 +4640,8 @@
       (is (vector? (-> valid :structuredContent :decorators))))))
 
 (deftest run-variant-explicit-substrate-unavailable-is-error-no-intern
-  ;; rf2-3fc89f.21 — an explicit :substrate is NO LONGER silently dropped
-  ;; to nil. On the JVM stdio host the substrate registry is unreachable,
+  ;; An explicit :substrate is NEVER silently dropped to nil. On the JVM
+  ;; stdio host the substrate registry is unreachable,
   ;; so an explicit :substrate MUST reject with the capability-unavailable
   ;; error (the requested render substrate cannot be honoured here — a run
   ;; under a dropped substrate would be invalid substrate-specific
@@ -4669,14 +4656,14 @@
       (is (= :rf.error/story-mcp-capability-unavailable (:rf.error s))
           "the requested render substrate cannot be honoured on a host with no registry")
       (is (nil? (find-kw nil name-str))
-          "rf2-lqjbk: rejecting the substrate MUST NOT intern its id")))
+          "rejecting the substrate MUST NOT intern its id")))
   (testing "provider ABSENT + NO :substrate ⇒ the default-substrate path still runs (not gated)"
     (let [r (invoke "run-variant" {:variant-id "story.button/primary"})]
       (is (success? r)
           "an absent :substrate is a legitimate default, independent of registry reachability"))))
 
 (deftest run-variant-explicit-substrate-reached-provider-validates
-  ;; rf2-3fc89f.21 — with a REACHED substrate registry, a known id is
+  ;; With a REACHED substrate registry, a known id is
   ;; honoured and an unknown id rejects explicitly (still no intern for the
   ;; unknown one).
   (testing "provider REACHED + KNOWN :substrate ⇒ honoured (run succeeds)"
@@ -4713,25 +4700,25 @@
         (is (= 11 (:id (nth frames 1))) "the loop continued to the next frame")))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-3luf3 — MCP JSON ingress must NOT intern attacker-controlled nested
-;; keys before the bounded allowlists run.
+;; MCP JSON ingress must NOT intern attacker-controlled nested keys before
+;; the bounded allowlists run.
 ;;
-;; The pre-fix `protocol/parse-json` called `(json/parse-string s true)`,
-;; recursively keywordising EVERY object key in the frame — including
+;; A `protocol/parse-json` that called `(json/parse-string s true)` would
+;; recursively keywordise EVERY object key in the frame — including
 ;; arbitrary keys under `params.arguments`, `cell-overrides`, and write
-;; bodies — and interning them into the JVM's process-global keyword table
+;; bodies — interning them into the JVM's process-global keyword table
 ;; BEFORE `tools.args/safe-keyword` could reject them. That both costs an
 ;; intern per unique key the caller chooses and can let an unknown
 ;; string key intern into a keyword a downstream allowlist then resolves.
 ;;
-;; The fix parses the frame string-keyed and keywordises ONLY the finite
+;; So ingress parses the frame string-keyed and keywordises ONLY the finite
 ;; JSON-RPC envelope keys + the bounded top-level argument-key allowlist
 ;; (no-intern via `find-keyword`); nested data-bearing maps keep string
 ;; keys and are routed through each surface's own bounded keyword policy.
 ;;
 ;; These tests drive the FULL stdio path (`rf.story-mcp.server/run-loop!` /
-;; `rf.story-mcp.protocol/read-frame` over a real JSON frame) — the gap the existing
-;; direct-`invoke` no-intern tests (rf2-lqjbk) leave open, since those
+;; `rf.story-mcp.protocol/read-frame` over a real JSON frame) — the gap the
+;; direct-`invoke` no-intern tests above leave open, since those
 ;; bypass `parse-json` / `read-frame`.
 ;; ---------------------------------------------------------------------------
 
@@ -4740,7 +4727,7 @@
   return the parsed response frames (keywordised for assertion
   ergonomics). stderr is captured so the test output stays clean.
 
-  rf2-e6knrq: the dispatcher now enforces the MCP lifecycle — a
+  The dispatcher enforces the MCP lifecycle — a
   `tools/call` / `tools/list` before `initialize` is refused with
   `-32600`. These no-intern wire tests exercise the TOOL surface, not
   the lifecycle gate, so the helper PREPENDS an `initialize` frame to
@@ -4767,10 +4754,10 @@
          vec)))
 
 (deftest ingress-does-not-intern-unknown-nested-arguments-key
-  (testing "a fresh unknown nested :arguments key is NOT interned over the wire (rf2-3luf3)"
+  (testing "a fresh unknown nested :arguments key is NOT interned over the wire"
     (let [probe-name (str "rf2-3luf3-nested-probe-" (System/nanoTime))
           ;; The attacker slips an unknown key into the arguments map of a
-          ;; tools/call. Pre-fix, parse-json interned it immediately.
+          ;; tools/call. An interning parse-json would intern it immediately.
           frame      (str "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\","
                           "\"params\":{\"name\":\"get-variant\","
                           "\"arguments\":{\"" probe-name "\":1,"
@@ -4781,19 +4768,19 @@
         (is (= 1 (count frames)) "one tools/call response")
         (is (= 1 (:id (first frames))) "the legitimate call still dispatched"))
       (is (nil? (find-keyword probe-name))
-          "rf2-3luf3: the attacker-supplied nested arguments key MUST NOT have been interned"))))
+          "the attacker-supplied nested arguments key MUST NOT have been interned"))))
 
 (deftest ingress-does-not-intern-unknown-envelope-key
-  (testing "a stray unknown top-level envelope key is NOT interned over the wire (rf2-3luf3)"
+  (testing "a stray unknown top-level envelope key is NOT interned over the wire"
     (let [probe-name (str "rf2-3luf3-envelope-probe-" (System/nanoTime))
           frame      (str "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\",\"" probe-name "\":99}\n")]
       (is (nil? (find-keyword probe-name)) "precondition")
       (run-frames! frame)
       (is (nil? (find-keyword probe-name))
-          "rf2-3luf3: a stray envelope key MUST NOT intern"))))
+          "a stray envelope key MUST NOT intern"))))
 
 (deftest ingress-does-not-intern-cell-overrides-key
-  (testing "an unknown :cell-overrides KEY is NOT interned over the wire (rf2-3luf3)"
+  (testing "an unknown :cell-overrides KEY is NOT interned over the wire"
     (let [probe-name (str "rf2-3luf3-cell-probe-" (System/nanoTime))
           frame      (str "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\","
                           "\"params\":{\"name\":\"preview-variant\","
@@ -4802,10 +4789,10 @@
       (is (nil? (find-keyword probe-name)) "precondition")
       (run-frames! frame)
       (is (nil? (find-keyword probe-name))
-          "rf2-3luf3: an unknown cell-override key (outside the variant's declared args) MUST NOT intern"))))
+          "an unknown cell-override key (outside the variant's declared args) MUST NOT intern"))))
 
 (deftest read-run-opts-keeps-known-cell-override-key-drops-unknown
-  (testing "a declared arg key is kept (keywordised) and an unknown one dropped (rf2-3luf3)"
+  (testing "a declared arg key is kept (keywordised) and an unknown one dropped"
     ;; story.button/primary declares :args {:label "Save"} — so :label is
     ;; in its bounded arg-key set; a random key is not. Simulate the
     ;; post-parse-json string-keyed cell-overrides shape.
@@ -4819,15 +4806,15 @@
       (is (nil? (find-keyword probe)) "and never interned"))))
 
 (deftest read-run-opts-allows-active-mode-introduced-cell-override-key
-  (testing "an override for an arg introduced ONLY by an active mode is preserved (rf2-to3q7)"
+  (testing "an override for an arg introduced ONLY by an active mode is preserved"
     ;; story.button/primary declares :args {:label "Save"} — :theme is
     ;; NOT among its base args. The fixture's :Mode.theme/dark mode
     ;; contributes :args {:theme :dark}. Story precedence merges mode
     ;; args before cell-local overrides, so with that mode active a
-    ;; caller :theme override is a LEGITIMATE override target. Before
-    ;; rf2-to3q7 the allowlist was built from the bare variant (no
-    ;; active modes), so the :theme override was dropped as 'unknown'
-    ;; and the render fell back to the mode's :dark value.
+    ;; caller :theme override is a LEGITIMATE override target. An
+    ;; allowlist built from the bare variant (no active modes) would drop
+    ;; the :theme override as 'unknown', and the render would fall back to
+    ;; the mode's :dark value.
     (let [probe (str "rf2-to3q7-co-" (System/nanoTime))
           opts  (rf.story-mcp.tools.args/read-run-opts
                   :story.button/primary
@@ -4838,14 +4825,14 @@
           co    (:cell-overrides opts)]
       (is (= [:Mode.theme/dark] (:active-modes opts)) "the mode coerced through the bounded set")
       (is (= ":light" (:theme co))
-          "rf2-to3q7: the mode-introduced :theme override is PRESERVED, not dropped")
+          "the mode-introduced :theme override is PRESERVED, not dropped")
       (is (= "Override" (:label co)) "the variant's own :label override is kept")
       (is (= #{:theme :label} (set (keys co)))
           "the genuinely-unknown key is still dropped — the allowlist widened only to the mode args")
       (is (nil? (find-keyword probe)) "the unknown key never interned"))))
 
 (deftest read-run-opts-without-active-mode-still-drops-mode-only-key
-  (testing "without the active mode, the mode-only arg key is correctly NOT an allowed override (rf2-to3q7)"
+  (testing "without the active mode, the mode-only arg key is correctly NOT an allowed override"
     ;; Mirror of the test above with the mode absent: :theme is not in
     ;; the variant's effective args, so the override IS unknown and must
     ;; drop — proving the widening is scoped to the ACTIVE modes, not a
@@ -4858,22 +4845,22 @@
           "with no active mode, :theme is not a declared arg and the override drops"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-49o8 — nested JSON cell overrides must reach the existing
-;; keyword-keyed arg they name.
+;; Nested JSON cell overrides must reach the existing keyword-keyed arg
+;; they name.
 ;;
 ;; Story supports nested keyword-keyed args and deep-merges cell
 ;; overrides into them, but the JSON ingress deliberately leaves nested
-;; arg keys as STRINGS (only the TOP-level override key was resolved).
-;; So `{"settings":{"title":"Edited"}}` against a registered
-;; `{:settings {:title "Nested title" :enabled? true}}` deep-merged to
+;; arg keys as STRINGS. Resolving only the TOP-level override key,
+;; `{"settings":{"title":"Edited"}}` against a registered
+;; `{:settings {:title "Nested title" :enabled? true}}` would deep-merge to
 ;; `{:settings {:title "Nested title" :enabled? true "title" "Edited"}}`:
-;; the consumer reading `[:settings :title]` still saw the OLD value, no
-;; unknown-id guard fired (`settings` is perfectly valid), and
-;; `snapshot-identity` keyed the unintended mixed-key tuple.
+;; the consumer reading `[:settings :title]` would still see the OLD value,
+;; no unknown-id guard would fire (`settings` is perfectly valid), and
+;; `snapshot-identity` would key the unintended mixed-key tuple.
 ;; ---------------------------------------------------------------------------
 
 (defn- reg-nested-fixture!
-  "Register the nested-args fixture the rf2-49o8 tests share: a variant
+  "Register the nested-args fixture the nested-override tests share: a variant
   whose `:settings` arg is itself a keyword-keyed map."
   []
   (rf.story/reg-story :story.nest
@@ -4885,7 +4872,7 @@
      :args {:settings {:title "Nested title" :enabled? true}}}))
 
 (deftest read-run-opts-nested-override-reaches-the-keyword-keyed-arg
-  (testing "a nested wire key resolves to the existing keyword arg it names (rf2-49o8)"
+  (testing "a nested wire key resolves to the existing keyword arg it names"
     (reg-nested-fixture!)
     (let [opts (rf.story-mcp.tools.args/read-run-opts
                  :story.nest/map-arg
@@ -4901,7 +4888,7 @@
           "the effective tuple carries no mixed-key residue"))))
 
 (deftest read-run-opts-nested-override-never-interns-and-keeps-string-keyed-data
-  (testing "an unknown nested key rides verbatim and never interns (rf2-49o8)"
+  (testing "an unknown nested key rides verbatim and never interns"
     (reg-nested-fixture!)
     (let [probe (str "rf2-49o8-nested-" (System/nanoTime))]
       (is (nil? (find-keyword probe)) "precondition: probe uninterned")
@@ -4911,8 +4898,8 @@
         (is (= {:settings {probe "x"}} (:cell-overrides opts))
             "a nested key naming nothing existing is DATA — left exactly as supplied")
         (is (nil? (find-keyword probe))
-            "rf2-49o8: aligning nested keys MUST NOT intern a fresh keyword"))))
-  (testing "a legitimately string-keyed base map keeps its string keys (rf2-49o8)"
+            "aligning nested keys MUST NOT intern a fresh keyword"))))
+  (testing "a legitimately string-keyed base map keeps its string keys"
     (rf.story/reg-story :story.strkeys
       {:doc "String-keyed arg data." :component :app.ui/panel :tags #{:dev}})
     (rf.story/reg-variant :story.strkeys/map-arg
@@ -4928,7 +4915,7 @@
           "and it overrides in place rather than landing beside the original"))))
 
 (deftest read-run-opts-nested-override-ambiguous-key-prefers-the-exact-match
-  (testing "when the base carries BOTH spellings, the exact match wins and nothing is guessed (rf2-49o8)"
+  (testing "when the base carries BOTH spellings, the exact match wins and nothing is guessed"
     ;; The explicit ambiguous-key policy. A base map carrying both
     ;; `\"title\"` and `:title` gives the wire key two candidate targets;
     ;; the alignment refuses to choose and takes the one the caller
@@ -4949,7 +4936,7 @@
           "and the keyword sibling is untouched"))))
 
 (deftest snapshot-identity-wire-and-native-nested-overrides-hash-alike
-  (testing "the MCP object override and the native keyword override key the SAME tuple (rf2-49o8)"
+  (testing "the MCP object override and the native keyword override key the SAME tuple"
     ;; The agent's test/edit loop depends on this: a run that evaluated
     ;; the unchanged nested arg, or an identity keyed on a mixed-key
     ;; tuple, answers for a scenario nobody asked for.
@@ -4966,10 +4953,10 @@
           "an identity hash was actually computed")
       (is (= (-> native :structuredContent :content-hash)
              (-> wire :structuredContent :content-hash))
-          "rf2-49o8: the same intended tuple hashes the same either way"))))
+          "the same intended tuple hashes the same either way"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-49o8 ACCEPTANCE — the same repair, but reached through ACTUAL JSON
+;; ACCEPTANCE — the same alignment, but reached through ACTUAL JSON
 ;; normalisation rather than through a hand-built Clojure map.
 ;;
 ;; The tests above call `read-run-opts` directly, and the `invoke` helper
@@ -4977,7 +4964,7 @@
 ;; that has ALREADY been decoded. Neither route passes through
 ;; `protocol/parse-json` + `normalize-frame`, which is where the wire's
 ;; string keys are actually minted and where `:cell-overrides` values are
-;; deliberately left string-keyed. A repair that only ever meets a
+;; deliberately left string-keyed. An alignment that only ever meets a
 ;; pre-decoded map is not evidence about the ingress the agent uses.
 ;;
 ;; `run-frames!` closes that: a literal JSON string in, the real server
@@ -4987,7 +4974,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- nested-override-frame
-  "One `tools/call` JSON frame for `tool-name`, carrying the rf2-49o8
+  "One `tools/call` JSON frame for `tool-name`, carrying the
   nested override `{\"settings\":{\"title\":\"Edited\"}}` as REAL JSON."
   [id tool-name extra-json]
   (str "{\"jsonrpc\":\"2.0\",\"id\":" id ",\"method\":\"tools/call\","
@@ -4997,7 +4984,7 @@
        extra-json "}}}\n"))
 
 (deftest ingress-nested-override-reaches-preview-variant
-  (testing "JSON ingress: the nested override reaches preview-variant's effective args (rf2-49o8)"
+  (testing "JSON ingress: the nested override reaches preview-variant's effective args"
     (reg-nested-fixture!)
     ;; `dedup false` — preview advertises the knob, and the default would
     ;; wrap :structuredContent in a dedup table the assertion would have
@@ -5008,7 +4995,7 @@
       (is (not (true? (:isError result)))
           "the wire-shaped nested override is accepted, not refused")
       (is (= "Edited" (get-in eff [:settings :title]))
-          "rf2-49o8: the JSON [\"settings\"][\"title\"] edit lands on the KEYWORD :title")
+          "the JSON [\"settings\"][\"title\"] edit lands on the KEYWORD :title")
       (is (= true (get-in eff [:settings :enabled?]))
           "the sibling the caller never named is untouched")
       (is (= {:settings {:title "Edited" :enabled? true}} eff)
@@ -5022,11 +5009,11 @@
       ;; IDENTICALLY to the repaired one. So these assertions witness the
       ;; ingress route but do NOT discriminate the bug; the hash control in
       ;; `ingress-nested-override-reaches-snapshot-identity` is the one that
-      ;; does, and it was confirmed to go red under exactly that fault.
+      ;; does, and it goes red under exactly that fault.
       )))
 
 (deftest ingress-nested-override-reaches-run-variant
-  (testing "JSON ingress: run-variant runs the INTENDED tuple, same as the native call (rf2-49o8)"
+  (testing "JSON ingress: run-variant runs the INTENDED tuple, same as the native call"
     (reg-nested-fixture!)
     (let [frames (run-frames! (nested-override-frame 72 "run-variant" ",\"dedup\":false"))
           wire   (-> frames first :result)
@@ -5046,7 +5033,7 @@
       ;; nested override and settles the run rather than refusing it or
       ;; running something else.
       (is (= "pass" (-> wire :structuredContent :status))
-          "rf2-49o8: the wire run settles :pass (JSON renders the keyword as a string)")
+          "the wire run settles :pass (JSON renders the keyword as a string)")
       (is (= :pass (-> native :structuredContent :status))
           "and the native keyword-shaped override settles the same way")
       (is (= #:rf.story{:lifecycle "ready"} (-> wire :structuredContent :app-db))
@@ -5055,7 +5042,7 @@
           "which is the state the native call reaches too — ONE scenario"))))
 
 (deftest ingress-nested-override-reaches-snapshot-identity
-  (testing "JSON ingress: snapshot-identity keys the intended tuple (rf2-49o8)"
+  (testing "JSON ingress: snapshot-identity keys the intended tuple"
     (reg-nested-fixture!)
     ;; snapshot-identity does NOT advertise :dedup, and the wire pipeline
     ;; refuses an unadvertised property — so no dedup knob here.
@@ -5076,13 +5063,13 @@
           "the JSON override actually PERTURBED the identity — it was not dropped")
       (is (= (-> native :structuredContent :content-hash)
              (-> wire :structuredContent :content-hash))
-          "rf2-49o8: JSON ingress and the native keyword call key ONE tuple"))))
+          "JSON ingress and the native keyword call key ONE tuple"))))
 
 (deftest ingress-unknown-variant-id-over-wire-does-not-intern
-  (testing "an unknown :variant-id sent over JSON is rejected WITHOUT interning (rf2-3luf3)"
-    ;; This is the wire-level peer of the rf2-lqjbk direct-invoke test —
-    ;; it proves the allowlist still gates correctly once parse-json no
-    ;; longer pre-interns the value.
+  (testing "an unknown :variant-id sent over JSON is rejected WITHOUT interning"
+    ;; This is the wire-level peer of the direct-invoke no-intern test —
+    ;; it proves the allowlist gates correctly when parse-json does not
+    ;; pre-intern the value.
     (let [ns-str   "story.rf2-3luf3-wire"
           name-str (str "unknown-" (System/nanoTime))
           frame    (str "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\","
@@ -5094,15 +5081,15 @@
         (is (true? (:isError result)) "unknown variant id errors as a tool result")
         (is (re-find #"(?i)variant not found" (-> result :content first :text))))
       (is (nil? (find-keyword ns-str name-str))
-          "rf2-3luf3: the unknown variant id MUST NOT have been interned over the wire"))))
+          "the unknown variant id MUST NOT have been interned over the wire"))))
 
 (deftest ingress-legitimate-wire-keys-still-dispatch
-  (testing "known JSON wire arg keys still normalise + dispatch correctly (rf2-3luf3)"
+  (testing "known JSON wire arg keys still normalise + dispatch correctly"
     ;; variant-id + max-tokens are read by get-variant / the wire-pipeline;
-    ;; both must survive the no-intern normalisation. (rf2-an95jj —
-    ;; `:include-sensitive` is deliberately NOT exercised here: get-variant
+    ;; both must survive the no-intern normalisation. (`:include-sensitive`
+    ;; is deliberately NOT exercised here: get-variant
     ;; surfaces no value-bearing slot, so it does not advertise that knob,
-    ;; and the per-tool schema check now rejects it for this tool. The
+    ;; and the per-tool schema check rejects it for this tool. The
     ;; `:include-sensitive` no-intern path is covered on the tools that DO
     ;; advertise it — preview-variant / run-variant / read-failures etc.)
     (let [frame  (str "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\","
@@ -5123,7 +5110,7 @@
           "the variant body came back, confirming a real dispatch"))))
 
 (deftest register-variant-object-body-over-wire-keywordises-under-gate
-  (testing "an object-form :body sent as JSON registers with keyword slots (rf2-3luf3 write-path)"
+  (testing "an object-form :body sent as JSON registers with keyword slots on the write path"
     ;; Post no-intern ingress the object-form body arrives string-keyed;
     ;; `coerce-body` re-keywordises it under the (operator-gated) write
     ;; path. This proves the spec's documented "object body (preferred)"
@@ -5143,7 +5130,7 @@
             "nested object-body keys were keywordised recursively")))))
 
 (deftest register-variant-object-body-rejects-overdeep
-  (testing "an object-form :body past the depth cap is rejected, not interned (rf2-3luf3 / rf2-g9fje)"
+  (testing "an object-form :body past the depth cap is rejected, not interned"
     (rf.story-mcp.config/set-allow-writes! true)
     ;; Build a string-keyed map nested far past max-edn-depth (64). The
     ;; depth check in coerce-body must reject it BEFORE keywordize-body-keys
@@ -5156,10 +5143,10 @@
                         {:variant-id "story.button/wire-deep" :body deep})]
       (is (error? r) "an over-deep object body is rejected")
       (is (nil? (find-keyword (str probe "-leaf")))
-          "rf2-3luf3: a rejected over-deep body MUST NOT have interned its keys"))))
+          "a rejected over-deep body MUST NOT have interned its keys"))))
 
 (deftest normalize-frame-drops-unknown-arg-keys-but-keeps-known
-  (testing "normalize-frame keeps allowlisted arg keys (keyword), drops + DIAGNOSES the rest (rf2-3luf3 / rf2-ovmc5e)"
+  (testing "normalize-frame keeps allowlisted arg keys (keyword), drops + DIAGNOSES the rest"
     (let [probe   (str "rf2-3luf3-drop-" (System/nanoTime))
           parsed  (rf.story-mcp.protocol/parse-json
                    (str "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/call\","
@@ -5175,7 +5162,7 @@
       ;; NB: do not call `(keyword probe)` here — that would itself intern
       ;; the probe and defeat the no-intern assertion below.
       (is (nil? (find-keyword probe)) "and the unknown key never interned")
-      ;; rf2-ovmc5e — the unknown key is no longer SILENTLY dropped: its
+      ;; The unknown key is not SILENTLY dropped: its
       ;; RAW STRING form is recorded as metadata (not a map entry, so it
       ;; never reaches a handler or interns) for the dispatcher to diagnose.
       (is (= [probe] (get (meta arg-map) rf.story-mcp.protocol/unknown-arg-keys-meta))
@@ -5184,7 +5171,7 @@
           "recording the metadata STRING still interns nothing"))))
 
 (deftest invoke-tool-diagnoses-unknown-top-level-argument
-  ;; rf2-ovmc5e Finding #1 — a top-level argument typo (a non-schema-
+  ;; A top-level argument typo (a non-schema-
   ;; validating host or hand-rolled agent sending `:timeuot-ms` etc.) must
   ;; surface an agent-recoverable `isError: true` result naming the unknown
   ;; key, the tool, and the allowed key set — NOT a successful-looking call
@@ -5225,8 +5212,8 @@
           arg-map (-> (rf.story-mcp.protocol/normalize-frame parsed) :params :arguments)]
       (is (nil? (get (meta arg-map) rf.story-mcp.protocol/unknown-arg-keys-meta))
           "no dropped keys ⇒ no unknown-arg metadata")
-      ;; The explicit `:substrate "reagent"` now requires a REACHED registry
-      ;; (rf2-3fc89f.21); bind a provider so this wire-plumbing test exercises
+      ;; The explicit `:substrate "reagent"` requires a REACHED registry;
+      ;; bind a provider so this wire-plumbing test exercises
       ;; the normal dispatch path rather than the capability-unavailable
       ;; reject (which the substrate-validation tests cover directly).
       (binding [rf.story-mcp.tools.cljs-resolve/*substrate-provider* (fn [] [:reagent])]
@@ -5234,14 +5221,14 @@
           (is (success? r) "an all-recognised call dispatches the handler normally"))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-an95jj — per-tool argument-schema enforcement AFTER the global
+;; Per-tool argument-schema enforcement AFTER the global
 ;; no-intern normalisation.
 ;;
 ;; `protocol/normalize-frame` only drops keys outside the UNION of every
 ;; tool's argument keys (`protocol/arg-keys`). A key valid for ANOTHER
 ;; tool — `:body` (register-variant),
 ;; `:dedup` on a non-eligible tool — therefore SURVIVES normalisation as a
-;; keyword entry and used to be silently ignored by the selected handler.
+;; keyword entry, which the selected handler would silently ignore.
 ;; The per-tool check (`tool-invalid-arg-keys`) is the descriptor-level
 ;; `additionalProperties false` backstop: it rejects globally-known keys
 ;; the SELECTED tool doesn't advertise, with the same
@@ -5249,10 +5236,10 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest invoke-tool-rejects-tool-invalid-but-globally-known-arg
-  ;; rf2-an95jj acceptance — `get-variant` with `:body`. `:body` is a real
+  ;; Acceptance — `get-variant` with `:body`. `:body` is a real
   ;; key (register-variant advertises it) so it survives the global
   ;; allowlist as a keyword entry; but get-variant does NOT advertise it.
-  (testing "a globally-known but tool-invalid arg (`:body` on get-variant) rejects (rf2-an95jj)"
+  (testing "a globally-known but tool-invalid arg (`:body` on get-variant) rejects"
     (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "get-variant"
                                        {:variant-id "story.button/primary" :body "x"})
           s (:structuredContent r)]
@@ -5267,9 +5254,9 @@
           "the tool's allowed set does NOT include the rejected key"))))
 
 (deftest invoke-tool-rejects-body-on-run-variant
-  ;; rf2-an95jj acceptance — `run-variant` with `:body`. `:body`
+  ;; Acceptance — `run-variant` with `:body`. `:body`
   ;; is advertised by register-variant; run-variant does not advertise it.
-  (testing "`:body` on run-variant rejects (globally-known, tool-invalid) (rf2-an95jj)"
+  (testing "`:body` on run-variant rejects (globally-known, tool-invalid)"
     (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "run-variant"
                                        {:variant-id "story.button/primary"
                                         :body "{}"})
@@ -5280,43 +5267,43 @@
       (is (= ["body"] (:unknown s))))))
 
 (deftest invoke-tool-tolerates-dedup-on-non-eligible-tool
-  ;; rf2-an95jj — `:dedup` is advertised only on the two dedup-eligible
+  ;; `:dedup` is advertised only on the two dedup-eligible
   ;; tools but is DOCUMENTED as silently ignored elsewhere (it is a
   ;; wire-managed knob the dispatcher gates on `:dedup-eligible?`). So a
   ;; `:dedup` on a non-eligible tool must NOT trip the per-tool diagnostic
   ;; — otherwise the test-helper default (`{:dedup false}` on every call)
   ;; would break every non-eligible-tool test.
-  (testing "`:dedup` on a non-eligible tool is tolerated, not rejected (rf2-an95jj)"
+  (testing "`:dedup` on a non-eligible tool is tolerated, not rejected"
     (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "get-variant"
                                        {:variant-id "story.button/primary" :dedup false})]
       (is (success? r) "a wire-managed knob on a non-advertising tool dispatches normally"))))
 
 (deftest invoke-tool-tolerates-include-sensitive-on-advertising-tool
-  ;; rf2-an95jj — `:include-sensitive` on a tool that DOES advertise it
+  ;; `:include-sensitive` on a tool that DOES advertise it
   ;; (read-failures) is tool-valid and must dispatch (the slot lives in the
   ;; descriptor's properties regardless of the operator gate).
-  (testing "`:include-sensitive` on a tool that advertises it dispatches (rf2-an95jj)"
+  (testing "`:include-sensitive` on a tool that advertises it dispatches"
     (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "read-failures"
                                        {:variant-id "story.button/primary"
                                         :include-sensitive false})]
       (is (success? r) "an advertised value-knob is tool-valid and dispatches"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-p0eiq3 — pre-dispatch error envelopes ride the response cap.
+;; Pre-dispatch error envelopes ride the response cap.
 ;;
 ;; `spec/Principles.md §Tight token budget` bounds EVERY tool response,
 ;; errors included. The pre-dispatch rejection branches (unknown-arg,
-;; invalid-`:max-tokens`, per-tool unknown-arg) used to return BEFORE the
-;; cap — so a caller packing many long unknown keys inside the 4 MB frame
-;; cap received an uncapped diagnostic echoing them all back. The cap now
-;; applies to those envelopes too.
+;; invalid-`:max-tokens`, per-tool unknown-arg) go through the cap too:
+;; returning BEFORE it would let a caller packing many long unknown keys
+;; inside the 4 MB frame cap receive an uncapped diagnostic echoing them
+;; all back.
 ;; ---------------------------------------------------------------------------
 
 (deftest unknown-arg-error-rides-the-response-cap
-  ;; rf2-p0eiq3 — many large unknown keys produce an overflow marker under
+  ;; Many large unknown keys produce an overflow marker under
   ;; a small cap rather than an uncapped echo. The unknown keys ride as
   ;; metadata (no-intern), so we build the frame through normalise-frame.
-  (testing "an unknown-argument diagnostic overflows under a small cap (rf2-p0eiq3)"
+  (testing "an unknown-argument diagnostic overflows under a small cap"
     (let [big-keys (apply str
                           (for [i (range 200)]
                             (str "\"unknown-key-" i "-"
@@ -5340,12 +5327,12 @@
           "the overflow marker names the tool"))))
 
 (deftest invalid-max-tokens-error-is-bounded
-  ;; rf2-p0eiq3 — the invalid-`:max-tokens` rejection envelope is small and
+  ;; The invalid-`:max-tokens` rejection envelope is small and
   ;; bespoke, but it must still ride the cap path (default cap, since the
   ;; caller's cap was malformed). It is well under the default, so it
   ;; passes through intact — proving the cap path is exercised without
-  ;; tripping, and the rejection shape is preserved (rf2-5rdit).
-  (testing "the invalid-max-tokens rejection is routed through the cap and preserved (rf2-p0eiq3)"
+  ;; tripping, and the rejection shape is preserved.
+  (testing "the invalid-max-tokens rejection is routed through the cap and preserved"
     (let [r    (rf.story-mcp.tools.wire-pipeline/invoke-tool "list-tags" {:max-tokens -1})
           body (get-in r [:structuredContent rf.mcp-base.vocab/invalid-arg-key])]
       (is (true? (:isError r)))
@@ -5354,12 +5341,12 @@
       (is (= -1 (:value body))))))
 
 (deftest tool-invalid-arg-error-rides-the-response-cap
-  ;; rf2-p0eiq3 + rf2-an95jj — the per-tool unknown-arg diagnostic is
+  ;; The per-tool unknown-arg diagnostic is
   ;; capped too. The diagnostic echoes the offending key names + the tool's
   ;; allowed set; throwing every globally-known key get-variant does NOT
   ;; advertise makes that echo exceed a 1-token cap, so the
   ;; per-tool diagnostic must overflow rather than return uncapped.
-  (testing "a per-tool unknown-arg diagnostic overflows under a tiny cap (rf2-p0eiq3)"
+  (testing "a per-tool unknown-arg diagnostic overflows under a tiny cap"
     (let [tool-invalid {:story-id "x"
                         :substrate "x" :active-modes ["x"] :cell-overrides {}
                         :base-url "x" :body "x"
@@ -5377,16 +5364,16 @@
       (is (= "get-variant" (get-in r [:structuredContent rf.mcp-base.vocab/overflow-key :tool]))))))
 
 ;; ---------------------------------------------------------------------------
-;; Cap accounting includes :structuredContent size (rf2-mzndx)
+;; Cap accounting includes :structuredContent size
 ;;
-;; Pre-fix, only `:content[*].text` strings counted toward the cap, while
 ;; `text-result` writes the same payload into BOTH `:content` and
-;; `:structuredContent` — the cap underestimated wire by ~50% on every
-;; structured tool. The new accounting sums both slots under one budget.
+;; `:structuredContent`, so counting only `:content[*].text` strings would
+;; underestimate the wire by ~50% on every structured tool. The accounting
+;; sums both slots under one budget.
 ;; ---------------------------------------------------------------------------
 
 (deftest cap-counts-structured-content-size
-  (testing "structuredContent contributes to the cap (rf2-mzndx)"
+  (testing "structuredContent contributes to the cap"
     ;; A list-stories call ships the same payload in both slots. The
     ;; cap with structured accounting must be HIGHER than the cap that
     ;; only counts `:text` — assert the wire-side sum reflects both.
@@ -5397,8 +5384,8 @@
                                 (build-overflow-result [_ _m _o] {}))]
                        (rf.mcp-base.cap/sum-payload-tokens io r))
           with-struct (rf.mcp-base.cap/sum-payload-tokens test-io r)]
-      ;; The `test-io` mirror counts structured content (see rf2-mzndx
-      ;; update at top of file). It MUST report more tokens than the
+      ;; The `test-io` mirror counts structured content (see its definition
+      ;; at the top of the file). It MUST report more tokens than the
       ;; text-only baseline whenever the result carries a non-nil
       ;; `:structuredContent`.
       (is (some? (:structuredContent r))
@@ -5408,7 +5395,7 @@
                "with-struct=" with-struct " text-only=" text-only)))))
 
 (deftest cap-trips-on-structured-content-alone
-  (testing "a tiny cap trips when only structuredContent is large (rf2-mzndx)"
+  (testing "a tiny cap trips when only structuredContent is large"
     ;; The cap must fire on the combined size — not silently let a
     ;; payload through just because its :text slot fits.
     (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "list-stories" {:max-tokens 1})]
@@ -5422,8 +5409,7 @@
         (is (= 1 (:cap-tokens body)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Named-check assertion copies honour the sensitive-record filter
-;; (rf2-gwye.60).
+;; Named-check assertion copies honour the sensitive-record filter.
 ;;
 ;; A `:checks` group carries the SAME assertion-record maps as the top-level
 ;; `:assertions` vec (`re-frame.story.result/check-record`), so a record the
@@ -5503,7 +5489,7 @@
       (is (every? #(some :sensitive? (:assertions %)) (:checks s))))))
 
 ;; ---------------------------------------------------------------------------
-;; `run-loop!` leaves Clojure's executors alone (rf2-gwye.59).
+;; `run-loop!` leaves Clojure's executors alone.
 ;;
 ;; The CLI's `-main` releases Clojure's future/agent executor once stdin
 ;; closes, so a session that ran a variant exits promptly instead of idling
