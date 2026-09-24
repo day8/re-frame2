@@ -35,30 +35,31 @@
 
 (def work-ledger-key
   "The reserved runtime-db key for the frame work ledger subtree
-  (`:rf.runtime/work-ledger`). Named neutrally — resources are its first
-  writer, later slices extend it to timers / streams / route loaders /
-  spawned actors / machine async work. Per Spec 016 §Frame work ledger."
+  (`:rf.runtime/work-ledger`). Named neutrally — resources and mutations
+  write it, and its shape carries nothing resource-specific (timers / streams /
+  route loaders / spawned actors / machine async work fit the same rows). Per
+  Spec 016 §Frame work ledger."
   :rf.runtime/work-ledger)
 
 (defn key-id
   "The CEDN-1 BYTE-IDENTITY map-key for a scoped resource key
   `[canonical-scope resource-id canonical-params]` — its `canonical-bytes`
-  string (rf2-9e0tyq). This is the value the `:entries` map, the reverse
-  indexes, and the work-ledger map are keyed on, replacing the scoped-key
-  VECTOR as the map key.
+  string. This is the value the `:entries` map, the reverse
+  indexes, and the work-ledger map are keyed on, rather than the scoped-key
+  VECTOR.
 
-  WHY (the EP-0012 `=`-collapse fix): the scoped-key vector was used directly
-  as a Clojure map key, and Clojure map keys compare by `=` + hash. The SOLE
+  WHY (the EP-0012 `=`-collapse guard): Clojure map keys compare by `=` +
+  hash, and the SOLE
   place `=` is COARSER than the authoritative CEDN-1 byte identity is
   SEQUENTIAL vector-vs-list — `(= [1 2 3] '(1 2 3))` is TRUE while their
   `canonical-bytes` differ (`v[…]` vs `l(…)`). Keying on the canonical-bytes
   STRING makes the map-key comparison EXACTLY the CEDN-1 byte identity
   (strings compare by `=` over their content, which IS the byte identity), so
   a list-params key and a vector-params key get DISTINCT entries — without
-  re-erasing the kind (the canonical scoped-key vector, kind-preserving, is
+  erasing the kind (the canonical scoped-key vector, kind-preserving, is
   stored alongside as `:resource/key`). The bytes string is plain serializable
   EDN, so it rides the SSR / epoch / trace wire with no custom transit handler
-  (the failure mode a `deftype` key would have silently introduced).
+  (the failure mode a `deftype` key would silently introduce).
 
   Total on an already-canonical scoped key (`scoped-resource-key` canonicalizes
   scope + params, and `canonical-bytes` is total on canonical EDN). Per Spec
@@ -68,16 +69,16 @@
 
 (defn entries-path
   "Runtime-db-relative path to the cache entries map `{<key-id> <entry>}` —
-  keyed on the CEDN-1 byte-identity `key-id` (NOT the scoped-key vector;
-  rf2-9e0tyq). Per Spec 016 §Cache home."
+  keyed on the CEDN-1 byte-identity `key-id` (NOT the scoped-key vector).
+  Per Spec 016 §Cache home."
   []
   [resources-key :entries])
 
 (defn tag-index-path
   "Runtime-db-relative path to the reverse tag index
   `{<tag> #{<key-id> …}}` — members are CEDN-1 byte `key-id`s (the SAME
-  keys `:entries` uses), resolved to entries via `entry-path-by-id`
-  (rf2-9e0tyq). Recomputable-from-`:entries` (rebuilt on
+  keys `:entries` uses), resolved to entries via `entry-path-by-id`.
+  Recomputable-from-`:entries` (rebuilt on
   restore/hydration, never trusted from the snapshot). Per Spec 016
   §Cache home / §Restore and replay."
   []
@@ -86,8 +87,8 @@
 (defn owner-index-path
   "Runtime-db-relative path to the reverse owner index
   `{<owner> #{<key-id> …}}` — members are CEDN-1 byte `key-id`s (the SAME
-  keys `:entries` uses), resolved to entries via `entry-path-by-id`
-  (rf2-9e0tyq). Recomputable-from-`:entries`. Per Spec 016 §Cache home /
+  keys `:entries` uses), resolved to entries via `entry-path-by-id`.
+  Recomputable-from-`:entries`. Per Spec 016 §Cache home /
   §Restore and replay."
   []
   [resources-key :owner-index])
@@ -134,7 +135,7 @@
 (defn entry-path
   "Runtime-db-relative path to a single cache entry. Accepts the scoped
   resource key VECTOR `[cache-scope resource-id canonical-params]` and keys
-  the entry on its CEDN-1 byte-identity `key-id` (rf2-9e0tyq) so a list- and
+  the entry on its CEDN-1 byte-identity `key-id` so a list- and
   a vector-params key never collapse. Per Spec 016 §Resource identity."
   [scoped-resource-key]
   [resources-key :entries (key-id scoped-resource-key)])
@@ -142,8 +143,8 @@
 (defn entry-path-by-id
   "Runtime-db-relative path to a single cache entry by its already-computed
   `key-id` (the CEDN-1 byte string). Used by callers that hold a reverse-index
-  member (already a `key-id`) and must not re-transform it through `entry-path`
-  (rf2-9e0tyq). Per Spec 016 §Resource identity."
+  member (already a `key-id`) and must not re-transform it through `entry-path`.
+  Per Spec 016 §Resource identity."
   [k-id]
   [resources-key :entries k-id])
 
@@ -156,7 +157,7 @@
 ;; key so the runtime recognises a returned `:rf.db/runtime` effect from a
 ;; resource handler as in-bounds (it governs only the
 ;; `:rf.warning/app-handler-runtime-effect` ownership diagnostic — a
-;; convention, not a capability gate; Spec 002 Mike ruling #4). Mirrors
+;; convention, not a capability gate; Spec 002). Mirrors
 ;; routing's `framework-authority-meta`. Per Spec 016 §Write authority.
 
 (def framework-authority-meta
@@ -174,7 +175,7 @@
 (def terminal-work-statuses
   "The terminal work-ledger statuses an attempt may reach. Terminal rows
   are pruned on the linked entry's next TERMINAL transition — every settle,
-  not only a successful one (rf2-6gzdb) — with a small bounded
+  not only a successful one — with a small bounded
   per-resource-key tail retained for Xray, and are dropped outright when the
   entry itself leaves the cache. Per Spec 016
   §Ledger row retention and identity."
@@ -196,10 +197,10 @@
    :invalidated-at nil
    :attempt        0
    :generation     0
-   ;; `:revision` is the per-entry WRITE identity (EP-0019 / byl7bk Open
-   ;; Issue 5 ruling) — a monotone counter bumped on EVERY authoritative
+   ;; `:revision` is the per-entry WRITE identity (EP-0019 Open
+   ;; Issue 5) — a monotone counter bumped on EVERY authoritative
    ;; durable entry write a rollback could clobber (load success, populate,
-   ;; patch, invalidation-driven settle, and the later optimistic apply),
+   ;; patch, invalidation-driven settle, and the optimistic apply),
    ;; UNCONDITIONALLY (never gated on `(= old new)` of `:data`). It is DISTINCT
    ;; from `:generation`: `:generation` bumps at load START (`entry-start-load`)
    ;; — the work / stale-suppression identity — so reusing it would
@@ -236,7 +237,7 @@
   in another.
 
   The 2-arity stamps the entry's own `:resource/key` — the scoped-key VECTOR
-  `[canonical-scope resource-id canonical-params]` (rf2-9e0tyq). Because the
+  `[canonical-scope resource-id canonical-params]`. Because the
   `:entries` map is keyed on the CEDN-1 byte `key-id` (a string), the
   kind-preserving scoped-key vector is carried INSIDE the entry so every
   consumer that needs the `[scope rid params]` shape (the prior-sibling scan,
@@ -256,8 +257,7 @@
 ;; via the shared `re-frame.identity` algebra (Conventions §Canonical EDN
 ;; identity). There is no resource-local identity dialect — a thin wrapper
 ;; preserves the public resource error categories but delegates the actual
-;; canonicalization / domain validation to `rf.identity/canonical` (rf2-wgutc2,
-;; EP-0012 correctness review item 1).
+;; canonicalization / domain validation to `rf.identity/canonical` (EP-0012).
 ;;
 ;; Delegating to the shared algebra means resource identities get exactly
 ;; the CEDN-1 guarantees:
@@ -408,18 +408,18 @@
   value)
 
 (defn canonicalize-or-rethrow
-  "Validate + canonicalize `value` in ONE CEDN-1 walk (rf2-rplgkw): return its
+  "Validate + canonicalize `value` in ONE CEDN-1 walk: return its
   canonical EDN identity (`canonicalize`), re-throwing the public
   `:rf.error/resource-non-edn-params` cache-key-boundary category when the
   shared CEDN-1 rule fails it closed (`:rf.error/non-edn-identity`).
 
-  This collapses the historical `(reject-non-edn! …)` + `(canonicalize …)`
-  pair — which walked the value TWICE (once to validate via `serializable-
-  edn?` → `canonical-bytes`, once to canonicalize via `canonical`) — into a
+  It is equivalent to the `(reject-non-edn! …)` + `(canonicalize …)`
+  pair — which would walk the value TWICE (once to validate via `serializable-
+  edn?` → `canonical-bytes`, once to canonicalize via `canonical`) — in a
   single `canonical` walk, since `canonical` fails closed on EXACTLY the same
-  CEDN-1 domain `reject-non-edn!` rejects (state.cljc). Behaviour-preserving:
-  the public error category, the `where` / `kind` / `:resource-id` slots, and
-  the canonical result are identical to the two-step form. `where` / `kind`
+  CEDN-1 domain `reject-non-edn!` rejects: the public error category, the
+  `where` / `kind` / `:resource-id` slots, and the canonical result are
+  identical to the two-step form. `where` / `kind`
   (`:params` | `:scope`) name the offending boundary."
   [value where kind resource-id]
   (try
@@ -439,15 +439,15 @@
 ;; declared policy slot. Every scope-bearing operation — event resolution,
 ;; sub resolution, route planning, mutation invalidation default — routes
 ;; its concrete scope through `canonicalize-scope` so the same three
-;; guarantees hold everywhere (rf2-lzv9xc):
+;; guarantees hold everywhere:
 ;;
 ;;   1. host / opaque scope values are rejected (`reject-non-edn!`);
 ;;   2. a BARE unknown `:rf.scope/*` keyword (a reserved-namespace typo such
-;;      as `:rf.scope/glabal`) is rejected fail-closed (rf2-pd7akw) — it can
+;;      as `:rf.scope/glabal`) is rejected fail-closed — it can
 ;;      NEVER become a silent wrong cache scope;
 ;;   3. a reserved bare-keyword scope wrapped in a vector (the canonical
 ;;      `:rf.scope/global` supplied as the singleton `[:rf.scope/global]`) is
-;;      rejected fail-closed (rf2-bwwk6l) — the global scope IS the bare
+;;      rejected fail-closed — the global scope IS the bare
 ;;      keyword `:rf.scope/global`, and the wrapped spelling is not a second
 ;;      spelling the contract blesses.
 
@@ -469,7 +469,7 @@
 
 (defn reserved-scope-typo?
   "True when `scope` is a BARE keyword in the framework-reserved
-  `:rf.scope/*` namespace that is NOT a valid concrete scope (rf2-pd7akw) —
+  `:rf.scope/*` namespace that is NOT a valid concrete scope —
   i.e. a misspelled reserved scope like `:rf.scope/glabal`. A non-keyword
   scope (a `[:rf.scope/session …]` tuple, a map, a string) is NOT in the
   bare-keyword reserved slot and is never a typo here."
@@ -481,12 +481,12 @@
 (defn reject-wrapped-reserved-scope!
   "Throw `:rf.error/resource-invalid-scope` when `scope` is a VECTOR whose
   head is a reserved bare-keyword concrete scope (`:rf.scope/global`) —
-  i.e. the singleton `[:rf.scope/global]` spelling (rf2-bwwk6l). The global
+  i.e. the singleton `[:rf.scope/global]` spelling. The global
   scope IS the bare keyword `:rf.scope/global`; the wrapped form is not an
   alias for it — it fails closed and the diagnostic names the canonical bare
   spelling. A genuine scope TUPLE like `[:rf.scope/session {…}]` carries a
   payload after the namespaced tag and is untouched — only a reserved
-  bare-keyword head with NO concrete payload (the historical alias shape) is
+  bare-keyword head with NO concrete payload (the alias shape) is
   rejected. `where` / `resource-id` name the offending boundary. Returns
   `scope` unchanged when it conforms."
   [scope where resource-id]
@@ -509,8 +509,8 @@
 
 (defn reject-reserved-scope-typo!
   "Throw `:rf.error/resource-invalid-scope` when `scope` is a reserved-
-  namespace typo (`reserved-scope-typo?`) reaching a CONCRETE scope boundary
-  (rf2-pd7akw). A bare `:rf.scope/*` keyword outside the concrete enum is a
+  namespace typo (`reserved-scope-typo?`) reaching a CONCRETE scope boundary.
+  A bare `:rf.scope/*` keyword outside the concrete enum is a
   framework-namespace typo, never a literal app scope — accepting it would
   resolve to a silent WRONG cache scope (a tenant / user / permission leak),
   exactly the failure the fail-closed scope contract exists to prevent.
@@ -551,7 +551,7 @@
 
 (defn reject-from-db-reference-scope!
   "Throw `:rf.error/resource-invalid-scope` when `scope` is a `{:from-db …}`
-  named-resolver REFERENCE reaching a CONCRETE scope boundary (rf2-kuky.79).
+  named-resolver REFERENCE reaching a CONCRETE scope boundary.
 
   This guard closes a FAIL-OPEN, and the fail-open is the whole reason it
   exists: a map is a perfectly valid literal scope value, so a `{:from-db
@@ -589,17 +589,16 @@
   scope)
 
 (defn canonicalize-scope
-  "The SINGLE shared concrete-scope validation + canonicalization path
-  (rf2-lzv9xc). Given a CONCRETE resolved scope value, in order:
+  "The SINGLE shared concrete-scope validation + canonicalization path.
+  Given a CONCRETE resolved scope value, in order:
 
     1. reject a reserved-namespace typo fail-closed
-       (`reject-reserved-scope-typo!`, rf2-pd7akw);
+       (`reject-reserved-scope-typo!`);
     2. reject a reserved bare-keyword scope wrapped in a vector — the
-       singleton `[:rf.scope/global]` alias (`reject-wrapped-reserved-scope!`,
-       rf2-bwwk6l);
+       singleton `[:rf.scope/global]` alias (`reject-wrapped-reserved-scope!`);
     3. reject a `{:from-db …}` named-resolver reference — a policy spelling
        that would otherwise pass as a literal map scope and key nothing
-       (`reject-from-db-reference-scope!`, rf2-kuky.79);
+       (`reject-from-db-reference-scope!`);
     4. reject a host / opaque value (`reject-non-edn!`);
     5. canonicalize the EDN (`canonicalize`).
 
@@ -612,8 +611,8 @@
   (reject-reserved-scope-typo! scope where resource-id)
   (reject-wrapped-reserved-scope! scope where resource-id)
   (reject-from-db-reference-scope! scope where resource-id)
-  ;; rf2-rplgkw: validate + canonicalize the concrete scope in ONE CEDN-1
-  ;; walk rather than rejecting (one walk) then canonicalizing (a second).
+  ;; Validate + canonicalize the concrete scope in ONE CEDN-1 walk rather
+  ;; than rejecting (one walk) then canonicalizing (a second).
   ;; `canonical` fails closed on exactly the host / non-portable-number
   ;; domain `reject-non-edn!` rejects, so the public error category holds.
   (canonicalize-or-rethrow scope where :scope resource-id))
@@ -621,7 +620,7 @@
 ;; ---- scoped resource key (Spec 016 §Resource identity) --------------------
 
 (defn scoped-resource-key*
-  "TRUSTED scoped-key constructor (rf2-rplgkw): assemble the scoped resource
+  "TRUSTED scoped-key constructor: assemble the scoped resource
   key vector `[scope resource-id params]` from scope + params that are
   ALREADY canonical — it does NOT re-canonicalize. Use this on the resolution
   hot paths (sub / event / route) where the scope arrived through
@@ -653,19 +652,19 @@
   resolution hot paths (sub / event / route) instead use the trusted
   `scoped-resource-key*` — their scope / params are ALREADY canonical
   (`canonicalize-scope` + `validate+canonicalize-params`), so re-canonicalizing
-  here is pure overhead on a per-reaction path (rf2-rplgkw).
+  here is pure overhead on a per-reaction path.
 
   The returned vector is the kind-PRESERVING canonical identity (a list value
-  stays a list, distinct from a vector — rf2-wgutc2). It is NOT used
+  stays a list, distinct from a vector). It is NOT used
   directly as a Clojure map key: the `:entries` map, the reverse indexes, and
-  the work-ledger map are keyed on its CEDN-1 byte `key-id` (`state/key-id`,
-  rf2-9e0tyq) so the map-key comparison is EXACTLY the CEDN-1 byte identity
+  the work-ledger map are keyed on its CEDN-1 byte `key-id` (`state/key-id`)
+  so the map-key comparison is EXACTLY the CEDN-1 byte identity
   and a list- and a vector-params key get DISTINCT entries (Clojure `=` would
-  otherwise collapse `[1 2 3]` and `'(1 2 3)`). The vector itself remains the
+  otherwise collapse `[1 2 3]` and `'(1 2 3)`). The vector itself is the
   kind-preserving value carried as the entry's `:resource/key`, embedded in
   the work-id, on the SSR wire, and in trace payloads — so the kind distinction
-  rf2-wgutc2 introduced is preserved end-to-end, and the `=`-collapse is closed
-  at the map-keying layer where it actually occurred."
+  holds end-to-end, and the `=`-collapse is closed at the map-keying layer,
+  where it would otherwise occur."
   [scope resource-id params]
   (scoped-resource-key* (canonicalize scope) resource-id (canonicalize params)))
 
@@ -680,7 +679,7 @@
   first-loads with no placeholder). A pure selection — the projection pointer
   it returns never inserts data into the new entry.
 
-  rf2-9e0tyq: `entries` is keyed on the CEDN-1 byte `key-id`, so the
+  `entries` is keyed on the CEDN-1 byte `key-id`, so the
   scope/params comparison reads each candidate entry's stored `:resource/key`
   vector — NOT the map key (which is the opaque bytes string)."
   [entries new-key]
@@ -701,7 +700,7 @@
 ;; ordinary resource entry is prohibited in v1). The transition function
 ;; over the five states answers \"given the current status and an event,
 ;; what is the next status?\" — it describes CACHE-ENTRY status, distinct
-;; from the work-ledger attempt lifecycle (rf2-afpdkn).
+;; from the work-ledger attempt lifecycle.
 ;;
 ;;   :idle    + :start-load (no data)        -> :loading
 ;;   :loading + :success                     -> :loaded
@@ -754,7 +753,7 @@
   the feed first-loads page 0 (`:loading`), not a refresh (`:fetching`). So a
   feed is `has-data?` iff it has at least one accumulated page; only an empty
   vector (not a non-empty one, and not a scalar nil) reads as no-data. A scalar
-  entry is `has-data?` iff its `:data` is non-nil (unchanged)."
+  entry is `has-data?` iff its `:data` is non-nil."
   [entry]
   (let [data (:data entry)]
     (if (infinite-entry? entry)
@@ -785,7 +784,7 @@
 ;; (`mutation_events.cljc` — a patched / populated entry must age exactly as a
 ;; fetched one). They are pinned here so a patched entry's staleness, the timer
 ;; delay guard, and the no-wall-clock-background-timers-under-SSR rule never
-;; drift between the two writers (rf2-366u0g).
+;; drift between the two writers.
 
 (defn stale-at-for
   "Compute an entry's `:stale-at` from `loaded-at` + the resource's
@@ -819,7 +818,7 @@
   [frame-id]
   (= :server (:platform (rf.frame/frame-meta frame-id))))
 
-;; ---- per-entry revision (EP-0019 §Decision 2 / byl7bk Open Issue 5) --------
+;; ---- per-entry revision (EP-0019 §Decision 2 / Open Issue 5) ---------------
 ;;
 ;; `:revision` is the per-entry WRITE identity the optimistic-rollback settle
 ;; protocol compares against. The EP-0019 conflict check at settle is a
@@ -829,7 +828,7 @@
 ;; it did, the recorded inverse is a stale "before" and a blind restore would
 ;; clobber newer truth; the settle reconciles by invalidation instead.
 ;;
-;; The bump rule (byl7bk ruling, load-bearing): bump on EVERY authoritative
+;; The bump rule (load-bearing): bump on EVERY authoritative
 ;; durable entry write a rollback could clobber — UNCONDITIONALLY, never gated
 ;; on `(= old new)` of `:data`. `entry-succeeded` / `patch-entry` /
 ;; `populate-entry` re-stamp `:loaded-at` / `:stale-at` / `:tags` even when the
@@ -842,12 +841,13 @@
 
 (defn bump-revision
   "Pure: increment the entry's monotone per-entry `:revision` write identity
-  (EP-0019 §Decision 2 / byl7bk Open Issue 5). The SINGLE home for the bump so
+  (EP-0019 §Decision 2 / Open Issue 5). The SINGLE home for the bump so
   every authoritative durable entry write (`entry-succeeded`, `patch-entry`,
-  `populate-entry`, the invalidation-driven settle, the later optimistic apply)
+  `populate-entry`, the invalidation-driven settle, the optimistic apply)
   advances it the same way — UNCONDITIONALLY, never gated on whether `:data`
-  changed. Treats an absent / nil `:revision` as 0 (a pre-EP-0019 entry or a
-  freshly-seeded one), so the bump is total over any entry shape. Returns the
+  changed. Treats an absent / nil `:revision` as 0 (an entry no write has
+  bumped yet, e.g. a freshly-seeded one), so the bump is total over any entry
+  shape. Returns the
   entry with `:revision` incremented; a nil entry is returned unchanged (there
   is nothing to bump — a missing entry carries no revision)."
   [entry]
@@ -857,7 +857,7 @@
 
 (defn entry-revision
   "Pure: read an entry's per-entry `:revision` write identity, defaulting to 0
-  for an absent / nil entry or a pre-EP-0019 entry that predates the fact. The
+  for an absent / nil entry or an entry that carries no `:revision`. The
   value the optimistic-rollback settle protocol records at apply time and
   compares at settle time (`mutation-runtime/optimistic-conflict?`, against the
   post-apply `:applied-revision`). Per EP-0019 §Decision 2."
@@ -869,13 +869,13 @@
   `invalidated-at`) and bump the per-entry `:revision` (marking an entry stale
   moves its freshness — an authoritative durable write a later optimistic
   rollback could clobber, so it bumps the write identity; bias to over-bump,
-  EP-0019 / byl7bk). The single home for the durable stale mark the scoped
+  EP-0019). The single home for the durable stale mark the scoped
   invalidation engine and the EP-0019 restore-dangle conflict-rollback share, so
   a `:stale?` sub derives `true` from `:invalidated-at` identically whether the
   staleness came from an invalidation pass or a dangle-inside-reconciler. A nil
   entry is returned unchanged. Per Spec 016 §Invalidation / §Status semantics.
 
-  Also records WHICH ATTEMPT the mark landed during (rf2-3x7nj.10.1):
+  Also records WHICH ATTEMPT the mark landed during:
   `:invalidated-during` is the entry's `:current-work` at the time of the mark,
   and is absent when no read is in flight. That attempt's request was served
   before the invalidation, so its success must not clear the mark
@@ -883,8 +883,8 @@
   comparing milliseconds — a same-ms tie or a pinned clock would read as
   covered.
 
-  A new mark also drops a feed sweep's `:sweep-covers-invalidation?` claim
-  (rf2-wcsjy): the sweep in progress began before this mark, so it cannot
+  A new mark also drops a feed sweep's `:sweep-covers-invalidation?` claim:
+  the sweep in progress began before this mark, so it cannot
   cover it (`settle-page-invalidation`)."
   [entry invalidated-at]
   (if entry
@@ -904,15 +904,15 @@
   settling attempt's request was served before such a mark, so its reply
   cannot satisfy it (Spec 016 §Race and in-flight semantics — no coverage
   policy exists). A mark written before the attempt started is covered by it
-  and clears, as before. Read by `entry-succeeded` and — through
+  and clears. Read by `entry-succeeded` and — through
   `settle-page-invalidation`, since a feed page covers less — by the page
-  settles, against the PRE-settle entry (rf2-3x7nj.10.1)."
+  settles, against the PRE-settle entry."
   [entry]
   (let [w (:current-work entry)]
     (when (and (some? w) (= w (:invalidated-during entry)))
       (:invalidated-at entry))))
 
-;; ---- owner-liveness entry writes (rf2-cxwuhl / EP-0019 §Decision 2) --------
+;; ---- owner-liveness entry writes (EP-0019 §Decision 2) ---------------------
 ;;
 ;; Attaching / releasing a liveness OWNER mutates the durable `:active-owners`
 ;; set, which a `:before` snapshot captures whole (`snapshot-entry`) and a
@@ -928,15 +928,15 @@
 ;; caught once the owner write bumps `:revision`: the settle then sees a conflict
 ;; and takes `:on-conflict` (`:invalidate` default — leave the CURRENT owner set,
 ;; recover via the read path) instead of a blind stale restore. This is exactly
-;; the byl7bk bump rule ("bump on EVERY authoritative durable write a rollback
-;; could clobber, unconditionally"), previously satisfied only for data/freshness
+;; the bump rule ("bump on EVERY authoritative durable write a rollback could
+;; clobber, unconditionally") applied to owner writes as it is to data/freshness
 ;; writes. The bump is gated on the set ACTUALLY changing (a re-attach of a
 ;; present owner / a release of an absent one is a no-op — no write, no clobber,
 ;; no bump); the caller updates the derived `:owner-index` separately.
 
 (defn attach-owner
   "Pure: attach a liveness `owner` to `entry`'s `:active-owners`, bumping
-  the per-entry `:revision` iff the owner was NEWLY added (rf2-cxwuhl). An owner
+  the per-entry `:revision` iff the owner was NEWLY added. An owner
   attach is an authoritative durable entry write a later optimistic rollback
   could clobber (`restore-before` overwrites `:active-owners` wholesale from the
   snapshot), so it advances the write identity the EP-0019 settle conflict check
@@ -955,7 +955,7 @@
 
 (defn detach-owner
   "Pure: drop a liveness `owner` from `entry`'s `:active-owners`, bumping
-  the per-entry `:revision` iff the owner was actually PRESENT (rf2-cxwuhl) — the
+  the per-entry `:revision` iff the owner was actually PRESENT — the
   release counterpart of `attach-owner`. An owner release is an authoritative
   durable entry write a later optimistic rollback could clobber: a blind
   `restore-before` would RESURRECT the departed owner from the snapshot, re-pinning
@@ -982,7 +982,7 @@
 ;; value equals the previous (identity-preserving — downstream subs stay quiet
 ;; on a background refresh that returns identical EDN), but the `:revision`
 ;; bump is UNCONDITIONAL (a value-gated bump would miss a freshness-only
-;; settle — byl7bk ruling).
+;; settle).
 
 (defn entry-start-load
   "Transition an entry to its in-flight status for a fresh load attempt:
@@ -992,24 +992,24 @@
   attaches `owner` to `:active-owners`. Per Spec 016 §Status semantics /
   §Lifecycle is an FSM / §Frame work ledger.
 
-  DOES NOT TOUCH `:invalidated-at` (rf2-ifzg4). A durable invalidation is a
+  DOES NOT TOUCH `:invalidated-at`. A durable invalidation is a
   FRESHNESS FACT, and Spec 016 §Totality rules those facts ORTHOGONAL to load
   status — a start-load is a status transition, so it has no business clearing
   one. Only a SETTLE that actually produced authoritative data clears it
   (`entry-succeeded`, `entry-append-page`, `entry-replace-page`, and the
   mutation-success writers); an attempt that has merely STARTED has satisfied
-  nothing yet. Clearing it up front erased the invalidation on any attempt that
-  did NOT succeed: neither `entry-failed` nor `entry-abort-settled` restores it,
-  so a single 5xx — or one release-mid-refetch abort — left the entry reading
-  FRESH while holding PRE-MUTATION data, after which the fresh-skip `ensure`
-  gate and the focus/reconnect active-stale scan both skipped it for the rest of
-  the session (no `:stale-after-ms` ⇒ `:invalidated-at` is the entry's ONLY path
+  nothing yet. Clearing it up front would erase the invalidation on any attempt
+  that did NOT succeed: neither `entry-failed` nor `entry-abort-settled` restores
+  it, so a single 5xx — or one release-mid-refetch abort — would leave the entry
+  reading FRESH while holding PRE-MUTATION data, after which the fresh-skip
+  `ensure` gate and the focus/reconnect active-stale scan would both skip it for
+  the rest of the session (no `:stale-after-ms` ⇒ `:invalidated-at` is the entry's ONLY path
   to `:stale?`, Spec 016 §Freshness clock contract).
 
   The accepted consequence is that `:stale?` reads TRUE while a refetch is in
   flight. That is stale-while-revalidate as Spec 016 describes it (§Status
   semantics: `:fetching` means work is in flight WHILE PRIOR DATA STAYS
-  VISIBLE), not a regression — the entry genuinely still holds pre-mutation
+  VISIBLE), not a defect — the entry genuinely still holds pre-mutation
   data until the refetch settles. It causes no refetch churn: the fresh-skip
   gate is guarded by `(not in-flight?)` and falls through to the in-flight
   dedupe join, and the focus/reconnect scan is guarded by
@@ -1038,8 +1038,8 @@
   records the produced `:tags`. Per Spec 016 §Status semantics /
   §Structural sharing.
 
-  Bumps the per-entry `:revision` UNCONDITIONALLY (EP-0019 / byl7bk Open Issue
-  5) — even when `:data` is `=`-shared. A success re-stamps `:loaded-at` /
+  Bumps the per-entry `:revision` UNCONDITIONALLY (EP-0019 Open Issue 5) —
+  even when `:data` is `=`-shared. A success re-stamps `:loaded-at` /
   `:stale-at` / `:tags` on the structural-sharing branch too, so this IS an
   authoritative durable write a later optimistic rollback could clobber; a
   value-gated bump would miss it. The `:revision` bump is therefore orthogonal
@@ -1058,7 +1058,7 @@
           :refresh-error nil
           :loaded-at     loaded-at
           :stale-at      stale-at
-          ;; a mark written DURING this attempt survives it (rf2-3x7nj.10.1)
+          ;; a mark written DURING this attempt survives it
           :invalidated-at (invalidation-kept-by-settle entry)
           :current-work  nil
           ;; the new key now has its OWN data — drop the previous-key
@@ -1066,9 +1066,9 @@
           :previous-key  nil
           :tags          (or tags (:tags entry) #{}))
         (dissoc :invalidated-during)
-        ;; EP-0019 / byl7bk: every authoritative durable write bumps the
+        ;; EP-0019: every authoritative durable write bumps the
         ;; per-entry write identity, unconditionally — including the
-        ;; freshness-only (`=`-shared `:data`) settle the ruling names.
+        ;; freshness-only (`=`-shared `:data`) settle.
         bump-revision)))
 
 (defn entry-failed
@@ -1079,7 +1079,7 @@
   prior `:data`, and records `:refresh-error`. `next-status` decides which.
   Clears `:current-work`.
 
-  Bumps the per-entry `:revision` UNCONDITIONALLY (EP-0019 / byl7bk / rf2-mx0w2o):
+  Bumps the per-entry `:revision` UNCONDITIONALLY (EP-0019):
   a failure SETTLE is an authoritative durable write that clears `:current-work`
   and records the terminal error/refresh-error facts — exactly the kind of write
   a later optimistic rollback could clobber. A snapshot taken while the attempt
@@ -1190,8 +1190,8 @@
   "PURE prev-page-param derivation (R7 bidirectional MIRROR): given the
   resource's optional `:prev-page-param` fn `(fn [first-page all-pages] →
   prev-param | nil)` and the accumulated `pages`, return the PREV page param
-  (computed from the FIRST page) — or `nil`. The mirror is defined NOW (it is
-  free — the same machinery as `next-param-for`); the prepend EVENT
+  (computed from the FIRST page) — or `nil`. The mirror is defined (it is
+  free — the same machinery as `next-param-for`) while the prepend EVENT
   (`:rf.resource/load-prev`) is DEFERRED, so v1 never advances backward, but
   `:has-prev-page?` is observable. Returns nil when no `:prev-page-param` fn is
   declared or no page is loaded. Per Spec 016 §Causal event — load-more (R7)."
@@ -1218,11 +1218,11 @@
 
 (defn- settle-page-invalidation
   "Pure: write onto `settled` the stale-mark facts a feed PAGE success of
-  `entry`'s current attempt at `page-index` leaves (rf2-wcsjy). A page covers
+  `entry`'s current attempt at `page-index` leaves. A page covers
   less than a scalar reply, so a mark clears only once the invalidation is
   covered by the refresh window the feed's refetch rule defines:
 
-    - a mark written DURING this attempt survives it (rf2-3x7nj.10.1);
+    - a mark written DURING this attempt survives it;
     - page 0 — a first page or a refresh — covers a mark that predates it: at
       once when no sweep follows, otherwise only once the sweep's legs have
       re-fetched the rest of the window, so the mark stays and the sweep
@@ -1271,7 +1271,7 @@
     - re-stamp `:loaded-at` / `:stale-at` and return to `:loaded` (the feed was
       `:fetching` during the load-more — the accumulated pages stayed visible),
       clear `:current-work`, and bump the per-entry `:revision` UNCONDITIONALLY
-      (this is an authoritative durable write — EP-0019 / byl7bk).
+      (this is an authoritative durable write — EP-0019).
 
   `opts`: `{:page …  :next-page-param-fn …  :prev-page-param-fn …  :page-param …
             :loaded-at …  :stale-at …}` — `:page` is the decoded page to append.
@@ -1292,8 +1292,8 @@
                  :loaded-at       loaded-at
                  :stale-at        stale-at
                  :current-work    nil)
-          ;; an append covers no page the feed held (rf2-wcsjy); a first page
-          ;; is the whole feed (rf2-3x7nj.10.1)
+          ;; an append covers no page the feed held; a first page
+          ;; is the whole feed
           (settle-page-invalidation entry (page-count entry))
           bump-revision))
     entry))
@@ -1310,7 +1310,7 @@
   is returned unchanged. Per Spec 016 §Causal event — load-more (the third
   error channel).
 
-  Bumps the per-entry `:revision` UNCONDITIONALLY (EP-0019 / byl7bk / rf2-mx0w2o):
+  Bumps the per-entry `:revision` UNCONDITIONALLY (EP-0019):
   a load-more failure SETTLE clears `:current-work` and records the `:page-error`
   terminal fact — an authoritative durable write a later optimistic rollback
   could clobber, so it moves the write identity for the same reason a load
@@ -1330,14 +1330,14 @@
   freshly-fetched, decoded `page` (and its resolved `page-param`), WITHOUT
   growing the feed — the accumulated tail is preserved and stays visible. This
   is the settle a window-preserving `refetch`'s replacement page-0 performs
-  (the ruled R6 default): the feed never collapses to page 0; page 0 is
+  (the R6 default): the feed never collapses to page 0; page 0 is
   refreshed in place and the rest of the window is kept.
 
   Like `entry-append-page` it recomputes `:next-page-param` / `:prev-page-param`
   from the resulting page vector, clears `:page-error` / `:refresh-error`,
   re-stamps `:loaded-at` / `:stale-at`, returns to `:loaded`, clears
   `:current-work`, and bumps `:revision` UNCONDITIONALLY (an authoritative
-  durable write — EP-0019 / byl7bk). Structural sharing keeps every OTHER page
+  durable write — EP-0019). Structural sharing keeps every OTHER page
   identical (only the replaced index is new).
 
   When `page-index` is at or beyond the current page count this DELEGATES to
@@ -1370,7 +1370,6 @@
                      :stale-at        stale-at
                      :current-work    nil)
               ;; a mark clears only once the refresh window covers it
-              ;; (rf2-3x7nj.10.1, rf2-wcsjy)
               (settle-page-invalidation entry page-index)
               bump-revision))))
     entry))
@@ -1379,9 +1378,9 @@
   "PURE: how many LEADING pages a `refetch` of an infinite feed REFRESHES,
   given the resource's optional `:refetch` policy (R6) and the feed's current
   `page-count`. Spec 016 §Refetch (R6 — the opt-ins are a multi-page refresh
-  of the accumulation IN SEQUENCE, NOT a truncate-the-tail; rf2-byl7bk.3.3):
+  of the accumulation IN SEQUENCE, NOT a truncate-the-tail):
 
-    - the ruled DEFAULT (no policy / no opt-in) refreshes the FIRST page only
+    - the DEFAULT (no policy / no opt-in) refreshes the FIRST page only
       (`1` for a non-empty feed): a focus/reconnect/invalidation refetch
       replaces page 0 IN PLACE while the accumulated tail stays visible (never
       collapses to page 0), the window-preserving default;
@@ -1408,14 +1407,14 @@
   "PURE: the ordered SWEEP TAIL for a multi-page `refetch` — the
   `[page-param page-index]` pairs the chained sweep must re-fetch AFTER the
   issue-time page-0 replacement, in order. The issue-time refetch always
-  re-fetches page 0 in place (a single in-flight fetch — the existing path);
+  re-fetches page 0 in place (a single in-flight fetch — the plain-refetch path);
   this returns the pages beyond page 0 within the refresh window
   (`refetch-window-count`), which `page-succeeded-handler` then drives ONE AT A
   TIME (each leg its own fresh generation + work-id; \"in sequence\" — the
   single-work-id substrate is reused, no parallel fan).
 
   The DEFAULT (window 1) yields an EMPTY tail — a plain refetch refreshes page
-  0 only and starts no sweep (the window-preserving default is unchanged).
+  0 only and starts no sweep (the window-preserving default).
   `:refetch-all-pages?` yields pages `1 … page-count-1`; `:refetch-window n`
   yields pages `1 … n-1`. Each pair reads the page's durable `:page-params`
   entry (the param the original fetch used) so the replacement re-fetches the
@@ -1439,7 +1438,7 @@
   entry unchanged, so a plain refetch starts no sweep. Does NOT touch `:status`
   / `:current-work` / `:revision` (the caller's `entry-start-load` already
   transitioned the entry to `:fetching` for the page-0 leg). Per Spec 016
-  §Refetch and invalidation of an infinite feed (R6 — rf2-byl7bk.3.3)."
+  §Refetch and invalidation of an infinite feed (R6)."
   [entry refetch-policy]
   (let [tail (refetch-sweep-tail entry refetch-policy)]
     (if (seq tail)
@@ -1450,7 +1449,7 @@
   "PURE: the NEXT `[page-param page-index]` pair a feed's in-progress refetch
   sweep must re-fetch, or nil when no sweep is armed / it is exhausted. Read by
   `page-succeeded-handler` to chain the sweep one leg at a time. Per Spec 016
-  §Refetch (R6 — rf2-byl7bk.3.3)."
+  §Refetch (R6)."
   [entry]
   (first (:refetch-sweep entry)))
 
@@ -1459,7 +1458,7 @@
   issued). When the cursor empties, REMOVE the `:refetch-sweep` key entirely
   (the sweep is done). Does NOT touch `:status` / `:current-work` / `:data` —
   the chained leg's own `entry-start-load` + page reply settle those. Per Spec
-  016 §Refetch (R6 — rf2-byl7bk.3.3)."
+  016 §Refetch (R6)."
   [entry]
   (let [rest- (vec (rest (:refetch-sweep entry)))]
     (if (seq rest-)
@@ -1469,8 +1468,8 @@
 (defn clear-refetch-sweep
   "PURE: drop any in-progress `:refetch-sweep` cursor (a failure / abort during
   a sweep STOPS it rather than dangling a cursor), and the sweep's claim on a
-  stale mark (`:sweep-covers-invalidation?` — a stopped sweep covers nothing,
-  rf2-wcsjy). Per Spec 016 §Refetch (R6 — rf2-byl7bk.3.3)."
+  stale mark (`:sweep-covers-invalidation?` — a stopped sweep covers
+  nothing). Per Spec 016 §Refetch (R6)."
   [entry]
   (dissoc entry :refetch-sweep :sweep-covers-invalidation?))
 
@@ -1555,7 +1554,7 @@
   Returns the resource subtree with both indexes replaced. Per Spec 016
   §Restore and replay part 5 / §Cache home.
 
-  rf2-9e0tyq: the index MEMBERS are the CEDN-1 byte `key-id` — the SAME key
+  The index MEMBERS are the CEDN-1 byte `key-id` — the SAME key
   the `:entries` map uses — so a list- and a vector-params key produce
   DISTINCT index members (the `=`-collapse would otherwise fold two sets'
   members into one). The member is the map key of `:entries` directly (it
@@ -1575,7 +1574,7 @@
       (assoc resources-subtree :tag-index {} :owner-index {})
       entries)))
 
-;; ---- incremental reverse-index delta (rf2-2c2mkh) -------------------------
+;; ---- incremental reverse-index delta --------------------------------------
 ;;
 ;; The hot mutation paths (a load/mutation settle, a release, a remove, a GC,
 ;; a clear-scope, an optimistic apply/rollback) each touch a SMALL, KNOWN set
@@ -1588,7 +1587,7 @@
 ;; subtree). The result is EXACTLY what a full `recompute-indexes` would yield
 ;; (the indexes are a pure projection of `:entries`, and a key's members depend
 ;; only on that key's own entry), but at O(touched·(T+O)). `recompute-indexes`
-;; is retained for the restore / SSR-hydration / registrar-teardown trust-
+;; serves the restore / SSR-hydration / registrar-teardown trust-
 ;; rebuild paths, where the whole `:entries` map is installed at once and there
 ;; is no incremental old→new delta to apply.
 
@@ -1625,7 +1624,7 @@
   (a create has no old members, a removal has no new ones). Returns the subtree
   with both indexes updated.
 
-  EQUIVALENCE INVARIANT (rf2-2c2mkh — pinned by a round-trip test): provided
+  EQUIVALENCE INVARIANT (pinned by a round-trip test): provided
   EVERY key whose `:tags` / `:active-owners` differ between `old-entries` and
   the subtree's `:entries` is in `changed-key-ids`, the result is `=` to
   `(recompute-indexes resources-subtree)`. Use `recompute-indexes` (not this)
@@ -1659,11 +1658,11 @@
 ;; is deliberately the OPPOSITE discipline from machine spawn-ids (which
 ;; never escape the frame and so may be snapshot-local).
 ;;
-;; The PURE SEAM (handlers stay pure), mirroring routing's nav-allocation
-;; (rf2-oosjmh / rf2-vcop6y): the next generation is minted by the
+;; The PURE SEAM (handlers stay pure), mirroring routing's nav-allocation:
+;; the next generation is minted by the
 ;; RECORDABLE `:rf.resource/generation-allocation` cofx GENERATOR (which
 ;; reads the active frame's high-water snapshot at processing-start and
-;; records the minted value on the token — rf2-abyycr); the handler reads
+;; records the minted value on the token); the handler reads
 ;; the recorded `:generation` value flat and writes only it durably; WRITE
 ;; via the `:rf.resource/commit-generation` fx (advances the host high-water
 ;; with `max`, monotone). A frame's entry is released on frame destroy.
@@ -1674,7 +1673,7 @@
    epoch restore cannot rewind it and recycle a generation — the
    anti-recycling correctness boundary (Spec 016 §Restore and replay part
    1). Read by the recordable `:rf.resource/generation-allocation` cofx
-   generator (which records the minted value on the token, rf2-abyycr),
+   generator (which records the minted value on the token),
    advanced via the `:rf.resource/commit-generation` fx (both monotone)."}
   generation-cache
   (atom {}))
@@ -1727,8 +1726,8 @@
 
 ;; ---- the :rf.resource/generation-allocation cofx + commit-generation fx ---
 ;;
-;; The RECORDABLE allocation seam over the host-side allocator (rf2-abyycr;
-;; mirrors routing's `:rf.route/nav-allocation`, rf2-vcop6y). The generation
+;; The RECORDABLE allocation seam over the host-side allocator (mirroring
+;; routing's `:rf.route/nav-allocation`). The generation
 ;; is a DURABLE JOIN KEY (it is written onto the entry / instance and stamped
 ;; onto the reply token as the stale-suppression correlation), so per
 ;; [002 §Durable join keys are recordable](spec/002-Frames.md) the minted
@@ -1745,8 +1744,8 @@
 ;;     strict = no generator runs);
 ;;   - the ensure / refetch / mutation-execute handlers declare
 ;;     `:rf.cofx/requires [:rf.resource/generation-allocation]`, read the
-;;     `:generation` value flat, and write ONLY that value durably (they no
-;;     longer re-mint `(inc snapshot)` from an ambient read at the write
+;;     `:generation` value flat, and write ONLY that value durably (they
+;;     never re-mint `(inc snapshot)` from an ambient read at the write
 ;;     site);
 ;;   - the WRITE half (`:rf.resource/commit-generation` fx) advances the host
 ;;     high-water with `max` so replay / restore can never rewind the
@@ -1763,7 +1762,7 @@
 
 (def generation-allocation-cofx-meta
   "Metadata for the `:rf.resource/generation-allocation` cofx registration —
-  a GENERATOR-BACKED recordable allocation (rf2-abyycr, EP-0017 §5)."
+  a GENERATOR-BACKED recordable allocation (EP-0017 §5)."
   {:recordable? true
    :schema [:map [:generation :int] [:counter :int]]
    :doc "The recordable generation allocation for the active frame's resource
