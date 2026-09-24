@@ -78,14 +78,13 @@
   because that is the package's one private half and this namespace is a
   door onto part of it, exactly as `re-frame.fresco` is a door onto the
   rest. The two catalogued `:rf.error/fresco-presence-*` ids are raised
-  from `impl.presence`, so the two files stay put.
+  from `impl.presence`.
 
   **The override keys are `::motion/mounting` and `::motion/unmounting`**,
   as the example above shows — this namespace's own spellings, and the
   whole of its vocabulary: a view child takes the same map, merged into
   its props (docs/design/fresco/decisions.md HD-030). Naming-ledger row
-  31 ruled the respelling from the prototype's `::h/…` (operator,
-  2026-08-11), and the vocabulary now matches the row (rf2-hg3q)."
+  31 is the ruling that spells them in this namespace."
   (:require [re-frame.fresco.impl.presence-react :as rf.fresco.impl.presence-react]))
 
 (def ^{:doc "`motion/presence` — retain exiting keyed children for
