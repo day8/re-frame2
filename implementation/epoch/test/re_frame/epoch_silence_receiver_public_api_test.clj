@@ -1,20 +1,20 @@
 (ns re-frame.epoch-silence-receiver-public-api-test
-  "rf2-6ys5n / rf2-uhouu — the delayed-silence receiver rule is implementable
+  "The delayed-silence receiver rule is implementable
   through the PUBLIC API, as ONE atomic decision.
 
   Spec 009 §The delayed-silence emission linearization law and Tool-Pair §Surface
   behaviour against destroyed frames tell a consumer of a generation-qualified
   `:rf.epoch.cb/silenced-on-frame-destroy` signal to decide, at receipt time,
-  whether the silence still names a current fact. rf2-6ys5n first made that
-  decidable at the public boundary (before it, the listener generation was
-  reachable only through the private registry). rf2-uhouu made it CORRECT: the
-  two low-level queries a consumer had to compose could not be composed
-  linearizably, so they were replaced by the single operation this suite
-  exercises — `rf/epoch-silence-current?`, which takes the signal's tags map.
+  whether the silence still names a current fact. The public boundary decides
+  it with the single operation this suite exercises — `rf/epoch-silence-current?`,
+  which takes the signal's tags map. A consumer composing two low-level queries
+  (a generation read, then a registry read) could not compose them
+  linearizably, so the decision is one operation.
 
   This whole suite reaches for NO private state — only `re-frame.core` public
-  vars. The mechanics of the atomicity (mutations placed at every former read
-  seam) are pinned by `re-frame.epoch-silence-decision-atomicity-test`.
+  vars. The mechanics of the atomicity (mutations placed at every read seam a
+  two-query recipe would expose) are pinned by
+  `re-frame.epoch-silence-decision-atomicity-test`.
 
   TOOTH: delete the public decision and every assertion here fails to resolve;
   the receiver rule the signal documents has nothing to read."
@@ -69,8 +69,8 @@
       (rf/register-listener! :epoch ::watcher (fn [_] nil))
 
       ;; CONSUMER, superseded: the SAME captured signal is now discarded. One
-      ;; call, no private registry read, and — unlike the two-query recipe this
-      ;; replaced — no seam for the replacement to land in.
+      ;; call, no private registry read, and — unlike a two-query recipe — no
+      ;; seam for the replacement to land in.
       (is (false? (rf/epoch-silence-current? tags))
           "a signal for the replaced registration is discarded at the public
            boundary")
