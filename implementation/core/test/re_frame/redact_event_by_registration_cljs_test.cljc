@@ -1,13 +1,12 @@
 (ns re-frame.redact-event-by-registration-cljs-test
-  "rf2-i5su5y — pins the PAYLOAD-ROOTED addressing contract of
+  "Pins the PAYLOAD-ROOTED addressing contract of
   `re-frame.classification/redact-event-by-registration` (Spec 015
   §Registration-owned transient classification): a `reg-event` `:sensitive`
   path indexes into the event PAYLOAD — the SECOND element of the event
   vector, canonically the arg-map — never the outer event vector. Spec 015's
   worked example is `{:sensitive [[:password]]}` for
   `[:auth/login {:password …}]`; the outer-rooted `[[1 :password]]` spelling
-  was documentation drift (it looks up key `1` INSIDE the arg-map and
-  silently no-ops).
+  is wrong (it looks up key `1` INSIDE the arg-map and silently no-ops).
 
   Three legs:
 
