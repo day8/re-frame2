@@ -1,15 +1,15 @@
 (ns re-frame.image-framework-base-features-cljs-test
-  "rf2-3x7nj.5.2 — PRODUCER-DERIVED: the framework's own feature
+  "PRODUCER-DERIVED: the framework's own feature
   registrations reach a frame built from an explicit `:select-ns` image.
 
   Every id below is registered by its owning artefact at namespace load,
   through the fn-alias path that records NO source namespace — so no
   `:select-ns` glob can select it, and none of them is a protected standard.
-  Before the framework base, an explicit-image frame therefore could not
-  resolve routing (`:rf.route/navigate` failed its first dispatch with
+  Without the framework base, an explicit-image frame therefore could not
+  resolve routing (`:rf.route/navigate` would fail its first dispatch with
   `:rf.error/no-such-handler`), managed HTTP, Resources, SSR hydration, the
   machine hydrate re-arm, or even core's own `:rf/time-ms`, while the same
-  program on the default image worked. Nothing here is a synthetic descriptor:
+  program on the default image works. Nothing here is a synthetic descriptor:
   each assertion reads the registration its producer actually made, beside
   the default-image control.
 
