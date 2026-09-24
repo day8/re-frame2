@@ -10,9 +10,8 @@
 ;;;; `signal-runtime!` (tools/re-frame2-pair-mcp/src/.../tools/raw_state.cljs)
 ;;;; calls this once per build per server lifetime.
 ;;;; 2. `app-db-reset!`'s `tap>` emission wraps both `:previous` and
-;;;; `:next` slots through `maybe-elide-for-tap` (or
-;;;; `rf/elide-wire-value` directly) — verbatim payloads only ride
-;;;; when the gate is explicitly opted in.
+;;;; `:next` slots through `maybe-elide-for-tap` — verbatim payloads
+;;;; only ride when the gate is explicitly opted in.
 ;;;; 3. `raw-state-config` defaults to `:allow-raw-state? true` so a
 ;;;; bare REPL session (no re-frame2-pair-mcp attached) sees verbatim
 ;;;; payloads. The MCP-server boot flips it to `false` via
@@ -91,14 +90,14 @@
 (deftest maybe-elide-for-tap-routes-through-project-egress
  (testing "maybe-elide-for-tap calls rf/project-egress when the gate
  is OFF — the ONE framework egress door, which applies the same
- large/sensitive predicates the wire path uses (rf2-kuky.88)"
+ large/sensitive predicates the wire path uses"
  (is (some? maybe-elide-form)
  "the defn form is present")
  (is (calls? 'rf/project-egress maybe-elide-form)
  "(rf/project-egress v opts) appears in the body")
  (is (str/includes? (pr-str maybe-elide-form) ":rf.egress/local-redacted")
- "and NAMES the on-box redacted boundary — the same all-false floor
- the bare no-profile walk resolved to before")
+ "and NAMES the on-box redacted boundary — the all-false floor
+ a bare no-profile walk resolves to")
  (is (not (calls? 'rf/elide-wire-value maybe-elide-form))
  "never the walker export directly")))
 
