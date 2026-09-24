@@ -31,7 +31,7 @@
 
        Publication of (a)/(b) is independent of the compare-owned store
        drop (c)/(d), so a same-id successor claiming the stores cannot lose
-       predecessor A's terminal evidence (rf2-vxgfnd.151).
+       predecessor A's terminal evidence.
 
   Listener registry and observation bookkeeping live in
   `re-frame.epoch.state`."
@@ -53,8 +53,8 @@
   time a listener throws (a terminal listener can itself install B), so A's
   `:rf.epoch.cb/listener-exception` diagnostic is delivered STRUCTURALLY —
   bypassing B's `:rf.trace/frame-no-emit?` policy and B's epoch capture — rather
-  than resolved through B's bare-id policy (rf2-vxgfnd.152). Ordinary
-  (non-terminal) fan-out keeps the live frame's no-emit policy."
+  than resolved through B's bare-id policy. Ordinary
+  (non-terminal) fan-out honours the live frame's no-emit policy."
   ([record listener-snapshot]
    ;; Terminal destroy delivery already removed observation ownership and must
    ;; not recreate it while fanning out the halted record.
@@ -88,7 +88,7 @@
                  (if terminal?
                    ;; A's terminal callback fault is A's own diagnostic. A same-id
                    ;; B that a listener just installed (possibly no-emit) must not
-                   ;; suppress or capture it (rf2-vxgfnd.152).
+                   ;; suppress or capture it.
                     (rf.trace/call-with-structural-delivery
                       #(emit-listener-exception! callback-id listener-error))
                     (emit-listener-exception! callback-id listener-error)))))
@@ -100,7 +100,7 @@
   Each cb is invoked once per record, wrapped in failure isolation:
   Listener failures do not stop the loop. A failing callback emits a structured
   `:rf.epoch.cb/listener-exception` trace so devtools can surface
-  the broken listener (silently swallowing the throw left tool
+  the broken listener (silently swallowing the throw would leave tool
   authors with no signal that their callback failed).
 
   Op-type `:rf.epoch.cb` matches the sibling
@@ -125,7 +125,7 @@
   A `:view/render` / `:rf.view/rendered` trace fires at React commit
   time — AFTER the causing cascade settled — so it cannot ride the
   in-flight cascade buffer. Back-filling it into
-  the frame's most-recently-settled epoch; that is right for a genuine
+  the frame's most-recently-settled epoch is right for a genuine
   reactive re-render but wrong for a MOUNT render whose commit lands late
   (React batches a freshly-mounted component's render onto a later tick,
   so it can commit AFTER the first user cascade settles). Attributed to
@@ -247,12 +247,12 @@
   instance's `mount-attribution` entry (the `:epoch-id` anchor + learned
   `:deps` read-set keyed by this `render-key`). Each mount mints a FRESH
   `instance-token` → a fresh render-key, so without per-instance eviction the
-  map accreted one permanent entry per ever-mounted instance, pruned ONLY on
+  map would accrete one permanent entry per ever-mounted instance, pruned ONLY on
   whole-frame destroy — unbounded per-frame heap over a long churning session
   (the time-travel scenario this surface serves). The eviction runs
   UNCONDITIONALLY of whether the back-fill found a live epoch: the entry is
   dead either way once the instance tears down (a fixture-teardown unmount with
-  no settled epoch still strands an entry otherwise). The render-key is read
+  no settled epoch would strand an entry otherwise). The render-key is read
   from the same `:rf.view/render-key` tag the mount path uses
   (`record-render!`); a late mount-burst tail arriving after the prune
   harmlessly re-mints the entry.
@@ -285,7 +285,7 @@
   `re-frame.frame/destroy-frame!` calls this (via `:epoch/snapshot-frame-
   destroyed`) BEFORE `dissoc-frame!`. A same-id successor B can only be
   constructed after that dissoc, so it can never claim — and thereby drop — the
-  buffer / observation ledger out from under this snapshot (rf2-vxgfnd.151).
+  buffer / observation ledger out from under this snapshot.
 
   Returns the evidence bundle
   `{:record :listener-snapshot :silenced-cbs :baseline-silence-seq}` consumed by
@@ -294,12 +294,12 @@
   frame was mid-drain (a `:rf.event/run-start` is buffered), else nil.
 
   `:silenced-cbs` captures EXACT callback-generation identities — a
-  `{cb-id → generation}` map, not a bare set (rf2-vxgfnd.265). The delayed
+  `{cb-id → generation}` map, not a bare set. The delayed
   silence is later decided PER identity: a cb re-registered to a fresh generation
   in the deferred window never observed this incarnation and must receive no
   stale signal, which a bare set could not express. The identities and their
   generations come from ONE consistent `state/snapshot-terminal-observers` read
-  (rf2-vxgfnd.285) — each observing cb's generation is the OBSERVATION STAMP, so
+  — each observing cb's generation is the OBSERVATION STAMP, so
   a replacement landing mid-snapshot can never attribute A's observation to a
   fresh generation H it never observed under (the exactness guarantee). For a
   mid-drain `:halted-destroy`, the SAME registry read additionally owes every
@@ -330,7 +330,7 @@
                                 committed-at :halted-destroy
                                 {:operation :rf.frame/destroyed-mid-drain}
                                 nil))
-          ;; ONE consistent (listeners, observed) read (rf2-vxgfnd.285): the
+          ;; ONE consistent (listeners, observed) read: the
           ;; owed-observer generations come from the SAME registry read used to
           ;; qualify them, so a replacement mid-snapshot can never attribute A's
           ;; observation to a fresh generation it never observed under.
@@ -362,8 +362,7 @@
       `terminal-evidence` is the bundle `snapshot-terminal-destroy-evidence!`
       captured BEFORE dissoc; publishing that snapshot (rather than re-reading
       the now-shared id-keyed stores) is what keeps predecessor A's evidence
-      intact after a same-id successor B has claimed those stores
-      (rf2-vxgfnd.151).
+      intact after a same-id successor B has claimed those stores.
 
     * `[frame-id owner-token fs-before fs-after committed-at]` — the direct-seam
       arity for tools / unit pins, where no same-id successor can race the
@@ -374,8 +373,8 @@
   causal time). The record is not stored: destroyed frames have empty history,
   so listener delivery is the only channel for this terminal partial record.
 
-  The delayed silence is decided PER snapshotted callback-generation identity
-  (rf2-vxgfnd.265), and .285 makes that decision EXACT, LINEARIZABLE and BOUNDED.
+  The delayed silence is decided PER snapshotted callback-generation identity,
+  and that decision is EXACT, LINEARIZABLE and BOUNDED.
   Store claim, callback re-arm, and terminal silence are DISTINCT events, so the
   coarse `cleanup-frame-owner!` result cannot gate the fan: a successor that
   claims the stores but delivers no epoch (A still owes the silence, losing the
@@ -387,7 +386,7 @@
   (CURRENT generation, CURRENT live observers read fresh not a stale pre-loop set,
   any existing mark) plus the monotonic-seq RESERVATION run as ONE atomic claim
   under both ledger locks; the claim then RELEASES the locks and emits the
-  GENERATION-QUALIFIED signal OUTSIDE them (rf2-8b9twg — the emit fans to
+  GENERATION-QUALIFIED signal OUTSIDE them (the emit fans to
   arbitrary listeners, one of which may `dispatch-sync` and acquire a frame's
   `:drain-lock`, so it must not run under a ledger lock). The seq is the total
   order the observer relies on; two overlapping same-id publishers can never both
@@ -400,13 +399,13 @@
   runs only while `owner-token` still owns the stores, so stale A can never
   erase a fresh same-id B. That drop runs UNCONDITIONALLY of terminal-evidence —
   cleanup authority is the frame-id + owner-token, not the snapshot bundle — so a
-  throwing pre-dissoc snapshot hook (nil terminal-evidence, PR #5939) still frees
+  throwing pre-dissoc snapshot hook (nil terminal-evidence) still frees
   A's history / buffer / observation / last-settled-epoch / mount attribution and
-  no same-id successor inherits them (rf2-hclxos). PUBLICATION of A's already-
+  no same-id successor inherits them. PUBLICATION of A's already-
   snapshotted terminal record and its structural trailers is INDEPENDENT of
   winning that comparison AND conditional on a non-nil bundle — the evidence was
   bound to A's exact incarnation before dissoc and is A's to deliver whether or
-  not A still owns the stores (rf2-vxgfnd.151); a nil bundle bound nothing and
+  not A still owns the stores; a nil bundle bound nothing and
   publishes nothing. Live
   observation is re-read INSIDE each per-identity claim AFTER the compare-owned
   cleanup, so a winning cleanup has already dropped this incarnation's own stamps
@@ -432,10 +431,10 @@
      ;; (1) EXACT-OWNER STORE CLEANUP — runs whether or not terminal-evidence is
      ;; nil. Cleanup authority is the frame-id + owner-token, NOT the snapshot
      ;; bundle: a throwing `:epoch/snapshot-frame-destroyed` hook yields nil
-     ;; terminal-evidence (frame.cljc converts the throw to nil — PR #5939), but the
+     ;; terminal-evidence (frame.cljc converts the throw to nil), but the
      ;; destroyed incarnation's id-keyed stores must STILL be dropped or a same-id
      ;; successor B inherits A's history / buffer / observation / last-settled-epoch
-     ;; / mount attribution (rf2-hclxos). The drop stays compare-owned
+     ;; / mount attribution. The drop is compare-owned
      ;; (`cleanup-frame-owner!`): A erases ONLY its own stores while `owner-token`
      ;; still owns them, so a stale A that lost the comparison to a claimed same-id
      ;; B no-ops and leaves B untouched (fail-closed, no cross-incarnation wipe).
@@ -459,7 +458,7 @@
      ;; participated (debug on) and opened the deferred-silence window; that is the
      ;; exact condition under which we must publish AND close it. A nil bundle (the
      ;; snapshot hook threw, or no epoch layer) opened no window and bound no
-     ;; evidence — it publishes and fabricates nothing (#5939), yet the store
+     ;; evidence — it publishes and fabricates nothing, yet the store
      ;; cleanup above already ran.
      (when terminal-evidence
        (try
@@ -467,7 +466,7 @@
               terminal-evidence]
          ;; Publish A's terminal RECORD + trailers regardless of the cleanup
          ;; comparison — the evidence was snapshotted before dissoc and belongs to
-         ;; A's incarnation (rf2-vxgfnd.151). A late predecessor terminal record may
+         ;; A's incarnation. A late predecessor terminal record may
          ;; arrive after a newer same-id epoch; it is HISTORICAL and consumers must
          ;; not treat it as the successor's current ring/focus (Spec 009 / Tool-Pair
          ;; late-record consumer rule).
@@ -479,8 +478,8 @@
              #(rf.epoch.assembly/emit-snapshotted+outcome! frame-id (:epoch-id record)
                                                   (:event-id record) :halted-destroy))
            (deliver-listener-snapshot! record listener-snapshot))
-         ;; PER-IDENTITY atomic-claim-THEN-PUBLISH silencing (rf2-vxgfnd.285 /
-         ;; rf2-9bhne6 / rf2-8b9twg). Iterate the owed identities in a
+         ;; PER-IDENTITY atomic-claim-THEN-PUBLISH silencing. Iterate the owed
+         ;; identities in a
          ;; deterministic cb-id order so the linearizable claim sees a stable
          ;; sequence. `claim-and-publish-delayed-silence!` reserves the one signal
          ;; under BOTH ledger locks (rechecking current generation, FRESH live
@@ -489,7 +488,7 @@
          ;; foreign trace fan-out (a blessed listener may `dispatch-sync`,
          ;; acquiring a frame's :drain-lock) never runs while a ledger lock is
          ;; held. That is what breaks the ledger↔:drain-lock AB-BA deadlock
-         ;; rf2-9bhne6 introduced by emitting UNDER the locks (rf2-8b9twg).
+         ;; that emitting UNDER the locks would create.
          ;; REGISTRATION authority survives WITHOUT the lock by QUALIFYING the
          ;; emit with `observed-gen`: the reserved generation G is carried on the
          ;; payload, so a same-id replacement H landing in the reserve→emit window
@@ -501,8 +500,7 @@
          ;; is live again. The receiver discriminates that case inside the ONE
          ;; supported decision, `re-frame.epoch/epoch-silence-current?`, which
          ;; weighs registration identity AND observation continuum for
-         ;; (cb-id, frame) under a single ledger snapshot (rf2-qg98y, made atomic
-         ;; by rf2-uhouu). Only a
+         ;; (cb-id, frame) under a single ledger snapshot. Only a
          ;; granted reservation emits; if the external
          ;; delivery throws, the reservation is rolled back (under silence-lock)
          ;; and the fault propagates.
@@ -512,7 +510,7 @@
              ;; The silencing fact belongs to destroyed A too; never let a
              ;; same-id successor's trace policy suppress or capture it. The
              ;; `:observed-gen` qualifier is what lets the emit run outside the
-             ;; ledger locks without reopening the G→H window (rf2-8b9twg).
+             ;; ledger locks without reopening the G→H window.
              #(rf.trace/call-with-structural-delivery
                 (fn []
                   (rf.trace/emit! :rf.epoch.cb :rf.epoch.cb/silenced-on-frame-destroy
