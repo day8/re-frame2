@@ -1,7 +1,7 @@
 (ns re-frame.ep0037-r6-integrated-proof-cljs-test
-  "EP-0037 R6 — the INTEGRATED proof (rf2-kqxe6.10).
+  "EP-0037 R6 — the INTEGRATED proof.
 
-  Every other EP-0037 slice proved its own row in isolation. R6 asks a different
+  Every other EP-0037 suite proves its own row in isolation. R6 asks a different
   question: does ONE routed application, wired the way the guides teach it,
   actually get all of it at once? So this namespace carries a small routed
   exercise app — `conduit`, a Conduit/RealWorld-shaped shell with a branch-wide
@@ -16,8 +16,9 @@
        through the handler that anchor actually carries;
     4. auth denial + fresh return, registered through the PUBLIC `rf/reg-event`
        door and sealed into a frame built AFTER the app's registrations — the
-       exact order that used to fail with `:rf.error/image-duplicate-id`
-       (rf2-0r6q4 / PR #6932). Proving the denial row through the internal
+       order in which an image selecting both the app's registration and the
+       framework's default would throw `:rf.error/image-duplicate-id`.
+       Proving the denial row through the internal
        `events/reg-event` back door would certify a door applications cannot
        use;
     5. SSR — the `403` floor when the app registers no arm, application
@@ -29,17 +30,16 @@
   enough surface to exercise a parent/leaf branch, a guard, a link and an SSR
   round trip. Extra pages would add wall-clock, not evidence.
 
-  Beyond the six, the file closes integration arms no per-slice suite reached,
+  Beyond the six, the file closes integration arms no per-slice suite reaches,
   because they only exist BETWEEN slices:
 
     * DOOR PARITY over the effective plan (row 2). The per-slice suites prove
       cause-parametric targets for a resource-FREE route, and branch
-      composition through one door. Nothing proved that five doors produce the
-      same branch AND the same resource identity set. `every-door-plans-the-
-      same-branch-and-the-same-reads` does.
-    * `rf/route-link`'s CLJS intent arm (row 7). The retired view artefacts
-      have real-DOM intent tests; `rf/route-link`'s composed
-      `:on-mouse-enter` had none.
+      composition through one door. That five doors produce the same branch
+      AND the same resource identity set is proven by `every-door-plans-the-
+      same-branch-and-the-same-reads`.
+    * `rf/route-link`'s CLJS intent arm (row 7): its composed
+      `:on-mouse-enter` handler.
     * prefetch's ABSENCE list (row 7): no guard, no `:on-match`, no scroll/URL
       fx, no sibling frame.
     * `:on-match` suppression on a planning failure (row 6).
@@ -136,7 +136,7 @@
                    {:scope :rf.scope/global :params-schema [:map]}
                    (fn [_params _ctx] {:request {:method :get :url "/api/user/settings"}}))
   ;; The profile read's identity includes a ROUTE QUERY key that the route
-  ;; declares a `:query-defaults` value for (rf2-kqxe6.23). `:tab` is
+  ;; declares a `:query-defaults` value for. `:tab` is
   ;; `[:maybe :keyword]` DELIBERATELY: an unfilled default arrives as `nil`, and
   ;; admitting it is what lets the door-parity and prefetch-reuse arms below
   ;; OBSERVE the split as two resource identities instead of hiding it behind a
@@ -180,12 +180,11 @@
                  :can-enter [:conduit/signed-in?]
                  :resources [{:id :settings :resource :conduit/settings :blocking? true}]}
                 "/settings")
-  ;; The `:query-defaults` leaf (rf2-kqxe6.23). Nothing exotic — the exact shape
+  ;; The `:query-defaults` leaf. Nothing exotic — the exact shape
   ;; `examples/real-apps/realworld_http/routing.cljs` ships four times over: a
   ;; declared query key with a default, read by a resource's `:params` fn so the
-  ;; default is part of the READ's identity. The corpus combined
-  ;; `:query-defaults` with `:resources` nowhere, which is why door parity broke
-  ;; on it undetected: every door below must resolve the SAME `:tab`.
+  ;; default is part of the READ's identity. Every door below must resolve the
+  ;; SAME `:tab`.
   (rf/reg-route :conduit/profile
                 {:parent         :conduit/shell
                  :params         [:map [:handle :string]]
@@ -218,7 +217,7 @@
     :none    register nothing. The framework's shipped no-op default handles
              the denial: a hard client deny, and on a server frame the `403`
              floor stands.
-    :client  the ratified fresh-return recipe — stash the denied
+    :client  the fresh-return recipe — stash the denied
              `RouteDestination`, replace-navigate to login, and after sign-in
              dispatch a FRESH navigate with the stored destination.
     :server  the server entry point's arm — emit Spec 011's canonical
@@ -234,7 +233,7 @@
   about the FRAMEWORK's payload shape rather than something the application is
   asked to restate, so it rides across a behaviour override and an app that
   declares its own paths gets the union (Spec 012 §Replaceable framework
-  defaults; rf2-kqxe6.20). Redaction at actual egress under exactly this bare
+  defaults). Redaction at actual egress under exactly this bare
   spelling is proven upstream by
   `re-frame.routing-egress-test/public-entry-denied-override-still-redacts-carriers-on-egress`,
   so this app cites that contract instead of re-asserting it — and models the
@@ -278,12 +277,11 @@
 (defn- seal-frame!
   "Build one of the app's frames and return its id. Called AFTER
   `register-app!` — and that ORDER is the point. An application's namespaces
-  load and register, and THEN its frames are built. Sealing last is what
-  exercises rf2-0r6q4: before PR #6932 an app that registered
-  `:rf.route/entry-denied` through the public door made the very next
-  `rf/make-frame` throw `:rf.error/image-duplicate-id`, because the default
-  image selected BOTH the app's provenanced registration and the framework's
-  own no-provenance default."
+  load and register, and THEN its frames are built. Sealing last exercises
+  image assembly: were the default image to select BOTH the app's provenanced
+  registration and the framework's own no-provenance default, an app that
+  registered `:rf.route/entry-denied` through the public door would make the
+  very next `rf/make-frame` throw `:rf.error/image-duplicate-id`."
   ([] (seal-frame! {}))
   ([{:keys [frame-id platform url-bound?]}]
    (let [id (or frame-id app-frame-id)]
@@ -370,7 +368,7 @@
 
 (defn- profile-identities
   "Every `:conduit/profile` resource identity this frame holds an entry for. The
-  COUNT is the observable rf2-kqxe6.23 fact: a hover and a click on one link must
+  COUNT is the observable fact: a hover and a click on one link must
   land on ONE identity, not two."
   [frame-id]
   (vec (sort-by str (filter #(= :conduit/profile (second %)) (identity-set frame-id)))))
@@ -394,7 +392,7 @@
   returned can be counted, but it cannot be interleaved with milestones `f`'s own
   code reaches, and interleaving is the whole of an ORDERING claim: it is what
   distinguishes a dispatch that FOLLOWED a caller's handler from one that
-  preceded it (rf2-kqxe6.22)."
+  preceded it."
   ([f] (capture-traces f nil))
   ([f on-event]
    (let [seen (atom [])
@@ -541,12 +539,11 @@
         (is (= expected footprint) (str "door " door " diverged"))))))
 
 (deftest every-door-plans-the-same-reads-for-a-query-defaults-route
-  (testing "rf2-kqxe6.23 — door parity holds for a route declaring
-            `:query-defaults`, the one shape the corpus never combined with
+  (testing "door parity holds for a route declaring `:query-defaults` and
             `:resources`. `match-url` fills the default for the three
             URL-bearing doors; the NAMED-address door goes nowhere near
-            `match-url`, so until the fill moved into the ONE ResolvedTarget seam
-            the same destination committed `:query {}` here and
+            `match-url`, so the ONE ResolvedTarget seam fills it there. Without
+            that fill the same destination would commit `:query {}` here and
             `{:tab :authored}` there — a different slice, a different derived
             URL (a different history entry) and a different resource cache
             identity depending on which door the user came through."
@@ -574,7 +571,7 @@
           (is (= expected footprint) (str "door " door " diverged")))))))
 
 (deftest a-url-that-spells-the-default-resolves-the-same-target
-  (testing "rf2-kqxe6.23 — `/profile/ada` and `/profile/ada?tab=authored` are the
+  (testing "`/profile/ada` and `/profile/ada?tab=authored` are the
             same destination, so they resolve the same target and the same read.
             The default-spelling URL is simply the non-canonical spelling: its
             target derives the canonical URL back."
@@ -591,8 +588,8 @@
 ;; 3. Intent warmup on a REAL link
 ;;
 ;;     EP conformance row 7 (prefetch isolation) + row 3's intent arm, driven
-;;     through the anchor the app's view body actually renders. On CLJS this is
-;;     the FIRST coverage of `rf/route-link`'s composed intent handler.
+;;     through the anchor the app's view body actually renders. On CLJS this
+;;     covers `rf/route-link`'s composed intent handler.
 ;; ===========================================================================
 
 (deftest a-real-link-warms-the-whole-branch-on-intent
@@ -664,17 +661,18 @@
               "the activation ran :on-match once — the prefetch had not"))))))
 
 (deftest hover-then-click-on-a-query-defaults-route-warms-one-identity
-  (testing "rf2-kqxe6.23 — R3's headline capability on a route declaring
+  (testing "R3's headline capability on a route declaring
             `:query-defaults`. Hover the link, then click THAT SAME link: there
             must be exactly ONE cache entry for the destination, carrying the
             activation's real owner and still on its FIRST attempt.
 
-            While the named-address door skipped the defaults, the href, the
-            prefetch payload and the warm plan resolved `{:tab nil}` while the
-            activation resolved `{:tab :authored}` — so one link produced TWO
-            entries: the warm one ownerless, GC-eligible and never reused, and the
-            click arriving as a fresh `:attempt 1` on a second identity. It failed
-            SILENTLY: no error, no warning, a passive prefetch indistinguishable
+            Were the named-address door to skip the defaults, the href, the
+            prefetch payload and the warm plan would resolve `{:tab nil}` while
+            the activation resolved `{:tab :authored}` — so one link would
+            produce TWO entries: the warm one ownerless, GC-eligible and never
+            reused, and the click arriving as a fresh `:attempt 1` on a second
+            identity. That failure is SILENT: no error, no warning, a passive
+            prefetch indistinguishable
             from a working one without measuring — exactly the failure mode
             `rf.routing.link/validate-prefetch!` argues for failing loud about."
     (let [app    (boot-app!)
@@ -724,24 +722,22 @@
 #?(:cljs
    (deftest the-real-anchor-intent-handler-composes-and-dispatches
      (testing "row 7's `BOTH link surfaces` clause for `rf/route-link`. The
-               retired view artefacts' descriptors had real-DOM
-               intent tests; `rf/route-link`'s own composed handler had none. The
                handler must run the caller's `:on-mouse-enter` FIRST and then
                enqueue EXACTLY ONE prefetch payload, stamped `:source :router`,
                to the frame that RENDERED the link — not an ambient frame
                resolved at event time.
 
                Read as an ORDERED MILESTONE SEQUENCE, because neither law is
-               visible to an after-the-fact read (rf2-kqxe6.22). `(some? (first
+               visible to an after-the-fact read. `(some? (first
                (filter …)))` over the captured traces is exactly as true for one
                dispatch as for five, so cardinality goes unasserted; and a
                caller-ran counter inspected once the composed handler has already
                RETURNED is exactly as true whether the dispatch preceded the
-               caller or followed it, so ordering goes unasserted. A mutation that
-               dispatched twice, and before the caller, kept the whole CLJS lane
-               byte-identically green. So the caller pushes `:caller` and the
-               trace listener pushes `:dispatch` into ONE atom as each happens,
-               and the law IS the sequence."
+               caller or followed it, so ordering goes unasserted. Under such a
+               read, a mutation that dispatched twice, and before the caller,
+               would keep the whole CLJS lane green. So the caller pushes
+               `:caller` and the trace listener pushes `:dispatch` into ONE
+               atom as each happens, and the law IS the sequence."
        (let [app        (boot-app!)
              other      (seal-frame! {:frame-id :conduit/other})
              slug       "composed"
@@ -755,7 +751,8 @@
                                   (rf.routing.link/route-link-render props "Read it")))]
          (is (fn? (:on-mouse-enter attrs)))
          ;; render scope has unwound by the time a real pointer arrives, and a
-         ;; DIFFERENT frame is ambient — exactly the rf2-o3nam4 hazard.
+         ;; DIFFERENT frame is ambient; the handler must still target the
+         ;; render-time frame.
          (let [traces (capture-traces
                         #(rf/with-frame other ((:on-mouse-enter attrs) #js {}))
                         (fn [ev]
@@ -775,22 +772,22 @@
            (is (= app (-> row :tags :frame))
                "…targeting the RENDER-time frame, not the ambient one")
            ;; the trace projection lifts `:source` out of `:tags` onto the
-           ;; event row itself, exactly as the ui DOM intent test reads it.
+           ;; event row itself.
            (is (= :router (:source row))
                "…attributed to the routing substrate"))))))
 
 ;; ===========================================================================
 ;; 4. Auth denial + fresh return, through the PUBLIC door
 ;;
-;;     EP conformance row 8 (guard parity). The registration order is the
-;;     regression rf2-0r6q4 / PR #6932 fixed.
+;;     EP conformance row 8 (guard parity). The app registers its denial arm
+;;     BEFORE its frames are sealed, and image assembly must accept that order.
 ;; ===========================================================================
 
 (deftest the-app-seals-a-frame-after-registering-the-public-denial-handler
-  (testing "rf2-0r6q4 — an app that registers :rf.route/entry-denied through the
-            PUBLIC rf/reg-event still assembles a frame. Before PR #6932 this
-            boot order threw :rf.error/image-duplicate-id with colliding
-            coordinates [{:ns nil} {:ns \"<app ns>\"}]."
+  (testing "an app that registers :rf.route/entry-denied through the PUBLIC
+            rf/reg-event assembles a frame, rather than throwing
+            :rf.error/image-duplicate-id with colliding coordinates
+            [{:ns nil} {:ns \"<app ns>\"}]."
     (let [app (boot-app! {:auth-arm :client})]
       (is (some? app) "the app frame sealed cleanly after the app registration")
       (is (= 1 (count (filter #(= :rf.route/entry-denied %)
@@ -952,8 +949,8 @@
 ;; ===========================================================================
 ;; A planning failure commits a failed activation and runs NO activation work
 ;;
-;;     EP conformance row 6's last clause. `:on-match` "is not dispatched when
-;;     planning fails" had no executable arm in any per-slice suite.
+;;     EP conformance row 6's last clause: `:on-match` "is not dispatched when
+;;     planning fails".
 ;; ===========================================================================
 
 (deftest a-planning-failure-commits-the-target-and-suppresses-on-match
@@ -987,7 +984,7 @@
 ;; 10. Frame isolation and teardown — integrated
 ;;
 ;;     EP conformance row 10. The per-subsystem destroy tests each release one
-;;     cache; nothing proved that ONE frame holding a branch plan, route
+;;     cache; this proves that ONE frame holding a branch plan, route
 ;;     owners, warm prefetch work AND a pending leave releases all of it.
 ;; ===========================================================================
 
