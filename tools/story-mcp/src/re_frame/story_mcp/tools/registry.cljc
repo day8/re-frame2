@@ -25,9 +25,7 @@
   payload (`signal` / `sendNotification` / `_meta.progressToken`)
   carries no useful slot either. Contrast pair-mcp's 3-arity shape
   `(fn [conn args extra])`. The divergence is deliberate and is
-  documented at `tools/mcp-base/spec/handler-arity.md`; a phase-2
-  unification awaits a third server instance and lands as a separate
-  bead."
+  documented at `tools/mcp-base/spec/handler-arity.md`."
   (:require [re-frame.story-mcp.config :as rf.story-mcp.config]
             [re-frame.story-mcp.tools.dev :as rf.story-mcp.tools.dev]
             [re-frame.story-mcp.tools.docs :as rf.story-mcp.tools.docs]
@@ -58,7 +56,7 @@
 ;; for structured responses." Asserted at load time so future tool
 ;; landings can't silently drop the slot.
 (assert (every? (fn [t] (map? (:outputSchema t))) tool-registry)
-        "tool-registry: every entry must carry an :outputSchema map (rf2-3l3be)")
+        "tool-registry: every entry must carry an :outputSchema map")
 
 ;; Load-time invariant: every registry entry MUST carry an
 ;; `:annotations` map advertising the MCP tool-annotation hints
@@ -67,11 +65,11 @@
 ;; and gate destructive ops. Asserted at load time so future tool
 ;; landings can't silently drop the slot.
 (assert (every? (fn [t] (map? (:annotations t))) tool-registry)
-        "tool-registry: every entry must carry an :annotations map (rf2-94p8q)")
+        "tool-registry: every entry must carry an :annotations map")
 
 (def gated-input-keys
   "The input-property keys the DEFAULT `tools/list` profile gates off
-  behind an operator-only gate. Today: `:include-sensitive`
+  behind an operator-only gate: `:include-sensitive`
   — baked into four value-surfacing tools' descriptors at load time and
   stripped from the default wire surface by `strip-include-sensitive`
   when `--allow-sensitive-reads` is closed. As STRINGS (the
@@ -91,7 +89,7 @@
   (into #{} (map keyword) gated-input-keys))
 
 (defn- strip-include-sensitive
-  "Remove the gated input slots (`gated-input-keys`, today
+  "Remove the gated input slots (`gated-input-keys`, i.e.
   `:include-sensitive`) from a tool's `:inputSchema` properties. The
   slot is baked into the descriptor at load time by
   `schemas/with-include-sensitive`; this fn runs at `tools/list` time
@@ -129,7 +127,7 @@
   VALUES (`preview-variant`, `run-variant`, `read-failures`,
   `read-a11y-violations`) — silently ignore
   caller-supplied `:include-sensitive true` at the helper layer
-  regardless (`explain-variant` is NOT in this set (rf2-7k5mce): it is
+  regardless (`explain-variant` is NOT in this set: it is
   a no-run projection over the registry, so it ships author data raw
   like `get-variant` and carries no gate knob), so the descriptor
   strip is purely a UX improvement and a defence-in-depth signal."
