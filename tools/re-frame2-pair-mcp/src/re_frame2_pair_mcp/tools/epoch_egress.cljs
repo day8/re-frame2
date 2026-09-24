@@ -33,9 +33,8 @@
 
   ## GUARD G3 — an epoch record MUST arrive STAMPED
 
-  `project-egress` is the ONE record-level door (rf2-bv1p, ruling
-  rf2-kuky.9 option A retired the standalone `projected-record` door),
-  and it recognises an epoch record by ONE thing: the `:kind
+  `project-egress` is the ONE record-level door (there is no standalone
+  `projected-record` door), and it recognises an epoch record by ONE thing: the `:kind
   :rf/epoch-record` stamp `re-frame.epoch.assembly` puts on it. A record
   it does not recognise is not an error there — it falls through to the
   KINDLESS BARE-VALUE WALK, which is the correct answer for a
@@ -46,9 +45,9 @@
   at `:path []`, so a frame's `[:auth :token]` sensitive declaration
   cannot match the record's `[:db-after :auth :token]` slot: NOTHING
   matches, nothing redacts, and the whole app-db snapshot ships RAW
-  across the MCP wire to an external agent. An app running a
-  pre-rf2-kuky.92 `re-frame.epoch.assembly` stamps no `:kind` at all, so
-  this is not a hypothetical — it is what a version-skewed pair session
+  across the MCP wire to an external agent. An app whose
+  `re-frame.epoch.assembly` predates the `:kind` stamp stamps no `:kind`
+  at all, so this is not a hypothetical — it is what a version-skewed pair session
   looks like.
 
   So the emitted source checks `(= :rf/epoch-record (:kind r))` BEFORE
@@ -87,7 +86,7 @@
   egress, NOT the `:rf.egress/off-box-observability` profile the epoch
   projector falls back to when none is named. Both share the
   redact/elide floor (sensitive → `:rf/redacted`, large →
-  `:rf.size/large-elided`) and, since rf2-3x7nj.32.6, the same no-digest
+  `:rf.size/large-elided`) and the same no-digest
   floor, so their markers are equal; what differs is the boundary the call
   NAMES. `egress-opts-edn` names the profile unconditionally, because a
   pair-MCP epoch wire is always the tool boundary.
@@ -133,8 +132,8 @@
   app-db-`:include-sensitive`-implied raw escape hatch; a deliberate
   full-raw epoch read is the explicit per-axis opts on `project-egress`
   (the three epoch-only axes `:rf.egress/include-fx-args?` /
-  `:rf.egress/include-runtime-db?` / `:rf.egress/include-event-args?` are door vocabulary
-  since rf2-bv1p), not a side effect of asking for sensitive app-db
+  `:rf.egress/include-runtime-db?` / `:rf.egress/include-event-args?` are door
+  vocabulary), not a side effect of asking for sensitive app-db
   values.")
 
 (defn egress-opts-edn
@@ -149,9 +148,9 @@
   hand-rolled `:rf.egress/*` combination and NOT the unnamed default. With
   no `:rf.egress/profile` opt the epoch projector resolves
   `:rf.egress/off-box-observability` (epoch/tool_pair.cljc
-  §resolve-egress-profile) — the same redact/elide floor and, since
-  rf2-3x7nj.32.6, the same no-digest floor (projection.cljc
-  §profile->size-opts), so today the two resolve to equal markers. The
+  §resolve-egress-profile) — the same redact/elide floor and the same
+  no-digest floor (projection.cljc
+  §profile->size-opts), so the two resolve to equal markers. The
   profile is named because it IS the tool boundary (the same tool profile
   the direct-read surfaces resolve via `tools.elision`), not for anything
   it adds to the marker, and neither leaks raw data. The
@@ -190,7 +189,7 @@
   `:rf.error/pair-mcp-nrepl-port-not-found`: the throw happens APP-SIDE
   inside our emitted eval form, but the fault it names is a pair-session
   VERSION SKEW — the connected app's `re-frame.epoch.assembly` predates
-  the `:kind :rf/epoch-record` stamp (rf2-kuky.92) — not a framework
+  the `:kind :rf/epoch-record` stamp — not a framework
   error the framework would raise on its own."
   :rf.error/pair-mcp-unstamped-epoch-record)
 
@@ -201,8 +200,8 @@
 
   ## Why this guard exists (it is the fail-closed half of the door)
 
-  `re-frame.core/project-egress` is the ONE record-level egress door
-  since rf2-bv1p, and it recognises an epoch record SOLELY by its
+  `re-frame.core/project-egress` is the ONE record-level egress door,
+  and it recognises an epoch record SOLELY by its
   stamped `:kind :rf/epoch-record` — there is no shape test and no
   second name to call. An unrecognised input is not refused by the door:
   it falls through to the KINDLESS BARE-VALUE WALK, which is the right
@@ -216,8 +215,8 @@
   to an off-box agent, with `--allow-sensitive-reads` OFF. That is the
   precise fail-open this guard closes.
 
-  The trigger is real: an app running a pre-rf2-kuky.92
-  `re-frame.epoch.assembly` stamps no `:kind`, so a pair session against
+  The trigger is real: an app whose `re-frame.epoch.assembly` predates
+  the `:kind` stamp stamps no `:kind`, so a pair session against
   a version-skewed app would hit exactly this path. Throwing names the
   cause; falling through says nothing and ships the state.
 
@@ -242,7 +241,7 @@
          " (str \"pair-MCP off-box epoch egress refused: :kind is \" (pr-str (:kind " s "))"
          " \", not :rf/epoch-record. re-frame.core/project-egress would bare-walk this record from :path [],"
          " so app-db :sensitive? declarations cannot match its :db-after-prefixed slots and raw app-db would"
-         " ship off-box. The connected app's re-frame.epoch.assembly predates the :kind stamp (rf2-kuky.92)"
+         " ship off-box. The connected app's re-frame.epoch.assembly predates the :kind stamp"
          " -- upgrade the app's re-frame2 epoch artefact.\")"
          " {:rf.error/id " unstamped-epoch-record-error-id
          " :reason " unstamped-epoch-record-error-id
@@ -281,8 +280,8 @@
   so the emitted form throws instead. An ABSENT `:epoch` stays
   legitimate and untouched — a degraded runtime and the `:ok? false`
   frame-untargetable envelope both carry none, and the
-  `(contains? r# :epoch)` presence check that already governed the
-  projection now governs the guard with it.
+  `(contains? r# :epoch)` presence check governs both the projection
+  and the guard.
 
   `incl?` (the resolved `:include-sensitive` opt-in) is threaded as the
   `{:rf.egress/include-sensitive? true}` egress opt INTO `project-egress` — NOT as a
@@ -328,8 +327,8 @@
   `re-frame.core/project-egress` under the `:rf.egress/off-box-tool`
   egress profile (Pair-MCP is an off-box tool wire; see
   `egress-opts-edn`) — sensitive payload slots land as `:rf/redacted`,
-  large slots as `:rf.size/large-elided` markers (no `:digest`, since
-  rf2-3x7nj.32.6). There is no projection bypass: a page NEVER crosses
+  large slots as `:rf.size/large-elided` markers (no `:digest`). There is
+  no projection bypass: a page NEVER crosses
   the off-box wire unprojected, and it always NAMES the tool boundary
   rather than the unnamed default profile (which resolves
   `:rf.egress/off-box-observability`).
@@ -340,8 +339,8 @@
   falls through to the kindless bare-value walk, which starts at
   `:path []` and so cannot match any app-db classification against a
   `:db-after`-prefixed slot — the whole page would ship RAW. An app
-  whose `re-frame.epoch.assembly` predates rf2-kuky.92 stamps nothing,
-  so the guard throws
+  whose `re-frame.epoch.assembly` predates the `:kind` stamp stamps
+  nothing, so the guard throws
   `:rf.error/pair-mcp-unstamped-epoch-record` naming the skew rather
   than leaking the ring.
 

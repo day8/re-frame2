@@ -202,7 +202,7 @@
             "the message is built with `str` so it can name the OBSERVED :kind")
         (is (some #(and (string? %) (str/includes? % ":rf/epoch-record")) ex-msg)
             "the message names the stamp that was expected")
-        (is (some #(and (string? %) (str/includes? % "rf2-kuky.92")) ex-msg)
+        (is (some #(and (string? %) (str/includes? % "predates the :kind stamp")) ex-msg)
             "and names the cause — an app too old to stamp it")
         (is (map? data) "ex-data is a map literal")
         (is (= egress/unstamped-epoch-record-error-id (:rf.error/id data))
