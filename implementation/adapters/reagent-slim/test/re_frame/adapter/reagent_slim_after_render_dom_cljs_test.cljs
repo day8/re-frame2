@@ -1,5 +1,5 @@
 (ns re-frame.adapter.reagent-slim-after-render-dom-cljs-test
-  "rf2-cdoo — the reagent-slim ORDINARY-PATH proof that an `after-render`
+  "The reagent-slim ORDINARY-PATH proof that an `after-render`
   callback observes the COMMITTED DOM.
 
   WHAT IT PROVES. `reagent2.core/after-render` promises to run `f` \"after the
@@ -9,7 +9,7 @@
   the microtask the render scheduler queues by itself, with no test primitive
   driving it.
 
-  WHY A DOM READ AND NOT A COUNTER. The pre-existing slim coverage
+  WHY A DOM READ AND NOT A COUNTER. The other slim coverage
   (`reagent2.impl.batching`'s focused tests, and the shared React suite's
   `assert-after-render-runs-after-commit`) asserts that the callback FIRED —
   a counter, or a `[:render :after]` call-order vector over fake components
@@ -58,7 +58,7 @@
 
 ;; Map-form (`:async? true`) fixture: a fn-form fixture tears down
 ;; synchronously and would restore the registrar while an `(async done)` body
-;; is still in flight. `:ambient-frame nil` (EP-0002, rf2-9o48ih) opts out of
+;; is still in flight. `:ambient-frame nil` (EP-0002) opts out of
 ;; the default ambient `*current-frame*` :rf/default scope — the mount runs
 ;; inside the test body's dynamic extent, where an ambient :rf/default scope
 ;; would shadow the React-context tier and the probe's `subscribe` would read
@@ -79,7 +79,7 @@
 
 (deftest after-render-callback-observes-the-committed-dom
   (testing "reagent-slim — an ordinary-path after-render callback sees the
-  COMMITTED DOM, not the pre-commit DOM (rf2-cdoo)"
+  COMMITTED DOM, not the pre-commit DOM"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (async done
@@ -96,7 +96,7 @@
                 root       (rdc/create-root mount-node)
                 ;; What the callback saw, recorded from INSIDE it. An `is`
                 ;; here would be swallowed by the queue's per-callback throw
-                ;; isolation (rf2-p27yih), so the callback records and the
+                ;; isolation, so the callback records and the
                 ;; assertions run outside it.
                 seen       (atom [])]
             ;; Initial mount inside flushSync so React 19's otherwise-async
@@ -138,7 +138,7 @@
                     (str "the after-render callback observed the COMMITTED new
                           DOM; it read " (pr-str (first @seen))
                          " — reading \"n=1\" means the callback ran while React
-                          had only SCHEDULED the class update (rf2-cdoo)"))
+                          had only SCHEDULED the class update"))
                 (is (= "n=2" (.-textContent mount-node))
                     "the update did commit — the callback's read is the only
                      thing in question, not whether the render happened")
@@ -148,7 +148,7 @@
 
 (deftest after-render-with-no-dirty-component-still-fires
   (testing "reagent-slim — a callback queued with no dirty component still
-  fires asynchronously, and the commit-aware path does not strand it (rf2-cdoo)"
+  fires asynchronously, and the commit-aware path does not strand it"
     (async done
       (let [fired (atom 0)]
         (rf.interop/after-render (fn [] (swap! fired inc)))
@@ -162,7 +162,7 @@
 
 (deftest after-render-preserves-fifo-and-throw-isolation
   (testing "reagent-slim — callbacks keep FIFO order and one throwing callback
-  does not strand the rest (rf2-cdoo preserves rf2-p27yih)"
+  does not strand the rest"
     (async done
       (let [order (atom [])]
         (rf.interop/after-render (fn [] (swap! order conj :first)))
