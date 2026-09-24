@@ -1,6 +1,6 @@
 (ns re-frame.http-privacy-body-test
   "Unit tests for `re-frame.http.privacy-body` — HTTP response-body
-  classification (EP-0015 §8, ruled issue 5; rf2-ppkh3v).
+  classification (EP-0015 §8, issue 5).
 
   Pins the contract that a managed HTTP response body is a registration-
   owned transient payload classified per-slot via `:sensitive?` / `:large?`
@@ -11,15 +11,14 @@
     2. per-slot `:sensitive?` marks on the decode schema redact the decoded
        body's marked slots irrespective of the per-call `:sensitive?` flag;
     3. per-slot `:large?` marks on the decode schema elide the marked slots
-       to the `:rf.size/large-elided` marker; sensitive wins over large
-       (rf2-jhyccs);
+       to the `:rf.size/large-elided` marker; sensitive wins over large;
     4. a root-level (`[]`) `:sensitive?` mark redacts the WHOLE body;
     5. an unschematized body fails CLOSED off-box (omitted via
        the `off-box-body-disposition` stamp), while a schema-classified body rides
-       classified (rf2-t55hxg.6);
+       classified;
     6. a schema that DECLARES a mark with the shared walker hook UNBOUND
        throws `:rf.error/schemas-artefact-missing` rather than reporting no
-       marks, while a schema declaring none is unaffected (rf2-ohfym).
+       marks, while a schema declaring none is unaffected.
 
   The schemas artefact is a test-only dep here, so requiring it binds the
   shared walker hooks (`:schemas/extract-sensitive-paths-from-schema` etc.)."
@@ -32,7 +31,7 @@
 
 ;; No per-test fixture: every test here is a pure `re-frame.http.privacy-body`
 ;; call — nothing touches the registrar / frames / app-db, so there is no
-;; per-test runtime state to reset (rf2-q14tde).
+;; per-test runtime state to reset.
 
 ;; ---- 1. schema-decode? ----------------------------------------------------
 
@@ -123,7 +122,7 @@
             shared schema walker cannot inspect a registry ref (it returns
             {} per-slot marks), so :classify would ride the body UNCHANGED.
             EP-0015 issue 5 requires fail-CLOSED when classification is
-            unknown (rf2-y1pgdl)"
+            unknown"
     ;; A bare keyword that is NOT a known decode mode is taken by
     ;; `schema-decode?` as a registry ref — but the walker can only
     ;; introspect the VECTOR form. Off-box it must fail closed.
@@ -133,12 +132,12 @@
 (deftest off-box-disposition-omits-opaque-compiled-schema
   (testing "an OPAQUE non-vector schema value (a compiled m/schema object /
             a map / any non-vector non-keyword-mode form) is :omit off-box —
-            the walker cannot introspect it, so fail-closed (rf2-y1pgdl)"
+            the walker cannot introspect it, so fail-closed"
     ;; A map (or any non-vector, non-keyword decode value the walker treats
     ;; as an opaque leaf returning {}) must NOT ride :classify off-box.
     (is (= :omit (rf.http.privacy-body/off-box-body-disposition {:opaque :compiled-schema-stand-in})))))
 
-;; ---- 5. per-slot :large? elision (rf2-jhyccs) -----------------------------
+;; ---- 5. per-slot :large? elision ------------------------------------------
 
 (deftest classify-decoded-elides-large-slot
   (testing "a :decode schema marking [:blob] :large? elides that slot of the
@@ -171,17 +170,16 @@
       (is (= :rf/redacted (:secret out))
           "sensitive wins — the slot is redacted, not a large marker"))))
 
-;; ---- 7. an UNBOUND shared walker fails LOUD (rf2-ohfym) --------------------
+;; ---- 7. an UNBOUND shared walker fails LOUD --------------------------------
 ;;
 ;; The walker ships in the optional schemas artefact and arrives through a
 ;; late-bind hook, so it can be unbound. Reporting `{}` marks for that state
-;; was a fail-OPEN: a `:sensitive?`-marked secret rode the trace verbatim and
-;; nothing said so (rf2-zvbm9 — four assertions that read their own secret
-;; back, green in the full-suite ordering because an alphabetically earlier
-;; namespace happened to load `re-frame.schemas` first, red only in a solo
-;; run). These pin the fix in BOTH directions: a schema that DECLARES a mark
-;; now throws, and a schema that declares none is unaffected — a schemas-less
-;; app with a plain `:decode` keeps working.
+;; would be a fail-OPEN: a `:sensitive?`-marked secret would ride the trace
+;; verbatim and nothing would say so, and whether it did would depend on
+;; whether some earlier namespace had loaded `re-frame.schemas`. These pin
+;; BOTH directions: a schema that DECLARES a mark throws, and a schema that
+;; declares none is unaffected — a schemas-less app with a plain `:decode`
+;; keeps working.
 
 (defn- with-walker-unbound
   "Run `f` with both shared schema-walker hooks removed from the late-bind
@@ -264,7 +262,7 @@
            (rf.http.privacy-body/classify-decoded {:token "bearer-secret"}
                                   [:map [:token {:sensitive? true} :string]])))))
 
-;; ---- 8. per-request :decode extraction retains nothing (rf2-3x7nj.19.4) ---
+;; ---- 8. per-request :decode extraction retains nothing --------------------
 ;;
 ;; The schemas artefact's sensitive-path memo is never evicted, which is safe
 ;; only for schemas registered once at boot. A `:decode` schema is built per
