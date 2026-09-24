@@ -4867,10 +4867,13 @@
   re-renders must not cause the sub-cache ref-count to CHURN — it stays
   pinned at exactly 1 throughout and returns to 0 on unmount.
 
-  The render-phase reaction
-  fetch is a BALANCED `rf.subs/subscribe` + `rf.subs/unsubscribe` round-trip
-  (net 0), and the single DURABLE ref is taken/released only in the
-  commit-owned `useSyncExternalStore` subscribe callback. So the meaningful
+  Once committed, the render-phase reaction fetch is a BALANCED
+  `rf.subs/subscribe` + `rf.subs/unsubscribe` round-trip (net 0). The cold
+  first mount keeps its render-phase +1 in an escrow token instead, and the
+  commit releases that token as it adopts the reaction
+  (`rf.subs/unsubscribe-if-reaction`). The single DURABLE ref is
+  taken/released only in the commit-owned `useSyncExternalStore` subscribe
+  callback. So the meaningful
   invariant is not 'exactly one raw subscribe call'
   but: (a) every render's subscribe/unsubscribe calls are BALANCED, so
   the committed steady state never crosses the 1 → 0 disposal edge, and
@@ -4946,8 +4949,9 @@
                         (swap! unsubscribe-calls inc)
                         (real-unsub-if frame-id query-v reaction))]
           (try
-            ;; Mount. The render-phase fetch is a balanced subscribe+unsubscribe
-            ;; round-trip; the commit-owned subscribe-fn takes the durable ref.
+            ;; Mount. The cold render keeps its +1 in escrow; the commit-owned
+            ;; subscribe-fn takes the durable ref and releases the escrowed one
+            ;; as it adopts the reaction.
             ;; What MUST hold: the net cache ref-count is exactly 1, and every
             ;; subscribe is balanced by an unsubscribe except the single durable
             ;; committed one (so subscribe-calls = unsubscribe-calls + 1).
@@ -5143,35 +5147,51 @@
 ;; ---- render-phase ref-count-leak regressions ----
 ;;
 ;; The shared spine's `use-sub` reads the cached reaction during render
-;; (a render-phase `rf.subs/subscribe`) but IMMEDIATELY
-;; balances it with `rf.subs/unsubscribe`, so the render phase nets ZERO ref-count
-;; whether or not it commits. The DURABLE ref is taken/released only in the
-;; commit-owned `useSyncExternalStore` subscribe callback (run after commit;
-;; its cleanup on unmount / key change / teardown). These assertions pin the
-;; three documented ways a design whose render-phase +1 is reclaimed by
-;; effects would leak; all reuse the refcount-probe cfg surface.
+;; (a render-phase `rf.subs/subscribe`). How that +1 ends depends on whether a
+;; durable reference already backs the (frame, query):
+;;
+;;   WARM — the committed steady state. The render IMMEDIATELY balances its
+;;   subscribe with `rf.subs/unsubscribe` (1 → 2 → 1), so it nets ZERO.
+;;
+;;   COLD — the first mount before its commit, a never-committed render, the
+;;   first render after a key change. A balanced round trip would cross the
+;;   1 → 0 disposal edge, so the render keeps its +1 in a one-shot ESCROW
+;;   token instead. The commit adopts the reaction and releases the token
+;;   (2 → 1); if the spine's macrotask reaper wins first, it releases the
+;;   token, the entry disposes, and the commit rebuilds. Either way the
+;;   escrowed +1 ends at adoption or at the reap horizon.
+;;
+;; The DURABLE ref is taken/released only in the commit-owned
+;; `useSyncExternalStore` subscribe callback (run after commit; its cleanup on
+;; unmount / key change / teardown). These assertions pin the three documented
+;; ways a design whose render-phase +1 is reclaimed by effects would leak; all
+;; reuse the refcount-probe cfg surface.
 ;;
 ;;   • MEMO DISCARD — `useMemo` is a perf hint, not a lifecycle: React may
 ;;     DISCARD a cached memo and re-run the factory on UNCHANGED deps. If each
 ;;     re-run were another unbalanced `subscribe` (+1), the ref-count would
-;;     climb per discarded memo. Each factory re-run is its own
-;;     balanced round-trip (net 0), so the count can never climb. We simulate
-;;     the documented discard by patching `React.useMemo` to always re-run its
-;;     factory while forcing several committed re-renders, then assert the
-;;     ref-count stayed pinned at exactly 1 (the committed durable ref, not N)
-;;     and dropped to 0 on unmount.
+;;     climb per discarded memo. A committed re-run is its own balanced
+;;     round-trip (net 0), and an uncommitted re-run releases the hook's
+;;     previous escrow token after taking its own, so the count can never
+;;     climb. We simulate the documented discard by patching `React.useMemo`
+;;     to always re-run its factory while forcing several committed re-renders,
+;;     then assert the ref-count stayed pinned at exactly 1 (the committed
+;;     durable ref, not N) and dropped to 0 on unmount.
 ;;
 ;;   • MULTI-ACQUISITION — a render that runs `use-sub` multiple times across
 ;;     interrupt/restart before its eventual commit. Each render-phase
-;;     acquisition is self-balancing, and the single committed mount takes
-;;     exactly one durable ref. We simulate the multi-acquisition shape by
-;;     re-running the memo factory N times within a committing render and assert
-;;     no ref-count is pinned beyond the single live committed subscription.
+;;     acquisition releases the previous attempt's escrow token, so the hook
+;;     holds at most one escrowed reference, and the single committed mount
+;;     adopts it and keeps exactly one durable ref. We simulate the
+;;     multi-acquisition shape by re-running the memo factory N times within a
+;;     committing render and assert no ref-count is pinned beyond the single
+;;     live committed subscription.
 ;;
 ;;   • ABORT BEFORE COMMIT — the FIRST-MOUNT render aborted BEFORE commit (real
 ;;     Suspense unwind). React discards the never-committed fiber, so a
-;;     per-fiber ledger + effects cannot reclaim its render-phase +1. With the
-;;     balanced round-trip the abandoned render acquires nothing. Asserted by
+;;     per-fiber ledger + effects cannot reclaim its render-phase +1. The
+;;     escrowed +1 belongs to the spine's reaper, not to the fiber, so it is
+;;     released at the reap horizon. Asserted by
 ;;     `assert-use-sub-suspense-abort-before-commit-no-refcount-leak`.
 
 (defn assert-use-sub-memo-recompute-no-refcount-leak
@@ -5182,9 +5202,10 @@
   (frame, query) cache ref-count stays pinned at exactly 1 throughout — then
   drops to 0/absent on unmount.
 
-  The render-phase factory is a balanced subscribe+unsubscribe
-  round-trip (net 0), so any number of discarded+rebuilt memo re-runs nets zero
-  — the single durable ref is owned by the commit-owned `subscribe-fn`. An
+  The cold mount's factory escrows its +1 and the commit adopts it; after that
+  every re-run is a WARM balanced subscribe+unsubscribe round-trip (net 0), so
+  any number of discarded+rebuilt memo re-runs nets zero — the single durable
+  ref is owned by the commit-owned `subscribe-fn`. An
   unbalanced render-phase +1 would climb the ref-count by one per discarded
   memo and never return it to 0.
 
@@ -5238,10 +5259,11 @@
   "Multi-acquisition committing render: a fiber whose memo factory
   ran several render-phase acquisitions (interrupted + restarted renders) and
   then committed must end with exactly one live ref; unmount returns it to
-  zero. Each render-phase acquisition is a balanced
-  subscribe+unsubscribe round-trip (net 0) and the single durable ref is owned
-  by the commit-owned subscribe-fn, so N factory re-runs collapse to one live
-  ref by construction. (The genuine first-mount-ABANDONED-before-commit path —
+  zero. On this cold mount each render-phase acquisition takes its own +1 and
+  then releases the previous attempt's escrow token, so the hook holds at most
+  one escrowed reference; the commit adopts that one and releases it, and the
+  single durable ref is owned by the commit-owned subscribe-fn, so N factory
+  re-runs collapse to one live ref by construction. (The genuine first-mount-ABANDONED-before-commit path —
   which a per-fiber ledger cannot reach — is covered separately by
   `assert-use-sub-suspense-abort-before-commit-no-refcount-leak`.) An
   unbalanced render-phase +1 per acquisition would leave the count pinned.
@@ -5268,7 +5290,7 @@
             root          (react-dom-client/createRoot mount-node)
             real-use-memo (.-useMemo React)]
         ;; Each render the memo factory is run 3 times — three render-phase
-        ;; round-trips for the SAME fiber, modelling an abandoned-then-restarted
+        ;; acquisitions for the SAME fiber, modelling an abandoned-then-restarted
         ;; concurrent render whose acquisitions accumulate before the eventual
         ;; commit. React calls the factory itself once per useMemo; we re-run it
         ;; the extra times here.
@@ -5277,8 +5299,9 @@
                 (factory) (factory) (factory)))
         (try
           (act-fn (fn [] (.render root (probe-refcount-element))))
-          ;; The mount committed once. The three render-phase round-trips are
-          ;; each net-zero (subscribe + immediate unsubscribe); the single
+          ;; The mount committed once. Each of the three render-phase
+          ;; acquisitions released the previous attempt's escrow token, the
+          ;; commit adopted the last one and released it, and the single
           ;; durable ref is taken by the commit-owned subscribe-fn, so exactly
           ;; one ref is pinned.
           (is (= 1 (or (get-in @cache [cache-key-v :ref-count]) 0))
@@ -5415,22 +5438,21 @@
 
 ;; ---- getSnapshot tracks the committed reaction ----------------------------
 ;;
-;; THE HAZARD. `use-sub` fetches a render-phase reaction HANDLE with a
-;; balanced `rf.subs/subscribe` + immediate `rf.subs/unsubscribe` round-trip
-;; (net-zero ref-count, so an abandoned render leaks nothing). On a FIRST
-;; mount with no prior cache entry, that round-trip drives the cache slot
-;; 1 → 0 and DISPOSES the render-phase reaction (its source watches are
-;; removed, it is evicted from the cache). The DURABLE committed reaction is
-;; then built post-commit inside the `useSyncExternalStore` subscribe
-;; callback — a DIFFERENT object that owns the live watch + the cache
-;; ref-count.
+;; THE HAZARD. On a FIRST mount with no prior cache entry, the render-phase
+;; `rf.subs/subscribe` keeps its +1 in escrow, so what the commit's
+;; `useSyncExternalStore` subscribe callback ends up holding depends on
+;; timing. If the commit arrives inside the reap horizon it ADOPTS the
+;; render's reaction — the same object. If the reaper wins first, the entry
+;; disposes on the ordinary 1 → 0 edge (its source watches removed, evicted
+;; from the cache) and the commit builds a DIFFERENT object that owns the
+;; live watch + the cache ref-count.
 ;;
 ;; A `get-snap` (the `getSnapshot` React calls on every render to read the
-;; store value) that closed over and dereferenced the RENDER-PHASE handle
-;; would still render the correct VALUE for ordinary app-db updates, because
-;; a disposed reaction still recomputes pull-based on deref — which is
-;; exactly why call-balance/DOM-value assertions cannot tell the snapshot is
-;; reading a disposed first-render handle. The hazard React's
+;; store value) that closed over and dereferenced a reaction the cache no
+;; longer holds would still render the correct VALUE for ordinary app-db
+;; updates, because a disposed reaction still recomputes pull-based on deref —
+;; which is exactly why call-balance/DOM-value assertions cannot tell the
+;; snapshot is reading a disposed handle. The hazard React's
 ;; `useSyncExternalStore` contract guards against (getSnapshot must read a
 ;; stable, LIVE source) is real: a disposed handle has no source watches,
 ;; duplicates the sub-body recompute on every snapshot read, and on sub
@@ -5438,27 +5460,29 @@
 ;; old body) rather than the committed cached one.
 ;;
 ;; THE PROOF (object-identity, not value). A value assertion cannot fail
-;; deterministically here — both the disposed handle and the committed
-;; reaction recompute the same live value. So we prove the snapshot's SOURCE
-;; OBJECT: spy `rf.subs/subscribe` to wrap every returned reaction in a thin
+;; deterministically here — a disposed handle and the committed reaction
+;; recompute the same live value. So we prove the snapshot's SOURCE OBJECT:
+;; spy `rf.subs/subscribe` to wrap every returned reaction in a thin
 ;; deref-recording proxy that delegates IDeref/IWatchable to the real
 ;; reaction and tags each deref with a per-real-reaction generation. After a
-;; first mount (render-phase handle disposed; committed reaction freshly
-;; built) we force a re-render (which does NOT re-run the `[stable-key]`-keyed
-;; memo or re-invoke the commit-owned subscribe-fn) and assert the
-;; `get-snap`-driven deref hits the generation of the reaction CURRENTLY IN
-;; THE CACHE (the committed one), never the disposed render-phase handle. A
-;; `get-snap` closed over that handle would hit the disposed-handle generation.
+;; first mount we force a re-render (which does NOT re-run the
+;; `[stable-key]`-keyed memo or re-invoke the commit-owned subscribe-fn) and
+;; assert the `get-snap`-driven deref hits the generation of the reaction
+;; CURRENTLY IN THE CACHE (the committed one). This row mounts under `act()`,
+;; so the commit adopts and the committed generation IS the render build's:
+;; here the row is a regression control on the committed source, and the
+;; per-deref tenancy check in `assert-use-sub-render-phase-reaction-not-retained`
+;; below is the discriminating one.
 
 (defn assert-use-sub-getsnapshot-tracks-committed-reaction
   "After a first mount, `get-snap` (React's `getSnapshot`) must
-  deref the DURABLE committed cached reaction, not the disposed render-phase
+  deref the DURABLE committed cached reaction, never a disposed render-phase
   handle. Proven by object identity: a `rf.subs/subscribe` spy wraps each
   returned reaction in a deref-recording proxy tagged with a per-real-reaction
   generation; the committed reaction is the one left in the cache after mount.
   A forced re-render re-runs `get-snap` (without re-running the stable-key memo
   or re-invoking subscribe-fn); the recorded deref generation MUST be the
-  committed/cached reaction's, not the disposed first-render handle's.
+  committed/cached reaction's.
 
   cfg keys: reuses the refcount-probe surface
     :probe-refcount-element / :refcount-target / :rc-frame / :rc-query"
@@ -5562,8 +5586,8 @@
           (try
             (act-fn (fn [] (.render root (probe-refcount-element))))
             ;; The committed reaction is the one the cache holds (ref-count 1).
-            ;; On a first mount the render-phase handle was disposed + evicted,
-            ;; so it is a DIFFERENT object — distinct generation.
+            ;; Under `act()` the commit adopted the render's build, so it is
+            ;; the same object and generation the render saw.
             (let [committed-real (get-in @cache [cache-key-v :reaction])
                   committed-gen  (get @real->gen committed-real)]
               (is (= 1 (or (get-in @cache [cache-key-v :ref-count]) 0))
@@ -5579,11 +5603,9 @@
               (act-fn (fn [] (.render root (probe-refcount-element))))
               (is (seq @deref-log)
                   "the forced re-render drove at least one get-snap deref")
-              ;; THE LOAD-BEARING ASSERTION. Every get-snap deref on the
-              ;; re-render hit the COMMITTED cached reaction's generation — NOT
-              ;; the disposed first-render handle's. A `get-snap` closed over
-              ;; the render-phase handle would record that (different)
-              ;; generation.
+              ;; Every get-snap deref on the re-render hit the COMMITTED cached
+              ;; reaction's generation. A `get-snap` closed over a reaction the
+              ;; cache no longer holds would record a different one.
               (is (every? #(= committed-gen %) @deref-log)
                   (str "get-snap derefs ONLY the committed cached reaction "
                        "(gen " committed-gen ") on re-render — not the disposed "
@@ -5637,17 +5659,21 @@
 ;; `getSnapshot` deref on the evicted handle, and the tenancy flag would read
 ;; false on the very first mount.
 ;;
-;; AND THE PROPERTY THIS DESIGN LEANS ON. The pre-commit fallback is not a
-;; live re-read, so a write landing between render and commit is not caught by
-;; the render-phase store-consistency check. It is caught, one step later,
-;; because React's `useSyncExternalStore` mount path pushes its `subscribeToStore`
-;; passive effect BEFORE its `updateStoreInstance` one and passive effects run in
-;; push order: `updateStoreInstance` calls `getSnapshot` AGAIN — after
-;; `subscribe-fn` has published the committed reaction — and force-re-renders if
-;; the value moved. That ordering is React's, not ours, so it is pinned here: a
-;; cold mount MUST show at least one deref of the COMMITTED reaction. If a React
-;; upgrade ever reorders those two effects, the frozen fallback becomes the last
-;; word and this assertion is what says so.
+;; AND THE ORDERING A BLOCKING-LANE MOUNT LEANS ON. Before the commit,
+;; `get-snap` reads the reaction the hook's UNSPENT escrow token holds, live,
+;; and falls back to the value the render froze only when no token is live —
+;; so on a CONCURRENT lane React's pre-commit store-consistency check sees a
+;; write landing between render and commit (the render→commit window row
+;; below pins it). A BLOCKING lane pushes no pre-commit check at all, so there
+;; the write is caught one step later: React's `useSyncExternalStore` mount
+;; path pushes its `subscribeToStore` passive effect BEFORE its
+;; `updateStoreInstance` one and passive effects run in push order, so
+;; `updateStoreInstance` calls `getSnapshot` AGAIN — after `subscribe-fn` has
+;; published the committed reaction — and force-re-renders if the value moved.
+;; That ordering is React's, not ours, so it is pinned here: a cold mount MUST
+;; show at least one deref of the COMMITTED reaction. If a React upgrade ever
+;; reorders those two effects, the render's value becomes the last word on a
+;; blocking-lane mount and this assertion is what says so.
 ;;
 ;; The render-phase ref-count property (one durable committed ref) does not
 ;; depend on what the memo returns, and is re-asserted here as a control.
@@ -5668,7 +5694,7 @@
   render-phase handle is deref-ed once, while it is still the sub-cache's
   tenant, and is unreachable thereafter (it is not retained by the memo slot or
   by `get-snap`). Proven by object identity plus a per-deref tenancy check. Also
-  pins the ordering the frozen fallback depends on: React calls `getSnapshot`
+  pins the ordering a blocking-lane mount depends on: React calls `getSnapshot`
   again AFTER `subscribe` returns, so the committed reaction is deref-ed during
   the cold mount itself.
 
@@ -5764,7 +5790,7 @@
                   (str "every deref during the cold mount hit the reaction tenanted "
                        "in the sub-cache at that moment — never a disposed, evicted "
                        "handle. Observed " @deref-log))
-              ;; THE ORDERING THE FROZEN FALLBACK DEPENDS ON.
+              ;; THE ORDERING A BLOCKING-LANE MOUNT DEPENDS ON.
               (is (some #(= committed-gen (:gen %)) @deref-log)
                   (str "React called getSnapshot again AFTER subscribe-fn published "
                        "the committed reaction (gen " committed-gen "), so a write "
@@ -6213,7 +6239,7 @@
                        the property is only load-bearing on a COLD read"
   [{:keys [name probe-public-mount-element pm-on-commit refcount-target
            rc-query pm-frame]}]
-  (testing (str name " — the commit adopts the render-phase build on the PUBLIC mount schedule: no act, no flushSync")
+  (testing (str name " — on this runner's PUBLIC mount schedule (no act, no flushSync) the reaper wins and the commit rebuilds: two builds, one durable reference")
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises the assertion")
       (async done
