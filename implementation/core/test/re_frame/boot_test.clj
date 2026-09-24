@@ -2,12 +2,12 @@
   "Targeted JVM coverage for the framework boot lifecycle.
 
   Boot is exercised transitively in every other test via the reset-runtime
-  fixture (which always calls rf/init!), but no dedicated coverage exists
-  for the four entry points themselves:
+  fixture (which always calls rf/init!); this namespace covers the four
+  entry points themselves:
 
     * init!                 — boot, idempotent for the SEATED adapter (a
                               different one raises
-                              :rf.error/adapter-already-installed, rf2-kuky.1);
+                              :rf.error/adapter-already-installed);
                               explicit-adapter contract.
                               Per Spec 002 §`:rf/default` is an ordinary id
                               (EP-0002) init! does NOT create a :rf/default
@@ -16,9 +16,9 @@
     * dispose-adapter!      — tear down + clear the slot
     * ensure-default-frame! — TEST-ONLY fixture helper that registers the
                               ordinary :rf/default frame on demand (NOT a
-                              runtime path; init! no longer calls it).
+                              runtime path; init! does not call it).
 
-  Per rf2-agql `(rf/init! ...)` requires an explicit adapter spec map.
+  `(rf/init! ...)` requires an explicit adapter spec map.
   The no-arg form and the keyword form are both errors; the only
   legal call shape is `(rf/init! adapter-map)`.
 
@@ -47,7 +47,7 @@
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
   ;; Wipe both the install slot AND the disposed breadcrumb so each test
-  ;; starts from a never-installed cold state (rf2-6wxys). A plain
+  ;; starts from a never-installed cold state. A plain
   ;; `dispose-adapter!` would leave the breadcrumb true after the first
   ;; test that installed, biasing every subsequent throw assertion toward
   ;; `:rf.error/adapter-disposed` rather than `:rf.error/no-adapter-installed`.
@@ -100,12 +100,12 @@
         ":rf/default is still absent after two init! calls")))
 
 (deftest init-rejects-a-different-adapter
-  ;; rf2-kuky.1. `init!`'s guard used to ask "is ANYTHING seated?", so a
-  ;; second `init!` with a DIFFERENT adapter returned nil, left the first
-  ;; adapter seated and emitted nothing — the silent swallow Conventions
-  ;; §No silent swallow forbids. It now asks "is the adapter I was handed
-  ;; the seated one?" via `same-adapter?`, so a different adapter reaches
-  ;; `install-adapter!` and raises. The middle arm is the load-bearing
+  ;; `init!`'s guard asks "is the adapter I was handed the seated one?" via
+  ;; `same-adapter?`, so a different adapter reaches `install-adapter!` and
+  ;; raises. A guard asking "is ANYTHING seated?" would return nil on a
+  ;; second `init!` with a DIFFERENT adapter, leave the first adapter seated
+  ;; and emit nothing — the silent swallow Conventions §No silent swallow
+  ;; forbids. The middle arm is the load-bearing
   ;; control: it is what distinguishes this rule from a naive `=` /
   ;; `identical?` check, which would throw on every hot reload.
   (testing "init! with a DIFFERENT adapter raises :rf.error/adapter-already-installed"
@@ -140,8 +140,8 @@
     ;; Every adapter Var is a plain `def`, so a `^:dev/after-load` boot
     ;; re-calls init! with a structurally fresh map carrying fresh fn
     ;; identities. A canonical `:rf.adapter/*` :kind is a stable token that
-    ;; survives that re-evaluation (rf2-dkl5z1), so the re-call must stay
-    ;; the no-op it has always been. An `=` or `identical?` rule would
+    ;; survives that re-evaluation, so the re-call must be a no-op. An `=`
+    ;; or `identical?` rule would
     ;; throw here, which is why this arm exists.
     (rf.substrate.adapter/dispose-adapter!)
     (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
@@ -195,7 +195,7 @@
                    (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown)
           "a second install-adapter! call without an intervening dispose throws")
-      ;; rf2-vvixub — the message is now a human sentence carrying the
+      ;; The message is a human sentence carrying the
       ;; trailing [:rf.error/<id>] greppability token (Spec 009 §The
       ;; thrown-error shape); assert the token substring, NOT exact
       ;; equality. The canonical discriminator is :rf.error/id below.
@@ -388,19 +388,18 @@
       (is (identical? tenant-before (get @rf.frame/frames :tenant-x))
           "ensure-default-frame! leaves unrelated frames untouched"))))
 
-;; ---- (rf/init! ...) explicit-adapter contract (rf2-agql, rf2-3ubmv) ------
+;; ---- (rf/init! ...) explicit-adapter contract -----------------------------
 ;;
-;; Per rf2-agql `(rf/init! ...)` requires an explicit adapter spec map.
-;; Per rf2-3ubmv the no-arg arity was cut from the fn defn entirely so
-;; calling `(rf/init!)` raises a language-level ArityException at the
-;; call site rather than a runtime ex-info — earlier diagnosis, clearer
-;; stack trace, IDE-flaggable. The nil and keyword forms still raise
-;; :rf.error/no-adapter-specified at runtime (there is no default-
+;; `(rf/init! ...)` requires an explicit adapter spec map. The fn defn has
+;; no no-arg arity, so calling `(rf/init!)` raises a language-level
+;; ArityException at the call site rather than a runtime ex-info — earlier
+;; diagnosis, clearer stack trace, IDE-flaggable. The nil and keyword forms
+;; raise :rf.error/no-adapter-specified at runtime (there is no default-
 ;; adapter registry to fall back to and no keyword-to-adapter lookup
 ;; table).
 
 (deftest init-no-arg-raises-arity-exception
-  (testing "(rf/init!) with no args raises ArityException (rf2-3ubmv — the no-arg arity was cut)"
+  (testing "(rf/init!) with no args raises ArityException (there is no no-arg arity)"
     (is (nil? (rf.substrate.adapter/current-adapter))
         "precondition: no adapter installed")
     (let [thrown (try
@@ -458,15 +457,13 @@
     (is (zero? (default-frame-count))
         "no :rf/default frame is created by init! (EP-0002 — the runtime never synthesises a default)")))
 
-;; ---- current-adapter: ONE read, map-shaped (rf2-kuky.4 rider A-i) ----
+;; ---- current-adapter: ONE read, map-shaped --------------------------------
 ;;
-;; Per Spec 006 §Adapter introspection, folded under rf2-kuky.4: there is
-;; ONE adapter read and it answers the installed SPEC MAP. The former
-;; the second, keyword-returning read is gone, and with it the synthesised
-;; fallback kind — the discriminator is a KEY on the one map, so a kind-less
-;; adapter reads `(:kind (current-adapter))` as nil while the adapter is
-;; plainly present. That distinction is the reason the deletion is safe to
-;; make on a SURVIVING name: presence is a question about the MAP.
+;; Per Spec 006 §Adapter introspection there is ONE adapter read and it
+;; answers the installed SPEC MAP. There is no keyword-returning read and no
+;; synthesised fallback kind — the discriminator is a KEY on the one map, so
+;; a kind-less adapter reads `(:kind (current-adapter))` as nil while the
+;; adapter is plainly present: presence is a question about the MAP.
 
 (deftest current-adapter-returns-the-installed-map
   (testing "current-adapter returns the spec map passed to install"
@@ -476,7 +473,7 @@
     (is (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter))
         "current-adapter returns the exact map identity passed to init!")
     (is (map? (rf.substrate.adapter/current-adapter))
-        "current-adapter returns a MAP — the keyword-returning spelling is gone")
+        "current-adapter returns a MAP — there is no keyword-returning spelling")
     (is (fn? (:make-state-container (rf.substrate.adapter/current-adapter)))
         "the spec map carries the adapter contract fns")
     (is (fn? (:replace-container! (rf.substrate.adapter/current-adapter)))
@@ -494,8 +491,7 @@
 
 (deftest current-adapter-synthesises-no-custom-kind-for-a-kindless-map
   (testing "a kind-less adapter is PRESENT with a nil :kind — no :custom is
-            invented (rf2-kuky.4: the synthesised kind went with the keyword
-            spelling, and presence is a question about the MAP)"
+            invented (presence is a question about the MAP)"
     (let [kindless (dissoc rf.substrate.plain-atom/adapter :kind)]
       (rf.substrate.adapter/install-adapter! kindless)
       (is (identical? kindless (rf.substrate.adapter/current-adapter))
@@ -509,7 +505,7 @@
   (testing "dispose then install a different adapter — registrar survives, substrate state resets"
     ;; Boot under adapter A (plain-atom), register a handler, register a
     ;; non-default frame, and seed the default frame's app-db. Per EP-0002
-    ;; the runtime no longer synthesises :rf/default — this test declares it
+    ;; the runtime never synthesises :rf/default — this test declares it
     ;; explicitly (an ordinary id) and runs ambient ops inside an explicit
     ;; :rf/default scope, exactly as a single-frame app would.
     (rf/init! rf.substrate.plain-atom/adapter)
@@ -568,9 +564,9 @@
         (is (= 99 (rf/subscribe-once [:n] {:frame :rf/default}))
             "registered :seed event + :n sub still work end-to-end under adapter B")))))
 
-;; ---- substrate delegation: uniform no-adapter-installed throw (rf2-zdfi1) -
+;; ---- substrate delegation: uniform no-adapter-installed throw -------------
 ;;
-;; Per rf2-zdfi1 every substrate-delegation fn in
+;; Every substrate-delegation fn in
 ;; `re-frame.substrate.adapter` throws ONE shape when no adapter is
 ;; installed:
 ;;
@@ -579,14 +575,13 @@
 ;;    :recovery :no-recovery
 ;;    :reason   "<where> was called before (rf/init! ...); ..."}
 ;;
-;; Before rf2-zdfi1 only `make-state-container` threw structured ex-info;
-;; the other five required delegation fns (`read-container`,
-;; `replace-container!`, `make-derived-value`, `render`, `render-to-string`)
-;; plus the two optional fns (`subscribe-container`,
-;; `register-context-provider`) silently NPE'd on a nil adapter — strictly
-;; worse than a structured throw because background-thread NPEs are hard
-;; to diagnose and the ex-info shape did not match the documented
-;; missing-fn contract used elsewhere in core (rf2-h824v + rf2-uchhp).
+;; That covers every required delegation fn (`make-state-container`,
+;; `read-container`, `replace-container!`, `make-derived-value`, `render`,
+;; `render-to-string`) and the two optional fns (`subscribe-container`,
+;; `register-context-provider`). A nil adapter must not surface as an NPE —
+;; strictly worse than a structured throw because background-thread NPEs are
+;; hard to diagnose — and the ex-info shape matches the documented missing-fn
+;; contract used elsewhere in core.
 
 (defn- catch-no-adapter
   "Invoke `thunk` with no adapter installed; return the caught
@@ -611,7 +606,7 @@
         (let [thrown (catch-no-adapter thunk)]
           (is (some? thrown)
               (str where-sym " throws when called before (rf/init! ...)"))
-          ;; rf2-vvixub — message is a human sentence + the trailing
+          ;; The message is a human sentence + the trailing
           ;; [:rf.error/<id>] token; assert the token substring, not
           ;; exact keyword-equality. Canonical discriminator is :rf.error/id.
           (is (re-find #"\[:rf\.error/no-adapter-installed\]"
@@ -620,7 +615,7 @@
           (let [data (ex-data thrown)]
             ;; Per Spec 009 §The thrown-error shape: canonical
             ;; discriminator slot is `:rf.error/id` (require-adapter!
-            ;; now stamps it).
+            ;; stamps it).
             (is (= :rf.error/no-adapter-installed (:rf.error/id data))
                 (str where-sym " ex-data carries the canonical :rf.error/id discriminator"))
             (is (= where-sym (:where data))
@@ -633,11 +628,11 @@
                 (str where-sym " ex-data :reason names rf/init! as the recovery action"))))))))
 
 (deftest replace-container-nil-container-skips-adapter-check
-  (testing "replace-container! with a nil container short-circuits via the rf2-ft2b error path and does NOT consult the adapter slot"
+  (testing "replace-container! with a nil container short-circuits via the write-after-destroy error path and does NOT consult the adapter slot"
     ;; Defense-in-depth nil-container guard is checked BEFORE the
     ;; adapter lookup so a scheduled drain hitting a destroyed frame
     ;; does not produce a misleading 'no-adapter-installed' throw — it
-    ;; correctly emits :rf.error/write-after-destroy (EP-0008 / rf2-500ech)
+    ;; correctly emits :rf.error/write-after-destroy (EP-0008)
     ;; regardless of whether an adapter is installed.
     (is (nil? (rf.substrate.adapter/current-adapter))
         "precondition: no adapter installed")
@@ -646,9 +641,9 @@
     (is (nil? (rf.substrate.adapter/current-adapter))
         "the nil-container path did not consult or modify the adapter slot")))
 
-;; ---- disposed-vs-never-installed (rf2-6wxys) ------------------------------
+;; ---- disposed-vs-never-installed ------------------------------------------
 ;;
-;; Post-dispose runtime calls now raise `:rf.error/adapter-disposed`,
+;; Post-dispose runtime calls raise `:rf.error/adapter-disposed`,
 ;; distinct from `:rf.error/no-adapter-installed` (the fresh-process
 ;; case). Both states leave the install slot nil so a subsequent
 ;; install-adapter! works.
@@ -697,7 +692,7 @@
         (let [thrown (catch-no-adapter thunk)]
           (is (some? thrown)
               (str where-sym " throws when called after dispose-adapter!"))
-          ;; rf2-vvixub — message is a human sentence + the trailing
+          ;; The message is a human sentence + the trailing
           ;; [:rf.error/<id>] token; assert the token substring, not
           ;; exact keyword-equality. Canonical discriminator is :rf.error/id.
           (is (re-find #"\[:rf\.error/adapter-disposed\]"
