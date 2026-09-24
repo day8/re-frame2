@@ -17,12 +17,11 @@
 (def corpus
   "Authored prop key → the canonical React slot it emits into.
 
-  The codec's cache suite's copy of `slot-cljs-test`'s corpus, which
-  both hosts read. Every
-  branch of the rule is represented, and every spelling the codec accepts
-  appears at least once — because a rule written against the spelling is
-  a rule the other spellings walk past, and a corpus that only carries
-  bare kebab keywords could not tell."
+  The codec's cache suite reads this copy; the one both hosts read is
+  `slot-cljs-test`'s. Every branch of the rule is represented, and every
+  spelling the codec accepts appears at least once — because a rule
+  written against the spelling is a rule the other spellings walk past,
+  and a corpus that only carries bare kebab keywords could not tell."
   {;; the three React renames — the RULE, so they hold for every spelling
    :class          "className"
    :className      "className"
