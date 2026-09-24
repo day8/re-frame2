@@ -413,10 +413,10 @@
 (deftest the-dismissal-word-ladder-is-complete-in-the-server-bytes
   (testing "the rows above pin the DEFAULT arms — `closerequest` on the
             modal and `auto` on the popover. These are the other three:
-            the whole dismissal policy
-            is one platform attribute, so each arm is decidable as server
-            bytes, and an arm that rots is a desync between the app's
-            open flag and the platform's own close behaviour"
+            the whole dismissal policy is one platform attribute, so each
+            arm is decidable as server bytes, and an arm that rots is a
+            desync between the app's open flag and the platform's own
+            close behaviour"
     (testing "a modal with no :on-dismiss honours no close request"
       (fresh! true)
       (let [html (server-html [undismissable-modal-page {}])]
