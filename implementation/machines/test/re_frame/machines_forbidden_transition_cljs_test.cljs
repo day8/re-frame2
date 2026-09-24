@@ -52,7 +52,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; (a) `{:on {:logout {}}}` on a child BLOCKS the parent's inherited :logout
-;;     (the existing empty-map block — internal no-op, state unchanged)
+;;     (the empty-map block — internal no-op, state unchanged)
 ;; ---------------------------------------------------------------------------
 
 (deftest empty-map-child-entry-blocks-parent-inherited-transition
@@ -83,7 +83,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest nil-child-entry-also-blocks-parent-inherited-transition
-  (testing "child `{:on {:logout nil}}` ALSO blocks (rf2-16gxd nil-blocks — was a fallthrough)"
+  (testing "child `{:on {:logout nil}}` ALSO blocks"
     (let [machine
           {:initial :authenticated
            :data    {}
@@ -106,8 +106,8 @@
           "the present-nil child entry matched + halted the walk — parent :logout NOT inherited; state unchanged"))))
 
 ;; ---------------------------------------------------------------------------
-;; (c) a child with NO :logout entry STILL INHERITS the parent's (regression)
-;;     — absence ≠ block. This is the case the present-nil must NOT regress.
+;; (c) a child with NO :logout entry INHERITS the parent's — absence ≠
+;;     block. Only a PRESENT key blocks; an absent one never does.
 ;; ---------------------------------------------------------------------------
 
 (deftest absent-child-entry-still-inherits-parent-transition
@@ -241,7 +241,7 @@
           "state unchanged — the block consumed the event"))))
 
 (deftest forbidden-block-contrasts-with-guard-blocked-fallthrough
-  (testing "CONTRAST: a GUARD-BLOCKED exact DOES fall through to :* (rf2-icj9t) — proving the block is the difference"
+  (testing "CONTRAST: a GUARD-BLOCKED exact DOES fall through to :* — proving the block is the difference"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
@@ -264,6 +264,6 @@
       (reset! log [])
       (rf/dispatch-sync [:forbid/guard-contrast [:auth/logout]])
       (is (= [:leaf-star] @log)
-          "guard-blocked exact is NOT enabled → falls through to the same-level :* (rf2-icj9t)")
+          "guard-blocked exact is NOT enabled → falls through to the same-level :*")
       (is (not (some #{:blocked} @log))
           "the guard-blocked action did not run"))))
