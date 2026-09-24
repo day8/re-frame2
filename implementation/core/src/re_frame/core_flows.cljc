@@ -19,9 +19,9 @@
   Not a public name of its own — the public door is `(rf/clear :flow id)` /
   `(rf/clear :flow id {:frame f})`, which is why `:where` names it.
 
-  The 1-arity DELEGATES rather than recurring into the 2-arity with `{}`
-  (rf2-kuky.80). Once the owning `clear-flow`'s opts became EXACT, `{}` was a
-  value the validator rejects, so the old `([id] [id {}])` would have turned
+  The 1-arity DELEGATES rather than recurring into the 2-arity with `{}`:
+  the owning `clear-flow`'s opts are EXACT, so `{}` is a
+  value the validator rejects, and `([id] [id {}])` would turn
   every ambient clear into a throw. An omitted opts must reach the owning
   fn's own AMBIENT arity, never be normalised into its 2-arity."
   {:hook :flows/clear-flow :artefact flows-artefact :on-absent :throw
@@ -36,7 +36,7 @@
   route here, so the late-bind logic and the missing-artefact error
   message live in one place.
 
-  Per the canonical Spec 001 3-slot grammar (rf2-bqstzr): `(reg-flow
+  Per the canonical Spec 001 3-slot grammar: `(reg-flow
   flow-id metadata derive-fn)` — the pure `:derive` fn is the THIRD slot,
   the middle slot is the reflection-config metadata map (`:inputs`,
   `:output-path`, `:doc`, `:schema`, EP-0025 classification keys, and the
