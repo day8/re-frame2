@@ -35,9 +35,9 @@
 
   ## Token integration
 
-  All colours read from `theme/tokens` so a future palette swap
-  flows through unchanged. The tokens themselves resolve through CSS
-  custom properties (`var(--*)`); no hex literals appear in this ns.
+  All colours read from the active-theme chart tokens (`palette-of`,
+  resolved from `theme/tokens`) so a palette swap flows through
+  unchanged; no hex literals appear in this ns.
 
   ## Substrate posture
 
@@ -1000,10 +1000,9 @@
 ;; wired END-TO-END (Spec 005 §History states): `chart.layout/collect-
 ;; nodes` detects a `:type :history` node and emits a single
 ;; `{:history? true :deep? <bool> :default-target …}` marker (NEVER
-;; occupiable — layout.cljc:360-375); `chart.projection/xyflow-graph`
-;; maps a `:history?` node to xyflow type `"history-marker"` and threads
-;; `:data {:deep …}` (projection.cljc:731/785); this renderer paints `H`
-;; / `H*` (below, :696). History topology is therefore PARSED, EMITTED,
+;; occupiable); `chart.projection/xyflow-graph` maps a `:history?` node
+;; to xyflow type `"history-marker"` and threads `:data {:deep …}`; this
+;; renderer paints `H` / `H*` (below). History topology is therefore PARSED, EMITTED,
 ;; and PAINTED. Constants (`:pseudo-*`) carry the shallow/deep variant.
 
 (defn history-marker
@@ -1045,8 +1044,7 @@
 
 ;; There is no `final-marker` node type. The projector only ever emits
 ;; `initial-marker` nodes; final states paint the quiet doubled ring
-;; inline on `state-node` (no glyph). An end-state-as-node `[*]` pattern,
-;; if it ever lands, would file its own bead.
+;; inline on `state-node` (no glyph).
 
 ;; ---- node-types map -----------------------------------------------------
 
