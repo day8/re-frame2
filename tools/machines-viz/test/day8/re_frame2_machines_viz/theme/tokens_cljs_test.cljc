@@ -1,21 +1,17 @@
 (ns day8.re-frame2-machines-viz.theme.tokens-cljs-test
   "Pure-data tests for the machines-viz theme/tokens helpers
-  (rf2-pyvmr — with-alpha;
-   rf2-xfx6l — motion/duration-css).
+  (with-alpha; motion/duration-css).
 
-  rf2-dt5b1 — the `tag-pill-color` / `tag-pill-palette` deterministic
-  colour rotation (rf2-m1b88 / rf2-a2b55) was RETIRED: `chart.nodes/`
-  `tag-pill` renders every chip in one neutral style (structure wins
-  over annotation colour for the topology view), so the rotation
-  coloured nothing the renderer paints. The pill row itself + its
-  geometry keys remain. The shared `edge-color` stroke + arrowhead
-  colour helper (rf2-dt5b1) is pinned at the end of this ns."
+  `chart.nodes/tag-pill` renders every chip in one neutral style
+  (structure wins over annotation colour for the topology view), so the
+  tokens carry no per-tag colour rotation. The shared `edge-color` stroke
+  + arrowhead colour helper is pinned at the end of this ns."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.string :as str]
             [day8.re-frame2-machines-viz.theme.tokens :as tokens]))
 
-;; ---- with-alpha (rf2-pyvmr) --------------------------------------------
+;; ---- with-alpha --------------------------------------------------------
 
 (deftest with-alpha-builds-rgba-string-from-hex-token
   (testing "with-alpha resolves :info (#79c0ff) to rgba(121, 192, 255, alpha)"
@@ -36,10 +32,10 @@
       (is (= "rgba(0, 0, 0, 0.25)"
              (tokens/with-alpha :info 0.25 custom))))))
 
-;; ---- light palette (rf2-usord) -----------------------------------------
+;; ---- light palette -----------------------------------------------------
 
 (deftest light-palette-exists-and-mirrors-dark-shape
-  (testing "rf2-usord — light-palette exposes the same keys as
+  (testing "light-palette exposes the same keys as
             dark-palette so callers can swap palettes without losing
             tokens. The HEX values are independent (light theme inverts
             lightness + darkens accents for contrast on a white
@@ -48,7 +44,7 @@
            (set (keys tokens/light-palette))))))
 
 (deftest light-palette-inverts-surface-lightness
-  (testing "rf2-ad7zx.13 — light theme bg-0 is the LIGHTEST recess
+  (testing "light theme bg-0 is the LIGHTEST recess
             (#fbfbfb) while dark theme bg-0 is the DEEPEST canvas
             (#161616)."
     (is (= "#161616" (:bg-0 tokens/dark-palette)))
@@ -57,14 +53,14 @@
     (is (= "#24292f" (:text-primary tokens/light-palette)))))
 
 (deftest palettes-map-exposes-both-themes
-  (testing "rf2-usord — palettes map keys both themes by name so the
+  (testing "palettes map keys both themes by name so the
             substrate-adapter MachineChart re-exports can resolve via
             `(get palettes theme)` without per-theme conditionals."
     (is (= tokens/dark-palette  (:dark  tokens/palettes)))
     (is (= tokens/light-palette (:light tokens/palettes)))))
 
 (deftest with-alpha-resolves-through-custom-palette
-  (testing "rf2-usord — with-alpha already supports a custom palette
+  (testing "with-alpha takes a custom palette
             arg; this test pins the LIGHT-palette path so chart code
             can resolve tints against the light theme without forking
             the helper."
@@ -72,7 +68,7 @@
       ;; Light :info is #0550ae → rgba(5, 80, 174, 0.5)
       (is (= "rgba(5, 80, 174, 0.5)" s)))))
 
-;; ---- css-var (rf2-uv1on) -----------------------------------------------
+;; ---- css-var -----------------------------------------------------------
 
 (deftest css-var-resolves-to-var-with-hex-fallback
   (testing "css-var builds var(--rf-xray-<key>, <hex>) so a host that
@@ -100,7 +96,7 @@
             it; no garbage fallback)"
     (is (= "var(--rf-xray-not-a-token)" (tokens/css-var :not-a-token)))))
 
-;; ---- motion seam (rf2-xfx6l) -------------------------------------------
+;; ---- motion seam -------------------------------------------------------
 
 (deftest duration-css-interpolates-scale-var
   (testing "duration-css produces a calc() string that interpolates
@@ -110,14 +106,14 @@
 
 (deftest motion-publishes-canonical-durations
   (testing "motion catalogues the glow ms so the chart can read it
-            without forking the numbers. The `:pulse-duration-ms`
-            entry was retired with rf2-2sez0 (heartbeat-pulse
-            animation removed 2026-05-20)."
+            without forking the numbers. It carries no
+            `:pulse-duration-ms` entry: the chart has no heartbeat-pulse
+            animation."
     (is (pos? (:glow-duration-ms tokens/motion)))
     (is (nil? (:pulse-duration-ms tokens/motion))
-        "pulse-duration-ms removed (rf2-2sez0)")))
+        "no pulse-duration-ms entry")))
 
-;; ---- fired/focused glow is event-driven + finite (rf2-4o43j8) ----------
+;; ---- fired/focused glow is event-driven + finite -----------------------
 ;;
 ;; The fired/focused edge + event-node glow MUST NOT loop. Per
 ;; `spec/Principles.md` §chart animation it fires ONE iteration on a
@@ -125,11 +121,11 @@
 ;; static fired/focused affordance (stroke/hue/glow) persists. The
 ;; duration MUST flow through the `--rf-xray-motion-scale` seam so
 ;; `prefers-reduced-motion: reduce` collapses it to a settle frame.
-;; The previous string (`mv-chart-transition-glow 720ms ease-out
-;; infinite`) violated all three; these pins guard the regression.
+;; A shorthand like `mv-chart-transition-glow 720ms ease-out infinite`
+;; would violate all three; these pins guard against it.
 
 (deftest glow-animation-is-finite-not-infinite
-  (testing "rf2-4o43j8 — the fired/focused glow shorthand carries NO
+  (testing "the fired/focused glow shorthand carries NO
             `infinite` keyword (it must not strobe for as long as the
             host leaves the arm focused)."
     (let [css (tokens/glow-animation-css)]
@@ -137,7 +133,7 @@
           "no `infinite` — the glow is event-driven, not a loop"))))
 
 (deftest glow-animation-plumbs-motion-scale
-  (testing "rf2-4o43j8 — the glow duration interpolates the
+  (testing "the glow duration interpolates the
             `--rf-xray-motion-scale` custom property (the canonical
             reduced-motion seam), so `prefers-reduced-motion: reduce`
             collapses the flash to a single settle frame."
@@ -148,7 +144,7 @@
           "uses the canonical glow-duration-ms (no forked literal)"))))
 
 (deftest glow-animation-settles-to-stable-end-state
-  (testing "rf2-4o43j8 — the glow plays ONE iteration and holds its
+  (testing "the glow plays ONE iteration and holds its
             final keyframe (`forwards`), settling to a stable
             end-state rather than reverting / re-pulsing."
     (let [css (tokens/glow-animation-css)]
@@ -162,10 +158,10 @@
       (is (not (str/includes? css "infinite"))
           "no `infinite` — exactly one flash (default iteration-count 1)"))))
 
-;; ---- chart semantic tokens + theme resolution (rf2-az6e2) --------------
+;; ---- chart semantic tokens + theme resolution --------------------------
 
 (deftest theme-palette-resolves-dark-and-light
-  (testing "rf2-az6e2 — `theme-palette` maps the `:theme` prop keyword
+  (testing "`theme-palette` maps the `:theme` prop keyword
             to its base palette; nil / unknown falls back to the dark
             palette (the Xray default surface)."
     (is (= tokens/dark-palette  (tokens/theme-palette :dark)))
@@ -174,7 +170,7 @@
     (is (= tokens/dark-palette  (tokens/theme-palette :sepia)))))
 
 (deftest chart-tokens-is-a-map-of-strings
-  (testing "rf2-az6e2 — `chart-tokens` resolves every semantic chart
+  (testing "`chart-tokens` resolves every semantic chart
             role to a non-nil hex / rgba string. A nil here would
             propagate a literal 'null' into a node/edge inline style."
     (doseq [palette [tokens/dark-palette tokens/light-palette]]
@@ -184,12 +180,12 @@
             "every chart-token role resolves to a string")))))
 
 (deftest chart-tokens-default-is-dark
-  (testing "rf2-az6e2 — the no-arg arity resolves the dark surface so a
+  (testing "the no-arg arity resolves the dark surface so a
             renderer that never threads a palette still paints dark."
     (is (= (tokens/chart-tokens) (tokens/chart-tokens tokens/dark-palette)))))
 
 (deftest chart-tokens-theme-differs-between-palettes
-  (testing "rf2-az6e2 — theme support is REAL: the resolved chart-token
+  (testing "theme support is REAL: the resolved chart-token
             map differs between dark and light (a renderer reading the
             active palette paints the active theme, not a hardwired dark
             alias). The :state-body-bg role tracks the palette's bg-2,
@@ -201,7 +197,7 @@
       (is (= (:bg-2 tokens/light-palette) (:state-body-bg light))))))
 
 (deftest chart-tokens-runtime-accents-reserved
-  (testing "rf2-az6e2 — structure wins over annotation colour: the
+  (testing "structure wins over annotation colour: the
             STATIC structural roles (container/region border, state
             border, event-chip) are neutral (palette border/bg tokens),
             while the accent (`:focus`) + active (`:active`) roles are
@@ -216,7 +212,7 @@
       (is (not= (:accent tokens/dark-palette) (:container-border ct))))))
 
 (deftest chart-tokens-final-error-is-error-hue
-  (testing "rf2-b4loj — `:final-error` (the error-final OUTER-RING hue)
+  (testing "`:final-error` (the error-final OUTER-RING hue)
             resolves to the palette's `:error` token in BOTH themes, and
             is DISTINCT from the quiet success-final ring role (`:final`).
             A static error-hue signalling an `:error?` terminal — a
@@ -231,12 +227,12 @@
         (is (string? (:final-error ct)))))))
 
 (deftest chart-label-stack-is-sans
-  (testing "rf2-az6e2 — the chart-label font token is sans (structure-
-            first reading); recorded decision: mono retained only for
-            the raw-EDN context panel."
+  (testing "the chart-label font token is sans (structure-
+            first reading); mono is reserved for the raw-EDN context
+            panel."
     (is (= tokens/sans-stack tokens/chart-label-stack))))
 
-;; ---- edge-color — shared stroke + arrowhead colour (rf2-dt5b1) ---------
+;; ---- edge-color — shared stroke + arrowhead colour ---------------------
 ;;
 ;; `tokens/edge-color` is the SINGLE source both `chart.edges/edge-stroke`
 ;; (the SVG path) and `chart.projection` (the arrowhead `:markerEnd`
@@ -245,7 +241,7 @@
 ;; quiet.
 
 (deftest edge-color-fired-wins
-  (testing "rf2-dt5b1 — `fired?` wins over `focused?` / `active?`: a
+  (testing "`fired?` wins over `focused?` / `active?`: a
             fired-this-epoch edge reads as 'what just happened'."
     (let [ct (tokens/chart-tokens)]
       (is (= (:edge-fired ct)
@@ -254,7 +250,7 @@
              (tokens/edge-color ct {:fired? true}))))))
 
 (deftest edge-color-focused-or-active-is-active-hue
-  (testing "rf2-dt5b1 — focused OR active (but not fired) → the ACTIVE
+  (testing "focused OR active (but not fired) → the ACTIVE
             hue; the two share one treatment."
     (let [ct (tokens/chart-tokens)]
       (is (= (:edge-active ct) (tokens/edge-color ct {:focused? true})))
@@ -263,17 +259,17 @@
              (tokens/edge-color ct {:focused? true :active? true}))))))
 
 (deftest edge-color-resting-is-quiet
-  (testing "rf2-dt5b1 — no flags (the resting / quiet segment) → the
+  (testing "no flags (the resting / quiet segment) → the
             QUIET hue."
     (let [ct (tokens/chart-tokens)]
       (is (= (:edge-quiet ct) (tokens/edge-color ct {})))
       (is (= (:edge-quiet ct)
              (tokens/edge-color ct {:fired? false :focused? false :active? false}))))))
 
-;; ---- guard-blocked edge hue (rf2-fzrzlw) -------------------------------
+;; ---- guard-blocked edge hue --------------------------------------------
 
 (deftest chart-tokens-guard-blocked-is-pink
-  (testing "rf2-fzrzlw — `:edge-guard-blocked` resolves to the palette's
+  (testing "`:edge-guard-blocked` resolves to the palette's
             PINK `:magenta-pink` token in BOTH themes, and is DISTINCT
             from the fired/active/quiet edge hues AND the red `:final-error`
             terminal ring (a pink 'blocked' signal, not a red error)."
@@ -289,7 +285,7 @@
             "pink blocked-edge is distinct from the red error-final ring")))))
 
 (deftest edge-color-blocked-wins-outright
-  (testing "rf2-fzrzlw design call (2) — `blocked?` wins OUTRIGHT over
+  (testing "`blocked?` wins OUTRIGHT over
             fired / focused / active so the attempted-and-rejected edge
             paints the PINK guard-blocked hue, standing out from the
             affordance-blue exits."
@@ -302,8 +298,8 @@
           "blocked beats fired + focused + active all at once"))))
 
 (deftest edge-color-unblocked-falls-through-to-fired-ladder
-  (testing "rf2-fzrzlw — `blocked? false` (or absent) leaves the existing
-            fired > focused/active > quiet ladder intact (no regression)."
+  (testing "`blocked? false` (or absent) falls through to the
+            fired > focused/active > quiet ladder."
     (let [ct (tokens/chart-tokens)]
       (is (= (:edge-fired ct)
              (tokens/edge-color ct {:blocked? false :fired? true})))
