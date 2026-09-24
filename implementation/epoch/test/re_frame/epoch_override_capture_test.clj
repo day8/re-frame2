@@ -1,5 +1,5 @@
 (ns re-frame.epoch-override-capture-test
-  "rf2-yigokd — `:rf/epoch-record` captures the envelope's SERIALIZABLE
+  "`:rf/epoch-record` captures the envelope's SERIALIZABLE
   `:fx-overrides` / `:interceptor-overrides` so a Tool-Pair strict replay can
   re-supply them beside `:rf.cofx` (Spec-Schemas §`:rf/epoch-record`,
   Tool-Pair §Replay). Proves:
@@ -9,16 +9,14 @@
        re-supplying the CAPTURED map on a fresh dispatch reproduces the same
        redirect — the 'strict replay re-supplies the captured override keys'
        contract, exercised here at the core+epoch layer. (The Tool-Pair
-       pair-mcp dispatch-tool re-supply WIRING is a separate, already-tracked
-       follow-up slice — Slice 3 of the ruling — not this dispatch's scope.)
+       pair-mcp dispatch-tool re-supply WIRING is not exercised here.)
     3. A fn-valued `:fx-overrides` entry is marker-ized to `:rf/fn-override`
        at capture — the fn itself NEVER rides the record.
     4. A per-call `:interceptor-overrides` entry is captured verbatim and
        EDN round-trips through the record; re-supplying it reproduces the
        removal.
     5. The per-frame override tier is explicitly OUT of scope — the record
-       reflects only the envelope's own per-call + lexical keys, per the
-       ruling's pinned scope."
+       reflects only the envelope's own per-call + lexical keys."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
