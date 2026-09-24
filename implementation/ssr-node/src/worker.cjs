@@ -1,5 +1,5 @@
 'use strict';
-// THE ISOLATE'S INSIDE (rf2-hic-056).
+// THE ISOLATE'S INSIDE.
 //
 // One worker thread is one isolate: its own V8 heap, its own module
 // registry, its own copy of the application's server bundle. That is not
@@ -52,11 +52,10 @@
 // below is built from counters and clocks this file owns; the render
 // module's return value contributes nothing to it and cannot.
 //
-// It is REFUSED rather than dropped, and that distinction is the whole
-// finding this file was reopened for. The service shipped with the return
-// value forwarded to the caller as `meta`; the HTTP transport happened not
-// to serialise it, so nothing was observably wrong, and "the current
-// transport drops it" was silently standing in for a guarantee — while the
+// It is REFUSED rather than dropped, and that distinction matters. A return
+// value forwarded to the caller — as `meta`, say — over an HTTP transport
+// that happens not to serialise it would look fine, with "the current
+// transport drops it" silently standing in for a guarantee, while the
 // in-process `renderFrames`/`renderToString` API, and any future socket or
 // pipe adapter, carried it in full. A channel that is quietly discarded is
 // a channel someone restores later because nothing appeared to be using
@@ -80,14 +79,14 @@ const postMessage = (message) => parentPort.postMessage(message);
  * the refusal costs nothing. The caller across the wire is a different
  * process on a different machine holding a contract; the operator is
  * inside this one, already reading its output. So the exception goes where
- * an operator already looks and stops going where a contract is published.
+ * an operator already looks and never where a contract is published.
  *
- * NOT A NEW SUBSYSTEM. `bin/serve.cjs` already writes `[rf.ssr-node] …` to
+ * NO SEPARATE SUBSYSTEM. `bin/serve.cjs` writes `[rf.ssr-node] …` to
  * stderr, and this is that stream under that prefix — a worker thread's
  * stderr is piped to the parent process's, so a line written here lands in
  * the sidecar's log beside the rest. There is no flag: a diagnostic that
  * can be switched off is one that is off on the day it is wanted, and this
- * is the only remaining copy of the exception.
+ * is the only copy of the exception.
  *
  * The stack, not the message alone. It opens with the error's own name and
  * message, so nothing is dropped by preferring it, and it adds the frames
@@ -111,12 +110,13 @@ function boot() {
   } catch (err) {
     // NO `stack`. The parent's boot receiver builds its `Refusal` from
     // `code` and `message` and names the module path itself; a stack
-    // posted here was serialised across the thread boundary and dropped,
-    // while reading as though the application's trace survived into the
-    // refusal. The live diagnostic is the parent's `worker.on('error')`
-    // handler, which has the real `Error` and keeps its stack.
+    // posted here would be serialised across the thread boundary and
+    // dropped, while reading as though the application's trace survived
+    // into the refusal. The live diagnostic is the parent's
+    // `worker.on('error')` handler, which has the real `Error` and keeps
+    // its stack.
     //
-    // Nullish-safe for the same reason that handler is (rf2-3x7nj.15.1): a
+    // Nullish-safe for the same reason that handler is: a
     // module that throws `null` at boot would otherwise be refused with
     // "Cannot read properties of null", which says nothing about the module.
     postMessage({
@@ -219,10 +219,10 @@ async function handleRender(renderId, request) {
     // other value arriving here was typed by someone, and `return null`
     // most of all — it is the spelling a render module reaches for to
     // mean "nothing to say", which is the sentence `emit` has already
-    // finished. So the one value this door admitted for a commit was the
-    // one most likely to actually arrive. A door with a single exception
-    // is not fail-closed, it is fail-closed EXCEPT, and the exception was
-    // sitting on the most probable path rather than an exotic one.
+    // finished. So admitting `null` would admit the one value most likely
+    // to actually arrive. A door with a single exception is not
+    // fail-closed, it is fail-closed EXCEPT, and this exception would sit
+    // on the most probable path rather than an exotic one.
     //
     // The refusal names the SHAPE and never the value. A diagnostic that
     // echoed what the module tried to return would be the same egress
@@ -253,11 +253,10 @@ async function handleRender(renderId, request) {
   } catch (err) {
     // THE EXCEPTION DOOR, and it is the same door as the egress door
     // above — a render module leaves this isolate by returning or by
-    // throwing, and for a while only one of the two was watched.
+    // throwing, and both are watched.
     //
-    // What used to be here was `code: err.code ?? …, message: err.message
-    // ?? …, detail: err.detail ?? {}`: three application-authored fields
-    // copied straight onto the protocol, and from there into the public
+    // Copying `err.code`, `err.message` and `err.detail` onto the protocol
+    // would put three application-authored fields into the public
     // `Refusal` and the HTTP JSON body. That reads as diagnostic
     // generosity and it is the very leak the return door refuses, arriving
     // through the other one. It is also the LIKELIER of the two, which is
@@ -279,8 +278,8 @@ async function handleRender(renderId, request) {
     // reasoning `requestId` gets on the `complete` frame — and
     // `afterChunks` is counted here. Neither originates in the module.
     //
-    // NOTHING IS LOST BY IT, because a refusal was never where an operator
-    // read a stack anyway. The real exception goes to stderr below, in
+    // NOTHING IS LOST BY IT, because a refusal is not where an operator
+    // reads a stack anyway. The real exception goes to stderr below, in
     // full; see `reportRenderException`.
     reportRenderException(request.entry, err);
     postMessage({
@@ -291,10 +290,10 @@ async function handleRender(renderId, request) {
       detail: { entry: request.entry },
       // NO `stack`, for the reason the boot path gives: the render
       // receiver reads `code`, `message`, `detail` and `afterChunks`, so a
-      // stack posted here crossed the boundary only to be dropped — a
+      // stack posted here would cross the boundary only to be dropped — a
       // path-bearing application trace serialised on every render throw,
-      // and a field that made it look as though the trace reached the
-      // refusal. It does not, and the egress rows are why it must not.
+      // and a field that would make it look as though the trace reached
+      // the refusal. It does not, and the egress rows are why it must not.
       // A caller that already received chunks cannot be told "instead of"
       // any more, and this says so rather than pretending otherwise. The
       // service turns a post-chunk failure into a torn response the
@@ -314,8 +313,8 @@ parentPort.on('message', (message) => {
     handleRender(message.id, message.request).catch((err) => {
       // Service-owned here too. `handleRender` catches the module's own
       // throw, so anything reaching this last-resort arm is a fault in
-      // THIS file rather than in the render — but `String(err)` was still
-      // an unbounded string on the response protocol, and a law with one
+      // THIS file rather than in the render — but `String(err)` would still
+      // be an unbounded string on the response protocol, and a law with one
       // arm that states it differently is a law with a way around it. The
       // operator gets the real one, as everywhere else on this path.
       reportRenderException(message.request?.entry, err);
