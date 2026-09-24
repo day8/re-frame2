@@ -1,6 +1,6 @@
 (ns re-frame.resources.revalidate-listeners
   "Host window-focus / network-reconnect listeners that feed the resource
-  revalidation events (rf2-vtblcq, EP-0003 slice 10). Per Spec 016 §Stale
+  revalidation events (EP-0003). Per Spec 016 §Stale
   and GC scheduling / §Deferred slices.
 
   TanStack Query's most visible magic is that stale ACTIVE data refreshes
@@ -29,24 +29,21 @@
   ## The frame lifecycle owns them — there is no install/remove fn
 
   Revalidation is a FRAME PROPERTY, declared by the `:revalidate-on`
-  frame-config key: a SET drawn from the closed enum `#{:focus :reconnect}`
-  (rf2-kuky.33). The frame lifecycle reconciles it — (re-)registration
+  frame-config key: a SET drawn from the closed enum `#{:focus :reconnect}`.
+  The frame lifecycle reconciles it — (re-)registration
   installs exactly the declared subset through the façade's
   `:resources/on-frame-registered!` hook, and frame destroy removes.
   Nothing is sequenced by hand, exactly as routing's `:url-bound?` key owns
-  the browser URL-change listener (rf2-g8pbwg, API-shrink #6): there is no
-  install/remove fn, on this namespace or on the façade. The retired
-  imperative pair is named in spec/API.md §Resources and is GONE
-  (pre-alpha, no back-compat shim).
+  the browser URL-change listener: there is no
+  install/remove fn, on this namespace or on the façade.
 
   The installed host handles live in this module-level side table keyed by
   frame-id (NOT runtime-db, NOT serialized — transient host state, exactly
   like the work-ledger handle table, the stale/GC timer table, and the
   generation high-water cache). They are cancelled on frame destroy via the
-  EXISTING single `:resources/on-frame-destroyed!` teardown hook the façade
+  single `:resources/on-frame-destroyed!` teardown hook the façade
   publishes — composed with the work-ledger + timer + generation host-cache
-  release (ONE hook, no second teardown path; the rf2-afpdkn / rf2-nbjewi
-  posture).
+  release (ONE hook, no second teardown path).
 
   ## JVM safety (CLJC reader conditionals)
 
@@ -188,7 +185,7 @@
   `nil` / an empty set installs nothing and REMOVES whatever the frame had —
   an explicit `#{}` is a legitimate \"none\", and a re-registration that drops
   the key relinquishes the listeners (the `:url-bound? false` relinquish rule
-  routing already uses). Members outside `revalidation-triggers` select no
+  routing also uses). Members outside `revalidation-triggers` select no
   listener. The event handlers do the scan + background refetch-by-policy;
   the listener only translates the host event into the frame-targeted
   resource event (the cause). Listeners are recorded in the host side table
