@@ -15,9 +15,9 @@
   These tests drive the REAL `rf.interop/schedule-after!` fire boundary so the
   timer-fire dispatch is router-stamped with a known fire-time clock value,
   then assert `:rf.reply/completed-at` rides the `:rf.machine.timer/fired`
-  and `:rf.machine.timer/stale-after` traces. rf2-o6c2jr — the reply MAP still
-  carries the canonical `:completed-at`; the trace-tag rows carry ONLY the
-  reply-envelope `:rf.reply/completed-at` (the bare duplicate was dropped)."
+  and `:rf.machine.timer/stale-after` traces. The reply MAP carries the
+  canonical `:completed-at`; the trace-tag rows carry ONLY the
+  reply-envelope `:rf.reply/completed-at`, with no bare duplicate."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
@@ -39,7 +39,7 @@
 ;; ---- pure reply-helper level ----------------------------------------------
 
 (deftest after-fired-reply-carries-completed-at
-  (testing "rf2-hawtjr — after-fired-reply threads :completed-at when supplied"
+  (testing "after-fired-reply threads :completed-at when supplied"
     (let [r (rf.machines.reply/after-fired-reply
               {:actor-id :a/m :state :loading :delay 5000
                :decl-path [:loading] :epoch 1 :frame :rf/default
@@ -55,7 +55,7 @@
             "no causal token ⇒ :completed-at omitted, not nil-filled")))))
 
 (deftest after-stale-reply-carries-completed-at
-  (testing "rf2-hawtjr — after-stale-reply threads :completed-at when supplied"
+  (testing "after-stale-reply threads :completed-at when supplied"
     (let [r (rf.machines.reply/after-stale-reply
               {:actor-id :a/m :state :loading :delay 5000
                :decl-path [:loading] :scheduled-epoch 1 :current-epoch 2
@@ -72,7 +72,7 @@
 ;; ---- integration: real fire boundary, trace-stamped --------------------
 
 (deftest after-fired-trace-carries-causal-completed-at
-  (testing "rf2-hawtjr — the :rf.machine.timer/fired trace carries the
+  (testing "the :rf.machine.timer/fired trace carries the
             firing dispatch's causal :completed-at (router-stamped fire-time
             :rf/time-ms), driven through the REAL schedule-after! boundary"
     (let [clock          (atom PARENT-TIME-MS)
@@ -106,9 +106,9 @@
                                        (true? (:fired? (:tags %)))))
                          first)]
           (is (some? fired) "a :rf.machine.timer/fired trace was emitted")
-          ;; rf2-o6c2jr — the causal completion time rides ONLY as the
-          ;; reply-envelope :rf.reply/completed-at (the bare :completed-at
-          ;; trace-tag duplicate was dropped).
+          ;; The causal completion time rides ONLY as the reply-envelope
+          ;; :rf.reply/completed-at (no bare :completed-at trace-tag
+          ;; duplicate).
           (is (= FIRE-TIME-MS (:rf.reply/completed-at (:tags fired)))
               "the fired trace carries the FRESH fire-time causal :rf.reply/completed-at")
           (is (not (contains? (:tags fired) :completed-at))
@@ -117,7 +117,7 @@
               "NOT the parent scheduling-time token"))))))
 
 (deftest after-stale-trace-carries-causal-completed-at
-  (testing "rf2-hawtjr — the :rf.machine.timer/stale-after trace carries the
+  (testing "the :rf.machine.timer/stale-after trace carries the
             firing dispatch's causal :completed-at"
     (let [m {:initial :idle
              :data    {}
@@ -143,8 +143,8 @@
                            (filter #(= :rf.machine.timer/stale-after (:operation %)))
                            first)]
             (is (some? stale) "a :rf.machine.timer/stale-after trace was emitted")
-            ;; rf2-o6c2jr — carries the causal time ONLY as the reply-envelope
-            ;; :rf.reply/completed-at (bare :completed-at duplicate dropped).
+            ;; Carries the causal time ONLY as the reply-envelope
+            ;; :rf.reply/completed-at (no bare :completed-at duplicate).
             (is (= FIRE-TIME-MS (:rf.reply/completed-at (:tags stale)))
                 "the stale-after trace carries the causal :rf.reply/completed-at")
             (is (not (contains? (:tags stale) :completed-at))
