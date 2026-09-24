@@ -3015,8 +3015,8 @@
   (testing "when a restored epoch changes the route slice, observable routing
   state follows. The route slice
   lives in the runtime-db partition at [:rf.runtime/routing :current] — NOT
-  under a legacy app-db :rf/runtime root (now a hard error) — and a
-  full-frame-state restore (decision #2) rewinds runtime-db with app-db."
+  under an app-db :rf/runtime root (a hard error) — and a
+  full-frame-state restore (EP-0001 decision #2) rewinds runtime-db with app-db."
     (rf/make-frame {:id :test/main})
     (rf/reg-route :route/home    {} "/")
     (rf/reg-route :route/article {} "/articles/:id")
@@ -3293,7 +3293,7 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (is (= {:n 0} (rf/app-db-value :test/main)))
-    ;; Pre-condition: depth 0 retains no history (the existing documented
+    ;; Pre-condition: depth 0 retains no history (the documented
     ;; behaviour) and no anchor has been set by the seed dispatch.
     (is (= [] (rf/epoch-history :test/main)) "depth 0 retains no ring history")
     (is (nil? (rf.epoch.state/last-settled-epoch-id :test/main))
@@ -3340,8 +3340,8 @@
         "no phantom anchor from any of the four")))
 
 (deftest replace-frame-state-app-only-positive-depth-still-records-undo-anchor
-  (testing "rf2-unpldn — the depth-0 reject does NOT regress the normal
-            positive-depth path: with depth > 0 the synthetic anchor still
+  (testing "the depth-0 reject leaves the normal
+            positive-depth path intact: with depth > 0 the synthetic anchor still
             lands and restore-epoch! of a prior epoch rewinds past the
             injection (the undo-works-after invariant holds)"
     (rf/configure! {:epoch-history {:depth 10}})
@@ -3364,36 +3364,37 @@
         (is (= {:n 7} (rf/app-db-value :test/main))
             "undo works after the injection — restore rewound past it")))))
 
-;; ---- rf2-2wntx — a halt record is a MARKER, never the settled state --------
+;; ---- a halt record is a MARKER, never the settled state -------------------
 ;;
 ;; `last-settled-epoch` names the last epoch that actually SETTLED: it is what
 ;; `restore-epoch!` rewinds to, what a post-settle render / sub-run / unmount
 ;; back-fills onto, and the source `commit-halt-record!` reads its own durable
 ;; frame-state snapshot from. A `:halted-depth` / `:halted-destroy` record
-;; describes an event that never ran, so it is a candidate for none of those —
-;; yet `commit-frame-owner-record!` anchored on EVERY published record.
+;; describes an event that never ran, so it is a candidate for none of those,
+;; and `commit-frame-owner-record!` anchors on an `:ok` record only.
 ;;
-;; The visible consequence is a refusal that reads as data loss: the newest
-;; epoch is the halt marker, `restore-epoch!` refuses a non-`:ok` target with
-;; `:rf.epoch/restore-non-ok-record`, and a pair tool asking to rewind to "now"
-;; is told it cannot — although the state that epoch names IS the live state.
+;; Anchoring on a halt marker would produce a refusal that reads as data loss:
+;; the newest epoch would be the halt marker, `restore-epoch!` refuses a
+;; non-`:ok` target with `:rf.epoch/restore-non-ok-record`, and a pair tool
+;; asking to rewind to "now" would be told it cannot — although the state that
+;; epoch names IS the live state.
 ;;
 ;; These sit beside the depth-0 phantom-anchor gates above because they are the
 ;; same invariant from the other side: an anchor must name a real, settled
-;; epoch, and the fix is to refuse to move it rather than to move it somewhere
+;; epoch, so a halt refuses to move it rather than moving it somewhere
 ;; plausible.
 
 (deftest drain-depth-halt-leaves-the-restore-anchor-on-the-last-ok-epoch
-  (testing "rf2-2wntx — a committed :halted-depth record does NOT take the
+  (testing "a committed :halted-depth record does NOT take the
             last-settled anchor, so restore of the anchored epoch still works"
     (rf/configure! {:epoch-history {:depth 50}})
     (rf/make-frame {:id :test/halt-anchor :drain-depth 4})
     (rf/reg-event :halt-seed (fn [_ _] {:db {:n 0}}))
     (rf/dispatch-sync [:halt-seed] {:frame :test/halt-anchor})
     ;; A GENUINE runaway — self-redispatching, so there really is a halting
-    ;; event at the seam and a real `:halted-depth` record is committed. (The
-    ;; router fix removes the OTHER producer, a clean cascade of exactly
-    ;; `:drain-depth` events; this pin is about what the epoch surface does
+    ;; event at the seam and a real `:halted-depth` record is committed. (A
+    ;; clean cascade of exactly `:drain-depth` events does not halt; this pin
+    ;; is about what the epoch surface does
     ;; with a halt record that is entirely legitimate.)
     (rf/reg-event :halt-loop
       (fn [{:keys [db]} _]
@@ -3407,25 +3408,25 @@
       ;; PRECONDITIONS — assert the halt actually happened and was actually
       ;; recorded. Without these the test passes vacuously on a tree where the
       ;; drain never reached the depth limit at all, which is precisely the
-      ;; state the sibling router fix produces for a NON-runaway cascade.
+      ;; state the router produces for a NON-runaway cascade.
       (is (= :halted-depth (:outcome head))
           "PRECONDITION: the runaway drain committed a :halted-depth record at
            the head of the ring")
       (is (= 4 (:n (rf/app-db-value :test/halt-anchor)))
           "PRECONDITION: exactly :drain-depth events settled before the halt")
-      ;; The defect.
+      ;; The invariant.
       (is (some? anchored) "the anchor names a real ring epoch")
       (is (not= (:epoch-id head) anchor)
           "the :halted-depth head did NOT take the last-settled anchor")
       (is (= :ok (:outcome anchored))
           "last-settled-epoch names an epoch that actually SETTLED")
       (is (true? (rf/restore-epoch! :test/halt-anchor anchor))
-          "restore-epoch! of the anchored epoch SUCCEEDS — with the anchor on
-           the halt record this refused with :rf.epoch/restore-non-ok-record,
-           although the state it named was the live state"))))
+          "restore-epoch! of the anchored epoch SUCCEEDS — an anchor on
+           the halt record would refuse with :rf.epoch/restore-non-ok-record,
+           although the state it names is the live state"))))
 
 (deftest commit-frame-owner-record-does-not-anchor-a-non-ok-record
-  (testing "rf2-2wntx — the anchor moves for an :ok record only; a non-:ok
+  (testing "the anchor moves for an :ok record only; a non-:ok
             record still publishes into the ring as a devtools marker"
     (rf/configure! {:epoch-history {:depth 50}})
     (rf/make-frame {:id :test/anchor-unit})
@@ -3458,7 +3459,7 @@
           "last-settled-epoch did NOT move onto the non-:ok record"))))
 
 (deftest commit-halt-record-commits-nothing-without-a-halting-event
-  (testing "rf2-2wntx — no halting envelope, no record"
+  (testing "no halting envelope, no record"
     (rf/configure! {:epoch-history {:depth 50}})
     (rf/make-frame {:id :test/halt-nil})
     (rf/reg-event :seed-h (fn [_ _] {:db {:n 1}}))
@@ -3470,7 +3471,7 @@
           halt-reason   {:operation :rf.error/drain-depth-exceeded :depth 4}]
       (is (pos? before-count) "PRECONDITION: the seed dispatch recorded an epoch")
       (is (some? before-anchor) "PRECONDITION: the seed anchored last-settled")
-      ;; The router can no longer reach this with a nil halting event, but the
+      ;; The router does not reach this with a nil halting event, but the
       ;; epoch surface must not DEPEND on that: the halting event's vector is
       ;; the only thing naming what a halt record is about, and a nameless one
       ;; still heads the ring.
@@ -3511,26 +3512,21 @@
     (is (= 42 (rf/subscribe-once [:n*2] {:frame :test/main}))
         "derived sub re-computes against the post-reset value")))
 
-;; rf2-t3lftq (API-shrink #3): the app-only-shaped and runtime-only-shaped
-;; artefact-missing checks were DELETED here — before the consolidation each
-;; partition mutator late-bound through its OWN hook
-;; (`:epoch/replace-app-db!` / `:epoch/replace-runtime-db!` /
-;; `:epoch/replace-frame-state!`), so each was independently worth pinning.
-;; Now every partial-map shape (app-only / runtime-only / both-partition)
+;; Every partial-map shape (app-only / runtime-only / both-partition)
 ;; routes through the SAME `:epoch/replace-frame-state!` hook and the SAME
 ;; `:where 'rf/replace-frame-state!` ex-data, so the shape of the map passed
-;; is irrelevant to this check — `replace-frame-state!-raises-when-epoch-
-;; artefact-missing` (below) is the ONE test for it now.
+;; is irrelevant to the artefact-missing check — `replace-frame-state!-raises-
+;; when-epoch-artefact-missing` (below) is the ONE test for it.
 
-;; ---- replace-frame-state! (runtime-only / both-partition, rf2-szbzei) -----
+;; ---- replace-frame-state! (runtime-only / both-partition) -----------------
 ;;
-;; Per Tool-Pair §Pair-tool writes the four partition-aware injection
-;; mutators are ALL epoch-backed dev/tooling writes — the app-db, runtime-db,
-;; and full-frame mutators all run through the one epoch-backed write path
-;; (rf2-szbzei). The invariants below mirror the app-db-pair tests above,
-;; proving the four contract points the bead enumerates:
+;; Per Tool-Pair §Pair-tool writes every partition shape of
+;; `replace-frame-state!` is an epoch-backed dev/tooling write — app-db,
+;; runtime-db and full-frame patches all run through the one epoch-backed
+;; write path. The invariants below mirror the app-db tests above,
+;; proving four contract points:
 ;;
-;;   1. A replace-runtime-db! / replace-frame-state! injection records a
+;;   1. A runtime-only or both-partition replace-frame-state! injection records a
 ;;      synthetic :rf.epoch/db-replaced epoch, and restore-epoch! of a PRIOR
 ;;      epoch rewinds PAST the injection.
 ;;   2. Boolean return (true on success).
@@ -3540,23 +3536,23 @@
 ;;      injection whose snapshot :data violates its machine's [:schemas :data] schema.
 
 (deftest replace-frame-state-runtime-only-replaces-runtime-only-preserving-app-db
-  (testing "replace-runtime-db! replaces ONLY the runtime-db partition
-            (app-db preserved); returns true on success"
+  (testing "a runtime-only replace-frame-state! patch replaces ONLY the
+            runtime-db partition (app-db preserved); returns true on success"
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7 :cart {:items [1 2]}}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (is (= {:n 7 :cart {:items [1 2]}} (rf/app-db-value :test/main)))
 
     (is (true? (rf/replace-frame-state! :test/main {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :home}}}}))
-        "replace-runtime-db! returns true on success")
+        "the runtime-only patch returns true on success")
     (is (= {:rf.runtime/routing {:current {:route-id :home}}}
            (:rf.db/runtime (rf/frame-state-value :test/main)))
         "runtime-db partition holds the injected value")
     (is (= {:n 7 :cart {:items [1 2]}} (rf/app-db-value :test/main))
-        "app-db partition is PRESERVED — replace-runtime-db! never touches it")))
+        "app-db partition is PRESERVED — a runtime-only patch never touches it")))
 
 (deftest replace-frame-state-runtime-only-records-undo-epoch-and-restore-rewinds-past
-  (testing "replace-runtime-db! records a synthetic :rf.epoch/db-replaced
+  (testing "a runtime-only patch records a synthetic :rf.epoch/db-replaced
             epoch so restore-epoch! can rewind PAST the runtime-db injection"
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
@@ -3591,7 +3587,7 @@
           "runtime-db rewound PAST the injection (the seed epoch carried no route)"))))
 
 (deftest replace-frame-state-runtime-only-failure-unknown-frame
-  (testing "replace-runtime-db! on an unknown frame returns false and emits
+  (testing "a runtime-only patch on an unknown frame returns false and emits
             :rf.error/no-such-handler (kind :frame)"
     (let [recorded (record-trace!)
           ok?      (rf/replace-frame-state! :no.such/frame {:rf.db/runtime {:rf.runtime/machines {}}})]
@@ -3603,9 +3599,9 @@
         (is (= :no.such/frame (:frame (:tags ev))))))))
 
 (deftest replace-frame-state-runtime-only-failure-during-drain
-  (testing "replace-runtime-db! called from inside a drain returns false and
-            emits :rf.epoch/replace-during-drain (the shared
-            four-mutator failure op); runtime-db unchanged by the rejected call"
+  (testing "a runtime-only patch called from inside a drain returns false and
+            emits :rf.epoch/replace-during-drain (the failure op every
+            partition shape shares); runtime-db unchanged by the rejected call"
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -3618,7 +3614,7 @@
           {:db db}))
       (rf/dispatch-sync [:try-rt] {:frame :test/main})
 
-      (is (false? @attempt) "replace-runtime-db! returned false from inside the drain")
+      (is (false? @attempt) "the runtime-only patch returned false from inside the drain")
       (is (nil? (get (:rf.db/runtime (rf/frame-state-value :test/main)) :rf.runtime/machines))
           "runtime-db unchanged — the in-drain injection was rejected")
       (let [ev (some (fn [ev]
@@ -3630,7 +3626,7 @@
         (is (= :test/main (:frame (:tags ev))))))))
 
 (deftest replace-frame-state-runtime-only-failure-schema-mismatch
-  (testing "replace-runtime-db! with a runtime-db whose machine snapshot :data
+  (testing "a runtime-only patch whose machine snapshot :data
             violates its registered [:schemas :data] schema returns false; emits
             :rf.epoch/replace-schema-mismatch; runtime-db unchanged"
     (rf/make-frame {:id :test/main})
@@ -3719,7 +3715,7 @@
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)
               "replace-frame-state! throws when the epoch artefact is absent")
-          ;; rf2-vvixub — assert the [:rf.error/<id>] token + canonical
+          ;; Assert the [:rf.error/<id>] token + canonical
           ;; :rf.error/id, not exact keyword-equality.
           (is (re-find #"\[:rf\.error/epoch-artefact-missing\]" (.getMessage thrown)))
           (is (= :rf.error/epoch-artefact-missing (:rf.error/id (ex-data thrown))))
@@ -3757,7 +3753,7 @@
       (is (= pre-rt (:rf.db/runtime (rf/frame-state-value :test/main)))
           "runtime-db unchanged too"))))
 
-;; ---- capture-event! skip-ops cross-contamination (rf2-htf28) ---------------
+;; ---- capture-event! skip-ops cross-contamination ---------------------------
 ;;
 ;; Every `:rf.epoch/*` op this namespace emits with a `:frame` tag fires
 ;; OUTSIDE a cascade (the drain has either not started, or has just
@@ -3882,9 +3878,9 @@
             out-of-cascade op set is DERIVED from the emit sites (source
             reality), NOT a hand-literal compared against another
             hand-literal, so a new op added to an emit site but forgotten
-            in `skip-ops` fails loudly (rf2-gba3ou — the prior
-            literal==literal shape was false-green: it missed
-            :rf.epoch/replace-history-disabled from BOTH literals)"
+            in `skip-ops` fails loudly (a literal==literal shape would
+            be false-green: an op missing from BOTH literals goes
+            unnoticed)"
     ;; --- (a) derive the emitted out-of-cascade op set from reality ------
     ;; The epoch artefact emits an :rf.epoch/* | :rf.epoch.cb/* |
     ;; :rf.warning/* OPERATION through three syntactic seams, all scanned here:
@@ -3913,31 +3909,31 @@
                                          (re-seq #"emit-error!\s+(:rf\.(?:epoch(?:\.cb)?|warning)/[a-z][a-z0-9-]*)"
                                                  src)))
           derived        (into emit-ops (concat fail-ops error-ops))
-          ;; Every :rf.epoch/* op the artefact emits today fires OUTSIDE a
+          ;; Every :rf.epoch/* op the artefact emits fires OUTSIDE a
           ;; cascade — the deliberate-enumeration design (capture.cljc
           ;; §skip-ops catalogue). If a FUTURE in-cascade :rf.epoch/* op is
           ;; introduced (e.g. an in-drain :rf.epoch/cascade-rollback trace)
           ;; it MUST surface in the epoch record — NOT be skipped — so list
           ;; it here to exempt it from the skip-ops obligation below. Empty
-          ;; today (no in-cascade :rf.epoch/* op exists yet).
+          ;; while no in-cascade :rf.epoch/* op exists.
           in-cascade     #{}
           out-of-cascade (set/difference derived in-cascade)
           ;; --- (b) the human-readable pin, kept honest against reality ----
           ;; This catalogue is ASSERTED equal to the scanned set below, so
-          ;; it can no longer silently drift (the rf2-gba3ou defect). Update
+          ;; it cannot silently drift. Update
           ;; it AND `skip-ops` when adding/removing an emitted op.
           expected       #{:rf.epoch/snapshotted
-                           :rf.epoch/outcome                  ;; rf2-18g1w
+                           :rf.epoch/outcome
                            :rf.epoch/restored
                            :rf.epoch/restore-unknown-epoch
                            :rf.epoch/restore-schema-mismatch
                            :rf.epoch/restore-missing-handler
                            :rf.epoch/restore-version-mismatch
                            :rf.epoch/restore-during-drain
-                           :rf.epoch/restore-non-ok-record    ;; rf2-v0jwt
+                           :rf.epoch/restore-non-ok-record
                            :rf.epoch/db-replaced
                            :rf.epoch/replace-during-drain
-                           :rf.epoch/replace-history-disabled ;; rf2-gba3ou / rf2-unpldn
+                           :rf.epoch/replace-history-disabled
                            :rf.epoch/replace-schema-mismatch
                            ;; Terminal exact-owner cleanup evidence: never
                            ;; input to a later incarnation's cascade.
@@ -3946,7 +3942,7 @@
                            :rf.warning/restore-quiesce-hook-exception}
           skip-ops       @#'rf.epoch.capture/skip-ops]
       ;; Anti-vacuity guard: an empty scanned set would make the SUPERSET
-      ;; assertion trivially true (the exact trap the old test fell into).
+      ;; assertion trivially true.
       ;; A zero-match regex or a broken source path fails HERE.
       (is (seq out-of-cascade)
           "emit-site scan resolved the epoch source (non-vacuous)")
