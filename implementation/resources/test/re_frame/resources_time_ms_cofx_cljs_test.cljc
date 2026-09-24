@@ -1,25 +1,24 @@
 (ns re-frame.resources-time-ms-cofx-cljs-test
-  "EP-0017 cofx contract for the resource / mutation TIME-consuming handlers
-  (rf2-601ife + rf2-rl27r2).
+  "EP-0017 cofx contract for the resource / mutation TIME-consuming handlers.
 
-  Two findings from the EP-0017 cofx review wave:
+  Two properties:
 
-    rf2-601ife — every resource / mutation handler that consumes the
+    Declared time — every resource / mutation handler that consumes the
     framework-stamped causal time fact `:rf/time-ms` (for a replay-relevant
     freshness decision or a durable timestamp) MUST DECLARE it via
     `:rf.cofx/requires` so it is DELIVERED FLAT (`(:rf/time-ms coeffects)`)
     under EP-0017 declared-only delivery — never reached through the whole
     `:rf.cofx` token. This suite pins that `handler-meta` exposes the
     `:rf/time-ms` requirement for each such event, and that the durable
-    time-bearing writes still land when the time fact is delivered flat (the
+    time-bearing writes land when the time fact is delivered flat (the
     runtime stages exactly the declared leaves).
 
-    rf2-rl27r2 — a FAILED / CANCELLED resource completion is still a
+    Failure completion time — a FAILED / CANCELLED resource completion is still a
     managed-async completion with a reply token, so its causal completion time
     rides the reply token's `:rf/time-ms` and is carried as `:completed-at`
     onto the canonical reply AND into the terminal work-ledger outcome —
     symmetric with the success path + with mutation replies. This suite pins
-    that the resource failure / abort paths preserve `:completed-at`.
+    that the resource failure / abort paths carry `:completed-at`.
 
   Canonical contract: `spec/009-Instrumentation.md` / `spec/Spec-Schemas.md`
   (the `:rf.cofx/requires` declaration), `spec/016-Resources.md` (the resource
@@ -81,7 +80,7 @@
   (fn [_args _ctx] {:request {:method :post :url "/api/save"}}))
 
 ;; ===========================================================================
-;; rf2-601ife — handler-meta declares :rf/time-ms for the time-consuming
+;; handler-meta declares :rf/time-ms for the time-consuming
 ;; handlers, delivered flat under EP-0017 declared-only delivery.
 ;; ===========================================================================
 
@@ -101,7 +100,7 @@
    :rf.mutation.internal/failed])
 
 (deftest time-consuming-handlers-declare-time-ms-cofx
-  (testing "rf2-601ife: every time-consuming resource / mutation handler
+  (testing "every time-consuming resource / mutation handler
             DECLARES `:rf/time-ms` in `:rf.cofx/requires`, so handler-meta
             exposes the dependency and the runtime delivers it FLAT (EP-0017
             declared-only delivery — nothing implicit, including `:rf/time-ms`)"
@@ -114,7 +113,7 @@
                  (pr-str requires) ")"))))))
 
 (deftest load-causing-handlers-declare-generation-and-time
-  (testing "rf2-601ife / rf2-abyycr: a load-causing event declares BOTH the
+  (testing "a load-causing event declares BOTH the
             recordable generation-allocation cofx AND the causal `:rf/time-ms`"
     (doseq [event-id [:rf.resource/ensure :rf.resource/refetch :rf.mutation/execute]]
       (let [requires (set (:rf.cofx/requires (rf/handler-meta {:source :store :kind :event :id event-id})))]
@@ -124,7 +123,7 @@
             (str event-id " declares the time cofx"))))))
 
 (deftest succeeded-loaded-at-from-flat-time-ms
-  (testing "rf2-601ife: the success reply handler reads the DELIVERED FLAT
+  (testing "the success reply handler reads the DELIVERED FLAT
             `:rf/time-ms` (declared via :rf.cofx/requires) for the durable
             :loaded-at — scripting the reply token's :rf.cofx :rf/time-ms
             lands it flat and the durable write picks it up"
@@ -144,7 +143,7 @@
           ":stale-at is :loaded-at + :stale-after-ms"))))
 
 (deftest started-at-from-flat-time-ms
-  (testing "rf2-601ife: the ensure handler reads the DELIVERED FLAT
+  (testing "the ensure handler reads the DELIVERED FLAT
             `:rf/time-ms` for the durable work-ledger :started-at"
     (rf/reg-resource :tm/started (article-spec) article-spec-request)
     (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :tm/started {:slug "w"})
@@ -157,17 +156,17 @@
             "the work-ledger :started-at is the declared-flat causal :rf/time-ms")))))
 
 (deftest invalidate-at-from-flat-time-ms
-  (testing "rf2-601ife: the invalidate-tags handler reads the DELIVERED FLAT
+  (testing "the invalidate-tags handler reads the DELIVERED FLAT
             `:rf/time-ms` for the durable :invalidated-at. An OWNERLESS entry
             is left-stale (an active-owner entry would refetch, transitioning
             to :fetching — correct framework behaviour, not the fact under
             test), so the durable :invalidated-at persists and pins the causal
             time.
 
-            rf2-ifzg4: that refetch no longer CLEARS :invalidated-at when it
+            That refetch does not CLEAR :invalidated-at when it
             starts — only a SUCCESSFUL settle does, so a failed or aborted
-            refetch leaves the invalidation standing. The ownerless setup is
-            kept because it pins the causal time with no settle in play at
+            refetch leaves the invalidation standing. The ownerless setup
+            pins the causal time with no settle in play at
             all."
     (rf/reg-resource :tm/inv (article-spec) article-spec-request)
     (let [scoped-key     (rf.resources.state/scoped-resource-key :rf.scope/global :tm/inv {:slug "w"})
@@ -190,11 +189,11 @@
           "durable :invalidated-at is the declared-flat causal :rf/time-ms"))))
 
 ;; ===========================================================================
-;; rf2-rl27r2 — failure / cancellation replies carry the causal :completed-at.
+;; failure / cancellation replies carry the causal :completed-at.
 ;; ===========================================================================
 
 (deftest failure-reply-carries-completed-at
-  (testing "rf2-rl27r2: a first-load FAILURE settles the work row terminal
+  (testing "a first-load FAILURE settles the work row terminal
             :failed carrying the reply token's causal :completed-at (delivered
             flat) alongside the error envelope — symmetric with success"
     (rf/reg-resource :fail/article (article-spec) article-spec-request)
@@ -214,7 +213,7 @@
             "the error envelope still rides")))))
 
 (deftest abort-reply-carries-completed-at
-  (testing "rf2-rl27r2: a CANCELLED completion (an :rf.http/aborted failure
+  (testing "a CANCELLED completion (an :rf.http/aborted failure
             reply) settles the work row terminal :cancelled carrying the
             reply token's causal :completed-at"
     (rf/reg-resource :ab2/article (article-spec) article-spec-request)
@@ -233,7 +232,7 @@
             "the cancelled terminal outcome carries the causal :completed-at")))))
 
 (deftest stale-suppressed-failure-carries-completed-at
-  (testing "rf2-rl27r2: a SUPPRESSED (superseded) failure reply records the
+  (testing "a SUPPRESSED (superseded) failure reply records the
             causal :completed-at in its terminal :suppressed outcome too"
     (rf/reg-resource :sf/article (article-spec) article-spec-request)
     (let [scoped-key   (rf.resources.state/scoped-resource-key :rf.scope/global :sf/article {:slug "w"})
