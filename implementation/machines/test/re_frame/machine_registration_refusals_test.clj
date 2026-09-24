@@ -149,11 +149,20 @@
       (is (= :rf.error/machine-bad-internal-events (:rf.error/id d)))
       (is (= [:change/*] (:wildcards d))))
     (is (= :rf.error/machine-bad-internal-events
-           (reg-error-id {:initial :a :internal-events #{:*} :states {:a {}}}))))
-  (testing "control: an enumerated member registers"
+           (reg-error-id {:initial :a :internal-events #{:*} :states {:a {}}})))
+    (is (= [:change/*]
+           (:wildcards (reg-error {:initial         :a
+                                   :internal-events #{:change/* :change/x}
+                                   :states          {:a {:on {:change/x :a}}}})))
+        "a wildcard beside a real member is refused, naming only the wildcard"))
+  (testing "controls: an enumerated member, and a name that merely ends in *, register"
     (is (nil? (reg-error {:initial         :a
                           :internal-events #{:change/x}
-                          :states          {:a {:on {:change/x :a}}}})))))
+                          :states          {:a {:on {:change/x :a}}}})))
+    (is (nil? (reg-error {:initial         :a
+                          :internal-events #{:field/save*}
+                          :states          {:a {:on {:field/save* :a}}}}))
+        ":field/save* is an ordinary literal event id")))
 
 (deftest tags-refuse-reserved-namespaces
   (testing "an :rf/* or :rf.*/* tag is refused"
