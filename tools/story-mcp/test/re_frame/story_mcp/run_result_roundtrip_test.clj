@@ -1,9 +1,9 @@
 (ns re-frame.story-mcp.run-result-roundtrip-test
-  "The rf2-3nbl5.6 ACCEPTANCE gate — the unified run-result is a FROZEN,
+  "The acceptance gate — the unified run-result is a FROZEN,
   schema-backed public contract: ONE result language spoken IDENTICALLY
   across the CLJS test surface, the Story UI Test mode, and story-mcp.
 
-  This is the cross-surface test the freeze ruling mandates: a result
+  This is the cross-surface test for that contract: a result
   object moves **CLJS test → Story UI → MCP with NO semantic translation**.
   It lives in the story-mcp test corpus because that is the only artefact
   on the require graph that can see ALL THREE surfaces at once:
@@ -17,8 +17,8 @@
     the live `rf.story-mcp.tools.wire-pipeline/invoke-tool` boundary.
 
   The contract: the verdict is `:status` (`result-status` / `result-passed?`);
-  there is NO `:passing?` boolean and NO lifecycle-as-verdict (the clean
-  break, rf2-ba86n.17). Every surface reads `:status` off the SAME object
+  there is NO `:passing?` boolean and NO lifecycle-as-verdict. Every
+  surface reads `:status` off the SAME object
   with NO translation shim, and every surface's object conforms to the ONE
   Malli schema (`rf.story/run-result-schema`)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -102,7 +102,7 @@
       (is (= :fail (rf.story/result-status red)))
       (is (true?  (rf.story/result-passed? green)))
       (is (false? (rf.story/result-passed? red)))
-      (is (not (contains? green :passing?)) "NO :passing? boolean — the clean break")
+      (is (not (contains? green :passing?)) "NO :passing? boolean — :status is the verdict")
       (is (not (contains? red   :passing?))))))
 
 ;; ===========================================================================
@@ -152,13 +152,13 @@
         (is (= (rf.story/result-status cljs-result) (:status s))
             "CLJS :status == MCP :status — one language, no translation")
         (is (not (contains? s :passing?))
-            "the retired :passing? boolean never appears on the wire")
+            "no :passing? boolean appears on the wire")
         (is (rf.story/valid-run-result? s)
             (str "the MCP wire payload conforms to the SAME frozen schema; "
                  (rf.story/explain-run-result s)))))))
 
 ;; ===========================================================================
-;; SNAPSHOT IDENTITY rides the wire (rf2-7vz97)
+;; SNAPSHOT IDENTITY rides the wire
 ;; ===========================================================================
 
 (deftest run-variant-wire-carries-plan-and-run-hash
