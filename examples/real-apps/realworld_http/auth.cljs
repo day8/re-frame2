@@ -48,9 +48,12 @@
 ;;
 ;; One detail that isn't ours to choose: the official RealWorld E2E suite reads
 ;; the session straight out of `localStorage["jwtToken"]`, so we use that exact
-;; key, un-namespaced, verbatim. The contract assumes one app per origin. The
-;; repo's dev orchestrator serves both RealWorld variants from one origin, so
-;; they share this key there; standalone serving gives each app its own origin.
+;; key, un-namespaced, verbatim. The contract assumes one RealWorld app per
+;; origin, so two conforming apps served from a SINGLE origin would share — and
+;; cheerfully clobber — each other's `jwtToken`. The repo's own runner never puts
+;; you there: `npm run dev:example -- <build-id>` stages ONE build on its own
+;; loopback port. Conformance is validated against standalone serving (one app
+;; per origin), which is what the external suite does too.
 
 (rf/reg-fx :auth.session/persist
   {:doc       "Save or clear the JWT in localStorage, under the contract key
