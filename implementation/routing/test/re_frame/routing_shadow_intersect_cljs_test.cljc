@@ -1,12 +1,12 @@
 (ns re-frame.routing-shadow-intersect-cljs-test
   "Co-matchability tests for `re-frame.routing.match/patterns-intersect?` —
   the Spec 012 §Route ranking algorithm rule-6 'same URL family' predicate
-  behind `:rf.warning/route-shadowed-by-equal-score` (rf2-6gzobp).
+  behind `:rf.warning/route-shadowed-by-equal-score`.
 
   Two suites:
 
     1. OVERLAP TABLE — hand-picked pattern pairs pinning the intersecting
-       and non-intersecting cases the ruling enumerates: same-family param
+       and non-intersecting cases: same-family param
        pairs, cross-position params, splats, optional groups including the
        shifted witness (`/a{/x}?/b` vs `/a/x{/b}?` share NO literal column
        yet both match `/a/x/b` — the case that falsifies any naive
@@ -31,7 +31,7 @@
 
   Named `*-cljs-test.cljc` so BOTH the cognitect JVM runner (`.*-test$`)
   and the shadow-cljs `:node-test` build (`cljs-test$`) discover it — the
-  ruling requires the overlap table on both hosts."
+  overlap table must hold on both hosts."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing]]
       :cljs [cljs.test :refer-macros [deftest is testing]])
@@ -58,13 +58,13 @@
    ["/a/*r"          "/a/b/*s"        "two splats, nested prefixes — witness /a/b/z"]
    ["/files/*rest"   "/files/*other"  "identical splat families"]
    ["/*"             "/*rest"         "bare and named catch-all"]
-   ["/*"             "/"              "the rf2-1ugs5u root quirk — /* also
+   ["/*"             "/"              "the splat-only root quirk — /* also
                                        matches the zero-segment root URL /"]])
 
 (def ^:private disjoint-pairs
   [["/home"           "/about"          "distinct statics — the every-app case"]
-   ["/x/:id"          "/y/:slug"        "the pair the old over-broad scan
-                                         false-flagged (equal rank, disjoint
+   ["/x/:id"          "/y/:slug"        "the pair an over-broad scan would
+                                         false-flag (equal rank, disjoint
                                          URL families)"]
    ["/a/b"            "/a/c"            "shared prefix, distinct tail literal"]
    ["/a/:x"           "/b/:y"           "distinct prefix, params after"]
