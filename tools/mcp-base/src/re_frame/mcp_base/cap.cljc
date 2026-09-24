@@ -115,7 +115,7 @@
     flag across: overflow of a success stays non-error, and overflow of
     a FAILED call keeps `isError: true` — otherwise the marker reads
     exactly like an over-cap success and invites a re-call that repeats
-    the failed side effect (rf2-3x7nj.35.3). The
+    the failed side effect. The
     returned result MUST itself be under any reasonable cap — the
     marker is a small fixed-shape payload, so this falls out
     naturally."))
@@ -281,7 +281,7 @@
   "Multiplier for the secondary character ceiling. English/EDN is
   roughly four characters per token, so `8 * cap` leaves 2× headroom
   over the primary estimate while bounding multi-slot quotient loss.
-  The public name is retained because it is already the cap constant."
+  The name says `byte`, but the ceiling it scales counts characters."
   8)
 
 ;; ---------------------------------------------------------------------------
@@ -339,7 +339,7 @@
   gate implies `chars > cap * 8`, so it reports more than `2 * cap`. The
   selector keys on the TOKEN gate, not the char gate: a single big
   payload trips both once it is about 2x over budget, and reporting the
-  raw char count there would overstate it ~4x (rf2-3x7nj.35.2). Pure
+  raw char count there would overstate it ~4x. Pure
   companion to `over-cap?` — unit-tested directly in isolation AND
   reached through the live `apply-cap` path by a content vector of many
   sub-4-char strings."
