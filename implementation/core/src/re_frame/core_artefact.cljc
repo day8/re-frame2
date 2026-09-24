@@ -1,5 +1,5 @@
 (ns re-frame.core-artefact
-  "Factory for the optional-artefact wrapper convention (rf2-h824v).
+  "Factory for the optional-artefact wrapper convention.
 
   Per [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention):
   each per-feature carve-out (`flows`, `routing`, `schemas`, `machines`,
@@ -13,7 +13,7 @@
   The seven `core_<artefact>.cljc` files share their late-bind shape —
   per-row declarative spec, structured throw, optional safe-default —
   through a single `defwrapper` macro defined here, paired with the
-  `late-bind/require-fn!` helper (rf2-uchhp) that centralises the throw
+  `late-bind/require-fn!` helper that centralises the throw
   skeleton. One macro + one helper replaces what would otherwise be ~26
   `ex-info` literals copied across the artefact wrappers.
 
@@ -76,22 +76,21 @@
   calls the render fn under `rf/with-frame` is answered by the dynamic-var
   tier and stays green.
 
-  **The worked instance is rf2-nvcp.** `rf/route-link` is a `defwrapper` over
-  `:routing/route-link`, and routing published the registered `:route/link`
-  view head straight into it. The head was called rather than mounted, so
-  `(.-context cmp)` answered React's empty default and the render-time
-  `require-current-frame!` raised `:rf.error/no-frame-context` on FIRST
-  render — every routed application blank, for about two and a half months,
-  behind a fully green suite.
+  **A worked example.** `rf/route-link` is a `defwrapper` over
+  `:routing/route-link`. Were routing to publish the registered `:route/link`
+  view head straight into it, the head would be called rather than mounted, so
+  `(.-context cmp)` would answer React's empty default and the render-time
+  `require-current-frame!` would raise `:rf.error/no-frame-context` on FIRST
+  render — every routed application blank, behind a fully green suite.
 
-  The repair belongs at the PUBLICATION side, not here: publish a function
+  The remedy belongs at the PUBLICATION side, not here: publish a function
   that EMITS AN ELEMENT (`(fn [& args] (into [(views/view-head :route/link)]
   args))`) and the substrate componentizes the head exactly as it does a
   `reg-view` view. `defwrapper` is deliberately NOT taught a second calling
   convention for this — the `:apply` / `:delegate` arities are correct for
   functions, which is what every hook value is, and a component-aware body
-  kind would fork a hot path to accommodate one case already fixed upstream
-  of it.
+  kind would fork a hot path to accommodate one case the publisher
+  handles.
 
   ### `artefact-info` map shape
 
@@ -195,8 +194,8 @@
      renders inside its caller's instance and reads the caller's React
      context, leaving any `:contextType` inert. A component-valued hook
      therefore publishes an element-EMITTING fn instead. See the ns
-     docstring §A hook value MUST be a FUNCTION, never a COMPONENT; rf2-nvcp
-     is the worked instance.
+     docstring §A hook value MUST be a FUNCTION, never a COMPONENT, for a
+     worked example.
 
      When `:where` is omitted from the spec, it defaults to
      `'rf/<name>` — the common case. Wrappers whose public-facing
