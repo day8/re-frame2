@@ -2591,8 +2591,7 @@
 
 ;; ===========================================================================
 ;; *current-frame* propagation across dispatch. Async + sync. Driven from a
-;; dedicated
-;; entry-file pair carrying a {:before :after} map fixture (async tests
+;; dedicated entry-file pair carrying a {:before :after} map fixture (async tests
 ;; require a map-form fixture so :after lands after the async `done`).
 ;; ===========================================================================
 
@@ -2707,7 +2706,7 @@
 
 (defn assert-dfc-dispatch-later-survives-the-timer
   ":dispatch-later threads :frame through the closure — survives the async
-  escape (rf2-l5q3). ASYNC: caller supplies `done`."
+  escape. ASYNC: caller supplies `done`."
   [{:keys [substrate-kw name]} done]
   (testing (str name " — :dispatch-later survives the timer")
     (let [{:keys [tenant-a]} (dfc-seed-frames! substrate-kw)
@@ -2730,7 +2729,7 @@
 
 (defn assert-dfc-dispatcher-survives-set-timeout
   "(:dispatch (rf/capture-frame)) captures the in-flight frame; the captured fn is safe to
-  call from setTimeout (rf2-l5q3). ASYNC: caller supplies `done`."
+  call from setTimeout. ASYNC: caller supplies `done`."
   [{:keys [substrate-kw name]} done]
   (testing (str name " — (:dispatch (rf/capture-frame)) survives setTimeout")
     (let [{:keys [tenant-a]} (dfc-seed-frames! substrate-kw)
@@ -2755,7 +2754,7 @@
         10))))
 
 ;; ===========================================================================
-;; DOM / browser twins (rf2-5or96 — DOM-split remainder of rf2-p4736)
+;; DOM / browser twins
 ;;
 ;; React-hook adapters define substrate-specific component vars via
 ;; `defui` + `$` (and, for use-sub, the substrate's hooks).
@@ -2763,7 +2762,7 @@
 ;; probe components + their observation atoms + a `:render-element` thunk
 ;; (the substrate's `$`) and hands them in. The orchestration (make-frame,
 ;; dispatch, mount under act, assert) lives here as a single source — a
-;; gap on one substrate is a gap on both by construction.
+;; gap on one substrate is a gap on all by construction.
 ;;
 ;; These functions self-gate on `(browser?)`; under :node-test they no-op
 ;; cleanly (the entry files still load — the after-render ns-load smoke
@@ -2809,7 +2808,7 @@
         (do (enable-react-act-env!)
             (f act-fn))))))
 
-;; ---- the provisional horizon (rf2-2rtt6.25, moved by rf2-2rtt6.71) ---------
+;; ---- the provisional horizon -----------------------------------------------
 ;;
 ;; The spine's render-phase provisional reference is released by whichever
 ;; arrives first: the commit that adopts it, or a host-MACROTASK reaper armed
@@ -2826,18 +2825,15 @@
 ;; reference is still held (a microtask reaper would already read 0, because
 ;; act drains microtasks), and one timer turn PAST the horizon it is gone.
 ;;
-;; THE DELAY IS PART OF THE PROOF (rf2-2rtt6.71). While the spine's horizon was
-;; `setTimeout 0` these assertions could settle on a bare `setTimeout 0` of
-;; their own and rely on same-delay timers firing in arm order — the spine
-;; armed its drain first. The ruled horizon is `setTimeout 4`, so that no
-;; longer holds: a 0 ms settle fires strictly BEFORE the reap, and a 4 ms one
-;; would be a coin toss. Every horizon-crossing assertion therefore goes
-;; through `settle-past-the-horizon!` below, which waits comfortably past it.
+;; THE DELAY IS PART OF THE PROOF. The spine's horizon is `setTimeout 4`, so a
+;; 0 ms settle fires strictly BEFORE the reap, and a 4 ms one would be a coin
+;; toss. Every horizon-crossing assertion therefore goes through
+;; `settle-past-the-horizon!` below, which waits comfortably past it.
 
 (def ^:private horizon-settle-ms
   "How long a horizon-crossing assertion waits, in milliseconds. It MUST exceed
-  the spine's own reap horizon (`rf.substrate.spine/provisional-horizon-ms`, ruled 4 by
-  rf2-2rtt6.71) with room to spare — the assertions read the state the reaper
+  the spine's own reap horizon (`rf.substrate.spine/provisional-horizon-ms`,
+  4) with room to spare — the assertions read the state the reaper
   LEFT, so a settle that races it proves nothing. Deliberately not read from
   the spine: these rows assert the observable contract, not the constant."
   24)
@@ -2876,22 +2872,22 @@
       (js/setTimeout #(await-settlement! pred k (dec turns)) 0)
       (k))))
 
-;; ---- after-render hook (rf2-334d9) ----------------------------------------
+;; ---- after-render hook ----------------------------------------------------
 
 (defn assert-after-render-hook-wired
-  "rf2-334d9: `rf.interop/after-render` no longer silent-no-ops under the
+  "`rf.interop/after-render` does not silent-no-op under the
   React adapter — the hook is wired at ns-load and returns nil (the
   documented swallow shape) rather than falling through to nil because no
   adapter published it. Node-safe (no DOM): runs under :node-test too."
   [{:keys [name]}]
-  (testing (str name " — after-render hook wired at ns-load (rf2-334d9)")
+  (testing (str name " — after-render hook wired at ns-load")
     (is (nil? (rf.interop/after-render (fn [] :ok)))
         "rf.interop/after-render under the adapter returns nil — the
          spine-built hook is wired through :adapter/after-render via
          rf.substrate.adapter/route-hook!")))
 
 (defn assert-after-render-runs-after-commit
-  "rf2-334d9: `(rf.interop/after-render f)` schedules `f` to run after the
+  "`(rf.interop/after-render f)` schedules `f` to run after the
   next mount/render cycle. The sentinel injected by the spine's
   make-render uses React.useLayoutEffect to drain the queue post-commit.
 
@@ -2900,7 +2896,7 @@
                     (e.g. `#(uix/$ Probe)` / `#($ Probe)`). Built in the
                     entry file because `$` is a substrate macro."
   [{:keys [name probe-element]}]
-  (testing (str name " — after-render runs callback after next commit (rf2-334d9)")
+  (testing (str name " — after-render runs callback after next commit")
     (with-browser-act
      (fn [act-fn]
       (let [fired      (atom 0)
@@ -2911,7 +2907,7 @@
           ;; Mount through the substrate adapter's render so the spine's
           ;; make-render path injects the after-render sentinel. Direct
           ;; createRoot + .render bypasses the spine wrap and would leave
-          ;; no sentinel in the tree — exactly what rf2-334d9 requires.
+          ;; no sentinel in the tree, and this assertion needs the sentinel.
           (act-fn (fn []
                     (reset! unmount
                             (rf.substrate.adapter/render (probe-element) mount-node {}))))
@@ -2932,10 +2928,10 @@
             (when-let [u @unmount]
               (try (u) (catch :default _ nil))))))))))
 
-;; ---- flush-views! cross-substrate parity (rf2-b6nm5) ----------------------
+;; ---- flush-views! cross-substrate parity ----------------------------------
 
 (defn assert-flush-views-canonical-shape
-  "rf2-b6nm5: the canonical test-flush hook `flush-views!` is surfaced
+  "The canonical test-flush hook `flush-views!` is surfaced
   from this adapter's ns with the canonical nil-return shape (Decision 6).
   Node-safe (no DOM): pins the SHAPE — the Var is a fn, the 0-arity call
   returns nil and does not throw under the :node-test runner, where act()
@@ -2951,26 +2947,26 @@
   cfg keys:
     :flush-views! the adapter ns's flush-views! Var"
   [{:keys [name flush-views!]}]
-  (testing (str name " — flush-views! surfaced with canonical nil-return shape (rf2-b6nm5)")
+  (testing (str name " — flush-views! surfaced with canonical nil-return shape")
     (is (fn? flush-views!)
         "the adapter ns exposes flush-views! as a fn (Decision 6 canonical hook)")
     (is (nil? (flush-views!))
         "0-arity flush-views! returns nil — the converged contract across all four substrates")))
 
 (defn assert-after-render-fires-on-native-mount
-  "rf2-t0x90: `(rf.interop/after-render f)` fires post-commit even when the
+  "`(rf.interop/after-render f)` fires post-commit even when the
   app was mounted via the SUBSTRATE-NATIVE renderer (the documented boot
   idiom: `uix-dom/render-root`) rather than
   through the adapter's `:render` slot.
 
-  The defect this pins: the Fragment-wrap after-render sentinel only
-  enters the tree on the `:render`-slot path. The documented idiom mounts
-  natively (createRoot + .render), bypassing `make-render`, so a natively-
-  mounted UIx app had NO sentinel — `(rf.interop/after-render f)` degraded
+  The Fragment-wrap after-render sentinel only enters the tree on the
+  `:render`-slot path. The documented idiom mounts natively (createRoot +
+  .render), bypassing `make-render`, so a natively-mounted UIx app has NO
+  app-tree sentinel; on its own, `(rf.interop/after-render f)` would degrade
   to a bare microtask FOREVER, defeating the post-commit-timing contract
-  Reagent's global `r/after-render` honours regardless of mount path. The
-  fix arms a per-adapter SINGLETON DRIVER ROOT the first time after-render
-  is called with no app-tree sentinel, restoring post-commit parity.
+  Reagent's global `r/after-render` honours regardless of mount path. So the
+  hook arms a per-adapter SINGLETON DRIVER ROOT the first time after-render
+  is called with no app-tree sentinel, giving post-commit parity.
 
   This test mounts the probe with a RAW `react-dom-client/createRoot` +
   `.render` (NOT `rf.substrate.adapter/render`) — exactly the native idiom
@@ -2981,7 +2977,7 @@
     :probe-element  a thunk returning a fresh substrate probe ELEMENT
                     (reused from the :render-slot after-render twin)."
   [{:keys [name probe-element]}]
-  (testing (str name " — after-render fires on the NATIVE-mount path (rf2-t0x90)")
+  (testing (str name " — after-render fires on the NATIVE-mount path")
     (with-browser-act
      (fn [act-fn]
       (let [fired      (atom 0)
@@ -2991,7 +2987,7 @@
             ;; rf.substrate.adapter/render. This is the documented boot idiom
             ;; (uix-dom/render-root). The spine's
             ;; Fragment-wrap sentinel is therefore NOT in this tree — the
-            ;; exact gap rf2-t0x90 names.
+            ;; gap the driver root covers.
             root       (react-dom-client/createRoot mount-node)]
         (try
           (act-fn (fn [] (.render root (probe-element))))
@@ -3005,7 +3001,7 @@
           (act-fn (fn [] (rf.interop/after-render callback)))
           (is (= 1 @fired)
               "after-render fired post-commit on the native-mount path —
-               the singleton driver root delivered parity (rf2-t0x90)")
+               the singleton driver root delivered parity")
           ;; A second enqueue + drain — the driver-root sentinel survives
           ;; (its useLayoutEffect runs every commit), so subsequent
           ;; after-render calls also fire.
@@ -3016,13 +3012,13 @@
             (try (act-fn (fn [] (.unmount root))) (catch :default _ nil)))))))))
 
 (defn assert-after-render-observes-commit-synchronously-on-native-first-call
-  "rf2-he7se finding 3 — the GUARANTEE: on the FIRST native-mount
+  "The GUARANTEE: on the FIRST native-mount
   after-render call (fresh per-adapter driver root — the `:each` reset
   fixture disposed any prior one), the callback fires SYNCHRONOUSLY inside
   the `react-dom/flushSync` that `ensure-after-render-driver-root!` runs,
   and observes the COMMITTED app state — NOT a deferred microtask drain.
 
-  How the fix secures this. The driver-root sentinel installs its
+  How this is secured. The driver-root sentinel installs its
   `set-tick` setter from a LAYOUT effect (not a passive `useEffect`).
   `flushSync` ALWAYS flushes layout effects synchronously during the
   commit, so the setter is armed on flushSync's return and the hook takes
@@ -3031,18 +3027,17 @@
   reachable with no `document`; with the layout-effect install it is never
   taken on the native-mount path when a DOM is present.)
 
-  Why layout, not passive (rf2-he7se finding 3). The original install was
-  a PASSIVE `useEffect`. `flushSync` flushing passive effects is a
+  Why layout, not passive. `flushSync` flushing passive effects is a
   React-19 implementation detail (React ≤18 / future configs do NOT
-  guarantee it), so the setter-availability-after-flushSync assumption the
-  setup path relied on was not robust: where passives are deferred, the
-  slot stays nil on return and the hook falls to `queueMicrotask`, which
-  can drain BEFORE the app commit it must observe. The layout-effect
-  install removes that version dependency entirely.
+  guarantee it), so a PASSIVE `useEffect` install would make the setter's
+  availability after flushSync version-dependent: where passives are
+  deferred, the slot would stay nil on return and the hook would fall to
+  `queueMicrotask`, which can drain BEFORE the app commit it must observe.
+  The layout-effect install has no such version dependency.
 
   The call is made OUTSIDE `act` with `IS_REACT_ACT_ENVIRONMENT` off so
   the real `flushSync` commit path runs (act's boundary effect-flush does
-  not stand in for it) — per the bead's `outside act/rAF` direction. The
+  not stand in for it), and outside any rAF. The
   native probe is mounted under `act` first so it commits cleanly.
 
   Assertions (deterministic — no rAF / timer):
@@ -3056,7 +3051,7 @@
   cfg keys:
     :probe-element  reused native probe ELEMENT thunk."
   [{:keys [name probe-element]}]
-  (testing (str name " — native first-call after-render observes the commit synchronously (rf2-he7se)")
+  (testing (str name " — native first-call after-render observes the commit synchronously")
     (with-browser-act
      (fn [act-fn]
       (let [observed       (atom ::unobserved)
