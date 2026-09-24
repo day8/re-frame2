@@ -1,5 +1,5 @@
 (ns re-frame.always-on-validation-production-test
-  "rf2-bza6e — the two schema-validation surfaces Spec 010 keeps ALWAYS-ON in
+  "The two schema-validation surfaces Spec 010 keeps ALWAYS-ON in
   production, pinned under the REAL gate.
 
   ## Why this namespace exists
@@ -8,12 +8,12 @@
   body sits inside `(when re-frame.interop/debug-enabled? …)`, and
   `spec/Security.md` §Production gates lists \"schema-validation calls\" among
   what the production gate strips. Under `-Dre-frame.debug=false` roughly a
-  hundred validation call sites genuinely stop running, and four of the
-  namespaces rf2-r9bra triaged fail in the `jvm-core-prod-gate` lane for
-  exactly that reason — correctly, because they are dev-posture tests.
+  hundred validation call sites genuinely stop running, and dev-posture test
+  namespaces fail in the `jvm-core-prod-gate` lane for exactly that reason —
+  correctly.
 
-  Spec 010 carves out TWO surfaces from that elision, and until this namespace
-  NEITHER had a test in any lane that runs under the gate:
+  Spec 010 carves out TWO surfaces from that elision, and this namespace pins
+  both in a lane that runs under the gate:
 
     1. **Recordable-coeffect `:schema`** (010:165, 010:179) — \"a PRODUCTION
        HARD ERROR, not the dev-only schema-validation trace\". A recordable
@@ -33,13 +33,12 @@
 
   That is precisely the shape that dies silently under a load-time gate — a
   validation call everyone assumes survives, sitting beside a hundred that
-  provably do not. rf2-9c2jf was the same class of defect: `dispatch-sync`
-  running its handler ZERO times under the documented gate, green the whole
-  time, because nothing had ever executed that posture.
+  provably do not — and a suite that never executes the gated posture stays
+  green over it.
 
   ## How it is pinned
 
-  Modelled on `re-frame.privacy-production-egress-test` (rf2-r9bra). Every
+  Modelled on `re-frame.privacy-production-egress-test`. Every
   assertion outside the one `^:prod-gate`-tagged deftest is
   POSTURE-INDEPENDENT and must hold in dev AND under the real gate, so this
   namespace runs in the ordinary `clojure -M:test` suite and joins
@@ -60,14 +59,13 @@
   step-1 validation really has been elided. Without it, \"the handler did not
   run\" would prove nothing about which mechanism stopped it.
 
-  ## Surface 2 has a SECOND half (rf2-mwv4e)
+  ## Surface 2 has a SECOND half
 
-  Surface 2 above pins that the boundary REFUSAL survives the gate. Until
-  rf2-mwv4e its REPORT did not, and nothing in this namespace noticed: the
-  boundary deftest captured neither axis, unlike its recordable-cofx
-  neighbours, so \"the handler was skipped\" passed while the rejection was
-  silent AND its `:events` record read `:outcome :ok` — an off-box shipper saw
-  a dispatch that succeeded. The rejection now fans one always-on
+  Surface 2 above pins that the boundary REFUSAL survives the gate; its REPORT
+  must survive too. \"The handler was skipped\" alone would pass over a
+  rejection that was silent AND whose `:events` record read `:outcome :ok` —
+  an off-box shipper would see a dispatch that succeeded. The rejection fans
+  one always-on
   STRUCTURAL-ONLY `:rf.error/schema-validation-failure` record (`:source
   :boundary`) and settles `:outcome :rejected`, and the deftests below pin
   BOTH, under this same real gate, including the key set CLOSED and the
@@ -76,7 +74,7 @@
   boundary payload is attacker-controlled by definition.
 
   Deliberately NOT used: `with-redefs` on `rf.interop/debug-enabled?`. The flag is
-  read once at namespace-load time; a rebind cannot reach it (rf2-f7qj4)."
+  read once at namespace-load time; a rebind cannot reach it."
   (:require [clojure.set :as set]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
@@ -131,10 +129,10 @@
 
   Together these two records are the WHOLE of what an off-box shipper receives
   from a production build: the dev trace surface is gated on
-  `rf.interop/debug-enabled?` and sees nothing here. rf2-mwv4e's defect lived
-  precisely in the gap between them — the `:errors` axis carried no record and
-  the `:events` axis reported `:outcome :ok` — so a test that reads one axis
-  alone cannot see it."
+  `rf.interop/debug-enabled?` and sees nothing here. A silent boundary
+  rejection lives precisely in the gap between them — no record on the
+  `:errors` axis and `:outcome :ok` on the `:events` axis — so a test that
+  reads one axis alone cannot see it."
   [body-fn]
   (let [errors (atom [])
         events (atom [])]
@@ -153,7 +151,7 @@
   (first (filter #(= event-id (:event-id %)) events)))
 
 (def ^:private boundary-record-keys
-  "The CLOSED key set of the always-on boundary-rejection record (rf2-mwv4e).
+  "The CLOSED key set of the always-on boundary-rejection record.
 
   Pinned rather than sampled: this record egresses to Sentry / Datadog, so a
   slot added later reaches a shipper whether or not anyone reviewed it. Every
@@ -182,7 +180,7 @@
 ;; ===========================================================================
 
 (deftest supplied-recordable-value-violating-its-schema-throws-in-every-posture
-  (testing "rf2-bza6e / Spec 010:179 — a recordable coeffect SUPPLIED on the
+  (testing "Spec 010:179 — a recordable coeffect SUPPLIED on the
             dispatch token (the replay-hole shape) is validated against its
             `reg-cofx` `:schema` before it folds into the handler context. A
             mismatch throws `:rf.error/cofx-value-invalid` and the handler
@@ -233,14 +231,13 @@
           (is (= :rf/default (:frame err))
               "and to the owning frame, so a shipper can route it"))))))
 
-;; ---- rf2-3aafh: an explicit `[:ref ...]` schema redacts on this surface ----
+;; ---- an explicit `[:ref ...]` schema redacts on this surface --------------
 ;;
-;; This is the surface the rf2-3aafh ruling turned on. Everything else the
-;; sensitivity walker feeds is dev-only, behind `interop/debug-enabled?`; THIS
-;; one is always-on, so a walker that classified `[:ref ::k]` as
-;; walkable-and-flag-free shipped the failing value verbatim off-box in a
-;; PRODUCTION build — on the record an off-box shipper receives AND in the
-;; thrown `ex-data`, which is public error data.
+;; Everything else the sensitivity walker feeds is dev-only, behind
+;; `interop/debug-enabled?`; THIS surface is always-on, so a walker that
+;; classified `[:ref ::k]` as walkable-and-flag-free would ship the failing
+;; value verbatim off-box in a PRODUCTION build — on the record an off-box
+;; shipper receives AND in the thrown `ex-data`, which is public error data.
 ;;
 ;; The reference target is deliberately UNREGISTERED. Real Malli throws
 ;; `:malli.core/invalid-ref` on it, and `validate-recordable-value!` FAILS
@@ -250,15 +247,15 @@
 ;; DEFAULT registry would be a shared-process mutation and is not done here.)
 
 (deftest recordable-cofx-with-ref-schema-redacts-off-box-in-every-posture
-  (testing "rf2-3aafh — a recordable coeffect whose `reg-cofx` `:schema` is an
+  (testing "a recordable coeffect whose `reg-cofx` `:schema` is an
             explicit `[:ref ...]` names a shape held in a registry the
             pure-data walker never consults, so a `{:sensitive? true}` slot on
             that shape is honoured by Malli and INVISIBLE to the walker. The
             walker therefore fails CLOSED: the value-bearing slots scrub to
             `:rf/redacted` and `:sensitive? true` is stamped, on BOTH off-box
-            surfaces, in dev AND under `-Dre-frame.debug=false`. Before
-            rf2-3aafh `:ref` sat in the walker's `opacity-literal-ops`, so
-            every assertion below shipped the secret instead."
+            surfaces, in dev AND under `-Dre-frame.debug=false`. Were `:ref`
+            in the walker's `opacity-literal-ops`, every assertion below
+            would ship the secret instead."
     (rf/reg-cofx :prod/ref-ctx
       {:recordable? true :schema [:ref :fixture/user]}
       (fn [] {:token "placeholder"}))
@@ -299,11 +296,11 @@
             "no raw recordable value survives anywhere in the off-box record")))))
 
 (deftest recordable-cofx-with-plain-map-schema-rides-verbatim-control
-  (testing "rf2-3aafh — the CONTROL for the test above, in the same posture. A
+  (testing "the CONTROL for the test above, in the same posture. A
             plain walkable `[:map ...]` schema declaring NO sensitive slot is
             fully introspectable, so its failing value rides VERBATIM and is
             not stamped. Without this, 'everything redacts' would pass the test
-            above just as well as the fix does."
+            above just as well as correct redaction does."
     (rf/reg-cofx :prod/plain-ctx
       {:recordable? true :schema [:map [:n :int]]}
       (fn [] {:n 1}))
@@ -327,7 +324,7 @@
           "and carries no :sensitive? stamp"))))
 
 (deftest conforming-recordable-value-still-folds-in-every-posture
-  (testing "rf2-bza6e — the negative control for surface 1. A CONFORMING
+  (testing "the negative control for surface 1. A CONFORMING
             supplied value passes the always-on check and folds normally, so
             the assertion above is about the schema and not about recordable
             coeffects being broken outright."
@@ -345,7 +342,7 @@
       (is (= 7 (:folded (db-of))) "and committed to app-db"))))
 
 (deftest generated-recordable-value-violating-its-schema-throws-in-every-posture
-  (testing "rf2-bza6e / Spec 010:165 — the same hard error on the GENERATED
+  (testing "Spec 010:165 — the same hard error on the GENERATED
             arm. A generator-backed recordable fact runs at processing-start
             and its produced value is validated BEFORE the write-back into the
             durable `:rf.cofx` record, so a bad generator cannot poison the
@@ -377,7 +374,7 @@
 ;; ===========================================================================
 
 (deftest at-boundary-rejects-a-non-conforming-event-in-every-posture
-  (testing "rf2-bza6e / Spec 010:220 — a handler that declares
+  (testing "Spec 010:220 — a handler that declares
             `:boundary? true` does not run on an event that fails its
             `:schema`, in dev AND under `-Dre-frame.debug=false`. The
             enforcing code differs by posture (step-1 `validate-event!` in
@@ -386,7 +383,7 @@
 
             Red here under the gate means an untrusted system-boundary payload
             reaches its handler unvalidated in production. That is a live
-            defect of the rf2-9c2jf class, not a test-spelling problem."
+            defect, not a test-spelling problem."
     (let [calls (atom 0)]
       (rf/reg-event :prod/boundary
         {:schema    [:cat [:= :prod/boundary] :int]
@@ -401,7 +398,7 @@
           "and nothing from it committed to app-db"))))
 
 (deftest at-boundary-passes-a-conforming-event-through-in-every-posture
-  (testing "rf2-bza6e — the negative control for surface 2. The boundary
+  (testing "the negative control for surface 2. The boundary
             interceptor is not simply breaking every dispatch: a CONFORMING
             payload flows through and the handler runs exactly once, in both
             postures."
@@ -421,13 +418,12 @@
 ;; ===========================================================================
 
 (deftest at-boundary-rejection-fans-one-structural-record-in-every-posture
-  (testing "rf2-mwv4e — the refusal reaches an off-box shipper. Before this,
-            a production boundary rejection emitted NOTHING: the check ran, the
-            handler was skipped, and `rf.trace/emit-error!` — its only report —
-            sits behind `rf.interop/debug-enabled?`. An opt-in production security
-            gate was invisible to the person who opted in.
+  (testing "the refusal reaches an off-box shipper. `rf.trace/emit-error!`
+            sits behind `rf.interop/debug-enabled?`, so as a boundary
+            rejection's only report it would leave an opt-in production
+            security gate invisible to the person who opted in.
 
-            It now fans exactly ONE always-on record. `EXACTLY ONE` is
+            The rejection fans exactly ONE always-on record. `EXACTLY ONE` is
             load-bearing in the DEV arm of this posture-independent deftest:
             dev refuses in step-1 and production refuses inside the boundary
             arm, and both routes converge on a single emit site in the
@@ -449,8 +445,8 @@
             "precondition: nothing committed to app-db")
         (is (= 1 (count records))
             (str "EXACTLY ONE always-on boundary record. Red at 0 means the "
-                 "rejection is silent in this posture again — the defect this "
-                 "bead closed. Red above 1 means the dev and production "
+                 "rejection is silent in this posture. "
+                 "Red above 1 means the dev and production "
                  "enforcement routes have both emitted, which the single "
                  "router-tail emit site exists to prevent."))
         (is (= :event (:where rec))
@@ -471,7 +467,7 @@
         (is (number? (:time rec)))))))
 
 (deftest at-boundary-rejection-record-is-structural-only-in-every-posture
-  (testing "rf2-mwv4e — the EGRESS contract. Whatever this record carries ships
+  (testing "the EGRESS contract. Whatever this record carries ships
             off-box. A schema failure's natural detail is THE VALUE THAT
             FAILED, and at a system boundary (an HTTP response, a websocket
             frame, a `postMessage`, a query string) that value is
@@ -511,19 +507,17 @@
                "`:explain` map, not stringified into an identifier.")))))
 
 (deftest at-boundary-rejection-settles-outcome-rejected-in-every-posture
-  (testing "rf2-mwv4e — the sharper half of the defect. Silence would have been
-            bad enough; the always-on `:events` record REPORTED SUCCESS. The
-            handler produced no `:db`, so the cascade reached its ordinary tail
-            and settled `:ok` — an off-box shipper watching the event stream
-            saw a dispatch that worked.
+  (testing "the sharper half. The handler produces no `:db`, so a cascade
+            reaching its ordinary tail would settle `:ok` — an off-box shipper
+            watching the always-on `:events` stream would see a dispatch that
+            worked.
 
-            `:rejected` is a public event-outcome addition and it says exactly
-            what happened. Neither existing non-`:ok` value fits: `:error`
+            `:rejected` is a public event outcome and it says exactly
+            what happened. Neither other non-`:ok` value fits: `:error`
             means the interceptor chain threw (it did not) and `:rolled-back`
             means a candidate state transition was refused before install (no
             candidate ever existed — the handler never ran). Overloading either
-            would corrupt working semantics; keeping `:ok` preserved a known
-            lie."
+            would corrupt working semantics; `:ok` would be a lie."
     (rf/reg-event :prod/boundary
       {:schema    [:cat [:= :prod/boundary] :int]
        :boundary? true}
@@ -534,13 +528,13 @@
       (is (some? evt) "the always-on `:events` record fired for the dispatch")
       (is (= :rejected (:outcome evt))
           (str "`:outcome :rejected`. Red with `:ok` means production "
-               "monitoring is again being told a refused untrusted payload "
+               "monitoring is being told a refused untrusted payload "
                "settled cleanly — it cannot separate hostile input from a "
                "healthy dispatch.")))))
 
 (deftest at-boundary-pass-emits-no-record-and-settles-ok-in-every-posture
-  (testing "rf2-mwv4e — the negative control for both halves. The promotion is
-            not simply stamping every dispatch through a guarded handler: a
+  (testing "the negative control for both halves. The boundary record is
+            not simply stamped on every dispatch through a guarded handler: a
             CONFORMING payload fans no boundary record and settles `:ok`, so a
             shipper's `:rejected` count is a count of real refusals and its
             silence is real silence."
@@ -555,10 +549,10 @@
           "and settles `:ok`"))))
 
 (deftest unguarded-schema-refusal-is-not-a-boundary-rejection-in-every-posture
-  (testing "rf2-mwv4e — the promotion's NARROWNESS, pinned. A handler carrying
+  (testing "the always-on report's NARROWNESS, pinned. A handler carrying
             a `:schema` but NOT declaring `:boundary? true` is a
-            DEV-ONLY validation surface (Spec 010 §Production builds,
-            rf2-bkvu5): in dev step-1 refuses it, in production it is elided
+            DEV-ONLY validation surface (Spec 010 §Production builds):
+            in dev step-1 refuses it, in production it is elided
             and the handler simply runs. Neither posture may fan the always-on
             record or report `:rejected` — that would invent a production
             signal which, for this handler, cannot exist.
@@ -583,7 +577,7 @@
 ;; ===========================================================================
 
 (deftest ^:prod-gate ordinary-event-schema-validation-really-is-elided-here
-  (testing "rf2-bza6e — the control that stops every posture-independent
+  (testing "the control that stops every posture-independent
             assertion above from passing vacuously.
 
             This deftest runs ONLY in the `jvm-core-prod-gate` lane (the
