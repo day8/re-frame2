@@ -414,7 +414,10 @@
 ;; round-trips. We emit it onto an `:extends` of the source variant so the
 ;; new variant inherits the source's world/component/decorators and adds the
 ;; expectations — explicit data the author pastes into source, never hidden
-;; UI state.
+;; UI state. `:script` / `:plays` are CHILD-ONLY through `:extends` (context
+;; flows down, verdict is local — `plan.cljc`), so the form re-declares the
+;; source's own verbatim: the test replays the story, then checks its end
+;; state (rf2-3x7nj.29.1).
 
 (defn merge-assertions
   "Merge `existing` declared assertions with newly `authored` atoms,
@@ -456,6 +459,10 @@
                                 its component / decorators / world via :extends
       :existing      optional — the source variant's already-declared
                                 :assertions, merged with the authored atoms
+      :script        optional — the source variant's declared :script,
+      :plays         optional   or :plays, emitted verbatim: neither is
+                                inherited through :extends, so without them
+                                the new variant runs no interaction at all
       :authored      required — the authored canonical atoms (from
                                 `expectation->atom` over the draft rows)
       :doc           optional — a docstring
@@ -466,14 +473,16 @@
   The output is `read-string`-able EDN that round-trips through the Story
   registrar. The author pastes it into source — source is never written
   directly (same escape hatch as save-variant / recorder / promotion)."
-  [{:keys [variant-id extends existing authored doc alias]
+  [{:keys [variant-id extends existing script plays authored doc alias]
     :or   {alias "rf.story"}}]
   (let [merged    (merge-assertions existing authored)
         body-keys (cond-> []
-                    doc     (conj [:doc (pr-str doc)])
-                    extends (conj [:extends (pr-str extends)])
-                    true    (conj [:assertions (pr-assertions-vector merged)])
-                    true    (conj [:tags (pr-str #{:test})]))]
+                    doc            (conj [:doc (pr-str doc)])
+                    extends        (conj [:extends (pr-str extends)])
+                    (some? script) (conj [:script (pr-str script)])
+                    (some? plays)  (conj [:plays (pr-str plays)])
+                    true           (conj [:assertions (pr-assertions-vector merged)])
+                    true           (conj [:tags (pr-str #{:test})]))]
     (rf.story.predicates/reg-variant-form alias (or variant-id :story.expectations/example) body-keys)))
 
 ;; ===========================================================================
