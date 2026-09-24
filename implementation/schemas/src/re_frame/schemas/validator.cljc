@@ -81,15 +81,15 @@
 
 (defn- fn-token
   "Per Spec 010 §Digest algorithm step 1 — the canonical stand-in for a
-  FUNCTION appearing inside a schema form (rf2-k0hqk).
+  FUNCTION appearing inside a schema form.
 
   A bare predicate is the idiom the how-to recommends — `[:map [:n
-  pos-int?]]` — and `pr-str` over a function is the one place the digest
-  pipeline was not deterministic at all. On the JVM a function prints as
+  pos-int?]]` — and `pr-str` over a function is not deterministic at all.
+  On the JVM a function prints as
   `#object[clojure.core$pos_int_QMARK_ 0x3aefae67 \"…@3aefae67\"]`, and
   that `0x3aefae67` is `System/identityHashCode` — a fresh value in every
-  process. So a fn-bearing schema digested differently on every server
-  restart, and the SSR hydrate handshake reported
+  process. Printed raw, a fn-bearing schema would digest differently on
+  every server restart, and the SSR hydrate handshake would report
   `:rf.ssr/schema-digest-mismatch` (\"Deploy drift\") against a client
   running byte-identical code.
 
@@ -100,19 +100,19 @@
   name (a JS anonymous function reports `\"\"`).
 
   Deriving from the name keeps the digest DISCRIMINATING — swapping
-  `pos-int?` for `neg-int?` still moves the digest, which a constant token
-  would have silently stopped detecting, and drift detection is the whole
-  point of the surface.
+  `pos-int?` for `neg-int?` moves the digest, which a constant token
+  would silently stop detecting, and drift detection is the whole point
+  of the surface.
 
   What this deliberately does NOT do is make two HOSTS agree. The JVM
   answers `clojure.core$pos_int_QMARK_` where CLJS answers
   `cljs$core$pos_int_QMARK_`, and `:advanced` munges the CLJS name again
   to something build-specific. A fn-bearing schema therefore has a
   per-host stable digest, not a cross-runtime reproducible one — see
-  Spec 010 §Digest algorithm. Normalising the two spellings into one was
-  considered and rejected: it would work in development and stop working
-  under `:advanced` with nothing on screen to say so, which is the same
-  lying-gate failure this fix exists to remove."
+  Spec 010 §Digest algorithm. Normalising the two spellings into one would
+  work in development and stop working under `:advanced` with nothing on
+  screen to say so, which is the same lying-gate failure this token exists
+  to prevent."
   [f]
   (let [nm #?(:clj  (.getName (class f))
               :cljs (.-name f))]
@@ -122,13 +122,13 @@
 
 (defn- whole-number-double?
   "True for a JVM floating-point value that denotes a whole number inside
-  the ECMAScript safe-integer range (rf2-k0hqk).
+  the ECMAScript safe-integer range.
 
   This is the second host-divergent printer case. `pr-str` of `1.0` is
   `\"1.0\"` on the JVM and `\"1\"` on CLJS, which has a single numeric type
   and cannot tell the two apart — so the perfectly ordinary schema prop
-  `[:int {:min 1.0}]` digested differently on the two hosts and faked the
-  same \"Deploy drift\" warning. Emitting the integer form is the only
+  `[:int {:min 1.0}]` would digest differently on the two hosts and fake
+  the same \"Deploy drift\" warning. Emitting the integer form is the only
   direction that can agree: CLJS is physically unable to print a `.0`
   suffix for a value it does not distinguish from an integer, so
   normalising towards the JVM spelling would merely move the divergence.
@@ -159,7 +159,7 @@
   Sequences and vectors recurse element-wise.
 
   Two scalar kinds do NOT survive `pr-str` deterministically and are
-  normalised here instead (rf2-k0hqk): a function becomes its `fn-token`
+  normalised here instead: a function becomes its `fn-token`
   (its host print carries a per-process identity hash), and a
   whole-number double becomes the integer it denotes (the JVM prints the
   `.0` suffix CLJS cannot). Every other value passes through unchanged.
@@ -191,7 +191,7 @@
   `*print-length*` / `*print-level*` are reset too: an ambient REPL or tool
   binding would otherwise truncate both the canonicaliser's `pr-str` key
   comparator and the final bytes, and the memo would keep the truncated
-  string process-wide (rf2-gwye.14)."
+  string process-wide."
   [schema-value]
   (binding [*print-meta*           false
             *print-readably*       true
