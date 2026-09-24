@@ -1,15 +1,11 @@
 (ns re-frame.features-cljs-test
-  "Regression coverage for the feature-inspection front-porch
-  (rf2-3nbl5.5, API-governance G5; pruned to ONE door by rf2-kuky.4 /
-  rf2-kuky.75):
+  "Coverage for the feature-inspection front-porch — ONE door:
 
     (rf/features)   — every optional feature + its coordinate data and
                       live :loaded? status. The boolean is a lookup:
                       (get-in (rf/features) [:epoch :loaded?]); an
                       UNKNOWN feature keyword is ABSENT from the map and
-                      so reads nil (where the deleted feature-loaded?
-                      read false — the lookup is taught, not claimed
-                      contract-identical).
+                      so reads nil, not false.
 
   The in-tree test build loads all seven per-feature artefacts (see
   implementation/core/deps.edn `:test` extra-deps), so every probe key is
@@ -57,7 +53,7 @@
 
 (deftest features-loaded-arm
   (testing "every per-feature artefact is loaded in the in-tree test build,
-            read through the map lookup that replaced feature-loaded?"
+            read through the map lookup"
     (let [m (rf.features/features)]
       (doseq [feature (keys rf.features/feature-registry)]
         (is (true? (get-in m [feature :loaded?]))
@@ -85,9 +81,9 @@
       (is (nil? (get m nil))))))
 
 (deftest features-supports-the-boot-time-guard
-  (testing "the documented replacement for the deleted require-feature! —
-            an explicit (when-not … (throw (ex-info …))) carrying the
-            inventory entry as its data, NOT an elidable assert"
+  (testing "the documented guard idiom — an explicit
+            (when-not … (throw (ex-info …))) carrying the inventory entry as
+            its data, NOT an elidable assert"
     (with-probe-absent :epoch
       (fn []
         (let [guard (fn []
