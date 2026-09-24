@@ -1,5 +1,5 @@
 (ns re-frame.recipes.async-nav
-  "THREE ASYNC RECIPES, AS ONE SMALL APPLICATION (rf2-hic-054).
+  "THREE ASYNC RECIPES, AS ONE SMALL APPLICATION.
 
   An article list and an article editor, written on the shipped public
   doors and nothing else. It adds no namespace to any artefact and
@@ -62,13 +62,12 @@
 
   ## Standing answer, not a stop-gap
 
-  `rf2-hic-050` returned STOP on committed-read resource demand
+  Committed-read resource demand is not adopted
   (`docs/design/fresco/product/resource-demand-verdict.md`), so these
   recipes are the standing answer for acquiring and releasing resources
-  against read liveness rather than the residual one. Their future
+  against read liveness rather than a residual one. Their future
   shape is therefore an ordinary evolution of these doors, not a
-  holding pattern awaiting a demand mechanism: a reopen needs new
-  evidence of a kind the `rf2-hic-044` witness could not supply."
+  holding pattern awaiting a demand mechanism."
   (:require [re-frame.core :as rf]
             ;; The managed-HTTP fx surface (Spec 014). Required for its
             ;; registrations: recipe 1's load lowers through it.
@@ -87,7 +86,7 @@
   ;; `:rf.error/no-frame-context`; nothing lands. The macro injects a
   ;; `dispatch` / `subscribe` pair captured at RENDER time, which is what
   ;; survives that boundary — and it is the spelling
-  ;; `docs/routing/how-to/guard-unsaved-changes.md` already teaches.
+  ;; `docs/routing/how-to/guard-unsaved-changes.md` teaches.
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ---------------------------------------------------------------------------
@@ -307,10 +306,10 @@
   captured and the resources artefact clears the mutation kind outright,
   so a load-time registration is not guaranteed to still be there when a
   row runs — and `[:rf.mutation/execute {:mutation <unregistered> …}]`
-  mints no instance and issues no request (rf2-06lp). It DOES refuse
+  mints no instance and issues no request. It DOES refuse
   loudly, with `:rf.error/mutation-not-registered` naming the id, but
-  only onto the always-on `:errors` axis: no listener, no console byte
-  (rf2-fu75). A witness standing on that luck therefore reads `:idle`
+  only onto the always-on `:errors` axis: no listener, no console byte.
+  A witness standing on that luck therefore reads `:idle`
   and calls it a pass."
   []
   (rf/reg-resource articles-resource
@@ -336,7 +335,7 @@
      ;; that could write the cache under a wrong identity is rejected
      ;; outright rather than dropped-and-warned; the vector spelling
      ;; therefore takes the write with it, and the instance reads `:idle`
-     ;; afterwards. Measured here, on this file's first node-lane run.
+     ;; afterwards.
      :optimistic    (fn [{:keys [slug favourite?]}]
                       {{:resource articles-resource
                         :params   {}
