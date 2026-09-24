@@ -2,9 +2,9 @@
   "Framework-sub tests for re-frame.routing (`:rf/route` and the
   `:rf.route/*` derived subs, `:rf.route/chain` nested-layout chain,
   `:rf/pending-navigation`, and the activated/deactivated lifecycle
-  trace). Split from routing_test.clj per rf2-u8qe7y finding 3.
+  trace).
 
-  ## Posture split (rf2-o5dbf)
+  ## Posture split
 
   The subs are production-real and carry no posture guard: `:rf/route`, the
   derived `:rf.route/*` family, the nested-layout `:rf.route/chain` and
@@ -13,8 +13,8 @@
 
   The activated/deactivated LIFECYCLE TRACE is not a sub — it is dev
   instrumentation emitted through `trace/emit!`, gated on
-  `rf.interop/debug-enabled?` and read once at load time. Its assertions are kept
-  VERBATIM inside a `(when rf.interop/debug-enabled? …)` arm marked `rf2-o5dbf`.
+  `rf.interop/debug-enabled?` and read once at load time. Its assertions sit
+  inside a `(when rf.interop/debug-enabled? …)` arm marked \"Dev-instrumentation arm\".
   Two of them are NEGATIVE (`(is (empty? …))` for the first-nav and same-id
   cases); with no trace bus they would pass vacuously, which is why they are
   inside the arm rather than left beside the semantics. In their place the
@@ -35,10 +35,9 @@
 (deftest routing-nested-layout-parent-link
   (testing ":parent metadata round-trips through reg-route"
     ;; Per Spec 012 §Nested layouts: a child route declares :parent
-    ;; <route-id> so views can render the layout chain. The :rf.route/chain
-    ;; sub is the runtime's enumeration entry point but is not yet
-    ;; framework-registered; the registry-level contract — :parent is
-    ;; enumerable via handler-meta — IS implemented and is what tooling
+    ;; <route-id> so views can render the layout chain. Beside the
+    ;; :rf.route/chain sub (pinned below), the registry-level contract —
+    ;; :parent is enumerable via handler-meta — is what tooling
     ;; queries. This test pins that registry-level contract.
     (rf/reg-route :route/account             {} "/account")
     (rf/reg-route :route/account.settings    {:parent :route/account} "/account/settings")
@@ -53,12 +52,12 @@
       (is (nil? (:parent account-meta))
           "the parent route itself has no :parent (chain root)"))))
 
-;; ---- rf2-k72qn: framework subs — fragment, chain, pending-navigation ------
+;; ---- framework subs — fragment, chain, pending-navigation -----------------
 ;;
 ;; Per Spec 012 §Subscriptions the framework ships nine canonical subs over
-;; the route slice and pending-nav slot. The six core ones
-;; (:rf/route, :rf.route/{id,params,query,transition,error}) are pinned by
-;; the bootstrap tests above; the three from rf2-k72qn close out the table.
+;; the route slice and pending-nav slot. Beside the six core ones
+;; (:rf/route, :rf.route/{id,params,query,transition,error}), the three
+;; below close out the table.
 
 (deftest sub-rf-route-fragment
   (testing ":rf.route/fragment reads the slice's :fragment"
@@ -127,18 +126,18 @@
     (is (nil? @(rf/subscribe [:rf/pending-navigation]))
         ":rf/pending-navigation returns nil after :rf.route/cancel")))
 
-;; ---- rf2-3a5nk7: route slice key is :route-id, sub-id :rf.route/id unchanged
+;; ---- route slice key is :route-id; the sub-id is :rf.route/id -------------
 ;;
-;; Adversarial pin for the slice-key rename (bare :id → :route-id). The
+;; Adversarial pin for the slice key. The
 ;; durable slice must be SELF-DESCRIBING — the active route id lives under
 ;; :route-id, NOT bare :id — while the consumer-facing subscription id
-;; stays :rf.route/id (the rename is a slice-internal change, invisible to
-;; sub callers). Both halves are asserted together so a regression that
-;; reverted EITHER (slice back to :id, or sub-id drift) fails loudly.
+;; is :rf.route/id (the slice key is internal, invisible to
+;; sub callers). Both halves are asserted together so a change to
+;; EITHER (a bare :id slice key, or sub-id drift) fails loudly.
 
 (deftest route-slice-keyed-route-id-sub-id-unchanged
   (testing "the durable route slice is keyed :route-id (not bare :id);
-            the :rf.route/id sub-id is unchanged and reads the new key"
+            the :rf.route/id sub reads the :route-id key"
     (rf/reg-route :route/cart {} "/cart")
     (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
@@ -150,11 +149,11 @@
       (is (= :route/cart (:route-id slice))
           "the slice stores the active route id under :route-id")
       (is (not (contains? slice :id))
-          "the slice carries NO bare :id key (self-describing rename, rf2-3a5nk7)"))
-    ;; 2. The subscription id is unchanged — :rf.route/id still resolves and
-    ;;    returns the route id, reading the renamed slice key.
+          "the slice carries NO bare :id key (the slice is self-describing)"))
+    ;; 2. The subscription id is :rf.route/id — it resolves and
+    ;;    returns the route id, reading the :route-id slice key.
     (is (= :route/cart @(rf/subscribe [:rf.route/id]))
-        ":rf.route/id sub-id unchanged; returns the active route id")
+        ":rf.route/id returns the active route id")
     ;; 3. The :rf/route slice sub exposes :route-id and NOT bare :id.
     (let [pub-slice @(rf/subscribe [:rf/route])]
       (is (= :route/cart (:route-id pub-slice))
@@ -164,7 +163,7 @@
 
 (deftest route-activated-deactivated-trace-on-navigation
   (testing ":rf.route/deactivated + :rf.route/activated fire on cross-route
-            navigation (rf2-dn26r). Same-id navigation emits NEITHER."
+            navigation. Same-id navigation emits NEITHER."
     (rf/reg-route :route/from {} "/from")
     (rf/reg-route :route/to   {} "/to")
     (rf.fx/reg-fx :rf.nav/push-url
@@ -175,12 +174,12 @@
       (rf/register-listener! :trace ::act1 (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/navigate {:to :route/from}])
       (rf/unregister-listener! :trace ::act1)
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the activation the trace
+      ;; SEMANTIC, posture-independent: the activation the trace
       ;; announces really happened — the slice moved to :route/from from
       ;; nothing, which is the "no prior route" the second leg is about.
       (is (= :route/from @(rf/subscribe [:rf.route/id]))
           "first nav landed on :route/from")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring); the second leg
+      ;; Dev-instrumentation arm (see ns docstring); the second leg
       ;; is NEGATIVE over the trace ring, hence guarded.
       (when rf.interop/debug-enabled?
         (is (= [:route/from]
@@ -194,11 +193,11 @@
       (rf/register-listener! :trace ::act2 (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/navigate {:to :route/to}])
       (rf/unregister-listener! :trace ::act2)
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the cross-route transition
+      ;; SEMANTIC, posture-independent: the cross-route transition
       ;; the pair announces really happened.
       (is (= :route/to @(rf/subscribe [:rf.route/id]))
           "cross-route nav moved the slice from :route/from to :route/to")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (let [lifecycle (filter #(#{:rf.route/activated :rf.route/deactivated}
                                   (:operation %))
@@ -217,13 +216,13 @@
       (rf/register-listener! :trace ::act3 (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/navigate {:to :route/to}])
       (rf/unregister-listener! :trace ::act3)
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the route STAYED active
+      ;; SEMANTIC, posture-independent: the route STAYED active
       ;; across the transition — that is the fact the two silent traces encode,
       ;; and without it the `(empty? lifecycle)` leg below would pass vacuously
       ;; under the gate.
       (is (= :route/to @(rf/subscribe [:rf.route/id]))
           "same-id navigation left the slice on :route/to (the route stayed active)")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring); NEGATIVE over
+      ;; Dev-instrumentation arm (see ns docstring); NEGATIVE over
       ;; the trace ring, hence guarded.
       (when rf.interop/debug-enabled?
         (let [lifecycle (filter #(#{:rf.route/activated :rf.route/deactivated}
