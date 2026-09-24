@@ -451,7 +451,12 @@
                  generated note that records the promotion provenance.
   - `:extends` — a parent variant id, threaded onto `:extends` so a
                  promoted variant can inherit a story's `:component` /
-                 decorators / fixture args.
+                 decorators / fixture args. Defaults to the registered
+                 source, so the promotion inherits the source's `:setup` and
+                 world (`:decorators`, `:db-seed`, loaders …) exactly once,
+                 as the Test-mode dialog's default draft does; neither route's
+                 program carries that setup (rf2-hyheo). An artifact with no
+                 registered source gets no default.
   - `:tags`    — a tag set for the curated variant.
   - `:args`    — an args map for the curated variant, deep-merged over any
                  carried run inputs, so an explicit arg wins.
@@ -460,10 +465,13 @@
   not copied — the body is a clean authoring surface, the artifact link
   the only provenance."
   ([artifact] (artifact->variant-body artifact nil))
-  ([artifact {:keys [doc extends tags args] :as opts}]
+  ([artifact {:keys [doc tags args] :as opts}]
    (let [source-id     (source-variant-id artifact)
          source-body   (when source-id
                          (rf.story.registrar/handler-meta :variant source-id))
+         ;; A registered source supplies setup and world through :extends,
+         ;; as the Test-mode dialog's default draft does (rf2-hyheo).
+         extends       (or (:extends opts) (when source-body source-id))
          run-opts      (recorded-run-opts artifact)
          plan          (when source-body (source-plan source-id run-opts))
          program       (retained-program artifact (when source-body source-id))

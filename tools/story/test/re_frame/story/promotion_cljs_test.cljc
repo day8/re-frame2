@@ -930,7 +930,10 @@
                       :source        {:tool :determinism-gate :variant/id :story.promo/recorded}})]]
         (is (= :story.promo/recorded (rf.story.promotion/source-variant-id art)))
         (is (= [[:rf.assert/path-equals [:n] 1]]
-               (:assertions (rf.story.promotion/artifact->variant-body art))))))
+               (:assertions (rf.story.promotion/artifact->variant-body art))))
+        (is (= :story.promo/recorded
+               (:extends (rf.story.promotion/artifact->variant-body art)))
+            "with no :extends given, the registered source is extended (rf2-hyheo)")))
     (testing "an :extends parent is NOT a source — an artifact that records no
               source is promoted exactly as captured"
       (let [body (rf.story.promotion/artifact->variant-body
@@ -944,6 +947,8 @@
                      {:event-program program
                       :result        {:variant/id :story.promo/never-registered}}))]
         (is (not (contains? body :assertions)))
+        (is (not (contains? body :extends))
+            "an unregistered source has nothing to extend (rf2-hyheo)")
         (is (= program (:script body)))))))
 
 (deftest source-expectations-carries-own-assertions-and-checks
@@ -981,18 +986,23 @@
       (is (= resolved (get-in (rf.story.plan/variant-plan :story.promo/checked)
                               [:expect :checks]))
           "control: this is how the compiler resolves the source's checks")
-      (testing "without :extends, the inherited check is retained and the id
-                named in both :checks and :compose is carried once"
-        (let [body (rf.story.promotion/artifact->variant-body art)]
+      (testing "extending a variant other than the source, the inherited check
+                is retained and the id named in both :checks and :compose is
+                carried once"
+        (let [body (rf.story.promotion/artifact->variant-body
+                     art {:extends :story.promo/checked-parent})]
+          (is (= :story.promo/checked-parent (:extends body))
+              "an explicit :extends wins over the default")
           (is (= resolved (:checks body)))
           (is (= resolved (checks-of body)))))
-      (testing "with :extends of the source, inheritance supplies the chain's
-                checks, so the body adds beside the source's own only what
-                :extends cannot recover"
-        (let [body (rf.story.promotion/artifact->variant-body
-                     art {:extends :story.promo/checked})]
-          (is (= [:check.promo/own :check.promo/composed] (:checks body)))
-          (is (= resolved (checks-of body))))))))
+      (testing "with :extends of the source, given or defaulted (rf2-hyheo),
+                inheritance supplies the chain's checks, so the body adds beside
+                the source's own only what :extends cannot recover"
+        (doseq [opts [{:extends :story.promo/checked} nil]]
+          (let [body (rf.story.promotion/artifact->variant-body art opts)]
+            (is (= :story.promo/checked (:extends body)))
+            (is (= [:check.promo/own :check.promo/composed] (:checks body)))
+            (is (= resolved (checks-of body)))))))))
 
 (def ^:private dom-script
   "A DOM-driven play: typing, a click, a wait and two checkpoints, behind one
@@ -1040,3 +1050,98 @@
       (is (= (:required-runner source) (:required-runner promoted)))
       (is (contains? (:required-runner promoted) :dom)
           "the promoted variant is still DOM-driven, not a flattened event replay"))))
+
+;; ===========================================================================
+;; rf2-hyheo — the API route reproduces a source whose run depends on world
+;; ===========================================================================
+;;
+;; The API route promotes `determinism/->artifact` of the source's compiled
+;; plan. An artifact carries a program, the fx decisions and `:network`, but
+;; not the source's decorator stubs, `:db-seed`, frame-setup or loaders. It
+;; used to fold `[:world :setup]` into that program too, so neither spelling
+;; reproduced a source with both `:setup` and world slots: without `:extends`
+;; the promoted variant ran unseeded and fired the effect its source stubbed,
+;; and with `:extends` of the source it ran the source's setup twice. The API
+;; route now mirrors the Test-mode dialog: the program leaves setup out, and
+;; promotion defaults `:extends` to the registered source, which supplies setup
+;; and world exactly once.
+
+#?(:clj
+   (def ^:private world-real-calls
+     "How many times the stubbed effect's REAL handler ran."
+     (atom 0)))
+
+#?(:clj
+   (defn- reg-world-app!
+     "The app under test for a world-dependent source. `:promo.world/load`
+     issues `:promo.world/http`, whose real handler counts its calls and
+     returns normally, so only the call count shows the stub was lost."
+     []
+     (rf/reg-fx :promo.world/http {:platforms #{:client :server}}
+                (fn [_ctx _args] (swap! world-real-calls inc) nil))
+     (rf/reg-event :promo.world/load (fn [_ _] {:fx [[:promo.world/http {}]]}))
+     (rf/reg-event :promo.world/inc
+       (fn [{:keys [db]} _] {:db (update db :count (fnil inc 0))}))))
+
+#?(:clj
+   (defn- api-recipe-promote!
+     "Promote `source-id` by the documented API recipe (spec/017 §Promotion,
+     the re-frame2 skill's story-mcp-loop §Promote a failing run), merging
+     `opts` into the promotion opts."
+     [source-id promoted-id opts]
+     (rf.story/promote-run-artifact!
+       (rf.story.determinism/->artifact
+         (rf.story/variant-plan source-id
+                                {:run-args (rf.story.args/run-arg-layers source-id)}))
+       (merge {:variant/id promoted-id} opts))))
+
+#?(:clj
+   (defn- world-verdict
+     "Run variant `id` headless: its status, the final `:count`, and how many
+     times the stubbed effect's real handler ran."
+     [id]
+     (reset! world-real-calls 0)
+     (let [result (rf.story.async/deref-blocking (rf.story/run id) 10000)]
+       {:status     (:status result)
+        :count      (get-in result [:app-db :count])
+        :real-calls @world-real-calls})))
+
+#?(:clj
+   (deftest api-route-reproduces-a-world-dependent-source
+     (testing "a source whose run depends on a force-fx-stub decorator and a
+               :db-seed, with and without a :setup, promotes by the documented
+               API recipe into a variant that reproduces its count with 0 real
+               calls, with no :extends given and with :extends of the source
+               (rf2-hyheo)"
+       (rf.story/install-canonical-vocabulary!)
+       (reg-world-app!)
+       (let [world {:decorators [[:rf.story/force-fx-stub :promo.world/http {:status 200}]]
+                    :db-seed    {:count 10}
+                    :script     [[:dispatch [:promo.world/load]]
+                                 [:dispatch [:promo.world/inc]]]}]
+         (doseq [[source-id body expected]
+                 [[:story.promo-world/stubbed world 11]
+                  [:story.promo-world/stubbed-setup
+                   (assoc world :setup [[:dispatch [:promo.world/inc]]]) 12]]]
+           (rf.story.registrar/reg-variant* source-id body)
+           (let [source (world-verdict source-id)]
+             (is (= {:status :pass :count expected :real-calls 0} source)
+                 (str "control: " source-id " stubs its effect and runs seeded"))
+             (doseq [[suffix opts] [["-api" nil]
+                                    ["-api-extends" {:extends source-id}]]]
+               (let [promoted (keyword (namespace source-id) (str (name source-id) suffix))]
+                 (api-recipe-promote! source-id promoted opts)
+                 (is (= source (world-verdict promoted))
+                     (str promoted " reproduces " source-id
+                          "'s count with 0 real calls"))))))))))
+
+(deftest api-route-from-an-inline-plan-keeps-its-setup
+  (testing "an inline plan names no registered variant, so there is nothing to
+            extend: its setup stays folded into the promoted program and no
+            :extends is defaulted (rf2-hyheo)"
+    (let [art  (rf.story.determinism/->artifact
+                 (rf.story.plan/variant-plan {:setup  [[:dispatch [:promo/seed 1]]]
+                                              :script [[:dispatch [:promo/inc]]]}))
+          body (rf.story.promotion/artifact->variant-body art)]
+      (is (= [[:dispatch [:promo/seed 1]] [:dispatch [:promo/inc]]] (:script body)))
+      (is (not (contains? body :extends))))))
