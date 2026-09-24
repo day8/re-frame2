@@ -49,7 +49,7 @@
 
 (deftest transition-tags-carry-frame
   (testing ":rf.machine/transition tags carry `:frame` so the epoch-capture
-   gate admits the event into the cascade buffer (rf2-hwuki — the gate
+   gate admits the event into the cascade buffer (the gate
    silently drops trace events whose tags lack `:frame`)"
     (rf/reg-machine :rf2-hwuki/tl traffic-light)
     (let [[seen unreg] (record-traces!)]
