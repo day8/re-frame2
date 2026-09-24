@@ -1,7 +1,6 @@
 (ns re-frame.resources-request-decoration-cljs-test
-  "Request decoration for resource reads + mutations (rf2-ih4hq7, EP-0016
-  slice 7 — Spec 016 §Request decoration belongs to the managed-HTTP seam,
-  EP-0016 Rider 3).
+  "Request decoration for resource reads + mutations (Spec 016 §Request
+  decoration belongs to the managed-HTTP seam, EP-0016 Rider 3).
 
   Dual-target (`.cljc` + `_cljs_test`): the JVM runner picks it up via the
   `.*-test$` ns regex; Shadow's `:node-test` build via the `cljs-test$`
@@ -65,7 +64,7 @@
    ;; lowering consults AND registers the per-frame interceptor chain.
    [re-frame.http.managed :as rf.http.managed]
    ;; the request-side chain walker `run-request-chain` is HTTP test
-   ;; scaffolding (rf2-w59es5) — it lives in http-test-support alongside the
+   ;; scaffolding — it lives in http-test-support alongside the
    ;; canned-stub fxs, not the production machine-wrapper.
    [re-frame.http.test-support :as rf.http.test-support]
    [re-frame.schemas]
@@ -89,7 +88,7 @@
 (defn- decorating-transport-fixture
   "Override :rf.http/managed with a stub that runs the real request-side
   interceptor chain, then captures `{:request <post-:before request>
-  :on-success <addr> :on-failure <addr>}`. rf2-784223: the shared reset
+  :on-success <addr> :on-failure <addr>}`. The shared reset
   fixture clears resource + interceptor state before this fixture runs."
   [f]
   (reset! last-decorated nil)
@@ -290,7 +289,7 @@
 ;; ===========================================================================
 ;; 6. The decorated bearer-token VALUE does NOT leak into any trace row
 ;;    (Spec 016 §Security, Privacy, And Observability — the adversarial
-;;    complement of validation rule 13; rf2-9htz7c)
+;;    complement of validation rule 13)
 ;; ===========================================================================
 ;;
 ;; §Security: "Request decoration must not leak sensitive header values into
@@ -303,9 +302,9 @@
 ;; request; THIS test is the adversarial complement: it records the full
 ;; `:rf.resource/*` + `:rf.mutation/*` lifecycle trace stream across a decorated
 ;; read AND a decorated mutation and asserts the bearer-token VALUE never
-;; appears in ANY emitted trace row's serialized form. A regression that started
-;; echoing the post-`:before` decorated request (Authorization header and all)
-;; into a trace facet would pass every existing decoration test silently — this
+;; appears in ANY emitted trace row's serialized form. A regression that
+;; echoed the post-`:before` decorated request (Authorization header and all)
+;; into a trace facet would pass every other decoration test silently — this
 ;; pins the §Security non-leak against exactly that.
 
 (defn- record-resource+mutation-traces!
