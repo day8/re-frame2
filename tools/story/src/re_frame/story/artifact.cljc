@@ -83,6 +83,7 @@
             ;; id, shared with `frames` and `ui.shell`. `config` is the leaf
             ;; all three can reach without closing a cycle.
             [re-frame.story.config                :as rf.story.config]
+            [re-frame.story.assertions            :as rf.story.assertions]
             [re-frame.story.play.evidence         :as rf.story.play.evidence]
             [re-frame.story.play.runner           :as rf.story.play.runner]
             [re-frame.story.play.runner-events    :as rf.story.play.runner-events]
@@ -383,6 +384,18 @@
      (with-meta outcomes {:attribution  @boundaries
                           :step-results @step-results}))))
 
+(defn- checkpoint-atoms
+  "The assertion atoms of `program`'s in-script `[:assert …]` checkpoints
+  that satisfy `family?` (`rf.story.assertions/schema-error?` or
+  `causal?`), in program order. Pure data → data. The replay counterpart of
+  the live run's plan collector (`runtime/record-result-map`), for the one
+  position an artifact carries assertions in (rf2-0viz4)."
+  [program family?]
+  (into []
+        (comp (keep rf.story.play.runner/step-assertion)
+              (filter family?))
+        program))
+
 (defn replay-result
   "Build the replay run-result from the captured `epoch-tape`, the
   artifact, the per-step settle `outcomes`, and the replay `frame-id`.
@@ -408,6 +421,17 @@
   metadata (`replay-into-frame!`); a hand-built `outcomes` with none
   contributes none.
 
+  The program's TAPE-EVALUATED checkpoints — `[:assert [:rf.assert/schema-error
+  …]]` and the causal / cascade family — carry no handler, so the step
+  executor skips them and their verdict is minted here, by the SAME result
+  matchers the live run's result boundary uses
+  (`rf.story.result/match-schema-expectations` /
+  `match-causal-expectations`, rf2-0viz4). Their records join
+  `:assertions`: an expected schema violation that never happened fails, a
+  matched one passes and is exactly consumed (its selector lands in
+  `:consumed-selectors` and it no longer trips the tape floor), and a causal
+  checkpoint the tape cannot prove refuses `:cannot-run`.
+
   `:status` follows the agreement floor (spec/017 §Run-result evidence
   projection): `:cannot-run` if any step refused (a dispatch the settled
   boundary refused, or a step the runner could not attempt); `:error` if any
@@ -430,29 +454,50 @@
         ;; rf2-3x7nj.31.1: the non-dispatch steps' runner results, bridged to
         ;; the unified result the same way `runtime/record-result-map` does.
         step-state     {:results (vec (:step-results (meta outcomes)))}
-        records        (rf.story.result/assertion-records
-                         (into (vec (:rf.story/assertions app-db))
-                               (rf.story.play.runner/run-state-failures step-state)))
+        ;; rf2-0viz4: the tape-evaluated checkpoints, judged by the result
+        ;; boundary's own matchers against this replay's projected evidence.
+        ;; Replay reads the frame's ring with no run baseline, and with no
+        ;; baseline `run-tape-truncated?` answers false (as for a live inline
+        ;; run), so the 2-arity causal match is the one it would reach.
+        program        (:event-program artifact)
+        schema-match   (rf.story.result/match-schema-expectations
+                         (checkpoint-atoms program rf.story.assertions/schema-error?)
+                         (:schema-violations evidence-slots)
+                         :projected)
+        causal-match   (rf.story.result/match-causal-expectations
+                         (checkpoint-atoms program rf.story.assertions/causal?)
+                         evidence-slots)
+        records        (-> (rf.story.result/assertion-records
+                             (into (vec (:rf.story/assertions app-db))
+                                   (rf.story.play.runner/run-state-failures step-state)))
+                           (into (:records schema-match))
+                           (into (:records causal-match)))
         with-status    (fn [st] (fn [r] (when (= st (:status r)) r)))
         refusal        (or (some (with-status :cannot-run) outcomes)
                            (first (rf.story.play.runner/run-state-refusals step-state))
                            (some (with-status :cannot-run) records))
         errored        (some (with-status :error) outcomes)
         record-error   (some (with-status :error) records)
-        tape-red?      (rf.story.play.evidence/tape-shows-failure? epoch-tape)
+        ;; The floor reads the matcher's MULTISET `:unconsumed`, as
+        ;; `rf.story.result/run-result` does, so an expected violation the
+        ;; program exactly consumed does not falsely fail the replay.
+        tape-red?      (rf.story.play.evidence/evidence-shows-failure?
+                         epoch-tape (:unconsumed schema-match)
+                         (:effects evidence-slots) nil :unconsumed)
         status         (cond
                          refusal                          :cannot-run
                          (or errored record-error)        :error
                          (or tape-red?
                              (some (with-status :fail) records)) :fail
                          :else                            :pass)]
-    (cond-> (merge {:status        status
-                    :runner        :headless
-                    :frame         frame-id
-                    :app-db        app-db
-                    :assertions    records
-                    :run-artifact  artifact
-                    :replay-steps  outcomes}
+    (cond-> (merge {:status             status
+                    :runner             :headless
+                    :frame              frame-id
+                    :app-db             app-db
+                    :assertions         records
+                    :consumed-selectors (:consumed-selectors schema-match)
+                    :run-artifact       artifact
+                    :replay-steps       outcomes}
                    evidence-slots)
       refusal      (assoc :cannot-run refusal)
       errored      (assoc :error (:error errored))

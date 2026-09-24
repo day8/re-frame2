@@ -466,6 +466,70 @@
       (is (= [:rf.error/story-play-step-failed] (mapv :assertion (:assertions res)))))))
 
 ;; ===========================================================================
+;; rf2-0viz4 — tape-evaluated checkpoints get their verdict on replay
+;; ===========================================================================
+;;
+;; A `[:assert [:rf.assert/schema-error …]]` or causal checkpoint has no
+;; handler: the step executor skips it and the result boundary owns its
+;; verdict. Replay used to skip it and never play that boundary role, so a
+;; missing expected violation and an unprovable causal claim both read
+;; `:pass` with no record, while a MATCHING expected violation stayed
+;; unconsumed and tripped the tape floor. `replay-result` now runs the
+;; program's tape-evaluated checkpoints through the result boundary's own
+;; matchers.
+
+(def ^:private schema-checkpoint
+  [:assert [:rf.assert/schema-error {:where :event :event :rep/typed}]])
+
+(deftest replay-fails-a-missing-expected-schema-violation
+  (testing "an expected schema violation that never happens fails the replay"
+    (rf/reg-event :rep/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+    (let [res (replay-program [[:dispatch [:rep/inc]] schema-checkpoint])]
+      (is (= :fail (:status res)))
+      (is (= [[:rf.assert/schema-error false :fail]]
+             (mapv (juxt :assertion :passed? :status) (:assertions res))))
+      (is (empty? (:schema-violations res)) "precondition: nothing was emitted")
+      (is (= #{} (:consumed-selectors res))))))
+
+(deftest replay-consumes-a-matching-expected-schema-violation
+  ;; `replay-run-artifact` hands its captured tape to `replay-result`, so the
+  ;; consumption is pinned there, against a tape carrying the violation.
+  (let [tape     [(epoch 1 {:trace-events
+                            [{:operation :rf.error/schema-validation-failure
+                              :tags      {:where :event :failing-id :rep/typed}}]})]
+        replay   (fn [program]
+                   (rf.story.artifact/replay-result
+                     {:epoch-tape tape
+                      :artifact   (rf.story.artifact/make-run-artifact
+                                    {:event-program program})
+                      :outcomes   [{:status :settled :boundary :headless}]
+                      :frame-id   :f
+                      :app-db     {}}))]
+    (testing "control: the same tape with no expectation is red on the floor"
+      (let [res (replay [[:dispatch [:rep/typed "x"]]])]
+        (is (= :fail (:status res)))
+        (is (= [] (:assertions res)))))
+    (testing "the expected violation passes, is consumed, and does not trip the floor"
+      (let [res (replay [[:dispatch [:rep/typed "x"]] schema-checkpoint])]
+        (is (= :pass (:status res)))
+        (is (= [[:rf.assert/schema-error true :pass]]
+               (mapv (juxt :assertion :passed? :status) (:assertions res))))
+        (is (= #{[:event :rep/typed]} (:consumed-selectors res)))))))
+
+(deftest replay-refuses-a-causal-checkpoint-it-cannot-prove
+  (rf/reg-event :rep/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+  (doseq [id [:rf.assert/caused :rf.assert/no-cascade-rerender]]
+    (testing (str id " with no reactive evidence refuses rather than passing")
+      (let [res (replay-program [[:dispatch [:rep/inc]]
+                                 [:assert [id {:event :rep/inc}]]])]
+        (is (= :cannot-run (:status res)))
+        (is (= [[id false :cannot-run]]
+               (mapv (juxt :assertion :passed? :status) (:assertions res))))
+        (is (= id (get-in res [:cannot-run :assertion])))
+        (is (not (contains? res :reactive-counts))
+            "precondition: the headless replay carried no reactive evidence")))))
+
+;; ===========================================================================
 ;; :network route stubs survive replay (rf2-tymyh)
 ;; ===========================================================================
 ;;
