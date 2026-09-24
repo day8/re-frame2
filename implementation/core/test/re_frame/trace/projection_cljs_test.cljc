@@ -3,12 +3,11 @@
   `domino-bucket`. Pure-data — no fixture, no frame, no router; JVM and
   CLJS run the same suite.
 
-  Per rf2-wvzgd: the projection was lifted from Story's trace panel.
-  The original Story version used synthetic op-types (`:rf.fx/do-fx`,
-  `:fx`, `:rf.view/render` as op-type rather than operation) and the
-  invented `:event/run` operation; this rewrite tracks the
-  framework's actual trace surface per Spec 009 §`:op-type`
-  vocabulary."
+  The projection tracks the framework's actual trace surface per Spec
+  009 §`:op-type` vocabulary: it buckets on real `:op-type` /
+  `:operation` pairs (`:rf.view/render` is an operation under
+  `:op-type :rf.view`, not an op-type), never on synthetic op-types or
+  invented operations."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.trace.projection :as rf.trace.projection]))
 
@@ -138,8 +137,8 @@
 
 (deftest group-by-event-error-and-warning-events-ride-along-in-other
   (testing "an error fired inside a cascade lands in that cascade's
-            :other slot, not as its own cascade (per rf2-g6ih4
-            :rf.trace/dispatch-id rides every event)"
+            :other slot, not as its own cascade
+            (:rf.trace/dispatch-id rides every event)"
     (let [evs (conj (cascade-evs 400 [:foo])
                     {:id 100 :op-type :error :operation :rf.error/handler-exception
                      :tags {:rf.trace/dispatch-id 400 :event-id :foo}})
@@ -201,18 +200,17 @@
   (testing "a bundle carrying ONLY the dispatched root (no handler/fx/
             effects/subs/renders/other trace within its run) sorts by
             its own :dispatched event's :id, not by the ##Inf sentinel
-            (rf2-yl4c0s — first-id previously destructured :event, the
-            bare event VECTOR which carries no :id, instead of
-            :dispatched, so a root-only bundle silently fell through to
-            the sentinel and sorted LAST regardless of emission order)"
+            (first-id reads :dispatched; the bare :event VECTOR carries
+            no :id, so reading it would drop a root-only bundle to the
+            sentinel and sort it LAST regardless of emission order)"
     (let [root-only {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                       :tags {:rf.trace/dispatch-id :root-only :rf.event/v [:root-only]}}
           ;; A full six-domino cascade whose own ids (100-107) are all
-          ;; HIGHER than the root-only bundle's id (1) — with the fix,
-          ;; the root-only bundle's first-id (1) beats the full
-          ;; cascade's first-id (100) and sorts first. Pre-fix, the
-          ;; root-only bundle's first-id fell to the ##Inf sentinel and
-          ;; sorted AFTER the full cascade instead.
+          ;; HIGHER than the root-only bundle's id (1) — the root-only
+          ;; bundle's first-id (1) beats the full cascade's first-id
+          ;; (100) and sorts first. Were its first-id to fall to the ##Inf
+          ;; sentinel, the root-only bundle would sort AFTER the full
+          ;; cascade instead.
           full      (mapv #(update % :id + 99) (cascade-evs :full-cascade [:full]))
           cs        (rf.trace.projection/group-by-event (concat full [root-only]))]
       (is (= 2 (count cs)))
@@ -222,7 +220,7 @@
 (deftest group-by-event-dispatched-slot-carries-full-trace-event
   (testing "the :dispatched slot preserves the full :rf.event/dispatched
             trace so consumers (Xray Event lens) can read top-level
-            hoisted slots like :rf.trace/call-site (rf2-twt7m Change 1)
+            hoisted slots like :rf.trace/call-site
             without scanning the raw buffer"
     (let [evs [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
                 :tags {:rf.trace/dispatch-id 42 :rf.event/v [:cart/add-item]}
@@ -233,8 +231,8 @@
           ":dispatched slot is populated with the trace event")
       (is (= {:file "src/views.cljs" :line 127}
              (:rf.trace/call-site (:dispatched c)))
-          "the call-site (rf2-twt7m Change 1) rides through the projection")
+          "the call-site rides through the projection")
       (is (= :ui (:source (:dispatched c)))
           "the :source slot rides through the projection")
       (is (= [:cart/add-item] (:event c))
-          ":event slot still holds the slim event vector"))))
+          ":event slot holds the slim event vector"))))
