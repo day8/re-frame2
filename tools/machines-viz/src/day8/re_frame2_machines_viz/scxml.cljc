@@ -8,8 +8,7 @@
   Stately's importers, the xstate-visualizer. Same pure-data posture
   as `mermaid.cljc`: a machine definition in, an XML string out;
   and the inverse on the read side, which reads back ONLY documents this
-  library exported (the format marker — see `scxml->spec`,
-  rf2-3x7nj.33.5).
+  library exported (the format marker — see `scxml->spec`).
 
   ## Input / output
 
@@ -83,13 +82,13 @@
     `<data>`, `<invoke>` and any other foreign child of a `<state>`. The
     import models the static TOPOLOGY only, so on the way IN every such
     element is IGNORED together with its whole subtree, and on the way OUT
-    none is emitted. Ignoring is the whole of the behaviour (rf2-qy8p): a
+    none is emitted. Ignoring is the whole of the behaviour: a
     foreign element never becomes a `:states` entry, and a `<state>` nested
     inside one is NOT promoted into the parent's `:states`. Only `<state>`,
     `<final>`, `<history>` and `<transition>` carry meaning here.
   - `:spawn-all` rows — omitted; the parent state renders without
     spawn affordances.
-  - `:spawn` (rf2-3x7nj.33.1) — omitted with its whole map, INCLUDING its
+  - `:spawn` — omitted with its whole map, INCLUDING its
     `:on-error` parent transition, so a state whose only way out is
     `:spawn :on-error` exports as a dead end and its target as unreached
     (the chart and Mermaid do draw that edge). Nothing about it rides a
@@ -157,7 +156,7 @@
   sentence, and the message leads with the sentence + the
   `[:scxml/<id>]` token.
 
-  Per [`API.md`](../../spec/API.md) §SCXML import/export."
+  Per `tools/machines-viz/spec/API.md` §SCXML import / export."
   (:require [clojure.string :as str]
             [re-frame.error :as rf.error]
             ;; The SHARED grammar walker + injective id codec the three
@@ -179,10 +178,10 @@
 ;; carry the raw rejected payload. A machine spec can carry a `:data`
 ;; slot of live runtime values and an SCXML input string can carry
 ;; interpolated secrets; projection cannot walk `ex-data` after the fact,
-;; so the assembly site names the SHAPE (type tag, key SET, length) —
+;; so the assembly site names the SHAPE (type tag, counts, length) —
 ;; never the values.
 
-;; rf2-egupfk — the rejected-spec summary is the SHARED
+;; The rejected-spec summary is the SHARED
 ;; `grammar/definition-summary` (value-free structural facts only), so all
 ;; three emitters emit the same diagnostic shape. SCXML stashes it under its
 ;; own `:spec-summary` ex-data key.
@@ -232,7 +231,7 @@
 ;; `_XX`-unescape each part. Because the escaper never emits `-` or a
 ;; `___` run, neither boundary can collide with segment content for ANY
 ;; keyword (multi-dot ns, dotted name, a name whose leading char escapes
-;; to `_…` — rf2-t69tdo) — the codec is fully injective and every emitted
+;; to `_…`) — the codec is fully injective and every emitted
 ;; id is a valid xsd:ID.
 
 (def ^:private ns-name-sep
@@ -242,15 +241,15 @@
   making it the injective ns/name marker AND a valid xsd:ID `NameChar`
   (letters / digits / `-` / `.` / `_`).
 
-  rf2-t69tdo — the marker was `__` (double underscore). Because EVERY
-  escape starts with `_`, a name segment whose FIRST char is
-  non-alphanumeric (any CJK name → leading `_u…`, or `:a/-b`'s name `-b`
-  → `_2db`) began with `_`, so `<ns>` + `__` + `_<name-escape>` minted
-  `___` (triple underscore) at the boundary — the EXACT
-  `path-segment-sep`. `unescape-id-string` then mis-read the namespaced
-  keyword as a vector path (`:a/-b` → `[:a :2db]`). A non-underscore
-  boundary token the escaper can never emit removes the collision at its
-  root: no boundary can ever grow into a `___` run."
+  A `__` (double underscore) marker would collide: EVERY escape starts
+  with `_`, so a name segment whose FIRST char is non-alphanumeric (any
+  CJK name → leading `_u…`, or `:a/-b`'s name `-b` → `_2db`) begins with
+  `_`, and `<ns>` + `__` + `_<name-escape>` would mint `___` (triple
+  underscore) at the boundary — the EXACT `path-segment-sep` — so
+  `unescape-id-string` would mis-read the namespaced keyword as a vector
+  path (`:a/-b` → `[:a :2db]`). A non-underscore boundary token the
+  escaper can never emit rules the collision out: no boundary can ever
+  grow into a `___` run."
   "-")
 
 (def ^:private path-segment-sep
@@ -259,13 +258,14 @@
   `_u` + 4 hex, so a `_` is never followed by a `_`; segment content
   carries no consecutive underscores at all. Distinct from the `-`
   ns/name marker, so a vector path can never collide with a single
-  namespaced keyword (rf2-t69tdo). A valid xsd:ID."
+  namespaced keyword. A valid xsd:ID."
   "___")
 
 ;; The xsd:ID-safe injective escape is the SHARED `grammar/escape-id-segment`
 ;; (every char outside `[A-Za-z0-9]` → `_<2-hex>` ≤ U+00FF / `_u<4-hex>` above,
-;; the underscore itself → `_5f`; no two consecutive underscores, so the `__` /
-;; `___` reserved markers can never arise from segment content). The SINGLE
+;; the underscore itself → `_5f`; no bare `-` and no two consecutive
+;; underscores, so the `-` / `___` reserved markers can never arise from
+;; segment content). The SINGLE
 ;; injective scheme across
 ;; all machines-viz id emitters, so the SCXML codec mints byte-identical
 ;; segment escapes to the chart `node-id` + mermaid `sanitise-id`.
@@ -275,7 +275,7 @@
   "Inverse of `escape-id-segment`: replace every escape with the code unit
   it encodes — `_u<4-hex>` (> U+00FF) OR `_<2-hex>` (≤ U+00FF). The `u`
   sentinel keeps the two widths unambiguous, so the decode is exact across
-  the whole code-unit range (rf2-qgtcvy)."
+  the whole code-unit range."
   [s]
   (str/replace s
                #"_u([0-9a-fA-F]{4})|_([0-9a-fA-F]{2})"
@@ -316,7 +316,7 @@
 (defn- path->id-string
   "Map a re-frame2 id (keyword or vector path) to a single SCXML id
   string. A keyword uses `keyword->id-string`; a vector path joins its
-  per-segment id strings with `___` (`path-segment-sep`). The `__`
+  per-segment id strings with `___` (`path-segment-sep`). The `-`
   ns/name and `___` path markers never collide with each other or with
   segment content, so the codec is fully injective."
   [id]
@@ -391,7 +391,7 @@
 (def ^:private parent-path g/parent-path)
 
 (defn- sibling-scope
-  "rf2-3x7nj.33.4 — the path a KEYWORD target declared at `source-path`
+  "The path a KEYWORD target declared at `source-path`
   names a child of. Ordinarily the source's parent (a keyword target is a
   sibling). At the SCOPE ROOT itself (`source-path` = `root-path`: a
   region body's own `:on` / `:after` / `:always`) it is the scope root, so
@@ -407,7 +407,7 @@
   "Resolve a transition target to its ABSOLUTE path from the machine
   root. `source-path` is the source state's absolute path.
 
-  rf2-3x7nj.33.4 — `root-path` is the SCOPE root the target resolves in:
+  `root-path` is the SCOPE root the target resolves in:
   `[]` for a flat / compound machine, `[<region>]` for anything declared
   inside a parallel region (Spec 005 §Cross-region coordination: every
   target declared inside a region resolves strictly within that region).
@@ -443,14 +443,14 @@
 (defn- emit-transition
   "Emit a `<transition>` line for one candidate. `target->path` maps a target
   to its absolute path — a `resolve-target-path` partial the OWNING
-  state's emitter builds (rf2-3x7nj.33.4: it carries the region scope) —
+  state's emitter builds (it carries the region scope) —
   so the emitted `target` is the unique xsd:ID of the destination.
 
   The re-frame2 `:reenter? true` axis (Spec 005 §Self-transitions /
   XState v5: a TARGETED transition is INTERNAL by default; `:reenter?`
   opts into the EXTERNAL restart) maps onto W3C SCXML's `<transition
   type=\"internal|external\">`, which is the SAME external-vs-internal
-  axis. Spec 005 §Self-transitions L332 records the inversion: SCXML's
+  axis. Spec 005 §Self-transitions records the inversion: SCXML's
   targeted-transition DEFAULT is `external` (`type=\"internal\"` opts
   out); XState v5 / re-frame2 use the opposite convention (internal
   default, `:reenter?` opts IN). So a target-bearing re-frame2 transition
@@ -465,8 +465,8 @@
 
   A TARGETLESS (action-only) transition carries NO `type` — SCXML's own
   default for a targetless transition is already `internal` and `external`
-  is meaningless with no state to re-enter; this also keeps the round-trip
-  for the existing action-only shapes unchanged.
+  is meaningless with no state to re-enter; this also keeps the action-only
+  shapes' round-trip exact.
 
   SCXML's `type=\"internal\"` is strictly equivalent to `external` for a
   COMPOUND source whose target is a PROPER DESCENDANT (the only case where
@@ -531,7 +531,7 @@
           after-map))
 
 (defn- emit-transitions-for-always
-  "rf2-oy49f1 — gated on `always` being present. `:always` is a SINGULAR
+  "Gated on `always` being present. `:always` is a SINGULAR
   top-level slot (unlike a per-event `:on`/`:after` MAP entry, where the
   caller only ever visits a key that EXISTS) — an absent `:always` and an
   explicit `nil` value are indistinguishable once destructured off the
@@ -572,7 +572,7 @@
   history node's own level (a keyword target is a sibling — i.e. a direct
   child of the owning compound — per Spec 005), path-qualified to the
   destination's unique id, and round-trips back via `decode-target`.
-  rf2-3x7nj.33.4 — a VECTOR `:default-target` is absolute from `root-path`
+  A VECTOR `:default-target` is absolute from `root-path`
   (the region, inside a parallel region), like every other target."
   [root-path path {:keys [deep? default-target]} depth]
   (let [id-str    (qualified-id path)
@@ -609,7 +609,7 @@
   resolve in (`resolve-target-path`): `[]` for a flat / compound machine,
   `[<region>]` for a region body and everything under it.
 
-  rf2-3x7nj.33.4 — a region body's own `:on-done` keeps the plain sibling
+  A region body's own `:on-done` keeps the plain sibling
   rule (a keyword names a SIBLING REGION, the convention the chart and
   Mermaid share for a region's own completion); only its `:on` / `:after` /
   `:always` resolve keywords among the region's top-level states.
@@ -672,7 +672,7 @@
 
 (defn- emit-machine-level-on
   "Emit the machine-level (top-level) `:on` fallback transitions
-  (Spec 005 `005-StateMachines.md:181,199`) directly under `<scxml>`.
+  (Spec 005 §Transition table top-level keys) directly under `<scxml>`.
 
   W3C SCXML has no clean root-fallback-transition slot
   (`<scxml>` does not host `<transition>` children per the schema, and
@@ -687,7 +687,7 @@
       [(str (indent-str depth)
             "<!-- machine-level (top-level) :on fallback transitions"
             " — inherited by every state (Spec 005 §top-level :on) -->")]
-      ;; rf2-mnp93.7 — machine-level targets are siblings at the machine
+      ;; Machine-level targets are siblings at the machine
       ;; root, so resolve them against the empty root path.
       (emit-transitions-for-on on (partial resolve-target-path [] [] []) depth))))
 
@@ -697,9 +697,9 @@
     [(str (indent-str depth)
           "<scxml xmlns=\"http://www.w3.org/2005/07/scxml\""
           " version=\"1.0\""
-          ;; rf2-mnp93.7 — the root `initial` references a TOP-LEVEL state
+          ;; The root `initial` references a TOP-LEVEL state
           ;; by its unique qualified id (a single-segment path, so the
-          ;; bare name, identical to the pre-fix flat output).
+          ;; bare escaped name).
           " initial=\"" (escape-xml-attr (qualified-id [initial])) "\">")]
     (emit-machine-level-on on (inc depth))
     (mapcat (fn [[child-id child-node]]
@@ -708,17 +708,17 @@
     [(str (indent-str depth) "</scxml>")]))
 
 (def ^:private parallel-root-scxml-id
-  "rf2-41goo — the SCXML id of the synthetic `<parallel>` element. Its
+  "The SCXML id of the synthetic `<parallel>` element. Its
   W3C completion event is `done.state.<this-id>`.
 
-  rf2-bs3us — sourced from the shared canonical sentinel
+  Sourced from the shared canonical sentinel
   (`layout/parallel-root-done-state-id`) so the SCXML emitter's
   `done.state.<id>` event and the chart projector's `:doneState` renderer
   label agree on the parallel-root done-state id."
   layout/parallel-root-done-state-id)
 
 (defn- root-transition-candidates
-  "rf2-656ivk / rf2-m3otj2 — normalise a parallel-ROOT `:on` / `:after` SPEC
+  "Normalise a parallel-ROOT `:on` / `:after` SPEC
   VALUE into candidate maps, matching the RUNTIME grammar
   (`re-frame.machines.grammar/transition-value-form`) — NOT the generic
   `transition-candidates`. The crucial divergence: a vector-of-VECTORS
@@ -739,7 +739,7 @@
                       [{:target spec}])            ; :vec-target — ONE target
     :else           []))
 
-;; rf2-b2ygd2 — the parallel-root `:target` normaliser is the SHARED
+;; The parallel-root `:target` normaliser is the SHARED
 ;; `grammar/normalise-root-targets` (also the chart projector's
 ;; `normalise-root-targets`), mirroring the runtime resolver
 ;; (`re-frame.machines.parallel/normalise-root-targets`):
@@ -750,7 +750,7 @@
 (def ^:private root-region-qualified-targets g/normalise-root-targets)
 
 (defn- emit-root-parallel-transition
-  "rf2-656ivk / rf2-m3otj2 — emit ONE root-parallel `<transition>` (an `:on`
+  "Emit ONE root-parallel `<transition>` (an `:on`
   or `:after` candidate declared on the `:type :parallel` ROOT itself — the
   ancestor fallback for its regions, Spec 005 §Root parallel `:on` /
   §Root-level `:after`). It sits as a DIRECT child of `<parallel>`.
@@ -785,10 +785,10 @@
                 "</transition>")))))
 
 (defn- emit-root-parallel-on
-  "rf2-656ivk — emit the parallel-ROOT's own `:on` transitions (the ancestor
+  "Emit the parallel-ROOT's own `:on` transitions (the ancestor
   fallback) as DIRECT `<parallel>` children, wrapped in a documenting comment.
-  Pre-fix `emit-parallel` dropped the root `:on` entirely; it now survives the
-  export AND round-trips (the import recovers these direct-child transitions)."
+  The import recovers these direct-child transitions, so the root `:on`
+  round-trips."
   [on depth]
   (when (seq on)
     (concat
@@ -801,7 +801,7 @@
               on))))
 
 (defn- emit-root-parallel-after
-  "rf2-m3otj2 — emit the parallel-ROOT's own `:after` (delayed) transitions —
+  "Emit the parallel-ROOT's own `:after` (delayed) transitions —
   the timer-driven analog of the root `:on` ancestor fallback (Spec 005
   §Root-level `:after`) — as DIRECT `<parallel>` children, wrapped in a
   documenting comment. The delay becomes `event=\"after.<delay>\"` exactly as
@@ -827,7 +827,7 @@
           "<scxml xmlns=\"http://www.w3.org/2005/07/scxml\""
           " version=\"1.0\">")
      (str (indent-str (inc depth)) "<parallel id=\"" parallel-root-scxml-id "\">")]
-    ;; rf2-41goo — the parallel-root `:on-done` (XState `onDone`):
+    ;; The parallel-root `:on-done` (XState `onDone`):
     ;; `done.state.<parallel-id>` raised when ALL regions settle final.
     ;; A `:type :parallel` machine is root-only — registration rejects a
     ;; `:target`, so the transition is action/fx-only (no `target`); the
@@ -838,16 +838,15 @@
       (emit-transitions-for-on-done (str "done.state." parallel-root-scxml-id)
                                     on-done (partial resolve-target-path [] [] [])
                                     (+ depth 2)))
-    ;; rf2-656ivk / rf2-m3otj2 — the parallel-root's OWN `:on` / `:after`
-    ;; ancestor-fallback transitions (region-qualified target grammar). Pre-fix
-    ;; both were silently dropped (only `:on-done` survived).
+    ;; The parallel-root's OWN `:on` / `:after`
+    ;; ancestor-fallback transitions (region-qualified target grammar).
     (emit-root-parallel-on on (+ depth 2))
     (emit-root-parallel-after after (+ depth 2))
     (mapcat (fn [[region-id region-node]]
               ;; Each region is a state with its own initial + states.
-              ;; rf2-mnp93.7 — a region's path is rooted at the region id
-              ;; (regions are the parallel's direct children).
-              ;; rf2-3x7nj.33.4 — and the region is the SCOPE its targets
+              ;; A region's path is rooted at the region id
+              ;; (regions are the parallel's direct children),
+              ;; and the region is the SCOPE its targets
               ;; resolve in (Spec 005 §Cross-region coordination).
               (emit-state [region-id] [region-id] region-node (+ depth 2)))
             regions)
@@ -855,7 +854,7 @@
      (str (indent-str depth) "</scxml>")]))
 
 ;; ---------------------------------------------------------------------------
-;; Format marker (rf2-3x7nj.33.5)
+;; Format marker
 ;;
 ;; `scxml->spec` is ROUND-TRIP-ONLY: it reads back documents `spec->scxml`
 ;; wrote, and nothing else. The id codec, the `after.*` / `done.state.*`
@@ -872,7 +871,8 @@
 ;; export exists to serve, while the round trip already depends on comments
 ;; surviving (the `<!-- action: NAME -->` carrier). The marker names a FORMAT,
 ;; not trusted authorship — a marked file can still be hand-edited, which is
-;; why the rf2-qy8p hardening below stays.
+;; why the importer also ignores foreign elements (see "Not supported" in the
+;; ns docstring).
 
 (def ^:private format-marker
   "The exact format comment every `spec->scxml` document carries after its
@@ -904,7 +904,8 @@
   ```
 
   Throws the canonical thrown-error shape with
-  `:rf.error/id :scxml/invalid-spec` if the spec is missing required keys.
+  `:rf.error/id :scxml/invalid-spec` if `grammar/valid-definition?` rejects
+  the spec (e.g. it is missing required keys).
 
   Round-trips through `scxml->spec`:
 
@@ -920,7 +921,7 @@
   does **not** survive the parse back (alongside `:spawn-all`, `:tags`,
   action/guard bodies, and source-coord metadata).
 
-  rf2-3x7nj.33.5 — the line after the XML prolog is always the fixed format
+  The line after the XML prolog is always the fixed format
   comment `<!-- re-frame2 machines-viz SCXML v1 -->`, the marker
   `scxml->spec` requires before it reads a document."
   [machine-spec]
@@ -929,11 +930,10 @@
   ;; `<transition>`) and `:type :choice` / `:choice` → `:always` (A5,
   ;; surfaces the candidate `<transition>`s). The runtime drives the same
   ;; lowered forms. Idempotent + nil-safe.
-  ;; rf2-egupfk — route the shape check through the SHARED
+  ;; Route the shape check through the SHARED
   ;; `grammar/valid-definition?` so SCXML agrees with the AI-generate + Mermaid
   ;; emitters: a KEYWORD `:initial` per the machine contract, and parallel
-  ;; region bodies each a valid state tree (pre-fix SCXML accepted malformed
-  ;; regions the other two rejected). SCXML keeps its own `:scxml/invalid-spec`
+  ;; region bodies each a valid state tree. SCXML keeps its own `:scxml/invalid-spec`
   ;; id + the parallel-vs-flat message / recovery split below.
   (let [machine-spec (g/desugar-grammar machine-spec)
         parallel?    (g/parallel-definition? machine-spec)]
@@ -949,7 +949,7 @@
                "non-empty :states map, or :type :parallel + :regions. Provide "
                "one of those shapes."))
         {:recovery (if parallel? :supply-non-empty-regions :supply-a-valid-machine-spec)
-         ;; rf2-8nzxib — value-FREE; never the raw spec (its :data slot can
+         ;; Value-FREE; never the raw spec (its :data slot can
          ;; carry live runtime values).
          :extra    {:spec-summary (g/definition-summary machine-spec)}}))
     (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
@@ -964,7 +964,7 @@
 ;; emit. This deliberately doesn't try to be a full XML parser; it
 ;; round-trips our own output (attribute order is free, whitespace
 ;; tolerated), and `scxml->spec` refuses any document that lacks the
-;; `format-marker` before this reader sees it (rf2-3x7nj.33.5). For
+;; `format-marker` before this reader sees it. For
 ;; unsupported XML constructs (CDATA, namespaces beyond the default scxml
 ;; ns, processing instructions other than the leading `<?xml ... ?>`) the
 ;; parser is best-effort and may throw.
@@ -974,7 +974,7 @@
   [s]
   (str/replace s #"(?s)^\s*<\?xml[^?]*\?>\s*" ""))
 
-;; rf2-mnp93.5 — the synthetic attribute the action-comment lift-pass folds
+;; The synthetic attribute the action-comment lift-pass folds
 ;; an action name into. `parse-attrs`' `(\w+)` key pattern forbids hyphens,
 ;; so the key uses underscores; it can never collide with a real SCXML
 ;; attribute (W3C SCXML has no `data_rf_action`). It is stripped from the
@@ -984,25 +984,25 @@
 (def ^:private action-attr "data_rf_action")
 
 (defn- lift-action-comments
-  "rf2-mnp93.5 — fold every transition action COMMENT into a synthetic
+  "Fold every transition action COMMENT into a synthetic
   attribute on its OWN `<transition>` start-tag BEFORE comments are
   stripped, so the action name survives the round-trip.
 
   The emitter writes an action-bearing transition as
   `<transition ATTRS><!-- action: NAME --></transition>` (the comment is
   how the action survives for external SCXML tooling, which has no
-  transition-action slot). Pre-fix, `strip-comments` discarded the comment
-  globally, so an INTERNAL action transition (`:on {:tick {:action :log}}`)
-  decoded to the EMPTY candidate map `{}` — which Spec 005 §Forbidden
-  transitions defines as a FORBIDDEN BLOCK (consume-the-event-and-block-
-  inheritance), the OPPOSITE of 'run an action'. A semantic inversion, not
-  a lossy detail (rf2-mnp93.5).
+  transition-action slot). `strip-comments` discards comments globally, so
+  without this pass an INTERNAL action transition (`:on {:tick {:action
+  :log}}`) would decode to the EMPTY candidate map `{}` — which Spec 005
+  §Forbidden transitions defines as a FORBIDDEN BLOCK (consume-the-event-
+  and-block-inheritance), the OPPOSITE of 'run an action'. A semantic
+  inversion, not a lossy detail.
 
   This pass rewrites `<transition ATTRS><!-- action: NAME --></transition>`
   to `<transition ATTRS data_rf_action=\"NAME\"/>` so the decoder recovers
   the action into the candidate map's `:action` — yielding a VALID Spec-005
   internal action transition (`{:action :log}`), never the forbidden-block
-  `{}`. Per Spec 005 §Forbidden transitions L1346, an action-bearing
+  `{}`. Per Spec 005 §Forbidden transitions, an action-bearing
   internal transition halts the walk AND runs the action; the distinguishing
   shape feature is the PRESENCE of `:action`."
   [s]
@@ -1015,7 +1015,7 @@
 (defn- strip-comments
   "Drop `<!-- ... -->` comments. The action-name comments the emitter
   injects on transitions are first lifted into a synthetic attribute by
-  `lift-action-comments` (rf2-mnp93.5) so they survive the round-trip;
+  `lift-action-comments` so they survive the round-trip;
   this then drops the remaining (documenting / machine-level) comments,
   which SCXML proper has no slot for."
   [s]
@@ -1026,9 +1026,9 @@
   map of string keys to unescaped string values. Tolerant of any
   attribute order; recognises both single and double quotes."
   [^String attr-string]
-  ;; rf2-qgtcvy — match DOUBLE- OR SINGLE-quoted values. Pre-fix the pattern
-  ;; only matched `"…"`, so an imported `<state id='idle'>` (single-quoted, a
-  ;; legal XML form) parsed no `id` and keyed the state under nil.
+  ;; Match DOUBLE- OR SINGLE-quoted values. A pattern matching only `"…"`
+  ;; would parse no `id` from an imported `<state id='idle'>` (single-quoted,
+  ;; a legal XML form) and key the state under nil.
   (let [pattern #"(\w+)\s*=\s*(?:\"([^\"]*)\"|'([^']*)')"
         matches (re-seq pattern attr-string)]
     (into {}
@@ -1043,7 +1043,7 @@
 
 (defn- unescape-id-string
   "Convert a SCXML id string back to a re-frame2 keyword (or vector
-  path). Inverse of `path->id-string` (rf2-mnp93.1).
+  path). Inverse of `path->id-string`.
 
   The encoder uses two reserved markers the segment escaper can provably
   never emit, so decoding is topology-aware and fully injective:
@@ -1061,18 +1061,18 @@
   keyword (`\"authenticated-browsing\"`), a multi-dot namespace
   (`\"my_2eapp_2eauth-login\"`) round-trips its dots exactly, and a
   namespaced keyword whose name's leading char escapes to `_…`
-  (`:a/-b` → `\"a-_2db\"`) no longer mints a spurious `___` at the
-  boundary (rf2-t69tdo)."
+  (`:a/-b` → `\"a-_2db\"`) never mints a spurious `___` at the
+  boundary."
   [s]
   (when s
     (if (str/includes? s path-segment-sep)
       (mapv id-string->keyword (str/split s (re-pattern path-segment-sep)))
       (id-string->keyword s))))
 
-;; --- qualified-id decode (rf2-mnp93.7) -----------------------------------
+;; --- qualified-id decode -------------------------------------------------
 
 (defn- id-string->abs-path
-  "Decode a qualified SCXML id (rf2-mnp93.7) into an ABSOLUTE path
+  "Decode a qualified SCXML id into an ABSOLUTE path
   VECTOR. `unescape-id-string` returns a vector for a `___`-joined path
   and a bare keyword for a single segment; normalise both to a vector."
   [s]
@@ -1081,33 +1081,32 @@
 
 (defn- abs-path->local-key
   "The LOCAL `:states` key for a state whose qualified id decodes to
-  absolute `abs-path` — the last segment (rf2-mnp93.7)."
+  absolute `abs-path` — the last segment."
   [abs-path]
   (last abs-path))
 
 (defn- decode-target
   "Reconstruct a transition target's RELATIVE grammar form from the
-  qualified `target` id and the source state's absolute `source-path`
-  (rf2-mnp93.7). This inverts `resolve-target-path` so the round-trip is
-  exact:
+  qualified `target` id and the source state's absolute `source-path`.
+  This inverts `resolve-target-path` so the round-trip is exact:
 
-  - rf2-0pp6as — a SELF-TARGET (the resolved target path EQUALS the source
+  - A SELF-TARGET (the resolved target path EQUALS the source
     state's own path) decodes to the canonical `:same-state` sentinel
     (Spec 005 §Self-transitions). The emitter resolves BOTH `:target
     :same-state` AND a keyword naming the state's own key to the source
     state's own id, and SCXML has no self-sentinel — it just references the
     state's own id. Those two re-frame2 spellings are the SAME
-    self-transition per Spec 005 (L327, transition.cljc L1248-1250), so the
-    canonical decode is `:same-state` for both. This keeps the round-trip
-    exact for `{:target :same-state}` even though the export no longer
-    emits the dangling `same_2dstate` phantom id.
+    self-transition per Spec 005 §Self-transitions (and the engine's
+    `re-frame.machines.transition/target-path`), so the canonical decode is
+    `:same-state` for both. This keeps the round-trip exact for `{:target
+    :same-state}`, which exports as the source state's own id rather than
+    a `same_2dstate` phantom.
   - a target whose parent is `siblings` (the same path the emitter's
     keyword rule used — `sibling-scope`, or the plain parent for a
     region's own `:on-done`) is a SIBLING — re-frame2 writes it as the
     bare keyword (the last segment).
   - any other target is written as the absolute vector path — relative to
-    `root-path`, so rf2-3x7nj.33.4's region prefix comes back off an
-    in-region path."
+    `root-path`, so the region prefix comes back off an in-region path."
   [target-str root-path siblings source-path]
   (let [abs-path (vec (id-string->abs-path target-str))
         src      (vec source-path)
@@ -1122,7 +1121,7 @@
       :else                                     abs-path)))
 
 (defn- decode-root-parallel-target
-  "rf2-656ivk / rf2-m3otj2 — inverse of `emit-root-parallel-transition`'s
+  "Inverse of `emit-root-parallel-transition`'s
   target encoding. A parallel-ROOT `:on` / `:after` `target` is a
   SPACE-SEPARATED list of region-qualified absolute ids
   (`\"a___x b___y\"`). Each id decodes (`id-string->abs-path`) to its
@@ -1200,7 +1199,7 @@
 (defn- parse-after-key
   "Decode an `after.<delay>` SCXML event name into its `:after` map key.
   A numeric delay parses to a Long/int; a non-numeric delay is an
-  id-encoded keyword (rf2-mnp93.1) decoded symmetrically with
+  id-encoded keyword decoded symmetrically with
   `keyword->id-string` so a namespaced keyword delay (`:a/b` →
   `after.a-b`) round-trips its namespace. Shared by `consume-transitions`
   and `parse-root-parallel-transitions` (each keeps its own target decoder)."
@@ -1214,7 +1213,7 @@
     (or d (id-string->keyword d-str))))
 
 (defn- simplify-candidates
-  "rf2-mnp93.8 — finalise an accumulated candidate vector to the canonical
+  "Finalise an accumulated candidate vector to the canonical
   SCXML-import shorthand, shared by `consume-transitions` and
   `parse-root-parallel-transitions`:
 
@@ -1237,9 +1236,8 @@
   transitions vs the rest (which group-children-by-state will turn
   into nested state blocks). Returns `{:on ... :after ... :always
   [...] :children-tokens [...]}`. `source-path` is the OWNING state's
-  absolute path — qualified targets are decoded relative to it
-  (rf2-mnp93.7), within the `root-path` scope (rf2-3x7nj.33.4; the
-  inverse of `emit-state`'s two resolvers)."
+  absolute path — qualified targets are decoded relative to it, within
+  the `root-path` scope (the inverse of `emit-state`'s two resolvers)."
   [child-tokens root-path source-path]
   (let [ts              (direct-transitions child-tokens)
         ;; The remaining stream still contains the nested-state
@@ -1261,7 +1259,7 @@
                   event    (get attrs "event")
                   target   (get attrs "target")
                   guard-s  (get attrs "cond")
-                  ;; rf2-9dj21r — the SCXML external/internal axis. `type=
+                  ;; The SCXML external/internal axis. `type=
                   ;; "external"` round-trips to the re-frame2 `:reenter? true`
                   ;; opt-in (Spec 005 §Self-transitions / XState v5). Only a
                   ;; target-bearing transition can be external (a targetless
@@ -1273,13 +1271,13 @@
                   ;; `:reenter?` unset — the re-frame2 internal default.
                   type-s   (get attrs "type")
                   reenter? (and target (= type-s "external"))
-                  ;; rf2-mnp93.5 — the action name lifted from the
+                  ;; The action name lifted from the
                   ;; `<!-- action: NAME -->` comment by `lift-action-comments`
                   ;; (a single keyword, never a vector path — decode it the
                   ;; same way the guard `cond=` does).
                   action-s (get attrs action-attr)
                   cand-map (cond-> {}
-                             ;; rf2-mnp93.7 — decode the qualified target id
+                             ;; Decode the qualified target id
                              ;; back to its relative grammar form (sibling
                              ;; keyword / absolute vector path).
                              target  (assoc :target
@@ -1289,34 +1287,34 @@
                                                 (parent-path (vec source-path))
                                                 (sibling-scope root-path source-path))
                                               source-path))
-                             ;; rf2-mnp93.2 — decode the guard symmetrically
+                             ;; Decode the guard symmetrically
                              ;; with the encoder (keyword->id-string at emit).
-                             ;; The pre-fix `(keyword guard-s)` never split the
-                             ;; namespace, so `:auth/valid?` round-tripped to
-                             ;; the bare `:auth.valid?` (ns lost). A guard is a
+                             ;; A bare `(keyword guard-s)` would never split the
+                             ;; namespace, so `:auth/valid?` would round-trip to
+                             ;; the undecoded `:auth-valid_3f` (ns lost). A guard is a
                              ;; single keyword (never a vector path), so route
                              ;; it through `id-string->keyword`, not
                              ;; `unescape-id-string`.
                              guard-s (assoc :guard (id-string->keyword guard-s))
-                             ;; rf2-9dj21r — decode the external-restart axis.
+                             ;; Decode the external-restart axis.
                              ;; `:reenter?` is added (and stays in the explicit
-                             ;; map form because the candidate is then no longer
+                             ;; map form because the candidate is then not
                              ;; target-only, so `simplify` keeps it verbatim
                              ;; rather than collapsing to a bare keyword) ONLY
                              ;; when `type="external"` rode a target.
                              reenter? (assoc :reenter? true)
-                             ;; rf2-mnp93.5 — recover the action so an INTERNAL
+                             ;; Recover the action so an INTERNAL
                              ;; action transition (`:on {:tick {:action :log}}`)
                              ;; round-trips to a VALID Spec-005 internal action
                              ;; transition (`{:action :log}`) — NOT the empty
-                             ;; `{}` FORBIDDEN BLOCK the comment-strip used to
+                             ;; `{}` FORBIDDEN BLOCK a bare comment-strip would
                              ;; synthesise (a semantic inversion).
                              action-s (assoc :action (id-string->keyword action-s)))]
               (cond
                 (and event (str/starts-with? event "after."))
                 (update-in acc [:after (parse-after-key event)] (fnil conj []) cand-map)
 
-                ;; rf2-41goo — a `done.state.<id>` transition is the
+                ;; A `done.state.<id>` transition is the
                 ;; XState `onDone` completion (SCXML §3.7). It sits inside
                 ;; the done node's own element, so it round-trips back to
                 ;; THIS node's `:on-done` (a single transition spec, not an
@@ -1330,10 +1328,10 @@
                 (nil? event)
                 (update acc :always (fnil conj []) cand-map)
 
-                ;; rf2-mnp93.1/.3 — an `:on` event key is a single keyword
+                ;; An `:on` event key is a single keyword
                 ;; (never a vector path), so decode it with
-                ;; `id-string->keyword`. A user event whose name once
-                ;; STARTED with `after.`/`done.state.` no longer collides
+                ;; `id-string->keyword`. A user event whose name
+                ;; STARTS with `after.`/`done.state.` does not collide
                 ;; with the synthetic timer/done prefixes: the codec
                 ;; escapes the literal `.` (`:after.foo` → `after_2efoo`),
                 ;; so only the synthetic encodings carry a literal `.` here.
@@ -1342,7 +1340,7 @@
                            (fnil conj []) cand-map))))
           {}
           ts)
-        ;; rf2-mnp93.8 — finalise the candidate vectors via the shared
+        ;; Finalise the candidate vectors via the shared
         ;; `simplify-candidates`. `:always` keeps the full vector-of-maps form
         ;; so it lines up with `(transition-candidates ...)`.
         on*      (when (:on coll)
@@ -1358,21 +1356,21 @@
 
 (declare parse-state-block)
 
-;; rf2-qy8p — the CLOSED set of child tags the importer models as topology.
+;; The CLOSED set of child tags the importer models as topology.
 ;; W3C SCXML §3.3 lets a conforming `<state>` carry executable content
 ;; (`<onentry>`, `<onexit>`, `<script>`, `<log>`, `<assign>`), a `<datamodel>`
 ;; and `<invoke>`. This importer covers the static topology only, so those
 ;; families are LOSSY BY DESIGN — the ns docstring's "Not supported" list says
 ;; so, and ignoring them is coherent.
 ;;
-;; What is NOT coherent is what the collector did before this set existed: it
-;; special-cased `<transition>` and then accepted EVERY remaining tag as a
-;; child state. An `<onentry/>` has no `id`, so `id-string->abs-path nil` →
-;; `[nil]` → a `:states` entry keyed by `nil`; several such elements
-;; overwrote one another; and a `<state>` nested inside one got PROMOTED into
-;; the parent's `:states`. The import then returned a definition
-;; `grammar/valid-definition?` rejects, so the failure surfaced far downstream
-;; as a compound-state error naming a state the programmer never authored.
+;; What would NOT be coherent is a collector that special-cases `<transition>`
+;; and accepts EVERY remaining tag as a child state. An `<onentry/>` has no
+;; `id`, so `id-string->abs-path nil` → `[nil]` → a `:states` entry keyed by
+;; `nil`; several such elements would overwrite one another; and a `<state>`
+;; nested inside one would be PROMOTED into the parent's `:states`. The
+;; import would then return a definition `grammar/valid-definition?` rejects,
+;; surfacing the failure far downstream as a compound-state error naming a
+;; state the programmer never authored.
 (def ^:private topology-child-tags
   "The SCXML child elements `group-children-by-state` collects as re-frame2
   topology: `<state>` / `<final>` (ordinary + terminal states) and
@@ -1385,7 +1383,7 @@
   only as the ROOT (`emit-parallel`), `scxml->spec` selects that root case
   from the same `direct-children` scan this collector reads, and
   `parse-state-block` has no nested-parallel branch — so a nested
-  `<parallel>` would have become a malformed state, not a region. Ignoring it
+  `<parallel>` would become a malformed state, not a region. Ignoring it
   is the lossy-by-design answer."
   #{"state" "final" "history"})
 
@@ -1394,9 +1392,7 @@
   AFTER the open tag). Returns `[body rest-tokens]`, where `body` is the
   interior tokens and `rest-tokens` the stream past the matching close.
 
-  Throws the documented `:scxml/parse-error` for an unclosed element — the
-  same error the inline scan this replaces threw, so malformed-input error
-  ids are unchanged. Shared by the recognised-tag branch (which keeps the
+  Throws the documented `:scxml/parse-error` for an unclosed element. Shared by the recognised-tag branch (which keeps the
   body) and the unsupported-tag branch (which discards it), so an
   unsupported element can never leak its subtree back into the token stream."
   [tag rs]
@@ -1435,15 +1431,15 @@
   DIRECT child elements, in document order, as
   `{:start <token> :body <interior tokens> :self? bool}` maps.
 
-  rf2-qy8p — **this is the one place the importer learns where a subtree
+  **This is the one place the importer learns where a subtree
   ends**, and every decision the importer makes about an element's children
   reads it: the topology collector (`group-children-by-state`) and
   `scxml->spec`'s root-`<parallel>` selection alike. A descendant token always
   sits inside its own ancestor's `:body`, never at this level, so no element —
   supported or not — can contribute markup to the scope enclosing it.
 
-  That is a property of the SCAN rather than of any tag, which is what the
-  bead's residual needed. `<invoke>` is the reachable case (W3C SCXML §6.4
+  That is a property of the SCAN rather than of any tag. `<invoke>` is the
+  reachable case (W3C SCXML §6.4
   lets it carry a whole nested `<scxml>` document inline through `<content>`),
   but it is not a special one: `<datamodel>`/`<data>` §5.3, `<send>`'s and
   `<donedata>`'s `<content>`, and an unsupported nested `<parallel>` all carry
@@ -1468,7 +1464,7 @@
   "Narrow a `direct-children` seq to the blocks the importer models as
   topology (`topology-child-tags`).
 
-  rf2-qy8p — the tag test is an ALLOWLIST, not \"everything that is not a
+  The tag test is an ALLOWLIST, not \"everything that is not a
   `<transition>`\", and it applies AFTER the scan: an unsupported element is
   dropped together with its whole subtree, so markup nested inside it — a
   `<state>` buried in an `<onentry>`, a `<data>` in a `<datamodel>` — cannot
@@ -1486,7 +1482,7 @@
   (topology-blocks (direct-children tokens)))
 
 (defn- parse-history-block
-  "rf2-m285a — parse a W3C SCXML `<history>` pseudo-state element back into
+  "Parse a W3C SCXML `<history>` pseudo-state element back into
   a re-frame2 `[state-id {:type :history …}]` node (Spec 005 §History
   states). `type=\"deep\"` ⇒ `:deep? true`; `type=\"shallow\"` (or absent)
   ⇒ `:deep? false`. An OPTIONAL child default `<transition target=\"…\"/>`
@@ -1515,15 +1511,15 @@
   "Parse one `<state>` / `<final>` block into a `[state-id state-node]`
   pair. `self?` indicates a self-closing tag with no children.
 
-  rf2-mnp93.7 — `id` is a FULLY-QUALIFIED unique xsd:ID (the state's
+  `id` is a FULLY-QUALIFIED unique xsd:ID (the state's
   absolute path). The LOCAL `:states` key is its last segment; the
   state's absolute path is threaded down so child transitions decode
   their qualified targets back to the relative grammar form.
 
-  rf2-m285a — a `<history>` pseudo-state child is routed to
+  A `<history>` pseudo-state child is routed to
   `parse-history-block` (it is `:type :history`, not an ordinary state).
 
-  rf2-3x7nj.33.4 — `root-path` is the target scope, as in `emit-state`."
+  `root-path` is the target scope, as in `emit-state`."
   [root-path {:keys [start body self?] :as block}]
   (if (= "history" (:tag start))
     (parse-history-block root-path block)
@@ -1543,7 +1539,7 @@
                      (and (= "final" tag)
                           (= "true" (get attrs error-final-attr)))
                      (assoc :error? true)
-                     ;; rf2-mnp93.7 — `initial` references a child by its
+                     ;; `initial` references a child by its
                      ;; qualified id; the re-frame2 `:initial` is the
                      ;; child's LOCAL key (last segment).
                      initial-str     (assoc :initial (abs-path->local-key
@@ -1560,7 +1556,7 @@
                    (seq on)           (assoc :on on)
                    (seq after)        (assoc :after after)
                    (seq always)       (assoc :always always)
-                   ;; rf2-41goo — `:on-done` round-trips from the
+                   ;; `:on-done` round-trips from the
                    ;; `done.state.<id>` transition (may be a bare target,
                    ;; a candidate map, or a vector — never a collection we
                    ;; `seq`-test; use the key's presence).
@@ -1586,7 +1582,7 @@
           region-blocks)))
 
 (defn- parse-root-parallel-transitions
-  "rf2-656ivk / rf2-m3otj2 — recover the parallel-ROOT's own `:on` / `:after`
+  "Recover the parallel-ROOT's own `:on` / `:after`
   ancestor-fallback transitions (the inverse of `emit-root-parallel-on` /
   `emit-root-parallel-after`). These are DIRECT `<transition>` children of
   `<parallel>` (alongside the `done.state.<id>` `:on-done`). Their `target` is
@@ -1595,7 +1591,7 @@
   `consume-transitions`/`decode-target` use — so we parse them directly here.
 
   Returns `{:on {..} :after {..}}` (omitting empty slots). The
-  `done.state.*` completion transitions are left for the existing `:on-done`
+  `done.state.*` completion transitions are left for the `:on-done`
   recovery path. Each candidate is finalised to the canonical shorthand: a
   SOLE target-only candidate collapses to the bare target vector; a guard /
   action / multi candidate stays in the explicit map form."
@@ -1614,7 +1610,7 @@
                              guard-s  (assoc :guard (id-string->keyword guard-s))
                              action-s (assoc :action (id-string->keyword action-s)))]
               (cond
-                ;; rf2-41goo — the whole-parallel completion stays on :on-done
+                ;; The whole-parallel completion stays on :on-done
                 ;; (recovered separately); skip it here.
                 (and event (str/starts-with? event "done.state."))
                 acc
@@ -1629,7 +1625,7 @@
                 :else acc)))
           {}
           ts)]
-    ;; rf2-mnp93.8 — same shorthand finalisation `consume-transitions` uses
+    ;; Same shorthand finalisation `consume-transitions` uses
     ;; (the shared `simplify-candidates`): a sole target-only candidate
     ;; collapses to its bare target.
     (cond-> {}
@@ -1637,19 +1633,17 @@
       (:after coll) (assoc :after (into {} (map (fn [[k cs]] [k (simplify-candidates cs)]) (:after coll)))))))
 
 (defn- import-postcondition
-  "rf2-qy8p — the IMPORT-side counterpart of the check `spec->scxml` already
+  "The IMPORT-side counterpart of the check `spec->scxml`
   makes: a definition `scxml->spec` is about to return must be one the rest of
   re-frame2 accepts. Returns `definition` when it is projectable; otherwise
   throws the documented `:scxml/invalid-spec`.
 
-  The export side routes its shape check through `grammar/valid-definition?`
-  (rf2-egupfk) and so do `share`, Mermaid, AI-generate and the chart
-  projector — the import side was the ONE public boundary that returned its
-  assembled map unchecked, so a parse that could not be represented as a
-  re-frame2 definition reported SUCCESS and displaced the failure to
-  `reg-machine` / `MachineChart` / the next export. This closes that seam with
-  the same gate, giving the surface one law: a successful import yields a
-  machine every other boundary accepts.
+  The export side routes its shape check through `grammar/valid-definition?`,
+  and so do `share`, Mermaid, AI-generate and the chart projector. Without
+  the same gate here, a parse that could not be represented as a re-frame2
+  definition would report SUCCESS and displace the failure to `reg-machine` /
+  `MachineChart` / the next export. With it the surface has one law: a
+  successful import yields a machine every other boundary accepts.
 
   EP-0015 / Spec 015 §exception-path residual — the ex-data carries the shared
   value-FREE `grammar/definition-summary` under this ns's `:spec-summary` key.
@@ -1669,7 +1663,7 @@
            "content is IGNORED rather than imported as topology, so check the "
            "document's <state> / <final> / <history> structure.")
       {:recovery :fix-the-imported-machine-topology
-       ;; rf2-8nzxib — value-FREE; never the raw input or the parsed map.
+       ;; Value-FREE; never the raw input or the parsed map.
        :extra    {:spec-summary (g/definition-summary definition)}}))
   definition)
 
@@ -1684,7 +1678,7 @@
 
   for the supported subset documented in the ns docstring.
 
-  rf2-3x7nj.33.5 — **round-trip-only.** It reads only documents
+  **Round-trip-only.** It reads only documents
   `spec->scxml` wrote: the input must begin (after an optional XML prolog
   and whitespace) with exactly the format comment
   `<!-- re-frame2 machines-viz SCXML v1 -->`, or it throws
@@ -1698,10 +1692,10 @@
   `:rf.error/id :scxml/parse-error` when the input is not a valid SCXML
   document our parser recognises (missing root `<scxml>`, unclosed tags,
   etc.). Throws `:scxml/invalid-spec` if
-  the parsed structure is missing required keys (no `:initial`, no
+  the parsed structure is not a valid definition (e.g. no `:initial`, no
   `:states`).
 
-  rf2-qy8p — **unsupported SCXML child content is IGNORED, never
+  **Unsupported SCXML child content is IGNORED, never
   reinterpreted as topology.** Only `<state>`, `<final>`, `<history>` and
   `<transition>` are modelled (`topology-child-tags`); a conforming
   document's `<onentry>`, `<onexit>`, `<script>`, `<log>`, `<assign>`,
@@ -1714,12 +1708,12 @@
   machine is decided from the root's DIRECT children, so an unsupported
   subtree cannot supply the `<parallel>` that decides it. This matters for a
   CONFORMING document: W3C SCXML §6.4 lets `<invoke>` carry a whole nested
-  `<scxml>` inline through `<content>`, and reading into it let the invoked
-  document's topology replace the importing one outright. Inside a marked
+  `<scxml>` inline through `<content>`, and reading into it would let the
+  invoked document's topology replace the importing one outright. Inside a marked
   document such a payload is ignored, exactly like every other unsupported
   subtree — never rejected (it is valid SCXML) and never adopted.
 
-  rf2-qy8p — **and success is a postcondition, not a hope**: every
+  **And success is a postcondition, not a hope**: every
   definition this returns has passed the canonical recursive grammar gate
   (`grammar/valid-definition?`), the same one `spec->scxml`, Mermaid,
   AI-generate, the share codec and the chart projector use. Parser output
@@ -1733,10 +1727,10 @@
       'machines-viz/scxml->spec
       "SCXML import: scxml->spec expects an SCXML string; pass the SCXML document as a string."
       {:recovery :pass-an-scxml-string
-       ;; rf2-8nzxib — value-FREE; never the raw input.
+       ;; Value-FREE; never the raw input.
        :extra    {:input-summary (input-summary scxml-string)}}))
   (let [body (str/triml (strip-prolog scxml-string))]
-    ;; rf2-3x7nj.33.5 — the format gate runs BEFORE any export convention
+    ;; The format gate runs BEFORE any export convention
     ;; (comment lifting, the id codec, the `after.` / `done.state.` events).
     (when-not (str/starts-with? body format-marker)
       (rf.error/throw-error!
@@ -1787,20 +1781,20 @@
                             (recur (inc i) depth)))]
             (subvec tail 0 end-idx))
 
-          ;; rf2-qy8p — the root topology decision (parallel-root vs flat)
+          ;; The root topology decision (parallel-root vs flat)
           ;; reads the root's DIRECT children, the same boundary-respecting
-          ;; scan `group-children-by-state` reads. It used to search every
-          ;; token in the root body for the first open `<parallel>`, which ran
-          ;; BEFORE any collector could drop an unsupported subtree — so a
-          ;; `<parallel>` the importer had already declared unreachable could
-          ;; still choose, and wholly define, the imported machine. A W3C
+          ;; scan `group-children-by-state` reads. Searching every token in
+          ;; the root body for the first open `<parallel>` would run BEFORE
+          ;; any collector could drop an unsupported subtree — so a
+          ;; `<parallel>` the importer declares unreachable could still
+          ;; choose, and wholly define, the imported machine. A W3C
           ;; SCXML §6.4 `<invoke><content><scxml>…</scxml></content></invoke>`
           ;; reaches that from a CONFORMING document: the invoked document's
-          ;; topology replaced the outer one entirely, and because the
+          ;; topology would replace the outer one entirely, and because the
           ;; substitute is itself well-formed, `grammar/valid-definition?`
-          ;; returned true over it — a confidently wrong machine, silently.
-          ;; Scanning direct children closes it for every opaque subtree at
-          ;; once rather than for `<invoke>` by name.
+          ;; would return true over it — a confidently wrong machine,
+          ;; silently. Scanning direct children rules that out for every
+          ;; opaque subtree at once rather than for `<invoke>` by name.
           root-children (direct-children root-body)
 
           parallel-child
@@ -1811,7 +1805,7 @@
        (if parallel-child
         ;; Parallel definition
         (let [parallel-body (:body parallel-child)
-              ;; rf2-41goo — the parallel-root `:on-done` rides a
+              ;; The parallel-root `:on-done` rides a
               ;; `done.state.<parallel-id>` transition that is a DIRECT
               ;; child of `<parallel>`. `parse-parallel-body` (via
               ;; `group-children-by-state`) filters transition tokens at
@@ -1820,7 +1814,7 @@
               ;; The parallel-root :on-done is action-only (no target),
               ;; so the source-path is unused — pass [].
               parallel-on-done (:on-done (consume-transitions parallel-body [] []))
-              ;; rf2-656ivk / rf2-m3otj2 — the parallel-root's OWN `:on` /
+              ;; The parallel-root's OWN `:on` /
               ;; `:after` ancestor-fallback transitions are ALSO direct
               ;; `<parallel>` children, but carry region-qualified
               ;; (space-separated) targets `consume-transitions` mis-decodes;
@@ -1849,7 +1843,7 @@
                    "elements; add at least one <state> (or <final>) child.")
               {:recovery :add-a-state-or-final-element}))
           (cond-> {:states states}
-            ;; rf2-mnp93.7 — the root `initial` is a top-level state's
+            ;; The root `initial` is a top-level state's
             ;; qualified id; the re-frame2 `:initial` is its local key.
             initial-str (assoc :initial (abs-path->local-key
                                          (id-string->abs-path initial-str))))))))))
