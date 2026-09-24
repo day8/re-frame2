@@ -39,10 +39,10 @@
 ;; itself throws or returns a non-conforming shape and the runtime falls
 ;; back to the locked generic-500. It rides the always-on error-emit axis
 ;; (surface #4) ALONGSIDE the dev-gated `trace/emit-error!` so off-box
-;; shippers see when the public boundary fell back — making the Spec
+;; shippers see when the public boundary fell back — keeping the Spec
 ;; 009:1906/§sanitised-on-projection promise ("monitor dashboards see when
 ;; the public boundary fell back to the generic-500 shape") TRUE under
-;; `-Dre-frame.debug=false`, where it is currently undeliverable.
+;; `-Dre-frame.debug=false`, where the dev-gated trace alone cannot deliver it.
 ;;
 ;; Re-entry guard: this emit is the fallback path itself.
 ;; It MUST be one-shot and MUST never re-enter projection. Two facts close
@@ -78,16 +78,15 @@
   #{:status :code :message :retryable?})
 
 (defn- public-error-shape?
-  "True if x is a conformant :rf/public-error map. TIGHTENED (rf2-oytx7j)
-  from \"integer status + the four typed keys present\" to a CLOSED,
-  RANGE-CHECKED shape so the redaction boundary is real, not nominal:
+  "True if x is a conformant :rf/public-error map: a CLOSED,
+  RANGE-CHECKED shape, so the redaction boundary is real, not nominal:
 
     - EXACTLY the four locked keys (`public-error-keys`) — no extra key,
       including a caller-supplied `:details`. Only the runtime appends
       `:details`, AFTER this validation, under `:dev-error-detail?`; a
       projector that returns its own `:details` (or any other stray key)
-      now fails conformance and takes the locked generic-500 fallback,
-      closing the leak where arbitrary projector-supplied keys crossed the
+      fails conformance and takes the locked generic-500 fallback,
+      so arbitrary projector-supplied keys cannot cross the
       public boundary.
     - `:status` an HTTP ERROR status in 400..599. A projector that returns
       an out-of-range status (a 200/302, a negative, a >599) is not a
@@ -139,7 +138,7 @@
                                                  (fallback-public-error)
 
   The `:rf.error/no-such-handler` 404 arm is GATED on the miss's `:kind`
-  tag (rf2-ov56u, ruling rf2-rqje9). Spec 009 catalogues three misses
+  tag. Spec 009 catalogues three misses
   under this one category, discriminated by mandatory `:kind`: a URL that
   matched no route (`:kind :route`), a dispatch to an unregistered event
   id (`:kind :event`), and a Tool-Pair surface addressing an unknown
@@ -147,11 +146,11 @@
   The other two are server defects — an event handler the server forgot
   to register is not something the client got wrong — so they fall
   through to the locked generic-500, exactly as Spec 011 §Default
-  projector's condition-gating prose has always required. The gate became
-  load-bearing when the URL-driven route miss was promoted onto the
-  always-on error axis: before that promotion no `:rf.error/no-such-handler`
-  reached this projector in production at all, and the ungated arm would
-  now answer 404 for an unregistered event id.
+  projector's condition-gating prose requires. The gate is
+  load-bearing because the URL-driven route miss rides the
+  always-on error axis, so `:rf.error/no-such-handler` records
+  reach this projector in production, and an ungated arm would
+  answer 404 for an unregistered event id.
 
   `:rf.error/cofx-value-invalid` is a client-input fault: a
   non-recordable / out-of-`:schema` `:rf.cofx` value that entered through
@@ -170,9 +169,9 @@
   malformed fx args map), not because the client sent bad input. A
   client-facing 400 would mislabel a server bug as a user error, so a
   non-:event schema-validation-failure falls through to the locked
-  generic-500. (`:where :cofx` no longer appears on this category — a bad
-  request coeffect now surfaces as `:rf.error/cofx-value-invalid`,
-  handled by its own arm above.)
+  generic-500. (A bad request coeffect surfaces as
+  `:rf.error/cofx-value-invalid`, handled by its own arm above, never as
+  this category with `:where :cofx`.)
 
   The non-enumerated default covers the 500-class trace events
   (:rf.error/handler-exception, :rf.error/sub-exception,
@@ -190,7 +189,7 @@
   [trace-event]
   (case (:operation trace-event)
     :rf.error/no-such-handler
-    ;; GATED (rf2-ov56u): only the URL-driven `:kind :route` miss is a
+    ;; GATED: only the URL-driven `:kind :route` miss is a
     ;; missing-PAGE condition. `:kind :event` (an unregistered event id)
     ;; and `:kind :frame` (a Tool-Pair surface naming an unknown frame)
     ;; are SERVER defects and fall through to the locked generic-500 — a
@@ -209,9 +208,7 @@
     not-found-public-error
 
     ;; A non-recordable / out-of-`:schema` `:rf.cofx` value supplied at
-    ;; the dispatch boundary — client-supplied input (rf2-57ehvw). This
-    ;; category REPLACED the retired
-    ;; `:rf.error/schema-validation-failure :where :cofx` shape, so it
+    ;; the dispatch boundary — client-supplied input, so it
     ;; earns an UNCONDITIONAL 400 (bad client input is a client fault,
     ;; never a server-fault 500).
     :rf.error/cofx-value-invalid
@@ -221,11 +218,11 @@
      :retryable? false}
 
     :rf.error/schema-validation-failure
-    ;; GATED (rf2-37o5by): only a client-surface EVENT-payload failure
+    ;; GATED: only a client-surface EVENT-payload failure
     ;; (`:where :event`) is a client-facing 400. A server-side failure
     ;; (`:where :fx-args`, etc.) falls through to the 500 default.
-    ;; (`:where :cofx` is retired for this category — a bad request cofx
-    ;; now rides `:rf.error/cofx-value-invalid`, handled above.)
+    ;; (A bad request cofx rides `:rf.error/cofx-value-invalid`, handled
+    ;; above.)
     (if (= :event (get-in trace-event [:tags :where]))
       {:status     400
        :code       :bad-request
@@ -293,7 +290,7 @@
   `frame-projector-id`, which resolves the raw config to the built-in
   default — `project-error` needs the RAW configured id to tell a missing
   EXPLICITLY-configured projector (a recognised-but-unhonourable config,
-  worth a diagnostic) apart from the plain default-fallback path (rf2-mlodrn)."
+  worth a diagnostic) apart from the plain default-fallback path."
   [frame-id]
   (get-in (rf.frame/frame-meta frame-id) [:ssr :public-error-id]))
 
@@ -320,7 +317,7 @@
   §Server error projection — \"the fallback ensures the boundary
   cannot be bypassed by a bug in the projector.\"
 
-  rf2-mlodrn: when a frame EXPLICITLY configures `:ssr {:public-error-id …}`
+  When a frame EXPLICITLY configures `:ssr {:public-error-id …}`
   but that id is NOT registered, the recognised config cannot be honoured —
   it would silently downgrade the projector's intended 404 / 400 / custom
   mappings into the generic 500. That case is surfaced as a sanitised
@@ -341,14 +338,14 @@
         result
         (try
           ;; Resolve AND run the projector through the TARGET FRAME'S
-          ;; generation (rf2-blpg). `frame-id` already selected this frame's
+          ;; generation. `frame-id` already selected this frame's
           ;; `:ssr {:public-error-id …}` config; without this extent the id it
-          ;; named was resolved against the process registrar instead, so a
-          ;; projector registered from another image answered for it — and an
+          ;; names would resolve against the process registrar instead, so a
+          ;; projector registered from another image would answer for it — and an
           ;; error projector decides the STATUS and the public body that leave
           ;; the server, not merely a label. Resolution and invocation share
           ;; ONE extent so the fn that was found is the fn that runs. A frame
-          ;; with no sealed generation binds nothing: the unchanged path.
+          ;; with no sealed generation binds nothing: the plain registrar path.
           (rf.live-frame/call-with-frame-resolution
             frame-id
             (fn []
@@ -364,7 +361,7 @@
                                                       :cljs (.-message e))
                                 :reason            "Error projector threw — using fallback."
                                 :recovery          :warned-and-replaced})
-            ;; EP-0008 (rf2-hhutya): ALSO ride the always-on axis — NON-
+            ;; EP-0008: ALSO ride the always-on axis — NON-
             ;; PROJECTING + one-shot (the projection listener skips this
             ;; category, so no re-entry; see §always-on error-emit helper).
             (emit-always-on-error!
@@ -391,7 +388,7 @@
           ;; No projector registered under the resolved id.
           (= ::no-projector result)
           (do
-            ;; rf2-mlodrn: a frame that EXPLICITLY configured
+            ;; A frame that EXPLICITLY configured
             ;; `:ssr {:public-error-id …}` naming an UNREGISTERED projector
             ;; has a recognised config the runtime cannot honour — it would
             ;; silently turn the intended public mappings (404 / 400 / custom
@@ -416,7 +413,7 @@
                                                           " generic-500 fallback.")
                           :recovery                  :register-the-configured-projector-or-fix-the-id}]
                 (rf.trace/emit-error! :rf.error/sanitised-on-projection tags)
-                ;; EP-0008 (rf2-hhutya): ALSO ride the always-on axis so an
+                ;; EP-0008: ALSO ride the always-on axis so an
                 ;; off-box shipper on a `-Dre-frame.debug=false` JVM SSR host
                 ;; sees the misconfiguration. One-shot + NON-PROJECTING.
                 (emit-always-on-error!
@@ -433,7 +430,7 @@
                                 :returned          result
                                 :reason            "Error projector returned a non-conforming shape — using fallback."
                                 :recovery          :warned-and-replaced})
-            ;; EP-0008 (rf2-hhutya): ALSO ride the always-on axis — NON-
+            ;; EP-0008: ALSO ride the always-on axis — NON-
             ;; PROJECTING + one-shot (the non-conforming-shape arm and the
             ;; catch arm above are mutually exclusive, so at most one emit
             ;; per call; the projection listener skips this category).
