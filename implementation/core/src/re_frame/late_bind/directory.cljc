@@ -17,8 +17,6 @@
      :producer-ns  symbol naming the namespace that publishes the key
                    (REQUIRED — may be a vector when an adapter routing
                    chain has multiple publishers)
-     :design-bead  decision-bead id that introduced or shaped the key
-                   (string, optional)
      :description  one-line summary of what the hook does
                    (string, REQUIRED)
      :chained?     true when the hook is registered cumulatively rather
@@ -105,11 +103,9 @@
     :description "Process an event synchronously, bypassing the drain queue."}
    {:key         :router/run-frame-destroy-event!
     :producer-ns 're-frame.router
-    :design-bead "rf2-f0otfl"
     :description "Run a claimed frame incarnation's :on-destroy seed and synchronous same-frame descendants on an isolated, token-scoped teardown queue. This is private teardown authority, not generic dispatch-sync privilege; actual host-thread identity prevents JVM bound-fn propagation from authorising queued executor work."}
    {:key         :router/reschedule-drain!
     :producer-ns 're-frame.router
-    :design-bead "rf2-x76af2.22"
     :description "Re-kick a fresh async drain for an exact captured frame record. Called by frame/call-serialized-with-drain!'s cold-section release when that record's queue is non-empty (a dispatch! that arrived during the hold scheduled a drain-try! that CAS-lost to the cold holder and gave up). The record/token is carried across the late-bind seam so an obsolete A callback can never re-resolve and drain same-id B."}
 
    ;; ---- re-frame.core → re-frame.capture-frame (the facade's dispatch seams) --
@@ -122,15 +118,12 @@
    ;; constructor reads them at capture time.
    {:key         :core/dispatch-impl
     :producer-ns 're-frame.core
-    :design-bead "rf2-93sxp"
     :description "The facade's `dispatch-impl` seam (a `def`-alias of re-frame.router/dispatch!), read live so a with-redefs on re-frame.core/dispatch-impl reaches a frame api's :dispatch op. Consumed by re-frame.capture-frame/make-capture-frame."}
    {:key         :core/dispatch-sync-impl
     :producer-ns 're-frame.core
-    :design-bead "rf2-93sxp"
     :description "The facade's `dispatch-sync-impl` seam (a `def`-alias of re-frame.router/dispatch-sync!), read live for a frame api's :dispatch-sync op. Consumed by re-frame.capture-frame/make-capture-frame."}
    {:key         :core/subscribe-impl
     :producer-ns 're-frame.core
-    :design-bead "rf2-93sxp"
     :description "The facade's `subscribe-impl` seam (a `def`-alias of re-frame.subs/subscribe), read live for a frame api's :subscribe op. Consumed by re-frame.capture-frame/make-capture-frame."}
 
    ;; ---- EP-0023 inline-registration lowering -------------------------------
@@ -142,19 +135,15 @@
    ;; of them (subs requires live-frame requires image-assembly → cycle).
    {:key         :image/lower-inline-event
     :producer-ns 're-frame.events
-    :design-bead "rf2-ffc6s0"
     :description "Lower an inline :reg-event entry (authored id, metadata, :impl fn body) into the registrar shape register-event! stores: the metadata at top level, validated as reg-event validates it, plus :handler-fn and the :interceptors chain (the authored refs, then the :rf/event-handler wrapper), so an image's inline event routes through a frame-targeted dispatch. Consumed by re-frame.image-assembly during assembly."}
    {:key         :image/lower-inline-sub
     :producer-ns 're-frame.subs
-    :design-bead "rf2-ffc6s0"
     :description "Lower an inline :reg-sub descriptor's :impl computation fn into the runnable layer-1 (:input-kind :db) sub slots (:handler-fn + :input-kind + :input-signals) so an image's inline sub computes through a frame-targeted subscribe. Consumed by re-frame.image-assembly during assembly."}
    {:key         :image/lower-inline-fx
     :producer-ns 're-frame.fx
-    :design-bead "rf2-ffc6s0"
     :description "Lower an inline :reg-fx entry (authored id, metadata, :impl fn body) into the registrar shape reg-fx stores: the metadata at top level, validated as reg-fx validates it, plus the :handler-fn slot, so an image's inline fx runs (or is skipped by :platforms) when an event handler emits it. Consumed by re-frame.image-assembly during assembly."}
    {:key         :image/lower-inline-cofx
     :producer-ns 're-frame.cofx
-    :design-bead "rf2-ffc6s0"
     :description "Lower an inline :reg-cofx entry (authored id, metadata, :impl supplier fn) into the registrar shape reg-cofx stores: the metadata at top level, validated and graded as reg-cofx validates it, plus :handler-fn and the :recordable? / :provided? grade flags, so an image's inline cofx is delivered through a frame-targeted cascade. Consumed by re-frame.image-assembly during assembly."}
 
    ;; ---- re-frame.subs --------------------------------------------------------
@@ -163,7 +152,6 @@
     :description "Subscribe and immediately deref (snapshot value, no reaction)."}
    {:key         :subs.cache/dispose-all-for-frame-destroy!
     :producer-ns 're-frame.subs.cache
-    :design-bead "rf2-x3m8c"
     :description "Dispose every cached subscription in a destroyed frame's sub-cache, emitting one `:rf.sub/dispose` per slot with `:rf.sub/reason :frame-destroy`. Invoked by `frame/destroy-frame!` via late-bind so `re-frame.frame` carries no static dep on `re-frame.subs.cache` (which requires `frame`)."}
 
    ;; ---- re-frame.fx (:dispatch-later host-timer side table) -----------------
@@ -175,11 +163,9 @@
    ;; `:subs.cache/dispose-all-for-frame-destroy!` cycle-break above.
    {:key         :fx/on-frame-destroyed!
     :producer-ns 're-frame.fx
-    :design-bead "rf2-uxz52g"
     :description "Cancel + drop the destroyed frame's still-pending `:dispatch-later` host timers (re-frame.fx/dispatch-later-timers, keyed by [frame-id timer-id] → host handle). Each `:dispatch-later` arms a host-clock timer whose thunk dispatches the deferred event into the frame; left armed across destroy it fires a dead-on-arrival dispatch into a torn-down frame and its armed handle + captured closure leak until the delay elapses (unbounded under frame churn). Host-side transient state (NOT runtime-db, off the epoch/SSR egress wire), mirroring the resources / machines timer tables. Invoked by `frame/destroy-frame!` by key."}
    {:key         :fx/reset-dispatch-later-timers!
     :producer-ns 're-frame.fx
-    :design-bead "rf2-uxz52g"
     :description "Test-isolation reset: cancel + drop EVERY frame's pending `:dispatch-later` host timers (re-frame.fx/dispatch-later-timers). Host-side transient state the runtime / frames reset does not touch; the shared CLJS make-reset-runtime-fixture reset-hooks table fires it per test so a stale armed timer from a sibling test can't fire mid-next-test (mirrors :machines/reset-timers!)."}
 
    ;; ===========================================================================
@@ -215,11 +201,9 @@
    ;; the frame, not by schemas.
    {:key         :elision/sensitive-declarations
     :producer-ns 're-frame.elision
-    :design-bead "rf2-w3n5u"
     :description "Return the frame's frame-owned sensitive app-db path declarations."}
    {:key         :elision/clear-warning-cache!
     :producer-ns 're-frame.elision
-    :design-bead "rf2-w3n5u"
     :description "Reset the once-per-(frame,path) :rf.warning/large-value-unschema'd cache."}
 
    ;; ---- re-frame.classification (EP-0025 data classification) --------------
@@ -241,15 +225,12 @@
    ;; propagation table).
    {:key         :classification/registration-classification
     :producer-ns 're-frame.classification
-    :design-bead "rf2-w46fpt"
     :description "Read the classification declaration for a (kind, id), or nil — DERIVED at read time from registrar/handler-meta, no side-table, uniformly for every kind. EP-0025: there is no derived-output sensitivity (no propagation). The hook exists for the directory contract; re-frame.machines (snapshot / SSR trace egress) calls `re-frame.classification/registration-classification` by direct require."}
    {:key         :classification/project-trace-event
     :producer-ns 're-frame.classification
-    :design-bead "rf2-vw7f5"
     :description "Emit-time chokepoint for trace bus — walks the assembled trace event's tags and substitutes sentinels at declared paths (Spec 015 §Egress projection). EP-0025: no value-match, no propagation — path-based redaction only."}
    {:key         :classification/redact-event-by-registration
     :producer-ns 're-frame.classification
-    :design-bead "rf2-qe6v1u"
     :description "ALWAYS-ON (NOT a DCE seam — the registration classification is populated in production too; only the emit-time TRACE projection is dev-gated): apply an event handler's REGISTRATION-OWNED :sensitive / :large classification to a [event-id arg-map] vector (EP-0015 — event args are registration-owned transient payloads). Consumed by re-frame.projection for the :rf.observe/error / handled-event :event slot."}
 
    ;; ---- re-frame.frame-classification (EP-0015 §9 observability) ----
@@ -266,7 +247,6 @@
    ;; construction only VALIDATES the :observability policy.
    {:key         :frame-classification/validate!
     :producer-ns 're-frame.frame-classification
-    :design-bead "rf2-ueg1tn"
     :description "Validate a make-frame config's frame-owned policy key (:observability sink policy). Fails loud (:rf.error/bad-frame-classification) on an unknown observability key / malformed sink entry; a :sensitive or :large frame key also fails loud here (EP-0025: HTTP carriers live on :rf.http/managed, app-db classification in commit-plane effects). Pure, installs nothing — called EARLY by the frame engine (before the container exists) so a bad declaration leaves no half-registered frame (EP-0015 §9). There is no :frame-classification/http-carriers resolver hook — HTTP carrier classification lives on the :rf.http/managed reg-fx registration (:carriers block), resolved by the http artefact (re-frame.http.privacy/managed-carriers reads registrar/handler-meta directly)."}
 
    ;; ---- re-frame.flows -------------------------------------------------------
@@ -283,34 +263,27 @@
     :description "Remove a previously-registered flow definition (public-API + :rf.fx/clear-flow)."}
    {:key         :flows/run-flows-on-db
     :producer-ns 're-frame.flows
-    :design-bead "rf2-u0zz5"
     :description "Run the frame's flows over the pending frame-state, returning the flow-augmented APP-DB. The router calls `[frame db runtime-db {:exact-owner-token token}]`; the exact token fences callback tails, cache writes, and later flows if the dequeued event destroys its frame incarnation. The three-argument form is the direct/non-event path. Bare `:inputs` resolve against app-db; `[:rf.db/runtime …]` inputs resolve against runtime-db (any flow may read runtime-db; only writes are reserved). Invoked by the router's outermost flows-after-interceptor to transform the handler's pending `:db` effect (after the rest of the `:after` chain, before the `:db` install)."}
    {:key         :flows/snapshot-last-inputs
     :producer-ns 're-frame.flows
-    :design-bead "rf2-4wqu6"
     :description "Snapshot a frame's dirty-check (`last-inputs`) rows as a plain `{flow-id inputs}` map. The router's flows-after-interceptor captures this BEFORE the flow transform advances the rows so a post-commit schema/machine-data rollback can roll the dirty-check bookkeeping back in lock-step with app-db (paired with `:flows/restore-last-inputs!`)."}
    {:key         :flows/restore-last-inputs!
     :producer-ns 're-frame.flows
-    :design-bead "rf2-4wqu6"
     :description "Restore a frame's dirty-check (`last-inputs`) rows to a previously-captured snapshot. Invoked by `commit-db-effect!` when post-commit validation rolls app-db back to its pre-handler value — without it the eagerly-advanced rows survive a rollback and the next clean drain skips the flow on `=`-equal inputs, never re-materialising the output. Frame-scoped."}
    {:key         :flows/snapshot-abandoned-paths
     :producer-ns 're-frame.flows
-    :design-bead "rf2-z980k8"
     :description "Snapshot a frame's pending abandoned output paths (recorded by an in-drain same-frame `reg-flow` `:output-path` move). The router's flows-after-interceptor captures this BEFORE the flow transform drains/clears them so a post-commit schema/machine-data rollback can re-record them in lock-step with the discarded pending `:db` (paired with `:flows/restore-abandoned-paths!`). Frame-scoped."}
    {:key         :flows/restore-abandoned-paths!
     :producer-ns 're-frame.flows
-    :design-bead "rf2-z980k8"
     :description "Re-record a frame's pending abandoned output paths from a previously-captured snapshot. Invoked by `commit-db-effect!` when post-commit validation rolls app-db back — the pending `:db` that carried the vacated state is discarded, so a drained-but-not-durably-vacated `:output-path` move must re-attempt next drain rather than be silently lost. Frame-scoped."}
    {:key         :flows/reset-flows!
     :producer-ns 're-frame.flows
     :description "Clear the per-frame flow registry (test isolation)."}
    {:key         :flows/teardown-on-frame-destroy!
     :producer-ns 're-frame.flows
-    :design-bead "rf2-wbtjn"
     :description "Drop the destroyed frame's per-frame flow registry slot, its `last-inputs` rows, and its pending abandoned-output-path (vacation) state. No `:flow` registrar entry is pruned — that registrar kind is RESERVED-but-empty and `reg-flow` writes only to the flows artefact's per-frame store. Invoked by `frame/destroy-frame!` symmetric with the machines teardown hook — without this hook a long-running SSR JVM with per-request frame churn grows the flow registry unboundedly."}
    {:key         :flows/frame-has-flows?
     :producer-ns 're-frame.flows
-    :design-bead "rf2-3x7nj.9.7"
     :description "`(fn [frame-id])` — true when the frame holds at least one registered flow. Read by the `:fx` walk's terminal branch only after the walk changed the frame's state container, so a writing walk on a flow-free frame (or in an app without the flows artefact, where the hook is unbound) enqueues no `[:rf/settle-flows]` (Spec 013 §Sequencing)."}
 
    ;; ---- re-frame.schemas -----------------------------------------------------
@@ -322,7 +295,6 @@
     :description "Validate the app-db snapshot against the registered app-db schema."}
    {:key         :schemas/validate-fx!
     :producer-ns 're-frame.schemas
-    :design-bead "rf2-xp2o3"
     :description "Validate an fx-handler's args against the registered fx schema (Spec 010 step 5)."}
    {:key         :schemas/validate-sub!
     :producer-ns 're-frame.schemas
@@ -338,7 +310,6 @@
     :description "Bulk-register multiple path-scoped app-db schemas."}
    {:key         :schemas/app-schema-meta
     :producer-ns 're-frame.schemas
-    :design-bead "rf2-mg6ya"
     :description "Return the full registration-metadata map (source-coords + :path/:schema/:frame) for one path in a frame, or nil. Takes {:frame f :path p}. The source-coord introspection surface pair-tools / 10x read; project :schema for the schema value alone."}
    {:key         :schemas/app-schemas
     :producer-ns 're-frame.schemas
@@ -357,45 +328,35 @@
     :description "Clear the schema registry entries for a frame (test isolation)."}
    {:key         :schemas/on-frame-destroyed!
     :producer-ns 're-frame.schemas
-    :design-bead "rf2-6m0se"
     :description "Drop the destroyed frame's app-db schema entries (consumed by frame/destroy-frame!)."}
    {:key         :schemas/validate-with-registered-fn
     :producer-ns 're-frame.schemas
-    :design-bead "rf2-r2uh"
     :description "Boundary seam: validate using the registered validator fn."}
    {:key         :schemas/explain-with-registered-fn
     :producer-ns 're-frame.schemas
-    :design-bead "rf2-r2uh"
     :description "Boundary seam: explain using the registered explainer fn."}
    {:key         :schemas/redact-validation-tags
     :producer-ns 're-frame.schemas
-    :design-bead "rf2-o69h5"
     :description "THE shared schema-aware redaction seam for every validation-failure trace emitted outside the schemas artefact (production boundary interceptor, machine :data validation, the :sub-override path, flow-output validation): scrubs the value-bearing slots (:value/:received/:explain/:explain-humanized/:rf.fx/args/:rf.sub/query-v) and stamps :sensitive? true when the schema declares any :sensitive? slot — the same redaction the dev-time validate-*! hot path applies. Falls through verbatim when the schemas artefact is absent (no schema to redact against)."}
    {:key         :schemas/malli-validate
     :producer-ns 're-frame.schemas.malli
-    :design-bead "rf2-t0hq"
     :description "Default-installed Malli validator (malli.core/validate)."}
    {:key         :schemas/malli-explain
     :producer-ns 're-frame.schemas.malli
-    :design-bead "rf2-t0hq"
     :description "Default-installed Malli explainer (malli.core/explain)."}
    {:key         :schemas/humanize-explain!
     :producer-ns 're-frame.schemas.malli
-    :design-bead "rf2-2ek7t"
     :description "Humanize the raw m/explain output into operator-readable shape. The only in-tree publisher is re-frame.schemas.malli, which installs (malli.error/humanize ...); per-validator ports install their own humanizer from their own ns. Absent the hook, the substrate ships only :explain (raw); Xray's violation block falls back to the raw map. Consulted by validate.cljc's emit-validation-failure! helper when building the :rf.error/schema-validation-failure trace payload — augments tags with :explain-humanized when present."}
    {:key         :schemas/extract-large-paths-from-schema
     :producer-ns 're-frame.schemas
-    :design-bead "rf2-nwv63"
     :description "Walk a Malli EDN form at a base-path; return {path declaration} entries for :large? true slots. Consumed by re-frame.elision."}
    {:key         :schemas/extract-sensitive-paths-from-schema
     :producer-ns 're-frame.schemas
-    :design-bead "rf2-kj51z"
     :description "Walk a Malli EDN form at a base-path; return paths whose props carry :sensitive? true. Consumed by re-frame.elision."}
 
    ;; ---- re-frame.machines ----------------------------------------------------
    {:key         :machines/reg-machine
     :producer-ns 're-frame.machines
-    :design-bead "rf2-8bp3"
     :description "Register a state machine definition (plain-fn surface)."}
    {:key         :machines/make-machine-handler
     :producer-ns 're-frame.machines
@@ -418,22 +379,18 @@
     :description "EP-0026 §Framework Standard Registrations: re-register the machine runtime (`:rf.machine/*` fx + `:rf/machine*` subs) into BOTH the regular registrar AND the image standard registry. Consulted by `re-frame.test-support`'s reset fixture after a sibling ns's `registrar/clear-all!` / `image-assembly/clear-standards!` wipes them, so a Story variant frame's sealed generation (which carries only the standard union + its image selection, no registrar fallback) still resolves the framework machine runtime. The machine analogue of `re-frame.events/register-set-db-standard!` (the `:rf/set-db` re-seed). A no-op when machines is not loaded."}
    {:key         :machines/reset-spawn-order!
     :producer-ns 're-frame.machines
-    :design-bead "rf2-vsigt"
     :description "Drop every recorded per-frame spawn-order vector (test isolation)."}
    {:key         :machines/on-frame-destroyed!
     :producer-ns 're-frame.machines
     :description "Per-frame `:after` timer-table cleanup hook called from frame/destroy-frame!."}
    {:key         :machines/on-frame-restored!
     :producer-ns 're-frame.machines
-    :design-bead "rf2-u5kmf8"
     :description "Epoch-restore host-transient quiesce for machine `:after` timers. Consulted by `re-frame.epoch.tool-pair/perform-restore!` AFTER a successful install: releases the restored frame's in-flight `:after` host-clock handles (the orphaned async host work the unwound epochs spawned — NOT frame-state) so a leaked wall-clock timer never fires against the restored state. Emits one `:rf.machine.timer/cancelled :reason :on-restore` per entry. The restore counterpart of `:machines/on-frame-destroyed!` (Managed-Effects §SSR, preload, hydration, and restore: \"epoch restore MUST NOT revive host work\")."}
    {:key         :machines/rearm-after-hydration!
     :producer-ns 're-frame.machines
-    :design-bead "rf2-jqvgp"
     :description "SSR-hydration host-work RECONSTRUCTION for machine `:after` timers — the client-side counterpart of the server-side wire projection `:machines/project-ssr-runtime-db`, and the deliberate OPPOSITE of `:machines/on-frame-restored!`. The server suppresses `:after` timers (Spec 005 §SSR mode) and the wire carries only durable snapshot facts, so a machine hydrated in an `:after`-bearing state arrived with the right `:state` / `:data` / `:rf/after-epoch` and NO live timer. Consulted by `re-frame.ssr.hydrate/hydrate-event-handler*` as a PRESENCE gate (absent hook → no machines artefact → no re-arm fx emitted); the `:rf.machine/hydrate-rearm` fx it gates runs this same body AFTER the payload runtime-db has committed, walking the hydrated snapshots' ACTIVE configuration (flat/compound ancestors + leaf, each parallel region's active path, and the root-owned parallel `:after`) and RECONCILING the frame's host timer table to exactly that set: entries the replacement snapshots no longer declare are cancelled (`:reason :on-destroy` for a dropped actor, `:on-exit` for a declaring node no longer on the active path — no seventh reason), then each live declaration is armed at the epoch the snapshot already carries. A reconcile rather than a union because `:rf/hydrate` replaces runtime-db wholesale while this table is host state that survives it, so a pre-hydration or previous-hydration handle is otherwise never visited — superseding only reaches the one key it arms. Re-runs NO entry / action / raise / spawn and writes no snapshot — the whole point is host work without replayed history (Spec 011 §`:after` is no-op under SSR: \"`:after` timers begin running on the client\"). Restore keeps CANCELLING; only hydration arms."}
    {:key         :machines/teardown-on-frame-destroy!
     :producer-ns 're-frame.machines
-    :design-bead "rf2-vsigt"
     :description "Frame-destroy machine-cascade orchestrator: walks active machines in reverse-creation order, runs each `:exit` cascade, applies the unified teardown projection (snapshot + spawn-slot prune), unregisters handlers, and emits `:rf.machine.lifecycle/destroyed` per actor with `:reason :parent-frame-destroyed`. Invoked by `frame/destroy-frame!` BEFORE sub-cache / adapter teardown per Spec 005 §Cross-Spec Interactions §1."}
    {:key         :machines/spawn-fx
     :producer-ns 're-frame.machines
@@ -443,15 +400,12 @@
     :description "Effect handler for :rf.machine/destroy."}
    {:key         :machines/resolve-actor-handler-meta
     :producer-ns 're-frame.machines
-    :design-bead "rf2-a2sn1"
     :description "Lazy actor-handler resolver. Core's `re-frame.router.diagnostics/handle-no-handler!` consults this BEFORE surfacing `:rf.error/no-such-handler`: given an unresolved `[<actor-id> <event>]` dispatch, it materialises a spawned actor's handler-meta purely from its (revertible) app-db snapshot (`:rf/machine-type` → registered TYPE spec or inline `:definition`). Returns nil when no live snapshot exists, so core surfaces the genuine `:no-such-handler`. Eliminates the per-instance registrar registration so `restore-epoch!` (app-db-only) reverts actor liveness with zero registrar drift — so there is no dynamic-actor revertibility leak."}
    {:key         :machines/actor-resolvable?
     :producer-ns 're-frame.machines
-    :design-bead "rf2-a2sn1"
     :description "Epoch-restore precondition companion to :machines/resolve-actor-handler-meta. Returns true iff a recorded actor-id's snapshot in a candidate restore RUNTIME-DB partition (EP-0001 — snapshots are runtime-db state at [:rf.runtime/machines :snapshots <id>]) resolves to a live machine spec via its `:rf/machine-type` (registered TYPE or inline `:definition`). Lets `re-frame.epoch.tool-pair/missing-references` treat a spawned-actor snapshot as a VALID restore target — its per-instance handler is, by design, never registered — rather than a `:rf.epoch/restore-missing-handler`."}
    {:key         :machines/spec-from-snapshot
     :producer-ns 're-frame.machines
-    :design-bead "rf2-rlt3sv"
     :description "Epoch-restore version-drift precondition companion to :machines/actor-resolvable?. Resolves a SPAWNED actor's CURRENT definition the same way dispatch does — from the snapshot's `:rf/machine-type` (a registered TYPE keyword resolved through the registrar, or an inline `:definition` spec map carried verbatim). `re-frame.epoch.tool-pair/machine-version-mismatch` reads the resolved spec's `[:meta :rf/snapshot-version]` so a spawned actor whose TYPE was hot-reloaded forward surfaces `:rf.epoch/restore-version-mismatch` instead of silently accepting an incompatible older snapshot (the snapshot key is an instance id, not a registered handler, so the singleton registrar probe cannot match it)."}
    {:key         :machines/spawn-all-init-fx
     :producer-ns 're-frame.machines
@@ -467,19 +421,15 @@
     :description "Effect handler for the :rf.machine/update-snapshot snapshot-level escape hatch."}
    {:key         :machines/validate-machine-data!
     :producer-ns 're-frame.machines
-    :design-bead "rf2-jbbp7"
     :description "Post-commit walker for the `:where :machine-data` boundary (Spec 005 §Schema validation, Spec 010 §Per-step recovery row 7). Iterates `[:rf.runtime/machines :snapshots]` in the runtime-db partition, validates each snapshot's `:data` against the registered machine's `[:schemas :data]` schema. Router AND-conjoins with `:schemas/validate-app-schema!` to gate the `:rf.db/runtime` commit; a failure rolls the cascade back exactly like a `:where :app-db` violation."}
    {:key         :machines/owning-actor-id
     :producer-ns 're-frame.machines
-    :design-bead "rf2-ma0wvq"
     :description "Spawned-actor ownership resolver `(fn [frame-id event-id]) -> actor-id|nil` (Spec 014 §Abort on actor destroy). Returns the spawned actor's address that owns `event-id` — i.e. `event-id` itself when it names a live spawned actor in the frame (its runtime-db snapshot carries `:rf/machine-type`; singleton machines do not) — else nil. The machines artefact OWNS the snapshot shape, so the lookup lives next to it; re-frame.http.registry consults this hook (rather than re-stating the path itself) to decide whether a managed request belongs to a spawned actor, and falls back to nil when the machines artefact is absent."}
    {:key         :machines/project-ssr-runtime-db
     :producer-ns 're-frame.machines
-    :design-bead "rf2-jm2u63"
     :description "SSR hydration projector for the durable `:rf.runtime/machines` slice `(fn [runtime-db frame-id]) -> machines-slice`. `re-frame.ssr.payload-policy/project-runtime-db` consults it so each machine snapshot's `:data` is redacted/elided per the owning machine's projection-relative `:sensitive` / `:large` declaration (lowered per actor into the per-frame elision registry, `:source :machine` — schema validates, it does not classify durable `:data`, EP-0025) under `:rf.egress/ssr-hydration` (the same frame-owned classification the trace-egress chokepoint uses, via `re-frame.classification/frame-snapshot-classification` re-rooting then `re-frame.classification/redact-with-paths`) BEFORE it rides the hydration wire — so raw classified machine data never rides it (EP-0015 §6/§8). Mirrors the resources `:ssr/extend-runtime-db-projection` model; absent the machines artefact the slice rides unchanged."}
    {:key         :cofx/eval-recordable-sub
     :producer-ns 're-frame.machines.cofx-attach
-    :design-bead "rf2-h6ggnt"
     :description "Machines-only sub-valued recordable cofx source evaluator `(fn [query-v frame-id]) -> value` (EP-0017). Evaluates a machine named entry's `{:rf/sub query-v :as fact-id}` source against the committed pre-cascade frame-state (`compute-sub` over `frame-state-value`) so `re-frame.cofx/deliver-declared-cofx` can record the resolved fact on the causal token under `fact-id` at ensure-time; strict replay re-presents it verbatim. Published by the machines artefact (`re-frame.machines.cofx-attach`) because core cofx cannot static-require subs / frame; consumed by core cofx. Unbound when machines is not loaded — a sub source can only originate from a machine named entry (the `allow-sub?` parse gate), so it is always bound when one is delivered."}
 
    ;; ---- re-frame.routing -----------------------------------------------------
@@ -488,53 +438,42 @@
     :description "Register a route pattern and handler."}
    {:key         :routing/clear-route
     :producer-ns 're-frame.routing
-    :design-bead "rf2-kuky.80"
     :description "Remove a registered route, emitting `:rf.route/cleared` (Spec 012 §Trace events) so route-lifecycle subscribers observe the removal; a no-op when the id was not registered. The dispatch target of `(rf/clear :route id)`. Routing `:route` removal MUST go through the owning fn rather than short-cutting to `re-frame.registrar/unregister!`, which would drop the trace event."}
    {:key         :routing/reset-counters!
     :producer-ns 're-frame.routing
     :description "Reset the route-registration counter (test isolation)."}
    {:key         :routing/reset-nav-counters!
     :producer-ns 're-frame.routing
-    :design-bead "rf2-oosjmh"
     :description "Reset the host-side nav-token / pending-nav counter high-water marks (re-frame.routing.nav-counters/nav-counters-cache). They are host-side transient state (not runtime-db), so a runtime/frames reset does not clear them; the shared CLJS make-reset-runtime-fixture reset-hooks table fires this per test so \"nav-1\" / \"pn-1\" assertions stay deterministic (test isolation)."}
    {:key         :routing/reset-url-claims!
     :producer-ns 're-frame.routing
-    :design-bead "rf2-3l7xxz"
     :description "Reset the process-global URL-ownership claim-order vector (re-frame.routing.nav-fx/url-claim-order) that records, in claim order, which frames carry :url-bound? true. url-owner-frame-id resolves the FIRST-CLAIMED still-live binding (the incumbent) so a later duplicate cannot steal the browser URL. Like the nav-counters it is process-global state a runtime/frames reset does not clear; the shared CLJS make-reset-runtime-fixture reset-hooks table fires this per test so a prior test's claim cannot leak (test isolation)."}
    {:key         :routing/route-sub-egress-path
     :producer-ns 're-frame.routing
-    :design-bead "rf2-mtzv5m"
     :description "Resolve a framework route read sub-id (`:rf/route` / `:rf.route/query` / `:rf.route/params`) to the runtime-db storage position its sub value projects onto (`[:rf.runtime/routing :current …]`), or nil for a non-route sub. Consumed by `re-frame.elision/elide-wire-value`'s `:query-v` opt so the direct-read off-box egress surfaces (Pair MCP read-sub / list-subscriptions :include-values / snapshot :sub-cache / Xray) re-seed the walk at the slice's storage position — letting the per-frame elision registry's re-rooted absolute route decls (`:source :route`, lowered at activation) match the bare slice the sub returns. Core stays decoupled from routing; absent the artefact the hook is unbound and a route sub value walks at the whole-value root (no route slice to leak)."}
    {:key         :routing/project-route-sub-egress
     :producer-ns 're-frame.routing
-    :design-bead "rf2-mtzv5m"
     :description "Project a route read sub's value for egress — `(fn [sub-id value opts]) -> projected-value` — applying the route's projection-relative `:sensitive` / `:large` classification (re-rooted under `[:rf.runtime/routing :current …]` into the per-frame elision registry at activation) by re-seeding `elide-wire-value` at the slice's runtime-db storage position. A no-op pass-through for a non-route sub (NARROW: no generic sub-output propagation). Consumed by the trace chokepoint `re-frame.classification/project-sub-tags` for the `:rf.sub/run` `:rf.sub/value` / `:rf.sub/prev-value` slots; the off-box direct-read surfaces reach the same re-seeding via the `:routing/route-sub-egress-path` hook through `elide-wire-value`'s `:query-v` opt. The direct-read sibling of the SSR `re-frame.ssr.payload-policy/project-routing-egress` projection. Absent the routing artefact the hook is unbound."}
    {:key         :routing/route-link
     :producer-ns 're-frame.routing
     :description "Reagent / SSR `[rf/route-link ...]` view component renderer."}
    {:key         :routing/link-model
     :producer-ns 're-frame.routing
-    :design-bead "rf2-vxgfnd.95.5"
     :description "PURE substrate-neutral link-model seam `(fn [target render-frame]) -> {:href :payload :native? :prefetch :prefetch-keys}` published on BOTH hosts and consumed by every non-Reagent route-link view — Fresco's `h/route-link`. Owns the whole routing calculation for one link render: strategy-encoded href (one of the four strategy consult points on CLJS; path-form `identity` encode on the JVM/SSR shell), the path-form `[:rf.route/url-requested {:url ...}]` dispatch payload (the navigation identity — ONE key, because a raw URL IS the address per Spec 012's request grammar), native-anchor detection (`:target`≠`_self` / `:download` → the browser owns the click), and the prefetch warm-up PAIR: `:prefetch`, the minted `[:rf.route/prefetch {address}]` vector for a link that opted in with `:prefetch :intent` and nil for a passive one, plus `:prefetch-keys`, the credible-intent positions it belongs at. The pair travels together so a consumer never restates routing's position list — a position added to `prefetch-intent-keys` reaches every surface at once — and so a bad `:prefetch` value is rejected on BOTH hosts by the one validation the payload calculation already runs. Encapsulating route-url synthesis + strategy encode + payload + native detection + prefetch behind ONE hook keeps routing internals (strategy encode, frame capture, source stamping) off the seam, so an optional view artefact reaches route-link semantics without a static require on routing (`view artefact -> core late-bind <- routing`, the packaging-independence rule); there is deliberately no separate `:routing/prefetch-payload` / `:routing/prefetch-on-intent!` / `:routing/prefetch-intent-keys` hook trio. Unbound when routing is absent → the consuming view fails loud with `:rf.error/routing-artefact-missing` naming the link site. Per Spec 012 §Linking from views."}
    {:key         :routing/activate-link!
     :producer-ns 're-frame.routing
-    :design-bead "rf2-vxgfnd.95.5"
     :description "CLJS-only route-link activation op `(fn [event on-click render-frame payload native?])` consumed by every non-Reagent route-link view (Fresco's `h/route-link`): THE router-attributed click decision — run the caller `:on-click` first, defer to the browser on `defaultPrevented` / native? / a non-plain-left (modifier or auxiliary-button) click, else `.preventDefault` + `router/dispatch!` the payload to the captured render frame with `:source :router`. Keeps the modifier/native/veto click law inside routing so a view artefact reimplements NONE of it (footgun-ownership). Unbound on the JVM (SSR emits a handler-free anchor) and when routing is absent."}
    {:key         :routing/preflight-frame-config!
     :producer-ns 're-frame.routing
-    :design-bead "rf2-ktmto9"
     :description "Registration-time frame-config PREFLIGHT `(fn [frame-id config])` — PURE validation of routing-owned frame-config keys, invoked by the frame engine (frame/upsert-frame!, the one frame-config commit chokepoint) with the FINAL expanded config (after preset expansion + source-coordinate merging) BEFORE any candidate-derived write: the frame-record build, the trace-policy flags, the frames swap, the :initial-events setup dispatch, and any trace emit. Validates an explicitly-declared :url-strategy for host-required shape/callability (validate-url-strategy!, fail-loud :rf.error/invalid-url-strategy with {:frame frame-id} ex-data); PRESENCE semantics — a config with NO :url-strategy key is a no-op (omission alone selects the default history strategy), while a PRESENT key INCLUDING explicit nil is an explicit declaration and fails loud when malformed. Published on BOTH hosts. When the hook is UNPUBLISHED (routing not loaded) and a config declares :url-strategy, core fails loud with :rf.error/routing-artefact-missing rather than storing a strategy nobody can validate or execute; a :url-bound?-only config stays registrable before routing loads. Routing owns the meaning; core owns the timing. Per Spec 012 §URL strategies / Spec 002 §frame construction failure-atomicity."}
    {:key         :routing/on-frame-registered!
     :producer-ns 're-frame.routing
-    :design-bead "rf2-g8pbwg"
     :description "Fired by the frame engine (frame/upsert-frame!) AFTER the frame container exists (first registration: after :initial-events ran; re-registration: after the surgical config update) — THE frame (re-)registration lifecycle extension point (frames do not flow through registrar/register!, so there is no registrar registration hook for frames). Published on BOTH hosts; the facade body is ORDERED: (1) url-bound exclusivity + URL-ownership claim maintenance (re-frame.routing.url-bound, reading config via frame/frame-meta — both hosts), then (2) CLJS-only strategy-aware browser-listener reconcile: when the just-(re)registered frame is the resolved URL owner, (re)installs its :url-strategy browser listener (popstate or hashchange); a losing duplicate :url-bound? true registration is a no-op (never installs). There is no imperative install-url-listener! / install-history-listener! export; the :url-bound? frame lifecycle does that job."}
    {:key         :routing/reset-url-listener!
     :producer-ns 're-frame.routing
-    :design-bead "rf2-g8pbwg"
     :description "Test-isolation hook: unconditionally tear down the installed browser URL-change listener (re-frame.routing.history/history-listener-atom). Wired into the shared make-reset-runtime-fixture reset-hooks table — a raw frame/frames reset does not run destroy-frame!'s teardown chain, so without this a listener installed during one test would survive into the next. CLJS-only."}
    {:key         :routing/on-frame-destroyed!
     :producer-ns 're-frame.routing
-    :design-bead "rf2-1hncp2"
     :description "Release the destroyed frame's host-side transient routing caches — the scroll-position cache (re-frame.routing.scroll/scroll-positions-cache) AND the nav-token / pending-nav counter high-water marks (re-frame.routing.nav-counters/nav-counters-cache) — tear down its browser URL-change listener when it held the URL, AND drop any URL-ownership claim it held. Neither cache is runtime-db state — they live in module-level atoms (host-derived, ephemeral, off the epoch/SSR egress wire; the counters host-side specifically so an epoch restore cannot rewind + recycle a token), so they need explicit per-frame teardown like the other transient caches. Invoked by frame/destroy-frame! symmetric with the ssr / machines / flows / schemas teardown hooks; no-op when re-frame.routing is absent (the artefact is optional)."}
 
    ;; ---- re-frame.resources (EP-0003) ---------------------------------------
@@ -545,111 +484,85 @@
    ;; late-bound both ways so neither side carries the other.
    {:key         :resources/reg-resource
     :producer-ns 're-frame.resources
-    :design-bead "rf2-p10npe"
     :description "Register a resource — a named, cached read of remote/external state (Spec 016 §Registration). Doubles as the feature-inspection PROBE key for the :resources feature (re-frame.features)."}
    {:key         :resources/clear-resource
     :producer-ns 're-frame.resources
-    :design-bead "rf2-p10npe"
     :description "Remove a registered resource (registration-lifecycle, NOT data invalidation). Per Spec 016 §Registration."}
    {:key         :resources/resource-state
     :producer-ns 're-frame.resources
-    :design-bead "rf2-p10npe"
     :description "Return a resource instance's runtime state for an explicit-frame target {:resource :scope :params :frame}. Per Spec 016 §Introspection."}
    ;; ---- mutations (EP-0003 §Mutations) -------------------------------------
    ;; The causal-write counterpart of the resource registration surface.
    {:key         :resources/reg-mutation
     :producer-ns 're-frame.resources
-    :design-bead "rf2-dwme29"
     :description "Register a mutation — a named, causal WRITE to remote state that, on success, invalidates / patches / populates cached resource reads (Spec 016 §Deferred slices / EP-0003 §Mutations). Run with [:rf.mutation/execute …]; observe via the passive [:rf.mutation/*] subs keyed by instance id."}
    {:key         :resources/clear-mutation
     :producer-ns 're-frame.resources
-    :design-bead "rf2-dwme29"
     :description "Remove a registered mutation (registration-lifecycle, NOT a form-error reset; the causal runtime-instance reset is the [:rf.mutation/clear …] event). Per EP-0003 §Mutations."}
    {:key         :resources/mutation-state
     :producer-ns 're-frame.resources
-    :design-bead "rf2-dwme29"
     :description "Return a mutation INSTANCE's durable runtime row for an explicit-frame target {:instance :frame}, or nil. Per EP-0003 §Mutations."}
    ;; ---- named resource-scope resolvers (EP-0016 D3) ------------------------
    ;; The third resources kind: pure named db-derived scope resolvers.
    {:key         :resources/reg-resource-scope
     :producer-ns 're-frame.resources
-    :design-bead "rf2-hls77w"
     :description "Register a PURE named scope resolver under a scope-id (Spec 016 §Named resource-scope resolvers / EP-0016 D3) — the one scope-resolution currency reused by resource registration, route resources, ensure / subscriptions, invalidation descriptors, and clear-scope. The 3-slot grammar is (reg-resource-scope scope-id metadata resolve-fn): the :resolve fn is the value slot, metadata carries the declared :inputs {name [:db <rf-path>]}. :inputs is REQUIRED and the resolver's first arg is ALWAYS the inputs map; read the whole db by declaring it on the root path ({:inputs {:db [:db []]}}). The shipped input source is [:db <rf-path>]; [:runtime …] is reserved. A nil resolve result is FAIL-CLOSED. Referenced via {:from-db <scope-id>}."}
    {:key         :resources/clear-resource-scope
     :producer-ns 're-frame.resources
-    :design-bead "rf2-hls77w"
     :description "Remove a registered resource-scope resolver (registration-lifecycle, the clear- decrement counterpart of reg-resource-scope). A pure resolver holds no per-frame runtime state. Per Spec 016 §Named resource-scope resolvers."}
    {:key         :resources/resolve-resource-scope
     :producer-ns 're-frame.resources
-    :design-bead "rf2-hls77w"
     :description "Resolver helper: resolve a named scope resolver against a SUPPLIED db value, returning the canonical scope or nil — a plain function over the resolver registry, NOT an effect (no app-state / dispatch side effects). It IS a pure data helper: it routes through the trace-free resolve-scope*-pure evaluator and so does NOT emit :rf.resource/scope-resolved — a passive read advertised as pure carries no observability side effect. The CAUSAL resolution boundaries that DO carry that trace evidence (a resource event's {:from-db …} scope, route entry, mutation settle) run the traced resolve-scope* wrapper instead. Canonical use is the logout/account-switch idiom (resolve the concrete old scope from the handler's coeffect db, then pass it to :rf.resource/clear-scope concretely). Per Spec 016 §clear-scope resolves the concrete scope from the coeffect db (EP-0016 issue 7)."}
    {:key         :resources/project-scope-resolved-egress
     :producer-ns 're-frame.resources
-    :design-bead "rf2-84l82t"
     :description "OFF-BOX trace egress projector for a :rf.resource/scope-resolved row's resolver-owned values (EP-0015). The row carries the resolver's resolved :input-values (raw app-db reads) + the derived :scope (the identity tuple embedding them) — owner-local values the generic value-path trace egress walk cannot classify once copied into trace tags. Given the row's :tags, UNCONDITIONALLY FAILS CLOSED: redacts :input-values + :scope to :rf/redacted + stamps :sensitive? for every db-reading resolver (no declassify hatch — there is no :rf.egress/output-sensitivity propagation model (EP-0025), so a resolver cannot declassify its derived scope), preserving the structural :resource-id / declared :inputs names / :kind / :resolved-nil?. Consulted by the epoch tool-pair's off-box :trace-events projection (omit-off-box-resource-scope-values, gated on the off-box :rf.egress/include-sensitive? default; the trusted-local opt-in lifts it). No-op / nil when no resources artefact is loaded (an app with no resources emits no scope-resolved rows). The on-box listener keeps the raw dev evidence; the leak is at off-box / epoch / MCP egress. Per Spec 015 §10 / Derivations §Tool redaction."}
    {:key         :resources/project-resource-trace-egress
     :producer-ns 're-frame.resources
-    :design-bead "rf2-8x0gfa"
     :description "OFF-BOX trace egress projector for the BROADER resource/mutation trace family's scoped-key slots (EP-0015; the family-level companion to :resources/project-scope-resolved-egress). The :rf.resource/* + :rf.mutation/* rows emitted by re-frame.resources.events / …timers / …mutation-events copy owner-local SCOPED KEYS into trace tags — :resource/key (a single [scope resource-id params] vector), :resource/keys / :matched / :removed / :keys / :exempt / :committed / :restored / :conflicted / :refetched (vectors of scoped keys), and the optimistic-rollback :dispositions (per-key maps each embedding :resource/key). A generic value-path trace egress walk is structurally blind to these once copied into tags. Given a row's :tags + the frame-id, projects each scoped key through the resource OWNER's whole-entry disposition (no derived-sensitive arm — there is no resolver-input sensitivity propagation, EP-0025): a :sensitive?/:large? owner tokenizes scope+params to opaque content-addressed {:rf/redacted <digest>} (distinct values stay distinct so per-key joins survive), a plain owner rides verbatim, and an UNREGISTERED owner FAILS CLOSED (redacted). The resource-id (position 1 of the projected key) + every STRUCTURAL SCALAR tag ride verbatim; a tag the slot vocabulary does not name is projected by SHAPE (a scoped key anywhere inside it takes the same owner classification, a map payload tokenizes, a scalar rides). That shape default also owns the family's free :scope tag — the RESOLVED CONCRETE scope stamped on :rf.resource/invalidated / refetch-decision / removed and :rf.mutation/started + optimistic-applied, which is NOT sibling-owned because :resources/project-scope-resolved-egress is applied on the :rf.resource/scope-resolved operation ALONE: :rf.scope/global rides verbatim, and a [:rf.scope/session {…}] tuple keeps its TIER keyword while the identity map tokenizes. The row is stamped :sensitive? when any slot redacted. Consulted by the epoch tool-pair's off-box :trace-events projection (omit-off-box-resource-trace-keys), gated on the off-box :rf.egress/include-sensitive? default (the trusted-local opt-in lifts it). No-op / nil when no resources artefact is loaded. The on-box listener keeps the raw dev evidence; the leak is at off-box / epoch / MCP egress. Per Spec 015 §10 / Derivations §Tool redaction."}
    {:key         :resources/project-fx-args-egress
     :producer-ns 're-frame.resources
-    :design-bead "rf2-1kiuj"
     :description "OFF-BOX trace egress projector for the FX-ARGS tag slots (:rf.fx/args, :rf.event/fx) of ANY trace row — the SLOT-reached companion to :resources/project-resource-trace-egress, which is reached by OPERATION NAMESPACE and therefore never saw them. A resource `ensure` lowers into effects that address the work BY its scoped key ([:rf.http/managed {:request-id [:rf.req <frame> [:rf.work/resource <scoped-key> <gen>]] :on-success [… {:work/id … :resource/key …}]}]), and re-frame.fx stamps that payload verbatim under :rf.fx/args (on :rf.fx/handled, :rf.fx/skipped-on-platform and the always-on :rf.error/* fx-failure traces) plus the whole effect vector under :rf.event/fx — so without this projector a :sensitive? owner's resolved scope + canonical params would egress RAW on rows the resource family does not own, while the SAME payload's structured :effects[*].args slot reads :rf/redacted (a two-carrier shape). Given a row's :tags + the frame-id, walks the two slots by SHAPE and projects every embedded scoped key through the SAME resource OWNER classification the family rows' own :resource/key takes (:sensitive?/:large?/unregistered tokenizes scope+params to an opaque content-addressed {:rf/redacted <digest>}; a PLAIN owner rides verbatim, so attribution and per-key joins survive), stamping :sensitive? when a key redacted. Every OTHER tag on the row rides untouched whatever its shape — the row belongs to the fx family and this projector speaks only for the keys inside it. A tags map carrying neither slot rides through reference-preserved, so the epoch tool-pair (omit-off-box-fx-args-resource-keys) applies it to every row with no row predicate to keep in step with the emit sites. Gated on the off-box :rf.egress/include-sensitive? default (the trusted-local opt-in lifts it); no-op / nil when no resources artefact is loaded. Per Spec 015 §10 / Derivations §Tool redaction."}
    {:key         :resources/project-execute-event-args
     :producer-ns 're-frame.resources
-    :design-bead "rf2-3ej3xu"
     :description "Redact a [:rf.mutation/execute …] event's ARGS MAP per the mutation OWNER's projection-relative :sensitive / :large declaration (the SAME declaration surface the durable instance + continuation reply read): a :params-rooted decl redacts args [:params …], a :scope-rooted decl the sibling :scope; :data-rooted decls name the not-yet-existing RESULT projection and are skipped; a payload-carrying :reply-to address additionally rides its TARGET event registration's own classification (via :classification/redact-event-by-registration). Consulted by the core event-vector projection chokepoint (re-frame.classification/redact-event-by-registration) for every event-bearing trace slot (:rf.event/v, the bare :event error slot, the always-on :rf.observe/* records, the :dispatch / :dispatch-later fx-arg recursion) — the event peer of :http/project-managed-fx-args. Unbound (resources absent) ⇒ pass-through: without the artefact the event has no handler at all, the documented fail-open."}
    {:key         :resources/reset-resources!
     :producer-ns 're-frame.resources.test-support
-    :design-bead "rf2-p10npe"
     :description "Test-isolation reset: clear the :resource-kind + :mutation-kind + :resource-scope-kind registrar entries + the host-side generation high-water marks + the host-side work-ledger / timer / revalidation handles. Published from re-frame.resources.test-support (kept behind an explicit test-support require); fired by the shared CLJS make-reset-runtime-fixture reset-hooks table, no-op when test-support is absent."}
    {:key         :resources/on-frame-destroyed!
     :producer-ns 're-frame.resources
-    :design-bead "rf2-afpdkn"
     :description "Release the destroyed frame's host-side TRANSIENT resource caches — the work-ledger host handles (AbortControllers / timer handles keyed by [frame-id work-id], re-frame.resources.work-ledger/handle-table), the stale/GC timer handles (re-frame.resources.timers/timer-table), the focus/reconnect revalidation window listeners (re-frame.resources.revalidate-listeners/listener-table), AND the resource generation high-water mark (re-frame.resources.state/generation-cache). None is runtime-db state; all are module-level atoms off the epoch/SSR egress wire (the generation host-side so an epoch restore cannot rewind+recycle it). Invoked by frame/destroy-frame! by key; no-op when re-frame.resources is absent (the artefact is optional, post-v1). Per Spec 016 [Runtime-Subsystems] clause 5."}
    {:key         :resources/on-frame-registered!
     :producer-ns 're-frame.resources
-    :design-bead "rf2-kuky.33"
     :description "Reconcile the (re-)registered frame's `:revalidate-on` host focus/reconnect listeners against its committed config (Spec 016 §Stale and GC scheduling). Reads (:revalidate-on (frame/frame-meta frame-id)) — a set drawn from the closed enum #{:focus :reconnect} — and installs exactly that subset: :focus wires window `focus` + document `visibilitychange`-to-visible, :reconnect wires window `online`; each dispatches [:rf.resource/window-focused] / [:rf.resource/network-reconnected] at the frame, whose handlers scan the frame's active-owner STALE entries and refetch them with cause :focus / :reconnect (a cause, never an owner — generation + stale-suppression protect late replies). Replace-don't-stack: every (re-)registration detaches whatever the frame had and attaches exactly the declared subset, so a repeated registration never STACKS a listener, and a re-registration that DROPS the key removes them. A replace, not a diff — identical triggers still detach and re-attach, deliberately (re-registration is a deliberate act, and the re-attach is observationally inert). Absent key or an empty set installs nothing. CLJS-only host listeners; the JVM arm records nothing (no DOM under SSR/JVM). Fired by frame/fire-frame-registered-hook! at the END of BOTH upsert-frame! branches, AFTER routing's own hook (the roster is ordered) and after the container is live. Listeners are cancelled on frame destroy via the single :resources/on-frame-destroyed! hook. Its presence is also what core checks to fail a `:revalidate-on` config loud with :rf.error/resources-artefact-missing when the artefact is absent — the mirror of the :url-strategy-without-routing rule."}
    {:key         :routing/extra-route-keys
     :producer-ns 're-frame.resources.route
-    :design-bead "rf2-p10npe"
     :description "Cross-feature LATE-BOUND route-metadata accepted-key extension (Spec 016 §Route integration). Returns a SET of extra bare route-metadata keys routing unions into its accepted set; the Resources artefact publishes #{:resources} so routing accepts the :resources route key (mirrors how :head is a cross-feature key owned by SSR). Resources is the first publisher; consumed by re-frame.routing.registry/accepted-route-keys."}
    {:key         :routing/on-route-entry
     :producer-ns 're-frame.resources.route
-    :design-bead "rf2-vdyrls"
     :description "Cross-feature LATE-BOUND route-entry resource plan (Spec 016 §Route integration). Routing's commit-navigation (the shared successful-commit assembler for both the programmatic + URL-driven nav paths) consults it by key with {:route-meta :route-id :params :query :fragment :nav-token :prev-id :prev-nav-token :ctx :app-db :runtime-db :branch :branch-error :prev-identities}; the Resources artefact returns {:fx [...] :blocking {<key-id> <scoped-key>} :identities {<key-id> <scoped-key>} :plan-error err?} — both identity carriers are byte-keyed maps (CEDN-1 key-id → the kind-preserving scoped key) with NO order promise, so an =-equal-but-byte-distinct pair rides the handoff intact; the :rf.resource/ensure / :rf.resource.internal/adopt-owner dispatches (owner [:route route-id nav-token], cause [:route-entry route-id nav-token]) + the prior route's :rf.resource/release-owner are spliced into the commit fx; the blocking map is written into [:rf.runtime/routing :resource-blocking nav-token] atomically with the commit; a params/scope PLANNING failure (:plan-error) is recorded on the route slice's :error. :runtime-db is the PRE-COMMIT runtime-db, threaded so the plan reads the Spec 016 resource facts AT COMMIT (EP-0037 R1): a blocking requirement that already has usable data is NOT recorded as blocking, so commit-navigation's readiness seed projects :idle with no transient :loading. Routing does not interpret :app-db / :runtime-db; it only threads them. No-op (nil) when no Resources artefact / no :resources route metadata + no prior owner. Consumed by re-frame.routing.events/commit-navigation."}
    {:key         :routing/on-route-prefetch
     :producer-ns 're-frame.resources.route
-    :design-bead "rf2-kqxe6.7"
     :description "Cross-feature LATE-BOUND warm-mode resource preload (Spec 016 §Route-plan prefetch — warm-mode). Routing's :rf.route/prefetch handler consults it by key with {:route-id :params :query :fragment :branch :branch-error :app-db} (the resolved destination + the effective parent-to-leaf branch routing walked from the target's :parent links); the Resources artefact returns {:fx [ensure-dispatch …] :warmed <n> :plan-error err?} — each unique branch requirement dispatches an OWNERLESS :rf.resource/ensure (cause [:route-prefetch route-id]; :blocking? inert, no plan diff / owner handoff / release), so a warmed value no navigation adopts stays GC-eligible and a later activation JOINS it. A planning failure carries :plan-cause :prefetch and NO nav-token, dispatches no partial ensures, and touches no route state (a preload owns none). No-op (nil) when no Resources artefact / no branch resources. The warm-mode sibling of :routing/on-route-entry. Consumed by re-frame.routing.prefetch/prefetch-handler."}
    {:key         :routing/on-route-replan
     :producer-ns 're-frame.resources.route
-    :design-bead "rf2-y8jjk"
     :description "Cross-feature LATE-BOUND same-token resource REPLAN (Spec 012 §Replanning the active route's resources / Spec 016 §Route-plan replan — same-token reconciliation). Routing's :rf.route/replan-resources handler consults it by key with {:route-meta :route-id :params :query :fragment :nav-token :ctx :app-db :runtime-db :branch :branch-error :prev-identities :cause} — the CURRENT slice's address + its UNCHANGED nav-token, the currently REGISTERED parent-to-leaf branch (the same resolve-branch walk commit-navigation uses), the pre-commit runtime-db, the token's recorded plan identities as the diff's previous membership, and the caller's non-nil :cause; the Resources artefact reruns the ONE canonical planner in replan mode and returns {:fx [...] :blocking {<key-id> <scoped-key>} :identities {<key-id> <scoped-key>} :plan-error err?} — the same shape as :routing/on-route-entry. Reconciliation is ATOMIC under the SAME owner [:route route-id nav-token]: kept + adoptable identities are adopted with no fetch (:rf.resource.internal/adopt-owner), added / retained-but-unusable identities are ensured under that owner with the caller's :cause VERBATIM, and the owner is released ONLY from the identities the new plan drops through the same-owner SUBSET primitive :rf.resource.internal/release-owner-identities, ordered AFTER the attach fx (attach-before-release) so a shared in-flight identity is never momentarily ownerless. Routing then REPLACES the durable [:rf.runtime/routing :resource-blocking <token>] and [... :resource-plan <token>] slots UNCONDITIONALLY (written, or removed when the new map is empty — never left holding the prior value) and re-projects :transition / :error on :current through readiness/project-at-commit, so a successful replan clears an earlier :rf.error/resource-route-plan. A planning failure is a COMMITTED FAILED REPLAN with the same semantics as a committed failed activation: no partial ensures, :rf.error/resource-route-plan with :plan-cause :replan + :replan-cause and the nav-token PRESENT, both slots cleared, and the standing owner released from ALL its previous identities (the whole-owner :rf.resource/release-owner) — deliberately destructive, so a departed scope's plan cannot keep settling bytes fetched under the new credentials. The planner row rides the :rf.resource/route-plan trace with :plan-cause :replan / :replan-cause; there is no separate replan trace operation. No-op (nil) when no branch contributor declares :resources, no prior plan is recorded and branch resolution did not fail; unbound (no Resources artefact) → the handler returns {}. The same-token sibling of :routing/on-route-entry. Consumed by re-frame.routing.replan/replan-handler."}
    {:key         :ssr/extend-runtime-db-projection
     :producer-ns 're-frame.resources.ssr
-    :design-bead "rf2-p10npe"
     :description "Cross-feature LATE-BOUND SSR hydration-payload runtime-db projection extension (Spec 016 §SSR and hydration). Takes the full runtime-db value + the EXPLICIT carried SSR frame-id ([runtime-db frame-id] — the projection target is threaded, never a borrowed ambient scope), returns a {subsystem-key durable-projection} map SSR's project-runtime-db merges into its allowlist-shaped slice; the Resources artefact projects ONLY the durable :entries of :rf.runtime/resources (per-entry redacted/omitted by the resource's :sensitive?/:large? classification against that frame's registry; the reverse indexes are recomputable-from-entries). Resources is the first publisher; consumed by re-frame.ssr.payload-policy/project-runtime-db."}
    {:key         :resources/drain-blocking-ssr!
     :producer-ns 're-frame.resources.ssr
-    :design-bead "rf2-er7qx2"
     :description "Cross-feature LATE-BOUND SSR blocking-resource DRAIN hook (Spec 016 §SSR and hydration steps 3-4). The SSR render path (re-frame.ssr/drain-blocking-resources!, called by the Ring / streaming host adapters AFTER frame setup + route resolution and BEFORE the render walk) consults it by key with the carried frame-id + {:deadline-ms :pump! :tick-ms}; the Resources artefact runs the drain LOOP — reads the live nav-token blocking set, pumps the event loop via the :pump! thunk so an in-flight reply lands, and on the wall-clock deadline settles every still-unsettled blocking entry to a first-load failure in the frame's runtime-db so the render sees a structured :error rather than a hung :loading skeleton — returning {:settled? :timed-out :route-blocking-failure}. No-op {:settled? true} when no Resources artefact is loaded (an SSR app without resources never blocks on them). Consumed by re-frame.ssr/drain-blocking-resources!."}
    {:key         :resources/hydrate-runtime-db
     :producer-ns 're-frame.resources.ssr
-    :design-bead "rf2-ctk2av"
     :description "Cross-feature LATE-BOUND SSR hydration RECONCILE hook (Spec 016 §SSR and hydration / §Restore and replay) — the client-side counterpart of :ssr/extend-runtime-db-projection. Takes the runtime-db the :rf/hydrate handler is about to install (+ the carried frame id) and returns it with the :rf.runtime/resources subtree reconciled: reverse indexes recomputed from entries (never trusted from the wire), SSR owners orphaned, transient :current-work cleared, server clock skew surfaced. Resources is the first consumer; consulted by re-frame.ssr.hydrate/hydrate-event-handler*. Absent hook (no resources artefact) leaves the runtime-db unchanged."}
    {:key         :resources/rearm-after-hydration!
     :producer-ns 're-frame.resources.ssr
-    :design-bead "rf2-omahf"
     :description "SSR-hydration host-work ARM for resource GC and poll timers, the resources counterpart of :machines/rearm-after-hydration!. The wire carries no timer, and a hydrated entry whose owner rode the wire is already owned on the client, so neither the client's fresh-skip (which arms only onto a previously owner-free entry) nor a later release (which never starts a timer) would ever arm its GC timer, and the entry would never be collected. Consulted by re-frame.ssr.hydrate/hydrate-event-handler* as a PRESENCE gate (absent hook → no resources artefact → no rearm fx emitted); the :rf.resource/hydrate-rearm fx it gates runs this same body AFTER the payload runtime-db has committed, on a client frame only, and arms the GC timer of each hydrated entry at its resource's normalized :gc-after-ms (:never or non-positive → nothing), plus the poll timer of each still-owned entry whose resource declares :poll-interval-ms. Safe because the GC re-check (re-frame.resources.events/gc-fired-handler) re-arms while the entry is owned or in flight and removes it only once owner-free and idle; a later release never restarts the armed timer. Refuses a :server frame."}
    {:key         :resources/reconcile-on-restore
     :producer-ns 're-frame.resources.ssr
-    :design-bead "rf2-7r5mc2"
     :description "Cross-feature LATE-BOUND epoch-restore RECONCILE hook (Spec 016 §Restore and replay parts 2/4/5) — the time-travel counterpart of :resources/hydrate-runtime-db. Epoch restore installs the UNPROJECTED captured snapshot (still carrying :current-work + non-terminal work-ledger rows), so this does everything the hydration reconcile does (recompute reverse indexes from entries, orphan SSR / stale-nav owners, clear transient :current-work) PLUS two restore-specific settles the SSR wire projection had already applied: it settles every mid-flight :loading/:fetching entry to its last STABLE status (:loaded if data, :error if a failed first load, :idle if never loaded) and records every restored NON-terminal work-ledger row as DANGLING (terminal :suppressed / :dangling) so a pre-restore in-flight reply is suppressed by the work-id + generation check. Resources is the first consumer; consulted by re-frame.epoch.tool-pair/reconcile-runtime-db-on-restore inside perform-restore!. Called with {:defer-traces? true} so its :rf.resource/restored / :rf.resource/owner-released success rows ride back as metadata instead of firing inline (the reconcile runs BEFORE the atomic install, which can still fail). Absent hook (no resources artefact) installs the runtime-db verbatim."}
    {:key         :resources/commit-restore-reconcile!
     :producer-ns 're-frame.resources.ssr
-    :design-bead "rf2-obi8rr"
     :description "Cross-feature LATE-BOUND epoch-restore trace COMMIT hook (Spec 016 §Restore and replay / §Xray and AI tooling) — the post-install half of :resources/reconcile-on-restore. The reconcile runs BEFORE the atomic replace-frame-state! install and defers its success rows (:rf.resource/restored + :rf.resource/owner-released), riding the trace intents back as metadata; epoch perform-restore! consults this hook with the reconciled runtime-db ONLY on the install-success branch so those success rows fire exactly once the restore truly installed — never for a destroyed-frame install (the post-liveness teardown race) that returns nil and writes nothing. Resources is the first consumer; consulted by re-frame.epoch.tool-pair/commit-resources-restore-traces! inside perform-restore!. Called as (commit reconciled-runtime-db frame-id {:owner-token <exact incarnation token>}) — committing the intents is itself a per-intent callback FAN-OUT (every intent emits to the frame's trace listeners, and a listener can destroy incarnation A and seat a same-id successor B), so the restore's captured token rides in under the SAME :owner-token opt :resources/reconcile-on-restore takes and the commit revalidates exact ownership at EVERY intent boundary, stopping mid-fan-out rather than announcing A's restore against B. No-op when no resources artefact is loaded, when the frame-state carries no runtime-db partition, or when the runtime-db carries no deferred intents (a resource-free restore)."}
 
    ;; ---- re-frame.http.managed -----------------------------------------------
@@ -661,92 +574,73 @@
     :description "Abort every in-flight managed request (test isolation)."}
    {:key         :http/abort-in-flight!
     :producer-ns 're-frame.http.managed
-    :design-bead "rf2-rak684"
     :description "Best-effort abort the in-flight managed request registered under a frame-qualified request-id (fires its :abort-fn with a reason, default :user; no-op when nothing is registered). The shared abort-by-request-id seam the Resources out-of-cascade teardown paths (clear-resource / frame destroy) reach through so they can abort a managed request without the resources artefact statically :require-ing the http transport."}
    {:key         :http/reg-http-interceptor
     :producer-ns 're-frame.http.managed
-    :design-bead "rf2-6y3q"
     :description "Register a per-frame request-side HTTP interceptor."}
    {:key         :http/clear-http-interceptor
     :producer-ns 're-frame.http.managed
-    :design-bead "rf2-6y3q"
     :description "Clear a single registered HTTP interceptor."}
    {:key         :http/clear-all-http-interceptors!
     :producer-ns 're-frame.http.managed
-    :design-bead "rf2-6y3q"
     :description "Clear every registered HTTP interceptor (test isolation)."}
    {:key         :http/abort-on-actor-destroy
     :producer-ns 're-frame.http.managed
-    :design-bead "rf2-wvkn"
     :description ":spawn cancellation cascade tied to actor destruction."}
    {:key         :http/abort-in-flight-for-frame!
     :producer-ns 're-frame.http.managed
-    :design-bead "rf2-u5kmf8"
     :description "Epoch-restore host-transient quiesce for NON-resource managed HTTP. Consulted by `re-frame.epoch.tool-pair/perform-restore!` AFTER a successful install: aborts every in-flight `:rf.http/managed` request the restored frame issued with the reply-suppressing `:reason :epoch-restored` (no delivery to the original `:rf/reply-to`) and emits the EP-0011 `:status :stale` / `:rf.reply/work-status :suppressed` envelope facts. The non-ledger-backed counterpart of the resources work-id dangling, so a pre-restore in-flight reply cannot mutate the restored state (Managed-Effects §SSR, preload, hydration, and restore: \"epoch restore MUST NOT revive host work\")."}
    {:key         :http/on-frame-destroyed!
     :producer-ns 're-frame.http.managed
-    :design-bead "rf2-j538f7.8"
     :description "Frame-DESTROY host-transient abort for managed HTTP. Consulted by core `frame/destroy-frame!` AFTER machine + resource teardown: aborts every in-flight `:rf.http/managed` request the destroyed frame issued with the reply-suppressing `:reason :frame-destroyed` (no delivery into the now-destroyed frame's `:rf/reply-to`) and emits the EP-0011 `:status :stale` / `:rf.reply/work-status :suppressed` envelope facts with `:recovery :suppressed-on-frame-destroy`. The frame-teardown counterpart of `:http/abort-in-flight-for-frame!` (epoch restore); catches the exposed PLAIN managed-HTTP path (ordinary event-handler issuance, no actor id) that actor/resource teardown does not, cancelling the live fetch/future or sleeping backoff timer, detaching any external `:abort-signal` listener, and clearing both indexes so no host I/O outlives the frame (Managed-Effects §Cancellation; the hard frame-ownership boundary for SSR per-request frames, Story/test variants, hot reload, and multi-frame apps)."}
    {:key         :http/register-managed-machine!
     :producer-ns 're-frame.http.managed
-    :design-bead "rf2-ijm7"
     :description "Register the machine-shape wrapper for managed HTTP requests."}
    {:key         :http/project-managed-fx-args
     :producer-ns 're-frame.http.managed
-    :design-bead "rf2-32ffq1"
     :description "Redact a :rf.http/managed fx args map for the generic fx-arg-bearing trace slots (the :rf.event/fx aggregate on :rf.fx/do-fx + every [:rf.fx/id :rf.fx/args]-shaped slot). Honours the DYNAMIC per-call :sensitive? flag + the carrier denylists the dedicated :rf.http/* trace composers apply — a static registration :sensitive path cannot express them. Consumed by re-frame.classification/project-fx-args; unbound (http artefact absent) the entry passes through, matching the unregistered-fx fail-open."}
 
    ;; ---- re-frame.ssr ---------------------------------------------------------
    {:key         :ssr/current-hiccup-emitter
     :producer-ns 're-frame.ssr.emit
-    :design-bead "rf2-vxgfnd.204"
     :description "The retained current SSR hiccup → HTML emitter (`re-frame.ssr.emit/render-to-string`), published durably at SSR ns-load. `re-frame.substrate.adapter/install-adapter!` replays it into each freshly-installed adapter generation via the `:reagent/set-hiccup-emitter!` chain, so a public destroy → re-init cycle (or an SSR-before-adapter load order) re-arms `render-to-string` after disposal cleared the React-shaped adapter's per-generation emitter-cell. Idempotent and stale-safe: always the same current emitter, never cleared. Absent (no re-frame.ssr loaded) the replay is a no-op and `render-to-string` throws `:rf.error/no-hiccup-emitter-bound`."}
    {:key         :ssr/reg-error-projector
     :producer-ns 're-frame.ssr
     :description "Register a fn projecting SSR render errors to user-facing markup."}
    {:key         :ssr/on-frame-destroyed
     :producer-ns 're-frame.ssr
-    :design-bead "rf2-fcj33"
     :description "Clear the SSR side-channel atoms (pending-error-traces, request-slots, response-slots) for a destroyed frame, per Spec 011 §Per-request frame teardown contract. The `:rf/response` accumulator lives in response-slots rather than `app-db`, so it neither leaks into the hydration payload nor costs a full app-db swap per fx."}
 
    ;; ---- re-frame.ssr.manifest (Root Manifest v1 discovery) -----------------
    {:key         :ssr/discover-root-manifest
     :producer-ns 're-frame.ssr.manifest
-    :design-bead "rf2-3omxp"
     :description "CLJS-only Root Manifest discovery `(fn [container]) -> validated Root Manifest | nil`, published by `re-frame.ssr.manifest` at ns-load and consumed by a view artefact's own hydrate-root door — one hook, every view substrate, each reaching it through core rather than through another artefact. NO in-repo consumer resolves it. Discovery is POSITIONAL — the manifest is the container's immediately following element sibling and nothing else is searched (Spec 011 §Discovery); identity is then read from the CONTENT (`:root-id`, `:identifier-prefix`), never from the element. THE HOOK DOES EXACTLY WHAT ITS NAME SAYS: it resolves and validates one manifest. It exposes NO payload install and no other ssr operation — `re-frame.ssr/hydrate!` remains the explicit SSR state-boot call (payload read → `:rf/hydrate` → verify) and the view artefact's own hydrate-root is the DOM-adoption call, so the two-call boot model stays the public contract. A corrupt wire still throws `:rf.error/root-manifest-invalid` out of `validate!`; `nil` means \"no manifest here\" and the CALLER decides — `hydrate-root` fails loud `{:missing :manifest}`, a client-only mount never asks. Unbound when the ssr artefact is absent: `hydrate-root` resolves through `late-bind/require-fn!` and fails loud with `:rf.error/ssr-artefact-missing` naming `day8/re-frame2-ssr`. This is the same `view -> core registry <- optional-artefact` shape a view artefact already exercises against routing (`:routing/link-model` / `:routing/activate-link!`) — a direct `view -> ssr` require is forbidden by the Independence rule AND would fail to compile every non-SSR app."}
 
    ;; ---- re-frame.ssr.head (head/meta contract) -----------------------------
    {:key         :ssr/reg-head
     :producer-ns 're-frame.ssr.head
-    :design-bead "rf2-4dra9"
     :description "Register a head-fragment producer fn `(fn [db route] head-model)` under id, per Spec 011 §Head/meta contract."}
    ;; ---- re-frame.epoch (Tool-Pair surface) ---------------------------------
    {:key         :epoch/settle!
     :producer-ns 're-frame.epoch
-    :design-bead "rf2-nj6p7"
     :description "Settle one DEQUEUED EVENT's epoch (commit to history). Per Spec 002 §Drain versus event the epoch boundary is the dequeued event, not the drain — the router calls this once per process-event! (incl. each :fx-dispatched child), harvesting that one event's cascade buffer. The router's full arity carries the captured exact-owner token; if A vanished/reused before settle, only A's dispatch-id residue is dropped and no same-id B history is touched. Skips an empty buffer (rejected/aborted dispatch)."}
    {:key         :epoch/commit-halt-record!
     :producer-ns 're-frame.epoch
-    :design-bead "rf2-nj6p7"
     :description "Commit a :halted-* epoch record for a drain halt whose halting event never ran (the per-event depth-exceed boundary). Unlike :epoch/settle! it does NOT skip an empty buffer — under per-event epochs the already-settled events each harvested their own buffer, so the buffer is empty at halt; this synthesises the halting event's :halted-depth record from an explicit trigger. Already-settled siblings are durable (no whole-drain rollback)."}
    {:key         :epoch/capture-event
     :producer-ns 're-frame.epoch
     :description "Capture an event into the in-flight epoch buffer."}
    {:key         :epoch/run-cause
     :producer-ns 're-frame.epoch
-    :design-bead "rf2-25zo2"
     :description "Walk a frame's in-flight event-run buffer and return {:cause-event-id :cause-subs :rendered-so-far} for :rf.view/rendered attribution — the event-pipeline-run (one traversal), keyed off the buffer's :rf.event/run-start marker (run sense, not the reactive graph). Consumed by re-frame.views at view-render emit time so the Xray Reactive panel can graph cause→effect for re-renders. Returns nil when the epoch artefact is absent."}
    {:key         :epoch/record-render!
     :producer-ns 're-frame.epoch
-    :design-bead "rf2-qs6dl"
     :description "Attribute a post-settle render emit (a :view/render / :rf.view/rendered op firing at React commit time, after the causing cascade settled) back to the cascade that caused it — the frame's most-recently-settled epoch. Called by re-frame.epoch.capture/capture-event! when a render op arrives with no in-flight cascade; back-fills the render into the causing epoch record and re-fans it to epoch listeners so snapshot consumers re-sync. Fixes the one-epoch :renders lag."}
    {:key         :epoch/record-sub-run!
     :producer-ns 're-frame.epoch
-    :design-bead "rf2-wi900"
     :description "Subs sibling of :epoch/record-render!. Attribute a post-settle sub-run emit (a :sub/run / :rf.sub/skip op firing at React deref time, after the causing cascade settled, because reactions recompute lazily) back to the cascade that caused it — the frame's most-recently-settled epoch. Called by re-frame.epoch.capture/capture-event! when a sub-run op arrives with no in-flight cascade; back-fills the sub-run (and its :value-changed? / :prev-value / :value attribution) into the causing epoch record and re-fans it to epoch listeners. It also carries a :rf.error/schema-validation-failure whose :where is :sub-return or :sub-override: that failure comes from the same post-settle recompute, so it follows its run into the same epoch, riding only :trace-events because it projects no :sub-runs row. Without it, :sub-runs would lag one epoch behind in Xray's per-cascade Views subs table."}
    {:key         :epoch/record-unmount!
     :producer-ns 're-frame.epoch
-    :design-bead "rf2-59hx3"
     :description "Teardown sibling of :epoch/record-render! / :epoch/record-sub-run!. Attribute a post-settle view-unmount emit (a :rf.view/unmounted op firing at React componentWillUnmount / useEffect-cleanup time, after the cascade that removed the view settled) back to the cascade that caused the teardown — the frame's most-recently-settled epoch. Called by re-frame.epoch.capture/capture-event! when an unmount op arrives with no in-flight cascade. Without it the unmount would fall through to the orphan-drop branch and be silently dropped, so a view teardown would produce NO signal anywhere; this back-fills it into the causing epoch's :trace-events (no structured row — an unmount is neither a :renders nor a :sub-runs entry) and re-fans the record to epoch listeners, where Xray's VIEWS-step unmounted-views-rows surfaces it."}
    {:key         :epoch/epoch-history
     :producer-ns 're-frame.epoch
@@ -756,11 +650,9 @@
     :description "Restore app-db / schemas to a previously-captured epoch."}
    {:key         :epoch/replay-epoch!
     :producer-ns 're-frame.epoch
-    :design-bead "rf2-ov144"
     :description "Re-drive a retained epoch's recorded event through the frame's own handlers in ONE call as a strict replay (Tool-Pair §Replay): the raw :trigger-event, the post-generation :rf.cofx token under :rf.cofx/mint-policy :strict, and the record's serializable :fx-overrides / :interceptor-overrides are folded into the dispatch opts in-process, so no replay material is exported or re-supplied by hand. Same frame in and out; runs against the frame's CURRENT state and code (no implicit restore) and records a new ordinary epoch. Returns a structured envelope; refuses BEFORE dispatch on an unknown / aged-out id, a drain in flight, a halted / synthetic / incomplete record, or a recorded :rf/fn-override. A declared fact absent from the token stays the canonical :rf.error/missing-required-cofx hard error (no mint)."}
    {:key         :epoch/replace-frame-state!
     :producer-ns 're-frame.epoch
-    :design-bead "rf2-t3lftq"
     :description "Atomically install a PARTIAL frame-state map (any subset of {:rf.db/app ... :rf.db/runtime ...}) — a present key replaces that partition, an absent key is preserved. The ONE Tool-Pair frame-state write surface, covering every partition. Epoch-backed Tool-Pair write: records a synthetic :rf/epoch-record so restore-epoch! rewinds past it, returns boolean, shares the drain-guard + rejects a map with no recognized / an unrecognized partition key + per-present-partition schema-validation contract."}
    {:key         :epoch/register-epoch-listener!
     :producer-ns 're-frame.epoch
@@ -770,18 +662,15 @@
     :description "Unregister a previously-registered epoch-settled callback."}
    {:key         :epoch/epoch-silence-current?
     :producer-ns 're-frame.epoch
-    :design-bead "rf2-uhouu"
     :description "THE supported receiver decision for a :rf.epoch.cb/silenced-on-frame-destroy signal — takes the signal's :tags map and answers whether the silence still names a CURRENT fact: the carried :observed-gen is still the generation registered under :cb-id, AND that registration is not observing :frame right now. ONE atomic decision over a single consistent snapshot of the listener ledger, weighing both REGISTRATION identity (a same-id replacement or unregister-drop makes a different generation current) and OBSERVATION continuum (a same-id successor frame re-arms by DELIVERY, which mints no generation, so :observed-gen still matches while the callback is live again). It is ONE decision rather than a separate generation read plus observing? read because composing two reads would not be linearizable — a replacement or drop landing between them would read as generation-still-matches AND not-observing, accepting a silence for an already-superseded registration, an answer no single point in time ever had."}
    {:key         :epoch/configure!
     :producer-ns 're-frame.epoch
     :description "Configure epoch buffer size / capture policy."}
    {:key         :epoch/current-config
     :producer-ns 're-frame.epoch
-    :design-bead "rf2-kuky.76"
     :description "Read the live epoch-history config map back. The read half of `:epoch/configure!`, consulted by `re-frame.core/current-config` for its `:epoch-history` key. Bound to the STATE-level reader (`re-frame.epoch.state/current-config`) rather than the owning-ns public var, so the facade door does not depend on the owning ns's public surface. Absent hook = absent key: a build without the optional epoch artefact reports no `:epoch-history` at all rather than a fabricated default."}
    {:key         :epoch/reset-config!
     :producer-ns 're-frame.epoch
-    :design-bead "rf2-yw1w1u"
     :description "Restore epoch-history config to the shipped default baseline (test isolation) so a prior test's (rf/configure! {:epoch-history ...}) merge can't leak :depth / :trace-events-keep. Fired by re-frame.test-support's reset-hook table so test namespaces don't reset the private re-frame.epoch.state/config var directly."}
    {:key         :epoch/clear-history!
     :producer-ns 're-frame.epoch
@@ -791,60 +680,48 @@
     :description "Clear every registered epoch-settled callback (test isolation)."}
    {:key         :epoch/snapshot-frame-destroyed
     :producer-ns 're-frame.epoch
-    :design-bead "rf2-vxgfnd.151"
     :description "Snapshot the destroyed incarnation's terminal halted-destroy evidence BEFORE dissoc-frame!, while it is still the sole owner of its id-keyed epoch stores. Invoked as (f frame-id fs-before fs-after committed-at): fs-before is the in-flight event's pre-run frame-state snapshot, fs-after the destroy-time frame-state value captured before teardown, committed-at the destroying event's causal time (each nil where no in-flight run supplied it). Returns the {:record :listener-snapshot :silenced-cbs :baseline-silence-seq} bundle threaded to :epoch/on-frame-destroyed (or nil when no epoch layer participates / debug disabled) — binding A's terminal record + silencing fan to A's exact incarnation before a same-id successor B (constructable only after dissoc) can claim and drop those stores. :record is the :halted-destroy partial record when the frame was mid-drain, else nil; :listener-snapshot is the record's owed-listener fan; :silenced-cbs is a {cb-id → generation} map (NOT a bare set) of the exact callback-generation identities owed a terminal silence; :baseline-silence-seq is the terminal-silence counter snapshotted before dissoc. A same-id successor is constructable only AFTER dissoc, so any silence it emits is stamped strictly above this baseline — the monotonic evidence a paused predecessor uses to recognise a successor already silenced a cb (the A→B→nil ABA) rather than re-emitting the identical unqualified signal. A non-nil bundle also OPENS this frame's deferred-silence window (closed by :epoch/on-frame-destroyed)."}
    {:key         :epoch/on-frame-destroyed
     :producer-ns 're-frame.epoch
     :description "Publish a destroyed frame's terminal epoch evidence and drop its id-keyed stores AFTER dissoc-frame!. Invoked as (f frame-id owner-token terminal-evidence). Two concerns split INSIDE the interop/debug-enabled? gate — NEITHER folded into the gate condition. (1) EXACT-OWNER STORE CLEANUP — dropping A's history / buffer / observation / last-settled-epoch / mount-attribution — runs UNCONDITIONALLY of terminal-evidence and stays compare-owned (state/cleanup-frame-owner!): owner-token is the destroyed incarnation's stable identity, so a stale A that lost to a claimed same-id B no-ops and leaves B untouched (fail-closed), yet a throwing pre-dissoc snapshot hook (nil terminal-evidence) STILL frees A's stores so no successor inherits them (cleanup authority is frame-id + owner-token, not the snapshot bundle). (2) TERMINAL-RECORD + SILENCING PUBLICATION — A's :halted-destroy record, its structural :rf.epoch/snapshotted+outcome trailers, and its per-identity delayed-silence fan (each identity claimed against the bundle's :baseline-silence-seq) — is CONDITIONAL on a non-nil bundle (a nil bundle opened no deferred-silence window and bound no evidence, so it publishes nothing) yet INDEPENDENT of winning the compare-cleanup, so a same-id B claiming the stores cannot lose A's terminal evidence. terminal-evidence is the bundle :epoch/snapshot-frame-destroyed captured before dissoc. A direct-seam arity (f frame-id owner-token fs-before fs-after committed-at) snapshots at call time for tools / unit pins where no same-id successor races the stores."}
    {:key         :epoch/project-record
     :producer-ns 're-frame.epoch
-    :design-bead "rf2-kuky.92"
     :description "The PER-KIND projector re-frame.projection/project-egress dispatches a :kind :rf/epoch-record record to. Invoked as (f record opts) where opts is project-egress's OWN closed vocabulary with :frame ALREADY resolved by the door's three-step rule (explicit opt > the record's own :frame slot > carried scope), so the projector never re-reads (:frame record) behind an explicit override. Projects each payload slot (:frame-state-*, :db-*, :trigger-event, :trace-events, :sub-runs, :effects) under that frame and the named :rf.egress/profile; the three epoch-only axes (:rf.egress/include-fx-args? / :rf.egress/include-runtime-db? / :rf.egress/include-event-args?) ARE door vocabulary (there is no standalone projected-record door); omitted, each stays fail-closed. ABSENT ⇒ project-egress throws :rf.error/epoch-artefact-missing naming the kind rather than bare-walking the record as a kindless tree."}
 
    ;; ---- re-frame.event-emit (always-on event observability) ----------------
    {:key         :event-emit/dispatch-on-event
     :producer-ns 're-frame.event-emit
-    :design-bead "rf2-rirbq"
     :description "Always-on per-event fan-out for production observability (Datadog / Honeycomb / Sentry). Survives `:advanced` + `goog.DEBUG=false`; parallel to (not a fallback for) the dev-only trace surface. Router invokes once per processed event after the cascade settles."}
 
    ;; ---- re-frame.error-emit (always-on error observability) ----------------
    {:key         :error-emit/dispatch-on-error
     :producer-ns 're-frame.error-emit
-    :design-bead "rf2-bacs4"
     :description "Always-on per-`:rf.error/*` fan-out: builds the tight error-record once (elided), then fans it out to the corpus-wide listener registry (Sentry / Honeybadger / Rollbar shippers), ALWAYS fired. Per-listener invocations try/catch wrapped (a buggy listener cannot block siblings). Recovery is framework-owned (the per-category typed defaults); there is no per-frame `:on-error` recovery policy. Survives `:advanced` + `goog.DEBUG=false`. Invoked from EVERY production-reachable `:rf.error/*` site: router (handler-exception, flow-eval, frame-destroyed), fx (reserved-fx typed throws), subs/memo + subs (reactive + compute-sub exceptions), subs (frame-destroyed, no-such-sub on subscribe), router/diagnostics (no-such-handler)."}
    {:key         :error-emit/emit-error-both
     :producer-ns 're-frame.error-emit
-    :design-bead "rf2-c4oycd"
     :description "The shared two-channel `:rf.error/*` fan-out — fires the always-on `dispatch-on-error!` listener record (axis 1, production-survivable) AND the dev-only `trace/emit-error!` surface (axis 2, DCE'd under `:advanced` + `goog.DEBUG=false`) in one call. Collapses the open-coded two-step that was duplicated at ~12 emit sites across `subs` / `subs.memo` / `cofx` / `router.diagnostics` (+ `fx`'s `emit-fx-error!` + the 4 bespoke `router` wrappers). Takes `[category event event-id frame exception elapsed-ms time trace-tags]` — `trace-tags` is the category-specific dev-trace map threaded unchanged. Reached via this hook by `fx` / `subs` / `subs.memo` / `cofx` / `router.diagnostics` (which cannot static-require `error-emit` — the `error-emit` → `elision` → `frame` load cycle); `router` static-requires `error-emit` and calls it directly. Survives `:advanced` + `goog.DEBUG=false`."}
    {:key         :error-emit/dispatch-frame-teardown-report
     :producer-ns 're-frame.error-emit
-    :design-bead "rf2-ini4wr"
     :description "Always-on ONE-bounded-record-per-destroy frame-teardown report (EP-0008 promotion criterion / Spec 009 §Channel-promotion catalogue rows). `frame/destroy-frame!` accumulates per-hook failures during the best-effort teardown walk and, through a FINALLY-shaped flush boundary, fires this hook once with the `:frame` + the collected `:hook-failures` vector — so a mid-teardown abort still ships the entries gathered so far. Builds the catalogue-shaped `:rf.error/frame-teardown-failed` record (`:recovery :ignored`) and fans it out to the corpus-wide error listeners. NOT one record per failed hook (the per-hook detail stays on the dev-only `:rf.warning/teardown-hook-exception` trace, DCE'd in prod). `frame` reaches it via late-bind because a static require closes a `error-emit` → `elision` → `frame` load cycle. Survives `:advanced` + `goog.DEBUG=false`. No-op when no hook failed."}
    {:key         :error-emit/dispatch-error-record
     :producer-ns 're-frame.error-emit
-    :design-bead "rf2-hhutya"
     :description "Always-on GENERAL non-event error record (EP-0008 SSR promotion). The non-event counterpart of `:error-emit/dispatch-on-error`: fans a PRE-BUILT union record `{:error <kw> :frame <id-or-nil> :time <ms> + flat category keys}` out to the corpus-wide error-emit listener registry unchanged. Carries the `:rf.error/*` categories that are NOT a dispatched-event / subscribe failure and so do not fit the event-centric positional shape — the teardown report (under the hood) and the EP-0008 promoted SSR categories (`:rf.error/ssr-render-failed`, `:rf.error/ssr-streaming-writer-failed`, `:rf.error/malformed-hydration-payload` incl. the pre-frame FRAMELESS parse path, `:rf.error/ssr-head-resolution-failed`, `:rf.error/sanitised-on-projection`, `:rf.error/ssr-ring-error-view-failed`). Invoked from the SSR / ssr-ring host layers (which ship above core's require graph) via this hook, ALONGSIDE their dev-gated `trace/emit-error!`. The shared union shape (settled jointly with the teardown report, NOT a second ad-hoc shape) is designed compatibly with the EP-0015 §S8 sink routing. Survives `:advanced` + `goog.DEBUG=false`."}
    {:key         :error-emit/register-error-listener!
     :producer-ns 're-frame.error-emit
-    :design-bead "rf2-87f7fb"
     :description "Register a TRANSIENT always-on error listener under a key on the corpus-wide error-emit registry (the same surface `rf/register-error-listener!` exports). Published so `frame/fire-on-destroy-event!` can observe the router's always-on `:rf.error/handler-exception` fan-out for the duration of a throwing `:on-destroy` dispatch and re-emit the discriminable `:rf.error/on-destroy-handler-exception` category — WITHOUT a static `re-frame.frame` → `re-frame.error-emit` require (that closes the `error-emit` → `elision` → `frame` load cycle). A dev-only trace-listener capture would DCE under `goog.DEBUG=false`, so the dedicated teardown discriminator would not survive prod. Survives `:advanced` + `goog.DEBUG=false`."}
    {:key         :error-emit/unregister-error-listener!
     :producer-ns 're-frame.error-emit
-    :design-bead "rf2-87f7fb"
     :description "Drop a listener registered through `:error-emit/register-error-listener!`. Paired with it in `frame/fire-on-destroy-event!`'s finally-shaped teardown of the transient `:on-destroy`-throw capture listener, so the listener never leaks past the dispatch. Survives `:advanced` + `goog.DEBUG=false`."}
 
    ;; ---- re-frame.observability (EP-0015 §9 frame sink routing) --------------
    {:key         :observability/route-handled-event
     :producer-ns 're-frame.observability
-    :design-bead "rf2-t55hxg.7"
     :description "EP-0015 §9 (the central claim, made production-live): route ONE `:rf.observe/handled-event` record per processed event to the owning frame's declared `:observability :handled-events` sinks. Builds the canonical handled-event record (`:frame` / `:event-id` / `:event` / `:status` / `:elapsed-ms` / `:effects` / `:correlation`), projects it through `project-egress` under the frame's classification and the entry's `:rf.egress/profile` (default `:rf.egress/off-box-observability`), and delivers the ALREADY-PROJECTED record to each entry's registered `:sink` fn. The off-box default omits the `:event` args slot entirely (EP-0015 issue 4); a buggy sink is try/catch isolated. Per-STREAM precedence: a frame DECLARING `:handled-events` uses its own entries, one OMITTING the stream inherits the process default's (`rf/configure! {:observability ...}`), and `{:handled-events []}` is the frame's opt-out — exactly one source per record. Fail-closed: a NO-OP when neither source names a sink, and projection under an explicitly nil governing frame when the frame is unresolved — never synthesises `:rf/default`, never borrows another frame's policy. Called once per processed event from the router's cascade trailers, ALONGSIDE the always-on `event-emit` listener fan-out. Reached via late-bind because a static `router` → `observability` → `projection` → `elision` → `frame` require closes a load cycle. Survives `:advanced` + `goog.DEBUG=false`."}
    {:key         :observability/route-error
     :producer-ns 're-frame.observability
-    :design-bead "rf2-t55hxg.7"
     :description "EP-0015 §9: route ONE `:rf.observe/error` record per `:rf.error/*` site to the owning frame's declared `:observability :errors` sinks. Builds the canonical error record (`:frame` / `:error` / `:event-id` / `:event` / `:exception` / `:elapsed-ms` / `:time` / `:correlation`), projects it through `project-egress` (the `:event` tree slot redacts under frame policy — UNLESS the trailing `raw-event?` arg marks it a subscription QUERY VECTOR, which egresses RAW IDENTITY verbatim, never app-db-elided; `:exception` is dropped under `:rf.egress/public-error`, walked otherwise), and delivers the projected record to each entry's `:sink`. The trailing `attrs` map carries the producer's COMPONENT ATTRIBUTION — the same slots `dispatch-on-error!` merges onto its corpus-wide record, plus `:source-coord` — SPLIT rather than blanket-merged: the structural identifiers `:failing-id` / `:flow-id` / `:where` / `:source-coord` ride the top level as canonical summary slots the projector passes through unchanged, while every other slot (`:reason` among them) rides `:tags` and is walked + redacted under frame classification, symmetric with `:observability/route-error-record`. The trailing `frame-authority?` bit (default true) carries the producer's `route-frame?`: false means the frame id must NOT be consulted for policy (a known-dead incarnation), and the record routes to the PROCESS DEFAULT (`rf/configure! {:observability ...}`) under an EXPLICITLY NIL governing frame instead of being suppressed. It cannot be inferred downstream, because `frame` cannot tell a never-registered id from a dissociated one and a same-id successor would pass either test. Per-STREAM precedence otherwise: a frame declaring `:errors` uses its own entries, one omitting it inherits the process default's, and exactly one source is consulted per record. Fail-closed projection when no frame authority; 0 deliveries when neither source names a registered sink. Called from `error-emit/dispatch-on-error!`, ALONGSIDE the always-on corpus-wide error-listener fan-out. Reached via late-bind (load-cycle break). Survives `:advanced` + `goog.DEBUG=false`."}
    {:key         :observability/route-error-record
     :producer-ns 're-frame.observability
-    :design-bead "rf2-ntv9i9.1"
     :description "EP-0015 §9 / Spec 015 §Frame-owned observability sink policy: the NON-EVENT counterpart of `:observability/route-error`. Routes a PRE-BUILT EP-0008 union error record `{:error <kw> :frame <id-or-nil> :time <ms> + flat category keys}` (the frame-teardown report, the promoted SSR categories) to the owning frame's declared `:observability :errors` sinks. Projects the record into a canonical `:rf.observe/error` shape — summary slots pass through, the host `:exception` rides the top-level slot the projector DROPS under `:rf.egress/public-error`, and every remaining flat category slot (`:hook-failures` / `:phase` / `:reason` / `:projector-id` / …) is lifted onto `:tags` so the projector REDACTS it under frame classification (same generic tags-lift the SSR `error-emit-projection-listener` performs) — then routes through `project-egress`, so non-event always-on records reach the frame-owned sink model and not ONLY the corpus-wide `register-error-listener!` registry. This is the route the FRAMELESS producers reach: `:rf.error/no-frame-context`, the pre-frame SSR hydration-parse arm of `:rf.error/malformed-hydration-payload`, and fresco's compute-sub `:rf.error/sub-exception` are all stamped `:frame nil` BY CONSTRUCTION, so no frame policy can route them. They go to the PROCESS DEFAULT (`rf/configure! {:observability ...}`) projected under an EXPLICITLY NIL governing frame — fail-closed, so tree slots are `:rf/redacted` and summary ids stay intact. A record whose `:frame` no longer resolves takes the same arm and keeps its stale id as a summary diagnostic, never re-resolved against the live registry. The trailing `frame-authority?` bit (default true) carries the producer's `route-frame?`. Called from `error-emit/dispatch-error-record!`, ALONGSIDE the always-on corpus-wide error-listener fan-out. Reached via late-bind (load-cycle break). Survives `:advanced` + `goog.DEBUG=false`."}
 
    ;; ===========================================================================
@@ -868,21 +745,17 @@
                    re-frame.fresco.substrate
                    re-frame.adapter.test-react]
     :chained?    true
-    :design-bead "rf2-4z7bp"
     :description "Install the substrate-specific hiccup emitter for SSR. Chained — every loaded React-shaped adapter contributes its own install step so a single SSR ns-load auto-wires every adapter's render-to-string slot."}
 
    ;; ---- re-frame.views (CLJS, warn-once chain) ------------------------------
    {:key         :views/reading-render-key
     :producer-ns 're-frame.views
-    :design-bead "rf2-vh1k3"
     :description "Return the render-key of the view whose render is currently deref-ing a subscription (nil outside a view render). The reactive :sub/run emit stamps it onto its tag so the epoch back-fill can tell a view's genuine re-render (its own input changed) from a mount-burst tail that re-derefs unchanged subs."}
    {:key         :views/record-view-deref!
     :producer-ns 're-frame.views
-    :design-bead "rf2-9hoos"
     :description "Record a view→sub edge: push the deref'd query-v into the in-flight render's deref sink so :rf.view/rendered carries the view's OWN read-set (:deref-subs), the precise per-view reactive reason (vs the cascade-wide :cause-subs, which over-reports). Called by re-frame.subs/subscribe under interop/debug-enabled?; no-op outside a view render."}
    {:key         :views/emit-view-unmounted!
     :producer-ns 're-frame.views
-    :design-bead "rf2-te71r"
     :description "Emit :rf.view/unmounted for a view instance's teardown. Consumed by the shared React-hook spine (make-wrap-view) so UIx views emit on unmount via a React.useEffect cleanup, at parity with the Reagent family's reaction-dispose unmount hook. Reaching the emit through late-bind keeps the spine free of a static require on the CLJS-only views ns; both sides gate on interop/debug-enabled?."}
 
    ;; ---- :adapter/* — chained / routed across every CLJS adapter -------------
@@ -892,7 +765,6 @@
                    re-frame.adapter.uix
                    re-frame.fresco.substrate]
     :chained?    true
-    :design-bead "rf2-4edk"
     :description "Chained reset of EVERY adapter/views warn-once defonce cache the standard make-reset-runtime-fixture must wipe between tests. Every contributor enrols through the single governance chokepoint re-frame.late-bind/register-warn-once-clear-fn! (which chains the clear-fn here AND records it in the warn-once-clear governance registry). Members: re-frame.views.warn-once's warned-non-dom-roots, re-frame.views's seen-render-keys (:mount? discriminator), the React-hook spine's per-adapter source-coord cache (re-frame.substrate.spine, used by uix), and the slim hiccup interpreter's warned-keyword-prop (re-frame.adapter.reagent-slim). The warn-once-clear governance assertion enumerates the registry and proves each member is wiped by this chain so a future cache cannot silently escape the fixture."}
    {:key         :adapter/current-frame
     :producer-ns '[re-frame.adapter.reagent
@@ -901,43 +773,36 @@
                    re-frame.fresco.substrate
                    re-frame.adapter.test-react]
     :chained?    true
-    :design-bead "rf2-d4sf"
     :description "React-context-tier frame-id reader (each adapter routes via current-adapter)."}
    {:key         :adapter/current-component
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim]
     :chained?    true
-    :design-bead "rf2-wbnl"
     :description "Resolve the in-flight Reagent component (routed via current-adapter)."}
    {:key         :adapter/as-element
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim]
     :chained?    true
-    :design-bead "rf2-7ds8"
     :description "The INSTALLED ratom build's own hiccup → React element walk (routed via current-adapter). The exact twin of :adapter/current-component, published by the same two adapters and for the same reason. A caller that needs a React element for a hiccup island — a Fresco boundary handing a surviving reg-view island down as a child, which is what tools/xray does at nine sites — must obtain it from the renderer the runtime is actually using. Crossing with some OTHER ratom build's as-element does NOT fail loudly: React mounts the element and the :contextType the reg-view head carries is even honoured, so the frame VALUE reaches the class. What breaks is one level down — the foreign build renders the subtree with ITS in-flight-component binding set, while :adapter/current-component routes to the installed build and answers nil, so views/current-frame finds no component to read (.-context) off and returns nil. Every ambient subscribe/dispatch in that subtree then raises :rf.error/no-frame-context and React takes the subtree down: a blank surface, not a diagnostic. Measured under reagent-slim with Xray crossing via stock reagent.core/as-element. NOT published by UIx / Fresco / plain-atom / test-react: hiccup is not those substrates' authoring shape, and there is no substrate-neutral element, so the hook is routed with no chain-bottom fallback and an absent answer is the honest one."}
    {:key         :adapter/ratom
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim]
     :chained?    true
-    :design-bead "rf2-s36l"
     :description "Substrate-specific ratom constructor (re-frame.interop/ratom). Not published by UIx — that substrate ships no reactive-atom primitive and re-frame.interop's reactive surfaces have zero production call sites under them."}
    {:key         :adapter/ratom?
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim]
     :chained?    true
-    :design-bead "rf2-s36l"
     :description "Substrate-specific ratom predicate (re-frame.interop/ratom?). Not published by UIx; absent-hook fallback returns false."}
    {:key         :adapter/make-reaction
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim]
     :chained?    true
-    :design-bead "rf2-s36l"
     :description "Substrate-specific make-reaction (re-frame.interop/make-reaction). Not published by UIx; absent-hook returns nil."}
    {:key         :adapter/activate-derived-value!
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim]
     :chained?    true
-    :design-bead "rf2-8cnxg"
     :description "Put a make-derived-value result on the substrate's PUSH path (re-frame.interop/activate-derived-value!), so a source write actually notifies the derived container's watches — Spec 006 §make-derived-value's \"updates automatically when any source's value changes\" clause. Published by the ratom family ALONE, because they alone are demand-driven: a reagent.ratom/Reaction captures its sources only through deref-capture, and a deref taken outside *ratom-context* with no auto-run runs the body raw and leaves `watching` nil — watchable, watched, and silent. A caller invokes this before installing its own watch, so a non-Reagent observer (which supplies no capture context of its own) observes a live node — fresco's collector, the machines timer and Xray's settings effects all do. NOT published by the React-hook spine (UIx), whose make-derived-value wires one watch per source at CONSTRUCTION and is push-based from birth; the routed chain-bottom returns nil and the call is a no-op. Not published by plain-atom / test-react for the same reason."}
    {:key         :adapter/add-on-dispose!
     :producer-ns '[re-frame.adapter.reagent
@@ -945,7 +810,6 @@
                    re-frame.adapter.uix
                    re-frame.fresco.substrate]
     :chained?    true
-    :design-bead "rf2-s36l"
     :description "Substrate-specific add-on-dispose! (re-frame.interop/add-on-dispose!). UIx routes to the re-frame-owned re-frame.disposable/IDisposable protocol; Reagent/reagent-slim dispatch both that protocol and their substrate's own IDisposable."}
    {:key         :adapter/dispose!
     :producer-ns '[re-frame.adapter.reagent
@@ -953,25 +817,21 @@
                    re-frame.adapter.uix
                    re-frame.fresco.substrate]
     :chained?    true
-    :design-bead "rf2-s36l"
     :description "Substrate-specific dispose! (re-frame.interop/dispose!). UIx routes to the re-frame-owned re-frame.disposable/IDisposable protocol; Reagent/reagent-slim dispatch both that protocol and their substrate's own IDisposable."}
    {:key         :adapter/reactive?
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim]
     :chained?    true
-    :design-bead "rf2-s36l"
     :description "Substrate-specific reactive? predicate (re-frame.interop/reactive?). Not published by UIx; absent-hook fallback returns false."}
    {:key         :adapter/reactive-owner
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim]
     :chained?    true
-    :design-bead "rf2-ty246"
     :description "The reaction currently capturing derefs — the substrate's *ratom-context* — or nil outside a reactive context. The IDENTITY behind :adapter/reactive?'s boolean, and published for a reason that predicate cannot serve: re-frame.subs holds ONE reference per (owning reaction, cache slot) and releases it on that owner's dispose, so it needs the owner itself. Without it a ratom view's @(subscribe q) would bump :ref-count on EVERY render with nothing ever pairing it, because on this family nothing calls unsubscribe — the substrate removes the slot when the render Reaction drops its last watch and the sub Reaction auto-disposes. :ref-count would then count renders rather than readers, and the 1 -> 0 edge Spec 006 §Reference counting and disposal describes would never be taken. Published by the ratom family ALONE: the React-hook spine (UIx) owns its reference through use-subscribe's own commit cleanup, and plain-atom / test-react have no reactive context at all, so the routed chain-bottom returns nil and the whole render-owned path is unreached on those substrates."}
    {:key         :adapter/derived-container?
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim]
     :chained?    true
-    :design-bead "rf2-8wrzz.3"
     :description "Container-class hook the core's replace-container! choke point consults to reject writes to a make-derived-value result (Spec 006 §make-derived-value). Tri-valued: truthy = DERIVED (reject), false = BASE (the installed adapter classifies it as one of ITS writable base containers — delegate, and the choke point skips its atom-marker heuristic so a custom non-atom base container is not misclassified), and the re-frame.substrate.adapter/container-class-unknown sentinel = NO opinion (the choke point falls back to the host atom-marker heuristic). Published by the ratom family (Reagent / reagent-slim): their Reaction reifies IAtom exactly like a base r/atom, so the atom-marker fall-back cannot tell them apart — the hook keys on the substrate disposal protocol (a Reaction is disposable, a base r/atom is not) and answers truthy/false exhaustively. Custom adapters whose base container is NOT atom-shaped publish their own routed hook the same way. Not published by plain-atom / test-react / UIx, whose derived values are NOT atom-shaped (the atom-marker fall-back classifies them correctly); the routed chain-bottom fallback returns the container-class-unknown sentinel."}
    {:key         :adapter/after-render
     :producer-ns '[re-frame.adapter.reagent
@@ -979,18 +839,15 @@
                    re-frame.adapter.uix
                    re-frame.fresco.substrate]
     :chained?    true
-    :design-bead "rf2-s36l"
     :description "Substrate-specific after-render hook (re-frame.interop/after-render). The UIx adapter publishes a `React.useLayoutEffect`-backed impl via the spine's after-render machinery. Reagent + reagent-slim route through their substrate's native render scheduler."}
    {:key         :adapter/wrap-view
     :producer-ns '[re-frame.adapter.uix
                    re-frame.fresco.substrate]
     :chained?    true
-    :design-bead "rf2-00li"
     :description "Substrate-side source-coord injection on rendered React elements: the wrap also stamps `data-rf-view` and appends the React-hook unmount sentinel, and the whole body rides `interop/debug-enabled?` so production elides it. Declining it is not neutral — `views/build-frame-aware-view` then falls through to the inline hiccup walk, which classes a React element as a non-DOM root, skips both attributes and warns. Consulted once per DERIVATION rather than once per registration: the hook is routed, so it declines while its adapter is not installed, and the canonical boot order registers views at ns-load BEFORE `rf/init!` — `views/compose-view` therefore re-runs the whole pipeline, this hook included, when `views/view-head` finds the memoized derivation was made against a different substrate."}
    {:key         :adapter/componentize-view
     :producer-ns '[re-frame.adapter.uix]
     :chained?    true
-    :design-bead "rf2-oz7wr"
     :description "Turns the composed registration wrapper into the substrate's own mountable COMPONENT HEAD — the value `views/reg-view*` registers and `(rf/view id)` returns. `build-frame-aware-view` yields `(with-meta (fn …) {:contextType frame-context})`, and `cljs.core/with-meta` on a fn is a `MetaFn` (an IFn object, not a JS function): Reagent's create-class machinery reads that meta and converts it, so Reagent does NOT publish this hook and its head stays unchanged; React has no such conversion and rejects the MetaFn as an element type, so UIx publishes a shell that React can mount. The spine (`make-componentize-view`) builds the substrate-agnostic forwarding shell and the adapter stamps its substrate's component marker on it — a seam split, so `$` routes props through UIx's lossless `argv` channel rather than the keyword-mangling JS-prop conversion. Absent-hook fallback in `apply-adapter-componentize-view` returns the wrapper unchanged. Consulted at REGISTRATION and again at LOOKUP: the hook is routed, so it declines while its adapter is not installed, and the canonical boot order registers views at ns-load BEFORE `rf/init!` — `views/view-head` therefore re-derives the head against the adapter installed at `(rf/view id)` time and memoizes it, keyed on the identity of the object registration stored in the `:view` slot and on the adapter spec. That re-derivation runs the WHOLE pipeline (`views/compose-view`), so `:adapter/wrap-view` is re-asked alongside it rather than being frozen at its reg-time answer."}
    {:key         :adapter/arm-hiccup-emitter-if-unarmed!
     :producer-ns '[re-frame.adapter.reagent
@@ -998,7 +855,6 @@
                    re-frame.adapter.uix
                    re-frame.fresco.substrate]
     :chained?    true
-    :design-bead "rf2-h9szm"
     :description "Precedence-safe, routed install-replay arm for the retained SSR hiccup emitter. `re-frame.substrate.adapter/install-adapter!` calls it (with the durable `:ssr/current-hiccup-emitter`) as part of its failure-atomic install transaction so a destroy → re-init cycle — or an SSR-before-adapter load order — re-arms the freshly-installed generation's `render-to-string` slot. Routed via `route-hook!` so ONLY the installed adapter's slot is re-armed (a loaded inactive adapter's arm never runs, so its throw cannot break the active boot); each adapter's impl arms its per-generation `emitter-cell` ONLY when otherwise unarmed, so a pre-init explicit custom emitter / reset is not silently overwritten by the retained default. Distinct from the broadcast `:reagent/set-hiccup-emitter!` chain. Not published by plain-atom / test-react, whose emitters are retained across a no-op dispose (no re-arm required)."}
 
    ;; ===========================================================================
@@ -1033,19 +889,15 @@
    ;; `re-frame.trace` (which is everyone).
    {:key         :trace.tooling/deliver!
     :producer-ns 're-frame.trace.tooling
-    :design-bead "rf2-qwm0a"
     :description "Per-event buffer-push + listener fan-out invoked by trace.cljc's `deliver!` (`re-frame.trace/deliver!`). THREE-argument live contract `(f event continue? retain?)` — trace.cljc always passes all three (core/src/re_frame/trace.cljc:631). `event` is the assembled trace event. `continue?` is the outer envelope's exact-owner continuation-predicate SNAPSHOT (`snapshot-continuation`), consulted before/after every snapshotted listener so an outer incarnation A's loss suppresses A's remaining sibling callbacks. `retain?` is the outer envelope's ring-retention decision, captured from `*ring-retention-enabled?*` at trace.cljc:624 and passed EXPLICITLY because the tooling sibling ns cannot see that dynamic var. `retain?` gates ONLY the per-frame ring push (`push-to-ring!`): under retentionless structural delivery (`re-frame.trace/call-with-structural-delivery`) it is false, so an obsolete incarnation's terminal fact still streams live but no per-frame ring retains it — the bare frame id a same-id successor now shares would otherwise leak predecessor evidence into the successor's ring. Live listener FAN-OUT is UNCONDITIONAL either way, so the required terminal fact reaches live consumers exactly once. The `(f event continue?)` arity defaults `retain?` true (the ordinary emit path)."}
    {:key         :trace.tooling/call-with-deferred-fanout
     :producer-ns 're-frame.trace.tooling
-    :design-bead "rf2-uoy6m"
     :description "The post-drain trace-listener deferral wrapper `(f flush-scope)`. Consulted by `re-frame.trace/call-with-deferred-listener-delivery` on CLJS ONLY (gated by `interop/debug-enabled?`), which the drain engine wraps around every `:drain-lock` acquire → run → release region so a drain-owned emit is delivered at the post-drain boundary rather than while the lock is held. Late-bound so the always-reachable production drain path carries no static edge into the dev-only tooling sibling — the same bundle-isolation posture as `:trace.tooling/deliver!`, and the whole branch DCEs under `:advanced` + `goog.DEBUG=false`. The JVM drain calls `call-with-deferred-fanout` directly (no DCE concern), so it does not route through this hook. `flush-scope` is `re-frame.trace/call-with-ordinary-delivery-scope`, passed explicitly because the delivery-scope dynamic vars are private to `re-frame.trace`."}
    {:key         :trace.tooling/configure-trace-buffer!
     :producer-ns 're-frame.trace.tooling
-    :design-bead "rf2-qwm0a"
     :description "Set the trace ring buffer depth. Late-bound from `re-frame.core/configure!`'s `:trace-buffer` key so a no-tooling production build silently no-ops."}
    {:key         :trace.tooling/current-trace-buffer-config
     :producer-ns 're-frame.trace.tooling
-    :design-bead "rf2-kuky.76"
     :description "Read the PROCESS-DEFAULT trace-ring retention back as `{:events-retained N}`. The read half of `:trace.tooling/configure-trace-buffer!`, consulted by `re-frame.core/current-config` for its `:trace-buffer` key. Reports the process default only — a frame carrying its own `:rf.trace/events-retained` override is not reflected, matching what `configure!` writes. Same seam and same reason as the write hook: a production build that never loads the tooling sibling reports no `:trace-buffer` key at all."}
 
    ;; ---- re-frame.trace.tooling — per-frame trace rings ----------------------
@@ -1059,39 +911,30 @@
    ;; — the ring + dedup machinery is dev-only and DCEs out wholesale.
    {:key         :trace.tooling/dedup-allow?
     :producer-ns 're-frame.trace.tooling
-    :design-bead "rf2-g1b2m"
     :description "B4 hot-reload dedup-by-shape gate. Registrar emits consult this to suppress unchanged re-emits (`(operation, kind, id, meta) -> allow?`). Identical shape on re-register → false; changed shape or no prior entry → true."}
    {:key         :trace.tooling/clear-dedup-table!
     :producer-ns 're-frame.trace.tooling
-    :design-bead "rf2-g1b2m"
     :description "Reset the B4 dedup table. `re-frame.registrar/clear-all!` calls this so test fixtures start from a clean slate. Production builds (no tooling sibling) no-op."}
    {:key         :trace.tooling/release-frame-ring!
     :producer-ns 're-frame.trace.tooling
-    :design-bead "rf2-g1b2m"
     :description "Frame-destroy ring cleanup. `re-frame.frame/destroy-frame!` invokes this once the destroyed-trace has fired so the destroyed frame leaves no residual ring state in memory."}
    {:key         :trace.tooling/apply-frame-events-retained-policy!
     :producer-ns 're-frame.trace.tooling
-    :design-bead "rf2-4vism7"
     :description "Publish one committed frame config's retention policy under its current-owner predicate. Explicit values resize and pin the frame ring; omission clears a prior override back to the process default. The frame engine serializes auxiliary publication, and the guarded ring update rejects a superseded successful upsert."}
    {:key         :live-frame/mark-projection-dirty!
     :producer-ns 're-frame.live-frame
-    :design-bead "rf2-h1vqa4"
     :description "Mark the live-frame default-image projection DIRTY on a registrar REMOVAL (`unregister!` / `clear-kind!` / `clear-all!`) — the removal twin of the registration hook `re-frame.live-frame` installs for `reg-*`. A cleared handler must disappear from image-loaded frames at their next resolution (read-time coalesced flush / CLJS deferred tick), not linger in a sealed generation the source store no longer backs. All three registrar removal paths consult it on the PRODUCTION path too, under no debug gate (rf2-9c2jf). It was once published only under `interop/debug-enabled?`, on the reasoning that production finishes registering before it starts constructing frames — nothing in the substrate enforces that order, and `make-frame` seals a generation UNCONDITIONALLY (EP-0026 §Default Image), so gating the MAINTAINER while the PRODUCER stayed unconditional froze each frame's view of the registration pool at construction time. Keeping a sealed generation in step with the registration pool is a CORRECTNESS invariant, not a diagnostic. The elision the gate bought is preserved by REACHABILITY instead: the sole publisher is `re-frame.live-frame/ensure-reprojection-installed!`, which only `make-frame` reaches, so a bundle that never constructs a frame still folds the whole reprojection + image-assembly graph away."}
    {:key         :live-frame/flush-projection!
     :producer-ns 're-frame.live-frame
-    :design-bead "rf2-h1vqa4"
     :description "Read-time coalesced reprojection flush — consulted by `re-frame.live-frame/call-with-frame-resolution` at the top of every frame-targeted resolution, and by `re-frame.router/process-event!` on the event path, so a dirty default-image projection is flushed BEFORE the target generation is read (a `reg-*` after `make-frame` is deterministically visible to the very next same-tick dispatch/subscribe). Neither consult carries a debug gate (rf2-9c2jf): a generation frozen at construction time reports `:rf.error/no-such-handler` for a handler `registrar/lookup` is holding at that very moment, and that is a correctness failure rather than a missing diagnostic. Late-bound rather than a direct call because the flush body pulls the whole reprojection + image-assembly graph and the consult sites must root none of it — the sole publisher is `re-frame.live-frame/ensure-reprojection-installed!`, which only `make-frame` reaches. Under `:advanced` + `goog.DEBUG=false` that graph still DCEs out of a bundle that never constructs a frame, now by REACHABILITY rather than by a gate (the Spec 009 elision probe pins assembly ABSENT-when-unused)."}
    {:key         :live-frame/on-frame-destroyed!
     :producer-ns 're-frame.live-frame
-    :design-bead "rf2-cq0yi"
     :description "Release the destroyed frame's GENERATION-PROVENANCE row on frame destroy — step 6 of the Spec 002 destroy recipe, the callback verb (pure side-table bookkeeping). Invoked as (f frame-id): `re-frame.live-frame` keeps one private row per frame naming which descriptor pool that frame's CURRENT generation was resolved against (nil = the live source store; a real descriptors value = `make-frame`'s 2-arity explicit pool), and `reproject-live-frame!` threads that same pool on every re-resolution. EVERY successful public `make-frame` writes a row; without this hook nothing would remove one: destroying N never-reused ids would leave N permanent keys, and the 2-arity would additionally keep the caller's explicit descriptor pool object graph reachable. The documented per-request SSR recipe mints a fresh gensym id, constructs, renders and destroys in a `finally`, so a long-lived server would retain one row per request served — the same retention shape `:fresco/on-frame-destroyed!` handles one layer up. UNCONDITIONAL by key and carrying NO incarnation token: destroy still owns the id's construction/destruction reservation at hook time and a same-id successor is constructable only after the step-9 dissoc, so every row standing there belongs to the dying incarnation; a stale exact-value destroy fails its claim before the cleanup walk. RETENTION ONLY — the row's sole reader, `reproject-live-frame!`, is already a no-op for a frame carrying no generation, so removing it changes no reader's answer. Published at `re-frame.live-frame`'s NS LOAD — a top-level `set-fn!`, NOT from the `make-frame`-rooted once-body that installs the other two `:live-frame/*` keys. Sited in that once-body it would break on reload: `reprojection-installed?` is a `defonce`, so in a dev process that has already constructed a frame the once-body is skipped on every subsequent reload of the ns and the key would never be re-published — a reloaded process would keep leaking rows until restart, against `late-bind`'s own contract that `hooks` is populated by the producing namespace at load time. Ns load is also strictly EARLIER than the once-body (the ns must be loaded before `make-frame` can be called), so the hook is bound before the first row can exist, and it roots no reprojection graph: `release-frame-generation-pool!` is one `swap!` against the provenance atom and references nothing in the reprojection / `image-assembly` graph, so a bundle that never constructs a frame folds that graph away. The registrar registration hook stays in the once-body because `add-registration-hook!` APPENDS and would accumulate duplicates per reload; only the idempotent keyed publication lives at ns load. Consumed by frame/destroy-frame!."}
    {:key         :live-frame/call-with-frame-resolution
     :producer-ns 're-frame.live-frame
-    :design-bead "rf2-ifzi"
     :description "The generation-resolution seam itself — invoked as (f frame-target thunk), it runs `thunk` with `re-frame.registrar/*generation*` bound to `frame-target`'s resolved image generation (and with NO binding when the target names no image-loaded frame). Consulted by `re-frame.projection`'s event-slot pass, which applies the dispatched handler's OWN registration classification through `registrar/handler-meta` and therefore reads whatever generation is ambient. `project-egress` seeds the record owner into the leaf WALKER's opts, which governs the frame-policy walk but not registration resolution, so without this seam a DEFERRED projection — a recorder that retained an error record and projects it after dispatch returned, or any direct caller naming an explicit target — would resolve an image-local event declaration in the wrong universe and ship a declared-sensitive payload RAW under the off-box profile. Late-bound rather than a direct call because `re-frame.projection` deliberately requires nothing but `elision` / `error` / `late-bind`; the seam reaches it by key exactly as `:live-frame/flush-projection!` reaches the registrar. Published at `re-frame.live-frame`'s NS LOAD (a top-level `set-fn!`), so a reload after the first `make-frame` cannot skip it. Absence is inert: the consumer falls back to ambient resolution."}
    {:key         :frame/current-frame-id
     :producer-ns 're-frame.frame
-    :design-bead "rf2-g1b2m"
     :description "Read the currently-bound frame id from `re-frame.frame/*current-frame*`. Consulted by `re-frame.trace.tooling/push-to-ring!` as the routing fallback when the trace event itself does not carry a `:frame` tag (e.g. sub recompute / view render emits inside an in-flight cascade)."}
 
    ;; ---- re-frame.trace.cascade (focused-event-only cascade-DAG aggregator) ----
@@ -1109,25 +952,20 @@
    ;; the prod side.
    {:key         :trace.cascade/capture-for-epoch!
     :producer-ns 're-frame.trace.cascade
-    :design-bead "rf2-931pm"
     :description "Focused-event-only per-epoch cascade-DAG aggregator. `epoch/settle!` invokes it once per dequeued event after the cascade buffer has been harvested; no-op when the installed focus predicate returns false."}
    {:key         :trace.cascade/set-focus-predicate!
     :producer-ns 're-frame.trace.cascade
-    :design-bead "rf2-931pm"
     :description "Install the predicate the aggregator consults at end-of-epoch (`(fn [frame-id epoch-id event-id] truthy?)`). Hook published for a focus-publishing consumer to drive at mount; no Xray consumer ships against it today — the only in-tree caller is the core `trace_cascade_captured_test`, which calls `re-frame.trace.cascade/set-focus-predicate!` directly."}
    {:key         :trace.cascade/clear-focus-predicate!
     :producer-ns 're-frame.trace.cascade
-    :design-bead "rf2-931pm"
     :description "Restore the no-op default focus predicate (no epoch focused). Withdraw counterpart of `:trace.cascade/set-focus-predicate!`; same no-Xray-consumer status — only the core `trace_cascade_captured_test` calls `re-frame.trace.cascade/clear-focus-predicate!` directly."}
 
    ;; ---- re-frame.fresco (native-tier substrate; day8/re-frame2-fresco) ---
    {:key         :fresco/on-frame-destroyed!
     :producer-ns 're-frame.fresco.impl.frames
-    :design-bead "rf2-uejlj"
     :description "Drop the Fresco frame-ops row on frame destroy — step 6 of the Spec 002 destroy recipe, the callback verb (pure side-table bookkeeping). Invoked as (f frame-id): re-frame.fresco.impl.frames memoises ONE row per frame — the `rf/capture-frame` bundle plus the ambient dispatch closure over it, both pinned to the incarnation that minted them — and its own eviction is LAZY, done by the SUCCESSOR's first lookup under the same id. That bounds a client frame id, which is reused across incarnations, and bounds nothing for an id that never gets a successor: `re-frame.fresco.server/render` mints a fresh `(gensym \"request-\")` per request, so without this hook a long-lived SSR process would retain one captured bundle per request served. UNCONDITIONAL by key and carrying NO incarnation token — a same-id successor is constructable only after the step-9 dissoc, so every row standing at hook time already belongs to a dead incarnation. RETENTION ONLY: eviction-on-destruction is not Fresco's reincarnation SAFETY mechanism — the lazy replacement is the safety argument, and this hook merely stops an unreachable row outliving the process. No-op when the day8/re-frame2-fresco artefact is absent (unbound). Published by re-frame.fresco.impl.frames, consumed by frame/destroy-frame!."}
    {:key         :fresco/drain-client-roots!
     :producer-ns 're-frame.fresco.impl.mount
-    :design-bead "rf2-kuky.59"
     :description "Release every React Root Fresco's own client-root door still holds, as part of process teardown. Invoked as (f) with no arguments, from `re-frame.substrate.adapter/dispose-adapter!` BEFORE the installed adapter's own `:dispose-adapter!` and in a `finally` over it, so React unmounts run while the substrate is still whole and a throwing drain can neither skip the adapter disposer nor the lifecycle finalization below it. The implementation is `re-frame.fresco.impl.mount/drain-active-roots!`: it empties the package's active-roots cell FIRST — so a handle whose Root the drain took finds itself already released and a later `h/render!` mounts afresh — then unmounts each Root under its own catch and rethrows the first failure once every root has been attempted, the shape `spine/dispose-active-roots-and-caches!` uses. WHY IT IS A PROCESS HOOK RATHER THAN AN ADAPTER CHAIN: a Fresco root is the PACKAGE's, not any adapter's — `h/render!` reaches createRoot / hydrateRoot through `re-frame.fresco.impl.mount` and never through the substrate contract's `render` slot, so no adapter's own active-root set ever sees one. Chained onto the Fresco adapter's `dispose-adapter!`, the drain would be reached only when Fresco was ALSO the installed adapter, and Fresco over UIx or over Reagent is supported use (the migrated HMR testbed installs UIx, Story's own-root control installs Reagent, and the migration skill preserves an app's existing Reagent adapter). In that composition `rf/destroy-adapter!` would leave the Root mounted with its `:live?` closure still true and a `render!` through the retained handle would UPDATE the leaked Root instead of mounting afresh — against Spec 006 §The client root's Teardown clause, which carries no adapter qualifier. Published at `re-frame.fresco.impl.mount`'s NS LOAD rather than from a once-body, per late-bind's own contract and for the reload reason spelled out on `:live-frame/release-frame-generation-pool!`; that namespace is loaded by every door that can create a root, so the hook is bound before the first Root can exist. No-op when the day8/re-frame2-fresco artefact is absent (unbound), and on every JVM host. Published by re-frame.fresco.impl.mount, consumed by substrate.adapter/dispose-adapter!."}
 
    ;; NOTE: `:subs/resolve-sub-override` — the SUBSTITUTIVE
