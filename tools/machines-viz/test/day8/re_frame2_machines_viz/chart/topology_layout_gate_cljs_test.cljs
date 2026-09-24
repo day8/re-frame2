@@ -1,16 +1,16 @@
 (ns day8.re-frame2-machines-viz.chart.topology-layout-gate-cljs-test
-  "rf2-dplwxh — rendered-topology layout/geometry gate.
+  "Rendered-topology layout/geometry gate.
 
   ## Why this exists
 
-  The slice had strong pure-data + DOM-structure coverage, but no
-  representative gate over the SETTLED layout geometry. The browser
+  Pure-data + DOM-structure coverage does not reach the SETTLED layout
+  geometry. The browser
   `chart-dom-cljs-test` deliberately asserts first-commit DOM BEFORE
   the async elkjs pass resolves (positions are still {0 0}); the Xray
   feature gate only requires `nodeCount > 0`; the PNG exporter test
-  proves nonblank output, not topology correctness. Real rendered
-  failures — wrong fit, overlapped bands/nodes, bad route geometry,
-  missing projected edges, adaptive-layout drift — were therefore
+  proves nonblank output, not topology correctness. Without this gate,
+  real rendered failures — wrong fit, overlapped bands/nodes, bad route
+  geometry, missing projected edges, adaptive-layout drift — would be
   invisible to CI.
 
   ## What this gate does (and why it's a node `-cljs-test`)
@@ -24,9 +24,9 @@
   non-trivial Context-band case. It AWAITS the layout settle (the
   callback / Promise the synchronous DOM suite cannot await) and then
   asserts POST-LAYOUT GEOMETRY INVARIANTS the spec explicitly accepts
-  in lieu of committed pixel baselines (which are cross-platform-flaky;
-  Mike develops on Windows, maintainers on Mac/Linux). The invariants
-  catch the failure classes the bead enumerates:
+  in lieu of committed pixel baselines (which are cross-platform-flaky:
+  the chart is developed on Windows, Mac and Linux). The invariants
+  catch these failure classes:
 
     - WRONG FIT / degenerate origin-stack — every state node lands at a
       DISTINCT, finite, positive-area box (not all stacked at {0 0}),
@@ -286,31 +286,31 @@
 ;; One deftest per representative class (each awaits its own settle)
 
 (deftest linear-cyclic-topology-settles-cleanly
-  (testing "rf2-dplwxh — a linear/cyclic spine lays out with distinct,
+  (testing "a linear/cyclic spine lays out with distinct,
             non-overlapping, fully-routed geometry"
     (async done
       (run-gate! "linear" (layout/project-definition linear-cyclic) 0 done))))
 
 (deftest guarded-fork-topology-settles-cleanly
-  (testing "rf2-dplwxh — a guarded fork's two branch targets sit
+  (testing "a guarded fork's two branch targets sit
             side-by-side without overlap, both routes present"
     (async done
       (run-gate! "fork" (layout/project-definition guarded-fork) 0 done))))
 
 (deftest parallel-topology-settles-cleanly
-  (testing "rf2-dplwxh — parallel region BANDS sit side-by-side without
+  (testing "parallel region BANDS sit side-by-side without
             overlap, each enclosing its own states"
     (async done
       (run-gate! "parallel" (layout/project-definition parallel) 0 done))))
 
 (deftest compound-topology-settles-cleanly
-  (testing "rf2-dplwxh — a 3-deep compound machine's containers enclose
+  (testing "a 3-deep compound machine's containers enclose
             their nested children at every depth"
     (async done
       (run-gate! "compound" (layout/project-definition compound) 0 done))))
 
 (deftest context-band-topology-settles-cleanly
-  (testing "rf2-dplwxh — a Context-band machine reserves the band space
+  (testing "a Context-band machine reserves the band space
             and the spine sits below it without overlap"
     (async done
       (run-gate! "context" (layout/project-definition context-band) 3 done))))
