@@ -4,14 +4,15 @@
   EP-0025: durable app-db classification is declared by the commit-plane
   classification effects — a `reg-event` returns `:sensitive` / `:large`
   alongside `:db`, written into the per-frame elision registry under
-  `:source :effect` (`rf.elision/apply-classification-effects`). The durable
-  `:sensitive` / `:large {:app-db …}` *frame annotation* is REMOVED.
+  `:source :effect` (`rf.elision/apply-classification-effects`). There is no
+  durable `:sensitive` / `:large {:app-db …}` *frame annotation*.
   Schema-attached `{:sensitive? true}` / `{:large? true}` slot props are NOT
   a route into this registry. These tests seed declarations through the
-  effect path; the walker behaviour (marker shape, sensitive-wins-over-large,
-  idempotence, threshold interaction, frame isolation) is unchanged.
+  effect path and pin the walker behaviour (marker shape,
+  sensitive-wins-over-large, idempotence, threshold interaction, frame
+  isolation).
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   ELISION IS PRODUCTION BEHAVIOUR and almost all of this file runs under
   `scripts/test-core-prod-gate.sh` unchanged: marker shape, redaction of
@@ -25,10 +26,10 @@
   `unschema'd-large-value-warns-but-does-not-elide` establishes that a
   schema-less large value is NOT elided, so the threshold changes nothing
   about the returned wire value. Every threshold deftest therefore reads its
-  result off that warning, and all of them are kept verbatim inside
-  `(when rf.interop/debug-enabled? …)` arms marked `rf2-d2841`.
+  result off that warning, and all of them sit inside
+  `(when rf.interop/debug-enabled? …)` arms.
 
-  That includes the ones that pass under the gate today, and they are the
+  That includes the ones that would pass under the gate, and they are the
   reason to be careful here rather than the exception to it:
   `threshold-zero-disables-runtime-auto-detect` asserts `(= 0
   (count-unschema'd-warnings …))` twice, and `explicit-opt-wins-over-configured`
@@ -55,9 +56,9 @@
   classification effect path — the same registry write a `reg-event`
   returning `:sensitive` / `:large` alongside `:db` performs
   (`rf.elision/apply-classification-effects`, `:source :effect`). `sensitive` /
-  `large` are vectors of `:rf/path` vectors. (EP-0025 removed the durable
-  `:sensitive` / `:large {:app-db …}` frame annotation; tests seed via the
-  surviving effect mechanism.)"
+  `large` are vectors of `:rf/path` vectors. (There is no durable
+  `:sensitive` / `:large {:app-db …}` frame annotation; the effect is the
+  seeding mechanism.)"
   ([sensitive large] (install-class! :rf/default sensitive large))
   ([frame-id sensitive large]
    (let [effects (cond-> {}
@@ -79,14 +80,14 @@
   ;; `config` is a `defonce` (survives `:reload`); restore the documented
   ;; default so a configure tweak in one test does not leak into the next.
   (rf.elision/configure! {:rf.egress/threshold-bytes 16384})
-  ;; EP-0002 (rf2-5q7um6 + rf2-gjq3ow): reg-app-schema + the zero-arity
-  ;; populate-*-from-schemas! / declarations / sensitive-declarations
+  ;; EP-0002: reg-app-schema + the zero-arity
+  ;; declarations / sensitive-declarations
   ;; readers are context-required frame-local — an ambient call under no
   ;; scope raises :rf.error/no-frame-context. The zero-arity
-  ;; `elide-wire-value` now resolves its frame from the carried scope and
-  ;; FAILS CLOSED (whole-value `:rf/redacted`) when none is established
-  ;; (rf2-gjq3ow). Pin :rf/default as the ambient scope so those ambient
-  ;; registration / populate / elide calls carry a frame stamp and read the
+  ;; `elide-wire-value` resolves its frame from the carried scope and
+  ;; FAILS CLOSED (whole-value `:rf/redacted`) when none is established.
+  ;; Pin :rf/default as the ambient scope so those ambient
+  ;; registration / read / elide calls carry a frame stamp and read the
   ;; same :rf/default registry — consistent end-to-end. Tests that want to
   ;; exercise the frameless-egress fail-closed branch unbind / override.
   (rf.frame/ensure-default-frame!)
@@ -135,7 +136,7 @@
     ;; diagnostic that started eliding would be the actual defect.
     (is (= big (get-in out [:user :photo]))
         "schema-less large values are not auto-elided")
-    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+    ;; Dev-instrumentation arm (see ns docstring §Posture split).
     (when rf.interop/debug-enabled?
       (let [warnings (filterv #(= :rf.warning/large-value-unschema'd
                                   (:operation %))
@@ -157,7 +158,7 @@
             (rf.elision/elide-wire-value {:photo big})
             (rf.elision/elide-wire-value {:photo big})])
         "repeat walks of the same unschema'd path leave the value intact")
-    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+    ;; Dev-instrumentation arm (see ns docstring §Posture split).
     (when rf.interop/debug-enabled?
       (is (= 1 (count (filter #(= :rf.warning/large-value-unschema'd
                                   (:operation %))
@@ -165,9 +166,9 @@
     (rf/unregister-listener! :trace :elision-test/once)))
 
 ;; ---------------------------------------------------------------------------
-;; Runtime size-threshold configuration (rf2-le2qu).
+;; Runtime size-threshold configuration.
 ;;
-;; Per API.md §Size-elision wire-boundary walker (L507) and §Configure keys
+;; Per API.md §Size-elision wire-boundary walker and §Configure keys
 ;; (`:elision`), the runtime auto-detect threshold for the
 ;; `:rf.warning/large-value-unschema'd` advisory is configurable, with
 ;; normative precedence:
@@ -194,7 +195,7 @@
     ;; with no channel involved.
     (is (= 16384 (:rf.egress/threshold-bytes (rf.elision/current-config)))
         "the documented 16384-byte default is the live configured threshold")
-    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+    ;; Dev-instrumentation arm (see ns docstring §Posture split).
     ;; The auto-detect WARNING is the threshold's only observable, and under
     ;; the gate the stream is empty for every value — so the `= 0` half would
     ;; certify `under` as under-threshold without the threshold existing.
@@ -208,7 +209,7 @@
     (rf/unregister-listener! :trace :elision-test/default-thresh)))
 
 (deftest configured-threshold-takes-effect
-  ;; rf2-le2qu — the IMPL gap: `(rf/configure! {:elision {:rf.egress/threshold-bytes N}})`
+  ;; `(rf/configure! {:elision {:rf.egress/threshold-bytes N}})`
   ;; must lower (or raise) the runtime auto-detect threshold. A 100-byte
   ;; threshold makes a small string trip the warning that the 16384 default
   ;; would have ignored.
@@ -225,7 +226,7 @@
     (is (= {:b {:s small}} (rf.elision/elide-wire-value {:b {:s small}}))
         "and the now-over-threshold string STILL rides verbatim — the knob
          governs the advisory, not the walk")
-    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+    ;; Dev-instrumentation arm (see ns docstring §Posture split).
     ;; The warning is the threshold's only observable.
     (when rf.interop/debug-enabled?
       (is (= 1 (count-unschema'd-warnings traces))
@@ -251,7 +252,7 @@
     ;; verbatim — the precedence rule governs the advisory, never the walk.
     (is (= {:a {:s s}} (rf.elision/elide-wire-value {:a {:s s}} {:rf.egress/threshold-bytes 100000}))
         "a per-call threshold opt does not change the walk's output")
-    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+    ;; Dev-instrumentation arm (see ns docstring §Posture split).
     ;; BOTH halves go inside: the `= 0` would pass over the gate's empty
     ;; stream without the explicit opt having overridden anything.
     (when rf.interop/debug-enabled?
@@ -278,7 +279,7 @@
         "threshold 0 reaches the live elision config")
     (is (= {:a {:big big}} (rf.elision/elide-wire-value {:a {:big big}}))
         "the 40KB unschema'd value rides verbatim under threshold 0")
-    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+    ;; Dev-instrumentation arm (see ns docstring §Posture split).
     ;; BOTH assertions here are `(= 0 …)` over the warning stream, which is
     ;; empty for every threshold under the gate — "0 disables auto-detect"
     ;; would be true with no auto-detect to disable.
@@ -315,7 +316,7 @@
                    [:auth :password])))))
 
 (deftest frame-sensitive-position-precise-redacts
-  ;; rf2-ss06u.4 / rf2-4q681i — a position-pinned `:rf/path` (e.g.
+  ;; A position-pinned `:rf/path` (e.g.
   ;; `[:point 0]`) declares an exact vector index; the runtime elision walk
   ;; descends the value (a vector) through its literal-index fork
   ;; (`fork-index-paths`, `(conj c i)`) and matches that exact position —
@@ -342,9 +343,9 @@
   (let [out    (rf.elision/elide-wire-value {:b "X"}
                                     {:rf.egress/include-digests? true})
         marker (get-in out [:b :rf.size/large-elided])]
-    ;; rf2-aakv6 — the handle is ALWAYS the two-element live-path locator
-    ;; Spec-Schemas `:rf/elision-marker` types; the retired `:as-of-epoch`
-    ;; opt's four-element variant is gone (its refusal is pinned in
+    ;; The handle is ALWAYS the two-element live-path locator
+    ;; Spec-Schemas `:rf/elision-marker` types; an `:as-of-epoch` opt is
+    ;; refused (pinned in
     ;; `re-frame.egress-closed-opts-test/as-of-epoch-is-retired`).
     (is (= [:rf.elision/at [:b]] (:handle marker)))
     (is (= :string (:type marker)))
@@ -352,24 +353,22 @@
     (is (string? (:digest marker)))))
 
 ;; ---------------------------------------------------------------------------
-;; EP-0025: the LARGE value-match engine (`large-value-marker-map` /
-;; `redact-matching-large-values` / `redact-derived-large-values`) and its
-;; sensitive dual are REMOVED — value-match of a blob re-keyed into a derived
-;; tree at a non-app-db position is "propagation/taint by another name" the EP
-;; disclaims. Large/sensitive PATH-based elision (`elide-wire-value`) is kept and
-;; covered above; derived-tree egress is now path-based / fail-open (covered by
-;; the projection_cljs_test derived-tree suite).
+;; EP-0025: large/sensitive elision is PATH-based (`elide-wire-value`,
+;; covered above), never value-match — value-matching a blob re-keyed into a
+;; derived tree at a non-app-db position is "propagation/taint by another
+;; name" the EP disclaims. Derived-tree egress is path-based / fail-open
+;; (covered by the projection_cljs_test derived-tree suite).
 ;; ---------------------------------------------------------------------------
 
 (deftest walker-is-idempotent-on-large-marker
-  ;; rf2-fq8ep — the walker recognises its own `:rf.size/large-elided`
+  ;; The walker recognises its own `:rf.size/large-elided`
   ;; marker shape at a `:large?`-declared path and passes it through
   ;; unchanged on a re-projection pass. Without the guard, the marker
   ;; map itself satisfies `(map? v)` at the same declared path on the
-  ;; next walk, and the walker substituted a fresh marker whose
+  ;; next walk, and the walker would substitute a fresh marker whose
   ;; `:bytes` reflected the printed length of the previous marker —
-  ;; not the original payload — which broke fingerprint-based dedup
-  ;; for forwarder pipelines that double-projected.
+  ;; not the original payload — which would break fingerprint-based dedup
+  ;; for forwarder pipelines that double-project.
   (install-class! [] [[:doc :body]])
   (let [input  {:doc {:body (apply str (repeat 2000 "X"))}}
         once   (rf.elision/elide-wire-value input)
@@ -409,25 +408,23 @@
   (is (= #{{:source :effect}}
          (get (rf.elision/declarations) [:root :a :b :c]))))
 
-;; rf2-izlr7f — NESTED-AXIS SUPPRESSION (the highest-priority EP-0025 egress
-;; review finding). A `:large`-marked subtree containing a `:sensitive`
+;; NESTED-AXIS SUPPRESSION. A `:large`-marked subtree containing a `:sensitive`
 ;; DESCENDANT must REDACT, not emit a size/digest marker (Spec 015
-;; §No-propagation L338 + EP-0025 §Egress-rules — a normative MUST). Before the
-;; fix both walkers emitted the `:large` marker the moment the node matched
-;; `:large`, leaking `:bytes` / `:type` and (digests on) a SHA-256 digest
+;; §No propagation, no taint + EP-0025 §Egress-rules — a normative MUST). A
+;; walker that emitted the `:large` marker the moment the node matched
+;; `:large` would leak `:bytes` / `:type` and (digests on) a SHA-256 digest
 ;; computed over the subtree CONTAINING the secret — a brute-force oracle.
 
 (deftest nested-axis-large-over-sensitive-redacts-not-marks
   (testing "a :large [[:a]] subtree with a :sensitive [[:a :b]] descendant
             REDACTS the descendant and emits NO large marker / digest over it
-            (rf2-izlr7f) — digests ON with sensitive redaction in force is the
-            verified leak scenario"
+            — digests ON with sensitive redaction in force is the leak
+            scenario"
     (install-class! [[:a :b]] [[:a]])
     (let [secret "TOP-SECRET-TOKEN-do-not-egress"
           input  {:a {:b secret :c "public"}}
-          ;; Digests ON, sensitive redaction in force (NOT opted out) — the
-          ;; off-box-tool floor when the leak was found; since rf2-3x7nj.32.6
-          ;; digests are an explicit override, which is what this passes.
+          ;; Digests ON, sensitive redaction in force (NOT opted out).
+          ;; Digests are an explicit override, which is what this passes.
           out    (rf.elision/elide-wire-value input {:rf.egress/include-digests? true})]
       ;; The sensitive descendant is REDACTED in place …
       (is (= :rf/redacted (get-in out [:a :b]))
@@ -453,7 +450,7 @@
 (deftest nested-axis-whole-value-large-over-sensitive-descendant-redacts
   (testing "the whole-value :large [[]] case with a :sensitive [[:b]] descendant
             also descends-and-redacts (the root large match shadows the
-            descendant) — rf2-izlr7f"
+            descendant)"
     (install-class! [[:b]] [[]])
     (let [secret "ROOT-LEVEL-SECRET"
           out    (rf.elision/elide-wire-value {:b secret :other "ok"}
@@ -467,10 +464,9 @@
       (is (not (.contains (pr-str out) "sha256")) "no digest leaks"))))
 
 (deftest nested-axis-large-without-sensitive-descendant-still-marks
-  (testing "the ordinary large case is UNCHANGED: a :large subtree with NO
-            sensitive descendant still emits the size marker (the suppression
-            is gated on an actual sensitive descendant) — rf2-izlr7f regression
-            guard"
+  (testing "the ordinary large case marks: a :large subtree with NO
+            sensitive descendant emits the size marker (the suppression
+            is gated on an actual sensitive descendant)"
     (install-class! [[:other :token]] [[:a]])
     (let [out (rf.elision/elide-wire-value {:a {:b "x" :c "y"}}
                                    {:rf.egress/include-digests? true})]
@@ -480,8 +476,7 @@
 (deftest clear-large-effect-removes-declaration
   ;; EP-0025: the commit-plane classification effects are additive per axis;
   ;; a path is un-classified by the `:clear-large` effect (the set/unset
-  ;; symmetry of the axis), NOT by an absent-key replace (the frame
-  ;; annotation's replace semantics are gone).
+  ;; symmetry of the axis), NOT by an absent-key replace.
   (install-class! [] [[:user :pdf]])
   (is (contains? (rf.elision/declarations) [:user :pdf]))
   (rf.frame/swap-runtime-db! :rf/default
@@ -489,7 +484,7 @@
   (is (not (contains? (rf.elision/declarations) [:user :pdf]))))
 
 (deftest clear-over-never-classified-path-is-a-pure-no-op
-  ;; rf2-26p9yg — the fail-open clear contract relies on a clear being a
+  ;; The fail-open clear contract relies on a clear being a
   ;; harmless dissoc. apply-classification-effects over an ABSENT path must be
   ;; a pure no-op: no throw, the registry value unchanged (and an empty axis
   ;; slot stays pruned, not left as `{}`). Drive the pure fn directly.
@@ -505,7 +500,7 @@
     (is (not (contains? (rf.elision/sensitive-declarations) [:never :here])))))
 
 (deftest clear-sensitive-leaves-a-large-only-path-intact
-  ;; rf2-26p9yg — a :clear-sensitive on a path classified on the OTHER axis
+  ;; A :clear-sensitive on a path classified on the OTHER axis
   ;; only (:large) must NOT prune the large slot (wrong-axis clear is a no-op
   ;; on its own axis AND leaves the sibling axis untouched).
   (install-class! [] [[:doc :blob]])
@@ -525,7 +520,7 @@
   (is (not (contains? (rf.elision/declarations :elision-test/other) [:blob]))))
 
 (deftest streamed-cascades-elide-per-element-frame
-  ;; rf2-1we9fa defect 2 — the streaming subscribe drain walks several
+  ;; The streaming subscribe drain walks several
   ;; frames' event bundles in one tick (all-frame streams, or a filter
   ;; frame != the operating frame). Per EP-0015 sensitive/large
   ;; declarations are PER FRAME, so eliding each bundle MUST resolve the
@@ -547,7 +542,7 @@
                   :secret-a "B-public" :secret-b "B-private"}
         ;; Mirror the drain-form walk: resolve :frame PER ELEMENT off the
         ;; bundle's own :frame slot, then elide. (current-frame fallback is
-        ;; exercised separately by the existing frameless tests.)
+        ;; exercised separately by the frameless tests.)
         walk     (fn [bundles]
                    (mapv (fn [x]
                            (rf.elision/elide-wire-value
@@ -565,8 +560,8 @@
           "frame B's bundle leaves :secret-a verbatim (B did not declare it)"))
     (testing "the buggy single-operating-frame walk UNDER-redacts the other frame"
       ;; Applying frame A (the would-be operating frame) to BOTH bundles
-      ;; leaks frame B's :secret-b — the exact off-box leak the per-element
-      ;; fix prevents.
+      ;; leaks frame B's :secret-b — the off-box leak per-element frame
+      ;; resolution prevents.
       (let [buggy (mapv #(rf.elision/elide-wire-value
                            % {:frame :elision-test/frame-a})
                         [bundle-a bundle-b])]
@@ -574,7 +569,7 @@
             "operating-frame-for-every-bundle leaks frame B's secret — the defect")))))
 
 ;; ---------------------------------------------------------------------------
-;; Sub-cache direct-read wire-egress posture (rf2-0hert / rf2-vflrg).
+;; Sub-cache direct-read wire-egress posture.
 ;;
 ;; Per Tool-Pair §"Direct-read privacy posture for sub-cache and get-path",
 ;; a pair-shaped tool that ships a `sub-cache` surface MUST route the
@@ -602,10 +597,8 @@
         sub-cache {[:auth/token]   {:value {:token "shh-secret"} :ref-count 1}
                    [:cart/total]   {:value 42 :ref-count 2}}]
     ;; Install the sensitive declaration directly into the live registry
-    ;; via the internal `swap-elision-slot!` helper — the same code path
-    ;; `populate-sensitive-from-schemas!` uses, just without the
-    ;; schema-extraction step (sub-cache content has no natural app-
-    ;; schema path).
+    ;; via the internal `swap-elision-slot!` helper (sub-cache content has
+    ;; no app-db path a classification effect could name).
     (re-frame.elision/swap-elision-slot!
        frame-id
        (fn [reg]
@@ -639,7 +632,7 @@
     (re-frame.elision/swap-elision-slot!
        frame-id
        (fn [reg]
-         ;; owner-set shape (rf2-wdm1vg): the owner carries its optional
+         ;; Owner-set shape: the owner carries its optional
          ;; display `:hint`, which rides into the marker.
          (assoc reg :declarations
                 {path #{{:source :test :hint "Upload preview"}}})))
@@ -662,14 +655,14 @@
         "No declarations ⇒ walker returns the sub-cache shape verbatim")))
 
 ;; ---------------------------------------------------------------------------
-;; EP-0002 (rf2-gjq3ow) — wire-egress fails CLOSED when no frame is carried.
+;; EP-0002 — wire-egress fails CLOSED when no frame is carried.
 ;;
 ;; `elide-wire-value` resolves its frame from the carried stamp: explicit
 ;; `:frame` opt (*override*) → the in-effect scope (*scope*). There is no
 ;; `:rf/default` floor. With no carried frame the per-frame elision registry
 ;; is unreachable, so the whole value is conservatively redacted to
 ;; `:rf/redacted` rather than shipped verbatim under no policy (which would
-;; be the silent leak the contract abolishes). `:rf.egress/include-sensitive?
+;; be the silent leak the contract forbids). `:rf.egress/include-sensitive?
 ;; true` is the deliberate opt-out — the caller waived sensitive redaction,
 ;; so the value rides through (identity walk against an empty policy).
 ;; ---------------------------------------------------------------------------
@@ -704,13 +697,13 @@
         "include-sensitive? true ⇒ frameless value rides verbatim (opt-out)")))
 
 ;; ---------------------------------------------------------------------------
-;; EP-0015 issue 1 (rf2-t55hxg.18) — an explicit / carried frame-id that
+;; EP-0015 issue 1 — an explicit / carried frame-id that
 ;; cannot RESOLVE to a live frame fails CLOSED, identical to the frameless
-;; case. Before the fix `elide-wire-value` only checked `(some? frame-id)`:
-;; a non-nil id that named a never-registered or destroyed frame slipped
-;; into the policy walk, where `registry-of` returned nil → empty `:large` /
-;; `:sensitive` tables → an IDENTITY walk that shipped every value verbatim
-;; under NO policy. Spec 015 §Direct reads and fail-closed frame resolution:
+;; case. Checking only `(some? frame-id)` would let a non-nil id that names
+;; a never-registered or destroyed frame slip into the policy walk, where
+;; `registry-of` returns nil → empty `:large` / `:sensitive` tables → an
+;; IDENTITY walk that ships every value verbatim under NO policy.
+;; Spec 015 §Direct reads and fail-closed frame resolution:
 ;; an unresolved frame must fail closed, never fall through to a permissive
 ;; walk and never synthesize `:rf/default`.
 ;; ---------------------------------------------------------------------------
@@ -761,7 +754,7 @@
         "the would-be-public value redacts whole under an unresolvable frame")))
 
 (deftest unresolvable-frame-include-sensitive-opt-out-still-identity
-  ;; The deliberate opt-out is unchanged: `:rf.egress/include-sensitive? true`
+  ;; The deliberate opt-out holds: `:rf.egress/include-sensitive? true`
   ;; against an unresolvable frame walks the value under an empty (no-frame)
   ;; policy — the caller explicitly waived redaction, so the value rides
   ;; through. This keeps the escape hatch symmetric with the frameless case.
@@ -786,17 +779,17 @@
         "stale carried scope naming a destroyed frame ⇒ fail closed")))
 
 ;; ---------------------------------------------------------------------------
-;; EXPLICIT `:frame nil` — presence, not truthiness (rf2-kuky.5).
+;; EXPLICIT `:frame nil` — presence, not truthiness.
 ;;
-;; `elide-wire-value` used to resolve its frame with
-;; `(or (:frame opts) (rf.frame/resolve-current-frame))`, which made
-;; `{:frame nil}` — "this value has no governing frame" — indistinguishable
-;; from "no `:frame` key at all". A caller projecting one frame's value from
-;; INSIDE another (a tool rendering from its own chrome frame, a frameless
-;; record) therefore fell through to the AMBIENT frame, which resolves, is
-;; live, and has an empty declaration registry — so the value shipped RAW
-;; under no policy. Three consumers each minted a fake frame identity to force
-;; the fail-closed arm; the request is now sayable.
+;; Resolving the frame with `(or (:frame opts) (rf.frame/resolve-current-frame))`
+;; would make `{:frame nil}` — "this value has no governing frame" —
+;; indistinguishable from "no `:frame` key at all". A caller projecting one
+;; frame's value from INSIDE another (a tool rendering from its own chrome
+;; frame, a frameless record) would then fall through to the AMBIENT frame,
+;; which resolves, is live, and has an empty declaration registry — so the
+;; value would ship RAW under no policy. `elide-wire-value` tests the key's
+;; presence, so a caller says "no governing frame" with `{:frame nil}` rather
+;; than minting a fake frame identity to force the fail-closed arm.
 ;;
 ;; The ambient frame in these arms is `:rf/default`, which the fixture binds
 ;; and which carries NO declarations, so a borrow is DIRECTLY observable: it
@@ -809,8 +802,8 @@
     (is (= :rf/default (rf.frame/resolve-current-frame)))
     (is (some? (rf.frame/frame :rf/default))))
 
-  (testing "an ABSENT :frame key falls through to the carried scope — today's
-            behaviour, pinned so the change below is the narrow one"
+  (testing "an ABSENT :frame key falls through to the carried scope — pinned
+            so the explicit-nil arm below is the narrow one"
     (is (= {:profile {:name "Ada"}}
            (rf.elision/elide-wire-value {:profile {:name "Ada"}} {}))
         "no :frame key ⇒ the ambient frame's (empty) policy ⇒ verbatim"))
@@ -829,7 +822,7 @@
            (rf.elision/elide-wire-value {:profile {:name "Ada"}} {})))))
 
 (deftest explicit-nil-frame-honours-the-include-sensitive-opt-out
-  ;; The deliberate raw opt-out is unchanged: a caller that has explicitly
+  ;; The deliberate raw opt-out holds: a caller that has explicitly
   ;; waived sensitive redaction gets the identity walk even with no frame.
   (is (= {:a 1 :b [2 3]}
          (rf.elision/elide-wire-value {:a 1 :b [2 3]}
@@ -838,10 +831,10 @@
       "include-sensitive? true ⇒ explicit-nil frame still identity-walks"))
 
 (deftest explicit-nil-frame-cannot-be-made-live-by-registering-a-nil-id
-  ;; The structural property that retires the three dead-frame sentinels: each
-  ;; existed to be a frame id no app could register. `nil` already is one —
-  ;; the live-frame arm is guarded by `(some? frame-id)`, so an explicit nil
-  ;; can never take it however the frame registry is populated.
+  ;; The structural property that makes a dead-frame sentinel id unnecessary:
+  ;; `nil` is a frame id no app can register — the live-frame arm is guarded
+  ;; by `(some? frame-id)`, so an explicit nil can never take it however the
+  ;; frame registry is populated.
   (let [registered? (try (rf/make-frame {:id nil}) true
                          (catch Throwable _ false))]
     (try
@@ -868,26 +861,25 @@
       "CONTROL — the same value under the ambient frame walks its declarations"))
 
 ;; ---------------------------------------------------------------------------
-;; Collection-nested frame-declared elision at direct-read egress
-;; (rf2-wm9kp).
+;; Collection-nested frame-declared elision at direct-read egress.
 ;;
-;; A frame `:sensitive {:app-db [[:items :token]]}` declares an INDEX-FREE
+;; A `:sensitive [[:items :token]]` classification declares an INDEX-FREE
 ;; path for positional/keyed containers — `[:items :token]` (NOT `[:items 0
 ;; :token]`); a `:map-of` value declares `[:by-id :secret]` (NOT `[:by-id "a"
 ;; :secret]`). The wire-elision walker walks a RUNTIME value, so it sees the
-;; indexed/keyed paths. Before rf2-wm9kp the walker matched only EXACT
-;; concrete runtime paths, so the declaration never matched and the secret
-;; crossed the direct-read MCP boundary (`get-app-db` / `get-path` /
-;; `snapshot`) RAW. The fix threads a candidate declaration-coordinate set
+;; indexed/keyed paths. A walker matching only EXACT concrete runtime paths
+;; would never match the declaration, and the secret would cross the
+;; direct-read MCP boundary (`get-app-db` / `get-path` / `snapshot`) RAW.
+;; The walker threads a candidate declaration-coordinate set
 ;; that drops vector indices / map-of keys, so the index-free declaration
 ;; matches the indexed/keyed runtime path. This walker-matching behaviour is
 ;; independent of how the path was declared — EP-0015 §8 makes the declared
 ;; path frame-owned, but the index-free matching is the same.
 
 (deftest collection-nested-sensitive-vector-of-maps-redacts
-  ;; rf2-wm9kp Finding 1 (the headline leak). WITHOUT the fix
-  ;; `(rf.elision/elide-wire-value {:items [{:token "SECRET"}]})` returned the
-  ;; secret verbatim because decl `[:items :token]` did not match runtime
+  ;; The headline leak. WITHOUT index-free matching
+  ;; `(rf.elision/elide-wire-value {:items [{:token "SECRET"}]})` would return
+  ;; the secret verbatim because decl `[:items :token]` would not match runtime
   ;; `[:items 0 :token]`.
   (install-class! [[:items :token]] [])
   (let [out (rf.elision/elide-wire-value {:items [{:token "SECRET"}
@@ -905,7 +897,7 @@
       "include-sensitive? true ⇒ collection-nested sensitive passes raw"))
 
 (deftest collection-nested-sensitive-map-of-redacts
-  ;; rf2-wm9kp Finding 1 — `:map-of` value-map sensitive slot. Decl
+  ;; `:map-of` value-map sensitive slot. Decl
   ;; `[:by-id :secret]` must match runtime `[:by-id "a" :secret]`.
   (install-class! [[:by-id :secret]] [])
   (let [out (rf.elision/elide-wire-value {:by-id {"a" {:secret "SECRET"}
@@ -915,7 +907,7 @@
         "map-of value-map sensitive slot redacts for every key")))
 
 (deftest collection-nested-sensitive-sequential-redacts
-  ;; rf2-wm9kp Finding 1 — a sequential of maps (the runtime value can
+  ;; A sequential of maps (the runtime value can
   ;; arrive as a lazy seq / list, not just a vector).
   (install-class! [[:logs :pw]] [])
   (let [out (rf.elision/elide-wire-value {:logs (list {:pw "SECRET"})})]
@@ -923,7 +915,7 @@
         "sequential-element sensitive slot redacts")))
 
 (deftest collection-nested-sensitive-set-of-maps-redacts
-  ;; rf2-wm9kp Finding 1 — `:set` element maps descend at the same base
+  ;; `:set` element maps descend at the same base
   ;; path (no positional segment), same as vector/sequential.
   (install-class! [[:tags :s]] [])
   (let [out (rf.elision/elide-wire-value {:tags #{{:s "SECRET"}}})]
@@ -931,7 +923,7 @@
         "set-element sensitive slot redacts")))
 
 (deftest collection-nested-sensitive-mixed-map-vector-map-redacts
-  ;; rf2-wm9kp Finding 1 — mixed map → vector → map nesting. Decl
+  ;; Mixed map → vector → map nesting. Decl
   ;; `[:root :rows :pw]` matches runtime `[:root :rows N :pw]`.
   (install-class! [[:root :rows :pw]] [])
   (let [out (rf.elision/elide-wire-value {:root {:rows [{:pw "SECRET"} {:pw "SECRET2"}]}})]
@@ -939,7 +931,7 @@
     (is (= :rf/redacted (get-in out [:root :rows 1 :pw])))))
 
 (deftest collection-nested-no-over-redaction-of-sibling-slots
-  ;; rf2-wm9kp Finding 1 — the matcher must be PRECISE: a non-sensitive
+  ;; The matcher must be PRECISE: a non-sensitive
   ;; sibling leaf inside the same collection element map rides verbatim.
   ;; The candidate-path fork must not blanket-redact the element.
   (install-class! [[:items :token]] [])
@@ -949,7 +941,7 @@
         "sibling non-sensitive slot is NOT over-redacted")))
 
 (deftest collection-nested-no-over-redaction-at-non-declared-position
-  ;; rf2-wm9kp follow-up — the candidate-coordinate match must be
+  ;; The candidate-coordinate match must be
   ;; POSITION-PRECISE, not a free-floating suffix/anywhere match. A decl
   ;; `[:auth :password]` must NOT redact the SAME key-sequence
   ;; `:auth :password` when it sits at a DIFFERENT, non-declared position
@@ -973,7 +965,7 @@
          NOT over-redacted — the match is position-precise, not free-floating")))
 
 (deftest collection-nested-map-of-skip-requires-started-match
-  ;; rf2-wm9kp follow-up — the `:map-of`-key SKIP is only granted to a
+  ;; The `:map-of`-key SKIP is only granted to a
   ;; candidate that has ALREADY begun matching the declaration (a non-empty
   ;; partial prefix). This pins that the legit map-of path keeps working
   ;; (`[:by-id]` is a non-empty partial match, so it skips the key `"a"`),
@@ -990,13 +982,13 @@
         "a same-named leaf at a non-declared position is not over-redacted")))
 
 (deftest collection-nested-literal-index-declaration-redacts
-  ;; rf2-wm9kp follow-up — a declaration may carry a CONCRETE integer index
+  ;; A declaration may carry a CONCRETE integer index
   ;; (`[:tokens 0]`, declared directly against the indexed runtime position
   ;; rather than schema-derived index-free). The candidate-coordinate match
   ;; must still fire for it: the seq/vector descent forks the literal-index
-  ;; interpretation `(conj c i)`. Pins the origin behaviour (exact indexed
-  ;; path match) that the index-free coordinate threading must not regress
-  ;; (the story-mcp derived-tree scrub relies on this exact match).
+  ;; interpretation `(conj c i)`. Pins the exact indexed path match, which
+  ;; the index-free coordinate threading must not break (the story-mcp
+  ;; derived-tree scrub relies on this exact match).
   (let [frame-id :rf/default]
     (re-frame.elision/swap-elision-slot!
       frame-id
@@ -1020,7 +1012,7 @@
           "only the literally-declared index redacts"))))
 
 (deftest collection-nested-large-emits-marker-with-runtime-path
-  ;; rf2-wm9kp Finding 1 (symmetry) — a `:large` slot nested under a
+  ;; Symmetry — a `:large` slot nested under a
   ;; collection element map emits the `:rf.size/large-elided` marker, and
   ;; the marker's `:path` is the CONCRETE indexed runtime path so a
   ;; follow-up `get-path` lands on the exact element.
@@ -1034,7 +1026,7 @@
     (is (= :effect (get-in slot [:rf.size/large-elided :reason])))))
 
 (deftest collection-nested-sensitive-wins-over-large
-  ;; rf2-wm9kp Finding 1 (symmetry) — when a collection-nested slot is
+  ;; Symmetry — when a collection-nested slot is
   ;; BOTH `:large` and `:sensitive`, sensitive wins (redact, no marker),
   ;; same precedence as the top-level `sensitive-wins-over-large` case.
   (install-class! [[:vault :k]] [[:vault :k]])
@@ -1044,12 +1036,12 @@
     (is (not (rf.elision/marker? slot))
         "sensitive suppresses the large marker even when nested in a vector")))
 
-;; rf2-3x7nj.4.1 — `:path` is the ABSOLUTE app-db offset of the walked value
+;; `:path` is the ABSOLUTE app-db offset of the walked value
 ;; (the direct-read / MCP `get-path` shape, Spec 015 §Direct reads), so a
 ;; declaration AT or ABOVE the offset must govern it exactly as it does in the
-;; whole-db walk. The walk used to seed its candidate set with the bare offset,
-;; which can only match declarations EXTENDING the offset — so a read BELOW a
-;; declaration shipped raw. Each case carries the whole-db control it must
+;; whole-db walk. Seeding the candidate set with the bare offset would match
+;; only declarations EXTENDING the offset — so a read BELOW a declaration
+;; would ship raw. Each case carries the whole-db control it must
 ;; agree with.
 
 (defn- read-at
@@ -1108,7 +1100,7 @@
 
 (deftest offset-read-below-a-shadowing-large-ancestor-redacts-and-never-marks
   ;; The replayed descent must apply the SAME nested-axis decision the whole-db
-  ;; walk does (rf2-izlr7f): a large ancestor shadowing a sensitive descendant
+  ;; walk does: a large ancestor shadowing a sensitive descendant
   ;; descends rather than marking, or the marker's digest is computed over a
   ;; value that contains the secret.
   (install-class! [[:a :x :secret]] [[:a]])
@@ -1119,10 +1111,10 @@
     (is (not (.contains (pr-str out) secret)) "the raw secret does not leak")
     (is (not (.contains (pr-str out) "sha256")) "no digest over the secret leaks")))
 
-;; rf2-3x7nj.4.6 — the walk rebuilds each map with `(empty v)`, which THROWS
-;; on the JVM for a record. With no guard on "nothing declared", any value
-;; holding a record made egress throw — including the event pipeline's own
-;; db projection and its error path.
+;; The walk rebuilds each map, and `(empty v)` THROWS on the JVM for a
+;; record, so the walk rebuilds a record as a plain map. Without that, any
+;; value holding a record would make egress throw — including the event
+;; pipeline's own db projection and its error path.
 
 (defrecord Money [amount currency])
 
@@ -1168,10 +1160,8 @@
       "a record payload's handler error is contained too"))
 
 
-;; EP-0025: the derived-tree value-match egress engine (`redact-derived-slots`,
-;; `sensitive-value-set`, `collect-sensitive-values`, the non-unique-secret
-;; guard, and the large/sensitive value-match duals) is REMOVED — it is
-;; "propagation/taint by another name" the EP disclaims. Path-based elision
-;; (`elide-wire-value`) is the only egress walker and is covered above; the
-;; derived-tree record's now-path-based / fail-open egress is covered by the
-;; projection_cljs_test derived-tree suite.
+;; EP-0025: there is no derived-tree value-match egress engine — value
+;; matching is "propagation/taint by another name" the EP disclaims.
+;; Path-based elision (`elide-wire-value`) is the only egress walker and is
+;; covered above; the derived-tree record's path-based / fail-open egress is
+;; covered by the projection_cljs_test derived-tree suite.
