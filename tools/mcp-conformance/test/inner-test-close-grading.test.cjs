@@ -47,12 +47,19 @@
 //      child's exit code is still surfaced faithfully after the fix.
 //   4. A fake child that exits 0 but never prints the sentinel (a
 //      "silently non-conformant" child, as opposed to a merely
-//      late-flushing one) — proves the graded stdout still lacks the
-//      sentinel, so the caller's sentinel-check in `main()`'s INNER_TESTS
-//      loop still fails it. The close-grading fix reads MORE of a child's
-//      stdout, but does not turn the sentinel gate into a rubber stamp.
+//      late-flushing one) — graded, then handed to the REAL verdict
+//      `main()` applies (`gradeInnerTestOutcome`), which must fail it as an
+//      orchestration failure (exit 2). The close-grading fix reads MORE of a
+//      child's stdout, but does not turn the sentinel gate into a rubber
+//      stamp.
 //   5. A fake child killed by a signal (code === null) — proves the
 //      reject-on-signal contract is unchanged by the close/exit swap.
+//   6. The verdict itself, RED and GREEN (rf2-3x7nj.36.1): a SKIP banner at
+//      the start of stdout and after a newline, an exit 0 without the
+//      sentinel and a row with no sentinel all fail with exit 2; a non-zero
+//      exit keeps the inner code; only an exit 0 with the sentinel passes.
+//      Case 4 used to assert only that its own fake child had not printed
+//      the sentinel, so deleting the guards left this file green.
 
 'use strict';
 
@@ -68,7 +75,7 @@ const ORCH = path.join(
   'run-re-frame2-pair-live-hermetic-suite.cjs',
 );
 
-const { spawnAndGradeInnerTest } = require(ORCH);
+const { spawnAndGradeInnerTest, gradeInnerTestOutcome } = require(ORCH);
 
 const SENTINEL = 'GREEN example-inner-test-sentinel';
 
@@ -198,16 +205,34 @@ test('spawnAndGradeInnerTest still surfaces a sentinel-less stdout for a silentl
   const result = await grade(spawnFn);
 
   assert.equal(result.code, 0);
-  // Reproduce the orchestrator's own sentinel gate (see `main()`'s
-  // INNER_TESTS loop in the orchestrator) against the graded stdout: the
+  // Hand the graded outcome to the verdict `main()` applies: the
   // close-grading fix reads MORE of a child's stdout than the old
   // exit-based grading, but it must not turn the sentinel check into a
   // rubber stamp — a child that never actually prints its sentinel, even
-  // once its stdio is fully drained, is still distinguishable as failed.
-  assert.ok(
-    !result.stdoutText.includes(SENTINEL),
-    'fixture invariant broken: this child must not have printed the sentinel',
+  // once its stdio is fully drained, still fails.
+  assert.throws(
+    () => gradeInnerTestOutcome({ ...result, sentinel: SENTINEL, testFile: 'fake-inner-test.cjs' }),
+    (err) => err.exitCode === 2 && /did NOT print its success sentinel/.test(err.message),
   );
+});
+
+test('gradeInnerTestOutcome: an exit-0 SKIP, a missing sentinel or a sentinel-less row fails with exit 2; a non-zero exit keeps its code; only the sentinel passes (rf2-3x7nj.36.1)', () => {
+  const verdict = (code, stdoutText, sentinel = SENTINEL) => () =>
+    gradeInnerTestOutcome({ code, stdoutText, sentinel, testFile: 'fake-inner-test.cjs' });
+  const orchestration = (pattern) => (err) => err.exitCode === 2 && pattern.test(err.message);
+
+  // RED: a SKIP banner fails even when the sentinel is also present.
+  assert.throws(verdict(0, `SKIP no $SHADOW_CLJS_NREPL_PORT\n${SENTINEL}\n`), orchestration(/SKIPped inside/));
+  assert.throws(verdict(0, `booting\nSKIP no $SHADOW_CLJS_NREPL_PORT\n${SENTINEL}\n`), orchestration(/SKIPped inside/));
+  // RED: exit 0 without the sentinel.
+  assert.throws(verdict(0, 'exited clean but forgot to print the sentinel\n'), orchestration(/did NOT print its success sentinel/));
+  // RED: an inventory row with no sentinel cannot pass on exit 0 alone.
+  assert.throws(verdict(0, 'anything\n', null), orchestration(/has no success sentinel/));
+  // RED: a non-zero exit keeps the inner test's own code.
+  assert.throws(verdict(1, `${SENTINEL}\n`), (err) => err.exitCode === 1 && /exited 1/.test(err.message));
+  // GREEN: exit 0 with the sentinel and no SKIP banner. "SKIP" inside a line
+  // is not a banner.
+  assert.doesNotThrow(verdict(0, `ran; nothing to SKIP here\n${SENTINEL}\n`));
 });
 
 test('spawnAndGradeInnerTest still rejects a signal-killed child (code === null) after the close-grading fix', async () => {

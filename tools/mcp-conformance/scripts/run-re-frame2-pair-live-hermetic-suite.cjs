@@ -695,6 +695,73 @@ function spawnAndGradeInnerTest({
   });
 }
 
+// The per-inner-test verdict `main()` applies to what
+// `spawnAndGradeInnerTest` resolved. Pure, and exported so the regression
+// harness (`inner-test-close-grading.test.cjs`, rf2-3x7nj.36.1) can drive the
+// REAL decision: it used to sit inline in `main()`, where no test reached it,
+// so either guard below could be deleted with every unit test still green.
+//
+// Returns normally only for an inner test that exited 0, printed no SKIP
+// banner and printed its success sentinel. Otherwise it throws, with
+// `err.exitCode` carrying the attribution the entrypoint surfaces:
+//   - non-zero exit -> the inner test's OWN code (a conformance failure);
+//   - SKIP banner, missing sentinel, or an inventory row with no sentinel
+//     to check -> 2 (an ORCHESTRATION failure: the setup, not the contract,
+//     failed).
+function gradeInnerTestOutcome({ code, stdoutText, sentinel, testFile }) {
+  if (code !== 0) {
+    // Surface the inner test's exit code verbatim so CI sees a
+    // conformance failure as exit 1 (the test's own code) rather
+    // than 2 (which we reserve for orchestration failures —
+    // shadow-cljs didn't boot, runtime didn't preload, etc.).
+    const err = new Error(`${testFile} exited ${code}`);
+    err.exitCode = code;
+    throw err;
+  }
+  const orchestrationFailure = (message) => {
+    const err = new Error(message);
+    err.exitCode = 2;
+    return err;
+  };
+  // ---- Observable-SKIP guard --------------------------------------------
+  // The inner test exited 0 — but a SKIP also exits 0. The hermetic
+  // env sets $SHADOW_CLJS_NREPL_PORT, so the inner test's SKIP gate
+  // MUST NOT have fired. Assert it printed its success sentinel AND
+  // did NOT print a SKIP banner. A broken setup path that left the
+  // test SKIPping (port-file probe / bundle-compile / runtime-sentinel
+  // wait silently regressed in a way that didn't propagate the env)
+  // would otherwise leave this load-bearing gate UN-EXERCISED while
+  // the hermetic job stayed green on the other inner tests.
+  if (stdoutText.includes('\nSKIP ') || stdoutText.startsWith('SKIP ')) {
+    throw orchestrationFailure(
+      `${testFile} SKIPped inside the hermetic orchestrator (exit 0) — ` +
+        'but the hermetic env guarantees $SHADOW_CLJS_NREPL_PORT is set, ' +
+        'so a SKIP here means the setup path regressed and left this ' +
+        'load-bearing live gate UN-EXERCISED (a silent SKIP would ship ' +
+        'green via the other inner tests). rf2-ybiz0. Inner stdout tail: ' +
+        stdoutText.slice(-400),
+    );
+  }
+  // A row with no sentinel would skip the proof below and pass on exit 0
+  // alone, so refuse it rather than let the check go quietly vacuous.
+  if (!sentinel) {
+    throw orchestrationFailure(
+      `${testFile} has no success sentinel in live-test-inventory.cjs, so ` +
+        'its exit 0 cannot be told from a SKIP. rf2-ybiz0 requires every ' +
+        'inner test to PROVE it ran.',
+    );
+  }
+  if (!stdoutText.includes(sentinel)) {
+    throw orchestrationFailure(
+      `${testFile} exited 0 but did NOT print its success sentinel ` +
+        `("${sentinel}"). The live gate did not actually run to ` +
+        'completion (a SKIP, an early return, or a truncated run). ' +
+        'rf2-ybiz0 requires each inner test to PROVE it ran, not just ' +
+        'exit 0. Inner stdout tail: ' + stdoutText.slice(-400),
+    );
+  }
+}
+
 // Build the idempotent async teardown. Lives at
 // module scope so the teardown regression harness
 // (`runner-cleanup.test.cjs`) can drive the REAL teardown logic against a
@@ -1749,47 +1816,14 @@ async function main() {
         onChunk: recordChunk,
         log,
       });
-      if (testStatus !== 0) {
-        // Surface the inner test's exit code verbatim so CI sees a
-        // conformance failure as exit 1 (the test's own code) rather
-        // than 2 (which we reserve for orchestration failures —
-        // shadow-cljs didn't boot, runtime didn't preload, etc.).
-        const err = new Error(
-          `${path.basename(test.path)} exited ${testStatus}`,
-        );
-        err.exitCode = testStatus;
-        throw err;
-      }
-      // ---- Observable-SKIP guard ------------------------------------------
-      // The inner test exited 0 — but a SKIP also exits 0. The hermetic
-      // env sets $SHADOW_CLJS_NREPL_PORT, so the inner test's SKIP gate
-      // MUST NOT have fired. Assert it printed its success sentinel AND
-      // did NOT print a SKIP banner. A broken setup path that left the
-      // test SKIPping (port-file probe / bundle-compile / runtime-sentinel
-      // wait silently regressed in a way that didn't propagate the env)
-      // would otherwise leave this load-bearing gate UN-EXERCISED while
-      // the hermetic job stayed green on the other inner tests. This is
-      // an ORCHESTRATION failure (exit 2): the contract didn't fail, the
-      // setup did.
-      if (stdoutText.includes('\nSKIP ') || stdoutText.startsWith('SKIP ')) {
-        throw new Error(
-          `${testFile} SKIPped inside the hermetic orchestrator (exit 0) — ` +
-            'but the hermetic env guarantees $SHADOW_CLJS_NREPL_PORT is set, ' +
-            'so a SKIP here means the setup path regressed and left this ' +
-            'load-bearing live gate UN-EXERCISED (a silent SKIP would ship ' +
-            'green via the other inner tests). rf2-ybiz0. Inner stdout tail: ' +
-            stdoutText.slice(-400),
-        );
-      }
-      if (test.sentinel && !stdoutText.includes(test.sentinel)) {
-        throw new Error(
-          `${testFile} exited 0 but did NOT print its success sentinel ` +
-            `("${test.sentinel}"). The live gate did not actually run to ` +
-            'completion (a SKIP, an early return, or a truncated run). ' +
-            'rf2-ybiz0 requires each inner test to PROVE it ran, not just ' +
-            'exit 0. Inner stdout tail: ' + stdoutText.slice(-400),
-        );
-      }
+      // Non-zero exit rethrows the inner code; an exit 0 that SKIPped or
+      // never printed its sentinel is an orchestration failure (exit 2).
+      gradeInnerTestOutcome({
+        code: testStatus,
+        stdoutText,
+        sentinel: test.sentinel,
+        testFile,
+      });
       log(`${testFile} ran to completion (sentinel observed)`);
     }
     // NB: no GREEN sentinel is emitted here. The run is only certified GREEN
@@ -1907,6 +1941,9 @@ if (require.main === module) {
 // its sentinel-bearing stdout `data` AFTER `exit` but BEFORE `close`,
 // proving the harness reads the fully-drained stdout (via `close`) rather
 // than scoring a conformant, late-flushing child as failed.
+// `gradeInnerTestOutcome` is exported for the same harness
+// (rf2-3x7nj.36.1): it drives the REAL per-inner-test verdict `main()`
+// applies, proving a SKIP banner or a missing sentinel fails an exit-0 run.
 //
 // `wipeStalePortFileCandidate` is exported for the stale-port-file-trust
 // regression harness (`stale-port-file-trust.test.cjs`, rf2-6i2yi4): it
@@ -1947,6 +1984,7 @@ module.exports = {
   finalizeConformance,
   waitForChildExit,
   spawnAndGradeInnerTest,
+  gradeInnerTestOutcome,
   wipeStalePortFileCandidate,
   makeShadowTreeReaper,
   ownedDescendants,
