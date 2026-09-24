@@ -2,7 +2,7 @@
 ;;;;
 ;;;; Babashka-runnable pin for the preload's MACHINE DOOR — `machine-describe`
 ;;;; and `machines-list`, the two fns the MCP `handler-meta` / `list-handlers`
-;;;; tools call for the virtual `:machine` kind (rf2-kuky.29).
+;;;; tools call for the virtual `:machine` kind.
 ;;;;
 ;;;; Why this test exists:
 ;;;;
@@ -12,8 +12,7 @@
 ;;;;    tags `:unserializable`, hiding the whole spec behind a preview. A
 ;;;;    top-level `dissoc :handler-fn` cannot reach a nested fn, so the door
 ;;;;    has to run the same recursive `strip-fns` walk `registrar-describe`
-;;;;    does. That is the same defect rf2-f8s9g6 fixed for the resources
-;;;;    kinds, one door along.
+;;;;    does, for the same reason the resources kinds do.
 ;;;;
 ;;;; 2. `machines-list` must SORT. The MCP tool documents one stable id
 ;;;;    vector across every kind, `registrar-list` sorts, and machines are
@@ -79,8 +78,8 @@
            "machine spec's `:guards` / `:actions` are maps of FN VALUES (Spec "
            "005), and `pr-str` of a Function emits `#object[Function …]` — the "
            "MCP result codec then tags the WHOLE response `:unserializable` and "
-           "the caller loses the spec entirely. This is rf2-f8s9g6's defect one "
-           "door along; see rf2-kuky.29.")))
+           "the caller loses the spec "
+           "entirely.")))
 
 (deftest machine-describe-dissocs-handler-fn
   (is (form-contains? (fn [node]
@@ -94,7 +93,7 @@
 
 (deftest machine-describe-still-reports-a-miss
   (is (form-contains? (fn [node] (= :not-a-machine node)) machine-describe-form)
-      (str "machine-describe must keep returning a structured "
+      (str "machine-describe must return a structured "
            "`{:ok? false :reason :not-a-machine :id id}` on a miss — the MCP "
            "handler-meta tool renames that reason to `:not-registered` so the "
            "miss envelope is uniform across kinds, and a nil would instead "
@@ -110,7 +109,7 @@
            "tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md documents "
            "`list-handlers` as returning a stable sorted vector for every kind "
            "— machines are the one kind whose ids arrive in registration order, "
-           "so an unsorted door made the two branches of that tool disagree.")))
+           "so an unsorted door would make the two branches of that tool disagree.")))
 
 ;; ---------------------------------------------------------------------------
 ;; BEHAVIOURAL — the shipped strip-fns walk over a real machine spec.
