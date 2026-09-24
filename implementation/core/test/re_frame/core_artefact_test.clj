@@ -2,15 +2,13 @@
   "Direct unit coverage for the `re-frame.core-artefact/defwrapper`
   absent-policy branches.
 
-  Per the rf2-o7ayf audit (rf2-byut1 round-2 core review): the
-  optional-artefact factory underpins ~ 30 wrapper fns across
+  The optional-artefact factory underpins ~ 30 wrapper fns across
   `core_<artefact>.cljc` (flows, routing, schemas, machines, ssr, epoch,
-  http). Higher-level tests caught downstream symptoms (a wrapper used
-  in an integration test would surface when the producing artefact was
-  missing), but the absent-policy branches at the factory level had no
-  direct coverage. This file locks each policy branch (`:throw`,
-  `:nil`, `:false`, `:empty-vec`, `:empty-map`, literal value) against
-  the late-bind registry.
+  http). Higher-level tests see only downstream symptoms (a wrapper used
+  in an integration test surfaces when the producing artefact is
+  missing), so this file locks each absent-policy branch at the factory
+  level (`:throw`, `:nil`, `:false`, `:empty-vec`, `:empty-map`, literal
+  value) against the late-bind registry.
 
   Coverage:
     - `:throw`     — `rf.late-bind/require-fn!` raises the structured
@@ -78,7 +76,7 @@
             ":reason mentions the Maven artefact coordinates")
         (is (re-find #"re-frame.test-fake-artefact" (:reason data))
             ":reason mentions the producing ns name")
-        ;; rf2-vvixub — the message is now the human :reason sentence + the
+        ;; The message is the human :reason sentence + the
         ;; trailing [:rf.error/<id>] greppability token, NOT the bare
         ;; stringified keyword. Assert the token substring, not equality.
         (is (re-find #"\[:rf\.error/test-artefact-missing\]"
