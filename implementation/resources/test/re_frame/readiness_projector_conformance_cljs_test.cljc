@@ -15,8 +15,7 @@
   THE DUPLICATION IS DELIBERATE. `implementation/resources/deps.edn`
   holds routing as a TEST-ONLY dep and the routing integration is late-bound,
   so resources cannot `:require` routing; publishing a late-bind hook for a
-  three-line `cond` would cost more than the duplication removes, so neither
-  side claims to be the 'ONE projector'.
+  three-line `cond` would cost more than the duplication removes.
   This namespace does NOT unify them and must not be read as a step toward
   unifying them — it pins that they AGREE, so a divergence fails a test rather
   than surfacing later.
