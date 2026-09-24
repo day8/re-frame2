@@ -1,23 +1,23 @@
 (ns re-frame.cold-serialized-drain-test
   "JVM-only concurrency tests for the COLD `rf.frame/call-serialized-with-drain!`
-  critical section's interaction with the single-drainer release protocol
-  (rf2-x76af2.22). A cold section (out-of-drain flows lifecycle ops,
+  critical section's interaction with the single-drainer release protocol.
+  A cold section (out-of-drain flows lifecycle ops,
   `destroy-frame!`'s liveness flip, Tool-Pair state writes) takes the SAME
   per-frame `:drain-lock` as the event drainer but is NOT a drainer, so the
-  drainer's release protocol had two holes:
+  release protocol must close two holes:
 
     (a) PERMANENT QUEUE STRAND. A `dispatch!` arriving during the cold hold
-        set `:scheduled?` true and scheduled a `drain-try!` that CAS-lost to
-        the cold holder and gave up; the cold release did not re-check the
-        queue, so the queue stranded (`:scheduled?` stuck true no-ops every
-        later `ensure-drain-scheduled!`). Fix: the cold release mirrors the
-        drainer's `try-release-on-empty!` — snapshot the queue and, if
+        sets `:scheduled?` true and schedules a `drain-try!` that CAS-loses
+        to the cold holder and gives up; a cold release that did not
+        re-check the queue would strand it (`:scheduled?` stuck true no-ops
+        every later `ensure-drain-scheduled!`). So the cold release mirrors
+        the drainer's `try-release-on-empty!` — snapshot the queue and, if
         non-empty, re-kick a fresh async drain.
 
     (b) SAME-THREAD SELF-DEADLOCK. A `dispatch-sync!` issued from INSIDE a
-        cold serialized thunk on the same thread routed through
-        `drain-block!`, whose spin-CAS-acquire deadlocked on the `:drain-lock`
-        the thread already held. Fix: `dispatch-sync!` detects the cold
+        cold serialized thunk on the same thread would, routed through
+        `drain-block!`, spin-CAS-acquire forever on the `:drain-lock` the
+        thread already holds. So `dispatch-sync!` detects the cold
         `:serialized-holder` (reentrant-cold?) and runs the seed-push + drain
         DIRECTLY via `drain-reentrant!` — no re-acquire, no release.
 
@@ -93,15 +93,15 @@
             (is (true? (:scheduled? @router)) "a drain was scheduled")
             (is (zero? @ran)
                 "the handler has NOT run — the cold section holds the lock and the drain-try! CAS-lost")))
-        ;; Cold section released. Post-fix the release re-kicked a fresh
-        ;; drain-try!; await it (FIFO after the re-kick) and assert the
-        ;; stranded event drained. Pre-fix this stays stranded (ran = 0).
+        ;; Cold section released. The release re-kicks a fresh drain-try!;
+        ;; await it (FIFO after the re-kick) and assert the stranded event
+        ;; drained. Without the re-kick it stays stranded (ran = 0).
         (executor-barrier!)
         (is (= 1 @ran) "the cold release re-kicked the drain; the stranded event ran")
         (is (empty? (:queue @router)) "the queue drained")
         (is (false? (:scheduled? @router)) ":scheduled? reset after the drain settled")
-        ;; And a FRESH dispatch recovers (pre-fix, :scheduled? stuck true made
-        ;; ensure-drain-scheduled! no-op, so a new dispatch never drained).
+        ;; And a FRESH dispatch recovers (a :scheduled? stuck true would make
+        ;; ensure-drain-scheduled! no-op, so a new dispatch would never drain).
         (rf/dispatch [:bump] {:frame frame-id})
         (executor-barrier!)
         (is (= 2 @ran) "a fresh dispatch after the cold section drains normally")))))
@@ -125,9 +125,9 @@
                        (rf.frame/call-serialized-with-drain! frame-id
                          (fn []
                            ;; SAME thread already holds :drain-lock via the cold
-                           ;; section. Pre-fix: dispatch-sync! → drain-block! →
-                           ;; spin-CAS on the held lock → hangs forever.
-                           ;; Post-fix: reentrant-cold? routes to drain-reentrant!
+                           ;; section. Via drain-block!, dispatch-sync! would
+                           ;; spin-CAS on the held lock and hang forever;
+                           ;; reentrant-cold? routes it to drain-reentrant!,
                            ;; which drains without re-acquiring the lock.
                            (rf/dispatch-sync [:inner] {:frame frame-id})
                            (reset! result :returned)))))]
