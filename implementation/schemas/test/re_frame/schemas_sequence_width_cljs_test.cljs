@@ -1,6 +1,6 @@
 (ns re-frame.schemas-sequence-width-cljs-test
-  "CLJS host half of the variable-width `:cat` / `:catn` redaction pins
-  (rf2-gwye.11 / rf2-fzbj.25). Asserts the SAME shared corpus
+  "CLJS host half of the variable-width `:cat` / `:catn` redaction pins.
+  Asserts the SAME shared corpus
   (`re-frame.schemas.sequence-width-fixtures`) end to end through
   `validate-app-schema!` and the real trace recorder; the JVM half lives in
   `re-frame.schemas-sensitive-test`."
@@ -30,8 +30,8 @@
                    @traces))))
 
 (deftest cljs-variable-width-sequence-never-leaks-sensitive-value
-  (testing "rf2-gwye.11 — a regex element before a sensitive payload no longer
-            misaligns the redaction decision"
+  (testing "a regex element before a sensitive payload does not misalign the
+            redaction decision"
     (doseq [{:keys [desc schema value]} rf.schemas.sequence-width-fixtures/leak-cases]
       (let [v (failure-trace schema value)]
         (is (some? v) (str desc " — a trace fired"))
@@ -41,7 +41,7 @@
             (str desc " — the secret is in no trace slot"))))))
 
 (deftest cljs-variable-width-fix-keeps-non-sensitive-values
-  (testing "rf2-gwye.11 control — non-sensitive failures still report their value"
+  (testing "control — non-sensitive failures report their value"
     (doseq [{:keys [desc schema value expected]} rf.schemas.sequence-width-fixtures/precise-cases]
       (let [v (failure-trace schema value)]
         (is (some? v) (str desc " — a trace fired"))
