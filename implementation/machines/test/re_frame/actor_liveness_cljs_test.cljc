@@ -82,7 +82,7 @@
 ;; ---- spawn / destroy perform ZERO registrar mutation ----------------------
 
 (deftest spawn-and-destroy-are-pure-app-db-writes
-  (testing "rf2-a2sn1 — a spawned actor never registers a per-instance
+  (testing "a spawned actor never registers a per-instance
             handler; spawn and destroy leave the :event registrar
             value-identical (liveness lives in the snapshot)"
     (rf/reg-machine :al/child  (counter-child))
@@ -101,7 +101,7 @@
           "spawn mutated the :event registrar by exactly nothing")
       ;; The spawned snapshot carries its revertible TYPE reference.
       (is (= :al/child (:rf/machine-type (snapshot :al/child#1)))
-          "snapshot carries :rf/machine-type so liveness is app-db-derived")
+          "snapshot carries :rf/machine-type so liveness is runtime-db-derived")
       ;; Destroy.
       (rf/dispatch-sync [:al/parent [:drop]])
       (is (nil? (snapshot :al/child#1))
@@ -112,7 +112,7 @@
 ;; ---- dispatch lazily resolves a spawned actor through its snapshot --------
 
 (deftest dispatch-to-spawned-actor-lazy-resolves-via-snapshot
-  (testing "rf2-a2sn1 — a dispatch to a spawned actor-id (no registrar
+  (testing "a dispatch to a spawned actor-id (no registrar
             entry) lazy-resolves the actor's TYPE handler from its
             snapshot and drives a real transition"
     (rf/reg-machine :al2/child  (counter-child))
@@ -131,7 +131,7 @@
 ;; ---- genuine no-such-handler when no live snapshot ------------------------
 
 (deftest dispatch-to-gone-actor-is-clean-no-such-handler
-  (testing "rf2-a2sn1 — dispatching to an actor-id with NO live snapshot
+  (testing "dispatching to an actor-id with NO live snapshot
             resolves to nothing (genuine no-such-handler; the resolver
             does not fabricate a handler)"
     (rf/reg-machine :al3/child  (counter-child))
@@ -152,7 +152,7 @@
 ;; ---- liveness reverts with a runtime-db reset (what restore-epoch! does) ----
 
 (deftest actor-liveness-reverts-with-runtime-db
-  (testing "rf2-a2sn1 / rf2-vzld77 — resetting the frame's runtime-db to a
+  (testing "resetting the frame's runtime-db to a
             captured value (a frame-state revert walks machine snapshots back
             through the runtime-db partition) reverts an actor's liveness
             perfectly, with NO registrar drift"
@@ -161,11 +161,11 @@
                                           [:states :idle :on :drop]
                                           {:action (fn [_]
                                                      {:fx [[:rf.machine/destroy :al4/child#1]]})}))
-    ;; Capture app-db BEFORE the actor exists (rewind-past-spawn target).
+    ;; Capture runtime-db BEFORE the actor exists (rewind-past-spawn target).
     (let [db-before-spawn (:rf.db/runtime (rf/frame-state-value :rf/default))]
       (rf/dispatch-sync [:al4/parent [:go]])
       (is (some? (snapshot :al4/child#1)) "actor alive after spawn")
-      ;; Capture app-db while the actor IS alive (rewind-past-destroy
+      ;; Capture runtime-db while the actor IS alive (rewind-past-destroy
       ;; target).
       (let [db-while-alive (:rf.db/runtime (rf/frame-state-value :rf/default))]
         (rf/dispatch-sync [:al4/child#1 [:bump]])
@@ -181,10 +181,9 @@
         (is (nil? (snapshot :al4/child#1))
             "rewind-past-spawn: the actor's snapshot is gone")
         (is (nil? (rf.registrar/lookup :event :al4/child#1))
-            "rewind-past-spawn: NO orphaned handler survives the revert
-             (the {:handler-survived-restore? true} leak is closed)")
+            "rewind-past-spawn: NO orphaned handler survives the revert")
 
-        ;; (b) Revert to WHILE-ALIVE (rewind-past-destroy — the key fix).
+        ;; (b) Revert to WHILE-ALIVE (rewind-past-destroy).
         ;; The snapshot comes back AND a dispatch to the actor RESOLVES via
         ;; the lazy resolver (not :no-such-handler).
         (revert-app-db! :rf/default db-while-alive)
@@ -198,9 +197,9 @@
 ;; ---- singleton negative guard ---------------------------------------------
 
 (deftest singletons-still-register-and-dispatch-unchanged
-  (testing "rf2-a2sn1 — a boot-registered (singleton) machine still
-            registers a handler and dispatches normally; the lazy
-            resolver does not change the singleton path"
+  (testing "a boot-registered (singleton) machine registers a
+            handler and dispatches normally; the singleton path does
+            not go through the lazy resolver"
     (rf/reg-machine :al5/single (counter-child))
     (is (some? (rf.registrar/lookup :event :al5/single))
         "a reg-machine singleton IS registered in the :event registrar")
@@ -215,7 +214,7 @@
 ;; ---- nested / parallel spawned actors resolve correctly -------------------
 
 (deftest parallel-spawned-actors-each-resolve-independently
-  (testing "rf2-a2sn1 — multiple live spawned actors of the same TYPE each
+  (testing "multiple live spawned actors of the same TYPE each
             lazy-resolve to their OWN snapshot"
     (rf/reg-machine :al6/child  (counter-child))
     (rf/reg-machine :al6/parent
