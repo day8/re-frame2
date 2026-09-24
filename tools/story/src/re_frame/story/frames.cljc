@@ -564,12 +564,16 @@
                        `:network` fixture (`rf.story.network/install-for-frame!`
                        ran for it upstream in phase 0). It carries exactly ONE
                        inline `:reg-fx` — the frame-scoped managed-request stub
-                       the plan's `:fx-overrides` redirect names — so a variant
-                       with an EXPLICIT app image can resolve that redirect's
-                       target. Without it the redirect names an id the sealed
-                       generation cannot resolve and the request falls through
-                       to the REAL `:rf.http/managed` transport, which is
-                       invisible to a default-image-only test. Composed after
+                       the plan's `:fx-overrides` redirect names. It was added
+                       because a variant with an EXPLICIT app image could not
+                       resolve that redirect's target, so the request fell
+                       through to the REAL `:rf.http/managed` transport. Since
+                       rf2-3x7nj.5.2 every explicit composition is layered
+                       over the framework base (`:rf/framework`), whose
+                       unstamped `:rf`-rooted registrations include the stub,
+                       so this image is now redundant but kept; its entry
+                       shadows the base's (`rf.story.network` ns docstring,
+                       017 §Reaching the fixture). Composed after
                        every app image (nothing authored can shadow the
                        fixture) and before `runtime-image` (they are disjoint;
                        the runtime image keeps its LAST position).
