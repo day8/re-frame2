@@ -6,8 +6,8 @@
 // `lane_cache_wiring.test.cjs` must PASS on this file.
 //
 // This shape carries most of the riders — the whole `fresco-bench` lane goes
-// through the door — and it is invisible to a `runner.js` scan, which is the
-// gap rf2-d19nf found. Read as TEXT and never executed.
+// through the door — and it is invisible to a `runner.js` scan. Read as TEXT
+// and never executed.
 const path = require('node:path');
 const { resetLaneBuildCache } = require('../lane_cache.cjs');
 const { shadowBuild } = require('../../../../../../bench/fresco/src/re_frame/bench/fresco/lane_build.cjs');
@@ -16,7 +16,7 @@ const PROJECT = path.resolve(__dirname, '..', '..', '..', '..', '..', '..', 'ben
 const BUILD_ID = 'fresco-bench';
 
 // This driver merges its own `:init-fn` onto `BUILD_ID`, so `BUILD_ID`'s cache
-// entry was written by a different program (rf2-2rtt6.20).
+// entry was written by a different program.
 if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
   console.error(`[fixture] cleared .shadow-cljs/builds/${BUILD_ID}`);
 }
