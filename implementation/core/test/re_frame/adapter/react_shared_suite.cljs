@@ -1065,8 +1065,8 @@
       (let [data (ex-data thrown)]
         (is (some? data) "the thrown value carries ex-data")
         (is (string? (:reason data)) ":reason key is a string")
-        ;; EP-0015 (rf2-uwqale): raw render-tree is gone — shape only.
-        (is (nil? (:render-tree data)) "the raw :render-tree slot is gone (EP-0015)")
+        ;; EP-0015: no raw render-tree — shape only.
+        (is (nil? (:render-tree data)) "there is no raw :render-tree slot (EP-0015)")
         (is (= :vector (:type (:render-tree/summary data)))
             ":render-tree/summary describes the tree's SHAPE")
         (is (not (re-find #"xyzzy" (pr-str data)))
@@ -1074,7 +1074,7 @@
 
 (defn assert-render-to-string-returns-html-after-direct-install
   "After (set-hiccup-emitter! emitter-fn), render-to-string returns the
-  emitter's output — the direct-install path (rf2-gc5v9 / rf2-y9spn)."
+  emitter's output — the direct-install path."
   [{:keys [set-emitter! render-to-string name]}]
   (testing (str name " — render-to-string returns HTML after direct install")
     (set-emitter! a-mock-emitter)
@@ -1087,8 +1087,8 @@
 
 (defn assert-set-hiccup-emitter-published-through-chain
   "The adapter chains its set-hiccup-emitter! into the
-  `:reagent/set-hiccup-emitter!` late-bind hook at ns-load (rf2-4z7bp /
-  rf2-y9spn). Driving the hook installs the emitter into THIS adapter's
+  `:reagent/set-hiccup-emitter!` late-bind hook at ns-load. Driving the
+  hook installs the emitter into THIS adapter's
   slot so SSR's `re-frame.ssr.emit` ns-load auto-wires render-to-string."
   [{:keys [set-emitter! render-to-string name]}]
   (testing (str name " — set-hiccup-emitter! published through the late-bind chain")
@@ -1110,16 +1110,13 @@
           (hook-fn nil))))))
 
 ;; ===========================================================================
-;; late-bind hook publication set (rf2-rrwwy / rf2-jz15y) —
-;; port of `*_late_bind_publication`
+;; late-bind hook publication set
 ;; ===========================================================================
 
 (def ^:private expected-hook-keys
   "Every late-bind hook the React adapters publish at ns-load. Routed
-  `:adapter/*` hooks first, then chained hooks. Per rf2-jicu2 the
-  reactive-atom hooks are excluded; per rf2-334d9 :adapter/after-render
-  IS published. The UIx set (rf2-rrwwy; Helix's identical twin set,
-  rf2-jz15y, left with the adapter at S7/W13)."
+  `:adapter/*` hooks first, then chained hooks. The reactive-atom hooks
+  are not in the set; :adapter/after-render IS. This is the UIx set."
   #{:adapter/add-on-dispose!
     :adapter/after-render
     :adapter/current-frame
@@ -1130,7 +1127,7 @@
 
 (defn assert-adapter-publishes-expected-hook-set
   "Every hook key the adapter publishes at ns-load is registered in the
-  late-bind table after the adapter ns has loaded (rf2-rrwwy / rf2-jz15y).
+  late-bind table after the adapter ns has loaded.
   A future refactor that drops or renames a hook trips this test."
   [{:keys [name]}]
   (testing (str name " — adapter publishes the expected late-bind hook set")
@@ -1142,7 +1139,7 @@
 (defn assert-adapter-hooks-cross-checked-against-directory
   "Every hook key in expected-hook-keys appears in the authoritative
   late-bind directory with this adapter's producer-ns listed as one of
-  its producers (rf2-rrwwy / rf2-jz15y)."
+  its producers."
   [{:keys [producer-ns name]}]
   (testing (str name " — adapter hooks cross-checked against the late-bind directory")
     (doseq [k expected-hook-keys]
@@ -1155,27 +1152,28 @@
                  " as a producer; producers: " (pr-str producers)))))))
 
 ;; ===========================================================================
-;; copied / wrapped adapter map routes to LIVE hooks (rf2-dkl5z1)
+;; copied / wrapped adapter map routes to LIVE hooks
 ;;
 ;; `route-hook!` must dispatch each adapter's late-bind hook by STABLE TOKEN
 ;; (the canonical `:rf.adapter/*` `:kind`), NOT raw object identity — so a
-;; user (or the already-tested adapter-swap pattern) that copies / wraps a
+;; user (or the adapter-swap pattern) that copies / wraps a
 ;; canonical adapter map for instrumentation or local overrides STILL drives
-;; the live routed hooks. The original identity guard served stale (inert)
+;; the live routed hooks. An identity guard would serve stale (inert)
 ;; hooks for a copied map: `(rf/view id)` under a copied UIx map would
-;; lose its `:adapter/wrap-view` source-coord/view-id stamping (the hook fell
-;; through to the `(constantly nil)` chain bottom, and the inline hiccup walk
-;; cannot annotate a React element). This pins the substrate-observable fix.
+;; lose its `:adapter/wrap-view` source-coord/view-id stamping (the hook would
+;; fall through to the `(constantly nil)` chain bottom, and the inline hiccup
+;; walk cannot annotate a React element). This pins the substrate-observable
+;; behaviour.
 ;; ===========================================================================
 
 (defn assert-copied-adapter-map-routes-to-live-hooks
-  "rf2-dkl5z1: dispose the installed canonical adapter, install a COPY of it
+  "Dispose the installed canonical adapter, install a COPY of it
   (an `assoc`'d instrumentation wrapper — distinct identity, same canonical
   `:kind`), and prove the routed `:adapter/wrap-view` hook STILL fires its
   live impl: `((rf/view id))` on a DOM-tag root stamps both
-  `data-rf2-source-coord` and `data-rf-view`. Pre-fix the routed closure's
-  object-identity guard rejected the copy, the hook returned nil, and the
-  React-element root carried NEITHER attribute. Restores the original
+  `data-rf2-source-coord` and `data-rf-view`. An object-identity guard
+  would reject the copy, the hook would return nil, and the React-element
+  root would carry NEITHER attribute. Restores the original
   adapter so the fixture teardown lands clean."
   [{:keys [adapter substrate-kw name]}]
   (testing (str name " — copied adapter map still routes to live :adapter/wrap-view")
@@ -1201,7 +1199,7 @@
             (is (string? (source-coord out))
                 (str "data-rf2-source-coord STILL stamped under the copied " name
                      " adapter map — the routed :adapter/wrap-view hook fired its"
-                     " live impl despite the copy's distinct identity (rf2-dkl5z1)"))
+                     " live impl despite the copy's distinct identity"))
             (is (= (str id) (view-attr out))
                 "data-rf-view STILL stamped under the copied adapter map")))
         (finally
@@ -1211,8 +1209,7 @@
           (rf.substrate.adapter/install-adapter! original))))))
 
 ;; ===========================================================================
-;; chained clear-warn-once-caches! end-to-end (rf2-e54wc / rf2-ovbxk) —
-;; port of `*_clear_warn_once_chain`
+;; chained clear-warn-once-caches! end-to-end
 ;; ===========================================================================
 
 (defn- non-dom-element
@@ -1226,7 +1223,7 @@
   "The chained :adapter/clear-warn-once-caches! hook (registered via
   rf.substrate.spine/install-clear-warn-once-step! at adapter ns-load) clears the
   adapter's warn-cache: after one warn-once fire the same id is silenced;
-  after the chained hook fires the same id re-warns (rf2-e54wc / rf2-ovbxk)."
+  after the chained hook fires the same id re-warns."
   [{:keys [wrap-view substrate-kw name]}]
   (testing (str name " — chained clear-warn-once-caches! empties the warn-cache")
     (let [target-id    (mint-kw substrate-kw "clear-warn-shared")
@@ -1246,7 +1243,7 @@
                    (count phase-2-ws) ": " (pr-str phase-2-ws))))))))
 
 ;; ===========================================================================
-;; routing pipeline (Spec 012) — port of `*_routing`
+;; routing pipeline (Spec 012)
 ;;
 ;; This suite requires the routing fixture to reset the route-registration
 ;; counter (`rf.routing/reset-counters!`) per test — wire `:init-fn
@@ -1282,7 +1279,7 @@
                     {:params   [:map [:id :string]]
                      :on-match [[load-ev]]} art-path)
       (rf/reg-event load-ev (fn [{:keys [db]} _] {:db (assoc db :article-loaded? true)}))
-      ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
+      ;; The route slice is durable routing runtime-db state (EP-0001).
       (rf.subs/reg-runtime-sub id-sub     (fn [rt _] (get-in rt [:rf.runtime/routing :current :route-id])))
       (rf.subs/reg-runtime-sub params-sub (fn [rt _] (get-in rt [:rf.runtime/routing :current :params])))
 
@@ -1313,7 +1310,7 @@
       (rf/reg-route home     {} (route-path sk2 "/"))
       (rf/reg-route articles {} (route-path sk2 "/articles"))
       (rf/reg-route article  {:params [:map [:id :string]]} (route-path sk2 "/articles/:id"))
-      ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
+      ;; The route slice is durable routing runtime-db state (EP-0001).
       (rf.subs/reg-runtime-sub route-sub (fn [rt _] (get-in rt [:rf.runtime/routing :current])))
 
       (let [left  (rf.frame/make-anon-frame-record! {:doc "left tab frame"})
@@ -1336,7 +1333,7 @@
 
 ;; ===========================================================================
 ;; headless runtime slice (dispatch / subs / with-frame / capture-frame /
-;; isolation / hot-reload / machines / error paths) — port of `*_runtime`
+;; isolation / hot-reload / machines / error paths)
 ;; ===========================================================================
 
 (defn assert-dispatch-sync
@@ -1376,8 +1373,7 @@
       (is (= :rf/default (rf/current-frame-id))))))
 
 (defn assert-capture-frame-survives-scope-unwind
-  "capture-frame — the ONE public HOLD primitive (API-shrink #1, rf2-csbbwu
-  removed frame-bound-fn/frame-bound-fn* from the facade) — captures the
+  "capture-frame — the ONE public HOLD primitive — captures the
   current frame at creation time; its ops still target that frame after
   the surrounding with-frame lexical scope has unwound."
   [{:keys [name]}]
@@ -1394,7 +1390,7 @@
   "Two frames carry independent app-db state, share the handler registry."
   [{:keys [name]}]
   (testing (str name " — two frames carry independent app-db state")
-    ;; rf2-h1vqa4 bundle co-load hygiene: CLAIM this test's id vocabulary
+    ;; Bundle co-load hygiene: CLAIM this test's id vocabulary
     ;; before creating the frames — the story testbed registers the same
     ;; canonical :counter/inc at its ns load, and sibling suites' in-test
     ;; registrations of :counter/init / :count can leak through fixtures
