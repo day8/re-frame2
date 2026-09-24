@@ -60,9 +60,8 @@
   derives. The instrument is the one every other row uses: it costs no
   round trip, it can range over the whole forty-eight-entry order, and it
   is VERIFIED against the thing it stands in for rather than merely
-  argued for. The presses come through
-  the browser gate's trusted-input bridge
-  (`re-frame.fresco.trusted-input-support`, whose other half is
+  argued for. The presses come through the browser gate's trusted-input
+  bridge (`re-frame.fresco.trusted-input-support`, whose other half is
   `scripts/run-browser-tests.cjs`).
 
   Enter/Space activation stays a structural claim, and deliberately:
