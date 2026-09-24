@@ -2,7 +2,7 @@
 
 /*
  * THE SCRIPTED NATIVE-IME WITNESS — the eight checks, and the observations
- * each one is decided on (rf2-hic-016).
+ * each one is decided on.
  *
  * This module is the checklist of
  * `docs/design/fresco/native-ime-scripted-witness.md` expressed as code. It
@@ -10,23 +10,23 @@
  * which owns the browser, the server and the OS-level keyboard; everything
  * here is about WHAT to type and HOW to read the answer.
  *
- * ## What replaced the human, and what did not
+ * ## What the script buys, and what it does not
  *
- * The operator ruling of 2026-08-11 retired the manual session as the
- * acceptance path and sanctioned driving a REAL IME from a script. What that
- * buys is repeatability and a written record. What it does NOT buy is a CI
- * gate: this needs Windows, an installed Japanese IME, a visible desktop and
- * the keyboard, so it runs locally, on purpose, by a person who knows it is
- * running. The recurring regression net stays what it was — the synthetic
- * three-engine gate at `spec.cjs`. Read `WHAT THIS IS NOT` in the runner
- * before quoting this file as coverage.
+ * Driving a REAL IME from a script buys repeatability and a written record;
+ * its standing as an acceptance path, and the rulings behind it, are
+ * `docs/design/fresco/native-ime-scripted-witness.md`'s. What it does NOT
+ * buy is a CI gate: this needs Windows, an installed Japanese IME, a
+ * visible desktop and the keyboard, so it runs locally, on purpose, by a
+ * person who knows it is running. The recurring regression net is the
+ * synthetic three-engine gate at `spec.cjs`. Read `WHAT THIS IS NOT` in
+ * the runner before quoting this file as coverage.
  *
  * ## Three verdicts, and why a cross is not a failure
  *
  *   TICK          the check's claim held, on this engine, with a real IME.
  *   CROSS         it did not. That is a FINDING — it becomes a bead with an
- *                 engine name on it, exactly as the manual session's cross
- *                 would have. It is not a reason to re-run until green.
+ *                 engine name on it, exactly as a manual session's cross
+ *                 would. It is not a reason to re-run until green.
  *   INCONCLUSIVE  the check could not be decided, because its PREMISE was
  *                 not met — most often that no composition ever started, so
  *                 there was no exchange to observe. An inconclusive check
@@ -34,17 +34,17 @@
  *                 so and exits non-zero.
  *
  * The third verdict is the whole reason this file is not a list of
- * assertions. During the operator's partial manual session (2026-08-11),
- * typing in `plain` and pressing ESC discarded NOTHING — the draft stayed.
- * Two readings fit that observation and they are opposite:
+ * assertions. Typing in `plain` and pressing ESC can discard NOTHING — the
+ * draft stays; that is the operator observation of 2026-08-11 the verdicts
+ * below name. Two readings fit that observation and they are opposite:
  *
  *   - the IME never engaged, so `nihongo` went in as seven ASCII letters and
  *     ESC had no composition to abort. Nothing about Fresco was measured.
  *   - the IME did engage and the abort left the draft standing, which is a
  *     real defect in an engine.
  *
- * A checklist read off the screen cannot separate them, and that is why the
- * observation went unresolved. A script can, because the discriminator is in
+ * A checklist read off the screen cannot separate them. A script can,
+ * because the discriminator is in
  * the event stream: a real exchange fires `compositionstart`, carries
  * `isComposing` on its `input` events, and delivers ESC to the page as
  * `keydown` with `key === 'Process'` (keyCode 229) rather than as `Escape` —
@@ -54,7 +54,7 @@
  *
  * ## The observer, and why the page is not modified
  *
- * The testbed app is unchanged: the same bundle a human would open. The
+ * The testbed app is not modified: it is the same bundle a human would open. The
  * event evidence comes from a capture-phase LISTENER installed by
  * `addInitScript` before the app mounts — the same door `spec.cjs` uses for
  * its page helpers. It reads; it never dispatches, never mutates, never
@@ -70,10 +70,11 @@
  *
  * The observer accumulates, so one reading taken at the end of a check is an
  * aggregate over everything the check did — and an aggregate cannot say WHICH
- * keystroke produced it. Audit #7896 found that gap load-bearing under three
- * verdicts: an exchange the candidate-window Space had already closed ticked a
- * no-op Enter, and a check whose whole subject is "mid-composition" could tick
- * with no composition anywhere near the edge. So every decisive edge here is
+ * keystroke produced it. That gap is load-bearing under three verdicts: read
+ * as an aggregate, an exchange the candidate-window Space had already closed
+ * would tick a no-op Enter, and a check whose whole subject is
+ * "mid-composition" could tick with no composition anywhere near the edge.
+ * So every decisive edge here is
  * bracketed — evidence read immediately before the keystroke and immediately
  * after it — and the verdict names the transition between the two rather than
  * the total. `exchangeIsOpen` and `closedAcross` are that discipline in two
@@ -194,8 +195,8 @@ async function resetEvents(page) {
 }
 
 /**
- * The composition evidence for one field — the discriminator the manual
- * checklist could not read. `processKeydowns` is the sharp one: a keystroke
+ * The composition evidence for one field — the discriminator a manual
+ * checklist cannot read. `processKeydowns` is the sharp one: a keystroke
  * an IME has consumed reaches the page as `key === 'Process'` / keyCode 229,
  * so it says the IME was in the loop at all, independently of what any value
  * ended up being.
@@ -226,9 +227,9 @@ function compositionWasReal(ev) {
  * outnumbering `compositionend` is the discriminator, and it is the one an
  * aggregate reading cannot supply: `compositionWasReal` says a composition
  * happened SOMEWHERE in the check, and "somewhere" is not "immediately before
- * the keystroke under test". Audit #7896 found three checks resting their whole
- * verdict on that difference, which is why the decisive edges below are read
- * from a PAIR of evidence snapshots rather than from one taken at the end.
+ * the keystroke under test". Three checks rest their whole verdict on that
+ * difference, which is why the decisive edges below are read from a PAIR of
+ * evidence snapshots rather than from one taken at the end.
  */
 function exchangeIsOpen(ev) {
   return compositionWasReal(ev) && ev.compositionstart > ev.compositionend;
@@ -291,7 +292,7 @@ const INCONCLUSIVE = 'INCONCLUSIVE';
  * Both pairs are needed and neither is sufficient. The cells say what the field
  * did; only the two event readings say that the ESC is what did it. A single
  * aggregate reading taken after the sequence proves a composition happened —
- * not that one was open when ESC arrived, and not that ESC closed it (#7896).
+ * not that one was open when ESC arrived, and not that ESC closed it.
  * So this verdict is gated on three premises before it decides anything: a real
  * exchange, OPEN at the ESC, CLOSED across it.
  */
@@ -495,8 +496,8 @@ function commitEchoVerdict({ after, evidence, expected, policy }) {
  * The close under test is the ENTER'S, and saying so takes two evidence
  * readings. The Space that opens the candidate window can itself close an
  * exchange, and an aggregate `compositionend > 0` cannot tell that close from
- * the one this check is about — so a no-op Enter that ended nothing ticked on
- * the Space's transition (#7896). The premises are therefore the same three as
+ * the one this check is about — so a no-op Enter that ended nothing would tick
+ * on the Space's transition. The premises are therefore the same three as
  * check 5, around the Enter: a real exchange, OPEN at the Enter, CLOSED across
  * it. Only then is the arrivals delta attributable to the close.
  */
@@ -541,7 +542,7 @@ function commitAddsNoIntentVerdict({ before, after, evBefore, evAfter }) {
  * close. Read on `revision-strict`, whose model REFUSES the kana, so the
  * reset has `42` to write while the field shows `42…` — the only arrangement
  * in which "the draft stood" distinguishes a deferral from a reset that had
- * nothing different to write (#7815/#7817 audits).
+ * nothing different to write.
  */
 function revisionDefersVerdict({ duringDraft, afterFire, evidence, seed, armedFired }) {
   if (!compositionWasReal(evidence)) return { verdict: INCONCLUSIVE, why: NO_COMPOSITION };
@@ -581,9 +582,9 @@ function revisionDefersVerdict({ duringDraft, afterFire, evidence, seed, armedFi
  * TWO PHASES, TWO PIECES OF EVIDENCE. The check blurs a live composition, then
  * RELOADS and composes again before the armed unmount fires, so the second
  * teardown is a different exchange on a different page instance. Passing only
- * the blur phase's evidence made the unmount half unfalsifiable: real evidence
- * from the blur, a fired unmount and NO composition at all in the second phase
- * returned a tick (#7896). So `evBlur` and `evUnmount` are separate parameters,
+ * the blur phase's evidence would make the unmount half unfalsifiable: real
+ * evidence from the blur, a fired unmount and NO composition at all in the
+ * second phase would return a tick. So `evBlur` and `evUnmount` are separate parameters,
  * and the unmount half must show its own exchange, live when the node went.
  */
 function teardownVerdict({ afterBlur, afterUnmount, evBlur, evUnmount, seed, pageErrors }) {
@@ -707,8 +708,8 @@ const CHECKS = [
 
 /**
  * Fold a run's per-check verdicts into a report. FAIL-CLOSED in three ways,
- * each of which was a way an earlier gate on this bead read green having
- * measured nothing: a check that did not run is not a check that passed; an
+ * each of which is a way a gate can read green having measured nothing: a
+ * check that did not run is not a check that passed; an
  * INCONCLUSIVE run is not a complete one; and `complete` is false unless the
  * roster is covered exactly.
  */
@@ -734,8 +735,7 @@ function summarise(results, roster = CHECKS) {
  * The cell text for `dispositions.md` §2.3. It may say WITNESS-VERIFIED only
  * when every check on the roster reached a definite verdict AND none of them
  * crossed — the recording must not launder an incomplete or a crossed run
- * into a green cell, which is the whole failure mode the audits on this bead
- * kept finding.
+ * into a green cell, which is the failure mode this cell exists to refuse.
  */
 function dispositionCell(summary, { engine, build, date }) {
   const where = `${engine} \`${build}\`, ${date}`;
