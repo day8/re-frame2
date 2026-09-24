@@ -1,17 +1,17 @@
 (ns re-frame.after-timer-arm-publish-race-cljs-test
-  "Adversarial ordering regressions for the machine `:after` timer two-phase
-  arm (rf2-j538f7.7). Two races the serial suite never exercised:
+  "Adversarial ordering tests for the machine `:after` timer two-phase
+  arm. Two races a serial test does not reach:
 
     1. ARM-AFTER-CLEANUP — a host arm that returns AFTER a lifecycle cleanup
        already ran must NOT publish a live timer onto a torn-down frame / actor
-       / exited state / restored frame. The fix RESERVES the slot with a
+       / exited state / restored frame. The arm RESERVES the slot with a
        token-stamped arming sentinel (`:handle nil`) BEFORE arming, so a
        concurrent cleanup atomically CLAIMS the attempt and the publish phase
        finds its token gone and cancels the orphan handle.
 
     2. OLD-CANCEL-DELETES-SUCCESSOR — a trailing cancellation of an OLD attempt
        must NOT delete a re-armed SUCCESSOR occupying the same reused
-       `{:parent :spawn :delay}` key. The fix scopes every cancellation to the
+       `{:parent :spawn :delay}` key. Every cancellation is scoped to the
        exact attempt token it observed (`claim-entry!`), so a successor
        published mid-cancellation survives untouched.
 
@@ -25,7 +25,7 @@
   Dual-target (`.cljc`): the JVM runner selects it on `.*-test$`, Shadow's
   `:node-test` build on `cljs-test$`. The `-cljs-test` suffix is therefore
   load-bearing — a `.cljc` test whose ns ends in a plain `-test` compiles
-  nowhere but the JVM and reads as covered (rf2-dn6v7, rf2-lgozq)."
+  nowhere but the JVM and reads as covered."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
