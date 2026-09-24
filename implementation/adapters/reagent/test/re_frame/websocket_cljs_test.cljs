@@ -1568,27 +1568,12 @@
           (is (= :disconnected (:state s)))
           (is (contains? (get-in s [:data :subscriptions]) :t/before-connect)
               "a subscribe while :disconnected is recorded"))
-        (rf/dispatch-sync [:ws/connection
-                           [:ws/connect {:url "ws://mock" :cred-ref :ws.demo/cred-a}]]
-                          {:frame f})
-        (is (true? (machine-has-tag? f :websocket/connected)))
+        ;; `drive-to-failed!` connects first, so its :connected entry is the
+        ;; one that must send the topic recorded above.
+        (drive-to-failed! f)
         (is (subscribe-acked? f :t/before-connect)
             "the first :connected entry sent the subscribe recorded while :disconnected")
-        ;; --- :reconnecting: subscribe mid-reconnect -----------------------
-        (messages/simulate-disconnect! (rf/capture-frame f))
-        (is (true? (machine-has-tag? f :websocket/reconnecting)))
-        (rf/dispatch-sync [:ws/connection [:ws/subscribe :t/mid-reconnect]]
-                          {:frame f})
-        (is (contains? (get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
-                               [:data :subscriptions])
-                       :t/mid-reconnect)
-            "a subscribe while :reconnecting is recorded")
-        (fire-after-timer! f)
-        (is (true? (machine-has-tag? f :websocket/connected)))
-        (is (subscribe-acked? f :t/mid-reconnect)
-            "the reconnect's :connected entry sent the subscribe recorded while :reconnecting")
         ;; --- :failed: subscribe after giving up ---------------------------
-        (drive-to-failed! f)
         (is (true? (machine-has-tag? f :websocket/failed)))
         (rf/dispatch-sync [:ws/connection [:ws/subscribe :t/while-failed]]
                           {:frame f})
@@ -1601,7 +1586,20 @@
                           {:frame f})
         (is (true? (machine-has-tag? f :websocket/connected)))
         (is (subscribe-acked? f :t/while-failed)
-            "the manual :ws/connect out of :failed sent the subscribe recorded while :failed")))))
+            "the manual :ws/connect out of :failed sent the subscribe recorded while :failed")
+        ;; --- :reconnecting: subscribe mid-reconnect -----------------------
+        (messages/simulate-disconnect! (rf/capture-frame f))
+        (is (true? (machine-has-tag? f :websocket/reconnecting)))
+        (rf/dispatch-sync [:ws/connection [:ws/subscribe :t/mid-reconnect]]
+                          {:frame f})
+        (is (contains? (get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
+                               [:data :subscriptions])
+                       :t/mid-reconnect)
+            "a subscribe while :reconnecting is recorded")
+        (fire-after-timer! f)
+        (is (true? (machine-has-tag? f :websocket/connected)))
+        (is (subscribe-acked? f :t/mid-reconnect)
+            "the reconnect's :connected entry sent the subscribe recorded while :reconnecting")))))
 
 (defn- subscribe-transitions-declared-test []
   ;; rf2-3x7nj.41.2 — structural mirror of the runtime proof above: every
