@@ -1,7 +1,7 @@
 (ns re-frame.resources-lifecycle-trace-ops-cljs-test
   "Coverage for the lifecycle trace ops the `:rf.resource/*` trace family
   enumerates in Spec 016 §Xray and AI tooling — the rows the Xray
-  lifecycle timeline / AI-Audit consume (rf2-ktuhuq):
+  lifecycle timeline / AI-Audit consume:
 
     1. `:rf.resource/registered`     — one row per FIRST-TIME `reg-resource`
                                        (frame-agnostic; first-time-only,
@@ -13,16 +13,14 @@
                                        owner (symmetric with :owner-released);
     3. `:rf.resource/hydrate-refetch`— one per hydration refetch-plan entry
                                        (the per-entry decision; distinct from
-                                       the ordinary refetch the route slice
-                                       then dispatches).
+                                       the ordinary refetch the route
+                                       integration then dispatches).
 
-  Also pins the reconcile decision: the runtime emits exactly one
-  suppression op (`:rf.resource/stale-suppressed`) — the spec/Xray
-  `:rf.resource/work-suppressed` op was folded into it and is never
-  emitted. And it pins that `:rf.resource/cache-hit` IS emitted on a
+  Also pins that the runtime emits exactly one suppression op
+  (`:rf.resource/stale-suppressed`); `:rf.resource/work-suppressed` is
+  never emitted. And it pins that `:rf.resource/cache-hit` IS emitted on a
   fresh-skip ensure (an `ensure` of an already-`:loaded`, still-fresh
-  entry serves the cached value — no fetch, no in-flight join) — the
-  fresh-skip behaviour (rf2-hsa0sv).
+  entry serves the cached value — no fetch, no in-flight join).
 
   Per Spec 016 §Xray and AI tooling / §Active owners and causes."
   (:require
@@ -211,7 +209,7 @@
   (let [k-fresh [:rf.scope/global :h/fresh {:slug "f"}]
         k-stale [:rf.scope/global :h/stale {:slug "s"}]
         k-meta  [:rf.scope/global :h/meta  {:slug "m"}]]
-    ;; rf2-9e0tyq — `:entries` is keyed on the byte `key-id`; each entry carries
+    ;; `:entries` is keyed on the byte `key-id`; each entry carries
     ;; its own `:resource/key` (the refetch plan reads it for :resource-id).
     {rf.resources.state/resources-key
      {:entries
@@ -238,14 +236,14 @@
           "each row carries :cause :hydration"))))
 
 ;; ===========================================================================
-;; 4. Reconcile decisions — one suppression op; cache-hit not emitted
+;; 4. One suppression op; cache-hit on a fresh-skip ensure only
 ;; ===========================================================================
 
 (deftest only-stale-suppressed-no-work-suppressed
   (rf/reg-resource :sp/article (article-spec) article-spec-request)
   (testing "a stale/superseded reply emits :rf.resource/stale-suppressed and
-            NEVER :rf.resource/work-suppressed (folded into stale-suppressed —
-            there is exactly one suppression op)"
+            NEVER :rf.resource/work-suppressed (there is exactly one
+            suppression op)"
     (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :sp/article {:slug "w"})]
       (rf/dispatch-sync
         [:rf.resource/ensure {:resource :sp/article :scope :rf.scope/global
@@ -268,19 +266,19 @@
             ":rf.resource/work-suppressed is never emitted")))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-mn4j89 / rf2-hh8nzd / rf2-uwqs7l — the canonical :status :stale reply
+;; The canonical :status :stale reply
 ;; envelope rides the PRODUCTION resource stale-suppression trace. The
 ;; behaviour-only test above (and the work-ledger / invalidation-GC stale
-;; tests) PASSED SILENTLY while the production stale branch discarded the
-;; canonical reply: it emitted a bespoke trace with carried-generation ONLY
-;; and never lowered through the shared `re-frame.reply` substrate. These
-;; assertions FAIL before rf2-mn4j89 and pin the fix — the SAME envelope
-;; shape the machine `:rf.machine/done` stale path pins.
+;; tests) would pass even if the production stale branch discarded the
+;; canonical reply — emitting a bespoke trace with carried-generation ONLY
+;; and never lowering through the shared `re-frame.reply` substrate. These
+;; assertions pin the envelope — the SAME shape the machine
+;; `:rf.machine/done` stale path pins.
 ;; ---------------------------------------------------------------------------
 
 (deftest stale-suppressed-trace-carries-canonical-reply-envelope
   (rf/reg-resource :rev/article (article-spec) article-spec-request)
-  (testing "rf2-mn4j89 — a superseded resource reply (carried gen 1 vs current
+  (testing "a superseded resource reply (carried gen 1 vs current
             gen 2) is recorded :status :stale / :rf.reply/work-status :suppressed via
             the shared substrate, with the carried-vs-current generation pair
             on the production :rf.resource/stale-suppressed trace; the app
@@ -305,8 +303,8 @@
             sup  (first (by-op traces :rf.resource/stale-suppressed))]
         (is (some? sup) ":rf.resource/stale-suppressed fired for the stale reply")
         (let [tags (:tags sup)]
-          ;; bespoke facts preserved (additive, not replaced). rf2-o6c2jr —
-          ;; the bare :work/id duplicate was dropped; the work identity rides
+          ;; the bespoke facts ride alongside the envelope. There is no
+          ;; bare :work/id duplicate; the work identity rides
           ;; ONLY as :rf.reply/work-id (asserted below).
           (is (= scoped-key (:resource/key tags)))
           (is (not (contains? tags :work/id))
@@ -326,12 +324,12 @@
             (is (= 2 (-> corr :generation :current))
                 "current generation is the LIVE entry's generation (gen 2)")
             (is (= scoped-key (:resource/key corr)))))
-        ;; (2)/(5) the app target did NOT run — the entry was NOT overwritten by
+        ;; the app target did NOT run — the entry was NOT overwritten by
         ;; the stale reply (still on gen 2, not :loaded with {:stale "data"}).
         (let [e (entry scoped-key)]
           (is (= 2 (:generation e)) "the stale reply did not touch the newer entry")
           (is (not= {:stale "data"} (:data e)) "stale data was NOT written"))
-        ;; (3) the ledger row settles terminal :suppressed.
+        ;; the ledger row settles terminal :suppressed.
         (is (= :suppressed (:status (rf.resources.work-ledger/get-record
                                       (:rf.db/runtime (rf/frame-state-value :rf/default)) wid1)))
             "the work row settled terminal :suppressed")))))
@@ -342,10 +340,9 @@
   (rf/reg-resource :ch/article (article-spec) article-spec-request)
   (testing "an ensure of an already-:loaded, still-fresh entry serves the
             cached value: it emits :rf.resource/cache-hit and starts NO new
-            load (Spec 016 §Lifecycle is an FSM / §Restore — fresh-skip,
-            rf2-hsa0sv)"
+            load (Spec 016 §Lifecycle is an FSM / §Restore — fresh-skip)"
     (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :ch/article {:slug "w"})]
-      ;; load it once, then settle to :loaded (fresh: stale-after 60s)
+      ;; load it once, then settle to :loaded (fresh: no stale policy)
       (rf/dispatch-sync
         [:rf.resource/ensure {:resource :ch/article :scope :rf.scope/global
                               :params {:slug "w"} :owner [:app :ch 1]}])
@@ -387,8 +384,7 @@
 (deftest stale-loaded-ensure-still-refetches
   (rf/reg-resource :ch/stale (article-spec) article-spec-request)
   (testing "a STALE :loaded entry STILL refetches on the next ensure —
-            fresh-skip must NOT swallow a stale refresh (negative case,
-            rf2-hsa0sv)"
+            fresh-skip must NOT swallow a stale refresh (negative case)"
     (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :ch/stale {:slug "w"})]
       (rf/dispatch-sync
         [:rf.resource/ensure {:resource :ch/stale :scope :rf.scope/global
