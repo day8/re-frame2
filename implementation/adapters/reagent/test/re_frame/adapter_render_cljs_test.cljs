@@ -1,10 +1,9 @@
 (ns re-frame.adapter-render-cljs-test
-  "Per rf2-fn5rk — the Reagent adapter's `render` slot must follow the
+  "The Reagent adapter's `render` slot must follow the
   React 18+ Root API: `(rdc/create-root mount-point)` first, then
   `(rdc/render root render-tree)` — NOT `(rdc/render mount-point tree)`
-  directly. The pre-fix code passed a raw DOM element where the Root
-  was required, causing
-  `TypeError: root.render is not a function` at Xray mount time.
+  directly. Passing a raw DOM element where the Root is required
+  throws `TypeError: root.render is not a function` at mount time.
 
   This test pins the call sequence by spying through `with-redefs` on
   `reagent.dom.client`'s `create-root` / `render` / `hydrate-root` /
@@ -42,7 +41,7 @@
 (deftest render-uses-create-root-then-render
   (testing "non-hydrate render: (rdc/create-root mount-point) is called
             first; (rdc/render root render-tree) follows; the unmount
-            thunk closes over the Root (rf2-fn5rk)"
+            thunk closes over the Root"
     (let [calls         (atom [])
           fake-root     (make-fake-root :non-hydrate)
           fake-mount    #js {:rf-test-mount :non-hydrate}
@@ -52,7 +51,7 @@
       ;; with-redefs rebinding replaces the var's value with a plain fn;
       ;; if we only provide a single arity, real Reagent code calling
       ;; the multi-arity form during the rebinding scope would throw.
-      ;; Only the lowest arities are exercised by our adapter today, but
+      ;; Only the lowest arities are exercised by our adapter, but
       ;; covering the published arities keeps the stubs robust against
       ;; passes through reagent internals.
       (with-redefs [rdc/create-root   (fn
@@ -92,8 +91,7 @@
                 "second call is (render …)")
             (is (identical? fake-root (second c2))
                 "render's first arg is the Root from create-root,
-                NOT the mount-point — this is the React 18 contract
-                the bug violated")
+                NOT the mount-point — this is the React 18 contract")
             (is (= fake-tree (nth c2 2))
                 "render's second arg is the render-tree"))
           ;; Unmount: the thunk calls (rdc/unmount root) — NOT the
@@ -111,8 +109,7 @@
 (deftest render-hydrate-uses-hydrate-root
   (testing "hydrate render: (rdc/hydrate-root mount-point render-tree)
             returns the Root; create-root / render are NOT called; the
-            unmount thunk closes over the Root from hydrate-root
-            (rf2-fn5rk)"
+            unmount thunk closes over the Root from hydrate-root"
     (let [calls       (atom [])
           fake-root   (make-fake-root :hydrate)
           fake-mount  #js {:rf-test-mount :hydrate}
@@ -156,14 +153,13 @@
             (is (identical? fake-root (second last-call))
                 "unmount thunk passes the Root returned by hydrate-root")))))))
 
-;; ---- regression pin --------------------------------------------------------
+;; ---- the mount-point never reaches rdc/render ------------------------------
 
 (deftest render-does-not-pass-mount-point-to-rdc-render
-  (testing "regression pin for rf2-fn5rk — the pre-fix code called
-            `(rdc/render mount-point render-tree)` which threw
+  (testing "`(rdc/render mount-point render-tree)` throws
             `TypeError: root.render is not a function` in real React
-            18. This test asserts the mount-point never appears as
-            the first arg to rdc/render."
+            18, so the mount-point must never appear as the first arg
+            to rdc/render."
     (let [render-calls (atom [])
           fake-root    (make-fake-root :regression)
           fake-mount   #js {:rf-test-mount :regression}]
@@ -186,8 +182,7 @@
           (is (= 1 (count @render-calls)))
           (let [[root tree] (first @render-calls)]
             (is (not (identical? fake-mount root))
-                "rdc/render's first arg is NEVER the raw mount-point
-                — that was the bug")
+                "rdc/render's first arg is NEVER the raw mount-point")
             (is (identical? fake-root root)
                 "rdc/render's first arg is the Root from create-root")
             (is (= [:div] tree)
