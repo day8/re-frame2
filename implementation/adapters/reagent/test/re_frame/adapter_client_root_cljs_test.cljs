@@ -1,5 +1,5 @@
 (ns re-frame.adapter-client-root-cljs-test
-  "rf2-k5r9t — the Reagent adapter's reusable client root: `client-root`,
+  "The Reagent adapter's reusable client root: `client-root`,
   `render!`, `unmount!`. Pins the call sequence at `reagent.dom.client` by
   spying through `with-redefs` on `create-root` / `render` / `hydrate-root`
   / `unmount`, the way `re-frame.adapter-render-cljs-test` pins the one-shot
@@ -7,7 +7,7 @@
   the same node surviving a re-render, server markup adopted — is
   `re-frame.adapter-client-root-dom-cljs-test`.
 
-  The five behaviours the bead's acceptance names:
+  The five behaviours pinned here:
 
     1. an allocated handle does no DOM work;
     2. a cold first render calls create-root once; later renders reuse the
