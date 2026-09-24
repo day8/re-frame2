@@ -68,12 +68,12 @@
   ;; likewise host-side transient state; detaches any installed window
   ;; listeners so a leftover listener cannot dispatch into a later test's frame.
   (rf.resources.revalidate-listeners/reset-cache!)
-  ;; and the host-side WRITE-side scope-mismatch dev-warning dedupe set
-  ;; (rf2-byl7bk.4); likewise host-side transient dev state, cleared so each
+  ;; and the host-side WRITE-side scope-mismatch dev-warning dedupe set;
+  ;; likewise host-side transient dev state, cleared so each
   ;; test observes the one-shot `:rf.warning/mutation-scope-mismatch` freshly.
   (rf.resources.mutation-events/reset-mutation-scope-mismatch-warnings!)
   ;; and the host-side settle-time SKIPPED-TARGET dev-warning dedupe set
-  ;; (rf2-1vpbld) — the dedicated drop-and-warn tripwire for recoverable
+  ;; — the dedicated drop-and-warn tripwire for recoverable
   ;; post-write `:patches` / `:populates` / `:removes` targets; likewise
   ;; host-side transient dev state, cleared so each test observes the one-shot
   ;; `:rf.warning/mutation-target-skipped` freshly.
