@@ -1,14 +1,14 @@
 (ns re-frame.ssr.ring.concurrency-stress-test
-  "Per rf2-ozhy9 — JVM concurrency stress for ssr-ring's parallel
-  request-handling surface. Mirrors the rf2-1gpx8 actor-spawn pattern
-  (`machine_actor_concurrency_stress_test.clj`) and the rf2-35rgj router
+  "JVM concurrency stress for ssr-ring's parallel
+  request-handling surface. Mirrors the actor-spawn pattern
+  (`machine_actor_concurrency_stress_test.clj`) and the router
   pattern (`concurrency_stress_test.clj`), but targets the ssr-ring
   `stream-handler` end-to-end through real Jetty + the JDK
   `java.net.http.HttpClient`.
 
-  ## Why this exists separately from rf2-jvpli
+  ## Why this exists separately from `streaming_robustness_test.clj`
 
-  rf2-jvpli (`streaming_robustness_test.clj`) covers SINGLE-request
+  `streaming_robustness_test.clj` covers SINGLE-request
   robustness — broken pipe, root-view throw, daemon-thread name
   scoping, client disconnect mid-stream. Each of its tests fires one
   request and observes one writer-thread lifecycle. That pins the
@@ -20,15 +20,15 @@
   request frame teardown contract and Spec 002 §Rules rule 1 (frames
   are independent state machines) — is that requests don't share state.
   This test proves the implementation actually delivers on that
-  promise under contention; pre-rf2-ozhy9 we had no coverage that two
-  in-flight requests COULDN'T bleed app-db state into each other via
+  promise under contention: two
+  in-flight requests CANNOT bleed app-db state into each other via
   the gensym frame-id allocator, the `setup-request-frame!` request-
   slot population race, or the writer-thread spawn site.
 
   ## Test scope
 
-  Three tests, all tagged `^:stress` so the default test gate skips them
-  (rf2-bv2qqm). The `:test` alias in deps.edn passes `-e :slow -e :stress`
+  Three tests, all tagged `^:stress` so the default test gate skips them.
+  The `:test` alias in deps.edn passes `-e :slow -e :stress`
   to the runner, so cognitect-test-runner drops these vars on the PR/local
   gate; the `:slow-test` alias passes `-i :slow -i :stress` to run them,
   and the nightly `.github/workflows/expensive-tests.yml` job +
@@ -49,14 +49,14 @@
             embeds another request's token.
          c. **No orphan writer thread** — after all requests settle,
             `await-no-streaming-threads!` returns empty (the same
-            leak-detector rf2-jvpli established).
+            leak-detector the single-request tests use).
 
     2. `concurrent-disconnect-stress` — N concurrent requests where
        every client aborts mid-stream (read a small prefix, close).
        Pins that the writer-thread lifecycle race — frame destroy
        firing while the writer is mid-flight — cleans up under
-       contention. Pre-rf2-jvpli's single-request disconnect test
-       proved the cleanup contract; this test proves it scales.
+       contention. The single-request disconnect test
+       proves the cleanup contract; this test proves it scales.
        Invariants: no orphan thread, no stuck client.
 
     3. `daemon-thread-count-bounded-during-burst` — fires the burst
@@ -74,8 +74,8 @@
       we test against).
 
   Eight threads × twenty requests = 160 in-flight streamed responses
-  per test, settling in a few seconds. Larger than rf2-jvpli's single-
-  request shape, smaller than rf2-1gpx8's 5000-iter per-thread count
+  per test, settling in a few seconds. Larger than the single-
+  request shape, smaller than the actor-spawn test's 5000-iter per-thread count
   because each iter here pays full HTTP round-trip cost rather than
   in-process dispatch cost.
 
@@ -113,11 +113,11 @@
 ;; Jetty + HttpClient harness + leak detector
 ;; ===========================================================================
 ;;
-;; rf2-l1qgjw — the ephemeral Jetty host, the `java.net.http` client /
+;; The ephemeral Jetty host, the `java.net.http` client /
 ;; request builder, and the `rf2-ssr-streaming-*` daemon-thread leak
-;; detector now live in `re-frame.ssr.ring.test-support` (aliased `ts`),
+;; detector live in `re-frame.ssr.ring.test-support`,
 ;; shared with the other live-host / streaming-thread test namespaces.
-;; The concurrency burst's intentional per-test knobs stay explicit at
+;; The concurrency burst's intentional per-test knobs are explicit at
 ;; the call sites below: a 30s read timeout (slower-completing under
 ;; contention than the single-request tests' 10s) and a 50ms leak-poll
 ;; cadence (slower than the single-request 10ms because we expect a
@@ -129,7 +129,7 @@
 
 (defn- await-no-streaming-threads!
   "Concurrency-burst poll cadence (50ms) over the shared leak detector.
-  rf2-fun38: returns the leaked-thread vec on timeout (does not throw) so
+  Returns the leaked-thread vec on timeout (does not throw) so
   the assertion can name the offenders."
   [timeout-ms]
   (rf.ssr.ring.test-support/await-no-streaming-threads! timeout-ms leak-poll-ms))
@@ -323,14 +323,15 @@
 ;; Test 2 — concurrent disconnect: writer-thread lifecycle race vs frame destroy
 ;; ===========================================================================
 ;;
-;; The single-request version of this scenario is rf2-jvpli's
+;; The single-request version of this scenario is
 ;; `client-disconnect-mid-stream-cleans-up`. This is the parallel
 ;; counterpart: many clients abort mid-stream simultaneously, and we
 ;; assert the writer-thread cleanup + `destroy-frame-quietly!` race
 ;; settles cleanly under contention.
 ;;
 ;; Why this matters: `stream-handler` runs the frame teardown inside
-;; the writer thread's `finally` (see `streaming.clj` line ~256). If
+;; the writer thread's `finally` (see `stream-rendered-response` in
+;; `streaming.clj`). If
 ;; the destroy path takes a registrar-wide lock or touches a shared
 ;; atom under contention, N concurrent destroys could deadlock or
 ;; double-destroy. Single-request testing can't see this — it needs
@@ -415,8 +416,8 @@
 ;; small constant for the window where a just-completed request's
 ;; writer hasn't been reaped while the next one's writer spawns —
 ;; tight enough that a per-request thread leak (which would scale with
-;; `n-threads × n-reqs`) blows past it, not the old `n*reqs+8` bound
-;; that was so loose it could never fail.
+;; `n-threads × n-reqs`) blows past it, where a bound of `n*reqs+8`
+;; would be so loose it could never fail.
 
 (deftest ^:stress daemon-thread-count-bounded-during-burst
   (testing "writer-thread count bounded during burst, decays to zero after"
