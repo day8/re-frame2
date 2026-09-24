@@ -22,11 +22,11 @@
 
   One pin OUTSIDE the template rides along, and deliberately:
   `skills/re-frame2-pair/tests/fixture/package.json`'s react / react-dom
-  ↔ `implementation/package.json` (rf2-ajnk, ruled 2026-09-13: that
-  fixture TRACKS the project's React). It lives here rather than beside
-  the fixture because this suite is the gate the classifier arms on an
-  `implementation/package.json` change, which is exactly the move that
-  left the fixture behind on 18.3.1 — no fixture-side lane runs then.
+  ↔ `implementation/package.json` (that fixture TRACKS the project's
+  React). It lives here rather than beside the fixture because this suite
+  is the gate the classifier arms on an `implementation/package.json`
+  change, and no fixture-side lane runs then — a React bump would
+  otherwise leave the fixture behind.
 
   The package.json reader searches both `:dependencies` and
   `:devDependencies` (first hit wins) so the guard doesn't false-fail
@@ -73,14 +73,14 @@
   `\"19.3.0\"`).
 
   Searching both sections decouples this guard from an incidental
-  layout choice in the impl package.json: today react / react-dom /
+  layout choice in the impl package.json: react / react-dom /
   shadow-cljs sit in `:devDependencies` (it is a test target, not a
   shipped lib), but if any of them ever moves to `:dependencies` the
   guard keeps working rather than false-failing the template suite for
   a reason unrelated to the template.
 
   We deliberately use a simple regex parse rather than dragging in a
-  JSON library — the template test artefact has no JSON dep today, and
+  JSON library — the template test artefact has no JSON dep, and
   the package.json shape is stable enough that a regex (the section
   body, then `\"pkg\": \"value\"` inside it) reads simply and fails
   loudly on shape drift.
@@ -202,7 +202,7 @@
           (is (= impl-pin fixture-pin)
               (str fixture " " pkg " (" fixture-pin ") must match "
                    "implementation/package.json (" impl-pin ") — the fixture "
-                   "TRACKS the project's React (rf2-ajnk). Bump its "
+                   "TRACKS the project's React. Bump its "
                    "devDependencies in the same change.")))))))
 
 (deftest shadow-version-lockstep
@@ -304,7 +304,7 @@
 
     ;; com.pitch/uix.core — impl source of truth is adapters/uix/deps.edn :deps.
     ;; com.pitch/uix.dom has NO lockstep row, and that is the point rather
-    ;; than an omission (rf2-j908): the emitted app mounts through
+    ;; than an omission: the emitted app mounts through
     ;; `rf.adapter.uix/client-root` + `render!`, so uix.dom is not on its
     ;; classpath and there is nothing to keep in step. `template_test.clj`
     ;; carries the absence assertion, in `retired-coords`.
