@@ -1,13 +1,13 @@
 (ns day8.re-frame2-machines-viz.share-cljs-test
-  "Tests for the share-URL encode/decode pipeline (rf2-8d7w1 · v1.0).
+  "Tests for the share-URL encode/decode pipeline.
 
   Coverage:
   - `encode-share-url` → `decode-share-url` round-trip preserves the
     ChartState (machine-id, frame-id, definition, snapshot state).
-  - Snapshot `:state` configuration arms (rf2-9l8h8): flat keyword,
+  - Snapshot `:state` configuration arms: flat keyword,
     compound vector-path, and parallel region-map all round-trip; a
     malformed `:state` is rejected at ENCODE (encode/decode symmetric —
-    no undecodable URL), and the closed-map rule still rejects extra
+    no undecodable URL), and the closed-map rule rejects extra
     `:snapshot` keys for every arm.
   - Canonicalisation: the same ChartState encodes byte-for-byte
     identically regardless of input map/set ordering (Principles
@@ -18,8 +18,8 @@
     a newer version is rejected with `:unknown-version`.
   - Every documented `decode-failed` `:reason`.
   - Host override + `chart-state->props` projection.
-  - The `:host` fragment rule (rf2-xld5m): a fragment-bearing host is
-    refused, and — the negative control — every fragment-free host still
+  - The `:host` fragment rule: a fragment-bearing host is
+    refused, and — the negative control — every fragment-free host
     encodes byte-identically, including the relative / `file://` forms
     the encoder deliberately does not police."
   (:require [cljs.test :refer-macros [deftest is testing]]
@@ -32,9 +32,8 @@
 
 ;; ---------------------------------------------------------------------------
 ;; The viewer host these tests encode against. `encode-share-url` has NO
-;; default host (rf2-8m344) — the one it used to carry named a repository
-;; that does not exist — so every producer of a share-URL names its own
-;; viewer, tests included.
+;; default host — a filled-in default is a URL that can 404 — so every
+;; producer of a share-URL names its own viewer, tests included.
 
 (def ^:private test-host "https://x/viewer.html")
 
@@ -135,10 +134,10 @@
       (is (= idle-loading-success (:definition back))))))
 
 ;; ---------------------------------------------------------------------------
-;; Snapshot :state CONFIGURATION — the three Spec 005 §Snapshot-shape arms
-;; (rf2-9l8h8). The bug: encode accepted compound/parallel snapshots but a
-;; keyword-only decoder rejected them → an undecodable URL. All three arms
-;; must now round-trip cleanly and stay encode/decode symmetric.
+;; Snapshot :state CONFIGURATION — the three Spec 005 §Snapshot-shape arms.
+;; All three must round-trip cleanly and stay encode/decode symmetric: an
+;; encoder accepting compound/parallel snapshots beside a keyword-only
+;; decoder would mint undecodable URLs.
 
 (deftest round-trip-flat-snapshot
   (testing "a FLAT keyword :state round-trips"
@@ -149,7 +148,7 @@
       (is (keyword? (get-in back [:snapshot :state]))))))
 
 (deftest round-trip-compound-snapshot
-  (testing "a COMPOUND vector-path :state round-trips (was rejected pre-9l8h8)"
+  (testing "a COMPOUND vector-path :state round-trips"
     (let [cs   {:machine-id :shop/store
                 :frame-id   :app/main
                 :definition compound-definition
@@ -160,7 +159,7 @@
       (is (vector? (get-in back [:snapshot :state]))))))
 
 (deftest round-trip-parallel-snapshot
-  (testing "a PARALLEL region-map :state round-trips (was rejected pre-9l8h8)"
+  (testing "a PARALLEL region-map :state round-trips"
     (let [cs   (assoc parallel-state :snapshot {:state {:data :dirty :form :busy}})
           back (:rf.machines-viz.share/chart
                  (share/decode-share-url (encode cs)))]
@@ -200,7 +199,7 @@
                        :snapshot {:state state})
             url (encode cs)
             ;; decode-share-url-safe never throws — an undecodable URL
-            ;; (the pre-9l8h8 bug) would surface as {:error ...}.
+            ;; would surface as {:error ...}.
             r   (share/decode-share-url-safe url)]
         (is (some? (:ok r)) (str "arm round-trips cleanly: " (pr-str state)))
         (is (nil? (:error r)))
@@ -224,7 +223,7 @@
       (is (str/starts-with? url "https://acme.example.com/v.html#machine=")))))
 
 (deftest no-host-is-refused
-  (testing "rf2-8m344 — there is no default host, and a missing one is refused
+  (testing "there is no default host, and a missing one is refused
             rather than filled in with a URL that 404s"
     (doseq [opts [nil {} {:host nil} {:host ""} {:host "   "}]]
       (let [d (try (share/encode-share-url chart-state opts)
@@ -239,10 +238,9 @@
                            (catch :default _ nil)))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-xld5m — the `:host` fragment rule, and the deliberate LIMIT of it.
+;; The `:host` fragment rule, and the deliberate LIMIT of it.
 ;;
-;; Measured before anything was written. Every non-URL `:host` the encoder
-;; accepts produces a string that BEGINS with what the caller typed —
+;; Every non-URL `:host` the encoder accepts produces a string that BEGINS with what the caller typed —
 ;; `{:host "banana"}` → `"banana#machine=…"` — so a wrong host is visible at a
 ;; glance and dead at first paste. One malformed host is different: a `:host`
 ;; that already carries a fragment yields
@@ -252,12 +250,13 @@
 ;;
 ;; So the refusal is exactly one check wide, and the two tests below pin BOTH
 ;; sides of it: fragment-bearing hosts are refused, and every other host —
-;; absolute, relative, ported, queried, `file://` — still passes through
+;; absolute, relative, ported, queried, `file://` — passes through
 ;; VERBATIM with a byte-identical payload.
 
 (def ^:private fragment-bearing-hosts
-  "Hosts whose `#` makes the machine payload unreachable. Each one encoded
-  successfully before rf2-xld5m and produced a link the viewer refused."
+  "Hosts whose `#` makes the machine payload unreachable. Without the
+  refusal each would encode successfully and produce a link the viewer
+  refuses."
   {:trailing-fragment   "https://acme.example.com/viewer.html#docs"
    :bare-hash           "https://acme.example.com/viewer.html#"
    :already-a-share-url "https://acme.example.com/viewer.html#machine=AAAA"
@@ -265,7 +264,7 @@
    :bare-fragment       "#machine=x"})
 
 (deftest host-carrying-a-fragment-is-refused
-  (testing "rf2-xld5m — a :host that already has a URL fragment is refused at
+  (testing "a :host that already has a URL fragment is refused at
             encode: the payload IS the fragment, and the viewer stops at the
             first '#'"
     (doseq [[label host] fragment-bearing-hosts]
@@ -305,16 +304,16 @@
    "//acme.example.com/viewer.html"
    "/viewer.html"
    "viewer.html"
-   "  https://acme.example.com/viewer.html  "])   ;; trimmed, as before
+   "  https://acme.example.com/viewer.html  "])   ;; trimmed
 
 (deftest fragment-free-hosts-are-untouched
-  (testing "rf2-xld5m NEGATIVE CONTROL — every host without a '#' still
-            encodes EXACTLY as before: the host is passed through verbatim
-            (only trimmed), the payload is byte-identical, and the URL decodes"
+  (testing "NEGATIVE CONTROL — every host without a '#' encodes
+            untouched: the host is passed through verbatim (only trimmed),
+            the payload is byte-identical, and the URL decodes"
     (frozen-now
       (fn []
         ;; The fragment does not depend on the host, so with `:created` frozen
-        ;; it must be identical for every base — which is what "unchanged"
+        ;; it must be identical for every base — which is what "untouched"
         ;; means here: no normalising, no rewriting, no re-encoding.
         (let [canonical-fragment (subs (encode chart-state) (count test-host))]
           (is (str/starts-with? canonical-fragment "#machine="))
@@ -329,8 +328,8 @@
                     (str host ": the ChartState round-trips"))))))))))
 
 (deftest non-url-host-is-accepted-and-fails-visibly
-  (testing "rf2-xld5m — a host that is not a URL is NOT refused, and that is
-            the ruling rather than an omission: the failure is LOUD. The
+  (testing "a host that is not a URL is NOT refused, and that is
+            deliberate rather than an omission: the failure is LOUD. The
             returned string begins with the word the caller typed, so the
             defect is on screen before anyone shares it. A scheme allowlist
             would refuse the working forms above to catch this."
@@ -411,17 +410,17 @@
       (is (not (str/includes? url "proj")) "the file path never reaches the bytes"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-3x7nj.33.6 — the non-topology slots (`:schemas`, the root event
+;; The non-topology slots (`:schemas`, the root event
 ;; `:schema`, `:data`, `:meta`) are not share payload. Their values are
 ;; arbitrary host values: the ordinary Malli `[:re #"…"]` form is a JS
-;; `RegExp`, which Transit has no write handler for, so `encode-share-url`
-;; used to throw a raw `Error("Cannot write RegExp")` for any machine whose
-;; schema carried a regex. And a value Transit cannot write that still
+;; `RegExp`, which Transit has no write handler for, so writing them would
+;; throw a raw `Error("Cannot write RegExp")` for any machine whose schema
+;; carried a regex. And a value Transit cannot write that still
 ;; reaches the writer (an open namespaced slot) surfaces as the documented
 ;; `encode-failed` ex-info, not a raw host error.
 
 (def regex-schema-definition
-  "The bead's reproduction, widened to every non-topology slot: a
+  "A regex (or other host value) in every non-topology slot: a
   `[:schemas :data]` regex, a root event `:schema`, the initial `:data`,
   `:meta`, a nested state's `:meta` and a `:spawn`'s `:data`."
   {:initial :a
@@ -435,7 +434,7 @@
              :b {}}})
 
 (deftest regex-bearing-non-topology-slots-encode
-  (testing "rf2-3x7nj.33.6 — a definition whose :schemas carries a regex
+  (testing "a definition whose :schemas carries a regex
             encodes, and the non-topology slots do not ride the payload"
     (let [cs   (assoc chart-state :definition regex-schema-definition)
           url  (encode cs)
@@ -452,7 +451,7 @@
       (is (= {} (get-in dfn [:states :b]))))))
 
 (deftest identifiers-named-like-non-topology-slots-survive
-  (testing "rf2-3x7nj.33.6 — the drop applies to RECORD fields only: a state,
+  (testing "the drop applies to RECORD fields only: a state,
             event or region whose id is :data / :meta / :schemas survives"
     (let [flat {:initial :data
                 :states  {:data    {:on {:meta :schemas}}
@@ -469,7 +468,7 @@
           "the region named :data survives"))))
 
 (deftest unencodable-value-surfaces-as-encode-failed
-  (testing "rf2-3x7nj.33.6 — a value Transit cannot write, left in an open
+  (testing "a value Transit cannot write, left in an open
             namespaced slot, throws the documented encode-failed ex-info,
             value-free, instead of a raw `Cannot write` error"
     (let [dfn {:initial :a :states {:a {:my.app/pattern #"leaky-pattern"}}}
@@ -486,13 +485,13 @@
           "neither the value nor the host message rides ex-data"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-m285a — macro-stamped DATA (not metadata) sanitisation. A reg-machine
+;; Macro-stamped DATA (not metadata) sanitisation. A reg-machine
 ;; macro co-locates `:source-coords` / `:source-code` + executable `:fn`
 ;; values as ordinary DATA inside `:states` / `:guards` / `:actions`
 ;; (Spec 005 §Source-coord stamping). `strip-meta` (which
-;; touches Clojure METADATA only) does NOT reach them, so the share encoder
-;; leaked local-filesystem paths + source snippets and could fail to encode a
-;; live `:fn`. `sanitise-definition` strips them structurally.
+;; touches Clojure METADATA only) does NOT reach them, so on its own the share
+;; encoder would leak local-filesystem paths + source snippets and could fail
+;; to encode a live `:fn`. `sanitise-definition` strips them structurally.
 
 (def macro-stamped-like-definition
   "Mimics the reg-machine macro's dev-arm output: per-node `:source-coords`
@@ -521,7 +520,7 @@
                                     :line 84 :column 11}}}})
 
 (deftest macro-stamped-source-coords-do-not-leak
-  (testing "rf2-m285a — nested :source-coords / :source-code on :states /
+  (testing "nested :source-coords / :source-code on :states /
             :guards / :actions are stripped before Transit (no local path leak)"
     (let [cs   (assoc chart-state :definition macro-stamped-like-definition)
           url  (encode cs)
@@ -546,7 +545,7 @@
       (is (contains? (:actions dfn) :commit)))))
 
 (deftest macro-stamped-executable-fns-do-not-block-encoding
-  (testing "rf2-m285a — a live :fn on a guards/actions entry AND an inline-fn
+  (testing "a live :fn on a guards/actions entry AND an inline-fn
             action encode successfully (instead of crashing Transit) — the
             executable body is dropped / labelled, not serialised"
     (let [cs  (assoc chart-state :definition macro-stamped-like-definition)
@@ -554,17 +553,17 @@
           dfn (:definition
                 (:rf.machines-viz.share/chart (share/decode-share-url url)))]
       (is (string? url) "encoding succeeds")
-      ;; The :guards / :actions entries no longer carry an executable :fn.
+      ;; The :guards / :actions entries carry no executable :fn.
       (is (nil? (get-in dfn [:guards :form-valid? :fn])))
       (is (nil? (get-in dfn [:actions :commit :fn])))
-      ;; The inline-fn :action slot was replaced by an opaque names-only label
+      ;; The encoder swaps the inline-fn :action slot for an opaque names-only label
       ;; (not a live fn, not a source body).
       (let [a (get-in dfn [:states :idle :on :submit :action])]
         (is (not (fn? a)) "the inline fn was not serialised as an executable")
         (is (keyword? a)  "it became an opaque label keyword")))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-skhlw2.1 — consumer-attachment `:rf.cofx/requires` (EP-0017) is SAFE
+;; Consumer-attachment `:rf.cofx/requires` (EP-0017) is SAFE
 ;; topology metadata (a vector of coeffect-id keywords), so a share URL must
 ;; PRESERVE it: `sanitise-definition` drops the entry's `:fn` / `:source-*`
 ;; but keeps the requires vector. The decoded definition re-derives the
@@ -587,7 +586,7 @@
              :busy {}}})
 
 (deftest cofx-requires-survive-share-round-trip
-  (testing "rf2-skhlw2.1 — a share URL PRESERVES safe :rf.cofx/requires
+  (testing "a share URL PRESERVES safe :rf.cofx/requires
             metadata while still dropping the executable :fn"
     (let [cs   (assoc chart-state :definition cofx-requires-definition)
           url  (encode cs)
@@ -603,11 +602,11 @@
       (is (nil? (get-in dfn [:actions :schedule-retry :fn]))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-07gg7h — `:fn` as a TOPOLOGY key (state id / event id / region id) is
-;; valid and MUST survive sanitisation. The pre-fix sanitiser dropped EVERY
-;; map entry whose key was `:fn`, silently removing such a state / transition /
-;; region. Only the EXECUTABLE `:fn` slot (a co-located `{:fn <fn> …}` value
-;; that is a function) is stripped — gated on `(fn? v)`.
+;; `:fn` as a TOPOLOGY key (state id / event id / region id) is
+;; valid and MUST survive sanitisation. A sanitiser that dropped EVERY map
+;; entry keyed `:fn` would silently remove such a state / transition / region,
+;; so only the EXECUTABLE `:fn` slot (a co-located `{:fn <fn> …}` value that is
+;; a function) is stripped — gated on `(fn? v)`.
 
 (def fn-id-definition
   "A valid topology that uses `:fn` as a STATE id, an EVENT id, and a
@@ -619,7 +618,7 @@
              :done  {:final? true}}})
 
 (deftest fn-as-state-id-survives-sanitisation
-  (testing "rf2-07gg7h — a state whose id is `:fn` is topology and is
+  (testing "a state whose id is `:fn` is topology and is
             preserved through share encode/decode (not dropped as if it were
             an executable function slot)"
     (let [cs   (assoc chart-state :definition fn-id-definition)
@@ -639,7 +638,7 @@
       (is (true? (get-in dfn [:states :done :final?]))))))
 
 (deftest fn-region-id-survives-sanitisation
-  (testing "rf2-07gg7h — a parallel REGION whose id is `:fn` is topology and
+  (testing "a parallel REGION whose id is `:fn` is topology and
             is preserved (region-id `:fn` is not an executable slot)"
     (let [defn {:type    :parallel
                 :regions {:fn {:initial :one :states {:one {:on {:go :two}} :two {}}}
@@ -656,9 +655,9 @@
       (is (contains? (:regions dfn) :b)))))
 
 (deftest executable-fn-slot-still-dropped-alongside-fn-topology
-  (testing "rf2-07gg7h — preserving topology keyed `:fn` does NOT regress the
-            privacy guarantee: a co-located EXECUTABLE `:fn` slot (a fn value)
-            is still stripped, even when a `:fn` STATE id is also present"
+  (testing "preserving topology keyed `:fn` keeps the privacy
+            guarantee: a co-located EXECUTABLE `:fn` slot (a fn value) is
+            stripped, even when a `:fn` STATE id is also present"
     (let [defn {:initial :fn
                 :guards  {:ready? {:fn (fn [_] true)}}   ;; executable slot
                 :states  {:fn {:on {:go {:target :done :guard :ready?}}}
@@ -672,15 +671,15 @@
       (is (contains? (:states dfn) :fn) "the `:fn` STATE id is preserved")
       ;; … while the EXECUTABLE `:fn` slot is stripped.
       (is (nil? (get-in dfn [:guards :ready? :fn]))
-          "the executable :fn slot is still dropped")
+          "the executable :fn slot is dropped")
       (is (contains? (:guards dfn) :ready?)
           "the guard NAME (its key) survives, names-only"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-fzbj.13 / rf2-gwye.48 — a function-valued `:after` delay (Spec 005) is a
-;; map KEY, so the value-side fn handling never reached it: the fn survived
-;; sanitisation and Transit refused to write it. It now shares as an inert
-;; numbered vector label, and the delay fn is never called.
+;; A function-valued `:after` delay (Spec 005) is a
+;; map KEY, out of reach of the value-side fn handling: left alone the fn
+;; would survive sanitisation and Transit would refuse to write it. It shares
+;; as an inert numbered vector label, and the delay fn is never called.
 
 (defn- round-trip-definition
   "Encode definition `d` as a share-URL and return the decoded `:definition`."
@@ -691,7 +690,7 @@
       :definition))
 
 (deftest fn-valued-after-delay-shares-as-an-inert-label
-  (testing "rf2-fzbj.13 — a fn delay key encodes (Transit writes no fn),
+  (testing "a fn delay key encodes (Transit writes no fn),
             decodes to a projectable definition, keeps its timed transition,
             and the fn is never invoked"
     (let [calls    (atom 0)
@@ -711,7 +710,7 @@
       (is (zero? @calls) "the delay fn was never called"))))
 
 (deftest distinct-anonymous-fn-delays-keep-distinct-transitions
-  (testing "rf2-fzbj.13 — two anonymous delay fns share a label, so the
+  (testing "two anonymous delay fns share a label, so the
             numbering is what keeps them from merging into one key"
     (let [d   {:initial :idle
                :states  {:idle {:after {(fn [_] 100) :a
@@ -723,7 +722,7 @@
       (is (= (layout/semantic-counts d) (layout/semantic-counts dfn))))))
 
 (deftest literal-and-subscription-delays-round-trip-unchanged
-  (testing "rf2-fzbj.13 — the fn-key rewrite leaves literal ms and
+  (testing "the fn-key rewrite leaves literal ms and
             subscription-vector delay keys exactly as authored"
     (let [d {:initial :idle
              :states  {:idle {:after {1000              :a
@@ -732,11 +731,11 @@
       (is (= d (round-trip-definition d))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-gwye.49 — `:source-code` / `:source-coords` are debug fields on a RECORD
+;; `:source-code` / `:source-coords` are debug fields on a RECORD
 ;; (a state node, transition candidate or guard/action entry), but they are
-;; also valid topology ids. The pre-fix walk dropped the key wherever it
-;; appeared, so a state, event, region, guard or action with either name
-;; vanished while validation still passed.
+;; also valid topology ids. A walk that dropped the key wherever it appeared
+;; would make a state, event, region, guard or action with either name
+;; vanish while validation still passed.
 
 (def debug-named-topology
   "Every id spelled like a debug field, beside GENUINE debug fields on the
@@ -756,7 +755,7 @@
              :source-coords {:on {:go :source-code}}}})
 
 (deftest debug-named-topology-ids-survive-sharing
-  (testing "rf2-gwye.49 — state, event, guard and action ids spelled
+  (testing "state, event, guard and action ids spelled
             `:source-code` / `:source-coords` survive; genuine annotations on
             the same records are still stripped"
     (let [url (encode (assoc chart-state :definition debug-named-topology))
@@ -784,7 +783,7 @@
             "the action keeps its name and loses :fn and :source-coords")))))
 
 (deftest debug-named-region-ids-survive-sharing
-  (testing "rf2-gwye.49 — parallel REGION ids spelled like debug fields survive"
+  (testing "parallel REGION ids spelled like debug fields survive"
     (let [d   {:type    :parallel
                :regions {:source-code   {:initial :a :states {:a {:on {:go :b}} :b {}}}
                          :source-coords {:initial :p :states {:p {}}}}}
@@ -804,7 +803,7 @@
           d (try (share/decode-share-url future-url)
                  (catch :default e (ex-data e)))]
       (is (= :unknown-version (:reason d)))
-      ;; rf2-m46qv — the INTEGER the version comparison used, not the raw
+      ;; The INTEGER the version comparison used, not the raw
       ;; `:v` off the payload (which is forged input of any size).
       (is (= 3 (:payload-version d))))))
 
@@ -867,7 +866,7 @@
           d (try (share/decode-share-url smuggled)
                  (catch :default e (ex-data e)))]
       (is (= :invalid-chart-state (:reason d))
-          "widening :state to a configuration does NOT loosen the closed-map rule"))))
+          "a configuration :state does NOT loosen the closed-map rule"))))
 
 (deftest decoded-malformed-state-rejected
   (testing "a hand-edited URL whose :state is none of the three arms is rejected on decode (symmetric)"
@@ -881,18 +880,16 @@
       (is (= :invalid-chart-state (:reason d))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-3fc89f.18 — malformed machine DEFINITIONS fail closed at the
-;; share/viewer trust boundary. The boundary previously carried a PRIVATE
-;; definition-shape predicate weaker than the canonical Machines-Viz grammar
-;; gate (`grammar/valid-definition?` — the SAME gate the AI / Mermaid / SCXML
-;; emitters + the chart projector share): it accepted any TRUTHY flat
-;; `:initial` (even a STRING) and every non-empty parallel `:regions` map
-;; WITHOUT validating the region bodies. A forged-but-valid-Transit share URL
-;; therefore decoded `:ok` and was handed to `MachineChart` even though the
-;; same definition is rejected everywhere else. The fix deletes the private
-;; copy and routes the definition slot through the canonical grammar gate
-;; (after the SAME `desugar-grammar` policy the projectors use), so decode
-;; FAILS CLOSED on a malformed definition.
+;; Malformed machine DEFINITIONS fail closed at the share/viewer trust
+;; boundary. The boundary routes the definition slot through the canonical
+;; Machines-Viz grammar gate (`grammar/valid-definition?` — the SAME gate the
+;; AI / Mermaid / SCXML emitters + the chart projector share), after the SAME
+;; `desugar-grammar` policy the projectors use, so decode FAILS CLOSED on a
+;; malformed definition. A private definition-shape predicate would drift
+;; weaker — accepting any TRUTHY flat `:initial` (even a STRING) or any
+;; non-empty parallel `:regions` map WITHOUT validating the region bodies —
+;; and a forged-but-valid-Transit share URL would decode `:ok` and reach
+;; `MachineChart` though the same definition is rejected everywhere else.
 
 (def timeout-definition
   "An authored `:timeout` / `:on-timeout` definition (EP-0029 A4). The share
@@ -923,8 +920,8 @@
    :choice   choice-definition})
 
 (def malformed-definitions
-  "Machine definitions the canonical grammar gate REJECTS but the old private
-  share predicate ACCEPTED. Each is a well-formed Transit value (it survives
+  "Machine definitions the canonical grammar gate REJECTS but a weaker
+  private shape check would ACCEPT. Each is a well-formed Transit value (it survives
   decode up to the schema check) but a malformed machine SHAPE — a non-keyword
   / missing flat `:initial`, empty `:states`, or a malformed parallel region
   body (missing keyword `:initial` / empty `:states`)."
@@ -946,7 +943,7 @@
      :rf.machines-viz.share/created 0}))
 
 (deftest decoded-malformed-definition-rejected-throwing
-  (testing "rf2-3fc89f.18 — a forged share-URL carrying a malformed machine
+  (testing "a forged share-URL carrying a malformed machine
             definition is rejected at decode with :invalid-chart-state (the
             throwing API), fail-closed"
     (doseq [[label definition] malformed-definitions]
@@ -957,7 +954,7 @@
         (is (= :rf.machines-viz.share/decode-failed (:rf.error/id d)))))))
 
 (deftest decoded-malformed-definition-rejected-safe
-  (testing "rf2-3fc89f.18 — the SAFE decode API returns
+  (testing "the SAFE decode API returns
             {:error {:reason :invalid-chart-state}} — never :ok — for a
             malformed definition (the viewer's ingestion API)"
     (doseq [[label definition] malformed-definitions]
@@ -967,7 +964,7 @@
             (str "malformed definition " label " surfaces a banner-friendly reason"))))))
 
 (deftest encode-rejects-malformed-definitions
-  (testing "rf2-3fc89f.18 — the encoder rejects the same malformed definitions
+  (testing "the encoder rejects the same malformed definitions
             (encode/decode stay symmetric — the encoder never emits a payload
             the decoder would reject)"
     (doseq [[label definition] malformed-definitions]
@@ -978,9 +975,9 @@
         (is (= :rf.machines-viz.share/encode-failed (:rf.error/id d)))))))
 
 (deftest valid-definitions-round-trip-unchanged
-  (testing "rf2-3fc89f.18 — hardening the gate does NOT regress valid
-            definitions; flat / compound / parallel / timeout / choice authored
-            forms all round-trip UNCHANGED (share stores the authored form; the
+  (testing "valid definitions pass the gate; flat / compound /
+            parallel / timeout / choice authored forms all round-trip
+            UNCHANGED (share stores the authored form; the
             boundary desugars only to validate, never rewriting the payload)"
     (doseq [[label definition] valid-definitions]
       (let [cs   {:machine-id :demo :definition definition}
@@ -990,12 +987,12 @@
             (str label " definition round-trips UNCHANGED (authored form preserved)"))))))
 
 (deftest share-definition-gate-agrees-with-canonical-grammar
-  (testing "rf2-3fc89f.18 — the share boundary accepts/rejects EXACTLY the
+  (testing "the share boundary accepts/rejects EXACTLY the
             definitions the canonical Machines-Viz grammar gate does (the same
             gate the AI / Mermaid / SCXML emitters + chart projector share), so
             one machine value cannot be accepted by one surface and rejected by
             another. Pins one table of valid + invalid shapes against the
-            canonical predicate so the boundaries cannot drift again."
+            canonical predicate so the boundaries cannot drift."
     (doseq [[label definition] (merge valid-definitions malformed-definitions)]
       ;; `grammar/valid-definition?` is a truthy/falsy predicate (its last
       ;; `and` term is `(seq …)` — a seq, not a literal boolean), so coerce
@@ -1007,14 +1004,14 @@
                  "(canonical? " canonical? ", share-ok? " share-ok? ")"))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-j538f7.18 — RECURSIVELY-malformed definitions (structurally invalid
+;; RECURSIVELY-malformed definitions (structurally invalid
 ;; BELOW the root: a nested compound missing :initial, a dangling transition
-;; target, an unknown bare node key) ALSO fail closed at the share boundary. The
-;; pre-fix shallow canonical gate blessed these (their ROOT shape is fine), so a
-;; forged share-URL carrying one decoded :ok and reached MachineChart even though
-;; the definition is rejected everywhere the runtime is consulted. The recursive
-;; gate now rejects them at BOTH encode and decode, exactly like the flat /
-;; parallel shapes rf2-3fc89f.18 covered (which stay green).
+;; target, an unknown bare node key) ALSO fail closed at the share boundary.
+;; Their ROOT shape is fine, so a shallow gate would bless them and a forged
+;; share-URL carrying one would decode :ok and reach MachineChart though the
+;; definition is rejected everywhere the runtime is consulted. The recursive
+;; gate rejects them at BOTH encode and decode, exactly like the flat /
+;; parallel shapes above.
 
 (def recursively-malformed-definitions
   {:nested-compound-no-initial {:initial :outer :states {:outer {:states {:inner {}}}}}
@@ -1022,7 +1019,7 @@
    :unknown-node-key           {:initial :idle :states {:idle {:on-entry :oops}}}})
 
 (deftest decoded-recursively-malformed-definition-rejected
-  (testing "rf2-j538f7.18 — a forged v2 share-URL carrying a recursively-
+  (testing "a forged v2 share-URL carrying a recursively-
             malformed definition fails closed at decode (:invalid-chart-state),
             via BOTH the throwing and the safe decode APIs"
     (doseq [[label definition] recursively-malformed-definitions]
@@ -1036,7 +1033,7 @@
         (is (= :invalid-chart-state (:reason error)))))))
 
 (deftest encode-rejects-recursively-malformed-definitions
-  (testing "rf2-j538f7.18 — the encoder rejects the same recursively-malformed
+  (testing "the encoder rejects the same recursively-malformed
             definitions (encode/decode stay symmetric)"
     (doseq [[label definition] recursively-malformed-definitions]
       (let [d (try (encode {:machine-id :demo :definition definition})
@@ -1046,9 +1043,9 @@
         (is (= :rf.machines-viz.share/encode-failed (:rf.error/id d)))))))
 
 (deftest share-gate-recursively-malformed-agrees-with-canonical-grammar
-  (testing "rf2-j538f7.18 — the share boundary rejects EXACTLY the recursively-
+  (testing "the share boundary rejects EXACTLY the recursively-
             malformed definitions the canonical RECURSIVE grammar gate rejects,
-            and the prior rf2-3fc89f.18 flat/parallel cases remain rejected"
+            and the flat/parallel cases above are rejected too"
     (doseq [[label definition] (merge malformed-definitions recursively-malformed-definitions)]
       (let [canonical? (boolean (grammar/valid-definition? (grammar/desugar-grammar definition)))
             share-ok?  (some? (:ok (share/decode-share-url-safe (forge-definition-url definition))))]
@@ -1057,7 +1054,7 @@
             (str label ": share boundary agrees with the canonical grammar gate"))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-dplwxh — top-level ChartState is CLOSED on decode. The encoder
+;; Top-level ChartState is CLOSED on decode. The encoder
 ;; allowlists to #{:machine-id :frame-id :definition :snapshot} before
 ;; serialising, but a hand-crafted URL bypasses the encoder entirely. The
 ;; decoder must therefore reject any extra top-level chart key
@@ -1143,7 +1140,7 @@
 
 (deftest malformed-fragment-rejected
   (testing "a URL with no #machine= fragment throws :malformed-fragment"
-    ;; rf2-vvixub — the message is now the human sentence + the
+    ;; The message is the human sentence + the
     ;; [:rf.machines-viz.share/decode-failed] token; the fine-grained
     ;; classification rides the documented :reason slot (branch on that).
     (is (thrown? :default
@@ -1211,7 +1208,7 @@
       (is (= {:data :dirty :form :busy} (:current-state props))))))
 
 ;; ---------------------------------------------------------------------------
-;; EP-0015 — error ex-data carries NO raw payload (rf2-8nzxib)
+;; EP-0015 — error ex-data carries NO raw payload
 ;;
 ;; A thrown encode/decode error must NOT retain the rejected payload in
 ;; ex-data: a forged share URL can smuggle a `:snapshot {:data …}` map or
@@ -1281,17 +1278,16 @@
           "the secret string must not survive anywhere in ex-data"))))
 
 ;; ---------------------------------------------------------------------------
-;; EP-0015 — the thrown diagnostic is content-free BY CONSTRUCTION (rf2-m46qv)
+;; EP-0015 — the thrown diagnostic is content-free BY CONSTRUCTION
 ;;
 ;; The section above plants a secret in a VALUE position and hunts for it.
-;; It passed for as long as `value-free-summary` disclosed the payload
-;; anyway, because a sentinel hunt only ever finds the leak someone thought
-;; to plant: the map leg returned `:keys` — every top-level key, uncapped
-;; and unsanitised — and the keyword leg returned the raw keyword as
-;; `:value`. Both sit in KEY / TYPE positions the old hunt never looked at,
-;; and both are attacker-chosen in CONTENT and in SIZE, since the whole
-;; point of this namespace's header is that "a forged share URL can smuggle
-;; arbitrary runtime values".
+;; A sentinel hunt only ever finds the leak someone thought to plant: a map
+;; leg returning `:keys` — every top-level key, uncapped and unsanitised — or
+;; a keyword leg returning the raw keyword as `:value` would disclose the
+;; payload from KEY / TYPE positions such a hunt never looks at, and both
+;; are attacker-chosen in CONTENT and in SIZE, since the whole point of this
+;; namespace's header is that "a forged share URL can smuggle arbitrary
+;; runtime values".
 ;;
 ;; So the checks below are a GRAMMAR, not a hunt. Every summary this
 ;; namespace can emit, over a corpus of hostile inputs, must consist of a
@@ -1317,8 +1313,8 @@
   "Does `x`, once serialized, reproduce any fragment of the sentinel — under
   any key, at any depth, as a string, a keyword, a symbol or a map key?
   `pr-str` is the check rather than the string walk above precisely because
-  a leaked KEYWORD is not a string, which is how the `:keys` leg survived a
-  test file that already claimed to assert this."
+  a leaked KEYWORD is not a string, so a string walk passes while a keyword
+  key set discloses."
   [x]
   (let [s (pr-str x)]
     (boolean (some #(str/includes? s %) sentinel-fragments))))
@@ -1357,9 +1353,9 @@
 
 (defn- exploding-object
   "A host object whose `toString` throws. A caller can put one in a
-  chart-state key, and `(sort-by str (keys v))` ran `str` over every key —
-  so the old summariser could throw the key's OWN exception in place of the
-  failure it was called to describe."
+  chart-state key, and a summariser that runs `str` over every key
+  (`(sort-by str (keys v))`) would throw the key's OWN exception in place of
+  the failure it was called to describe."
   []
   (let [o #js {}]
     (set! (.-toString o)
@@ -1384,15 +1380,14 @@
    true                                            12})
 
 (def ^:private attacker-sized-envelope
-  "2000 sentinel-bearing keys. The old `:keys` leg reproduced every one of
-  them, so the summary grew with the forger's input without limit."
+  "2000 sentinel-bearing keys. A `:keys` leg would reproduce every one of
+  them, growing the summary with the forger's input without limit."
   (into {} (map (fn [i] [(keyword (str sentinel "-" i)) i])) (range 2000)))
 
 (def ^:private forged-payloads
   "Payloads a forged `#machine=` fragment can decode to. Transit carries
   every one of them, so every one is attacker-reachable through the PUBLIC
-  decoder — including the arms whose summary legs the old code never
-  bounded at all."
+  decoder — so every arm's summary leg must be bounded."
   [["a map keyed by sentinels of every key type"  hostile-keys]
    ["an attacker-sized 2000-key map"              attacker-sized-envelope]
    ["a nested map-of-map-of-set"                  {:a {:b #{sentinel}}
@@ -1458,10 +1453,11 @@
 
 (deftest decode-error-omits-the-caller-url
   (testing "a URL with no #machine= fragment does not ride into ex-data"
-    ;; The encoder already refuses to put `:host` in ex-data, because "a
-    ;; viewer URL can carry a query string with a token in it" — that is what
-    ;; its `:fragment-index` slot is for. The decoder is the far more exposed
-    ;; side (it is handed URLs from elsewhere) and it carried the WHOLE url.
+    ;; The encoder refuses to put `:host` in ex-data, because "a viewer URL
+    ;; can carry a query string with a token in it" — that is what its
+    ;; `:fragment-index` slot is for. The decoder is the far more exposed
+    ;; side (it is handed URLs from elsewhere), so it must not carry the url
+    ;; either.
     (let [url (str "https://x/viewer.html?session=" sentinel)
           e   (try (share/decode-share-url url) nil (catch :default ex ex))
           d   (ex-data e)]
@@ -1474,9 +1470,9 @@
 (deftest decode-error-omits-the-host-parse-message
   (testing "the host parser's own error message does not republish the payload"
     ;; `transit/read` calls `JSON.parse`, and V8 embeds a PREFIX OF ITS INPUT
-    ;; in the SyntaxError it throws. `:cause (.-message e)` therefore
-    ;; republished the forged payload's plaintext under a slot named for the
-    ;; cause — a leak nobody wrote, inherited from the host.
+    ;; in the SyntaxError it throws, so a `:cause (.-message e)` slot would
+    ;; republish the forged payload's plaintext under a slot named for the
+    ;; cause — a leak nobody writes, inherited from the host.
     (let [plaintext (str sentinel "-not-transit")
           b64       (-> (js/btoa (js/unescape (js/encodeURIComponent plaintext)))
                         (str/replace "+" "-")
@@ -1529,7 +1525,7 @@
       (is (content-free-summary? (:chart-state-summary d)))
       (is (not (discloses? d)) "no sentinel fragment in ex-data")
       (is (not (discloses? (ex-message e))) "no sentinel fragment in the message")))
-  (testing "a chart-state key whose toString throws no longer destroys the failure being described"
+  (testing "a chart-state key whose toString throws does not destroy the failure being described"
     (let [leaky {(exploding-object) :whatever
                  :machine-id        :auth/flow
                  :definition        idle-loading-success
