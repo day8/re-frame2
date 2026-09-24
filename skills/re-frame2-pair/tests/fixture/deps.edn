@@ -12,9 +12,9 @@
 ;; (otherwise epoch-history is empty and re-frame2-pair's tests can't observe
 ;; dispatch cascades) + schemas + machines (the re-frame2-pair runtime
 ;; preload `:require`s `re-frame.schemas` and `re-frame.machines` directly
-;; for its `get-path`/`orient`/list-machines surfaces — those vars were
-;; demoted off the `re-frame.core` facade by the wad2fl front-porch
-;; shrink, so the owned-namespace artefacts must be on the classpath).
+;; for its `get-path`/`orient`/list-machines surfaces — those vars live in
+;; their owning namespaces, not on the `re-frame.core` facade, so the
+;; owned-namespace artefacts must be on the classpath).
 ;;
 ;; `thheller/shadow-cljs` is listed here because `shadow-cljs.edn` runs
 ;; with `:deps true` — shadow-cljs builds the classpath from this file
