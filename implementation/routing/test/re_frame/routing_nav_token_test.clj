@@ -2,9 +2,9 @@
   "Navigation-token stale-result-suppression + `:on-match` loader tests
   for re-frame.routing (nav-token allocation, the `:rf.route/nav-token` cofx, the
   `:rf.route/with-nav-token` fx, and multi-loader `:on-match` ordering /
-  error precedence). Split from routing_test.clj per rf2-u8qe7y finding 3.
+  error precedence).
 
-  ## Posture split (rf2-o5dbf)
+  ## Posture split
 
   STALE-RESULT SUPPRESSION is production-real and carries no posture guard.
   Suppression is enforcement, not advice: a superseded completion's app
@@ -22,16 +22,16 @@
   and the EP-0011 `:rf.reply/status` / `:rf.reply/work-status` /
   `:rf.reply/stale-reason` envelope vocabulary. All of it rides `trace/emit!`,
   gated on `rf.interop/debug-enabled?` and read once at load time, so under the
-  real gate there is no trace to carry it. Those assertions are kept VERBATIM
-  inside `(when rf.interop/debug-enabled? …)` arms marked `rf2-o5dbf`.
+  real gate there is no trace to carry it. Those assertions sit
+  inside `(when rf.interop/debug-enabled? …)` arms marked as dev-instrumentation arms.
 
   Four are NEGATIVE over the trace and would pass vacuously under the gate —
   `(not (contains? (:tags stale) :event-id))`, `(not (contains? (:tags stale)
   :completed-at))`, the `not-any?` mis-attribution guard, and the `not-any?
   :rf.error/fx-handler-exception` leg. They are inside the arm. The three
-  `:completed-at` deftests had NO non-trace assertion at all, so each gained
+  `:completed-at` deftests each carry, outside the arm,
   the production witness the suppression actually is: the stale payload never
-  reached app-db. Nothing was deleted or weakened."
+  reaches app-db."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
@@ -91,7 +91,7 @@
              (:article (rf/app-db-value :rf/default)))
           "only B's payload committed; A's was suppressed")
 
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The
+      ;; Dev-instrumentation arm (see ns docstring). The
       ;; SUPPRESSION itself is pinned by the app-db assertion above, which is
       ;; posture-independent: A's payload never landed.
       (when rf.interop/debug-enabled?
@@ -103,10 +103,10 @@
                 @traces)
           "expected :rf.route.nav-token/stale-suppressed trace for the A response")
 
-      ;; rf2-ejitk8 — the suppressed continuation's event-id rides under the
+      ;; The suppressed continuation's event-id rides under the
       ;; CANONICAL `:rf.trace/event-id` tag (the spelling Spec 012 + Spec 009's
-      ;; error catalogue now document), NOT a bare `:event-id`. Pin the
-      ;; spec↔impl alignment so the just-corrected drift cannot re-open: the
+      ;; error catalogue document), NOT a bare `:event-id`. Pin the
+      ;; spec↔impl alignment so the two cannot drift apart: the
       ;; raw `:tags` must never carry a bare `:event-id` (that bare spelling is
       ;; legitimate ONLY in the error-slice / projection record layers, not in
       ;; raw trace tags — see Conventions §identity key spellings).
@@ -117,11 +117,11 @@
         (is (= :article/loaded (-> stale :tags :rf.trace/event-id))
             "the canonical :rf.trace/event-id tag carries the suppressed event-id")
         (is (not (contains? (:tags stale) :event-id))
-            "no bare :event-id tag in the raw trace :tags (drift removed)"))
+            "no bare :event-id tag in the raw trace :tags"))
 
-      ;; rf2-zqefg3.5 — the suppression trace is joined to the route
+      ;; The suppression trace is joined to the route
       ;; work-id `[:rf.work/route route-id nav-token loader-id]`
-      ;; (EP-0011 §Route Loader Completion). rf2-azcmd3 — the route-id is the
+      ;; (EP-0011 §Route Loader Completion). The route-id is the
       ;; CAPTURED id (:route/article), not the live slice id at arrival; the
       ;; carried (stale) token rides in the tuple, so the suppressed attempt
       ;; is correlatable by `:work/id` in the trace stream.
@@ -133,12 +133,12 @@
           "the stale-suppressed trace is joined to the route :work/id (the carried nav-token rides in the tuple)")))))
 
 (deftest cross-route-stale-uses-captured-route-id-not-live-route
-  (testing "rf2-azcmd3 — when route A's stale completion arrives AFTER navigating to a DIFFERENT route B, the work-id carries route A's CAPTURED id, never route B's live id"
-    ;; The masking the prior tests had (A and B on the SAME route id) is gone
-    ;; here: A is :route/article, B is :route/profile. Reading the LIVE slice
+  (testing "when route A's stale completion arrives AFTER navigating to a DIFFERENT route B, the work-id carries route A's CAPTURED id, never route B's live id"
+    ;; Tests with A and B on the SAME route id cannot tell the captured id from
+    ;; the live one; here A is :route/article, B is :route/profile. Reading the LIVE slice
     ;; id at stale-arrival would mint a corrupt
     ;; `[:rf.work/route :route/profile "nav-1" :article/loaded]` (route B's id
-    ;; with route A's carried nav-token). The fix uses the CAPTURED route id.
+    ;; with route A's carried nav-token). The work-id uses the CAPTURED route id.
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (rf/reg-route :route/profile {:params [:map [:id :string]]} "/profile/:id")
     (rf/reg-event :article/loaded
@@ -173,7 +173,7 @@
       (is (nil? (:article (rf/app-db-value :rf/default)))
           "route A's stale loader was suppressed; nothing committed")
 
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The work-id
+      ;; Dev-instrumentation arm (see ns docstring). The work-id
       ;; is a trace-only correlation key, and the second leg is NEGATIVE over
       ;; the ring. The suppression they annotate is pinned by the app-db
       ;; assertion above, posture-independently.
@@ -225,7 +225,7 @@
                        {:fx [[:rf.route/with-nav-token
                               {:rf/reply-to [:article/loaded id payload]
                                :nav-token   carried-token
-                               ;; rf2-azcmd3 — thread the CAPTURED route id so
+                               ;; Thread the CAPTURED route id so
                                ;; a cross-route stale completion attributes its
                                ;; work-id to the route-loader attempt.
                                :route-id    carried-route-id}]]}))
@@ -269,7 +269,7 @@
              (:article (rf/app-db-value :rf/default)))
           "fresh :rf/reply-to ran end-to-end; stale :rf/reply-to was suppressed before commit")
 
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). Everything
+      ;; Dev-instrumentation arm (see ns docstring). Everything
       ;; from here to the end of this deftest is spelled ON the trace; the
       ;; enforcement it annotates is pinned by the app-db assertion above.
       (when rf.interop/debug-enabled?
@@ -281,8 +281,8 @@
                 @traces)
           "stale :rf/reply-to produced :rf.route.nav-token/stale-suppressed with the target's event-id")
 
-      ;; rf2-zqefg3.5 — the production fx path joins the suppression
-      ;; trace to the route work-id. rf2-azcmd3 — `route-id` is now the
+      ;; The production fx path joins the suppression
+      ;; trace to the route work-id. `route-id` is the
       ;; CAPTURED id (`:route/article`, carried with the nav-token at request
       ;; time), NOT the live slice id at stale-arrival; `nav-token` is the
       ;; carried (stale) token "nav-1"; `loader-id` is the suppressed
@@ -294,15 +294,15 @@
                 @traces)
           "the production :rf.route/with-nav-token suppression is joined to the route :work/id")
 
-      ;; rf2-6mfkp3 — the PRODUCTION stale trace carries the canonical
+      ;; The PRODUCTION stale trace carries the canonical
       ;; EP-0011 reply-envelope vocabulary, NOT only the route-specific
       ;; carried/current tokens. A superseded route loader is a managed
       ;; async family, so it MUST be classifiable via the SAME
       ;; `:rf.reply/status` / `:rf.reply/work-status` / `:rf.reply/
       ;; stale-reason` facts the resource / machine / HTTP families stamp —
       ;; the uniform cross-surface view reads one vocabulary, not a
-      ;; route-private token pair. (The pure helper already produced these
-      ;; on `route-reply/suppress`; this pins they reach the production
+      ;; route-private token pair. (The pure helper `route-reply/suppress`
+      ;; produces these; this pins that they reach the production
       ;; trace.)
       (let [stale (some (fn [ev]
                           (when (= :rf.route.nav-token/stale-suppressed
@@ -318,7 +318,7 @@
           (is (= :rf.route/nav-token-stale (:rf.reply/stale-reason tags))
               "canonical EP-0011 :rf.reply/stale-reason — the named route stale cause")
           ;; the carried/current correlation gates ride the SAME shared
-          ;; `:rf.reply/*` facts the other families use (rf2-waawic).
+          ;; `:rf.reply/*` facts the other families use.
           (is (= {:route/nav-token "nav-1"} (:rf.reply/carried tags))
               "carried gate = the captured (stale) nav-token")
           (is (= {:route/nav-token "nav-2"} (:rf.reply/current tags))
@@ -336,20 +336,20 @@
                               @traces)))
           "exactly one stale-suppressed trace fired — the fresh :rf/reply-to did NOT trip the validation")))))
 
-;; ---- rf2-ux8sgg — stale route reply preserves the completion time ---------
+;; ---- stale route reply preserves the completion time ----------------------
 ;;
 ;; EP-0017 makes reply completions causal tokens: the completion time is the
 ;; recordable `:rf/time-ms` fact on the flat reply `:rf.cofx`, and route-loader
-;; stale replies are part of the uniform managed-async reply envelope. Before
-;; the fix the production `:rf.route/with-nav-token` path and the test fixture
-;; both dropped the completion time on the stale path — `route-reply/suppress`
-;; accepted `:completed-at` but no caller threaded one. These regressions prove
+;; stale replies are part of the uniform managed-async reply envelope.
+;; `route-reply/suppress` accepts `:completed-at`, and both the production
+;; `:rf.route/with-nav-token` path and the test fixture thread it on the stale
+;; path. These regressions prove
 ;; a stale route-loader completion that supplies the reply token time produces a
 ;; stale reply / trace carrying that `:completed-at`, so route completion time
-;; tracks the HTTP / resource / mutation families that already carry it.
+;; tracks the HTTP / resource / mutation families that also carry it.
 
 (deftest with-nav-token-fx-stale-preserves-completed-at
-  (testing "rf2-ux8sgg — a stale `:rf.route/with-nav-token` completion that
+  (testing "a stale `:rf.route/with-nav-token` completion that
             threads `:completed-at` (the reply token's :rf/time-ms fact)
             produces a stale-suppressed trace carrying that completion time"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
@@ -388,12 +388,12 @@
 
       (rf/unregister-listener! :trace ::completed-at-fx)
 
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the suppression this
+      ;; SEMANTIC, posture-independent: the suppression this
       ;; deftest annotates really happened — A's stale payload never reached
       ;; app-db. Without it this deftest would execute nothing under the gate.
       (is (nil? (:article (rf/app-db-value :rf/default)))
           "the stale completion was suppressed — no app-db write")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (let [stale (some (fn [ev]
                             (when (= :rf.route.nav-token/stale-suppressed
@@ -402,10 +402,10 @@
                           @traces)]
           (is (some? stale) "a production stale-suppressed trace fired")
           (is (= completion-ts (-> stale :tags :completed-at))
-              "the stale trace carries the threaded reply completion time (pre-fix: dropped)"))))))
+              "the stale trace carries the threaded reply completion time"))))))
 
 (deftest with-nav-token-fx-stale-omits-completed-at-when-absent
-  (testing "rf2-ux8sgg — when no completion time is threaded, the stale trace
+  (testing "when no completion time is threaded, the stale trace
             omits `:completed-at` (a loader that sourced none) — the slot is
             optional, never a nil placeholder"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
@@ -429,13 +429,13 @@
                           :id               "A"
                           :payload          "A-payload"}])
       (rf/unregister-listener! :trace ::no-completed-at)
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the suppression really
+      ;; SEMANTIC, posture-independent: the suppression really
       ;; happened. Without it this deftest would execute nothing under the
       ;; gate — and its second leg below is NEGATIVE over the ring, so with a
       ;; nil `stale` it would pass vacuously.
       (is (nil? (:article (rf/app-db-value :rf/default)))
           "the stale completion was suppressed — no app-db write")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (let [stale (some (fn [ev]
                             (when (= :rf.route.nav-token/stale-suppressed
@@ -447,7 +447,7 @@
               "no :completed-at tag when none was sourced (slot is optional)"))))))
 
 (deftest simulate-http-resolution-stale-preserves-completed-at
-  (testing "rf2-ux8sgg — the test fixture `:rf.test/simulate-http-resolution`
+  (testing "the test fixture `:rf.test/simulate-http-resolution`
             mirrors the production lane: a stale completion carrying
             `:carried-completed-at` produces a stale trace with that time"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
@@ -467,11 +467,11 @@
                           :carried-route-id     :route/article
                           :carried-completed-at completion-ts}])
       (rf/unregister-listener! :trace ::fixture-completed-at)
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the fixture mirrors the
+      ;; SEMANTIC, posture-independent: the fixture mirrors the
       ;; production lane, so it must suppress the same way — no app-db write.
       (is (nil? (:article (rf/app-db-value :rf/default)))
           "the fixture's stale completion was suppressed — no app-db write")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (let [stale (some (fn [ev]
                             (when (= :rf.route.nav-token/stale-suppressed
@@ -484,19 +484,19 @@
 
 ;; ---- Spec 012 §Navigation tokens step 2 — the `:rf.route/nav-token` cofx ----------
 ;;
-;; rf2-8fnwq: the spec promised an `:on-match`-reachable `:rf.route/nav-token`
-;; cofx (step 2 / step 4 "validating cofx") but no `reg-cofx
-;; :rf.route/nav-token` was registered. A handler that followed the spec —
-;; declared `:rf.cofx/requires [:rf.route/nav-token]` and read
-;; `{:rf.route/keys [nav-token]}` — threaded `nil`, which mismatched the
+;; The spec promises an `:on-match`-reachable `:rf.route/nav-token` cofx
+;; (step 2 / step 4 "validating cofx"). Without a registered `reg-cofx
+;; :rf.route/nav-token`, a handler that follows the spec — declares
+;; `:rf.cofx/requires [:rf.route/nav-token]` and reads
+;; `{:rf.route/keys [nav-token]}` — would thread `nil`, which mismatches the
 ;; current token in `:rf.route/with-nav-token` EVERY time, so the documented
-;; stale-suppression pattern silently ate the result. These tests are the
-;; failing-before / passing-after guard.
+;; stale-suppression pattern would silently eat the result. These tests guard
+;; the cofx.
 
 (deftest nav-token-cofx-injects-the-live-token
   (testing ":rf.cofx/requires [:rf.route/nav-token] delivers the current slice token — not nil"
     ;; The minimal contract: a handler declaring the cofx sees the live
-    ;; navigation epoch. Pre-fix this was nil (no reg-cofx :rf.route/nav-token).
+    ;; navigation epoch, never nil.
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
@@ -514,9 +514,9 @@
                             [:rf.runtime/routing :current :nav-token])]
         (rf/dispatch-sync [:article/capture-token])
         (is (= current @seen)
-            "the cofx injected the slice's live :nav-token (pre-fix: nil)")
+            "the cofx injected the slice's live :nav-token")
         (is (some? @seen)
-            "the injected token is non-nil (pre-fix the documented shape threaded nil)")))))
+            "the injected token is non-nil")))))
 
 (deftest nav-token-cofx-drives-documented-stale-suppression
   (testing "the spec step-2/step-3 example runs: capture via cofx, thread via
@@ -579,11 +579,11 @@
       (is (not= (@captured "A") (@captured "B"))
           "the cofx injected DIFFERENT live tokens for the two navigations")
       (is (every? some? (vals @captured))
-          "both captured tokens are non-nil (pre-fix the cofx threaded nil)")
+          "both captured tokens are non-nil")
       (is (= {:id "B" :payload "B-payload"}
              (:article (rf/app-db-value :rf/default)))
           "only B committed — A's stale completion was suppressed via the cofx-captured token")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The
+      ;; Dev-instrumentation arm (see ns docstring). The
       ;; documented stale/fresh outcome is pinned by the app-db assertion
       ;; above, posture-independently: only B committed.
       (when rf.interop/debug-enabled?
@@ -597,24 +597,24 @@
                                 @traces)))
             "exactly one suppression — B's fresh completion applied cleanly")))))
 
-;; ---- rf2-ph1grf — the documented path captures a COMPLETE route work-id -----
+;; ---- the documented path captures a COMPLETE route work-id ----------------
 ;;
 ;; EP-0011 / Managed-Effects §Work-id correlation: the route-loader work-id is
 ;; `[:rf.work/route route-id nav-token loader-id]` — one attempt, one COMPLETE
-;; `:work/id`. Before the fix the documented `:rf.route/nav-token`-only capture
-;; path threaded just the nav-token, so a stale completion was traced as
-;; `[:rf.work/route nil nav-token loader-id]` — the route attempt identity was
-;; lost even though the route id was known at scheduling time. The fix adds the
-;; companion `:rf.route/route-id` cofx so the documented capture grabs BOTH
+;; `:work/id`. A `:rf.route/nav-token`-only capture would thread just the
+;; nav-token, so a stale completion would be traced as
+;; `[:rf.work/route nil nav-token loader-id]` — losing the route attempt
+;; identity even though the route id is known at scheduling time. The
+;; companion `:rf.route/route-id` cofx lets the documented capture grab BOTH
 ;; facts together; this test drives the documented cofx path end-to-end and
 ;; asserts the stale trace carries the FULL (non-nil-route) tuple.
 
 (deftest nav-token+route-id-cofx-yields-complete-route-work-id
-  (testing "rf2-ph1grf — a loader that declares the framework :rf.route/nav-token
+  (testing "a loader that declares the framework :rf.route/nav-token
             + :rf.route/route-id cofx captures both facts; the documented
             :rf.route/with-nav-token completion's stale trace carries the
             COMPLETE [:rf.work/route route-id nav-token loader-id] tuple
-            (pre-fix: route-id was nil)"
+            (route-id non-nil)"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
@@ -648,7 +648,7 @@
       (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
 
       (is (= :route/article (:route-id (@captured "A")))
-          "the :rf.route/route-id cofx injected the live route id (pre-fix: no such cofx)")
+          "the :rf.route/route-id cofx injected the live route id")
       (is (some? (:token (@captured "A"))) "the nav-token cofx injected the live token")
 
       ;; 3. A's stale completion threads BOTH captured facts → suppressed.
@@ -659,13 +659,13 @@
                           :payload          "A-payload"}])
       (rf/unregister-listener! :trace ::ph1grf)
 
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the documented capture
+      ;; SEMANTIC, posture-independent: the documented capture
       ;; path really suppressed A. The work-id below is a trace-only
       ;; correlation key, so without this the deftest executes nothing under
       ;; the gate.
       (is (nil? (:article (rf/app-db-value :rf/default)))
           "A's stale completion was suppressed — no app-db write")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (let [stale (some (fn [ev]
                             (when (= :rf.route.nav-token/stale-suppressed (:operation ev)) ev))
@@ -675,24 +675,24 @@
             (is (= [:rf.work/route :route/article "nav-1" :article/loaded] wid)
                 "the work-id carries the COMPLETE captured tuple — route-id is NOT nil")
             (is (not (nil? (second wid)))
-                "rf2-ph1grf — the route-id component is non-nil (the documented path
+                "the route-id component is non-nil (the documented path
                  cannot emit a nil-route route work-id)")))))))
 
-;; ---- rf2-2avo53 / rf2-068eo5 — with-nav-token continuations lower through :rf/reply-to ----
+;; ---- with-nav-token continuations lower through :rf/reply-to --------------
 ;;
 ;; EP-0011 / Managed-Effects property 9: nav-token threading is public sugar
 ;; that lowers internally to the uniform :rf/reply-to target + reply
 ;; completion shape. :rf/reply-to is the single, required continuation surface
-;; (rf2-068eo5 retired the older ad-hoc :do fx-entry sugar): on the live branch
+;; (there is no ad-hoc :do fx-entry sugar): on the live branch
 ;; the production :rf.route/with-nav-token handler normalizes + completes the
 ;; reply target through the shared re-frame.reply/complete, and on the stale
-;; branch it SUPPRESSES — the app reply target is NEVER dispatched (rf2-j538f7.14:
-;; a superseded async completion must not mutate app state), so no reply target,
+;; branch it SUPPRESSES — the app reply target is NEVER dispatched (a
+;; superseded async completion must not mutate app state), so no reply target,
 ;; however authored, receives a stale reply at the production routing surface.
 ;; These tests drive the canonical :rf/reply-to surface through the production fx.
 
 (deftest with-nav-token-fx-reply-to-completes-live-through-shared-substrate
-  (testing "rf2-2avo53 — a LIVE :rf.route/with-nav-token completion named by the
+  (testing "a LIVE :rf.route/with-nav-token completion named by the
             canonical :rf/reply-to target is completed through the shared
             re-frame.reply/complete: the :status :ok reply map is APPENDED to
             the target event and dispatched (the production lowering)"
@@ -733,7 +733,7 @@
         (is (= :rf/default (:rf.frame/id reply)) "the carried frame stamp rides the reply")))))
 
 (deftest with-nav-token-fx-reply-to-suppresses-stale-app-target
-  (testing "rf2-2avo53 — a STALE :rf.route/with-nav-token completion named by an
+  (testing "a STALE :rf.route/with-nav-token completion named by an
             app :rf/reply-to target is SUPPRESSED: the target does NOT run (no
             app-db write) and the stale-suppressed trace fires joined to :work/id"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
@@ -761,7 +761,7 @@
 
       (is (nil? (:replied (rf/app-db-value :rf/default)))
           "the app :rf/reply-to target was suppressed — no app-db write on a stale completion")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The
+      ;; Dev-instrumentation arm (see ns docstring). The
       ;; enforcement — the app target did NOT run — is pinned by the app-db
       ;; assertion above, posture-independently.
       (when rf.interop/debug-enabled?
@@ -776,16 +776,16 @@
           (is (= :suppressed (-> stale :tags :rf.reply/work-status))))))))
 
 (deftest with-nav-token-never-delivers-stale-to-any-target
-  (testing "rf2-j538f7.14 — PRODUCTION-PATH regression (AC4): NO app :rf/reply-to
+  (testing "PRODUCTION-PATH regression: NO app :rf/reply-to
             target — plain, spelling the removed :dispatch-stale? flag, or FORGING
-            a truthy authority datum (the exact reproduced exploit, and what a
-            wire/EDN-authored target could carry) — can make a superseded route
+            a truthy authority datum (what a wire/EDN-authored target could
+            carry) — can make a superseded route
             completion deliver. The app handler NEVER runs and app-db + runtime-db
             are unchanged; the completion suppresses silently (no throw — there is
             no authority concept left to violate)"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     ;; An app handler that WRITES a marker — a spurious stale delivery would be
-    ;; observable as an app-db mutation. Under the fix it must never run.
+    ;; observable as an app-db mutation. It must never run.
     (rf/reg-event :app/observe-stale
                      (fn [{:keys [db]} [_ reply]]
                        {:db (assoc db :app-saw {:reply reply})}))
@@ -821,12 +821,12 @@
               (str "app-db is unchanged by the stale completion for " (pr-str target)))
           (is (= rdb-before (:rf.db/runtime (rf/frame-state-value :rf/default)))
               (str "runtime-db is unchanged by the stale completion for " (pr-str target)))
-          ;; The suppression trace still fires (the only effect of a stale
-          ;; completion); no fx-handler exception is raised — suppress no longer
-          ;; throws, it silently declines to deliver.
-          ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The three
+          ;; The suppression trace fires (the only effect of a stale
+          ;; completion); no fx-handler exception is raised — suppress does not
+          ;; throw, it silently declines to deliver.
+          ;; Dev-instrumentation arm (see ns docstring). The three
           ;; assertions above — target never ran, app-db unchanged, runtime-db
-          ;; unchanged — are the AC4 property itself and are
+          ;; unchanged — are the non-delivery property itself and are
           ;; posture-independent. The second leg here is NEGATIVE over the
           ;; ring, so outside the arm it would pass vacuously.
           (when rf.interop/debug-enabled?
@@ -845,7 +845,7 @@
 ;; settle-transition event and no on-match error trap). A synchronous handler
 ;; throw stays on the ordinary Spec 009 event error channel, attributed to the
 ;; event that threw — it is NOT rewritten into route-loader state. Later loaders
-;; still run (ordinary FIFO events); the route slice stays :idle (no :resources).
+;; run (ordinary FIFO events); the route slice stays :idle (no :resources).
 
 (deftest on-match-throw-does-not-flip-route-and-later-loader-runs
   (testing "an :on-match [[:load/fail] [:load/next]] where the first event
