@@ -19,7 +19,7 @@
             [re-frame.machines :as rf.machines]))
 
 (deftest gensym-spawn-emits-distinct-type-instance-and-invoke-path
-  (testing "rf2-ws5thu/rf2-0ggtr5 — a gensym spawn fx carries TYPE (:machine-id), INSTANCE (:rf/spawned-id) and invocation PATH (:rf/invoke-id) as distinct facts"
+  (testing "a gensym spawn fx carries TYPE (:machine-id), INSTANCE (:rf/spawned-id) and invocation PATH (:rf/invoke-id) as distinct facts"
     (let [spec {:initial :idle
                 :data    {}
                 :states  {:idle    {:on {:go :working}}
@@ -39,14 +39,14 @@
           "TYPE and INSTANCE are distinct values")
       (is (vector? (:rf/invoke-id args))
           "the invocation path is a vector — never a bare id keyword")
-      ;; The overloaded keys are not part of the emitted args.
+      ;; Neither `:rf/spawn-id` nor `:spawn-id` is part of the emitted args.
       (is (not (contains? args :rf/spawn-id))
-          "retired reserved arg :rf/spawn-id is gone (now :rf/invoke-id)")
+          "no :rf/spawn-id arg; the invocation path is :rf/invoke-id")
       (is (not (contains? args :spawn-id))
-          "retired InvokeSpec key :spawn-id is gone (now :fixed-actor-id)"))))
+          "no :spawn-id arg; the explicit-address key is :fixed-actor-id"))))
 
 (deftest fixed-actor-id-pins-instance-distinct-from-invoke-path
-  (testing "rf2-0ggtr5 — an explicit :fixed-actor-id pins the instance; the invocation path still rides :rf/invoke-id, distinct"
+  (testing "an explicit :fixed-actor-id pins the instance; the invocation path rides :rf/invoke-id, distinct"
     (let [spec {:initial :idle
                 :data    {}
                 :states  {:idle    {:on {:go :working}}
@@ -62,7 +62,7 @@
           "explicit-address identity and invocation-path identity are distinct facts"))))
 
 (deftest destroy-on-exit-carries-invoke-id-not-spawn-id
-  (testing "rf2-0ggtr5 — exiting a :spawn-bearing state emits :rf.machine/destroy keyed by :rf/invoke-id (the invocation path)"
+  (testing "exiting a :spawn-bearing state emits :rf.machine/destroy keyed by :rf/invoke-id (the invocation path)"
     (let [spec {:initial :idle
                 :data    {}
                 :states  {:idle    {:on {:go :working}}
@@ -75,4 +75,4 @@
       (is (= [:working] (:rf/invoke-id destroy))
           "the destroy fx resolves the actor via the invocation PATH under :rf/invoke-id")
       (is (not (contains? destroy :rf/spawn-id))
-          "retired reserved arg :rf/spawn-id is gone"))))
+          "no :rf/spawn-id arg"))))
