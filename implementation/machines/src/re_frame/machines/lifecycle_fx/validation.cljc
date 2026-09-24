@@ -263,7 +263,9 @@
     - `:rf.error/machine-spawn-all-duplicate-id` — two children share an
       `:id` keyword inside the same `:spawn-all` block.
     - `:rf.error/machine-spawn-all-with-spawn` — a state node declares
-      both `:spawn` and `:spawn-all` (mutually exclusive)."
+      both `:spawn` and `:spawn-all` (mutually exclusive).
+    - `:rf.error/machine-bad-on-done-clause` — a child's `:on-done` is not
+      a fn (a join child's `:on-done` is a `:data` fold only)."
   [state-key state-node]
   (let [spawn-all-spec (:spawn-all state-node)]
     (when spawn-all-spec
@@ -324,7 +326,22 @@
                      :rf.error/machine-spawn-all-bad-shape
                      (str "each child spawn-spec " reason)
                      {:state state-key
-                      :child c}))))
+                      :child c})))
+          ;; A join child's `:on-done` is a `:data` fold only: the join folds
+          ;; each completion, and the block's join events own control flow.
+          (when (and (contains? c :on-done) (not (fn? (:on-done c))))
+            (throw (validation-error
+                     :rf.error/machine-bad-on-done-clause
+                     (str "the :spawn-all child " (pr-str (:id c)) " declares a "
+                          "non-fn :on-done " (pr-str (:on-done c)) ". A join "
+                          "child's :on-done is a fn folding the parent's :data at "
+                          "that child's successful finality — (fn [{:keys [data "
+                          "result]}] new-data). Control flow under a join belongs "
+                          "to the block's :on-all-complete / :on-some-complete / "
+                          ":on-any-failed.")
+                     {:state   state-key
+                      :child   (:id c)
+                      :on-done (:on-done c)}))))
         (let [ids (map :id children)]
           (when (not= (count ids) (count (set ids)))
             (let [dup (->> (frequencies ids) (filter (fn [[_ n]] (> n 1))) (map first))]
@@ -967,6 +984,35 @@
                    {:state    state-key
                     :on-error oe})))))))
 
+(defn- validate-spawn-on-done!
+  "Per Spec 005 §Final states D2: a `:spawn`-bearing state's `:spawn :on-done`
+  is either a fn — the `:data` fold `(fn [{:keys [data result]}] new-data)` —
+  or an `:on`-shaped transition spec the parent takes when the child
+  completes: a keyword target, a vector-path target, a single transition map
+  `{:target :guard :action}`, or a non-empty guarded candidate vector, the
+  same shapes `:on-error` admits. Refuse any other value at registration
+  (`:rf.error/machine-bad-on-done-clause`). The transition form's targets,
+  guard / action refs and keys are checked by the passes every transition slot
+  shares. Absent `:on-done` is fine."
+  [state-key state-node]
+  (when-let [spawn (:spawn state-node)]
+    (when (and (map? spawn) (contains? spawn :on-done))
+      (let [od (:on-done spawn)]
+        (when-not (or (fn? od)
+                      (keyword? od)
+                      (map? od)
+                      (and (vector? od) (seq od)))
+          (throw (validation-error
+                   :rf.error/machine-bad-on-done-clause
+                   (str ":spawn :on-done must be a fn or an :on-shaped transition "
+                        "spec. A fn folds the parent's :data — (fn [{:keys [data "
+                        "result]}] new-data); a keyword target, a vector-path "
+                        "target, a single transition map {:target :guard :action}, "
+                        "or a non-empty guarded candidate vector moves the parent "
+                        "when the child completes. Got: " (pr-str od) ".")
+                   {:state   state-key
+                    :on-done od})))))))
+
 (defn- compound?
   "A state node is compound iff it declares a non-empty `:states` map."
   [state-node]
@@ -1394,7 +1440,8 @@
   reject malformed-shape and unresolved transition `:target`s at registration
   for every transition-bearing slot of every per-region / flat state node —
   `:on`, `:after`, `:always`, a compound's `:on-done`, and a `:spawn`-bearing
-  state's `:spawn :on-error`. The parallel root's region-qualified `:on` /
+  state's `:spawn :on-error` and transition-shaped (non-fn)
+  `:spawn :on-done`. The parallel root's region-qualified `:on` /
   `:on-done` targets are validated by `validate-parallel!` (different
   semantics) and are NOT revisited here.
 
@@ -1452,7 +1499,11 @@
         (when (contains? node :on-done)
           (check! :on-done (:on-done node)))
         (when-let [oe (get-in node [:spawn :on-error])]
-          (check! :spawn/on-error oe))))
+          (check! :spawn/on-error oe))
+        ;; A fn `:spawn :on-done` is a `:data` fold and carries no target.
+        (let [od (get-in node [:spawn :on-done])]
+          (when (and (some? od) (not (fn? od)))
+            (check! :spawn/on-done od)))))
     ;; Each REGION BODY's own root `:on` — the region ancestor fallback.
     ;; Resolved with decl-path `[]` against that region's `:states`, exactly as
     ;; the flat-root branch below resolves the machine root's own `:on`.
@@ -1470,6 +1521,42 @@
                        (validate-target! scope [] :on :rf/root target nil))))]
       (doseq [[_event v] (:on machine)]
         (check! v)))))
+
+(defn- validate-region-spawn-paths!
+  "Per Spec 005 §Reserved snapshot-internal keys (`:rf/spawned`): refuse a
+  `:type :parallel` machine in which two regions declare a `:spawn` /
+  `:spawn-all` at the SAME in-region path, with
+  `:rf.error/machine-parallel-bad-shape`.
+
+  The parent's `[:data :rf/spawned …]` mirror keys a region's spawn by its
+  in-region path, because that is the key a region action can name (a region
+  name is not addressable from inside a region). Two regions spawning at one
+  in-region path would share that key, and each region's action would read,
+  and could destroy, the other region's child. The runtime registry slot is
+  region-qualified and would still tell them apart; the mirror cannot."
+  [machine]
+  (when (rf.machines.parallel/parallel? machine)
+    (reduce
+      (fn [seen [_scope path node region]]
+        (if-not (or (:spawn node) (:spawn-all node))
+          seen
+          (if-let [other (get seen path)]
+            (throw (validation-error
+                     :rf.error/machine-parallel-bad-shape
+                     (str "regions " (pr-str other) " and " (pr-str region)
+                          " both declare a :spawn / :spawn-all at the in-region "
+                          "path " (pr-str path) ". A parent's :rf/spawned mirror "
+                          "keys a region's spawn by its in-region path — the key a "
+                          "region action can name — so the two regions would share "
+                          "one entry, and each would read the other's child. Rename "
+                          "the spawning state in one of the regions. Per Spec 005 "
+                          "§Reserved snapshot-internal keys.")
+                     {:regions    [other region]
+                      :state-path path}))
+            (assoc seen path region))))
+      {}
+      (walk-state-nodes-with-scope machine))
+    nil))
 
 ;; ---- machine-level :schemas map --------------------------------------------
 ;;
@@ -1755,8 +1842,10 @@
   single map, a guarded candidate vector, or the keyword / path sugar (which
   carries no keys). `slot` names the transition slot for the diagnostic and the
   ex-data (`:on`, `:after`, `:always`, `:choice`, `:on-done`, `:on-timeout`,
-  `:spawn/on-error`, `:spawn/on-timeout`). A malformed value carries no
-  candidate maps here; its shape is refused by the slot's own validator.
+  `:spawn/on-error`, `:spawn/on-done`, `:spawn/on-timeout`). A malformed
+  value — and a fn `:spawn :on-done`, which is a `:data` fold rather than a
+  transition — carries no candidate maps here; a malformed shape is refused by
+  the slot's own validator.
 
   Without it a misspelt key is silently inert: `{:targt :b}` is a targetless
   no-op with no trace, `:cond` fires the transition unguarded, `:actions`
@@ -1805,6 +1894,7 @@
                         [:on-done (:on-done node)]
                         [:on-timeout (:on-timeout node)]
                         [:spawn/on-error (:on-error spawn)]
+                        [:spawn/on-done (:on-done spawn)]
                         [:spawn/on-timeout (:on-timeout spawn)]]
               :when (some? v)]
         (validate-transition-keys! state-key slot v)))))
@@ -1897,6 +1987,14 @@
   Every `:spawn` / `:spawn-all` rejects the unsupported `:timeout-ms` slot;
   spawn-level `:timeout` / `:on-timeout` is supported.
 
+  Per Spec 005 §Final states D2: a single `:spawn`'s `:on-done` is a fn (the
+  `:data` fold) or an `:on`-shaped transition, and a `:spawn-all` child's
+  `:on-done` is a fn; anything else throws
+  `:rf.error/machine-bad-on-done-clause`. Two parallel regions declaring a
+  `:spawn` / `:spawn-all` at the same in-region path throw
+  `:rf.error/machine-parallel-bad-shape` (they would share one `:rf/spawned`
+  mirror entry).
+
   Every `:on` / `:always` / `:entry` / `:exit` slot's guard
   and action keyword refs must resolve against the machine's `:guards` /
   `:actions` maps. Throws `:rf.error/machine-unresolved-guard` /
@@ -1912,7 +2010,8 @@
 
   Per Spec 005 (005:441) + Spec-Schemas §TransitionTarget:
   every transition slot's `:target` (`:on` / `:after` / `:always` /
-  compound `:on-done` / `:spawn :on-error`) must be a well-formed,
+  compound `:on-done` / `:spawn :on-error` / transition-shaped
+  `:spawn :on-done`) must be a well-formed,
   resolvable target. Throws `:rf.error/machine-bad-target` (malformed
   shape) / `:rf.error/machine-unresolved-target` (keyword / vector that
   names no declared state).
@@ -2010,6 +2109,7 @@
   (let [machine (rf.machines.choice/desugar-choices (rf.machines.timeout/desugar-timeouts machine))]
   (validate-history! machine)
   (validate-parallel! machine)
+  (validate-region-spawn-paths! machine)
   ;; A non-parallel root's `:after` (hand-authored or lowered
   ;; from a root `:timeout` / `:on-timeout`) has no runtime scheduling /
   ;; resolution path; reject it loudly rather than silently registering a
@@ -2025,6 +2125,7 @@
     (validate-no-spawn-timeout-ms! s n)
     (validate-final-state! s n)
     (validate-spawn-on-error! s n)
+    (validate-spawn-on-done! s n)
     (validate-compound-initial! s n)
     (validate-initial-resolves! n {:state s}))
   ;; The machine root's and each region body's own `:initial` — the entry
@@ -2141,6 +2242,11 @@
       ;; spawned child fails; its guard / action refs resolve at registration
       ;; like `:on-done`. (Shape is checked separately by `validate-spawn-on-error!`.)
       (check-transition! (get-in state-node [:spawn :on-error]) s)
+      ;; A transition-shaped `:spawn :on-done` resolves its guard / action refs
+      ;; the same way; a fn `:on-done` is the `:data` fold and carries none.
+      (let [od (get-in state-node [:spawn :on-done])]
+        (when-not (fn? od)
+          (check-transition! od s)))
       (check-action! (:entry state-node) s :entry)
       (check-action! (:exit  state-node) s :exit))
     ;; Per Spec 005 §Transition resolution: the machine root's own `:on`

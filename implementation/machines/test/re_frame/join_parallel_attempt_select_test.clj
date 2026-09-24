@@ -69,16 +69,17 @@
   is shared across the two regions, which is exactly the ambiguity
   exact-attempt routing resolves; completing `:worker` alone is
   NON-DECISIVE (the `:all` join still awaits `:helper`), so the join-state
-  persists to be asserted on."
-  [worker-type on-complete ready-state]
+  persists to be asserted on. Each region spawns from its own `racing-state`,
+  because registration refuses two regions spawning at one in-region path."
+  [worker-type racing-state on-complete ready-state]
   {:initial :idle
-   :states  {:idle   {:on {:start :racing}}
-             :racing {:spawn-all {:children       [{:id :worker :machine-id worker-type
-                                                    :start [:set-id :worker]}
-                                                   {:id :helper :machine-id :rf2-wsrtlw/helper}]
-                                  :join           :all
-                                  :on-all-complete on-complete}
-                      :on {(first on-complete) ready-state}}
+   :states  {:idle        {:on {:start racing-state}}
+             racing-state {:spawn-all {:children       [{:id :worker :machine-id worker-type
+                                                         :start [:set-id :worker]}
+                                                        {:id :helper :machine-id :rf2-wsrtlw/helper}]
+                                       :join           :all
+                                       :on-all-complete on-complete}
+                           :on {(first on-complete) ready-state}}
              ready-state {}}})
 
 (def ^:private parent-kw :rf2-wsrtlw/parent)
@@ -89,8 +90,8 @@
   (rf/reg-machine :rf2-wsrtlw/helper idle-helper)
   (rf/reg-machine parent-kw
     {:type    :parallel
-     :regions {:r1 (region-spawn-all :rf2-wsrtlw/wc-r1 [:r1/done] :r1-ready)
-               :r2 (region-spawn-all :rf2-wsrtlw/wc-r2 [:r2/done] :r2-ready)}})
+     :regions {:r1 (region-spawn-all :rf2-wsrtlw/wc-r1 :r1-racing [:r1/done] :r1-ready)
+               :r2 (region-spawn-all :rf2-wsrtlw/wc-r2 :r2-racing [:r2/done] :r2-ready)}})
   (rf/dispatch-sync [parent-kw [:start]]))
 
 (defn- spawned-joins []

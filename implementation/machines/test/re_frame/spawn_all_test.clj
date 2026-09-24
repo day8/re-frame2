@@ -850,12 +850,14 @@
 ;; ---- parallel regions running structurally identical joins ---------------
 ;;
 ;; Two active parallel regions may run structurally identical `:spawn-all`
-;; blocks — and because a child carries NO parent vocabulary at all, the two
-;; regions' children are literally the SAME machine spec, so nothing about the
-;; completion's SHAPE distinguishes the regions. Routing does not have to
-;; distinguish them: each completion carrier names its own `<invoke-id>` (the
-;; absolute prefix-path `[:region-2 :hydrating]`), so the fold is a direct
-;; LOOKUP of that region's join state — not a state-tree walk for an active
+;; blocks from distinctly named states (registration refuses two regions
+;; spawning at one in-region path) — and because a child carries NO parent
+;; vocabulary at all, the two regions' children are literally the SAME machine
+;; spec, so nothing about the completion's SHAPE distinguishes the regions.
+;; Routing does not have to distinguish them: each completion carrier names its
+;; own `<invoke-id>` (the absolute prefix-path `[:region-2 :hydrating-2]`), so
+;; the fold is a direct LOOKUP of that region's join state — not a state-tree
+;; walk for an active
 ;; `:spawn-all` matching an event keyword. A completion from one region can
 ;; therefore never be misrouted to a sibling region's join (which would fail
 ;; that join's child-id ownership check as forged and leave the correct
@@ -877,8 +879,8 @@
                              :on {:r1/done :ready}}
                             :ready {}}}
                  :region-2
-                 {:initial :hydrating
-                  :states  {:hydrating
+                 {:initial :hydrating-2
+                  :states  {:hydrating-2
                             {:spawn-all
                              {:children        [{:id :r2x :machine-id :rf2-w84jv/r2-child :start [:set-id :r2x]}]
                               :join            :all
@@ -887,13 +889,13 @@
                             :ready {}}}}})
     (rf/dispatch-sync [:rf2-w84jv/par-parent [:rf.machine.spawn/spawned]])
     (let [r1-children (:children (get-in (frame-db) [:rf.runtime/machines :spawned :rf2-w84jv/par-parent [:region-1 :hydrating]]))
-          r2-children (:children (get-in (frame-db) [:rf.runtime/machines :spawned :rf2-w84jv/par-parent [:region-2 :hydrating]]))]
+          r2-children (:children (get-in (frame-db) [:rf.runtime/machines :spawned :rf2-w84jv/par-parent [:region-2 :hydrating-2]]))]
       (is (= #{:r1a} (set (keys r1-children))) "region-1 seeded its own join")
       (is (= #{:r2x} (set (keys r2-children))) "region-2 seeded its own join")
       ;; Complete the SECOND region's child first — the ordering a first-match
       ;; state-tree walk would route to region-1 (whose :children lacks :r2x),
       ;; flagging it forged and hanging region-2. Its carrier names
-      ;; [:region-2 :hydrating] outright.
+      ;; [:region-2 :hydrating-2] outright.
       (let [traces (collect-traces
                      (fn [] (rf/dispatch-sync [(:r2x r2-children) [:go]])))
             errs   (bad-child-id-error-traces traces)]

@@ -694,9 +694,12 @@
   The `:spawn` map is resolved from the parent's OWN spec at `invoke-id`
   (`resolver/spawn-spec-at`). It runs only for a CURRENT carrier: one from a
   spawn attempt the parent has since left or re-entered was already dropped by
-  `suppress-stale-spawn-carrier`. A parent that declares no
-  `:on-done` rides through untouched — the carrier then simply reaches the
-  engine as an ordinary reserved event the parent may or may not have a
+  `suppress-stale-spawn-carrier`. Only a fn `:on-done` is a fold. A
+  transition-shaped `:on-done` (keyword, vector path, map or candidate
+  vector) leaves `:data` untouched here: the engine takes it as the carrier's
+  transition (`transition/pick-spawn-done-transition`). A parent that declares
+  no `:on-done` rides through untouched too — the carrier then simply reaches
+  the engine as an ordinary reserved event the parent may or may not have a
   transition for.
 
   No failure guard is needed here: a single-`:spawn` child's
@@ -705,7 +708,7 @@
   `:on-error`."
   [ctx invoke-id completion]
   (let [on-done (:on-done (rf.machines.lifecycle-fx.resolver/spawn-spec-at (:machine ctx) invoke-id))]
-    (if on-done
+    (if (fn? on-done)
       (let [snapshot (:snapshot ctx)]
         (assoc ctx :snapshot
                (assoc snapshot :data
@@ -1069,10 +1072,11 @@
             ;;   - a `:spawn-all` JOIN child's completion folds into the join
             ;;     and short-circuits — the parent's macrostep is driven by the
             ;;     join's own resolution event, not by each child's arrival;
-            ;;   - a `:spawn` child's completion applies the parent's
-            ;;     `:spawn :on-done` fold to the snapshot BELOW and then rides
-            ;;     the ORDINARY macrostep, so the parent can advance on it
-            ;;     (`:always` over the folded `:data`, or an explicit `:on`).
+            ;;   - a `:spawn` child's completion applies a fn `:spawn :on-done`
+            ;;     fold to the snapshot BELOW and then rides the ORDINARY
+            ;;     macrostep, so the parent can advance on it (a
+            ;;     transition-shaped `:spawn :on-done`, `:always` over the
+            ;;     folded `:data`, or an explicit `:on`).
             ;;
             ;; `intercept-spawn-done-event` returns nil for the second case,
             ;; and for any other event.

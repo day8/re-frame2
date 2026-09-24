@@ -598,6 +598,36 @@
               (when-let [tgt (resolve-target-path invoke-id (:target cand))]
                 (add-target! tgt)))))))))
 
+;; The single-`:spawn` completion carrier id (`transition/spawn-done-event-id`),
+;; inlined for the same cycle-free reason as `done-event-id` above.
+(def ^:private spawn-done-event-id :rf.machine.spawn/done)
+
+(defn- spawn-done-diet-for-event
+  "Add (into `add!`) the guard/action diets of a transition-shaped
+  `:spawn :on-done` on the `:spawn`-bearing node a
+  `[:rf.machine.spawn/done <invoke-id> <completion>]` carrier names — a slot
+  separate from `:on` that `transition/pick-spawn-done-transition` selects
+  first — plus each candidate target's `:entry` + `:always` diet. The twin of
+  `spawn-error-diet-for-event`, and it strips / declines a region-name head
+  the same way. A fn `:on-done` is the `:data` fold, not a transition, and adds
+  nothing. No-op when the event is not a spawn-done carrier, the invoke-id
+  does not resolve, or the node declares no transition-shaped `:on-done`."
+  [by-entry states event region add! add-target!]
+  (when (and (vector? event) (= spawn-done-event-id (first event)))
+    (let [raw-id    (second event)
+          invoke-id (cond
+                      (not (vector? raw-id)) nil
+                      region (when (= region (first raw-id)) (vec (rest raw-id)))
+                      :else  raw-id)]
+      (when (seq invoke-id)
+        (let [on-done (get-in (node-at states invoke-id) [:spawn :on-done])]
+          (when (and (some? on-done) (not (fn? on-done)))
+            (doseq [cand (candidate-maps on-done)]
+              (add! (entry-diet by-entry :guards  (:guard cand)))
+              (add! (entry-diet by-entry :actions (:action cand)))
+              (when-let [tgt (resolve-target-path invoke-id (:target cand))]
+                (add-target! tgt)))))))))
+
 (defn- after-diet-for-event
   "Add (into `add!`) the guard/action diet of a per-state (or per-region)
   `:after`-TABLE transition the synthetic timer event fires, plus each
@@ -692,8 +722,8 @@
         ;; `:entry` of every node entered descending the target's `:initial`
         ;; chain, then the `:always` closure it settles into. ONE closure for
         ;; the `:on` walk and every synthetic slot (`:on-done`, `:spawn
-        ;; :on-error`, `:after`), so none of them can ensure the `:always`
-        ;; half and forget the `:entry` half.
+        ;; :on-error`, `:spawn :on-done`, `:after`), so none of them can
+        ;; ensure the `:always` half and forget the `:entry` half.
         add-target! (fn [tgt]
                       (add-lifecycle! states (initial-descent-path states tgt) :entry)
                       (add! (always-diet-for-state by-entry states tgt)))]
@@ -755,6 +785,10 @@
     ;; <invoke-id> <err>]`) selects the spawning node's `:spawn :on-error`
     ;; first — a slot separate from `:on`, like `:on-done`.
     (spawn-error-diet-for-event by-entry states event region add! add-target!)
+    ;; (d'') a single-`:spawn` completion carrier (`[:rf.machine.spawn/done
+    ;; <invoke-id> <completion>]`) selects the spawning node's
+    ;; transition-shaped `:spawn :on-done` first — the success twin of (d').
+    (spawn-done-diet-for-event by-entry states event region add! add-target!)
     ;; (e) the synthetic `:after` timer signal
     ;; (`[:rf.machine.timer/after-elapsed delay-key epoch decl-path]`) fires the
     ;; scheduling node's `:after`-table transition at decl-path/delay-key — a

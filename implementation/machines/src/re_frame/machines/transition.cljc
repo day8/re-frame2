@@ -112,8 +112,7 @@
   the action-exception trigger). `pick-transition` special-cases it via
   `pick-spawn-error-transition`, which resolves the active `:spawn`-bearing
   state's `:on-error` `:on`-shaped transition spec at that state's own level —
-  SYMMETRIC with the `:spawn :on-done` teardown hook, but a TRANSITION
-  (parent state change) rather than a `:data`-only callback. Lives under the
+  the failure twin of a transition-shaped `:spawn :on-done`. Lives under the
   framework-reserved `:rf.machine.spawn/*` family (so `unhandled-event-no-op?`
   exempts it). See `pick-spawn-error-transition` below."
   :rf.machine.spawn/error)
@@ -141,12 +140,13 @@
   At the parent's handler boundary the event routes two ways
   (`lifecycle-fx.registration`):
 
-    - `:spawn` child — the parent's `:spawn :on-done` fold runs against the
-      parent's `:data`, and the event then flows into the parent's ORDINARY
-      macrostep, so the parent may advance on it through `:always` (a guard
-      over the folded `:data`) or an explicit `:on` clause. This is what lets
-      a parent sequence phases on a child's completion without the child
-      knowing the parent exists.
+    - `:spawn` child — a fn `:spawn :on-done` folds the parent's `:data`, and
+      the event then flows into the parent's ORDINARY macrostep. There a
+      transition-shaped `:spawn :on-done` moves the parent
+      (`pick-spawn-done-transition`), and otherwise the parent may advance on
+      it through `:always` (a guard over the folded `:data`) or an explicit
+      `:on` clause. This is what lets a parent sequence phases on a child's
+      completion without the child knowing the parent exists.
     - `:spawn-all` join child — the per-child `:on-done` fold runs for a
       `:done` (plain-leaf) completion only, then the runtime folds the
       completion into the join
@@ -599,9 +599,14 @@
   coupling. It is the REVERSE direction of the child-lineage stamps the
   spawn-fx writes onto a spawned CHILD's own `:data` (`:rf/self-id` /
   `:rf/parent-id` / `:rf/invoke-id`, per Spec 005 §Runtime stamps): here the
-  PARENT captures the CHILD's id, keyed by the SAME `<invoke-id>` the child
+  PARENT captures the CHILD's id, keyed by the `<invoke-id>` the child
   records under `:rf/invoke-id` and the runtime tracks at
-  `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`.
+  `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`. Inside a
+  parallel region the key is the IN-REGION path (the region machine's own
+  frame of reference, which a region action can name), while the child's
+  `:rf/invoke-id` and the registry slot carry it region-qualified; the spawn
+  install, a rejection's clear and the teardown projection all address this
+  same in-region entry (`paths/spawned-mirror-path`).
 
   Keyed by `invoke-id` (the absolute prefix-path of the `:spawn`-bearing
   state node) rather than a single lossy 'last-spawned' slot so a parent that
@@ -1489,6 +1494,67 @@
           (when-let [hit (match-on-clause machine machine spawn-error-event-id event snapshot)]
             {:transition hit :decl-path []}))))))
 
+(defn- pick-spawn-done-transition
+  "Per Spec 005 §Final states D2 — resolve a single-`:spawn` child's
+  completion carrier `[:rf.machine.spawn/done <invoke-id> <completion>
+  <attempt>]` to a transition. The success twin of
+  `pick-spawn-error-transition` (XState `invoke onDone`).
+
+  Two resolution arms, in priority order:
+
+   1. **A transition-shaped `:spawn :on-done`** — a keyword target,
+      vector-path target, single transition map or guarded candidate vector
+      on the `:spawn`-bearing state at `<invoke-id>`, resolved at THAT state's
+      level (a keyword target is a sibling of the spawning state), only while
+      the parent's active path still includes it. The region head is stripped
+      and a FOREIGN region declines this arm, and `(nth event 1)` is re-stamped
+      region-relative for the guard, exactly as on the error side. A fn
+      `:on-done` is the `:data` fold the handler boundary already applied
+      (`lifecycle-fx.registration/apply-spawn-on-done`), never a transition.
+   2. **The ordinary leaf→root `:on` walk, then the root `:on`** — when
+      `:on-done` is a fn or absent, when every candidate's guard fails, or
+      when the carrier belongs to another region. This is how an explicit
+      `:on {:rf.machine.spawn/done …}` arm, or an `:always` over the folded
+      `:data`, advances the parent.
+
+  The completion map rides `:event` (`(nth ev 2)`), so a guard or action
+  reads the child's result as `(:result (nth ev 2))`. A single-`:spawn`
+  child's failure never rides this carrier, so arm 1 only ever sees a
+  success. Returns `{:transition t :decl-path p}` or nil."
+  [machine path event snapshot]
+  (let [[_ raw-invoke-id] event
+        region          (:rf/region machine)
+        decline-region? (and region
+                             (vector? raw-invoke-id)
+                             (not= region (first raw-invoke-id)))
+        invoke-id       (cond
+                          (not (vector? raw-invoke-id)) raw-invoke-id
+                          region (vec (rest raw-invoke-id))
+                          :else  raw-invoke-id)
+        region-event    (if (and region (vector? raw-invoke-id))
+                          (assoc (vec event) 1 invoke-id)
+                          event)
+        spawn-node      (when (and (not decline-region?)
+                                   (vector? invoke-id)
+                                   (seq invoke-id)
+                                   (prefix-of? invoke-id path))
+                          (node-at machine invoke-id))
+        on-done         (get-in spawn-node [:spawn :on-done])
+        on-done-hit     (when (and (some? on-done) (not (fn? on-done)))
+                          (when-let [cands (seq (normalise-candidates
+                                                  on-done :rf.error/machine-bad-on-done-clause))]
+                            (select-passing-candidate machine cands snapshot region-event)))]
+    (if on-done-hit
+      {:transition on-done-hit :decl-path (vec invoke-id)}
+      (or
+        (rf.machines.path-walk/walk-path-leaf-to-root
+          machine path
+          (fn [prefix n]
+            (when-let [hit (match-on-clause machine n spawn-done-event-id event snapshot)]
+              {:transition hit :decl-path prefix})))
+        (when-let [hit (match-on-clause machine machine spawn-done-event-id event snapshot)]
+          {:transition hit :decl-path []})))))
+
 (defn pick-transition
   "Walk path leaf→root looking for a transition that matches event-id and
   whose guard passes. Per Spec 005 §Transition resolution — deepest-wins
@@ -1509,7 +1575,10 @@
   delegating to pick-after-transition, and the synthetic
   `[:rf.machine/done <node-path>]` completion event
   by delegating to `pick-done-transition` (the done node's `:on-done`, then
-  an enclosing explicit `:on {:rf.machine/done …}`)."
+  an enclosing explicit `:on {:rf.machine/done …}`). The two spawn carriers
+  delegate to `pick-spawn-error-transition` and `pick-spawn-done-transition`
+  (the spawning state's `:spawn :on-error` / transition-shaped
+  `:spawn :on-done`, then the ordinary walk)."
   [machine path event snapshot]
   (let [event-id (first event)]
     (cond
@@ -1521,6 +1590,9 @@
 
       (= spawn-error-event-id event-id)
       (pick-spawn-error-transition machine path event snapshot)
+
+      (= spawn-done-event-id event-id)
+      (pick-spawn-done-transition machine path event snapshot)
 
       :else
       (or
