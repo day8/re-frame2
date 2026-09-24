@@ -1,30 +1,30 @@
 (ns re-frame.ssr-doc-example-projector-test
-  "rf2-0aqd4 ACCEPTANCE — the `reg-error-projector` example printed in
-  `docs/api/re-frame.ssr.md` is executed, not merely read.
+  "The `reg-error-projector` example printed in `docs/api/re-frame.ssr.md`
+  is executed, not merely read.
 
   WHY THIS SUITE EXISTS. An API-page example is the artefact a reader
-  COPIES, and nothing was checking it. The api-manifest doc gate
+  COPIES, and no other gate evaluates it. The api-manifest doc gate
   (`re-frame.api-manifest.doc-api-check`) verifies that every public var
   HAS a docs/api entry — var existence, the APPEARANCE of documentation.
   The runtime suites (`re-frame.ssr-route-miss-404-production-test`,
   `re-frame.ssr-error-projector-substrate-test`) verify the BUILT-IN
   projector. Between those two sits the one projector a reader actually
-  ships: the documented one. It drifted twice, silently, because no gate
-  evaluated it.
+  ships: the documented one. Without a gate that evaluates it, it can
+  drift silently in two ways:
 
-    - rf2-0aqd4 as filed: the example returned two of the four locked
-      `public-error-keys`, so `project-error` discarded it on EVERY error
-      in favour of the locked generic-500. The page stated the closed-shape
-      rule 22 lines below the example that broke it.
-    - rf2-0aqd4 after the #7168 audit: the repaired example branched on
-      `:rf.error/no-such-route` — a category the same page describes as
-      caller misuse of `route-url` riding the DEV-gated trace stream, so a
-      release build never reaches it. The example's only 404 arm was dead
-      under production hardening, while the category that DOES answer an
-      unroutable URL in production (`:rf.error/no-such-handler` with
-      `[:tags :kind]` `:route`) fell through to the example's generic 500.
+    - an example returning fewer than the four locked `public-error-keys`
+      would be discarded by `project-error` on EVERY error in favour of the
+      locked generic-500 — even with the closed-shape rule stated on the
+      same page.
+    - an example branching on `:rf.error/no-such-route` would have a dead
+      404 arm under production hardening: the page describes that category
+      as caller misuse of `route-url` riding the DEV-gated trace stream, so
+      a release build never reaches it, while the category that DOES answer
+      an unroutable URL in production (`:rf.error/no-such-handler` with
+      `[:tags :kind]` `:route`) would fall through to the example's generic
+      500.
 
-  Both defects are invisible to a reader and to every existing gate. Both
+  Both defects are invisible to a reader and to every other gate. Both
   are caught below by DRIVING the documented projector, so the test cannot
   drift from the page: the fn under test is read out of the markdown fence
   at run time rather than copied here.
@@ -41,8 +41,8 @@
   the pure projector; none touches the dev trace bus. The namespace
   therefore executes under `scripts/test-ssr-prod-gate.sh`'s real
   `-Dre-frame.debug=false` gate as well as in the ordinary lane — which is
-  the posture that matters, since the drift this suite pins was
-  specifically a 404 arm that only ever fired in dev."
+  the posture that matters, since one drift this suite pins is a 404 arm
+  that would fire only in dev."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -65,7 +65,7 @@
 
 (def ^:private api-page
   "`docs/api/re-frame.ssr.md`, anchored to a CLASSPATH RESOURCE rather than
-  the working directory (rf2-ywrwkl; the same anchoring
+  the working directory (the same anchoring
   `re-frame.ssr-conformance-test` uses for the conformance corpus). A
   `(io/file \"../../docs/...\")` form would resolve correctly under the
   per-artefact gate run from `implementation/ssr/` and silently MIS-SCOPE
@@ -110,7 +110,7 @@
   (delay
     (let [form (read-string (fence "rf/reg-error-projector :app/public-error"))]
       (is (= 'rf/reg-error-projector (first form))
-          "the example still calls reg-error-projector")
+          "the example calls reg-error-projector")
       (binding [*ns* (find-ns 're-frame.ssr-doc-example-projector-test)]
         (eval (last form))))))
 
@@ -135,7 +135,7 @@
 ;; ===========================================================================
 
 (deftest the-documented-example-answers-an-unroutable-url-with-its-own-404
-  (testing "rf2-0aqd4: a reader who pastes the page's `reg-error-projector`
+  (testing "a reader who pastes the page's `reg-error-projector`
             example gets a projector that survives `public-error-shape?`
             (its own 404 reaches the wire rather than the locked
             generic-500) AND fires on the category that actually reports an
@@ -161,7 +161,7 @@
 ;; ===========================================================================
 
 (deftest the-documented-example-gates-its-404-on-kind-route
-  (testing "rf2-0aqd4 (#7168 audit): `:rf.error/no-such-handler` covers three
+  (testing "`:rf.error/no-such-handler` covers three
             misses discriminated by `:kind`. An example that branched on
             `:operation` alone would answer 404 for an event id the server
             forgot to register — telling the client its URL was wrong when
@@ -191,16 +191,15 @@
 ;; ===========================================================================
 
 (deftest the-project-error-example-result-comment-matches-the-runtime
-  (testing "rf2-0aqd4 acceptance 2: the page's `project-error` example claims
+  (testing "the page's `project-error` example claims
             a return value in a `;; =>` comment. It is the default
             projector's actual 404 projection — all four locked keys,
-            `:retryable?` included (it was the key the original filing found
-            missing)."
+            `:retryable?` included."
     (let [claimed (-> (fence "ssr/project-error :rf/default trace-event")
                       (->> (re-find #"(?m)^\s*;;\s*=>\s*(\{.*\})\s*$"))
                       second
                       edn/read-string)]
-      (is (some? claimed) "the example still carries a `;; =>` result comment")
+      (is (some? claimed) "the example carries a `;; =>` result comment")
       (is (= rf.ssr/public-error-keys (set (keys claimed)))
           "the documented result names exactly the four locked keys")
       (is (= claimed
