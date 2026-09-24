@@ -17,7 +17,7 @@
 
   ## Why a SEPARATE stage (the §4.3 verdict)
 
-  Both gaps were proven NOT closeable via an ELK option:
+  Neither gap is closeable via an ELK option:
 
     - **§4.3.2 G-ASPECT** — ELK Layered has no width/height BALANCE lever
       (`elk.aspectRatio` is a no-op for Layered; the only width lever,
@@ -81,7 +81,7 @@
   back-edge reroute computes its detour in the shared PARENT frame
   `node-center` reads (both endpoints share one container) and then REBASES
   the routed points to root-absolute — by the shared container's origin —
-  before writing them into `:edge-points` (rf2-qb452y: the detour points are
+  before writing them into `:edge-points` (the detour points are
   parent-relative until rebased, so a nested same-parent back-edge would
   otherwise land offset by the container origin).
 
@@ -141,7 +141,7 @@
 ;; exactly what ELK DOWN already produces.
 ;;
 ;; So the realistic, non-regressing aspect lever is a per-machine DIRECTION
-;; choice (the bead's "vertical vs landscape per machine"): pick `:lr`
+;; choice: pick `:lr`
 ;; (landscape) for a genuinely-branchy machine, `:tb` (column) for a linear
 ;; one. ELK then lays the chosen direction out cleanly — no wrapping, no
 ;; aspectRatio no-op, no initial-on-top regression (DEPTH_FIRST + the model-
@@ -229,7 +229,7 @@
       (door / brew / session / media). This is NOT a blanket flip — the
       genuinely-vertical machines are preserved.
 
-  This is the heuristic the bead asks for; `chart.cljs` calls it (via
+  `chart.cljs` calls it (via
   `resolve-direction`) to resolve the ELK direction once a machine has
   opted in with `:direction :auto`."
   [parsed]
@@ -244,7 +244,7 @@
     :tb))
 
 (defn resolve-direction
-  "rf2-lamdfl — the direction `chart.cljs` feeds ELK, given the host's
+  "The direction `chart.cljs` feeds ELK, given the host's
   `:direction` prop and the parsed graph. ONLY `:auto` (the opt-in sentinel)
   defers to the adaptive `aspect-direction` heuristic; an explicit `:tb` /
   `:lr` (and any non-`:auto` value, including the default `:tb`) is passed
@@ -260,7 +260,7 @@
     host-direction))
 
 ;; ============================================================================
-;; Step 2 — parallel-region stacking-axis transpose (rf2-lamdfl)
+;; Step 2 — parallel-region stacking-axis transpose
 ;; ============================================================================
 ;;
 ;; §4.3.2 wall 2: a per-region `elk.direction RIGHT` is the natural fix
@@ -284,7 +284,7 @@
 ;; fallback.
 
 (defn- node-parent-map
-  "rf2-olie1s — `{child-id parent-id}` for every parsed node that carries a
+  "`{child-id parent-id}` for every parsed node that carries a
   `:parent-id` (i.e. every node that is NOT root-level). Pure: parsed
   `:nodes` → map.
 
@@ -301,7 +301,7 @@
         nodes))
 
 (defn- ancestor-chain
-  "rf2-olie1s — a node's full ancestor chain: `id` itself plus every
+  "A node's full ancestor chain: `id` itself plus every
   ancestor reached by walking `:parent-id` transitively out to the root.
   Pure: a `node-parent` map (from `node-parent-map`) + a node id → set of
   ids.
@@ -309,7 +309,7 @@
   A one-hop `:parent-id` lookup only sees a node's DIRECT container. Spec
   005 allows a compound state to nest inside a parallel region, so a leaf
   two (or more) levels deep sits behind an intermediate compound id, not the
-  region id, on a one-hop test — `region-touch?`'s bug. The full transitive
+  region id, on a one-hop test. The full transitive
   closure is the only correct answer to 'is this node contained, at any
   depth, inside X'."
   [node-parent id]
@@ -320,7 +320,7 @@
         acc))))
 
 (defn region-descendant-ids
-  "rf2-lamdfl — for each region CONTAINER id, the set of its DIRECT child
+  "For each region CONTAINER id, the set of its DIRECT child
   node-ids (region states + their synthetic event-nodes). Pure: parsed graph
   → `{region-container-id #{child-node-id …}}`.
 
@@ -362,22 +362,22 @@
        :width (- max-x min-x) :height (- max-y min-y)})))
 
 (def region-stack-gap
-  "rf2-lamdfl — vertical gap (px) between stacked parallel-region containers
+  "Vertical gap (px) between stacked parallel-region containers
   after the transpose, so the bands read as distinct orthogonal zones with a
   clear divider (the UML/SCXML dashed-divider convention `parallel-region-
   node` paints — this is the spacing between them)."
   40)
 
 (def intra-region-flow-gap
-  "rf2-vb359s — horizontal gap (px) between consecutive flow RANKS inside a
+  "Horizontal gap (px) between consecutive flow RANKS inside a
   transposed region (a state box and the next state box, or a state box and
   the event-node chip between them). After the transpose the within-region
   flow runs along the NEW x-axis, but a bare coordinate swap inherits the
   flow spacing ELK budgeted for node HEIGHTS (state 58 / chip 34 + the 50px
   between-layer gap ≈ 108px rank pitch), which is far too tight once the
   boxes occupy their WIDTHS along x (state 152 / chip 96) — adjacent ranks
-  overlap, and the intra-region event-node chips bury into the state boxes
-  (the bug). So the transpose re-packs the ranks left-to-right by each rank's
+  overlap, and the intra-region event-node chips bury into the state boxes.
+  So the transpose re-packs the ranks left-to-right by each rank's
   ACTUAL width plus this gap. Mirrors ELK's `nodeNodeBetweenLayers` (50) flow
   pitch so a transposed region reads with the same rank rhythm as a
   non-transposed column."
@@ -391,14 +391,14 @@
   (or (:width pos) projection/state-node-min-width))
 
 (defn- respace-flow-ranks
-  "rf2-vb359s — after the coordinate swap, re-pack the transposed children
+  "After the coordinate swap, re-pack the transposed children
   along the NEW x-axis (the within-region flow axis) so adjacent flow RANKS
   clear each other by their actual widths + `intra-region-flow-gap`. Pure:
   transposed `{child-id pos}` submap → the same submap with x re-spaced.
 
   A bare swap inherits the flow spacing ELK sized for node HEIGHTS, which is
   too tight once boxes occupy their WIDTHS along x — so intra-region event-
-  node chips overlap the state boxes (the bug). We group children into ranks
+  node chips overlap the state boxes. We group children into ranks
   by their swapped x (the original flow layer, incl. the +0.5 event-node
   inter-ranks), order the ranks left-to-right, and re-base each rank's x to
   the running cursor = previous rank's right edge + gap. The y-axis (the
@@ -429,7 +429,7 @@
                  transposed))))
 
 (defn transpose-region-interior
-  "rf2-lamdfl — transpose the WITHIN-region layout of one region so its
+  "Transpose the WITHIN-region layout of one region so its
   intra-region flow runs HORIZONTALLY (Stately) instead of vertically (root
   DOWN). Pure: takes the region's `{child-id position}` submap (positions are
   parent-relative) and returns the transposed submap.
@@ -439,10 +439,10 @@
   the POSITION axes swap (so a vertical stack becomes a horizontal row) while
   each node keeps its own box (a state box is not rotated, only repositioned).
 
-  rf2-vb359s — a BARE swap leaves the flow ranks spaced by the heights ELK
+  A BARE swap leaves the flow ranks spaced by the heights ELK
   budgeted (state 58 / chip 34 + the 50px between-layer gap), which is far too
   tight once the boxes occupy their WIDTHS along x (state 152 / chip 96), so
-  intra-region event-node chips overlapped the state boxes. After the swap we
+  intra-region event-node chips would overlap the state boxes. After the swap we
   therefore RE-PACK the ranks along the new x-axis (`respace-flow-ranks`) by
   each rank's actual width + `intra-region-flow-gap`. We then re-base to the
   title-strip inset so children still clear the region header, preserving the
@@ -477,7 +477,7 @@
       transposed)))
 
 (defn transpose-parallel-regions
-  "rf2-lamdfl — the parallel-region STACKING-AXIS transform (§4.3.2 close).
+  "The parallel-region STACKING-AXIS transform (§4.3.2 close).
   Pure: takes the `{:positions :edge-points :edge-labels}` layout result +
   the parsed graph; returns the same shape with each region's interior
   transposed (horizontal intra-region flow) and the region containers
@@ -497,14 +497,14 @@
        (source + target in different region containers) so it re-routes as a
        bezier between the transposed handles instead of carrying stale ELK
        bend-points (the renderer's documented no-route fallback). Intra-
-       region edges keep their ELK routes — the interior transpose moved
-       their endpoints consistently, but ELK's absolute bend-points would
-       now mismatch, so intra-region routes are cleared too and fall back to
-       the clean bezier through the transposed handles.
+       region routes are cleared too: the interior transpose moves their
+       endpoints consistently, but ELK's absolute bend-points would
+       mismatch, so they fall back to the clean bezier through the
+       transposed handles.
     4. GROW the regions' parent frame (the ROOT-CONTAINER) to enclose the
        re-stacked column, keeping ELK's right/bottom inset and never
        shrinking it — the regions are the frame's `parentId` children, so an
-       undersized frame would clamp them (rf2-fzbj.13)."
+       undersized frame would clamp them."
   [{:keys [positions edge-points edge-labels] :as layout} parsed]
   (if-not (:parallel? parsed)
     layout
@@ -518,11 +518,11 @@
           ;; (Stately stacks the regions in one vertical column, not at their
           ;; original side-by-side x-offsets).
           ;;
-          ;; rf2-qp613a — compute the column origin from the ACTUAL region
+          ;; Compute the column origin from the ACTUAL region
           ;; positions only, NOT seeded with 0. A root-container-wrapped chart
           ;; positions its region containers relative to the root frame's
           ;; padding/header, so every region origin is POSITIVE; seeding the
-          ;; reduce with 0 (`(reduce min 0 …)`) clamped a positive origin to
+          ;; reduce with 0 (`(reduce min 0 …)`) would clamp a positive origin to
           ;; zero, sliding the stacked column up/left into the reserved root
           ;; chrome. `(reduce min …)` over the region xs/ys alone preserves the
           ;; leftmost/topmost region's true origin (and stays total — the
@@ -573,17 +573,17 @@
           ;; points; the renderer falls back to the clean bezier through the
           ;; transposed handles.
           ;;
-          ;; rf2-olie1s — a one-hop `:parent-id` test misses an edge whose
+          ;; A one-hop `:parent-id` test would miss an edge whose
           ;; endpoint is a leaf inside a compound state NESTED inside a
           ;; region (Spec 005 allows arbitrary nesting depth): the leaf's
           ;; DIRECT parent is the nested compound's own id, not the region
           ;; id, so a one-hop test never sees it — its absolute ELK edge-
-          ;; points then survive the transpose untouched even though the
-          ;; compound container was just repositioned. Walk the FULL
+          ;; points would then survive the transpose untouched even though
+          ;; the compound container was repositioned. Walk the FULL
           ;; ancestor chain (`ancestor-chain`, transitive closure over
           ;; `:parent-id`) so any depth of nesting inside a region is caught
-          ;; (this also subsumes the old direct-region-id checks — `id` is
-          ;; always its own first link in the chain).
+          ;; (a direct region child too — `id` is always its own first link
+          ;; in the chain).
           node-parent   (node-parent-map nodes)
           region-touch?
           (fn [e]
@@ -598,7 +598,7 @@
                 edges)
           pruned-points (apply dissoc edge-points stale-edge-ids)
           pruned-labels (apply dissoc edge-labels stale-edge-ids)
-          ;; 4 — rf2-fzbj.13: GROW the regions' frame to enclose the column.
+          ;; 4 — GROW the regions' frame to enclose the column.
           ;; The region containers are children of the ROOT-CONTAINER frame
           ;; (xyflow `parentId` + `:extent "parent"`), and ELK sized that
           ;; frame for the side-by-side layout the re-stack just replaced.
@@ -630,7 +630,7 @@
              :edge-labels pruned-labels))))
 
 ;; ============================================================================
-;; Step 3 — back-edge return-route detour (rf2-gnrkke)
+;; Step 3 — back-edge return-route detour
 ;; ============================================================================
 ;;
 ;; §4.3.1 G-ROUTE: under events-as-nodes a back-edge `alarming → reset →
@@ -652,7 +652,7 @@
 ;; bottom. Pure coordinate math on the ABSOLUTE-frame positions + edge-points.
 
 (def back-edge-detour-offset
-  "rf2-gnrkke — how far (px) to the SIDE of the spine a rerouted back-edge's
+  "How far (px) to the SIDE of the spine a rerouted back-edge's
   detour bows, and where the lifted event-node sits. Wide enough that the
   return route reads as a distinct path AROUND the node cluster (not through
   it), matching Stately's return-up-one-side convention."
@@ -666,7 +666,7 @@
   root-level, or both children of the same parent) — never compare across
   containers.
 
-  rf2-olie1s — `reroute-back-edges` enforces that constraint by restricting
+  `reroute-back-edges` enforces that constraint by restricting
   back-edge CANDIDATES to same-parent edges (`same-parent?`) before either
   `back-edge?` or `back-edge-detour` ever calls this; a nested-vs-root or
   cross-container pair would otherwise mix frames and produce a nonsensical
@@ -677,7 +677,7 @@
      :y (+ y (/ (or height projection/state-node-min-height) 2))}))
 
 (defn back-edge?
-  "rf2-gnrkke — is this parsed edge a back-edge whose event-node SANK below
+  "Is this parsed edge a back-edge whose event-node SANK below
   both endpoints in the laid-out result? Pure: needs the `positions` map +
   the resolved `direction` (`:tb` / `:lr`).
 
@@ -700,7 +700,7 @@
                  (> (axis ev) (axis tc)))))))))
 
 (defn back-edge-detour
-  "rf2-gnrkke — compute the lifted event-node position + the two rerouted
+  "Compute the lifted event-node position + the two rerouted
   segment point-lists for one back-edge. Pure: positions + direction + the
   parsed edge → `{:event-pos {:x :y} :in-points [{:x :y}…] :out-points
   [{:x :y}…]}` (or nil when the geometry is degenerate).
@@ -713,13 +713,13 @@
   source → out the side → the lifted chip; the `__out` runs chip → in to the
   target — a clean detour AROUND the cluster rather than the deep plunge.
 
-  rf2-hpe9ws — the elbow construction MIRRORS the flow axis. For `:tb`
+  The elbow construction MIRRORS the flow axis. For `:tb`
   (vertical flow) the route leaves the source SIDEWAYS to the side lane
   (`detour-x`, keeping the source's y) then runs vertically to the lifted
   chip; for `:lr` (horizontal flow) it must leave the source VERTICALLY to
   the side lane (`detour-y`, keeping the source's x) then run horizontally
   to the chip. A `:tb`-shaped elbow on an `:lr` layout would run along the
-  flow row first, crossing the forward edges (the bug)."
+  flow row first, crossing the forward edges."
   [edge positions direction]
   (let [src (:source edge)
         tgt (:target edge)
@@ -747,8 +747,8 @@
          ;; source centre → out the side lane → lifted chip. The elbow leaves
          ;; the source ORTHOGONAL to the flow axis: sideways (to detour-x) for
          ;; :tb so it then runs vertically up the lane; upward (to detour-y)
-         ;; for :lr so it then runs horizontally along the lane (rf2-hpe9ws —
-         ;; mirror the elbow, don't reuse the :tb shape).
+         ;; for :lr so it then runs horizontally along the lane (mirror
+         ;; the elbow, don't reuse the :tb shape).
          :in-points  [sc
                       (if tb?
                         {:x detour-x :y (:y sc)}
@@ -764,7 +764,7 @@
                       tc]}))))
 
 (defn- same-parent?
-  "rf2-olie1s — do this edge's source and target sit DIRECTLY inside the
+  "Do this edge's source and target sit DIRECTLY inside the
   same container — the same `:parent-id`, or both root-level (no
   `:parent-id` at all)? Pure: a `node-parent` map (from `node-parent-map`) +
   a parsed edge → bool.
@@ -781,7 +781,7 @@
   (= (get node-parent (:source edge)) (get node-parent (:target edge))))
 
 (defn- container-origin
-  "rf2-qb452y — the ROOT-ABSOLUTE origin `{:x :y}` of container `pid`: the
+  "The ROOT-ABSOLUTE origin `{:x :y}` of container `pid`: the
   running sum of every ancestor container's PARENT-RELATIVE position from
   `pid` up through the root. `elk-result->positions` records every node
   (containers included) at its position relative to its OWN parent, no
@@ -797,18 +797,18 @@
       {:x ox :y oy})))
 
 (defn- rebase-points
-  "rf2-qb452y — translate a detour point-list by `origin` (parent-relative →
+  "Translate a detour point-list by `origin` (parent-relative →
   root-absolute)."
   [points {ox :x oy :y}]
   (mapv (fn [{:keys [x y]}] {:x (+ x ox) :y (+ y oy)}) points))
 
 (defn reroute-back-edges
-  "rf2-gnrkke — the back-edge return-route detour pass (§4.3.1 close). Pure:
+  "The back-edge return-route detour pass (§4.3.1 close). Pure:
   `{:positions :edge-points :edge-labels}` + parsed graph + resolved
   direction → the same shape with every sunk back-edge's event-node lifted to
   mid-height and its `__in`/`__out` segments rerouted as a side-detour.
 
-  rf2-olie1s — candidates are restricted to SAME-PARENT edges (`same-
+  Candidates are restricted to SAME-PARENT edges (`same-
   parent?`: source + target share one `:parent-id`, or both are root-level)
   before `back-edge?` ever runs. A nested-vs-root or cross-hierarchy edge
   would otherwise have its endpoints compared in DIFFERENT coordinate
@@ -818,7 +818,7 @@
   back-edge is simply left untouched (its ELK route stands) rather than
   corrupted.
 
-  rf2-qb452y — the detour `back-edge-detour` returns is in the endpoints'
+  The detour `back-edge-detour` returns is in the endpoints'
   shared-PARENT frame (the frame `node-center` reads). `:edge-points` is
   ROOT-ABSOLUTE (elk `edgeCoords ROOT`), so the routed `__in`/`__out` points
   are REBASED to absolute — shifted by the shared container's `container-
@@ -848,7 +848,7 @@
                   ;; container, per `same-parent?`). `:edge-points` is
                   ;; ROOT-ABSOLUTE (elk `edgeCoords ROOT`), so rebase the
                   ;; detour to absolute by the shared container's origin before
-                  ;; writing it (rf2-qb452y). `:event-pos` stays parent-relative
+                  ;; writing it. `:event-pos` stays parent-relative
                   ;; — `:positions` records nodes in that frame — so ONLY the
                   ;; edge-points are shifted.
                   origin (container-origin positions node-parent
@@ -870,7 +870,7 @@
 ;; ============================================================================
 
 (defn apply-post-elk
-  "rf2-lamdfl + rf2-gnrkke — the cohesive post-ELK stage: run the parallel-
+  "The cohesive post-ELK stage: run the parallel-
   region stacking-axis transpose THEN the back-edge return-route detour on
   the `elk-result->positions` map. Pure: `{:positions :edge-points
   :edge-labels}` + parsed graph + resolved direction → the same shape.
@@ -878,7 +878,7 @@
   INVOKED ONLY ON THE OPT-IN PATH. `chart.cljs` calls this exclusively when
   `adaptive?` is true (the host passed `:direction :auto`); on the default /
   forced path it is never reached and the ELK result flows untouched to the
-  projector — the byte-identical-to-main guarantee.
+  projector — the byte-identical-to-plain-ELK guarantee.
 
   Order matters: the parallel transpose runs FIRST (it re-stacks regions +
   transposes interiors), then the back-edge reroute runs on the resulting
@@ -889,8 +889,7 @@
 
   `chart.cljs` invokes this in its layout-settle callback, after
   `elk-result->positions` and before `done-fn` hands the result to the
-  projector — the §4.3 'post-ELK stage, before projection' the beads
-  specify."
+  projector — the §4.3 'post-ELK stage, before projection'."
   [layout parsed direction]
   (-> layout
       (transpose-parallel-regions parsed)
