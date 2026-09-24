@@ -1232,7 +1232,7 @@
             that rode would have to be classified `:metadata-only` and PLANNED,
             and the plan would name it by its projected key — an identity the
             route slice cannot resolve — so the row it planned would be an
-            ownerless duplicate nothing collects. The row does not ride, so
+            ownerless duplicate nothing reads. The row does not ride, so
             there is nothing to misclassify and nothing to plan, and the client
             issues the one load it derives from the raw key"
     (let [k    (rf.resources.state/scoped-resource-key :rf.scope/global :secret/thing {:slug "s"})

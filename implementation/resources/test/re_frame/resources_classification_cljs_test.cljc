@@ -420,7 +420,7 @@
           ;; the canonical bytes of the WHOLE key), and the live client derives
           ;; the RAW key, so a shipped row would be unaddressable. Shipping it
           ;; metadata-only would leave an ownerless row in the
-          ;; client's cache that nothing addresses and nothing collects, so the
+          ;; client's cache that nothing addresses and nothing reads, so the
           ;; row is WITHHELD. The end-to-end contract is
           ;; `resources_ssr_projected_key_refetch_cljs_test`; the co-equality
           ;; this test exists for — the params surface is projected exactly as
