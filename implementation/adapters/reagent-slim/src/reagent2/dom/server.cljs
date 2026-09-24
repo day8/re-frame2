@@ -1,11 +1,11 @@
 (ns reagent2.dom.server
   "Pure-CLJS hiccup → HTML5 static-markup serializer for the
-  day8/reagent-slim artefact (rf2-6hyy Stage 4-E).
+  day8/reagent-slim artefact.
 
-  Per IMPL-SPEC §8 + Stage 2 §2.5 (S3-005). The whole point of this
+  Per IMPL-SPEC §8. The whole point of this
   namespace is to ship `render-to-static-markup` WITHOUT a runtime
   dependency on `react-dom/server`. That's the biggest single bundle
-  win for SSR-using apps (Stage 2 §3.5 estimated ~22-27 KB gzip).
+  win for SSR-using apps (an estimated ~22-27 KB gzip).
 
   Public surface:
 
@@ -35,42 +35,41 @@
     | :r>            | raw React.createElement passthrough         |
     | :f>            | function-component dispatch                 |
     | …context Provider under any of those three heads:             |
-    |                | walk its children (rf2-iyz6j)               |
+    |                | walk its children                           |
     | DOM tag        | parse-tag + DOM element                     |
     | reagent class  | Form-3: render :reagent-render via fn path  |
     | user fn        | invoke fn-with-args (Form-1/Form-2); recurse|
 
   React-component heads (`:>`, `:r>`, `:f>`) emit a placeholder HTML
   comment (`<!--reagent-react-component-->`) and don't walk into the
-  component. THIS IS NOT REACT-DOM PARITY, and the claim that it was
-  is what let rf2-iyz6j sit unnoticed: real
+  component. THIS IS NOT REACT-DOM PARITY: real
   `react-dom/server.renderToStaticMarkup` RENDERS foreign components.
   The placeholder is a deliberate limitation of a serializer that ships
   no React — nothing here can know what a foreign component renders
   without running it — so read it as a marker that content was SKIPPED,
   not as a statement about what React would have produced.
-  Stage 4 picks the user-fn-call path for plain-fn heads to match
-  stock Reagent's `render-to-static-markup` behaviour and preserve
+  Plain-fn heads take the user-fn-call path, matching
+  stock Reagent's `render-to-static-markup` behaviour and keeping
   Dash8/rf8 HTML-export compatibility.
 
-  CONTEXT PROVIDERS ARE THE EXCEPTION (rf2-iyz6j). A Provider is the one
+  CONTEXT PROVIDERS ARE THE EXCEPTION. A Provider is the one
   React head whose output IS knowable without React: it renders nothing
   of its own and its output is exactly its children, so the walker walks
-  THROUGH it. Before rf2-iyz6j it did not, and the canonical slim mount
+  THROUGH it. Otherwise the canonical slim mount
   `[rf/frame-provider {:frame f} [app]]` — which expands to an `:r>` head
-  carrying the shared frame Context Provider — serialised to the
-  placeholder comment and NOTHING ELSE. An empty document, no error, on
+  carrying the shared frame Context Provider — would serialise to the
+  placeholder comment and NOTHING ELSE: an empty document, no error, on
   the HTML-export path the guides teach. See `emit-react-interop` for the
   detection and for why both React `$$typeof` shapes are accepted.
 
-  COMPONENT-SHAPE PARITY (rf2-o3hqr). The static path must render the
+  COMPONENT-SHAPE PARITY. The static path must render the
   same Form-1/Form-2/Form-3 view shapes the live renderer does — a
   view that renders correctly in the browser must render to HTML, not
-  throw. The previous user-fn path called the head once and recursed
-  on the result, which is correct ONLY for Form-1 (the body IS hiccup).
-  A Form-2 head `(fn [x] (fn [x] [:li x]))` returns its inner render
-  closure; recursing on that bare fn hit `emit-element` and threw
-  `:rf.error/static-markup-bad-element`. The fix mirrors the live
+  throw. Calling the head once and recursing on the result is correct
+  ONLY for Form-1 (the body IS hiccup): a Form-2 head
+  `(fn [x] (fn [x] [:li x]))` returns its inner render closure, and
+  recursing on that bare fn would hit `emit-element` and throw
+  `:rf.error/static-markup-bad-element`. So the static path mirrors the live
   `reagent2.impl.component/wrap-render` Form-1/Form-2 detection: invoke
   the head; if it returns a fn, that is the Form-2 inner render closure —
   call it with the SAME args and recurse on its hiccup. Form-3
@@ -81,7 +80,7 @@
   matching `:>`.
 
   HTML escaping (per §8.2): lifted by intent (not require — bundle
-  isolation forbids `:require` between artefacts; per rf2-6phn the
+  isolation forbids `:require` between artefacts; the
   duplication is accepted because HTML5's escape rules are frozen)
   from `re-frame.ssr/escape-html`. A `<script>` / `<style>` string body
   is the exception: raw text, emitted verbatim (`escape-raw-text`).
@@ -89,8 +88,7 @@
   Boolean attributes + void tags (per §8.4): lifted similarly from
   `re-frame.ssr/void-elements`. The HTML5 void-tag list is fixed.
 
-  This namespace ships ~150-200 LoC per the §8.6 budget. No
-  `react-dom/server` import. No `clj->js`. No React import.
+  No `react-dom/server` import. No `clj->js`. No React import.
   Production-elision-friendly: no `goog.DEBUG` branches; nothing to
   elide."
   (:require [clojure.string :as str]
@@ -129,7 +127,7 @@
       (str/replace "\"" "&quot;")))
 
 ;; ---------------------------------------------------------------------------
-;; Element-context text rules (rf2-3x7nj.6.2)
+;; Element-context text rules
 ;;
 ;; Two text rules depend on the PARENT element, which the context-free
 ;; `escape-text` above cannot express. Both are lifted by intent from
@@ -139,8 +137,8 @@
 ;;
 ;;   RAW TEXT — `<script>` / `<style>`. The HTML parser does NOT decode
 ;;   character references inside these, so entity-escaping their text
-;;   corrupts it: `'Open Sans'` reached the CSS parser as
-;;   `&#39;Open Sans&#39;` and `a && b` reached the JS parser as
+;;   corrupts it: `'Open Sans'` would reach the CSS parser as
+;;   `&#39;Open Sans&#39;` and `a && b` the JS parser as
 ;;   `a &amp;&amp; b`. react-dom emits the text verbatim and rewrites only
 ;;   an embedded closing-tag sequence, so the element cannot end early.
 ;;
@@ -183,10 +181,10 @@
 ;;
 ;; Void-tag set is `reagent2.impl.template/void-tags` — shared with the
 ;; React-element path (both ship in the same artefact). Boolean-attr
-;; set stays local; HTML5's list is fixed (no maintenance burden) and
+;; set is local; HTML5's list is fixed (no maintenance burden) and
 ;; SSR is the only consumer.
 ;;
-;; Per §8.4 + rf2-6phn: bundle isolation forbids `:require` of the SSR
+;; Per §8.4: bundle isolation forbids `:require` of the SSR
 ;; artefact (re-frame.ssr lives in day8/re-frame2-ssr), so we don't
 ;; share with that — only with the in-artefact template path.
 ;;
@@ -199,21 +197,19 @@
 ;; itself rather than against the SSR copy; see
 ;; `boolean_attr_react_parity_cljs_test.cljs`.
 ;;
-;; THREE CLASSES, because react-dom has three (rf2-4hjw). A single
-;; presence roster — which is all this namespace carried until
-;; rf2-4hjw — silently drops every boolean value outside it, so
-;; `{:aria-expanded true}` and `{:contentEditable false}` emitted
+;; THREE CLASSES, because react-dom has three. A single
+;; presence roster silently drops every boolean value outside it, so
+;; `{:aria-expanded true}` and `{:contentEditable false}` would emit
 ;; NOTHING where React emits `aria-expanded="true"` and
-;; `contentEditable="false"`. That is the rf2-r9kf defect class
-;; arriving independently in this artefact: a false (or true) value
+;; `contentEditable="false"`: a false (or true) value
 ;; that carries meaning is dropped, and the markup asserts the
 ;; opposite of what the author wrote. Because this serializer's
 ;; output is what `reagent2.dom.client/hydrate-root` hands React,
 ;; the divergence is an attribute-only hydration mismatch — the kind
 ;; React does not guarantee to patch.
 ;;
-;; Every name below was measured against the INSTALLED react-dom
-;; (19.2.0) rather than transcribed from a specification; the test
+;; Every name below is taken from the INSTALLED react-dom rather than
+;; transcribed from a specification; the test
 ;; re-derives the same classification from react-dom at run time, so
 ;; a react-dom bump that moves a name reds the gate.
 ;; ---------------------------------------------------------------------------
@@ -225,7 +221,7 @@
   A JS-FALSEY non-boolean is omitted, as react-dom omits it, even though
   every such value is logically TRUE in ClojureScript; the rule is
   JavaScript's own coercion rather than a roster of the values it
-  accepts — see `presence-value-truthy?` (rf2-owml).
+  accepts — see `presence-value-truthy?`.
 
   Keyed on the LOWERCASE name so all three hiccup spellings of a
   camelCase attribute reach the same row — `:read-only`, `:readOnly`
@@ -236,14 +232,13 @@
     "controls" "default" "defer" "disabled" "formnovalidate" "hidden"
     "loop" "multiple" "muted" "novalidate" "open" "playsinline"
     "readonly" "required" "reversed" "selected" "itemscope"
-    ;; rf2-4hjw — the six react-dom 19.2 presence names this roster
-    ;; omitted. Each was re-measured against the installed package
-    ;; before it was added (the `ismap` row in spec/004B is the
-    ;; cautionary case: react-dom carries no such name at all).
+    ;; Six more react-dom presence names, each confirmed against the
+    ;; installed package rather than a specification (spec/004B's
+    ;; `ismap` row is the counter-example: react-dom carries no such
+    ;; name at all).
     "inert" "nomodule" "scoped" "seamless"
     "disablepictureinpicture" "disableremoteplayback"
-    ;; rf2-4ale — react-dom 19.3.0 added `credentialless` (credentialless
-    ;; iframes). Re-probed against the installed package before adding it:
+    ;; `credentialless` (credentialless iframes, react-dom 19.3.0):
     ;; presence-class, byte-identical in shape to `allowfullscreen`.
     "credentialless"})
 
@@ -266,8 +261,8 @@
     ;; roster is shared with the Spec 004B structural-tree serializer
     ;; where `value` is a form-control special form. This artefact has
     ;; no such coupling and one contract only — byte-parity with
-    ;; `react-dom/server.renderToStaticMarkup` — so it follows the
-    ;; measurement. A boolean `value` is an authoring error either
+    ;; `react-dom/server.renderToStaticMarkup` — so it follows
+    ;; react-dom. A boolean `value` is an authoring error either
     ;; way; the question is only whose markup it produces.
     "value"})
 
@@ -313,9 +308,9 @@
 ;;   :data-foo        → "data-foo"  (data-* untouched)
 ;;   :aria-label      → "aria-label" (aria-* untouched)
 ;;
-;; CASE-SENSITIVE SVG ATTRIBUTES (rf2-ygknv finding 3). The previous
-;; rule blanket-lowercased every camelCase token, turning case-SENSITIVE
-;; SVG attribute names into broken markup:
+;; CASE-SENSITIVE SVG ATTRIBUTES. Blanket-lowercasing every camelCase
+;; token would turn case-SENSITIVE SVG attribute names into broken
+;; markup:
 ;;
 ;;   :viewBox     → "viewbox"     (WRONG — must stay "viewBox")
 ;;   :clipPath    → "clippath"    (WRONG — React emits "clip-path")
@@ -337,10 +332,10 @@
 ;; React 19's emitted output (extracted from `renderToStaticMarkup` —
 ;; see `parity_cljs_test.cljs` for the round-trip pin). Any camelCase
 ;; token NOT in the map falls through to the lowercase rule (shape 3),
-;; which is correct for the residual HTML attributes. This restores
+;; which is correct for the residual HTML attributes. This keeps
 ;; SVG parity with the React-element path (React itself remaps SVG
-;; names at the DOM layer, so the live path was already correct; only
-;; this pure serializer diverged).
+;; names at the DOM layer, so the live path needs no table; only
+;; this pure serializer does).
 ;; ---------------------------------------------------------------------------
 
 (def ^:private react-attribute-name-overrides
@@ -355,7 +350,7 @@
   XML-namespaced names (`xlinkHref`→`xlink:href`, `xmlLang`→`xml:lang`).
   Pinned against the live React reference in `parity_cljs_test.cljs` per
   §8.7, and swept over react-dom's whole `possibleStandardNames` space by
-  `attribute-names-agree-with-installed-react-dom` (rf2-u0xpc)."
+  `attribute-names-agree-with-installed-react-dom`."
   {"accentHeight" "accent-height"
    "acceptCharset" "accept-charset"
    "accessKey" "accessKey"
@@ -433,12 +428,11 @@
    "markerUnits" "markerUnits"
    "markerWidth" "markerWidth"
    "maskContentUnits" "maskContentUnits"
-   ;; rf2-4ale — react-dom 19.3 DASHERIZES this one (19.2 emitted it
-   ;; verbatim). With no row here the name fell through to the lowercase
-   ;; rule and this serializer wrote `masktype`, which matched neither
-   ;; version. Its two neighbours below are the unaffected controls: they
-   ;; keep their camelCase, so this is a single-row correction rather than
-   ;; a change to the fallback.
+   ;; react-dom 19.3 DASHERIZES this one (19.2 emits it verbatim). With
+   ;; no row here the name would fall through to the lowercase rule as
+   ;; `masktype`, which matches neither version. Its two neighbours keep
+   ;; their camelCase, so this is a single-row exception rather than a
+   ;; change to the fallback.
    "maskType" "mask-type"
    "maskUnits" "maskUnits"
    "maxLength" "maxLength"
@@ -517,11 +511,12 @@
    "writingMode" "writing-mode"
    "xChannelSelector" "xChannelSelector"
    "xHeight" "x-height"
-   ;; rf2-u0xpc — the XML-namespaced names react-dom writes with a colon:
+   ;; The XML-namespaced names react-dom writes with a colon:
    ;; `xmlnsXlink` from its `aliases` Map, the rest from dedicated
-   ;; `pushAttribute` cases. With no row each fell through to the lowercase
-   ;; rule, so `[:use {:xlink-href "#icon"}]` wrote `xlinkhref`, an attribute
-   ;; no browser knows, and the sprite reference did not resolve.
+   ;; `pushAttribute` cases. With no row each would fall through to the
+   ;; lowercase rule, so `[:use {:xlink-href "#icon"}]` would write
+   ;; `xlinkhref`, an attribute no browser knows, and the sprite reference
+   ;; would not resolve.
    "xlinkActuate" "xlink:actuate"
    "xlinkArcrole" "xlink:arcrole"
    "xlinkHref" "xlink:href"
@@ -552,7 +547,7 @@
   output (`viewBox` preserved, `clipPath`→`clip-path`, …); any camelCase
   token not in the table lowercases for HTML5 conformance
   (`tabIndex` → `tabindex`). Kebab-case `data-*` / `aria-*` pass through
-  verbatim. Per rf2-ygknv finding 3."
+  verbatim."
   [k]
   (let [n (prop-token k)]
     (case n
@@ -569,12 +564,12 @@
             (str/lower-case n))))))
 
 ;; ---------------------------------------------------------------------------
-;; Attribute-name and tag-name gates (rf2-3x7nj.6.1)
+;; Attribute-name and tag-name gates
 ;;
 ;; Attribute and tag NAMES reach the wire unescaped, so a name built from
 ;; data — an app splatting a CMS or JSON attribute map into hiccup, or a
 ;; string head — could carry `=`, whitespace or a quote and break out into
-;; a live inline handler: `{"onclick=alert(1) x" "y"}` emitted
+;; a live inline handler: `{"onclick=alert(1) x" "y"}` would emit
 ;; `<div onclick=alert(1) x="y">`. Both gates below refuse such a name by
 ;; THROWING the id re-frame.ssr throws for the same hazard.
 ;;
@@ -612,7 +607,7 @@
 (defn- checked-attribute-name
   "The HTML name `attribute-name` produces for hiccup key `k`, or a thrown
   `:rf.error/ssr-invalid-attribute-name` when react-dom's own predicate
-  refuses that name (rf2-3x7nj.6.1). Called wherever a user-supplied name
+  refuses that name. Called wherever a user-supplied name
   reaches the wire — the ordinary value path and the boolean path."
   [k]
   (let [n (attribute-name k)]
@@ -634,11 +629,11 @@
 
 (defn- check-tag-name!
   "Throw `:rf.error/invalid-tag-name` unless `tag-str`, parsed from hiccup
-  head `head`, is a string react-dom's own tag predicate accepts
-  (rf2-3x7nj.6.1). The `string?` test is load-bearing: `template/parse-tag`
+  head `head`, is a string react-dom's own tag predicate accepts.
+  The `string?` test is load-bearing: `template/parse-tag`
   returns a NIL tag for class-before-id shorthand (`:div.a#id`), which
-  rendered as the literal element `<null>`, and `.test` coerces nil to
-  \"null\" and would pass it."
+  would render as the literal element `<null>`, because `.test` coerces
+  nil to \"null\" and would pass it."
   [tag-str head]
   (when-not (and (string? tag-str) (.test valid-tag-name-re tag-str))
     (throw (ex-info (str "Hiccup head " (pr-str head) " does not name a valid "
@@ -658,7 +653,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Attribute value serialisation
 ;;
-;; Per §8.3 / S3-005: every prop-name reaching this layer IS by
+;; Per §8.3: every prop-name reaching this layer IS by
 ;; definition an HTML-attribute name (no React-component props here),
 ;; so keyword/symbol values stringify unconditionally — equivalent
 ;; to the narrowed convert-prop-value's html-attr-name? branch always
@@ -673,7 +668,7 @@
     :else                 (str x)))
 
 ;; ---------------------------------------------------------------------------
-;; Inline-style serialisation (rf2-9nyg6)
+;; Inline-style serialisation
 ;;
 ;; `react-dom/server.renderToStaticMarkup` serialises a `style` object via
 ;; its internal `pushStyleAttribute`. Two behaviours of that path are NOT
@@ -722,7 +717,7 @@
     "msFlexShrink" "msGridColumn" "msGridColumnSpan" "msGridRow"
     "msGridRowSpan" "WebkitAnimationIterationCount" "WebkitBoxFlex"
     ;; NOTE: `WebKitBoxFlexGroup` keeps React 19.2.0's capital-K typo
-    ;; VERBATIM (rf2-4dlxga). React's `unitlessNumber` Set really does
+    ;; VERBATIM. React's `unitlessNumber` Set really does
     ;; spell it with a capital K, while the camelCase prop token this
     ;; serializer (and React itself) computes is `WebkitBoxFlexGroup`
     ;; (lowercase k). So the lookup MISSES in React too — React emits
@@ -793,7 +788,7 @@
     :else     (str v)))
 
 ;; ---------------------------------------------------------------------------
-;; React-internal / non-HTML attribute filtering (rf2-dwds9 HIGH)
+;; React-internal / non-HTML attribute filtering
 ;;
 ;; React event-handler props (`onClick`, `onChange`, …) MUST NOT appear
 ;; in the static HTML output:
@@ -826,22 +821,21 @@
 ;; All lower-case; the lookup lower-cases the candidate name first so
 ;; every casing (`onclick`, `ONCLICK`, `OnClick`) is covered.
 ;;
-;; rf2-ut3mod: `event-handler-prop?`'s structural check (`on-` kebab /
+;; `event-handler-prop?`'s structural check (`on-` kebab /
 ;; `on[A-Z]` camel) misses lowercase inline HTML event attributes —
 ;; `:onclick`, `:onchange`, `"onclick"` — because there's no `-` and no
 ;; upper-case letter after `on`. Those are exactly the canonical names
-;; a browser fires on, so a string-valued `:onclick "alert(1)"` rode
-;; through to the wire as `onclick="alert(1)"`, an XSS vector of the
-;; same class rf2-dwds9 closed for the structural forms. An allowlist
+;; a browser fires on, so without this list a string-valued
+;; `:onclick "alert(1)"` would ride through to the wire as
+;; `onclick="alert(1)"`, the XSS vector the structural check closes for
+;; the other forms. An allowlist
 ;; (not a bare `on` + lowercase wildcard) is required so legitimate
 ;; non-handler keys (`:once`, `:onyx`, `:only`, `:online`) survive.
 ;;
 ;; Curated to match `re-frame.ssr.html-helpers/event-handler-allowlist`
 ;; (lifted by intent, not require — bundle isolation forbids `:require`
 ;; between artefacts; see ns docstring). If HTML5 extends the
-;; event-handler list, both copies update. `oncommand` is the one name
-;; this copy missed when re-frame.ssr gained it (rf2-51tgp; closed here
-;; by rf2-3x7nj.6.1).
+;; event-handler list, both copies update.
 (def ^:private event-handler-allowlist
   #{"onabort" "onafterprint" "onanimationcancel" "onanimationend"
     "onanimationiteration" "onanimationstart" "onauxclick"
@@ -876,8 +870,7 @@
   "True when `k`'s name looks like a React event-handler prop
   (`onClick`, `onChange`, `on-click`, …) OR is a canonical lowercase
   HTML event-handler attribute (`onclick`, `onchange`, …). Matches
-  kebab-, camel-, and lowercase forms before `attribute-name` lowercasing
-  (rf2-ut3mod)."
+  kebab-, camel-, and lowercase forms before `attribute-name` lowercasing."
   [k]
   (let [n (cond
             (keyword? k) (name k)
@@ -897,7 +890,7 @@
 
 (defn- ^boolean presence-value-truthy?
   "True when react-dom would treat this NON-boolean, non-nil attribute
-  value as present (rf2-owml).
+  value as present.
 
   react-dom collapses a presence attribute on JavaScript truthiness, so
   `{:disabled \"\"}`, `{:disabled 0}` and `{:disabled (js/BigInt 0)}`
@@ -909,13 +902,13 @@
   ASK JAVASCRIPT rather than enumerate the values it calls falsey.
   `js/Boolean` IS the coercion react-dom performs, so this states the
   rule; a roster of the values that satisfy it does not, and cannot be
-  read to see whether it is complete. The earlier spelling here tested
-  `string?` and `number?` explicitly and returned `true` for everything
-  else — right for keywords, collections and JS objects, and silently
-  wrong for the one remaining JS primitive that can be falsey. A
-  `BigInt` zero is missed by `cljs.core/number?`, which compiles to
-  `typeof x === \"number\"`, so `{:disabled (js/BigInt 0)}` emitted a
-  bare `disabled` where react-dom 19.2 emits nothing (rf2-owml).
+  read to see whether it is complete. Testing `string?` and `number?`
+  explicitly and returning `true` for everything else would be right
+  for keywords, collections and JS objects, and silently wrong for the
+  one remaining JS primitive that can be falsey: a `BigInt` zero is
+  missed by `cljs.core/number?`, which compiles to
+  `typeof x === \"number\"`, so `{:disabled (js/BigInt 0)}` would emit a
+  bare `disabled` where react-dom emits nothing.
 
   Note that the STRING `\"0\"` is truthy (a non-empty string) where the
   NUMBER `0` is not, and that `nil`, `js/undefined` and `false` never
@@ -950,14 +943,14 @@
       nil)))
 
 ;; ---------------------------------------------------------------------------
-;; javascript: URLs (rf2-w1hd8)
+;; javascript: URLs
 ;;
 ;; react-dom swaps a `javascript:` URL for a URL that throws (`sanitizeURL`)
 ;; in five props on any element it does not treat as custom (`href`, `src`,
-;; `action`, `formAction`, `xlinkHref`), and in `data` on an `<object>`. This
-;; serializer wrote the value unchanged, so the URL shipped live where
-;; react-dom/server blocks it and a hydrating react-dom client paints the
-;; blocked URL. The regex, the substituted URL, the prop set and the
+;; `action`, `formAction`, `xlinkHref`), and in `data` on an `<object>`.
+;; Writing the value unchanged would ship the URL live where
+;; react-dom/server blocks it, and a hydrating react-dom client would paint
+;; the blocked URL. The regex, the substituted URL, the prop set and the
 ;; custom-element test below are react-dom 19.3.0's, copied by intent (bundle
 ;; isolation forbids requiring anything). `parity_cljs_test.cljs` and
 ;; `boolean_attr_react_parity_cljs_test.cljs` pin them against the installed
@@ -1001,7 +994,7 @@
   "Emit one [k v] attribute pair to the StringBuilder. Skips nil
   values; routes boolean values through `emit-boolean-attribute`.
 
-  Drops React-internal / non-HTML props (rf2-dwds9 HIGH):
+  Drops React-internal / non-HTML props:
     - `:key` / `:ref` — React-internal.
     - `:dangerouslySetInnerHTML` — handled by caller (children path).
     - Event-handler props (`on*`) — not HTML attrs; emitting them as
@@ -1011,7 +1004,7 @@
       source into the attribute. React-DOM-server elides these too.
 
   `tag` is the element's tag, which decides where a `javascript:` URL is
-  blocked (`block-javascript-url`, rf2-w1hd8)."
+  blocked (`block-javascript-url`)."
   [^StringBuffer sb tag k v]
   (cond
     (nil? v)   nil
@@ -1026,13 +1019,13 @@
     ;; emission); skip here.
     (= :dangerouslySetInnerHTML k) nil
 
-    ;; rf2-dwds9 HIGH: drop React event-handler props from static
+    ;; Drop React event-handler props from static
     ;; markup. Matches `react-dom/server.renderToStaticMarkup`'s
     ;; behaviour and closes the XSS surface where a stringy `on*` value
     ;; would be emitted as an inline event handler.
     (event-handler-prop? k) nil
 
-    ;; rf2-dwds9 HIGH: drop fn-valued props (event handlers, ref
+    ;; Drop fn-valued props (event handlers, ref
     ;; callbacks, custom callback props). Stringifying a fn would leak
     ;; source text into the attribute and serves no HTML purpose.
     (fn? v) nil
@@ -1043,12 +1036,12 @@
       (.append sb (escape-attribute (style-string v)))
       (.append sb "\""))
 
-    ;; Boolean VALUE — the three-class path (rf2-4hjw). HTML5 boolean
+    ;; Boolean VALUE — the three-class path. HTML5 boolean
     ;; attributes are lowercase (`readonly`, `disabled`, …) while
     ;; `attribute-name` may preserve React's casing (`readOnly`), so
-    ;; the membership test uses the lowercased name (rf2-ygknv
-    ;; finding 3 follow-on: the case-preserving override must not
-    ;; defeat the lowercase boolean-attr rosters).
+    ;; the membership test uses the lowercased name (the
+    ;; case-preserving override must not defeat the lowercase
+    ;; boolean-attr rosters).
     (boolean? v)
     (emit-boolean-attribute sb k v)
 
@@ -1060,8 +1053,8 @@
         ;; (lowercase HTML5) name when react-dom would. react-dom
         ;; collapses on JS TRUTHINESS — `{:disabled "yes"}` →
         ;; `disabled=""`, but `{:disabled ""}` and `{:disabled 0}` emit
-        ;; nothing, and those two are logically true in CLJS
-        ;; (rf2-owml). Overloaded and stringifying names deliberately
+        ;; nothing, and those two are logically true in CLJS.
+        ;; Overloaded and stringifying names deliberately
         ;; fall through to the ordinary path, which is what keeps
         ;; `{:download "report.pdf"}` and
         ;; `{:contentEditable "plaintext-only"}` intact.
@@ -1134,7 +1127,7 @@
     (emit-element sb c)))
 
 ;; ---------------------------------------------------------------------------
-;; React context Providers (rf2-iyz6j)
+;; React context Providers
 ;;
 ;; The ONE React head whose rendered output is knowable without running
 ;; React: a Provider renders nothing of its own and its output IS its
@@ -1165,8 +1158,8 @@
   Reads `$$typeof` through `unchecked-get` — a STRING-keyed access, so
   Closure `:advanced` cannot rename the property out from under it. That
   is not fussiness: a renamed property would make this predicate return
-  false in release bundles only, silently restoring the dropped-subtree
-  bug in exactly the artefact users ship, where the unit tests (dev
+  false in release bundles only, silently dropping the Provider's
+  subtree in exactly the artefact users ship, where the unit tests (dev
   build) would still be green. `reagent2.impl.template` reads its own
   hot-path caches the same way, and `re-frame.substrate.spine` likewise
   spells this very property as a string."
@@ -1193,7 +1186,7 @@
   Frame scoping is NOT reimplemented here. The Provider's `:value` is a
   React-runtime concern; under the static walker a descendant resolves
   its frame through the ambient `with-frame` / `*current-frame*` binding,
-  exactly as it did before this branch existed."
+  exactly as it would were the Provider not there."
   [^StringBuffer sb argv]
   (let [head      (nth argv 0 nil)
         component (nth argv 1 nil)]
@@ -1246,11 +1239,11 @@
         (if (and (contains? raw-text-tags tag-lc)
                  (seq children)
                  (every? string? children))
-          ;; rf2-3x7nj.6.2 — a script/style string body is raw text:
+          ;; A script/style string body is raw text:
           ;; verbatim, with only the closing sequence rewritten.
           (.append sb (escape-raw-text tag-lc (apply str children)))
           (do
-            ;; rf2-3x7nj.6.2 — one compensating LF for a sole string body
+            ;; One compensating LF for a sole string body
             ;; that starts with LF, which the parser would otherwise eat.
             (when (and (contains? newline-eating-tags tag-lc)
                        (= 1 (count children))
@@ -1273,7 +1266,7 @@
 (defn- emit-render-fn
   "Invoke a Form-1/Form-2 render fn `f` with `args` and emit the
   resulting hiccup. Mirrors the live `reagent2.impl.component/wrap-render`
-  Form-1/Form-2 detection (rf2-o3hqr):
+  Form-1/Form-2 detection:
 
     - Form-1: `f` returns hiccup directly → recurse on it.
     - Form-2: `f` returns a fn (the inner render closure produced by the
@@ -1285,13 +1278,13 @@
   setup. That is correct for static markup — output is a function of the
   args only.
 
-  Form-3 FACTORY (rf2-oyrj): `f` may be a plain factory whose body
+  Form-3 FACTORY: `f` may be a plain factory whose body
   RETURNS a `create-class` result — `FORM-3.md`'s supported per-instance
   shape. That class is a JS function, so it matches the same `fn?` test
   that detects a Form-2 inner render fn, and applying it would invoke the
   constructor rather than render. Detect it FIRST and re-enter the
   element walk with the class as a hiccup HEAD, where
-  `emit-hiccup-vector`'s existing `reagent-class?` dispatch renders its
+  `emit-hiccup-vector`'s `reagent-class?` dispatch renders its
   `:reagent-render` — keeping static markup free of lifecycle execution,
   exactly as for a class written directly in the head."
   [^StringBuffer sb f args]
@@ -1310,15 +1303,15 @@
       (emit-element sb out))))
 
 (defn- emit-user-fn
-  "Emit a plain user-fn head (Form-1 or Form-2). Per §8.1 — Stage 4
+  "Emit a plain user-fn head (Form-1 or Form-2). Per §8.1 — this
   follows stock Reagent's function-call path so apps using
   `render-to-static-markup` for HTML export get the same shape. Form-2
-  detection (rf2-o3hqr) is delegated to `emit-render-fn`."
+  detection is delegated to `emit-render-fn`."
   [^StringBuffer sb f argv]
   (emit-render-fn sb f (rest argv)))
 
 (defn- emit-reagent-class
-  "Emit a Form-3 (`create-class`) head (rf2-o3hqr). A reagent-slim class
+  "Emit a Form-3 (`create-class`) head. A reagent-slim class
   carries its user `:reagent-render` fn under `.-cljsReagentRender` (set
   by `create-class*`). Static markup has no React lifecycle, so we render
   the `:reagent-render` fn directly through the Form-1/Form-2 path — the
@@ -1334,7 +1327,7 @@
   [^StringBuffer sb argv]
   (when (zero? (count argv))
     ;; Canonical thrown-error shape per Spec 009 §The thrown-error shape
-    ;; (rf2-vvixub) replicated INLINE — reagent-slim is bundle-isolated and
+    ;; replicated INLINE — reagent-slim is bundle-isolated and
     ;; MUST NOT `:require` re-frame.* (the slim bundle-isolation gate), so
     ;; the central `re-frame.error` builder is unavailable here. Human
     ;; message + trailing [:rf.error/<id>] token; `:rf.error/id` the sole
@@ -1359,17 +1352,17 @@
       ;; Form-3 head: a reagent-slim class made by `create-class*`. It
       ;; is a JS fn (so `fn?` would be true), but calling it would invoke
       ;; the class constructor, not render — so detect it BEFORE the
-      ;; plain-fn path and render its `:reagent-render` fn (rf2-o3hqr).
+      ;; plain-fn path and render its `:reagent-render` fn.
       (component/reagent-class? head) (emit-reagent-class sb head argv)
       ;; A generic React class (not made by `create-class*`) has no
       ;; CLJS render fn to walk — treat it as opaque foreign content,
-      ;; same as `:>` (rf2-o3hqr).
+      ;; same as `:>`.
       (component/react-class? head)   (emit-react-component-placeholder sb)
-      ;; Plain user fn head — Form-1 or Form-2 (rf2-o3hqr).
+      ;; Plain user fn head — Form-1 or Form-2.
       (fn? head)                  (emit-user-fn sb head argv)
       :else
       ;; Canonical shape replicated inline (bundle isolation — see above).
-      ;; EP-0015 (rf2-uwqale): summarise head + argv — a static-markup
+      ;; Per EP-0015, summarise head + argv — a static-markup
       ;; throw is captured by SSR/static-export error handlers and host
       ;; logs before the projector can classify it, and argv carries
       ;; app-owned hiccup children that can hold sensitive/large values.
@@ -1401,7 +1394,7 @@
     (sequential? x) (doseq [c x] (emit-element sb c))
     :else
     ;; Canonical shape replicated inline (bundle isolation — see above).
-    ;; EP-0015 (rf2-uwqale): summarise the offending child — never the
+    ;; Per EP-0015, summarise the offending child — never the
     ;; raw value. The bad-element throw is captured off-box (SSR error
     ;; handlers, host logs) and the child can carry app-owned data.
     (throw (ex-info (str "Cannot render " (pr-str (diag/value-summary x))
