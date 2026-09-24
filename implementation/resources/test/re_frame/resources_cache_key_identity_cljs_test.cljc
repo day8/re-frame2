@@ -1,19 +1,19 @@
 (ns re-frame.resources-cache-key-identity-cljs-test
-  "EP-0012 cache-key byte-identity round-trip (rf2-9e0tyq).
+  "EP-0012 cache-key byte-identity round-trip.
 
-  The full fix for the resource cache-key `=`-collapse: the `:entries` map,
-  the reverse indexes, and the work-ledger map are keyed on the CEDN-1 byte
-  `key-id` (`rf.resources.state/key-id` / `rf.resources.work-ledger/work-id-id`) rather than the scoped
-  resource key VECTOR under Clojure `=`. The vector is the kind-preserving
-  identity (`rf2-wgutc2`) carried as each entry's `:resource/key`, embedded in
+  The resource cache key never `=`-collapses: the `:entries` map, the reverse
+  indexes, and the work-ledger map are keyed on the CEDN-1 byte `key-id`
+  (`rf.resources.state/key-id` / `rf.resources.work-ledger/work-id-id`) rather
+  than the scoped resource key VECTOR under Clojure `=`. The vector is the
+  kind-preserving identity carried as each entry's `:resource/key`, embedded in
   the work-id, on the SSR wire, and in trace payloads.
 
   Clojure `=` collapses `(= [1 2 3] '(1 2 3))` to TRUE, but the byte key-id
   (a `canonical-bytes` STRING) never collapses, so a list-params key and a
   vector-params key get DISTINCT entries / work-ids / index members.
 
-  This suite proves the fix holds through ALL FOUR carriers the scoped key
-  flows into (the blast radius that deferred the fix):
+  This suite proves the byte identity holds through ALL FOUR carriers the
+  scoped key flows into:
 
     1. `:entries` map key (the collapse site);
     2. the work-ledger work-id (`[:rf.work/resource <scoped-key> <gen>]`,
@@ -24,9 +24,9 @@
     4. trace payloads (the scoped-key vector rides verbatim).
 
   CRITICAL: the byte key-id is a plain UTF-8 STRING, so it rides the SSR /
-  epoch / trace wire with NO custom transit handler — the failure mode a
-  `deftype` key would have silently introduced (it would pass an in-process
-  unit gate yet break serialization). The round-trip tests below install the
+  epoch / trace wire with NO custom transit handler — a `deftype` key would
+  silently break serialization while still passing an in-process unit gate.
+  The round-trip tests below install the
   PROJECTED wire shape and assert the two distinct entries survive."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
@@ -54,7 +54,7 @@
 
 (defn- loaded-entry
   "A loaded durable entry stamped with its scoped-key `sk` (the runtime
-  stamps `:resource/key` on every entry now)."
+  stamps `:resource/key` on every entry)."
   [sk data tags]
   (-> (rf.resources.state/empty-entry :r/x sk)
       (merge {:status :loaded :data data :loaded-at 1000 :stale-at 9.0e15
@@ -65,7 +65,7 @@
   `key-id`, each entry carrying its own `:resource/key`. Takes a SEQUENCE of
   `[scoped-key entry]` pairs (NOT a map literal — a `{kv … kl …}` literal
   would itself throw `Duplicate key` because `kv` and `kl` are Clojure-`=`,
-  which is the very collapse this fix routes around)."
+  which is the very collapse the byte key-id routes around)."
   [pairs]
   (into {} (map (fn [[sk e]] [(rf.resources.state/key-id sk) e])) pairs))
 
@@ -76,7 +76,7 @@
 (deftest carrier-1-entries-map-keys-distinctly
   (testing "list- and vector-params keys are `=` as VECTORS but their byte
             key-ids differ, so the :entries map holds TWO entries"
-    (is (= kv kl) "the vectors are Clojure-= (the collapse the fix routes around)")
+    (is (= kv kl) "the vectors are Clojure-= (the collapse the byte key-id routes around)")
     (is (not= (rf.resources.state/key-id kv) (rf.resources.state/key-id kl))
         "the byte key-ids differ (v[…] vs l(…))")
     (let [es (byte-keyed-entries [[kv (loaded-entry kv {:v 1} #{:t})]
@@ -127,7 +127,7 @@
           wired (get-in proj [rf.resources.state/resources-key :entries])]
       (is (= 2 (count wired)) "two distinct wire entries projected")
       ;; the wire keys are plain strings (transit/JSON-safe — the load-bearing
-      ;; property a deftype key would have violated).
+      ;; property a deftype key would violate).
       (is (every? string? (keys wired)) "wire map keys are plain canonical-bytes STRINGS")
       ;; round-trip through a pr-str/read-string (a stand-in for the transit
       ;; wire) — the keys + kind-preserving :resource/key survive verbatim.
@@ -189,19 +189,19 @@
 ;; byte-identity round-trip through the four serialization carriers.
 
 ;; ===========================================================================
-;; rf2-eynsfe — instant params vs same-looking STRING params are DISTINCT
-;; resource identities end-to-end (the canonical tagged-instant form)
+;; Instant params vs same-looking STRING params are DISTINCT resource
+;; identities end-to-end (the canonical tagged-instant form)
 ;; ===========================================================================
 ;;
-;; Before the tagged-instant fix, `canonical` collapsed an instant to a BARE
-;; string, so `{:at #inst "…"}` and `{:at "…"}` aliased to ONE scoped key and
-;; ONE `s:`-keyed byte key-id — an instant resource param silently shared a
-;; cache entry / work-id with a look-alike string param, contradicting Spec 016
-;; §Resource identity. The canonical form of an instant is now the reserved
-;; tagged tuple `[:rf.identity/instant <text>]`, which `canonical-bytes` encodes
-;; to `t:<text>` (a string stays `s:`), so the two params are DISTINCT through
-;; the scoped key, the byte key-id, and the work-id. Two SPELLINGS of one
-;; instant still dedupe to one identity.
+;; The canonical form of an instant is the reserved tagged tuple
+;; `[:rf.identity/instant <text>]`, which `canonical-bytes` encodes to
+;; `t:<text>` (a string stays `s:`), so the two params are DISTINCT through the
+;; scoped key, the byte key-id, and the work-id, as Spec 016 §Resource identity
+;; requires. Canonicalizing an instant to a BARE string would alias
+;; `{:at #inst "…"}` and `{:at "…"}` to ONE scoped key and ONE `s:`-keyed byte
+;; key-id, so an instant resource param would silently share a cache entry /
+;; work-id with a look-alike string param. Two SPELLINGS of one instant still
+;; dedupe to one identity.
 
 (def ^:private instant-text "2026-06-10T00:00:00.000Z")
 (def ^:private ki (rf.resources.state/scoped-resource-key
@@ -225,7 +225,7 @@
     (let [es (byte-keyed-entries [[ki (loaded-entry ki {:from :instant} #{:t})]
                                    [ks (loaded-entry ks {:from :string} #{:t})]])]
       (is (= 2 (count es))
-          "two distinct entries — the instant param no longer aliases the string param")
+          "two distinct entries — the instant param does not alias the string param")
       (is (= {:from :instant} (:data (get es (rf.resources.state/key-id ki)))))
       (is (= {:from :string}  (:data (get es (rf.resources.state/key-id ks)))))))
   (testing "the work-ledger work-id is likewise distinct for instant vs string params"
@@ -246,8 +246,8 @@
           "one instant → one byte key-id (dedupe holds)"))))
 
 ;; ===========================================================================
-;; rf2-j1rm93 — scoped resource KEY vs registered resource ID are ONE name per
-;; fact and must never be confused (the spelling-unification adversarial gate)
+;; Scoped resource KEY vs registered resource ID are ONE name per fact and
+;; must never be confused (the spelling-unification adversarial gate)
 ;; ===========================================================================
 ;;
 ;; Two distinct identity facts share the family but NOT the spelling:
@@ -258,8 +258,8 @@
 ;; easy to confuse. The durable entry carries BOTH, under DISTINCT keys, with
 ;; the canonical spelling `:resource/key` for the scoped key on every data
 ;; shape (durable field, work record, verification payload, correlation, trace
-;; tag). The unqualified `:resource-key` spelling is RETIRED — nothing on a
-;; data shape may carry it. The lifecycle CATEGORY name for "a scoped key owns
+;; tag). There is no unqualified `:resource-key` spelling — nothing on a data
+;; shape may carry it. The lifecycle CATEGORY name for "a scoped key owns
 ;; this entry" is the unqualified `:scoped-resource-key` (a derivation-algebra
 ;; classification, NOT the key value) — distinct from both facts above.
 
@@ -289,14 +289,14 @@
         ;; one spelling) — there is NO :resource-key key anywhere on the shape
         (is (= kv (:resource/key rec)) "the work record's scoped key is :resource/key")
         (is (nil? (:resource-key rec))
-            "the retired unqualified :resource-key spelling is absent from the work record")
+            "the unqualified :resource-key spelling is absent from the work record")
         ;; and the registered id is still reachable as the 2nd tuple element,
         ;; never duplicated under a confusable bare :resource-id key on the row
         (is (= :r/x (second (:resource/key rec)))
             "the registered id reads out of the scoped key, not a separate row field"))))
   (testing "the durable scoped-key field is the canonical :resource/key spelling,
-            never the retired unqualified :resource-key"
+            never the unqualified :resource-key"
     (let [entry (rf.resources.state/empty-entry :r/x kv)]
       (is (contains? entry :resource/key) "the canonical :resource/key field is present")
       (is (not (contains? entry :resource-key))
-          "the retired :resource-key spelling never appears on a data shape"))))
+          "the :resource-key spelling never appears on a data shape"))))
