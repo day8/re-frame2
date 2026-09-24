@@ -7,10 +7,8 @@
   Pair §Time-travel §Production elision). Absent-artefact wrappers
   degrade silently (empty vector / `false` / no-op) so a release build
   that omits the artefact does not raise. The partial-map partition-aware
-  injection mutator (`replace-frame-state!`, rf2-t3lftq — API-shrink #3
-  consolidated the former `replace-app-db!` / `reset-app-db!` /
-  `replace-runtime-db!` / `replace-frame-state!` four-mutator family into
-  this ONE surface) is the exception — it records a synthetic epoch, so it
+  injection mutator (`replace-frame-state!`, the ONE frame-state write
+  surface) is the exception — it records a synthetic epoch, so it
   cannot degrade silently (the caller's invariant is 'undo works after
   this call'); it raises `:rf.error/epoch-artefact-missing`."
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
@@ -35,7 +33,7 @@
 (defwrapper restore-epoch!
   "Rewind the named frame's WHOLE frame-state — BOTH the app-db AND
   runtime-db partitions — to the named epoch's `:frame-state-after`, via
-  `replace-frame-state!` (EP-0001 rf2-3aizt1, decisions #2 + #9). This
+  `replace-frame-state!` (EP-0001). This
   revives machine snapshots, the route slice, elision declarations, and SSR
   metadata (runtime-db state) alongside app-db — not just the app-db
   partition. The canonical `:frame-state-after` is the ONLY restore source:
@@ -111,12 +109,12 @@
   false when the `day8/re-frame2-epoch` artefact is not on the classpath (no
   artefact, no silence signal to decide about).
 
-  ONE ATOMIC DECISION (rf2-uhouu). Registration identity and observation
+  ONE ATOMIC DECISION. Registration identity and observation
   continuum are weighed under a SINGLE consistent snapshot of the listener
-  ledger. Composing them from two separate reads — the shape this replaces
-  (`epoch-listener-generation` + `epoch-listener-observing?`, both retired) — is
-  not linearizable: a same-id replacement or drop landing between the reads is
-  seen as generation-still-matches AND not-observing, so the composite accepts a
+  ledger. Composing them from two separate reads is
+  not linearizable: a same-id replacement or drop landing between the reads
+  would be seen as generation-still-matches AND not-observing, so the
+  composite would accept a
   silence for an already-superseded registration, an answer no single point in
   time ever had.
 
@@ -137,12 +135,10 @@
   "Atomically install `frame-state` — a PARTIAL frame-state map (any
   subset of `{:rf.db/app … :rf.db/runtime …}`) — into `frame-id`'s
   frame-state, bypassing the dispatch loop: a PRESENT key replaces that
-  partition, an ABSENT key is preserved unchanged (rf2-t3lftq — API-shrink
-  #3, consolidating the former `replace-app-db!` / `reset-app-db!` /
-  `replace-runtime-db!` / `replace-frame-state!` four-mutator family into
-  this ONE surface). A db-shaped key never silently touches the other
-  partition — the partition is named explicitly at every call site (Mike
-  ruling #10, preserved and generalised). Per Tool-Pair §Pair-tool writes.
+  partition, an ABSENT key is preserved unchanged (the ONE frame-state
+  write surface). A db-shaped key never silently touches the other
+  partition — the partition is named explicitly at every call site.
+  Per Tool-Pair §Pair-tool writes.
 
   The canonical Tool-Pair write surface for state injection — pair tools
   use it for evolved-state-shape probes after a handler hot-swap,
@@ -151,11 +147,11 @@
   `:rf/epoch-record` so `restore-epoch!` can rewind the previous state;
   emits `:rf.epoch/db-replaced` on success.
 
-  App-only injection: `(replace-frame-state! frame-id {:rf.db/app v})` —
-  the former `replace-app-db!`; `(replace-frame-state! frame-id
-  {:rf.db/app {}})` is the former `reset-app-db!`. Runtime-only injection:
-  `(replace-frame-state! frame-id {:rf.db/runtime v})` — the former
-  `replace-runtime-db!`. Both-partition install supplies both keys.
+  App-only injection: `(replace-frame-state! frame-id {:rf.db/app v})`;
+  an app-only reset is `(replace-frame-state! frame-id
+  {:rf.db/app {}})`. Runtime-only injection:
+  `(replace-frame-state! frame-id {:rf.db/runtime v})`.
+  Both-partition install supplies both keys.
 
   Failure modes (each is a no-op on the frame-state and emits a structured
   error trace):
@@ -176,7 +172,7 @@
                                                    validator
     :rf.epoch/replace-history-disabled   — epoch ring disabled (depth 0);
                                                    the synthetic undo-anchor
-                                                   cannot land (rf2-unpldn)
+                                                   cannot land
 
   Dev-only — gated on `interop/debug-enabled?`. Production builds
   (`:advanced` + `goog.DEBUG=false`) elide via Closure DCE. Late-bound
