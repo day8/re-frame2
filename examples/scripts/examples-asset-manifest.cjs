@@ -23,12 +23,14 @@
  * catch it. This module is the single side-effect-free owner. Each entry binds
  * a build id (staging's key) to a source page (the scanner's key), the assets
  * to stage, the shared-asset exemptions the page may omit, and one reason. Both
- * consumers PROJECT their view out of it (stagedAssetsByBuild / pageExemptions),
- * so the staged destinations and the scanner's accepted page-local refs are
- * derived from ONE declaration and cannot diverge.
+ * consumers PROJECT their view out of it (stagedAssetsByBuild / pageExemptions /
+ * stagedDestsByPage), so the staged destinations and the scanner's accepted
+ * page-local refs are derived from ONE declaration and cannot diverge. The
+ * scanner also holds pages TO it: a page-local asset a page loads must be a
+ * dest declared here, since nothing else reaches the served output dir.
  *
  * Loading this module touches no filesystem and runs no I/O — it is pure data
- * plus two pure projections, safe to require from both the staging helper (which
+ * plus three pure projections, safe to require from both the staging helper (which
  * serves browser-gate output) and the static asset scanner.
  */
 
@@ -164,8 +166,25 @@ function pageExemptions(manifest = EXAMPLE_ASSET_MANIFEST) {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Projection for the SCANNER's staging check (rf2-3x7nj.44.2): page relIndex ->
+// [dest], EVERY dest the manifest stages for that page, whatever its
+// htmlLinked flag. `npm run dev:example` serves a freshly cleaned output dir
+// holding only index.html, _shared/ and these dests, so a page-local asset the
+// page loads must be one of them or the served page 404s it.
+// ---------------------------------------------------------------------------
+function stagedDestsByPage(manifest = EXAMPLE_ASSET_MANIFEST) {
+  const out = {};
+  for (const entry of manifest) {
+    if (!entry.page || !entry.assets || entry.assets.length === 0) continue;
+    out[entry.page] = entry.assets.map((a) => a.dest);
+  }
+  return out;
+}
+
 module.exports = {
   EXAMPLE_ASSET_MANIFEST,
   stagedAssetsByBuild,
   pageExemptions,
+  stagedDestsByPage,
 };
