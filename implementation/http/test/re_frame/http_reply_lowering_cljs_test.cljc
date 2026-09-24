@@ -1,6 +1,6 @@
 (ns re-frame.http-reply-lowering-cljs-test
   "Host-symmetric (CLJS + JVM) conformance for the PURE core of the
-  managed-HTTP lowering (rf2-zqefg3.2 / rf2-ibksxg): the canonical reply
+  managed-HTTP lowering: the canonical reply
   map (the ONE public dialect — no compat reshape), the work-id head, and
   the stale-suppression builders in `re-frame.http.reply`. Runs on the
   `npm run test:cljs` node gate (its ns matches the `cljs-test$` regexp)
@@ -9,7 +9,7 @@
   `http-reply-lowering-test`.
 
   Canonical contract: `spec/Managed-Effects.md` §The uniform reply
-  envelope; EP-0011; rf2-ibksxg (one canonical async-reply envelope)."
+  envelope; EP-0011 (one canonical async-reply envelope)."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.http.reply :as rf.http.reply]
             [re-frame.reply :as rf.reply]))
@@ -26,18 +26,18 @@
     (is (= [:rf.work/http :article/by-id 1 1] (rf.http.reply/work-id ctx)))
     (is (= [:rf.work/http [:rf.http/anonymous :article/load] 1 1]
            (rf.http.reply/work-id (dissoc ctx :request-id)))
-        "logical-id falls back to the origin event-id, tagged anonymous (rf2-5g0bt)")
+        "logical-id falls back to the origin event-id, tagged anonymous")
     (is (= [:rf.work/http :article/by-id 1 2]
            (rf.http.reply/work-id (assoc ctx :attempt 2)))
         "attempt slot discriminates retries within one issuance")
-    (testing "issuance slot discriminates re-issuances across supersessions (rf2-azcmd3)"
+    (testing "issuance slot discriminates re-issuances across supersessions"
       (is (= [:rf.work/http :article/by-id 2 1]
              (rf.http.reply/work-id (assoc ctx :issuance 2))))
       (is (not= (rf.http.reply/work-id ctx)
                 (rf.http.reply/work-id (assoc ctx :issuance 2)))))))
 
 (deftest suppress-builds-canonical-stale-reply
-  (testing "rf2-azcmd3 — http-reply/suppress produces a :status :stale / :rf.reply/work-status :suppressed reply with carried/current work-id correlation, joined to :work/id"
+  (testing "http-reply/suppress produces a :status :stale / :rf.reply/work-status :suppressed reply with carried/current work-id correlation, joined to :work/id"
     (let [{:keys [deliver? reply trace]}
           (rf.http.reply/suppress ctx [:rf.work/http :article/by-id 2 1])]
       (is (false? deliver?) "a superseded attempt's app target MUST NOT run")
@@ -53,7 +53,7 @@
       (is (= [:rf.work/http :article/by-id 1 1] (:rf.reply/work-id trace))))))
 
 (deftest actor-destroy-obsolete-target-suppression
-  (testing "rf2-yrrpe2 — actor-destroy obsolete-target predicate + canonical stale suppression (host-symmetric pure core)"
+  (testing "actor-destroy obsolete-target predicate + canonical stale suppression (host-symmetric pure core)"
     (testing "the obsolete-target predicate: target == actor-id → obsolete; ordinary target → meaningful"
       (is (true?  (rf.http.reply/actor-destroy-target-obsolete? :worker/proc#1 :worker/proc#1)))
       (is (false? (rf.http.reply/actor-destroy-target-obsolete? :reply/recorder :worker/proc#1)))
@@ -106,12 +106,12 @@
       (is (= :rf.http/aborted (get-in r [:error :kind]))))))
 
 (deftest no-public-payload-reshape
-  (testing "rf2-ibksxg — the compat-reply reshape (reply->public-payload) is DELETED; every family delivers the canonical envelope verbatim, no {:kind :success/:failure} dialect"
+  (testing "there is no compat-reply reshape (reply->public-payload); every family delivers the canonical envelope verbatim, no {:kind :success/:failure} dialect"
     (is (not (contains? (ns-publics 're-frame.http.reply) 'reply->public-payload))
         "reply->public-payload must not exist — the canonical reply is the public payload")))
 
 (deftest self-identify-failure-stamps-request-identity
-  (testing "rf2-1u9dja — self-identify-failure stamps :request/:request-id/:attempt/:max-attempts/:work-id onto a failure map"
+  (testing "self-identify-failure stamps :request/:request-id/:attempt/:max-attempts/:work-id onto a failure map"
     (let [id-ctx {:method       :get
                   :url          "/api/articles/42"
                   :request-id   :article/by-id
