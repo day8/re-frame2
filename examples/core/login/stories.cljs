@@ -35,15 +35,19 @@
 
    Watching the auth-submit cascade in Xray
 
-   Here's the part that's genuinely fun. Each variant runs in its own frame
-   under `:preset :story`, which quietly redirects `:rf.http/managed` to the
-   framework's canned-success stub. So a submit isn't a mock — it's the real
-   cascade, running end to end:
+   Here's the part that's genuinely fun. A submit isn't a mock — it's the
+   real cascade, running end to end. Each variant runs in its own frame under
+   `:preset :story`, which redirects `:rf.http/managed` to the framework's
+   GENERIC canned-success stub; that stub answers `{:stubbed true}`, which
+   `:auth.login/succeeded`'s schema refuses (it wants a `:token`). So each
+   variant says what the server said: `:success` carries a `:network` route
+   with a token-bearing reply, and the failure variants drive their replies
+   by hand. The success cascade:
 
        [:auth.login/submit-form]                       (validates the draft)
          → [:rf.http/managed {… :sensitive? true}]     (a real fx)
          → [:auth.login/flow [:auth.login/submit]]      (→ :submitting)
-             → canned-success reply                    (Side Effects panel)
+             → the `:network` route's reply            (Side Effects panel)
                  → [:auth.login/succeeded {…}]          (owns the token)
                      → [:auth.login/flow [:auth.login/success]]
                          → :authed
@@ -115,10 +119,15 @@
   {:doc "Story-shell driver for the auth-submit cascade. Runs the REAL form
          path: seed the draft, then dispatch `:auth.login/submit-form`, which
          validates the draft, fires the (sensitive) `:rf.http/managed` request,
-         and nudges the machine with a credential-free `:submit` signal. Under
-         the `:preset :story` frame the canned-success stub resolves it and the
-         `:auth.login/success` follow-on lands the flow at `:authed`. The whole
-         chain shows in Xray's Epoch / Trace / Side Effects panels."}
+         and nudges the machine with a credential-free `:submit` signal. It
+         does not decide the reply — the variant does. The `:preset :story`
+         frame's generic canned-success stub answers `{:stubbed true}`, which
+         `:auth.login/succeeded`'s schema refuses (it requires `[:value
+         :token]`), so with no fixture the flow never leaves `:submitting`. A
+         variant that wants `:authed` supplies a `:network` route with a
+         token-bearing reply: it lands on `:auth.login/succeeded`, which owns
+         the token and then signals the machine's `:success`. The whole chain
+         shows in Xray's Epoch / Trace / Side Effects panels."}
   (fn handler-story-submit [_ [_ creds]]
     {:fx [[:dispatch [:auth.login/edit-field :email (:email creds)]]
           [:dispatch [:auth.login/edit-password {:value (:password creds)}]]
@@ -136,8 +145,10 @@
 (def ^:private good-creds
   "Credentials the demo would accept (they mirror `login.model/good-password`).
    The story driver types them into the draft and submits through the real form
-   path; the canned-success stub doesn't even look at them, it just answers
-   `:ok`."
+   path, where they pass `submit-form`'s pre-submit `Credentials` check. No
+   Story stub reads them: the reply is whatever the variant supplies — the
+   `:success` variant's `:network` route answers with a token whatever was
+   typed."
   {:email "ada@example.com" :password "correct-horse"})
 
 (defn- failure-reply
