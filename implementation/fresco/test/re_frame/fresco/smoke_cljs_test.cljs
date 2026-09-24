@@ -49,9 +49,8 @@
 ;; Registered above `use-fixtures`, deliberately — the reset fixture captures
 ;; its source-store baseline when the `use-fixtures` form is evaluated. The
 ;; adapter is UIx's rather than plain-atom's because plain-atom has no
-;; reactivity layer, so a
-;; subscription under it never notifies and a "the value changed" assertion
-;; would pass vacuously by never firing.
+;; reactivity layer, so a subscription under it never notifies and a "the
+;; value changed" assertion would pass vacuously by never firing.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
