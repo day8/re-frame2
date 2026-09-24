@@ -1,14 +1,14 @@
 (ns re-frame.spawn-run-propagation-cljs-test
-  "rf2-gbzv9 — run propagation crosses the machine SPAWN edge.
+  "Run propagation crosses the machine SPAWN edge.
 
   Spec 002 §Run propagation: per-call `:fx-overrides` / `:interceptor-overrides`
   and the `:trace-id` / `:origin` lineage ride every child dispatch the run
   queues, by envelope-field-copying. A machine spawn queues a child too: the
   `:rf.machine/spawn` fx dispatches the newborn actor's first event (its
-  `:start`, or the synthetic `[:rf.machine.spawn/spawned]`). That dispatch used
-  to be a FRESH router dispatch carrying only `{:frame … :source :machine-spawn}`,
-  so a test that stubbed an effect per call for a machine that spawns children
-  silently ran the REAL effect inside every child.
+  `:start`, or the synthetic `[:rf.machine.spawn/spawned]`). Were that dispatch
+  a FRESH router dispatch carrying only `{:frame … :source :machine-spawn}`, a
+  test that stubbed an effect per call for a machine that spawns children
+  would silently run the REAL effect inside every child.
 
   Pinned here, for `:spawn` (explicit `:start`) and `:spawn-all` (synthetic
   kick-off):
