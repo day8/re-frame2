@@ -113,10 +113,10 @@
 ;; A spawn emits TWO traces: the fx-substrate observation
 ;; `:rf.machine.spawn/spawned` (the spawn fx ran) AND the registrar-substrate
 ;; observation `:rf.machine.lifecycle/spawned` (the actor's snapshot landed in
-;; the registrar). The latter is the symmetric `spawned` half of the
+;; runtime-db). The latter is the symmetric `spawned` half of the
 ;; created/spawned/destroyed lifecycle triple and carries `:spawned-id` +
 ;; `:state` (initial state) so observers + the Xray managed-fx INVOKE adapter
-;; can render the actor without re-reading app-db. Per 009 §Two-axis machine
+;; can render the actor without re-reading runtime-db. Per 009 §Two-axis machine
 ;; observation.
 
 (deftest machine-spawn-two-axis-cljs
@@ -244,15 +244,15 @@
             "child machine snapshot torn down by the standard exit cascade"))
       (rf.trace.tooling/unregister-listener! ::ato))))
 
-;; ---- the legacy :timeout-ms slot stays removed ------------------------
+;; ---- :timeout-ms is not a spawn key -------------------------------------
 ;;
-;; EP-0029 A4 ADDS first-class spawn-level :timeout / :on-timeout grammar
-;; (covered by machines_timeout_cljs_test.cljs). The PRE-EP draft
-;; :timeout-ms slot was never shipped and stays removed; a bare :on-timeout
-;; (no :timeout) is now the A4 pairing error, NOT the legacy slot error.
+;; Spawn-level timeouts are the first-class :timeout / :on-timeout grammar
+;; (EP-0029 A4; covered by machines_timeout_cljs_test.cljs). :timeout-ms is
+;; not a spawn key and is rejected with its own error; a bare :on-timeout
+;; (no :timeout) is the A4 pairing error, NOT the :timeout-ms error.
 
 (deftest machine-spawn-timeout-ms-removed-cljs
-  (testing "legacy :timeout-ms on :spawn is rejected with :rf.error/spawn-timeout-ms-removed"
+  (testing ":timeout-ms on :spawn is rejected with :rf.error/spawn-timeout-ms-removed"
     (let [bad {:initial :idle
                :states  {:idle {:on {:go :running}}
                          :running {:spawn {:machine-id :stub
@@ -268,7 +268,7 @@
       (is (thrown-with-msg? js/Error
                             #"machine-on-timeout-without-timeout"
                             (rf/reg-machine :rmv/bad-on-to bad)))))
-  (testing "legacy :timeout-ms on :spawn-all is rejected"
+  (testing ":timeout-ms on :spawn-all is rejected"
     (let [bad {:initial :idle
                :states  {:idle {:on {:go :h}}
                          :h    {:spawn-all
@@ -282,18 +282,17 @@
                             (rf/reg-machine :rmv/bad-invoke-all bad))))))
 
 ;; ===========================================================================
-;; rf2-plahy — CLJS exact-cardinality proof for UNREGISTERED spawn rejection.
+;; CLJS exact-cardinality proof for UNREGISTERED spawn rejection.
 ;;
-;; The production path is `.cljc`, but until now the exact N/order/sentinel
-;; coverage lived ONLY in the JVM `machine_spawn_unregistered_type_test.clj`;
-;; the CLJS surface merely mentioned the error in a setup comment. Host-specific
-;; error/trace wiring (the always-on `:errors` fan-out + the dev trace) could
-;; regress on the CLJS runtime while CI stayed green. These pin it on CLJS.
+;; The production path is `.cljc`, and the JVM
+;; `machine_spawn_unregistered_type_test.clj` pins its exact N/order/sentinel.
+;; Host-specific error/trace wiring (the always-on `:errors` fan-out + the dev
+;; trace) could regress on the CLJS runtime alone, so these pin it on CLJS.
 ;;
-;; Mutation tooth: restoring the OLD per-child gate order (the child-local
-;; `unregistered-spawn-type?` gate ahead of the invoke `spawn-all-invoke-rejected?`
-;; sentinel gate in `spawn-fx`) makes each offending child fan a SECOND reject
-;; from its own per-child fx — the cardinality doubles and these tests fail.
+;; Mutation tooth: putting the child-local `unregistered-spawn-type?` gate
+;; ahead of the invoke `spawn-all-invoke-rejected?` sentinel gate in
+;; `spawn-fx` makes each offending child fan a SECOND reject from its own
+;; per-child fx — the cardinality doubles and these tests fail.
 ;; ===========================================================================
 
 (defn- with-error-records
@@ -347,8 +346,9 @@
       (let [records (with-error-records
                       #(rf/dispatch-sync [:sup/card [:start]]))]
         (rf.trace.tooling/unregister-listener! ::card)
-        ;; TWO offending children ⇒ TWO always-on records — the OLD gate order
-        ;; produced FOUR (each offending child re-emitting from its per-child fx).
+        ;; TWO offending children ⇒ TWO always-on records — the reversed gate
+        ;; order would produce FOUR (each offending child re-emitting from its
+        ;; per-child fx).
         (is (= 2 (count records))
             "exactly TWO always-on records — one per offending child, not four")
         (is (= [:card/missing-a :card/missing-b]
@@ -376,7 +376,7 @@
 (deftest single-unregistered-spawn-exact-one-cljs
   (testing "a standalone single :spawn of an UNREGISTERED :machine-id (no invoke
             sentinel to hide behind) fans EXACTLY ONE always-on record + one dev
-            trace and installs nothing — the per-child gate still fails closed"
+            trace and installs nothing — the per-child gate fails closed"
     (let [parent {:initial :idle
                   :states
                   {:idle    {:on {:start :working}}
@@ -406,7 +406,7 @@
             "no spawn-order entry for the rejected actor")))))
 
 ;; ===========================================================================
-;; rf2-8nxsh — CLJS incarnation fence for `spawn-all-init-fx`'s join / sentinel
+;; CLJS incarnation fence for `spawn-all-init-fx`'s join / sentinel
 ;; writes. Cross-host companion to the JVM
 ;; `spawn_all_init_incarnation_fence_test.clj`: the production path is `.cljc`,
 ;; so the fence logic is shared, but the schema-validator / trace / frame wiring
