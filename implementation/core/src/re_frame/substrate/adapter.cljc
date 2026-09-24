@@ -80,9 +80,9 @@
   (atom {:installed nil :disposed? false}))
 
 (defn- rearm-hiccup-emitter!
-  "Re-arm the retained SSR hiccup emitter (rf2-vxgfnd.204) into the freshly-
-  installed adapter generation — ROUTED to that generation ALONE and
-  PRECEDENCE-SAFE (rf2-h9szm). `re-frame.ssr.emit` retains the current emitter
+  "Re-arm the retained SSR hiccup emitter into the freshly-installed adapter
+  generation — ROUTED to that generation ALONE and PRECEDENCE-SAFE.
+  `re-frame.ssr.emit` retains the current emitter
   durably under `:ssr/current-hiccup-emitter` at ns-load; the React-shaped
   adapter (UIx) and the ratom family (Reagent /
   reagent-slim) clear their per-generation `emitter-cell` on
@@ -91,14 +91,13 @@
   unarmed (`:rf.error/no-hiccup-emitter-bound`).
 
   Applies through the `:adapter/arm-hiccup-emitter-if-unarmed!` late-bind hook
-  each React/ratom adapter publishes via `route-hook!` — NOT the adapter-
-  agnostic `:reagent/set-hiccup-emitter!` broadcast the earlier shape used
-  (rf2-h9szm). Two consequences:
+  each React/ratom adapter publishes via `route-hook!` — NOT an adapter-
+  agnostic `:reagent/set-hiccup-emitter!` broadcast. Two consequences:
 
     1. ROUTED — the hook dispatches to the (rf/init!)-installed adapter ALONE
        (per `route-hook!` stable-token routing). A loaded-but-inactive adapter's
        setter never runs, so its throw cannot break the ACTIVE adapter's boot.
-       The earlier broadcast re-armed EVERY loaded adapter and let any one
+       A broadcast would re-arm EVERY loaded adapter and let any one
        adapter's throwing setter propagate through the whole install.
     2. PRECEDENCE-SAFE — the hook arms the slot ONLY when it is otherwise
        unarmed. A pre-init explicit custom emitter (or reset) is therefore NOT
@@ -129,11 +128,11 @@
   than `:rf.error/adapter-disposed`.
 
   Re-arms the retained SSR hiccup emitter for the fresh generation
-  (`rearm-hiccup-emitter!`, rf2-vxgfnd.204) so a destroy → re-init cycle — or an
+  (`rearm-hiccup-emitter!`) so a destroy → re-init cycle — or an
   SSR-before-adapter load order — leaves `render-to-string` correctly armed
   after disposal cleared the previous generation's emitter slot.
 
-  FAILURE-ATOMIC (rf2-h9szm). Seating the generation and re-arming its retained
+  FAILURE-ATOMIC. Seating the generation and re-arming its retained
   SSR emitter is ONE transaction. If the re-arm throws (an inactive or the
   active adapter's setter, or the retained emitter fn), the just-seated
   generation is rolled back — bounded EXACT-generation cleanup (`identical?` on
@@ -141,9 +140,9 @@
   the re-arm exception preserved as PRIMARY, the process left in a clean
   never-installed state so an immediate retry installs fresh. Boot is therefore
   all-or-nothing: fully installed, or cleanly failed with a consistent adapter
-  state — never the half-installed / partial-armed boot the earlier
-  seat-then-replay order left when the replay's `:reagent/set-hiccup-emitter!`
-  broadcast propagated a step throw AFTER the generation was already seated."
+  state — never the half-installed / partial-armed boot a seat-then-replay
+  order would leave when a replay step threw AFTER the generation was already
+  seated."
   [adapter]
   (let [entry {:adapter adapter :generation (fresh-adapter-generation)}]
     (swap! adapter-lifecycle-state
@@ -158,8 +157,8 @@
              (assoc state :installed entry :disposed? false)))
     ;; The generation is now seated. Re-arm the SSR emitter as part of the SAME
     ;; install transaction: on failure roll the EXACT generation back so a
-    ;; throwing re-arm cannot leave a half-installed / partial-armed boot
-    ;; (rf2-h9szm). The `identical?` guard bounds the cleanup to the generation
+    ;; throwing re-arm cannot leave a half-installed / partial-armed boot.
+    ;; The `identical?` guard bounds the cleanup to the generation
     ;; THIS call seated — a concurrent replacement install (a different token)
     ;; is never erased by this rollback, symmetric with `dispose-adapter!`'s
     ;; finally. `:disposed? false` restores the never-installed diagnosis (a
@@ -196,10 +195,9 @@
   Returns nil during terminal disposal, so a caller mid-teardown reads
   \"nothing installed\" rather than a half-torn-down spec.
 
-  Per rf2-kuky.4 (2026-09-06, rider A-i) this folded in the former
-  the former keyword-returning read, which was literally the `:kind` of
-  this same map with a synthesised fallback. One name cannot diverge
-  in return type from itself."
+  There is deliberately no separate keyword-returning read: it would be
+  the `:kind` of this same map with a synthesised fallback, and one name
+  cannot diverge in return type from itself."
   []
   (let [entry (:installed @adapter-lifecycle-state)]
     (when-not (:disposing? entry)
@@ -231,18 +229,18 @@
   when the day8/re-frame2-fresco artefact is absent (unbound), and on
   every JVM host.
 
-  Why this sits at the PROCESS teardown boundary rather than on an adapter
-  (rf2-kuky.59). A Fresco root is the PACKAGE's, not any adapter's:
-  `h/render!` reaches `createRoot` / `hydrateRoot` through
-  `re-frame.fresco.impl.mount` and never through the substrate contract's
-  `render` slot, so no adapter's own active-root set ever sees one. While
-  the drain hung off the Fresco adapter's `dispose-adapter!` it was
-  reached only when Fresco was ALSO the installed adapter — and Fresco
-  over UIx or over Reagent is supported use, not malformed input. In that
-  composition `rf/destroy-adapter!` left the Root mounted with its `:live?`
-  closure still true, and a `render!` through the retained handle UPDATED
-  the leaked Root instead of mounting afresh, against what Spec 006 §The
-  client root's Teardown clause promises without an adapter qualifier."
+  Why this sits at the PROCESS teardown boundary rather than on an adapter.
+  A Fresco root is the PACKAGE's, not any adapter's: `h/render!` reaches
+  `createRoot` / `hydrateRoot` through `re-frame.fresco.impl.mount` and
+  never through the substrate contract's `render` slot, so no adapter's own
+  active-root set ever sees one. Hung off the Fresco adapter's
+  `dispose-adapter!`, the drain would be reached only when Fresco was ALSO
+  the installed adapter — and Fresco over UIx or over Reagent is supported
+  use, not malformed input. In that composition `rf/destroy-adapter!` would
+  leave the Root mounted with its `:live?` closure still true, and a
+  `render!` through the retained handle would UPDATE the leaked Root instead
+  of mounting afresh, against what Spec 006 §The client root's Teardown
+  clause promises without an adapter qualifier."
   []
   (when-let [drain! (rf.late-bind/get-fn :fresco/drain-client-roots!)]
     (drain!))
@@ -252,8 +250,8 @@
   "Tear down the installed adapter. Calls the adapter's :dispose-adapter!
   fn (if present), then ALWAYS clears the install slot and sets the disposed
   breadcrumb so a new adapter can install and subsequent delegation calls raise
-  `:rf.error/adapter-disposed` instead of `:rf.error/no-adapter-installed`
-  (rf2-6wxys). A throwing adapter cleanup is rethrown unchanged only AFTER
+  `:rf.error/adapter-disposed` instead of `:rf.error/no-adapter-installed`.
+  A throwing adapter cleanup is rethrown unchanged only AFTER
   this process-owned lifecycle reaches its terminal state. Finalization clears
   only the generation this call claimed: stale teardown can never erase a
   replacement installation. One failed host cleanup cannot leave the single-use
@@ -262,10 +260,9 @@
   disposed.
 
   Package-owned host roots go FIRST, in a `finally` over the adapter's own
-  cleanup — see `drain-fresco-client-roots!`. The order is the one the
-  Fresco adapter's own chain used: React unmounts run while the substrate
-  is still whole, and a throwing drain still cannot skip the adapter
-  disposer or the finalization below it."
+  cleanup — see `drain-fresco-client-roots!`. That order lets React
+  unmounts run while the substrate is still whole, and a throwing drain
+  cannot skip the adapter disposer or the finalization below it."
   []
   (when-let [{:keys [adapter generation]} (claim-installed-for-dispose!)]
     (try
@@ -313,19 +310,17 @@
 ;; Every delegation fn routes through `require-adapter!` so an app that
 ;; calls into the runtime before `(rf/init! ...)` sees one uniform
 ;; `:rf.error/no-adapter-installed` ex-info regardless of which surface
-;; it hit first (rf2-zdfi1). The earlier shape was a mix of
-;; `(ex-info "no adapter installed" {})` on `make-state-container` and
-;; silent NPEs on the other delegation fns — strictly worse than a
-;; structured throw because background-thread NPEs are hard to diagnose
-;; and the ex-info shape did not match the documented missing-artefact
-;; contract used elsewhere in core (see rf2-h824v + rf2-uchhp).
+;; it hit first. A mix of a bare `(ex-info "no adapter installed" {})` on
+;; one delegation fn and silent NPEs on the others would be strictly worse
+;; than a structured throw: background-thread NPEs are hard to diagnose,
+;; and the bare ex-info shape would not match the documented
+;; missing-artefact contract used elsewhere in core.
 
 (defn- require-adapter!
   "Return the installed adapter spec map or throw a uniform
-  ex-info naming the offending delegation surface via `where-sym`
-  (rf2-zdfi1).
+  ex-info naming the offending delegation surface via `where-sym`.
 
-  Two throw shapes (rf2-6wxys):
+  Two throw shapes:
 
     1. `:rf.error/no-adapter-installed` — no adapter has ever been
        installed (the disposed breadcrumb is false).
@@ -382,7 +377,7 @@
   `:rf.error/adapter-disposed` after teardown (per `require-adapter!`).
   Per Spec 006.
 
-  Construction-failure obligation (rf2-vxgfnd.198). A RETURNED physical
+  Construction-failure obligation. A RETURNED physical
   state container is GC-OWNED: it must not require an explicit per-container
   teardown verb (there is none — the ten-fn adapter surface exposes no
   state-container disposal, and the container is reclaimed by GC with the
@@ -413,15 +408,15 @@
   sentinel — and a never-published hook (`nil`) — as the signal to fall
   back to the host atom-marker heuristic.
 
-  Why a sentinel and not `false` (rf2-oitw37): the hook's old fallback was
-  `(constantly false)`, which the choke point could not tell apart from an
-  installed adapter's authoritative \"this is a base container\" answer. So
-  even when an installed adapter published the hook and answered `false`
-  for one of ITS base containers, the choke point's atom-marker arm still
-  ran and — for a custom adapter whose base container is NOT atom-shaped —
-  WRONGLY reclassified that legitimate base container as derived and
-  rejected the write before the adapter's own `:replace-container!` could
-  run. The sentinel makes \"no opinion\" (use the heuristic) distinguishable
+  Why a sentinel and not `false`: a `(constantly false)` fallback would be
+  indistinguishable, at the choke point, from an installed adapter's
+  authoritative \"this is a base container\" answer. The choke point would
+  then run its atom-marker arm even when an installed adapter published the
+  hook and answered `false` for one of ITS base containers — and, for a
+  custom adapter whose base container is NOT atom-shaped, WRONGLY reclassify
+  that legitimate base container as derived and reject the write before the
+  adapter's own `:replace-container!` could run. The sentinel makes \"no
+  opinion\" (use the heuristic) distinguishable
   from \"installed adapter says base\" (trust it; skip the heuristic).
 
   Public so `re-frame.substrate.spine` (the ratom hook producer) and any
@@ -456,7 +451,7 @@
   `:adapter/derived-container?` late-bind hook (the ratom family via
   `spine/make-ratom-adapter`; a custom adapter via its own `route-hook!`)
   so `derived-container?` consults the adapter and never reaches this
-  heuristic for their containers (rf2-oitw37)."
+  heuristic for their containers."
   [container]
   #?(:clj  (instance? clojure.lang.IAtom container)
      :cljs (satisfies? IAtom container)))
@@ -481,15 +476,15 @@
   installed.
 
   Three-way reading of the routed hook, where the installed adapter is the
-  authority WHENEVER it has an opinion (rf2-oitw37):
+  authority WHENEVER it has an opinion:
 
     * hook returns truthy → DERIVED (the installed adapter classifies this
       as one of its `make-derived-value` results) — reject the write.
     * hook returns `false` → BASE (the installed adapter classifies this as
       one of ITS writable base containers) — NOT derived; delegate the
       write. The host atom-marker heuristic is NOT consulted, so a custom
-      adapter whose legitimate base container is not `IAtom`-shaped is no
-      longer misclassified.
+      adapter whose legitimate base container is not `IAtom`-shaped is not
+      misclassified.
     * hook returns the `container-class-unknown` sentinel, or no adapter
       published the hook (`nil`) → the installed adapter has NO opinion;
       fall back to the host atom-marker heuristic (sound only for adapters
@@ -503,7 +498,7 @@
   decides — exactly where it is sound.
 
   The hook lives in the late-bind table (not the adapter spec map) so the
-  ten-fn adapter contract shape is preserved."
+  adapter contract keeps its ten-fn shape."
   [container]
   (let [hook (rf.late-bind/get-fn :adapter/derived-container?)
         verdict (when hook (hook container))]
@@ -524,21 +519,20 @@
 (defn replace-container!
   "Write `new-value` into `container` via the installed adapter.
 
-  Defense-in-depth nil guard (rf2-ft2b): if `container` is nil — e.g. a
+  Defense-in-depth nil guard: if `container` is nil — e.g. a
   scheduled drain races frame destruction and reaches the per-event :db
   commit after `frame/app-db-container` has started returning nil for the
   destroyed frame — the write is silently skipped and a production-
   survivable `:rf.error/write-after-destroy` rides the always-on error-emit
-  axis (EP-0008, rf2-500ech; default `:recovery :ignored` — the write is
-  dropped, the frame is gone, mirroring `:rf.error/frame-destroyed`). The
-  earlier behaviour was an NPE on a background thread (see the rf2-ft2b
-  reproducer). Adapter
+  axis (EP-0008; default `:recovery :ignored` — the write is
+  dropped, the frame is gone, mirroring `:rf.error/frame-destroyed`).
+  Without the guard the write would NPE on a background thread. Adapter
   implementations may assume `container` is non-nil; this wrapper is the
   single choke point through which every frame app-db write flows, so
   guarding here covers the router :db commit, drain rollback, flows, epoch
   restore, and SSR write paths in one place.
 
-  Derived-container guard (rf2-8wrzz.3): a derived container (the result
+  Derived-container guard: a derived container (the result
   of `make-derived-value`) supports `read-container` but NOT
   `replace-container!` — partial/whole replacement of a value computed
   from sources is meaningless (per Spec 006 §`make-derived-value`).
@@ -547,7 +541,7 @@
   `:adapter/derived-container?` late-bind hook is authoritative whenever it
   has an opinion (truthy = derived → reject; `false` = one of the adapter's
   base containers → delegate), and the host atom-marker heuristic is the
-  fall-back only when the installed adapter has no opinion, rf2-oitw37),
+  fall-back only when the installed adapter has no opinion),
   emits a `:rf.error/derived-container-replaced` trace so error-listeners
   observe it, and throws the canonical thrown-error ex-info (per Spec 009
   §The thrown-error shape) so a `try`/`catch` and
@@ -557,15 +551,15 @@
   the same single choke point that carries the nil guard above. A custom
   adapter whose legitimate base container is NOT atom-shaped publishes the
   routed hook (answering `false` for its base) so its writes delegate
-  rather than being rejected as derived (rf2-oitw37)."
+  rather than being rejected as derived."
   [container new-value]
   (if (nil? container)
-    ;; rf2-ft2b nil guard runs BEFORE the adapter lookup (a scheduled drain
+    ;; The nil guard runs BEFORE the adapter lookup (a scheduled drain
     ;; racing frame destruction must not surface a misleading
     ;; no-adapter-installed throw — see `replace-container-nil-container-
     ;; skips-adapter-check`).
     ;;
-    ;; EP-0008 (rf2-500ech): this is a SUPPRESSED WRITE — the dropped :db
+    ;; EP-0008: this is a SUPPRESSED WRITE — the dropped :db
     ;; commit is invisible to the next op and compounds with process lifetime
     ;; in long-lived SSR / multi-frame hosts. The SAME destroy-race already
     ;; surfaces as the production-survivable :rf.error/frame-destroyed on the
@@ -591,7 +585,7 @@
                           :recovery :ignored}))
     ;; Resolve the adapter FIRST so a write before `(rf/init! ...)` or after
     ;; dispose surfaces the uniform `:rf.error/no-adapter-installed` /
-    ;; `:rf.error/adapter-disposed` throw (rf2-zdfi1) — the derived-container
+    ;; `:rf.error/adapter-disposed` throw — the derived-container
     ;; classification is meaningless without a seated adapter (you cannot say
     ;; what shape a container is for a substrate that isn't installed).
     (let [a (require-adapter! 'rf/replace-container!)]
@@ -617,14 +611,14 @@
   adapter is seated (per `require-adapter!`). Per Spec 006
   §`make-derived-value`.
 
-  Failure-atomicity obligations (rf2-vxgfnd.198):
+  Failure-atomicity obligations:
 
     - INTERNAL failure-atomicity. If `make-derived-value` throws BEFORE it
       returns, it must have removed any watches / host resources it installed
       — a caller (`new-frame-record`) that never received the value cannot
       dispose it, so an un-returned partial allocation must unwind itself.
     - DISPOSABLE result. Every successfully RETURNED derived value is
-      disposable through the existing `re-frame.interop/dispose!` seam (the
+      disposable through the `re-frame.interop/dispose!` seam (the
       same seam that releases it at normal frame teardown). This is what lets
       a caller reverse-order-dispose earlier projections when a LATER
       construction step fails, WITHOUT an eleventh adapter function."
@@ -679,9 +673,9 @@
   `:kind` in the shipped set — Spec 006 §CLJS reference scope) and provides
   none either: it hands the render clock to the test through
   `trigger-update!`, by design. Calling it
-  before `(rf/init! ...)` raises `:rf.error/no-adapter-installed`
-  (rf2-zdfi1) — the optional-fn nil return is reserved for `adapter
-  installed, fn absent`, not for `no adapter installed at all`."
+  before `(rf/init! ...)` raises `:rf.error/no-adapter-installed` — the
+  optional-fn nil return is reserved for `adapter installed, fn absent`,
+  not for `no adapter installed at all`."
   ([] (flush-render! (fn [] nil)))
   ([f]
    (let [a (require-adapter! 'rf/flush-render!)
@@ -695,7 +689,7 @@
   within replace-container! (per Spec 006).
 
   Calling this before `(rf/init! ...)` raises
-  `:rf.error/no-adapter-installed` (rf2-zdfi1) — the optional-fn nil
+  `:rf.error/no-adapter-installed` — the optional-fn nil
   return is reserved for `adapter installed, fn absent`, not for `no
   adapter installed at all`."
   [container on-change]
@@ -708,7 +702,7 @@
   frame keyword, or nil if the substrate has no context concept.
 
   Calling this before `(rf/init! ...)` raises
-  `:rf.error/no-adapter-installed` (rf2-zdfi1) — the optional-fn nil
+  `:rf.error/no-adapter-installed` — the optional-fn nil
   return is reserved for `adapter installed, fn absent`, not for `no
   adapter installed at all`."
   [frame-keyword]
@@ -716,27 +710,27 @@
         f (:register-context-provider a)]
     (when f (f frame-keyword))))
 
-;; ---- adapter routing token (rf2-dkl5z1) -----------------------------------
+;; ---- adapter routing token ------------------------------------------------
 ;;
 ;; Hook routing (below) and the public test-react `mount!` guard must answer
 ;; one question: "is the adapter THIS hook/driver belongs to the one
-;; (rf/init!)-installed right now?" The original answer was raw object
-;; identity — `(identical? adapter-spec (current-adapter))`. That is
-;; WRONG against a copied or wrapped canonical adapter map: a user (or the
-;; already-tested adapter-swap pattern in `boot_test`) that
-;; `assoc`/`merge`/`update`s a canonical adapter map for instrumentation or
-;; local overrides installs a value-equal map with a DIFFERENT identity, so
-;; every routed hook silently falls through to the chain/fallback — boot is
-;; green but UIx lose `:adapter/current-frame` React-context
-;; resolution, view source/view-id wrapping, after-render, and derived-value
-;; disposal; Reagent/reagent-slim lose the ratom-family hooks including the
-;; `:adapter/derived-container?` guard; test-react `mount!` throws even
+;; (rf/init!)-installed right now?" Raw object identity —
+;; `(identical? adapter-spec (current-adapter))` — is the WRONG answer
+;; against a copied or wrapped canonical adapter map: a user (or the
+;; adapter-swap pattern in `boot_test`) that `assoc`/`merge`/`update`s a
+;; canonical adapter map for instrumentation or local overrides installs a
+;; value-equal map with a DIFFERENT identity, so every routed hook would
+;; silently fall through to the chain/fallback — boot would be green but UIx
+;; would lose `:adapter/current-frame` React-context resolution, view
+;; source/view-id wrapping, after-render, and derived-value disposal;
+;; Reagent/reagent-slim would lose the ratom-family hooks including the
+;; `:adapter/derived-container?` guard; test-react `mount!` would throw even
 ;; though a test-react-shaped map is installed. Spec 006
 ;; §Frame-provider via React context requires the `:adapter/current-frame`
 ;; hook to resolve to the LIVE routed impl, so a frozen-identity guard that
 ;; serves stale (inert) hooks for a copied map is a correctness bug.
 ;;
-;; The fix: route by a STABLE token carried in the installed map rather than
+;; So routing is by a STABLE token carried in the installed map rather than
 ;; object identity. The token is the adapter's canonical `:kind`
 ;; discriminator (`:rf.adapter/reagent`, `:rf.adapter/uix`, …) — a value
 ;; that survives `assoc`/`merge`/copy, so a copied canonical map still
@@ -756,7 +750,7 @@
 
 (defn same-adapter?
   "True when adapter spec map `a` is, for hook-routing / driver-guard
-  purposes, the SAME adapter as `b`. Stable-token comparison (rf2-dkl5z1):
+  purposes, the SAME adapter as `b`. Stable-token comparison:
   when both maps carry the same canonical `:rf.adapter/*` `:kind`, they are
   the same adapter even across a copy/`assoc`/`merge` (the token survives
   structural edits), so a copied canonical adapter map still routes to its
@@ -770,16 +764,16 @@
   stable-token predicate `route-hook!` uses, rather than re-deriving an
   object-identity check that would reject a copied canonical map.
 
-  SPELLING IS LOAD-BEARING, and the flat nest of `if`s below is deliberate
-  (rf2-2ix22). The obvious spelling — `(boolean (and a b (let [ka (:kind a)]
+  SPELLING IS LOAD-BEARING, and the flat nest of `if`s below is deliberate.
+  The obvious spelling — `(boolean (and a b (let [ka (:kind a)]
   …)))` — puts a `let` in EXPRESSION position under `boolean`/`and`, and
   ClojureScript emits a `let` in expression context as an IIFE (compiler.cljc
   L1139-1162, r1.12.145). `:advanced` does not remove it, so every call
-  allocated one JS closure plus its context: measured at 144.1 B/call against
-  4.1 for this flat form, CLJS / node 24.13.0 / V8 13.6, `:advanced` +
+  would allocate one JS closure plus its context: measured at 144.1 B/call
+  against 4.1 for this flat form, CLJS / node 24.13.0 / V8 13.6, `:advanced` +
   `goog.DEBUG=false`. This predicate is on the ambient-frame reader's hot
   path — every routed hook call, on every chain link, of every routed hook in
-  the bundle — so that was 53% of the reader's whole per-call cost. The two
+  the bundle — so that would be 53% of the reader's whole per-call cost. The two
   spellings are semantically identical (every leaf of both is already
   boolean: canonical kinds compare with `=`, custom/kindless adapters with
   `identical?`, falsey inputs return `false`), and the read-attribution
@@ -795,18 +789,17 @@
       false)
     false))
 
-;; ---- late-bind hook routing (rf2-0d35) ------------------------------------
+;; ---- late-bind hook routing -----------------------------------------------
 ;;
-;; Each CLJS adapter (ui, reagent, reagent-slim, uix) publishes ~5-9
-;; late-bind hooks at ns-load time so consumers in core (subs, views,
-;; interop) reach the installed adapter's substrate-specific impls
-;; without a static :require. In test bundles that load multiple adapter
-;; ns's, a plain (rf.late-bind/set-fn! k impl) means only the LAST-LOADED
-;; adapter's impl survives — and an app installed via
-;; `(rf/init! reagent/adapter)` then silently uses (say) UIx's impl,
+;; Each CLJS adapter publishes its late-bind hooks at ns-load time so
+;; consumers in core (subs, views, interop) reach the installed adapter's
+;; substrate-specific impls without a static :require. In test bundles that
+;; load multiple adapter ns's, a plain (rf.late-bind/set-fn! k impl) would
+;; keep only the LAST-LOADED adapter's impl — and an app installed via
+;; `(rf/init! reagent/adapter)` would then silently use (say) UIx's impl,
 ;; breaking adapter-specific contracts.
 ;;
-;; The fix is to wrap each adapter's impl in a routing closure that
+;; So each adapter's impl is wrapped in a routing closure that
 ;; runs the impl ONLY when this adapter is the (rf/init!)-installed
 ;; one; otherwise the closure chains to the previously-registered
 ;; handler (which does the same active-adapter check for ITS adapter).
@@ -814,8 +807,8 @@
 ;; `(constantly false)` for predicates, or `#(frame/current-frame)`
 ;; for the React-context-tier `:adapter/current-frame` hook.
 ;;
-;; The active-adapter check is `same-adapter?` (stable-token routing,
-;; rf2-dkl5z1), NOT raw object identity — so a copied / wrapped canonical
+;; The active-adapter check is `same-adapter?` (stable-token routing),
+;; NOT raw object identity — so a copied / wrapped canonical
 ;; adapter map still dispatches to its adapter's live hooks.
 
 (defn route-hook!
@@ -826,7 +819,7 @@
   (this is the first/only adapter to publish this hook), the routed closure
   returns `(fallback-fn)`.
 
-  Routing is by stable token (`same-adapter?`, rf2-dkl5z1): a copied or
+  Routing is by stable token (`same-adapter?`): a copied or
   wrapped canonical adapter map (same `:rf.adapter/*` `:kind`) still
   dispatches to its adapter's live impl, rather than falling through to the
   chain/fallback because object identity changed.
@@ -844,7 +837,7 @@
   ([adapter-spec hook-key impl-fn fallback-fn]
    (let [previous (rf.late-bind/get-fn hook-key)]
      (rf.late-bind/set-fn! hook-key
-       ;; EXPLICIT ARITIES, and the repetition is the mechanism (rf2-2ix22).
+       ;; EXPLICIT ARITIES, and the repetition is the mechanism.
        ;; The obvious spelling is one variadic body forwarding with
        ;; `(apply impl-fn args)` — but `route-hook!` publishes ~11 hook keys
        ;; for every adapter in the bundle and they would all share that ONE
@@ -855,7 +848,7 @@
        ;; chained `previous`) DIRECTLY instead. Repository call sites use 0,
        ;; 1 or 2 arguments routinely; `:adapter/wrap-view`'s 3 and any
        ;; future/custom arity take the variadic tail, which keeps the
-       ;; generality and pays the old cost only where it is rare.
+       ;; generality and pays the `apply` cost only where it is rare.
        ;;
        ;; The generated shape is not a contract. What IS — and what
        ;; `routing_arity_cljs_test` pins at 0/1/2/3/4 arguments on all three
