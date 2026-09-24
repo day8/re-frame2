@@ -1,39 +1,39 @@
 (ns re-frame.http-completion-fence-cljs-test
-  "rf2-1eng8 seam 2, CLJS half — the DOUBLE-SEND.
+  "The completion fence, CLJS half — the DOUBLE-SEND.
 
   On CLJS the Fetch `.catch` is chained after the `.then` that runs the whole
-  response cascade. `dispatch-reply!`'s reply-tail fence (rf2-ln85eg) covers
+  response cascade. `dispatch-reply!`'s reply-tail fence covers
   the BOTTOM of that cascade — the `:after` chain and the reply dispatch — and
-  `re-frame.http-reply-tail-cljs-test` pins it. Everything ABOVE it was
-  unfenced: status classification, response-body schema classification, the
-  retry decision, the finalise and teardown. A throw there rejected the
-  completion promise, the `.catch` fed `classify-cljs-error` →
-  `:rf.http/transport` → `maybe-retry!`, and the request was RE-SENT although
-  its 2xx had already landed.
+  `re-frame.http-reply-tail-cljs-test` pins it. The completion fence covers
+  everything ABOVE it: status classification, response-body schema
+  classification, the retry decision, the finalise and teardown. Unfenced, a
+  throw there would reject the completion promise, the `.catch` would feed
+  `classify-cljs-error` → `:rf.http/transport` → `maybe-retry!`, and the
+  request would be RE-SENT although its 2xx had already landed.
 
-  **This is the dangerous one of the three seams, and the reason it is worth a
+  **This is the dangerous failure mode, and the reason it is worth a
   dedicated namespace: a double-send presents to the caller as SUCCESS.** The
   retry mints a fresh handle, so it bypasses the once-only reply guard; the app
   gets a reply, nothing appears on any error surface, and the only trace of the
   fault is that a non-idempotent endpoint ran twice. So the load-bearing
   assertion here is the FETCH COUNT, not the error trace.
 
-  The JVM half — where the same throw hangs the caller silently and leaves the
-  registry populated — lives in `re-frame.http-completion-fence-test`.
+  The JVM half — where the same throw would hang the caller silently and leave
+  the registry populated — lives in `re-frame.http-completion-fence-test`.
 
   ## Planting the throw
 
   Nothing user-facing throws above the reply tail: a `:decode` throw is fenced
   into `:rf.http/decode-failure` and an `:accept` throw into
-  `:rf.http/accept-failure`, both by design. That is precisely why this seam is
-  subtle, and it means the plant has to be an internal one. `classify-decoded`
-  is stubbed to throw, which lands the throw at exactly the site the item's own
-  reachable case used to reach — `handle-response!`'s 2xx accept phase, above
+  `:rf.http/accept-failure`, both by design. That is precisely why this failure
+  mode is subtle, and it means the plant has to be an internal one.
+  `classify-decoded` is stubbed to throw, which lands the throw at
+  `handle-response!`'s 2xx accept phase, above
   `finalise-success!` and so above both the registry clear and the reply tail.
 
   The stub is ARMED BY THE FETCH STUB rather than at test start, so the
-  dispatch-time half of the same change (the `:decode` marks check now forced
-  in `handlers/normalise-args`) is not what fires: the request must reach the
+  dispatch-time `:decode` marks check in `handlers/normalise-args` is not what
+  fires: the request must reach the
   wire and succeed before anything throws. That ordering is asserted, not
   assumed.
 
@@ -60,13 +60,13 @@
   (filter #(= op (:operation %)) @traces))
 
 (deftest completion-throw-does-not-re-send-the-completed-request
-  (testing "rf2-1eng8 (CLJS) — a throw in the completion cascade ABOVE the reply
+  (testing "(CLJS) a throw in the completion cascade ABOVE the reply
             tail is fenced at the completion boundary, so the already-successful
-            request is fetched EXACTLY ONCE. Pre-fix the throw rejected the
-            completion promise, the Fetch .catch reclassified it as
-            :rf.http/transport, and maybe-retry! re-sent a request whose 2xx had
-            already landed — a double-send that presents to the caller as
-            success."
+            request is fetched EXACTLY ONCE. Unfenced, the throw would reject
+            the completion promise, the Fetch .catch would reclassify it as
+            :rf.http/transport, and maybe-retry! would re-send a request whose
+            2xx had already landed — a double-send that presents to the caller
+            as success."
     (async done
       (rf/init! rf.adapter.reagent/adapter)
       (rf.frame/ensure-default-frame!)
@@ -110,7 +110,7 @@
             {:fx [[:rf.http/managed
                    {:request    {:url "/x"}
                     :decode     :json
-                    ;; The policy the pre-fix leak retried under. Short backoff
+                    ;; A policy an unfenced throw would retry under. Short backoff
                     ;; so a re-send would land well inside the settle window
                     ;; below rather than after the assertions.
                     :retry      {:on           #{:rf.http/transport}
@@ -128,11 +128,9 @@
             ;; assertions instead of jumping to the terminal `.catch`. Without
             ;; this the first missing signal makes every assertion below
             ;; unreachable — including the fetch COUNT, which is the one that
-            ;; catches the double-send. Measured against the unfixed tree: with
-            ;; the jump in place the run reported a single poll-timeout and
-            ;; nothing about re-sending; with it removed the same run reports
-            ;; the count. A pin should say what went wrong, not just that
-            ;; something did.
+            ;; catches the double-send: the run would report a single
+            ;; poll-timeout and nothing about re-sending. A pin should say what
+            ;; went wrong, not just that something did.
             (.catch (fn [_] nil))
             (.then (fn [_]
                      ;; Wait past several backoff windows. A regression re-sends
@@ -150,7 +148,7 @@
                      ;; It landed ABOVE the reply tail. :rf.http/replied is
                      ;; emitted from dispatch-success!, below finalise-success!;
                      ;; its absence is what says this is the COMPLETION fence
-                     ;; and not dispatch-reply!'s pre-existing one.
+                     ;; and not dispatch-reply!'s reply-tail one.
                      (is (empty? (ops traces :rf.http/replied))
                          "PRECONDITION: the throw landed ABOVE the reply tail — no reply envelope was built")
 
@@ -175,6 +173,6 @@
                                          @traces))
                          "the completion throw was NOT reclassified as :rf.http/transport")))
             (.catch (fn [e]
-                      (is false (str "rf2-1eng8 — unexpected: " e))
+                      (is false (str "unexpected: " e))
                       nil))
             (.then (fn [_] (restore) (done))))))))
