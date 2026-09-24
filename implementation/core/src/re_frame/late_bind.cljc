@@ -38,8 +38,8 @@
 ;; (`:schemas/validate-*!`, `:flows/run-flows-on-db`, `:epoch/settle!`,
 ;; `:epoch/capture-event`, `:event-emit/dispatch-on-event`,
 ;; `:router/dispatch!`, …). These run on every dispatch — the dispatch
-;; drain reads ~6+ keys per event, so a 100-event drain was 600+
-;; identical atom-derefs of `hooks` plus 600+ identical map lookups.
+;; drain reads ~6+ keys per event, so uncached a 100-event drain would be
+;; 600+ identical atom-derefs of `hooks` plus 600+ identical map lookups.
 ;;
 ;; The cache memoises the resolution: first hit reads `hooks`, populates
 ;; `fn-cache`, and returns; subsequent hits read `fn-cache` directly. On
@@ -65,7 +65,7 @@
 (defn- cache-generation
   "The `fn-cache` value's invalidation counter — bumped by every
   `invalidate-cache!`, read by `cache-resolution!` to reject a memo resolved
-  before that invalidation (rf2-d9x8). Lives under a namespaced key IN the
+  before that invalidation. Lives under a namespaced key IN the
   cache map, so no hook key can collide with it and every invalidation
   necessarily produces a distinct map value."
   [cache]
@@ -86,14 +86,14 @@
 (defn- cache-resolution!
   "Memoise `resolved` under `hook-key` — but ONLY while the cache is still on
   `generation`, the generation the caller read BEFORE it resolved through
-  `hooks` (rf2-d9x8).
+  `hooks`.
 
   A cache miss is two steps: read `hooks`, then insert. `set-fn!` publishes
   into `hooks` and THEN invalidates, so a reader whose two steps straddle a
-  publication holds a SUPERSEDED fn and, inserting it unconditionally,
-  repopulated the very slot the publication had just cleared — permanently,
-  until some later invalidation. The stale entry then served every subsequent
-  lookup while an uncached `get-fn` returned the replacement.
+  publication holds a SUPERSEDED fn and, inserting it unconditionally, would
+  repopulate the very slot the publication had just cleared — permanently,
+  until some later invalidation. The stale entry would then serve every
+  subsequent lookup while an uncached `get-fn` returned the replacement.
 
   Every invalidation bumps the generation, so this `swap!` sees it in one of
   two ways and both are coherent: the bump landed BEFORE the successful
@@ -171,7 +171,7 @@
       ;; Read the generation BEFORE resolving through `hooks`: a publication
       ;; that lands after this read is guaranteed to bump past it, so the
       ;; memo insert below is rejected rather than resurrecting the fn this
-      ;; call resolved (rf2-d9x8).
+      ;; call resolved.
       (let [generation (cache-generation @fn-cache)]
         (when-let [resolved (get @hooks hook-key)]
           (cache-resolution! hook-key generation resolved)
