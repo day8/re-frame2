@@ -50,10 +50,9 @@ multi-substrate rendering. Hiding failures hides the bugs Story
 exists to surface. Stage 1 of any substrate-portability audit is
 "look at the red panes."
 
-**Implication.** The render shell treats per-substrate render in a
-try/catch boundary; per-variant `:assertions` accumulates a
-substrate-tagged failure entry; the multi-substrate pane shows the
-error inline alongside the healthy substrates' renders. See
+**Implication.** The render shell renders each substrate inside its
+own error boundary; the multi-substrate pane shows the error inline
+alongside the healthy substrates' renders. See
 [`003-Render-Shell.md`](003-Render-Shell.md) §Multi-substrate.
 
 ### §record-not-throw — assertion failures record, don't throw

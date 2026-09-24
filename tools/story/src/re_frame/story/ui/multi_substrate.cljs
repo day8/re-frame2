@@ -406,10 +406,50 @@
    :font-family "initial"
    :font-size   "initial"})
 
+(defn- cell-subject
+  "Call the substrate's render fn from a CHILD of the cell boundary. A
+  boundary catches what its descendants throw and never what its own render
+  throws, so the call sits here: a throw from the render fn is caught
+  exactly like a throw from the view it returns."
+  [render-fn variant-id view-id eff-args]
+  (render-fn variant-id view-id eff-args))
+
+(def ^:private cell-boundary
+  "The per-cell React error boundary (rf2-3x7nj.29.3). ONE class, defined
+  here rather than per render: a fresh class is a fresh element type, and
+  React answers that by remounting the cell and discarding the subject's
+  local state on every re-render of the grid.
+
+  A captured error renders the red error cell INSTEAD of the subject.
+  Re-rendering the throwing child would throw again, and a boundary that has
+  already captured hands that second throw to the boundary above it, which
+  for the Story shell is none. The captured error lasts as long as the
+  cell's inputs: new ones (another variant, other args, a replaced render
+  fn) clear it and render the subject again."
+  (r/create-class
+    {:display-name "rf-story-substrate-cell"
+     :get-initial-state (fn [_this] #js {:error nil})
+     :get-derived-state-from-error (fn [error] #js {:error (str error)})
+     :get-derived-state-from-props
+     (fn [props state]
+       (when (not= props (gobj/get state "props"))
+         #js {:props props :error nil}))
+     :reagent-render
+     (fn [{:keys [render-fn variant-id substrate view-id eff-args]}]
+       (if-let [error (gobj/get (.-state (r/current-component)) "error")]
+         [:div {:style (:error-cell styles)}
+          [:div {:style (:error-head styles)}
+           (str (name substrate) " — render error")]
+          [:div {:style (:error-body styles)} error]]
+         [:div {:style (:cell styles)}
+          [:div {:style (:cell-head styles)} (name substrate)]
+          [:div {:style (merge (:cell-body styles) subject-root-style)}
+           [cell-subject render-fn variant-id view-id eff-args]]]))}))
+
 (defn- safe-render-cell
-  "Render `view-id` under `substrate` inside a try/catch boundary. Per
-  `002-Runtime.md` §Substrate hooks a substrate failure surfaces inline rather than
-  aborting the whole grid.
+  "Render `view-id` under `substrate` inside the `cell-boundary` error
+  boundary. Per `002-Runtime.md` §Substrate hooks a substrate failure
+  surfaces inline rather than aborting the whole grid.
 
   The registry lookup and the missing-substrate diagnostic below are the
   CELL-level pair. `render-view` above carries the fragment-level pair
@@ -434,34 +474,11 @@
              "at app boot.")]]
 
       :else
-      ;; Reagent's error boundary mechanism (r/create-class with
-      ;; :component-did-catch) is the standard way to isolate render
-      ;; errors. Each cell wraps in such a boundary so a throw in one
-      ;; substrate doesn't blank out its neighbours.
-      [(r/create-class
-         {:display-name (str "rf-story-substrate-" (name substrate))
-          :component-did-catch
-          (fn [_this _error _info]
-            ;; The error is captured in state below; this hook just
-            ;; prevents the error from propagating up the React tree.
-            nil)
-          :get-derived-state-from-error
-          (fn [error]
-            #js {:error (str error)})
-          :reagent-render
-          (fn [variant-id substrate view-id eff-args]
-            (try
-              [:div {:style (:cell styles)}
-               [:div {:style (:cell-head styles)} (name substrate)]
-               [:div {:style (merge (:cell-body styles) subject-root-style)}
-                (render-fn variant-id view-id eff-args)]]
-              (catch :default e
-                [:div {:style (:error-cell styles)}
-                 [:div {:style (:error-head styles)}
-                  (str (name substrate) " — render error")]
-                 [:div {:style (:error-body styles)}
-                  (str e)]])))})
-       variant-id substrate view-id eff-args])))
+      [cell-boundary {:render-fn  render-fn
+                      :variant-id variant-id
+                      :substrate  substrate
+                      :view-id    view-id
+                      :eff-args   eff-args}])))
 
 ;; ---- pure: substrate set resolution -------------------------------------
 
