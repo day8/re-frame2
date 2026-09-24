@@ -1,5 +1,5 @@
 (ns re-frame.source-coord-dom-cljs-test
-  "Per Spec 006 §Source-coord annotation (rf2-z7f7 / rf2-z9n1): when
+  "Per Spec 006 §Source-coord annotation: when
   `interop/debug-enabled?` is true, the Reagent substrate adapter MUST
   inject `data-rf2-source-coord=\"<ns>:<sym>:<line>:<col>\"` on the
   rendered root DOM element of every registered view. The annotation
@@ -143,8 +143,8 @@
       ;; `[:> Cmp {} "body"]` — second slot is the React props map; we
       ;; should NOT have added :data-rf2-source-coord into THAT map
       ;; (that would set a DOM attribute via React's component, which is
-      ;; the right shape only if Cmp is a DOM tag string — but the v1
-      ;; rule per the bead's documented exemption is "skip and warn").
+      ;; the right shape only if Cmp is a DOM tag string — but the rule,
+      ;; per the documented exemption, is "skip and warn").
       (is (not (contains? (second out) :data-rf2-source-coord))
           "no :data-rf2-source-coord merged into the interop props map"))))
 
