@@ -99,41 +99,13 @@
    lives in its own test file (this ns cannot co-load
    `realworld-resources.auth` — see above).
 
-   THREE FRAMEWORK-OWNED GAPS this sweep scopes around — NOT fixable from
-   examples/ (they live in implementation/core's classification projector /
-   implementation/machines' transition trace):
-
-     (a) A `[:dispatch [target-event ...]]` fx NESTED inside another
-         handler's `:fx` vector does not inherit the TARGET event's own
-         `:sensitive` at the DISPATCHING handler's own `:rf.fx/handled` /
-         `:rf.event/fx` trace — only a fx's OWN static registration redacts
-         there (`:dispatch` itself carries none). This app works
-         AROUND it everywhere avoidable — see `store-session-db` in
-         auth.cljs, called inline rather than via a nested
-         `[:dispatch [:auth/store-session user]]` — but a machine-routed
-         sub-event (settings' `:edit-password` / `:submit-valid`, test 8
-         below) has no such workaround: dispatching INTO a machine has no
-         non-`:dispatch` form.
-     (b) The SAME `:rf.event/fx` aggregate does not understand
-         `:rf.http/managed`'s DYNAMIC `:sensitive? true` flag (only static
-         per-fx `:sensitive [[paths]]` registrations) — any fx list combining
-         a `:sensitive? true` managed-HTTP call with a sibling `:dispatch`
-         (login/register's OWN `:submit` handlers, identical in shape to
-         examples/core/login's `submit-form`) leaks the request body at this
-         ONE trace slot. The dedicated `:rf.fx/handled` / `:rf.fx/args` slots
-         for the RESOLVED HTTP fx redact correctly (test 1 above); only the
-         PARENT event's aggregate does not.
-     (c) `:rf.machine/action-ran`'s `:outcome` tag (the action's raw return
-         value) carries no classification pass at all in
-         `project-machine-tags` — any action returning updated `:data`
-         containing a classified path leaks there, identically for the
-         settings machine's `:edit` action.
-
-   Tests 5/6 below therefore scope their sweep to what the apps provably
-   control, excluding (b)'s `:rf.event/fx` tag by name (documented,
-   narrow — a real NEW leak anywhere else still fails the sweep); test 8
-   (settings) documents (a)+(c) as an accepted residual rather than asserting
-   a false clean bill."
+   Every sweep reads EVERY tag of every emitted trace event, so a raw sentinel
+   anywhere is a real leak. That includes the dispatching handler's
+   `:rf.event/fx` aggregate and `:rf.fx/handled` slots — where a nested
+   `[:dispatch [target-event …]]` rides the TARGET event's own `:sensitive`
+   and a `:sensitive? true` managed-HTTP entry redacts its request body — and
+   `:rf.machine/action-ran`'s `:outcome`, which rides the machine's `:data`
+   classification."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [clojure.string :as str]
             [re-frame.core :as rf]
@@ -200,16 +172,6 @@
 ;; trustworthy way to assert "this trace event carries no trace of the raw
 ;; secret," regardless of which slot it might have hidden in.
 (defn- leaks? [needle x] (str/includes? (pr-str x) needle))
-
-;; The scoped variant tests 5/6 use: EVERYTHING `leaks?` checks, EXCEPT the
-;; `:rf.event/fx` tag — the ONE trace slot carrying framework gap (b) from
-;; the ns docstring above (the aggregate walker doesn't understand
-;; `:rf.http/managed`'s dynamic `:sensitive? true` flag). Scrubbing just that
-;; ONE key, by name, rather than skipping the whole event, means a real leak
-;; anywhere else on the SAME trace event still fails the sweep.
-(defn- leaks-outside-fx-aggregate-gap?
-  [needle ev]
-  (leaks? needle (update ev :tags dissoc :rf.event/fx)))
 
 ;; A local stub that mirrors the app stubs' :sensitive — proves the projector
 ;; redacts the Conduit body shape at the resolved-fx :rf.fx/handled slot. The
@@ -401,10 +363,9 @@
 ;; ---------------------------------------------------------------------------
 ;; 4. THE CREDENTIAL-FREE AUTH FLOW — drive the FULL public
 ;;    edit→submit(→success) cascade and scan EVERY emitted trace for both
-;;    sentinels (scoped past the ONE documented framework gap — see the ns
-;;    docstring's "THREE FRAMEWORK-OWNED GAPS" section). Never poke
-;;    :auth/flow or the settings machine directly with a credential — always
-;;    go through the same public events a real view dispatches.
+;;    sentinels. Never poke :auth/flow or the settings machine directly with
+;;    a credential — always go through the same public events a real view
+;;    dispatches.
 ;; ---------------------------------------------------------------------------
 
 (deftest login-form-cascade-redacts-password-and-token-everywhere
@@ -414,10 +375,9 @@
             classified :auth/session-established reply, whose store-session
             write is INLINE rather than a nested :dispatch (see
             store-session-db in auth.cljs) — leaves NO emitted trace event
-            carrying the raw password or the raw JWT, past the ONE documented
-            :rf.event/fx gap (b), while the handler-visible values (the
-            durable token, the machine state) stay real: redaction is
-            egress-only"
+            carrying the raw password or the raw JWT, while the
+            handler-visible values (the durable token, the machine state)
+            stay real: redaction is egress-only"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed      :test.realworld/login-succeeds
                                                     :auth.session/persist :rf/no-op}})]
       ;; The local mirror of core.cljs's :auth/classify-token (see its
@@ -431,8 +391,8 @@
         (rf/dispatch-sync [:auth.login-form/edit-password {:value sentinel}] {:frame f})
         (rf/dispatch-sync [:auth.login-form/submit] {:frame f})
         (rf/unregister-listener! :trace ::login-cascade)
-        (let [pw-leaking (filter #(leaks-outside-fx-aggregate-gap? sentinel %) @traces)
-              jwt-leaking (filter #(leaks-outside-fx-aggregate-gap? token-sentinel %) @traces)]
+        (let [pw-leaking (filter #(leaks? sentinel %) @traces)
+              jwt-leaking (filter #(leaks? token-sentinel %) @traces)]
           (is (empty? pw-leaking)
               (str "PW LEAK ops: " (pr-str (mapv :operation pw-leaking))))
           (is (empty? jwt-leaking)
@@ -452,7 +412,7 @@
             same credential-owning handoff as login — map-payload
             :auth.register-form/edit-password, a bare :auth/register nudge, a
             :sensitive? true request — so no emitted trace leaks the raw
-            password either (scoped past the same documented :rf.event/fx gap)"
+            password either"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed      :test.realworld/login-succeeds
                                                     :auth.session/persist :rf/no-op}})]
       (rf/dispatch-sync [:test.realworld/classify-token] {:frame f})
@@ -463,7 +423,7 @@
         (rf/dispatch-sync [:auth.register-form/edit-password {:value sentinel}] {:frame f})
         (rf/dispatch-sync [:auth.register-form/submit] {:frame f})
         (rf/unregister-listener! :trace ::register-cascade)
-        (let [pw-leaking (filter #(leaks-outside-fx-aggregate-gap? sentinel %) @traces)]
+        (let [pw-leaking (filter #(leaks? sentinel %) @traces)]
           (is (empty? pw-leaking)
               (str "PW LEAK ops: " (pr-str (mapv :operation pw-leaking))))))
       (is (= :authed (rf/compute-sub [:auth/state] (rf/frame-state-value f)))
@@ -542,14 +502,10 @@
             surface the machine-routed classification suite proves the
             mechanism reaches,
             and the surface the machine SPEC's :data-rooted :sensitive (test 3
-            above) does NOT reach. Scoped, per-op assertions (mirroring that
-            suite's methodology) rather than a whole-stream sweep —
-            see the ns docstring's gap (a)/(c) for why a blanket sweep here
-            would be a false claim: the PARENT :settings/edit-password
-            handler's own `[:dispatch [:settings/form ...]]` nesting (gap a)
-            and :rf.machine/action-ran's :outcome tag (gap c) are NOT reached
-            by any app-level classification — accepted, documented residual,
-            not silently dropped."
+            above) does NOT reach. The whole-stream sweep beside those per-op
+            assertions also covers the PARENT :settings/edit-password
+            handler's nested `[:dispatch [:settings/form ...]]` and
+            :rf.machine/action-ran's :outcome."
     (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (rf/dispatch-sync [:settings/form [:reset]] {:frame f})
       (let [traces (record-traces! ::settings-edit)]
@@ -568,14 +524,9 @@
                                     (:operation %))
                                   @traces)))
             "teeth — the drive actually emitted the machine trace ops under test")
-        ;; --- accepted residual (gaps a + c), NOT asserted clean: the SAME
-        ;;     drive's :dispatch fx-handled / :rf.event/fx aggregate on the
-        ;;     PARENT :settings/edit-password event, and
-        ;;     :rf.machine/action-ran's :outcome tag, still carry the raw
-        ;;     password. Left unasserted (not asserted-to-leak either) —
-        ;;     see the ns docstring; a framework fix that closes them should
-        ;;     not have to touch this test to stay green.
-        )
+        (let [pw-leaking (filter #(leaks? sentinel %) @traces)]
+          (is (empty? pw-leaking)
+              (str "PW LEAK ops: " (pr-str (mapv :operation pw-leaking))))))
       (is (= sentinel (get-in (rf/frame-state-value f)
                               [:rf.db/runtime :rf.runtime/machines :snapshots
                                :settings/form :data :draft :password]))
