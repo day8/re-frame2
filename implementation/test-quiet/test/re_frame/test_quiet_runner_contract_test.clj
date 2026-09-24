@@ -35,7 +35,7 @@
      silently short a suite — and the same fixture is green the moment
      before that file arrives. Likewise a selected `.cljc` that `require`
      would never load, because a `.clj` of its namespace answers from
-     another classpath root (rf2-hq1o5).
+     another classpath root.
    - FIXTURES: a namespace whose `use-fixtures` entry is DATA rather
      than a function — the cljs.test `{:before f :after g}` map, whether
      written at the call site or reached through a var — refuses the run
@@ -43,7 +43,7 @@
      zero tests to a tally that reports itself green; and, in the other
      direction, entries that APPLY the thunk without being `fn?` — a var
      referring to a fixture function, and a bare `reify` of
-     `clojure.lang.IFn` — keep their lane green (rf2-4yw1).
+     `clojure.lang.IFn` — keep their lane green.
    - STDERR BUFFER: a green run that emits expected
      stderr warnings stays quiet (the warnings are buffered + dropped);
      a RED run REPLAYS the buffered stderr context so a failing run
@@ -205,17 +205,16 @@
 ;; ----------------------------------------------------------------------
 ;; Green path — the exact green stdout shape.
 ;;
-;; This is the ONE one-passing-test green subprocess row. A weaker sibling
-;; (`green-runner-contract`) spawned the same fixture through the same
-;; `-main` and asserted a strict subset of what follows: exit 0, no
-;; `Running tests in`, at most three non-blank lines, and `0 failures,
-;; 0 errors.` appearing somewhere. Every one of those clauses follows from
-;; the pins below, which fix the exact line at each position, so it bought
-;; nothing but a second JVM process start (rf2-6r9j.92).
+;; This is the ONE one-passing-test green subprocess row. The pins below fix
+;; the exact line at each position, so a second row asserting a subset of
+;; them — exit 0, no `Running tests in`, a cap on non-blank lines, and
+;; `0 failures, 0 errors.` appearing somewhere — would buy nothing but a
+;; second JVM process start.
 ;;
 ;; cognitect's banner is `\nRunning tests in #{...}\n` — it opens with a
-;; BLANK LINE.  Dropping only the `Running tests in #{...}` text left that
-;; leading newline behind, so a green real `-main` run started with TWO
+;; BLANK LINE.  Dropping only the `Running tests in #{...}` text would leave
+;; that leading newline behind, so a green real `-main` run would start with
+;; TWO leading blanks.
 ;; The filter must remove the banner's leading newline while preserving
 ;; clojure.test's own leading `\n` on the `:summary` line. This pin asserts
 ;; the exact line shape: a single leading blank, then the two summary
@@ -378,7 +377,7 @@
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err)))))))
 
 ;; ----------------------------------------------------------------------
-;; Fixture integrity (rf2-4yw1) — the wiring pin for
+;; Fixture integrity — the wiring pin for
 ;; `re-frame.test-quiet.runner/uncallable-fixtures`.
 ;;
 ;; The rule itself is pinned in-process against `clojure.test/join-fixtures`
@@ -498,13 +497,13 @@
            "(use-fixtures :each (fn [t] (t)))\n"))))
 
 (deftest var-fixtures-keep-the-run-green
-  (testing "THE REGRESSION CONTROL (rf2-4yw1): `(use-fixtures :each
-            #'lifecycle)` is ordinary, idiomatic and WORKING — `Var.invoke`
-            forwards to the root function, so the test runs — yet `fn?` is
-            false of a Var, and the guard refused the lane with the false
-            claim that every test in it silently did not run.  A census of
-            today's corpus cannot stand in for this row: it says only that
-            nobody happens to write the form, not that the form is broken."
+  (testing "THE REGRESSION CONTROL: `(use-fixtures :each #'lifecycle)` is
+            ordinary, idiomatic and WORKING — `Var.invoke` forwards to the
+            root function, so the test runs — yet `fn?` is false of a Var,
+            so a `fn?` guard would refuse the lane with the false claim that
+            every test in it silently did not run.  A census of the corpus
+            cannot stand in for this row: it says only that nobody happens
+            to write the form, not that the form is broken."
     (assert-callable-fixture-runs-green
       "var_fixture_test" "probe.var-fixture-test"
       (str "(defn lifecycle [t] (t))\n"
@@ -512,12 +511,12 @@
            "(use-fixtures :each #'lifecycle)\n"))))
 
 (deftest custom-ifn-fixtures-keep-the-run-green
-  (testing "THE ROW THAT ENDS THE LIST (rf2-4yw1): a bare `reify` of
+  (testing "THE ROW THAT ENDS THE LIST: a bare `reify` of
             `clojure.lang.IFn` invokes the thunk and the test runs, yet it
             carries no `Fn` marker, is no `MultiFn` and is no Var — so no
             enumeration of accepted implementation classes can name it, and
-            two rounds of this guard refused it while the test it guards was
-            passing.  The rule is now `ifn?` minus the closed set of values
+            a guard built on one would refuse it while the test it guards
+            passes.  The rule is `ifn?` minus the closed set of values
             Clojure invokes as a lookup, which admits this without admitting
             a map; the two red rows above are the other half of that claim."
     (assert-callable-fixture-runs-green
@@ -625,9 +624,9 @@
 ;; ----------------------------------------------------------------------
 ;; Nested-run failure tally and exit-code soundness.
 ;;
-;; The behaviour is currently SOUND (the quiet layer never overrides
+;; The behaviour is SOUND (the quiet reporter never overrides
 ;; :summary/:pass and counts :fail/:error exactly once); this pins it so a
-;; future change — overriding :summary, sharing a counter, hoisting banner
+;; change — overriding :summary, sharing a counter, hoisting banner
 ;; handling into the counter path — can't silently turn an outer failure
 ;; into a false GREEN, or leak an inner-ignored failure into the outer
 ;; tally. cognitect computes the exit code from the outer summary's
@@ -700,8 +699,8 @@
 ;; `test-ns-hook` — a supported clojure.test path (`test-ns` calls it in
 ;; place of `test-all-vars`) — runs OUTSIDE `test-var`, so a bare failing
 ;; assertion inside it reports with an EMPTY `*testing-vars*`: the
-;; var-derived ns is nil and the failure printed with NO banner, violating
-;; the failure-banner contract. A begin/end namespace stack
+;; var-derived ns is nil, so on its own it would print the failure with NO
+;; banner, violating the failure-banner contract. A begin/end namespace stack
 ;; falls back to the innermost open ns when no failing var is in scope.
 ;; This pin drives the REAL `-main` against a fixture whose `test-ns-hook`
 ;; fails, and asserts the ns banner is present above the FAIL block.
@@ -750,7 +749,7 @@
 ;; parse-error diagnostics, and test output must still reach stdout.
 
 (deftest help-flag-prints-usage
-  (testing "-H prints cognitect usage and exits 0 (was swallowed by the old *out* sink)"
+  (testing "-H prints cognitect usage and exits 0 (a global *out* sink would swallow it)"
     (with-fixture-dir
       (fn [dir]
         (let [{:keys [exit out err]} (invoke-quiet-runner dir "-H")]
@@ -766,7 +765,7 @@
                    " must be absent; got:\n" out)))))))
 
 (deftest invalid-flag-prints-parse-error
-  (testing "an unknown flag prints the parse error + usage and exits 1 (was swallowed)"
+  (testing "an unknown flag prints the parse error + usage and exits 1 (a global *out* sink would swallow it)"
     (with-fixture-dir
       (fn [dir]
         (let [{:keys [exit out err]}
@@ -842,8 +841,8 @@
 ;; cognitect's banner is the whole line and stops at the set literal's
 ;; closing `}`. A user/fixture diagnostic may share that prefix and carry
 ;; trailing content, for example
-;; `Running tests in #{:fixture :phase} MARKER`, was silently overdropped
-;; The filter therefore treats a full-prefix match as a candidate and drops
+;; `Running tests in #{:fixture :phase} MARKER`, which a prefix-only filter
+;; would silently overdrop.  The filter therefore treats a full-prefix match as a candidate and drops
 ;; it only when the remainder is a balanced set literal followed by
 ;; whitespace.
 
@@ -875,8 +874,8 @@
       (fn [dir]
         ;; A clean green fixture: the ONLY `Running tests in #{...}` line on
         ;; stdout would be cognitect's own discovery banner. Proving it is
-        ;; absent confirms the narrowed candidate/confirm logic did not stop
-        ;; dropping the genuine banner while it gained the overdrop guard.
+        ;; absent confirms the candidate/confirm logic drops the genuine
+        ;; banner as well as guarding against overdrop.
         (write-fixture! dir "banner_still_dropped_test" "banner-still-dropped-test"
                         "(deftest a-passing-test (is (= 1 1)))")
         (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
@@ -980,8 +979,8 @@
                    "; got:\n" out))
           ;; cognitect's genuine banner renders the DIR set as a string set —
           ;; `#{\"<dir>\"}` — so `Running tests in #{\"` uniquely identifies
-          ;; it. Its absence proves the real banner was STILL dropped (the
-          ;; latch narrowed the drop to exactly one banner, it did not stop
+          ;; it. Its absence proves the real banner is STILL dropped (the
+          ;; latch narrows the drop to exactly one banner; it does not stop
           ;; dropping the real one).
           (is (not (str/includes? out "Running tests in #{\""))
               (str "cognitect's genuine discovery banner (`Running tests in"
@@ -1005,8 +1004,8 @@
   (testing "a bare print with no newline or flush reaches stdout before System/exit"
     (with-fixture-dir
       (fn [dir]
-        ;; No trailing newline, no (flush) — the worst case the finding
-        ;; describes. The marker must still survive to stdout.
+        ;; No trailing newline, no (flush) — the worst case. The marker
+        ;; must still survive to stdout.
         (write-fixture! dir "partial_fixture_test" "partial-fixture-test"
                         (str "(deftest a-partial-test"
                              " (print \"PARTIAL-EXIT-MARKER\")"
@@ -1107,8 +1106,8 @@
 ;; (~1 MB) AND a stdout marker, then exits NONZERO.  With the concurrent
 ;; drain the harness must return the full captured stderr, the stdout
 ;; marker, and the real exit code — promptly.  We run it on a bounded
-;; future so a regression that reintroduces the sequential drain fails
-;; as a TIMEOUT (deref deadline) instead of hanging the whole suite.
+;; future so a sequential drain fails as a TIMEOUT (deref deadline)
+;; instead of hanging the whole suite.
 
 (def ^:private big-stderr-bytes
   "~1 MB — comfortably past any plausible OS pipe buffer (~64 KB)."
@@ -1152,7 +1151,7 @@
                                (drain-process)))
                 ;; A correctly draining harness returns in well under a
                 ;; second; 60s is a generous ceiling that still FAILS (not
-                ;; hangs) if the sequential-drain deadlock is reintroduced.
+                ;; hangs) on a sequential-drain deadlock.
                 process-result  (deref result-future 60000 ::timed-out)]
             (is (not= ::timed-out process-result)
                 (str "the harness deadlocked: a >pipe-buffer stderr flood with a"
@@ -1182,15 +1181,15 @@
 ;; fails fast on a wedged child instead of hanging the suite.  This pins
 ;; that fail-fast behaviour directly: a child that NEVER exits must be
 ;; force-killed at the ceiling and the helper must return `:timed-out?
-;; true` promptly — so a future change that drops the `.waitFor` timeout
-;; cannot silently reintroduce an unbounded hang.
+;; true` promptly — so dropping the `.waitFor` timeout cannot silently
+;; introduce an unbounded hang.
 
 (deftest drain-process-kills-and-flags-a-hanging-child
   (testing "a child that never exits is force-killed and flagged timed out"
     (with-fixture-dir
       (fn [dir]
         ;; A child that blocks forever with no output and no exit path —
-        ;; the worst case the finding describes.  Written to a file for
+        ;; the worst case.  Written to a file for
         ;; the same cross-platform arg-quoting reason as the flood child.
         (let [hang-file (io/file dir "hang_forever.clj")]
           (spit hang-file "@(promise)\n") ; deref an unfulfilled promise → blocks forever
@@ -1230,14 +1229,14 @@
 ;; Stderr ring is bounded: front trimming keeps the newest characters.
 ;;
 ;; `stderr-buffer-cap` is 256 KB and `buffering-stderr-writer` front-trims
-;; `(.delete stderr-ring 0 (- ring-length stderr-buffer-capacity))` so the
-;; ring retains the NEWEST `stderr-buffer-capacity`
+;; `(.delete stderr-ring 0 (- ring-length stderr-buffer-cap))` so the
+;; ring retains the NEWEST `stderr-buffer-cap`
 ;; characters and drops older ones (runner.clj `stderr-buffer-cap` +
-;; `buffering-stderr-writer`).  The CLJS analogue is rigorously pinned
-;; (`warn-buffer-is-bounded-and-materialised` drives 4x capacity); the JVM ring
-;; had NO equivalent — the green/red stderr pins write tiny payloads, so a
-;; broken trim (wrong end, off-by-one, dropped) was uncaught and could OOM
-;; a chatty red suite.  This drives a RED run that floods `*err*` with
+;; `buffering-stderr-writer`).  The CLJS analogue is pinned by
+;; `warn-buffer-is-bounded-and-materialised` (it drives 4x capacity); the
+;; green/red stderr pins here write tiny payloads, so without this row a
+;; broken trim (wrong end, off-by-one, dropped) would go uncaught and could
+;; OOM a chatty red suite.  This drives a RED run that floods `*err*` with
 ;; ~600 KB (well past the 256 KB cap), then asserts the newest tail marker
 ;; is REPLAYED, the oldest head marker is DROPPED, and the replayed volume
 ;; is bounded to ~capacity — proving the ring capped rather than merely that a
@@ -1347,8 +1346,8 @@
 ;;
 ;; `-main` routes the test thread's `*err*` (a PrintWriter) and raw
 ;; process-global `System.err` (a `System/setErr` PrintStream bridge) into
-;; ONE StringBuilder ring. The two wrappers hold DISTINCT locks, so before
-;; the ring's writes were serialized on a shared monitor, overlapping
+;; ONE StringBuilder ring. The two wrappers hold DISTINCT locks, so without
+;; a shared monitor serializing the ring's writes, overlapping
 ;; writes from the two channels could tear the StringBuilder and throw
 ;; `ArrayIndexOutOfBoundsException` mid-run — a reporter bug that changes a
 ;; failing run's exit/diagnostics. This drives the REAL `-main` against a
@@ -1401,9 +1400,8 @@
               (str "the FAIL block for the intentional assertion must reach"
                    " stdout — proving the process failed for the assertion,"
                    " not an internal buffer exception; got:\n" out))
-          ;; No torn-StringBuilder exception may surface anywhere: the whole
-          ;; point of the fix is that the ring never throws from concurrent
-          ;; writes.
+          ;; No torn-StringBuilder exception may surface anywhere: the ring
+          ;; must never throw from concurrent writes.
           (is (not (str/includes? both "ArrayIndexOutOfBoundsException"))
               (str "a concurrent dual-channel red run must NOT throw from the"
                    " stderr ring; got\n--- stdout ---\n" out
@@ -1424,12 +1422,13 @@
                    (subs err (max 0 (- (count err) 400)) (count err)))))))))
 
 ;; ----------------------------------------------------------------------
-;; What a lane claims, and what it must therefore prove (rf2-qqzmf).
+;; What a lane claims, and what it must therefore prove.
 ;;
 ;; `clojure.test/run-tests` over an empty namespace set reports
 ;; `Ran 0 tests containing 0 assertions. / 0 failures, 0 errors.` and
 ;; cognitect exits 0 from that tally, so a discovery set that silently
-;; collapsed to nothing was indistinguishable from a green suite.
+;; collapses to nothing would otherwise be indistinguishable from a green
+;; suite.
 ;;
 ;; The rule is not "every lane must run tests" — it is that a lane which
 ;; claims COVERAGE must prove it ran, while a lane which claims only
@@ -1505,11 +1504,11 @@
   (testing "a --probe lane exits 0 on zero tests — the floor must not false-red it"
     (with-fixture-dir
       (fn [dir]
-        ;; The two live probe lanes are implementation/adapters/reagent and
-        ;; implementation/adapters/uix: CLJS-only artefacts whose `:test`
-        ;; alias exists to prove deps + classpath resolve. `test.yml` documents
-        ;; the contract ("the cognitect test-runner returns 0 when there are
-        ;; no test namespaces") and names the jobs "Diagnostic skip-ok". This
+        ;; The live probe lane is implementation/adapters/reagent: a
+        ;; CLJS-only artefact whose `:test` alias exists to prove deps +
+        ;; classpath resolve. `test.yml` documents the contract ("the
+        ;; cognitect test-runner returns 0 when there are no test
+        ;; namespaces") and names its job "Diagnostic skip-ok". This
         ;; fixture dir has NO JVM test file at all — the same shape.
         (let [{:keys [exit out err]} (invoke-quiet-runner dir "--probe")]
           (is (zero? exit)
@@ -1596,14 +1595,13 @@
                    out)))))))
 
 ;; ----------------------------------------------------------------------
-;; What the lane will DISCOVER (rf2-vruo9).
+;; What the lane will DISCOVER.
 ;;
 ;; The floor above is a COLLAPSE detector and cannot see a lane that lost
 ;; ONE file: `cognitect.test-runner` discovers namespaces by READING each
-;; file's `(ns ...)` form, and drops the files it cannot read. Measured on
-;; this repo, a single unescaped quote in an ns docstring took
-;; `implementation/core` from 2190 tests to 2182 — the broken file's eight
-;; deftests — printing `0 failures, 0 errors.` and exiting 0.
+;; file's `(ns ...)` form, and drops the files it cannot read. A single
+;; unescaped quote in an ns docstring drops that file's deftests from the
+;; run, which still prints `0 failures, 0 errors.` and exits 0.
 ;;
 ;; The rule itself is pinned against the discovery library in
 ;; `re-frame.test-quiet-discovery-integrity-test`. What is pinned HERE is
@@ -1652,7 +1650,7 @@
                    " already invisible to it; got:\n" out)))))))
 
 ;; ----------------------------------------------------------------------
-;; A DISCOVERY DIRECTORY IS NOT A CLASSPATH ROOT (rf2-fzbj.8).
+;; A DISCOVERY DIRECTORY IS NOT A CLASSPATH ROOT.
 ;;
 ;; `-d` chooses where cognitect SCANS. Resource resolution is untouched:
 ;; cognitect reads each discovered file's `(ns ...)` form and hands the name
@@ -1660,22 +1658,21 @@
 ;; narrowing a large tree while debugging — `-d test/re_frame` under the
 ;; classpath root `test` — is a supported selection that cognitect runs.
 ;;
-;; The guard compared each file's path RELATIVE TO `-d` against its
-;; namespace's resource path, which under a nested `-d` are supposed to
-;; differ. Measured on this artefact before the repair: `clojure -M:test
-;; -d test/re_frame -n re-frame.test-quiet-pin-passing-test` named all
-;; SEVEN files under that directory as defects — the requested one
-;; included — and exited 1 before a test ran, while the identical
-;; discovery directory through raw `cognitect.test-runner` exited 0 having
-;; run it.
+;; A guard comparing only each file's path RELATIVE TO `-d` against its
+;; namespace's resource path would fail here, because under a nested `-d`
+;; the two are supposed to differ: `clojure -M:test -d test/re_frame -n
+;; re-frame.test-quiet-pin-passing-test` would name every file under that
+;; directory as a defect — the requested one included — and exit 1 before
+;; a test ran, while the identical discovery directory through raw
+;; `cognitect.test-runner` exits 0 having run it.
 ;;
 ;; The rule itself is pinned against a real classpath in
 ;; `re-frame.test-quiet-discovery-integrity-test`. What needs a process is
 ;; the end-to-end claim: the SAME namespace, selected through the real
 ;; `-main` at three discovery depths, runs and tallies identically — and
 ;; a genuinely broken file under the deepest of them is STILL refused, so
-;; the repair bought the nested case by resolving paths rather than by
-;; standing the guard down.
+;; the nested case is bought by resolving paths rather than by standing
+;; the guard down.
 
 (defn- invoke-quiet-runner-rooted
   "Relaunch a fresh JVM on `-main` with `classpath-roots` appended to the
@@ -1738,7 +1735,7 @@
             (is (zero? exit)
                 (str "-d " relative " selects a valid, loadable namespace"
                      " under the classpath root and must exit 0 — the"
-                     " defect was a refusal before any test ran; got exit "
+                     " defect would be a refusal before any test ran; got exit "
                      exit "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
             (is (str/includes? out "Ran 1 tests containing 1 assertions.")
                 (str "and the counts must be the SAME at every depth, or the"
@@ -1749,8 +1746,8 @@
                      " stderr:\n" err)))))
 
       (testing "THE CONTROL: a genuinely undiscoverable file under the
-                DEEPEST discovery directory is still refused, so the repair
-                resolves paths rather than standing the guard down"
+                DEEPEST discovery directory is still refused, so the guard
+                resolves paths rather than standing down"
         ;; One unescaped `\"` in the ns docstring: the reader consumes the
         ;; rest of the file and hits EOF, so discovery drops it silently.
         (write-deep-fixture! root "probe/deep/unreadable_test.clj"
@@ -1775,23 +1772,25 @@
                    out)))))))
 
 ;; ----------------------------------------------------------------------
-;; A `.cljc` IS NOT WHAT `require` LOADS WHEN A `.clj` ANSWERS (rf2-hq1o5).
+;; A `.cljc` IS NOT WHAT `require` LOADS WHEN A `.clj` ANSWERS.
 ;;
-;; The repair above clears a file when its resource path, looked up on the
-;; real classpath, answers with that very file. It looked the path up under
-;; the DISCOVERED file's extension, and `require` does not: `RT/load` asks
-;; the whole classpath for the namespace's `.clj` first, and for its `.cljc`
+;; The resolution arm above clears a file when its resource path, looked up
+;; on the real classpath, answers with that very file. That lookup uses the
+;; DISCOVERED file's extension, and `require` does not: `RT/load` asks the
+;; whole classpath for the namespace's `.clj` first, and for its `.cljc`
 ;; only when no `.clj` answers anywhere. So a selected FAILING `.cljc` and an
 ;; unselected PASSING `.clj` of the same namespace, in two classpath roots,
-;; cleared the guard — and `collision-defects` could not see the pair,
-;; because the `.clj` sits outside every discovery directory. Measured
-;; before the fix, at a root and a nested `-d` and with the roots in either
-;; order: exit 0, `Ran 1 tests containing 1 assertions.`, and the SHADOW's
-;; marker on stdout. The selected failure never executed.
+;; would clear that arm alone — and `collision-defects` cannot see the pair,
+;; because the `.clj` sits outside every discovery directory. Without the
+;; `load-winner` check the run would exit 0 with `Ran 1 tests containing 1
+;; assertions.` and the SHADOW's marker on stdout, at a root and a nested
+;; `-d` and with the roots in either order: the selected failure would never
+;; execute.
 ;;
 ;; The control is what makes the refusal evidence rather than opinion: with
 ;; the shadow off the classpath, the identical command runs the `.cljc` and
-;; exits 1 on its failure — so the green above was a real lost failure.
+;; exits 1 on its failure — so the green the guard refuses would be a real
+;; lost failure.
 
 (def ^:private selected-failing-cljc
   "The SELECTED file: a `.cljc` whose one test fails, and says so on stdout
