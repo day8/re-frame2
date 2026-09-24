@@ -1,14 +1,13 @@
 (ns re-frame.bench.p0-workcount
   "EP-0038 P0 — the WORK CENSUS: three monotone counters read per measured
-  window, beside the byte counters (rf2-n1b9h).
+  window, beside the byte counters.
 
   ## The question it exists to answer
 
-  `rf2-77gz8` measured the floor arm's steady-state `rise/W` sitting in
-  either of two levels EXACTLY 3,792 B apart at one substrate revision,
-  page-global, per-write, byte-stable for fourteen rounds, and certifying
-  in both. `rf2-77gz8`'s re-analysis narrowed the cause to two candidates
-  the committed corpus cannot separate:
+  The floor arm's steady-state `rise/W` measures in either of two levels
+  EXACTLY 3,792 B apart at one substrate revision — page-global, per-write,
+  byte-stable for fourteen rounds, and certifying in both. The byte corpus
+  alone cannot separate the two candidate causes:
 
     (a) DIFFERENT WORK per write — a re-entrant registration, a duplicated
         reaction, an extra pass.
@@ -17,7 +16,7 @@
         allocations into real ones at a fixed cost per invocation.
 
   `alloc-tick` counts WRITES, so an identical schedule says nothing about
-  the work inside one. Nothing committed counts that. This does:
+  the work inside one. This counts it:
 
     events   — event-handler invocations (the `:p0/write-*` handler bodies)
     subs     — subscription recomputations (the `reg-sub` computation fns)
@@ -43,14 +42,14 @@
   below is a MACRO expanding to `(when counting? …)`, so under `:advanced`
   with the flag false Closure constant-folds the gate, the branch is
   dead-code-eliminated, and [[counts]] itself becomes unreferenced and goes
-  with it. **A run that does not ask for the census compiles the bundle it
-  compiled before this namespace existed.**
+  with it. **A run that does not ask for the census compiles the same bundle
+  as a build without this namespace.**
 
-  That is not tidiness. The rig's blobs are the constancy guarantee the
-  whole `alloc-9jrhi` series and the `rf2-nkeba` figures are published
-  against, and an always-on counter would have moved the write path under
-  every one of them. A macro rather than a function for the same reason
-  `re-frame.performance/mark-and-measure` is one: a function-shaped helper
+  That is not tidiness. The rig's blobs are the constancy guarantee its
+  published allocation figures rest on, and an always-on counter would move
+  the write path under every one of them. A macro rather than a function
+  for the same reason `re-frame.performance/mark-and-measure` is one: a
+  function-shaped helper
   forces its call site to survive DCE even when its body does nothing.
 
   The driver arms it with `P0_WORK_COUNT=1`, which adds the closure-define
@@ -74,8 +73,8 @@
   only OUTSIDE the sampled region, before the window's first counter read
   and after its last.
 
-  Owner: rf2-n1b9h, under the operator-owned governance set enumerated once
-  in `docs/design/fresco/studio/README.md`."
+  Owner: the operator-owned governance set enumerated once in
+  `docs/design/fresco/studio/README.md`."
   #?(:cljs (:require-macros [re-frame.bench.p0-workcount])))
 
 ;; ---------------------------------------------------------------------------
@@ -158,7 +157,7 @@
      "The three counters as a flat JS object.
 
      A literal `#js` map and never `clj->js`, for the reason `p0-heap/mount!`
-     carries the scar from: `clj->js` would render a keyword ending in `?`
+     documents: `clj->js` would render a keyword ending in `?`
      as a key nothing on the driver side reads, and a census that always
      answered `undefined` would look like a census that never moved.
 
