@@ -770,11 +770,12 @@
 
 (def ^:private reserved-attr-names
   "The attribute names an element's `:attrs` never carries, each mapped to
-  where the tree holds that slot instead. React takes all four off the
-  props object before the host sees them and react-dom never writes one as
-  an attribute, so a tree carrying one in `:attrs` has put a node field, a
-  node, or a ref in the wrong place, and emitting it would put markup on
-  the wire that the client never paints.
+  the fix its refusal names. React takes all four off the props object
+  before the host sees them and react-dom never writes one as an
+  attribute. The tree keeps a key and content in node fields and trusted
+  markup in a node of its own, and carries no ref at all, so one of these
+  in `:attrs` is a malformed tree, and emitting it would put markup on the
+  wire that the client never paints.
 
   Read off the name this serialiser writes, which for these four is the
   key's `name`, and matched case-sensitively: `:x/ref`, `\"ref\"` and
@@ -782,13 +783,12 @@
   name and an ordinary attribute.
 
   The hiccup tier DROPS the same keys (`html-helpers/strip-prop?`) rather
-  than refusing them: its attribute bags have no other home for them,
-  where the tree has one for each. Spec 011 §XSS at output boundaries
-  names both dispositions."
-  {"key"                     "a key is the node's own :key field"
-   "ref"                     "a ref has no markup, and the tree carries none"
-   "children"                "an element's content is its :children field"
-   "dangerouslySetInnerHTML" "trusted markup is a {:html s} child node"})
+  than refusing them; Spec 011 §XSS at output boundaries names both
+  dispositions and why they differ."
+  {"key"                     "put it on the node as :key"
+   "ref"                     "remove it: a ref has no markup, and the tree carries none"
+   "children"                "put the content in the element's :children"
+   "dangerouslySetInnerHTML" "put the trusted markup in a {:html s} child node"})
 
 (defn- reject-reserved-attrs!
   "Refuse an element whose `:attrs` carries a `reserved-attr-names` key,
