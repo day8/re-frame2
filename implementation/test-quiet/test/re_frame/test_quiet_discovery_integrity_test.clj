@@ -1,15 +1,14 @@
 (ns re-frame.test-quiet-discovery-integrity-test
   "The rule `re-frame.test-quiet.runner/discovery-defects` states, and the
-  defect it exists to make impossible (rf2-vruo9).
+  defect it exists to make impossible.
 
   A test file whose `(ns ...)` FORM the reader cannot read is INVISIBLE to
   `cognitect.test-runner`: discovery reads each file's form and
   `clojure.tools.namespace.find/find-ns-decls-in-dir` is a `keep` over a
   helper called `ignore-reader-exception`, so an unreadable file simply
-  contributes no namespace. Measured on this repo: one stray unescaped
-  quote in the ns docstring of `late_bind_drift_test.clj` took
-  `implementation/core` from 2190 tests to 2182 — exactly that file's eight
-  deftests — reporting `0 failures, 0 errors.` and exiting 0.
+  contributes no namespace. One stray unescaped quote in a test file's ns
+  docstring drops exactly that file's deftests from the run, which still
+  reports `0 failures, 0 errors.` and exits 0.
 
   A file can also fail to run while spelling its own path PERFECTLY, which
   is the second door and the one a per-file check cannot see. Discovery
@@ -25,8 +24,7 @@
   handed to `find/find-namespaces-in-dir` FIRST, and the assertion is on
   what discovery does or does not return; only then is `discovery-defects`
   asked to name it. A guard tested against nothing but its own output would
-  go on passing after the library it mirrors changed underneath it — which
-  is the shape of every check this one replaces.
+  go on passing after the library it mirrors changed underneath it.
 
   The wiring — that `-main` actually calls the rule, exits 1, and says so on
   stderr — is pinned across a process boundary in
@@ -257,7 +255,7 @@
     (is (= [] (rf.test-quiet.runner/discovery-defects ["test"])))))
 
 ;; ----------------------------------------------------------------------
-;; A DISCOVERY DIRECTORY IS NOT A CLASSPATH ROOT (rf2-fzbj.8).
+;; A DISCOVERY DIRECTORY IS NOT A CLASSPATH ROOT.
 ;;
 ;; `-d` chooses where cognitect SCANS. It does not change resource
 ;; resolution: cognitect reads each discovered file's `(ns ...)` form and
@@ -267,13 +265,12 @@
 ;; supported selection, and cognitect runs it.
 ;;
 ;; Comparing the declared namespace's resource path against a path relative
-;; to `-d` made every file under such a directory a defect: the two strings
-;; are SUPPOSED to differ there. Measured on this artefact before the
-;; repair: `clojure -M:test -d test/re_frame -n
-;; re-frame.test-quiet-pin-passing-test` named all SEVEN files under
-;; `test/re_frame` — the selected one included — and exited 1 before a test
-;; ran, while the identical command through raw `cognitect.test-runner`
-;; exited 0 having run it.
+;; to `-d` alone would make every file under such a directory a defect: the
+;; two strings are SUPPOSED to differ there. `clojure -M:test -d
+;; test/re_frame -n re-frame.test-quiet-pin-passing-test` would then name
+;; every file under `test/re_frame` — the selected one included — and exit 1
+;; before a test ran, while the identical command through raw
+;; `cognitect.test-runner` exits 0 having run it.
 ;;
 ;; These rows need the REAL classpath, so they use this artefact's own
 ;; tracked `src` and `test` roots rather than a temp tree. A temp-dir
@@ -294,8 +291,8 @@
             property of the test tree"
     (is (= [] (rf.test-quiet.runner/discovery-defects ["src/re_frame/test_quiet"]))))
 
-  (testing "THE CONTROL: the root spelling is still clean, so the repair
-            did not buy the nested case by disarming the guard"
+  (testing "THE CONTROL: the root spelling is clean too, so the nested
+            case is not bought by disarming the guard"
     (is (= [] (rf.test-quiet.runner/discovery-defects ["test"])))
     (is (= [] (rf.test-quiet.runner/discovery-defects ["src"])))))
 
