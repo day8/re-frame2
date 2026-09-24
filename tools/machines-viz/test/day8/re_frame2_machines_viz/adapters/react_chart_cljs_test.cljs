@@ -1,7 +1,6 @@
 (ns day8.re-frame2-machines-viz.adapters.react-chart-cljs-test
   "Smoke tests for the substrate-adapter React bridge + the UIx
-  shell (rf2-yg9he · xyflow Phase 2; the Helix shell left at S7/W13,
-  rf2-d6epb).
+  shell.
 
   These pin the substrate-parity contract WITHOUT a DOM: the bridge
   reactifies the Reagent `MachineChart` to a plain React class once,
