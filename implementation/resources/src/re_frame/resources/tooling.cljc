@@ -459,10 +459,9 @@
   "The node identity of the `ordinal`-th of several live entries whose scoped
   keys all PROJECT to `projected-key`: the same 3-tuple, its params component
   wrapped as `{:rf.resource/collision <ordinal> :rf.resource/params <params>}`.
-  The ordinal is the only thing added, so the key stays as content-free as
-  the projection it wraps, still names its resource at position 1, and — the
-  params still being a map — is still a scoped key to the graph egress
-  projection. Pure."
+  The ordinal is the only addition, so the key is as content-free as the
+  projection it wraps, names its resource at position 1, and — its params
+  being a map — is a scoped key to the graph egress projection. Pure."
   [[scope resource-id params] ordinal]
   [scope resource-id {:rf.resource/collision ordinal
                       :rf.resource/params    params}])
