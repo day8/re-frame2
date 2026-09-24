@@ -34,7 +34,7 @@
      egress the body is treated as whole-sensitive and omitted entirely;
      only a classified projection (a schema-classified body, or an explicit
      opt-in) lets a body ride off-box. On the in-process DEV trace stream
-     the unschematized body rides as today (the dev operator sees their own
+     the unschematized body rides as-is (the dev operator sees their own
      process); the fail-closed posture is the off-box / capture rule.
 
   ## What gets a schema
@@ -48,7 +48,7 @@
 
   ## Composition with per-call `:sensitive?`
 
-  The existing per-call / per-request `:sensitive?` flag (Spec 014 §Privacy)
+  The per-call / per-request `:sensitive?` flag (Spec 014 §Privacy)
   is the COARSE escape hatch: it redacts the whole body wholesale regardless
   of schema marks. This namespace is the FINE-grained, schema-driven layer
   that fires INDEPENDENTLY of that flag. Sensitive wins over large, matching
@@ -147,9 +147,8 @@
 ;; marks are UNKNOWN, which is NOT the same as EMPTY, and answering `{}` for it
 ;; is a fail-OPEN: the classification silently does nothing and a
 ;; `:sensitive?`-marked secret rides the trace verbatim, with a green suite
-;; either side of it (rf2-zvbm9 — four assertions that read their own secret
-;; back, visible only in a solo-namespace run; rf2-ohfym — the ruling to make
-;; this loud rather than to build a CI lane that watches for it).
+;; either side of it — the gap shows only in a run where nothing else has
+;; loaded `re-frame.schemas`, so it is made loud here.
 ;;
 ;; `declares-marks?` separates the two cases so the loudness lands only where it
 ;; is earned. A `:decode` schema that writes no `:sensitive?` / `:large?` prop
@@ -209,7 +208,7 @@
   (`[]`). Empty maps when `decode` is not a schema or carries no marks.
   Pure, and retains nothing: `decode` is built per request, so the shared
   walker hooks walk it unmemoised rather than growing a never-evicted cache
-  by one entry per distinct request (rf2-3x7nj.19.4).
+  by one entry per distinct request.
 
   Throws `:rf.error/schemas-artefact-missing` when `decode` declares a mark
   and the shared walker hook is unbound — see `extract-paths`."
@@ -244,7 +243,7 @@
                  `m/schema` object); whole-sensitive, omitted entirely.
 
   An unschematized body OR an opaque-schema body fails CLOSED off-box
-  (EP-0015 issue 5 — fail-closed when classification is UNKNOWN; rf2-y1pgdl).
+  (EP-0015 issue 5 — fail-closed when classification is UNKNOWN).
   An opaque keyword registry ref returns NO per-slot marks from the shared
   walker (Spec 010 forbids resolving the registry), so `:classify` would ride
   its body unchanged — the fail-open leak. Off-box gates on
