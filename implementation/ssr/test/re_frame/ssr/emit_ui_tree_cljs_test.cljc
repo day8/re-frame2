@@ -1,9 +1,9 @@
 (ns re-frame.ssr.emit-ui-tree-cljs-test
-  "The S5 tree->HTML serialiser `re-frame.ssr/emit-ui-tree` (rf2-3omxp,
-  spec contract Spec 004B §The SSR consumption boundary).
+  "The S5 tree->HTML serialiser `re-frame.ssr/emit-ui-tree` (spec
+  contract Spec 004B §The SSR consumption boundary).
 
   The load-bearing proofs here are the TWO-ID DISCIPLINE and the version
-  gate: the SAME tree throws the NEW id `:rf.error/ssr-ui-tree-version-
+  gate: the SAME tree throws the SSR-seam id `:rf.error/ssr-ui-tree-version-
   unsupported` when only its root `:rf.ui/tree-version` is wrong (an
   operational deploy-skew condition), and the SHARED id
   `:rf.error/ui-tree-malformed` when a node PAST the gate is structurally
@@ -11,12 +11,11 @@
   `:rf.error/id` AND its ex-data — not merely that an exception was thrown —
   because the whole point is WHICH id.
 
-  The conversion tables the serialiser carries were once pinned
-  byte-for-byte against a `re-frame.ui.rules` source. That substrate has
-  been retired (rf2-0yp7w), so the tables are ORIGINALS now and the pin is
-  gone: what holds them honest is the react-dom parity corpus and the
-  row-level assertions below, which test the rows against react-dom's
-  documented behaviour rather than against a second copy of themselves.
+  The conversion tables the serialiser carries are ORIGINALS, with no
+  second source to pin them against: what holds them honest is the
+  react-dom parity corpus and the row-level assertions below, which test
+  the rows against react-dom's documented behaviour rather than against a
+  second copy of themselves.
 
   Runs on BOTH hosts (`.cljc`, `-cljs-test` ns): `clojure -M:test` from
   `implementation/ssr` (JVM) and `npm run test:cljs` (node). A CLJS class
@@ -45,7 +44,7 @@
       (ex-data e))))
 
 ;; ---------------------------------------------------------------------------
-;; The version gate — the NEW id, validated FIRST, with its own lever
+;; The version gate — the SSR-seam id, validated FIRST, with its own lever
 ;; ---------------------------------------------------------------------------
 
 (deftest version-gate-throws-the-new-id-with-got-and-supported
@@ -59,7 +58,7 @@
         (is (map? d)
             (str label ": expected a thrown ex-info, got " (pr-str d)))
         (is (= :rf.error/ssr-ui-tree-version-unsupported (:rf.error/id d))
-            (str label ": must throw the NEW version-gate id"))
+            (str label ": must throw the SSR-seam version-gate id"))
         (is (contains? d :got) (str label ": ex-data carries :got"))
         (is (= expected-got (:got d))
             (str label ": :got is the RECEIVED value"))
@@ -116,15 +115,15 @@
       (is (= :rf.error/ui-tree-malformed (:rf.error/id d))))))
 
 (deftest trusted-html-child-under-textarea-is-rejected
-  ;; rf2-ib4fd — a hand-written trusted-markup (`{:html …}`) child beneath a
+  ;; A hand-written trusted-markup (`{:html …}`) child beneath a
   ;; <textarea> is host-divergent: react-dom/server 19.2 rejects
   ;; dangerouslySetInnerHTML on a textarea (its content is value/defaultValue
   ;; or a text child). The compiler rejects the source shape; this seam is the
   ;; runtime defence for a manually-authored tree — it fails loud through the
   ;; SHARED malformed-tree path rather than emitting a body React would reject.
   (testing "a sole {:html s} child under <textarea> throws the shared id"
-    ;; RED-BEFORE lever: the shipped serialiser emitted the markup verbatim
-    ;; ("<textarea><b>x</b></textarea>"), diverging from React 19.2.
+    ;; Lever: without this check the serialiser would emit the markup
+    ;; verbatim ("<textarea><b>x</b></textarea>"), diverging from React 19.2.
     (let [d (caught-ex-data
               #(rf.ssr.ui-tree/emit-ui-tree
                  (v1 {:tag :textarea :children [{:html "<b>x</b>"}]})))]
@@ -147,14 +146,15 @@
         ":value content is fine")))
 
 (deftest textarea-effective-child-stream-is-validated
-  ;; rf2-ib4fd (residual) — #6517's direct `{:html …}` check inspected only the
-  ;; textarea's IMMEDIATE children, so a trusted-HTML leaf spliced in through a
-  ;; transparent fragment or view boundary slipped through and emitted verbatim.
-  ;; This seam validates the EFFECTIVE child stream (after splicing) against the
-  ;; textarea host child contract, failing loud at the ACTUAL offending path.
+  ;; A direct `{:html …}` check of only the textarea's IMMEDIATE children
+  ;; would let a trusted-HTML leaf spliced in through a transparent fragment or
+  ;; view boundary slip through and emit verbatim. This seam validates the
+  ;; EFFECTIVE child stream (after splicing) against the textarea host child
+  ;; contract, failing loud at the ACTUAL offending path.
   (testing "trusted markup nested through a transparent FRAGMENT is rejected"
-    ;; RED-BEFORE lever: the fragment spliced {:html …} into the textarea and the
-    ;; shipped serialiser emitted "<textarea><b>x</b></textarea>".
+    ;; Lever: checking immediate children alone, the fragment would splice
+    ;; {:html …} into the textarea and the serialiser would emit
+    ;; "<textarea><b>x</b></textarea>".
     (let [d (caught-ex-data
               #(rf.ssr.ui-tree/emit-ui-tree
                  (v1 {:tag :textarea
@@ -299,9 +299,9 @@
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div :children [{:html "<b>raw</b>"}]}))))))
 
 ;; ---------------------------------------------------------------------------
-;; Raw-text elements — <script>/<style> content (rf2-2dh3b)
+;; Raw-text elements — <script>/<style> content
 ;;
-;; ANCHOR (rf2-2dh3b): react-dom/server 19.2 emits <script>/<style> text as HTML
+;; ANCHOR: react-dom/server 19.2 emits <script>/<style> text as HTML
 ;; RAW TEXT — the parser decodes no entities inside them, so the content is NOT
 ;; sent through `escape-html`; only an embedded closing-tag sequence is rewritten
 ;; to a context-safe spelling (a JS `s` unicode escape for </script, a CSS
@@ -315,7 +315,7 @@
 
 (deftest raw-text-script-style-is-not-html-escaped
   (testing "ordinary ampersand / less-than / greater-than in <script> stays LITERAL"
-    ;; RED-BEFORE lever: the shipped `escape-html` path emitted
+    ;; Lever: through the `escape-html` path this would emit
     ;; "<script>a &amp; b &lt; c &gt; d</script>" — a corrupted script body.
     (is (= "<script>a & b < c > d</script>"
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :script :children ["a & b < c > d"]}))))
@@ -330,7 +330,7 @@
 
 (deftest raw-text-closing-sequences-get-context-safe-spellings
   (testing "<script> content: (<|</)script -> the s/S becomes \\u0073 / \\u0053"
-    ;; RED-BEFORE lever: the escape path emitted the entity spellings
+    ;; Lever: the escape path would emit the entity spellings
     ;; "&lt;/script&gt;" whose entities stay LITERAL inside raw text — the DOM
     ;; would carry the text </script> and terminate the element early.
     (is (= "<script>var x = '</\\u0073cript>';</script>"
@@ -352,7 +352,7 @@
 
 (deftest raw-text-own-lever-p-still-escapes
   (testing "VACUITY probe: the SAME text in a NON-raw-text element IS escaped"
-    ;; The fix is narrow: only <script>/<style> bypass entity escaping. If the
+    ;; The bypass is narrow: only <script>/<style> skip entity escaping. If the
     ;; branch mis-fired for ordinary elements this would drop the entities.
     (is (= "<p>a &amp; b &lt; c &gt; d</p>"
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :p :children ["a & b < c > d"]})))
@@ -362,13 +362,13 @@
         "and </script> in a <div> is inert escaped text, not a raw-text escape")))
 
 ;; ---------------------------------------------------------------------------
-;; Raw-text elements honor the ui/html trusted-markup child (rf2-0spji)
+;; Raw-text elements honor the ui/html trusted-markup child
 ;;
-;; ANCHOR (rf2-0spji): the raw-text fast path (rf2-2dh3b) ran
-;; `(str/join (:children el))` over ALL children, so a `{:html s}` child — the
-;; `ui/html` trusted-markup bypass, which the CLJS emitter lowers to React
-;; `dangerouslySetInnerHTML` and the JVM tree records as `{:html s}` — was
-;; STRINGIFIED to its printed EDN map instead of emitting its trusted body. The
+;; ANCHOR: a raw-text fast path running `(str/join (:children el))` over ALL
+;; children would STRINGIFY a `{:html s}` child — the `ui/html` trusted-markup
+;; bypass, which the CLJS emitter lowers to React `dangerouslySetInnerHTML` and
+;; the JVM tree records as `{:html s}` — to its printed EDN map instead of
+;; emitting its trusted body. The
 ;; sole `{:html s}` child must emit `s` VERBATIM (react-dom/server pushes
 ;; `dangerouslySetInnerHTML.__html` raw — no entity escape, no closing-sequence
 ;; rewrite), byte-identical to the general `:html` node path; any other
@@ -377,7 +377,7 @@
 
 (deftest raw-text-honors-ui-html-trusted-child
   (testing "a sole {:html s} child under <script> emits the trusted body, NOT the printed map"
-    ;; RED-BEFORE lever (rf2-0spji): the shipped fast path emitted the literal
+    ;; Lever: a stringifying fast path would emit the literal
     ;; EDN "<script>{:html \"const x=1;\"}</script>".
     (is (= "<script>const x=1;</script>"
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :script :children [{:html "const x=1;"}]})))))
@@ -397,7 +397,7 @@
 
 (deftest raw-text-structural-child-fails-loud-not-stringified
   (testing "an element child under <script> is the SHARED malformed id, not stringified EDN"
-    ;; RED-BEFORE lever: the fast path stringified it to
+    ;; Lever: a stringifying fast path would emit
     ;; "<script>{:tag :b, :children [\"x\"]}</script>".
     (let [d (caught-ex-data
               #(rf.ssr.ui-tree/emit-ui-tree
@@ -445,8 +445,9 @@
   (testing "a MULTIPLE select's :value is a COLLECTION, and selects every option it names"
     ;; The one tree attribute value that is not a scalar: a `<select multiple>`'s
     ;; selection is the list of chosen option values. Comparing the collection
-    ;; itself against each option marked NOTHING, so a server render dropped the
-    ;; whole selection and its hydrating client immediately disagreed with it.
+    ;; itself against each option would mark NOTHING, so a server render would
+    ;; drop the whole selection and its hydrating client would immediately
+    ;; disagree with it.
     (is (= (str "<select multiple=\"\">"
                 "<option selected=\"\" value=\"a\">A</option>"
                 "<option value=\"b\">B</option>"
@@ -470,9 +471,9 @@
                              {:tag :option :attrs {:value "b"} :children ["B"]}]}))))))
 
 ;; ---------------------------------------------------------------------------
-;; Newline-eating elements — leading-LF compensation (rf2-z05di)
+;; Newline-eating elements — leading-LF compensation
 ;;
-;; ANCHOR (rf2-z05di): HTML parsing eats the FIRST LF immediately after
+;; ANCHOR: HTML parsing eats the FIRST LF immediately after
 ;; <pre>/<listing>/<textarea>, so react-dom/server 19.2 prefixes one
 ;; compensating LF when the element's content is a SINGLE STRING beginning with
 ;; LF (its `typeof children === 'string'` guard) — making the intended content
@@ -483,7 +484,7 @@
 
 (deftest leading-newline-compensated-for-pre-and-listing
   (testing "<pre> single text child beginning with LF gets the doubled LF"
-    ;; RED-BEFORE lever: the shipped serialiser emitted "<pre>\nhello</pre>",
+    ;; Lever: without the compensation the serialiser would emit "<pre>\nhello</pre>",
     ;; which parses to a DOM with one FEWER newline than the tree authored.
     (is (= "<pre>\n\nhello</pre>"
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :pre :children ["\nhello"]})))))
@@ -499,7 +500,7 @@
 
 (deftest leading-newline-compensated-for-textarea-value
   (testing ":value on <textarea> beginning with LF gets the doubled LF"
-    ;; RED-BEFORE lever: emitted "<textarea>\nhello</textarea>" (one LF).
+    ;; Lever: without the compensation this would emit "<textarea>\nhello</textarea>" (one LF).
     (is (= "<textarea>\n\nhello</textarea>"
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "\nhello"}})))))
   (testing "textarea :value is RCDATA-escaped alongside the compensation"
@@ -510,7 +511,7 @@
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :textarea :children ["\nhi"]}))))))
 
 (deftest leading-newline-own-lever-only-a-single-lf-string-child
-  (testing "VACUITY: no LF prefix ⇒ no compensation (the fix must not add one)"
+  (testing "VACUITY: no LF prefix ⇒ no compensation (the compensation must not add one)"
     (is (= "<pre>hello</pre>"
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :pre :children ["hello"]})))
         "content not beginning with LF is emitted unchanged")
@@ -531,18 +532,18 @@
         "the compensation is scoped to pre/listing/textarea only")))
 
 ;; ---------------------------------------------------------------------------
-;; Leading-LF compensation for a sole trusted-HTML child (rf2-0spji)
+;; Leading-LF compensation for a sole trusted-HTML child
 ;;
-;; ANCHOR (rf2-0spji): React compensates the eaten leading LF for a single
+;; ANCHOR: React compensates the eaten leading LF for a single
 ;; STRING body applied to a string child AND to `dangerouslySetInnerHTML.__html`.
-;; The shipped `leading-newline-compensation` only recognised a direct string
-;; child, so a valid sole `{:html "\n…"}` child under <pre>/<listing> emitted a
+;; A `leading-newline-compensation` recognising only a direct string
+;; child would let a valid sole `{:html "\n…"}` child under <pre>/<listing> emit a
 ;; single LF the parser then eats — one FEWER newline than authored.
 ;; ---------------------------------------------------------------------------
 
 (deftest leading-newline-compensated-for-sole-trusted-html-child
   (testing "<pre> sole {:html s} child beginning with LF gets React's compensating LF"
-    ;; RED-BEFORE lever (rf2-0spji): emitted "<pre>\n<b>x</b></pre>" (one LF).
+    ;; Lever: without the compensation this would emit "<pre>\n<b>x</b></pre>" (one LF).
     (is (= "<pre>\n\n<b>x</b></pre>"
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :pre :children [{:html "\n<b>x</b>"}]})))))
   (testing "<listing> compensates a sole trusted-HTML LF body the same way"
@@ -551,14 +552,14 @@
   (testing "VACUITY: a :html body NOT beginning with LF gets no compensation"
     (is (= "<pre><b>x</b></pre>"
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :pre :children [{:html "<b>x</b>"}]})))
-        "the fix must not add an LF when none is owed")
+        "the compensation must not add an LF when none is owed")
     (is (= "<div>\n<b>x</b></div>"
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div :children [{:html "\n<b>x</b>"}]})))
         "a non-newline-eating element is never compensated, even for a :html body")))
 
 (deftest opts-contract
   ;; The exact opts contract (Spec 004B §The SSR consumption boundary,
-  ;; API.md re-frame.ssr table): `:doctype?` is the ONLY current option,
+  ;; API.md re-frame.ssr table): `:doctype?` is the ONLY option,
   ;; default off; other keys are ignored — no `render-to-string` option
   ;; transfers to this seam, and there is no validation framework.
   (let [tree (v1 {:tag :html})]
