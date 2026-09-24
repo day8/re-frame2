@@ -171,11 +171,21 @@
     (let [out   (g/layout todo-list)
           l1    (-> out :nodes :l1)
           views (-> out :nodes :view)]
-      (is (= 3 (count (distinct (map :key l1)))) "three sub instances, three keys")
-      (is (= 3 (count (distinct (map :key views)))) "three view instances, three keys")
+      (is (= (mapv pr-str [[:todo/by-id 1] [:todo/by-id 2] [:todo/by-id 3]])
+             (mapv :key l1))
+          "three sub instances, each keyed by its query-v")
+      (is (= (mapv pr-str [[:app/todo-row 11] [:app/todo-row 12] [:app/todo-row 13]])
+             (mapv :key views))
+          "three view instances, each keyed by its render-key")
       (is (every? #(= :todo/by-id (:id %)) l1) ":id stays the registration id")
       (is (= ["[:todo/by-id 1]" "[:todo/by-id 2]" "[:todo/by-id 3]"] (mapv :label l1))
-          "a parameterized instance is labelled by its query-v"))))
+          "a parameterized instance is labelled by its query-v")))
+  (testing "one identity seen twice (a query-v run twice) still gets two
+            sibling keys"
+    (let [l1 (-> (g/layout {:level-1-subs [{:sub-id :a :query-v [:a] :changed? true}
+                                           {:sub-id :a :query-v [:a] :changed? false}]})
+                 :nodes :l1)]
+      (is (= 2 (count (distinct (map :key l1))))))))
 
 (deftest layout-routes-each-sub-instance-to-its-own-view-instance
   (testing "the sub→view edge joins the sub instance to the view instance
