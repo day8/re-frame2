@@ -1,13 +1,13 @@
 (ns re-frame.frame-teardown-report-cljs-test
-  "EP-0008 / rf2-ini4wr — the frame-teardown report. On frame destroy,
+  "EP-0008 — the frame-teardown report. On frame destroy,
   the best-effort teardown recipe runs many optional late-bound cleanup
   hooks (`:ssr/on-frame-destroyed`, `:schemas/on-frame-destroyed!`,
   `:flows/teardown-on-frame-destroy!`, …). When one or more throw, the
   runtime emits ONE bounded always-on `:rf.error/frame-teardown-failed`
   record carrying a `:hook-failures` vector — NOT one always-on emission
   per hook (Spec 009 §Observability channels §Channel-promotion catalogue
-  rows; the promotion of the EP-0008 C4 prod-silence bug off the DCE'd
-  `:rf.warning/teardown-hook-exception`).
+  rows; the DCE'd `:rf.warning/teardown-hook-exception` alone would leave a
+  production build silent — EP-0008 C4).
 
   Pins the four acceptance legs:
 
@@ -21,28 +21,27 @@
         `register-error-listener!` substrate that survives a production
         build path (`rf.error-emit/dispatch-frame-teardown-report!` is NOT
         gated by `rf.interop/debug-enabled?`).
-    (d) The dev per-hook DIAGNOSTIC rows still emit at their causal
-        positions (EP-0008 R2 — per-hook visibility is KEPT on the
-        diagnostic axis; only the always-on emission collapsed).
+    (d) The dev per-hook DIAGNOSTIC rows emit at their causal
+        positions (EP-0008 R2 — per-hook visibility lives on the
+        diagnostic axis; the always-on emission is the one bounded report).
 
   Dual-runtime: named `*_cljs_test.cljc` so the shadow-cljs `:node-test`
   build (`npm run test:cljs`, `:ns-regexp \"cljs-test$\"`) AND the JVM
   `clojure -M:test` runner both pick it up. The teardown path is plain
   CLJC; no DOM dependency.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
-  Legs (a), (b), (c) and the rf2-c80lom no-raw-values property all read the
+  Legs (a), (b), (c) and the (e) no-raw-values property all read the
   ALWAYS-ON `:errors` axis — which is the whole point of the EP-0008 C4
-  promotion — so they run under `scripts/test-core-prod-gate.sh` unchanged,
+  report — so they run under `scripts/test-core-prod-gate.sh` unchanged,
   including the `(empty? @seen)` negatives, which are genuine there because
   that channel is live.
 
-  Leg (d) is the only dev-posture material, and this file already said so:
-  \"the contract is that they ride the DIAGNOSTIC channel, not that they
-  survive prod\". Its deftest, and the one diagnostic-count row inside
-  `both-channels-fire-together`, are kept verbatim inside
-  `(when rf.interop/debug-enabled? …)` arms. What `both-channels-fire-together`
+  Leg (d) is the only dev-posture material: the contract is that its rows
+  ride the DIAGNOSTIC channel, not that they survive prod. Its deftest, and
+  the one diagnostic-count row inside `both-channels-fire-together`, sit
+  inside `(when rf.interop/debug-enabled? …)` arms. What `both-channels-fire-together`
   proves in production posture is the half that matters there: ONE bounded
   report carrying BOTH hook failures, rather than a per-hook flood."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
@@ -101,7 +100,7 @@
 ;; ===========================================================================
 
 (deftest n-hook-failures-yield-one-report-with-n-entries
-  (testing "Per rf2-ini4wr / Spec 009 §Channel-promotion catalogue rows:
+  (testing "Per Spec 009 §Channel-promotion catalogue rows:
             N cleanup hooks throwing during destroy produce EXACTLY ONE
             always-on `:rf.error/frame-teardown-failed` record carrying N
             `:hook-failures` entries — NOT one record per failed hook."
@@ -137,7 +136,7 @@
           (is (number? (:time r)) ":time is a wall-clock millis number"))))))
 
 (deftest clean-destroy-emits-no-report
-  (testing "Per rf2-ini4wr: a destroy with NO failing hook emits NO
+  (testing "a destroy with NO failing hook emits NO
             `:rf.error/frame-teardown-failed` report (the report fn
             short-circuits on an empty :hook-failures vector)."
     (let [seen (atom [])]
@@ -153,7 +152,7 @@
 ;; ===========================================================================
 
 (deftest partial-teardown-abort-still-flushes-collected-entries
-  (testing "Per rf2-ini4wr EP-0008 R1 / Spec 009 §Emit-safety (finally-
+  (testing "Per EP-0008 R1 / Spec 009 §Emit-safety (finally-
             shaped flush): if teardown ABORTS mid-recipe after some hooks
             have already failed, the entries collected so far MUST still
             ship. We make two cleanup hooks throw (accumulating two
@@ -198,14 +197,14 @@
 ;; ===========================================================================
 
 (deftest report-rides-the-always-on-axis
-  (testing "Per rf2-ini4wr EP-0008: the report is delivered through the
+  (testing "Per EP-0008: the report is delivered through the
             corpus-wide `register-error-listener!` substrate
             (`rf.error-emit/dispatch-frame-teardown-report!`), which is NOT
             gated by `rf.interop/debug-enabled?` and so survives `:advanced`
             + `goog.DEBUG=false`. Exercising the listener directly proves
             the report is on the always-on axis, not the DCE'd diagnostic
             trace. (Companion to the dispatch-on-error always-on contract
-            in on-error-test.)"
+            in on-error-cljs-test.)"
     (let [seen (atom [])]
       ;; Direct substrate exercise — the same fn frame.cljc reaches via
       ;; the :error-emit/dispatch-frame-teardown-report late-bind hook.
@@ -222,7 +221,7 @@
         (is (= 1 (count (:hook-failures r))))
         (is (= 12345 (:time r))))))
 
-  (testing "Per rf2-ini4wr: the report fn is a no-op on an empty
+  (testing "the report fn is a no-op on an empty
             :hook-failures vector (no failures, no always-on flood)."
     (let [seen (atom [])]
       (rf.error-emit/register-error-listener! :test/recorder
@@ -231,7 +230,7 @@
       (is (empty? @seen) "empty :hook-failures → no record fanned out"))))
 
 (deftest report-reason-is-truthful-for-a-guarded-direct-step
-  (testing "Per rf2-d1yhx: a `:hook-failures` entry names a failed teardown
+  (testing "a `:hook-failures` entry names a failed teardown
             STEP — a late-bound cleanup hook OR a guarded direct step run
             under `safe-teardown-step!` (notably the
             `:frame/notify-machine-destruction!` machine cascade). The
@@ -264,7 +263,7 @@
             "the :reason names failed teardown STEPS, spanning both kinds")))))
 
 (deftest report-late-bind-hook-is-published
-  (testing "Per rf2-ini4wr: error-emit publishes the
+  (testing "error-emit publishes the
             `:error-emit/dispatch-frame-teardown-report` late-bind hook
             (frame.cljc reaches it via late-bind to avoid the
             error-emit → elision → frame load cycle)."
@@ -272,18 +271,17 @@
         "the hook is registered at error-emit ns-load")))
 
 ;; ===========================================================================
-;; (d) Dev per-hook DIAGNOSTIC rows still emit at causal positions (R2)
+;; (d) Dev per-hook DIAGNOSTIC rows emit at causal positions (R2)
 ;; ===========================================================================
 
 (deftest dev-per-hook-diagnostic-rows-still-emit
- ;; rf2-d2841 — this deftest IS the diagnostic channel; it has no production
- ;; residue by design (see the body's own comment). Kept verbatim in the arm.
+ ;; This deftest IS the diagnostic channel; it has no production
+ ;; residue by design (see the body's own comment), so it sits in the arm.
  (when rf.interop/debug-enabled?
-  (testing "Per rf2-ini4wr EP-0008 R2 / Spec 009: the per-hook
-            `:rf.warning/teardown-hook-exception` DIAGNOSTIC trace still
+  (testing "Per EP-0008 R2 / Spec 009: the per-hook
+            `:rf.warning/teardown-hook-exception` DIAGNOSTIC trace
             emits at its causal position inside `safe-call-hook!` (dev
-            visibility KEPT — only the always-on emission collapsed to the
-            single report). One diagnostic row per failed hook, carrying
+            visibility — the always-on emission is the single report). One diagnostic row per failed hook, carrying
             the hook key + frame."
     (let [traces (atom [])]
       (rf/register-listener! :trace ::rec (fn [ev] (swap! traces conj ev)))
@@ -310,7 +308,7 @@
             "each diagnostic row is frame-attributed"))))))
 
 (deftest both-channels-fire-together
-  (testing "Per rf2-ini4wr: a single destroy with failing hooks fires
+  (testing "a single destroy with failing hooks fires
             BOTH channels — the dev per-hook diagnostic rows (one each)
             AND the one always-on report (carrying both). The two axes are
             independent and complementary (Spec 009 §Observability
@@ -331,9 +329,9 @@
       (let [warns   (filter #(= :rf.warning/teardown-hook-exception (:operation %))
                             @traces)
             reps    (filter #(= :rf.error/frame-teardown-failed (:error %)) @reports)]
-        ;; rf2-d2841 — the diagnostic half only exists in dev. The always-on
+        ;; The diagnostic half only exists in dev. The always-on
         ;; half below is what a production build has, and it carries BOTH
-        ;; failures, which is the promotion this bead pinned.
+        ;; failures.
         (when rf.interop/debug-enabled?
           (is (= 2 (count warns)) "diagnostic channel: one per-hook row each"))
         (is (= 1 (count reps)) "always-on channel: ONE bounded report")
@@ -346,7 +344,7 @@
              folded into the one report")))))
 
 ;; ===========================================================================
-;; (e) No-raw-values property of the always-on report (rf2-c80lom)
+;; (e) No-raw-values property of the always-on report
 ;; ---------------------------------------------------------------------------
 ;; The teardown report rides the ALWAYS-ON / production-surviving axis, which
 ;; is NOT privacy-gated like the dev trace. `dispatch-frame-teardown-report!`
@@ -354,14 +352,13 @@
 ;; :reason :time}` — deliberately NO `:event` vector and NO app-db slice — and
 ;; each `:hook-failures` entry is structured-only `{:hook :exception :where}`.
 ;; The contrast partner `write_after_destroy_always_on_cljs_test.cljc` asserts
-;; its record carries no raw values (`:event`/`:frame`/`:exception` nil); the
-;; teardown report had no equivalent pin (the F2 review verified it "by
-;; construction" only). This pins the property so a future change that folds an
+;; its record carries no raw values (`:event`/`:frame`/`:exception` nil). This
+;; pins the same property for the teardown report, so a change that folds an
 ;; app value into the report fails closed.
 ;; ===========================================================================
 
 (deftest report-record-carries-no-raw-values
-  (testing "Per rf2-c80lom / Spec 009 §Observability channels (always-on axis,
+  (testing "Per Spec 009 §Observability channels (always-on axis,
             non-privacy-gated): the `:rf.error/frame-teardown-failed` record's
             keys are EXACTLY the known structured set — no `:event` vector, no
             `:app-db` slice, no raw app-supplied payload — so a destroy report
@@ -369,7 +366,7 @@
             `:hook-failures` entry is structured-only `{:hook :exception
             :where}`. (The per-hook `:exception` object can itself carry app
             data in its ex-data — that is a SPEC question for 009, not pinned
-            here; see the rf2-c80lom companion note.)"
+            here.)"
     (let [seen (atom [])]
       (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
@@ -395,19 +392,17 @@
 
 ;; ===========================================================================
 ;; (f) Multi-listener fan-out + throwing-sibling isolation on the REPORT path
-;; (rf2-tvoc63)
 ;; ---------------------------------------------------------------------------
-;; `on_error_test.cljc` pins the per-event axis (`dispatch-on-error!`) against
+;; `on_error_cljs_test.cljc` pins the per-event axis (`dispatch-on-error!`) against
 ;; multiple listeners incl. a throwing one (`error-listener-exception-is-
 ;; swallowed` → sibling still receives). The bounded-report sibling
 ;; (`dispatch-frame-teardown-report!`) shares the SAME `(:fan-out registry)`,
-;; so the isolation is correct by construction — but it was only ever exercised
-;; against a single recorder listener. This pins the throwing-sibling isolation
-;; for the report fn directly.
+;; so the isolation is correct by construction; this pins the throwing-sibling
+;; isolation for the report fn directly.
 ;; ===========================================================================
 
 (deftest report-fans-out-across-multiple-listeners-throwing-sibling-isolated
-  (testing "Per rf2-tvoc63 / Spec 009 §register-error-listener! fan-out: the
+  (testing "Per Spec 009 §register-error-listener! fan-out: the
             teardown report fans out to EVERY registered listener, and a
             throwing listener cannot starve a sibling — the report still
             reaches the recorder. The report path shares the per-event axis's
@@ -429,7 +424,7 @@
            listener (fan-out is defensive across listeners)")
       (is (= :rf.error/frame-teardown-failed (:error (first @seen))))))
 
-  (testing "Per rf2-tvoc63 (latent same-hook-key note): `safe-call-hook!`
+  (testing "latent same-hook-key note: `safe-call-hook!`
             conj's one entry per call, so if the SAME hook key were to throw
             twice in one destroy the report would carry two entries with the
             same `:hook` (no de-dup). The current recipe calls each hook once,
@@ -453,28 +448,28 @@
             "both same-key entries are preserved in order")))))
 
 ;; ===========================================================================
-;; (h) Step 2 (notify-machine-destruction!) is best-effort — a throw there must
-;; NOT leave the frame live + half-torn-down (rf2-jt47s0)
+;; (h) The machine-teardown step (notify-machine-destruction!) is best-effort —
+;; a throw there must NOT leave the frame live + half-torn-down
 ;; ---------------------------------------------------------------------------
-;; `destroy-frame!` step 1 (`fire-on-destroy-event!`) has its own catch and
+;; `destroy-frame!`'s `fire-on-destroy-event!` step has its own catch and
 ;; every late-bound cleanup step from the liveness flip onward rides
-;; `safe-call-hook!`, but
-;; step 2 — `notify-machine-destruction!` (the `:machines/teardown-on-frame-
-;; destroy!` hook call, its fallback `:rf.machine.lifecycle/destroyed` trace
-;; emits, and the trace-listener fan-out) — was UNGUARDED. A throwing
-;; non-machines hook consumer escaped `destroy-frame!`'s `try`: the finally
-;; cleared the in-flight marker and the throw propagated, but `:destroyed?` was
-;; never flipped and the record was never dissoc'd → the frame stayed LIVE +
-;; HALF-TORN-DOWN with `:on-destroy` already run. A subsequent `destroy-frame!`
-;; saw the still-live record and RE-RAN the whole recipe, re-firing `:on-destroy`.
-;; The fix runs step 2 through the SAME accumulate-into-`*teardown-hook-
-;; failures*` boundary the later steps use. (The shipped machines callee
-;; self-defends per-actor and trace listeners are isolated at the tooling
-;; fan-out, so the reachable trigger is a non-machines hook consumer — hence P3.)
+;; `safe-call-hook!`; the machine-teardown step — `notify-machine-destruction!`
+;; (the `:machines/teardown-on-frame-destroy!` hook call, its fallback
+;; `:rf.machine.lifecycle/destroyed` trace emits, and the trace-listener
+;; fan-out) — runs through the SAME accumulate-into-`*teardown-hook-failures*`
+;; boundary. Unguarded, a throwing non-machines hook consumer would escape
+;; `destroy-frame!`'s `try`: the finally would clear the in-flight marker and
+;; the throw propagate, but `:destroyed?` would never flip and the record never
+;; be dissoc'd → the frame would stay LIVE + HALF-TORN-DOWN with `:on-destroy`
+;; already run, and a subsequent `destroy-frame!` would see the still-live
+;; record and RE-RUN the whole recipe, re-firing `:on-destroy`. (The shipped
+;; machines callee self-defends per-actor and trace listeners are isolated at
+;; the tooling fan-out, so the reachable trigger is a non-machines hook
+;; consumer.)
 ;; ===========================================================================
 
 (deftest step2-teardown-throw-is-accumulated-frame-fully-torn-down
-  (testing "Per rf2-jt47s0: a throwing step-2 consumer
+  (testing "a throwing machine-teardown-step consumer
             (`:machines/teardown-on-frame-destroy!`) is ACCUMULATED into the
             best-effort teardown report — NOT escaped — the frame still fully
             tears down (record dissoc'd), and a second destroy is a clean no-op
@@ -487,62 +482,62 @@
                        (fn [{:keys [db]} _]
                          (swap! on-destroy-runs inc)
                          {:db db}))
-      (rf/make-frame {:id         :teardown/step2 :doc "step-2 consumer throws"
+      (rf/make-frame {:id         :teardown/step2 :doc "machine-teardown consumer throws"
                       :on-destroy [:teardown/count-on-destroy]})
       (with-hooks*
-        ;; A non-machines step-2 consumer that throws — the reachable P3 trigger.
+        ;; A non-machines machine-teardown consumer that throws — the reachable trigger.
         {:machines/teardown-on-frame-destroy! (throwing-hook :machines-teardown)}
         (fn []
           (let [thrown (try (rf/destroy-frame! :teardown/step2) nil
                             (catch #?(:clj Throwable :cljs :default) e e))]
             (is (nil? thrown)
-                "the step-2 throw did NOT escape destroy-frame! — the best-effort
-                 boundary caught it (pre-fix: the throw propagated out)"))))
-      ;; The frame fully tore down despite the step-2 throw.
+                "the machine-teardown throw did NOT escape destroy-frame! — the
+                 best-effort boundary caught it"))))
+      ;; The frame fully tore down despite the machine-teardown throw.
       (is (nil? (rf.frame/frame :teardown/step2))
           "the record is dissoc'd — fully torn down, NOT left LIVE + half-torn-
-           down (pre-fix: :destroyed? unflipped + record intact → non-nil)")
+           down (:destroyed? unflipped + record intact → non-nil)")
       (is (= 1 @on-destroy-runs)
           ":on-destroy ran exactly once during the completed teardown")
-      ;; The step-2 failure was accumulated into the ONE always-on report.
+      ;; The machine-teardown failure was accumulated into the ONE always-on report.
       (let [reps (filter #(= :rf.error/frame-teardown-failed (:error %)) @reports)]
         (is (= 1 (count reps))
-            "the step-2 failure flushed ONE always-on teardown report (pre-fix:
-             the throw escaped before it could be accumulated → no report)")
+            "the machine-teardown failure flushed ONE always-on teardown report
+             (an escaping throw would never be accumulated → no report)")
         (let [step2 (filter #(= :frame/notify-machine-destruction! (:hook %))
                             (:hook-failures (first reps)))]
           (is (= 1 (count step2))
-              "the report carries the step-2 recipe step's failure entry")
+              "the report carries the machine-teardown recipe step's failure entry")
           (is (= :safe-teardown-step! (:where (first step2)))
               "recorded via the direct-call teardown boundary")))
       ;; A second destroy is a clean no-op — the frame is already gone, so the
-      ;; recipe does not re-run and :on-destroy is NOT re-fired. (Wrapped so the
-      ;; pre-fix re-run's own step-2 throw surfaces as a FAILED assertion below,
-      ;; not an errored test.)
+      ;; recipe does not re-run and :on-destroy is NOT re-fired. (Wrapped so a
+      ;; re-run's own machine-teardown throw would surface as a FAILED assertion
+      ;; below, not an errored test.)
       (try (rf/destroy-frame! :teardown/step2)
            (catch #?(:clj Throwable :cljs :default) _ nil))
       (is (= 1 @on-destroy-runs)
           "a second destroy is a clean no-op — :on-destroy is NOT re-fired
-           (pre-fix: the still-live half-torn-down frame re-ran the recipe → 2)"))))
+           (a still-live half-torn-down frame would re-run the recipe → 2)"))))
 
 ;; ===========================================================================
-;; (g) Re-entrant / nested destroy accumulator isolation (rf2-chpdkr)
+;; (g) Re-entrant / nested destroy accumulator isolation
 ;; ---------------------------------------------------------------------------
 ;; `destroy-frame!` holds the per-destroy hook-failure accumulator in a fresh
 ;; `(atom [])` bound to the dynamic `*teardown-hook-failures*` PER CALL. Spec
-;; 002 re-entrancy (rf2-r1ciy) supports a nested `destroy-frame!` for a
+;; 002 re-entrancy supports a nested `destroy-frame!` for a
 ;; DIFFERENT id from inside an `:on-destroy` handler. The correctness-by-
 ;; construction claim is that each destroy gets its OWN accumulator (the
 ;; `binding` shadows), so a nested destroy's hook failures cannot leak into the
 ;; outer destroy's report and vice-versa, and each emits its own bounded report.
-;; This isolation invariant had NO test — a future refactor to a non-dynamic
-;; accumulator would silently break it. Pinned here.
+;; A refactor to a non-dynamic accumulator would silently break this
+;; isolation invariant. Pinned here.
 ;;
-;; Mechanism: `fire-on-destroy-event!` (teardown step 1) runs the user
-;; `:on-destroy` synchronously BEFORE the outer frame's own cleanup hooks
-;; (step *). So an `:on-destroy` that triggers a nested `destroy-frame!` of a
+;; Mechanism: `fire-on-destroy-event!` runs the user
+;; `:on-destroy` synchronously BEFORE the outer frame's own cleanup hooks.
+;; So an `:on-destroy` that triggers a nested `destroy-frame!` of a
 ;; DIFFERENT frame runs that inner teardown — incl. the inner finally-flush —
-;; fully nested inside the outer's step 1, while the outer's accumulator is
+;; fully nested inside the outer's `fire-on-destroy-event!`, while the outer's accumulator is
 ;; still empty. The `binding` shadow gives the inner destroy its own atom.
 ;;
 ;; Note: the cleanup hooks are late-bound by KEY (global), not per-frame — so
@@ -553,7 +548,7 @@
 ;; ===========================================================================
 
 (deftest nested-destroy-accumulators-are-isolated
-  (testing "Per rf2-chpdkr / Spec 002 re-entrancy (rf2-r1ciy) + rf2-ini4wr: a
+  (testing "Per Spec 002 re-entrancy + EP-0008: a
             frame A whose `:on-destroy` triggers a nested `destroy-frame!` of a
             DIFFERENT frame B, with throwing cleanup hooks installed for BOTH
             extents, yields TWO independent `:rf.error/frame-teardown-failed`
@@ -561,7 +556,7 @@
             cross-contamination, no double-count). The dynamic
             `*teardown-hook-failures*` binding shadow gives each destroy its own
             accumulator: the inner (B) destroy runs nested inside A's
-            `:on-destroy` (step 1) under a SHADOWED atom, so its failures do not
+            `:on-destroy` (`fire-on-destroy-event!`) under a SHADOWED atom, so its failures do not
             land in A's accumulator and A's later failures do not land in B's."
     (let [seen (atom [])]
       (rf.error-emit/register-error-listener! :test/recorder
@@ -569,7 +564,8 @@
       ;; B: the inner frame, destroyed nested from A's :on-destroy.
       (rf/make-frame {:id :teardown/inner-B :doc "inner frame, destroyed nested"})
       ;; A's :on-destroy event destroys B mid-teardown of A. B's full teardown
-      ;; (incl. its finally-flush report) completes nested inside A's step 1,
+      ;; (incl. its finally-flush report) completes nested inside A's
+      ;; `fire-on-destroy-event!`,
       ;; while A's own accumulator is still empty (A's own hooks run AFTER).
       (rf/reg-event :teardown/destroy-inner
                        (fn [{:keys [db]} _]
