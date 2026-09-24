@@ -432,10 +432,10 @@
 ;; is read, and only then — `!open`'s whole account in
 ;; `re-frame.fresco.test.mounted` (a census taken after a reset answers zero
 ;; whether the teardown released anything or not — the gate that cannot go
-;; red). Every row above takes its verdicts
-;; in an order an EARLY reset would also satisfy: no row plants a leak
-;; under one mount, takes a sibling's verdict first, and then requires the
-;; leaked mount's reading to still move. This row is that ordering.
+;; red). Every row above takes its verdicts in an order an EARLY reset would
+;; also satisfy: no row plants a leak under one mount, takes a sibling's
+;; verdict first, and then requires the leaked mount's reading to still
+;; move. This row is that ordering.
 ;;
 ;; ORDER IS THE ROW. B mounts first and takes its baseline; the leak is
 ;; planted inside B's window (W3's orphan, verbatim); A mounts AFTER the
