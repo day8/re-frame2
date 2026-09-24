@@ -1680,13 +1680,13 @@
                       ;; does not imply the no-op progressed.
                       blocked?     (contains? guard-blocked-edge-ids (:id e))
                       internal?    (boolean (:internal? e))
-                      ;; the EXTERNAL restart axis (`:reenter? true`). A
-                      ;; targeted transition is internal by default (XState v5
-                      ;; / Spec 005 §Self-transitions); `:reenter?` re-runs
-                      ;; the target's exit/entry + restarts its
-                      ;; `:after`/`:spawn`. Surfaced so a reentering
-                      ;; transition reads distinctly from its internal
-                      ;; default.
+                      ;; the explicit `:reenter? true` flag, which restarts
+                      ;; the DECLARING state (re-runs its exit/entry +
+                      ;; restarts its `:after`/`:spawn`) for a self or
+                      ;; proper-descendant target (Spec 005
+                      ;; §Self-transitions). Surfaced so a reentering
+                      ;; transition reads distinctly from the same
+                      ;; transition without the flag.
                       reenter?     (boolean (:reenter? e))
                       ;; A `:*` wildcard `:on` arm is a real transition
                       ;; but NOT a fireable event (Spec 005 §Wildcard).
