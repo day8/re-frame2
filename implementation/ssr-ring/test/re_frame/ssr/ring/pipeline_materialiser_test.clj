@@ -1,15 +1,14 @@
 (ns re-frame.ssr.ring.pipeline-materialiser-test
   "Unit coverage for the response materialiser + header-fold contracts
-  that the full-handler / Jetty e2e tests exercise only indirectly
-  (rf2-ynjts.14 testing-review).
+  that the full-handler / Jetty e2e tests exercise only indirectly.
 
   The end-to-end suites (`ring_test`, `ring_e2e_validator_test`,
   `ring_streaming_test`) prove the happy + error wire paths through the
   whole handler. They do NOT pin the small public materialiser fns in
-  isolation, so several documented branches were untested:
+  isolation; this namespace pins these documented branches directly:
 
     1. `ssr-response->ring-response` redirect-target resolution — the fn
-       reads the canonical `:location` key only (rf2-vngir pruned the
+       reads the canonical `:location` key only (there is no
        `(or location url to)` back-door). A redirect map keyed on `:location`
        emits the `Location` header; a map carrying ONLY a retired `:url` /
        `:to` spelling has no `:location`, so the materialiser treats it as a
@@ -20,7 +19,7 @@
        alt-host response, so it must NOT silently honour the retired keys.
        Pinned here directly.
 
-    2. `headers->ring-map+content-type-override` paths (rf2-nncni3) — the
+    2. `headers->ring-map+content-type-override` paths — the
        override-strips-existing path (a non-nil override replaces any-casing
        Content-Type) is covered by `ring_test/content-type-override-
        replaces-any-casing`. The complementary contracts here:
@@ -32,10 +31,10 @@
        the last being the load-bearing multi-valued-header round-trip
        (Set-Cookie / Vary / Link) the ns docstring promises.
 
-    3. `ssr-middleware` DEFAULT `:match?` — every middleware test to date
-       supplies an explicit `:match?`. The documented default (matches
-       every GET; non-GET falls through to the wrapped handler) had no
-       coverage, so a regression in the default predicate would pass.
+    3. `ssr-middleware` DEFAULT `:match?` — every other middleware test
+       supplies an explicit `:match?`, so without these rows a regression
+       in the documented default (matches every GET; non-GET falls
+       through to the wrapped handler) would pass.
 
   These are pure / synchronous contracts. No Jetty, no streaming, no
   network — deterministic by construction. The header-fold + materialiser
@@ -54,9 +53,9 @@
 ;; ===========================================================================
 ;; ssr-response->ring-response — redirect target resolution (:location only)
 ;;
-;; rf2-vngir: the canonical (and only) redirect target key is `:location`.
-;; The `(or location url to)` back-door was pruned along with the runtime
-;; synonyms (EP-0007 one-name-per-fact). The materialiser reads `:location`
+;; The canonical (and only) redirect target key is `:location` (EP-0007
+;; one-name-per-fact); there is no `(or location url to)` back-door and no
+;; runtime synonym. The materialiser reads `:location`
 ;; only; a redirect carrying ONLY a retired `:url` / `:to` spelling has no
 ;; target as far as the adapter is concerned (the no-target path fires). The
 ;; runtime is the loud gate (throws `:rf.error/redirect-retired-target-key`);
@@ -72,9 +71,9 @@
       (is (= "" (:body ring)) "redirect has no body"))))
 
 (deftest redirect-ignores-retired-url-spelling-no-location-header
-  (testing "rf2-vngir: a redirect map carrying ONLY the retired :url spelling
-            (NOT :location) is treated as target-less by the materialiser —
-            the canonical key was pruned, so no Location header is emitted.
+  (testing "a redirect map carrying ONLY the retired :url spelling
+            (NOT :location) is treated as target-less by the materialiser,
+            so no Location header is emitted.
             The runtime rejects :url loudly before this point; the adapter's
             last-line behaviour must NOT silently resolve the retired key."
     (let [resp {:redirect {:status 303 :url "/by-url"}}
@@ -84,7 +83,7 @@
           ":url is NOT resolved as the Location target — retired spelling"))))
 
 (deftest redirect-ignores-retired-to-spelling-no-location-header
-  (testing "rf2-vngir: a redirect map carrying ONLY the retired :to spelling
+  (testing "a redirect map carrying ONLY the retired :to spelling
             (NOT :location) likewise emits no Location header"
     (let [resp {:redirect {:status 307 :to "/by-to"}}
           ring (rf.ssr.ring.pipeline/ssr-response->ring-response resp nil)]
@@ -93,7 +92,7 @@
           ":to is NOT resolved as the Location target — retired spelling"))))
 
 (deftest redirect-location-only-resolution-ignores-retired-co-keys
-  (testing "rf2-vngir: when :location is present alongside retired :url / :to
+  (testing "when :location is present alongside retired :url / :to
             keys, ONLY :location is resolved (the retired keys are inert at
             the materialiser — :location is the canonical target)"
     (is (= "/loc"
@@ -105,22 +104,21 @@
         ":location is resolved; the co-present retired keys are ignored")))
 
 ;; ===========================================================================
-;; rf2-c1b1 — the redirect target REPLACES any existing Location, whatever its
+;; The redirect target REPLACES any existing Location, whatever its
 ;; casing.
 ;;
 ;; The materialiser folds application headers case-insensitively
 ;; (`merge-pair-into-header-map` collapses case variants under the FIRST-SEEN
-;; spelling) and then inserted the redirect target with a case-SENSITIVE
-;; `(assoc "Location" target)`. So an app that had already written a `location`
-;; / `LOCATION` header shipped BOTH spellings — two conflicting singleton
-;; headers under one logical name — and which one the browser followed was the
-;; HTTP adapter's or client's choice, possibly the stale one. An
-;; `Uppercase-first` spelling happened to be replaced by the `assoc`; every
-;; other spelling was not. `docs/ssr/response.md` promises case-insensitive
-;; header names, and Spec 011 §Redirect precedence gives the redirect the last
-;; word. Repair: strip every casing with the existing `strip-header` helper —
-;; the same rule `headers->ring-map+content-type-override` already applies to
-;; the `:content-type` override — before associating the canonical spelling.
+;; spelling), so inserting the redirect target with a case-SENSITIVE
+;; `(assoc "Location" target)` alone would, for an app that has already written
+;; a `location` / `LOCATION` header, ship BOTH spellings — two conflicting
+;; singleton headers under one logical name — leaving the HTTP adapter or
+;; client to pick one, possibly the stale one. `docs/ssr/response.md` promises
+;; case-insensitive header names, and Spec 011 §Redirect precedence gives the
+;; redirect the last word. So the materialiser strips every casing with the
+;; `strip-header` helper — the same rule `headers->ring-map+content-type-override`
+;; applies to the `:content-type` override — before associating the canonical
+;; spelling.
 ;; ===========================================================================
 
 (deftest redirect-replaces-a-lowercase-location-header
@@ -139,7 +137,7 @@
           "the canonical spelling is what the redirect emits"))))
 
 (deftest redirect-replaces-every-location-casing
-  (testing "rf2-c1b1: `location`, `LOCATION`, `Location`, `LoCaTiOn` — each is
+  (testing "`location`, `LOCATION`, `Location`, `LoCaTiOn` — each is
             the same logical header, so each is replaced by the target"
     (doseq [spelling ["location" "LOCATION" "Location" "LoCaTiOn"]]
       (let [resp {:redirect {:status 303 :location "/new"}
@@ -157,7 +155,7 @@
                  (pr-str spelling) ")"))))))
 
 (deftest redirect-replaces-a-multi-valued-location-fold
-  (testing "rf2-c1b1: repeated Location pairs fold to a VECTOR under one key;
+  (testing "repeated Location pairs fold to a VECTOR under one key;
             the redirect must clear the whole entry, not conj onto it"
     (let [resp {:redirect {:status 302 :location "/new"}
                 :headers  [["location" "/old-a"] ["Location" "/old-b"]]}
@@ -171,7 +169,7 @@
           "neither stale value survives"))))
 
 (deftest redirect-location-replacement-preserves-unrelated-headers
-  (testing "rf2-c1b1 VACUITY: the strip is scoped to Location — unrelated
+  (testing "VACUITY: the strip is scoped to Location — unrelated
             headers, cookies, status and the empty body are untouched"
     (let [resp {:redirect {:status 302 :location "/new"}
                 :headers  [["location" "/old"]
@@ -191,7 +189,7 @@
       (is (str/includes? (str (get headers "Set-Cookie")) "sid=s1")))))
 
 (deftest redirect-no-target-leaves-an-existing-location-alone
-  (testing "rf2-c1b1 VACUITY: the strip runs only where a target replaces it.
+  (testing "VACUITY: the strip runs only where a target replaces it.
             A target-LESS redirect adds nothing, so it must remove nothing —
             stripping there would delete an app-set header and leave the 3xx
             with no Location at all, which is strictly worse than the
@@ -204,7 +202,7 @@
           "the app's own header survives a target-less redirect"))))
 
 (deftest redirect-through-the-public-handler-yields-one-location
-  (testing "rf2-c1b1: the whole documented fx sequence — an ordinary event
+  (testing "the whole documented fx sequence — an ordinary event
             writing `location` and then redirecting — reaches the wire as ONE
             logical Location header carrying the NEW target"
     (rf/reg-event :test/stale-location-then-redirect
@@ -230,7 +228,7 @@
           "the stale target does not reach the wire under any spelling"))))
 
 (deftest redirect-default-status-302-when-absent
-  (testing "rf2-ynjts.14: a redirect map with a target but no :status
+  (testing "a redirect map with a target but no :status
             defaults to 302 (the materialiser's `(or redirect-status
             status 302)` fallback)"
     (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
@@ -240,7 +238,7 @@
       (is (= "/x" (get (:headers ring) "Location"))))))
 
 (deftest redirect-no-target-omits-location-header
-  (testing "rf2-ynjts.14: a redirect with no :location / :url / :to emits
+  (testing "a redirect with no :location / :url / :to emits
             the status but NO Location header (the malformed-redirect
             tolerance — the warning-trace branch is pinned end-to-end by
             ring_test/handler-redirect-no-target-warns; here we pin the
@@ -257,7 +255,7 @@
 ;; ===========================================================================
 
 (deftest body-response-defaults-status-200
-  (testing "rf2-ynjts.14: a non-redirect response with no :status defaults
+  (testing "a non-redirect response with no :status defaults
             to 200 and carries the supplied body verbatim"
     (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
                  {:headers [["Content-Type" "text/html"]]}
@@ -266,7 +264,7 @@
       (is (= "<p>hi</p>" (:body ring)) "body rides through verbatim"))))
 
 (deftest body-response-nil-body-becomes-empty-string
-  (testing "rf2-ynjts.14: a nil body materialises to the empty string, not
+  (testing "a nil body materialises to the empty string, not
             nil (Ring bodies must be writable — `(or body \"\")`)"
     (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
                  {:status 204 :headers []} nil)]
@@ -274,7 +272,7 @@
       (is (= "" (:body ring)) "nil body → empty string"))))
 
 ;; ===========================================================================
-;; HOST-SERIALISABILITY FAIL-CLOSED (rf2-v0qbng)
+;; HOST-SERIALISABILITY FAIL-CLOSED
 ;;
 ;; The `:rf.server/*` fx-args :schema boundary (set-status-args = :int,
 ;; set-header-args :value :string, …) SOFT-PASSES when the optional schemas
@@ -291,7 +289,7 @@
 ;; ===========================================================================
 
 (deftest non-integer-status-fails-closed-to-500
-  (testing "rf2-v0qbng: a string :status (what a soft-passed
+  (testing "a string :status (what a soft-passed
             `:rf.server/set-status \"404\"` leaves on the accumulator) does
             NOT reach the wire as a non-int — the materialiser fails closed
             to a valid 500 Ring response"
@@ -301,17 +299,17 @@
       (is (integer? (:status ring))
           "the Ring :status is an integer regardless of accumulator garbage")
       (is (= 500 (:status ring)) "a non-int status fails closed to 500")))
-  (testing "rf2-v0qbng: a non-integer redirect :status also fails closed"
+  (testing "a non-integer redirect :status also fails closed"
     (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
                  {:redirect {:status "302" :location "/ok"}} nil)]
       (is (integer? (:status ring)) "redirect :status is an integer")
       (is (= 500 (:status ring)) "non-int redirect status → 500")))
-  (testing "rf2-v0qbng: a float status (200.0) is not a valid Ring int → 500"
+  (testing "a float status (200.0) is not a valid Ring int → 500"
     (is (= 500 (:status (rf.ssr.ring.pipeline/ssr-response->ring-response
                           {:status 200.0 :headers []} "x"))))))
 
 (deftest integer-status-passes-through-unchanged
-  (testing "rf2-v0qbng: a genuine integer status is untouched by the
+  (testing "a genuine integer status is untouched by the
             fail-closed guard (no false-positive coercion)"
     (is (= 201 (:status (rf.ssr.ring.pipeline/ssr-response->ring-response
                           {:status 201 :headers []} "x"))))
@@ -325,13 +323,13 @@
         "absent redirect status still defaults to 302")))
 
 ;; ===========================================================================
-;; fail-closed-status — the :warning trace on a non-integer status (rf2-njkw94)
+;; fail-closed-status — the :warning trace on a non-integer status
 ;;
-;; `non-integer-status-fails-closed-to-500` above pins the 500 OUTCOME, but the
-;; `:rf.ssr/ssr-non-integer-status` :warning trace the fail-closed arm emits
-;; (pipeline.clj:70) was never asserted — an inconsistency in an otherwise
-;; trace-pinned slice (the sibling `ssr-non-string-header-value` warning HAS a
-;; trace test above; `redirect-no-target` is pinned end-to-end). Mirror the
+;; `non-integer-status-fails-closed-to-500` above pins the 500 OUTCOME; these
+;; rows pin the `:rf.ssr/ssr-non-integer-status` :warning trace the fail-closed
+;; arm emits (`report-non-integer-status!` in pipeline.clj), as the sibling
+;; `ssr-non-string-header-value` warning is pinned below and
+;; `redirect-no-target` end-to-end. They mirror the
 ;; `collect-non-string-header-warnings` listener pattern so the operator-facing
 ;; diagnostic is contract-pinned, not merely emitted.
 ;; ===========================================================================
@@ -351,7 +349,7 @@
     @traces))
 
 (deftest non-integer-status-emits-exactly-one-fail-closed-warning
-  (testing "rf2-njkw94: a non-integer :status reaching the materialiser emits
+  (testing "a non-integer :status reaching the materialiser emits
             exactly one :warning trace naming the offending value-type + the
             fail-closed-to-500 recovery; the response still fails closed to 500"
     (let [warnings (collect-non-integer-status-warnings
@@ -380,13 +378,12 @@
             "the warning carries the fail-closed recovery disposition")))))
 
 (deftest redirect-arm-emits-exactly-one-fail-closed-warning
-  (testing "rf2-gblft: the DEV-axis half of the double-emit fix. A target-less
-            redirect carrying a non-integer `:status` used to call
-            `fail-closed-status` twice — once to fill the no-target warning's
-            `:status` payload, once to build the response map — so one rewrite
-            emitted TWO `:rf.ssr/ssr-non-integer-status` warnings (measured). The
-            wire status is now resolved once and shared by both, and the
-            no-target warning still reports the fail-closed value it landed on.
+  (testing "the DEV-axis half of one-rewrite-one-signal. A target-less
+            redirect carrying a non-integer `:status` needs the wire status
+            twice — for the no-target warning's `:status` payload and for the
+            response map — so it is resolved once and shared by both: one
+            rewrite emits ONE `:rf.ssr/ssr-non-integer-status` warning, and the
+            no-target warning reports the fail-closed value it landed on.
             The always-on half is
             `status-rewrite-always-on-test/one-rewrite-fans-exactly-one-record`."
     (let [warnings (collect-non-integer-status-warnings
@@ -399,7 +396,7 @@
           "ONE rewrite emits ONE warning, on the redirect arm too"))))
 
 (deftest integer-status-emits-no-fail-closed-warning
-  (testing "rf2-njkw94: a genuine integer status (the contract-compliant path)
+  (testing "a genuine integer status (the contract-compliant path)
             emits NO ssr-non-integer-status warning — the trace is a
             defect-only diagnostic, not a per-request emission"
     (let [warnings (collect-non-integer-status-warnings
@@ -412,7 +409,7 @@
           "no warning for a valid integer status or an absent (defaulted) one"))))
 
 (deftest non-string-header-value-coerced-in-materialiser
-  (testing "rf2-v0qbng: a non-string header value on the accumulator (what a
+  (testing "a non-string header value on the accumulator (what a
             soft-passed `:rf.server/set-header {:name \"X-Count\" :value 5}`
             leaves) is coerced to a string in the emitted Ring header map —
             the value is never a raw scalar on the wire"
@@ -431,7 +428,7 @@
           "EVERY emitted header value is a string or vector-of-strings"))))
 
 (deftest non-string-redirect-location-coerced-to-string
-  (testing "rf2-v0qbng: a non-string redirect :location (the fx is
+  (testing "a non-string redirect :location (the fx is
             caller-trusted and `(str loc)` passes its shape gate, so a raw
             scalar can reach the accumulator) is coerced to a string in the
             emitted Location header"
@@ -444,13 +441,13 @@
 
 ;; ===========================================================================
 ;; headers->ring-map+content-type-override — override-when-present +
-;; nil-content-type passthrough (rf2-nncni3). The override-strips-existing
+;; nil-content-type passthrough. The override-strips-existing
 ;; path across every casing is covered by
 ;; ring_test/content-type-override-replaces-any-casing.
 ;; ===========================================================================
 
 (deftest content-type-override-sets-when-pairs-carry-none
-  (testing "rf2-nncni3: pairs that declare no Content-Type get the override
+  (testing "pairs that declare no Content-Type get the override
             value set (with no existing Content-Type, override = assoc)"
     (let [result (rf.ssr.ring.headers/headers->ring-map+content-type-override
                    [["X-Custom" "v"]]
@@ -460,7 +457,7 @@
       (is (= "v" (get result "X-Custom")) "other pairs survive the fold"))))
 
 (deftest content-type-nil-override-leaves-pairs-untouched
-  (testing "rf2-nncni3: a nil `content-type` arg is NO override — the folded
+  (testing "a nil `content-type` arg is NO override — the folded
             map flows verbatim, so the runtime seed / app-set Content-Type
             stays in control (the redirect path passes nil)"
     (let [result (rf.ssr.ring.headers/headers->ring-map+content-type-override
@@ -477,7 +474,7 @@
             "the accumulator's own Content-Type survives an absent override")))))
 
 (deftest empty-pairs-with-nil-override-yields-empty-map
-  (testing "rf2-nncni3: empty pairs + nil override → empty header map (no
+  (testing "empty pairs + nil override → empty header map (no
             spurious keys)"
     (is (= {} (rf.ssr.ring.headers/headers->ring-map+content-type-override [] nil)))))
 
@@ -492,12 +489,12 @@
 ;; ===========================================================================
 
 (deftest single-value-header-stays-scalar
-  (testing "rf2-ynjts.14: a name seen once stays a scalar string (nil arm)"
+  (testing "a name seen once stays a scalar string (nil arm)"
     (is (= {"Vary" "Accept"}
            (rf.ssr.ring.headers/merge-pair-into-header-map {} ["Vary" "Accept"])))))
 
 (deftest second-value-promotes-to-vector
-  (testing "rf2-ynjts.14: a name seen twice promotes scalar → 2-vector
+  (testing "a name seen twice promotes scalar → 2-vector
             (string arm)"
     (is (= {"Vary" ["Accept" "Cookie"]}
            (-> {}
@@ -505,7 +502,7 @@
                (rf.ssr.ring.headers/merge-pair-into-header-map ["Vary" "Cookie"]))))))
 
 (deftest third-value-conjs-onto-vector-preserving-order
-  (testing "rf2-ynjts.14: a name seen three+ times conjs onto the vector,
+  (testing "a name seen three+ times conjs onto the vector,
             preserving per-name insertion order (vector arm — the
             load-bearing multi-valued-header round-trip)"
     (is (= {"Link" ["a" "b" "c"]}
@@ -515,13 +512,13 @@
                (rf.ssr.ring.headers/merge-pair-into-header-map ["Link" "c"]))))))
 
 (deftest repeated-non-string-value-coerced-and-does-not-wipe-header-map
-  (testing "rf2-v0qbng (was rf2-5t8mr.14): a repeated header name whose value
+  (testing "a repeated header name whose value
             is a non-string scalar (the runtime's set/append-header fxs gate
             CR/LF/NUL but do NOT coerce to string, and the fx-args :schema
             soft-passes off the optional schemas classpath) must (a) collapse
             into a 2-vector via the :else arm — NOT fall through the cond and
-            return nil, which silently wiped the ENTIRE accumulated header
-            map — AND (b) be coerced to its string form so the Ring header
+            return nil, which would silently wipe the ENTIRE accumulated
+            header map — AND (b) be coerced to its string form so the Ring header
             value is a vector OF STRINGS, never of raw scalars"
     (is (= {"X-Count" ["5" "6"]}
            (-> {}
@@ -543,20 +540,20 @@
           "the override Content-Type is set — the map was never nulled"))))
 
 ;; ===========================================================================
-;; merge-pair-into-header-map — case-insensitive collapse (rf2-3fc89f.16)
+;; merge-pair-into-header-map — case-insensitive collapse
 ;;
 ;; HTTP header field names are case-insensitive (RFC 7230 §3.2), and the
-;; ns docstring already promises a case-insensitive name match. Pairs whose
+;; ns docstring promises a case-insensitive name match. Pairs whose
 ;; names differ only by ASCII case are ONE logical header: they collapse
 ;; under the first-seen spelling with values in declaration order, exactly
 ;; like same-case repeats. `:rf.server/append-header` preserves the caller's
 ;; spelling, so mixed-case pairs are reachable through the public effect.
-;; Before this fix the fold used a case-SENSITIVE `(get m k)` and emitted a
-;; separate map entry per casing — a non-deterministic Ring header model.
+;; A case-SENSITIVE `(get m k)` fold would emit a separate map entry per
+;; casing — a non-deterministic Ring header model.
 ;; ===========================================================================
 
 (deftest mixed-case-names-collapse-into-one-first-seen-key
-  (testing "rf2-3fc89f.16: pairs differing only by ASCII case are ONE logical
+  (testing "pairs differing only by ASCII case are ONE logical
             header — they collapse under the first-seen spelling with values
             in declaration order (the case-insensitive fold)"
     (is (= {"Vary" ["Accept" "Origin"]}
@@ -572,7 +569,7 @@
         "three casings collapse to one key; values stay in declaration order")))
 
 (deftest mixed-case-fold-retains-first-seen-spelling-not-latest
-  (testing "rf2-3fc89f.16: the emitted key is the FIRST-seen spelling; a
+  (testing "the emitted key is the FIRST-seen spelling; a
             later case variant does NOT rename the key"
     (is (= ["Origin" "Accept"]
            (get (-> {}
@@ -582,7 +579,7 @@
         "first-seen lower-case `vary` is the stable emitted key")))
 
 (deftest mixed-case-content-type-collapses-under-nil-override
-  (testing "rf2-3fc89f.16 (accept #2): mixed-case Content-Type with a nil
+  (testing "mixed-case Content-Type with a nil
             handler override collapses to exactly one logical key carrying
             both values in order (vector semantics follow append-header)"
     (let [result (rf.ssr.ring.headers/headers->ring-map+content-type-override
@@ -597,7 +594,7 @@
           "both values survive in declaration order under the first-seen key"))))
 
 (deftest mixed-case-content-type-with-override-strips-every-casing
-  (testing "rf2-3fc89f.16 (accept #2): a non-nil override still strips every
+  (testing "a non-nil override still strips every
             prior spelling and emits one canonical `Content-Type` scalar"
     (let [result (rf.ssr.ring.headers/headers->ring-map+content-type-override
                    [["content-type" "text/html"]
@@ -611,7 +608,7 @@
           "the override value wins — no casing survivor, no vector"))))
 
 (deftest mixed-case-set-cookie-append-collapses-under-existing-key
-  (testing "rf2-3fc89f.16 (accept #3): structured cookies appended to a
+  (testing "structured cookies appended to a
             pre-existing differently-cased Set-Cookie entry yield ONE logical
             key preserving every value in order"
     (let [result (rf.ssr.ring.headers/append-set-cookies
@@ -630,8 +627,9 @@
       (is (some #(str/starts-with? % "theme=dark") sc)))))
 
 (deftest same-case-header-fold-behaviour-unchanged
-  (testing "rf2-3fc89f.16: the case-insensitive fold leaves same-case
-            singleton/scalar/vector behaviour exactly as before"
+  (testing "the case-insensitive fold keeps same-case
+            singleton/scalar/vector behaviour: a singleton is a scalar,
+            repeats promote to an ordered vector"
     (is (= {"Vary" "Accept"}
            (rf.ssr.ring.headers/merge-pair-into-header-map {} ["Vary" "Accept"]))
         "a singleton stays a scalar")
@@ -644,7 +642,7 @@
 ;; ===========================================================================
 ;; merge-pair-into-header-map — dev-gated warning on a non-string value
 ;;
-;; rf2-b0jlr: a non-string header value reaching the fold is host-dependent
+;; A non-string header value reaching the fold is host-dependent
 ;; and almost certainly a caller bug (Ring header values must be strings).
 ;; The fold still tolerates it (the :else arm), but it surfaces a dev-gated
 ;; :warning trace naming the offending key + value-type rather than silently
@@ -666,7 +664,7 @@
     @traces))
 
 (deftest non-string-header-value-emits-exactly-one-dev-warning
-  (testing "rf2-b0jlr + rf2-v0qbng: a non-string header value reaching the
+  (testing "a non-string header value reaching the
             fold emits exactly one :warning trace naming the offending key +
             value-type; the value folds in COERCED to its string form (the
             fail-closed coercion — the wire value is always a string)"
@@ -686,7 +684,7 @@
             "the warning names the value's concrete type")))))
 
 (deftest string-header-value-emits-no-warning
-  (testing "rf2-b0jlr: a string header value (the contract-compliant common
+  (testing "a string header value (the contract-compliant common
             path) emits NO warning"
     (let [warnings (collect-non-string-header-warnings
                      (fn []
@@ -698,7 +696,7 @@
           "no non-string-header-value warning for string-valued headers"))))
 
 (deftest header-fold-collapses-repeated-names-through-full-fold
-  (testing "rf2-ynjts.14: the full fold collapses repeated names into a
+  (testing "the full fold collapses repeated names into a
             vector AND keeps singletons scalar in one pass — the contract
             the materialiser relies on for multi-valued headers"
     (let [result (rf.ssr.ring.headers/headers->ring-map+content-type-override
@@ -716,7 +714,7 @@
 ;; ===========================================================================
 
 (deftest append-set-cookies-folds-multiple-into-vector
-  (testing "rf2-ynjts.14: two structured cookies fold into a 2-vector under
+  (testing "two structured cookies fold into a 2-vector under
             Set-Cookie, each serialised per RFC 6265"
     (let [result (rf.ssr.ring.headers/append-set-cookies
                    {}
@@ -729,14 +727,14 @@
       (is (some #(str/starts-with? % "theme=dark") sc)))))
 
 (deftest append-set-cookies-empty-is-noop
-  (testing "rf2-ynjts.14: no cookies → header map unchanged"
+  (testing "no cookies → header map unchanged"
     (is (= {"X" "y"} (rf.ssr.ring.headers/append-set-cookies {"X" "y"} [])))))
 
 ;; ===========================================================================
 ;; ssr-middleware — DEFAULT :match? (matches every GET; non-GET falls through)
 ;;
-;; Every prior middleware test supplies an explicit :match?. The documented
-;; default predicate had no coverage.
+;; Every other middleware test supplies an explicit :match?, so these rows
+;; are the documented default predicate's coverage.
 ;; ===========================================================================
 
 (defn- register-blank-app! []
@@ -744,7 +742,7 @@
   (rf/reg-view* :pages/mw-blank (fn [] [:div "ssr body"])))
 
 (deftest middleware-default-match-renders-get
-  (testing "rf2-ynjts.14: with NO :match? supplied, the default predicate
+  (testing "with NO :match? supplied, the default predicate
             matches every GET — SSR renders, the wrapped handler is not
             called"
     (register-blank-app!)
@@ -762,7 +760,7 @@
       (is (false? @wrapped-called) "the wrapped handler was NOT called for a GET"))))
 
 (deftest middleware-default-match-falls-through-on-non-get
-  (testing "rf2-ynjts.14: with NO :match? supplied, a non-GET request does
+  (testing "with NO :match? supplied, a non-GET request does
             NOT match the default predicate and falls through to the
             wrapped handler"
     (register-blank-app!)
