@@ -214,7 +214,7 @@ The snapshot's location in `runtime-db` is `[:rf.runtime/machines :snapshots <id
 | `:on` | per-state and top-level | event-driven transition map |
 | `:on` keys | exact event keyword, `:ns/*` namespace wildcard, or `:*` total wildcard | resolved most-specific-first: exact > `:ns/*` > `:*` (see [§Wildcard transitions](#wildcard-transitions)) |
 | `:entry`, `:exit` | per-state | one fn or one keyword reference into the machine's `:actions` map |
-| `:spawn` | per-state | declarative spawn-on-entry / destroy-on-exit child actor — sugar that desugars at registration time per [§Declarative `:spawn`](#declarative-spawn) |
+| `:spawn` | per-state | declarative spawn-on-entry / destroy-on-exit child actor — sugar the transition reducer lowers onto the spawn / destroy fx per [§Declarative `:spawn`](#declarative-spawn) |
 | `:spawn-all` | per-state | declarative **spawn-and-join** of N parallel child actors (sugar over N `:spawn`s plus a join condition) — see [§Spawn-and-join via `:spawn-all`](#spawn-and-join-via-spawn-all) |
 | `:type :choice` + `:choice` | per-state | a **transient / choice** state: a routing node that resolves immediately on entry to the first guard-passing candidate — sugar over `:always`, see [§`:type :choice` (transient / choice states)](#type-choice-transient--choice-states) |
 | `:internal-events` | top-level | optional — a **set** of keyword event-ids the machine raises + handles privately. An external dispatch of one is refused at the machine dispatch boundary; an internal `:raise` of it is handled normally — see [§Public / private `:internal-events`](#public--private-internal-events) |
@@ -255,7 +255,7 @@ A state node MUST NOT declare both `:spawn` and `:spawn-all` — they are mutual
 
 `:entry` and `:exit` are **single fns or single keyword references into the machine's `:actions` map** — never vectors. To run multiple actions on entry, write a fn that calls them in order (or name a compound entry in the machine's `:actions` map; the named id is richer for tooling). `make-machine-handler` rejects any other value in an `:entry`, `:exit` or transition `:action` slot — a vector, an XState `{:type …}` object — with `:rf.error/machine-bad-action-form`, and a `:guard` that is not one fn or one keyword (a vector, an `{:and …}` combinator, an `{:id … :params …}` map) with `:rf.error/machine-bad-guard-form`.
 
-`:spawn` is **declarative sugar** that `make-machine-handler` desugars into entry/exit `:rf.machine/spawn` / `:rf.machine/destroy` fx at registration time; per-state at most one `:spawn`, and its value is one spawn-spec map — a vector of specs (XState's multi-`invoke` spelling) is rejected with `:rf.error/machine-spawn-bad-shape`, because N children is `:spawn-all`. See [§Declarative `:spawn`](#declarative-spawn) for the spec-spec keys, desugaring rules, composition with explicit `:entry` / `:exit`, and the deliberate omissions vs xstate.
+`:spawn` is **declarative sugar** that the transition reducer lowers into `:rf.machine/spawn` / `:rf.machine/destroy` fx as transitions enter and exit the state; per-state at most one `:spawn`, and its value is one spawn-spec map — a vector of specs (XState's multi-`invoke` spelling) is rejected with `:rf.error/machine-spawn-bad-shape`, because N children is `:spawn-all`. See [§Declarative `:spawn`](#declarative-spawn) for the spec-spec keys, desugaring rules, composition with explicit `:entry` / `:exit`, and the deliberate omissions vs xstate.
 
 ### Transitions
 
@@ -2417,7 +2417,7 @@ A state may have multiple in-flight transition triggers concurrently:
 1. The first trigger to dequeue at the parent's handler (timer expiry, user dispatch, child dispatch, `:always` microstep) drives the transition.
 2. The transition's exit cascade runs (per [§Entry/exit cascading along the LCA](#entryexit-cascading-along-the-lca)).
 3. As part of the exit cascade, the runtime advances the exited node's per-path `:rf/after-epoch` entry — every other in-flight `:after` timer from the just-exited state goes stale on its eventual firing.
-4. Any `:spawn`-spawned child is destroyed via `:rf.machine/destroy` (the desugared `:exit` action). Per the [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts) contract, in-flight `:rf.http/managed` requests inside the destroyed child cascade to abort — `:after` firing is one trigger of the same cancellation cascade as a parent-destroys-child shutdown.
+4. Any `:spawn`-spawned child is destroyed via the `:rf.machine/destroy` fx the reducer emits for the exited state. Per the [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts) contract, in-flight `:rf.http/managed` requests inside the destroyed child cascade to abort — `:after` firing is one trigger of the same cancellation cascade as a parent-destroys-child shutdown.
 5. User-dispatched events queued for the just-exited state but not yet drained are processed by the now-current state's `:on` map (which may handle them, route to `:*` wildcard, or — when no level matches — resolve as a benign `:rf.machine.event/unhandled-no-op`).
 
 The cancellation cascade is **uniform across triggers** — the runtime does not distinguish "the timer fired" from "the user dispatched" from "the child completed" at the cascade level; each is just an event at the parent's handler boundary that resolves to a transition out of the state. The `:rf.machine.timer/stale-after` traces ([§Trace events](#trace-events)) are how observers see "this `:after` was racing and lost."
@@ -2659,7 +2659,7 @@ There is no `:timeout-ms` slot on `:spawn` / `:spawn-all` (`:rf.error/spawn-time
 
 If machines are event handlers and actors are machines, then **a spawned actor is addressable as an event handler whose id is the actor's address** — but, per [§Liveness is derived from runtime-db](#liveness-is-derived-from-runtime-db), that handler is NOT a per-instance registrar entry. It is *resolved on demand* from the actor's snapshot. The mailbox / addressing semantics fall out of `dispatch` — no new primitive.
 
-> **Teardown is explicit in v1.** Every spawned actor ends its life at a named `[:rf.machine/destroy <actor-id>]` site — there is no implicit ownership cascade. Auto-cleanup via an opt-in `:owned-by` relation is a v1.1+ direction; per [§Resolved decisions §Auto-cleanup of orphaned actors](#auto-cleanup-of-orphaned-actors--explicit-rfmachinedestroy-for-v1-resolved). The one composed-with cascade is the `:rf.http/managed`-abort cascade per [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts), which fires off the explicit `:rf.machine/destroy`. **One narrow qualification:** a `:rf.machine/spawn` arriving at a `:fixed-actor-id` that a LIVE actor occupies destroys that occupant through the ordinary destroy path before installing the replacement (per [§Spec-spec keys](#spec-spec-keys)). That is still an explicit teardown at a named address — the author named it by spawning there — and it reaps NOTHING beyond the occupant itself: the occupant's own spawned children survive it exactly as they survive an explicit `[:rf.machine/destroy <actor-id>]`.
+> **Teardown is explicit in v1.** Every spawned actor ends its life at a named `[:rf.machine/destroy <actor-id>]` site, or with the state that tracks it — there is no implicit ownership cascade beyond the children a `:spawn` / `:spawn-all` slot already tracks. A declarative child's lifetime is its parent's occupancy of the spawning state, so it is destroyed when the parent leaves that state **or is itself destroyed**, by whatever cause (per [§Declarative `:spawn`](#declarative-spawn)). A hand-emitted actor is tracked by no slot: it outlives the actor that spawned it until a destroy names it. Auto-cleanup of such untracked actors via an opt-in `:owned-by` relation is a v1.1+ direction; per [§Resolved decisions §Auto-cleanup of orphaned actors](#auto-cleanup-of-orphaned-actors--explicit-rfmachinedestroy-for-v1-resolved). Beside the tracked-children reap, the one composed-with cascade is the `:rf.http/managed`-abort cascade per [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts), which fires off the explicit `:rf.machine/destroy`. **One narrow qualification:** a `:rf.machine/spawn` arriving at a `:fixed-actor-id` that a LIVE actor occupies destroys that occupant through the ordinary destroy path before installing the replacement (per [§Spec-spec keys](#spec-spec-keys)). That is still an explicit teardown at a named address — the author named it by spawning there — and it ends exactly what an explicit `[:rf.machine/destroy <actor-id>]` ends: the occupant and the children its `:spawn` / `:spawn-all` slots track, never an actor it hand-emitted.
 
 <a id="liveness-is-derived-from-app-db"></a>
 
@@ -2703,7 +2703,7 @@ The child-facing kick-off:
 
 For a parent state with `:spawn {:machine-id :child …}` (or for a hand-emitted `:rf.machine/spawn` from an action), the runtime fires the following steps in order. Steps 1–4 happen inside the **parent's** drain; steps 5–8 happen inside the **child's** drain (a separate event-handler boundary).
 
-1. **Parent enters the `:spawn`-bearing state.** The transition's entry cascade reaches the state-node; the desugared `:rf.machine.spawn/spawn-<state>` action (per [§Desugaring rules](#desugaring-rules)) is appended to the cascade's action queue.
+1. **Parent enters the `:spawn`-bearing state.** The transition's entry cascade reaches the state-node, and after the transition's action fx the reducer lowers its `:spawn` (per [§Desugaring rules](#desugaring-rules)).
 2. **Spawned id is allocated and recorded.** The pure spawn-id allocator picks the next `<id-prefix>#<n>` against `:rf/spawn-counter` at the parent's snapshot root (a declarative single `:spawn` also bumps its attempt token at `[:rf/spawn-attempts <invoke-id>]`), then writes the spawn-registry slot `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` and binds the same id into the parent's own `:data` under `[:rf/spawned <invoke-id>]` (per [§Recording the spawned id user-side](#recording-the-spawned-id-user-side)).
 3. **`:rf.machine/spawn` fx is emitted** into the parent transition's `:fx` vector with the allocated spawned-id, the resolved child `:data`, and (for declarative `:spawn`) the stamped `:rf/parent-id` / `:rf/invoke-id` / `:rf/invoke-attempt` keys.
 4. **Parent's drain commits.** The parent's post-action snapshot is written to `[:rf.runtime/machines :snapshots <parent-id>]` and the `:fx` vector drains through the fx pipeline. Up to this point the child does NOT exist.
@@ -2919,8 +2919,8 @@ The canonical surface is the `[:rf.machine/spawn ...]` fx — used inside an eve
   :app/destroy-request-protocol
   (fn [_ [_ actor-id]]
     {:fx [[:rf.machine/destroy actor-id]]}))
-;; Internally: run :exit action, dissoc the snapshot at [:rf.runtime/machines :snapshots actor-id],
-;; clear-event actor-id. (No per-machine sub to clear — reads go through the
+;; Internally: run :exit action, destroy the children its :spawn / :spawn-all slots track,
+;; dissoc the snapshot at [:rf.runtime/machines :snapshots actor-id], clear-event actor-id. (No per-machine sub to clear — reads go through the
 ;; framework-registered :rf/machine sub, parameterised on actor-id.)
 ```
 
@@ -2980,9 +2980,9 @@ To record the ids in the parent's `:data`, use [`:rf.machine/update-snapshot`](#
 
 ## Declarative `:spawn`
 
-`:spawn` on a state node is **declarative sugar** for "spawn this child actor on entry; destroy it on exit." The child's lifetime is bound to the state's lifetime: while the machine is in this state, the child runs; when the machine leaves the state (by any transition, including a parent-level cascade), the child is destroyed.
+`:spawn` on a state node is **declarative sugar** for "spawn this child actor on entry; destroy it on exit." The child's lifetime is bound to the state's lifetime: while the machine is in this state, the child runs; when the machine leaves the state (by any transition, including a parent-level cascade) or is itself destroyed, the child is destroyed.
 
-`:spawn` is **registration-time sugar.** `make-machine-handler` walks the spec at construction time and rewrites every `:spawn` slot into entry/exit actions emitting `:rf.machine/spawn` and `:rf.machine/destroy` fx. The runtime sees only the desugared form — no new mechanics, no new lifecycle event, no new error category.
+`:spawn` is **sugar over the spawn / destroy fx.** The transition reducer emits a `:rf.machine/spawn` fx when a transition enters the `:spawn`-bearing state and a `:rf.machine/destroy` fx when one exits it, and the machine's own destroy ends the child through the same tracked-destroy path (per [§Desugaring rules](#desugaring-rules)). The spec keeps the literal `:spawn` map — no new mechanics, no new lifecycle event, no new error category.
 
 ### The pattern
 
@@ -3057,11 +3057,14 @@ names an address they have already named has asked for the actor at that address
 to become the new one, and honouring that request means the old one is finished
 with. Two limits of the rule are deliberate:
 
-- **The occupant's own descendants are NOT reaped.** They are ordinary actors
-  at their own addresses and outlive their spawner exactly as they outlive an
-  explicit `[:rf.machine/destroy <actor-id>]` — per the *Teardown is explicit in
-  v1* rule under [§Spawning — dynamic actors](#spawning--dynamic-actors). The
-  occupant's `:exit` is where an author tears down what it owns.
+- **The occupant's tracked children end with it; its hand-emitted actors do
+  not.** The replacement runs the ordinary destroy, which ends the children the
+  occupant's `:spawn` / `:spawn-all` slots track exactly as an explicit
+  `[:rf.machine/destroy <actor-id>]` does. An actor the occupant hand-emitted is
+  tracked by no slot: it stays live at its own address and outlives its spawner,
+  per the *Teardown is explicit in v1* rule under
+  [§Spawning — dynamic actors](#spawning--dynamic-actors). The occupant's `:exit`
+  is where an author tears such an actor down.
 - **The runtime does not distinguish a deliberate re-spawn from an accidental
   collision.** Only author intent separates "restart the singleton" from two
   unrelated spawn sites resolving to one address, and re-frame2 keeps no second
@@ -3072,9 +3075,9 @@ rule above turns entirely on the author having NAMED the address. Nobody names a
 generated one: `<type>#<n>` is minted by a counter, and that counter is
 [per-spawning-snapshot](#reserved-snapshot-internal-keys) while the address space
 it allocates into is per-frame. The two disagree in ordinary programs — a parent
-destroyed and respawned at the same address begins counting from zero beside its
-own still-live orphans, and two parents spawning the same child type each mint
-`#1` — so a generated address can arrive at a live actor with no author
+destroyed and respawned at the same address begins counting from zero beside the
+still-live actors its previous incarnation hand-emitted, and two parents spawning
+the same child type each mint `#1` — so a generated address can arrive at a live actor with no author
 involvement anywhere. There is no request to honour, and *Teardown is explicit in
 v1* reserves destroying the occupant to the author, so the spawn is **rejected
 fail-closed**: it installs no snapshot, records no spawn-order entry, emits no
@@ -3087,8 +3090,8 @@ and `:recovery` is `:no-recovery`: the runtime may not pick a different address
 without breaking the deterministic `<type>#<n>` sequencing. **Which author-side
 recovery exists depends on the shape, and one shape has neither obvious one.**
 Two DISTINCT parent types minting the same child type are separated by giving
-each a distinct `:id-prefix`; a parent colliding with its own live orphan
-destroys that orphan first, or names a distinct `:fixed-actor-id`. But **two live
+each a distinct `:id-prefix`; a parent colliding with a live actor it
+hand-emitted destroys that orphan first, or names a distinct `:fixed-actor-id`. But **two live
 instances of ONE parent type share ONE spec**, so neither key can separate them:
 both are static literals read off that one shared spec, and pointing both
 instances at a single fixed address makes the second REPLACE the first's child
@@ -3138,11 +3141,13 @@ To address the child by a stable *name* rather than a gensym'd id, declare `:fix
 
 ### Desugaring rules
 
-`make-machine-handler` walks every state node at construction time. For each `:spawn`-bearing state, it:
+The transition reducer lowers `:spawn` itself: the spec it runs keeps the literal `:spawn` map, exactly as the author wrote it. For each `:spawn`-bearing state:
 
-1. **Composes** an `:rf.machine.spawn/spawn-<state>` registered action that emits a `:rf.machine/spawn` fx whose args are the `:spawn` spec, with `:data` materialised (call the fn if `:data` is a fn, else use the literal). The runtime stamps `:rf/parent-id` (the parent machine's registration-id) and `:rf/invoke-id` (the absolute prefix-path of the `:spawn`-bearing state node) onto the spawn args; the `:rf.machine/spawn` fx handler binds the spawned id at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` in the frame's runtime-db.
-2. **Composes** an `:rf.machine.spawn/destroy-<state>` registered action that emits a `:rf.machine/destroy` fx whose args carry the same `{:rf/parent-id ... :rf/invoke-id ...}`. The fx handler reads the spawned id back from `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` at call time and tears down whatever id is currently bound there. (For `:fixed-actor-id` literals — the explicit-address case — the runtime uses that id directly; the registry slot still binds it for symmetry.)
-3. **Wires** the composed actions into the state's `:entry` and `:exit` slots, after any user-supplied `:entry` / `:exit` (see [§Composition with explicit `:entry` / `:exit`](#composition-with-explicit-entry--exit)).
+1. **Entering the state emits a spawn.** After the transition's action fx, the reducer allocates the child's address and appends a `:rf.machine/spawn` fx whose args are the `:spawn` spec, with `:data` materialised (call the fn if `:data` is a fn, else use the literal). The runtime stamps `:rf/parent-id` (the parent machine's registration-id) and `:rf/invoke-id` (the absolute prefix-path of the `:spawn`-bearing state node) onto the spawn args; the `:rf.machine/spawn` fx handler binds the spawned id at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` in the frame's runtime-db.
+2. **Exiting the state emits a destroy.** The reducer appends a `:rf.machine/destroy` fx whose args carry the same `{:rf/parent-id ... :rf/invoke-id ...}`. The fx handler reads the spawned id back from `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` at call time and tears down whatever id is currently bound there. (For `:fixed-actor-id` literals — the explicit-address case — the runtime uses that id directly; the registry slot still binds it for symmetry.)
+3. **Destroying the parent destroys the child.** Whatever destroys the parent — an explicit `[:rf.machine/destroy <parent-id>]`, a spawn replacing it at its occupied `:fixed-actor-id`, or its own parent's exit — runs the parent's `:exit` cascade and then tears down every child its `[:rf.runtime/machines :spawned <parent-id>]` slots track, through the same tracked destroy as (2), deepest invoke-id first. A child's own teardown does the same for the children it tracks, so a nested tree ends with its root. A reaped child's `:rf.machine/destroyed` carries `:reason :explicit`, like any other cascade-driven destroy.
+
+The spawn and destroy fx follow any user-supplied `:entry` / `:exit` actions (see [§Composition with explicit `:entry` / `:exit`](#composition-with-explicit-entry--exit)).
 
 The runtime-owned spawn registry at `[:rf.runtime/machines :spawned ...]` is a lazily-allocated runtime-db slot — absent until the first declarative-`:spawn` spawn, per-frame isolated (each frame's runtime-db carries its own slot) and revertible (the slot walks back atomically with the rest of the frame-state on a frame revert).
 
@@ -3157,7 +3162,7 @@ Before / after:
   :on     {:succeeded :loaded
            :failed    :error}}}
 
-;; make-machine-handler rewrites to (runtime sees this):
+;; behaves exactly as if the author had written:
 {:loading
  {:entry (fn [{data :data}]
            {:fx [[:rf.machine/spawn {:machine-id   :request/protocol
@@ -3183,9 +3188,9 @@ Before / after:
           :failed    :error}}}
 ```
 
-From outside, a `:spawn`-using machine is indistinguishable from one that wrote the entry/exit by hand — and the runtime never requires the user to record the spawned id under any particular `:data` slot. The pure-factory invariant on `make-machine-handler` is preserved — no global state, no new registry kind, no new lifecycle hook (the `[:rf.runtime/machines :spawned ...]` slot lives in the frame's **runtime-db** partition per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys); not a separate registry).
+From outside, a `:spawn`-using machine behaves like one that wrote the spawn and destroy into its entry/exit by hand, with one difference: its child is tracked, so the child also ends when the machine itself is destroyed, where a hand-emitted one outlives it. The runtime never requires the user to record the spawned id under any particular `:data` slot. The pure-factory invariant on `make-machine-handler` is preserved — no global state, no new registry kind, no new lifecycle hook (the `[:rf.runtime/machines :spawned ...]` slot lives in the frame's **runtime-db** partition per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys); not a separate registry).
 
-> **Spec-as-data caveat for `:spawn` / `:spawn-all`.** The [Principles §Data is code](Principles.md#data-is-code) invariant ("what you write IS what runs") holds at the **user-visible** boundary: the `:rf/machine` projection returns the user-written spec form (the registrar stores the user-supplied map verbatim — see [§Querying machines](#querying-machines)), and the conformance harness, the migration agent, and tools that read registered specs all see the same shape the author wrote. Where the invariant is **fudged** is the **runtime spec value** threaded through `apply-transition-once`: `make-machine-handler` walks the user spec at construction time and rewrites every `:spawn` slot into the `:entry` / `:exit` action pair shown above. A debugger that prints the *runtime* spec record sees the desugared form, not the literal `:spawn` map. The two surfaces are split: the spec-as-data invariant covers what users wrote and what tools read back off `:rf/machine`; the runtime-internal form is an implementation detail of the reducer. Authors writing tools that consume the runtime spec (rather than the registered metadata) should consume the `:rf/machine` projection for the user-facing shape; the runtime form is not part of the public contract and may evolve.
+> **Spec-as-data for `:spawn` / `:spawn-all`.** The [Principles §Data is code](Principles.md#data-is-code) invariant ("what you write IS what runs") holds for both: the `:rf/machine` projection returns the user-written spec form (the registrar stores the user-supplied map verbatim — see [§Querying machines](#querying-machines)), and the spec value threaded through `apply-transition-once` keeps the same literal `:spawn` / `:spawn-all` maps, because the reducer emits the spawn and destroy fx itself rather than rewriting either slot into `:entry` / `:exit` actions. The `:entry` / `:exit` pair above is the equivalence, not a form any surface holds. The conformance harness, the migration agent, and tools that read registered specs all see the shape the author wrote. Authors writing tools should still consume the `:rf/machine` projection for the user-facing shape; the runtime spec record is not part of the public contract and may evolve.
 
 ### Composition with explicit `:entry` / `:exit`
 
@@ -3196,13 +3201,13 @@ A state may declare both `:spawn` AND user-supplied `:entry` / `:exit`. The user
 
 Rationale: the user's `:entry` is for setup work that must happen before the child starts (e.g., normalising data, recording a start timestamp). The spawn happens after that setup completes, so the child sees the post-setup snapshot. On exit, the user's `:exit` action gets to read the actor's final snapshot before the auto-destroy clears it — useful for capturing the child's last reported value. Address the child via the runtime registry — `(get-in db [:rf.runtime/machines :spawned <parent-machine-id> <invoke-id>])` resolves to the gensym'd id and `(get-in db [:rf.runtime/machines :snapshots <id>])` reads the snapshot from there — or, when the spawn declared `:fixed-actor-id`, by that known address (per [§Recording the spawned id user-side](#recording-the-spawned-id-user-side)).
 
-The composition is **wire-level concatenation, not nesting** — the action ordering is `[user-entry, auto-spawn]` for entry and `[user-exit, auto-destroy]` for exit. Each runs as a normal action, returning its own `{:data :fx}` effect map; the runtime drains them in order per [§Drain semantics — Level 2](#level-2--across-the-action-slots-in-one-transition).
+The composition is **ordered concatenation, not nesting** — the effect ordering is `[user-entry, auto-spawn]` for entry and `[user-exit, auto-destroy]` for exit. The user's actions run as normal actions, returning their own `{:data :fx}` effect maps; the reducer appends the spawn and destroy fx after the transition's action fx, and the runtime drains them in order per [§Drain semantics — Level 2](#level-2--across-the-action-slots-in-one-transition).
 
-`:entry` and `:exit` remain **singular slots** ([§State nodes](#state-nodes)) — the user writes one fn or one registered id, and the desugaring of `:spawn` adds exactly one more action to each slot. There is no user-visible vector form.
+`:entry` and `:exit` remain **singular slots** ([§State nodes](#state-nodes)) — the user writes one fn or one registered id, and `:spawn` adds no action to either slot. There is no user-visible vector form.
 
 ### Composition with hierarchical states
 
-A `:spawn`-bearing state can sit at any level of a compound hierarchy. The `:spawn` slot produces ordinary `:entry` / `:exit` actions — the existing entry/exit cascading machinery from [§Entry/exit cascading along the LCA](#entryexit-cascading-along-the-lca) handles them naturally.
+A `:spawn`-bearing state can sit at any level of a compound hierarchy. The `:spawn` slot follows the same entered and exited nodes the entry/exit cascading machinery from [§Entry/exit cascading along the LCA](#entryexit-cascading-along-the-lca) walks, so it composes with hierarchy naturally.
 
 Concretely:
 
@@ -3233,7 +3238,7 @@ xstate's `invoke` admits several features re-frame2 omits. Each has a substitute
 | **Multiple `:spawn` per state** (xstate admits a vector) | One `:spawn` per state. Multiple actors per state suggests refactoring into a compound state where each substate invokes one of the actors. |
 | **`autoForward`** — forward all parent events to the child | Users forward explicitly via `:fx [[:dispatch [child-id ev]]]` from the relevant transitions. Implicit forwarding is invisible at the call site; explicit forwarding is what visualisers and AIs read. |
 
-Each omission is consistent with the spec's broader bias: **prefer one explicit primitive over many implicit conveniences.** The substitutes use mechanisms already required for spawn / destroy / `dispatch` / `:raise`; `:spawn` is the *only* new sugar in this area, and even it is desugared at construction time.
+Each omission is consistent with the spec's broader bias: **prefer one explicit primitive over many implicit conveniences.** The substitutes use mechanisms already required for spawn / destroy / `dispatch` / `:raise`; `:spawn` is the *only* new sugar in this area, and even it lowers onto the spawn / destroy fx.
 
 ### Worked example — declarative login flow
 
@@ -3256,10 +3261,10 @@ Each omission is consistent with the spec's broader bias: **prefer one explicit 
 The walk-through:
 
 1. User submits → state moves `:idle` → `:authenticating`.
-2. Entering `:authenticating` triggers the desugared entry: spawn an `:http/post` actor with the credentials from `:data`; the runtime binds the spawned id at `[:rf.runtime/machines :spawned :login [:authenticating]]` in the frame's runtime-db and into the parent's own `:data` under `[:rf/spawned [:authenticating]]`, so other transitions in the parent can address the child from their own snapshot.
+2. Entering `:authenticating` emits the `:spawn`'s spawn fx: spawn an `:http/post` actor with the credentials from `:data`; the runtime binds the spawned id at `[:rf.runtime/machines :spawned :login [:authenticating]]` in the frame's runtime-db and into the parent's own `:data` under `[:rf/spawned [:authenticating]]`, so other transitions in the parent can address the child from their own snapshot.
 3. The HTTP child runs; on success, it dispatches `[:login [:auth/succeeded ...]]` (where `:login` is the parent machine's id).
 4. The login machine handles `:auth/succeeded`; transitions to `:authenticated`.
-5. Leaving `:authenticating` triggers the desugared exit: the runtime reads the actor id back from `[:rf.runtime/machines :spawned :login [:authenticating]]`, destroys it, and clears the slot. The HTTP child's snapshot is removed from `[:rf.runtime/machines :snapshots]` automatically — no stale id lingers in the parent's `:data`.
+5. Leaving `:authenticating` emits the `:spawn`'s destroy fx: the runtime reads the actor id back from `[:rf.runtime/machines :spawned :login [:authenticating]]`, destroys it, and clears the slot. The HTTP child's snapshot is removed from `[:rf.runtime/machines :snapshots]` automatically — no stale id lingers in the parent's `:data`.
 6. If the user abandons mid-flight (a different transition fires `:authenticating` → `:idle`), the exit cascade still runs; the in-flight HTTP child is destroyed; no actor leaks.
 
 The key property: the parent does not have to *remember* to destroy the child. The lifecycle binding is declared once at the state level, and the exit cascade enforces it on every code path out of the state — including ones the author hasn't yet thought of.
@@ -3686,7 +3691,7 @@ For `:spawn-all`, declare the whole-join wall-clock guard with an `:after` (or a
          :hydrate/failed :error}}}
 ```
 
-The 60-second timeout fires if the join hasn't resolved by the deadline; the standard exit cascade cancels every surviving child (the `:spawn-all` desugared `:exit` action handles per-child cleanup, same as the sibling cancellation per [§Cancel-on-decision](#cancel-on-decision-default-true)), and the parent transitions to `:degraded`.
+The 60-second timeout fires if the join hasn't resolved by the deadline; the standard exit cascade cancels every surviving child (the `:spawn-all` exit destroy handles per-child cleanup, same as the sibling cancellation per [§Cancel-on-decision](#cancel-on-decision-default-true)), and the parent transitions to `:degraded`.
 
 ### Partial-progress is not preserved
 
@@ -3713,6 +3718,7 @@ When the runtime destroys a spawned actor — by **any** trigger — every in-fl
 4. **`:spawn-all` parent state exit.** Symmetric to (1), but the per-child teardown loop (per [§Spawn-id tracking](#spawn-id-tracking)) cascades the abort to every child the `:children` map tracks.
 5. **Imperative `[:rf.machine/destroy <actor-id>]`.** A user-authored destroy action emitting the legacy keyword form (per the spawn-fx 5-arity destroy) ALSO aborts that actor's in-flight HTTP. The contract is uniform across triggers — **wherever an actor is destroyed, its HTTP cascades to abort.**
 6. **Frame destroy.** `frame.cljc`'s frame-exit walk over surviving machine instances destroys each in turn (per [Spec 002 §Lifecycle](002-Frames.md#frame-lifecycle)); each destroy fires the same abort-on-actor-destroy hook.
+7. **Parent destroy.** Destroying an actor — explicitly, by a replacement at its occupied `:fixed-actor-id`, or by its own parent's exit — destroys the children its `:spawn` / `:spawn-all` slots track, after the actor's own `:exit` cascade (per [§Declarative `:spawn`](#declarative-spawn)). Each child's destroy aborts its in-flight HTTP, and destroys the children it tracks in turn. Frame destroy (6) reaches those children first, because its walk runs newest actor first.
 
 The abort surfaces as a normal `:rf.http/aborted` failure on the request's reply path — the `:on-failure` callback (or the merged-reply default) sees `{:kind :rf.http/aborted :reason :actor-destroyed}` per [Spec 014 §Aborts](014-HTTPRequests.md#abort-on-actor-destroy). For most calling code there is no observable difference from a manual `:rf.http/managed-abort`; the `:reason :actor-destroyed` discriminates for callers that care.
 
@@ -3785,7 +3791,7 @@ The same hook fires across every destroy trigger — `:spawn` exit, `:spawn-all`
 
 `:spawn-all` is **declarative sugar** for "spawn N children in parallel, fire one of three parent events when the join condition resolves." It is the answer to the boot-as-state-machine pattern: hydrate phases that fan out N requests and join on a `:seen-all-of?` predicate (per boot-as-state-machine §M1).
 
-`:spawn-all` is **registration-time sugar.** `make-machine-handler` walks the spec at construction time and rewrites every `:spawn-all` slot into entry/exit actions emitting N parallel `:rf.machine/spawn` fx (on entry) and per-child `:rf.machine/destroy` fx (on exit), plus an internal join-state hook that watches the parent's events for child-completion signals and fires the parent-level join event when the join condition resolves.
+`:spawn-all` is **sugar the transition reducer lowers**, exactly as it lowers `:spawn`: the spec keeps the literal `:spawn-all` map, and a transition entering the state emits a `:rf.machine/spawn-all-init` fx seeding the join state followed by N parallel `:rf.machine/spawn` fx, while one exiting it emits a `:rf.machine/destroy` fx that tears down every child the slot tracks. The parent's event handler carries an internal join-state hook that watches the parent's events for child-completion signals and fires the parent-level join event when the join condition resolves. Destroying the parent ends its `:spawn-all` children through that same destroy (per [§Desugaring rules](#desugaring-rules)).
 
 ### The pattern
 
@@ -3832,7 +3838,7 @@ Two differences from the single-`:spawn` vocabulary, both enforced at registrati
 
 - **`:on-error` is NOT.** A join child has no per-child error transition: failure control flow under a join is the block's own `:on-any-failed`, which decides for the whole fan-out. Declaring `:on-error` on a child spec is rejected at registration with `:rf.error/machine-unknown-spawn-key` rather than silently ignored.
 
-> **Wall-clock timeouts: use the parent state's `:after` slot.** `:spawn-all` does not carry a `:timeout-ms` slot; phase-level wall-clock guards on the join are expressed via `:after` on the `:spawn-all`-bearing state. Per [§Wall-clock timeouts on `:spawn` — use parent state's `:after`](#wall-clock-timeouts-on-spawn--use-parent-states-after), an `:after` firing exits the state and the desugared `:exit` action cancels every surviving child via the standard exit cascade.
+> **Wall-clock timeouts: use the parent state's `:after` slot.** `:spawn-all` does not carry a `:timeout-ms` slot; phase-level wall-clock guards on the join are expressed via `:after` on the `:spawn-all`-bearing state. Per [§Wall-clock timeouts on `:spawn` — use parent state's `:after`](#wall-clock-timeouts-on-spawn--use-parent-states-after), an `:after` firing exits the state and the destroy the exit emits cancels every surviving child via the standard exit cascade.
 
 ### Join semantics
 
@@ -3968,7 +3974,7 @@ The walk-through:
 
 1. User submits → `:authenticating` spawns one `:http/post` child.
 2. The HTTP child posts; on success dispatches `[<parent-id> [:auth/succeeded ...]]` → state moves to `:hydrating`.
-3. Entering `:hydrating` triggers `:spawn-all`'s desugared entry: spawn four children in parallel. Each child is a registered machine that fetches its own asset and dispatches `[<parent-id> [:asset/loaded :cfg ...]]` (or `[:asset/failed :cfg <reason>]`) on completion.
+3. Entering `:hydrating` emits `:spawn-all`'s spawn fx: spawn four children in parallel. Each child is a registered machine that fetches its own asset and dispatches `[<parent-id> [:asset/loaded :cfg ...]]` (or `[:asset/failed :cfg <reason>]`) on completion.
 4. As each `:asset/loaded` arrives, the runtime intercepts at the parent boundary, updates `[:rf.runtime/machines :spawned :auth-flow [:hydrating] :done]`, and evaluates `:all`. Once all four `:done`, the runtime fires `[:hydrate/done ...]` into the parent → state moves to `:ready`.
 5. If any child fails first, `[:hydrate/failed ...]` fires; the runtime cancels the surviving siblings (their `:rf.machine/destroy` fx is emitted; `:rf.machine.spawn/cancelled-on-join-resolution` traces fire); state moves to `:error`.
 6. If the user reloads the page mid-hydration, the standard frame-destroy cascade tears down every actor (the `:hydrating` state's exit fires every `:children` destroy). The `:spawn-all` declaration is correct-on-every-code-path.
@@ -3977,7 +3983,7 @@ The key property: the parent has no per-child bookkeeping in `:data`. The `:done
 
 ### Composition with hierarchy and `:after`
 
-`:spawn-all`'s entry/exit actions compose with the standard hierarchical entry/exit cascading machinery just like `:spawn`'s do — the desugar produces ordinary `:entry` / `:exit` actions that the cascade machinery picks up. `:after` on the same state node is the **canonical** way to set a wall-clock timeout on the whole join — `{60000 :hydrate/timed-out}` fires `:hydrate/timed-out` if the join hasn't resolved in 60 s; the parent's `:on` for `:hydrate/timed-out` transitions out, which exits the state and tears down all surviving children via the desugared exit cascade. Per [§Wall-clock timeouts on `:spawn` — use parent state's `:after`](#wall-clock-timeouts-on-spawn--use-parent-states-after), this is the **single** wall-clock-timeout mechanism on `:spawn-all`-bearing states; there is no second `:timeout-ms` surface.
+`:spawn-all` composes with the standard hierarchical entry/exit cascading machinery just like `:spawn` does — the reducer lowers it for exactly the nodes the cascade enters and exits. `:after` on the same state node is the **canonical** way to set a wall-clock timeout on the whole join — `{60000 :hydrate/timed-out}` fires `:hydrate/timed-out` if the join hasn't resolved in 60 s; the parent's `:on` for `:hydrate/timed-out` transitions out, which exits the state and tears down all surviving children via the exit cascade's destroy. Per [§Wall-clock timeouts on `:spawn` — use parent state's `:after`](#wall-clock-timeouts-on-spawn--use-parent-states-after), this is the **single** wall-clock-timeout mechanism on `:spawn-all`-bearing states; there is no second `:timeout-ms` surface.
 
 A common partial-success idiom is to declare `:after` for the phase-level timeout and let the timeout transition land in a state whose `:always` checks `[:rf.runtime/machines :spawned <parent> <invoke-id> :done]` against a partial-success guard — the parent reads which children completed before the deadline and decides whether to proceed with degraded data or to fail outright. The cleanest expression is a separate transition out of the `:spawn-all`-bearing state, which the existing `:after` machinery delivers without any `:spawn-all`-specific extension.
 
@@ -4650,7 +4656,7 @@ Snapshots live at the runtime-managed path `[:rf.runtime/machines :snapshots <id
 
 ### Auto-cleanup of orphaned actors — explicit `:rf.machine/destroy` for v1 (RESOLVED)
 
-Resolved: v1 requires **explicit teardown** via `[:rf.machine/destroy <actor-id>]`. Auto-cleanup via an opt-in `:owned-by` ownership relation (whereby an actor whose owner is destroyed is itself destroyed) is a v1.1+ direction. The explicit-destroy surface matches `make-frame` / `destroy-frame!` and keeps the v1 lifecycle model uniform: every actor's life ends at a named, traceable site. Tooling and conformance fixtures can rely on the absence of implicit-destroy cascades; ports do not need to model an ownership graph to be v1-conformant. See [§Spawning — dynamic actors](#spawning--dynamic-actors) for the spawn / destroy surface; the `:rf.http/managed`-abort cascade per [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts) is the one composed-with cascade that fires off a `:rf.machine/destroy`.
+Resolved: v1 requires **explicit teardown** via `[:rf.machine/destroy <actor-id>]` for every actor beyond the children a `:spawn` / `:spawn-all` slot already tracks. A tracked child is destroyed with the state that spawned it — when its parent leaves that state or is itself destroyed — because the author declared that lifetime by putting the child on the state, and the runtime already records the relation at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`. Auto-cleanup of untracked actors via an opt-in `:owned-by` ownership relation (whereby an actor whose owner is destroyed is itself destroyed) is a v1.1+ direction. The explicit-destroy surface matches `make-frame` / `destroy-frame!` and keeps the v1 lifecycle model uniform: every actor's life ends at a named, traceable site or with the state that tracks it. Tooling and conformance fixtures can rely on the absence of implicit-destroy cascades beyond that recorded relation; ports do not need to model any ownership graph beyond it to be v1-conformant. See [§Spawning — dynamic actors](#spawning--dynamic-actors) for the spawn / destroy surface; the `:rf.http/managed`-abort cascade per [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts) is the one composed-with cascade that fires off a `:rf.machine/destroy`.
 
 ### Spawn id format — `<id-prefix>#<n>` keyword (RESOLVED)
 
