@@ -4,17 +4,16 @@
 //     node implementation/ssr-node/test/egress.test.cjs
 //
 // The package's stated topology is *Node returns the body markup, and
-// nothing else*, and until this file existed that was a paragraph rather
-// than a property. `worker.cjs` accepted an arbitrary `out.meta` from the
-// application's render module, `isolate.cjs` carried it, and
-// `service.renderFrames()` published it on the public `complete` frame —
-// an unallowlisted, application-controlled channel at precisely the point
-// the contract says there is none. The fixtures in this directory were its
-// demonstration: `readTodos` and `readRoute` are application state, and
-// they were crossing.
+// nothing else*, and this file makes that a property rather than a
+// paragraph. An arbitrary `out.meta` accepted from the application's render
+// module, carried by `isolate.cjs` and published by `service.renderFrames()`
+// on the public `complete` frame would be an unallowlisted,
+// application-controlled channel at precisely the point the contract says
+// there is none — and a fixture's observations (`readTodos`, `readRoute`)
+// are application state that would cross on it.
 //
-// HTTP happened not to serialise it, which is where the finding gets its
-// teeth. "The transport drops it" is a fact about `http.cjs` and not a
+// HTTP happens not to serialise such a field, which is why the check does
+// not live there. "The transport drops it" is a fact about `http.cjs` and not a
 // guarantee about this package: the protocol is documented as
 // transport-independent, `renderFrames()`/`renderToString()` are the
 // in-process API a JVM host embedding Node would use, and a socket or
@@ -37,24 +36,21 @@
 //      is the failure a diagnostic-shaped leak would take.
 //
 // Claim 3 is about the ACCEPTED SET as much as about the refusal, and the
-// set is exactly `{ undefined }`. The door shipped reading
-// `out !== undefined && out !== null`, so `return null` — a value someone
-// typed, and the likeliest deliberate return a render module has — went
-// through as a clean success. A guarantee one value short is fail-closed
-// except, so the null rows below are ordinary members of this section
-// rather than an appendix to it.
+// set is exactly `{ undefined }`. A door reading
+// `out !== undefined && out !== null` would pass `return null` — a value
+// someone typed, and the likeliest deliberate return a render module has —
+// as a clean success. A guarantee one value short is fail-closed except,
+// so the null rows below are ordinary members of this section rather than
+// an appendix to it.
 //
-// ## THERE ARE TWO DOORS OUT OF A RENDER, AND THIS FILE ONCE WATCHED ONE
+// ## THERE ARE TWO DOORS OUT OF A RENDER, AND THIS FILE WATCHES BOTH
 //
-// A render module leaves the isolate by RETURNING or by THROWING, and for
-// a commit the sections above were the whole of this file — every one of
-// them driving a module that returns. The row that read "the refusal does
-// not carry the payload out through the error channel" was the closest
-// thing to a guard on the second door and it drove the LEAKY fixture,
-// which returns; so the error channel it checked was the one the return
-// door opens, and a module that threw was never on the table. A control
-// shaped so that it cannot reach the case it is named for is worse than an
-// absent one, because its green is spent.
+// A render module leaves the isolate by RETURNING or by THROWING. Sections
+// 1–3 drive a module that returns, and their error-channel row drives the
+// LEAKY fixture, which returns — so the error channel it checks is the one
+// the return door opens, and a module that throws is not on the table
+// there. A control shaped so that it cannot reach the case it is named for
+// is worse than an absent one, because its green is spent.
 //
 // Section 4 is that door. It matters more than the return door rather than
 // less, for a reason worth stating plainly: RETURNING a payload is a
@@ -70,7 +66,7 @@
 //
 // ## AND THE THROWING DOOR HAS TWO SIDES, WHICH IS SECTION 5
 //
-// Section 4 closed the throw the SERVICE IS STANDING IN FRONT OF: the
+// Section 4 covers the throw the SERVICE IS STANDING IN FRONT OF: the
 // module throws while `worker.cjs` is inside `await renderModule.render()`,
 // so its own try/catch has the stack. That is not the only way a render
 // exception escapes. A throw from a callback the render SCHEDULED — a
@@ -81,15 +77,14 @@
 // code with its own refusal to build, and section 4's rows cannot reach it
 // because their fixture throws synchronously.
 //
-// So the same law was being stated by two receivers and only one of them
-// had been made to state it. The second put `err.message` on the refusal
-// and `err.stack` in its `detail` — the module's wording, and with it every
-// absolute path in the deployment's filesystem — under `isolate-lost`.
-// Section 5's fixture is a MATCHED PAIR for exactly this reason: the same
-// Error, built the same way, reaching the service down the two different
-// paths. Before the fix the awaited arm was clean and the scheduled one
-// leaked, which is what a hole in one of two receivers looks like from
-// outside.
+// So the same law is stated by two receivers, and each has to be made to
+// state it: the second, left to itself, would put `err.message` on the
+// refusal and `err.stack` in its `detail` — the module's wording, and with
+// it every absolute path in the deployment's filesystem — under
+// `isolate-lost`. Section 5's fixture is a MATCHED PAIR for exactly this
+// reason: the same Error, built the same way, reaching the service down the
+// two different paths. A hole in one of two receivers looks, from outside,
+// like a clean awaited arm beside a leaking scheduled one.
 //
 // ## EVERY ROW HAS A CONTROL, AND THE CONTROLS ARE ORDINARY ROWS
 //
@@ -241,8 +236,8 @@ test('renderToString returns the body and the roster, and nothing besides', asyn
 test('every CHUNK frame carries EXACTLY the three body-frame fields', async () => {
   // The chunk half of the roster above, and the row that makes
   // `protocol.cjs`'s `chunkFrame` a live constructor rather than a second
-  // written-down copy of a shape the boundary also spells by hand
-  // (rf2-6r9j.74). The worker's own message carries `t` and `id` as well,
+  // written-down copy of a shape the boundary also spells by hand. The
+  // worker's own message carries `t` and `id` as well,
   // so a boundary that spread it — or that grew a field on one side of the
   // pair only — arrives here as a fourth key rather than as a quietly
   // wider public frame.
@@ -317,8 +312,8 @@ test('no value the render module handled crosses outside body markup', async () 
 
 test('the HTTP transport carries none of it either — corollary, not evidence', async () => {
   // Deliberately last of the three, and deliberately framed as a
-  // corollary: this transport dropping a field is what let the leak ship
-  // unnoticed, so a green row HERE has never been the property. It is
+  // corollary: this transport dropping a field is exactly what would let a
+  // leak go unnoticed, so a green row HERE is not the property. It is
   // still worth having, because headers are their own egress surface.
   await withService('reference', { isolates: 1 }, async (service) => {
     const http = await serve({ service, port: 0 });
@@ -371,12 +366,10 @@ test('the RETURN refusal does not carry the payload out through the error channe
   // module tried to return would be the identical egress wearing a
   // different frame type, and it would look like helpfulness.
   //
-  // SCOPE, because this row's name used to overstate it. The fixture is
-  // `leaky`, which RETURNS — so what is checked here is the error channel
-  // as the RETURN door opens it, and a thrown Error's `code`, `message`
-  // and `detail` are a different path through the same channel that no row
-  // in this file reached. Section 4 is that path; this row is now half of
-  // a pair rather than the whole claim it was written as.
+  // SCOPE: the fixture is `leaky`, which RETURNS — so what is checked here
+  // is the error channel as the RETURN door opens it, and a thrown Error's
+  // `code`, `message` and `detail` are a different path through the same
+  // channel. Section 4 is that path; this row is half of a pair.
   await withService('leaky', { isolates: 1 }, async (service) => {
     const err = await refusalOf(() =>
       collect(service, { protocol: 1, entry: 'app/root', state: { ':todos': '"secret-state-3ab1"' } }),
@@ -404,13 +397,13 @@ test('CONTROL — the null fixture really does return null, and not nothing', ()
 });
 
 test('a module that returns null is REFUSED too — `undefined` is the whole accepted set', async () => {
-  // The door read `out !== undefined && out !== null` for one commit, so
-  // this exact module emitted, returned, and was reported as a clean
-  // success. `undefined` is what falling off the end produces and is
-  // therefore what ABSENCE looks like; `null` is a value someone typed,
-  // and `return null` is the spelling a render module reaches for to mean
-  // "nothing to say". A guarantee that admits one deliberate value is not
-  // fail-closed, and that one value sat on the likeliest path of all.
+  // A door reading `out !== undefined && out !== null` would let this exact
+  // module emit, return, and be reported as a clean success. `undefined` is
+  // what falling off the end produces and is therefore what ABSENCE looks
+  // like; `null` is a value someone typed, and `return null` is the
+  // spelling a render module reaches for to mean "nothing to say". A
+  // guarantee that admits one deliberate value is not fail-closed, and that
+  // one value sits on the likeliest path of all.
   //
   // Same code, same wording: reaching for a second channel is one offence
   // and it keeps one refusal.
@@ -419,7 +412,7 @@ test('a module that returns null is REFUSED too — `undefined` is the whole acc
       collect(service, { protocol: 1, entry: 'app/root', state: { ':todos': '[1]' } }),
     );
     assert.ok(err, 'returning null must not pass as a clean success');
-    assert.strictEqual(err.code, CODE.RENDER_THREW, 'the existing refusal, not a new member');
+    assert.strictEqual(err.code, CODE.RENDER_THREW, 'the return refusal’s own code, not another member');
     assert.strictEqual(err.message, MODULE_RETURN_REFUSAL, 'the contract owns the wording');
     assert.strictEqual(err.detail.afterChunks, 1, 'it emitted first, so the response is torn');
     assert.strictEqual(err.detail.returned, '[object Null]', 'the SHAPE, for a diagnosis');
@@ -427,9 +420,9 @@ test('a module that returns null is REFUSED too — `undefined` is the whole acc
 });
 
 test('a well-behaved module returns nothing, and the service is fine with that', async () => {
-  // The positive half of the door, and — since the row above closed the
-  // null gap — the ONLY half: `undefined` is the contract's answer, it is
-  // now the entire accepted set, and it must not be coerced into an empty
+  // The positive half of the door, and — with `null` refused above — the
+  // ONLY half: `undefined` is the contract's answer, it is the entire
+  // accepted set, and it must not be coerced into an empty
   // object that then trips the very check above.
   await withService('reference', { isolates: 1 }, async (service) => {
     const { chunks, complete } = await collect(service, req());
@@ -443,7 +436,7 @@ test('a well-behaved module returns nothing, and the service is fine with that',
 //
 // See the header. Everything above drives a module that returns; these
 // rows drive one that throws, which is the ordinary way a renderer fails
-// and was the open half of the response law.
+// and the other half of the response law.
 // ---------------------------------------------------------------------------
 
 // One sentinel per live field of the thrown Error, each arriving as a
@@ -516,7 +509,7 @@ test('CONTROL — the spoofed codes really are members of the refusal family', (
   // and would no longer be testing a spoof.
   const members = new Set(Object.values(CODE));
   for (const [entry, code] of Object.entries(THROWS_DATA.SPOOFED_CODE)) {
-    assert.ok(members.has(code), `${entry} spoofs ${code}, which is no longer a real code`);
+    assert.ok(members.has(code), `${entry} spoofs ${code}, which is not a real code`);
     assert.notStrictEqual(
       statusFor(code),
       statusFor(CODE.RENDER_THREW),
@@ -551,7 +544,7 @@ test('a render that THROWS is refused with service-owned wording, carrying nothi
 
 test('a THROW after emitting is still a torn response, and still carries nothing', async () => {
   // The pre-emit row above is the clean refusal; this is the other half,
-  // and closing the leak must not have cost the tear. A `detail` rebuilt
+  // and service-owned wording must not cost the tear. A `detail` rebuilt
   // by the service is exactly where `afterChunks` could quietly go missing.
   await withService('throws-data', { isolates: 1 }, async (service) => {
     const chunks = [];
@@ -731,8 +724,8 @@ test('CONTROL — the AWAITED arm of the same fixture is refused by the other re
   // repeat. `app/rejected` hands the identical Error back by rejecting the
   // promise `render` returned, so `worker.cjs` catches it and section 4's
   // door closes on it. A green here beside a green below is two receivers
-  // both holding the law; a green here beside a red below — which is what
-  // this file measured before the fix — is precisely one of them holding it.
+  // both holding the law; a green here beside a red below is precisely one
+  // of them holding it.
   await withService('throws-async', { isolates: 1 }, async (service) => {
     const err = await refusalOf(() => collect(service, asyncReq('app/rejected')));
     assert.ok(err, 'a rejected render must refuse');
@@ -747,9 +740,9 @@ test('an exception that ESCAPES the render call carries nothing the module autho
   // a scheduled callback, so nothing awaits the exception: the thread dies
   // and `isolate.cjs`'s `worker.on('error')` is what answers the caller.
   //
-  // It answered with `err.message` and `err.stack`, which is the module's
-  // own wording plus every absolute path in the deployment's filesystem,
-  // published on the in-process refusal and serialised over HTTP.
+  // Answering with `err.message` and `err.stack` would publish the module's
+  // own wording plus every absolute path in the deployment's filesystem on
+  // the in-process refusal, and serialise it over HTTP.
   await withService('throws-async', { isolates: 1 }, async (service) => {
     const err = await refusalOf(() => collect(service, asyncReq('app/uncaught')));
     assert.ok(err, 'the render must not have succeeded');
@@ -765,7 +758,7 @@ test('an exception that ESCAPES the render call carries nothing the module autho
       'the detail is service-owned: which isolate died, its thread, and the tear count',
     );
     assert.strictEqual(typeof err.detail.threadId, 'number');
-    // rf2-kirm — the count is SERVICE-owned, on the same footing as the two
+    // The count is SERVICE-owned, on the same footing as the two
     // fields beside it and as `render-threw`'s own `afterChunks` above: the
     // isolate counted the chunks it forwarded, and nothing the module
     // authored reaches it. Nothing was emitted on this entry, so it is 0.
@@ -776,11 +769,11 @@ test('an exception that ESCAPES the render call carries nothing the module autho
       [],
       'the escaped exception reached the public refusal',
     );
-    // The stack carried MORE than the sentinel, and this is that second
+    // A stack carries MORE than the sentinel, and this is that second
     // half: it names the file the render came from, which is an absolute
     // path in the deployment's filesystem. The key-list assertion above
-    // already says `detail.stack` is gone; this says what its going was
-    // worth, and it scans the serialised frame rather than the field, so a
+    // already says there is no `detail.stack`; this says what its absence
+    // is worth, and it scans the serialised frame rather than the field, so a
     // future `detail` member that reached for a path is caught too.
     assert.ok(
       !JSON.stringify(err.toFrame()).includes('throws-async.cjs'),
@@ -791,13 +784,14 @@ test('an exception that ESCAPES the render call carries nothing the module autho
 
 test('and the OPERATOR still gets the exception, in full, on the sidecar stderr', async () => {
   // The other half of closing a diagnostic, and the reason this row is not
-  // optional: before the fix the escaped exception reached NOBODY except
-  // through the refusal — the worker's own `reportRenderException` never
-  // runs, because the worker never caught anything. Closing the refusal
-  // without opening the operator's copy would have traded a leak for a
-  // silence, and "fail loudly" is a requirement rather than a preference.
+  // optional: the worker's own `reportRenderException` never runs on this
+  // path, because the worker never caught anything, so without the
+  // parent's write the escaped exception would reach NOBODY except through
+  // the refusal. Closing the refusal without the operator's copy would
+  // trade a leak for a silence, and "fail loudly" is a requirement rather
+  // than a preference.
   //
-  // Not a new channel: `bin/serve.cjs` already writes `[rf.ssr-node] …` to
+  // Not a separate channel: `bin/serve.cjs` writes `[rf.ssr-node] …` to
   // stderr and this is that stream under that prefix. The write happens in
   // the PARENT — which, in this suite, is this process — so the row can
   // read it directly.
@@ -866,13 +860,12 @@ test('an escaped exception cannot choose the refusal header either', async () =>
 });
 
 test('an ESCAPED exception after a chunk is a TORN response, and names the count', async () => {
-  // rf2-kirm — the isolate-lost path's own torn arm, in process, where the
+  // The isolate-lost path's own torn arm, in process, where the
   // discriminator is readable as data rather than as a destroyed socket. The
   // worker crashed, so no `error` message ever arrives and the count cannot
   // come from the worker: `_failPendingRender` is the only thing that still
-  // knows how many chunks were forwarded, and it used to drop that knowledge
-  // on the floor. The HTTP row below is the same failure seen by the
-  // transport, and it must go on behaving exactly as it did.
+  // knows how many chunks were forwarded, so it is the one that has to name
+  // them. The HTTP row below is the same failure seen by the transport.
   await withService('throws-async', { isolates: 1 }, async (service) => {
     const chunks = [];
     let complete = null;
@@ -926,13 +919,13 @@ test('a stream torn by an ESCAPED exception is destroyed, and still says nothing
 });
 
 test('an escaped NULLISH throw is refused like any other, and the sidecar survives it', async () => {
-  // rf2-3x7nj.15.1. CLJS emits `throw null` for `(throw nil)`, and a
-  // scheduled callback that does it hands the parent's `'error'` listener
-  // `null` rather than an Error. That listener's boot arm read `err.message`
-  // in every phase, so the read threw in the MAIN thread and the uncaught
-  // TypeError exited the whole process — every in-flight render on every
-  // isolate, not only this one. Before the fix this row never reached an
-  // assertion: the file's own process died under it.
+  // CLJS emits `throw null` for `(throw nil)`, and a scheduled callback
+  // that does it hands the parent's `'error'` listener `null` rather than
+  // an Error. That listener's boot arm runs in every phase, so reading
+  // `err.message` there would throw in the MAIN thread and the uncaught
+  // TypeError would exit the whole process — every in-flight render on
+  // every isolate, not only this one. Without the nullish-safe read this
+  // row never reaches an assertion: the file's own process dies under it.
   await withService('throws-async', { isolates: 1 }, async (service) => {
     const err = await refusalOf(() => collect(service, asyncReq('app/uncaught-null')));
     assert.ok(err, 'the render must not have succeeded');
@@ -948,7 +941,7 @@ test('an escaped NULLISH throw is refused like any other, and the sidecar surviv
 });
 
 // ---------------------------------------------------------------------------
-// 6. The THIRD RECEIVER — a REPLACEMENT isolate that cannot boot (rf2-2hmg)
+// 6. The THIRD RECEIVER — a REPLACEMENT isolate that cannot boot
 //
 // Sections 4 and 5 are both about a render. This one is about a BOOT, and
 // the reason a boot belongs in an egress file at all is that the audience
@@ -962,21 +955,19 @@ test('an escaped NULLISH throw is refused like any other, and the sidecar surviv
 // — a replacement boots while the service is live and serving, and
 // `Pool.release()` hands its failure straight to everyone queued in
 // `acquire()`. Same refusal, second audience, and the comment authorising
-// the wording was written about the first one.
+// the wording is about the first one.
 //
 // So this section is the same law as sections 4 and 5, stated by a third
-// receiver, and the leak it closes is the widest of the three: the module's
+// receiver, and the leak it guards is the widest of the three: the module's
 // boot message, the absolute module path this deployment was pointed at,
-// AND a `code` the module chose — the spoof section 4 closed for a render
-// exception, still open on the boot path because a different piece of code
+// AND a `code` the module chose — the spoof section 4 closes for a render
+// exception, reachable on the boot path because a different piece of code
 // builds this refusal and it does not consult `isRefusalCode`.
 //
-// THE HALF THE PATTERN ALSO REQUIRES. Before this, a replacement failure
-// with NO waiter queued reached nobody at all: the handler's only statement
-// is the loop over `waiters`, so an empty queue discarded the error and the
-// pool silently shrank by an isolate. Closing the refusal without opening
-// the operator's copy would have made that the only outcome, which is the
-// trade PR #9278 named — a leak for a silence.
+// THE HALF THE PATTERN ALSO REQUIRES. A replacement failure with NO waiter
+// queued reaches nobody through the loop over `waiters`, so without the
+// operator's copy an empty queue would discard the error and the pool would
+// silently shrink by an isolate — a leak traded for a silence.
 // ---------------------------------------------------------------------------
 
 const FLAKY_BOOT = require('./fixtures/flaky-boot.cjs');
@@ -1103,10 +1094,10 @@ test('a WAITING CALLER is told nothing the module or the deployment authored', a
 
 test('and the OPERATOR gets the boot failure, in full, on the sidecar stderr', async () => {
   // The other half, and not optional for the reason section 5 gives. On
-  // this path the operator's position is worse than it was there: with no
-  // waiter queued the handler said nothing to ANYONE, so a pool could
-  // shrink to nothing in silence. The write is therefore unconditional —
-  // it is not guarded on there being a waiter to have leaked to.
+  // this path the operator's position is worse than it is there: with no
+  // waiter queued the refusal reaches no one, so a pool could shrink to
+  // nothing in silence. The write is therefore unconditional — it is not
+  // guarded on there being a waiter to leak to.
   const run = await replacementBootFailure();
   assert.ok(
     run.stderr.split('\n').some((line) => line.includes('[rf.ssr-node]')),
@@ -1123,36 +1114,33 @@ test('and the OPERATOR gets the boot failure, in full, on the sidecar stderr', a
 // 7. The FOURTH RECEIVER — a rejection that is not a `Refusal` at all
 //
 // `service.renderFrames` wraps the render's rejection in a last-resort arm
-// for anything that did not arrive as a `Refusal`. It was reported as
-// unreachable — every `isolate.render()` path was believed to reject with a
-// `Refusal` — and as harmless if reached, on the ground that it could only
-// carry this package's own error text. Both halves were false, and this
-// section was the measurement rather than the argument.
+// for anything that did not arrive as a `Refusal`. It is tempting to call
+// that arm unreachable — every `isolate.render()` path is meant to reject
+// with a `Refusal` — and harmless if reached, on the ground that it could
+// only carry this package's own error text. Neither holds on its own, and
+// this section measures rather than argues.
 //
-// THE ROUTE WAS AN ORDINARY IN-PROCESS CALL, and rf2-ey07 has since CLOSED
-// it at the cause. `validatePartition` used to return the CALLER'S OWN
-// partition object rather than a copy, so the object the validator read and
-// the object `postMessage` structured-cloned were one live object read
+// THE ROUTE WOULD BE AN ORDINARY IN-PROCESS CALL. A validator returning the
+// CALLER'S OWN partition object rather than a copy would make the object it
+// read and the object `postMessage` structured-clones one live object read
 // twice — and anything with an accessor on it (a getter, a Proxy, a lazily
 // materialised row from a serializer) could satisfy `typeof value ===
 // 'string'` on the first read and hand back something unclonable on the
-// second, at which point `postMessage` threw `DataCloneError` synchronously
-// inside `render()`'s executor with no receiver above it. `validateRequest`
-// now reads every field exactly once and returns what it read, so a request
-// that passes validation is a request that can be cloned, and a caller has
-// no second say.
+// second, at which point `postMessage` throws `DataCloneError`
+// synchronously inside `render()`'s executor with no receiver above it.
+// `validateRequest` reads every field exactly once and returns what it
+// read, so a request that passes validation is a request that can be
+// cloned, and a caller has no second say.
 //
-// SO THE SECTION KEEPS BOTH HALVES, and they are different claims now.
-// The first row is the ROUTE, and it is the same two-faced request driven
-// the same way through the same real service — the read count simply reads
-// 1 where it read 2, which is what closing the gap looks like from outside.
-// Keeping it is not sentiment: it is the only thing that would notice the
-// day somebody reintroduces the second read.
+// SO THE SECTION HAS TWO HALVES, and they are different claims. The first
+// row is the ROUTE: a two-faced request driven through a real service,
+// whose read count reads 1 where a second read would make it 2. It is the
+// only thing that would notice the day somebody reintroduces the second
+// read.
 //
-// The rows after it are the ARM, which stays exactly as rf2-2hmg left it —
-// deleting it would let a raw `Error` reach `statusFor` with no code at
-// all. With the caller's route closed there is no longer a request that
-// reaches it, so it is driven at the seam it actually guards: a `Service`
+// The rows after it are the ARM — deleting it would let a raw `Error` reach
+// `statusFor` with no code at all. With the caller's route closed no
+// request reaches it, so it is driven at the seam it actually guards: a `Service`
 // over a stand-in pool whose isolate rejects with a raw `Error`. That is a
 // weaker witness than a live route and it is said plainly here rather than
 // dressed up — but an unreachable backstop with no witness is how a
@@ -1186,14 +1174,14 @@ function twoFacedState() {
 
 test('the CLONE gets no second say — the validator keeps what it checked (rf2-ey07)', async () => {
   // THE READ COUNT IS THE WHOLE DISCRIMINATOR, and it is deliberately a
-  // fact about the tree rather than about the fix: nothing but the
-  // structured clone would read that value again. Two reads said the
-  // caller's own object reached `postMessage`; one says the validator
+  // fact about the tree rather than about one implementation: nothing but
+  // the structured clone would read that value again. Two reads would say
+  // the caller's own object reached `postMessage`; one says the validator
   // captured the value and the clone copied the capture.
   //
-  // The render therefore SUCCEEDS, which is the outcome that was owed all
-  // along — the request was well-formed on every value anyone validated,
-  // and refusing it was the defect rather than the safety.
+  // The render therefore SUCCEEDS, which is the outcome owed — the request
+  // is well-formed on every value anyone validated, and refusing it would
+  // be the defect rather than the safety.
   const twoFaced = twoFacedState();
   const run = await withService('reference', { isolates: 1 }, (service) =>
     collect(service, { protocol: 1, entry: 'app/root', state: twoFaced.state }),
@@ -1240,9 +1228,9 @@ async function uncontractedRejection() {
     return realWrite.call(this, chunk, ...rest);
   };
   try {
-    // The wording a real `DataCloneError` carried on the closed route: the
+    // The wording a real `DataCloneError` carries on that route: the
     // caller's own value, interpolated by the runtime into a message
-    // nothing downstream was going to redact.
+    // nothing downstream would redact.
     const service = serviceOverRejectingIsolate(
       new TypeError(`Symbol(${CLONE_SENTINEL}) could not be cloned.`),
     );
@@ -1282,9 +1270,9 @@ test('a rejection that is not a Refusal carries nothing the CALLER authored', as
 test('and the OPERATOR gets the uncontracted fault, because nothing else would', async () => {
   // A fault here is a fault in the SIDECAR rather than in the application:
   // a render rejected with something the package's own contract does not
-  // describe. Nothing upstream logged it — the worker never saw it and the
-  // isolate never built a refusal for it — so before this the leaked
-  // wording was, once again, the only copy in existence.
+  // describe. Nothing upstream logs it — the worker never sees it and the
+  // isolate never builds a refusal for it — so without this write the
+  // wording would be the only copy in existence.
   const run = await uncontractedRejection();
   assert.ok(
     run.stderr.split('\n').some((line) => line.includes('[rf.ssr-node]')),
@@ -1295,15 +1283,15 @@ test('and the OPERATOR gets the uncontracted fault, because nothing else would',
 
 // ---------------------------------------------------------------------------
 // 8. THE OTHER ARM OF `isolate-lost` — a thread that EXITS rather than
-//    crashing (rf2-rhyi).
+//    crashing.
 //
 // `:rf.ssr-node/isolate-lost` covers three distinct causes — a crashed
 // worker, a worker that exited, and a replacement that will not boot — and
 // they are told apart by detail SHAPE alone. Section 5 above pins the
 // CRASH arm's shape: `isolate`, `threadId`, `afterChunks`. These rows pin
-// the EXIT arm's, which reached the same code and the same wording with an
-// empty detail map, so a consumer holding the two side by side could not
-// say which isolate had gone.
+// the EXIT arm's, which reaches the same code, so with an empty detail map
+// a consumer holding the two side by side could not say which isolate had
+// gone.
 //
 // The fixture is the discriminator: `exits.cjs` throws nothing at all, so
 // no `'error'` event is ever raised and only `worker.on('exit')` can be
@@ -1330,15 +1318,15 @@ test('an isolate that EXITS mid-render names WHICH isolate and WHICH thread', as
     assert.strictEqual(typeof err.detail.threadId, 'number', 'and the thread an operator will look for');
     assert.strictEqual(err.detail.afterChunks, 0, 'nothing was written, so nothing is torn');
 
-    // The wording and the code are UNCHANGED by this — a detail-map gap is
-    // not a licence to restate the refusal.
-    assert.strictEqual(err.message, 'the isolate exited mid-render', 'the wording is not a policy change');
+    // The wording is the exit arm's own: identifying the isolate is the
+    // detail map's job, not the message's.
+    assert.strictEqual(err.message, 'the isolate exited mid-render', 'the exit arm keeps its own wording');
   });
 });
 
 test('and a TORN exit still names the count beside the identifying fields', async () => {
   // The second half, because a shape assertion on the clean path alone
-  // would not notice `afterChunks` being displaced by the two new fields.
+  // would not notice `afterChunks` being displaced by the two identifying fields.
   await withService('exits', { isolates: 1 }, async (service) => {
     const chunks = [];
     const err = await refusalOf(async () => {
