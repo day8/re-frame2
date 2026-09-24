@@ -1,25 +1,24 @@
 (ns re-frame.region-initial-desugar-test
-  "rf2-x76af2.7: the synthetic region-spec must be DESUGARED —
+  "The synthetic region-spec must be DESUGARED —
   `:timeout` / `:on-timeout` lowered onto `:after`, `:type :choice` / `:choice`
   onto `:always` — on EVERY path, including the birth / root-target paths that
   call `apply-transition-once` directly (`bootstrap-step`,
   `apply-root-region-target`) and therefore BYPASS the per-dispatch
   `machine-transition` desugar seam.
 
-  The fix desugars the region body at `build-region-machine` — the single
+  `build-region-machine` desugars the region body — the single
   choke-point where synthetic region-specs are born and memoised in the
   `::region-cache` — so the cache holds the lowered form and both the direct-
   apply birth paths and the event path (which re-desugars per dispatch) see
   identically-lowered region bodies.
 
-  Pre-fix, the raw region body was faulted into the cache during
-  `build-initial-snapshot`'s tag computation, then served — still raw — on
-  the direct-apply paths, so:
-    (a) a region-initial `:timeout` never armed its `:after` at birth;
-    (b) a region-initial `:type :choice` stayed stuck at its transient node;
-    (c) a root `:on` target INTO a `:timeout` state never lowered.
+  The region body is faulted into the cache during `build-initial-snapshot`'s
+  tag computation, so a raw body served on the direct-apply paths would mean:
+    (a) a region-initial `:timeout` never arms its `:after` at birth;
+    (b) a region-initial `:type :choice` stays stuck at its transient node;
+    (c) a root `:on` target INTO a `:timeout` state never lowers.
   All three are exercised end-to-end through registration + live dispatch
-  (the JVM plain-atom substrate the audit reproduced on)."
+  on the JVM plain-atom substrate."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines.test-support :as rf.machines.test-support]
@@ -55,7 +54,7 @@
       (rf/unregister-listener! :trace ::t)
       (is (contains? (scheduled-delays @traces) 5000)
           "the region-initial :timeout lowered onto :after and armed at birth
-           (pre-fix: SCHEDULED was #{} — the raw region body served from the cache)"))))
+           (a raw region body served from the cache would leave SCHEDULED #{})"))))
 
 ;; ---- (b) region-initial :type :choice resolves past the transient node -----
 
@@ -71,7 +70,7 @@
       (rf/dispatch-sync [:rf.region-desugar/choice [:rf.machine/start]])
       (is (= :yes (get-in (snapshot :rf.region-desugar/choice) [:state :left]))
           "the transient :type :choice node settled past to :yes at birth
-           (pre-fix: stuck at :pick — externally observed transient node)"))))
+           (a raw body would leave it stuck at :pick — an externally observed transient node)"))))
 
 ;; ---- (c) a root :on target INTO a :timeout state lowers --------------------
 
@@ -96,12 +95,12 @@
           "the root :on moved :left into :waiting")
       (is (contains? (scheduled-delays @traces) 5000)
           "entering :waiting via the root target armed its lowered :after
-           (pre-fix: the un-desugared :timeout on the cached region body never armed)"))))
+           (an un-desugared :timeout on the cached region body would never arm)"))))
 
 ;; ---- sanity: an EXPLICIT (already-lowered) :after arms identically ---------
 ;;
-;; Control proving the birth/root scheduling path itself is sound — the bug was
-;; purely the un-lowered :timeout, not the scheduler.
+;; Control proving the birth/root scheduling path itself is sound — what the
+;; :timeout cases pin is the lowering, not the scheduler.
 
 (deftest region-initial-explicit-after-arms-at-birth
   (testing "a region-initial state with an explicit :after arms at birth"
