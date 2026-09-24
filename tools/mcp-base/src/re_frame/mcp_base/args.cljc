@@ -159,12 +159,15 @@
 ;; Keyword coercion — bounded-allowlist gate
 ;; ---------------------------------------------------------------------------
 ;;
-;; JVM keywords are interned in a global table that NEVER shrinks. A
-;; long-running Clojure MCP server that interns one fresh keyword per
-;; agent call grows that table without bound — eventually OOM. This is
-;; a DoS surface even without a hostile actor: a careless agent that
-;; uses random-uuid-shaped variant ids will sink the JVM over a long
-;; session.
+;; Minting a keyword from an agent string lets the caller choose what the
+;; JVM interns: each unique string costs an allocation and an insert into
+;; the process-global keyword table, and the keyword lives as long as
+;; anything references it. On the pinned Clojure (1.12.4) the table holds
+;; keywords by reference and reclaims those nothing references any more,
+;; so the cost is churn and retention bounded by what the server keeps,
+;; not a permanent leak. A long-running MCP server sees the most such
+;; input, and it arrives even without a hostile actor: a careless agent
+;; that uses random-uuid-shaped variant ids pays it on every call.
 ;;
 ;; The mitigation is: NEVER `(keyword raw-agent-string)` without first
 ;; checking the string against a bounded allowlist or set membership.
@@ -215,10 +218,13 @@
 
   ## Why this exists
 
-  JVM keywords are interned in a global table that never shrinks.
   Calling `(keyword raw-agent-string)` on caller-supplied input lets an
-  unbounded stream of unique strings permanently grow that table —
-  a slow-burn DoS on long-lived MCP servers. `safe-keyword` checks set
+  unbounded stream of unique strings choose what the JVM interns: an
+  allocation and an insert into the process-global keyword table per
+  string, each keyword retained as long as anything references it. The
+  pinned Clojure (1.12.4) reclaims a keyword nothing references, so this
+  is churn and retention rather than a permanent leak, and long-lived MCP
+  servers see the most of it. `safe-keyword` checks set
   membership BEFORE constructing the keyword, so a caller-supplied
   string outside the set never interns.
 
@@ -271,9 +277,11 @@
 
   ## When to call
 
-  JVM keywords are interned in a never-shrinking global table. Every
-  `fresh-keyword` call permanently grows that table by one slot for a
-  hitherto-unseen input. Reserve this primitive for sites where the
+  Every `fresh-keyword` call on a hitherto-unseen input interns a new
+  keyword: an allocation and an insert into the JVM's process-global
+  keyword table, retained as long as anything references it (the pinned
+  Clojure 1.12.4 reclaims one nothing references, so this is churn and
+  retention, not a permanent leak). Reserve this primitive for sites where the
   write policy accepts the allocation:
 
     - **Operator-gated write paths** that allocate a NEW identifier —
@@ -313,8 +321,8 @@
 
   `fresh-keyword` interns first and lets a downstream registrar reject on
   grammar — but the reject happens AFTER the intern, so a hostile or
-  malfunctioning client can permanently grow the keyword table through
-  failed write attempts even though each correctly returns an error. The
+  malfunctioning client can make the server intern a keyword for every
+  failed write attempt even though each correctly returns an error. The
   grammar check must run on the STRING shape, before the keyword is
   constructed. `shape-ok?` receives `[ns-part name-part]` (either may be
   `nil` for a bare name) and returns truthy iff the id is admissible.

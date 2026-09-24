@@ -125,10 +125,12 @@
   Cheshire's `keywordize-keys` mode (`json/parse-string s true`)
   recursively interns EVERY object key — including arbitrary attacker-/
   AI-supplied nested keys under `params.arguments`, `cell-overrides`,
-  write bodies, or any extra args — into the JVM's never-shrinking
+  write bodies, or any extra args — into the JVM's process-global
   keyword table, BEFORE any bounded allowlist (`tools.args/safe-keyword`)
-  runs. That both grows the keyword table without bound (a slow-burn DoS
-  mirroring the `:rf.http/max-decoded-keys` threat — see
+  runs. That both lets the caller choose an intern per unique key (churn
+  and retention rather than a permanent leak, since the pinned Clojure
+  1.12.4 reclaims a keyword nothing references; the threat mirrors
+  `:rf.http/max-decoded-keys` — see
   `spec/014-HTTPRequests.md` §Keyword-interning cap) and lets an unknown
   string key intern into a keyword that a downstream `find-keyword`-based
   allowlist would then resolve.

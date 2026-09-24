@@ -37,8 +37,10 @@
   ## Bounded-allowlist keyword resolution
 
   A naive `(keyword raw-agent-string)` INTERNS on the JVM — a caller
-  streaming unique random strings as `:variant-id`s would slowly grow
-  the JVM's never-shrinking keyword table. The mitigation is to resolve
+  streaming unique random strings as `:variant-id`s would cost an intern
+  apiece in the JVM's process-global keyword table (churn and retention,
+  not a permanent leak: the pinned Clojure 1.12.4 reclaims a keyword
+  nothing references). The mitigation is to resolve
   every agent-supplied keyword id against a bounded set BEFORE coercing
   it to a keyword, using `rf.mcp-base.args/safe-keyword` (which routes through
   `find-keyword` on the JVM — no intern outside the allowlist).

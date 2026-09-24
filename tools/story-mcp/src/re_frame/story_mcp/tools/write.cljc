@@ -331,7 +331,7 @@
                 ;; Validate the `:story.<path>/<name>` grammar
                 ;; on the STRING shape via `fresh-keyword-checked` BEFORE
                 ;; interning, so an invalid id (which correctly returns an
-                ;; error) never permanently grows the JVM keyword table. The
+                ;; error) never costs a JVM keyword intern. The
                 ;; pre-intern shape check (`rf.story/valid-variant-id?`, single-
                 ;; sourced with the registrar's keyword-level `variant-id?`)
                 ;; fails closed with no intern.

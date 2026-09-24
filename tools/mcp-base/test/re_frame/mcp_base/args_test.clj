@@ -299,8 +299,8 @@
   ;; the branch the registry-backed frame-id / `:rf.assert/*` coercions
   ;; actually hit — those keys are namespaced. The DoS-gate guarantee
   ;; (a rejected agent string MUST NOT intern a fresh JVM keyword) has
-  ;; to hold on the namespaced arm too, or the never-shrinking keyword
-  ;; table grows one slot per arbitrary `"ns/name"` an agent sends.
+  ;; to hold on the namespaced arm too, or every arbitrary `"ns/name"` an
+  ;; agent sends costs a JVM keyword intern.
   (let [novel-ns   "rf2-ynjts-novel-ns-do-not-intern"
         novel-name "rf2-ynjts-novel-name-do-not-intern"
         novel-kw   "rf2-ynjts-novel-ns-do-not-intern/rf2-ynjts-novel-name-do-not-intern"]
