@@ -1,6 +1,6 @@
 (ns re-frame.ssr.hash-parity-fixtures
   "Shared fixtures for the JVM↔CLJS render-tree-hash byte-identity
-  parity tests (rf2-1q9de).
+  parity tests.
 
   Spec 011 §Hydration-mismatch detection pins the hash as byte-identical
   across CLJS and JVM runtimes — `'FNV-1a 32-bit over a canonical EDN
@@ -10,36 +10,33 @@
   render-tree at SSR time and the client recomputes the hash on first
   render. A divergence between the two pipelines produces spurious
   `:rf.ssr/hydration-mismatch` traces; worse, a UTF-8-vs-UTF-16 byte-
-  stream divergence (the rf2-t7ktb hazard) silently breaks hydration
-  for any non-ASCII content.
+  stream divergence silently breaks hydration for any non-ASCII
+  content.
 
-  Before this file the only JVM↔CLJS hash literal pinned anywhere was
-  one ASCII smoke at `re-frame.hash-check-cljs-test` (`9d7457ef` for
-  `[:div {:class \"x\"} [:p \"hi\"]]`, plus a 4-character non-ASCII
-  pin `a82b5049` for the BARE STRING `\"café\"` added at rf2-t7ktb).
-  Neither pin covered: nested attribute-map sort, namespaced-keyword
-  attribute keys, multi-byte UTF-8 inside an attribute value, UTF-16
-  surrogate-pair codepoints (>0xFFFF), set ordering, list-as-sequence
-  serialisation, or large flat collections that exercise the FNV
-  multiply-accumulate loop for many bytes. The audit at rf2-asmj1
-  §A2 called this out as the under-appreciated win; this file pins
-  the corpus.
+  `re-frame.hash-check-cljs-test` carries two smoke pins — `9d7457ef`
+  for `[:div {:class \"x\"} [:p \"hi\"]]` and `a82b5049` for the BARE
+  STRING `\"café\"`. Neither covers nested attribute-map sort,
+  namespaced-keyword attribute keys, multi-byte UTF-8 inside an
+  attribute value, UTF-16 surrogate-pair codepoints (>0xFFFF), set
+  ordering, list-as-sequence serialisation, or large flat collections
+  that exercise the FNV multiply-accumulate loop for many bytes; this
+  file pins that corpus.
 
-  Pattern mirrors `re-frame.schemas.digest-parity-fixtures` (rf2-xssfv,
-  #915) — both runtimes consume the SAME fixture map (loaded from a
+  Pattern mirrors `re-frame.schemas.digest-parity-fixtures` — both
+  runtimes consume the SAME fixture map (loaded from a
   shared `.cljc` namespace) and pin the SAME canonical literal. The
   literal IS the cross-host byte-comparison point.")
 
 (defn fn-head-component
   "A raw-fn hiccup head — the deref'd `defn` VALUE idiomatic to Reagent /
   UIx SSR (`[fn-head-component props]`). Referenced by the
-  `fn-head-child` parity fixture (rf2-jsa2ml): `(.toString ...)` on a raw
+  `fn-head-child` parity fixture: `(.toString ...)` on a raw
   fn is class-name + identity-hashcode on the JVM but the JS source on
-  CLJS — never equal. Before the fix the canonical EDN carried divergent
-  `#fn[…]` bytes, so byte-identical HTML hashed differently — a spurious
-  `:rf.ssr/hydration-mismatch` that crashed under
-  `:ssr {:on-mismatch :hard-error}`. The fix collapses every raw fn head
-  to the fixed identity-free token `#fn[]`, so both runtimes agree. The
+  CLJS — never equal. Serialising it would put divergent `#fn[…]` bytes in
+  the canonical EDN, so byte-identical HTML would hash differently — a
+  spurious `:rf.ssr/hydration-mismatch` that crashes under
+  `:ssr {:on-mismatch :hard-error}`. The canonical form collapses every raw
+  fn head to the fixed identity-free token `#fn[]`, so both runtimes agree. The
   body is irrelevant to the hash (only the head's serialisation is walked)
   but is realistic hiccup so the fixture reads as a real component."
   [props]
@@ -100,8 +97,8 @@
 (def div-class
   {:label "div-class" :input [:div {:class "x"} [:p "hi"]]
    :expected "9d7457ef"
-   :rationale "Pre-existing parity pin from `re-frame.hash-check-cljs-test`
-              (rf2-t7ktb). Carrying it here gives one place for the
+   :rationale "The same parity pin `re-frame.hash-check-cljs-test`
+              carries. Carrying it here gives one place for the
               byte-comparison point."})
 
 (def namespaced-kw-attr
@@ -112,8 +109,8 @@
    :expected "a97ed733"
    :rationale "Attribute map mixing a data-attribute keyword, a
               namespaced-keyword value, and a plain `:type`. The
-              canonical form sorts keys lexicographically via
-              `(comp str key)`: data-... before on-change before
+              canonical form sorts keys by the canonical-EDN form of
+              each key: data-... before on-change before
               type. Pins the sort step + namespaced-keyword
               serialisation."})
 
@@ -141,10 +138,10 @@
 (def unicode-cafe
   {:label "unicode-cafe" :input [:p "café"] :expected "2379e33d"
    :rationale "Two-byte UTF-8 (`é` → `c3 a9`) inside a hiccup body.
-              Pre-rf2-t7ktb a CLJS UTF-16 path produced a different
-              byte stream — this fixture catches the regression at
-              the first non-ASCII character. Distinct from rf2-t7ktb's
-              bare-string pin (`a82b5049`) — this is the hash of the
+              A CLJS UTF-16 path would produce a different byte
+              stream — this fixture catches it at the first
+              non-ASCII character. Distinct from the bare-string pin
+              (`a82b5049`) — this is the hash of the
               hiccup-WRAPPED canonical-EDN string the production path
               actually computes."})
 
@@ -204,14 +201,14 @@
   {:label    "fn-head-child"
    :input    [:div [fn-head-component {:label "hi"}]]
    :expected "c105e684"
-   :rationale "rf2-jsa2ml — a raw-fn hiccup head (`[fn-head-component
+   :rationale "A raw-fn hiccup head (`[fn-head-component
               props]`, the idiomatic Reagent/UIx SSR shape where the
               head is the deref'd defn value). `(.toString fn)` is class +
               identity-hashcode on the JVM but the JS source on CLJS —
-              never equal — so the pre-fix `#fn[<toString>]` serialisation
-              hashed byte-identical HTML differently, a spurious mismatch
-              that CRASHED under :on-mismatch :hard-error. The fix collapses
-              every raw fn head to the fixed token `#fn[]`; the canonical
+              never equal — so a `#fn[<toString>]` serialisation would
+              hash byte-identical HTML differently, a spurious mismatch
+              that CRASHES under :on-mismatch :hard-error. Every raw fn
+              head collapses to the fixed token `#fn[]`; the canonical
               form is `[:div [#fn[] {:label \"hi\"}]]` on BOTH runtimes and
               the fn's props still hash. A Var head (`[#'ns/view …]`) is NOT
               exercised here — it is not `fn?` on the JVM and stays
@@ -221,12 +218,12 @@
   {:label    "whole-double"
    :input    [:progress {:value 0.0 :max 1.0}]
    :expected "5ef66c2e"
-   :rationale "rf2-0ypnnk — whole-valued doubles (`0.0`/`1.0`, e.g. a
+   :rationale "Whole-valued doubles (`0.0`/`1.0`, e.g. a
               `[:progress {:value 0.0 :max 1.0}]` or a `9.0` price). The JVM
               `pr-str`s `\"0.0\"`/`\"1.0\"`; CLJS unifies them to the JS
-              numbers 0/1 printing `\"0\"`/`\"1\"`, so the tree hashed AND
-              rendered divergently — a REAL cross-runtime split that crashed
-              under :on-mismatch :hard-error. `canonical-number` strips the
+              numbers 0/1 printing `\"0\"`/`\"1\"`, so unnormalised the tree
+              would hash AND render divergently — a REAL cross-runtime split
+              that crashes under :on-mismatch :hard-error. `canonical-number` strips the
               trailing `.0` so both runtimes canonicalise to
               `[:progress {:max 1,:value 0}]`; the emitter applies the SAME
               normalisation so the hash and the HTML stay consistent. On
@@ -245,14 +242,14 @@
 
 ;; ---- nil-pruning equivalence pairs ---------------------------------------
 ;;
-;; Per Spec 011 §Hydration-mismatch detection and rf2-6djjl: nil
+;; Per Spec 011 §Hydration-mismatch detection: nil
 ;; values are pruned from attribute maps and nil children are pruned
 ;; from sequences. Two trees that differ only in nil presence MUST
 ;; hash identically. The pinned literal is the hash of the no-nil
 ;; side; the parity assertion is that the with-nil tree produces the
-;; same hash on both runtimes. The pre-existing JVM-only
+;; same hash on both runtimes. The JVM-only
 ;; `re-frame.ssr-hash-test` asserts the equivalence but pins no
-;; literal; carrying a pinned literal here closes the cross-runtime gap.
+;; literal; the pinned literal here covers the cross-runtime side.
 
 (def nil-prune-attr
   {:label             "nil-prune-attr"
@@ -301,13 +298,13 @@
    ;; inputs feed the canonicaliser in opposite orders.
    :input-a (array-map :a 1 ":a" 2)
    :input-b (array-map ":a" 2 :a 1)
-   :rationale "rf2-mff1ht — `(comp str key)` is NOT a total order: a
+   :rationale "`(comp str key)` is NOT a total order: a
               keyword `:a` and a string `\":a\"` both `str` to `\":a\"`,
-              so the old sort fell back to insertion order and the two
-              `=` maps canonicalised to different EDN (and hashed
+              so a sort on it would fall back to insertion order and the
+              two `=` maps would canonicalise to different EDN (and hash
               differently). Sorting by the canonical-EDN of the key
               (the keyword bare, the string quoted) is a total,
-              cross-runtime-stable order — both inputs MUST now hash
+              cross-runtime-stable order — both inputs MUST hash
               identically on JVM and CLJS."})
 
 (def equality-pairs
