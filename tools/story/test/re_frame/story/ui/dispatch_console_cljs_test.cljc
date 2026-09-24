@@ -72,6 +72,26 @@
          (is (= :ok tag))
          (is (= {:a 1 :b "two"} v))))))
 
+(deftest parse-payload-edn-with-a-string-before-a-keyword
+  (testing "rf2-3x7nj.29.5: in EDN a string VALUE followed by a keyword reads
+            as the JSON heuristic's quoted-token-then-colon. These are the
+            ordinary shape of a form payload, and they parse as EDN in both
+            runtimes"
+    (is (= [:ok {:email "a@b.c" :password "hunter2"}]
+           (rf.story.ui.dispatch-console/parse-payload "{:email \"a@b.c\" :password \"hunter2\"}")))
+    (is (= [:ok {:name "Bob" :id 7}]
+           (rf.story.ui.dispatch-console/parse-payload "{:name \"Bob\" :id 7}")))
+    (is (= [:ok ["a" :b]]
+           (rf.story.ui.dispatch-console/parse-payload "[\"a\" :b]")))))
+
+#?(:cljs
+   (deftest parse-payload-compact-json-stays-json-cljs
+     (testing "rf2-3x7nj.29.5: a compact JSON object whose values are numbers,
+               booleans or null is ALSO readable EDN (`{\"id\" :7}`), so JSON
+               is still tried first when the heuristic matches"
+       (is (= [:ok {:id 7 :ok true :none nil}]
+              (rf.story.ui.dispatch-console/parse-payload "{\"id\":7,\"ok\":true,\"none\":null}"))))))
+
 ;; ---- pure: build-event-vector --------------------------------------------
 
 (deftest build-event-vector-nil-payload
