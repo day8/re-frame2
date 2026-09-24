@@ -1,23 +1,23 @@
 (ns re-frame.after-deltas-classification-cljs-test
-  "rf2-3x7nj.4.2 — the `:rf.event/after-deltas` slot on `:rf.event/run-end`
-  carries one ctx diff per user `:after` interceptor, and each diff carries its
-  `:before` / `:after` VALUES. The standard `[:rf.interceptor/path …]` `:after`
-  always rewrites `[:coeffects :db]` and widens `[:effects :db]` back to the
-  WHOLE app-db, so every path-focused handler stamped the whole db into that
-  slot — and `re-frame.classification/project-trace-event` had no arm for it, so
-  the frame's classified paths shipped RAW past the emit-time chokepoint (trace
-  listeners, the ring, the epoch record, and the off-box epoch projection).
-  An `:after` that adds `:fx` leaked that fx's registration-classified args the
-  same way.
+  "The `:rf.event/after-deltas` slot on `:rf.event/run-end` carries one ctx
+  diff per user `:after` interceptor, and each diff carries its `:before` /
+  `:after` VALUES. The standard `[:rf.interceptor/path …]` `:after` always
+  rewrites `[:coeffects :db]` and widens `[:effects :db]` back to the WHOLE
+  app-db, so every path-focused handler stamps the whole db into that slot —
+  and without an arm for it in `re-frame.classification/project-trace-event`
+  the frame's classified paths would ship RAW past the emit-time chokepoint
+  (trace listeners, the ring, the epoch record, and the off-box epoch
+  projection). An `:after` that adds `:fx` would leak that fx's
+  registration-classified args the same way.
 
-  rf2-fc84b — the 4.2 walk was ROOT-anchored, but a path-focused context's
-  `:db` values are FOCUSED SLICES: the path interceptor's own `:before` values,
-  both values of a user `:after` positioned inside a focus, and even the inner
-  interceptor's `:after` values under nested focus. A root walk cannot match
-  `[:auth :token]` against a slice `{:token …}`, so those shipped raw. Each
-  delta now carries its before/after absolute app-db focus to the projector in
-  a PRIVATE metadata carrier, and each value is walked at its TRUE offset; an
-  unknown focus on a classified frame fails closed.
+  A path-focused context's `:db` values are FOCUSED SLICES: the path
+  interceptor's own `:before` values, both values of a user `:after`
+  positioned inside a focus, and even the inner interceptor's `:after` values
+  under nested focus. A ROOT-anchored walk cannot match `[:auth :token]`
+  against a slice `{:token …}`, so each delta carries its before/after
+  absolute app-db focus to the projector in a PRIVATE metadata carrier, and
+  each value is walked at its TRUE offset; an unknown focus on a classified
+  frame fails closed.
 
   Producer-derived: the live legs drive the REAL path interceptor and a REAL
   user `:after`, and each first proves the slot is populated by that producer —
@@ -27,7 +27,7 @@
   no declared path can coincidentally match an unrelated slice.
 
   Posture: the live legs read the dev trace, which emits nothing under
-  `-Dre-frame.debug=false`, so they are `^:requires-debug` (rf2-d2841). The
+  `-Dre-frame.debug=false`, so they are `^:requires-debug`. The
   projector leg drives `project-trace-event` on a hand-built shape and runs in
   both postures.
 
@@ -192,12 +192,12 @@
       (is (not (contains-secret? bare))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-fc84b — FOCUSED-SLICE values are walked at their TRUE app-db focus
+;; FOCUSED-SLICE values are walked at their TRUE app-db focus
 ;; ---------------------------------------------------------------------------
 
 (def ^:private focus-sentinel
-  "The needle every fc84b leg counts. The old and the new secret both carry
-  it; no event vector does."
+  "The needle every focused-slice leg counts. The old and the new secret both
+  carry it; no event vector does."
   "FOCUS-SENTINEL-fc84b")
 
 (def ^:private old-secret (str focus-sentinel "-old"))
@@ -205,7 +205,7 @@
 
 (defn- sentinel-paths
   "Every path in `x` at which a string carrying `focus-sentinel` sits (map keys
-  included) — the count the ruling measured before the fix."
+  included)."
   [x]
   (letfn [(hit? [s] (and (string? s)
                          #?(:clj  (.contains ^String s ^String focus-sentinel)
@@ -249,7 +249,7 @@
 (deftest ^:requires-debug path-interceptor-before-slices-redact-at-their-focus
   (testing "[:rf.interceptor/path [:auth]] writing :token — the handler saw the
             slice {:token …} and returned one, so both :before values are
-            slices at [:auth] and a root walk missed [:auth :token]. A benign
+            slices at [:auth] and a root walk would miss [:auth :token]. A benign
             sibling in the same slice stays visible: redaction is per declared
             path, never wholesale"
     (seed! {:auth {:token old-secret :user-name "alice"}} [[:auth :token]])
