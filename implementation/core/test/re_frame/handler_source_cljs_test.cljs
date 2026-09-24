@@ -1,7 +1,6 @@
 (ns re-frame.handler-source-cljs-test
-  "rf2-xgfuy — CLJS-side regression for DEBUG-gated handler form-source
-  capture at `reg-event` (EP-0018 rf2-xhfxcs.14 collapsed the former
-  `reg-event-{db,fx,ctx}` macros onto the one `reg-event`).
+  "CLJS-side coverage for DEBUG-gated handler form-source capture at
+  `reg-event` (EP-0018: one `reg-event` macro for every handler shape).
 
   The macro stamps the whole `(reg-event :id ...)` form as a string
   into the handler's registry metadata under `:rf.handler/source`.
@@ -12,7 +11,7 @@
   test pins the positive-presence side of the contract.
 
   See `re-frame.handler-source-test` for the JVM-side counterpart and
-  `re-frame.core_reg_macros/defreg-event-macro` for the emission."
+  `re-frame.core-reg-macros/defreg-event-macro` for the emission."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
@@ -21,10 +20,9 @@
 (use-fixtures :each (rf.test-support/make-reset-runtime-fixture))
 
 (deftest reg-event-captures-form-source-cljs
-  (testing "EP-0018 C (rf2-xhfxcs.3): CLJS `reg-event` stamps :rf.handler/source
-  under DEBUG=true — the consolidated macro layer routes the ONE public
-  reg-event through the same defreg-event-macro form-source capture as the
-  legacy forms"
+  (testing "EP-0018 C: CLJS `reg-event` stamps :rf.handler/source
+  under DEBUG=true — the macro layer routes the ONE public
+  reg-event through the defreg-event-macro form-source capture"
     (rf/reg-event :rf2-xhfxcs.cljs/event
                   (fn [{:keys [db]} _ev] {:db db}))
     (let [m   (rf/handler-meta {:source :store :kind :event :id :rf2-xhfxcs.cljs/event})
@@ -34,13 +32,12 @@
       (is (str/includes? src ":rf2-xhfxcs.cljs/event"))
       (is (str/includes? src "(fn [{:keys [db]} _ev] {:db db})")))))
 
-;; EP-0018 (rf2-xhfxcs.14): the former CLJS `reg-event-db` / `reg-event-fx`
-;; per-kind capture tests collapsed into `reg-event-captures-form-source-cljs`
-;; above — one macro, one form-source path. The fx-shape body is exercised
-;; here via the bare-name `reg-event` capture below.
+;; EP-0018: one macro, one form-source path, so
+;; `reg-event-captures-form-source-cljs` above covers every handler shape.
+;; The fx-shape body is exercised via the bare-name `reg-event` capture below.
 
 (deftest reg-event-with-fx-shape-body-captures-form-source-cljs
-  (testing "rf2-xgfuy: CLJS reg-event captures an fx-shape body's source under DEBUG=true"
+  (testing "CLJS reg-event captures an fx-shape body's source under DEBUG=true"
     (rf/reg-event :rf2-xgfuy.cljs/event-fx
                      (fn [_cofx _ev] {:db {:n 0}}))
     (let [src (:rf.handler/source
@@ -50,7 +47,7 @@
       (is (str/includes? src ":db {:n 0}")))))
 
 (deftest reg-event-with-interceptor-captures-form-source-cljs
-  (testing "rf2-xgfuy: CLJS reg-event with a full-context interceptor stamps :rf.handler/source under DEBUG=true"
+  (testing "CLJS reg-event with a full-context interceptor stamps :rf.handler/source under DEBUG=true"
     (rf/reg-interceptor :rf2-xgfuy.cljs/ctx-probe {:before (fn [ctx] ctx)})
     (rf/reg-event :rf2-xgfuy.cljs/event-ctx
                   {:interceptors [:rf2-xgfuy.cljs/ctx-probe]}
