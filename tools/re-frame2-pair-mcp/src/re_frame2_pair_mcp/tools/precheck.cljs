@@ -9,10 +9,10 @@
   classification change. Trace and health tools depend on their own live
   state.
 
-  All calls therefore continue to the post-eval cache, which hashes the
-  serialized, post-elision result. The tagged target and form helpers are
-  retained for a tool whose result becomes a pure function of a covered
-  runtime hash."
+  All calls therefore go to the post-eval cache, which hashes the
+  serialized, post-elision result. The tagged target and form helpers
+  serve a tool whose result is a pure function of a covered runtime
+  hash."
   (:require [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]))
@@ -32,7 +32,7 @@
 
 (defn precheck-form
   "The CLJS eval form for the runtime-side cheap hash. Dispatches on
-  the tag in `target` (today only `[:explicit <kw>]`).
+  the tag in `target` (the only tag is `[:explicit <kw>]`).
 
   Threads through `re-frame2-pair.runtime/app-db-hash`, which returns
   the per-frame cached `(hash app-db)` integer in O(1). The cache is
