@@ -21,7 +21,8 @@
   The capture is **bounded** at 50 subs and 100 views per epoch to match
   Xray's Reactive panel rendering budget.
   Cascades exceeding either cap retain the first N entries and stamp
-  `:truncated? true` so the panel can render a 'rest elided' affordance.
+  `:sub-cap-truncated?` / `:view-cap-truncated?` true so the panel can
+  render a 'rest elided' affordance.
 
   Emit shape (per Spec 009 §`:op-type` vocabulary):
 
@@ -107,8 +108,8 @@
   ALREADY at `cap` — so `entry` is DROPPED — stamp `flag-key` true.
 
   The truncation flag therefore fires ONLY when an entry is genuinely elided: a
-  cascade with EXACTLY `cap` entries retains all of them and is NOT truncated
-  (rf2-x76af2.31); only cap+1 sets the flag — matching this namespace's
+  cascade with EXACTLY `cap` entries retains all of them and is NOT
+  truncated; only cap+1 sets the flag — matching this namespace's
   docstring (`Cascades exceeding either cap …`) and Spec 009's `:rf.cascade/
   captured` wording (`cascades exceeding the cap stamp :sub-cap-truncated?
   true`). The `full?` guard is read BEFORE the conj so it never observes the
@@ -138,7 +139,7 @@
                       t  (:tags ev)]
                   (cond
                     (= :rf.sub/run op)
-                    ;; Per rf2-l1jz8 — thread the reactive recompute's value-
+                    ;; Thread the reactive recompute's value-
                     ;; change + cascade attribution onto the aggregated record so
                     ;; the `:rf.cascade/captured` projection carries the same
                     ;; fields as the epoch record's `:sub-runs`. Slots are nil for
@@ -152,7 +153,7 @@
                        :value          (:rf.sub/value t)
                        :cascade?       (:rf.sub/cascade? t)
                        :cause-sub      (:rf.sub/cause-sub t)
-                       ;; rf2-okz1u — `:cause-event-id` names the dispatching
+                       ;; `:cause-event-id` names the dispatching
                        ;; cascade's event-id (the head of the event vector that
                        ;; kicked off the in-flight drain). Threaded from
                        ;; `:rf.sub/cause-event-id` on the recompute trace tag
@@ -240,7 +241,7 @@
 ;; The epoch-settle seam looks up this hook through `late-bind` so
 ;; `re-frame.epoch` does NOT require this namespace (and so a future
 ;; relocation to a tools artefact stays surgical). The hook is the
-;; sticky-publication shape (rf2-f72pd) — published once at ns-load and
+;; sticky-publication shape — published once at ns-load and
 ;; never withdrawn.
 
 (rf.late-bind/set-fn! :trace.cascade/capture-for-epoch! capture-for-epoch!)
@@ -249,17 +250,15 @@
 
 ;; ---- bundle-isolation sentinel ------------------------------------------
 ;;
-;; Per rf2-931pm — the cascade aggregator is dev-only; CLJS production
-;; bundles must NOT pull this ns in (the require in `re-frame.core` is
-;; gated under `#?(:clj ...)` so Closure DCE strips the body). The
-;; bundle-isolation gate searches every release bundle for the sentinel
-;; string below; presence indicates the gate is broken — a `:require`
-;; on `re-frame.trace.cascade` slipped into a core path that survives
-;; production CLJS compilation.
-;;
-;; If you are adjusting this sentinel: also update
-;; `implementation/scripts/check-bundle-isolation.cjs` (the production
-;; bundle-isolation gate) so the two stay in sync.
+;; The cascade aggregator is dev-only; CLJS production bundles must NOT
+;; pull this ns in (the require in `re-frame.core` is gated under
+;; `#?(:clj ...)` so Closure DCE strips the body). The bundle-isolation
+;; gate (`implementation/scripts/check-bundle-isolation.cjs`, its
+;; `trace-cascade` entry) does NOT search for the string below: it greps
+;; the emitted module for `trace.cascade/set-focus-predicate!`, the
+;; late-bind key published above. Its presence in a release bundle means a
+;; `:require` on `re-frame.trace.cascade` slipped into a core path that
+;; survives production CLJS compilation.
 
 (def ^:no-doc bundle-isolation-sentinel
   "rf.trace.cascade/sentinel:rf2-931pm:do-not-rename")
