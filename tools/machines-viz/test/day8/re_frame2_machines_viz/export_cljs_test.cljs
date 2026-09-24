@@ -1,5 +1,5 @@
 (ns day8.re-frame2-machines-viz.export-cljs-test
-  "Tests for the chart exporters (rf2-8d7w1 · v1.0).
+  "Tests for the chart exporters.
 
   The PNG / SVG rasterisers are browser-DOM-only (canvas, ClipboardItem)
   and are not exercised under node-test; the seam-derivation +
@@ -17,7 +17,7 @@
             [day8.re-frame2-machines-viz.export :as export]
             [day8.re-frame2-machines-viz.share :as share]))
 
-;; `share-url` has no default host (rf2-8m344) — every caller names the
+;; `share-url` has no default host — every caller names the
 ;; viewer page it hosts, tests included.
 (def ^:private test-host "https://x/viewer.html")
 
@@ -72,7 +72,7 @@
              :form {:initial :idle  :states {:idle {} :busy {}}}}})
 
 (deftest share-url-compound-current-state-rides-through
-  (testing "a COMPOUND vector-path :current-state on the seam round-trips (rf2-9l8h8)"
+  (testing "a COMPOUND vector-path :current-state on the seam round-trips"
     (let [el  (stub-element (assoc seam
                                    :definition compound-definition
                                    :current-state [:authenticated :cart :browsing]))
@@ -80,7 +80,7 @@
       (is (= {:state [:authenticated :cart :browsing]} (:snapshot cs))))))
 
 (deftest share-url-parallel-current-state-rides-through
-  (testing "a PARALLEL region-map :current-state on the seam round-trips (rf2-9l8h8)"
+  (testing "a PARALLEL region-map :current-state on the seam round-trips"
     (let [el  (stub-element (assoc seam
                                    :definition parallel-definition
                                    :region-count 2
@@ -119,16 +119,16 @@
   (testing "an element that is not a rendered MachineChart throws :no-chart-state"
     (let [d (try (export/share-url #js {} {:host test-host})
                  (catch :default e (ex-data e)))]
-      ;; rf2-vvixub / rf2-s6rzia — branch on the canonical :rf.error/id, and
+      ;; Branch on the canonical :rf.error/id, and
       ;; the :reason names the PUBLIC concept (a rendered MachineChart
       ;; element) without leaking the private "state seam" implementation term.
       (is (= :rf.machines-viz.export/no-chart-state (:rf.error/id d)))
       (is (string? (:reason d)))
       (is (re-find #"(?i)machinechart" (:reason d)))
       (is (not (re-find #"(?i)seam" (:reason d)))
-          ":reason no longer leaks the private 'state seam' implementation term"))))
+          ":reason does not leak the private 'state seam' implementation term"))))
 
-;; ---- rf2-85a9do — SVG <title>/<desc> XML escaping -----------------------
+;; ---- SVG <title>/<desc> XML escaping ------------------------------------
 ;;
 ;; `chart-as-svg` is browser-DOM-only, but it builds <title>/<desc> by hand
 ;; (bypassing the XMLSerializer that escapes the foreignObject viewport
@@ -178,15 +178,15 @@
       (is (str/includes? quoted "&quot;") "\" escaped to &quot;")
       (is (str/includes? quoted "&apos;") "' escaped to &apos;"))))
 
-;; ---- rf2-848byi — clipboard guard tolerates an ABSENT ClipboardItem -----
+;; ---- clipboard guard tolerates an ABSENT ClipboardItem -----------------
 ;;
 ;; `copy-svg-to-clipboard!` / `copy-png-to-clipboard!` guard clipboard
 ;; availability with `(exists? js/ClipboardItem)`. On a browser that has
 ;; `navigator.clipboard` but NO `ClipboardItem` global (older Firefox that
 ;; shipped `clipboard.writeText` before `ClipboardItem`; some non-secure
 ;; contexts), the guard must fall through to the typed `:no-clipboard`
-;; REJECTION — not throw a bare-global ReferenceError (the pre-fix bare
-;; `js/ClipboardItem` reference did, SYNCHRONOUSLY for copy-svg).
+;; REJECTION — not throw a bare-global ReferenceError, as a bare
+;; `js/ClipboardItem` reference would (SYNCHRONOUSLY for copy-svg).
 ;;
 ;; The SVG/PNG producers are browser-DOM-only, so we `with-redefs` them to
 ;; isolate the GUARD (the unit under test) and drive it under node with a
@@ -215,7 +215,7 @@
           (js/Object.defineProperty g "ClipboardItem" ci-desc))))))
 
 (deftest clipboard-guard-tolerates-absent-clipboarditem
-  (testing "rf2-848byi — with navigator.clipboard present but ClipboardItem
+  (testing "with navigator.clipboard present but ClipboardItem
             ABSENT, copy-svg/png-to-clipboard! REJECT with :no-clipboard —
             never a bare-global ReferenceError, and copy-svg does not throw
             synchronously (the `.catch` contract holds)."
@@ -235,9 +235,9 @@
                 ;; in ONE call, synchronously on the copy result — so no
                 ;; rejected promise is ever momentarily handler-less (the
                 ;; node-test runner treats a stray unhandled rejection as
-                ;; fatal). The `try` guards the copy-svg SYNCHRONOUS-throw bug:
-                ;; pre-fix the bare `js/ClipboardItem` reference threw right
-                ;; here (before any Promise), which this turns into a
+                ;; fatal). The `try` catches a SYNCHRONOUS throw — a bare
+                ;; `js/ClipboardItem` reference would throw right here
+                ;; (before any Promise) — and turns it into a
                 ;; :test/sync-throw rejection → a visible assertion failure.
                 run      (fn [thunk label]
                            (let [p (try (thunk)
