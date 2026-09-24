@@ -1,22 +1,22 @@
 (ns re-frame.http-synthetic-4xx-test
-  "Per rf2-wi8g9r — the `:else` synthetic-4xx arm of `handle-response!`
+  "The `:else` synthetic-4xx arm of `handle-response!`
   (transport.cljc §handle-response!) end-to-end.
 
   THE ARM: a non-2xx status that is NOT 4xx/5xx — a 1xx, or a 3xx the
   runtime did not follow — falls through the 4xx / 5xx / 2xx cascade to the
   `:else` branch, which classifies it as `:rf.http/http-4xx` carrying the raw
-  body-text and (per rf2-ee38b.7) routes through `maybe-retry!` (NOT
+  body-text and routes through `maybe-retry!` (NOT
   `finalise-failure!`) so a caller with `:retry {:on #{:rf.http/http-4xx}}`
   retries it consistently with a real 4xx.
 
   REACHABILITY: `:redirect :error` (or `:manual`) selects the JDK
-  `HttpClient$Redirect/NEVER` client (rf2-ee38b.7 — `transport-jvm/redirect->
+  `HttpClient$Redirect/NEVER` client (`transport-jvm/redirect->
   policy`), so a 302 response surfaces UNFOLLOWED at status 302 through the
   classification cascade rather than being auto-followed. The redirect-policy
-  MAPPING is unit-tested in `http_transport_security_test`, but no test drove a
-  real 3xx response through the cascade — so a refactor reverting the `:else`
-  arm to `finalise-failure!`, or changing the synthesised kind, would pass every
-  existing test. These end-to-end tests pin it: a real 302-returning server, a
+  MAPPING is unit-tested in `http_transport_security_test`; only a real 3xx
+  response driven through the cascade catches a refactor routing the `:else`
+  arm to `finalise-failure!`, or changing the synthesised kind. These
+  end-to-end tests pin it: a real 302-returning server, a
   `:redirect :error` request, and assertions on (a) the synthesised
   `:rf.http/http-4xx` kind, (b) the raw 302 body at `:body`, and (c) the
   `maybe-retry!` routing (hit count > 1 under a `:rf.http/http-4xx` retry).
@@ -91,7 +91,7 @@
 ;; ---- (1) synthetic-4xx classification + raw body + maybe-retry! routing -----
 
 (deftest unfollowed-3xx-classifies-synthetic-4xx-and-retries
-  (testing "rf2-wi8g9r — an UNFOLLOWED 302 (:redirect :error → JDK NEVER) hits
+  (testing "an UNFOLLOWED 302 (:redirect :error → JDK NEVER) hits
   the `:else` arm: it classifies as :rf.http/http-4xx carrying the raw 302
   body, and — being a :rf.http/http-4xx — is RETRIED under a
   `:retry {:on #{:rf.http/http-4xx}}` config (routed through maybe-retry!,
@@ -140,7 +140,7 @@
 ;; ---- (2) GUARD: a 5xx-only retry does NOT catch the synthetic-4xx ----------
 
 (deftest synthetic-4xx-not-retried-under-5xx-only-retry
-  (testing "rf2-wi8g9r guard — the synthesised kind is genuinely
+  (testing "guard — the synthesised kind is genuinely
   :rf.http/http-4xx (NOT :rf.http/http-5xx): a `:retry {:on #{:rf.http/http-5xx}}`
   config does NOT match it, so the unfollowed 302 fails on the FIRST attempt
   (hit count exactly 1) and finalises with the synthetic-4xx failure. This pins
