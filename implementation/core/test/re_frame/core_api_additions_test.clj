@@ -1,16 +1,14 @@
 (ns re-frame.core-api-additions-test
-  "JVM tests for three core-API additions landed together
-   (rf2-7whh / rf2-ewku / rf2-t38q):
+  "JVM tests for three core-API surfaces:
 
    - `rf/with-frame` (pin form) and `rf/with-new-frame` (eval-bind-
      run-destroy form). Per Spec 002 §with-frame and `spec/API.md`
-     row 74. Split per rf2-twoc5 (Mike-approved 2026-05-28).
+     row 74.
 
-   - registrar-query FILTERING. The retired `(rf/registrations kind pred-fn)`
-     2-arity was deleted by rf2-kuky.30 — `registrations` takes exactly one
-     query map, and filtering is `filter` over the returned map. These tests
-     pin that the idiom answers what the arity used to. Per `spec/API.md`
-     §Public registrar query API and Spec 001 §The query API.
+   - registrar-query FILTERING. `registrations` takes exactly one query
+     map, and filtering is `filter` over the returned map; these tests pin
+     that idiom. Per `spec/API.md` §Public registrar query API and Spec 001
+     §The query API.
 
    - `(rf/frame-ids ns-prefix)` 1-arity filter. Per `spec/API.md`
      row 308 and Spec 002 §The public registrar query API."
@@ -24,9 +22,10 @@
             [re-frame.machines]
             [re-frame.image :as rf.image]
             [re-frame.routing :as rf.routing]
-            ;; rf2-q4i9ko — replace-app-db! delegates to the epoch artefact's
-            ;; replace-app-db! (synthetic-epoch recording); load it so the
-            ;; mutator round-trip below resolves a live hook.
+            ;; `replace-frame-state!` delegates to the epoch artefact's
+            ;; `replace-frame-state!` (synthetic-epoch recording) through the
+            ;; `:epoch/replace-frame-state!` hook; load it so the mutator
+            ;; round-trip below resolves a live hook.
             [re-frame.epoch]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
@@ -37,7 +36,7 @@
   (rf.schemas/clear-schemas-by-frame!)
   (rf.flows/reset-last-inputs!)
   (rf/init! rf.substrate.plain-atom/adapter)
-  ;; EP-0002 (rf2-jue6sp): `init!` no longer synthesises `:rf/default`.
+  ;; `init!` does not synthesise `:rf/default`.
   ;; Register it explicitly as an ordinary frame so the registrar-query
   ;; tests below (which assert `:rf/default` is enumerable) have a real
   ;; frame to find. `current-frame-id` outside a scope still RAISES — the
@@ -51,13 +50,13 @@
 (use-fixtures :each reset-runtime)
 
 ;; ===========================================================================
-;; rf2-7whh / rf2-twoc5 — with-frame (pin) + with-new-frame (eval/destroy)
+;; with-frame (pin) + with-new-frame (eval/destroy)
 ;; ===========================================================================
 
 (deftest with-frame-bare-keyword
   (testing "(with-frame :keyword body) binds *current-frame* across body;
             outside the macro current-frame-id raises :rf.error/no-frame-context
-            (EP-0002 — no :rf/default floor, rf2-jue6sp)"
+            (EP-0002 — no :rf/default floor)"
     (rf/make-frame {:id :wf/alpha :doc "alpha"})
     ;; Outside the macro: the carried-invariant absence error.
     (is (= :rf.error/no-frame-context
@@ -119,7 +118,7 @@
           "the body saw the just-created id as current-frame")
       (is (nil? (rf/frame-meta @captured-id))
           "the frame was destroyed on body exit")
-      ;; EP-0002 (rf2-jue6sp): after the body the dynamic scope has
+      ;; EP-0002: after the body the dynamic scope has
       ;; unwound — current-frame-id raises rather than reporting :rf/default.
       (is (= :rf.error/no-frame-context
              (:rf.error/id (ex-data
@@ -153,7 +152,7 @@
           "the body observed the on-create-seeded app-db"))))
 
 (deftest with-frame-rejects-vector-argument
-  (testing "(with-frame [...] body) raises at compile time — caller meant with-new-frame (rf2-twoc5)"
+  (testing "(with-frame [...] body) raises at compile time — caller meant with-new-frame"
     ;; `macroexpand` wraps macro-side ex-infos in a Compiler$CompilerException;
     ;; call the expansion helper directly so we observe the structured throw
     ;; that fires at compile time.
@@ -175,7 +174,7 @@
         (is (= :rf.error/with-frame-vector-form (:rf.error/id (ex-data e))))))))
 
 (deftest with-new-frame-rejects-keyword-argument
-  (testing "(with-new-frame :keyword body) raises at compile time — caller meant with-frame (rf2-twoc5)"
+  (testing "(with-new-frame :keyword body) raises at compile time — caller meant with-frame"
     (require 're-frame.core-reg-view-macro)
     (let [expand (resolve 're-frame.core-reg-view-macro/expand-with-new-frame)]
       (let [e (try (expand :existing/id '((do nil))) nil
@@ -190,7 +189,7 @@
             ":reason names the sibling macro")))))
 
 (deftest with-new-frame-rejects-vector-bindings-with-wrong-arity
-  (testing "(with-new-frame [...] body) with wrong vector arity raises at compile time (rf2-4ymm0 CQ4)"
+  (testing "(with-new-frame [...] body) with wrong vector arity raises at compile time"
     (require 're-frame.core-reg-view-macro)
     (let [expand (resolve 're-frame.core-reg-view-macro/expand-with-new-frame)]
       ;; Empty vector — easy typo to omit both sides.
@@ -212,7 +211,7 @@
                      (:reason (ex-data e)))
             ":reason carries the structured explanation"))
       ;; Non-vector binding (e.g. a bare symbol) — same collapsed
-      ;; non-`[sym expr]` throw (rf2-a29uqh: one throw for the whole class).
+      ;; non-`[sym expr]` throw (one throw for the whole class).
       (let [e (try (expand 'not-a-vector '((do nil))) nil
                    (catch clojure.lang.ExceptionInfo e e))]
         (is (some? e) "a non-vector binding must throw")
@@ -227,7 +226,7 @@
             ":reason carries the structured explanation")))))
 
 ;; ===========================================================================
-;; rf2-ewku / rf2-kuky.30 — registrar-query filtering (now `filter`, not an arity)
+;; registrar-query filtering (`filter` over the result, not an arity)
 ;; ===========================================================================
 
 (deftest registrations-1-arity-returns-full-map
@@ -283,17 +282,17 @@
 
 (deftest registrations-unknown-kind-throws
   (testing "an unknown kind THROWS rather than returning an authoritative {}"
-    ;; rf2-kuky.30: `:rf2-hf/never-a-kind` is not a registrar kind, and the
-    ;; retired positional arity answered `{}` for it — indistinguishable from
-    ;; "this kind exists and is empty". The query path now throws the
-    ;; registrar's own catalogued id, with `where` naming the QUERY fn.
+    ;; `:rf2-hf/never-a-kind` is not a registrar kind; answering `{}` for it
+    ;; would be indistinguishable from "this kind exists and is empty". The
+    ;; query path throws the registrar's own catalogued id, with `where`
+    ;; naming the QUERY fn.
     (let [e (is (thrown? clojure.lang.ExceptionInfo
                   (rf/registrations {:source :store :kind :rf2-hf/never-a-kind})))]
       (is (= :rf.error/unknown-registry-kind (:rf.error/id (ex-data e)))
           "the catalogued id names the closed kind set"))))
 
 ;; ===========================================================================
-;; rf2-t38q — (rf/frame-ids ns-prefix) filter arity
+;; (rf/frame-ids ns-prefix) filter arity
 ;; ===========================================================================
 
 (deftest frame-ids-0-arity-returns-full-set
@@ -303,7 +302,7 @@
     (let [all (rf/frame-ids)]
       (is (contains? all :fi/alpha))
       (is (contains? all :fi/beta))
-      ;; EP-0002 (rf2-jue6sp): `init!` no longer synthesises `:rf/default`;
+      ;; `init!` does not synthesise `:rf/default`;
       ;; the fixture registers it explicitly, and frame-ids enumerates it
       ;; like any other ordinary frame.
       (is (contains? all :rf/default)
@@ -347,12 +346,11 @@
       (is (not (contains? wide-ids :elsewhere/one))))))
 
 ;; ===========================================================================
-;; rf2-q4i9ko / rf2-t3lftq — the frame-state read/write surface
+;; The frame-state read/write surface
 ;;
-;; rf2-t3lftq (API-shrink #3) consolidated the former four-mutator family
-;; (`replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` /
-;; `replace-frame-state!`) into ONE partial-map `replace-frame-state!`, and
-;; retired `runtime-db-value` / `snapshot-of` from the facade. These tests
+;; `replace-frame-state!` is the ONE frame-state write surface — a partial
+;; map naming the partitions it replaces — and `frame-state-value` /
+;; `app-db-value` are the reads. These tests
 ;; pin: the app-db-only / runtime-db-only / both-partition partial-patch
 ;; contracts (present key replaces, absent key preserves), the frame-state
 ;; projection shape, and the reject-bad-keys contract.
@@ -367,16 +365,15 @@
     (is (= {:k 1} (rf/app-db-value :pp/round-trip))
         "app-db-value reads the seeded app-db")
     (is (true? (rf/replace-frame-state! :pp/round-trip {:rf.db/app {:k 2 :j 9}}))
-        "replace-frame-state! returns true on success (the former replace-app-db! state-injection surface, now a one-key partial map)")
+        "replace-frame-state! returns true on success (app-db state injection is a one-key partial map)")
     (is (= {:k 2 :j 9} (rf/app-db-value :pp/round-trip))
         "app-db-value reads back exactly what replace-frame-state! wrote")))
 
 (deftest replace-frame-state-app-reset-preserves-runtime-via-core-facade
   (testing "rf/replace-frame-state! with {:rf.db/app {}} resets the app-db
             partition to {} while live runtime-db survives — the ABSENT
-            :rf.db/runtime key is PRESERVED, not nilled (EP-0001 rf2-tfepxu,
-            Mike ruling #10, generalised by rf2-t3lftq — the former
-            reset-app-db!, now a one-key partial map)"
+            :rf.db/runtime key is PRESERVED, not nilled (EP-0001; an app-db
+            reset is a one-key partial map)"
     (rf/make-frame {:id :pp/reset-app :doc "reset-app"})
     (rf/reg-event :pp/seed (fn [{:keys [db]} [_ db]] {:db db}))
     (rf/dispatch-sync [:pp/seed {:k 1 :cart {:items [9]}}] {:frame :pp/reset-app})
@@ -414,9 +411,7 @@
 
 (deftest replace-frame-state-runtime-only-preserves-app-via-core-facade
   (testing "replace-frame-state! with a runtime-only map writes ONLY the
-            runtime-db partition — the absent :rf.db/app key is PRESERVED
-            (rf2-t3lftq; the former replace-runtime-db!, now a one-key
-            partial map)"
+            runtime-db partition — the absent :rf.db/app key is PRESERVED"
     (rf/make-frame {:id :pp/rdb :doc "runtime-mutate"})
     (rf/reg-event :pp/seed-app (fn [{:keys [db]} [_ db]] {:db db}))
     (rf/dispatch-sync [:pp/seed-app {:app :data}] {:frame :pp/rdb})
@@ -428,7 +423,7 @@
 
 (deftest replace-frame-state-writes-both-partitions
   (testing "replace-frame-state! with a both-partition map installs both
-            atomically (rf2-adwcv6)"
+            atomically"
     (rf/make-frame {:id :pp/fsm :doc "frame-state-mutate"})
     (rf/replace-frame-state! :pp/fsm {:rf.db/app {:a 7} :rf.db/runtime {:rf.runtime/routing {:r 1}}})
     (is (= {:a 7} (rf/app-db-value :pp/fsm))
@@ -443,7 +438,7 @@
   (testing "replace-frame-state! rejects a map carrying no recognized
             partition key — an empty map, or a map of only unrelated keys
             — with :rf.error/replace-frame-state-bad-keys rather than
-            silently no-opping while returning true (rf2-t3lftq)"
+            silently no-opping while returning true"
     (rf/make-frame {:id :pp/bad-keys-empty :doc "bad-keys-empty"})
     (is (false? (rf/replace-frame-state! :pp/bad-keys-empty {}))
         "an empty map carries no recognized partition key — rejected")
@@ -453,7 +448,7 @@
 (deftest replace-frame-state-rejects-unknown-keys
   (testing "replace-frame-state! rejects a map carrying an unrecognized key
             alongside a recognized one — a typo'd partition key (e.g.
-            :rf.db/apps) is never silently ignored (rf2-t3lftq)"
+            :rf.db/apps) is never silently ignored"
     (rf/make-frame {:id :pp/bad-keys-typo :doc "bad-keys-typo"})
     (is (false? (rf/replace-frame-state! :pp/bad-keys-typo {:rf.db/app {:k 1} :rf.db/apps {:k 2}}))
         "an unrecognized key alongside a recognized one is rejected")
@@ -462,12 +457,11 @@
 
 (deftest partition-reader-docstrings-describe-post-landing-contract
   (testing "the `frame-state-value` public docstring describes the LIVE
-            post-rf2-adwcv6 contract — no pre-landing placeholder wording
-            (`nil` on a live frame / `until … lands`) may reappear in
-            `re-frame.core` (rf2-rxnnxh)"
-    ;; The facade is the REPL / tooling / agent-read surface; stale
-    ;; pre-partition text taught a false contract (nil on live frames).
-    ;; Pin the docstring so the stale phrases can never silently return.
+            contract — no placeholder wording (`nil` on a live frame /
+            `until … lands`) may appear in `re-frame.core`"
+    ;; The facade is the REPL / tooling / agent-read surface, so placeholder
+    ;; text claiming nil on live frames would teach a false contract. Pin the
+    ;; docstring so those phrases cannot silently appear.
     (let [stale-phrases ["until then" "until the physical partition lands"
                          "reads nil even for a live frame"
                          "lands in" "is nil until"]]
@@ -476,99 +470,95 @@
           (is (some? doc) (str sym " has a docstring"))
           (doseq [phrase stale-phrases]
             (is (not (str/includes? doc phrase))
-                (str sym "'s docstring must not carry the stale pre-landing "
+                (str sym "'s docstring must not carry the placeholder "
                      "phrase " (pr-str phrase)))))))))
 
 ;; ===========================================================================
-;; rf2-xhdwms / rf2-jkdycj / rf2-sd6amv — API-consistency renames
+;; API-consistency naming
 ;;
-;; Adversarial contract tests: the NEW (post-rename) public-facade names must
-;; resolve, and the OLD names must be GONE (pre-alpha — no back-compat alias).
-;;   - restore-epoch          → restore-epoch!           (bang: mutates state)
-;;   - reg-observability-sink! → register-observability-sink! (runtime install)
-;;   - unregister-route!      → clear-route              (declarative clear-*)
+;; Adversarial contract tests: the public-facade names below must resolve,
+;; and the rejected spellings beside them must NOT (no alias).
+;;   - restore-epoch!               not restore-epoch           (bang: mutates state)
+;;   - register-observability-sink! not reg-observability-sink! (runtime install)
+;;   - (rf/clear :route id)         not unregister-route!       (declarative clear)
 ;; ===========================================================================
 
 (deftest renamed-facade-exports-resolve-old-names-gone
-  (testing "the renamed re-frame.core facade exports resolve under their
-            NEW names and the OLD names are absent (rf2-xhdwms / rf2-jkdycj /
-            rf2-sd6amv)"
-    ;; NEW names present on the façade. `restore-epoch!` (epoch) +
-    ;; `register-observability-sink!` (observability) remain façade exports
+  (testing "the re-frame.core facade exports resolve under their bang /
+            register- names and the rejected spellings are absent"
+    ;; Names present on the façade. `restore-epoch!` (epoch) +
+    ;; `register-observability-sink!` (observability) are façade exports
     ;; (epoch is a documented late-bind façade exception; observability has no
-    ;; owned public ns). `clear-route` was DEMOTED off the façade by rf2-wad2fl
-    ;; (front-porch shrink) — it lives in `re-frame.routing` now (asserted
-    ;; below + in `renamed-impl-exports-resolve-old-names-gone`).
+    ;; owned public ns). There is no public `clear-route` (asserted below + in
+    ;; `renamed-impl-exports-resolve-old-names-gone`).
     (doseq [sym ['restore-epoch! 'register-observability-sink!]]
       (is (some? (ns-resolve 're-frame.core sym))
-          (str "re-frame.core/" sym " must resolve after the rename")))
-    ;; OLD names gone — pre-alpha, no compatibility alias.
+          (str "re-frame.core/" sym " must resolve")))
+    ;; The rejected spellings do not resolve — no compatibility alias.
     (doseq [sym ['restore-epoch 'reg-observability-sink! 'unregister-route!]]
       (is (nil? (ns-resolve 're-frame.core sym))
-          (str "re-frame.core/" sym " must be GONE (no back-compat alias)")))
-    ;; rf2-wad2fl demoted `clear-route` off the façade to its owned namespace;
-    ;; rf2-kuky.80 then deleted it there too. There is no public `clear-route`
-    ;; NAME at all now — the registrar inverse is the one kind-keyed
-    ;; `(rf/clear :route id)`, which routes through the restored
-    ;; `:routing/clear-route` late-bind hook so the removal still emits
+          (str "re-frame.core/" sym " must not resolve (no alias)")))
+    ;; There is no public `clear-route` NAME at all — the registrar inverse is
+    ;; the one kind-keyed `(rf/clear :route id)`, which routes through the
+    ;; `:routing/clear-route` late-bind hook so the removal emits
     ;; `:rf.route/cleared`.
     (is (nil? (ns-resolve 're-frame.core 'clear-route))
-        "re-frame.core/clear-route is GONE")
+        "re-frame.core/clear-route does not resolve")
     (require 're-frame.routing)
     (is (nil? (ns-resolve 're-frame.routing 'clear-route))
-        "re-frame.routing/clear-route is GONE too (rf2-kuky.80)")
+        "re-frame.routing/clear-route does not resolve either")
     (is (some? (ns-resolve 're-frame.core 'clear))
         "rf/clear is the one public registrar inverse")))
 
 ;; ===========================================================================
-;; rf2-t3lftq — API-shrink #3 (frame-state-io)
+;; Frame-state io
 ;;
 ;; Adversarial contract test: `replace-frame-state!` is the ONE frame-state
-;; write surface, and the four retired names are GONE from the façade
-;; (pre-alpha — no back-compat alias).
+;; write surface, and the retired per-partition names do not resolve on the
+;; façade (no alias).
 ;; ===========================================================================
 
 (deftest frame-state-io-shrink-old-names-gone
-  (testing "the API-shrink #3 (rf2-t3lftq) retired names are GONE from
+  (testing "the retired frame-state names do not resolve on
             re-frame.core — replace-frame-state! is the ONE frame-state
             write surface, and frame-state-value / app-db-value are the
-            retained reads"
+            reads"
     (doseq [sym ['snapshot-of 'reset-app-db! 'replace-runtime-db!
                  'replace-app-db! 'runtime-db-value]]
       (is (nil? (ns-resolve 're-frame.core sym))
-          (str "re-frame.core/" sym " must be GONE (API-shrink #3, no back-compat alias)")))
+          (str "re-frame.core/" sym " must not resolve (no alias)")))
     (doseq [sym ['replace-frame-state! 'frame-state-value 'app-db-value]]
       (is (some? (ns-resolve 're-frame.core sym))
-          (str "re-frame.core/" sym " must resolve (retained by API-shrink #3)")))))
+          (str "re-frame.core/" sym " must resolve")))))
 
 (deftest renamed-impl-exports-resolve-old-names-gone
-  (testing "the impl-side artefact functions are renamed in lock-step with the
+  (testing "the impl-side artefact functions carry the same names as the
             facade (re-frame.epoch / re-frame.routing / re-frame.observability)"
     (require 're-frame.epoch :reload)
     (require 're-frame.routing :reload)
     (require 're-frame.observability)
-    ;; NEW names present on the impl namespaces.
+    ;; Names present on the impl namespaces.
     (is (some? (ns-resolve 're-frame.epoch 'restore-epoch!))
         "re-frame.epoch/restore-epoch! resolves")
-    ;; rf2-kuky.80: `clear-route` is no longer a public name on the routing
+    ;; `clear-route` is not a public name on the routing
     ;; artefact either — `(rf/clear :route id)` reaches
     ;; `re-frame.routing.registry/clear-route` through the late-bind hook.
     (is (nil? (ns-resolve 're-frame.routing 'clear-route))
-        "re-frame.routing/clear-route is GONE (rf2-kuky.80)")
+        "re-frame.routing/clear-route does not resolve")
     (is (some? (ns-resolve 're-frame.observability 'register-observability-sink!))
         "re-frame.observability/register-observability-sink! resolves")
-    ;; OLD names gone.
+    ;; Rejected spellings do not resolve.
     (is (nil? (ns-resolve 're-frame.epoch 'restore-epoch))
-        "re-frame.epoch/restore-epoch is GONE")
+        "re-frame.epoch/restore-epoch does not resolve")
     (is (nil? (ns-resolve 're-frame.routing 'unregister-route!))
-        "re-frame.routing/unregister-route! is GONE")
+        "re-frame.routing/unregister-route! does not resolve")
     (is (nil? (ns-resolve 're-frame.observability 'reg-observability-sink!))
-        "re-frame.observability/reg-observability-sink! is GONE")))
+        "re-frame.observability/reg-observability-sink! does not resolve")))
 
 (deftest restore-epoch-bang-round-trips-under-new-name
   (testing "(rf/restore-epoch! frame-id epoch-id) rewinds a frame to a recorded
-            epoch — the renamed time-travel surface resolves a live hook and
-            mutates state (rf2-xhdwms)"
+            epoch — the time-travel surface resolves a live hook and
+            mutates state"
     (rf/make-frame {:id :rn/epoch :doc "rename-epoch"})
     (rf/reg-event :rn/seed (fn [{:keys [db]} [_ db]] {:db db}))
     (rf/dispatch-sync [:rn/seed {:step 1}] {:frame :rn/epoch})
@@ -578,11 +568,11 @@
       (is (true? (rf/restore-epoch! :rn/epoch (:epoch-id target)))
           "restore-epoch! returns true rewinding to the recorded epoch")
       (is (= {:step 1} (rf/app-db-value :rn/epoch))
-          "state rewound to the target epoch via the renamed surface"))))
+          "state rewound to the target epoch via restore-epoch!"))))
 
 (deftest clear-route-removes-route-under-new-name
-  (testing "(rf/clear :route id) removes a registered route — the renamed
-            declarative-removal surface (rf2-sd6amv)"
+  (testing "(rf/clear :route id) removes a registered route — the
+            declarative-removal surface"
     (require 're-frame.routing :reload)
     (rf/reg-route :rn/route {} "/rn")
     (is (some? (rf.routing/match-url "/rn")) "route registered + matchable")
@@ -592,8 +582,7 @@
 
 (deftest register-observability-sink-installs-under-new-name
   (testing "(rf/register-observability-sink! sink-id f) installs a sink and
-            (rf/unregister-observability-sink! sink-id) is its inverse
-            (rf2-jkdycj)"
+            (rf/unregister-observability-sink! sink-id) is its inverse"
     (is (= :rn.sinks/test
            (rf/register-observability-sink! :rn.sinks/test (fn [_record] nil)))
         "register-observability-sink! returns the sink-id on install")
@@ -601,25 +590,25 @@
         "unregister-observability-sink! is the confirmed inverse — returns nil")))
 
 ;; ===========================================================================
-;; rf2-32siq3.17 — EP-0023 `rf/image` facade export
+;; EP-0023 `rf/image` facade export
 ;; ===========================================================================
 
 (deftest image-resolves-on-the-facade
   (testing "re-frame.core/image is the public `rf/image` constructor — a MACRO
-            (rf2-v2j8e) that gates literal inline `:doc` bytes at the authoring
+            that gates literal inline `:doc` bytes at the authoring
             seam then delegates to the re-frame.image/image value fn, and builds
             an image value through the facade (EP-0023 §Image, §Public API)"
-    ;; rf2-v2j8e — the facade `rf/image` is a MACRO: `rf/image` is value-oriented,
+    ;; The facade `rf/image` is a MACRO: `rf/image` is value-oriented,
     ;; but a LITERAL inline `:registrations` metadata map `{:doc "…"}` is built at
     ;; the call site before any runtime normalization runs, and per Spec 001
     ;; §Production elision contract a runtime strip cannot DCE those call-site
     ;; string bytes. The macro gates each literal doc-bearing inline metadata slot
     ;; behind `(if interop/debug-enabled? <full> <stripped>)` then delegates to
-    ;; the unchanged value constructor `re-frame.image/image`.
+    ;; the plain value constructor `re-frame.image/image`.
     (is (:macro (meta #'rf/image))
         "rf/image is a macro (the compile-time :doc-elision authoring seam)")
     (is (fn? @#'rf.image/image)
-        "re-frame.image/image stays a plain value fn (programmatic / computed-spec callers)")
+        "re-frame.image/image is a plain value fn (programmatic / computed-spec callers)")
     (is (= 're-frame.image/image
            (first (macroexpand-1 '(re-frame.core/image {:id :x}))))
         "rf/image expands to a re-frame.image/image constructor call")
@@ -636,7 +625,7 @@
       (is (= img (rf/image {:id :docs.counter/v2
                             :select-ns {:include ["docs.quickstart.counter.v2"]}}))
           "PURE: equal spec maps return equal image values"))
-    ;; rf2-v2j8e — a LITERAL inline `:doc` metadata slot is rewritten at
+    ;; A LITERAL inline `:doc` metadata slot is rewritten at
     ;; expansion time to the `(if interop/debug-enabled? <full> <stripped>)`
     ;; gate Closure constant-folds under :advanced + goog.DEBUG=false, DCEing the
     ;; `:doc` string bytes (the elision-probe pins the CLJS bundle absence). A
