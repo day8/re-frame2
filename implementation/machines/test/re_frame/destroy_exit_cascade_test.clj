@@ -32,7 +32,8 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
+  rf.machines.test-support/trace-capture-fixture)
 
 ;; ---- (1) explicit [:rf.machine/destroy actor-id] -------------------------
 
@@ -229,11 +230,10 @@
        :states  {:a {:entry :ent-a :exit :ex-a :on {:go {:target :b :action :tx}}}
                  :b {:entry :ent-b :exit :ex-b}}})
     (rf/reg-event :dea/kill-single (fn [_ _] {:fx [[:rf.machine/destroy :dea/single]]}))
-    (let [traces (rf.machines.test-support/with-trace-capture seen
-                   (rf/dispatch-sync [:dea/single [:rf.machine/start]])
-                   (rf/dispatch-sync [:dea/single [:go]])
-                   (rf/dispatch-sync [:dea/kill-single])
-                   @seen)]
+    (rf/dispatch-sync [:dea/single [:rf.machine/start]])
+    (rf/dispatch-sync [:dea/single [:go]])
+    (rf/dispatch-sync [:dea/kill-single])
+    (let [traces (rf.machines.test-support/captured-events)]
       (is (nil? (rf.machines.test-support/snapshot :dea/single)) "the singleton is torn down")
       (is (= [[:initial-entry :dea/single :ent-a]
               [:exit          :dea/single :ex-a]
@@ -259,9 +259,9 @@
     (rf/dispatch-sync [:dea/parent [:start]])
     (let [kid    (get-in (rf.machines.test-support/runtime-db)
                          [:rf.runtime/machines :spawned :dea/parent [:working]])
-          traces (rf.machines.test-support/with-trace-capture seen
-                   (rf/dispatch-sync [:dea/parent [:stop]])
-                   @seen)]
+          _      (rf.machines.test-support/reset-captured!)
+          _      (rf/dispatch-sync [:dea/parent [:stop]])
+          traces (rf.machines.test-support/captured-events)]
       (is (= :dea/kid#1 kid))
       (is (nil? (rf.machines.test-support/snapshot kid)) "the child is torn down")
       (is (= [[kid :ex-a :rf/default]]
@@ -281,9 +281,9 @@
     (rf/dispatch-sync [:dea/final-parent [:rf.machine.spawn/spawned]])
     (let [kid    (get-in (rf.machines.test-support/runtime-db)
                          [:rf.runtime/machines :spawned :dea/final-parent [:working]])
-          traces (rf.machines.test-support/with-trace-capture seen
-                   (rf/dispatch-sync [kid [:finish]])
-                   @seen)]
+          _      (rf.machines.test-support/reset-captured!)
+          _      (rf/dispatch-sync [kid [:finish]])
+          traces (rf.machines.test-support/captured-events)]
       (is (some? kid))
       (is (nil? (rf.machines.test-support/snapshot kid)) "the finished child is torn down")
       (is (= [[kid :ex-b :rf/default]]
