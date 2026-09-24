@@ -31,8 +31,8 @@
 
 (def mutation-kind
   "The registrar kind for mutations (`:mutation`). Per Spec 016 §Deferred
-  slices / EP-0003 §Mutations. Added to the core registrar's closed kind
-  set (a Spec change); mutations register their spec under this kind."
+  slices / EP-0003 §Mutations. A member of the core registrar's closed kind
+  set; mutations register their spec under this kind."
   :mutation)
 
 ;; ---- spec validation (fail-closed at the authoring boundary) -------------
@@ -89,7 +89,7 @@
   ;; invokes the third slot as `((:request spec) params nil)`, so a non-callable
   ;; value registers cleanly and fails at the first write: a number/string as a
   ;; raw host ClassCastException with `ex-data` nil, a keyword/map SILENTLY as a
-  ;; nil args map. Same ruled core predicate (a plain fn OR a Var) — not bare
+  ;; nil args map. Same core predicate (a plain fn OR a Var) — not bare
   ;; `fn?`, because the hosts disagree on Vars (JVM `Var` implements `IFn` but
   ;; not `Fn`, so `(fn? #'my-write)` is FALSE there and TRUE in CLJS, where
   ;; `Var` lists `Fn`), and `#'my-write` is the idiomatic hot-reload
@@ -123,7 +123,7 @@
   ;; runtime (`(or (:invalidate-timing spec) :after-success)` defaults nil,
   ;; but a typo is neither nil nor matched by the `#{…}` timing guards). Reject
   ;; it loudly here so the failure is at the authoring boundary, not a silent
-  ;; runtime no-op (rf2-t8j7oj). Fails in dev AND prod (a caller bug).
+  ;; runtime no-op. Fails in dev AND prod (a caller bug).
   (let [timing (:invalidate-timing spec)]
     (when (and (some? timing) (not (contains? invalidate-timings timing)))
       (throw (registration-error
@@ -189,7 +189,7 @@
                {:mutation-id mutation-id
                 :on-conflict oc
                 :valid       rf.resources.mutation-runtime/on-conflict-policies}))))
-  ;; EP-0025 §subsystems (rf2-h3d8tf): reject a malformed projection-relative
+  ;; EP-0025 §subsystems: reject a malformed projection-relative
   ;; `:sensitive` / `:large` data-classification declaration fail-loud at the
   ;; registration boundary — the same shape contract + posture as the resource
   ;; + machine declarations (a mutation's work-row `:params` carry the same
@@ -209,7 +209,7 @@
 
 (defn reg-mutation
   "Register a mutation under `mutation-id`. Per the canonical Spec 001 3-slot
-  grammar (rf2-wvh95f F1):
+  grammar:
 
       (rf/reg-mutation :article/save
         {:doc \"Persist an article.\"
@@ -221,8 +221,8 @@
 
   The `:request` fn — the mutation's HANDLER (the Spec 014 managed-HTTP causal
   write) — is the THIRD slot; the middle slot is the reflection + config
-  metadata map. Splitting the handler out of the fused spec restores clean
-  doc-DCE (the middle slot is now a pure metadata map). A `:request` left
+  metadata map. Keeping the handler out of the metadata map keeps
+  doc-DCE clean (the middle slot is a pure metadata map). A `:request` left
   INSIDE the metadata map is rejected loudly as a mislocated key.
 
   The metadata map carries the REQUIRED `:params-schema`, plus optional:
@@ -260,7 +260,7 @@
     index + per-target scope descriptors as `:invalidates`; each matched entry
     gets the same snapshot-inverse + revision treatment;
   - **`:on-conflict`** — `:invalidate` (default) | `:force` — the EP-0019
-    Decision 3 rollback conflict rule (consumed by the SETTLE slice; recorded
+    Decision 3 rollback conflict rule (consumed by the SETTLE step; recorded
     here on the spec). `:invalidate` refetches the authoritative value on a
     contested rollback; `:force` restores the recorded inverse anyway;
   - **`:scope`** — the cache scope the invalidation / patch defaults to
@@ -284,7 +284,7 @@
   ;; otherwise leak a raw host `IllegalArgumentException` ("Key must be
   ;; integer") instead of the public `:rf.error/mutation-bad-spec`. Mirrors
   ;; reg-route's `route-bad-metadata` non-map guard. The catalogue row
-  ;; already documents "or the spec was not a map" with a `:value` slot.
+  ;; documents "or the spec was not a map" with a `:value` slot.
   (when-not (map? metadata)
     (throw (registration-error
              :rf.error/mutation-bad-spec
@@ -314,7 +314,7 @@
       mutation-id
       (rf.source-coords/merge-coords
         (merge {:doc (:doc mutation-spec)}
-               ;; rf2-nrc93 — forward the caller's image-selection stamp, as
+               ;; Forward the caller's image-selection stamp, as
                ;; `reg-resource` does: this registrar map is the kind's own
                ;; shape, so `:ns` / `:rf.provenance/ns` would otherwise be
                ;; dropped before the source store sees it (Spec 001
@@ -342,7 +342,7 @@
   mutation-id)
 
 ;; ---- registry-side introspection -----------------------------------------
-;; ARTEFACT-INTERNAL (rf2-kuky.31), exactly as `resource-meta` is: no facade
+;; ARTEFACT-INTERNAL, exactly as `resource-meta` is: no facade
 ;; re-export, and no `mutation-ids` at all. Outside callers spell the
 ;; projection in full —
 ;;   (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id id}))
@@ -393,7 +393,7 @@
   instance row stores them (serializable, for Xray / SSR), so the same
   EDN discipline applies.
 
-  `nil` vs missing is schema-defined (rf2-hgy5kf): a caller threads
+  `nil` vs missing is schema-defined: a caller threads
   `state/missing-params` for an ABSENT `:params` slot (lowered to the
   documented `{}` default via `state/default-omitted-params`), while a PRESENT
   explicit `nil` passes THROUGH to `:params-schema` validation +
@@ -403,12 +403,12 @@
   (EP-0012 §canonical-forms).
 
   A THIN wrapper over the shared `re-frame.resources.params/validate+
-  canonicalize` pipeline (rf2-7rbb7t) — the SAME leaf the resource registrar
+  canonicalize` pipeline — the SAME leaf the resource registrar
   wraps: this arm supplies ONLY the mutation-family error descriptor
   (`:rf.error/mutation-invalid-params` with a `:mutation-id`); the
   omitted-default, non-EDN rejection, late-bound schema validation,
   invalid-param REDACTION (the shared classification seam), and canonicalization
-  are owned once there, so the two registrars can never drift again."
+  are owned once there, so the two registrars cannot drift apart."
   [mutation-id spec params where]
   (rf.resources.params/validate+canonicalize
     mutation-id spec params where
@@ -431,22 +431,21 @@
   when NO scope is named anywhere is correct here. This is distinct from the
   mutation's INVALIDATION scope, which IS fail-closed:
   `:rf.resource/invalidate-tags` throws
-  `:rf.error/resource-invalidate-scope-required` without an explicit scope
-  (rf2-pvdae1), `:cross-scope? true` being the only scope-agnostic opt-out.
+  `:rf.error/resource-invalidate-scope-required` without an explicit scope,
+  `:cross-scope? true` being the only scope-agnostic opt-out.
   The resolved scope below is what the success-time invalidation supplies, so
   the two compose: this fail-open-on-absence execution default decides which
   cache scope the success-time `:invalidate-tags` / patch / populate target.
 
-  **The selected scope is a public ScopeInput** (rf2-l11670, Spec 016
+  **The selected scope is a public ScopeInput** (Spec 016
   §Resolver references): a CONCRETE scope value OR a `{:from-db
   <resolver-id>}` named-resolver reference, resolved against `db` (the
   execute handler's app-db coeffect) at event-execution time through the
   single symmetric resolution arm (`rf.resources.scope-registry/resolve-scope-input`) —
   `:rf.mutation/execute` is its third consumer, alongside the direct
-  invalidate-tags / clear-scope events (rf2-oo8cv7). A reference is NEVER
+  invalidate-tags / clear-scope events. A reference is NEVER
   canonicalized literally (a literal `{:from-db …}` map keys nothing, so
-  every downstream tag match fails as a silent zero-match — the exact
-  failure mode rf2-oo8cv7 eliminated on invalidate-tags). The mutation
+  every downstream tag match would fail as a silent zero-match). The mutation
   engine, trace, instance record, and continuation projections only ever
   see the RESOLVED concrete scope. An unregistered resolver id throws
   `:rf.error/resource-scope-not-registered` (via the shared arm) BEFORE any
@@ -462,11 +461,11 @@
   governs ONLY the absent case (no payload scope, no spec scope).
 
   The concrete arm routes through the SAME shared validation path resources
-  use (`state/canonicalize-scope` via `resolve-scope-input`, rf2-lzv9xc): a
+  use (`state/canonicalize-scope` via `resolve-scope-input`): a
   host / opaque scope value is rejected, a misspelled reserved `:rf.scope/*`
-  keyword is rejected fail-closed (rf2-pd7akw), and the reserved global
+  keyword is rejected fail-closed, and the reserved global
   scope wrapped as the singleton `[:rf.scope/global]` is rejected fail-closed
-  in favour of the canonical bare `:rf.scope/global` (rf2-bwwk6l) — so a
+  in favour of the canonical bare `:rf.scope/global` — so a
   mutation can never invalidate / patch a silent WRONG cache scope. Returns
   the canonical concrete scope. Per EP-0003 §Mutations (hybrid scope:
   fail-open on ABSENT execution scope, fail-closed on a wrong or
