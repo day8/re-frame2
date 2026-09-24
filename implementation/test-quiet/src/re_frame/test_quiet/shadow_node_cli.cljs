@@ -11,8 +11,8 @@
   here lets `re-frame.test-quiet-shadow-node-cljs-test` pin the `--test=`
   selection contract directly.
 
-  Same shape `shadow.test.node` ships, so the existing
-  `npm run test:cljs -- --test=foo` form keeps working."
+  Same shape `shadow.test.node` ships, so the
+  `npm run test:cljs -- --test=foo` form works as it does there."
   (:require [clojure.string :as str]))
 
 (defn parse-args
@@ -58,14 +58,12 @@
   `(symbol <ns-symbol> <name-symbol>)` keeps the two parts UNCONVERTED, and
   ClojureScript hashes a symbol by hashing those parts as strings: a Symbol
   object has no `.length`, so every symbol built that way hashes to the same
-  constant.  It stays `=` to the reader's `ns/name`, which is what made this
+  constant.  It stays `=` to the reader's `ns/name`, which is what makes this
   invisible — a set finds such a key by `=` while it is small enough to be
   array-map-backed, and stops finding it above eight entries, where the set
-  hashes.  So `--test=` selected correctly for up to eight qualified
-  selectors and silently selected NOTHING at nine.  Measured, then fixed,
-  while pointing the contract test at this function (rf2-6r9j.76); the copy
-  of the predicate it replaced could not have found it.  The namespace half
-  is rebuilt the same way so the two cannot drift apart."
+  hashes.  So without the `str` round-trip, `--test=` would select correctly
+  for up to eight qualified selectors and silently select NOTHING at nine.
+  The namespace half is rebuilt the same way so the two cannot drift apart."
   [test-var]
   (let [{test-namespace :ns test-name :name} (meta test-var)]
     [(symbol (str test-namespace))
@@ -82,9 +80,8 @@
   this function over `shadow.test.env/get-test-vars`.  It lives here, apart
   from the `:dev/always` runner ns, for the same reason `unmatched-selectors`
   below does: a test cannot require that ns without forming a compile cycle,
-  so a rule kept there could only be pinned by a second, handwritten copy of
-  the predicate — which is exactly the false green this move closes
-  (rf2-6r9j.76)."
+  so a rule placed there could only be pinned by a second, handwritten copy
+  of the predicate — the false green that keeping it here avoids."
   [test-selectors test-vars]
   (let [selected-namespaces  (->> test-selectors (filter simple-symbol?) set)
         selected-var-symbols (->> test-selectors (filter qualified-symbol?) set)]
@@ -95,15 +92,16 @@
             test-vars)))
 
 ;; ----------------------------------------------------------------------
-;; Whole-suite test-count floor (rf2-qqzmf).
+;; Whole-suite test-count floor.
 ;;
-;; `unmatched-selectors` below already refuses to call a `--test=` selection
-;; that matched nothing a success. The whole-suite path had no such guard:
+;; `unmatched-selectors` below refuses to call a `--test=` selection that
+;; matched nothing a success. The whole-suite path needs the same guard:
 ;; `shadow.build.test-util/find-test-namespaces` returns `[]` when a build's
 ;; `:ns-regexp` matches nothing and says nothing about it, so a one-character
-;; suffix drift or a dropped `:source-paths` entry emptied a lane and still
-;; printed `Ran 0 tests containing 0 assertions. / 0 failures, 0 errors.`
-;; The floor generalises the selector guard to that path. Kept here, beside
+;; suffix drift or a dropped `:source-paths` entry would otherwise empty a
+;; lane and still print
+;; `Ran 0 tests containing 0 assertions. / 0 failures, 0 errors.`
+;; The floor applies the selector guard to that path. It lives here, beside
 ;; it, because both express the same rule and both must stay unit-pinnable
 ;; without importing the `:dev/always` runner ns.
 
