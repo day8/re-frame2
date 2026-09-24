@@ -1,15 +1,16 @@
 (ns re-frame.resources-ssr-cljs-test
-  "SSR / hydration for the Resources artefact (rf2-ctk2av, Spec 016 §SSR
-  and hydration / §Restore and replay — EP-0003 slice 8).
+  "SSR / hydration for the Resources artefact (Spec 016 §SSR
+  and hydration / §Restore and replay).
 
-  These JVM+CLJS unit tests pin the SSR slice's contract. SSR runs on the
+  These JVM+CLJS unit tests pin the SSR contract. SSR runs on the
   JVM, so the whole suite is CLJC and the JVM run (`clojure -M:test`) is
   the load-bearing gate:
 
     1. SERVER projection — `project-resources-runtime-db` rides ONLY the
-       durable `:entries` (never the indexes; never all of runtime-db); a
-       `:sensitive?` resource is REDACTED (metadata only); a `:large?`
-       resource is OMITTED (no data key); `projection-metadata` records
+       durable `:entries` (never the indexes; never all of runtime-db); the
+       row of a `:sensitive?` resource (disposition `:redacted`) or a
+       `:large?` resource (disposition `:omitted`) is WITHHELD, leaving
+       metadata only; `projection-metadata` records
        the serialized / redacted / omitted / fresh / stale /
        refetch-on-client decision per entry;
     2. SERVER blocking drain — `blocking-settled?` is true iff every
@@ -120,8 +121,8 @@
           :refresh-error  refresh-error}))
 
 (defn- runtime-db-with
-  "A runtime-db carrying a `:rf.runtime/resources :entries` map. rf2-9e0tyq:
-  the runtime keys `:entries` on the CEDN-1 byte `key-id` and stamps each
+  "A runtime-db carrying a `:rf.runtime/resources :entries` map.
+  The runtime keys `:entries` on the CEDN-1 byte `key-id` and stamps each
   entry's own `:resource/key` vector, so this helper RE-KEYS the
   `{scoped-key-vector entry}` map callers supply into the runtime's
   `{key-id (assoc entry :resource/key scoped-key)}` shape — the call sites
@@ -133,7 +134,7 @@
                                        entries)
                         :tag-index {} :owner-index {}}})
 
-;; rf2-9e0tyq — the runtime keys `:entries` on the CEDN-1 byte `key-id` and
+;; The runtime keys `:entries` on the CEDN-1 byte `key-id` and
 ;; stamps each entry's `:resource/key`. These helpers build / read the
 ;; byte-keyed `:entries` map directly so the unit tests speak the runtime's
 ;; shape (the `key-id` translation is what `blocking-settled?` /
@@ -148,7 +149,7 @@
 
 (defn- blocking-map
   "The byte-keyed blocking carrier `{<key-id> <scoped-key>}` the route slice
-  writes and the drain consumes (rf2-btdl1)."
+  writes and the drain consumes."
   [& ks]
   (into {} (map (juxt rf.resources.state/key-id identity)) ks))
 
@@ -183,7 +184,7 @@
 
 (defn- only-wire-entry
   "The single projected wire entry as `[projected-scoped-key wire-entry]` from
-  a one-entry projection. rf2-9e0tyq: the projection MAP is keyed on the
+  a one-entry projection. The projection MAP is keyed on the
   opaque byte `key-id`; the projected SCOPED KEY (scope+params verbatim for a
   `:serialize` resource, redacted for `:sensitive?` / `:large?`) rides as the
   wire entry's own `:resource/key`. The privacy/distinctness assertions are
@@ -197,21 +198,21 @@
   "The single per-entry projection metadata map for a one-entry runtime-db,
   against the same fixed clock the other metadata tests read (5000).
 
-  rf2-4bjep — this is the observation point for an entry whose ROW is withheld.
+  This is the observation point for an entry whose ROW is withheld.
   A coarse `:redact` / `:omit` entry is re-keyed on both components, so like a
   per-slot-declared `:serialize` entry it is not addressable by the key the live
-  client derives and its row does not ride at all. The projection decision is
-  still fully observable — `:disposition` says why, `:projected-key` says what
+  client derives and its row does not ride at all. The projection decision
+  stays fully observable — `:disposition` says why, `:projected-key` says what
   it projected to, `:withheld?` says the row did not ride — which is what keeps
-  the SSR and trace-egress derivations of one answer comparable (rf2-5e2ye,
-  rf2-dl7bz) now that the wire entry is no longer a carrier."
+  the SSR and trace-egress derivations of one answer comparable, since the wire
+  entry carries none of it."
   [runtime-db]
   (first (rf.resources.ssr/projection-metadata
            nil 5000 (get-in runtime-db [rf.resources.state/resources-key :entries]))))
 
 (deftest sensitive-resource-row-is-withheld-not-shipped-redacted
   (reg! :secret/thing {:sensitive? true})
-  (testing "rf2-4bjep — a `:sensitive?` resource's row does not ride AT ALL. Its
+  (testing "a `:sensitive?` resource's row does not ride AT ALL. Its
             key is re-keyed on both components, so no live client can address
             it, and an emptied row would be an ownerless duplicate nothing
             collects. The projection decision stays fully observable on the
@@ -233,7 +234,7 @@
       (is (true? (:withheld? m)))
       (is (true? (:refetch-on-client? m)) "and admits the client must fetch it")
       (is (= :loaded (:status m)) "metadata (status / timestamps) is still reported")
-      (testing "rf2-otms75 — the projected KEY's scope + params are redacted"
+      (testing "the projected KEY's scope + params are redacted"
         (is (= :secret/thing (nth wk 1)) "the resource-id rides verbatim (position 1, never sensitive)")
         (is (contains? (nth wk 0) :rf/redacted)
             "the scope is a redaction token, not the raw scope")
@@ -244,7 +245,7 @@
 
 (deftest large-resource-row-is-withheld-not-shipped-omitted
   (reg! :big/thing {:large? true})
-  (testing "rf2-4bjep — the same for a `:large?` resource. The two coarse arms
+  (testing "the same for a `:large?` resource. The two coarse arms
             differ in what they do to the data and not at all in what they do to
             the key, so withholding reaches both"
     (let [k   (rf.resources.state/scoped-resource-key :rf.scope/global :big/thing {:slug "b"})
@@ -259,7 +260,7 @@
       (is (= :omitted (:disposition m)))
       (is (true? (:withheld? m)))
       (is (true? (:refetch-on-client? m)))
-      (testing "rf2-otms75 — the large resource's scope + params are redacted in the key"
+      (testing "the large resource's scope + params are redacted in the key"
         (is (= :big/thing (nth wk 1)))
         (is (contains? (nth wk 2) :rf/redacted) "the (large) params do not ride raw")
         (is (not= {:slug "b"} (nth wk 2)))))))
@@ -281,11 +282,11 @@
           k-stale (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "y"})
           k-sens  (rf.resources.state/scoped-resource-key :rf.scope/global :secret/thing {:slug "s"})
           k-big   (rf.resources.state/scoped-resource-key :rf.scope/global :big/thing {:slug "b"})
-          ;; rf2-9e0tyq — `projection-metadata` reads each entry's own
+          ;; `projection-metadata` reads each entry's own
           ;; `:resource/key` (the `:entries` map is byte-keyed), so stamp it
           ;; (mirrors the runtime's byte-keyed `:entries` shape). The returned
           ;; metadata `:resource/key` is the scoped-key VECTOR, so the
-          ;; `(metas k-…)` vector lookups below stay unchanged.
+          ;; `(metas k-…)` lookups below use the vector directly.
           metas   (->> (rf.resources.ssr/projection-metadata
                          nil 5000
                          (entries* {k-fresh fresh k-stale stale k-sens sens k-big big}))
@@ -304,7 +305,7 @@
       (is (true?         (:refetch-on-client? (metas k-big)))))))
 
 ;; ===========================================================================
-;; 1b. Scoped-KEY privacy: align key scope+params with classification (rf2-otms75)
+;; 1b. Scoped-KEY privacy: align key scope+params with classification
 ;; ===========================================================================
 ;;
 ;; A :sensitive? / :large? resource's scope + params must NOT ride RAW in the
@@ -313,11 +314,10 @@
 ;; {:rf/redacted <digest>} tokens — distinct values stay distinct, the raw
 ;; identity does not ride, and the resource-id (position 1) is preserved.
 ;;
-;; rf2-4bjep — the coarse arms' rows no longer RIDE at all (§1), so these
-;; claims are now read off `projection-metadata`'s `:projected-key`, which is
-;; the one observation point for the projection's answer whether or not a row
-;; ships. They are not weaker for it: `:projected-key` is byte-identical to what
-;; used to ride, and the row's absence is asserted here too.
+;; The coarse arms' rows do not RIDE at all (§1), so these claims are read off
+;; `projection-metadata`'s `:projected-key`, which is the one observation point
+;; for the projection's answer whether or not a row ships. The row's absence is
+;; asserted here too.
 
 (deftest serialize-resource-key-rides-verbatim
   (reg! :article/by-slug)
@@ -345,10 +345,10 @@
         (is (not (str/includes? s "alice@example.com")) "no raw user in the key")
         (is (not (str/includes? s "acme")) "no raw tenant in the key")
         (is (not (str/includes? s "secret-42")) "no raw param in the key"))
-      ;; …nor anywhere on the wire, which now carries no row for this entry at
-      ;; all. rf2-4bjep: a 32-bit digest of a low-entropy identity is
-      ;; enumerable, so the TOKEN was itself a small egress of what the coarse
-      ;; claim asked to hide, and withholding removes its last carrier.
+      ;; …nor anywhere on the wire, which carries no row for this entry at
+      ;; all. A 32-bit digest of a low-entropy identity is enumerable, so a
+      ;; TOKEN would itself be a small egress of what the coarse claim asks to
+      ;; hide, and withholding the row removes its last carrier.
       (let [s (pr-str (rf.resources.ssr/project-resources-runtime-db rdb))]
         (is (not (str/includes? s "alice@example.com")))
         (is (not (str/includes? s "acme")))
@@ -358,11 +358,11 @@
 
 (deftest sensitive-keys-collapse-and-that-is-safe
   (reg! :secret/thing {:sensitive? true})
-  (testing "rf2-hzcv8 — two distinct SENSITIVE entries now project to the SAME
-            key. Distinctness was bought with a content-derived token, and a
+  (testing "two distinct SENSITIVE entries project to the SAME
+            key. Distinctness would take a content-derived token, and a
             content-derived token over a low-entropy identity is recoverable by
             enumeration, so the trade is settled the other way: joins lose,
-            because the token they were bought with was the leak"
+            because the token that would buy them is the leak"
     (let [k1 (rf.resources.state/scoped-resource-key :rf.scope/global :secret/thing {:slug "alpha"})
           k2 (rf.resources.state/scoped-resource-key :rf.scope/global :secret/thing {:slug "beta"})
           e1 (entry {:resource-id :secret/thing :data {:s 1} :loaded-at 1000 :stale-at 9.0e15})
@@ -381,10 +381,10 @@
                                 (not= {:slug "beta"} (nth wk 2)))) wks)
           "neither projected key carries the raw params")))
 
-  (testing "and the collapse costs nothing, because BOTH rows were already
+  (testing "and the collapse costs nothing, because BOTH rows are
             withheld — the withholding matches the token by its :rf/redacted
             KEY, never by its payload, so no two entries can collide onto one
-            surviving wire row (PR #7391 preserved)"
+            surviving wire row"
     (let [k1 (rf.resources.state/scoped-resource-key :rf.scope/global :secret/thing {:slug "alpha"})
           k2 (rf.resources.state/scoped-resource-key :rf.scope/global :secret/thing {:slug "beta"})
           e1 (entry {:resource-id :secret/thing :data {:s 1} :loaded-at 1000 :stale-at 9.0e15})
@@ -396,9 +396,9 @@
 
 (deftest large-keys-stay-distinct-no-collision
   (reg! :bulky/thing {:large? true})
-  (testing "rf2-hzcv8 CONTROL — `:large?` is a SIZE claim, not a privacy claim,
-            so a content-derived token is permitted there and is KEPT. Two
-            distinct large entries still project to distinct keys, which is what
+  (testing "CONTROL — `:large?` is a SIZE claim, not a privacy claim,
+            so a content-derived token is permitted there. Two
+            distinct large entries project to distinct keys, which is what
             makes this a real classification split rather than a blanket removal"
     (let [k1 (rf.resources.state/scoped-resource-key :rf.scope/global :bulky/thing {:slug "alpha"})
           k2 (rf.resources.state/scoped-resource-key :rf.scope/global :bulky/thing {:slug "beta"})
@@ -425,37 +425,34 @@
         (is (= :r (nth r1 1)) "resource-id preserved")
         (is (contains? (nth r1 2) :rf/redacted))
         (is (= r1 r2)
-            "rf2-hzcv8 — SENSITIVE keys no longer stay distinct: the token that
-             kept them apart was the enumerable one")
+            "SENSITIVE keys do not stay distinct: a token that kept them apart
+             would be enumerable")
         (is (= r1 (rf.resources.ssr/project-scoped-key k1 :redact nil)) "deterministic"))
       (let [o1 (rf.resources.ssr/project-scoped-key k1 :omit nil)
             o2 (rf.resources.ssr/project-scoped-key k2 :omit nil)]
         (is (not= o1 o2) ":omit (large) keeps distinctness — a size claim permits a digest")
         (is (not= (rf.resources.ssr/project-scoped-key k1 :redact nil) o1)
-            ":redact and :omit no longer project identically — the payload is
-             chosen by classification (rf2-hzcv8)")))))
+            ":redact and :omit project differently — the payload is
+             chosen by classification")))))
 
-;; ---- the token contract, per classification (rf2-4bjep / rf2-hzcv8) --------
+;; ---- the token contract, per classification --------------------------------
 ;;
-;; `redact-value` used to emit `fnv-1a-32` of `(pr-str value)` for EVERY
-;; classification alike, and two separate things were wrong with it.
+;; `redact-value` emits a digest only for the classification that PERMITS one.
+;; A sensitive value gets a content-FREE shape token, because a 32-bit token
+;; over a low-entropy tenant id is recoverable by enumeration, so "we hashed it"
+;; would be a false assurance.
 ;;
-;; The digest was not cross-host stable (rf2-4bjep): the JVM branch hashed UTF-8
-;; bytes with exact integer arithmetic, while the CLJS branch hashed UTF-16 CODE
-;; UNITS masked to their low byte, multiplied 32-bit states with a double `*`
-;; whose product exceeds 2^53, and emitted a SIGNED result. That is fixed in
-;; `fnv-1a-32` itself and the fixture below still pins it.
+;; Where a digest does ride, it is `fnv-1a-32` over `identity/canonical-bytes`,
+;; the repo's identity authority, so it is a fixed function of the CANONICAL
+;; value. Hashing `(pr-str value)` would not be: `pr-str` walks a map in
+;; iteration order, so `(array-map :a 1 :b 2)` and `(array-map :b 2 :a 1)` —
+;; which are `=` and have equal canonical bytes — would emit different digests.
 ;;
-;; And it was not a fixed function of the CANONICAL value (rf2-hzcv8): `pr-str`
-;; walks a map in iteration order, so `(array-map :a 1 :b 2)` and
-;; `(array-map :b 2 :a 1)` — which are `=` and have equal canonical bytes —
-;; emitted different digests. The digest now hashes `identity/canonical-bytes`,
-;; the repo's identity authority, which has that property by construction.
-;;
-;; The deeper repair is that the digest is now limited to the classification
-;; that PERMITS one. A sensitive value gets a content-FREE shape token, because
-;; a 32-bit token over a low-entropy tenant id is recoverable by enumeration and
-;; "we hashed it" was a false assurance.
+;; The digest must also be cross-host stable. The JVM branch hashes UTF-8 bytes
+;; with exact integer arithmetic; a CLJS branch that hashed UTF-16 CODE UNITS
+;; masked to their low byte, multiplied 32-bit states with a double `*` whose
+;; product exceeds 2^53, or emitted a SIGNED result would diverge from it. The
+;; fixture below pins the two branches equal.
 ;;
 ;; This fixture is what makes the cross-host claim testable rather than
 ;; asserted. It is a `.cljc` deftest with LITERAL expected digests, so the JVM
@@ -472,7 +469,7 @@
 (def ^:private emoji-str (str "a" (char 0xd83d) (char 0xde00) "b"))   ;; "a<U+1F600>b"
 
 (deftest sensitive-redaction-emits-no-content-derived-token
-  (testing "rf2-hzcv8 — the SENSITIVE arm (and every caller that names no
+  (testing "the SENSITIVE arm (and every caller that names no
             disposition, which is the fail-closed default) emits a token whose
             every slot is a closed-vocabulary tag or an integer. There is no
             candidate space to enumerate against it: every 6-character string
@@ -497,13 +494,13 @@
     (is (= {:rf/redacted {:type :number}} (rf.resources.ssr/redact-value 1.5)))))
 
 (deftest large-redaction-digest-is-byte-identical-across-clj-and-cljs
-  (testing "rf2-4bjep / rf2-hzcv8 — the `:omit` (large) digest is a fixed
+  (testing "the `:omit` (large) digest is a fixed
             function of the value's CANONICAL BYTES on EVERY host. The expected
             digests are literals checked by both runs of this `.cljc`, which is
             the only shape of assertion that can catch one host drifting"
     (is (= {:rf/redacted "d6a56084"} (rf.resources.ssr/redact-value "tenant" :omit))
-        "ASCII: the case the two fnv branches disagreed on even though their
-         bytes were identical — the double multiply lost the low bits")
+        "ASCII: the bytes are identical on both hosts, so only the arithmetic
+         can differ — a double multiply would lose the low bits")
     (is (= {:rf/redacted "475d8714"} (rf.resources.ssr/redact-value "" :omit))
         "the empty string still hashes (it is not the nil/empty-COLLECTION case)")
     (is (= {:rf/redacted "3fb1602a"} (rf.resources.ssr/redact-value cafe-str :omit))
@@ -516,9 +513,9 @@
     (is (= {:rf/redacted nil} (rf.resources.ssr/redact-value nil :omit)))))
 
 (deftest large-redaction-digest-is-a-function-of-the-canonical-value
-  (testing "rf2-hzcv8's concrete witness — `(array-map :a 1 :b 2)` and
+  (testing "the concrete witness — `(array-map :a 1 :b 2)` and
             `(array-map :b 2 :a 1)` are `=`, have equal canonical bytes, and
-            emitted 943e4859 / 08a47259 under `pr-str`. Hashing
+            would emit 943e4859 / 08a47259 under `pr-str`. Hashing
             identity/canonical-bytes makes them ONE token, on both hosts"
     (is (= (rf.resources.ssr/redact-value (array-map :a 1 :b 2) :omit)
            (rf.resources.ssr/redact-value (array-map :b 2 :a 1) :omit)))
@@ -536,9 +533,10 @@
     (is (= {:rf/redacted {:type :number}} (rf.resources.ssr/redact-value 1.5 :omit)))))
 
 (deftest the-large-redaction-digest-has-the-shape-it-documents
-  (testing "rf2-4bjep — 8 lower-case hex characters, always. The CLJS branch's
-            `bit-and` yielded a SIGNED int32, so about half of all inputs came
-            out as a NEGATIVE 9-character string with a leading `-`. Stated over
+  (testing "8 lower-case hex characters, always. CLJS `bit-and`
+            yields a SIGNED int32, so rendering it unconverted would turn about
+            half of all inputs into a NEGATIVE 9-character string with a
+            leading `-`. Stated over
             a spread wide enough to hit the negative half rather than over one
             lucky value"
     (let [digests (into []
@@ -551,8 +549,8 @@
           (str "every digest is 8 lower-case hex chars — "
                (pr-str (remove (fn [d] (re-matches #"[0-9a-f]{8}" d)) digests))))
       (is (some (fn [d] (>= (compare d "80000000") 0)) digests)
-          "…and the spread reaches the high half, so the signed-int32 defect
-           would have been in range rather than merely unlucky to miss")
+          "…and the spread reaches the high half, so a signed-int32 render
+           would be in range rather than merely unlucky to miss")
       (is (= 256 (count (set digests)))
           "and the 256 distinct values keep 256 distinct digests"))))
 
@@ -613,12 +611,12 @@
     (let [kmiss (rf.resources.state/scoped-resource-key :rf.scope/global :missing {})
           {:keys [entries route-blocking-failure]}
           (rf.resources.ssr/settle-blocking-timeout {} (blocking-map kmiss) 100 :app/main)]
-      ;; rf2-9e0tyq — the settled entry is keyed on the byte key-id.
+      ;; the settled entry is keyed on the byte key-id.
       (is (= :error (:status (entry-by entries kmiss))))
       (is (= #{kmiss} (set (:timed-out route-blocking-failure)))))))
 
 ;; ===========================================================================
-;; 2b. SERVER blocking-drain LOOP (rf2-er7qx2 — wired into the render path)
+;; 2b. SERVER blocking-drain LOOP (wired into the render path)
 ;; ===========================================================================
 ;;
 ;; `drain-blocking-resources!` is the LOOP the host render path (Ring /
@@ -641,8 +639,7 @@
 (defn- with-blocking-slot
   "Add a routing slice naming `nav-token` live + a `:resource-blocking` slot
   holding `blocking-keys` for it as the byte-keyed `{<key-id> <scoped-key>}`
-  carrier, into `runtime-db` (mirrors what the route slice writes on entry —
-  rf2-btdl1)."
+  carrier, into `runtime-db` (mirrors what the route slice writes on entry)."
   [runtime-db nav-token blocking-keys]
   (-> runtime-db
       (assoc-in [:rf.runtime/routing :current :nav-token] nav-token)
@@ -760,8 +757,8 @@
            (rf.late-bind/get-fn :resources/drain-blocking-ssr!)))))
 
 ;; ===========================================================================
-;; 2c. SSR blocking drain ↔ WORK-LEDGER TERMINAL completion (rf2-jnrotz,
-;;     EP-0011 §SSR, Preload, Hydration, And Restore / validation item
+;; 2c. SSR blocking drain ↔ WORK-LEDGER TERMINAL completion (EP-0011
+;;     §SSR, Preload, Hydration, And Restore / validation item
 ;;     "SSR preload: blocking route resources settle through ledger terminal
 ;;     statuses")
 ;; ===========================================================================
@@ -793,7 +790,7 @@
 
 (deftest drain-releases-only-when-work-ledger-row-terminal-real-path
   (reg! :article/by-slug)
-  (testing "rf2-jnrotz — a blocking resource enqueued through the REAL resource
+  (testing "a blocking resource enqueued through the REAL resource
             path settles the ENTRY and the WORK-LEDGER ROW together; when the
             SSR drain releases, the associated ledger row is TERMINAL and the
             host handle is cleared (EP-0011 §SSR: SSR waits for ledger rows to
@@ -857,7 +854,7 @@
 
 (deftest drain-blocks-while-work-ledger-row-non-terminal-real-path
   (reg! :article/by-slug)
-  (testing "rf2-jnrotz ADVERSARIAL: while the work-ledger row stays NON-terminal
+  (testing "ADVERSARIAL: while the work-ledger row stays NON-terminal
             (the real reply never lands, so the entry stays :loading), the SSR
             drain MUST NOT release — it blocks until the render deadline, then
             settles the entry to a first-load failure (it never releases on a
@@ -891,7 +888,7 @@
 
 (deftest hydration-projection-ships-no-work-ledger-rows
   (reg! :article/by-slug)
-  (testing "rf2-jnrotz — the SSR hydration projection rides ONLY the durable
+  (testing "the SSR hydration projection rides ONLY the durable
             resource :entries; the work-ledger subtree (host work facts) NEVER
             rides the hydration wire (EP-0011 §SSR: hydration serializes the
             allowed resource projection, not host work)"
@@ -974,7 +971,7 @@
       (is (= rdb (rf.resources.ssr/hydrate-runtime-db rdb :app/main))))))
 
 ;; ===========================================================================
-;; 3b. Hydrated NON-TERMINAL entries settle to last-stable (rf2-bg6qah)
+;; 3b. Hydrated NON-TERMINAL entries settle to last-stable
 ;; ===========================================================================
 ;;
 ;; The server projection (`project-entry`) STRIPS `:current-work` on the wire
@@ -984,11 +981,11 @@
 ;; double-fetch) yet has no fetch in flight, so it would render `:fetching`
 ;; forever. `hydrate-runtime-db` settles each entry to its last STABLE status
 ;; (the same `settle-entry-to-last-stable` the restore reconcile applies), so
-;; the planner then classifies it correctly. The four acceptance cases:
+;; the planner then classifies it correctly. The four cases:
 ;; loading-no-data, fetching-fresh-data, fetching-stale-data, fresh-loaded.
 
 (deftest hydrate-settles-loading-no-data-to-idle-then-refetches
-  (testing "rf2-bg6qah — a hydrated :loading entry with NO data settles to :idle
+  (testing "a hydrated :loading entry with NO data settles to :idle
             (never stranded :loading), and the refetch plan then refetches it"
     (let [e   (entry {:resource-id :article/by-slug :status :loading :data nil})
           out (rf.resources.ssr/hydrate-runtime-db (runtime-db-with {gkey e}) :app/main)
@@ -1000,9 +997,9 @@
         (is (= :no-data (:reason (plan gkey))))))))
 
 (deftest hydrate-settles-fetching-fresh-data-to-loaded-no-double-fetch
-  (testing "rf2-bg6qah — a hydrated :fetching entry with FRESH data settles to
+  (testing "a hydrated :fetching entry with FRESH data settles to
             :loaded and is NOT refetched (the dangling-fetching no-double-fetch
-            case the bead calls out)"
+            case)"
     (let [e   (entry {:resource-id :article/by-slug :status :fetching
                       :data {:t "fresh"} :loaded-at 1000 :stale-at 9.0e15})
           out (rf.resources.ssr/hydrate-runtime-db (runtime-db-with {gkey e}) :app/main)
@@ -1015,7 +1012,7 @@
             "the settled fresh-with-data entry is NOT refetched (no double-fetch — the SSR win)")))))
 
 (deftest hydrate-settles-fetching-stale-data-to-loaded-background-refetch
-  (testing "rf2-bg6qah — a hydrated :fetching entry with STALE data settles to
+  (testing "a hydrated :fetching entry with STALE data settles to
             :loaded (keep last-known-good) and background-refetches"
     (let [e   (entry {:resource-id :article/by-slug :status :fetching
                       :data {:t "stale"} :loaded-at 1000 :stale-at 1500})  ;; stale vs 5000
@@ -1029,7 +1026,7 @@
             "the settled stale entry background-refetches (stale-while-revalidate)")))))
 
 (deftest hydrate-fresh-loaded-data-rides-through-no-double-fetch
-  (testing "rf2-bg6qah — a NORMAL fresh :loaded entry rides through unchanged
+  (testing "a NORMAL fresh :loaded entry rides through unchanged
             (already stable) and is NOT refetched"
     (let [e   (entry {:resource-id :article/by-slug :status :loaded
                       :data {:t "kept"} :loaded-at 1000 :stale-at 9.0e15})
@@ -1043,7 +1040,7 @@
 
 (deftest hydrate-end-to-end-project-then-hydrate-fetching-entry-settles
   (reg! :article/by-slug)
-  (testing "rf2-bg6qah ADVERSARIAL end-to-end: a server-side :fetching entry
+  (testing "ADVERSARIAL end-to-end: a server-side :fetching entry
             PROJECTS (stripping :current-work, keeping :status :fetching) and on
             HYDRATION settles to a stable status — never installed as a dangling
             :fetching with no work"
@@ -1054,7 +1051,7 @@
           [wk we] (only-wire-entry proj)]
       (is (= :fetching (:status we)) "the projection keeps the entry's :fetching status on the wire")
       (is (not (contains? we :current-work)) "the projection strips :current-work on the wire")
-      ;; rf2-9e0tyq — install the REAL projected (byte-keyed) map; look the
+      ;; install the REAL projected (byte-keyed) map; look the
       ;; settled entry up by the byte `key-id` of the projected scoped key.
       (let [installed proj
             out (rf.resources.ssr/hydrate-runtime-db installed :app/main)
@@ -1104,17 +1101,17 @@
 
 ;; ===========================================================================
 ;; 4a-bis. Empty infinite feed hydrates into a REFETCH, not fresh-forever
-;;         (rf2-x76af2.11)
 ;; ===========================================================================
 ;;
 ;; An infinite feed's `:data` is the ordered PAGE VECTOR seeded `[]` (EP-0021
 ;; R1). An SSR-serialized infinite feed that was ensured but never drained rides
-;; the wire with `:data []`, `:infinite? true`, `:stale-at nil`. The pre-fix
-;; `hydrated-data-usable?` used `(some? :data)`, so `[]` read as fresh-with-data
-;; → EXCLUDED from the refetch plan → the feed rendered permanently empty with no
-;; error and no recovery (a terminal no-op `load-more`). The fix delegates the
-;; usable-data question to `rf.resources.state/has-data?` (whose infinite branch is
-;; `(seq data)`), so an empty page vector is correctly refetched on hydration.
+;; the wire with `:data []`, `:infinite? true`, `:stale-at nil`.
+;; `hydrated-data-usable?` delegates the usable-data question to
+;; `rf.resources.state/has-data?` (whose infinite branch is `(seq data)`), so an
+;; empty page vector is refetched on hydration. A `(some? :data)` test would
+;; read `[]` as fresh-with-data → EXCLUDED from the refetch plan → the feed
+;; would render permanently empty with no error and no recovery (a terminal
+;; no-op `load-more`).
 
 (def ^:private fkey
   ;; a global-scope INFINITE feed key
@@ -1124,7 +1121,7 @@
   (assoc (entry m) :infinite? true))
 
 (deftest empty-infinite-feed-is-not-usable-data
-  (testing "rf2-x76af2.11 — hydrated-data-usable? mirrors rf.resources.state/has-data?'s
+  (testing "hydrated-data-usable? mirrors rf.resources.state/has-data?'s
             infinite empty-page-vector branch (an empty feed is NOT usable)"
     (is (false? (rf.resources.ssr/hydrated-data-usable?
                   (infinite-entry* {:resource-id :feed/timeline :data [] :status :idle})))
@@ -1139,9 +1136,9 @@
         "a redacted infinite entry is still metadata-only (sentinel ruled out before has-data?)")))
 
 (deftest empty-infinite-feed-refetches-not-stranded-fresh-forever
-  (testing "rf2-x76af2.11 ADVERSARIAL — an SSR-serialized empty infinite feed
+  (testing "ADVERSARIAL — an SSR-serialized empty infinite feed
             (:data [], never drained, :stale-at nil) appears in the refetch plan
-            with :reason :no-data; pre-fix it was treated as fresh-with-data and
+            with :reason :no-data; treated as fresh-with-data it would be
             stranded rendering permanently empty"
     (let [empty-feed (infinite-entry* {:resource-id :feed/timeline :status :idle
                                        :data [] :stale-at nil})]
@@ -1155,7 +1152,7 @@
         (is (= :feed/timeline (:resource-id (plan fkey))))))))
 
 (deftest loaded-infinite-feed-with-page-not-double-fetched
-  (testing "rf2-x76af2.11 — the fix must not over-refetch: a FRESH infinite feed
+  (testing "no over-refetch: a FRESH infinite feed
             WITH a page stays ABSENT from the plan (the SSR win, no double-fetch)"
     (let [loaded-feed (infinite-entry* {:resource-id :feed/timeline :status :loaded
                                         :data [{:items [1 2 3]}] :loaded-at 1000 :stale-at 9.0e15})]
@@ -1166,7 +1163,7 @@
             "a fresh infinite feed WITH a page is NOT double-fetched")))))
 
 (deftest hydrate-settles-empty-infinite-loading-then-refetches
-  (testing "rf2-x76af2.11 END-TO-END repro — a server-side :loading empty infinite
+  (testing "END-TO-END — a server-side :loading empty infinite
             feed settles to :idle (has-data? false) on hydration and the plan then
             refetches it :no-data (the actual stranded-fresh-forever path)"
     (let [e   (infinite-entry* {:resource-id :feed/timeline :status :loading
@@ -1181,11 +1178,13 @@
         (is (= :no-data (:reason (plan fkey))))))))
 
 ;; ===========================================================================
-;; 4b. Hydration refetch: redacted sentinel is metadata-only (rf2-fopuj9)
+;; 4b. Hydration refetch: redacted sentinel is metadata-only
 ;; ===========================================================================
 ;;
-;; The redaction sentinel (`:rf/redacted`) rides as `:data` on a `:sensitive?`
-;; resource's projected entry — it is METADATA ONLY, NOT usable data. A naive
+;; The redaction sentinel (`:rf/redacted`) can arrive as `:data` on an entry
+;; that reaches the planner by some route other than the SSR projection (a
+;; restore snapshot, a host-assembled slice) — it is METADATA ONLY, NOT usable
+;; data. A naive
 ;; `(some? (:data entry))` would misclassify it as fresh-with-data → never
 ;; refetch, leaving the client rendering the sentinel as if it were the value.
 
@@ -1201,7 +1200,7 @@
 (deftest redacted-fresh-entry-still-refetches
   (testing "ADVERSARIAL: a FRESH (stale-at far ahead) entry whose data is the
             redaction sentinel still needs a refetch — the sentinel must NOT be
-            mistaken for usable fresh data (rf2-fopuj9)"
+            mistaken for usable fresh data"
     (let [redacted-fresh (entry {:resource-id :secret/thing
                                  :data rf.privacy/redacted-sentinel
                                  :loaded-at 1000 :stale-at 9.0e15 :status :loaded})]
@@ -1209,7 +1208,7 @@
           "a fresh redacted entry refetches (the sentinel is metadata-only, not fresh data)"))))
 
 (deftest refetch-plan-classifies-redacted-vs-omitted-vs-stale-vs-fresh
-  (testing "the four hydration dispositions classify correctly (rf2-fopuj9 acceptance)"
+  (testing "the four hydration dispositions classify correctly"
     (let [fresh    (entry {:resource-id :a :data {:x 1} :loaded-at 1000 :stale-at 9.0e15})
           stale    (entry {:resource-id :b :data {:x 2} :loaded-at 1000 :stale-at 1500})
           redacted (entry {:resource-id :c :data rf.privacy/redacted-sentinel
@@ -1229,15 +1228,13 @@
 
 (deftest project-then-hydrate-roundtrip-sensitive-installs-no-row
   (reg! :secret/thing {:sensitive? true})
-  (testing "END-TO-END, restated for a contract that WITHHOLDS (rf2-4bjep). The
-            defect rf2-fopuj9 closed was a redacted entry being read as
-            fresh-with-data and never refetched; the answer then was to classify
-            it `:metadata-only` and PLAN it. But the plan named the entry by its
-            projected key — an identity the route slice cannot resolve — and the
-            row it planned was an ownerless duplicate nothing collects. Both
-            halves go away together: the row does not ride, so there is nothing
-            to misclassify and nothing to plan, and the client issues the one
-            load it derives from the raw key"
+  (testing "END-TO-END for a contract that WITHHOLDS. A redacted row
+            that rode would have to be classified `:metadata-only` and PLANNED,
+            and the plan would name it by its projected key — an identity the
+            route slice cannot resolve — so the row it planned would be an
+            ownerless duplicate nothing collects. The row does not ride, so
+            there is nothing to misclassify and nothing to plan, and the client
+            issues the one load it derives from the raw key"
     (let [k    (rf.resources.state/scoped-resource-key :rf.scope/global :secret/thing {:slug "s"})
           ;; a FRESH sensitive entry on the server (stale-at far ahead)
           e    (entry {:resource-id :secret/thing :data {:ssn "123-45-6789"}
@@ -1248,11 +1245,11 @@
           wk   (:projected-key m)]
       (is (empty? (get-in proj [rf.resources.state/resources-key :entries]))
           (str "the row does not ride: " (pr-str proj)))
-      (is (not= {:slug "s"} (nth wk 2)) "the sensitive params do not ride raw (rf2-otms75)")
+      (is (not= {:slug "s"} (nth wk 2)) "the sensitive params do not ride raw")
       (is (= :secret/thing (nth wk 1)) "the resource-id is preserved for refetch identity")
       (is (true? (:refetch-on-client? m))
-          "and the server's own metadata still says the client must fetch it —
-           the fact rf2-fopuj9 was about is reported, not lost")
+          "and the server's own metadata says the client must fetch it —
+           the fact is reported, not lost")
       ;; CLIENT hydration over what actually ships.
       (let [out  (rf.resources.ssr/hydrate-runtime-db proj nil)
             plan (rf.resources.ssr/hydrate-refetch-plan proj 5000)]
@@ -1266,11 +1263,12 @@
 
 (deftest a-redacted-entry-reaching-the-planner-by-any-other-route-is-still-metadata-only
   (reg! :secret/thing {:sensitive? true})
-  (testing "rf2-fopuj9's classification contract is UNCHANGED by the withholding
-            — this is the control that stops the test above passing because the
-            planner has quietly stopped distinguishing a sentinel from data. A
-            sentinel-bearing entry under an ADDRESSABLE key (a restore snapshot,
-            a host-assembled slice) is still `:metadata-only`, never fresh"
+  (testing "the planner's classification contract holds independently of
+            the withholding — this is the control that stops the test above
+            passing because the planner has quietly stopped distinguishing a
+            sentinel from data. A sentinel-bearing entry under an ADDRESSABLE
+            key (a restore snapshot, a host-assembled slice) is
+            `:metadata-only`, never fresh"
     (let [k (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "s"})
           e (entry {:resource-id :article/by-slug :data rf.privacy/redacted-sentinel
                     :loaded-at 1000 :stale-at 9.0e15 :status :loaded})
@@ -1300,7 +1298,7 @@
       (is (= {:owner "a"} (:data (es (rf.resources.state/key-id ka)))) "scope-a data stays under scope-a's key")
       (is (= {:owner "b"} (:data (es (rf.resources.state/key-id kb)))) "scope-b data stays under scope-b's key")
       (testing "the shared tag [:article \"x\"] maps to BOTH scoped keys, never collapsed"
-        ;; rf2-9e0tyq — index members are the byte key-id.
+        ;; index members are the byte key-id.
         (is (= #{(rf.resources.state/key-id ka) (rf.resources.state/key-id kb)}
                (get-in out [rf.resources.state/resources-key :tag-index [:article "x"]]))))
       (testing "each scope's owner indexes only its own key"
