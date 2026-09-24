@@ -138,7 +138,9 @@
                                                       :states  {:home      {}
                                                                 :dashboard {}}}})
                            "T")]
-      (is (= [:signed-in :dashboard] (:state snap))))))
+      (is (= [:signed-in :dashboard] (:state snap)))
+      (is (empty? (action-exceptions))
+          "the vector is never invoked as a :data fold"))))
 
 (defn- result-is [v]
   (fn [{ev :event}] (= v (:result (nth ev 2)))))
