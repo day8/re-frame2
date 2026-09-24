@@ -1,19 +1,18 @@
 (ns re-frame.adapter.uix-source-coord-dom-elision-prod-test
-  "Per Spec 006 §Source-coord annotation production-elision contract
-  (beads rf2-uwg5 / rf2-00li): under `:advanced` + `goog.DEBUG=false`,
-  the UIx adapter's `wrap-view` body — the React.cloneElement-based
-  data-rf2-source-coord injection branch — elides. A registered view's
-  rendered React element carries NO source-coord attribute under
-  prod-mode.
+  "Per Spec 006 §Source-coord annotation production-elision contract:
+  under `:advanced` + `goog.DEBUG=false`, the UIx adapter's `wrap-view`
+  body — the React.cloneElement-based data-rf2-source-coord injection
+  branch — elides. A registered view's rendered React element carries NO
+  source-coord attribute under prod-mode.
 
   This file is the UIx-side counterpart to
-  `re-frame.source-coord-dom-elision-prod-test`. Per rf2-00li the
-  UIx adapter publishes its `wrap-view` through the
-  `:adapter/wrap-view` late-bind hook; `views/reg-view*` routes
-  registered render-fns through it. Both surfaces (the substrate's
-  `wrap-view` body in `uix.cljs` and the inline path in `views.cljs`)
-  ride the `interop/debug-enabled?` gate so the entire annotation
-  branch DCEs under prod-mode.
+  `re-frame.source-coord-dom-elision-prod-test`. The UIx adapter
+  publishes its `wrap-view` through the `:adapter/wrap-view` late-bind
+  hook; `views/reg-view*` routes registered render-fns through it. Both
+  surfaces (the `wrap-view` body in the shared React spine,
+  `substrate/spine.cljs`, and the inline path in `views.cljs`) ride the
+  `interop/debug-enabled?` gate so the entire annotation branch DCEs
+  under prod-mode.
 
   Naming convention: files ending in `-elision-prod-test.cljs` are
   picked up ONLY by the `:browser-test-prod-elision` build (per the
@@ -26,11 +25,10 @@
             [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            ;; rf2-5g21s — the react-element-attr accessor lives in the
-            ;; dependency-free shared test home (hoisted there to dedupe
-            ;; the since-removed Helix twin); reference it rather than
-            ;; carry a copy. Kept separate from react-shared-suite so this
-            ;; prod-elision build does not pull the suite's heavy deps.
+            ;; The react-element-attr accessor lives in the dependency-free
+            ;; shared test home; reference it rather than carry a copy.
+            ;; Kept separate from react-shared-suite so this prod-elision
+            ;; build does not pull the suite's heavy deps.
             [re-frame.adapter.react-test-support :refer [adapter-wrap-view
                                                          react-element-attr]]
             [re-frame.test-support :as rf.test-support]))
@@ -43,7 +41,7 @@
 
 (deftest reg-view-output-has-no-source-coord-under-prod-uix
   (testing "Per Spec 006 §Source-coord annotation production-elision
-            (rf2-00li, UIx side): a registered view's rendered React
+            (UIx side): a registered view's rendered React
             element carries NO data-rf2-source-coord attribute under
             :advanced + goog.DEBUG=false. The Closure compiler DCEs
             the wrap-view body's cloneElement branch via the
@@ -60,7 +58,7 @@
             "NO data-rf2-source-coord on the rendered root — elision contract holds")
         (is (nil? (react-element-attr rendered-element "data-rf-view"))
             "NO data-rf-view on the rendered root — view-id tagging rides the
-             same interop/debug-enabled? gate and elides too (rf2-ihcib)")))))
+             same interop/debug-enabled? gate and elides too")))))
 
 (deftest reg-view-with-attrs-has-no-source-coord-under-prod-uix
   (testing "Even with an existing props map on the root, the wrapper does
@@ -83,10 +81,10 @@
             "NO data-rf2-source-coord merged into the props — elision contract holds")
         (is (nil? (aget element-props "data-rf-view"))
             "NO data-rf-view merged into the props — view-id tagging elides on the
-             same gate (rf2-ihcib)")))))
+             same gate")))))
 
 (deftest wrap-view-head-has-no-display-name-under-prod-uix
-  (testing "rf2-976bw: the spine's displayName stamp now calls
+  (testing "The spine's displayName stamp calls
             `re-frame.performance/entry-id` to build the published name.
             That call sits inside the same `interop/debug-enabled?` arm as
             the rest of `wrap-view`'s body, so under :advanced +
