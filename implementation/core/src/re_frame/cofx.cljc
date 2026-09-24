@@ -729,7 +729,7 @@
 ;; (EP-0017:386). A generator that mints a host handle (a DOM node, Promise,
 ;; function, atom, Date, JS / Java object) breaks that contract SILENTLY: the
 ;; failure surfaces far away at replay / Xray / SSR time, not at the generator.
-;; This dev-time guard catches the author error AT THE SOURCE — the moment the
+;; This guard catches the author error AT THE SOURCE — the moment the
 ;; generator produces it, before the write-back — reusing the supplied-value
 ;; walker (`re-frame.recordable`) and error shape (`:rf.error/cofx-value-invalid`,
 ;; reason `:non-edn-recordable-value`).
