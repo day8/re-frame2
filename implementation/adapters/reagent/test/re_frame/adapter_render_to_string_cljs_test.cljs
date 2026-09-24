@@ -1,5 +1,5 @@
 (ns re-frame.adapter-render-to-string-cljs-test
-  "Per rf2-8k0g3 — pin the `:rf.error/no-hiccup-emitter-bound` ex-info
+  "Pin the `:rf.error/no-hiccup-emitter-bound` ex-info
   shape and the post-(require re-frame.ssr) wiring.
 
   The Reagent adapter's `:render-to-string` slot throws when no hiccup
@@ -14,21 +14,21 @@
        `ex-message` is `:rf.error/no-hiccup-emitter-bound` and whose
        `ex-data` carries `:reason` (string) and an EP-0015-safe
        `:render-tree/summary` (the SHAPE of the tree, never the raw
-       tree — rf2-uwqale).
+       tree).
 
     2. The post-wire success: after `re-frame.ssr` has resolved the
        late-bind hook and installed the emitter, `render-to-string`
        returns an HTML string.
 
   Sibling: re-frame.adapter.uix-render-to-string-cljs-test on the UIx
-  adapter (rf2-gc5v9) — same contract, different adapter.
+  adapter — same contract, different adapter.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             ;; Loading `re-frame.ssr` here is the canonical wiring path
             ;; — its ns-load resolves the `:reagent/set-hiccup-emitter!`
-            ;; hook and installs the emitter (Spec 011 + rf2-uo7v).
+            ;; hook and installs the emitter (Spec 011).
             [re-frame.ssr]))
 
 ;; ---- helpers ---------------------------------------------------------------
@@ -57,7 +57,7 @@
 ;; ---- test (1) — pre-wire failure: ex-info shape ----------------------------
 
 (deftest render-to-string-throws-with-no-emitter
-  (testing "rf2-8k0g3 + rf2-uwqale: (render-to-string [:div] {}) before the
+  (testing "(render-to-string [:div] {}) before the
             emitter is installed throws ExceptionInfo whose ex-message is
             ':rf.error/no-hiccup-emitter-bound' and whose ex-data carries
             :reason + an EP-0015-safe :render-tree/summary (never the raw
@@ -65,8 +65,8 @@
     (with-cleared-emitter
       (fn []
         (let [render-fn (:render-to-string rf.adapter.reagent/adapter)
-              ;; The body carries a recognisable token; the EP-0015 fix
-              ;; means it MUST NOT survive into the thrown diagnostic.
+              ;; The body carries a recognisable token; per EP-0015 it
+              ;; MUST NOT survive into the thrown diagnostic.
               tree      [:div "smoke-secret-xyzzy"]
               thrown    (try
                           (render-fn tree {})
@@ -81,10 +81,10 @@
                 "the thrown value carries ex-data")
             (is (string? (:reason data))
                 ":reason key is a string explaining the misconfiguration")
-            ;; EP-0015 (rf2-uwqale): the raw render-tree is NOT carried —
+            ;; EP-0015: the raw render-tree is NOT carried —
             ;; only an EP-0015-safe shape summary.
             (is (nil? (:render-tree data))
-                "the raw :render-tree slot is gone (EP-0015)")
+                "there is no raw :render-tree slot (EP-0015)")
             (let [summary (:render-tree/summary data)]
               (is (= :vector (:type summary))
                   ":render-tree/summary describes the tree's SHAPE")
@@ -98,7 +98,7 @@
 ;; ---- test (2) — post-wire success ------------------------------------------
 
 (deftest render-to-string-returns-html-after-ssr-require
-  (testing "rf2-8k0g3: with re-frame.ssr loaded (the canonical wiring path
+  (testing "with re-frame.ssr loaded (the canonical wiring path
             via the :reagent/set-hiccup-emitter! late-bind hook), calling
             render-to-string returns a non-throwing HTML string"
     (let [render-fn (:render-to-string rf.adapter.reagent/adapter)
