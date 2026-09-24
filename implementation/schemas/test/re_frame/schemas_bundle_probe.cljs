@@ -1,5 +1,5 @@
 (ns re-frame.schemas-bundle-probe
-  "SCHEMAS arm of the bundle-cost A/B (rf2-fqbcy, rf2-kybsf, rf2-v4o7e) —
+  "SCHEMAS arm of the bundle-cost A/B —
   the B arm whose A arm is `re-frame.schemas-bundle-control`.
 
   ## What the pair measures
@@ -16,19 +16,19 @@
   both cancel. `scripts/check-schemas-bundle.cjs` asserts that margin
   TWO-SIDED — at most 44 KB gzipped, at least 20 KB — and asserts that
   the adapter's dev-only humanizer publication is absent from this
-  probe (rf2-tiymn). It asserts no absolute size at all: a probe's absolute figure is mostly `cljs.core`
+  probe. It asserts no absolute size at all: a probe's absolute figure is mostly `cljs.core`
   and `re-frame.core`, which the perf-bundle and bundle-isolation gates
-  own, and an absolute ceiling here duly spent 83 days measuring their
-  growth rather than the schemas artefact's (rf2-kybsf). The checker's
+  own, so an absolute ceiling here would measure their growth rather
+  than the schemas artefact's. The checker's
   header carries the matched run both bounds were set from.
 
   ## Why requiring the facade alone still prices Malli
 
-  Per rf2-v96fh (schema implies validation) the `re-frame.schemas`
+  Because a schema implies validation, the `re-frame.schemas`
   facade `:require`s `re-frame.schemas.malli` in its own ns-form, so
   this probe — which requires ONLY the facade, NOT the adapter —
   nonetheless pulls Malli's validation surface into the bundle. That
-  is the deliberate Ruling-A tradeoff: requiring the schemas artefact
+  is a deliberate tradeoff: requiring the schemas artefact
   implies Malli is wired, so a registered schema always validates
   rather than soft-passing into a silent no-op. There is no 'schemas
   required, no Malli' posture to price (the only Malli-free posture is
@@ -39,13 +39,10 @@
 
   The gate's FLOOR is where that invariant shows up in bundle shape.
   Delete the adapter require from the facade's ns-form and Malli leaves
-  this bundle: the margin falls to a measured 9.7 KB and the checker
+  this bundle: the margin falls to roughly 9.7 KB and the checker
   exits 1. The invariant's PRIMARY owner is the behavioural test
   `schemas/test/re_frame/schemas_implies_validation_test.clj`; the floor
-  is the bundle-shaped corroboration, and it is what replaced the old
-  byte-equality guard — that guard compared this probe against a
-  near-identical `-malli` sibling, and both retired together, the
-  sibling being a redundant require rather than a distinct posture.
+  is the bundle-shaped corroboration.
 
   ## Why `boot` touches only schemas symbols
 
