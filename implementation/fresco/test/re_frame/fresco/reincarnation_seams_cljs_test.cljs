@@ -3,8 +3,8 @@
   across a same-public-id reincarnation.
 
   `reincarnation_routing_cljs_test` establishes the contract for the one path
-  the pinning repair covers: the ambient dispatch a boundary body lowers into
-  its callbacks. Three operations in this arm reach a frame WITHOUT that
+  pinning covers: the ambient dispatch a boundary body lowers into its
+  callbacks. Three operations in this arm reach a frame WITHOUT that
   closure, and each is a candidate for the same fault:
 
   | seam | the call | what it carries across the gap |
@@ -15,21 +15,21 @@
 
   ## The axis, and why \"it resolves late\" is not the fault
 
-  The repair is routinely mis-stated as *late resolution is wrong*. It is
+  Pinning is easy to mis-state as *late resolution is wrong*. It is
   not. `impl.collector/dispatch!`'s own docstring draws the line, and
   section 1 measures it: a caller handing a BARE KEYWORD is naming an
   ADDRESS and gets the frame at that address, now; a lowered callback
   holds a CAPABILITY minted under one incarnation and must keep it for
-  life. The defect was a capability wearing an address's clothes — a
-  closure that stood for *this boundary's button* while resolving like a
-  keyword somebody had just typed.
+  life. The defect pinning prevents is a capability wearing an address's
+  clothes — a closure that stands for *this boundary's button* while
+  resolving like a keyword somebody has just typed.
 
   So the question each seam is asked is not \"does it resolve late?\" but
   **\"is what it retains a capability, or an address?\"** — and, for an
   address, whether the frame it names is the same one the surrounding
   runtime is reading from at that instant. A seam whose reads and writes
   disagree is exactly the \"perfect markup above dead controls\" symptom
-  the pinning deletes; a seam whose reads and writes are both
+  pinning prevents; a seam whose reads and writes are both
   address-directed has no disagreement to have.
 
   ## Why these observables and not rendered markup
@@ -52,15 +52,15 @@
     into two successive incarnations (section 2);
   - the mount witness door retains an **address**, and the root it names
     reads that same address, measured side by side (section 3);
-  - `intent/navigate-head` retains an address too, and routing rules it so
-    deliberately (`activate-link!`: *the dispatch always lands on the
+  - `intent/navigate-head` retains an address too, and routing documents it
+    so deliberately (`activate-link!`: *the dispatch always lands on the
     CURRENTLY-committed frame (retarget-safe)*). Section 4 measures what
     pinning it would cost, and the answer is that the link goes dead —
-    the late-binding warm branch, reintroduced.
+    the late-binding warm branch's failure.
 
   Sections 2 and 4 each end with the counterfactual measured rather than
   argued, because \"it did not reproduce\" and \"it cannot happen\" are
-  different claims and only the second closes the audit."
+  different claims and only the second settles a seam."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
@@ -139,9 +139,9 @@
   from a body nobody ever interacted with, making COLD the ordinary case there
   — none of these seams is reachable without its incarnation having rendered
   first, so a row that measured them cold would be measuring a state the
-  runtime cannot be in when the seam fires. It would also be a row the
-  late-binding mechanism passes, which is the same mistake in its detectable
-  form."
+  runtime cannot be in when the seam fires. It would also be a row a
+  late-binding mechanism would pass, which is the same mistake in its
+  detectable form."
   []
   (rf.fresco.impl.collector/frame-dispatch frame-id))
 
@@ -172,7 +172,7 @@
 ;; one incarnation at mint) and `dispatch!` (the same closure ACQUIRED AND
 ;; APPLIED in one act, so the acquisition happens at the caller's `now`). The
 ;; second is not a weaker version of the first; it is the documented
-;; address-directed door, and the whole audit turns on the difference being
+;; address-directed door, and every seam below turns on the difference being
 ;; deliberate rather than residual.
 
 (deftest the-arm-has-two-doors-and-only-one-of-them-carries-a-capability
@@ -201,7 +201,7 @@
       (is (= :address (marked))
           "the write lands in the LIVE incarnation, even from a warm row that
            described the predecessor a line ago — the row is replaced by the
-           lookup, which is rf2-x874's lazy replacement doing its job")
+           lookup, which is the memo's lazy replacement doing its job")
       (is (empty? refusals) "and nothing is refused, because nothing was pinned")))
 
   (testing "the two doors therefore answer differently about the same id in the
@@ -304,9 +304,9 @@
            doing and not the harness's"))))
 
 (deftest NEGATIVE-CONTROL-pinning-the-boundary-report-would-silence-it
-  ;; The counterfactual for seam 1, measured rather than argued. The change the
-  ;; audit declined is "capture the boundary's frame when it mounts and report
-  ;; through that bundle". This is that alternative, built out of the documented
+  ;; The counterfactual for seam 1, measured rather than argued: "capture the
+  ;; boundary's frame when it mounts and report through that bundle". This is
+  ;; that alternative, built out of the documented
   ;; seam — `rf/capture-frame` taken while the mounting incarnation is live, the
   ;; way `impl.frames/mint-row` takes it — and run against the same catch.
   ;;
@@ -361,8 +361,7 @@
 (deftest the-mount-witness-door-retains-an-address-and-the-root-reads-that-address
   (testing "a handle minted under A dispatches into B after the reincarnation,
             from the WARM row A's own render left behind — the posture a real
-            root is always in, and the one the pre-rf2-x874 mechanism got wrong
-            in the other direction"
+            root is always in"
     (incarnate! "A")
     (render!)
     (let [handle {:frame frame-id}]                  ; the slot `dispatch!` reads
@@ -374,11 +373,12 @@
 
   (testing "and the ROOT that handle names reads the live incarnation too —
             which is what makes the line above correct rather than a second
-            instance of rf2-x874. A body re-run under the same public id after
-            the reincarnation already answers the successor's value, because
-            the read path is address-directed on the public id. Pin this door
-            and the root would WRITE a frame it cannot READ: perfect markup
-            above dead controls, which is the exact symptom rf2-x874 deleted"
+            instance of the dead-controls defect. A body re-run under the same
+            public id after the reincarnation answers the successor's value,
+            because the read path is address-directed on the public id. Pin
+            this door and the root would WRITE a frame it cannot READ: perfect
+            markup above dead controls, the exact symptom pinning the lowered
+            callbacks prevents"
     (incarnate! "A")
     (is (= "A" (rf.fresco.impl.collector/render-body frame-id (fn [_] (rf.fresco.impl.collector/sub [:seams/who])) {})))
     (reincarnate! "B")
@@ -490,7 +490,7 @@
                       (some? (marked))
                       (do (is (= :navigated (marked))
                               "a link rendered under the PREDECESSOR navigates
-                               the LIVE app — routing's ruled retarget-safety,
+                               the LIVE app — routing's documented retarget-safety,
                                and the reason this seam must not be pinned")
                           (done))
 
@@ -502,16 +502,16 @@
             (poll 50)))))))
 
 (deftest NEGATIVE-CONTROL-pinning-navigate-would-leave-a-dead-link
-  ;; The counterfactual for seam 3, measured. The change the audit declined is
-  ;; "capture the frame at render and navigate through that bundle" — i.e. treat
-  ;; the navigate map's `:frame` as a capability. Built out of the documented
-  ;; seam (`rf/capture-frame` at render, the way `impl.frames/mint-row` takes
-  ;; it) and fired at the same click.
+  ;; The counterfactual for seam 3, measured: "capture the frame at render and
+  ;; navigate through that bundle" — i.e. treat the navigate map's `:frame` as
+  ;; a capability. Built out of the documented seam (`rf/capture-frame` at
+  ;; render, the way `impl.frames/mint-row` takes it) and fired at the same
+  ;; click.
   ;;
-  ;; It is the late-binding WARM branch, reintroduced on purpose: an anchor the
-  ;; successor has just painted, whose click does nothing. The audit's stopping
-  ;; rule asks whether a seam CAN revive a dead incarnation; here the answer is
-  ;; that pinning it would instead kill a live one.
+  ;; It is the late-binding WARM branch's failure, built on purpose: an anchor
+  ;; the successor has just painted, whose click does nothing. The question
+  ;; each seam answers is whether it CAN revive a dead incarnation; here the
+  ;; answer is that pinning it would instead kill a live one.
   (testing "a navigate pinned at render is refused after a reincarnation — the
             anchor is on the screen and the click writes nothing"
     (incarnate! "A")
