@@ -1,5 +1,5 @@
 (ns re-frame.resources-invalidation-descriptors-cljs-test
-  "Scoped invalidation descriptors (rf2-hwc2ev, EP-0016 D2 / slice 5 — Spec 016
+  "Scoped invalidation descriptors (EP-0016 D2 — Spec 016
   §Scoped invalidation descriptors).
 
   A mutation's `:invalidates` arm declares which resource `(tags, scope)` pairs
@@ -13,14 +13,14 @@
       mutation can precisely invalidate global facts AND viewer-relative
       (session-scoped) facts in one execution, without a blunt cross-scope blast.
 
-  These JVM+CLJS unit tests pin the slice's semantics:
+  These JVM+CLJS unit tests pin the descriptor semantics:
 
-    1. a bare tag-set still invalidates the mutation's resolved scope;
+    1. a bare tag-set invalidates the mutation's resolved scope;
     2. a descriptor invalidates EXACTLY the resolved scoped keys — a
        `:rf.scope/global` descriptor + a `{:from-db …}` session descriptor in
        ONE mutation reach both, and only the resolved scope (not a global blast);
     3. re-fetch (active owner) vs mark-stale (ownerless) variants;
-    4. the descriptors compose with the slice-4 `:reply-to` completion
+    4. the descriptors compose with the `:reply-to` completion
        continuation (the continuation fires after the invalidation);
     5. a stale / superseded settle does NOT invalidate (the mandatory
        stale-suppression boundary the descriptor path inherits);
@@ -244,7 +244,7 @@
       (is (not (contains? #{:loading :fetching} (:status e)))))))
 
 ;; ===========================================================================
-;; 4. Composes with the slice-4 :reply-to completion continuation
+;; 4. Composes with the :reply-to completion continuation
 ;; ===========================================================================
 
 (deftest descriptor-composes-with-reply-to-continuation
@@ -404,8 +404,8 @@
             "the global descriptor + the {:from-db}-resolved session scope")
         (is (empty? (:unresolved inv)))))))
 
-;; ---- rf2-700p0r: a typo'd CONCRETE literal scope in an :invalidates --------
-;; DESCRIPTOR fails closed at settle through the SAME canonicalize-scope path.
+;; ---- a typo'd CONCRETE literal scope in an :invalidates DESCRIPTOR ---------
+;; fails closed at settle through the SAME canonicalize-scope path.
 ;; The reserved-scope-typo rejection is covered elsewhere via OTHER surfaces
 ;; (the scope-resolver path: scope_registry/resolved-scope-routes-through-
 ;; canonicalization; the :patches/:populates target-map path:
@@ -469,13 +469,13 @@
               dispatched)"
       (is (nil? (:invalidated-at (entry global-key)))))))
 
-;; ---- rf2-kjpq3f: :cross-scope? true on an :invalidates DESCRIPTOR settles --
+;; ---- :cross-scope? true on an :invalidates DESCRIPTOR settles --------------
 ;; end-to-end (the scope-agnostic fan-out reaches entries in MULTIPLE scopes,
 ;; and the mutation-supplied [:mutation …] cause satisfies the cause-required
 ;; gate). The cross-scope cause-required REJECTION is covered on the raw
 ;; :rf.resource/invalidate-tags event (invalidation_gc/invalidate-tags-cross-
-;; scope-*); the descriptor path was covered ONLY by the pure normalize
-;; round-trip (normalize-lowers-the-public-forms), which proves the flag is
+;; scope-*); the pure normalize round-trip
+;; (normalize-lowers-the-public-forms) proves the flag is
 ;; carried but does NOT settle a mutation, prove the fan-out, or pin the
 ;; [:mutation …] cause wiring. This is the end-to-end pin.
 
@@ -505,7 +505,7 @@
        :params-schema [:map [:slug :string]]
        ;; a :cross-scope? true descriptor with NO explicit :cause — the
        ;; mutation runtime supplies the [:mutation <id> <instance>] cause by
-       ;; construction, satisfying the rf2-7r8kgd cause-required gate.
+       ;; construction, satisfying the cause-required gate.
        :invalidates (fn [{:keys [slug]} _result]
                       [{:tags #{[:article slug]} :cross-scope? true}])}
       (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
@@ -596,7 +596,7 @@
           (rf.resources.mutation-runtime/normalize-invalidation-descriptors {:scope :rf.scope/global} 'test)))))
 
 ;; ===========================================================================
-;; rf2-ru73k6 F1 — a LONE vector tag is ONE tag, not a scalar tag-set
+;; A LONE vector tag is ONE tag, not a scalar tag-set
 ;; ===========================================================================
 
 (deftest lone-vector-tag-normalizes-to-one-tag
@@ -609,7 +609,7 @@
     (is (= #{[:article "w"]} (rf.resources.state/normalize-tag-set [:article "w"])))
     (is (= #{[:article-list]} (rf.resources.state/normalize-tag-set [:article-list]))
         "a single-element marker tag is still one tag, not #{:article-list}"))
-  (testing "an existing tag-SET form lowers UNCHANGED (no regression)"
+  (testing "a tag-SET form lowers UNCHANGED"
     (is (= #{[:article "w"]} (rf.resources.state/normalize-tag-set #{[:article "w"]})))
     (is (= #{[:article "w"]} (rf.resources.state/normalize-tag-set [[:article "w"]]))
         "a vector wrapping one tag is the set of that tag")
@@ -634,7 +634,7 @@
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
      ;; a LONE vector tag written directly (not wrapped in a set) — the natural
-     ;; single-tag shorthand the bead flags as silently failing.
+     ;; single-tag shorthand.
      :invalidates (fn [{:keys [slug]} _result] [:article slug])}
     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
   (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
@@ -669,16 +669,16 @@
         "the article was marked stale by the lone-vector :tags")))
 
 ;; ===========================================================================
-;; rf2-ypgayg — the DESCRIPTOR-MAP arm missed the shared lone-vector-tag fix
+;; The DESCRIPTOR-MAP arm shares the lone-vector-tag normalizer
 ;; ===========================================================================
 
 (deftest lone-vector-tag-descriptor-map-normalizes-to-one-tag
-  ;; rf2-ru73k6 F1 fixed the bare tag-set shorthand and the direct
-  ;; `:rf.resource/invalidate-tags` `:tags`, but `normalize-one-descriptor`
-  ;; (the per-target DESCRIPTOR MAP arm) still lowered `:tags` through a naive
-  ;; `(set tags)` — a lone vector tag `{:tags [:article "w"]}` split into the
-  ;; scalar set `#{:article "w"}`, silently matching nothing. It must route
-  ;; through the SAME `rf.resources.state/normalize-tag-set` normalizer.
+  ;; `normalize-one-descriptor` (the per-target DESCRIPTOR MAP arm) lowers
+  ;; `:tags` through the SAME `rf.resources.state/normalize-tag-set` normalizer
+  ;; as the bare tag-set shorthand and the direct `:rf.resource/invalidate-tags`
+  ;; `:tags`. A naive `(set tags)` would split a lone vector tag
+  ;; `{:tags [:article "w"]}` into the scalar set `#{:article "w"}`, silently
+  ;; matching nothing.
   (testing "a single descriptor map with a lone vector :tags normalizes to one tag"
     (let [[d & more] (rf.resources.mutation-runtime/normalize-invalidation-descriptors
                        {:tags [:article "w"]} 'test)]
@@ -703,7 +703,7 @@
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
      ;; a descriptor MAP whose :tags is a LONE vector tag written directly
-     ;; (not wrapped in a set) — the bug this bead fixes.
+     ;; (not wrapped in a set).
      :invalidates (fn [{:keys [slug]} _result] {:tags [:article slug]})}
     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
   (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
@@ -719,11 +719,11 @@
         "the article carrying tag [:article \"w\"] was marked stale")))
 
 ;; ===========================================================================
-;; rf2-fi6tda.4 finding 3 — pin the per-pass :rf.resource/invalidated EP fields
+;; The per-pass :rf.resource/invalidated EP fields
 ;; ===========================================================================
 
 (deftest invalidated-trace-pins-ep0016-diagnostic-fields
-  ;; rf2-fi6tda.4 finding 3: capture a REAL invalidation pass and assert the
+  ;; Capture a REAL invalidation pass and assert the
   ;; EP-0016 diagnostic fields a behavior test would not pin — :matched,
   ;; :refetched, :left-stale, :exempt (the populate Rider-1 spare), and
   ;; :any-tag-match-other-scope?. Active (refetch), ownerless (left-stale),
