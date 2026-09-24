@@ -10,7 +10,7 @@
 // parent ever sees is `'exit'`, and the sibling arm — `worker.on('exit')` —
 // is what answers the caller.
 //
-// That second arm is why this fixture exists (rf2-rhyi). Both arms reach
+// That second arm is why this fixture exists. Both arms reach
 // `:rf.ssr-node/isolate-lost`, which covers three distinct causes and
 // distinguishes them by detail SHAPE alone, so a consumer that cannot see
 // `isolate` and `threadId` on one of them cannot say which isolate went or
@@ -28,7 +28,7 @@
 //   `app/exits-torn` — a chunk has already reached the caller, so the
 //                      response is TORN and the count says so.
 //
-// AND AN EXIT BEFORE READINESS (rf2-gwye.23), which reaches the same `'exit'`
+// AND AN EXIT BEFORE READINESS, which reaches the same `'exit'`
 // event in the one phase where no render is pending to be refused. It is
 // switched by an environment flag for the reason `flaky-boot.cjs` gives: a
 // worker takes its own copy of `process.env` when its thread is constructed,
