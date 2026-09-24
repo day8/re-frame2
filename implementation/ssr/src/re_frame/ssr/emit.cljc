@@ -8,42 +8,36 @@
   live in sibling namespaces (`re-frame.ssr.hash` /
   `re-frame.ssr.response`).
 
-  ## One head grammar (rf2-j81hs)
+  ## One head grammar
 
-  A KEYWORD head is a DOM / custom element. Always, on every host. This
-  emitter used to probe `(registrar/lookup :view head)` first and resolve
-  a registered view, which made `[:dashboard/card 7]` mean \"registered
+  A KEYWORD head is a DOM / custom element. Always, on every host.
+  Probing `(registrar/lookup :view head)` first and resolving a
+  registered view would make `[:dashboard/card 7]` mean \"registered
   view\" here and `<card>` on every client substrate (Reagent's
   `parse-tag` runs `(name tag)`; UIx is not hiccup at all).
   A `.cljc` app sharing views across both — the point of the SSR story —
-  therefore could not write a keyword head that meant one thing, and
-  because the SERVER rendered it correctly the mistake survived every
-  server-side test.
+  could then not write a keyword head that meant one thing, and
+  because the SERVER would render it correctly the mistake would survive
+  every server-side test.
 
   Views are referenced by a CALLABLE head: the Var `reg-view` defs, or
   `(rf/view :id)`. Conventions §Render-tree shape vs runtime lookup owns
-  this grammar; Spec 011's
-  keyword-resolution prose was a non-owning spec extending it and has
-  been corrected. Finishes rf2-n82bbu — these emitters were the last
-  surface out of conformance.
+  this grammar.
 
   HTML escape helpers (`escape-html`, `escape-attr`, `attr-string`) live
   in `re-frame.ssr.html-helpers`, shared with the head/meta emitter.
   `attr-string` is re-exported below so consumers who
-  `:require [re-frame.ssr.emit :as emit]` keep seeing it at
+  `:require [re-frame.ssr.emit :as emit]` see it at
   `emit/attr-string`; the emitter calls `html/escape-html` directly."
-  ;; rf2-j81hs — `re-frame.registrar` and `re-frame.interop` are no longer
-  ;; required here. Both existed solely for the deleted keyword-view
-  ;; branch: `registrar/lookup` resolved the head, `interop/debug-enabled?`
-  ;; gated its source-coord injection. The emitter is now a pure
-  ;; hiccup → HTML function with no registry dependency at all, which is
-  ;; the honest shape — resolving a name was never the emitter's job.
+  ;; There is no `re-frame.registrar` or `re-frame.interop` require: the
+  ;; emitter is a pure hiccup → HTML function with no registry dependency
+  ;; at all, because resolving a name is not the emitter's job.
   (:require [clojure.string]
             [re-frame.error :as rf.error]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.ssr.hash :as rf.ssr.hash]
             [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
-            ;; rf2-3x7nj.13.1 — `dom-attr-aliases`, react-dom's prop →
+            ;; `dom-attr-aliases`, react-dom's prop →
             ;; attribute table, is read by the hiccup attribute conversion
             ;; below. `ui-tree` requires nothing from this ns, so no cycle.
             [re-frame.ssr.ui-tree :as rf.ssr.ui-tree]
@@ -52,7 +46,7 @@
 ;; ---- shared HTML helpers --------------------------------------------------
 ;;
 ;; Re-export `attr-string` so callers that `:require [re-frame.ssr.emit :as
-;; emit]` still resolve `emit/attr-string`. The producing ns is
+;; emit]` resolve `emit/attr-string`. The producing ns is
 ;; `re-frame.ssr.html-helpers` (shared with `re-frame.ssr.head.emit`); the
 ;; entity-escape rules live there once. `escape-html` / `escape-attr` are
 ;; consumed directly via the `html/` alias — they have no `emit/`-qualified
@@ -83,7 +77,7 @@
 ;; so `[:style "a > b {…}"]` would ship the literal DOM text `a &gt; b` and
 ;; `[:script "if (a<b){…}"]` would ship `if (a&lt;b)`.
 ;;
-;; Per rf2-xbvzh (ruling Option (a)): an ordinary inline `<script>`/`<style>`
+;; An ordinary inline `<script>`/`<style>`
 ;; with STRING content is AUTHOR CONTENT — trust the programmer. It is
 ;; emitted VERBATIM with only React's context-safe closing-sequence rewrite
 ;; (`html/escape-raw-text`), the ONE shared implementation this emitter, the
@@ -92,11 +86,13 @@
 ;; NOT sanitisation — the rewrite is the same breakout guard React applies,
 ;; aimed at attacker-supplied `</script>` DATA that must not terminate the
 ;; element early; residual JS/CSS-context safety is author-owned, as in
-;; React. The DATA-payload channels are unchanged and keep their stricter
+;; React. The DATA-payload channels keep their stricter
 ;; data-aware escapes: JSON-LD / structured `<head>` content via `reg-head`
-;; (`re-frame.ssr.head.emit`, `<`→`<`) and the trusted host-shell
+;; (`re-frame.ssr.head.emit`, `<` → its JSON unicode escape) and the
+;; trusted host-shell
 ;; `:head`/`:body-end` opts. A `<script>`/`<style>` with no string children
-;; (element-only or empty) is structurally inert and emits unchanged; the
+;; (element-only or empty) is structurally inert and takes the ordinary
+;; per-child walk; the
 ;; raw-text set + escape live in `re-frame.ssr.html-helpers`
 ;; (`html/raw-text-tags` / `html/escape-raw-text`).
 
@@ -104,7 +100,7 @@
 ;; component itself: HTML5 / SVG / MathML element names require an ASCII
 ;; letter start, then letters / digits / hyphens. Reject anything else.
 ;;
-;; Decision: fail-fast (throw) rather than escape-and-emit. A tag-name
+;; Fail fast (throw) rather than escape-and-emit. A tag-name
 ;; outside the grammar has no safe wire interpretation — escaping would
 ;; produce `<img&#x20;src=...>` which no browser parses as a tag, just a
 ;; visible glyph.
@@ -158,7 +154,8 @@
 ;; `:span` / `:p` thousands of times. The memo (`*tag-name-cache*`) is
 ;; bound at the emit entry points and never outlives one render pass;
 ;; when unbound (cold callers — tests, custom consumers) the call falls
-;; through to the uncached parse, so the public surface is unchanged.
+;; through to the uncached parse, so the public surface is the same either
+;; way.
 
 (defn- parse-tag-name*
   "Pure parse — the body the memo wraps."
@@ -180,19 +177,19 @@
 (def ^:dynamic *tag-name-cache*
   "Per-render volatile! holding `{tag-kw [tag-name tag-attrs]}`. Bound
   at the public emit entry points; nil outside a render pass (cold
-  callers fall through to the uncached parse). Per rf2-ezdwh."
+  callers fall through to the uncached parse)."
   nil)
 
 (defn parse-tag-name
   "Split a keyword like :div#main.col-12.bold into [:div {:id \"main\"
   :class \"col-12 bold\"}] components. Throws `:rf.error/invalid-tag-name`
-  (rf2-z7gor) if the tag component is not a well-formed HTML5/SVG/MathML
+  if the tag component is not a well-formed HTML5/SVG/MathML
   element name.
 
   When called inside a render pass (`*tag-name-cache*` bound), the
   result is memoised by keyword identity and reused on subsequent
   emissions of the same head — typical SSR shells repeat `:div`,
-  `:span`, `:p` thousands of times. Per rf2-ezdwh."
+  `:span`, `:p` thousands of times."
   [tag-kw]
   (if-let [cache *tag-name-cache*]
     (or (get @cache tag-kw)
@@ -220,16 +217,15 @@
   (clojure.string/join (mapv emit-element children)))
 
 (defn- emit-children-threading-root-attrs
-  "Emit `children`, threading `root-attrs` (per rf2-lxwse) onto the FIRST
+  "Emit `children`, threading `root-attrs` onto the FIRST
   child only (nil to the rest), so the render-hash / source-coord lands
   exactly once on the first DOM-tag element reachable through a fragment
   root. A fragment whose first child is itself a fragment / fn-head /
   view-ref recurses — `emit-element` keeps threading the same root-attrs
   down its own root path until a DOM tag consumes it. When `root-attrs`
-  is nil this is identical to `emit-children`. Per rf2-58zvy1 finding 2 —
-  the `:<>` branch previously dropped root-attrs via plain `emit-children`,
-  so a fragment-rooted SSR tree lost the `data-rf-render-hash` marker the
-  emitter docstring promises."
+  is nil this is identical to `emit-children`. A plain `emit-children`
+  would drop root-attrs, so a fragment-rooted SSR tree would lose the
+  `data-rf-render-hash` marker the emitter docstring promises."
   [children root-attrs]
   (if (nil? root-attrs)
     (emit-children children)
@@ -243,7 +239,7 @@
 ;;
 ;; The two dev-mode view annotations — `data-rf2-source-coord` and
 ;; `data-rf-view` — are stamped at the reg-view REGISTRATION boundary on
-;; every host, NOT by this emitter (rf2-8vi4q). The JVM half is a
+;; every host, NOT by this emitter. The JVM half is a
 ;; debug-gated hiccup walk wrapping the stored `:handler-fn` in
 ;; `re-frame.core/reg-view*`'s `:clj` branch (see
 ;; `re-frame.views.jvm-source-coord-annotation`); the CLJS half rides the
@@ -251,22 +247,18 @@
 ;; head (`[(rf/view :id) …]` / a Var — the shape isomorphic pages use)
 ;; arrives here ALREADY annotated, and this emitter just stringifies it.
 ;;
-;; This is the ruled outcome of rf2-8vi4q. The rejected alternative
-;; (Option A) stamped the annotation inside the emitter's keyword-view
-;; branch — a branch rf2-j81hs deleted (a keyword head is a DOM element on
-;; every host) and that never fired on the callable-head shape hydratable
-;; pages actually contain. rf2-j81hs left the orphaned emitter-side
-;; `format-view-source-coord` / `inject-coord-on-root-hiccup` fns for this
-;; bead to delete; they are gone. The emitter is a pure hiccup → HTML
+;; Stamping the annotation inside the emitter would need a keyword-view
+;; branch, and there is none (a keyword head is a DOM element on every
+;; host); it would also never fire on the callable-head shape hydratable
+;; pages actually contain. The emitter is a pure hiccup → HTML
 ;; function with no annotation logic.
 
-;; ---- root-attrs injection (per rf2-lxwse) --------------------------------
+;; ---- root-attrs injection ------------------------------------------------
 ;;
 ;; The render-hash (data-rf-render-hash) is stamped on the first DOM-tag
-;; element of the rendered tree. Historically this used a post-emit regex
-;; replace on the output string; rf2-lxwse refactored that into a
-;; structural injection on the hiccup root before stringification. The
-;; injection threads an optional `root-attrs` map down through
+;; element of the rendered tree, by a structural injection on the hiccup
+;; root before stringification rather than a regex replace over the output
+;; string. The injection threads an optional `root-attrs` map down through
 ;; `emit-element` and consumes it on the first DOM-tag emission — past any
 ;; fragments (`:<>`), Reagent-native heads (`:>`), or fn-headed /
 ;; view-ref components on the root path. Non-DOM-rooted trees silently
@@ -274,7 +266,7 @@
 ;; source-coord annotation takes for a non-DOM root).
 
 (defn merge-root-attrs
-  "Merge root-level injected attrs (per rf2-lxwse) into the attrs map of
+  "Merge root-level injected attrs into the attrs map of
   a DOM tag. Existing attribute values win — the injected attr is only
   added when the key isn't already present, so a caller-supplied
   `data-rf-render-hash` on the root never gets overwritten."
@@ -286,7 +278,7 @@
              attrs
              root-attrs))
 
-;; ---- the hydrating adapter's prop conversion (rf2-3x7nj.13.1) -------------
+;; ---- the hydrating adapter's prop conversion ------------------------------
 ;;
 ;; The markup these two hiccup body walkers paint is hydrated by a Reagent-tier
 ;; adapter (stock Reagent or reagent-slim), and what that client paints is
@@ -294,15 +286,15 @@
 ;; first — a keyword name through Reagent's kebab → camel rule, a keyword
 ;; value through `name`, a class collection joined — and react-dom then writes
 ;; the DOM attribute for the prop (`htmlFor` → `for`, `tabIndex` → `tabindex`).
-;; These walkers used to write the author's names and values verbatim, so
-;; `[:input {:read-only true}]` served an editable `<input read-only>`,
-;; `[:button {:type :button}]` served `type=":button"` (an invalid type, which
-;; the browser reads as SUBMIT) and a class vector served its EDN print.
+;; A walker writing the author's names and values verbatim would serve an
+;; editable `<input read-only>` for `[:input {:read-only true}]`,
+;; `type=":button"` for `[:button {:type :button}]` (an invalid type, which
+;; the browser reads as SUBMIT) and a class vector's EDN print.
 ;; React neither patches nor reports an attribute-only divergence at
 ;; hydration, and the render-tree hash is taken over the tree, not the HTML,
-;; so nothing caught any of it (Spec 011 §The render-tree → HTML emitter).
+;; so nothing would catch any of it (Spec 011 §The render-tree → HTML emitter).
 ;;
-;; So both walkers now convert the way the client does, through ONE function
+;; So both walkers convert the way the client does, through ONE function
 ;; (`dom-element-props`) so they cannot drift:
 ;;
 ;;   1. CLASS, on the author's attrs: a `:className` folds into `:class`, and
@@ -316,19 +308,20 @@
 ;;      table (`re-frame.ssr.ui-tree/dom-attr-aliases`); a string name takes
 ;;      the alias table only (Reagent hands a string key to React unchanged).
 ;;      A hyphenated (custom-element) tag keeps its author names verbatim — the
-;;      two supported adapters already disagree there, and web components
+;;      two supported adapters disagree there, and web components
 ;;      conventionally read kebab attributes. A keyword or symbol VALUE is
 ;;      written with `name` on every DOM tag.
 ;;   4. The form-control special forms react-dom/server applies
-;;      (`form-control-props`, rf2-slr59).
+;;      (`form-control-props`).
 ;;
-;; `attr-string` is untouched and still judges what it is handed — stripping,
+;; `attr-string` judges what it is handed — stripping,
 ;; the boolean class and the attribute-name grammar all read the CONVERTED
 ;; name, which is the name that reaches the browser. That is load-bearing, not
 ;; incidental: `{:onc-lick "alert(1)"}` converts to `oncLick`, which the HTML
 ;; parser reads as `onclick`, and it is stripped only because the strip reads
 ;; the converted name. The head emitter and the Ring host shell attribute bags
-;; call `attr-string` directly and stay verbatim — no adapter re-renders them.
+;; call `attr-string` directly and are written verbatim — no adapter
+;; re-renders them.
 
 (defn- class-names
   "Reagent's `class-names`, shared by both supported adapters. A collection
@@ -417,20 +410,19 @@
       (let [prop-name (reagent-prop-name (name attr-key))]
         (get rf.ssr.ui-tree/dom-attr-aliases prop-name prop-name)))
 
-    ;; Not a name at all — left for `attr-string`, which refuses it exactly
-    ;; as it did before this conversion existed.
+    ;; Not a name at all — left for `attr-string`, which refuses it.
     :else
     attr-key))
 
-;; ---- javascript: URLs (rf2-w1hd8) ------------------------------------------
+;; ---- javascript: URLs -------------------------------------------------------
 ;;
 ;; react-dom's `setProp` swaps a `javascript:` URL for a URL that throws before
 ;; it reaches `setAttribute`. It does so in five props on any element it does
 ;; not treat as custom (`href`, `src`, `action`, `formAction`, `xlinkHref`), and
 ;; in `data` on an `<object>`. The hydrating client paints through react-dom,
-;; and React does not patch an attribute at hydration. So a walker that wrote
-;; the value unchanged left a URL live on the hydrated page that the client's
-;; own render would have blocked. The walkers now paint what the client paints.
+;; and React does not patch an attribute at hydration. So a walker writing
+;; the value unchanged would leave a URL live on the hydrated page that the
+;; client's own render blocks. The walkers paint what the client paints.
 ;; The regex, the substituted URL, the prop set and the custom-element test are
 ;; react-dom 19.3.0's, copied by intent;
 ;; `re-frame.ssr-javascript-url-react-parity-test` pins them against the
@@ -479,9 +471,9 @@
   client adapter plus react-dom does: every key becomes the attribute NAME the
   client paints (a string), and a keyword or symbol VALUE is written with
   `name`. `tag-name` is the element's parsed tag; a hyphenated (custom-element)
-  tag keeps its author names verbatim. See the section comment above
-  (rf2-3x7nj.13.1). A `javascript:` URL is blocked where react-dom blocks it
-  (`block-javascript-url`, rf2-w1hd8)."
+  tag keeps its author names verbatim. See the section comment above. A
+  `javascript:` URL is blocked where react-dom blocks it
+  (`block-javascript-url`)."
   [tag-name attrs]
   (let [custom-element? (clojure.string/includes? tag-name "-")]
     (reduce-kv (fn [converted attr-key attr-value]
@@ -495,10 +487,10 @@
                {}
                attrs)))
 
-;; ---- form-control special forms (rf2-slr59) --------------------------------
+;; ---- form-control special forms --------------------------------------------
 ;;
-;; react-dom/server does not write four form-control props as attributes, and
-;; these walkers did, so the first paint showed the wrong control state until
+;; react-dom/server does not write four form-control props as attributes;
+;; writing them would show the wrong control state on first paint until
 ;; hydration repaired it — which is all a slow-JS, no-JS or crawler visitor
 ;; ever sees. Each form below is what react-dom 19.3.0's server renderer does
 ;; with the prop (`pushStartInstance`'s `input` / `textarea` / `select` /
@@ -615,7 +607,7 @@
 
 (defn dom-element-props
   "Everything both hiccup body walkers need to open a DOM element, computed
-  once here so the two cannot drift (rf2-3x7nj.13.1, rf2-slr59). Joins the
+  once here so the two cannot drift. Joins the
   class (the author's, normalised, after the tag shorthand's), merges
   `root-attrs` (nil on the streaming walker), converts names and values the
   way the hydrating client does, then applies the form-control special forms
@@ -647,7 +639,7 @@
   namespaces the whole scheme is framework-owned, so no author DOM element
   can legitimately live there.
 
-  rf2-j81hs — the discriminator for the reserved-head guard below. Callers
+  The discriminator for the reserved-head guard below. Callers
   consume the RECOGNISED reserved heads (`:>`, `:rf/suspense-boundary`)
   before consulting this, so a `true` here means \"reserved namespace, not
   a marker this emitter implements\"."
@@ -660,12 +652,12 @@
   "Throw `:rf.error/invalid-hiccup-head` for an UNRECOGNISED head in the
   framework-reserved `:rf/*` scheme.
 
-  rf2-j81hs — with keyword heads now uniformly DOM/custom elements
-  (§Keyword heads below), a reserved-namespace head would otherwise sail
+  With keyword heads uniformly DOM/custom elements (the `keyword?` arm of
+  `emit-element`), a reserved-namespace head would otherwise sail
   through the element branch: `:rf/suspense-boundry` (typo) has a `name`
   that passes the `[A-Za-z][A-Za-z0-9-]*` tag grammar, so the emitter
   would paint a phantom `<suspense-boundry>` and say nothing — the exact
-  silent-phantom failure mode this bead exists to kill, just moved one
+  silent-phantom failure mode the one head grammar exists to prevent, one
   keystroke away. The `:rf/*` root is framework-owned, so there is no
   legitimate author element to preserve here and the guard costs one
   namespace test on a branch that already destructures the keyword.
@@ -675,7 +667,7 @@
   precisely what that id names. The message and `:recovery` distinguish
   the arm.
 
-  `el` crosses `error/safe-form` FIRST (rf2-9s68n) — see
+  `el` crosses `error/safe-form` FIRST — see
   `re-frame.error` §cycle-safe diagnostic printing. `head` needs no such
   crossing: this arm is
   reached only for a keyword in the reserved `:rf/*` namespace."
@@ -704,22 +696,22 @@
   a callable component (a fn or Var). A head that is a string / nil /
   number / boolean / collection has no HTML interpretation.
 
-  Per rf2-y1jbaq — the prior `(str el)` fallthrough stringified the WHOLE
-  hiccup vector RAW and UNESCAPED onto the wire, so a malformed-head vector
-  carrying attacker-controlled child strings (`[nil \"<script>…\"]`,
-  `[\"x\" \"<img … onerror=…>\"]`) shipped live `<script>` / `<img onerror>`
-  markup — an XSS-class bypass of the locked escape-at-every-leaf-or-fail-
-  loud invariant (Spec 011 §XSS at output boundaries). Fail loud instead,
+  A `(str el)` fallthrough would stringify the WHOLE hiccup vector RAW and
+  UNESCAPED onto the wire, so a malformed-head vector carrying
+  attacker-controlled child strings (`[nil \"<script>…\"]`,
+  `[\"x\" \"<img … onerror=…>\"]`) would ship live `<script>` /
+  `<img onerror>` markup — an XSS-class bypass of the escape-at-every-leaf-
+  or-fail-loud invariant (Spec 011 §XSS at output boundaries). Fail loud instead,
   mirroring `validate-tag-name!` and the `:>` / `:rf/suspense-boundary`
   throws — never stringify an unescaped hiccup form to the wire. Shared by
   the sync emitter and the streaming shell walker so both paths reject the
   same malformed shape identically.
 
-  rf2-9s68n — THIS ARM IS WHERE A FOREIGN HEAD LANDS, and it is the arm the
-  defect was reported against: a React context provider is neither
-  `keyword?` nor `ifn?`, so `[ctx.Provider {…}]` falls here, and `pr-str` of
-  a self-referential JS object blew the stack — `RangeError` instead of the
-  message this function exists to produce. `element` crosses
+  THIS ARM IS WHERE A FOREIGN HEAD LANDS: a React context provider is
+  neither `keyword?` nor `ifn?`, so `[ctx.Provider {…}]` falls here, and
+  `pr-str` of a self-referential JS object would blow the stack —
+  `RangeError` instead of the message this function exists to produce.
+  `element` crosses
   `error/safe-form` first; `(first element)` is read from the crossed value,
   so the head is covered by the same one crossing."
   [element]
@@ -777,7 +769,7 @@
       report the real call.
 
      `nil` covers two situations that are NOT the same, and only one of them
-     is host agreement (rf2-mocn3, mayor ruling 2026-09-01):
+     is host agreement:
 
        • TOO MANY args for every arm of a multi-arm inner — the compiled
          CLJS dispatcher throws `Invalid arity: <count>` as well, so both
@@ -787,22 +779,22 @@
          instead, DELIBERATELY. See `invoke-form-2-render-fn` for the
          supported contract and why this direction is not emulated.
 
-     rf2-mocn3 (audit) — this used to walk every declared arity downward and
-     take the longest accepted prefix, which is NOT what a compiled CLJS fn
-     does. Only a fn with a SINGLE fixed arity and no variadic tail compiles
+     Walking every declared arity downward and taking the longest accepted
+     prefix would NOT be what a compiled CLJS fn does. Only a fn with a
+     SINGLE fixed arity and no variadic tail compiles
      to a bare JavaScript function, and only a bare JavaScript function drops
      extra arguments. Anything with more than one arm compiles to a dispatcher
      that switches on `arguments.length` and throws on an unsupported arity when no
-     arm matches. Measured on node against `cljs.core/apply`, which is exactly
-     what the `:cljs` branch of `invoke-form-2-render-fn` calls:
+     arm matches. On node, against `cljs.core/apply` — exactly what the
+     `:cljs` branch of `invoke-form-2-render-fn` calls:
 
        (fn [x] …)                  at 3 args  → returns (extra args dropped)
        (fn ([x] …) ([x y] …))      at 3 args  → throws `Invalid arity: 3`
        (fn ([] …) ([x] …))         at 2 args  → throws `Invalid arity: 2`
 
-     The prefix walk selected 2 and 1 for those last two and rendered happily,
-     so a shared `.cljc` Form-2 component could render on the server and blow
-     up on hydration — the precise parity this helper exists to hold.
+     A prefix walk would select 2 and 1 for those last two and render
+     happily, so a shared `.cljc` Form-2 component could render on the server
+     and blow up on hydration — the precise parity this helper exists to hold.
 
      So the three selection rules mirror the three shapes the dispatcher has:
 
@@ -850,16 +842,16 @@
   `form-2-invocation-arity` models the compiled dispatcher rather than
   helpfully finding some arity that works.
 
-  rf2-mocn3 — it used to DISCOVER the shape instead, with
-  `(try (apply inner args) (catch ArityException _ (inner)))`, and that is
-  wrong twice over. The catch enclosed execution of programmer code, so an
-  `ArityException` raised INSIDE a correctly-invoked render (an ordinary
-  wrong-arity bug in a helper it calls) was indistinguishable from an
-  invocation mismatch: the render body ran a SECOND time, duplicating the
-  effects of a non-pure render and reporting the retry's outcome instead of
-  the original failure — or, for a variadic inner, succeeding at arity zero
-  and silently shipping different HTML. And the retry tried only arity ZERO,
-  so a prefix-taking inner was rejected on the server while rendering fine in
+  DISCOVERING the shape instead, with
+  `(try (apply inner args) (catch ArityException _ (inner)))`, would be
+  wrong twice over. The catch would enclose execution of programmer code, so
+  an `ArityException` raised INSIDE a correctly-invoked render (an ordinary
+  wrong-arity bug in a helper it calls) would be indistinguishable from an
+  invocation mismatch: the render body would run a SECOND time, duplicating
+  the effects of a non-pure render and reporting the retry's outcome instead
+  of the original failure — or, for a variadic inner, succeeding at arity
+  zero and silently shipping different HTML. And a retry at arity ZERO alone
+  would reject a prefix-taking inner on the server while it renders fine in
   the browser.
 
   So: select the shape from the inner's DECLARED arities
@@ -869,7 +861,7 @@
   `ArityException` report the real call rather than a fabricated retry.
 
   THE SUPPORTED CONTRACT — stated narrowly, because the wide version is
-  false (rf2-mocn3, mayor ruling 2026-09-01). This helper matches compiled
+  false. This helper matches compiled
   CLJS on arity SELECTION (which arm of a multi-arm inner runs, and that a
   count no arm declares is refused on both hosts) and on EXCESS arguments (a
   single-fixed-arity inner compiles to a bare JS function, which drops them;
@@ -911,10 +903,10 @@
   identical on server and client, so the resolved output cannot fire a
   spurious hydration mismatch.
 
-  Per rf2-dtza9a — the prior bare `(apply head args)` left a Form-2 result
-  (a fn) to fall through to `escape-html`, which stringified the fn's
-  `.toString` (`user$…fn__…@…`) as visible page text (plus a guaranteed
-  downstream hydration mismatch). A result that is STILL a bare fn after the
+  A bare `(apply head args)` would leave a Form-2 result (a fn) to fall
+  through to `escape-html`, which would stringify the fn's `.toString`
+  (`user$…fn__…@…`) as visible page text (plus a guaranteed downstream
+  hydration mismatch). A result that is STILL a bare fn after the
   single Form-2 unwrap is not a valid component render — fail loud with
   `:rf.error/ssr-nonrenderable-component` rather than leak the fn text."
   [head args]
@@ -940,7 +932,7 @@
 
 (defn emit-element
   "Emit a hiccup node as an HTML string. The optional `root-attrs` map
-  (per rf2-lxwse) carries attributes destined for the first DOM-tag
+  carries attributes destined for the first DOM-tag
   element on the root path — view-refs, fragments, Reagent-native heads,
   and fn-headed components pass it through; the first DOM-tag emission
   merges and consumes it. Recursive calls into children always pass
@@ -951,7 +943,7 @@
      (nil? el)         ""
      (string? el)      (rf.ssr.html-helpers/escape-html el)
      ;; Canonicalise the numeric print form so the emitted HTML matches the
-     ;; render-tree hash byte-for-byte across runtimes (rf2-0ypnnk): a
+     ;; render-tree hash byte-for-byte across runtimes: a
      ;; whole-valued double renders `9` (not the JVM `9.0`), agreeing with
      ;; CLJS. `canonical-number` uses `pr-str`, which coincides with `str`
      ;; for numbers (no quoting), so ordinary integers/decimals are
@@ -959,20 +951,20 @@
      (number? el)      (rf.ssr.hash/canonical-number el)
      (boolean? el)     ""
      ;; A keyword or symbol CHILD is spelled by its `name` — no leading
-     ;; colon, namespace dropped (rf2-53lsj).
+     ;; colon, namespace dropped.
      ;;
-     ;; These used to fall through to `escape-html`, whose `(str s)`
-     ;; keeps a keyword's colon and a symbol's namespace, so the JVM
-     ;; emitted `<card>:revenue</card>` and `<div>a/b</div>` where every
+     ;; Falling through to `escape-html`, whose `(str s)` keeps a
+     ;; keyword's colon and a symbol's namespace, would emit
+     ;; `<card>:revenue</card>` and `<div>a/b</div>` on the JVM where every
      ;; client substrate paints `<card>revenue</card>` and `<div>b</div>`.
-     ;; Measured on both hosts: Reagent routes a `named?` child through
+     ;; On both hosts Reagent routes a `named?` child through
      ;; `(name x)` before handing it to React, which is why the namespace
      ;; disappears — `:a/b` and `'a/b` both paint `b`.
      ;;
-     ;; rf2-j81hs aligned the HEAD meaning of a keyword and left the
-     ;; CHILD spelling diverging; a text-node mismatch is not cosmetic,
+     ;; The CHILD spelling of a keyword follows its HEAD meaning onto every
+     ;; host. A text-node mismatch is not cosmetic,
      ;; because React hydration reconciles text nodes as well as element
-     ;; structure, so the server's ":revenue" could not hydrate cleanly
+     ;; structure, so a server ":revenue" could not hydrate cleanly
      ;; against the client's "revenue". Same rule, same reason: one
      ;; render tree means one thing on every host.
      ;;
@@ -986,37 +978,37 @@
          ;; Fragment `:<>` — emits its rendered children with no wrapper.
          ;; Per Spec 011: source-coord annotation skips this head (the
          ;; fragment itself is not a DOM element), and the tag-name
-         ;; validator (rf2-z7gor) does not apply. Handled ahead of the
+         ;; validator does not apply. Handled ahead of the
          ;; general keyword branch so it never reaches `parse-tag-name`.
          ;;
-         ;; rf2-58zvy1 finding 2 — root-attrs (rf2-lxwse, the render-hash
+         ;; Root-attrs (the render-hash
          ;; / `:render-hash` marker) MUST thread through a fragment root
-         ;; onto the first DOM-tag child, exactly once. The prior plain
-         ;; `emit-children` dropped them, so `[:<> [:div "x"]]` with
-         ;; a supplied `:render-hash` lost its `data-rf-render-hash` even though
-         ;; the docstring promises threading "past … fragments". Thread
-         ;; onto the first child only; nested fragments / fn-heads /
+         ;; onto the first DOM-tag child, exactly once. A plain
+         ;; `emit-children` would drop them, so `[:<> [:div "x"]]` with
+         ;; a supplied `:render-hash` would lose its `data-rf-render-hash`
+         ;; even though the docstring promises threading "past … fragments".
+         ;; Thread onto the first child only; nested fragments / fn-heads /
          ;; view-refs keep threading down their own root path.
          ;;
-         ;; rf2-3357 — A FRAGMENT MAY CARRY A PROPS MAP AT SLOT 1, and it
+         ;; A FRAGMENT MAY CARRY A PROPS MAP AT SLOT 1, and it
          ;; is NOT a child. `[:<> {:key i} …]` inside a `for` is the
          ;; canonical fragment idiom, so this is ordinary application
-         ;; markup, not a corner. The prior plain `(rest el)` handed that
-         ;; map to `emit-element` as the FIRST child, which fell through
-         ;; to `escape-html` and put the map's EDN in the response bytes
-         ;; (`[:<> {:key "k"} [:div "x"]]` → `{:key &quot;k&quot;}<div>x
+         ;; markup, not a corner. A plain `(rest el)` would hand that
+         ;; map to `emit-element` as the FIRST child, which would fall
+         ;; through to `escape-html` and put the map's EDN in the response
+         ;; bytes (`[:<> {:key "k"} [:div "x"]]` → `{:key &quot;k&quot;}<div>x
          ;; </div>`) — garbage text, and a guaranteed hydration mismatch
-         ;; against a client render that emits none of it. It ALSO ate the
-         ;; root-attrs above: the map became the first child, so the
-         ;; `data-rf-render-hash` marker was threaded onto a value that
-         ;; cannot carry an attribute and vanished, silently, on exactly
+         ;; against a client render that emits none of it. It would ALSO
+         ;; eat the root-attrs above: with the map as the first child, the
+         ;; `data-rf-render-hash` marker would be threaded onto a value that
+         ;; cannot carry an attribute and vanish, silently, on exactly
          ;; the keyed fragments applications write. Skipping the slot
-         ;; repairs both. This is the failure the `:>` arm below states it
+         ;; avoids both. It is the failure the `:>` arm below states it
          ;; refuses to commit ("dump the props map as raw EDN into the
-         ;; markup"); the fragment arm was committing it.
+         ;; markup").
          ;;
          ;; The slot test is `(map? (second el))` — the same spelling the
-         ;; DOM-tag branch below already uses, and the same rule as the
+         ;; DOM-tag branch below uses, and the same rule as the
          ;; React-side codec's `props-map?` (a map is props; a seq, string
          ;; or hiccup vector there is a child).
          ;;
@@ -1025,7 +1017,7 @@
          ;; element, so no attribute on one has a wire representation —
          ;; `:key` is reconciliation identity, which the client recomputes
          ;; from the same tree, and there is no tag to hang the rest on.
-         ;; Dropping is what every sibling emitter in this repo already
+         ;; Dropping is what every sibling emitter in this repo
          ;; does (reagent-slim's static `emit-fragment` skips the whole
          ;; slot; the React-side codec reads `:key` off it and ignores the
          ;; remainder) and what React does at runtime — a stray prop on a
@@ -1036,10 +1028,10 @@
          ;; artefact takes deliberately and narrowly elsewhere
          ;; (`invoke-form-2-render-fn` §THE SUPPORTED CONTRACT), and there
          ;; it buys a caught mistake. Here it would buy nothing: the arm
-         ;; already emits exactly what the client paints. The loud arms in
+         ;; emits exactly what the client paints. The loud arms in
          ;; this emitter (`:>`, `:rf/suspense-boundary`, reserved `:rf/*`,
          ;; a malformed head) all guard shapes with NO safe wire meaning,
-         ;; where the alternative was a phantom element or unescaped EDN.
+         ;; where the alternative is a phantom element or unescaped EDN.
          ;; A fragment attribute's safe wire meaning is nothing, and
          ;; nothing is what this emits.
          (= :<> head)
@@ -1050,20 +1042,18 @@
          ;; Reagent-native interop head `:>` — `[:> Component {props} …]`
          ;; passes its children through to a React COMPONENT, not a DOM
          ;; tag. There is no React on the JVM, so `:>` cannot be statically
-         ;; rendered server-side. Per rf2-ee38b.10 — fail loud rather than
+         ;; rendered server-side. Fail loud rather than
          ;; splice `(rest el)` through `emit-children`, which would stringify
          ;; the component ref and dump the props map as raw EDN into the
          ;; markup (garbage output, not a rendered component). The author
          ;; wraps the React component in a `reg-view` and references THAT
          ;; by its callable head — the Var `reg-view` defs, or
-         ;; `(rf/view :id)`. rf2-ycz3k: this used to say the wrapping
-         ;; reg-view was something "the SSR emitter resolves", which has
-         ;; been false since rf2-j81hs made the emitter a pure
-         ;; hiccup → HTML function with no registry lookup. Nothing
-         ;; resolves an id here; the CALLABLE head is what the emitter
-         ;; invokes, which is why the spelling has to be in the message.
+         ;; `(rf/view :id)`. The emitter is a pure hiccup → HTML function
+         ;; with no registry lookup, so nothing resolves an id here; the
+         ;; CALLABLE head is what the emitter invokes, which is why the
+         ;; spelling has to be in the message.
          ;;
-         ;; rf2-9s68n — `el` crosses `error/safe-form` before it is
+         ;; `el` crosses `error/safe-form` before it is
          ;; printed OR put in ex-data. This arm is the one where a foreign
          ;; JS value is not merely possible but EXPECTED: `[:> ctx.Provider
          ;; …]` is what `:>` interop is FOR, and a React 19 provider is a
@@ -1093,13 +1083,13 @@
          ;; name passes the `[A-Za-z][A-Za-z0-9-]*` tag grammar, so
          ;; without this guard `parse-tag-name` would emit a phantom
          ;; `<suspense-boundary>` element with the `{:id … :fallback …}`
-         ;; attrs map serialised as bogus attributes (rf2-bee5i). Fail
+         ;; attrs map serialised as bogus attributes. Fail
          ;; loud — parallel to the `:>` throw above — so a marker that
          ;; reaches a non-streaming render (e.g. `render-to-string` on a
          ;; streaming tree) surfaces a structured error rather than
          ;; silently producing malformed markup. Per Conventions §`:rf/*`
          ;; reserved hiccup heads + Spec 011 §Streaming SSR.
-         ;; rf2-9s68n — `el` crosses `error/safe-form` first: a
+         ;; `el` crosses `error/safe-form` first: a
          ;; boundary's `:fallback` is ordinary hiccup and can carry a
          ;; foreign JS value anywhere inside it.
          (= :rf/suspense-boundary head)
@@ -1131,49 +1121,44 @@
          ;; `<suspense-boundry>` / `<hydrate>` and say nothing. Per
          ;; Conventions §Reserved namespaces the `:rf/*` root is framework-
          ;; owned, so no author element can legitimately live there; fail
-         ;; loud (rf2-j81hs §4). Reuses `:rf.error/invalid-hiccup-head` —
+         ;; loud. Reuses `:rf.error/invalid-hiccup-head` —
          ;; the head genuinely has no HTML interpretation, which is exactly
          ;; what that id names — rather than minting a near-duplicate id.
          (reserved-rf-head? head)
          (reject-reserved-rf-hiccup-head! el head)
 
          (keyword? head)
-         ;; rf2-j81hs — ONE render-tree head grammar, corpus-wide: a
-         ;; keyword head is a DOM / custom element on EVERY host. This
-         ;; branch used to probe `(registrar/lookup :view head)` first and
-         ;; resolve a registered view, which made `[:dashboard/card 7]`
+         ;; ONE render-tree head grammar, corpus-wide: a
+         ;; keyword head is a DOM / custom element on EVERY host. Probing
+         ;; `(registrar/lookup :view head)` first and resolving a
+         ;; registered view would make `[:dashboard/card 7]`
          ;; mean "registered view" here and "an HTML `<card>` element" on
          ;; every client substrate (Reagent's `parse-tag` runs `(name
          ;; tag)`; UIx are not hiccup at all). A `.cljc` app sharing
          ;; views across both — the whole point of the SSR story — could
-         ;; not write a keyword head that meant one thing, and the server
-         ;; rendered it CORRECTLY while the client painted a phantom, so
-         ;; the mistake survived every server-side test (rf2-o4rbh found it
-         ;; in the flagship streaming example).
+         ;; not write a keyword head that meant one thing, and with the
+         ;; server rendering it CORRECTLY while the client painted a
+         ;; phantom, the mistake would survive every server-side test.
          ;;
          ;; Conventions §Render-tree shape vs runtime lookup owns the head
-         ;; grammar; Spec 011's
-         ;; keyword-resolution prose was a non-owning spec extending it and
-         ;; is CORRECTED, not changed (rf2-3i7tr grammar ownership). This
-         ;; finishes rf2-n82bbu — the JVM emitters were the last surface
-         ;; out of conformance with "keyword tags stay plain substrate-
-         ;; owned HTML elements". Views are referenced by callable binding:
+         ;; grammar: "keyword tags stay plain substrate-owned HTML
+         ;; elements". Views are referenced by callable binding:
          ;; the Var `reg-view` defs, or `(rf/view :id)`.
          (let [[tag-name tag-attrs] (parse-tag-name head)
                [user-attrs children]
                (if (map? (second el))
                  [(second el) (drop 2 el)]
                  [{} (rest el)])
-               ;; rf2-hzttr finding 3 — void + raw-text classification
+               ;; Void + raw-text classification
                ;; must be CASE-INSENSITIVE. `validate-tag-name!` admits
                ;; upper/mixed-case names (`[:BR]`, `[:SCRIPT …]`), but
                ;; `void-elements` / `raw-text-tags` are keyed lower-case,
-               ;; so a `[:BR]` was emitted as a non-void open+close pair
-               ;; and a `[:SCRIPT "a<b"]` would classify wrongly. Normalise
-               ;; for classification while preserving the author's emitted
-               ;; case.
+               ;; so a raw lookup would emit a `[:BR]` as a non-void
+               ;; open+close pair and classify a `[:SCRIPT "a<b"]` wrongly.
+               ;; Normalise for classification while preserving the
+               ;; author's emitted case.
                normalised-tag-name (clojure.string/lower-case tag-name)
-               ;; rf2-3x7nj.13.1 / rf2-slr59 — class join, root attrs, the
+               ;; Class join, root attrs, the
                ;; client's name/value conversion and the form-control special
                ;; forms, shared with the streaming walker.
                {attrs :attrs text :text select-value :select}
@@ -1183,34 +1168,34 @@
                raw-text?    (contains? rf.ssr.html-helpers/raw-text-tags normalised-tag-name)]
            (cond
              void?     (str "<" tag-name (attr-string attrs) ">")
-             ;; rf2-xbvzh — an ordinary inline <script>/<style> with STRING
+             ;; An ordinary inline <script>/<style> with STRING
              ;; content is author content: emit it VERBATIM with only the
              ;; shared closing-sequence rewrite (`html/escape-raw-text`),
              ;; byte-identical to the S5 serialiser and the streaming walker.
              ;; The `every? string?` gate mirrors the compiled path — an
              ;; all-string body is the real inline-script/style shape; any
-             ;; structural child leaves the existing per-child walk untouched
-             ;; (element children pass through inert; the hiccup emitter gains
+             ;; structural child takes the ordinary per-child walk
+             ;; (element children pass through inert; the hiccup emitter has
              ;; no compiled child-shape grammar).
              (and raw-text? (seq children) (every? string? children))
              (str "<" tag-name (attr-string attrs) ">"
                   (rf.ssr.html-helpers/escape-raw-text normalised-tag-name
                                         (clojure.string/join children))
                   "</" tag-name ">")
-             ;; rf2-slr59 — a `<textarea>`'s `:value` (else `:default-value`)
+             ;; A `<textarea>`'s `:value` (else `:default-value`)
              ;; is its text body, as react-dom/server writes it, with the same
-             ;; rf2-s7l5 leading-LF compensation a string child gets.
+             ;; leading-LF compensation a string child gets.
              (some? text)
              (str "<" tag-name (attr-string attrs) ">"
                   (rf.ssr.html-helpers/leading-newline-compensation
                     normalised-tag-name text)
                   (rf.ssr.html-helpers/escape-html text)
                   "</" tag-name ">")
-             ;; rf2-s7l5 — a `<pre>`/`<listing>`/`<textarea>` whose body is a
+             ;; A `<pre>`/`<listing>`/`<textarea>` whose body is a
              ;; SINGLE string beginning with LF gets the one compensating LF
              ;; react-dom/server 19.2 emits, because the HTML parser eats the
              ;; first LF after those start tags. Without it `[:pre "\ncode"]`
-             ;; reached the DOM as "code" — one authored character lost, and a
+             ;; would reach the DOM as "code" — one authored character lost, and a
              ;; text hydration mismatch against the client's rendering of the
              ;; same `.cljc` view. The roster and the rule are shared with the
              ;; streaming walker and the S5 serialiser
@@ -1227,10 +1212,9 @@
 
          ;; Callable component head — a plain fn OR a Var reference
          ;; (`[#'component & args]`). On the JVM a Var is `ifn?` but NOT
-         ;; `fn?`, so a bare `(fn? head)` test let a Var-headed component
-         ;; fall through to `:else (str el)` and emit the EDN text
-         ;; `[#'user/component "ok"]` instead of resolving it (rf2-wtd8z
-         ;; finding 2). `ifn?` covers both — keywords/`:<>`/`:>`/
+         ;; `fn?`, so a bare `(fn? head)` test would send a Var-headed
+         ;; component to the malformed-head `:else` arm instead of
+         ;; resolving it. `ifn?` covers both — keywords/`:<>`/`:>`/
          ;; `:rf/suspense-boundary` are all consumed by the branches above,
          ;; so the only callables reaching here are fns and Var references.
          ;; Pass root-attrs through this indirection too — structurally the
@@ -1238,17 +1222,17 @@
          ;; hash / source-coord thread through the Var head onto the
          ;; resolved DOM root.
          ;;
-         ;; rf2-dtza9a — `resolve-component-head` handles a Form-2 component
+         ;; `resolve-component-head` handles a Form-2 component
          ;; (an outer fn returning an inner render fn): the inner fn is
          ;; invoked once with the same args rather than left to fall through
-         ;; to `escape-html`, which stringified the fn's `.toString` as
+         ;; to `escape-html`, which would stringify the fn's `.toString` as
          ;; visible page text.
          (ifn? head)
          (emit-element (resolve-component-head head (rest el)) root-attrs)
 
-         ;; rf2-y1jbaq — a vector whose head is not a keyword and not a
+         ;; A vector whose head is not a keyword and not a
          ;; callable (string / nil / number / boolean / collection head) is
-         ;; malformed. The prior `(str el)` shipped its EDN form RAW and
+         ;; malformed. `(str el)` would ship its EDN form RAW and
          ;; UNESCAPED (XSS-class escape bypass); fail loud instead.
          :else (reject-invalid-hiccup-head! el)))
 
@@ -1256,8 +1240,8 @@
      ;; `(map …)` or `(for …)` at the root). Per Spec 011 §Source-coord
      ;; annotation / §Hydration-mismatch detection a lazy-seq root is
      ;; "passed through the injection — the attribute lands on the eventual
-     ;; DOM root." rf2-a73idu — the prior plain `emit-children` DROPPED
-     ;; `root-attrs`, so a lazy-seq-rooted tree silently lost its
+     ;; DOM root." A plain `emit-children` would DROP
+     ;; `root-attrs`, so a lazy-seq-rooted tree would silently lose its
      ;; `data-rf-render-hash` marker; thread it onto the first DOM child,
      ;; exactly like the `:<>` fragment root.
      (sequential? el) (emit-children-threading-root-attrs el root-attrs)
@@ -1267,23 +1251,23 @@
   "Pure hiccup → HTML string. Per Spec 011 §The render-tree → HTML
   emitter. Returns a STRING. The structural hash (`render-tree-hash`)
   and the HTTP response accumulator (`re-frame.ssr/get-response`, backed
-  by the framework-private `response-slots` side-channel atom per
-  rf2-jbcmt — Spec 011 §Response storage substrate) are separate surfaces.
+  by the framework-private `response-slots` side-channel atom —
+  Spec 011 §Response storage substrate) are separate surfaces.
 
   Implements HTML5 void elements, :tag#id.cls parsing, boolean attrs,
-  text/attr escaping, registered-view resolution, var-reference
+  text/attr escaping, callable-head (fn / Var) component
   resolution, :doctype? prefix, and :render-hash root-element hash
   injection for client-side mismatch detection.
 
-  Per rf2-lxwse: when `:render-hash` is supplied, `data-rf-render-hash`
+  When `:render-hash` is supplied, `data-rf-render-hash`
   is threaded as `root-attrs` through `emit-element` and merged onto the
   first DOM-tag element of the rendered tree — past view-refs, fragments,
-  Reagent-native heads, and fn-headed components on the root path. This
-  replaces the prior post-emit regex-on-string injection: structural,
-  composes with the source-coord annotation, and silently no-ops for
+  Reagent-native heads, and fn-headed components on the root path. The
+  injection is structural rather than a post-emit regex over the string,
+  so it composes with the source-coord annotation and silently no-ops for
   non-DOM-rooted trees (matching the source-coord exemption).
 
-  Per rf2-atmvj / rf2-i15nh: `:render-hash` is the ONE marker spelling.
+  `:render-hash` is the ONE marker spelling.
   A caller that wants the marker computes the structural hash itself and
   passes it in — that single hash then drives BOTH the root-element
   `data-rf-render-hash` injection AND the caller's own payload slot
@@ -1301,7 +1285,7 @@
   Unknown opts are ignored; the emitter does not validate its opts map."
   ([render-tree] (render-to-string render-tree nil))
   ([render-tree opts]
-   ;; Per rf2-ezdwh — bind the per-render parse-tag-name memo so
+   ;; Bind the per-render parse-tag-name memo so
    ;; repeated heads (`:div`, `:span`, `:p`, …) parse once instead of
    ;; once per emission. Cache lives only for the duration of this
    ;; render call.
@@ -1316,7 +1300,7 @@
 
 ;; Wire render-to-string into the plain-atom adapter so callers using
 ;; ssr/render-to-string (delegating through the substrate adapter) get
-;; this implementation. Per rf2-uo7v the Reagent adapter wires its own
+;; this implementation. The Reagent adapter wires its own
 ;; set-hiccup-emitter! through `:reagent/set-hiccup-emitter!`; we
 ;; consume that hook below so ssr does not statically :require the
 ;; Reagent adapter ns.
@@ -1336,7 +1320,7 @@
 (when-let [reagent-set-emitter! (rf.late-bind/get-fn :reagent/set-hiccup-emitter!)]
   (reagent-set-emitter! render-to-string))
 
-;; rf2-vxgfnd.204 — retain the current SSR emitter durably so a substrate
+;; Retain the current SSR emitter durably so a substrate
 ;; adapter can RE-ARM its render-to-string slot at EVERY install, not only the
 ;; one-time ns-load publications above. The React-shaped adapter (UIx)
 ;; clears its per-generation `emitter-cell` on `dispose-adapter!`
