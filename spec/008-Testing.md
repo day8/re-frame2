@@ -954,7 +954,7 @@ Testing and stories share infrastructure (frames, overrides, drain, dispatch-syn
 
 ## Open questions
 
-> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all three items are **post-v1, untracked notes** — design directions beyond v1 with no tracking bead filed yet (so none qualifies as `:post-v1 tracked`, which requires a `rf2-<id>`). "Snapshot / fixture serialization" — foundation exists; a packaged helper is user-space. "Property-based testing integration" — a pattern doc, no framework change. "Model-based testing harness over `machine-transition`" — library territory, not framework (the pure `machine-transition` contract is sufficient). A tracking bead is filed for each only when its reconsideration trigger below fires.
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all three items are **post-v1, untracked notes** — design directions beyond v1 with no tracking bead filed yet (so none qualifies as `:post-v1 tracked`, which requires a `rf2-<id>`). "Snapshot / fixture serialization" — foundation exists; a packaged helper is user-space. "Property-based testing integration" — a pattern doc, no framework change. "Model-based testing harness over `machine-transition`" — library territory, not framework (the pure `machine-transition` contract is sufficient for path exploration from a caller-supplied settled starting snapshot; rf2-2n6uv.1.5 is the decision record holding it to its reconsideration trigger, not a tracking bead). A tracking bead is filed for each only when its reconsideration trigger below fires.
 
 ### Snapshot / fixture serialization (post-v1)
 
@@ -982,23 +982,25 @@ Some tests want to capture a frame's `app-db` and replay it later (golden-master
 
 ### Model-based testing harness over `machine-transition` (post-v1)
 
-`@xstate/test`-style: treat a transition table as a graph and *generate* test cases automatically — paths, state-coverage, transition-coverage, shortest-path-to-state, guard-coverage. The pure `machine-transition` function makes this cheap; the transition contract is sufficient to build the harness externally without runtime changes. Deferred to a post-v1 cycle (untracked note — no bead filed yet).
+`@xstate/test`-style: treat a transition table as a graph and *generate* test cases automatically — paths, state-coverage, transition-coverage, shortest-path-to-state, guard-coverage. Path exploration is a few dozen lines over the public `machine-transition`. Two things a trustworthy harness needs are not on the public surface: a pure *settled* initial snapshot — birth (the initial `:entry` cascade plus its `:always` / `:raise` settle) runs only inside the runtime, so a walk from a structural initial snapshot skips it — and which declared transition handled each event, the fact exact transition coverage rests on, which the public result does not name. Generated paths are not assertions either: a walk replays the implementation against itself, so the intended outcomes come from the programmer. Deferred to a post-v1 cycle (untracked note — no bead filed yet).
 
 #### Post-v1 Tracking
 
 - **Foundation in v1.** `machine-transition` is pure and JVM-runnable; `:guards` and `:actions` are machine-scoped fns the harness can call directly; the corpus shape per [005 §Future — Model-based testing harness](005-StateMachines.md#model-based-testing-harness--re-framemachinestest) is locked.
-- **Scope deferred.** The packaged library (`rf/test/machine-paths`, `rf/test/shortest-path-to`, coverage strategy selectors, EDN fixture emitter) ships as `re-frame.machines.test` post-v1.
-- **Reconsideration trigger.** Either an AI-implementor needs the coverage corpus for cross-language conformance, or app-side machines start exhibiting edge-case bugs that hand-written tests miss.
+- **Scope deferred.** The packaged library (`machine-paths`, `shortest-path-to`, coverage strategy selectors, EDN fixture emitter) ships as `re-frame.machines.test` post-v1, off the `rf/` facade like `machine-transition` itself.
+- **Reconsideration trigger.** Either an AI-implementor needs the coverage corpus for cross-language conformance, or app-side machines start exhibiting edge-case bugs that hand-written tests miss, or a consumer app or re-frame2 tool test-suite brings a real machine whose assertion-bearing tests would be materially shorter with a bounded path helper. On that last signal the first step is the smallest helper that shortens that test — one bounded witness-path operation over caller-supplied events, from an explicit settled snapshot, keeping the full snapshot and effects and surfacing `:status :error` rather than dropping it — used in that test before any public namespace is decided. Shortest and simple paths, replay, exact coverage and fixture emission need not ship together.
 - **Out of scope for this note.** Time-travel / step-debugger over the generated paths — separate concern, lives in the tool layer (xray/re-frame2-pair).
 - **Cross-link.** See [005 §Future — Model-based testing harness](005-StateMachines.md#model-based-testing-harness--re-framemachinestest) for the substrate-side framing.
 
 Sketch of the surface:
 
 ```clojure
-(rf/test/machine-paths definition {:coverage :transition-coverage})
+;; (:require [re-frame.machines.test :as mt])
+
+(mt/machine-paths definition {:coverage :transition-coverage})
 ;; → seq of [<event-vec> ...] sequences that together visit every transition
 
-(rf/test/shortest-path-to definition target-state)
+(mt/shortest-path-to definition target-state)
 ;; → seq of event vectors that drives a fresh snapshot to target-state
 ```
 
