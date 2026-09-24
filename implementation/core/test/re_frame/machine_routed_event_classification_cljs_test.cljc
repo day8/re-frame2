@@ -1,5 +1,5 @@
 (ns re-frame.machine-routed-event-classification-cljs-test
-  "rf2-ghgbqi (agb5jk item 2) — the machine trace projector redacts the
+  "The machine trace projector redacts the
   ROUTED inner event echoed into the machine trace slots, not only the
   durable `:data` snapshot.
 
@@ -7,12 +7,12 @@
   (`[:machine-id <inner-event>]`), the trace echoes the routed inner event
   into two slots — top-level `:event` (`:rf.machine/transition`,
   `:rf.machine/event-received`) and `[:input :event]`
-  (`:rf.machine/guard-evaluated`, `:rf.machine/action-ran`). Before this
-  fix, `re-frame.classification/project-machine-tags` projected only the
-  `:data` snapshot slots, so a `:sensitive`-classified payload carried
-  THROUGH the machine shipped RAW in those echo slots (the generic
-  event projector keys off the INNER event-id, which is typically
-  unregistered).
+  (`:rf.machine/guard-evaluated`, `:rf.machine/action-ran`).
+  `re-frame.classification/project-machine-tags` projects those echo slots
+  as well as the `:data` snapshot slots. Projecting only the snapshot would
+  ship a `:sensitive`-classified payload carried THROUGH the machine RAW in
+  the echo slots (the generic event projector keys off the INNER event-id,
+  which is typically unregistered).
 
   Two SEPARATE classification channels, kept disjoint by rooting:
 
@@ -21,8 +21,8 @@
       lowered per actor to the frame elision registry (`:source :machine`).
     - the `reg-machine` OPTS metadata `:sensitive` (event-vector-rooted,
       e.g. `[[1 :password]]`) is the machine's `:event` REGISTRATION
-      classification — the TRANSIENT event classification this fix projects
-      onto the echoed `:event` / `[:input :event]` slots.
+      classification — the TRANSIENT event classification projected onto
+      the echoed `:event` / `[:input :event]` slots.
 
   An event-rooted path (integer index) never matches a `:data`-prefixed
   snapshot key and vice versa, so both path sets ride the same union and
@@ -32,16 +32,16 @@
   (`npm run test:cljs`, `cljs-test$` ns-regexp) AND the JVM `clojure -M:test`
   runner both run it.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   The DETERMINISTIC PROJECTOR TEETH are pure functions over hand-built trace
-  shapes and run under `scripts/test-core-prod-gate.sh` unchanged, as does the
+  shapes and run under `scripts/test-core-prod-gate.sh` as written, as does the
   live round-trip's EGRESS-ONLY claim — the machine action reads the RAW
   password locally, untouched by projection.
 
   The LIVE TRACE assertions are dev-only: the stream they police does not
-  exist under `-Dre-frame.debug=false`. They are kept verbatim inside a
-  `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`, and the two
+  exist under `-Dre-frame.debug=false`. They sit inside a
+  `(when rf.interop/debug-enabled? …)` arm, and the two
   assertions that look like opposites go in TOGETHER. `(not (some #(leaks?
   pw-sentinel %) @seen))` over an empty `@seen` passes because nothing was
   emitted — a redaction suite must never report green on that basis — and its
@@ -97,9 +97,9 @@
 ;; =====================================================================
 
 (deftest transition-echoed-event-slots-redacted
-  (testing "rf2-ghgbqi: a :rf.machine/transition echoing a :sensitive routed
+  (testing "a :rf.machine/transition echoing a :sensitive routed
             event redacts the password in BOTH echo slots (top-level :event and
-            [:input :event]) while the durable :data (token) still redacts and
+            [:input :event]) while the durable :data (token) redacts too and
             the non-secret :email survives"
     (register-machine-event-classification!)
     (let [raw (inner-event)
@@ -111,7 +111,7 @@
                       :before   {:state :idle :data {:token token-sentinel}}
                       :after    {:state :done :data {:token token-sentinel}}}}
           t   (project ev)]
-      ;; --- the fix: routed-event echo slots redact the password ---
+      ;; --- routed-event echo slots redact the password ---
       (is (= rf.privacy/redacted-sentinel (get-in t [:event 1 :password]))
           "top-level :event password redacted by the machine's event classification")
       (is (= rf.privacy/redacted-sentinel (get-in t [:input :event 1 :password]))
@@ -121,9 +121,9 @@
       ;; --- precision: the non-secret field survives ---
       (is (= email (get-in t [:event 1 :email]))
           "non-secret :email is NOT redacted (path-precise, not whole-event)")
-      ;; --- durable :data still redacts (unchanged pre-existing behaviour) ---
+      ;; --- durable :data redacts too ---
       (is (not (leaks? token-sentinel t))
-          "durable :data token still redacted in :before / :after / [:input :data]")
+          "durable :data token redacted in :before / :after / [:input :data]")
       (is (= rf.privacy/redacted-sentinel (get-in t [:before :data :token]))
           ":before snapshot data token redacted")
       ;; --- non-destructive: the RAW routed event the machine control flow
@@ -132,7 +132,7 @@
           "projection did not mutate the raw routed event — handlers see the raw value"))))
 
 (deftest event-received-echoed-event-redacted
-  (testing "rf2-ghgbqi: :rf.machine/event-received carries the routed event under
+  (testing ":rf.machine/event-received carries the routed event under
             top-level :event; the password redacts"
     (register-machine-event-classification!)
     (let [ev {:operation :rf.machine/event-received
@@ -145,7 +145,7 @@
       (is (not (leaks? pw-sentinel t))))))
 
 (deftest guard-and-action-input-event-redacted
-  (testing "rf2-ghgbqi: :rf.machine/guard-evaluated and :rf.machine/action-ran
+  (testing ":rf.machine/guard-evaluated and :rf.machine/action-ran
             carry the routed event under [:input :event]; the password redacts"
     (register-machine-event-classification!)
     (doseq [op [:rf.machine/guard-evaluated :rf.machine/action-ran]]
@@ -160,7 +160,7 @@
         (is (not (leaks? token-sentinel t)) (str op " leaks no [:input :data] token"))))))
 
 (deftest disjoint-roots-and-noop-precision
-  (testing "rf2-ghgbqi precision: the two path roots are disjoint, and an
+  (testing "precision: the two path roots are disjoint, and an
             unclassified machine leaves the echoed event untouched"
     ;; (1) A machine that declares ONLY a durable :data path does NOT touch
     ;;     the echoed event vector (a :data-prefixed key never indexes a vector).
@@ -172,7 +172,7 @@
       (is (leaks? pw-sentinel (:event t))
           "a :data-only machine does not redact the event (event path undeclared — fail-open)")
       (is (not (leaks? token-sentinel t))
-          "…but the durable :data token still redacts"))
+          "…but the durable :data token redacts"))
     ;; (2) A machine that declares ONLY an event path does NOT touch the
     ;;     durable snapshot (an integer index never matches a snapshot key).
     (rf.registrar/register! :event mid {:sensitive [[1 :password]]})
@@ -201,7 +201,7 @@
 ;; =====================================================================
 
 (deftest routed-sensitive-event-redacts-in-live-machine-trace
-  (testing "rf2-ghgbqi acceptance: routing a :sensitive event THROUGH a live
+  (testing "routing a :sensitive event THROUGH a live
             machine — the action reads the RAW password, but every emitted
             machine trace echo slot ships it redacted"
     (let [captured (atom ::none)
@@ -227,7 +227,7 @@
       (is (= pw-sentinel @captured)
           "the machine action read the RAW routed password locally")
 
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+      ;; Dev-instrumentation arm (see ns docstring §Posture split).
       ;; Points 2, 3 and 4 are ONE claim about a live channel and travel
       ;; together: the transition fired, the secret is absent from it, and the
       ;; non-secret survives. Split apart, point 3 passes over an empty
@@ -246,7 +246,7 @@
         (is (not (some #(leaks? pw-sentinel %) @seen))
             "no emitted trace event leaks the routed password sentinel")
 
-        ;; 4. Precision — the non-secret :email is still observable somewhere in
+        ;; 4. Precision — the non-secret :email is observable somewhere in
         ;;    the trace stream (redaction is path-precise, not whole-event).
         (is (some #(leaks? email %) @seen)
             "the non-secret :email survives in the trace stream"))
