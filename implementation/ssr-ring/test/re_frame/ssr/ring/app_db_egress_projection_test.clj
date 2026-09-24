@@ -1,16 +1,15 @@
 (ns re-frame.ssr.ring.app-db-egress-projection-test
-  "rf2-bt9kct (+ rf2-mx9w6q dup) — the final hydration app-db slice MUST be
+  "The final hydration app-db slice MUST be
   run through the centralized `:rf.egress/ssr-hydration` projection AFTER the
   `:payload` allowlist, so a frame-classified sensitive child inside an
   allowlisted (or whole-app-db) top-level key redacts before it serializes into
   `:rf/app-db`.
 
   EP-0015 §14: SSR/hydration is allowlist-FIRST, and frame classification
-  COMPOSES as defense-in-depth. The prior `re-frame.ssr.ring.payload/build-payload`
-  handed `(apply-policy app-db policy-opts)` straight to `build-payload` — only
-  allowlisting, never the frame-owned egress projector. A frame declaring
-  `:sensitive {:app-db [[:session :token]]}` and shipping `:session` (via the
-  allowlist OR `:rf.ssr.payload/whole-app-db`) serialized the raw token.
+  COMPOSES as defense-in-depth. Allowlisting alone, without the frame-owned
+  egress projector, would serialize the raw token of a frame that classifies
+  `[:session :token]` sensitive and ships `:session` (via the
+  allowlist OR `:rf.ssr.payload/whole-app-db`).
 
   This drives the ACTUAL non-streaming payload-build path
   (`re-frame.ssr.ring.payload/build-payload`) against a registered server frame
@@ -31,14 +30,12 @@
 
 (defn- reg-sensitive-frame! []
   ;; A server frame whose classification marks the nested :session :token path
-  ;; sensitive — the canonical durable app-db egress route. EP-0025 B4-ssr
-  ;; follow-on (rf2-ux7983): the path is classified through the post-purge
-  ;; mechanism — a B3 COMMIT-PLANE `:sensitive` effect the frame's init event
-  ;; returns alongside `:db` (EP-0025 §How it works / §Examples) — writing it
+  ;; sensitive — the canonical durable app-db egress route. The path is
+  ;; classified by a COMMIT-PLANE `:sensitive` effect the frame's init event
+  ;; returns alongside `:db` (EP-0025 §How it works / §Examples), which writes it
   ;; into the per-frame `[:rf.runtime/elision]` registry the
-  ;; `:rf.egress/ssr-hydration` egress walk reads. Replaces the retired
-  ;; retired frame-config `:sensitive {:app-db}` durable annotation (deleted by the
-  ;; EP-0025 B1b purge). Value-independent — classified at init, read at egress.
+  ;; `:rf.egress/ssr-hydration` egress walk reads. Value-independent — classified
+  ;; at init, read at egress.
   (rf/reg-event :rf.bt9kct/classify
     (fn [_ _] {:sensitive [[:session :token]]}))
   (rf/make-frame {:id server-frame :platform       :server
@@ -115,13 +112,13 @@
           "no frame classification → allowlisted slice rides verbatim")
       (is (not (contains? db :public))))))
 
-;; ---- rf2-hjz4r: no size elision on the hydration wire ----------------------
+;; ---- no size elision on the hydration wire ---------------------------------
 ;;
 ;; `:large` exists to protect tool budgets and hosted monitors, not the wire to
 ;; the page's own browser. The hydration payload is installed as LIVE client
-;; state by `:rf/hydrate`, so an elided value arrived as a
-;; `:rf.size/large-elided` marker map where the page expected its data. The
-;; `:rf.egress/ssr-hydration` profile now keeps large values; `:sensitive` still
+;; state by `:rf/hydrate`, so an elided value would arrive as a
+;; `:rf.size/large-elided` marker map where the page expects its data. The
+;; `:rf.egress/ssr-hydration` profile keeps large values; `:sensitive` still
 ;; redacts.
 
 (def ^:private catalog-frame :rf.hjz4r/catalog-server)
@@ -146,7 +143,7 @@
                                                  {:payload [:catalog]})
           db  (:rf/app-db out)]
       (is (= [1 2 3] (get-in db [:catalog :items]))
-          "the :large vector rides intact (it was a :rf.size/large-elided marker map)")
+          "the :large vector rides intact, not as a :rf.size/large-elided marker map")
       (is (= rf.privacy/redacted-sentinel (get-in db [:catalog :owner-token]))
           "control: the :sensitive sibling still redacts")
       (is (= "Shop" (get-in db [:catalog :title]))
@@ -165,7 +162,7 @@
                                                          {:payload [:catalog]})
                       pr-str
                       edn/read-string)
-          client  (rf.frame/make-anon-frame-record! {:doc      "rf2-hjz4r client frame"
+          client  (rf.frame/make-anon-frame-record! {:doc      "hydration client frame"
                                                      :platform :client})]
       (rf/dispatch-sync [:rf/hydrate payload] {:frame client})
       (let [items (get-in (rf/app-db-value client) [:catalog :items])]
@@ -177,9 +174,9 @@
           "control: the sensitive sibling is still the sentinel on the client"))))
 
 (deftest large-value-obeys-the-numeric-crossing-rule
-  (testing "a :large value now rides, so it now obeys the JVM numeric crossing
+  (testing "a :large value rides, so it obeys the JVM numeric crossing
             rule: a Long past 2^53 inside it is refused rather than shipped as a
-            marker (which destroyed the value silently)"
+            marker (which would destroy the value silently)"
     (reg-catalog-frame!)
     (let [data (try (rf.ssr.ring.payload/build-payload
                       catalog-frame
@@ -191,7 +188,7 @@
       (is (= [:catalog :items 1] (:path data)))
       (is (= :rf/app-db (:partition data))))))
 
-;; ---- rf2-hjz4r: the :payload-include-sensitive permit -----------------------
+;; ---- the :payload-include-sensitive permit ----------------------------------
 ;;
 ;; A CSRF synchronizer token is the counterexample to "sensitive means
 ;; server-only": the app keeps it out of its logs and tools, yet the page must
@@ -239,7 +236,7 @@
   (let [{:keys [payload]} (serve-session! permit)
         db                (:rf/app-db payload)]
     (is (= "csrf-abc-123" (get-in db [:session :csrf]))
-        "the permitted token rides raw (it was :rf/redacted)")
+        "the permitted token rides raw, not as :rf/redacted")
     (is (= rf.privacy/redacted-sentinel (get-in db [:session :upstream-key]))
         "control: the classified sibling the host did not permit stays redacted")
     (is (= "alice" (get-in db [:session :user]))
@@ -248,14 +245,14 @@
         "control: the unallowlisted key is absent")
     (is (not (.contains (pr-str payload) "sk-server-only"))
         "control: the withheld value survives nowhere in the payload"))
-  (testing "control: with no permit the token is redacted, as before"
+  (testing "control: with no permit the token is redacted"
     (is (= rf.privacy/redacted-sentinel
            (get-in (:payload (serve-session! {})) [:rf/app-db :session :csrf])))))
 
 (deftest a-permitted-value-is-live-client-state-after-a-real-hydrate
   (reg-session-app!)
   (let [{:keys [payload]} (serve-session! permit)
-        client            (rf.frame/make-anon-frame-record! {:doc      "rf2-hjz4r permit client"
+        client            (rf.frame/make-anon-frame-record! {:doc      "permit client frame"
                                                              :platform :client})]
     (rf/dispatch-sync [:rf/hydrate payload] {:frame client})
     (is (= "csrf-abc-123" (get-in (rf/app-db-value client) [:session :csrf]))
@@ -267,10 +264,11 @@
 (deftest a-permitted-rendered-value-hydrates-without-a-mismatch
   (testing "the hiccup tier renders the LIVE frame, so the server HTML carries
             the raw token; with the permit the client's first render hashes the
-            same (it hashed :rf/redacted, a mismatch on a correct app)"
+            same (without it the client would hash :rf/redacted, a mismatch on
+            a correct app)"
     (reg-session-app!)
     (let [{:keys [body payload]} (serve-session! permit)
-          client (rf.frame/make-anon-frame-record! {:doc      "rf2-hjz4r hash client"
+          client (rf.frame/make-anon-frame-record! {:doc      "hash client frame"
                                                     :platform :client
                                                     :ssr      {:on-mismatch :hard-error}})]
       (is (.contains ^String body "value=\"csrf-abc-123\"")
