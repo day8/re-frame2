@@ -1,5 +1,5 @@
 (ns re-frame.ssr.render-state-cljs-test
-  "rf2-8arzr.3 — the render-state contract (`re-frame.ssr.render-state`):
+  "The render-state contract (`re-frame.ssr.render-state`):
   `project` on a settled server frame, `serialize` / `deserialize` through
   the payload's EDN domain, `restore!` into a FRESH frame — both partitions.
 
@@ -13,21 +13,21 @@
 
   ## What is pinned
 
-  - Acceptance 1 — the round-trip corpus: every value class the wire domain
+  - The round-trip corpus: every value class the wire domain
     admits (`re-frame.ssr.manifest/edn-carryable?`) goes `project` ->
     `serialize` (pr-str) -> `deserialize` (the safe reader) -> `restore!`
     -> IDENTICAL, for BOTH partitions, with a route slice and a REAL machine
     snapshot (the machine ran on the server frame) in the runtime partition.
-  - Acceptance 2 — the negative fixture: a fn under an allowlisted key, a
+  - The negative fixture: a fn under an allowlisted key, a
     fn returned by the escape-hatch projector, a record, and an opaque
     top-level key each fail AT PROJECTION with
     `:rf.error/ssr-render-state-invalid` (`:invalid :unserialisable`) —
     never a silent nil. Each has its control beside it.
-  - Acceptance 3 — the omitted-key fixture: an allowlist naming a key the
+  - The omitted-key fixture: an allowlist naming a key the
     frame does not hold, and one omitting a key the view reads, both
     restore to `nil` where the value should be — the honest wrong page,
     no throw, the operator's allowlist mistake.
-  - S3 — derived sensitivity rides along: a frame-classified `:sensitive`
+  - Derived sensitivity rides along: a frame-classified `:sensitive`
     app-db path and machine-snapshot `:data` path project to `:rf/redacted`;
     the routing slice narrows to its durable `:current`; a runtime-db key
     the projector has no vocabulary for rides verbatim; and
@@ -52,14 +52,12 @@
             [re-frame.ssr.render-state :as rf.ssr.render-state]
             [re-frame.subs :as rf.subs]))
 
-;; rf2-qj4g — COLD-START the adapter slot rather than assuming it is empty.
-;; `init!` is idempotent only for the adapter ALREADY SEATED (rf2-kuky.1);
-;; handed a DIFFERENT one it raises `:rf.error/adapter-already-installed`
-;; instead of silently ignoring the call. This ns runs in the shared node
-;; bundle beside suites that seat Reagent / UIx / plain-atom, so a bare
-;; `init!` here was a NO-OP whenever one of them ran first — every test
-;; below then exercised the SSR flow on somebody else's substrate and
-;; passed for the wrong reason. Destroy first, seat the adapter this ns
+;; COLD-START the adapter slot rather than assuming it is empty.
+;; `init!` is idempotent only for the adapter ALREADY SEATED; handed a
+;; DIFFERENT one it raises `:rf.error/adapter-already-installed` instead
+;; of silently ignoring the call. This ns runs in the shared node bundle
+;; beside suites that seat Reagent / UIx / plain-atom, so a bare `init!`
+;; here would raise whenever one of them ran first. Destroy first, seat the adapter this ns
 ;; NAMES, and destroy again on the way out so the slot is left cold for
 ;; whichever namespace the runner reaches next.
 (use-fixtures :once
@@ -171,7 +169,7 @@
   (rf.ssr.render-state/deserialize (rf.ssr.render-state/serialize partitions)))
 
 ;; ---------------------------------------------------------------------------
-;; S3 — project: allowlists, classification, the projector's vocabulary
+;; project: allowlists, classification, the projector's vocabulary
 ;; ---------------------------------------------------------------------------
 
 (deftest project-applies-the-allowlists-and-the-frames-classification
@@ -216,7 +214,7 @@
             "an absent :rf/runtime-db normalises to {} — both keys are always present")))))
 
 (deftest project-honours-the-hosts-sensitive-permit-inside-its-own-allowlist
-  ;; rf2-hjz4r — the renderer prints what the render state carries, so the
+  ;; The renderer prints what the render state carries, so the
   ;; host's `:payload-include-sensitive` must reach it too, or the markup and
   ;; the payload disagree on a permitted value.
   (let [mid      (fresh-id "auth")
@@ -241,7 +239,7 @@
                           :session))))))
 
 ;; ---------------------------------------------------------------------------
-;; Acceptance 1 — the round-trip corpus, both partitions, restore! identical
+;; The round-trip corpus, both partitions, restore! identical
 ;; ---------------------------------------------------------------------------
 
 (deftest round-trip-corpus-restores-both-partitions-identically
@@ -293,7 +291,7 @@
     (is (= {} (rf.frame/frame-runtime-db-value cfid)))))
 
 ;; ---------------------------------------------------------------------------
-;; Acceptance 2 — the negative fixture: unserialisable fails AT PROJECTION
+;; The negative fixture: unserialisable fails AT PROJECTION
 ;; ---------------------------------------------------------------------------
 
 (defrecord Opaque [x])
@@ -339,7 +337,7 @@
       (is (= "todos" (:key data))))))
 
 ;; ---------------------------------------------------------------------------
-;; Acceptance 3 — the omitted-key fixture: the honest wrong page
+;; The omitted-key fixture: the honest wrong page
 ;; ---------------------------------------------------------------------------
 
 (deftest an-allowlisted-key-the-frame-lacks-restores-to-nil-the-honest-wrong-page
