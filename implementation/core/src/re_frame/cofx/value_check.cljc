@@ -1,6 +1,5 @@
 (ns re-frame.cofx.value-check
-  "Shared structural-EDN check for recordable `:rf.cofx` values (rf2-6zfzxy,
-  factoring the rf2-rmroo4 slice-A + slice-B clones).
+  "Shared structural-EDN check for recordable `:rf.cofx` values.
 
   EP-0017:386 — a recordable coeffect value rides the durable causal record
   (epoch ledger, replay, SSR payload, Xray export) and so MUST be ordinary EDN
@@ -8,25 +7,25 @@
   atom, `Date`, any JS / Java object) folded in corrupts durable state SILENTLY:
   the failure surfaces far away, at replay / Xray / SSR time, not at the bad
   coeffect. The structural-EDN floor catches it at the source — ALWAYS-ON, a
-  hard error in production as well as dev (rf2-q34j26).
+  hard error in production as well as dev.
 
   Two write sites fold recordable `:rf.cofx` values into the in-flight token:
 
     - SUPPLIED — a caller-supplied `:rf.cofx` override at the dispatch boundary
-      (`re-frame.router.diagnostics/validate-supplied-cofx-values!`, slice A);
+      (`re-frame.router.diagnostics/validate-supplied-cofx-values!`);
     - GENERATED — a generator-backed recordable fact minted at processing-start
-      (`re-frame.cofx/validate-generated-recordable-value!`, slice B).
+      (`re-frame.cofx/validate-generated-recordable-value!`).
 
-  Both emitted the SAME `:rf.error/cofx-value-invalid` (reason
+  Both emit the SAME `:rf.error/cofx-value-invalid` (reason
   `:non-edn-recordable-value`) with the SAME path-rooting, the SAME `:preview`-
   only-when-itself-recordable rule, the SAME two-channel fan-out, and the SAME
   `:extra` discriminator shape — differing only by the `:supplied` / `:generated`
   noun in the human message, the throw `where` symbol, and which always-on
   listener positional slot (`event` vs `frame`) the source carries. [[check-edn-value!]]
-  is the ONE shared definition both delegate to; behaviour is byte-identical.
+  is the ONE shared definition both delegate to.
 
   Requires `error` / `interop` / `late-bind` / `recordable` — exactly the four
-  both call sites already required; this leaf ns adds no load cycle (nothing
+  both call sites require; this leaf ns adds no load cycle (nothing
   those four reach requires cofx or router.diagnostics)."
   (:require [re-frame.error      :as rf.error]
             [re-frame.interop    :as rf.interop]
@@ -36,7 +35,7 @@
 #?(:clj (set! *warn-on-reflection* true))
 
 ;; The two write-site shapes, table-driven so the only thing that varies is
-;; DATA (rf2-6zfzxy). `:noun` opens the human message; `:durable-clause` is the
+;; DATA. `:noun` opens the human message; `:durable-clause` is the
 ;; trailing how-and-fix sentence pair (the only prose that genuinely differs);
 ;; `:where` is the throw site symbol the canonical builder stamps.
 (def ^:private kind->shape
@@ -65,7 +64,7 @@
 
 (defn check-edn-value!
   "ALWAYS-ON structural-EDN check of a recordable `:rf.cofx` `value` for
-  `cofx-id` (rf2-6zfzxy — the shared slice-A / slice-B floor). When `value`
+  `cofx-id` (the shared supplied / generated floor). When `value`
   carries a non-recordable leaf, fan `:rf.error/cofx-value-invalid` (reason
   `:non-edn-recordable-value`) out through BOTH error channels and throw; an
   all-EDN value passes and returns `value`.
@@ -80,15 +79,15 @@
   carries and `nil` for the other. The reported path is rooted at `cofx-id`
   here, so both call sites hand the bare per-value walk result.
 
-  Byte-identical to the two clones it replaced: same emitted category + reason,
-  same `:preview`-only-when-itself-recordable rule, same `cond->` payload, same
-  `:extra` discriminator shape, same human-message bytes per kind."
+  Both kinds share one emitted category + reason, one
+  `:preview`-only-when-itself-recordable rule, one `cond->` payload and one
+  `:extra` discriminator shape; only the per-kind human message differs."
   [kind cofx-id value failing-id event frame-id]
   (when-let [bad (rf.recordable/explain-non-recordable value)]
     (let [{:keys [path bad-type]} (update bad :path #(into [cofx-id] %))
           preview                 (rf.recordable/safe-preview value)
           {:keys [noun where durable-clause]} (kind->shape kind)]
-      ;; Both channels via the shared helper (rf2-c4oycd): axis 1 the always-on
+      ;; Both channels via the shared helper: axis 1 the always-on
       ;; listener (survives prod elision), axis 2 the dev trace (DCEs under
       ;; `:advanced` + `goog.DEBUG=false`). Reached via the
       ;; `:error-emit/emit-error-both` hook (this ns cannot static-require
@@ -116,7 +115,7 @@
         ;; The structured sub-kind that distinguishes a structural-EDN failure
         ;; from a declared-`:schema` miss rides its own `:rf.cofx/value-error`
         ;; slot — `:reason` is reserved for the human sentence per the central
-        ;; thrown-error builder (Spec 009 §The thrown-error shape, rf2-vvixub).
+        ;; thrown-error builder (Spec 009 §The thrown-error shape).
         {:extra {:rf.cofx/value-error :non-edn-recordable-value
                  :rf.cofx/id          cofx-id
                  :failing-id          failing-id
