@@ -1,5 +1,5 @@
 (ns re-frame.destroy-closed-grammar-cljs-test
-  "rf2-3phait — the `:rf.machine/destroy` map-form grammar is a CLOSED
+  "The `:rf.machine/destroy` map-form grammar is a CLOSED
   discriminated union. Presence of a discriminator key (`:rf/reap` /
   `:rf/spawn-all`) SELECTS that shape; the shape then requires the value
   exactly `true` plus the exact coordinate fields/types. Any malformed,
@@ -7,16 +7,16 @@
   `:rf.error/machine-destroy-bad-arg` and performs ZERO mutation — no slot,
   actor, child, trace, terminal-reply, or ownership change.
 
-  The pre-fix defect: the map-shape dispatch tested TRUTHINESS of
-  `(:rf/reap args)`, so `{:rf/reap false :rf/parent-id p :rf/invoke-id i
-  :rf/child-id c}` fell through to the tracked single-`:spawn` branch. With
-  a `:spawn-all` join at the addressed slot, that branch read the WHOLE
-  join-state map as the slot's actor id, cleared the join slot, left the
-  real children live and orphaned, and emitted a bogus
-  `:rf.machine/destroyed` trace whose actor id was the join-state map — and
-  no bad-arg error. (`destroy-machine-fx`'s `:rf/spawn-all` routing had the
-  same truthy-fall-through: `{:rf/spawn-all false …}` reached the tracked
-  branch too.)
+  Why presence and not truthiness: a map-shape dispatch testing the
+  TRUTHINESS of `(:rf/reap args)` would let `{:rf/reap false :rf/parent-id p
+  :rf/invoke-id i :rf/child-id c}` fall through to the tracked
+  single-`:spawn` branch. With a `:spawn-all` join at the addressed slot,
+  that branch would read the WHOLE join-state map as the slot's actor id,
+  clear the join slot, leave the real children live and orphaned, and emit a
+  bogus `:rf.machine/destroyed` trace whose actor id is the join-state map —
+  and no bad-arg error. (`destroy-machine-fx`'s `:rf/spawn-all` routing has
+  the same exposure: a truthy test would send `{:rf/spawn-all false …}` to
+  the tracked branch too.)
 
   The file is named `*-cljs-test.cljc` so it's discovered by both
   cognitect-style JVM runs and shadow-cljs (`cljs-test$` ns-regexp)."
@@ -94,15 +94,15 @@
         (str "no :rf.machine/destroyed fired; saw "
              (mapv :tags (destroyed-traces))))))
 
-;; ---- the P1 corruption repro: {:rf/reap false …} ---------------------------
+;; ---- the join-slot corruption shape: {:rf/reap false …} -------------------
 
 (deftest reap-false-carrier-fails-closed
-  (testing "rf2-3phait — {:rf/reap false + exact coordinates} is a MALFORMED
+  (testing "{:rf/reap false + exact coordinates} is a MALFORMED
             reap carrier: it must emit exactly one
-            :rf.error/machine-destroy-bad-arg and mutate NOTHING. Pre-fix it
-            fell through to the tracked branch, read the join-state map as an
-            actor id, cleared the join slot, orphaned both live children, and
-            emitted a bogus destroyed trace with zero bad-arg errors."
+            :rf.error/machine-destroy-bad-arg and mutate NOTHING. Falling
+            through to the tracked branch would read the join-state map as
+            an actor id, clear the join slot, orphan both live children, and
+            emit a bogus destroyed trace with zero bad-arg errors."
     (let [pre-join (reg-join-parent! :dcg/p1 :dcg/p1a :dcg/p1b)]
       (is (map? (:children pre-join)) "live two-child join seeded")
       (rf.machines.test-support/reset-captured!)
@@ -119,7 +119,7 @@
 ;; ---- nil / wrong-typed :rf/reap values -------------------------------------
 
 (deftest reap-nil-value-fails-closed
-  (testing "rf2-3phait — {:rf/reap nil …}: presence of :rf/reap selects the
+  (testing "{:rf/reap nil …}: presence of :rf/reap selects the
             reap shape; a nil value is malformed (fail closed, zero mutation)"
     (let [pre-join (reg-join-parent! :dcg/p2 :dcg/p2a :dcg/p2b)]
       (rf.machines.test-support/reset-captured!)
@@ -131,7 +131,7 @@
       (assert-zero-mutation! :dcg/p2 pre-join))))
 
 (deftest reap-wrong-type-value-fails-closed
-  (testing "rf2-3phait — {:rf/reap \"true\" …}: only the exact value true is
+  (testing "{:rf/reap \"true\" …}: only the exact value true is
             the reap discriminator; truthy aliases are malformed"
     (let [pre-join (reg-join-parent! :dcg/p3 :dcg/p3a :dcg/p3b)]
       (rf.machines.test-support/reset-captured!)
@@ -145,7 +145,7 @@
 ;; ---- missing / wrongly-typed coordinates -----------------------------------
 
 (deftest reap-missing-coordinate-fails-closed
-  (testing "rf2-3phait — a reap missing :rf/invoke-id is malformed"
+  (testing "a reap missing :rf/invoke-id is malformed"
     (let [pre-join (reg-join-parent! :dcg/p4 :dcg/p4a :dcg/p4b)]
       (rf.machines.test-support/reset-captured!)
       (destroy-with! {:rf/reap      true
@@ -155,7 +155,7 @@
       (assert-zero-mutation! :dcg/p4 pre-join))))
 
 (deftest reap-wrongly-typed-coordinate-fails-closed
-  (testing "rf2-3phait — a reap whose :rf/invoke-id is not a path vector is
+  (testing "a reap whose :rf/invoke-id is not a path vector is
             malformed (exact coordinate types, no permissive coercion)"
     (let [pre-join (reg-join-parent! :dcg/p5 :dcg/p5a :dcg/p5b)]
       (rf.machines.test-support/reset-captured!)
@@ -169,7 +169,7 @@
 ;; ---- overlapping discriminators / unknown keys -----------------------------
 
 (deftest overlapping-discriminators-fail-closed
-  (testing "rf2-3phait — a carrier declaring BOTH :rf/reap and :rf/spawn-all
+  (testing "a carrier declaring BOTH :rf/reap and :rf/spawn-all
             is an overlapping shape: fail closed, zero mutation"
     (let [pre-join (reg-join-parent! :dcg/p6 :dcg/p6a :dcg/p6b)]
       (rf.machines.test-support/reset-captured!)
@@ -182,10 +182,10 @@
       (assert-zero-mutation! :dcg/p6 pre-join))))
 
 (deftest spawn-all-false-carrier-fails-closed
-  (testing "rf2-3phait — {:rf/spawn-all false …} is malformed (presence
+  (testing "{:rf/spawn-all false …} is malformed (presence
             selects the spawn-all shape; the value must be exactly true).
-            Pre-fix it fell through destroy-machine-fx's truthy routing into
-            the tracked branch and corrupted the join slot"
+            Truthy routing in destroy-machine-fx would send it into the
+            tracked branch and corrupt the join slot"
     (let [pre-join (reg-join-parent! :dcg/p7 :dcg/p7a :dcg/p7b)]
       (rf.machines.test-support/reset-captured!)
       (destroy-with! {:rf/spawn-all false
@@ -195,7 +195,7 @@
       (assert-zero-mutation! :dcg/p7 pre-join))))
 
 (deftest unknown-extra-key-fails-closed
-  (testing "rf2-3phait — a well-discriminated reap carrying an EXTRA unknown
+  (testing "a well-discriminated reap carrying an EXTRA unknown
             key is outside the closed grammar: fail closed"
     (let [pre-join (reg-join-parent! :dcg/p8 :dcg/p8a :dcg/p8b)]
       (rf.machines.test-support/reset-captured!)
@@ -210,7 +210,7 @@
 ;; ---- tracked form pointed at a spawn-all join slot -------------------------
 
 (deftest tracked-form-at-spawn-all-slot-fails-closed
-  (testing "rf2-3phait — the tracked single-:spawn form {:rf/parent-id
+  (testing "the tracked single-:spawn form {:rf/parent-id
             :rf/invoke-id} resolving a slot that holds a spawn-all JOIN-STATE
             MAP must fail closed: the tracked branch can never consume a
             join-state map as an actor id"
@@ -225,7 +225,7 @@
 ;; ---- non-map, non-keyword args ---------------------------------------------
 
 (deftest non-keyword-non-map-arg-fails-closed
-  (testing "rf2-3phait — the imperative form requires a keyword actor id;
+  (testing "the imperative form requires a keyword actor id;
             any other non-map arg is outside the closed grammar"
     (let [pre-join (reg-join-parent! :dcg/p10 :dcg/p10a :dcg/p10b)]
       (rf.machines.test-support/reset-captured!)
@@ -236,8 +236,8 @@
 ;; ---- genuine forms stay green ----------------------------------------------
 
 (deftest genuine-tracked-destroy-stays-green
-  (testing "rf2-3phait — the genuine tracked single-:spawn exit-cascade
-            destroy still tears the tracked child down exactly once"
+  (testing "the genuine tracked single-:spawn exit-cascade
+            destroy tears the tracked child down exactly once"
     (rf/reg-machine :dcg/live-child inert-child)
     (rf/reg-machine :dcg/tracked-parent
       {:initial :idle
@@ -258,8 +258,8 @@
           "no bad-arg error for the genuine tracked form"))))
 
 (deftest genuine-spawn-all-exit-stays-green
-  (testing "rf2-3phait — the genuine {:rf/spawn-all true} exit-cascade form
-            still tears every child down and clears the slot"
+  (testing "the genuine {:rf/spawn-all true} exit-cascade form
+            tears every child down and clears the slot"
     (rf/reg-machine :dcg/sa-child inert-child)
     (rf/reg-machine :dcg/sa-parent
       {:initial :idle
