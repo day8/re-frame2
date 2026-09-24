@@ -24,12 +24,12 @@
   The wrapper machine is registered via the `:machines/reg-machine`
   late-bind hook: neither optional artefact statically requires the other.
   When the machines artefact is absent the wrapper registration is
-  skipped; the existing `:rf.http/managed` fx continues to work
-  unchanged (the wrapper is purely additive on top of the fx surface).
+  skipped; the `:rf.http/managed` fx works on its own (the wrapper is
+  purely additive on top of the fx surface).
 
   The fx (kind `:fx`) and the machine (kind `:event`) coexist under
   the same id `:rf.http/managed` — re-frame.registrar segregates by
-  kind, so `:fx [[:rf.http/managed args]]` continues to fire the fx
+  kind, so `:fx [[:rf.http/managed args]]` fires the fx
   AND `{:spawn {:machine-id :rf.http/managed ...}}` resolves to the
   machine.
 
@@ -56,8 +56,8 @@
   §Final states §Composition with `:entry` / `:exit`), so without this gate a
   join child would ALSO send `[:succeeded value]` into its parent — a spurious
   event that a parent carrying the single-`:spawn` `:on {:succeeded …}` habit
-  transitions on, exiting its `:spawn-all` state and tearing down its own join
-  (rf2-6gxs)."
+  transitions on, exiting its `:spawn-all` state and tearing down its own
+  join."
   [data]
   (when (nil? (:rf/join-child data))
     (:rf/parent-id data)))
@@ -146,9 +146,9 @@
 
     :record-failure
     (fn [{data :data [_ reply] :event}]
-      ;; rf2-ibksxg — the reply payload is the canonical envelope; the
+      ;; The reply payload is the canonical envelope; the
       ;; classified `:rf.http/*` failure map rides under `:error`
-      ;; (`:status :error` / `:cancelled`), not the retired `:failure`.
+      ;; (`:status :error` / `:cancelled`).
       {:data (assoc data :rf/result (:error reply))})
 
     :dispatch-done
@@ -165,7 +165,7 @@
   "Register the `:rf.http/managed` machine-shape wrapper via the
   `:machines/reg-machine` late-bind hook. Returns the registered
   machine-id on success, or nil if the machines artefact is not on the
-  classpath (in which case the existing fx-only surface is unaffected)."
+  classpath (in which case the fx-only surface is unaffected)."
   []
   (when-let [reg-machine* (rf.late-bind/get-fn :machines/reg-machine)]
     (reg-machine* :rf.http/managed (http-managed-machine-spec))
