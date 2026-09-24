@@ -52,8 +52,7 @@
          top level of an intent vector is not substituted — and the
          collision does not soften as the payload grows; three positional
          arguments is exactly where a payload map would have started to
-         pay for itself. rf2-hic-025 finding 1, confirmed at a second
-         arity")
+         pay for itself")
     (is (= "cell-3-4" (:id attrs)))
     (is (= "cell 3,4" (:aria-label attrs))
         "every one of a hundred controls has an accessible name, and it
