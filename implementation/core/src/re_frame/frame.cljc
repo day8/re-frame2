@@ -1681,8 +1681,8 @@
 (defn set-generation!
   "Swap the resolved image GENERATION on frame `id`'s record IN PLACE,
   preserving every other (state-bearing) slot by identity — the in-place
-  generation swap `re-frame.live-frame`'s `make-frame` / `reload-images!` /
-  reprojection write through (EP-0024). A no-op for an unknown frame
+  generation swap `re-frame.live-frame`'s `make-frame` (including a same-`:id`
+  re-construction) and reprojection write through (EP-0024). A no-op for an unknown frame
   (the registry is keyed by the bare frame-id). Returns nil.
   INTERNAL — the one mutator of the `:generation` slot."
   [id generation]
@@ -2473,9 +2473,9 @@
     ;; an ordinary configured frame (no `:images` selection) — the
     ;; absence-is-default signal that resolution falls through to the registrar
     ;; atom path. Threaded in via the reserved `:rf.frame/generation` config key
-    ;; so it is live BEFORE `:initial-events` run; `reload-images!` / reprojection
-    ;; swap it in place via `set-generation!`, preserving every other
-    ;; (state-bearing) slot by identity.
+    ;; so it is live BEFORE `:initial-events` run; a same-`:id` `make-frame`
+    ;; re-construction and reprojection swap it in place via `set-generation!`,
+    ;; preserving every other (state-bearing) slot by identity.
     :generation  (get config :rf.frame/generation)
     :frame-state frame-state
     ;; app-db / runtime-db are READ-ONLY projection reactions over the one
@@ -3597,7 +3597,7 @@
   (`:rf.frame/adapter`) when present. The resolved
   generation is NOT embedded on the value — it lives on the record
   (`:generation`), read by id via `frame-generation`, so a value and its id
-  resolve the same generation and a `reload-images!` swap is observed by every
+  resolve the same generation and a generation swap is observed by every
   holder of either. Pure map assembly; `id` is the public frame id (nil for a
   no-id direct value), `runnable-id` the record address.
 
