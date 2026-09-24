@@ -1,13 +1,11 @@
 (ns re-frame.late-bind-missing-test
-  "Per rf2-5b6x — assert the documented missing-artefact error contract for
-  the schemas artefact's `re-frame.core` re-exports.
+  "Assert the documented missing-artefact error contract for the schemas
+  artefact's `re-frame.core` re-exports.
 
   Each per-feature split (schemas / machines / routing / flows / http /
   ssr) raises a documented `:rf.error/<artefact>-artefact-missing`
   ex-info when a consumer calls a re-exported surface but the artefact
-  is absent from the classpath. The contract was previously only
-  documented in prose; this test pins the runtime behaviour against
-  regression.
+  is absent from the classpath. This test pins that runtime behaviour.
 
   Strategy: the schemas artefact IS on the classpath here (the test ns
   requires `re-frame.schemas`, which fires the late-bind hook
@@ -16,17 +14,17 @@
   assertion, then restore it in `finally`. Identical mechanism as the
   test would use on CLJS.
 
-  Per Spec 002 §The late-bind seam, rf2-p7va (schemas split), and the
-  prose at the call sites in `re-frame.core`.
+  Per Spec 002 §The late-bind seam and the prose at the call sites in
+  `re-frame.core`.
 
-  Note (rf2-wad2fl — front-porch shrink): only the `reg-app-schema` /
-  `reg-app-schemas` registration MACROS remain on the `re-frame.core`
-  façade (source-coord capture), so only their missing-artefact contract
-  is tested here. The introspection surfaces (`app-schemas`,
-  `app-schema-meta`, `app-schemas-digest`) and the validator-install seams
-  (`set-schema-*`) were demoted off the façade — they are reached through
-  `re-frame.schemas` now (requiring it means the artefact is present, so
-  the façade artefact-missing/safe-default contract no longer applies)."
+  Only the `reg-app-schema` / `reg-app-schemas` registration MACROS are on
+  the `re-frame.core` façade (source-coord capture), so only their
+  missing-artefact contract is tested here. The introspection surfaces
+  (`app-schemas`, `app-schema-meta`, `app-schemas-digest`) and the
+  validator-install seams (`set-schema-*`) are not on the façade — they are
+  reached through `re-frame.schemas` (requiring it means the artefact is
+  present, so the façade artefact-missing/safe-default contract does not
+  apply)."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as rf.late-bind]
@@ -56,7 +54,7 @@
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)
               "reg-app-schema throws when the schemas artefact is absent")
-          ;; rf2-vvixub — message is the human :reason + trailing
+          ;; The message is the human :reason + trailing
           ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
           ;; not exact keyword-equality.
           (is (re-find #"\[:rf\.error/schemas-artefact-missing\]" (.getMessage thrown))
@@ -64,10 +62,10 @@
           (is (= :rf.error/schemas-artefact-missing (:rf.error/id (ex-data thrown)))
               "ex-data carries the canonical :rf.error/id discriminator")
           (let [data (ex-data thrown)]
-            ;; Per rf2-hoiu the throw lives in
+            ;; The throw lives in
             ;; `re-frame.core-schemas/reg-app-schema` — the sibling-
-            ;; namespace fn-form delegate the macro routes through. Per
-            ;; rf2-j8icl the `:where` symbol is namespace-qualified to
+            ;; namespace fn-form delegate the macro routes through. The
+            ;; `:where` symbol is namespace-qualified to
             ;; the user-facing surface (`rf/reg-app-schema`) so callers
             ;; greping for the symbol find call sites in their codebase.
             (is (= 'rf/reg-app-schema (:where data))
@@ -78,11 +76,3 @@
                 "ex-data carries :recovery = :no-recovery")
             (is (string? (:reason data))
                 "ex-data carries :reason as a string")))))))
-
-;; rf2-wad2fl: the read-only schema-introspection surfaces (`app-schemas`
-;; / `app-schema-meta` / `app-schemas-digest`) are no longer façade exports —
-;; their previous facade-wrapper safe-default-when-absent behaviour was a
-;; property of the `re-frame.core-schemas` wrappers, which are removed. A
-;; consumer now reaches them via `re-frame.schemas` (artefact present by
-;; construction), so the introspection-when-absent assertion no longer
-;; describes an expressible façade call and is removed.
