@@ -6,11 +6,10 @@
 
   ## Status — INTERNAL (EP-0012 disposition 1)
 
-  The *semantics* are normative immediately; the *names* are NOT public
-  API at this slice. No `re-frame.core` facade export, no classification.
-  Resources, routing, the work ledger, and schema digests are the
-  consumers that will graduate a public name once two-plus use it through
-  this namespace unchanged.
+  The *semantics* are normative; the *names* are NOT public API. No
+  `re-frame.core` facade export, no classification. Resources, routing,
+  the work ledger, and schema digests are the consumers; a name graduates
+  to public once two-plus of them use it through this namespace unchanged.
 
   ## Why canonical identity, not stringification
 
@@ -64,9 +63,7 @@
 ;; — the encoding is deterministic either way, but the spec pins
 ;; millisecond text, so we pin it. Uses `uuuu` (the signed proleptic year),
 ;; not `yyyy` (year-of-era), so the full portable window renders a correct
-;; fixed-width 4-digit year down to `0000` — the two spellings are identical
-;; for every year in that window, so the frozen CEDN-1 fixture token is
-;; unchanged.
+;; fixed-width 4-digit year down to `0000`.
 #?(:clj
    (def ^:private ^DateTimeFormatter rfc3339-millis-utc
      (-> (DateTimeFormatter/ofPattern "uuuu-MM-dd'T'HH:mm:ss.SSS'Z'")
@@ -153,7 +150,7 @@
   impossible-date payload fails closed with `:invalid-canonical-instant`."
   :rf.identity/instant)
 
-;; Portable instant range (RULED — do not re-litigate): the four-digit-year
+;; Portable instant range: the four-digit-year
 ;; RFC-3339 window, inclusive
 ;; [0000-01-01T00:00:00.000Z .. 9999-12-31T23:59:59.999Z]. Fixed-width `uuuu`
 ;; year, inside JS Date's ±8.64e15 ms envelope on both hosts. Both boundaries
