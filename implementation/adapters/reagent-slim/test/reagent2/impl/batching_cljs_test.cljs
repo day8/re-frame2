@@ -1,5 +1,5 @@
 (ns reagent2.impl.batching-cljs-test
-  "Unit tests for reagent2.impl.batching (Stage 4-B, rf2-6hyy).
+  "Unit tests for reagent2.impl.batching.
 
   Per IMPL-SPEC §12.1 + §12.5 R-005. Covers:
 
@@ -68,7 +68,7 @@
     ;; into the current drain. A component that re-queues during its
     ;; own forceUpdate gets a fresh microtask turn.
     ;;
-    ;; THE FINAL COUNT ALONE CANNOT WITNESS THAT (rf2-e6up). A drain that
+    ;; THE FINAL COUNT ALONE CANNOT WITNESS THAT. A drain that
     ;; flattened the cascade — looping over the re-queues inside its FIRST
     ;; turn — also arrives at 3, so `(= 3 @calls)` taken after the dust
     ;; settles passes either way, and waiting more turns before counting
@@ -82,8 +82,8 @@
     ;; the state turn N left behind. `next-microtask` is deliberately NOT
     ;; used here — its handler RETURNS a promise, and the thenable adoption
     ;; costs enough extra ticks that all three turns fit inside one hop,
-    ;; which is precisely how a final count came to stand in for a turn
-    ;; count in the first place.
+    ;; which is precisely how a final count can come to stand in for a
+    ;; turn count.
     (async done
       (let [calls (atom 0)
             c     #js {}]
@@ -229,21 +229,21 @@
                      (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-p27yih: per-callback throw isolation
+;; Per-callback throw isolation
 ;;
-;; flush-after-render previously invoked each callback with no
-;; per-callback exception isolation: an earlier callback that threw
-;; propagated straight out of the drain, permanently dropping every
-;; callback still queued behind it (the vector had already been
-;; atomically swapped to nil, so those callbacks were gone for good —
-;; not merely deferred). Wrap each invocation in try/catch, matching
+;; Without per-callback exception isolation, an earlier callback that
+;; threw would propagate straight out of the drain, permanently dropping
+;; every callback still queued behind it (the queue is reset to nil
+;; before the drain, so those callbacks would be gone for good — not
+;; merely deferred). So flush-after-render wraps each invocation in
+;; try/catch, matching
 ;; `re-frame.substrate.spine/drain-after-render-queue!`'s identical
 ;; per-callback guard on the shared React-adapter-spine flush path.
 ;; ---------------------------------------------------------------------------
 
 (deftest after-render-throw-does-not-strand-later-callbacks
   (testing "an after-render callback that throws does not prevent
-            later-registered callbacks from running (rf2-p27yih)"
+            later-registered callbacks from running"
     (async done
       (let [order (atom [])]
         (batching/do-after-render (fn [] (swap! order conj :a)))
@@ -256,7 +256,7 @@
                      (done))))))))
 
 (deftest after-render-throw-isolated-under-synchronous-flush
-  (testing "flush! isolates an after-render throw too (rf2-p27yih) —
+  (testing "flush! isolates an after-render throw too —
             the synchronous test-flush primitive shares flush-after-render
             with the microtask path"
     (let [order (atom [])]
@@ -268,10 +268,10 @@
           "synchronous flush! isolated the throw; :c still ran"))))
 
 ;; ---------------------------------------------------------------------------
-;; rea-schedule wiring (Stage 4-A hook → Stage 4-B implementation)
+;; rea-schedule wiring (ratom hook → batching implementation)
 ;;
 ;; Per the rea-schedule contract: when ratom's rea-queue gets its
-;; first entry, it calls @rea-schedule. Stage 4-B installs
+;; first entry, it calls @rea-schedule. `reagent2.impl.batching` installs
 ;; `batching/schedule` into that hook so the render-side scheduler
 ;; knows to drain the reactive queue as part of the next microtask.
 ;; ---------------------------------------------------------------------------
