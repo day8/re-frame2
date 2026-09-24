@@ -51,12 +51,18 @@ completion. v5 helper creators such as `assign`, `sendTo`, `raise`, and
 | `state.context` | snapshot `:data` |
 | `actor.getSnapshot()` | `@(rf/subscribe [:rf/machine id])` |
 | `actor.send(event)` | `(rf/dispatch [machine-id [event …]])` |
+| `createActor(machine).start()` | nothing to create: the first event, or `(rf/dispatch [machine-id [:rf.machine/start]])`, starts a registered machine |
+| `actor.stop()` | `:fx [[:rf.machine/destroy machine-id]]` — runs the active states' `:exit` actions before teardown, where `stop()` runs none |
+| `snapshot.status` / `snapshot.output` after completion | the `:rf.machine/done` trace carries `:output`; the snapshot is gone, so `[:rf/machine id]` reads `nil` for a finished, destroyed or never-started machine alike |
+| `actor.subscribe({ complete })` | the `:rf.machine/done` trace, and `:rf.machine/destroyed` with its `:reason` |
+| sending to a done or stopped actor (a dead letter) | a singleton is re-born from `:initial` and handles the event; a destroyed spawned actor answers `:rf.error/no-such-handler` |
+| an action throws (the actor's status becomes `'error'`) | the macrostep rolls back, `:rf.error/machine-action-exception` is emitted, and the machine keeps handling events |
 | `states` | `:states` |
 | `initial` | `:initial` |
 | nested states | compound states with `:initial` + `:states` |
 | `type: "parallel"` | `:type :parallel` + `:regions` |
 | `type: "history"` | `:type :history` (`:default-target` is optional and falls back to the compound's `:initial`; v6 requires a history `target`) |
-| `type: "final"` | `:final? true` (auto-destroys; omit it on a resting leaf) |
+| `type: "final"` | `:final? true` (auto-destroys, and a later event restarts it from `:initial`; omit it on a resting leaf) |
 | `reenter: true` | `:reenter? true` |
 | `tags` | `:tags #{…}` |
 | `state.hasTag(tag)` | `@(rf/subscribe [:rf.machine/has-tag? id tag])` |

@@ -109,7 +109,7 @@ When one region's guard must predicate on a **sibling** region's active state, d
                          :submitting {:tags #{:checkout/submitting}}}}}})
 ```
 
-This is re-frame2's answer to XState v5's `stateIn` / SCXML's `In()` — behavioural parity, not API mimicry (there is no `stateIn` primitive). Per Spec 005 §Cross-region coordination — tags as `stateIn`; threaded by `callback-ctx` in `re-frame.machines.transition`.
+This is re-frame2's answer to XState v5's `stateIn` (v6 `checkStateIn(snapshot, …)`) / SCXML's `In()` — behavioural parity, not API mimicry (there is no `stateIn` primitive). Per Spec 005 §Cross-region coordination — tags as `stateIn`; threaded by `callback-ctx` in `re-frame.machines.transition`.
 
 ## Common gotchas
 
