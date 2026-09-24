@@ -1404,10 +1404,12 @@
 
 (defn- transition-target-ids
   "Every nonempty `target=` id appearing on a `<transition>` in an SCXML
-  document."
+  document. rf2-3x7nj.33.4 — a W3C `target` is a SPACE-SEPARATED id list
+  (the parallel-root multi-region target), so each listed id counts."
   [xml]
   (->> (re-seq #"<transition\b[^>]*\btarget=\"([^\"]+)\"" xml)
        (map second)
+       (mapcat #(str/split % #"\s+"))
        (remove str/blank?)
        set))
 
@@ -1514,6 +1516,112 @@
                   reenter-self-machine
                   internal-self-machine
                   reenter-ancestor-machine]]
+      (assert-targets-declared (scxml/spec->scxml spec)))))
+
+;; ---- rf2-3x7nj.33.4 — targets declared INSIDE a parallel region ----------
+;;
+;; Spec 005 §Cross-region coordination drives each region as a synthetic
+;; single machine, so every target declared inside a region resolves
+;; strictly WITHIN it: a region-local vector target is an in-region
+;; absolute path, and a region body's own root `:on` keyword target names
+;; one of that region's top-level states. The exporter qualifies every
+;; region state id with its region (`<region>___<state>`), so the targets
+;; must carry the same prefix. Pre-fix they were resolved from the MACHINE
+;; root: `[:c :d]` emitted the dangling `c___d`, the region-root `:reset
+;; :idle` the dangling `idle` — and an in-region path whose head shadows a
+;; sibling region's name emitted that sibling REGION's id. The local round
+;; trip was green throughout, because `decode-target` inverted the same
+;; mistake, which is why the declared-id guard and exact ids are asserted
+;; here rather than only the round trip.
+
+(def region-vector-target-machine
+  "The bead's scenario 1: a region-local vector target into a compound."
+  {:type    :parallel
+   :regions {:r {:initial :a
+                 :states  {:a {:on {:go [:c :d]}}
+                           :c {:initial :d :states {:d {} :e {}}}}}
+             :q {:initial :x :states {:x {}}}}})
+
+(def region-root-on-machine
+  "The bead's scenario 2: a region body's own root `:on` keyword target."
+  {:type    :parallel
+   :regions {:a {:initial :idle
+                 :on      {:reset :idle}
+                 :states  {:idle {:on {:go :b}} :b {}}}
+             :b {:initial :x :states {:x {}}}}})
+
+(def region-shadowing-target-machine
+  "An in-region path whose head SHADOWS a sibling region's name (region `:r`
+  declares a real compound `:q`, and `:q` is also a region with its own
+  `:y`). Spec 005: it resolves normally, in-region."
+  {:type    :parallel
+   :regions {:r {:initial :a
+                 :states  {:a {:on {:go [:q :y]}}
+                           :q {:initial :y :states {:y {}}}}}
+             :q {:initial :y :states {:y {}}}}})
+
+(def region-history-vector-default-machine
+  "A history pseudo-state inside a region whose `:default-target` is a
+  vector (absolute from the region root), to a non-sibling leaf so the
+  decode is the vector form."
+  {:type    :parallel
+   :regions {:r {:initial :c
+                 :states  {:c {:initial :d
+                               :states  {:d {}
+                                         :f {:initial :g :states {:g {}}}
+                                         :h {:type           :history
+                                             :deep?          true
+                                             :default-target [:c :f :g]}}}}}
+             :q {:initial :x :states {:x {}}}}})
+
+(deftest region-targets-are-region-scoped
+  (testing "rf2-3x7nj.33.4 — a region-local vector target carries the region
+            prefix every region state id carries"
+    (let [xml (scxml/spec->scxml region-vector-target-machine)]
+      (is (str/includes? xml "<transition event=\"go\" target=\"r___c___d\" type=\"internal\"/>"))
+      (assert-targets-declared xml)))
+  (testing "rf2-3x7nj.33.4 — a region body's own `:on` keyword target names a
+            top-level state of THAT region"
+    (let [xml (scxml/spec->scxml region-root-on-machine)]
+      (is (str/includes? xml "<transition event=\"reset\" target=\"a___idle\" type=\"internal\"/>"))
+      (is (str/includes? xml "<transition event=\"go\" target=\"a___b\" type=\"internal\"/>")
+          "control: an in-region sibling keyword was already region-scoped")
+      (assert-targets-declared xml)))
+  (testing "rf2-3x7nj.33.4 — a head that shadows a sibling region's name stays
+            in-region rather than naming the sibling REGION (whose id IS
+            declared, so only the exact id can see this one)"
+    (let [xml (scxml/spec->scxml region-shadowing-target-machine)]
+      (is (str/includes? xml "<transition event=\"go\" target=\"r___q___y\" type=\"internal\"/>"))
+      (assert-targets-declared xml)))
+  (testing "rf2-3x7nj.33.4 — a vector history `:default-target` inside a region
+            is region-scoped too"
+    (let [xml (scxml/spec->scxml region-history-vector-default-machine)]
+      (is (str/includes? xml "<transition target=\"r___c___f___g\"/>"))
+      (assert-targets-declared xml))))
+
+(deftest region-scoped-targets-round-trip
+  (testing "rf2-3x7nj.33.4 — `decode-target` strips the region prefix back off,
+            so each region-scoped export round-trips exactly"
+    (doseq [spec [region-vector-target-machine
+                  region-root-on-machine
+                  region-shadowing-target-machine
+                  region-history-vector-default-machine]]
+      (is (= spec (scxml/scxml->spec (scxml/spec->scxml spec)))
+          (pr-str spec)))))
+
+(deftest scxml-parallel-fixtures-targets-declared
+  (testing "rf2-3x7nj.33.4 — the declared-target guard holds for the PARALLEL
+            fixtures too, root multi-region targets included"
+    (doseq [spec [parallel-machine
+                  parallel-on-done-machine
+                  parallel-root-on-single-machine
+                  parallel-root-on-multi-machine
+                  parallel-root-after-single-machine
+                  parallel-root-after-multi-machine
+                  region-vector-target-machine
+                  region-root-on-machine
+                  region-shadowing-target-machine
+                  region-history-vector-default-machine]]
       (assert-targets-declared (scxml/spec->scxml spec)))))
 
 ;; ---- consumer-attachment :rf.cofx/requires — intentional omission ------

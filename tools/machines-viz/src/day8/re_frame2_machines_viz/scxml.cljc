@@ -389,9 +389,29 @@
 (def ^:private history-node? g/history-node?)
 (def ^:private parent-path g/parent-path)
 
+(defn- sibling-scope
+  "rf2-3x7nj.33.4 — the path a KEYWORD target declared at `source-path`
+  names a child of. Ordinarily the source's parent (a keyword target is a
+  sibling). At the SCOPE ROOT itself (`source-path` = `root-path`: a
+  region body's own `:on` / `:after` / `:always`) it is the scope root, so
+  the keyword names one of the region's top-level states — Spec 005
+  §Cross-region coordination drives each region as a synthetic single
+  machine, whose root `:on` keyword target is a top-level state."
+  [root-path source-path]
+  (if (= (vec source-path) (vec root-path))
+    (vec root-path)
+    (parent-path (vec source-path))))
+
 (defn- resolve-target-path
   "Resolve a transition target to its ABSOLUTE path from the machine
   root. `source-path` is the source state's absolute path.
+
+  rf2-3x7nj.33.4 — `root-path` is the SCOPE root the target resolves in:
+  `[]` for a flat / compound machine, `[<region>]` for anything declared
+  inside a parallel region (Spec 005 §Cross-region coordination: every
+  target declared inside a region resolves strictly within that region).
+  `siblings` is the path a keyword target names a child of — normally
+  `(sibling-scope root-path source-path)`.
 
   - `:same-state` (Spec 005 §Self-transitions self-target sentinel) →
     the SOURCE state's OWN path. This MUST match the runtime resolver
@@ -403,13 +423,15 @@
     self-target (`:target :a` on state `:a`) does — the two are the SAME
     self-transition per Spec 005, and SCXML has no self-sentinel, only a
     target referencing the state's own id.
-  - a keyword target is a SIBLING of the source state (Spec 005).
-  - a vector-path target is absolute."
-  [source-path target]
+  - a keyword target is a child of `siblings` — a SIBLING of the source
+    state (Spec 005).
+  - a vector-path target is absolute from `root-path`, so inside a region
+    it carries the region prefix every region state id carries."
+  [root-path siblings source-path target]
   (cond
     (= :same-state target) (vec source-path)
-    (keyword? target)      (conj (parent-path source-path) target)
-    (target-path? target)  (vec target)
+    (keyword? target)      (conj (vec siblings) target)
+    (target-path? target)  (into (vec root-path) target)
     :else                  nil))
 
 (defn- qualified-id
@@ -418,9 +440,10 @@
   (path->id-string (vec path)))
 
 (defn- emit-transition
-  "Emit a `<transition>` line for one candidate. `source-path` is the
-  absolute path of the OWNING state; targets are path-qualified against
-  it so the emitted `target` is the unique xsd:ID of the destination.
+  "Emit a `<transition>` line for one candidate. `target->path` maps a target
+  to its absolute path — a `resolve-target-path` partial the OWNING
+  state's emitter builds (rf2-3x7nj.33.4: it carries the region scope) —
+  so the emitted `target` is the unique xsd:ID of the destination.
 
   The re-frame2 `:reenter? true` axis (Spec 005 §Self-transitions /
   XState v5: a TARGETED transition is INTERNAL by default; `:reenter?`
@@ -455,9 +478,9 @@
   rather than papered over by the local round-trip oracle. The decoder
   inverts this axis: `type=\"external\"` ⇒ `:reenter? true`, any other
   value (incl. `internal` / absent) ⇒ the internal default."
-  [event-name {:keys [target guard action reenter?]} source-path depth]
+  [event-name {:keys [target guard action reenter?]} target->path depth]
   (let [target-id (when target
-                    (qualified-id (resolve-target-path source-path target)))
+                    (qualified-id (target->path target)))
         parts (cond-> []
                 event-name (conj (str "event=\"" (escape-xml-attr event-name) "\""))
                 target-id  (conj (str "target=\"" (escape-xml-attr target-id) "\""))
@@ -489,19 +512,19 @@
                 "</transition>")))))
 
 (defn- emit-transitions-for-on
-  [on-map source-path depth]
+  [on-map target->path depth]
   (mapcat (fn [[event spec]]
-            (map #(emit-transition (keyword->id-string event) % source-path depth)
+            (map #(emit-transition (keyword->id-string event) % target->path depth)
                  (transition-candidates spec)))
           on-map))
 
 (defn- emit-transitions-for-after
-  [after-map source-path depth]
+  [after-map target->path depth]
   (mapcat (fn [[delay spec]]
             (map #(emit-transition (str "after." (if (keyword? delay)
                                                   (keyword->id-string delay)
                                                   delay))
-                                   % source-path depth)
+                                   % target->path depth)
                  (transition-candidates spec)))
           after-map))
 
@@ -513,10 +536,10 @@
   state-node, so `transition-candidates`' `(nil? spec) [{}]` forbidden-
   transition arm must not fire here (it would emit a phantom eventless
   `<transition/>` for EVERY state, even one with no `:always` declared)."
-  [always source-path depth]
+  [always target->path depth]
   (when always
     (->> (transition-candidates always)
-         (map #(emit-transition nil % source-path depth)))))
+         (map #(emit-transition nil % target->path depth)))))
 
 (defn- emit-transitions-for-on-done
   "Emit the compound / parallel `:on-done` (XState `onDone`) as W3C
@@ -528,10 +551,10 @@
   (action/fx-only — the parallel-root shape) emits a transition with NO
   `target` (the action survives as the emitter's `<!-- action -->`
   comment), faithful to the action-only completion the engine fires.
-  `source-path` qualifies any target."
-  [done-event on-done source-path depth]
+  `target->path` qualifies any target."
+  [done-event on-done target->path depth]
   (->> (transition-candidates on-done)
-       (map #(emit-transition done-event % source-path depth))))
+       (map #(emit-transition done-event % target->path depth))))
 
 (defn- emit-history
   "Emit a W3C SCXML `<history>` pseudo-state element for a re-frame2
@@ -546,14 +569,17 @@
   `type=\"shallow\"`. The `:default-target` resolves relative to the
   history node's own level (a keyword target is a sibling — i.e. a direct
   child of the owning compound — per Spec 005), path-qualified to the
-  destination's unique id, and round-trips back via `decode-target`."
-  [path {:keys [deep? default-target]} depth]
+  destination's unique id, and round-trips back via `decode-target`.
+  rf2-3x7nj.33.4 — a VECTOR `:default-target` is absolute from `root-path`
+  (the region, inside a parallel region), like every other target."
+  [root-path path {:keys [deep? default-target]} depth]
   (let [id-str    (qualified-id path)
         type-str  (if deep? "deep" "shallow")
         attrs     (str "id=\"" (escape-xml-attr id-str) "\""
                        " type=\"" type-str "\"")
         target-id (when default-target
-                    (qualified-id (resolve-target-path path default-target)))]
+                    (qualified-id (resolve-target-path root-path (parent-path path)
+                                                       path default-target)))]
     (if target-id
       [(str (indent-str depth) "<history " attrs ">")
        (str (indent-str (inc depth))
@@ -577,7 +603,14 @@
 (defn- emit-state
   "Emit a `<state>` (or `<final>`) block for one state-node. `path` is
   the absolute path (root → this state) used to emit unique xsd:IDs and
-  to qualify transition targets.
+  to qualify transition targets. `root-path` is the scope the targets
+  resolve in (`resolve-target-path`): `[]` for a flat / compound machine,
+  `[<region>]` for a region body and everything under it.
+
+  rf2-3x7nj.33.4 — a region body's own `:on-done` keeps the plain sibling
+  rule (a keyword names a SIBLING REGION, the convention the chart and
+  Mermaid share for a region's own completion); only its `:on` / `:after` /
+  `:always` resolve keywords among the region's top-level states.
 
   A `:type :history` child of this state is emitted as a W3C `<history>`
   element (`emit-history`), NOT a nested `<state>`.
@@ -586,9 +619,13 @@
   `<final>` carries the `data_rf_error_final=\"true\"` carrier so the
   completion-status distinction survives the round-trip (see
   `error-final-attr`)."
-  [path state-node depth]
+  [root-path path state-node depth]
   (let [{:keys [final? error? initial states on after always on-done]} state-node
         id-str (qualified-id path)
+        target->path  (partial resolve-target-path root-path
+                               (sibling-scope root-path path) path)
+        done->path    (partial resolve-target-path root-path
+                               (parent-path (vec path)) path)
         tag    (if final? "final" "state")
         attrs  (cond-> (str "id=\"" (escape-xml-attr id-str) "\"")
                  (and (not final?) initial)
@@ -610,20 +647,20 @@
                  (str " " error-final-attr "=\"true\""))
         children
         (concat
-          (emit-transitions-for-on on path (inc depth))
-          (emit-transitions-for-after after path (inc depth))
-          (emit-transitions-for-always always path (inc depth))
+          (emit-transitions-for-on on target->path (inc depth))
+          (emit-transitions-for-after after target->path (inc depth))
+          (emit-transitions-for-always always target->path (inc depth))
           ;; The `done.state.<this-id>` completion transition (XState
           ;; `onDone`). Emitted INSIDE this node's own <state>.
           (when on-done
             (emit-transitions-for-on-done (str "done.state." id-str)
-                                          on-done path (inc depth)))
+                                          on-done done->path (inc depth)))
           (mapcat (fn [[child-id child-node]]
                     ;; A `:type :history` child is a W3C `<history>`
                     ;; pseudo-state, not a nested `<state>`.
                     (if (history-node? child-node)
-                      (emit-history (conj (vec path) child-id) child-node (inc depth))
-                      (emit-state (conj (vec path) child-id) child-node (inc depth))))
+                      (emit-history root-path (conj (vec path) child-id) child-node (inc depth))
+                      (emit-state root-path (conj (vec path) child-id) child-node (inc depth))))
                   states))]
     (if (seq children)
       (concat [(str (indent-str depth) "<" tag " " attrs ">")]
@@ -650,7 +687,7 @@
             " — inherited by every state (Spec 005 §top-level :on) -->")]
       ;; rf2-mnp93.7 — machine-level targets are siblings at the machine
       ;; root, so resolve them against the empty root path.
-      (emit-transitions-for-on on [] depth))))
+      (emit-transitions-for-on on (partial resolve-target-path [] [] []) depth))))
 
 (defn- emit-flat-or-compound
   [{:keys [initial states on]} depth]
@@ -664,7 +701,7 @@
           " initial=\"" (escape-xml-attr (qualified-id [initial])) "\">")]
     (emit-machine-level-on on (inc depth))
     (mapcat (fn [[child-id child-node]]
-              (emit-state [child-id] child-node (inc depth)))
+              (emit-state [] [child-id] child-node (inc depth)))
             states)
     [(str (indent-str depth) "</scxml>")]))
 
@@ -795,9 +832,10 @@
     ;; action survives as the emitter's `<!-- action -->` comment.
     (when on-done
       ;; The parallel-root :on-done is action-only (no target — a parallel
-      ;; machine is root-only), so the source-path is unused; pass [].
+      ;; machine is root-only), so the resolver is unused; pass the root one.
       (emit-transitions-for-on-done (str "done.state." parallel-root-scxml-id)
-                                    on-done [] (+ depth 2)))
+                                    on-done (partial resolve-target-path [] [] [])
+                                    (+ depth 2)))
     ;; rf2-656ivk / rf2-m3otj2 — the parallel-root's OWN `:on` / `:after`
     ;; ancestor-fallback transitions (region-qualified target grammar). Pre-fix
     ;; both were silently dropped (only `:on-done` survived).
@@ -807,7 +845,9 @@
               ;; Each region is a state with its own initial + states.
               ;; rf2-mnp93.7 — a region's path is rooted at the region id
               ;; (regions are the parallel's direct children).
-              (emit-state [region-id] region-node (+ depth 2)))
+              ;; rf2-3x7nj.33.4 — and the region is the SCOPE its targets
+              ;; resolve in (Spec 005 §Cross-region coordination).
+              (emit-state [region-id] [region-id] region-node (+ depth 2)))
             regions)
     [(str (indent-str (inc depth)) "</parallel>")
      (str (indent-str depth) "</scxml>")]))
@@ -1059,15 +1099,24 @@
     canonical decode is `:same-state` for both. This keeps the round-trip
     exact for `{:target :same-state}` even though the export no longer
     emits the dangling `same_2dstate` phantom id.
-  - a target whose parent equals the source's parent is a SIBLING —
-    re-frame2 writes it as the bare keyword (the last segment).
-  - any other target is written as the absolute vector path."
-  [target-str source-path]
+  - a target whose parent is `siblings` (the same path the emitter's
+    keyword rule used — `sibling-scope`, or the plain parent for a
+    region's own `:on-done`) is a SIBLING — re-frame2 writes it as the
+    bare keyword (the last segment).
+  - any other target is written as the absolute vector path — relative to
+    `root-path`, so rf2-3x7nj.33.4's region prefix comes back off an
+    in-region path."
+  [target-str root-path siblings source-path]
   (let [abs-path (vec (id-string->abs-path target-str))
-        src      (vec source-path)]
+        src      (vec source-path)
+        root     (vec root-path)]
     (cond
       (= abs-path src)                          :same-state
-      (= (parent-path abs-path) (parent-path src)) (last abs-path)
+      (= (parent-path abs-path) (vec siblings)) (last abs-path)
+      (and (seq root)
+           (> (count abs-path) (count root))
+           (= root (subvec abs-path 0 (count root))))
+      (subvec abs-path (count root))
       :else                                     abs-path)))
 
 (defn- decode-root-parallel-target
@@ -1187,8 +1236,9 @@
   into nested state blocks). Returns `{:on ... :after ... :always
   [...] :children-tokens [...]}`. `source-path` is the OWNING state's
   absolute path — qualified targets are decoded relative to it
-  (rf2-mnp93.7)."
-  [child-tokens source-path]
+  (rf2-mnp93.7), within the `root-path` scope (rf2-3x7nj.33.4; the
+  inverse of `emit-state`'s two resolvers)."
+  [child-tokens root-path source-path]
   (let [ts              (direct-transitions child-tokens)
         ;; The remaining stream still contains the nested-state
         ;; tokens AND the direct-transition tokens (we filter the
@@ -1230,7 +1280,13 @@
                              ;; rf2-mnp93.7 — decode the qualified target id
                              ;; back to its relative grammar form (sibling
                              ;; keyword / absolute vector path).
-                             target  (assoc :target (decode-target target source-path))
+                             target  (assoc :target
+                                            (decode-target
+                                              target root-path
+                                              (if (and event (str/starts-with? event "done.state."))
+                                                (parent-path (vec source-path))
+                                                (sibling-scope root-path source-path))
+                                              source-path))
                              ;; rf2-mnp93.2 — decode the guard symmetrically
                              ;; with the encoder (keyword->id-string at emit).
                              ;; The pre-fix `(keyword guard-s)` never split the
@@ -1435,7 +1491,7 @@
   (W3C SCXML §3.10) round-trips to `:default-target`, decoded back to its
   relative grammar form (sibling keyword / absolute vector) via
   `decode-target` — the exact inverse of `emit-history`."
-  [{:keys [start body self?]}]
+  [root-path {:keys [start body self?]}]
   (let [attrs      (:attrs start)
         id-str     (get attrs "id")
         abs-path   (id-string->abs-path id-str)
@@ -1446,7 +1502,9 @@
         default-tt (when-not self?
                      (let [t (->> (direct-transitions body)
                                   (some #(get-in % [:attrs "target"])))]
-                       (when t (decode-target t abs-path))))
+                       (when t (decode-target t root-path
+                                              (parent-path (vec abs-path))
+                                              abs-path))))
         node (cond-> {:type :history :deep? deep?}
                (some? default-tt) (assoc :default-target default-tt))]
     [state-id node]))
@@ -1461,10 +1519,12 @@
   their qualified targets back to the relative grammar form.
 
   rf2-m285a — a `<history>` pseudo-state child is routed to
-  `parse-history-block` (it is `:type :history`, not an ordinary state)."
-  [{:keys [start body self?] :as block}]
+  `parse-history-block` (it is `:type :history`, not an ordinary state).
+
+  rf2-3x7nj.33.4 — `root-path` is the target scope, as in `emit-state`."
+  [root-path {:keys [start body self?] :as block}]
   (if (= "history" (:tag start))
-    (parse-history-block block)
+    (parse-history-block root-path block)
    (let [tag        (:tag start)
         attrs      (:attrs start)
         id-str     (get attrs "id")
@@ -1489,11 +1549,11 @@
     (if (or self? (empty? body))
       [state-id base]
       (let [{:keys [on after always children-tokens] :as consumed}
-            (consume-transitions body abs-path)
+            (consume-transitions body root-path abs-path)
             child-blocks (group-children-by-state children-tokens)
             child-states (when (seq child-blocks)
                            (into {}
-                                 (map parse-state-block child-blocks)))
+                                 (map #(parse-state-block root-path %) child-blocks)))
             node (cond-> base
                    (seq on)           (assoc :on on)
                    (seq after)        (assoc :after after)
@@ -1516,7 +1576,8 @@
           (map (fn [{:keys [start body self?]}]
                  (let [region-id (abs-path->local-key
                                   (id-string->abs-path (get (:attrs start) "id")))
-                       [_ region-node] (parse-state-block {:start start :body body :self? self?})]
+                       [_ region-node] (parse-state-block [region-id]
+                                                          {:start start :body body :self? self?})]
                    ;; Strip :final? off the region top-level — regions are
                    ;; not final states even when their own children are.
                    [region-id (dissoc region-node :final?)])))
@@ -1756,7 +1817,7 @@
               ;; `consume-transitions` before they are dropped.
               ;; The parallel-root :on-done is action-only (no target),
               ;; so the source-path is unused — pass [].
-              parallel-on-done (:on-done (consume-transitions parallel-body []))
+              parallel-on-done (:on-done (consume-transitions parallel-body [] []))
               ;; rf2-656ivk / rf2-m3otj2 — the parallel-root's OWN `:on` /
               ;; `:after` ancestor-fallback transitions are ALSO direct
               ;; `<parallel>` children, but carry region-qualified
@@ -1777,7 +1838,7 @@
               ;; owning state's body for consume-transitions to pick up.
               top-state-blocks (topology-blocks root-children)
               states (into {}
-                           (map parse-state-block top-state-blocks))]
+                           (map #(parse-state-block [] %) top-state-blocks))]
           (when (empty? states)
             (rf.error/throw-error!
               :scxml/invalid-spec
