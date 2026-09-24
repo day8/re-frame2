@@ -4,9 +4,8 @@
   Thirteen boundaries — six for the chrome, the feed, the article and the
   shell, and seven for pagination, runtime-selected content and a nested
   error region: a pager, a digest region, its body, and four block
-  renderers. Everything they reach for
-  is `h/…`: `defview`, `sub`, `boundary`, `route-link`, and the
-  `::h/value` / `::h/checked` markers. There is no `impl` namespace anywhere
+  renderers. Everything they reach for is `h/…`: `defview`, `sub`,
+  `boundary`, `route-link`, and the `::h/value` / `::h/checked` markers. There is no `impl` namespace anywhere
   in the `:require` list above, and no `re-frame.core` either — a view neither
   dispatches nor subscribes directly, because an intent is a vector and a read
   is `h/sub`.
