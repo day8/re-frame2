@@ -9,8 +9,7 @@
   It is NOT the route-auth recipe. Route auth is `:can-enter` metadata plus a
   `:rf.route/entry-denied` handler, evaluated in the one planning pipeline every
   door already funnels through — no normaliser, nothing to enumerate, and both
-  RealWorld examples spell it that way (rf2-k85nd retired the last interceptor
-  spelling from examples/real-apps/realworld_resources/routing.cljs). What this
+  RealWorld examples spell it that way. What this
   suite pins is why: an interceptor must cover every door ITSELF, and the matrix
   below is the enumeration that proves how easily one is missed.
 
@@ -27,25 +26,25 @@
   It is kept byte-faithful to the shipped recipe, so a drift between the doc
   recipe and this pin trips a test.
 
-  rf2-e9k3dr — the recipe's `:rf.route/navigate` branch first normalised a
-  `{:url ...}` target as a route id UNCONDITIONALLY; a map target fell through
-  as a route id, `handler-meta` on a MAP returned nil, `:requires-auth` was
-  missed, and the protected route was entered — a fail-OPEN hole on the raw-URL
+  A `:rf.route/navigate` branch that normalises a `{:url ...}` target as a
+  route id UNCONDITIONALLY would let a map target fall through as a route id:
+  `handler-meta` on a MAP returns nil, `:requires-auth` is missed, and the
+  protected route is entered — a fail-OPEN hole on the raw-URL
   escape hatch.
 
-  rf2-yp3ip / rf2-vwwvp — an IN-PLACE request (no `:to` / `:url`, patching the
+  An IN-PLACE request (no `:to` / `:url`, patching the
   current route's query — a tab switch, `?page=2`) must resolve against the
   CURRENT route slice, not a target the request names. A guard that fails to do
   so stands aside exactly where it is most dangerous: a session that expires
   WHILE the user sits on a `:requires-auth` route can navigate in place (a query
-  change, a tab switch) straight past the guard. The fix mirrors the runtime:
-  resolve an in-place request from the CURRENT route slice
+  change, a tab switch) straight past the guard. The guard mirrors the runtime:
+  it resolves an in-place request from the CURRENT route slice
   (`[:rf.runtime/routing :current]`, carried in the `:rf.db/runtime` coeffect)
   before reading the tags, so the guard sees the protected route and fails
   CLOSED.
 
-  This suite is the failing-before / passing-after guard for BOTH holes:
-  reverting the `:rf.route/navigate` branch to trust the request's named target
+  This suite guards BOTH holes: a `:rf.route/navigate` branch that trusts the
+  request's named target
   flips the raw-URL rows AND the in-place rows from gated to open."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -165,7 +164,7 @@
         (is (= ctx (auth-guard-before ctx))
             "public route-id navigate passes through untouched (normal delivery)")))
 
-    (testing "raw-URL {:url ...} :rf.route/navigate — the rf2-e9k3dr fix"
+    (testing "raw-URL {:url ...} :rf.route/navigate"
       (is (skipped? (ctx-for [:rf.route/navigate {:url "/settings"}]))
           "a {:url ...} navigate to a protected route is skipped")
       (is (skipped? (ctx-for [:rf.route/navigate {:url "/settings?tab=x"}]))
@@ -174,12 +173,12 @@
         (is (= ctx (auth-guard-before ctx))
             "a {:url ...} navigate to a public route is delivered normally")))
 
-    (testing "in-place :rf.route/navigate (no :to / :url) — the rf2-yp3ip fix"
+    (testing "in-place :rf.route/navigate (no :to / :url)"
       (is (skipped? (ctx-for [:rf.route/navigate {:query-merge {:tab "x"}}]
                              settings-slice))
-          "FAILING-BEFORE: a signed-out self-nav from a protected route MUST be
-           gated — the old branch read handler-meta on the request's named target
-           keyword, saw no tags, and opened")
+          "a signed-out self-nav from a protected route MUST be gated — reading
+           handler-meta on the request's named target keyword would see no tags
+           and open")
       (is (= login-redirect
              (redirect (ctx-for [:rf.route/navigate {:query-merge {:tab "x"}}]
                                 settings-slice)))
@@ -222,7 +221,7 @@
 ;; ---- End-to-end: guard on the frame; the protected route does NOT commit ---
 
 (deftest end-to-end-protected-self-nav-does-not-commit
-  (testing "rf2-yp3ip end-to-end — guard attached to the URL-owning frame: a
+  (testing "end-to-end — guard attached to the URL-owning frame: a
             signed-out self-nav from a protected route is SKIPPED, so its query
             change never commits to the route slice (the protected route and its
             loaders do not commit)"
@@ -278,7 +277,7 @@
                       [:rf.runtime/routing :current])]
       (is (= :app/settings (:route-id cur))
           "in-place nav holds the route-id fixed at the protected route")
-      ;; rf2-3x7nj.12.1: `:app/settings` declares no query vocabulary, so
+      ;; `:app/settings` declares no query vocabulary, so
       ;; `:tab` commits the way the URL spells it — a string key.
       (is (= "x" (get-in cur [:query "tab"]))
           "and applies only the query change")
