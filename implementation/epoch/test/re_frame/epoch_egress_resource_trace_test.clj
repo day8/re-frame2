@@ -1,9 +1,9 @@
 (ns re-frame.epoch-egress-resource-trace-test
   "Coverage for the OFF-BOX egress redaction of the BROADER resource/mutation
   trace family's scoped-key slots inside an epoch record's `:trace-events`
-  (rf2-8x0gfa, EP-0015).
+  (EP-0015).
 
-  The companion to `epoch_egress_resource_scope_test` (rf2-84l82t, which covers
+  The companion to `epoch_egress_resource_scope_test` (which covers
   the single `:rf.resource/scope-resolved` row). The rest of the
   `:rf.resource/*` + `:rf.mutation/*` trace family copies owner-local SCOPED
   KEYS (`[scope resource-id params]`, embedding the resource's scope + params)
@@ -22,7 +22,7 @@
   projector (`re-frame.resources.trace-egress/project-resource-trace-egress`),
   published as the late-bound `:resources/project-resource-trace-egress` hook the
   epoch tool-pair consults from `omit-off-box-resource-trace-keys`. This test
-  proves the WIRING fires end-to-end across the three slot shapes the bead names
+  proves the WIRING fires end-to-end across the three slot shapes
   (`:resource/key`, `:removed`, rollback `:dispositions`) over the three
   classification arms EP-0015 names — sensitive params, large params, and a
   derived-sensitive `{:from-db}` scope — and that the trusted-local
@@ -38,7 +38,7 @@
             [re-frame.elision :as rf.elision]
             [re-frame.epoch :as rf.epoch]
             [re-frame.frame :as rf.frame]
-            ;; rf2-hbmeb §(8) — `fx/reg-fx`, the plain fn, NOT the `rf/reg-fx`
+            ;; §(8) — `fx/reg-fx`, the plain fn, NOT the `rf/reg-fx`
             ;; macro: see `drive-real-cascade!` for why the difference decides
             ;; whether the frame's default image can still be reprojected.
             [re-frame.fx :as rf.fx]
@@ -50,7 +50,7 @@
             ;; load-bearing: publishes the :resources/* late-bind hooks,
             ;; including :resources/project-resource-trace-egress.
             [re-frame.resources]
-            ;; rf2-hbmeb §(8) — the real cascade's `ensure` lowers into the
+            ;; §(8) — the real cascade's `ensure` lowers into the
             ;; managed-HTTP transport, which fails closed with
             ;; `:rf.error/http-artefact-missing` unless this ns has published
             ;; its late-bind feature probe. Test-only; production epoch stays
@@ -64,7 +64,7 @@
 (def ^:private real-owner [:app :reader 1])
 
 (def ^:private reset-runtime-fixture
-  "The `:each` fixture, held by name so the rf2-22ij6 inventory sweep can reuse
+  "The `:each` fixture, held by name so the drive-inventory sweep can reuse
   it to isolate the drives it runs INSIDE one deftest (`driven-in-isolation`).
   Reusing the fixture rather than re-implementing the reset is the point: the
   inventory's drives get exactly the runtime every other drive in this
@@ -85,9 +85,8 @@
                    :large?        true
                    :params-schema [:map [:blob :string]]}
                   (fn [_ _] {:request {:method :get :url "/y"}}))
-                ;; a {:from-db} scope resource. EP-0025 (rf2-71dr8t) removed the
-                ;; derived-sensitivity PROPAGATION arm, so the entry no longer
-                ;; INHERITS :redact from the resolver's inputs — the OWNER must
+                ;; a {:from-db} scope resource. An entry does not INHERIT
+                ;; :redact from the resolver's inputs (EP-0025) — the OWNER must
                 ;; declare :sensitive? to redact its scoped key off-box.
                 (rf/reg-resource-scope :rt/session
                   {:inputs {:username [:db [:auth :user :username]]}}
@@ -103,12 +102,12 @@
                   {:scope         :rf.scope/global
                    :params-schema [:map [:slug :string]]}
                   (fn [_ _] {:request {:method :get :url "/a"}}))
-                ;; rf2-ko5lm — a resource that makes NO COARSE claim and
+                ;; A resource that makes NO COARSE claim and
                 ;; declares PROJECTION-RELATIVE slots instead.
                 ;; `whole-entry-disposition` of this spec is `:serialize`, so
                 ;; `row-owner-redacts?` is FALSE and the coarse read-reply arm
-                ;; (rf2-xx4ty) never fires on it — which is exactly why its
-                ;; continuation reply rode verbatim. `:email` is declared
+                ;; never fires on it — only the declared slots can project its
+                ;; continuation reply. `:email` is declared
                 ;; sensitive, `:avatar` declared large, and `:display-name`
                 ;; declared as NEITHER, so one body exercises redact, elide,
                 ;; and the untouched sibling that proves the projection is
@@ -119,7 +118,7 @@
                    :large         [[:data :avatar]]
                    :params-schema [:map [:slug :string]]}
                   (fn [_ _] {:request {:method :get :url "/c"}}))
-                ;; rf2-ko5lm — the PARAMS axis of the same declaration surface,
+                ;; The PARAMS axis of the same declaration surface,
                 ;; on its own owner so the data-axis fixture above stays a
                 ;; three-outcome body and nothing else.
                 (rf/reg-resource :declared/params-owner
@@ -127,7 +126,7 @@
                    :sensitive     [[:params :account]]
                    :params-schema [:map [:account :string] [:slug :string]]}
                   (fn [_ _] {:request {:method :get :url "/d"}}))
-                ;; rf2-zaopo — the same declaration surface on an INFINITE
+                ;; The same declaration surface on an INFINITE
                 ;; FEED. `:reply-to` delivers the MERGED / flattened item list
                 ;; under `:value` (`infinite-reply-value`), so the declared
                 ;; `[:data :email]` names a field of EACH ITEM and the runtime
@@ -144,7 +143,7 @@
                    :large           [[:data :avatar]]
                    :params-schema   [:map [:filter :keyword]]}
                   (fn [_ _] {:request {:method :get :url "/e"}}))
-                ;; rf2-zaopo — the feed-shaped over-redaction control: an
+                ;; The feed-shaped over-redaction control: an
                 ;; infinite feed that declares NEITHER axis. Its merged items
                 ;; carry the identical field names and must ride byte-identical.
                 (rf/reg-resource :plain/feed
@@ -154,14 +153,14 @@
                    :page->items     :items
                    :params-schema   [:map [:filter :keyword]]}
                   (fn [_ _] {:request {:method :get :url "/f"}}))
-                ;; rf2-wd9im (merged-PR audit #7013) — a :sensitive? owner whose
+                ;; A :sensitive? owner whose
                 ;; REQUIRED :params-schema legally admits NON-MAP canonical
                 ;; params. Nothing exotic: `[:vector :string]` is an ordinary
                 ;; schema, and the resource registrar validates + canonicalizes
                 ;; against whatever the owner declared. Its scoped key wears the
                 ;; positional skeleton of every other key but has no MAP at
-                ;; position 2, which is the only proof the shape read used to
-                ;; take.
+                ;; position 2, so a shape read that demands a map there would
+                ;; miss it.
                 (rf/reg-resource :secret/vector-params
                   {:scope         :rf.scope/global
                    :sensitive?    true
@@ -174,9 +173,9 @@
                    :params-schema [:vector :string]}
                   (fn [_ _] {:request {:method :get :url "/h"}}))
                 ;; a PLAIN resource under a CONCRETE (non-global) scope — the
-                ;; over-redaction control for the FREE `:scope` tag (rf2-1zc33).
+                ;; over-redaction control for the FREE `:scope` tag.
                 ;; Its scoped KEY must keep scope AND params verbatim, which is
-                ;; what proves the `:scope` repair touched only the free tag.
+                ;; what proves the `:scope` projection touches only the free tag.
                 (rf/reg-resource :plain/profile
                   {:scope         {:from-db :rt/session}
                    :params-schema [:map [:slug :string]]}
@@ -224,7 +223,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest off-box-redacts-resource-key-slot-sensitive-params
-  (testing "rf2-8x0gfa — a :rf.resource/cache-hit row's :resource/key has its
+  (testing "a :rf.resource/cache-hit row's :resource/key has its
             sensitive scope + params tokenized off-box; the resource-id +
             structural tags survive; no raw secret egresses"
     (let [scoped-key (sk :rf.scope/global :secret/article {:auth-token secret})
@@ -251,7 +250,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest off-box-redacts-removed-keys-vector-large-params
-  (testing "rf2-8x0gfa — a :rf.mutation/succeeded row's :removed vector has each
+  (testing "a :rf.mutation/succeeded row's :removed vector has each
             scoped key's LARGE params tokenized off-box; resource-id survives"
     (let [k1        (sk :rf.scope/global :big/blob big-params)
           record    (record-with
@@ -278,11 +277,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest off-box-redacts-rollback-dispositions-owner-sensitive-scope
-  (testing "rf2-8x0gfa / rf2-71dr8t — a :rf.mutation/optimistic-rolled-back row's
+  (testing "a :rf.mutation/optimistic-rolled-back row's
             :dispositions per-key maps have their OWNER-declared-sensitive scope
             + params tokenized off-box; the boolean disposition facts survive.
             EP-0025: the scope is tokenized via the owner's :sensitive? claim
-            (the derived-sensitivity propagation arm was removed)"
+            (there is no derived-sensitivity propagation)"
     (let [;; :derived/profile declares :sensitive? → its scoped key is redacted
           ;; off-box (the owner boundary, NOT derived-sensitivity inheritance).
           scoped-key (sk [:rf.scope/session {:username secret}]
@@ -313,7 +312,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest off-box-redacts-nested-patch-summary-keys
-  (testing "rf2-8x0gfa — the :rf.mutation/succeeded :patch-summary nested map
+  (testing "the :rf.mutation/succeeded :patch-summary nested map
             has its :removed key vector AND its :rollback per-key disposition
             maps projected recursively; no raw secret leaks through the nest"
     (let [k-rem  (sk :rf.scope/global :secret/article {:auth-token secret})
@@ -345,12 +344,12 @@
 ;; (3c) a REAL optimistic commit — the settlement row ships no entry snapshot
 ;; ---------------------------------------------------------------------------
 ;;
-;; rf2-3x7nj.11.1. The (3b) arm above feeds a hand-built `:rollback` row with no
-;; `:before`, so it could not see that the REAL commit put the recorded inverse
-;; — `:before` being the WHOLE pre-apply cache entry, `:data` included — on the
-;; `:rf.mutation/succeeded` `:patch-summary`, where the projector tokenized the
-;; row's own `:resource/key` and let `:before` ride. Two fixes, one per arm: the
-;; commit records no snapshot on the settlement row (the producer), and a
+;; The (3b) arm above feeds a hand-built `:rollback` row with no `:before`, so
+;; it cannot see what a REAL commit puts on the `:rf.mutation/succeeded`
+;; `:patch-summary`. The recorded inverse's `:before` is the WHOLE pre-apply
+;; cache entry, `:data` included, and a projector that tokenizes only the
+;; row's own `:resource/key` would let `:before` ride. Two guards, one per arm:
+;; the commit records no snapshot on the settlement row (the producer), and a
 ;; disposition row's slots other than `:resource/key` fail closed like the
 ;; unknown-slot default (the projector).
 
@@ -401,7 +400,7 @@
     @rows))
 
 (deftest real-optimistic-commit-ships-no-entry-snapshot-off-box
-  (testing "rf2-3x7nj.11.1 — an optimistic write that COMMITS over a :sensitive?
+  (testing "an optimistic write that COMMITS over a :sensitive?
             entry puts no pre-apply entry snapshot on :rf.mutation/succeeded,
             and project-egress over the REAL settled record carries no secret"
     (let [bus-rows  (drive-optimistic-commit!)
@@ -436,7 +435,7 @@
               "no leaf of the projected settlement row carries the secret"))))))
 
 (deftest off-box-disposition-row-fails-closed-on-non-key-slots
-  (testing "rf2-3x7nj.11.1 (defence in depth) — a disposition row's slots other
+  (testing "defence in depth — a disposition row's slots other
             than :resource/key are projected by the unknown-slot rule: a MAP
             (a stray entry snapshot) tokenizes, the scalar facts ride verbatim"
     (let [k      (sk :rf.scope/global :secret/article optimistic-params)
@@ -463,7 +462,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest off-box-keeps-plain-resource-key-verbatim
-  (testing "rf2-8x0gfa guard — a NON-sensitive resource's scoped key rides its
+  (testing "over-redaction guard — a NON-sensitive resource's scoped key rides its
             scope + params VERBATIM off-box; the row is NOT stamped sensitive"
     (let [scoped-key (sk :rf.scope/global :plain/article {:slug "welcome"})
           record     (record-with
@@ -481,7 +480,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest off-box-fails-closed-on-unregistered-owner
-  (testing "rf2-8x0gfa — a scoped key naming an UNREGISTERED resource owner (the
+  (testing "a scoped key naming an UNREGISTERED resource owner (the
             spec a value-path projector would trust is absent) FAILS CLOSED:
             its scope + params are redacted even though no :sensitive? claim
             exists to read"
@@ -503,7 +502,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest trusted-local-include-sensitive-keeps-raw-keys
-  (testing "rf2-8x0gfa — the trusted-local :rf.egress/include-sensitive? opt-in keeps the
+  (testing "the trusted-local :rf.egress/include-sensitive? opt-in keeps the
             raw scoped key (the local-raw boundary), across :resource/key,
             :removed, and rollback :dispositions"
     (let [k-hit  (sk :rf.scope/global :secret/article {:auth-token secret})
@@ -528,7 +527,7 @@
           "raw rollback :dispositions key rides with :rf.egress/include-sensitive?"))))
 
 ;; ---------------------------------------------------------------------------
-;; (7) the load-more PAGINATION CURSOR — a FREE tag, owner-classified (rf2-3tysyj)
+;; (7) the load-more PAGINATION CURSOR — a FREE tag, owner-classified
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The cursor (`:page-param` on `:rf.resource/load-more`, `:next-page-param` on
@@ -541,7 +540,7 @@
 (def ^:private cursor-secret "cursor-rec-topsecret-PII-42")
 
 (deftest off-box-redacts-load-more-cursor-sensitive-owner
-  (testing "rf2-3tysyj — a :rf.resource/load-more row's :page-param cursor
+  (testing "a :rf.resource/load-more row's :page-param cursor
             tokenizes off-box for a :sensitive? owner; the structural tags
             survive; no raw record id egresses"
     (let [scoped-key (sk :rf.scope/global :secret/article {:auth-token secret})
@@ -566,7 +565,7 @@
         (is (not (re-find #"cursor-rec-topsecret" (pr-str projected))))))))
 
 (deftest off-box-redacts-page-appended-next-cursor-sensitive-owner
-  (testing "rf2-3tysyj — a :rf.resource/page-appended row's :next-page-param
+  (testing "a :rf.resource/page-appended row's :next-page-param
             cursor tokenizes off-box for a :sensitive? owner"
     (let [resource-key (sk :rf.scope/global :secret/article {:auth-token secret})
           record       (record-with
@@ -587,7 +586,7 @@
           "no raw cursor secret survives"))))
 
 (deftest off-box-keeps-plain-feed-cursor-verbatim
-  (testing "rf2-3tysyj guard — a PLAIN (non-sensitive) feed's load-more cursor
+  (testing "over-redaction guard — a PLAIN (non-sensitive) feed's load-more cursor
             rides VERBATIM off-box; the row is NOT stamped sensitive"
     (let [scoped-key (sk :rf.scope/global :plain/article {:slug "feed"})
           record     (record-with
@@ -602,7 +601,7 @@
       (is (not (:sensitive? tags)) "a plain row is NOT stamped sensitive"))))
 
 (deftest trusted-local-include-sensitive-keeps-raw-cursor
-  (testing "rf2-3tysyj — the trusted-local :rf.egress/include-sensitive? opt-in keeps the
+  (testing "the trusted-local :rf.egress/include-sensitive? opt-in keeps the
             raw cursor (the local-raw boundary)"
     (let [scoped-key (sk :rf.scope/global :secret/article {:auth-token secret})
           record     (record-with
@@ -615,23 +614,23 @@
           "raw cursor rides with :rf.egress/include-sensitive?"))))
 
 ;; ---------------------------------------------------------------------------
-;; (rf2-7qbxbm) :error / :page-error HTTP failure envelope — the raw server
+;; :error / :page-error HTTP failure envelope — the raw server
 ;; response body (echoing submitted form fields) MUST NOT egress off-box raw.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private http-error-envelope
   "An `:rf.http/*` failure envelope as the resource/mutation FAILURE rows carry
   it under `:error` / `:page-error` — the raw server response whose `:body-text`
-  echoes a submitted form field quoting a secret. This is the C2/D1 leak vector
-  rf2-7qbxbm names: it is NOT a scoped key, NOT a cursor, so it fell through the
-  projector's `:else` verbatim and reached the epoch/MCP off-box channel raw."
+  echoes a submitted form field quoting a secret. It is NOT a scoped key, NOT
+  a cursor, so a projector whose `:else` passed values through verbatim would
+  carry it to the epoch/MCP off-box channel raw."
   {:status    422
    :body      {:errors {:auth-token (str "value '" secret "' is already taken")}}
    :body-text (str "{\"auth-token\":\"" secret "\"}")
    :detail    :rf.http/http-4xx})
 
 (deftest off-box-redacts-resource-failed-error-envelope
-  (testing "rf2-7qbxbm — a :rf.resource/failed first-load row's :error HTTP
+  (testing "a :rf.resource/failed first-load row's :error HTTP
             failure envelope (raw response body echoing a submitted secret) is
             tokenized off-box; the structural status tags survive; no raw secret
             egresses"
@@ -655,7 +654,7 @@
         (is (not (contains-secret? projected)))))))
 
 (deftest off-box-redacts-page-failed-page-error-envelope
-  (testing "rf2-7qbxbm — a :rf.resource/page-failed load-more row's :page-error
+  (testing "a :rf.resource/page-failed load-more row's :page-error
             HTTP failure envelope is tokenized off-box (the third error channel)"
     (let [scoped-key (sk :rf.scope/global :secret/article {:auth-token secret})
           record     (record-with
@@ -673,7 +672,7 @@
         (is (not (contains-secret? projected)))))))
 
 (deftest off-box-redacts-mutation-failed-error-envelope
-  (testing "rf2-7qbxbm — a :rf.mutation/failed settlement row's :error HTTP
+  (testing "a :rf.mutation/failed settlement row's :error HTTP
             failure envelope is tokenized off-box"
     (let [record    (record-with
                       [(event :rf.mutation/failed
@@ -692,10 +691,11 @@
         (is (not (contains-secret? projected)))))))
 
 (deftest off-box-fail-closed-on-unknown-map-slot
-  (testing "rf2-7qbxbm structural — the flipped fail-CLOSED :else: an UNKNOWN
+  (testing "structural — the fail-CLOSED :else: an UNKNOWN
             map-shaped slot a future row might add WITHOUT a projector clause is
-            tokenized by default, so it cannot leak app data the way :error did.
-            Scalar structural facts on the SAME row still ride verbatim."
+            tokenized by default, so it cannot leak app data the way an
+            unprojected :error would. Scalar structural facts on the SAME row
+            ride verbatim."
     (let [scoped-key (sk :rf.scope/global :secret/article {:auth-token secret})
           record     (record-with
                        [(event :rf.resource/failed
@@ -714,7 +714,7 @@
         (is (not (contains-secret? projected)))))))
 
 (deftest trusted-local-include-sensitive-keeps-raw-error-envelope
-  (testing "rf2-7qbxbm — the trusted-local :rf.egress/include-sensitive? opt-in keeps the
+  (testing "the trusted-local :rf.egress/include-sensitive? opt-in keeps the
             raw HTTP failure envelope (the local-raw boundary — the off-box
             redaction is the DEFAULT, not an unconditional strip)"
     (let [record    (record-with
@@ -727,26 +727,26 @@
           "the raw envelope rides with :rf.egress/include-sensitive?"))))
 
 ;; ---------------------------------------------------------------------------
-;; (rf2-wd9im) the SHAPE-driven fail-closed default — a scoped key sitting in a
+;; the SHAPE-driven fail-closed default — a scoped key sitting in a
 ;; slot the projector's vocabulary does not NAME.
 ;; ---------------------------------------------------------------------------
 ;;
-;; rf2-7qbxbm flipped the `:else` to fail CLOSED, but only over ONE value shape:
-;; a MAP. A SEQUENTIAL value under an unnamed slot still fell through verbatim,
-;; so `:rf.resource/route-plan`'s `:blocking` / `:identities` — EP-0037 R1/R2
-;; VECTORS OF SCOPED KEYS on a row that predates the projector — egressed a
-;; `:sensitive?` owner's resolved scope and canonical params RAW, while the
-;; IDENTICAL keys under `:matched` tokenized. The repair reads SHAPE rather than
-;; slot name, which also covers `:optimistic-keys` / `:forced-keys` /
-;; `:revisions` and the scoped key EMBEDDED in every resource work-id.
+;; The fail-CLOSED `:else` covers more than a MAP. Were a SEQUENTIAL value
+;; under an unnamed slot to fall through verbatim, `:rf.resource/route-plan`'s
+;; `:blocking` / `:identities` — EP-0037 R1/R2 VECTORS OF SCOPED KEYS on a row
+;; no projector clause names — would egress a `:sensitive?` owner's resolved
+;; scope and canonical params RAW, while the IDENTICAL keys under `:matched`
+;; tokenize. The default reads SHAPE rather than slot name, which also covers
+;; `:optimistic-keys` / `:forced-keys` / `:revisions` and the scoped key
+;; EMBEDDED in every resource work-id.
 
 (defn- route-plan-tags
   "A `:rf.resource/route-plan` row's tags in the shape `route.cljc` emits them
   (EP-0037 R1/R2): `:blocking` + `:identities` are VECTORS OF SCOPED KEYS,
   `:branch` is a vector of route ids that MUST ride verbatim, and `:removed` is
   an INT COUNT (the same slot NAME the mutation-settlement rows use for a key
-  vector — the row and the projector were written against different mental
-  models of `:removed`, and both must be handled)."
+  vector — the two rows mean different things by `:removed`, and both must be
+  handled)."
   [blocking identities]
   {:rf.frame/id :test/rt
    :route-id    :r/article
