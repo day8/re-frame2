@@ -105,14 +105,16 @@
       ;; (3) Reason discriminator always present.
       (is (contains? tags :reason)
           (str label ": :reason discriminator is always emitted"))
-      (is (#{:explicit :rf.machine/finished :rf.machine/join-reaped} (:reason tags))
-          (str label ": :reason is one of :explicit / :rf.machine/finished / :rf.machine/join-reaped"))
+      ;; Exactly the reasons the producers emit: every `emit-destroyed!` call
+      ;; in lifecycle_fx/destroy.cljc passes :explicit, and `finalize-machine`
+      ;; passes :rf.machine/finished.
+      (is (#{:explicit :rf.machine/finished} (:reason tags))
+          (str label ": :reason is one of :explicit / :rf.machine/finished"))
       ;; An :explicit destroy is a cancellation; it carries the
-      ;; reply-envelope cancellation facts. A NON-:explicit destroy is
-      ;; post-completion cleanup, NOT a cancellation, so it carries no
-      ;; cancelled reply facts — :rf.machine/finished (the actor closed
-      ;; through :rf.machine/done) and :rf.machine/join-reaped (an
-      ;; already-terminal :spawn-all join child).
+      ;; reply-envelope cancellation facts. A :rf.machine/finished destroy is
+      ;; post-completion cleanup, NOT a cancellation — the actor already
+      ;; closed through :rf.machine/done — so it carries no cancelled reply
+      ;; facts.
       (if (= :explicit (:reason tags))
         (do
           (is (= :cancelled (:rf.reply/status tags))
