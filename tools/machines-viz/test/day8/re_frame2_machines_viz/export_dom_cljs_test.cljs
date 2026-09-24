@@ -57,6 +57,7 @@
             [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing async]]
             [day8.re-frame2-machines-viz.adapters.react-chart :as react-chart]
+            [day8.re-frame2-machines-viz.chart.context-redaction :as context-redaction]
             [day8.re-frame2-machines-viz.export :as export]
             [day8.re-frame2-machines-viz.share :as share]))
 
@@ -446,6 +447,30 @@
                   "the redaction sentinel appears in place of the secret")
               (is (str/includes? svg "7")
                   "the non-sensitive :count slot still renders"))))))))
+
+(deftest svg-export-redacts-a-runtime-only-key-under-whole-data-sensitivity
+  (testing "rf2-k7i6y — a machine declaring its WHOLE :data sensitive, with an
+            EMPTY initial :data, later writes a token. Fed through the API.md
+            recipe, the exported SVG does not carry it."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (let [secret     "secret-at-runtime"
+            definition (assoc idle-loading-done :sensitive [[:data]] :data {})
+            {:keys [sensitive large]} (context-redaction/derive-classification definition)]
+        (with-mounted-chart
+          {:machine-id :test/flow :definition definition
+           :current-state :loading
+           :context-band {:token secret}
+           :context-band-inferred? false
+           :context-band-sensitive sensitive
+           :context-band-large large}
+          (fn [node]
+            (let [svg (export/chart-as-svg (chart-root-of node "rf-mv-chart"))]
+              (is (string? svg))
+              (is (not (str/includes? svg secret))
+                  "the runtime-only token must not appear in the exported SVG")
+              (is (str/includes? svg ":rf/redacted")
+                  "the redaction sentinel appears in its place"))))))))
 
 (deftest svg-export-passes-live-context-when-raw-opted-in
   (testing "rf2-27e38h — :context-band-raw? true is the explicit

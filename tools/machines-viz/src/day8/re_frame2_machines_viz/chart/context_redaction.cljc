@@ -40,7 +40,9 @@
 
   Sensitivity is supplied as a SET of sensitive keys + a SET of large keys
   (`derive-classification` extracts them from the machine definition's own
-  declaration), so this namespace stays dependency-free and JVM-portable.
+  declaration; a whole-`:data` declaration yields a set carrying a
+  whole-data marker that covers every key, runtime-only keys included), so
+  this namespace stays dependency-free and JVM-portable.
 
   The static type-caption shape is already value-free, so redaction over
   it is a no-op (captions like `\"string\"` are neither sensitive markers
@@ -49,6 +51,15 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Classification extraction from the machine definition's declaration
+
+(def ^:private whole-data
+  "The WHOLE-`:data` marker. A classification set carrying it classifies
+  EVERY band key — including a key the live `:data` first gains at runtime,
+  which no expansion over the definition's initial `:data` could name
+  (rf2-k7i6y). It rides INSIDE the key set, so the set still flows through
+  the documented recipe and the `:context-band-sensitive` /
+  `:context-band-large` props unchanged."
+  ::whole-data)
 
 (defn derive-classification
   "Extract `{:sensitive #{k …} :large #{k …}}` — sets of Context-band KEYS —
@@ -60,24 +71,33 @@
     - `[:data k …]` names band key `k`. The band prints each top-level
       `:data` value WHOLE, so a deeper path classifies its whole top-level
       slot (`[:data :payment :token]` redacts `:payment`).
-    - A bare `[:data]` classifies every key of the definition's own `:data`
-      map (a key only the live value carries is not known here).
-    - A path not rooted at `:data` names no band key and is ignored.
+    - A bare `[:data]` (or the whole-snapshot `[]`) keeps WHOLE-data scope:
+      the set carries the whole-data marker, which classifies every band
+      key, runtime-only keys included (rf2-k7i6y).
+    - Any other path not rooted at `:data` names no band key and is ignored.
 
   The `[:schemas :data]` schema's `:sensitive?` / `:large?` props are NOT
   read: EP-0025 reversed that bridge, and they drive only validation-failure-
   trace redaction. Returns `{:sensitive #{} :large #{}}` when nothing is
   declared."
   [definition]
-  (let [data-keys (let [d (:data definition)] (when (map? d) (keys d)))
-        band-keys (fn [paths]
+  (let [band-keys (fn [paths]
                     (into #{}
                           (mapcat (fn [p]
-                                    (when (and (sequential? p) (= :data (first p)))
-                                      (if (next p) [(second p)] data-keys))))
+                                    (when (sequential? p)
+                                      (cond
+                                        (empty? p)             [whole-data]
+                                        (not= :data (first p)) nil
+                                        (next p)               [(second p)]
+                                        :else                  [whole-data]))))
                           (when (sequential? paths) paths)))]
     {:sensitive (band-keys (:sensitive definition))
      :large     (band-keys (:large definition))}))
+
+(defn- classifies?
+  "Does the classification key set `ks` cover band key `k`?"
+  [ks k]
+  (or (contains? ks k) (contains? ks whole-data)))
 
 ;; ---------------------------------------------------------------------------
 ;; Large-value heuristic
@@ -184,12 +204,14 @@
                                       → `:rf.size/large-elided` marker (no head)
     - otherwise                       → `v` unchanged
 
-  Sensitive WINS over large (EP-0015). Returns the value to render."
+  A set carrying the whole-data marker (`derive-classification` of a bare
+  `[:data]`) contains every key. Sensitive WINS over large (EP-0015).
+  Returns the value to render."
   [k v {:keys [sensitive large large-char-cap]
         :or   {sensitive #{} large #{} large-char-cap default-large-char-cap}}]
   (cond
-    (contains? sensitive k) :rf/redacted
-    (or (contains? large k)
+    (classifies? sensitive k) :rf/redacted
+    (or (classifies? large k)
         (> (printed-size v) large-char-cap))
     (large-marker k v)
     :else v))
