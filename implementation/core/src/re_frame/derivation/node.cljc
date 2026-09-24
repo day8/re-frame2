@@ -8,14 +8,13 @@
     - the fixed-classification `node-base` spine (Derivations §The node
       shape) — `(node-base id output classification)`.
 
-  Before rf2-2mkflj these two shapes were copy-pasted verbatim across the
-  five per-feature `tooling.cljc` siblings: the same four-line
-  `{:ns :file :line}` → `:source` `cond->` block lived in each, and the
-  seven-key classification spine was a helper ONCE in `subs.tooling` but
-  hand-inlined in the other four. A change to the `:source` shape (or a new
-  spine key) had to be propagated by hand to five places, with no gate to
-  catch the drift. This ns is the single place each now lives; the five
-  siblings `:require` it.
+  These two shapes live here once so the five per-feature `tooling.cljc`
+  siblings cannot drift. Copy-pasted, the same four-line
+  `{:ns :file :line}` → `:source` `cond->` block and the seven-key
+  classification spine would live in each, and a change to the `:source`
+  shape (or a new spine key) would have to be propagated by hand to five
+  places, with no gate to catch the drift. The five siblings `:require` this
+  ns.
 
   SCOPE — this is a LEAF. It carries ONLY the family-agnostic scaffold (the
   source-coord projection + the classification spine that EVERY algebra node
@@ -32,9 +31,9 @@
   `re-frame.derivation.graph`) and depends on NOTHING feature-specific (it
   reads only the registrar-shaped metadata maps the siblings already hold).
   The four optional siblings (flows / routing / machines / resources) ALL
-  already depend on core, so requiring this introduces no new
-  artefact-to-artefact edge — exactly the play already used for
-  `resources → ssr` (rf2-366u0g) and `trace → projection` (rf2-ih437c).
+  depend on core, so requiring this introduces no new
+  artefact-to-artefact edge — the same play as `resources → ssr` and
+  `trace → projection`.
 
   BUNDLE ISOLATION — this is pure data construction (no `ex-info`, no trace
   string, no side effect) reached ONLY by the dev-only tooling siblings,
@@ -64,8 +63,8 @@
   present, in that fixed key order. Returns the (possibly empty) coord map —
   callers that gate on presence test `(seq …)`.
 
-  This is the byte-identical four-line `cond->` block the five tooling
-  siblings each carried verbatim before rf2-2mkflj. Flows reuses THIS leaf
+  This is the one four-line `cond->` block the five tooling siblings
+  share. Flows reuses THIS leaf
   inside its frame-match gate (a different-frame same-id flow must not inherit
   the wrong source location), so the projection is exposed separately from
   `attach-source`."
