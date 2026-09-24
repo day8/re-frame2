@@ -570,6 +570,40 @@
     (is (= "<mask maskContentUnits=\"userSpaceOnUse\"></mask>"
            (via-rewrite [:mask {:mask-content-units "userSpaceOnUse"}])))))
 
+(deftest parity-xml-namespaced-and-transform-origin-names-rf2-u0xpc
+  (testing "rf2-u0xpc — react-dom 19.3.0 writes the XML-namespaced names with
+            their colon (`xlinkHref` → `xlink:href` and `xmlLang` → `xml:lang`
+            are dedicated `pushAttribute` cases, `xmlnsXlink` → `xmlns:xlink`
+            an `aliases` row) and dasherizes `transformOrigin` (an `aliases`
+            row). `react-attribute-name-overrides` carried none of them, so each
+            fell through to the lowercase rule and this serializer wrote
+            `xlinkhref` / `xmllang` / `transformorigin`: attributes no browser
+            knows, so a `<use>` sprite reference did not resolve. The reference
+            is the INSTALLED react-dom; the whole candidate space is swept by
+            `attribute-names-agree-with-installed-react-dom` in
+            `reagent2.dom.boolean-attr-react-parity-cljs-test`"
+    (doseq [hiccup [[:svg [:use {:xlink-href "#icon"}]]
+                    [:svg [:use {:xlinkHref "#icon"}]]
+                    [:svg [:text {:xml-lang "en"} "x"]]
+                    [:svg [:g {:transform-origin "center"}]]
+                    [:svg {:xmlns-xlink "http://www.w3.org/1999/xlink"}]
+                    [:svg [:a {:xlink-actuate "onLoad" :xlink-arcrole "r"
+                               :xlink-role "r" :xlink-show "new"
+                               :xlink-title "t" :xlink-type "simple"}]]
+                    [:svg [:g {:xml-base "/b/" :xml-space "preserve"}]]]]
+      (let [[a b] (=parity hiccup)]
+        (is (= a b)
+            (str "reagent-slim SSR diverges from react-dom for "
+                 (pr-str hiccup))))))
+  (testing "…and the bytes of the three named rows, stated independently of
+            react-dom so the intent survives a react-dom bump"
+    (is (= "<svg><use xlink:href=\"#icon\"></use></svg>"
+           (via-rewrite [:svg [:use {:xlink-href "#icon"}]])))
+    (is (= "<svg><text xml:lang=\"en\">x</text></svg>"
+           (via-rewrite [:svg [:text {:xml-lang "en"} "x"]])))
+    (is (= "<svg><g transform-origin=\"center\"></g></svg>"
+           (via-rewrite [:svg [:g {:transform-origin "center"}]])))))
+
 (deftest parity-html-tab-index-lowercased
   (testing ":tab-index still lowercases to tabindex (HTML camelCase)"
     (let [[a b] (=parity [:div {:tab-index 3}])]
