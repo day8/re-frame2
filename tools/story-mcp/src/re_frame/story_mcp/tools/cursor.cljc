@@ -227,7 +227,8 @@
             ;; The pagination-metadata slots only land when pagination
             ;; actually kicked in — a small registry that fits on one
             ;; page returns the bare entries without `:total` etc., so
-            ;; the small-registry common case is unchanged on the wire.
+            ;; the small-registry common case carries no pagination
+            ;; slots on the wire.
             meta-map  (if (or cursor has-more?)
                         {:total       total
                          :limit       limit
