@@ -1,5 +1,5 @@
 (ns re-frame.websocket-cljs-test
-  "Integration test: drives the websocket example (rf2-yf97) through the
+  "Integration test: drives the websocket example through the
    Pattern-WebSocket lifecycle. Each helper spins a fresh frame via
    `make-frame`, drives the connection machine through a slice of the
    lifecycle (using an in-process mock WebSocket server in sync-delivery
@@ -7,16 +7,13 @@
 
    The fixture fns + the test-only re-registration scaffolding live HERE
    (the adapter test tree), not under examples/patterns/websocket/ — the
-   example source stays test-free per the locked test-free-examples policy
-   (rf2-8cevm). The ns requires the example's production sub-namespaces
+   example source stays test-free per the test-free-examples policy. The
+   ns requires the example's production sub-namespaces
    (`websocket.schema` / `websocket.connection` / `websocket.messages` /
    `websocket.core`) so their ns-load reg-* forms install the machines,
-   subs and events, then exercises them directly. (rf2-cd2zo folded the
-   former `websocket.test-helpers` / `websocket.connection-test` /
-   `websocket.messages-test` fixture nses in here and retired the example
-   test/ dir.)
+   subs and events, then exercises them directly.
 
-   Per rf2-am9d this ns uses snapshot/restore via re-frame.test-support
+   This ns uses snapshot/restore via re-frame.test-support
    so the contract is uniform across CLJS fixtures: the snapshot captures
    the example's ns-load registrations, and the restore on the way out
    leaves them intact for any subsequent test ns."
@@ -90,7 +87,7 @@
     (rf.fx/reg-fx :rf.machine/after-cancel after-cancel-fx))
   ;; The framework subs that read machine state — both registered at
   ;; machines.cljc ns-load time and equally vulnerable to `clear-all!`.
-  ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state, so
+  ;; EP-0001: machine snapshots are durable runtime-db state, so
   ;; these are runtime-db subs (the `db`-position arg is the runtime-db value).
   (rf.subs/reg-runtime-sub :rf/machine
     (fn [rt [_ machine-id]]
@@ -105,32 +102,32 @@
    every `reg-*` is last-write-wins.
 
    THERE IS DELIBERATELY NO TEST-LOCAL COPY OF ANY EXAMPLE REGISTRATION
-   HERE, and re-introducing one silently guts this suite. This fn used to
-   re-declare the two ingress handlers, their bodies and their boundary
-   metadata inline; because it runs on EVERY test and `reg-*` is
-   last-write-wins, those copies replaced the example's own handlers
-   before a single assertion ran. The suite then certified the copy: a
-   fault planted in `websocket.messages`' `:ws.app/request-reply` body
-   left it fully green, and `inbound-boundary-structural-test` read back
-   the metadata this file had just installed rather than the example's
-   (measured, rf2-idv1m). Calling `register!` is what puts the shipped
-   definitions under test; `example-registrations-are-live-test` is the
-   tripwire that fails first if a twin ever comes back.
+   HERE, and introducing one silently guts this suite. Because this fn
+   runs on EVERY test and `reg-*` is last-write-wins, an inline copy of
+   the two ingress handlers, their bodies or their boundary metadata
+   would replace the example's own handlers before a single assertion
+   ran, and the suite would then certify the copy: a fault planted in
+   `websocket.messages`' `:ws.app/request-reply` body would leave it fully
+   green, and `inbound-boundary-structural-test` would read back the
+   metadata this file had just installed rather than the example's.
+   Calling `register!` is what puts the shipped definitions under test;
+   `example-registrations-are-live-test` is the tripwire that fails first
+   if a twin appears.
 
-   The only thing this file still installs itself is the FRAMEWORK's
+   The only thing this file installs itself is the FRAMEWORK's
    `:rf.machine/*` fx and subs, which no example namespace owns."
   []
   (re-register-machines-fx-and-subs!)
-  ;; rf2-ofzxh9 — `reg-app-schema` is EP-0002 context-required frame-local
-  ;; (rf2-5q7um6): it resolves `*current-frame*` and raises
+  ;; `reg-app-schema` is EP-0002 context-required frame-local: it resolves
+  ;; `*current-frame*` and raises
   ;; `:rf.error/no-frame-context` under no scope. `register-all!` runs from
   ;; the fixture's `:init-fn`, which fires OUTSIDE the fixture's ambient
   ;; `*current-frame*` binding (`make-reset-runtime-fixture` invokes `:init-fn`
   ;; before it `binding`s the ambient frame around the test body). Bare, this
-  ;; threw `:rf.error/no-frame-context` — and because the node-test build
+  ;; would throw `:rf.error/no-frame-context` — and because the node-test build
   ;; runs every `*_cljs_test` ns in ONE shared JS runtime, that throw, fired
-  ;; during a concurrently-pending async test's `done` window, surfaced as the
-  ;; intermittent `FAIL in () (:) unexpected reject: :rf.error/no-frame-context`
+  ;; during a concurrently-pending async test's `done` window, would surface as
+  ;; an intermittent `FAIL in () (:) unexpected reject: :rf.error/no-frame-context`
   ;; + `Async test called done more than one time` flake. The example's own
   ;; `websocket.schema/register!` names `:rf/default` explicitly in its
   ;; `(rf/with-frame :rf/default …)` — exactly what this call site needs,
@@ -159,17 +156,17 @@
 ;; HELPERS — shared across the connection + messages fixtures
 ;; ============================================================================
 
-;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state, so
+;; EP-0001: machine snapshots are durable runtime-db state, so
 ;; `snapshot` reads the runtime-db value (callers pass
-;; `(:rf.db/runtime (rf/frame-state-value f))`, per rf2-t3lftq — API-shrink
-;; #3 retired `rf/runtime-db-value`).
+;; `(:rf.db/runtime (rf/frame-state-value f))`; there is no
+;; `rf/runtime-db-value`).
 (defn- snapshot [runtime-db]
   (get-in runtime-db [:rf.runtime/machines :snapshots :ws/connection]))
 
-;; The live socket-actor id now lives in the framework-maintained
+;; The live socket-actor id lives in the framework-maintained
 ;; `:rf/spawned` slot on the parent's own :data, keyed by the :spawn-bearing
-;; state's path (`[:active]`) — the rf2-yh21ah rewrite dropped the bespoke
-;; `:socket-id` :data field. Mirrors `websocket.connection/socket-id`.
+;; state's path (`[:active]`) — there is no bespoke `:socket-id` :data
+;; field. Mirrors `websocket.connection/socket-id`.
 (defn- socket-id-of [snap]
   (get-in snap [:data :rf/spawned [:active]]))
 
@@ -177,7 +174,7 @@
   "The registration token `:register-request` minted for `request-id`, read
   off the live snapshot. Every synthesised `:ws/request-timeout` below stamps
   it, because the real scheduled event does: the token — not the id — is what
-  ties a deadline to the registration that armed it (rf2-tb442). Returns nil
+  ties a deadline to the registration that armed it. Returns nil
   once the slot is gone, which is itself the point."
   [f request-id]
   (get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
@@ -185,7 +182,7 @@
 
 (defn- machine-has-tag?
   "Read the machine's :tags union against a frame's runtime-db (machine
-  snapshots are runtime-db state — rf2-vzld77)."
+  snapshots are runtime-db state)."
   [frame tag]
   (rf/compute-sub [:rf.machine/has-tag? :ws/connection tag]
                   (:rf.db/runtime (rf/frame-state-value frame))))
@@ -263,7 +260,7 @@
           (is (some?  (socket-id-of s)))
           ;; URL + the OPAQUE credential reference were recorded in :data —
           ;; they survive across reconnects. Only the reference: the machine
-          ;; never sees the bearer (rf2-iyjae).
+          ;; never sees the bearer.
           (is (= "ws://mock"      (get-in s [:data :url])))
           (is (= :ws.demo/cred-a  (get-in s [:data :cred-ref])))
           (is (not (contains? (:data s) :auth-token))
@@ -283,7 +280,7 @@
         (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
           (is (= :disconnected (:state s)))
           (is (= 2 (count (get-in s [:data :queue]))))
-          ;; The queue now buffers the WHOLE inbound event (so a queued
+          ;; The queue buffers the WHOLE inbound event (so a queued
           ;; :ws/request can rejoin :register-request on flush — see
           ;; websocket-queued-request-*), not the bare body — so each entry
           ;; is a `[:ws/send …]` vector.
@@ -317,7 +314,7 @@
           (is (some? pre-socket))
           ;; Simulate a transport-level drop. The mock fires :ws/closed
           ;; (with the source-socket-id) into the actor, which forwards
-          ;; to the parent. EP-0002 (rf2-9o48ih): the seam now takes a
+          ;; to the parent. EP-0002: the seam takes a
           ;; capture-frame so its deferred dispatch carries the frame.
           (messages/simulate-disconnect! (rf/capture-frame f))
           (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
@@ -368,7 +365,7 @@
         ;; Seed the snapshot's :data :retries past :max-retries via a
         ;; direct write to the machine's :data slot. This is a test
         ;; helper — production code never does this.
-        ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db
+        ;; EP-0001: machine snapshots are durable runtime-db
         ;; state, so the seed writes the runtime-db PARTITION via swap-runtime-db!.
         (re-frame.frame/swap-runtime-db! f
           (fn [rt]
@@ -412,7 +409,7 @@
                   "stale :ws/received was suppressed by :current-socket?")))
           ;; A :ws/received event with the LIVE source-socket-id lands
           ;; — the :messages slice grows. (The body is a valid :push wire
-          ;; frame — the closed InboundMessage union now rejects unknown
+          ;; frame — the closed InboundMessage union rejects unknown
           ;; :type values at the boundary, which the boundary-rejection
           ;; test pins.)
           (let [pre-msgs (count (get-in (rf/app-db-value f) [:messages :received]))]
@@ -428,7 +425,7 @@
   ;; :ws/rotate-cred works from every non-disconnected state — :active/*,
   ;; :reconnecting, :failed. Only the OPAQUE reference crosses the dispatch
   ;; boundary; the next :active entry's :spawn :data fn reads the rotated
-  ;; reference and the new socket resolves it host-side (rf2-iyjae).
+  ;; reference and the new socket resolves it host-side.
   (with-sync-mock!
     (fn []
       (with-new-frame [f (new-frame)]
@@ -465,12 +462,12 @@
           (is (nil? (socket-id-of s))))))))
 
 (defn- active-disconnect-then-connect-gets-full-budget-test []
-  ;; rf2-3x7nj.41.3 — every manual :ws/connect starts with a full retry
+  ;; Every manual :ws/connect starts with a full retry
   ;; budget, the one out of :disconnected included. A clean :ws/disconnect
   ;; taken mid-reconnect, from [:active :connecting], leaves :retries where
-  ;; the failed opens left it, and :disconnected's :ws/connect used to record
-  ;; the opts without touching the counter — so the new connection inherited
-  ;; the abandoned run's spent budget. Sync delivery races through
+  ;; the failed opens left it, so a :disconnected :ws/connect that recorded
+  ;; the opts without touching the counter would leave the new connection
+  ;; inheriting the abandoned run's spent budget. Sync delivery races through
   ;; :connecting inside one dispatch and an async park would strand a real
   ;; `setTimeout` (see `stale-auth-events-guarded-test`), so walk the
   ;; registered machine through the pure `machine-transition`: real drops,
@@ -512,11 +509,11 @@
 
 ;; ----------------------------------------------------------------------------
 ;; ADVERSARIAL / NEGATIVE — WebSocket lifecycle guards + in-flight/queued
-;; correlation (rf2-3cgvt7 / rf2-r1rkvb / rf2-ryt25d)
+;; correlation
 ;; ----------------------------------------------------------------------------
 
 (defn- stale-lifecycle-events-dropped-test []
-  ;; rf2-3cgvt7 — the `:current-socket?` epoch guard now covers the LIFECYCLE
+  ;; The `:current-socket?` epoch guard covers the LIFECYCLE
   ;; transitions too (:ws/opened / :ws/auth-ok / :ws/auth-failed / :ws/closed),
   ;; not just :ws/received. The most dangerous straggler is a stale :ws/closed:
   ;; unguarded, a late close from a socket we've already replaced would tear
@@ -556,7 +553,7 @@
                 ":on-socket-lost bumped the retry counter on the real drop")))))))
 
 (defn- stale-auth-events-guarded-test []
-  ;; rf2-3cgvt7 — sync-mode delivery races through :authenticating inside a
+  ;; Sync-mode delivery races through :authenticating inside a
   ;; single dispatch, so the auth-outcome guards can't be pinned by parking
   ;; the machine there (and an async park would strand a real `setTimeout` —
   ;; the documented flake this file avoids). Verify them deterministically:
@@ -568,7 +565,7 @@
         ;; The example registers via `defmachine`, which co-locates each
         ;; `:guards` entry as `{:fn <fn> :source-coords … :source-code …}` for
         ;; Xray click-to-source; unwrap `:fn` to call the guard directly. (A
-        ;; bare-fn entry — the old plain-`def` shape — is used as-is.)
+        ;; bare-fn entry — a plain-`def` shape — is used as-is.)
         guard (if (map? entry) (:fn entry) entry)
         live  "socket-live"
         data  {:rf/spawned {[:active] live}}]
@@ -596,7 +593,7 @@
         ":ws/closed is epoch-guarded")))
 
 (defn- drop-fails-in-flight-request-test []
-  ;; rf2-r1rkvb — a request already put on the wire, then orphaned by a socket
+  ;; A request already put on the wire, then orphaned by a socket
   ;; drop, must not leak in :in-flight forever. On the drop it is FAILED: the
   ;; slot clears and the waiting :reply-event fires with an explicit
   ;; connection-lost body (loss semantics = fail, not replay).
@@ -633,7 +630,7 @@
               (is (= :ws/connection-lost (:error reply)))
               (is (= rid (:request-id reply))
                   "the failure names the dropped request")
-              ;; LOSS PROVENANCE CONTROL (rf2-iyjae audit): the loss body is
+              ;; LOSS PROVENANCE CONTROL: the loss body is
               ;; the MACHINE's truth about the connection, and it says so.
               ;; :origin is stamped after receipt, so the hostile-frame test
               ;; below can prove no server frame reaches this arm.
@@ -641,7 +638,7 @@
                   "a connection-loss outcome is marked as locally minted"))))))))
 
 (defn- timeout-fails-in-flight-request-test []
-  ;; rf2-vqg8l6 — a request that TIMES OUT while the socket is still ALIVE must
+  ;; A request that TIMES OUT while the socket is still ALIVE must
   ;; not leave its caller hanging. The `:ws/request-timeout` handler (guarded by
   ;; `:current-socket?`, so the socket is live) FAILS the request the same way a
   ;; socket drop does: it clears the in-flight slot AND fires the waiting
@@ -695,13 +692,13 @@
               (is (= :ws/timeout (:error reply)))
               (is (= rid (:request-id reply))
                   "the failure names the timed-out request")
-              ;; TIMEOUT PROVENANCE CONTROL (rf2-iyjae audit) — the twin of
+              ;; TIMEOUT PROVENANCE CONTROL — the twin of
               ;; the loss control in drop-fails-in-flight-request-test.
               (is (= :ws/local (:origin reply))
                   "a timeout outcome is marked as locally minted"))))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-tb442 — a timeout belongs to a REGISTRATION, not to an id
+;; A timeout belongs to a REGISTRATION, not to an id
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The connection epoch (`:current-socket?`) rejects timers from an old
@@ -709,7 +706,7 @@
 ;; socket, and the correlation id cannot cover that gap because the id is the
 ;; APP's: spec/Pattern-WebSocket.md §Message correlation invites a reusable
 ;; per-feature `[:feature/load slug]` vector, so uniqueness over a socket's
-;; life was never a contract. Both tests below therefore use exactly that
+;; life is not a contract. Both tests below therefore use exactly that
 ;; reusable shape as the request-id.
 
 (defn- log-tb442-reply! []
@@ -725,12 +722,12 @@
        :fx [[:dispatch [:ws.app/request-reply body]]]})))
 
 (defn- stale-timeout-cannot-settle-later-same-id-request-test []
-  ;; rf2-tb442 — request A under id R completes; request B re-registers R on
+  ;; Request A under id R completes; request B re-registers R on
   ;; the same STILL-LIVE socket, inside A's timeout window. A's uncancelled
-  ;; timer then arrives naming R. Before the fix it passed :current-socket?,
-  ;; deleted B's slot and handed B's caller a premature :ws/timeout — two
-  ;; violations of the exactly-once/terminal-outcome promise in one event.
-  ;; The registration :token is what makes it inert instead.
+  ;; timer then arrives naming R. Matched by id alone it would pass
+  ;; :current-socket?, delete B's slot and hand B's caller a premature
+  ;; :ws/timeout — two violations of the exactly-once/terminal-outcome
+  ;; promise in one event. The registration :token is what makes it inert.
   (log-tb442-reply!)
   (with-sync-mock!
     (fn []
@@ -792,9 +789,9 @@
               ;; it. Only the token stands between it and B.
               (timeout! tok-a)
               (is (= tok-b (get-in (in-flight) [rid :token]))
-                  "THE REGRESSION: an earlier same-id request's timeout does not clear the later request's slot")
+                  "THE CONTRACT: an earlier same-id request's timeout does not clear the later request's slot")
               (is (= 1 (count (log)))
-                  "THE REGRESSION: it does not fire the later request's callback either")
+                  "THE CONTRACT: it does not fire the later request's callback either")
 
               ;; --- and B's OWN timer still works --------------------------
               ;; Without this the assertions above would pass on a guard that
@@ -814,10 +811,10 @@
       ":ws/request-timeout is registration-guarded, not merely epoch-guarded"))
 
 (defn- duplicate-in-flight-request-supersedes-test []
-  ;; rf2-tb442 — the other half of a reusable id: TWO registrations under one
-  ;; id at the same time. `:register-request` used to `assoc-in` straight over
-  ;; the live entry, dropping the first caller's :reply-event on the floor
-  ;; with nothing left to settle it. The policy is last-write-wins WITH the
+  ;; The other half of a reusable id: TWO registrations under one
+  ;; id at the same time. An `assoc-in` straight over the live entry would
+  ;; drop the first caller's :reply-event on the floor with nothing left to
+  ;; settle it. The policy is last-write-wins WITH the
   ;; displaced caller settled: it gets a terminal :ws/superseded outcome
   ;; before the new request goes on the wire.
   (log-tb442-reply!)
@@ -876,20 +873,20 @@
                   "no caller is left waiting: two registrations, two terminal outcomes"))))))))
 
 (defn- wire-reply-cannot-settle-a-later-same-id-registration-test []
-  ;; rf2-tb442, SECOND PASS (audit of PR #8946) — the wire half of the same
-  ;; gap the registration token closed on the deadline side.
+  ;; The wire half of the same gap the registration token closes on the
+  ;; deadline side.
   ;;
   ;; A is pending under R. B re-registers R: A is settled locally with
-  ;; :ws/superseded, but A's request is already ON THE WIRE, and before the
-  ;; fix it went out carrying nothing but the id. So the server had no way to
-  ;; say which registration its reply answered, and :receive-message matched
-  ;; the SLOT: A's reply arrived, found B's entry, cleared it and fired B's
-  ;; callback with A's body. B's callback count stayed at exactly one — which
-  ;; is what makes this the quieter half of the bug. The outcome was on time,
-  ;; well-formed, and about a question B never asked; B's own reply then
-  ;; arrived as unsolicited.
+  ;; :ws/superseded, but A's request is already ON THE WIRE. Were it to go
+  ;; out carrying nothing but the id, the server would have no way to say
+  ;; which registration its reply answered, and :receive-message would match
+  ;; the SLOT: A's reply would arrive, find B's entry, clear it and fire B's
+  ;; callback with A's body. B's callback count would stay at exactly one —
+  ;; which is what makes this the quieter half. The outcome would be on
+  ;; time, well-formed, and about a question B never asked; B's own reply
+  ;; would then arrive as unsolicited.
   ;;
-  ;; The registration :token now rides out as :request-token and comes back
+  ;; The registration :token rides out as :request-token and comes back
   ;; on the reply (schema/ReplyMessage requires it), so a reply settles the
   ;; slot only while the token it echoes is still the slot's.
   (log-tb442-reply!)
@@ -952,9 +949,9 @@
               ;; between it and B.
               (reply! tok-a "A")
               (is (= tok-b (get-in (in-flight) [rid :token]))
-                  "THE REGRESSION: a superseded registration's wire reply does not clear the later registration's slot")
+                  "THE CONTRACT: a superseded registration's wire reply does not clear the later registration's slot")
               (is (= 1 (count (log)))
-                  "THE REGRESSION: and does not fire the later registration's callback with the earlier request's body")
+                  "THE CONTRACT: and does not fire the later registration's callback with the earlier request's body")
               (is (some #(= {:type :request :tag "A"} (:echo %)) (inbox))
                   "A's reply is not swallowed — it reaches the inbox as an unsolicited vetted frame")
 
@@ -973,15 +970,15 @@
                     "B's caller gets B's OWN body, never the superseded request's")))))))))
 
 (defn- late-uncorrelated-reply-cannot-overwrite-correlated-outcome-test []
-  ;; rf2-gwye.55 / rf2-fzbj.34 — the machine refusing to correlate a frame
+  ;; The machine refusing to correlate a frame
   ;; is only half the contract; the app-db slot the view labels "Last
-  ;; correlated reply" must honour that refusal too. `:ws/handle-message`
-  ;; used to write any `:request-id`-bearing frame to [:messages :last-reply],
-  ;; so a vetted but UNCORRELATED reply — an answer to a superseded
+  ;; correlated reply" must honour that refusal too. A `:ws/handle-message`
+  ;; that wrote any `:request-id`-bearing frame to [:messages :last-reply]
+  ;; would let a vetted but UNCORRELATED reply — an answer to a superseded
   ;; registration, a reply arriving after its request timed out, a duplicate —
-  ;; replaced the correlated outcome with its own raw, unstamped body, even
-  ;; though the machine fired no callback. The previous test delivers A
-  ;; BEFORE B, which that write happened to paper over; this one delivers B
+  ;; replace the correlated outcome with its own raw, unstamped body, even
+  ;; though the machine fires no callback. The previous test delivers A
+  ;; BEFORE B, which such a write would paper over; this one delivers B
   ;; first. Every outcome is recorded by the EXAMPLE's :ws.app/request-reply
   ;; (the counting target forwards to it), so the slot under test is the
   ;; shipped one.
@@ -1038,7 +1035,7 @@
                   (is (= {} (in-flight)) "the machine correlates nothing")
                   (is (= 2 (count (log))) "and fires no callback")
                   (is (= b-outcome (last-reply))
-                      "THE REGRESSION: a superseded registration's late reply does not overwrite the correlated outcome")
+                      "THE CONTRACT: a superseded registration's late reply does not overwrite the correlated outcome")
                   (is (= #{"A" "B"} (inbox-tags))
                       "both vetted wire frames still reach the inbox")
 
@@ -1069,16 +1066,16 @@
                 (reply! rid tok-t "T")
                 (is (= settled (count (log))) "the late reply fires no callback")
                 (is (= timeout-outcome (last-reply))
-                    "THE REGRESSION: a reply arriving after its timeout does not overwrite the local outcome")
+                    "THE CONTRACT: a reply arriving after its timeout does not overwrite the local outcome")
                 (is (contains? (inbox-tags) "T")
                     "the late reply still joins the inbox")))))))))
 
 (defn- clean-disconnect-fails-in-flight-request-test []
-  ;; rf2-b2jpr — a clean :ws/disconnect destroys the only socket capable of
+  ;; A clean :ws/disconnect destroys the only socket capable of
   ;; replying, so leaving :active through the clean door must settle every
   ;; in-flight request exactly once — the SAME invariant the drop path owns
   ;; (:on-socket-lost), routed through the shared fail-in-flight helper.
-  ;; Before the fix, the slot and its waiting :reply-event survived teardown
+  ;; Otherwise the slot and its waiting :reply-event would survive teardown
   ;; forever: the scheduled timeout carries the destroyed socket's id, so
   ;; :current-socket? rejects it after teardown and the only cleanup path is
   ;; gone, including across a later reconnect.
@@ -1179,19 +1176,19 @@
                 "the callback count stays exactly one across the reconnect")))))))
 
 (defn- fatal-fails-in-flight-request-test []
-  ;; rf2-ni0ko — the last door out of :active that did not settle :in-flight.
+  ;; The :ws/fatal door out of :active settles :in-flight too.
   ;; :ws/fatal is the documented app-level escape hatch (spec/Pattern-WebSocket
   ;; §The machine, ':active / * --:ws/fatal--> :failed'), and leaving :active
   ;; destroys the socket actor exactly as a drop or a clean disconnect does —
   ;; so the SAME invariant applies: every in-flight request settles exactly
-  ;; once on the way out. Before the fix the transition carried :record-error
-  ;; alone, so the slot and its waiting :reply-event survived teardown
+  ;; once on the way out. A transition carrying :record-error alone would
+  ;; let the slot and its waiting :reply-event survive teardown
   ;; forever: the scheduled timeout carries the destroyed socket's id, so
   ;; :current-socket? rejects it once the socket is gone and the only cleanup
   ;; path has left with it — including across a later manual :ws/connect out
   ;; of :failed, which is the leak this asserts against.
   ;;
-  ;; Mirrors websocket-clean-disconnect-fails-in-flight-request (rf2-b2jpr)
+  ;; Mirrors websocket-clean-disconnect-fails-in-flight-request
   ;; with :ws/fatal as the exit door, and adds the assertion that door owns:
   ;; the error is still recorded. Composing onto the shared fail-in-flight
   ;; helper rather than replacing :record-error is what keeps both true.
@@ -1289,7 +1286,7 @@
                 "the callback count stays exactly one across the reconnect")))))))
 
 (defn- queued-request-registers-and-replies-on-connect-test []
-  ;; rf2-ryt25d — a :ws/request issued OFF-connection must be buffered as its
+  ;; A :ws/request issued OFF-connection must be buffered as its
   ;; event and, on connect, rejoin :register-request so it registers, sends
   ;; the body (not the envelope) and correlates its reply. Covers the offline
   ;; (disconnected) window end-to-end, then the reconnect window's enqueue.
@@ -1360,15 +1357,15 @@
                       {:frame f})))
 
 (defn- failed-state-queues-and-drains-test []
-  ;; rf2-3fc89f.29 — the machine's offline contract must be UNIFORM: a send (or
+  ;; The machine's offline contract must be UNIFORM: a send (or
   ;; request) issued while `:failed` must QUEUE, not vanish. `:failed` is a
   ;; top-level state, so it does NOT inherit `:active`'s parent `:ws/send` /
   ;; `:ws/request` enqueue transitions — it has to carry its own, exactly like
   ;; `:disconnected` and `:reconnecting`. Then a manual `:ws/connect` out of
   ;; `:failed` reaches `:connected` and the `:always` `:flush-queue` drains the
-  ;; buffered work. Regression for the acknowledged-message-loss bug: before
-  ;; the fix, `:ws.app/send` clears the draft and the machine drops the
-  ;; unhandled send, so the message is lost with no way to recover it.
+  ;; buffered work. Without that, `:ws.app/send` would clear the draft and
+  ;; the machine drop the unhandled send, so an acknowledged message would be
+  ;; lost with no way to recover it.
   (with-sync-mock!
     (fn []
       (with-new-frame [f (new-frame)]
@@ -1376,7 +1373,7 @@
         (is (= :failed (:state (snapshot (:rf.db/runtime (rf/frame-state-value f)))))
             "precondition: machine is in top-level :failed")
         (is (true? (machine-has-tag? f :websocket/failed)))
-        ;; --- a :ws/send in :failed must QUEUE (before the fix it was LOST) ---
+        ;; --- a :ws/send in :failed must QUEUE, never be LOST ----------------
         (rf/dispatch-sync [:ws/connection
                            [:ws/send {:type :note :body "keep-me"}]]
                           {:frame f})
@@ -1417,7 +1414,7 @@
               (is (true? (:ok reply))))))))))
 
 (defn- failed-state-enqueue-transitions-declared-test []
-  ;; rf2-3fc89f.29 — structural mirror of the runtime proof above: `:failed`
+  ;; Structural mirror of the runtime proof above: `:failed`
   ;; carries the SAME `:ws/send` / `:ws/request` → `:enqueue-message`
   ;; transitions as `:disconnected` and `:reconnecting`. The offline queue path
   ;; is uniform across every non-connected top-level state; `:failed` is not
@@ -1469,7 +1466,7 @@
         ;; reply lands inside the dispatch-sync stack — :in-flight
         ;; goes empty AGAIN by the time we check.
         ;;
-        ;; EP-0017 (rf2-1g0ba6): the durable request-id is a recordable
+        ;; EP-0017: the durable request-id is a recordable
         ;; coeffect (`:ws.app/request-id`), not minted inside the handler.
         ;; The supply-data testing posture provides the fact FLAT under
         ;; `:rf.cofx` so the correlation id is deterministic in the test —
@@ -1477,7 +1474,7 @@
         (let [req-id (random-uuid)]
           (rf/dispatch-sync [:ws.app/request "hello"]
                             {:frame f :rf.cofx {:ws.app/request-id req-id}})
-          ;; EP-0001 (rf2-vzld77): the machine snapshot is runtime-db; `:messages`
+          ;; EP-0001: the machine snapshot is runtime-db; `:messages`
           ;; is app-db.
           (let [db   (rf/app-db-value f)
                 snap (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
@@ -1492,14 +1489,14 @@
               (is (= {:type :request :body "hello"}
                      (:echo last-reply))
                   (str "echo body round-tripped, got " (:echo last-reply)))
-              ;; SERVER PROVENANCE CONTROL (rf2-iyjae audit): the machine
+              ;; SERVER PROVENANCE CONTROL: the machine
               ;; marks a wire reply as the server's, so the closed
               ;; RequestOutcome union routes it to the :ws/server arm and
               ;; it can never be read as a locally minted loss/timeout.
               (is (= :ws/server (:origin last-reply))
                   "a correlated wire reply is marked as server-originated")
-              ;; rf2-tb442 (audit PR #8946): the registration discriminator
-              ;; made the ROUND TRIP through the real mock server —
+              ;; The registration discriminator made the ROUND TRIP
+              ;; through the real mock server —
               ;; :register-request put it on the outbound frame, the server
               ;; echoed it, and :receive-message matched it against the slot.
               ;; Pinned against :next-token rather than a literal, so it reads
@@ -1507,7 +1504,7 @@
               (is (= (dec (get-in snap [:data :next-token]))
                      (:request-token last-reply))
                   "the registration token went out on the wire and came back on the reply")
-              ;; rf2-eygytk: assert the APP-LEVEL boundary — the reply is the
+              ;; Assert the APP-LEVEL boundary — the reply is the
               ;; app's own body and carries NONE of the EP-0011 uniform
               ;; reply-envelope vocabulary. This path is Pattern-WebSocket
               ;; app/library convention, NOT a framework-shipped managed
@@ -1526,7 +1523,7 @@
                   "app-level reply carries no EP-0011 :completed-at metadata"))))))))
 
 (defn- request-id-missing-under-strict-test []
-  ;; EP-0017 (rf2-1g0ba6): under a strict mint policy, the declared-absent
+  ;; EP-0017: under a strict mint policy, the declared-absent
   ;; generator-backed `:ws.app/request-id` recordable coeffect FAILS as
   ;; `:rf.error/missing-required-cofx` rather than silently minting a fresh
   ;; `(random-uuid)` — the supply-data-don't-stub posture. The per-call
@@ -1571,7 +1568,7 @@
                                          :cred-ref :ws.demo/cred-a}]]
                           {:frame f})
         (rf/dispatch-sync [:ws.app/subscribe-demo] {:frame f})
-        ;; EP-0001 (rf2-vzld77): the machine snapshot is runtime-db; `:messages`
+        ;; EP-0001: the machine snapshot is runtime-db; `:messages`
         ;; is app-db.
         (let [db (rf/app-db-value f)
               snap (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
@@ -1599,12 +1596,12 @@
                  (get-in (rf/app-db-value f) [:messages :received]))))
 
 (defn- off-connection-subscribe-survives-test []
-  ;; rf2-3x7nj.41.2 — a :ws/subscribe issued in ANY state but :connected is
-  ;; recorded, never dropped, and the next :connected entry sends it. Before
-  ;; the fix only :active recorded one: :disconnected, :reconnecting and
-  ;; :failed left the event unhandled, so the topic never reached
-  ;; :data :subscriptions and the reconnect never re-issued it — the room a
-  ;; user opened mid-reconnect simply never received a push.
+  ;; A :ws/subscribe issued in ANY state but :connected is
+  ;; recorded, never dropped, and the next :connected entry sends it. Were
+  ;; only :active to record one, :disconnected, :reconnecting and :failed
+  ;; would leave the event unhandled, so the topic would never reach
+  ;; :data :subscriptions and the reconnect would never re-issue it — the
+  ;; room a user opened mid-reconnect would simply never receive a push.
   (with-sync-mock!
     (fn []
       (with-new-frame [f (new-frame)]
@@ -1649,7 +1646,7 @@
             "the reconnect's :connected entry sent the subscribe recorded while :reconnecting")))))
 
 (defn- subscribe-transitions-declared-test []
-  ;; rf2-3x7nj.41.2 — structural mirror of the runtime proof above: every
+  ;; Structural mirror of the runtime proof above: every
   ;; state but :connected binds :ws/subscribe to the SAME record-only action,
   ;; as a self-transition, and :connected keeps its record-and-send.
   (let [m ws.connection/connection-machine]
@@ -1669,10 +1666,10 @@
 (defn- handle-message-newest-first-test []
   ;; :ws/handle-message is the dispatch :ws/received uses for pushed
   ;; bodies. The slice keeps them newest-first.
-  ;; The frames here satisfy the closed PushMessage arm — since rf2-iyjae's
-  ;; audit the push arm is `:closed true` (an OPEN arm would let a hostile
-  ;; frame carry a :request-id past the wire contract), so a test frame with
-  ;; an ad-hoc extra key would now be refused at the ingress and this test
+  ;; The frames here satisfy the closed PushMessage arm — the push arm is
+  ;; `:closed true` (an OPEN arm would let a hostile frame carry a
+  ;; :request-id past the wire contract), so a test frame with an ad-hoc
+  ;; extra key would be refused at the ingress and this test
   ;; would be asserting against an empty log.
   (with-new-frame [f (new-frame)]
     (rf/dispatch-sync [:ws/handle-message {:type :push :note "1"}] {:frame f})
@@ -1690,7 +1687,7 @@
           ":rx-seq is a stable, monotonic, newest-first identity"))))
 
 ;; ----------------------------------------------------------------------------
-;; TRUST BOUNDARIES (rf2-iyjae) — inbound frames + credential discipline
+;; TRUST BOUNDARIES — inbound frames + credential discipline
 ;; ----------------------------------------------------------------------------
 
 (defn- inbound-boundary-structural-test []
@@ -1713,26 +1710,26 @@
           (str ingress " declares :boundary? true — the release-resident half")))))
 
 (defn- example-registrations-are-live-test []
-  ;; rf2-idv1m — THE ANTI-SHADOWING CONTROL, and the reason the fixture
+  ;; THE ANTI-SHADOWING CONTROL, and the reason the fixture
   ;; above calls the example's `register!` fns instead of re-declaring what
   ;; they install.
   ;;
-  ;; `register-all!` used to mirror the two ingress registrations inline.
-  ;; It runs on every test and `reg-*` is last-write-wins, so those copies
-  ;; replaced the example's own handlers before a single assertion ran, and
-  ;; the suite became a certificate for the copy: a fault planted in
-  ;; `websocket.messages`' `:ws.app/request-reply` body left all 29 tests
-  ;; green, and `inbound-boundary-structural-test` read back the `:schema`
-  ;; and `:boundary?` flag this very file had just installed rather
-  ;; than the example's. Three assertions, one per way the coupling can be
-  ;; lost.
+  ;; `register-all!` runs on every test and `reg-*` is last-write-wins, so
+  ;; an inline mirror of the two ingress registrations would replace the
+  ;; example's own handlers before a single assertion ran, and the suite
+  ;; would become a certificate for the copy: a fault planted in
+  ;; `websocket.messages`' `:ws.app/request-reply` body would leave every
+  ;; test green, and `inbound-boundary-structural-test` would read back the
+  ;; `:schema` and `:boundary?` flag this very file had just installed
+  ;; rather than the example's. Three assertions, one per way the coupling
+  ;; can be lost.
   (with-new-frame [f (new-frame)]
     (let [m (rf/handler-meta {:source :store :kind :event :id :ws.app/request-reply})]
       ;; (1) IDENTITY. The live registration is the EXAMPLE's, not a
-      ;; look-alike. The example documents this ingress at length and the
-      ;; hand-mirrored twin never carried the prose, so the registered
+      ;; look-alike. The example documents this ingress at length and a
+      ;; hand-mirrored twin would not carry the prose, so the registered
       ;; `:doc` is a direct, cheap witness to WHICH definition won the
-      ;; last write — and it is what reds first if a twin comes back.
+      ;; last write — and it is what reds first if a twin appears.
       (is (some? (:doc m))
           ":ws.app/request-reply is registered with the example's own :doc")
       (is (str/includes? (str (:doc m)) "RequestOutcome")
@@ -1741,15 +1738,15 @@
       ;; example drops `:boundary? true` (the release-resident half)
       ;; or its closed `:schema`. This is the same pair
       ;; `inbound-boundary-structural-test` pins — asserted here too,
-      ;; because until this fn existed that test was reading the fixture's
-      ;; own metadata back to itself.
+      ;; because that test alone cannot tell the example's metadata from a
+      ;; fixture's own metadata read back to itself.
       (is (some? (:schema m))
           "the example declares the closed RequestOutcome wire contract")
       (is (true? (:boundary? m))
           "the example declares :boundary? true"))
     ;; (3) BODY. Driven through a real dispatch, so it is the REGISTERED
     ;; handler that runs. Reds if the example's handler body stops
-    ;; recording the outcome — the exact fault that used to pass.
+    ;; recording the outcome — the exact fault a copy would hide.
     (let [outcome {:origin     :ws/local
                    :request-id (random-uuid)
                    :ok         false
@@ -1760,14 +1757,13 @@
 
 (defn- inbound-boundary-rejection-test []
   ;; Malformed and unknown frames from the LIVE socket are refused, and
-  ;; refused EARLY: the audit of the first rf2-iyjae pass found the
-  ;; connection machine settling correlation state on the strength of an
-  ;; unvalidated frame, so app-db stayed clean while a pending request's
-  ;; :in-flight slot was silently consumed and its caller left waiting
-  ;; forever. The assertions below therefore pin THREE things per hostile
-  ;; frame: [:messages :received] and [:messages :last-reply] do not move,
-  ;; the refusal is observable as :rf.error/schema-validation-failure
-  ;; attributed to the ingress, and — the one the first pass missed — the
+  ;; refused EARLY: a connection machine that settled correlation state on
+  ;; the strength of an unvalidated frame would keep app-db clean while a
+  ;; pending request's :in-flight slot was silently consumed and its caller
+  ;; left waiting forever. The assertions below therefore pin THREE things
+  ;; per hostile frame: [:messages :received] and [:messages :last-reply] do
+  ;; not move, the refusal is observable as
+  ;; :rf.error/schema-validation-failure attributed to the ingress, and the
   ;; :in-flight slot is still there afterwards.
   (with-sync-mock!
     (fn []
@@ -1809,8 +1805,9 @@
               ;; (2) malformed :push — :note must be a string.
               (deliver! {:type :push :note 42})
               ;; (3) malformed correlated :reply — right :request-id, but
-              ;; missing :ok. It names a live slot, so before the audit fix
-              ;; this frame cleared that slot on its way to being refused.
+              ;; missing :ok. It names a live slot, so a machine that
+              ;; correlated before validating would clear that slot on this
+              ;; frame's way to being refused.
               (deliver! {:type :reply :request-id rid})
               ;; (4) LOCAL-FAILURE-SHAPED hostile frame. A server that saw
               ;; the wire request id sends back exactly the body the
@@ -1826,7 +1823,7 @@
               ;; frame pass the wire contract under a :type that has
               ;; nothing to do with request-reply.
               (deliver! {:type :push :note "hi" :request-id rid})
-              ;; (6) rf2-tb442 — an otherwise PERFECT reply that omits
+              ;; (6) An otherwise PERFECT reply that omits
               ;; :request-token. This is the shape a server which ignores
               ;; the registration discriminator sends back, and admitting
               ;; it would restore correlate-by-id-alone for every request.
@@ -1842,7 +1839,7 @@
                     "no malformed/unknown frame reached [:messages :received]")
                 (is (= pre-reply (get-in db [:messages :last-reply]))
                     "no malformed/unknown frame moved [:messages :last-reply]"))
-              ;; THE AUDIT ASSERTION: refusing a frame at app-db is not
+              ;; THE LOAD-BEARING ASSERTION: refusing a frame at app-db is not
               ;; enough if the machine already spent the correlation.
               (is (contains? (in-flight) rid)
                   ":in-flight survives every hostile frame — no silently consumed correlation")
@@ -1887,10 +1884,10 @@
               (rf/unregister-listener! :trace ::boundary-traces))))))))
 
 (defn- request-reply-ingress-rejection-test []
-  ;; The SECOND app-db-writing ingress, held to its own contract. Since the
-  ;; audit fix the connection machine refuses a bad frame before it ever
-  ;; reaches a :reply-event, so this ingress is no longer exercised through
-  ;; the machine — which is exactly why it needs its own test. A boundary
+  ;; The SECOND app-db-writing ingress, held to its own contract. The
+  ;; connection machine refuses a bad frame before it ever reaches a
+  ;; :reply-event, so this ingress is not exercised through the machine —
+  ;; which is exactly why it needs its own test. A boundary
   ;; that is only safe because something upstream is careful is not a
   ;; boundary.
   ;;
@@ -1945,21 +1942,20 @@
           (rf/unregister-listener! :trace ::outcome-traces))))))
 
 (defn- credential-discipline-test []
-  ;; AC 2 (rf2-iyjae): the resolved bearer is a distinctive sentinel
+  ;; The resolved bearer is a distinctive sentinel
   ;; ("demo-bearer-secret-…", websocket.messages/resolve-credential). It
   ;; must be absent from the machine snapshot, app-db, and the whole
   ;; exercised event/trace surface across connect, drop/reconnect, and
   ;; rotation — and resolution must genuinely GATE authentication.
   ;;
-  ;; Known limit, recorded so a green here is not over-read (rf2-iyjae
-  ;; audit): this sweep reads serialisable surfaces, and a value captured
-  ;; by a lexical host closure is on none of them. It cannot tell a bearer
-  ;; resolved at the auth write from one resolved at socket-open and held
-  ;; by the stored socket handle for the socket's lifetime — the audit
-  ;; found exactly that, and the repair (resolving inside
-  ;; mock-socket-for-actor's :auth branch, so the stored handle closes
-  ;; over :cred-ref alone) is structural. What IS behavioural, and asserted
-  ;; below, is that resolution gates authentication: an unresolvable
+  ;; Known limit, recorded so a green here is not over-read: this sweep
+  ;; reads serialisable surfaces, and a value captured by a lexical host
+  ;; closure is on none of them. It cannot tell a bearer resolved at the
+  ;; auth write from one resolved at socket-open and held by the stored
+  ;; socket handle for the socket's lifetime; what rules that out
+  ;; (resolving inside mock-socket-for-actor's :auth branch, so the stored
+  ;; handle closes over :cred-ref alone) is structural. What IS behavioural,
+  ;; and asserted below, is that resolution gates authentication: an unresolvable
   ;; reference fails auth, so the seam is load-bearing rather than
   ;; decorative.
   (with-sync-mock!
@@ -2059,48 +2055,48 @@
     (disconnect-cleanly-test)))
 
 (deftest websocket-manual-connect-after-active-disconnect-gets-full-budget
-  (testing "rf2-3x7nj.41.3 — a clean :ws/disconnect mid-reconnect, from
+  (testing "a clean :ws/disconnect mid-reconnect, from
             [:active :connecting], then a manual :ws/connect: the new
             connection starts with :retries 0"
     (active-disconnect-then-connect-gets-full-budget-test)))
 
 (deftest websocket-stale-lifecycle-events-dropped
-  (testing "rf2-3cgvt7 — a stale :ws/closed from a replaced socket is dropped
+  (testing "a stale :ws/closed from a replaced socket is dropped
             by :current-socket? (live connection survives); the real close passes"
     (stale-lifecycle-events-dropped-test)))
 
 (deftest websocket-stale-auth-events-guarded
-  (testing "rf2-3cgvt7 — the :current-socket? guard rejects stale-sourced auth
+  (testing "the :current-socket? guard rejects stale-sourced auth
             events, and :ws/opened / :ws/auth-ok / :ws/auth-failed / :ws/closed
             all carry it"
     (stale-auth-events-guarded-test)))
 
 (deftest websocket-drop-fails-in-flight-request
-  (testing "rf2-r1rkvb — a socket drop fails + clears every in-flight request
+  (testing "a socket drop fails + clears every in-flight request
             (no leak); the waiting reply-event gets a connection-lost body"
     (drop-fails-in-flight-request-test)))
 
 (deftest websocket-timeout-fails-in-flight-request
-  (testing "rf2-vqg8l6 — a request that times out on a still-live socket fails +
+  (testing "a request that times out on a still-live socket fails +
             clears its in-flight slot; the waiting reply-event gets a :ws/timeout
             body, and the connection stays up"
     (timeout-fails-in-flight-request-test)))
 
 (deftest websocket-stale-timeout-cannot-settle-later-same-id-request
-  (testing "rf2-tb442 — an uncancelled timeout from an EARLIER request under the
+  (testing "an uncancelled timeout from an EARLIER request under the
             same id, on the same still-live socket, can neither clear the later
             request's slot nor fire its callback; the later request's own
             deadline still settles it"
     (stale-timeout-cannot-settle-later-same-id-request-test)))
 
 (deftest websocket-duplicate-in-flight-request-supersedes
-  (testing "rf2-tb442 — re-registering an id that is still in flight supersedes:
+  (testing "re-registering an id that is still in flight supersedes:
             the displaced caller is settled once with :ws/superseded rather than
             silently overwritten, and its now-obsolete timer is inert"
     (duplicate-in-flight-request-supersedes-test)))
 
 (deftest websocket-wire-reply-cannot-settle-a-later-same-id-registration
-  (testing "rf2-tb442 (audit PR #8946) — a SERVER reply answering a superseded
+  (testing "a SERVER reply answering a superseded
             registration can neither clear the later same-id registration's slot
             nor deliver its body to that registration's caller; the registration
             token rides the wire and the reply must echo it back. The later
@@ -2108,21 +2104,21 @@
     (wire-reply-cannot-settle-a-later-same-id-registration-test)))
 
 (deftest websocket-late-uncorrelated-reply-cannot-overwrite-correlated-outcome
-  (testing "rf2-gwye.55 — :ws.app/request-reply is the sole writer of
+  (testing ":ws.app/request-reply is the sole writer of
             [:messages :last-reply]: a vetted reply the machine refused to
             correlate (superseded, post-timeout, duplicate) joins the inbox
             but cannot replace the correlated outcome"
     (late-uncorrelated-reply-cannot-overwrite-correlated-outcome-test)))
 
 (deftest websocket-clean-disconnect-fails-in-flight-request
-  (testing "rf2-b2jpr — a clean :ws/disconnect settles every in-flight request
+  (testing "a clean :ws/disconnect settles every in-flight request
             exactly once: the slot clears, the waiting reply-event fires one
             :ws/connection-lost failure, and the destroyed socket's stale
             timeout resurrects nothing — before or after a reconnect"
     (clean-disconnect-fails-in-flight-request-test)))
 
 (deftest websocket-fatal-fails-in-flight-request
-  (testing "rf2-ni0ko — :ws/fatal, the app-level escape hatch out of :active,
+  (testing ":ws/fatal, the app-level escape hatch out of :active,
             settles every in-flight request exactly once AND still records the
             error: the slot clears, the waiting reply-event fires one
             :ws/connection-lost failure, and the destroyed socket's stale
@@ -2131,19 +2127,19 @@
     (fatal-fails-in-flight-request-test)))
 
 (deftest websocket-queued-request-registers-and-replies-on-connect
-  (testing "rf2-ryt25d — a :ws/request buffered off-connection registers and
+  (testing "a :ws/request buffered off-connection registers and
             correlates its reply on connect; the reconnect window buffers alike"
     (queued-request-registers-and-replies-on-connect-test)))
 
 (deftest websocket-failed-state-queues-and-drains
-  (testing "rf2-3fc89f.29 — a :ws/send (and :ws/request) issued while :failed is
+  (testing "a :ws/send (and :ws/request) issued while :failed is
             QUEUED, not dropped; a manual :ws/connect out of :failed reaches
             :connected and the :always flush drains it — no acknowledged
             message is lost"
     (failed-state-queues-and-drains-test)))
 
 (deftest websocket-failed-state-enqueue-transitions-declared
-  (testing "rf2-3fc89f.29 — :failed carries the same :ws/send / :ws/request →
+  (testing ":failed carries the same :ws/send / :ws/request →
             :enqueue-message transitions as :disconnected and :reconnecting;
             the offline queue path is uniform across non-connected states"
     (failed-state-enqueue-transitions-declared-test)))
@@ -2166,13 +2162,13 @@
     (subscription-tracking-test)))
 
 (deftest websocket-off-connection-subscribe-survives
-  (testing "rf2-3x7nj.41.2 — a :ws/subscribe issued while :disconnected,
+  (testing "a :ws/subscribe issued while :disconnected,
             :reconnecting or :failed is recorded, not dropped, and the next
             :connected entry sends it"
     (off-connection-subscribe-survives-test)))
 
 (deftest websocket-subscribe-transitions-declared
-  (testing "rf2-3x7nj.41.2 — :disconnected, :active, :reconnecting and :failed
+  (testing ":disconnected, :active, :reconnecting and :failed
             bind :ws/subscribe to the record-only action; :connected keeps
             record-and-send"
     (subscribe-transitions-declared-test)))
@@ -2182,13 +2178,13 @@
     (handle-message-newest-first-test)))
 
 (deftest websocket-inbound-boundary-structural
-  (testing "rf2-iyjae — both app-db-writing ingresses declare the closed wire
+  (testing "both app-db-writing ingresses declare the closed wire
             :schema AND declare :boundary? true, the release-resident
             half a dev-lane rejection test cannot see"
     (inbound-boundary-structural-test)))
 
 (deftest websocket-inbound-boundary-rejection
-  (testing "rf2-iyjae — malformed bodies, unknown :type values, a
+  (testing "malformed bodies, unknown :type values, a
             local-failure-shaped frame and a :request-id-smuggling push are
             all refused observably, without touching :messages,
             :last-reply, or the pending :in-flight correlation; a valid
@@ -2196,21 +2192,21 @@
     (inbound-boundary-rejection-test)))
 
 (deftest websocket-request-reply-ingress-rejection
-  (testing "rf2-iyjae — :ws.app/request-reply holds its own closed
+  (testing ":ws.app/request-reply holds its own closed
             RequestOutcome contract independently of the machine: an
             unstamped or wrongly stamped outcome is refused observably,
             while both legitimate producers still land"
     (request-reply-ingress-rejection-test)))
 
 (deftest websocket-credential-discipline
-  (testing "rf2-iyjae — connect/reconnect/rotation authenticate through the
+  (testing "connect/reconnect/rotation authenticate through the
             opaque :cred-ref seam; an unresolvable reference fails auth; the
             raw bearer sentinel is absent from the exercised snapshot,
             app-db, event and trace surface"
     (credential-discipline-test)))
 
 (deftest websocket-example-registrations-are-live
-  (testing "rf2-idv1m — the suite exercises the EXAMPLE's ingress
+  (testing "the suite exercises the EXAMPLE's ingress
             registration, not a fixture-local twin: its :doc, its closed
             :schema, its :boundary? flag and its handler body are all
             read back off the live registry / a real dispatch"
