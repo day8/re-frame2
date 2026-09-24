@@ -1,11 +1,11 @@
 (ns re-frame.join-strict-mint-epoch-replay-test
-  "rf2-s3qjlw — composition proof that a `:spawn-all` join's strict-mint replay
+  "Composition proof that a `:spawn-all` join's strict-mint replay
   survives the ACTUAL epoch record + restore seam, not a proxy that routes
   around it.
 
   ## Why this suite exists
 
-  PR #5929's `re-frame.join-strict-mint-cljs-test` proves the ISOLATED join
+  `re-frame.join-strict-mint-cljs-test` proves the ISOLATED join
   strict/live logic: a completion under inherited `:strict` reads a recorded
   fact rather than consulting the host, and an absent fact is the canonical
   `:rf.error/missing-required-cofx`. But its central `recorded-completion-
@@ -27,13 +27,13 @@
   snapshots included — to the pre-completion epoch) could pass while the
   isolated join logic stays green.
 
-  This suite adds ONE composition proof at the natural epoch/machines boundary.
+  This suite is ONE composition proof at the natural epoch/machines boundary.
   It drives a real live join completion, reads the REAL `:rf/epoch-record` off
   `rf/epoch-history`, round-trips the recorded event + cofx through EDN, rewinds
   with the REAL `rf/restore-epoch!`, and STRICT-replays the round-tripped
   material — asserting on the real record's identity and lineage so the test
-  provably hits the actual record, not a stub. No replay framework, no new
-  production seam, the shipped fixtures only.
+  provably hits the actual record, not a stub. No replay framework, no
+  test-only production seam, the shipped fixtures only.
 
   ## Why the epoch test surface (module layering)
 
@@ -41,8 +41,7 @@
   `rf/restore-epoch!` on one classpath. The machines test lane carries no
   epoch; the epoch `:test` alias carries machines as a test dep (beside its
   sibling `machine-minted-cofx-replay-token` and `actor-revertibility-restore`
-  proofs). So the epoch surface is the only lane that can host it — the bead's
-  authorised relocation."
+  proofs). So the epoch surface is the only lane that can host it."
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -184,7 +183,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest strict-replay-through-real-epoch-record-and-restore-reproduces-the-join
-  (testing "rf2-s3qjlw — a live join completion mints the generator-backed
+  (testing "a live join completion mints the generator-backed
             `:strictmint/roll`; the ACTUAL `:rf/epoch-record` (read off
             `rf/epoch-history`) carries the real `:trigger-event` and the
             post-generation `:rf.cofx` token; the recorded event + cofx survive
@@ -259,7 +258,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest stripped-recorded-fact-is-canonical-missing-required-with-a-live-foil
-  (testing "rf2-s3qjlw — driving the SAME pre-completion epoch (rewound with the
+  (testing "driving the SAME pre-completion epoch (rewound with the
             real `rf/restore-epoch!`) and STRICT-replaying the real recorded
             event with the `:strictmint/roll` fact REMOVED from the token yields
             the canonical `:rf.error/missing-required-cofx` and no fold — strict
