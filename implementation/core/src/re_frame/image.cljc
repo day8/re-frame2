@@ -7,14 +7,14 @@
   > stream. It answers one question: which registrations are visible to this
   > frame?
 
-  This namespace is the FOUNDATION slice of the EP-0023 wave:
+  This namespace is the image FOUNDATION:
   the constructor (`image`), the normalized image value, the exact `:include-ns`
   glob grammar, inline `:registrations` lowering, and the PURE selector that
   given a collection of descriptors — each carrying its source-code provenance
   namespace at `:rf.provenance/ns` — returns the subset an image selects. It is
   self-contained, pure logic.
 
-  ## What this slice OWNS and what it defers
+  ## What this namespace OWNS and what lives elsewhere
 
   OWNED here:
 
@@ -36,13 +36,13 @@
       inline descriptors), with zero-match `:include-ns` patterns failing loud
       (EP-0023 §Namespace-Selected Images \"Zero matches are fail-loud\").
 
-  OWNED by sibling slices (NOT here):
+  OWNED elsewhere (NOT here):
 
     * the provenance-preserving registration SOURCE STORE keyed by
-      `[kind id provenance-namespace]` (slice .2) — the live store that
-      PRODUCES the descriptors this selector consumes. This selector works
-      against any descriptor collection carrying `:rf.provenance/ns`; the live
-      wiring is slice .4 (assembly).
+      `[kind id provenance-namespace]` (`re-frame.source-store`) — the live
+      store that PRODUCES the descriptors this selector consumes. This selector
+      works against any descriptor collection carrying `:rf.provenance/ns`; the
+      live wiring is image assembly (`re-frame.image-assembly`).
     * image ASSEMBLY into a sealed `[kind id]` generation, collision
       validation, framework-standard registrations, image-order layering (the
       later image wins, EP-0026 §Layered Resolution), and resolved-generation
@@ -52,7 +52,7 @@
   ## The selector contract (input shape from the source store)
 
   `select-descriptors` consumes a COLLECTION (seq) of descriptor maps. The
-  ONLY field this slice reads off each descriptor is:
+  ONLY field it reads off each descriptor is:
 
     :rf.provenance/ns   the source-code namespace STRING the descriptor was
                         authored in (EP-0023 §Registration Source Store — the
@@ -65,8 +65,8 @@
 
   Other descriptor fields (`:kind`, `:id`, `:impl`/`:handler`, source coords,
   metadata) are carried THROUGH untouched — the selector neither requires nor
-  inspects them. That keeps this slice decoupled from slice .2's exact
-  descriptor shape: as long as a registered descriptor carries
+  inspects them. That keeps the selector decoupled from the source store's
+  exact descriptor shape: as long as a registered descriptor carries
   `:rf.provenance/ns`, the selector works. (Descriptors with NO
   `:rf.provenance/ns` — e.g. framework-standard or programmatic ones — are
   never matched by an `:include-ns` glob, exactly as the EP requires:
@@ -76,8 +76,8 @@
   ## Production elision
 
   Pure data + string ops over plain maps; no trace emit sites, no DEBUG-gated
-  branches, no feature sentinels. The only require is `re-frame.error` (already
-  in the core spine) for fail-loud zero-match / malformed-input diagnostics. An
+  branches, no feature sentinels. The only require is `re-frame.error` (in
+  the core spine) for fail-loud zero-match / malformed-input diagnostics. An
   image value is inert; nothing here runs on the registration hot path, so in
   an app that never constructs an image these fns are dead code Closure DCE
   removes."
@@ -118,7 +118,7 @@
   "Collapse every RUN of consecutive `**` pattern segments into a single `**`.
   Pure; preserves match semantics exactly — `**` absorbs zero or more segments,
   so `**.**` (and any longer run) accepts the SAME segment sets as a single
-  `**`. This is the M3 guard against the matcher's exponential-backtracking
+  `**`. This guards against the matcher's exponential-backtracking
   worst case: `match-segments?` backtracks per `**`, so a pathological pattern
   like `**.**.**.x` would otherwise fork 2^k ways across k adjacent stars on a
   non-match. Collapsing runs at parse time bounds the matcher to ONE `**`
@@ -249,7 +249,7 @@
          ;; Collapse consecutive `**` runs in the PATTERN before matching: this
          ;; preserves semantics (a run of `**` accepts the same segment sets as
          ;; one `**`) and bounds the matcher away from its exponential-backtrack
-         ;; worst case (M3 guard — see `collapse-double-stars`).
+         ;; worst case (see `collapse-double-stars`).
          (match-segments? (collapse-double-stars (split-segments pattern))
                           (split-segments ns-str)))))
 
@@ -263,8 +263,8 @@
 ;;
 ;; The metadata map is OPTIONAL and normalizes to `{}`. A 2-tuple's second slot
 ;; is the BODY, not metadata — every inline entry carries a body. METADATA-ONLY
-;; `[id metadata]` entries are INVALID (EP-0026 deliberately reverses EP-0023,
-;; which permitted a metadata-only tuple); they fail loud at `rf/image`.
+;; `[id metadata]` entries are INVALID (a registration with no body is not a
+;; registration); they fail loud at `rf/image`.
 ;;
 ;; Inline descriptors do NOT enter the provenance source store and are NOT
 ;; selected by `:include-ns`. They are selected because their containing image
@@ -294,7 +294,7 @@
 
   Every OTHER kind (`:reg-interceptor`, `:reg-view`, `:reg-route`,
   `:reg-head`, `:reg-error-projector`, `:reg-flow`, `:reg-resource`,
-  `:reg-mutation`, `:reg-resource-scope`) remains namespace-authored until its
+  `:reg-mutation`, `:reg-resource-scope`) is namespace-authored until its
   owning spec defines an inline lowering — an inline section for one fails loud
   with the unsupported-inline-kind diagnostic (`registrations->inline-descriptors`).
   Adding a kind here is a deliberate act: it MUST come with a published
@@ -323,12 +323,11 @@
   4+-tuple `[id metadata body extra…]` fail loud rather than be coerced.
 
   METADATA-ONLY `[id metadata]` is INVALID: a 2-tuple's second slot is the BODY,
-  not metadata. EP-0026 deliberately reverses EP-0023 (which admitted a
-  metadata-only tuple) — a registration with no body is not a registration. To
-  attach metadata, use the 3-tuple `[id metadata body]`. The retired
+  not metadata — a registration with no body is not a registration. To
+  attach metadata, use the 3-tuple `[id metadata body]`. The
   metadata-only form is caught FAIL-LOUD: for the four supported inline kinds the
   body is a HANDLER FUNCTION, never a map, so a 2-tuple whose body slot is a MAP
-  is exactly the retired `[id metadata]` shape — it is rejected rather than
+  is exactly the `[id metadata]` shape — it is rejected rather than
   silently lowered with the metadata map as the handler `:impl`."
   [image-id section kind entry]
   (when-not (and (vector? entry) (<= 2 (count entry) 3))
@@ -346,10 +345,10 @@
         has-meta (= 3 (count entry))
         metadata (when has-meta (nth entry 1))
         body     (if has-meta (nth entry 2) (nth entry 1))]
-    ;; FAIL-LOUD on the retired metadata-only form: a 2-tuple whose body slot is
-    ;; a MAP is the EP-0023 `[id metadata]` shape EP-0026 retires. The four
+    ;; FAIL-LOUD on the metadata-only form: a 2-tuple whose body slot is
+    ;; a MAP is the `[id metadata]` shape. The four
     ;; supported inline kinds all take a handler FUNCTION body, never a map, so a
-    ;; map in the body slot is unambiguously the retired metadata-only tuple (to
+    ;; map in the body slot is unambiguously the metadata-only tuple (to
     ;; attach metadata, use the 3-tuple `[id metadata body]`).
     (when (and (not has-meta) (map? body))
       (rf.error/throw-error!
@@ -365,10 +364,10 @@
     ;; FAIL-LOUD on a non-MAP metadata slot in the 3-tuple form. The metadata
     ;; slot of `[id metadata body]` is a Spec 001 registration metadata MAP
     ;; (EP-0026 §Inline Registration Grammar). An unvalidated non-map slot
-    ;; otherwise either crashes raw at the `(seq metadata)` guard below (a
-    ;; non-seqable such as a number) or is silently accepted and passed on as
+    ;; would otherwise either crash raw at the `(seq metadata)` guard below (a
+    ;; non-seqable such as a number) or be silently accepted and passed on as
     ;; junk `:metadata` to the lowering hook (a seqable non-map such as a
-    ;; string or vector) — both defeat the canonical `:rf.error/invalid-image`
+    ;; string or vector) — both would defeat the canonical `:rf.error/invalid-image`
     ;; shape every sibling defect on this path gets.
     (when (and has-meta (not (map? metadata)))
       (rf.error/throw-error!
@@ -400,7 +399,7 @@
   registration kind (`:reg-interceptor`, `:reg-view`, `:reg-route`,
   `:reg-head`, `:reg-error-projector`, `:reg-flow`, `:reg-resource`,
   `:reg-mutation`, `:reg-resource-scope`) — and any typo'd section key — fails
-  loud with the unsupported-inline-kind diagnostic: those kinds remain
+  loud with the unsupported-inline-kind diagnostic: those kinds are
   namespace-authored until their owning spec defines inline lowering."
   [image-id registrations]
   (into []
@@ -428,7 +427,7 @@
 
 ;; ---- the image value (EP-0023 §Image) -------------------------------------
 ;;
-;; The normalized image value this slice produces:
+;; The normalized image value `image` produces:
 ;;
 ;;   :rf.image/id        the image id, when supplied (`:id` in the spec map).
 ;;                       Anonymous images (no `:id`) are valid for local
@@ -448,8 +447,8 @@
 ;;                       never by `:select-ns`.
 ;;
 ;; The image value is INERT data. Two `image` calls with equal spec maps return
-;; equal values. EP-0026 (rf2-dlvmpc) removed the `:rf.image/requires`
-;; capability-requirement slot end-to-end (no image-declared host capabilities).
+;; equal values. There is no `:rf.image/requires` capability-requirement slot
+;; (no image-declared host capabilities).
 
 (def ^:private image-reserved-keys
   "Recognized top-level image spec keys (EP-0026 §Image Keys). The ordinary
@@ -458,9 +457,9 @@
   loudly rather than silently ignored.
 
   The EP-0023 keys `:include-ns`, `:exclude-ns`, `:replace`, `:replace-standard`,
-  and `:rf.image/requires` are RETIRED (EP-0026, rf2-dlvmpc) and are NOT members:
+  and `:rf.image/requires` are RETIRED (EP-0026) and are NOT members:
   a spec carrying one fails loud with an actionable migration diagnostic
-  (`retired-image-key-message`) pointing at the EP-0026 replacement —
+  (`check-retired-keys!`) pointing at the EP-0026 replacement —
   `:select-ns` + image-order layering for `:include-ns`/`:exclude-ns`/`:replace`,
   protected standards for `:replace-standard`, and ordinary registration
   selection for `:rf.image/requires`. They MUST NOT be accepted as aliases and
@@ -468,14 +467,14 @@
   #{:id :select-ns :registrations})
 
 (def ^:private retired-image-keys
-  "The EP-0023 image source keys EP-0026 (rf2-dlvmpc) RETIRES with fail-loud
+  "The EP-0023 image source keys EP-0026 RETIRES with fail-loud
   rejection, each mapped to its actionable migration hint. A `rf/image` spec
   carrying any of these throws `:rf.error/invalid-image` so a stale example
   cannot keep working by accident (EP-0026 §Backwards Compatibility — \"Retired
   keys MUST fail loudly\"). This is the SCOPED retirement set: it names exactly
   the retired image source keys and nothing else — the legitimate
   `:rf.capability/*` host-service vocabulary, the conformance capability ids, and
-  the tool capability flags are UNTOUCHED."
+  the tool capability flags are NOT in it."
   {:include-ns       (str ":include-ns is RETIRED — use :select-ns {:include "
                           "[globs]}.")
    :exclude-ns       (str ":exclude-ns is RETIRED — use :select-ns {:include … "
@@ -498,7 +497,7 @@
 
 (defn- check-retired-keys!
   "FAIL LOUD when a `rf/image` `spec` carries a RETIRED EP-0023 image key
-  (EP-0026 §Image Keys / §Backwards Compatibility, rf2-dlvmpc). The diagnostic
+  (EP-0026 §Image Keys / §Backwards Compatibility). The diagnostic
   names the retired key and its EP-0026 replacement, so a stale example cannot
   keep working by accident. Pure (modulo the throw)."
   [spec]
@@ -515,12 +514,12 @@
 
 ;; ---- :select-ns — the EP-0026 single-map selection surface -----------------
 ;;
-;; EP-0026 §Namespace Selection replaces the EP-0023 sibling `:include-ns` /
-;; `:exclude-ns` keys with ONE `:select-ns {:include … :exclude …}` map. The two
-;; legs reuse the EXACT EP-0023 glob grammar and lower to the same normalized
+;; EP-0026 §Namespace Selection: selection is ONE
+;; `:select-ns {:include … :exclude …}` map. The two
+;; legs use the EXACT EP-0023 glob grammar and lower to the normalized
 ;; internal slots (`:rf.image/include-ns` / `:rf.image/exclude-ns`) the pure
-;; selector already runs — `:select-ns` is the authoring surface; the internal
-;; form is unchanged. The selected set is `union(:include) minus union(:exclude)`
+;; selector runs — `:select-ns` is the authoring surface; the internal
+;; slots are the selector's input. The selected set is `union(:include) minus union(:exclude)`
 ;; with exclusion GLOBAL to the image selection (a namespace matched by any
 ;; `:exclude` is never selected, no re-admission), and STRICT include diagnostics:
 ;; `:include` is REQUIRED and a zero-match include pattern fails image assembly
@@ -539,8 +538,8 @@
       when supplied;
     * no key other than `:include` / `:exclude` is permitted.
 
-  The glob-string element check is shared with the legacy `:include-ns` path (the
-  caller threads its `check-glob-strings!`). Returns `[include exclude]`. Pure
+  The glob-string element check is the caller's `check-glob-strings!`, threaded
+  in. Returns `[include exclude]`. Pure
   (modulo the throw)."
   [image-id select-ns check-glob-strings!]
   (when-not (map? select-ns)
@@ -621,11 +620,11 @@
                    descriptors. Optional.
 
   The EP-0023 keys `:include-ns`, `:exclude-ns`, `:replace`, `:replace-standard`,
-  and `:rf.image/requires` are RETIRED (EP-0026, rf2-dlvmpc): a spec carrying one
-  fails loud (`check-retired-keys!`) with a migration diagnostic. Composition now
+  and `:rf.image/requires` are RETIRED (EP-0026): a spec carrying one
+  fails loud (`check-retired-keys!`) with a migration diagnostic. Composition
   resolves by IMAGE ORDER (the later image in `:images` wins) and reports
   shadows via `(:rf.gen/shadows (rf/frame-generation f))`; standards are
-  protected; host-capability declarations are removed end-to-end.
+  protected; images declare no host capabilities.
 
   Returns a normalized image value:
 
@@ -649,7 +648,7 @@
        :extra    {:spec spec}}))
   ;; FAIL LOUD on a RETIRED EP-0023 key BEFORE the unknown-key check, so a stale
   ;; example gets the actionable migration diagnostic, not a generic
-  ;; "unknown image key" (EP-0026 §Backwards Compatibility, rf2-dlvmpc).
+  ;; "unknown image key" (EP-0026 §Backwards Compatibility).
   (check-retired-keys! spec)
   (doseq [k (keys spec)]
     (when-not (contains? image-reserved-keys k)
@@ -692,8 +691,8 @@
 
 ;; ---- the selector (EP-0023 §Namespace-Selected Images) --------------------
 ;;
-;; The PURE projection step this slice delivers: given the image value and a
-;; collection of registered descriptors (the source store's output — slice .2),
+;; The PURE projection step: given the image value and a
+;; collection of registered descriptors (the source store's output),
 ;; return the selected subset. Selection has two sources:
 ;;
 ;;   1. `:include-ns` globs — match registered descriptors by their
@@ -705,8 +704,8 @@
 ;;
 ;; The result preserves every selected descriptor exactly once (a registered
 ;; descriptor selected by two patterns is included once). Collision validation,
-;; framework-standard registrations, and sealing are NOT this slice's job (the
-;; assembly slice runs after selection).
+;; framework-standard registrations, and sealing are NOT the selector's job
+;; (image assembly runs after selection).
 
 (defn- descriptor-provenance-ns
   "The source-code provenance namespace string a registered descriptor carries
@@ -791,7 +790,7 @@
   "The PURE image selector (EP-0023 §Namespace-Selected Images, §Image
   Fragments). Given an `image` value and a collection of registered
   `descriptors` (each carrying its source-code provenance namespace at
-  `:rf.provenance/ns` — the source store's output, slice .2), return the subset
+  `:rf.provenance/ns` — the source store's output), return the subset
   the image selects:
 
     * registered descriptors whose `:rf.provenance/ns` matches one of the
@@ -810,10 +809,10 @@
   input order, each at most once) followed by the inline descriptors. Collision
   validation
   across the selected set, framework-standard registrations, and sealing into a
-  `[kind id]` generation are the ASSEMBLY slice's job, not this selector's.
+  `[kind id]` generation are image ASSEMBLY's job, not this selector's.
 
   Pure — a function of the image value and the descriptor collection only.
-  This is the surface the assembly slice (.4) calls to turn an image + the
+  This is the surface image assembly calls to turn an image + the
   live source store's descriptors into the candidate registration set."
   [image descriptors]
   (let [image-id   (:rf.image/id image)
