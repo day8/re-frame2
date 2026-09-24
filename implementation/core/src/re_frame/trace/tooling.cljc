@@ -5,7 +5,7 @@
   `configure-trace-buffer!`) and the per-frame
   run-keyed trace rings + listener state.
 
-  ## Per-frame trace rings (rf2-g1b2m / rf2-8uwce)
+  ## Per-frame trace rings
 
   Each frame owns its own per-event ring. Storage shape (per frame):
 
@@ -27,14 +27,14 @@
     (it is the live cap consulted on each push), so the cap value alone
     cannot tell the two apart — `configure-trace-buffer!` keys on
     `:override?` to decide which rings the new process default may
-    retune (rf2-va65k).
+    retune.
   - `:events-retained 0` disables retention (no slots allocated; the
     live stream still fires).
   - Frameless emits (no `:rf.trace/dispatch-id` in scope) **skip the
-    rings entirely** (B3 ruling, rf2-g1b2m, 2026-05-25); they stream
-    live to registered listeners only.
+    rings entirely** (B3); they stream live to registered listeners
+    only.
 
-  ## B4 hot-reload dedup-by-shape (rf2-g1b2m)
+  ## B4 hot-reload dedup-by-shape
 
   A dev-only process-scoped dedup table tracks the last-emitted
   `:rf.registry/*` shape per `(kind, id)`. Identical shape on re-emit
@@ -42,7 +42,7 @@
   cleared by `clear-listeners!` and `clear-trace-rings!`. Per Spec
   009 §Hot-reload dedup — re-emits suppressed by shape.
 
-  Per rf2-qwm0a: `re-frame.trace` itself carries only the hot emit fast
+  `re-frame.trace` itself carries only the hot emit fast
   path (`emit!` / `emit-error!` / `*handler-scope*` + bracket macros).
   The listener registry + ring storage + filter predicate are tooling
   concerns; production counter bundles never touch them.
@@ -65,7 +65,7 @@
   Per Spec 009 §Per-frame trace rings."
   (:require [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
-            ;; rf2-ih437c: `event-bundle` reuses the six-domino fold
+            ;; `event-bundle` reuses the six-domino fold
             ;; (`absorb` over `empty-event-bundle`) from the projection ns
             ;; rather than re-inlining the classification cond. Both nss
             ;; are dev-side and bundle-isolated from production CLJS (the
@@ -229,8 +229,8 @@
 
 (defn- push-to-ring!
   "Append `ev` to its frame's run-keyed ring. Frameless emits (no
-  `:rf.trace/dispatch-id` in scope) bypass the ring entirely per the
-  B3 ruling — they stream live to listeners only and are never retained.
+  `:rf.trace/dispatch-id` in scope) bypass the ring entirely per B3 —
+  they stream live to listeners only and are never retained.
 
   The destination frame-id is the event's own `[:tags :frame]` — the
   single canonical raw-event frame path (Spec 009 §Frame identity on
@@ -238,23 +238,21 @@
   consumers outside the trace subsystem read it through, and this ns
   cannot require it — `re-frame.trace` requires THIS ns).
 
-  This used to be a three-tier chain — the tag, then a top-level
-  `:frame` on the envelope, then the late-bound
-  `:frame/current-frame-id` hook — because emit sites that didn't stamp
-  the tag left the ring nothing else to route on. `build-event` now
-  supplies the tag from the ambient frame for every such site
-  (`re-frame.trace/stamp-frame`, rf2-hbmeb), so the fallbacks were the
-  SAME resolution done a second time; keeping them would let the ring
-  and the event's own tag disagree about which frame a row belongs to.
-  There is no top-level `:frame` on a raw trace event at all.
+  There is no fallback chain behind the tag (a top-level `:frame` on the
+  envelope, then the late-bound `:frame/current-frame-id` hook):
+  `build-event` supplies the tag from the ambient frame for every emit
+  site that doesn't stamp it (`re-frame.trace/stamp-frame`), so a
+  fallback would be the SAME resolution done a second time, and would let
+  the ring and the event's own tag disagree about which frame a row
+  belongs to. There is no top-level `:frame` on a raw trace event at all.
 
   No-op in production (production never reaches the emit site)."
   [ev]
   (when rf.interop/debug-enabled?
     (let [dispatch-id (get-in ev [:tags :rf.trace/dispatch-id])
           frame-id    (get-in ev [:tags :frame])]
-      ;; Frameless emits (no in-flight run) skip the ring. The B3
-      ;; ruling is that frameless events stream live to listeners only
+      ;; Frameless emits (no in-flight run) skip the ring. Per B3,
+      ;; frameless events stream live to listeners only
       ;; and are never retained. A `:dispatch-id` without a resolvable
       ;; frame-id (extremely rare — would require a manual emit from
       ;; outside any framework boundary) also skips the ring; there is
@@ -272,11 +270,11 @@
                      (assoc rings frame-id (empty-ring 0 override?))
                      (let [existing (get rings frame-id (empty-ring retained override?))
                            ;; Defensive nil-coercion: a ring written before
-                           ;; this frame's first emit is now always complete
-                           ;; (set-frame-events-retained! writes a full
-                           ;; ring), but coerce anyway so any future partial
+                           ;; this frame's first emit is always complete
+                           ;; (`apply-frame-events-retained-policy!` writes
+                           ;; a full ring), but coerce anyway so a partial
                            ;; ring can't make `conj` build a list / `subvec`
-                           ;; throw (rf2-va65k finding 2).
+                           ;; throw.
                            order    (or (:run-order existing) [])
                            runs (or (:runs existing) {})
                            known?   (contains? runs dispatch-id)
@@ -292,7 +290,7 @@
                                ;; Copy the survivors out of the `subvec`: a
                                ;; later `conj` onto a subvec appends to its
                                ;; BACKING vector, so the spine would retain
-                               ;; every evicted dispatch-id (rf2-3x7nj.4.7).
+                               ;; every evicted dispatch-id.
                                [(if (identical? o order') o (into [] o)) c]))]
                        (assoc rings frame-id
                               {:events-retained retained
@@ -411,7 +409,7 @@
   "Project the events for one pipeline run into a Spec 009 event bundle
   (the `group-by-event` shape, per run / dequeued event).
 
-  rf2-ih437c: folds with `re-frame.trace.projection/absorb` over
+  Folds with `re-frame.trace.projection/absorb` over
   `rf.trace.projection/empty-event-bundle` — the canonical six-domino classification
   + slot set — rather than re-inlining the bucketing cond + the six
   `*-bucket?`/`*-marker?` predicates a second time. The seed map carries
@@ -529,16 +527,15 @@
   Opt keys recognised (per Spec 009 §Filter vocabulary):
     :flat true      — return raw trace events (oldest-first) instead
                       of event bundles. The escape hatch for callers
-                      with pre-existing flat-stream code.
+                      with flat-stream code.
     :operation      — (:flat-only) exact :operation match
     :op-type        — (:flat-only) exact :op-type match
     :since          — (:flat-only) :id strictly greater than this
     :severity       — (:flat-only) :op-type ∈ #{:error :warning :info}
     :handler-id     — (:flat-only) :tags :handler-id match
-    :source         — (:flat-only) :source match (per rf2-1ve9h, this is
-                      now the single closed-enum functional-origin axis
-                      — the prior `:rf/dispatch-origin` filter key was
-                      collapsed)
+    :source         — (:flat-only) :source match (the single closed-enum
+                      functional-origin axis; there is no separate
+                      `:rf/dispatch-origin` filter key)
     :sensitive?     — (:flat-only) :sensitive? match
     :event-id       — bundle :event first-element OR (:flat) :tags :rf.trace/event-id
     :origin         — bundle root :rf.event/origin OR (:flat) per-event
@@ -564,7 +561,7 @@
 (defn- cleared-ring
   "Return `frame-id`'s ring emptied at its own effective retention cap.
   Preserves the override flag — emptying a buffer must not silently
-  downgrade an explicit per-frame override to inherited (rf2-va65k)."
+  downgrade an explicit per-frame override to inherited."
   [rings frame-id]
   (empty-ring (effective-retained rings frame-id)
               (true? (get-in rings [frame-id :override?]))))
@@ -628,7 +625,7 @@
   reflected: this reads back the one slot `configure-trace-buffer!`
   writes, and per-frame caps are frame metadata rather than process
   config. Published to `re-frame.core/current-config` through
-  `:trace.tooling/current-trace-buffer-config` (rf2-kuky.76)."
+  `:trace.tooling/current-trace-buffer-config`."
   []
   {:events-retained @process-events-retained})
 
@@ -668,7 +665,7 @@
     ;; Spec 009 catalogue row are both `:op-type :warning` — a
     ;; `{:severity :warning}` `trace-buffer` filter must catch this
     ;; emit, which `match-event?`'s `:severity` key matches against
-    ;; `(:op-type ev)` (rf2-ho20xj).
+    ;; `(:op-type ev)`.
     (when-let [emit! (rf.late-bind/get-fn :trace/emit!)]
       (emit! :warning :rf.warning/trace-buffer-unrecognised-opts
              {:category :rf.warning/trace-buffer-unrecognised-opts
@@ -685,12 +682,12 @@
     ;; Apply the new default to every frame whose cap was INHERITED
     ;; (`:override? false`), retuning + trimming the already-allocated
     ;; ring. Frames carrying an explicit per-frame override
-    ;; (`:override? true`) are left untouched. Keying on `:override?`
-    ;; (not the always-present `:events-retained` key) is the fix for
-    ;; rf2-va65k finding 1: every allocated ring stores
-    ;; `:events-retained`, so the old `(some? (get-in ... :events-retained))`
-    ;; guard was always true and silently skipped EVERY existing ring —
-    ;; lowering the default never trimmed an already-used inherited frame.
+    ;; (`:override? true`) are left untouched. Keying on `:override?`,
+    ;; not the always-present `:events-retained` key, is load-bearing:
+    ;; every allocated ring stores `:events-retained`, so a
+    ;; `(some? (get-in ... :events-retained))` guard would always be true
+    ;; and silently skip EVERY existing ring — lowering the default would
+    ;; never trim an already-used inherited frame.
     (swap! trace-rings
            (fn [rings]
              (reduce-kv
@@ -733,18 +730,18 @@
 ;; of any reference to the rings state or listener atom — so a
 ;; production build that never `:requires` this ns DCEs the whole body.
 
-;; ---- reentrant fan-out scheduler (rf2-1zxlsm ordering + rf2-s522m sync) ----
+;; ---- reentrant fan-out scheduler (ordering + synchronous completion) ------
 ;;
 ;; A listener callback may reentrantly emit a trace (dispatch, re-register a
 ;; flow, create/destroy a frame — all emit). Two delivery laws must BOTH hold for
 ;; such a nested emit (Spec 009 §Listener invocation rules + §Emitting trace
 ;; events):
 ;;
-;;   1. EMISSION ORDER (rf2-1zxlsm). Every listener sees events in the order the
+;;   1. EMISSION ORDER. Every listener sees events in the order the
 ;;      runtime fired them. If a listener handling outer event A emits B, no
 ;;      listener may observe B before A — a nested fan-out must not overtake the
 ;;      still-in-progress outer one.
-;;   2. SYNCHRONOUS COMPLETION (rf2-s522m). `emit!` returns only after its event
+;;   2. SYNCHRONOUS COMPLETION. `emit!` returns only after its event
 ;;      has reached every eligible listener — for a NESTED emit too. A listener
 ;;      that emits B and then inspects another listener's state must see B already
 ;;      delivered (Spec 009: "the emit returns once every listener has been
@@ -755,8 +752,8 @@
 ;; not-yet-visited listeners before `emit!` returns, but law 1 says those
 ;; listeners must see A before B. The ONLY schedule satisfying both is: advance A
 ;; to the remaining listeners FIRST, then deliver B to all — all before the nested
-;; `emit!` returns. A fire-and-drain-later append (the prior design) satisfied
-;; law 1 but broke law 2: the nested emit returned before ANY listener saw B.
+;; `emit!` returns. A fire-and-drain-later append would satisfy law 1 but break
+;; law 2: the nested emit would return before ANY listener saw B.
 ;;
 ;; The scheduler is a shared, resumable driver over a FIFO event queue. A single
 ;; `*fanout-ctx*` (bound for the duration of the outermost fan-out) holds:
@@ -776,20 +773,20 @@
 ;; nested `emit!` returns — law 2. When control unwinds to the outer driver, its
 ;; loop finds the queue drained (`:head` past the end) and stops, so no work is
 ;; repeated. The delivery SCHEDULE (which listener sees which event, and in what
-;; order) is the same FIFO schedule the prior drain produced; only the nested
-;; `emit!`'s RETURN is now blocked until its event has been delivered. The ring
-;; push still happens inline in emission order (A pushed before the outer drive,
+;; order) is the plain FIFO schedule; what the shared driver adds is that the
+;; nested `emit!`'s RETURN is blocked until its event has been delivered. The ring
+;; push happens inline in emission order (A pushed before the outer drive,
 ;; B pushed when its reentrant `deliver-to-tooling!` runs), epoch capture already
 ;; fired in `re-frame.trace/deliver!` before this hook, and classification ran in
 ;; `emit!`.
 ;;
-;; Composes with rf2-eaxnai: each queued event carries its OWN `continue?`
+;; Composes with per-event authority: each queued event carries its OWN `continue?`
 ;; snapshot; the driver consults it per event, so a listener that destroys the
 ;; outer incarnation flips A's `continue?` false and suppresses A's remaining
 ;; fan-out without touching a later event's authority. The listener body already
 ;; ran under the neutral continuation scope `re-frame.trace/deliver!` established.
 ;;
-;; ---- cross-thread fan-out serialization (rf2-uw7hg) -----------------------
+;; ---- cross-thread fan-out serialization -----------------------------------
 ;;
 ;; `*fanout-ctx*` is per-thread (a dynamic binding), so it only schedules
 ;; SAME-thread reentrant emits. It says nothing about two emits racing on two JVM
@@ -811,7 +808,7 @@
 ;; emit still returns only after its record's callback has run (the monitor is
 ;; held for the whole synchronous drive and released before `emit!` returns).
 ;;
-;; ---- the post-drain deferral seam (rf2-jl75r + rf2-rakqk + rf2-wxy1c) -------
+;; ---- the post-drain deferral seam -----------------------------------------
 ;;
 ;; Holding `fanout-monitor` across arbitrary listener bodies is NOT safe for an
 ;; emit issued while the emitting thread holds a frame's `:drain-lock`. Public
@@ -825,32 +822,32 @@
 ;; Neither can progress. `drain-block!`'s bounded-wait assumption is false because
 ;; the active drainer (T2) is itself waiting on the caller (T1).
 ;;
-;; jl75r broke that cycle by routing a drain-owned emit's fan-out INLINE, off the
-;; monitor; rakqk made the discriminator real drain-lock OWNERSHIP rather than
-;; event-shape inference. Both fixes shared one assumption — that an inline
+;; Routing a drain-owned emit's fan-out INLINE, off the monitor, would break that
+;; cycle — whatever discriminates "drain-owned", event shape or real drain-lock
+;; OWNERSHIP. But every inline path rests on one false assumption: that an inline
 ;; drain-owned fan-out is already mutually exclusive, because a frame has a single
 ;; drainer. It is not. The drain-lock serializes ONE FRAME's drain; the listener
 ;; registry is PROCESS-global. Two INDEPENDENT frames draining on two JVM threads
-;; each own their own lock, so both qualified for the inline path and both entered
-;; the same arbitrary listener callback at once (rf2-wxy1c) — the rf2-uw7hg serial
-;; law lost again, this time drain-vs-drain, with arbitrary programmer / tool
-;; listener code additionally running while the framework held a drain lock.
+;; each own their own lock, so both would qualify for the inline path and both
+;; would enter the same arbitrary listener callback at once — the serial law lost
+;; again, this time drain-vs-drain, with arbitrary programmer / tool listener code
+;; additionally running while the framework held a drain lock.
 ;;
-;; The repair is to the TIMING, not the classifier. A drain-owned emit no longer
-;; fans out at all while the lock is held: it is APPENDED to a per-thread pending
+;; The answer is in the TIMING, not the classifier. A drain-owned emit does not
+;; fan out at all while the lock is held: it is APPENDED to a per-thread pending
 ;; vector and delivered at ONE explicit post-drain boundary
 ;; (`call-with-deferred-fanout`, established by `re-frame.router/drain-try!` /
 ;; `drain-block!` and `re-frame.frame/call-serialized-with-drain!` around their
 ;; whole acquire → run → release region), where the batch is flushed under
 ;; `fanout-monitor` before the enclosing dispatch / drain call returns.
 ;;
-;; That single change discharges both laws at once, and the dynamic scope IS the
+;; That one seam discharges both laws at once, and the dynamic scope IS the
 ;; ownership evidence — no frame resolution, no ownership probe, no shape guess:
 ;;
-;;   - SERIAL (rf2-uw7hg / rf2-wxy1c). Every listener fan-out — clean or
-;;     drain-owned — now runs under `fanout-monitor`. No callback overlaps itself
-;;     and records reach each listener in one process-wide order.
-;;   - DEADLOCK-FREE (rf2-jl75r). The monitor is acquired at exactly two places:
+;;   - SERIAL. Every listener fan-out — clean or drain-owned — runs under
+;;     `fanout-monitor`. No callback overlaps itself and records reach each
+;;     listener in one process-wide order.
+;;   - DEADLOCK-FREE. The monitor is acquired at exactly two places:
 ;;     an outermost emit OUTSIDE any deferral scope, and the post-drain flush. The
 ;;     scope is bound for the entire dynamic extent in which the thread can hold a
 ;;     drain-lock (entered before the acquire, exited after the release), so an
@@ -860,9 +857,9 @@
 ;;     exist — an invariant of the seam's construction, not a property of any
 ;;     particular interleaving.
 ;;
-;; Delivery CONTENT is unchanged — only its timing. Two things are captured at
-;; append time so a deferred fan-out delivers exactly what an inline one would
-;; have: the listener SNAPSHOT (so a listener registered / unregistered later in
+;; Deferral moves only the TIMING of delivery, never its CONTENT. Two things are
+;; captured at append time so a deferred fan-out delivers exactly what an inline
+;; one would have: the listener SNAPSHOT (so a listener registered / unregistered later in
 ;; the same drain does not gain or lose an earlier event), and a baseline-relative
 ;; reading of `continue?` (`deferred-continue`) so that only a suppression a
 ;; listener causes DURING the fan-out stops it — the ordinary post-drain falsity of
@@ -870,10 +867,10 @@
 ;; live re-read of that fence is unsound once the drain has unwound.
 ;;
 ;; Emission ORDER is preserved:
-;; the ring push and epoch capture still run inline, the pending vector
+;; the ring push and epoch capture run inline, the pending vector
 ;; is FIFO, and the whole batch is flushed under one monitor hold, so a drain's
 ;; own traces reach listeners contiguously and in order. The WHOLE captured batch
-;; is queued onto ONE fan-out schedule before any callback runs (rf2-t6vs3) —
+;; is queued onto ONE fan-out schedule before any callback runs —
 ;; `run-outermost-fanout!` for a top-level flush, `into` the active `*fanout-ctx*`
 ;; for an integrated one — so a listener that authors a later trace while an
 ;; earlier deferred entry is being fanned out appends BEHIND the still-pending
@@ -889,22 +886,21 @@
 ;;
 ;; CLJS is single-threaded: no concurrent emits, no monitor, no deferral (the
 ;; scope is never bound and `call-with-deferred-fanout` is the identity call).
-;; Delivery stays inline exactly as before, preserving production elision.
+;; Delivery is inline, preserving production elision.
 
 (def ^:private ^:dynamic *fanout-ctx*
   "When bound, the shared fan-out schedule for the outermost listener fan-out in
   progress on this thread — a map of volatiles `{:q :head :entries :lcursor}`
   (see the section note above). A trace emitted reentrantly from inside a listener
   body appends to `:q` and drives the same schedule, so every listener observes
-  the outer event before the reentrant one (rf2-1zxlsm) AND the nested `emit!`
-  returns only after its event reached every listener (rf2-s522m). nil at the top
-  of the stack."
+  the outer event before the reentrant one AND the nested `emit!` returns only
+  after its event reached every listener. nil at the top of the stack."
   nil)
 
 #?(:clj
    (def ^:private ^Object fanout-monitor
      "Process-global JVM monitor serializing EVERY outermost trace-listener
-     fan-out across concurrent emits (rf2-uw7hg / rf2-wxy1c), so no registered
+     fan-out across concurrent emits, so no registered
      listener callback is ever invoked on two threads at once and records reach
      each listener in one defined order. Held for the whole synchronous drive of a
      clean emit, and for the whole post-drain flush of a deferred batch. Reentrant
@@ -940,12 +936,12 @@
      listener. A `ThreadLocal` is not conveyed, so a scheduled task starts clean
      and opens its own scope. Cleared with `.remove` on the way out, so the flush
      — and any drain a listener body starts from it — sees no scope. The CLJS
-     single-threaded analogue is `deferred-drain-fanout-cljs` below (rf2-uoy6m)."
+     single-threaded analogue is `deferred-drain-fanout-cljs` below."
      (ThreadLocal.)))
 
 #?(:cljs
    (def ^:private deferred-drain-fanout-cljs
-     "The CLJS post-drain deferral scope (rf2-uoy6m): a volatile holding this
+     "The CLJS post-drain deferral scope: a volatile holding this
      drain region's `pending` FIFO vector while a drain is active, else nil. The
      single-threaded analogue of the JVM `deferred-drain-fanout` ThreadLocal.
 
@@ -983,8 +979,8 @@
   `:lcursor` cursors so a reentrant emit can advance a paused outer delivery to
   every remaining listener BEFORE its own event is delivered.
 
-  Per-listener throws are isolated (rf2-1zxlsm exception isolation). Each event is
-  delivered under its OWN `continue?` snapshot (rf2-eaxnai): a listener that
+  Per-listener throws are isolated. Each event is
+  delivered under its OWN `continue?` snapshot: a listener that
   destroys the outer incarnation flips that event's `continue?` false, which stops
   its remaining fan-out and advances to the next queued event (evaluated under its
   own predicate). `:lcursor` advances BEFORE the callback runs, so a reentrant
@@ -1001,8 +997,8 @@
       (when (< @head (count @q))
         (when (nil? @entries)
           ;; A queued triple `[event continue? snapshot]` carries the listener
-          ;; snapshot captured when a DEFERRED drain-owned event was appended
-          ;; (rf2-6t6qk integration), so integrating a nested drain's traces
+          ;; snapshot captured when a DEFERRED drain-owned event was appended,
+          ;; so integrating a nested drain's traces
           ;; into a paused outer schedule reaches exactly the listeners an inline
           ;; delivery would have. A plain pair re-snapshots live, as a reentrant
           ;; listener-body emit always does.
@@ -1028,13 +1024,13 @@
   "Seed ONE fresh fan-out schedule for a whole `batch` of queue entries, bind it
   as `*fanout-ctx*` so reentrant emits from listener bodies advance the SAME
   schedule, and drive it to completion. Always runs under `fanout-monitor` on the
-  JVM so concurrent emits serialize (rf2-uw7hg) — either a single clean emit
-  (`batch` is one entry) or the whole post-drain flush of a deferred batch
-  (rf2-wxy1c); see the `deliver-to-tooling!` outermost branch and
+  JVM so concurrent emits serialize — either a single clean emit
+  (`batch` is one entry) or the whole post-drain flush of a deferred batch;
+  see the `deliver-to-tooling!` outermost branch and
   `drain-deferred-batch!`. The binding + drive are the whole critical section.
 
-  Seeding the WHOLE batch before driving is what keeps a deferred batch FIFO
-  (rf2-t6vs3): a listener that authors a later trace while an EARLIER deferred
+  Seeding the WHOLE batch before driving is what keeps a deferred batch FIFO:
+  a listener that authors a later trace while an EARLIER deferred
   entry is being fanned out appends BEHIND the still-pending later entries rather
   than overtaking them. `:entries` starts nil and `drive-fanout!` re-reads it per
   event as it advances `:head`, so a queued triple `[event continue? snapshot]`
@@ -1055,7 +1051,7 @@
   identity. Deliberately NOT a keyword: CLJS keyword literals are not guaranteed
   `identical?` across evaluation sites, so a keyword sentinel would fail its own
   first-check `identical?` on CLJS and silently break the deferral-continuation
-  distinction (rf2-uoy6m)."
+  distinction."
   #?(:clj (Object.) :cljs (js-obj)))
 
 (defn- deferred-continue
@@ -1063,11 +1059,11 @@
   WHETHER the event is delivered — only when.
 
   THE PROBLEM DEFERRAL CREATES. `drive-fanout!` consults `continue?` before
-  every listener, and rf2-eaxnai gives a false reading ONE meaning: a listener
-  body just suppressed this event, so stop fanning it out. That reading is only
-  sound while every check is taken in the SAME dynamic context, which is what
-  inline delivery guaranteed — the whole fan-out ran inside `deliver!`, inside
-  the drain.
+  every listener, and a false reading has ONE meaning: a listener body just
+  suppressed this event, so stop fanning it out. That reading is only sound
+  while every check is taken in the SAME dynamic context, which is what inline
+  delivery guarantees — the whole fan-out runs inside `deliver!`, inside the
+  drain.
 
   A deferred fan-out runs after the drain has unwound, and these predicates are
   not pure functions of registry state: the dispatch-path fence
@@ -1089,8 +1085,8 @@
   between two consecutive checks is the listener body that ran between them:
 
     - baseline TRUE  -> consult the live predicate. A later false is a genuine
-      mid-fan-out suppression and stops the remainder, exactly as rf2-eaxnai
-      requires. This is the case for every context-free fence — notably
+      mid-fan-out suppression and stops the remainder, exactly as per-event
+      authority requires. This is the case for every context-free fence — notably
       `process-event!`'s `#(frame/event-continuation-live? frame-id owner-token)`,
       which reads only the frame registry — so a listener that destroys the
       outer incarnation still fences that incarnation's remaining fan-out.
@@ -1101,15 +1097,14 @@
       is delivered in full — just later.
 
   Deferral therefore changes delivery TIMING only, never the recipient set.
-  Cross-platform (rf2-uoy6m): CLJS now defers drain-owned emits too, and the
-  same context-dependent-fence unwinding applies there, so this reasoning is not
+  Cross-platform: CLJS defers drain-owned emits too, and the same
+  context-dependent-fence unwinding applies there, so this reasoning is not
   JVM-specific. The `unread` sentinel is a dedicated object, NOT a keyword: CLJS
   keyword literals are not guaranteed `identical?` across evaluation sites, so a
   keyword baseline sentinel would make the first-check branch unreachable there —
   every check would level-test the live predicate, and a context-dependent
   post-drain fence (a cascaded `:rf.event/dispatched` envelope's `target-live?`,
-  unbound once the drain unwinds) would read false and DROP the event. That was
-  the CLJS-only face of rf2-eaxnai's REGRESSION 1."
+  unbound once the drain unwinds) would read false and DROP the event."
   [continue?]
   (let [baseline (volatile! unread)]
     (fn []
@@ -1122,7 +1117,7 @@
           ;; falsity, not suppression. Never abandon the remaining listeners.
           (false? b)              true
           ;; Was live when the fan-out began: a false reading now is a
-          ;; listener-caused suppression (rf2-eaxnai). Honour it.
+          ;; listener-caused suppression. Honour it.
           :else                   (boolean (continue?)))))))
 
 (defn- drain-deferred-batch!
@@ -1136,25 +1131,25 @@
       (when (seq batch)
         (vreset! deferred-queue [])
         (if-let [ctx *fanout-ctx*]
-          ;; A listener-initiated `dispatch-sync` (rf2-6t6qk): the flush runs
+          ;; A listener-initiated `dispatch-sync`: the flush runs
           ;; while an OUTER listener fan-out is still paused inside the very
           ;; listener body that opened this drain. INTEGRATE into that active
           ;; schedule rather than seeding fresh outermost fan-outs. Enqueue the
-          ;; WHOLE captured batch FIRST, then drive once (rf2-t6vs3): `drive-
+          ;; WHOLE captured batch FIRST, then drive once: `drive-
           ;; fanout!` advances the paused outer event to its remaining listeners
           ;; FIRST, so every listener still observes the outer event before these
-          ;; nested drain-owned ones (rf2-1zxlsm); the whole batch is delivered
-          ;; before the enclosing `dispatch-sync` returns (rf2-s522m); and a
+          ;; nested drain-owned ones; the whole batch is delivered
+          ;; before the enclosing `dispatch-sync` returns; and a
           ;; listener that authors a later trace while an EARLIER batch item is
           ;; being driven appends BEHIND the still-pending later items instead of
-          ;; overtaking them (rf2-t6vs3 FIFO). Each entry already carries its
+          ;; overtaking them (FIFO). Each entry already carries its
           ;; append-time listener snapshot, which `drive-fanout!` honours. No
           ;; monitor re-acquire is needed: the outer drive already holds it (JVM),
           ;; and CLJS has none.
           (do (vswap! (:q ctx) into batch)
               (drive-fanout! ctx))
           ;; Outermost drain (a top-level dispatch-sync / async drain): seed ONE
-          ;; fresh outermost schedule for the WHOLE batch (rf2-t6vs3), so the
+          ;; fresh outermost schedule for the WHOLE batch, so the
           ;; entire batch is queued before any callback runs and a listener's
           ;; reentrant emit during an earlier deferred event lands behind the
           ;; later ones rather than overtaking them. Each event is still delivered
@@ -1171,9 +1166,9 @@
   On the JVM the whole batch is flushed under ONE monitor hold, so a drain's
   traces reach every listener contiguously and in emission order rather than
   interleaved with a concurrent drain's. CLJS is single-threaded — no concurrent
-  drains, no monitor — so it flushes bare (rf2-uoy6m). When this flush runs while
+  drains, no monitor — so it flushes bare. When this flush runs while
   an outer listener fan-out is still in progress on this thread (a listener-
-  initiated `dispatch-sync`, rf2-6t6qk), the JVM monitor hold is a reentrant re-
+  initiated `dispatch-sync`), the JVM monitor hold is a reentrant re-
   acquire of the one the outer drive already owns."
   [deferred-queue]
   (when (seq @deferred-queue)
@@ -1199,7 +1194,7 @@
   `flush-scope` receives the flush thunk and must run it under the ORDINARY
   delivery scope `re-frame.trace/deliver!` establishes around an inline fan-out —
   epoch capture, frame policy and ring retention restored to their defaults, and
-  the exact-owner continuation neutralised (rf2-vf2qke / rf2-eaxnai), so a
+  the exact-owner continuation neutralised, so a
   listener's nested authored work is not strangled by the scope the DRAIN was
   running under. Inline delivery gets that binding for free because the fan-out
   happens inside `deliver!`; a deferred fan-out happens after `deliver!` has
@@ -1213,7 +1208,7 @@
   inside its owner's scope and appends to the same batch, which the OWNER flushes
   once it has dropped the lock.
 
-  Cross-platform (rf2-uoy6m). CLJS defers exactly as the JVM does — a single-
+  Cross-platform. CLJS defers exactly as the JVM does — a single-
   threaded post-drain queue with no monitor — so a CLJS listener observes only
   settled state, matching the JVM and the Spec 009 contract. The mechanism differs
   only where the platform forces it: a plain volatile stands in for the JVM
@@ -1240,20 +1235,20 @@
 
 (defn- deliver-to-tooling!
   "Push `event` onto its in-flight frame's run-keyed ring (when the run has a
-  `:dispatch-id` and a `:frame`; frameless emits skip the ring per the B3
-  ruling), then fan out to every registered listener. Listener throws are
+  `:dispatch-id` and a `:frame`; frameless emits skip the ring per B3),
+  then fan out to every registered listener. Listener throws are
   isolated. No-op in production.
 
-  `retain?` (rf2-vxgfnd.244) gates ONLY the ring push. Under retentionless
+  `retain?` gates ONLY the ring push. Under retentionless
   structural delivery (`re-frame.trace/call-with-structural-delivery`) it is
   false: an obsolete incarnation's terminal fact still streams live to every
   listener, but no per-frame ring retains it — the fact carries the bare frame id
   a same-id successor now shares, so a ring push would leak predecessor evidence
-  into the successor's ring. The default `true` arity preserves the ordinary emit
+  into the successor's ring. The default `true` arity is the ordinary emit
   path. Retention is the ONLY thing gated; listener fan-out is unconditional so
   the required terminal fact reaches live consumers exactly once either way.
 
-  `continue?` (rf2-eaxnai) is the caller's exact-owner continuation SNAPSHOT,
+  `continue?` is the caller's exact-owner continuation SNAPSHOT,
   consulted per event by the driver so that if a listener destroys the outer
   incarnation A, A's remaining fan-out is suppressed. It is a standalone snapshot
   rather than a live read of the (neutralised) `*continuation-predicate*` so a
@@ -1264,32 +1259,32 @@
   laws (see the section note above): a nested emit from inside a listener body
   appends to the bound `*fanout-ctx*` and drives it, advancing the paused outer
   delivery to every remaining listener BEFORE delivering the nested event — so
-  every listener observes the outer event before the reentrant one (rf2-1zxlsm)
-  AND the nested `emit!` returns only after its event reached every listener
-  (rf2-s522m). The ring push still happens inline (emission order)."
+  every listener observes the outer event before the reentrant one AND the
+  nested `emit!` returns only after its event reached every listener. The ring
+  push happens inline (emission order)."
   ([event continue?] (deliver-to-tooling! event continue? true))
   ([event continue? retain?]
    (when retain? (push-to-ring! event))
    (if-let [deferred-queue (current-deferred-fanout-queue)]
-     ;; DEFER (rf2-wxy1c / rf2-6t6qk / rf2-uoy6m). A drain-owned emit — one raised
+     ;; DEFER. A drain-owned emit — one raised
      ;; while the framework owns a frame's `:drain-lock` — is appended, never
      ;; fanned out, until the post-drain boundary.
      ;;
      ;; This check takes PRECEDENCE over the reentrant `*fanout-ctx*` fast path
-     ;; below (rf2-6t6qk): when an outer listener fan-out is in progress AND that
+     ;; below: when an outer listener fan-out is in progress AND that
      ;; listener's `dispatch-sync` has opened a nested drain scope, the nested
      ;; drain's traces must DEFER — driving the outer schedule here would run
      ;; arbitrary listener code inside the framework's critical section while the
-     ;; lock is held, the exact negation of the rf2-wxy1c charter. The post-drain
+     ;; lock is held, the exact negation of the post-drain deferral seam. The post-drain
      ;; flush integrates the batch back into that paused outer schedule so
      ;; outer-before-inner ordering and synchronous completion survive.
      ;;
      ;; The deferral scope also PROVES lock ownership (`call-with-deferred-fanout`
      ;; brackets every acquire → run → release region), so a drain-owned emit
-     ;; never blocks acquiring `fanout-monitor` — the rf2-jl75r AB-BA edge cannot
+     ;; never blocks acquiring `fanout-monitor` — the AB-BA edge cannot
      ;; form. Capture the listener snapshot and latch `continue?` so the deferred
      ;; delivery reaches exactly what an inline one would have. CLJS opens the same
-     ;; scope now (rf2-uoy6m), so a single-threaded host defers too and its
+     ;; scope, so a single-threaded host defers too and its
      ;; listeners never observe partial state.
      (do (vswap! deferred-queue conj [event (deferred-continue continue?)
                                       (vec (seq @listeners))])
@@ -1299,8 +1294,8 @@
        ;; append and drive the shared schedule. `drive-fanout!` advances the
        ;; paused outer delivery to every remaining listener, then delivers this
        ;; event, before we return — so the nested `emit!` completes synchronously
-       ;; (rf2-s522m) while every listener still sees the outer event first
-       ;; (rf2-1zxlsm). Ring retention already ran above, in emission order.
+       ;; while every listener still sees the outer event first. Ring retention
+       ;; already ran above, in emission order.
        ;; `*fanout-ctx*` is bound only on THIS thread, so this branch keeps a
        ;; reentrant emit off `fanout-monitor` — no self-deadlock.
        (do (vswap! (:q ctx) conj [event continue?])
@@ -1308,7 +1303,7 @@
            nil)
        ;; Outermost emit, no drain scope: by the same deferral bracketing this
        ;; thread provably holds no drain-lock — so it serializes on
-       ;; `fanout-monitor` across concurrent emits (rf2-uw7hg) with the monitor
+       ;; `fanout-monitor` across concurrent emits with the monitor
        ;; held for the whole drive, and nothing can wait on it through a
        ;; drain-lock. CLJS is single-threaded and runs every outermost emit inline
        ;; with no monitor.
@@ -1317,7 +1312,7 @@
 
 (rf.late-bind/set-fn! :trace.tooling/deliver! deliver-to-tooling!)
 
-;; rf2-uoy6m: the drain seam reaches the post-drain deferral wrapper through this
+;; The drain seam reaches the post-drain deferral wrapper through this
 ;; hook on CLJS. `re-frame.trace/call-with-deferred-listener-delivery` is called
 ;; from the always-reachable production drain path, so a STATIC reference to this
 ;; sibling from there would defeat the `:advanced` DCE that keeps the whole tooling
@@ -1339,7 +1334,7 @@
 (rf.late-bind/set-fn! :trace.tooling/configure-trace-buffer! configure-trace-buffer!)
 (rf.late-bind/set-fn! :trace.tooling/current-trace-buffer-config current-trace-buffer-config)
 
-;; Per rf2-g1b2m / rf2-8uwce — published hooks for B4 dedup-by-shape
+;; Published hooks for B4 dedup-by-shape
 ;; (consulted by the registrar at emit time) and frame-destroy ring
 ;; cleanup (consulted by `destroy-frame!` per Spec 002 §Destroy).
 
@@ -1351,15 +1346,12 @@
 
 ;; ---- bundle-isolation sentinel ------------------------------------------
 ;;
-;; Per rf2-qwm0a: `implementation/scripts/check-bundle-isolation.cjs`
-;; greps the counter bundle for this exact string. The string lives
-;; ONLY in this file's source body — no other namespace, no docstring,
-;; no test fixture references it — so its presence in the production
-;; counter bundle proves that the tooling sibling's body got pulled in
-;; (most likely via a stray `:require` from a core/* ns). The sentinel
-;; survives `:advanced` because string literals are not renamed; it
-;; sits outside any `rf.interop/debug-enabled?` gate so DCE cannot drop
-;; the literal independently of the surrounding ns body.
+;; This is NOT the string the bundle-isolation gate greps.
+;; `implementation/scripts/check-bundle-isolation.cjs`'s `trace-tooling`
+;; entry greps the emitted module for `trace-events`, a projection field of
+;; this ns's `trace-buffer` body. This var is private and nothing consumes
+;; its value, so Closure `:advanced` is free to drop it; its count in a
+;; bundle proves nothing either way.
 
 (defonce ^:private bundle-isolation-sentinel
   "rf.trace.tooling/sentinel:rf2-qwm0a-2026-05-16:do-not-rename")
