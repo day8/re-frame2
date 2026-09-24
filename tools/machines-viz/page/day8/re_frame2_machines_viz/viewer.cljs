@@ -1,5 +1,5 @@
 (ns day8.re-frame2-machines-viz.viewer
-  "Read-only viewer page entry (rf2-8d7w1 · v1.0).
+  "Read-only viewer page entry.
 
   A statically-hostable single page that decodes a `#machine=<base64url>`
   URL fragment and renders the encoded chart in a no-runtime,
@@ -39,7 +39,7 @@
   `(viewer/run)` is the `^:export` entry. The page is presentation-only:
   it mounts `MachineChart` — an ordinary Reagent component — through a
   plain `reagent.dom.client` root and stops there. There is NO
-  `rf/init!` and no substrate adapter (rf2-6r9j.115): `init!` installs a
+  `rf/init!` and no substrate adapter: `init!` installs a
   framework substrate and re-seeds framework registrations, none of
   which a Reagent render needs, and this page registers no frame,
   dispatches no event, and reads no `[:rf.runtime/machines :snapshots]`
@@ -48,7 +48,7 @@
   `react-dom/client` root with no framework boot at all, which is the
   standing proof that none is a rendering prerequisite.
 
-  ## Why this file lives under `page/` and not `src/` (rf2-k7l2o)
+  ## Why this file lives under `page/` and not `src/`
 
   It is the artefact's only APPLICATION. Everything under `src/` is
   library surface a host requires; this namespace is an entry point a
@@ -59,16 +59,7 @@
   `page/` is a source root the jar does not carry (`:clein/build
   :src-dirs [\"src\"]`), and the compiled `viewer.js` ships beside
   `public/viewer.html`, which is how a static page ships anyway — the
-  jar was never its delivery vehicle.
-
-  Historical note: when rf2-k7l2o moved this file out of `src/` the
-  argument was sharper still, because the page then required
-  `re-frame.adapter.reagent` and a library jar naming that namespace
-  would have forced a substrate on every consumer (`day8/reagent-slim`
-  publishes ITS adapter at the same canonical namespace). That require
-  is gone as of rf2-6r9j.115, so the dependency-forcing half of the
-  argument no longer applies; the application-versus-library-surface
-  half is what keeps the split.
+  jar is not its delivery vehicle.
 
   Per [`API.md`](../../../spec/API.md) §Read-only viewer + §Share-URL
   encoding."
