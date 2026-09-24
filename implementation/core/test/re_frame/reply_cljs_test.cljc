@@ -146,10 +146,11 @@
 
 (deftest data-only-invariant-rejects-non-edn-host-objects
   ;; The host-handle detector and its documented contract are ALIGNED on
-  ;; JS Date / RegExp and their JVM counterparts: a Date / RegExp (a non-EDN host object that neither
-  ;; round-trips through the EDN reader nor compares by value) is a host handle
-  ;; and fails the data-only invariant on BOTH runtimes — a durable timestamp
-  ;; is an epoch-millisecond long (EP-0010), never a host Date.
+  ;; JS Date / RegExp and their JVM counterparts: a Date / RegExp (a non-EDN
+  ;; host object that neither round-trips through the EDN reader nor compares
+  ;; by value) is a host handle and fails the data-only invariant on BOTH
+  ;; runtimes — a durable timestamp is an epoch-millisecond long (EP-0010),
+  ;; never a host Date.
   (testing "a host Date in the reply is a host handle (CLJS js/Date, JVM java.util.Date)"
     (let [d #?(:cljs (js/Date.) :clj (java.util.Date.))]
       (is (some #(= :rf.reply/host-handle (:rf.reply/problem %))
