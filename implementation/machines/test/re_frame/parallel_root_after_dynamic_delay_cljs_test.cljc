@@ -1,26 +1,25 @@
 (ns re-frame.parallel-root-after-dynamic-delay-cljs-test
-  "rf2-ps7o — a `:type :parallel` machine's ROOT-owned `:after` carrying a
+  "A `:type :parallel` machine's ROOT-owned `:after` carrying a
   SUBSCRIPTION-VECTOR delay restarts when that delay's value changes.
 
-  THE DEFECT THIS PINS. Spec 005 §Root-level `:after` admits a root-owned
+  WHAT THIS PINS. Spec 005 §Root-level `:after` admits a root-owned
   `:after` on a `:type :parallel` machine: it is scheduled at machine birth,
   is \"alive for the whole machine\", and its epoch lives at the FLAT snapshot
   slot `[:data :rf/after-epoch []]` — \"the root is not a region\". Spec 005
   §Dynamic delay re-resolution says a subscription-vector delay cancels and
-  RESTARTS at the new duration whenever its subscription moves. Those two
-  features shipped separately and their intersection was broken:
-  `timer/on-sub-changed!` selected its region branch on `(map? (:state snap))`
-  ALONE, so a parallel machine's ROOT timer — whose declaring path is EMPTY —
-  was resolved as if `[]` named a region. `(first [])` is nil,
-  `(get (:state snap) nil)` is nil, so the branch read \"the declaring state is
-  gone\", declined the replacement arm, and the machine-lifetime timeout was
-  cancelled PERMANENTLY the first time its delay changed. It would also have
-  read the wrong (per-region) epoch slot had only the liveness test moved.
+  RESTARTS at the new duration whenever its subscription moves. At their
+  intersection, `timer/on-sub-changed!` must not select its region branch on
+  `(map? (:state snap))` ALONE: a parallel machine's ROOT timer has an EMPTY
+  declaring path, and resolving `[]` as a region name gives `(first [])` nil
+  and `(get (:state snap) nil)` nil, so the branch would read \"the declaring
+  state is gone\", decline the replacement arm, and cancel the
+  machine-lifetime timeout PERMANENTLY the first time its delay changed. It
+  would also read the wrong (per-region) epoch slot.
 
-  The initial scheduling path never had the bug — `schedule-after-timer!`'s
-  `region` binding already requires `(seq invoke-id)` — so the first arm
-  worked and only the restart was lost. The failure is silent: no trace, no
-  error, and a timeout that never fires rather than one that fires late.
+  The initial scheduling path discriminates the same way —
+  `schedule-after-timer!`'s `region` binding requires `(seq invoke-id)` — so
+  what is at stake is the restart. Losing it is silent: no trace, no error,
+  and a timeout that never fires rather than one that fires late.
 
   Both halves are separately covered (`parallel_root_on_test.clj` for the root
   `:after`, `after_dynamic_delay_reresolve_ratom_cljs_test.cljs` for the
@@ -74,15 +73,15 @@
              :b {:initial :waiting :states {:waiting {} :expired {}}}}})
 
 ;; ===========================================================================
-;; 1. THE REGRESSION — a root-owned dynamic delay restarts, twice, on the flat
-;;    root epoch, and still delivers its configured transition.
+;; 1. A root-owned dynamic delay restarts, twice, on the flat root epoch,
+;;    and delivers its configured transition.
 ;; ===========================================================================
 
 (deftest parallel-root-after-restarts-when-its-delay-subscription-moves
-  (testing "rf2-ps7o — a :type :parallel ROOT :after with a sub-vec delay
+  (testing "a :type :parallel ROOT :after with a sub-vec delay
             cancels and re-arms at each new duration, keeping exactly ONE live
             timer stamped with the FLAT root epoch, and the replacement timer
-            still fires the configured root transition"
+            fires the configured root transition"
     (let [delay-reaction (atom 5000)
           arms           (atom [])]
       (rf/reg-sub :t/root-ms (fn [_db _] @delay-reaction))
@@ -93,7 +92,7 @@
                     (fn [_thunk ms] (swap! arms conj ms) ::handle)]
         (rf/dispatch-sync [:ps7o/root [:rf.machine/start]])
 
-        ;; ---- birth (already worked before the fix) ------------------------
+        ;; ---- birth -------------------------------------------------------
         (is (= {:a :waiting :b :waiting}
                (rf.machines.test-support/machine-state :ps7o/root))
             "precondition — born in each region's initial state")
@@ -106,22 +105,22 @@
             "precondition — the ROOT epoch sits at the FLAT `[]` slot (Spec 005
              §Root-level `:after`), never a per-region one")
 
-        ;; ---- THE REGRESSION: the delay moves ------------------------------
+        ;; ---- the delay moves ---------------------------------------------
         (reset! delay-reaction 9000)
 
         (is (= [5000 9000] @arms)
-            "THE REGRESSION — the root's delay sub moved, so the timer
-             cancelled and RE-ARMED at 9000. Before the fix this stayed [5000]:
-             the empty root path was read as a region name, no active state was
-             found, and the replacement arm was declined for good")
+            "the root's delay sub moved, so the timer cancelled and RE-ARMED at
+             9000. Reading the empty root path as a region name would find no
+             active state and decline the replacement arm for good, leaving
+             [5000]")
         (is (= 1 (count (live-entries)))
             "still exactly one live timer — the restart replaced, not doubled")
         (is (= 9000 (:resolved-ms (only-entry)))
             "the live registry entry carries the re-resolved duration")
         (is (= 1 (:epoch (only-entry)))
             "the replacement timer carries the FLAT ROOT epoch — the region
-             branch would have read `[:data :rf/after-epoch-by-region nil []]`
-             and stamped 0")
+             branch would read `[:data :rf/after-epoch-by-region nil []]`
+             and stamp 0")
         (is (nil? (:region (only-entry)))
             "the root timer names no region (its invoke-id is empty)")
 
@@ -152,15 +151,15 @@
         (is (= {:a :expired :b :expired}
                (rf.machines.test-support/machine-state :ps7o/root))
             "the RESTARTED root timer fired the configured root transition —
-             the whole point of the timeout, which the defect disabled")))))
+             the whole point of the timeout")))))
 
 ;; ===========================================================================
-;; 2. DESTROY still cancels the root timer (the restart must not resurrect a
+;; 2. DESTROY cancels the root timer (the restart must not resurrect a
 ;;    timer past its machine's life).
 ;; ===========================================================================
 
 (deftest destroying-the-machine-cancels-a-restarted-root-timer
-  (testing "rf2-ps7o — after a restart, destroying the actor still tears the
+  (testing "after a restart, destroying the actor tears the
             root timer down (no leak, and no re-arm from a later delay move)"
     (let [delay-reaction (atom 5000)
           arms           (atom [])]
@@ -185,12 +184,12 @@
             "a delay move AFTER destroy arms nothing — the watch went with it")))))
 
 ;; ===========================================================================
-;; 3. CONTROLS — the two branches the fix must NOT disturb.
+;; 3. CONTROLS — the region and flat branches restart as well.
 ;; ===========================================================================
 
 (deftest parallel-region-dynamic-after-still-restarts
-  (testing "rf2-ps7o control — a dynamic `:after` on a leaf state INSIDE a
-            parallel region still restarts, on that region's OWN epoch slot"
+  (testing "control — a dynamic `:after` on a leaf state INSIDE a
+            parallel region restarts, on that region's OWN epoch slot"
     (let [delay-reaction (atom 5000)
           arms           (atom [])]
       (rf/reg-sub :t/region-ms (fn [_db _] @delay-reaction))
@@ -209,12 +208,12 @@
         (is (= [5000] @arms) "precondition — the region timer armed once")
         (reset! delay-reaction 9000)
         (is (= [5000 9000] @arms)
-            "the region branch still restarts (unchanged by the root fix)")
+            "the region branch restarts")
         (is (= :a (:region (only-entry)))
-            "…and the entry is still region-stamped")))))
+            "…and the entry is region-stamped")))))
 
 (deftest flat-machine-dynamic-after-still-restarts
-  (testing "rf2-ps7o control — a FLAT machine's dynamic `:after` still restarts
+  (testing "control — a FLAT machine's dynamic `:after` restarts
             (the `:else` branch, whose `:state` is a keyword, not a map)"
     (let [delay-reaction (atom 5000)
           arms           (atom [])]
@@ -233,4 +232,4 @@
         (is (= [5000] @arms) "precondition — the flat timer armed once")
         (reset! delay-reaction 9000)
         (is (= [5000 9000] @arms)
-            "the flat branch still restarts (unchanged by the root fix)")))))
+            "the flat branch restarts")))))
