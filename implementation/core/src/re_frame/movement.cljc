@@ -3,11 +3,11 @@
   substrate's derived container may publish so core can PROVE, without
   walking the value, that its input moved.
 
-  Sibling in spirit to `re-frame.disposable` (rf2-jicu2): a re-frame-owned
+  Sibling in spirit to `re-frame.disposable`: a re-frame-owned
   protocol reified by the substrate spine's derived container and consulted
   by core, with no dependency on any adapter artefact in either direction.
 
-  ## The problem it solves (rf2-gncxk)
+  ## The problem it solves
 
   `re-frame.subs.memo`'s fixed-arity-1 memo wrappers guard the user's sub
   body with `(= @last-seen new-value)`. That guard is NOT dead code — the
