@@ -72,7 +72,7 @@
   `frame-extras` is the app-declared carrier extension set — a set of
   lower-cased header names resolved from the `:rf.http/managed`
   `reg-fx` registration's `:carriers {:headers [..]}` block, or `nil` when no
-  carrier is declared. The parameter name is retained for the leaf API and
+  carrier is declared. The parameter name is part of the leaf API and
   fixture contract; the extension set is not frame state.
 
   The predicate checks the source sets directly rather than building a fresh
@@ -99,7 +99,7 @@
 
   `frame-extras` is the app-declared header carrier extension set from the
   `:rf.http/managed` `:carriers {:headers [..]}` block, or `nil`
-  for defaults-only. (Param name retained for the leaf API contract.)"
+  for defaults-only. (The param name is part of the leaf API contract.)"
   ([headers-map] (redact-headers headers-map nil))
   ([headers-map frame-extras]
    (cond
