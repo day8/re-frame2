@@ -9,10 +9,10 @@
 
   ## Path projection: fail open for re-keyed values, fail closed without a frame
 
-  EP-0025 REMOVED value-match (taint-by-equality) redaction of re-keyed
-  copies (§\"What is removed\": value-match is propagation/taint by another
+  There is no value-match (taint-by-equality) redaction of re-keyed copies
+  (EP-0025 §\"What is removed\": value-match is propagation/taint by another
   name, which a hygiene helper does not earn). Both the path-based `:app-db`
-  egress AND the derived-tree projection are now PATH-BASED ONLY. Under a LIVE
+  egress AND the derived-tree projection are PATH-BASED ONLY. Under a LIVE
   variant frame, a value at a CLASSIFIED app-db path redacts in the `:app-db`
   slice AND in any derived slot WHERE the value still occupies that path (a slot
   whose shape mirrors the app-db, e.g. an `:effective-args {:token …}` slice
@@ -24,10 +24,9 @@
   derived tree must classify its app-db PATH so the value lands AT that path.
 
   The fail-open is scoped to a LIVE variant frame. At the FRAMEWORK boundary
-  (`re-frame.core/project-egress`), a derived-tree with NO live frame now FAILS
+  (`re-frame.core/project-egress`), a derived-tree with NO live frame FAILS
   CLOSED: the whole tree redacts to `:rf/redacted`
-  rather than ship raw — the earlier carve-out that shipped the raw tree on a
-  non-live frame was retired. `scrub-rendered` (the LIVE-state tools'
+  rather than ship raw. `scrub-rendered` (the LIVE-state tools'
   `:snapshot` / `:effective-args` / evidence trees) and the live arm of
   the re-keyed-runtime scrub therefore redact-or-fail-closed by frame liveness.
 
@@ -37,12 +36,12 @@
   `read-a11y-violations` (the browser-panel axe-core nodes). Its payload is
   inherently RE-KEYED (DOM `:html`), so a path-scrub is a no-op
   for it EVEN under a live frame (EP-0025 fail-open ships it raw under a live
-  frame regardless). Routing it through the now-fail-closed framework boundary
+  frame regardless). Routing it through the fail-closed framework boundary
   would redact the WHOLE violations payload to `:rf/redacted`
   and destroy the tool
   without closing any leak a live frame would have closed.
 
-  The current rule is a narrow hybrid: keep scrub-if-live, and carve this
+  The rule is a narrow hybrid: keep scrub-if-live, and carve this
   re-keyed runtime payload class out of the fail-closed
   boundary under a NAMED, narrow Story-MCP exception — `scrub-re-keyed-runtime`.
   It is NOT a broad `:rf.egress/local-raw` profile and NOT a general raw escape
@@ -98,14 +97,14 @@
   `:effective-args` (the resolved arg map), in any `:snapshot` body, and in
   the evidence trees (a `:narrative` beat's `:db-before`, a `:sub-runs`
   `:value`).
-  Some of those derived positions still match a classified path (an
+  Some of those derived positions match a classified path (an
   `:effective-args {:token …}` slice with `[:token]` classified); others
   re-key the value to a position the path cannot reach (the token at hiccup
   `[1 :value]`, not at `[:user :token]`).
 
-  EP-0025 REMOVED the value-match (taint-by-equality) redaction that used to
-  scrub the re-keyed copies — value-match is propagation/taint by another
-  name, which a hygiene helper does not earn (§\"What is removed\"). The
+  There is no value-match (taint-by-equality) redaction of the re-keyed
+  copies — value-match is propagation/taint by another name, which a
+  hygiene helper does not earn (EP-0025 §\"What is removed\"). The
   derived-tree projection is PATH-BASED: `project-egress` walks the tree
   against the frame's classification, redacting a value AT a classified path
   and leaving a RE-KEYED copy RAW (INTENDED FAIL-OPEN). A consumer that needs
@@ -124,8 +123,8 @@
   EP-0025-commit-plane-effect- / flow-sourced declarations, unioned at
   lookup). The scrubbers below are ORCHESTRATION only — build the
   derived-tree record (its `:source-db`), name the profile, apply the
-  `:include-sensitive` opt-out. This keeps the SECOND place EP-0015 egress
-  semantics could drift removed (EP-0015 best-practice review issue 2)."
+  `:include-sensitive` opt-out. This leaves no second place for EP-0015
+  egress semantics to drift."
   (:require [re-frame.core :as rf]
             [re-frame.mcp-base.egress :as rf.mcp-base.egress]
             [re-frame.mcp-base.elision :as rf.mcp-base.elision]
@@ -146,8 +145,8 @@
 ;; (`(and (sensitive-reads-allowed?) per-call-include-sensitive)`) is
 ;; mapped to the boundary by the SHARED pure fn
 ;; `re-frame.mcp-base.egress/mcp-tool-profile`: not-opted-in ⇒
-;; `:rf.egress/off-box-tool` (redact sensitive, elide large, no digest —
-;; rf2-3x7nj.32.6); the trusted-local opt-in ⇒ `:rf.egress/local-raw`
+;; `:rf.egress/off-box-tool` (redact sensitive, elide large, no digest);
+;; the trusted-local opt-in ⇒ `:rf.egress/local-raw`
 ;; (sensitive AND large pass through). The mapping lives in mcp-base so
 ;; story-mcp and re-frame2-pair-mcp cannot drift; this server calls it
 ;; only AFTER its own operator + per-call permission checks. The server
@@ -165,27 +164,25 @@
   posture resolves to. Returns the projected value,
   or the input unchanged when `include?` is true.
 
-  rf2-kuky.88 — this server NAMES the profile and the framework door
-  resolves it. The former `posture->elision-opts` helper (which resolved
-  the profile to its `:rf.egress/*` floor through a pure-data mirror of the
-  framework table) is gone along with the mirror: story-mcp is in-process,
-  so `project-egress` is directly reachable and there was never a reason
-  for this server to hold a second copy of the §10 table. This is the same
-  call shape the derived-tree path below already used.
+  This server NAMES the profile and the framework door resolves it.
+  story-mcp is in-process, so `project-egress` is directly reachable and
+  there is no reason for this server to hold a second copy of the §10
+  table (no pure-data mirror resolving the profile to its `:rf.egress/*`
+  floor). This is the same call shape the derived-tree path below uses.
 
   The egress walk reads `variant-id`'s per-frame elision registry
   (`[:rf.runtime/elision :sensitive-declarations]` / `:declarations`),
   written by the EP-0025 commit-plane `:sensitive` / `:large` classification
   effects (`:source :effect`, a `reg-event` returns them alongside `:db`). No
   per-read refresh is needed — the declarations are durable frame state, live
-  from classification onward; the former schema→registry population hook
-  (`:elision/populate-from-schemas!`) was removed with the §8 schema-attached
-  app-db egress route.
+  from classification onward. There is no schema→registry population hook
+  (`:elision/populate-from-schemas!`): schemas describe shape only
+  (EP-0015 §8).
 
   The walk runs under the `:rf.egress/off-box-tool` profile floor (named
   here, resolved by `project-egress`): sensitive redacts to
   `:rf/redacted`, large elides to `:rf.size/large-elided` (no digest —
-  off-box-tool carries none since rf2-3x7nj.32.6), seeded at `variant-id`'s
+  off-box-tool carries none), seeded at `variant-id`'s
   frame.
 
   Two short-circuits avoid pointless work:
@@ -239,14 +236,15 @@
 
 (defn scrub-checks
   "Apply the SAME sensitive-record drop to the assertion group nested inside
-  each named check record (rf2-gwye.60).
+  each named check record.
 
   A check record (`re-frame.story.result/check-record`) groups the very
   assertion-record MAPS that also ride the top-level `:assertions` vec — the
   producer collects them by id + payload, it does not copy them into some
-  other shape. So a record `scrub-assertions+count` drops at the top level is
-  still sitting in `:checks[*][:assertions]`, carrying its `:actual` /
-  `:reason`, and a response that says `:dropped-sensitive 1` ships it anyway.
+  other shape. So without this, a record `scrub-assertions+count` drops at
+  the top level would still sit in `:checks[*][:assertions]`, carrying its
+  `:actual` / `:reason`, and a response that says `:dropped-sensitive 1`
+  would ship it anyway.
   Adding a named check to a variant must not defeat the filter.
 
   What is deliberately NOT done here:
@@ -277,10 +275,10 @@
 ;; plan-resolved value slots) re-surfaces the same app-db value at a position
 ;; that MAY or MAY NOT still match a classified path.
 ;;
-;; EP-0025 REMOVED the value-match (taint-by-equality) engine that used to
-;; collect live values at the declared paths and substitute any matching leaf
-;; (§"What is removed": value-match is propagation/taint by another name). The
-;; derived-tree projection is now PATH-BASED: each tree (or named slot) is
+;; There is no value-match (taint-by-equality) engine collecting live values
+;; at the declared paths and substituting any matching leaf (EP-0025 §"What is
+;; removed": value-match is propagation/taint by another name). The
+;; derived-tree projection is PATH-BASED: each tree (or named slot) is
 ;; walked through `project-egress` against the frame's classification. A
 ;; value AT a classified path within the tree redacts; a value RE-KEYED to a
 ;; position the path cannot reach ships RAW (fail-open).
@@ -298,7 +296,7 @@
   framework boundary `re-frame.core/project-egress`, the
   `:rf.observe/derived-tree` record's SINGLE-TREE form (`:slot-keys nil`).
 
-  EP-0025 FAIL-OPEN: the value-match (taint-by-equality) engine is REMOVED. The
+  EP-0025 FAIL-OPEN: there is no value-match (taint-by-equality) engine. The
   projection walks `tree` through `project-egress` against `variant-id`'s
   classification registry (frame- / commit-plane-effect- / flow-sourced
   declarations, unioned) on BOTH the `:sensitive` and `:large` axes. A value
@@ -307,8 +305,8 @@
   `[:token]` classified) redacts to `:rf/redacted` / elides to the
   `:rf.size/large-elided` marker. A value RE-KEYED to a position the path
   cannot reach (a token at hiccup `[1 :value]`, a blob at `[:pre blob]`) is
-  NOT covered and ships RAW — INTENDED FAIL-OPEN. The `app-db` arg is retained
-  as the record's `:source-db` but no longer seeds a value-candidate set; the
+  NOT covered and ships RAW — INTENDED FAIL-OPEN. The `app-db` arg becomes
+  the record's `:source-db` and seeds no value-candidate set; the
   redaction is purely positional.
 
   Short-circuits, mirroring `elide-app-db`:
@@ -324,7 +322,7 @@
       would break a downstream schema expecting a sequential — the
       `run-variant` error branch mints `[]` evidence slots via
       `story/run-result`, and a `:rf/redacted` where the frozen
-      `[:sequential :any]` schema requires a sequential re-breaks the exact
+      `[:sequential :any]` schema requires a sequential would break the exact
       invariant the `(vec …)` guard holds in testing.cljc. `(coll? tree)`
       excludes scalars (a string is not a
       `coll?`); the nil case is already handled above.
@@ -373,7 +371,7 @@
 ;;
 ;; The three live-state tools (`preview-variant` / `run-variant` /
 ;; `read-failures`) hold the post-run `:app-db` in hand and feed it to
-;; `elide-app-db` (path) + `scrub-rendered` (value). But one NON-live
+;; `elide-app-db` (path) + `scrub-rendered` (derived trees). But one NON-live
 ;; RUNTIME tool also crosses the AI/off-box boundary carrying captured VALUES
 ;; that can sit at a frame's declared-`:sensitive?` paths:
 ;;
@@ -390,7 +388,7 @@
 ;; The secret rides a position the app-db classification path cannot reach
 ;; (a node `:html` outerHTML), so a PATH-scrub is a NO-OP
 ;; for it EVEN under a live frame (EP-0025 fail-open ships it raw under
-;; a live frame regardless). Routing it through the now-fail-closed
+;; a live frame regardless). Routing it through the fail-closed
 ;; framework boundary on a non-live frame would redact the WHOLE payload to
 ;; `:rf/redacted` and destroy the tool WITHOUT closing any real leak. It
 ;; takes the NAMED Story-MCP `scrub-re-keyed-runtime` exception: live ⇒
@@ -482,7 +480,7 @@
   (cond
     include?    tree
     (nil? tree) tree
-    ;; LIVE frame ⇒ PATH-project through the (now fail-closed) framework
+    ;; LIVE frame ⇒ PATH-project through the (fail-closed) framework
     ;; boundary; a live frame redacts by path / fail-opens a re-keyed value.
     (variant-frame-live? variant-id)
     (scrub-rendered tree (rf/app-db-value variant-id) variant-id include?)
@@ -499,10 +497,10 @@
 ;; `:rf.size/large-elided` marker. spec/Conventions.md §Cross-MCP indicator-field
 ;; vocabulary is MUST-level: a tool that walks a tree-typed payload MUST
 ;; carry an `:elided-large` count alongside the `:dropped-sensitive`
-;; count, omitting each slot when zero. The sibling pair-mcp already
-;; wires `re-frame.mcp-base.envelope/with-indicators` +
+;; count, omitting each slot when zero. The sibling pair-mcp wires
+;; `re-frame.mcp-base.envelope/with-indicators` +
 ;; `re-frame.mcp-base.elision/count-elided-markers` across its tools;
-;; story-mcp now reuses the SAME mcp-base primitives so the omit-when-
+;; story-mcp reuses the SAME mcp-base primitives so the omit-when-
 ;; zero rule lives in one place and the count bytes stay byte-identical
 ;; across the pair.
 ;; ---------------------------------------------------------------------------
@@ -543,9 +541,9 @@
   by walking the FINAL payload for `:rf.size/large-elided` markers via
   `count-elided`.
 
-  This is the dual-coded epilogue the three live-state handlers shared
-  verbatim — `preview-variant` / `run-variant` / `read-failures` each
-  closed with `(rf.story-mcp.tools.result/edn-result (with-indicators payload {:dropped d
+  This is the epilogue the three live-state handlers share —
+  `preview-variant` / `run-variant` / `read-failures` would otherwise each
+  close with `(rf.story-mcp.tools.result/edn-result (with-indicators payload {:dropped d
   :elided (count-elided payload)}))`. Named once so each handler reads
   as 'return this payload with its egress indicators' rather than
   re-spelling the count-derive-and-splice dance. Counts omit their slot
