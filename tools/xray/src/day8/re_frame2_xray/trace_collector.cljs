@@ -64,7 +64,10 @@
   (atom default-frameless-ring-depth))
 
 (defonce ^:private frameless-ring
-  ;; Oldest entries at the head; conj appends, subvec evicts the head.
+  ;; Oldest entries at the head; conj appends, eviction copies the kept
+  ;; tail into a fresh vector. Never keep a `subvec` view here: it holds
+  ;; its whole backing vector reachable and later `conj`s extend that
+  ;; backing, so every evicted payload would stay live (rf2-wotl9).
   ;; Vector under an atom matches the same primitive the per-frame rings
   ;; use inside `re-frame.trace.tooling/trace-rings`.
   (atom []))
@@ -79,7 +82,7 @@
              (let [ring' (conj ring event)
                    n     (count ring')]
                (if (> n depth)
-                 (subvec ring' (- n depth))
+                 (into [] (subvec ring' (- n depth)))
                  ring'))))))
 
 (defn frameless-events
@@ -114,7 +117,7 @@
              (let [n (count ring)]
                (cond
                  (zero? depth) []
-                 (> n depth)   (subvec ring (- n depth))
+                 (> n depth)   (into [] (subvec ring (- n depth)))
                  :else         ring)))))
   nil)
 

@@ -126,6 +126,7 @@
   `install!` registers `:rf.xray/reactive-data` + the panel-local
   disclosure-toggle state slot. Idempotent."
   (:require [re-frame.core :as rf]
+            [re-frame.live-frame :as rf.live-frame]
             [re-frame.subs.tooling :as rf.subs.tooling]
             [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]))
 
@@ -713,7 +714,16 @@
             ;; (registry-only); used to partition L1 / L2+ subs and
             ;; supply the inputs + code columns. Defensive try so a
             ;; topology read never crashes the panel.
-            topology (try (rf.subs.tooling/sub-topology) (catch :default _ nil))
+            ;;
+            ;; rf2-2jhet — resolved through the OBSERVED frame. This body
+            ;; runs inside Xray's own generation binding, and `sub-topology`
+            ;; reads whichever generation is bound, so a bare call classified
+            ;; the host's subs by the INSPECTOR's image: an image-local
+            ;; derived sub came back as a Level-1 app-db reader with no edges.
+            topology (try (rf.live-frame/call-with-frame-resolution
+                            (:frame focus)
+                            (fn [] (rf.subs.tooling/sub-topology)))
+                          (catch :default _ nil))
             proj     (project-record record topology)]
         (merge proj
                {:focus        focus
