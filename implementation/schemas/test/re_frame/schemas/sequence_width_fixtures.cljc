@@ -1,16 +1,17 @@
 (ns re-frame.schemas.sequence-width-fixtures
   "Shared, host-agnostic corpus for sensitive-value redaction across
-  VARIABLE-WIDTH `:cat` / `:catn` sequences (rf2-gwye.11 / rf2-fzbj.25).
+  VARIABLE-WIDTH `:cat` / `:catn` sequences.
   Both the JVM test (`re-frame.schemas-sensitive-test`) and the CLJS test
   (`re-frame.schemas-sequence-width-cljs-test`) register each schema at
   `[:items]`, validate `{:items value}` through `validate-app-schema!` and
   read the real trace recorder, so the redaction cannot diverge by host.
 
-  The defect: the walker read a `:cat` / `:catn` input index as its schema
-  child index. A regex element (`:*`, `:?`, a nested `:cat`) consumes zero or
-  many values, so the failing input element could belong to a DIFFERENT child
-  than the one the index named, and a sensitive payload's value — or a
-  sensitive `:map-of` key riding `:path` — shipped verbatim.
+  The hazard: a `:cat` / `:catn` input index is not its schema child index.
+  A regex element (`:*`, `:?`, a nested `:cat`) consumes zero or many
+  values, so the failing input element can belong to a DIFFERENT child than
+  the one the index names, and reading the index as the child would ship a
+  sensitive payload's value — or a sensitive `:map-of` key riding `:path` —
+  verbatim.
 
   Every case is pure vector-form data, so the corpus loads identically on the
   JVM and under `:node-test`.")
@@ -54,8 +55,8 @@
 
 (def precise-cases
   "Controls: each `{:desc :schema :value :expected}` must reject and report
-  `:expected` VERBATIM in `:value` — the fix is scoped to the ambiguous node
-  and does not blank ordinary failures."
+  `:expected` VERBATIM in `:value` — the fail-closed redaction is scoped to
+  the ambiguous node and does not blank ordinary failures."
   [{:desc     "a variable-width :cat declaring nothing sensitive reports its value"
     :schema   [:cat [:* :int] [:map [:name :string]]]
     :value    [{:name 5}]
