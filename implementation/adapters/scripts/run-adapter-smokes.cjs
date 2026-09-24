@@ -7,9 +7,9 @@
  * directory by the orchestrator). This runner spins up a Chromium
  * browser and executes the spec.cjs files declared in the shared
  * ADAPTER_SMOKES manifest (adapter-smoke-filter.cjs) — the same manifest
- * + the same `selectEntries` the orchestrator used to compile/stage, so
+ * + the same `selectEntries` the orchestrator uses to compile/stage, so
  * the selected set is identical across both phases for any
- * ADAPTER_SMOKE_FILTER shape (rf2-l72e2). Before running, the runner
+ * ADAPTER_SMOKE_FILTER shape. Before running, the runner
  * reconciles that manifest against the spec.cjs files actually on disk
  * under ADAPTER_SMOKE_SPEC_ROOTS, failing loudly on drift in either
  * direction. Each spec navigates to the surface's URL and asserts a
@@ -87,20 +87,18 @@ const BASE_URL = process.env.ADAPTER_SMOKE_BASE_URL || 'http://127.0.0.1:8050';
 // `reagent-testbed`) or path-shaped (`adapters/reagent/testbed`,
 // `reagent/testbed`). Unset (or empty) = the full sweep.
 //
-// Comma-separated alternatives are OR-matched. The previous design
-// substring-matched the filter against re-discovered absolute spec paths
-// in a string space that didn't bridge the build-id `<name>-testbed`
-// segment to the path `<name>/testbed` segments, so a build-id-shaped
-// filter matched zero specs after the orchestrator had already staged
-// the surface (rf2-l72e2). Selecting from the shared manifest removes
-// that asymmetry.
+// Comma-separated alternatives are OR-matched. Selecting from the shared
+// manifest is what bridges the two string spaces: a filter substring-matched
+// against re-discovered absolute spec paths alone would never bridge the
+// build-id `<name>-testbed` segment to the path `<name>/testbed` segments,
+// so a build-id-shaped filter would match zero specs after the orchestrator
+// had already staged the surface.
 //
 // The substring-trap protection (a bare `shop` must not be shadowed by a
-// worktree-name substring — see the saved-memory note) is preserved:
-// `selectEntries` still substring-matches, and patterns are matched only
-// against an entry's REPO-STABLE identities — its build id and its
-// repo-relative spec path — never the absolute spec path or any other
-// filesystem prefix (rf2-n4nc2o).
+// worktree-name substring) holds: `selectEntries` substring-matches, and
+// patterns are matched only against an entry's REPO-STABLE identities — its
+// build id and its repo-relative spec path — never the absolute spec path or
+// any other filesystem prefix.
 const FILTER = (process.env.ADAPTER_SMOKE_FILTER || '').trim();
 const FILTER_PATTERNS = parseFilterPatterns(FILTER);
 const TIMEOUT_MS = parseInt(process.env.EXAMPLE_SPEC_TIMEOUT_MS || '30000', 10);
@@ -114,9 +112,9 @@ const VERBOSE_TESTS = isVerboseTests();
 
 // Spec discovery (isSpecFile/listSpecFiles) and the manifest-vs-disk
 // reconciliation (reconcile) live in the shared adapter-smoke-filter.cjs
-// module — the one that already owns the ADAPTER_SMOKES manifest — so this
+// module — the one that owns the ADAPTER_SMOKES manifest — so this
 // runner and the fast-tier _adapter-smoke-filter.test.cjs exercise the SAME
-// real code instead of two copies that could drift (rf2-qf45gu). Specs live
+// real code instead of two copies that could drift. Specs live
 // alongside the testbed they exercise: each adapter (Reagent / UIx)
 // ships `implementation/adapters/<name>/testbed/spec.cjs`.
 
@@ -157,8 +155,8 @@ function withTimeout(promise, ms, label) {
   }
 
   // Select the spec set from the SAME manifest + SAME `selectEntries`
-  // the orchestrator used to compile/stage, so the selected set is
-  // identical in both phases for every filter shape (rf2-l72e2).
+  // the orchestrator uses to compile/stage, so the selected set is
+  // identical in both phases for every filter shape.
   const selected = selectEntries(FILTER_PATTERNS);
   if (selected.length === 0) {
     if (FILTER) {
