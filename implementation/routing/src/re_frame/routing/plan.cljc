@@ -15,8 +15,8 @@
 
   Everything here is PURE (or returns telemetry as DATA). The two entry
   points resolve their target differently — the programmatic path has
-  three target forms (`:route/id`, `{:url ...}`, URL-string), open-redirect
-  fail-closed gating, params/opts swap detection, the in-place
+  destination (`:to` / `:url`) and in-place request forms, the request-map
+  structural gate, open-redirect fail-closed gating, the in-place
   `:query-merge` fold,
   and `route-url` validation/reject; the URL-driven path just matches a
   URL string and carries a default scroll strategy (`:top` forward,
@@ -52,8 +52,8 @@
 ;; Per Spec 012 §Route-not-found + §Routing failure semantics: every
 ;; not-found fallback writes `{:url url}` into the slice's `:params`,
 ;; discriminated by an optional `:reason` for per-route error UIs and SSR
-;; projections. The reason vocabulary is SHARED across both entry points
-;; (rf2-4ic0f / rf2-6t1xb): an unexpected `match-url` throw stamps
+;; projections. The reason vocabulary is SHARED across both entry points:
+;; an unexpected `match-url` throw stamps
 ;; `:match-error`; a malformed percent-encoding stamps `:malformed-url`; a
 ;; schema-validation miss stamps `:validation`; a bare route-miss carries
 ;; no reason. Encoding the shape once keeps the two paths' fallback params
@@ -79,7 +79,7 @@
 ;; duplicate `[:rf.route/navigate {:to :route/cart}]`, popstate to the current
 ;; URL), which is the data-refetch thrash the rule forbids. The
 ;; fragment-only case (id/params/query equal, fragment changed) is the
-;; sibling short-circuit (rf2-8oxj6); this predicate is the stricter
+;; sibling short-circuit; this predicate is the stricter
 ;; "nothing at all changed" case.
 
 (defn identical-route-target?
@@ -134,8 +134,8 @@
   durable `:current` route fact). `scroll-cache` is the frame's host-side
   transient scroll-position cache map (`{:positions :order}` from
   `re-frame.routing.scroll/frame-scroll-cache`, threaded in EXPLICITLY by
-  the caller so this helper stays pure and never reaches the host atom —
-  rf2-1hncp2). `route-meta` is the TARGET route's metadata (for its
+  the caller so this helper stays pure and never reaches the host atom).
+  `route-meta` is the TARGET route's metadata (for its
   `:scroll` strategy). `opts` is the navigate opts map (or nil on the
   URL-driven path — no per-call `:scroll` override). `default-strategy` is
   `:top` (forward) or `:restore` (popstate/SSR). `url` keys the `:restore`
@@ -149,7 +149,7 @@
                     :from      (rf.routing.scroll/route-descriptor
                                  (get-in rdb [:rf.runtime/routing :current]))
                     :to        (rf.routing.scroll/route-descriptor* route-id params query)
-                    ;; rf2-g1i5m6: CANONICALISE the restore lookup key,
+                    ;; CANONICALISE the restore lookup key,
                     ;; symmetric with capture. Capture keys the leaving
                     ;; position under `rf.routing.scroll/route-slice-url` (the canonical
                     ;; `route-url` reconstruction); the raw incoming popstate
@@ -205,11 +205,11 @@
     :frame        — the active frame; threaded onto every tag map when
                     present so the trace lands in the emitting frame's epoch
                     / Xray and the SSR error-projector can attribute it
-                    per-frame (rf2-7d30s / rf2-w3qgc).
+                    per-frame.
 
   Each intent is `[:emit level op tags]`."
   [{:keys [throw-reason malformed? no-not-found? url frame]}]
-  (let [;; EP-0015 (rf2-n1f4rh): these are route-MISS / malformed-URL
+  (let [;; EP-0015: these are route-MISS / malformed-URL
         ;; diagnostics — there is NO matched route and therefore NO
         ;; `:params` / `:query` schema to consult, yet the requested URL is
         ;; the class most likely to carry secret material (`?token=…`,

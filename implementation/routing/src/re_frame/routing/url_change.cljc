@@ -37,14 +37,14 @@
   `:kind :route` discriminates this miss from the event / frame handler
   misses (Spec 009 §Error event catalogue — `:kind` is mandatory on every
   `:rf.error/no-such-handler` emit) and is what the SSR default projector
-  gates its `404` arm on (Spec 011 §Default projector). rf2-4ic0f: the
+  gates its `404` arm on (Spec 011 §Default projector). The
   `:reason` (a `match-url` throw pre-empts the malformed scan, so the two
   are mutually exclusive — throw-reason wins) keeps the structured error
   uniform across the trace and the route slice. The `:frame` tag (present
   when the caller threads it in) lets the SSR error-projection listener
   attribute the miss per-frame.
 
-  EP-0015 (rf2-n1f4rh): `:rf.error/no-such-handler` is a
+  EP-0015: `:rf.error/no-such-handler` is a
   production-survivable / off-box-observable category EP-0015 requires to
   FAIL CLOSED. A route-miss URL has no matched route → no schema to
   consult, and is the class most likely to carry secret carriers
@@ -62,18 +62,18 @@
       (rf.privacy.url/redact-url-tag :url)))
 
 (defn- emit-route-miss-error!
-  "Fan the URL-driven route miss out on the ALWAYS-ON error axis (rf2-ov56u,
-  ruling rf2-rqje9) — the production-survivable sibling of the dev
+  "Fan the URL-driven route miss out on the ALWAYS-ON error axis — the
+  production-survivable sibling of the dev
   `rf.trace/emit-error!` the caller emits alongside it.
 
-  WHY. Until this promotion the miss reached the wire ONLY through
-  `rf.trace/emit-error!`, gated on `rf.interop/debug-enabled?`. Under the
+  WHY. `rf.trace/emit-error!` alone is gated on
+  `rf.interop/debug-enabled?`. Under the
   documented production gate (`-Dre-frame.debug=false`, `:advanced` +
-  `goog.DEBUG=false`) nothing buffered, the SSR error projector had nothing
-  to project, and a request for an unroutable URL answered HTTP 200 — a
-  soft 404. Spec 009's catalogue already classifies
+  `goog.DEBUG=false`) nothing would buffer, the SSR error projector would
+  have nothing to project, and a request for an unroutable URL would answer
+  HTTP 200 — a soft 404. Spec 009's catalogue classifies
   `:rf.error/no-such-handler` as always-on with `:kind :route`, so this
-  conforms the implementation to the spec rather than widening the axis.
+  follows the spec rather than widening the axis.
 
   The record is the general NON-EVENT union shape
   `{:error <kw> :frame <id-or-nil> :time <ms> + flat category keys}` — this
@@ -110,23 +110,23 @@
   full URL transition path never emits this op and never coincides with
   a `:rf.route.nav-token/allocated` on the same drain. Consumers carry
   `:prev-fragment` / `:next-fragment` in `:tags`, plus the `:frame` stamp
-  (rf2-n0851k) so the fragment-only trace is frame-attributed exactly
+  so the fragment-only trace is frame-attributed exactly
   like every other routing trace inside a known navigation cascade (Spec
   012 §Multi-frame routing / Spec 009 — without `:frame`, epoch/Xray
   capture and frame-level trace suppression can drop or bypass the op).
 
-  Scroll (rf2-p1aipi — the URL-driven counterpart to rf2-k4exp1's
+  Scroll (the URL-driven counterpart to the
   programmatic `navigate.cljc` fragment-only door): capture the LEAVING
   position, THEN emit the resolved `:rf.nav/scroll`. Both fx are the
   entry-point's already-resolved `rf.routing.plan/scroll-plan` outputs, threaded in
   by the caller (`capture-fx` / `scroll-fx`) — the SAME pair the full-
   commit sibling in `url-change-fx` uses — so the fragment-only door and
-  the full-commit door resolve scroll identically. Before this fix the
-  URL-driven door computed a scroll plan but DROPPED the scroll-fx: a
+  the full-commit door resolve scroll identically. Computing a scroll plan
+  and DROPPING the scroll-fx would leave a
   user clicking a `#section` link (cause `:link`, default `:top` →
   scroll to the fragment) or Back-Forward to a fragment (cause
-  `:popstate`, default `:restore` → the saved position) computed where
-  to scroll and then never scrolled. This
+  `:popstate`, default `:restore` → the saved position) with a computed
+  scroll target and no scroll. This
   URL-driven door does NOT drive the browser URL (the address bar already
   changed via link-click pushState / popstate), so — unlike the
   programmatic door — it emits NO `:rf.nav/push-url`; but `pushState` /
@@ -140,7 +140,7 @@
                 :prev-fragment (:fragment prev)
                 :next-fragment next-fragment
                 :frame         frame})
-  ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db
+  ;; EP-0001: the route slice is durable routing runtime-db
   ;; state — read/write the runtime-db partition.
   (let [fx (vec (concat (when capture-fx [capture-fx])
                         (when scroll-fx  [scroll-fx])))]
@@ -181,11 +181,11 @@
    route-resource scope resolves db-derived viewer identity at route
    entry. Routing never reads it.
 
-   `cause` is the R0 navigation cause the dispatch represents — `:link`,
+   `cause` is the navigation cause the dispatch represents — `:link`,
    `:popstate`, `:initial` or `:ssr`, the four sub-doors the ONE
    `:rf.route/handle-url-change` event stands for, resolved by
    `url-change-cause`. It is carried on the route plan built at the commit
-   branch (EP-0037 R0b) and on any leave-pending / entry-denial value the
+   branch (EP-0037 R0) and on any leave-pending / entry-denial value the
    decisions produce.
 
    EP-0037 R4: the guard decisions (stages 4-5) run HERE, after the
@@ -198,35 +198,32 @@
    (alongside `:rf.route/cause :link`), so the same target is not decided
    twice.
 
-   rf2-szp11 — ONE argument map, keys named exactly as the destructuring
-   names them, which is the shape every other function in this seam already
+   ONE argument map, keys named exactly as the destructuring
+   names them, which is the shape every other function in this seam
    takes (`rf.routing.decisions/decide`, `rf.routing.plan/scroll-plan`, `resolve/route-plan`,
    `rf.routing.plan/fallback-telemetry-intents`, `commit-navigation`'s opts,
-   `navigate/fragment-only-nav-fx`). This was the seam's one positional
-   outlier, and it had grown to NINE positions — the last two (`cause` at
-   R0b, `opts` at R4) one slice at a time, each addition individually
-   harmless. Two of those positions were `nav-allocation`
-   (`{:token :counter}`) and `pending-nav-allocation` (`{:id :counter}`):
-   ADJACENT, SAME-SHAPED two-key maps, so transposing them at a call site
-   compiled and ran with no arity or type complaint, minted a nil id into
+   `navigate/fragment-only-nav-fx`). Positional arguments would be
+   dangerous here: `nav-allocation`
+   (`{:token :counter}`) and `pending-nav-allocation` (`{:id :counter}`) are
+   SAME-SHAPED two-key maps, so transposing them at a call site would
+   compile and run with no arity or type complaint, mint a nil id into
    either the committed slice's nav-token or the pending-navigation value,
-   and surfaced hundreds of lines away in nav-token cofx behaviour with
-   nothing pointing back at the call site. What kept it safe was that both
-   call sites live 75 lines apart in this namespace, not the design. Named
+   and surface hundreds of lines away in nav-token cofx behaviour with
+   nothing pointing back at the call site. Named
    keys make each call site say what it passes."
   [{:keys [rdb url default-scroll frame nav-allocation pending-nav-allocation
            app-db cause opts]}]
   (let [rdb (or rdb {})
-        ;; EP-0037 R0b: the URL -> ResolvedTarget extraction — including the
+        ;; EP-0037 R0: the URL -> ResolvedTarget extraction — including the
         ;; `:rf.route/not-found` fallback normalisation and its `:reason`
         ;; vocabulary — is the ONE shared definition in
         ;; `re-frame.routing.resolve/url-resolution`, the same seam the LINK
         ;; door's stage 3 + guards resolve through (`rf.routing.resolve/target-of-url`).
-        ;; Deriving it here as well is what let the two disagree: the link door
-        ;; decided against an incomplete target while this hop committed the
+        ;; Deriving it here as well would let the two disagree: the link door
+        ;; would decide against an incomplete target while this hop commits the
         ;; canonical not-found one.
         ;;
-        ;; rf2-6t1xb / rf2-4ic0f: the seam is fail-closed. `match-url-fail-closed`
+        ;; The seam is fail-closed. `match-url-fail-closed`
         ;; catches any throw out of `match-url` and yields a NIL match plus a
         ;; `:throw-reason` discriminator (`:match-error`), so a throwing URL
         ;; arriving via `:rf.route/handle-url-change`
@@ -246,9 +243,9 @@
         ;; `:rf.route/handle-url-change` honours it — link clicks AND
         ;; popstate / initial / SSR alike.
         ;; Back/Forward to a same-page anchor must not re-fetch route
-        ;; data (rf2-8oxj6).
+        ;; data.
         prev              (get-in rdb [:rf.runtime/routing :current])
-        ;; rf2-u8qe7y: fragment-only classification (Spec 012 §Fragments
+        ;; Fragment-only classification (Spec 012 §Fragments
         ;; rules 3-4) is shared pre-commit policy — `rf.routing.plan/fragment-only?`.
         ;; The fragment-only comparison is the PRE-fallback view: Spec 012
         ;; §Fragments rules 3-4 compares against the MATCHED route's id /
@@ -275,17 +272,15 @@
         ;; is :idle; commit-navigation projects :loading / :error from the
         ;; resource plan (readiness/project-at-commit).
         transition        :idle
-        ;; nav-token allocation moved into `commit-navigation` (reached
-        ;; only in the `:else` commit branch); the `identical-nav?` /
-        ;; `fragment-only?` short-circuits never allocated a usable token
-        ;; (the prior eager alloc was discarded on both), so the
-        ;; observable counter behaviour is unchanged.
-        ;; rf2-u8qe7y: the capture-fx + scroll-fx assembly is shared
+        ;; The nav-token is published in `commit-navigation` (reached
+        ;; only in the `:else` commit branch), so the `identical-nav?` /
+        ;; `fragment-only?` short-circuits publish none.
+        ;; The capture-fx + scroll-fx assembly is shared
         ;; pre-commit policy — `rf.routing.plan/scroll-plan` (URL-driven path passes
         ;; no opts; default strategy is the caller-supplied `default-scroll`).
         {:keys [capture-fx scroll-fx]}
         (rf.routing.plan/scroll-plan {:rdb              rdb
-                           ;; rf2-1hncp2: saved scroll positions are a
+                           ;; Saved scroll positions are a
                            ;; host-side transient cache (not runtime-db) —
                            ;; read the active frame's cache and thread it in
                            ;; explicitly so the planner stays pure. `:restore`
@@ -309,18 +304,16 @@
                      (rf.routing.decisions/decide
                        {:rdb                    rdb
                         :frame                  frame
-                        ;; rf2-2gna9: the guards decide against the ResolvedTarget
+                        ;; The guards decide against the ResolvedTarget
                         ;; the seam produced above — NOT a hand-rebuilt copy of it.
-                        ;; Re-assembling the five fields here is what let the two
+                        ;; Re-assembling the five fields here would let the two
                         ;; branches of this one door disagree about what the target
                         ;; is: the commit branch below publishes
                         ;; `(:target route-plan)`, which IS `resolved-target`, so a
                         ;; field the seam later adds would reach the guards and the
-                        ;; committed slice DIFFERENTLY — the precise class of bug
-                        ;; R0b closed between the link door and the commit hop
-                        ;; (`resolve.cljc`: "no door reinvents the ResolvedTarget
-                        ;; shape"), reappearing three lines from where the door
-                        ;; received the value.
+                        ;; committed slice DIFFERENTLY — the class of disagreement
+                        ;; the `resolve.cljc` seam exists to prevent between the
+                        ;; link door and the commit hop.
                         :target                 resolved-target
                         :requested-url          url
                         :cause                  cause
@@ -349,35 +342,35 @@
       (some? @decision)
       @decision
 
-      ;; Spec 012 §Fragments rules 3-4 (rf2-8oxj6): short-circuit BEFORE
+      ;; Spec 012 §Fragments rules 3-4: short-circuit BEFORE
       ;; the nav-token allocation / on-match drain below. Honoured on
       ;; every cause of `:rf.route/handle-url-change` (link click,
       ;; popstate) because the branch lives in the shared helper. The
       ;; carried `frame` is threaded through so the emitted
-      ;; `:rf.route/fragment-changed` trace is frame-attributed (rf2-n0851k),
+      ;; `:rf.route/fragment-changed` trace is frame-attributed,
       ;; consistent with the commit-path lifecycle traces below.
-      ;; rf2-p1aipi: pass the already-resolved scroll pair (`capture-fx` +
+      ;; Pass the already-resolved scroll pair (`capture-fx` +
       ;; `scroll-fx` from the shared `rf.routing.plan/scroll-plan` above) so the
       ;; fragment-only door EMITS the resolved `:rf.nav/scroll` (capture →
-      ;; scroll), matching the programmatic `navigate.cljc` door
-      ;; (rf2-k4exp1). No push-fx — the URL-driven door never drives the
+      ;; scroll), matching the programmatic `navigate.cljc` door.
+      ;; No push-fx — the URL-driven door never drives the
       ;; browser URL. `:scroll false` → `scroll-fx` nil → suppressed.
       fragment-only?
       (fragment-only-fx rdb prev fragment capture-fx scroll-fx frame)
 
       :else
-      ;; EP-0037 R0b: the URL-driven door lowers to the SAME resolved-target /
+      ;; EP-0037 R0: the URL-driven door lowers to the SAME resolved-target /
       ;; route-plan seam as the programmatic door. The plan's `:target` is the
       ;; very ResolvedTarget `url-resolution` produced above — the value the link
       ;; door's stage 3 and guards already decided against, now published into
       ;; the slice, so the seam is load-bearing rather than a parallel diagnostic
-      ;; copy. Its `:cause` / `:branch` / `:leaf-plan` are the R0 diagnostic
+      ;; copy. Its `:cause` / `:branch` / `:leaf-plan` are the plan diagnostic
       ;; projection (Spec 012 §Resolved target and the plan diagnostic
       ;; projection). The raw URL IS the source here.
       (let [route-plan (rf.routing.resolve/route-plan {:cause  cause
                                              :source {:url url}
                                              :target resolved-target})
-            ;; rf2-ov56u: ONE redacted tag map, TWO error axes. Built here
+            ;; ONE redacted tag map, TWO error axes. Built here
             ;; so the always-on production record and the dev trace below
             ;; describe the same miss with the same redaction.
             miss-tags  (when fallback?
@@ -385,7 +378,7 @@
                                            :frame        frame
                                            :throw-reason throw-reason
                                            :malformed?   malformed?}))]
-        ;; Axis 1 — ALWAYS-ON (rf2-ov56u, ruling rf2-rqje9). Survives
+        ;; Axis 1 — ALWAYS-ON. Survives
         ;; `-Dre-frame.debug=false` / `:advanced` + `goog.DEBUG=false`, so the
         ;; SSR error projector has something to project and an unroutable URL
         ;; answers 404 in the build you actually ship. Fires FIRST, matching
@@ -393,15 +386,14 @@
         (when miss-tags
           (emit-route-miss-error! miss-tags))
         ;; Axis 2 — the dev trace surface, alongside the shared fail-closed
-        ;; warning telemetry. rf2-u8qe7y: (`:rf.warning/malformed-url` for a
-        ;; `match-url` throw / malformed %-encoding — rf2-6t1xb / rf2-4ic0f;
+        ;; warning telemetry (`:rf.warning/malformed-url` for a
+        ;; `match-url` throw / malformed %-encoding;
         ;; `:rf.warning/no-not-found-route` when the not-found fallback has no
-        ;; registered route — rf2-0zr2o / Spec 012 §Route-not-found §3) is
+        ;; registered route — Spec 012 §Route-not-found §3) is
         ;; shared pre-commit policy with the programmatic path. Both build the
         ;; SAME intent list from the same inputs via
-        ;; `rf.routing.plan/fallback-telemetry-intents`, so the two paths cannot drift
-        ;; (the drift navigate.cljc:426-437 documents). The
-        ;; `:rf.error/no-such-handler` error is URL-driven-specific (every
+        ;; `rf.routing.plan/fallback-telemetry-intents`, so the two paths cannot drift.
+        ;; The `:rf.error/no-such-handler` error is URL-driven-specific (every
         ;; URL-driven fallback is a handler-miss; the programmatic `{:url}`
         ;; miss is the documented not-found escape hatch, not a
         ;; handler-resolution error) so it stays a call-site intent.
@@ -414,19 +406,19 @@
                      :frame         frame})
             fallback?
             (conj [:emit-error :rf.error/no-such-handler miss-tags])))
-        ;; EP-0037 R0b: ONE `:rf.route/planned` trace per door commit branch, so
-        ;; the R0 diagnostic projection is REACHABLE from an executed navigation
+        ;; EP-0037 R0: ONE `:rf.route/planned` trace per door commit branch, so
+        ;; the plan diagnostic projection is REACHABLE from an executed navigation
         ;; rather than only from a tool holding a plan value. This door stands for
         ;; FOUR of the five causes (`:link` / `:popstate` / `:initial` / `:ssr`),
         ;; so the `cause` it was handed is what distinguishes them on the stream.
         ;; `rf.routing.resolve/plan-trace-tags` is the ONE projection-to-tags mapping (the
         ;; programmatic door emits through it too) and it is what keeps the trace
-        ;; from becoming a carrier: the URL rides the existing `redact-url-tag`
+        ;; from becoming a carrier: the URL rides the `redact-url-tag`
         ;; path and `:params` / `:query` contribute KEY SETS, not values.
         (rf.trace/emit! :rf.event :rf.route/planned
                      (cond-> (rf.routing.resolve/plan-trace-tags route-plan)
                        frame (assoc :frame frame)))
-        ;; rf2-g8tzb / commit-navigation: nav-token alloc, the
+        ;; `commit-navigation`: nav-token alloc, the
         ;; allocated/activation traces, the slice publish (targeting
         ;; `:current`, so sibling routing-runtime keys are untouched),
         ;; and the fx assembly are the shared commit shape. The
@@ -437,37 +429,37 @@
           (assoc (:target route-plan) :transition transition)
           on-match-vec
           {:prev-id        (get-in rdb [:rf.runtime/routing :current :route-id])
-           ;; rf2-vdyrls: the prior route's nav-token — the second half of the
+           ;; The prior route's nav-token — the second half of the
            ;; previous route owner the resources plan releases on route leave
            ;; (Spec 016 §Route integration).
            :prev-nav-token (get-in rdb [:rf.runtime/routing :current :nav-token])
            :capture-fx   capture-fx
            :scroll-fx    scroll-fx
-           ;; rf2-vcop6y: the RECORDABLE nav-token allocation threaded through
+           ;; The RECORDABLE nav-token allocation threaded through
            ;; so the nav-token is PUBLISHED from `:token` (recorded +
            ;; replay-stable) + the `:counter` bump rides an fx.
            :nav-allocation nav-allocation
-           ;; rf2-cqyq2: the plan's already-resolved fail-loud `:parent` walk —
+           ;; The plan's already-resolved fail-loud `:parent` walk —
            ;; the SAME value its `:branch` diagnostic projects, so the trace and
            ;; the resource composition cannot disagree, and the commit hop walks
            ;; the chain no second time.
            :branch-contributors (:branch-contributors route-plan)
            :branch-error        (:branch-error route-plan)
-           ;; rf2-dbmj6x: the carried frame stamp (validated at the handler
+           ;; The carried frame stamp (validated at the handler
            ;; top, threaded into `url-change-fx`). `commit-navigation` stamps
            ;; it on the nav-token-allocated + activated/deactivated lifecycle
            ;; traces so the URL-driven `:rf.route/handle-url-change` path
            ;; frame-attributes them too,
            ;; consistent with the route-miss diagnostics already tagged above.
            :frame        frame
-           ;; EP-0016 D3 slice 3: route-entry app-db for `{:from-db …}` scope.
+           ;; EP-0016 D3: route-entry app-db for `{:from-db …}` scope.
            :app-db       app-db})))))
 
 (defn url-change-cause
-  "The true R0 navigation cause for one `:rf.route/handle-url-change`
+  "The true navigation cause for one `:rf.route/handle-url-change`
   dispatch. The event is ONE door standing for FOUR (Spec 012 §URL changes
   are events — a link click, popstate, initial page load, and the SSR request
-  URL), and the R0 causes `:link` / `:popstate` / `:initial` / `:ssr` are
+  URL), and the causes `:link` / `:popstate` / `:initial` / `:ssr` are
   cause-specific diagnostics, so the door must report which of the four it
   actually was rather than labelling them all `:popstate`. The resolved cause
   also fixes the default scroll strategy — `:top` for `:link`, `:restore`
@@ -522,20 +514,20 @@
   the shared `url-change-fx`, which honours the fragment-only
   short-circuit (Spec 012 §Fragments rules 3-4): a Back/Forward to a
   same-page `#fragment` updates :fragment WITHOUT allocating a new
-  nav-token or re-firing :on-match (rf2-8oxj6). `:frame` is
+  nav-token or re-firing :on-match. `:frame` is
   threaded through so the SSR error-projection listener can attribute
   the :no-such-handler trace per-frame.
 
   This one event stands for FOUR doors, so the plan cause is resolved
   per-dispatch by `url-change-cause` rather than hardcoded — otherwise the
-  declared `:link`, `:initial` and `:ssr` causes are dead and cause-specific
-  diagnostics misreport three of the five causes.
+  declared `:link`, `:initial` and `:ssr` causes would be dead and cause-specific
+  diagnostics would misreport three of the five causes.
 
   The default scroll strategy is a PURE FUNCTION of that resolved cause
   (Spec 012 §Scroll restoration): `:top` for `:link` — a forward link click
   lands you at the top of the new page — and `:restore` otherwise, so a
   Back/Forward or a reload puts the saved position back. A route's own
-  `:scroll` meta still overrides it, and `:scroll false` still suppresses."
+  `:scroll` meta overrides it, and `:scroll false` suppresses."
   [{frame :rf.frame/id rdb :rf.db/runtime
     nav-allocation :rf.route/nav-allocation
     pending-nav-allocation :rf.route/pending-nav-allocation
@@ -551,19 +543,19 @@
                   {:where 'rf.route/handle-url-change-handler})
         opts    (or opts {})
         rdb     (or rdb {})
-        ;; EP-0037 R0b: the URL-driven `:rf.route/handle-url-change` door stands
+        ;; EP-0037 R0: the URL-driven `:rf.route/handle-url-change` door stands
         ;; for FOUR sub-doors, so it carries the cause `url-change-cause`
         ;; resolves for THIS dispatch — `:link`, `:popstate`, `:initial`, or
         ;; `:ssr`. Resolved ONCE: the plan cause and the default scroll
         ;; strategy are two readings of the same value and cannot disagree.
         cause   (url-change-cause frame opts)]
-    ;; rf2-w3qgc: thread the active `frame` into `url-change-fx` so the
+    ;; Thread the active `frame` into `url-change-fx` so the
     ;; route-miss / malformed-url trace sites carry `:frame`, consistent with
     ;; the programmatic `:rf.route/navigate {:url ...}` path. Spec 009 requires
     ;; `:frame` on `:rf.error/no-such-handler {:kind :route}` and
     ;; `:rf.warning/no-not-found-route`. The carried `:frame` (the cascade cofx
     ;; supplies it) tags those traces.
-    ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
+    ;; EP-0001: the route slice is durable routing runtime-db state.
     ;; EP-0037 R4: the guard decisions run INSIDE `url-change-fx`, after the
     ;; transition kind is classified.
     (url-change-fx {:rdb                    rdb

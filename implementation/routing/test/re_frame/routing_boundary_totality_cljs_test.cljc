@@ -1,6 +1,6 @@
 (ns re-frame.routing-boundary-totality-cljs-test
-  "Cross-host parity for the exact/total navigate + route-url map boundaries
-  (rf2-oq0ld). This file is `*-cljs-test.cljc` so the shadow-cljs `:node-test`
+  "Cross-host parity for the exact/total navigate + route-url map boundaries.
+  This file is `*-cljs-test.cljc` so the shadow-cljs `:node-test`
   build exercises the boundary on the CLJS host too, alongside the JVM
   `clojure -M:test` runner.
 
@@ -13,25 +13,24 @@
   JVM-rich behavioural cases (slice-unchanged, no-push, the other `:reason`
   discriminators) live in routing_navigation_test.clj + routing_registry_test.clj.
 
-  ## Posture split (rf2-o5dbf)
+  ## Posture split
 
   Both boundaries are ALWAYS-ON and production-surviving, and both are
   asserted here WITHOUT a posture guard. `route-url` THROWS, so its three
-  tests were already posture-independent. `navigate` rejects by returning
+  tests are posture-independent. `navigate` rejects by returning
   `{}` from the handler after the always-on structural gate
   (`re-frame.routing.address/classify`) — a distinct channel from the
   dev-only schemas validation one (navigate.cljc §236-250) — so the
   rejection, the canonical `:keys` ordering and the unchanged slice are all
   readable in production. The total-order property in particular is a
-  property of `classify` itself, a pure always-on function, and is now
+  property of `classify` itself, a pure always-on function, and is
   asserted on it directly.
 
   What is dev-only is the `:rf.error/navigate-bad-request` TRACE the gate
   emits: `trace/emit-error!` sits behind `rf.interop/debug-enabled?`, read once
   at load time, so under `-Dre-frame.debug=false` the framework emits nothing
-  BY DESIGN. Those assertions are kept VERBATIM inside a
-  `(when rf.interop/debug-enabled? …)` arm marked `rf2-o5dbf`. Nothing was
-  deleted or weakened."
+  BY DESIGN. Those assertions sit inside a
+  `(when rf.interop/debug-enabled? …)` dev-instrumentation arm."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -107,10 +106,10 @@
     ;; :a/b, "s", and 3 are unknown keys of DIFFERENT kinds — a plain
     ;; `(sort #{:a/b \"s\" 3})` throws a ClassCastException on the JVM.
     (let [request {:to :route/gate :a/b 1 "s" 2 3 4}
-          ;; SEMANTIC, posture-independent (rf2-o5dbf): the total order is a
+          ;; SEMANTIC, posture-independent: the total order is a
           ;; property of the ALWAYS-ON structural gate, not of the diagnostic.
           ;; Assert it on `classify` directly — this is the assertion that
-          ;; would have caught the raw-`compare` throw, and it survives
+          ;; catches a raw-`compare` throw, and it survives
           ;; -Dre-frame.debug=false because `classify` does.
           bad     (rf.routing.address/classify request nil)
           err     (navigate-error request)]
@@ -124,7 +123,7 @@
       (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                         [:rf.runtime/routing :current]))
           "the rejected navigate left the route slice unchanged (no commit)")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (some? err) ":rf.error/navigate-bad-request emitted (no raw compare throw)")
         (is (= :unknown-keys (-> err :tags :reason)))
@@ -136,7 +135,7 @@
 (deftest navigate-non-map-query-merge-rejects-cross-host
   (testing "a present non-map :query-merge rejects (:query-merge-not-map) on
             both hosts — the fold's collection semantics never decide it"
-    ;; rf2-16w8. This is the case the bead singled out as needing a CLJS
+    ;; This case needs a CLJS
     ;; witness: the JVM symptom is decided by Clojure's `merge`/`conj`
     ;; collection protocol, and the CLJS host's protocol could present a
     ;; DIFFERENT accidental symptom for the same malformed request. Pinning
@@ -146,7 +145,7 @@
     (let [current {:route-id :route/search :query {:q "x"}}]
       ;; POSITIVE CONTROL, evaluated on whichever host is running: a
       ;; two-element vector really is a map entry HERE too, so an unguarded
-      ;; fold would have silently changed the query on this host as well.
+      ;; fold would silently change the query on this host as well.
       (is (= {:q "x" :page 2} (merge {:q "x"} [:page 2]))
           "control: this host's `merge` folds a 2-vector into a CHANGED query")
       (is (not (map? [:page 2]))
@@ -156,9 +155,9 @@
                (rf.routing.address/classify {:query-merge bad-value} current))
             "the always-on gate rejects the non-map delta with a stable reason"))
       (is (nil? (rf.routing.address/classify {:query-merge {}} current))
-          "{} remains a valid exact no-op on both hosts")
+          "{} is a valid exact no-op on both hosts")
       (is (nil? (rf.routing.address/classify {:query-merge {:page 2}} current))
-          "a map delta still passes on both hosts"))
+          "a map delta passes on both hosts"))
     ;; …and the rejection really holds through the real dispatch door, from a
     ;; LANDED route. Establishing a current route first is what makes this row
     ;; discriminating: dispatched with no current route the request would

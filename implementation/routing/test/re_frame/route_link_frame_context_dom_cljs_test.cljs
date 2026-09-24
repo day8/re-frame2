@@ -1,6 +1,5 @@
 (ns re-frame.route-link-frame-context-dom-cljs-test
-  "`[rf/route-link …]` RENDERS, MOUNTED THE WAY AN APPLICATION MOUNTS IT
-  (rf2-nvcp).
+  "`[rf/route-link …]` RENDERS, MOUNTED THE WAY AN APPLICATION MOUNTS IT.
 
   ## The gap this file closes
 
@@ -11,17 +10,17 @@
   whoever asks, from anywhere. So those suites can be green for a component
   that no application can render.
 
-  They were. `rf/route-link` reaches a call site through a `defwrapper`
+  `rf/route-link` reaches a call site through a `defwrapper`
   (`re-frame.core-routing`), whose body CALLS the value on the
-  `:routing/route-link` hook rather than mounting it. The component the
-  substrate actually mounted was therefore `rf/route-link` itself — a plain
-  fn, carrying no `{:contextType frame-context}` — so `(.-context cmp)` was
-  React's empty default, the REACT-CONTEXT tier (tier 2, the only tier a
-  real application's `frame-root` establishes) resolved nil, and
-  `route-link-render`'s render-time `require-current-frame!` raised
-  `:rf.error/no-frame-context` on first render. Three shipped examples
-  mounted nothing at all — `#app` innerHTML length 0, a blank page — while
-  the unit suites stayed green.
+  `:routing/route-link` hook rather than mounting it. Were that value the
+  registered head itself, the component the substrate mounted would be
+  `rf/route-link` — a plain fn, carrying no `{:contextType frame-context}` —
+  so `(.-context cmp)` would be React's empty default, the REACT-CONTEXT
+  tier (tier 2, the only tier a real application's `frame-root`
+  establishes) would resolve nil, and `route-link-render`'s render-time
+  `require-current-frame!` would raise `:rf.error/no-frame-context` on
+  first render. An application would mount nothing at all — `#app`
+  innerHTML length 0, a blank page — while the unit suites stayed green.
 
   So the rows below are deliberately NOT unit calls on the render fn:
 
@@ -32,8 +31,8 @@
       applications' own shape) in the other — with `:ambient-frame nil` on
       the fixture so no `with-frame` scope can answer in its place.
 
-  A row that passes because tier 1 answered would prove nothing, which is
-  exactly what the pre-existing coverage did.
+  A row that passes because tier 1 answered would prove nothing — the
+  blind spot the render-fn suites share.
 
   ## What a failure looks like
 
@@ -104,8 +103,8 @@
     {:adapter       rf.adapter.reagent/adapter
      ;; THE LOAD-BEARING LINE. With an ambient frame bound, tier 1 answers
      ;; every resolution and both rows below pass without the React-context
-     ;; tier ever being consulted — which is precisely the blind spot that
-     ;; let the regression ship.
+     ;; tier ever being consulted — which is precisely the blind spot this
+     ;; file exists to close.
      :ambient-frame nil
      :async?        true
      :init-fn       (fn []
@@ -193,7 +192,7 @@
 
 (deftest route-link-renders-under-a-frame-root-rf2-nvcp
   (testing "a route-link inside a frame-root — the ENSURE boundary, and the exact
-           shape every failing example mounted — renders its anchor"
+           shape an application mounts — renders its anchor"
     (if-not (browser?)
       (skip! "frame context is a React-context read on a mounted component")
       (async done
@@ -212,7 +211,7 @@
                 {:label "the route-link's anchor under a frame-root"})
               (.then  (fn [_] (assert-link-rendered! m "frame-root")))
               (.catch (fn [_]
-                        ;; The poll timing out IS the regression's signature —
+                        ;; The poll timing out IS the defect's signature —
                         ;; report it as the assertion the row is about, with the
                         ;; render's own error when one escaped.
                         (assert-link-rendered! m "frame-root")))

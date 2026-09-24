@@ -34,9 +34,8 @@
   Routing's own `prefetch-intent-attrs` maps over it rather than writing the
   positions out again, so a position added here reaches every anchor
   `rf/route-link` renders without a second edit. There is deliberately no
-  late-bind seam publishing the class: `:routing/prefetch-intent-keys` was
-  retired for want of a reader (rf2-6r9j.15), and a view artefact that needs
-  the positions lands a real reader first.
+  `:routing/prefetch-intent-keys` late-bind hook publishing the class on its
+  own: `link-model` carries it to a view artefact as `:prefetch-keys`.
 
   Order carries no meaning — the positions are independent, and each warms the
   same destination — but it is stable, so the attrs a render emits are too."
@@ -55,10 +54,11 @@
     - any other PRESENT value → a caller bug. Throws
       `:rf.error/route-link-bad-prefetch`.
 
-  The third case used to be silent: an equality-or-nil test treated `:prefetch
-  true` and `:prefetch :render` exactly like an absent key, so a typo or an
-  unsupported mode borrowed from another router downgraded the link to a passive
-  one with nothing on screen or in the log to say so — the failure mode a
+  The third case throws rather than passing silently: an equality-or-nil test
+  would treat `:prefetch true` and `:prefetch :render` exactly like an absent
+  key, so a typo or an unsupported mode borrowed from another router would
+  downgrade the link to a passive one with nothing on screen or in the log to
+  say so — the failure mode a
   prefetch typo can least afford, because a passive link looks identical to a
   working one until you measure. `:prefetch nil` and `:prefetch false` are
   PRESENT values and rejected too: the way to not prefetch is to omit the key,
@@ -109,10 +109,10 @@
   strategy `:encode` — the CLJS render its captured frame's, the SSR render
   the frame `rf/with-frame` pinned around the server walk — so the server
   shell and the hydrated client carry the same `:href` (Spec 011's
-  structural-equivalence rule; rf2-skr1c). Only the strategy's browser side
+  structural-equivalence rule). Only the strategy's browser side
   effects are CLJS-only; its pure `:encode` is not."
   [props encode]
-  ;; EP-0037 R0b: select the address through the ONE shared extractor
+  ;; EP-0037 R0: select the address through the ONE shared extractor
   ;; (`rf.routing.address/extract-address`, the closed `:to`/`:params`/`:query`/`:fragment`
   ;; key class) rather than a bespoke destructuring, and strip the address +
   ;; behaviour keys via the shared key-class constants — so route-link cannot
@@ -127,7 +127,7 @@
   ;;
   ;; DELIBERATE DUPLICATION — the `route-url` + `encode` pair below is also
   ;; derived by `link-model` (bottom of this file), and that is STRUCTURAL
-  ;; rather than incidental (rf2-arenp). Neither can call the other: this fn
+  ;; rather than incidental. Neither can call the other: this fn
   ;; must ALSO strip the control keys and hand back route-link's open
   ;; DOM-attribute passthrough map (Spec 012 §The extraction law), which
   ;; `link-model` must NOT do — the consuming view artefact owns its own markup
@@ -137,7 +137,7 @@
   ;; require, and there is none; a namespace invented to hold this calculation
   ;; would cost more than it saves. Do not spend an afternoon unifying them —
   ;; but if a shared home appears for another reason, collapse both onto it.
-  ;; (The same wall rf2-wzqtu hit for the readiness projectors.)
+  ;; (The readiness projectors meet the same wall; see `re-frame.routing.readiness`.)
   (validate-prefetch! props)
   (let [{:keys [to params query fragment] :as addr} (rf.routing.address/extract-address props)
         path-url (rf.routing.registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})]
@@ -182,19 +182,19 @@
 
   ONE key, and that is the request grammar's own rule rather than a trim for
   its own sake: `:url` EXCLUDES `:params` / `:query` because a raw URL IS the
-  address (Spec 012 §The request grammar). The `:to` / `:params` / `:query` /
-  `:fragment` this payload used to carry beside it were a second spelling of
+  address (Spec 012 §The request grammar). A `:to` / `:params` / `:query` /
+  `:fragment` beside it would be a second spelling of
   one destination — re-derived from `:url` by the match the handler runs
-  anyway — and nothing read them: `handle-url-change` destructures `url` /
+  anyway — and nothing would read them: `handle-url-change` destructures `url` /
   `replace?` / `bypass-leave?`, `normalize-policy` selects `[:replace?
   :scroll]`, and `decide` takes its `:target` from `(target-of-url app-url)`,
-  never from the request. Carrying them made the grammar false at the one
-  door that dispatches it, and invited a reader to believe an address key
-  here could disagree with the URL and still be honoured (rf2-kuky.36).
+  never from the request. Carrying them would make the grammar false at the one
+  door that dispatches it, and invite a reader to believe an address key
+  here could disagree with the URL and still be honoured.
 
-  That shrink is why this fn takes only `path-url`: the extracted address it
-  used to take as well is now upstream of the payload rather than in it. It
-  stays a named definition — rather than an inlined map literal at each of
+  So this fn takes only `path-url`: the extracted address is upstream of the
+  payload rather than in it. It
+  is a named definition — rather than an inlined map literal at each of
   its two call sites — because being the ONE synthesiser is the whole of its
   job: `rf/route-link` and the `link-model` seam dispatch the same navigation
   identity by construction, and a future key added here reaches both."
@@ -225,7 +225,7 @@
      [props render-frame]
      (when-let [payload (prefetch-payload props)]
        ;; Map over the class rather than writing the positions out a second
-       ;; time (rf2-7g4qn): `prefetch-intent-keys` is the ONE enumeration of the
+       ;; time: `prefetch-intent-keys` is the ONE enumeration of the
        ;; credible-intent positions, so a position added there reaches this
        ;; anchor with no second edit here.
        (into {}
@@ -301,9 +301,9 @@
      keeps the browser's open-in-new-tab affordance), calls `.preventDefault`
      and dispatches `payload` to the captured render frame with `:source
      :router` (so the L2 epoch timeline tags the cascade as a routing-substrate
-     dispatch, per rf2-t1lxr / rf2-1ve9h). `:frame render-frame` is an explicit
+     dispatch). `:frame render-frame` is an explicit
      dispatch opt — the router targets the rendering frame verbatim even though
-     the render scope has unwound by click time (rf2-o3nam4), so the dispatch
+     the render scope has unwound by click time, so the dispatch
      always lands on the CURRENTLY-committed frame (retarget-safe)."
      [e on-click render-frame payload native?]
      (when on-click (on-click e))
@@ -342,13 +342,13 @@
      defer on `defaultPrevented` / a native anchor / a modifier or
      auxiliary-button click, else `preventDefault` + dispatch).
 
-     Performance (rf2-r1in4): this is render-path code — every
+     Performance: this is render-path code — every
      `[rf/route-link ...]` re-render walks `route-url` for the href.
      Large nav menus re-rendering frequently amortise the cost over many
      calls; see `route-url`'s perf note for the precompute follow-on
      should it become a bottleneck."
      [{:keys [on-click] :as props} & children]
-     (let [;; rf2-o3nam4: CAPTURE the render-time frame ONCE, here at render —
+     (let [;; CAPTURE the render-time frame ONCE, here at render —
            ;; NOT at click time. `:route/link` is registered via `reg-view*`
            ;; with this prebuilt fn, so it does NOT receive the `reg-view`
            ;; macro's injected `make-capture-frame` render-time capture
@@ -425,9 +425,9 @@
   because Spec 011 makes the server tree and the client's first render
   structurally equal and an `:href` that differed would be a hydration
   mismatch. A `/demos`-based server frame therefore emits `/demos/active`
-  and a hash frame `#/active` (rf2-skr1c — this door used to hard-code
-  `identity`, so a based server shell rendered `/active` and left its
-  deployment mount when followed before hydration).
+  and a hash frame `#/active`; hard-coding `identity` here would render
+  `/active` from a based server shell, which leaves its deployment mount when
+  followed before hydration.
 
   The frame is READ, not required: `rf.frame/resolve-current-frame` answers
   the frame the SSR pipeline pins with `rf/with-frame` around its render
@@ -443,7 +443,7 @@
     (into [:a attrs] children)))
 
 ;; ---------------------------------------------------------------------------
-;; The substrate-neutral late-bound link seam (rf2-vxgfnd.95.5)
+;; The substrate-neutral late-bound link seam
 ;;
 ;; A view artefact's own route-link is an ORDINARY view in an OPTIONAL
 ;; artefact. It must not statically require routing
@@ -453,7 +453,7 @@
 ;; publish that calculation behind a small substrate-neutral seam routing owns
 ;; and the view artefact consumes — so the view reimplements NONE of the routing
 ;; link law and neither
-;; artefact statically requires the other (`ui -> core late-bind <- routing`).
+;; artefact statically requires the other (`<view artefact> -> core late-bind <- routing`).
 ;;
 ;;   `link-model`     — PURE, both hosts. The whole routing calculation for one
 ;;                      link render: strategy-encoded href, the path-form
@@ -476,7 +476,7 @@
 (defn link-model
   "The `:routing/link-model` seam (PURE, both hosts). Given a link `target`
   (the `:to` / `:params` / `:query` / `:fragment` control keys plus the
-  native-handling HTML attrs `:target` / `:download`) and the ui view's
+  native-handling HTML attrs `:target` / `:download`) and the consuming view's
   captured `render-frame` id, compute the rendered link model:
 
     {:href          <strategy-encoded href — one of the four strategy consult
@@ -506,8 +506,8 @@
   `prefetch-intent-keys` would reach `rf/route-link`'s anchors and silently
   not the consumer's — the exact drift `prefetch-intent-keys`' own docstring
   exists to refuse. Carrying them here rather than as a second late-bind hook
-  keeps the seam ONE hook: `:routing/prefetch-intent-keys` was retired for
-  want of a reader (rf2-6r9j.15) and is deliberately not re-published.
+  keeps the seam ONE hook: there is deliberately no
+  `:routing/prefetch-intent-keys` hook.
 
   A nil `:prefetch` is the passive link, and it is what an ABSENT `:prefetch`
   key produces — never a partially-warm one. A consumer fills every
@@ -515,11 +515,9 @@
   `render-frame`'s `:url-strategy` supplies `:encode` on both hosts (a nil
   `render-frame` resolves to the history default), so the server shell's href
   is the one the hydrated client renders — SSR skips the strategy's browser
-  side effects, never its pure `:encode` (rf2-skr1c; the `:clj` arm used to
-  hard-code `identity`). Per Spec 012 §Linking from views and the rf2-5yovjt
-  ruling."
+  side effects, never its pure `:encode`. Per Spec 012 §Linking from views."
   [target render-frame]
-  ;; EP-0037 R0b: select the address through the ONE shared extractor
+  ;; EP-0037 R0: select the address through the ONE shared extractor
   ;; (`rf.routing.address/extract-address`) — the same closed key class `rf/route-link`,
   ;; `route-url`, and `:rf.route/navigate` resolve through. `native-anchor?`
   ;; still reads the FULL `target` (the `:target` / `:download` DOM attrs live
@@ -529,35 +527,35 @@
   ;; EP-0037 R3: `link-model` is the one link calculation a view artefact's
   ;; route-link runs on BOTH hosts, so the `:prefetch` value is validated
   ;; here too, and validated FIRST (see the call below the comment block).
-  ;; rf2-kuky.37: the seam now also CARRIES the warm-up. `prefetch-payload`
+  ;; The seam also CARRIES the warm-up. `prefetch-payload`
   ;; is PURE and runs on both hosts — the JVM/SSR shell drops the event props
   ;; the vector lands at, along with every other `on-*`, so the server emits
   ;; what the client emits minus handlers and rejects exactly what the client
-  ;; rejects. That symmetry is the whole point: the arm that used to skip
-  ;; `prefetch-payload` server-side is what left the SSR shell accepting a
-  ;; mode the hydrated client refused.
+  ;; rejects. That symmetry is the whole point: an arm that skipped
+  ;; `prefetch-payload` server-side would leave the SSR shell accepting a
+  ;; mode the hydrated client refuses.
   ;;
   ;; DELIBERATE DUPLICATION — the `route-url` + `encode` pair below is also
   ;; derived by `href-attrs` (top of this file, the `rf/route-link` internal),
-  ;; and that is STRUCTURAL rather than incidental (rf2-arenp). Neither can call
+  ;; and that is STRUCTURAL rather than incidental. Neither can call
   ;; the other: `href-attrs` must ALSO strip the control keys and return
   ;; route-link's open DOM-attribute passthrough map (Spec 012 §The extraction
   ;; law), which this seam must NOT do — the consuming view artefact owns its
   ;; own markup and passthrough attrs — and `href-attrs` takes `encode` as an
   ;; ARGUMENT where this fn resolves it from the `render-frame` it is handed.
   ;; Calling `href-attrs` from here would also invert the seam: it is the
-  ;; `rf/route-link` internal, this is the ui-facing surface. A shared helper
+  ;; `rf/route-link` internal, this is the view-artefact-facing surface. A shared helper
   ;; would need a home both already require, and there is none. Do not spend an
   ;; afternoon unifying them — but if a shared home appears for another reason,
-  ;; collapse both onto it. (The same wall rf2-wzqtu hit for the readiness
-  ;; projectors.)
+  ;; collapse both onto it. (The readiness projectors meet the same wall; see
+  ;; `re-frame.routing.readiness`.)
   ;; FIRST, before the route lookup. `prefetch-payload` below validates too
   ;; (it calls `validate-prefetch!` before it reads the value), so this call
   ;; is redundant for the VERDICT and load-bearing for the ORDER: a props
   ;; mistake the author made must outrank a route the registry does not have,
   ;; or `{:to :route/typo :prefetch true}` reports `:rf.error/no-such-route`
   ;; and says nothing about the two bad keys. Leaning on the `prefetch-payload`
-  ;; call alone put `route-url` first and did exactly that.
+  ;; call alone would put `route-url` first and do exactly that.
   (validate-prefetch! target)
   (let [{:keys [to params query fragment]} (rf.routing.address/extract-address target)
         path-url (rf.routing.registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})
@@ -580,22 +578,18 @@
      still runs the caller handler and dispatches nothing — passive by
      construction.
 
-     NO in-repo caller at present. This was published as the
-     `:routing/prefetch-on-intent!` late-bind seam for a view artefact's own
-     route-link, and that publication was retired for want of a reader
-     (rf2-6r9j.15). `rf/route-link` does NOT route through here — its
+     NO in-repo caller, and no late-bind hook publishes it: there is no
+     `:routing/prefetch-on-intent!` seam. `rf/route-link` does NOT route
+     through here — its
      `prefetch-intent-attrs` composes the same behaviour from
-     `compose-intent-handler` at every `prefetch-intent-keys` position. Kept as
+     `compose-intent-handler` at every `prefetch-intent-keys` position. It is
      routing's one statement of the intent-dispatch law, for a view artefact
      that needs it to call directly.
 
-     rf2-g8pf kept this fn on the ground that retiring it would leave a
-     `link-model` consumer able to ACCEPT `:prefetch :intent` with no
-     published way to honour it. rf2-kuky.37 closed that hole from the other
-     side — `link-model` now carries `:prefetch` / `:prefetch-keys`, and
-     `re-frame.fresco`'s route-link honours the key from there — so this fn
-     is no longer the ONLY published route. It stays for the consumer shape
-     the seam keys do not serve: a closure-based one. Fresco takes the data
+     `link-model` carries `:prefetch` / `:prefetch-keys`, and
+     `re-frame.fresco`'s route-link honours the key from there, so this fn is
+     not the ONLY way to honour `:prefetch :intent`. It serves the consumer
+     shape the seam keys do not: a closure-based one. Fresco takes the data
      route because its anchors carry intents as vectors its own lowering
      walks; a view artefact that installs real handler functions instead
      wants this composition, and would otherwise write it again."

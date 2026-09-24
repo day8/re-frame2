@@ -1,6 +1,6 @@
 (ns re-frame.routing-test-support
   "Shared JVM test fixtures + helpers for the routing artefact's split
-  concern-test namespaces (rf2-u8qe7y finding 3).
+  concern-test namespaces.
 
   The routing implementation is split into per-concern siblings under
   `re-frame.routing.*` (see `re-frame.routing`'s docstring). The JVM test
@@ -11,7 +11,7 @@
   `reset-runtime` fixture so the rf.registrar/runtime reset + façade `:reload`
   recovery lives in ONE place rather than copied per file.
 
-  Per the long-established consumer-test pattern: `reset-runtime` wipes the
+  Per the consumer-test pattern: `reset-runtime` wipes the
   registrar (`clear-all!`), re-inits the plain-atom substrate, and
   `(require 're-frame.routing :reload)` re-runs the façade's
   `reg-event` / `reg-fx` / `reg-sub` / hook / listener wires on the
@@ -38,33 +38,33 @@
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
   (rf/init! rf.substrate.plain-atom/adapter)
-  ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`, and
-  ;; rf.routing/nav fxs now require a carried frame stamp. Register `:rf/default`
-  ;; explicitly as the conventional single app frame. URL ownership is now an
+  ;; EP-0002: `init!` does not synthesise `:rf/default`, and
+  ;; rf.routing/nav fxs require a carried frame stamp. Register `:rf/default`
+  ;; explicitly as the conventional single app frame. URL ownership is an
   ;; EXPLICIT declaration (no `:rf/default`-owns-by-default floor — `url-owner-
   ;; frame-id` returns nil from absence), so this suite's URL-owning frame opts
   ;; in via `{:url-bound? true}`; the body runs with `:rf/default` pinned as
   ;; the ambient scope (the carried-invariant equivalent of wrapping every
   ;; test in `(with-frame :rf/default …)`). Explicit `{:frame …}` opts and
-  ;; inner `with-frame`/`make-frame` in the bodies still win.
+  ;; inner `with-frame`/`make-frame` in the bodies win.
   (rf/make-frame {:id :rf/default :url-bound? true
                   :doc "Routing-suite default app frame (explicit URL owner)."})
   ;; Framework events / fx (routing.cljc, ssr.cljc) are registered at
   ;; ns-load; clear-all! wiped them. Reload to resurrect.
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
-  ;; rf2-dbiv8: re-seat the test-only `:rf.test/simulate-http-resolution`
+  ;; Re-seat the test-only `:rf.test/simulate-http-resolution`
   ;; fixture event after clear-all! (it lives in the test-support ns, not
   ;; the production façade).
   (require 're-frame.routing.test-support :reload)
   (rf.routing/reset-counters!)
-  ;; rf2-1hncp2 / rf2-oosjmh: the scroll-position cache AND the nav-counter
+  ;; The scroll-position cache AND the nav-counter
   ;; high-water marks are module-level host atoms (not runtime-db), so
   ;; `clear-all!` / frame reset does not touch them — drop them explicitly so
   ;; a saved position / counter value never leaks across tests.
   (rf.routing/reset-scroll-cache!)
   (rf.routing/reset-nav-counters!)
-  ;; rf2-3l7xxz: the URL-ownership claim-order vector is process-global state
+  ;; The URL-ownership claim-order vector is process-global state
   ;; (re-frame.routing.nav-fx/url-claim-order) that `clear-all!` / the `frames`
   ;; reset above does NOT touch (the late-bind `:routing/on-frame-registered!`
   ;; publication survives `clear-all!`, so the `:rf/default` reg at the top
@@ -87,14 +87,14 @@
   Returns a cleanup fn for the caller to invoke.
 
   Captures the prior bundle through the encapsulated
-  `schema-fns` read + `set-schema-fns!` install (rf2-l4ljvr) rather
+  `schema-fns` read + `set-schema-fns!` install rather
   than reaching the raw `validator-fn` / `explainer-fn` atoms — the
   snapshot also preserves the printer, so the cleanup restores the full
   prior bundle.
 
-  rf2-ps05ug: the stub is process-global, so while it is installed EVERY
+  The stub is process-global, so while it is installed EVERY
   schema-validating boundary uses it — including the routing recordable
-  allocation cofx, whose `:schema` is now a real Malli VECTOR
+  allocation cofx, whose `:schema` is a real Malli VECTOR
   (`[:map [:token :string] [:counter :int]]`). A Malli vector is not a
   callable predicate (and although a vector IS `ifn?` — it implements IFn
   for index lookup — calling it as `(schema value)` throws for a

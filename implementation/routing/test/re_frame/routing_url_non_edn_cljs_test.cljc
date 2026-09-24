@@ -1,6 +1,6 @@
 (ns re-frame.routing-url-non-edn-cljs-test
   "Adversarial fail-closed tests for the `route-url` URL-emission boundary
-  (rf2-94o54l.1 + .3, EP-0012). The companion CLJ-only cases live in
+  (EP-0012). The companion CLJ-only cases live in
   `routing_registry_test.clj`; THIS file is `*-cljs-test.cljc` so the
   shadow-cljs `:node-test` build (`cljs-test$`) ALSO exercises the boundary on
   the CLJS host — where a RAW JS OBJECT (`#js {…}`) and a `js/Date` are the
@@ -17,11 +17,11 @@
   fail closed at the relevant boundary. It MUST NOT use host `str`, JS object
   stringification, or object identity to invent a cache or route identity.\"
 
-  Before rf2-94o54l.1 the query KEY side was CEDN-guarded (the canonical-order
-  sort runs each key through `re-frame.identity/canonical-bytes`), but path
-  param values and query VALUES went straight to `url/url-encode`'s host
-  `(str v)`. These tests assert that a function / atom / raw JS object / host
-  `Date` / non-portable number in a path param or a (non-nil) query value now
+  The query KEY side is CEDN-guarded (the canonical-order
+  sort runs each key through `re-frame.identity/canonical-bytes`); unguarded,
+  path param values and query VALUES would go straight to `url/url-encode`'s
+  host `(str v)`. These tests assert that a function / atom / raw JS object / host
+  `Date` / non-portable number in a path param or a (non-nil) query value
   raises `:rf.error/route-url-non-edn-value` BEFORE any URL string is returned
   — never `route-url` returning a `/items/[object Object]`-style URL.
 
@@ -77,11 +77,11 @@
       (let [ex (thrown-route-url :route/item {:id v} {})]
         (is (some? ex)
             (str "a " (name label) " path value must throw, not host-stringify"))
-        ;; rf2-du585y: assert the STRUCTURED :rf.error/id (Spec 009 §the
+        ;; Assert the STRUCTURED :rf.error/id (Spec 009 §the
         ;; stable discriminator), not just the message string.
         (is (= :rf.error/route-url-non-edn-value (:rf.error/id (ex-data ex)))
             (str "structured :rf.error/id for a " (name label) " path value"))
-        ;; rf2-vvixub — message is a human sentence + the trailing
+        ;; The message is a human sentence + the trailing
         ;; [:rf.error/<id>] token; assert the token, not exact equality.
         (is (re-find #"\[:rf\.error/route-url-non-edn-value\]" (ex-message ex))
             (str "message token (secondary) for a " (name label) " path value"))
@@ -100,7 +100,7 @@
             (str "a " (name label) " query value must throw"))
         (is (= :rf.error/route-url-non-edn-value (:rf.error/id (ex-data ex)))
             (str "structured :rf.error/id for a " (name label) " query value"))
-        ;; rf2-vvixub — message is a human sentence + the trailing
+        ;; The message is a human sentence + the trailing
         ;; [:rf.error/<id>] token; assert the token, not exact equality.
         (is (re-find #"\[:rf\.error/route-url-non-edn-value\]" (ex-message ex))
             (str "message token (secondary) for a " (name label) " query value"))
@@ -116,9 +116,9 @@
     (rf/reg-route :route/scalar {} "/s/:v")
     (is (= "/s/hello" (rf.routing/route-url {:to :route/scalar :params {:v "hello"}})))
     (is (= "/s/false" (rf.routing/route-url {:to :route/scalar :params {:v false}}))
-        "a present-but-falsy boolean round-trips (existing contract)")
+        "a present-but-falsy boolean round-trips")
     (is (= "/s/0"     (rf.routing/route-url {:to :route/scalar :params {:v 0}}))
-        "a present-but-falsy integer round-trips (existing contract)")
+        "a present-but-falsy integer round-trips")
     (is (= "/s/x?n=1" (rf.routing/route-url {:to :route/scalar :params {:v "x"} :query {:n 1}}))
         "a portable-integer query value is admitted")
     (let [uuid #?(:clj  (java.util.UUID/fromString "550e8400-e29b-41d4-a716-446655440000")
@@ -137,15 +137,15 @@
           "a structured :rf.error/id, never a string return value"))))
 
 ;; ===========================================================================
-;; rf2-jlufhn — namespaced query keys round-trip through the route prism
+;; Namespaced query keys round-trip through the route prism
 ;; ===========================================================================
 ;;
 ;; EP-0012 §Route Prism Laws: match-url(route-url(...)) recovers the canonical
 ;; route data, and a namespaced keyword is a DISTINCT canonical EDN fact
-;; (Conventions §Canonical EDN identity). The prior emission used `(name k)`,
-;; which DROPS the namespace — `:user/id` and `:account/id` both became the
+;; (Conventions §Canonical EDN identity). Emitting `(name k)` would DROP the
+;; namespace — `:user/id` and `:account/id` would both become the
 ;; URL key `id`, so the prism could neither round-trip a single namespaced key
-;; nor distinguish two keys sharing a name across namespaces. The fix emits the
+;; nor distinguish two keys sharing a name across namespaces. Emission uses the
 ;; reversible token `query-key->url-token` (`:user/id` -> `user/id`, percent-
 ;; encoded `user%2Fid`) and recovers the EXACT declared keyword on the match
 ;; side.
@@ -166,7 +166,7 @@
 (deftest route-url-distinct-namespaces-same-name-do-not-collide
   (testing "ADVERSARIAL: two declared query keys that share a NAME across
             different namespaces (:user/id + :account/id) emit DISTINCT URL
-            keys and both round-trip — the prior (name k) collapsed both to a
+            keys and both round-trip — a bare (name k) would collapse both to a
             single `id=` pair, losing data and emitting a duplicate key"
     (rf/reg-route :route/two {:query [:map [:user/id :string] [:account/id :string]]} "/two")
     (let [url (rf.routing/route-url {:to :route/two :params {} :query {:user/id "u" :account/id "a"}})]
@@ -184,7 +184,7 @@
 
 (deftest route-url-namespaced-query-defaults-and-retain-round-trip
   (testing "a namespaced :query-defaults key is recovered with its namespace
-            (the declared-vocabulary token map covers defaults + retain, not
+            (the declared-vocabulary token map covers :query-defaults, not
             just the :query schema)"
     (rf/reg-route :route/dflt {:query-defaults {:user/page 1}} "/dflt")
     ;; an inbound URL carrying the namespaced key recovers the declared keyword
@@ -197,13 +197,13 @@
           "the default is filled under the namespaced declared keyword"))))
 
 ;; ===========================================================================
-;; rf2-jlufhn — fragment fails closed for non-string values
+;; Fragment fails closed for non-string values
 ;; ===========================================================================
 ;;
 ;; Spec 012 §Fragments: match-url returns a <string-or-nil> fragment, so a
-;; non-string fragment has no round-trippable form. The prior 4-arity gate
-;; `(and fragment (not= "" fragment))` host-stringified numbers/keywords into
-;; bogus URL identity and SILENTLY ELIDED a `false` fragment (it is falsy).
+;; non-string fragment has no round-trippable form. A truthiness gate
+;; `(and fragment (not= "" fragment))` would host-stringify numbers/keywords into
+;; bogus URL identity and SILENTLY ELIDE a `false` fragment (it is falsy).
 
 (defn- thrown-route-url-frag
   [route-id path-params query-params fragment]
@@ -219,8 +219,8 @@
     (rf/reg-route :route/frag {} "/frag")
     (doseq [[label v] [[:number 42]
                        [:keyword :section]
-                       ;; the motivating trap: `false` is a non-string the
-                       ;; prior truthiness gate SILENTLY elided as if nil.
+                       ;; the trap: `false` is a non-string a truthiness
+                       ;; gate would SILENTLY elide as if nil.
                        [:false-boolean false]
                        [:true-boolean true]
                        [:function (fn [_])]
@@ -238,7 +238,7 @@
 (deftest route-url-string-fragment-round-trips
   (testing "the guard is string-only, not no-fragment — a string fragment
             (including one with %-significant characters) round-trips, and nil
-            / empty-string fragments remain elided (existing contract)"
+            / empty-string fragments are elided"
     (rf/reg-route :route/fr {} "/fr")
     ;; nil + empty-string elide (no #)
     (is (= "/fr" (rf.routing/route-url {:to :route/fr :params {} :query {} :fragment nil})))
@@ -247,28 +247,28 @@
     (let [url (rf.routing/route-url {:to :route/fr :params {} :query {} :fragment "top"})]
       (is (= "/fr#top" url))
       (is (= "top" (:fragment (rf.routing/match-url url)))))
-    ;; a fragment with spaces / % round-trips byte-exact (the rf2-ede1h.1
-    ;; percent-encode/decode symmetry, unchanged by the new guard)
+    ;; a fragment with spaces / % round-trips byte-exact (the
+    ;; percent-encode/decode symmetry, which the string guard leaves intact)
     (let [url (rf.routing/route-url {:to :route/fr :params {} :query {} :fragment "50% done"})]
       (is (= "50% done" (:fragment (rf.routing/match-url url)))
           "a %-significant string fragment round-trips through encode/decode"))))
 
 ;; ===========================================================================
-;; rf2-rv7so9 — :uuid coercion is host-symmetric for a non-lowercase capture
+;; :uuid coercion is host-symmetric for a non-lowercase capture
 ;; ===========================================================================
 ;;
 ;; Spec 011 cross-host parity + EP-0012 prism laws: a mixed-/upper-case UUID in
 ;; a path segment must coerce to the SAME lowercase-canonical UUID and re-emit
-;; the SAME canonical URL on JVM and CLJS. Pre-fix, JVM `parse-uuid` lowercased
+;; the SAME canonical URL on JVM and CLJS. JVM `parse-uuid` lowercases
 ;; (UUID/fromString → canonical), but CLJS `(uuid s)` stores the string
-;; VERBATIM — so `match-url` yielded a host-DIVERGENT :params value (and
-;; `route-url` a host-divergent href) for a non-lowercase input: an
+;; VERBATIM — so without canonicalising, `match-url` would yield a host-DIVERGENT
+;; :params value (and `route-url` a host-divergent href) for a non-lowercase input: an
 ;; SSR(JVM)+hydrate(CLJS) deep-link mismatch. Because this `.cljc` runs on BOTH
 ;; the JVM (`clojure -M:test`) and the CLJS node runner, a fixed lowercase
 ;; expectation here pins the two hosts to the SAME value.
 
 (deftest uuid-path-mixed-case-coerces-host-symmetric
-  (testing "ADVERSARIAL (rf2-rv7so9): a mixed-/upper-case :uuid path capture
+  (testing "ADVERSARIAL: a mixed-/upper-case :uuid path capture
             coerces to the lowercase-canonical UUID and re-emits the lowercase
             canonical URL — IDENTICALLY on JVM and CLJS (this test runs on both)"
     (rf/reg-route :route/art {:params [:map [:id :uuid]]} "/articles/:id")
@@ -296,7 +296,7 @@
             routing_registry_test.clj.)"
     (rf/reg-route :route/art2 {:params [:map [:id :uuid]]} "/a/:id")
     (let [m (rf.routing/match-url "/a/NOT-A-UUID")]
-      ;; if the fix had lower-cased `v` unconditionally this would read
+      ;; lower-casing `v` unconditionally would make this read
       ;; "not-a-uuid"; the fallback must preserve the caller's original case.
       (is (= "NOT-A-UUID" (get-in m [:params :id]))
           "a non-UUID capture stays the raw original-case string (same JVM+CLJS)")

@@ -1,10 +1,10 @@
 (ns re-frame.route-link-cljs-test
-  "CLJS tests for the `:route/link` registered view (rf2-uhv2). Covers
+  "CLJS tests for the `:route/link` registered view. Covers
   the click-interception semantics that only run in a JS environment:
 
   - plain left-click (no modifier keys, button 0) → preventDefault is
     called AND `:rf.route/url-requested` is dispatched with the synthesised
-    URL + the route-id + path-params + query.
+    URL, which carries the path-params, query and fragment.
   - modifier-key clicks (cmd / ctrl / shift / alt) → preventDefault is
     NOT called and no event is dispatched; the browser handles the
     click natively (preserving open-in-new-tab affordances).
@@ -23,21 +23,21 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            ;; rf2-o3nam4: the delayed-click regression rebinds the ambient
+            ;; The delayed-click rows rebind the ambient
             ;; frame scope directly to model a real browser click firing
             ;; after the render-time rf.frame/provider scope has unwound.
             [re-frame.frame :as rf.frame]
-            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            ;; The listener / buffer surface lives in re-frame.trace.tooling.
             [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.routing :as rf.routing]
-            ;; rf2-3u16e: the credible-intent position class is pinned against
+            ;; The credible-intent position class is pinned against
             ;; its one published definition, so this file's literal cannot
             ;; silently fall behind it.
             [re-frame.routing.link :as rf.routing.link]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]))
 
-;; Snapshot/restore the registrar around each test (rf2-am9d) — same
+;; Snapshot/restore the registrar around each test — same
 ;; pattern as routing_cljs_test.cljs. We do NOT use registrar/clear-all!
 ;; on CLJS: it would wipe routing.cljc's ns-load-time registrations
 ;; (the :rf.route/* events, the :rf/route reg-sub family, AND the
@@ -82,7 +82,7 @@
   `:source` is the closed-enum functional-origin tag on the
   `:rf.event/dispatched` trace (stamped from the envelope in
   `emit-dispatched-trace!`); we surface it so callers can pin that the
-  route-link click stamps `:source :router` (rf2-t1lxr / rf2-1ve9h).
+  route-link click stamps `:source :router`.
   `:source` is hoisted to a top-level slot on every trace event
   (re-frame.trace/build-event — Spec 009 §Core fields hoist contract),
   not stamped under `:tags` on the success path."
@@ -133,13 +133,13 @@
       (is prevented? "preventDefault was called on plain left-click")
       (is (= :rf.route/url-requested (first dispatched))
           "the dispatched event is :rf.route/url-requested")
-      ;; Per rf2-t1lxr / rf2-1ve9h: the route-link click stamps the
+      ;; The route-link click stamps the
       ;; closed-enum functional-origin axis `:source :router` so Xray's
       ;; L2 timeline + filter pills tag the cascade as a
       ;; routing-substrate dispatch, not :ui.
       (is (= :router source)
           "the route-link dispatch stamps :source :router (not :unknown / :ui)")
-      ;; rf2-kuky.36: the payload is ONE key. `=` on the whole map is the
+      ;; The payload is ONE key. `=` on the whole map is the
       ;; pin — an address key creeping back in fails here rather than being
       ;; tolerated. The route id is not lost: `/cart` is what `:route/cart`
       ;; synthesised, and the handler matches it back.
@@ -151,9 +151,9 @@
     (rf/reg-route :route/article {:params [:map [:id :string]]
                                   :query  [:map [:tab [:enum :summary :details]]]} "/articles/:id")
     ;; :tab is declared as a BOUNDED [:enum …] keyword slot in the route's
-    ;; :query schema (a bare :keyword slot is rejected at reg-route,
-    ;; rf2-qot6ii); pass a conformant value through the link click so
-    ;; rf2-ug2m1's route-url validation doesn't reject the caller's payload.
+    ;; :query schema (a bare :keyword slot is rejected at reg-route);
+    ;; pass a conformant value through the link click so
+    ;; route-url's validation doesn't reject the caller's payload.
     (let [{:keys [dispatched]}
           (click! {:to       :route/article
                    :params   {:id "intro"}
@@ -161,11 +161,10 @@
                    :fragment "notes"}
                   (mk-event {}))
           payload (second dispatched)]
-      ;; rf2-kuky.36 shrank the payload to `{:url …}`, so the three address
-      ;; components are asserted where they now live — synthesised into the
-      ;; path-form url by the shared `url-requested-payload`. rf2-e9974's
-      ;; concern is unchanged and still covered: `:fragment` was the one slot
-      ;; no assertion reached on either surface, and it is pinned here (the
+      ;; The payload is `{:url …}`, so the three address
+      ;; components are asserted where they live — synthesised into the
+      ;; path-form url by the shared `url-requested-payload`. `:fragment`
+      ;; is pinned here (the
       ;; `#notes` tail) and in the seam suite.
       (is (= {:url "/articles/intro?tab=summary#notes"} payload)
           "params, query and fragment are all in the url, and the url is all
@@ -219,14 +218,13 @@
       (is (not prevented?))
       (is (nil? dispatched)))))
 
-;; ---- rf2-fwz29i: native-anchor attributes defer to the browser ----------
+;; ---- native-anchor attributes defer to the browser ---------------------
 ;;
 ;; A route-link rendered with native-handling anchor attributes
 ;; (`target="_blank"` / `download`) looks like a normal anchor in the DOM,
 ;; and a user expects the native new-tab / download behaviour. Intercepting
 ;; a plain left-click into a same-document `:rf.route/url-requested` dispatch
-;; silently breaks that contract. The pre-fix click handler intercepted on
-;; ANY unmodified primary click regardless of these attributes; the fix
+;; would silently break that contract, so the click handler
 ;; gates interception on `native-anchor?`. These tests prove plain
 ;; left-clicks on such links do NOT preventDefault and do NOT dispatch.
 
@@ -320,23 +318,23 @@
       (is (= :rf.route/url-requested (first dispatched))
           "the framework dispatched :rf.route/url-requested"))))
 
-;; ---- rf2-o3nam4: the click must carry the RENDER-TIME frame ---------------
+;; ---- the click must carry the RENDER-TIME frame -------------------------
 ;;
 ;; A real browser click runs LONG after render: the render-time dynamic
 ;; `with-frame` / frame-provider scope has already unwound by the time the
 ;; user clicks. Because `:route/link` is registered via `reg-view*` with the
 ;; prebuilt `route-link-render` fn, it does NOT get the `reg-view` macro's
-;; injected render-time frame capture — so a pre-fix on-click closure that
-;; dispatches with only `{:source :router}` resolves the frame AMBIENTLY at
-;; click time. Clicked outside any scope that raises
+;; injected render-time frame capture — so an on-click closure that
+;; dispatched with only `{:source :router}` would resolve the frame AMBIENTLY
+;; at click time. Clicked outside any scope that would raise
 ;; `:rf.error/no-frame-context`; clicked under a DIFFERENT ambient frame it
-;; silently routes the navigation to the wrong frame.
+;; would silently route the navigation to the wrong frame.
 ;;
-;; The fix captures the rendering frame ONCE at render time and dispatches
+;; `route-link-render` captures the rendering frame ONCE at render time and dispatches
 ;; `:rf.route/url-requested` into THAT frame (preserving `:source :router`). These
 ;; tests render the link under a non-default frame, then fire the click after
 ;; the render scope has unwound — modelling the genuine delayed-click path the
-;; existing same-scope tests above cannot reach.
+;; same-scope tests above cannot reach.
 
 (defn- click-after-scope-unwound!
   "Render `route-link` with `props` while a `with-frame` scope pins
@@ -460,7 +458,7 @@
   (testing "hover, focus and touch-start each warm the link's own destination"
     (rf/reg-route :route/article {:params [:map [:slug :string]]} "/articles/:slug")
     (let [positions [:on-mouse-enter :on-focus :on-touch-start]]
-      ;; ROSTER PIN (rf2-3u16e). The positions stay written out, because naming
+      ;; ROSTER PIN. The positions stay written out, because naming
       ;; them is what tells a reader which gestures this file exercises — but a
       ;; literal alone fails CLOSED: `prefetch-intent-attrs` maps over
       ;; `rf.routing.link/prefetch-intent-keys`, so a position added to that class would be

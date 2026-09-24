@@ -1,28 +1,27 @@
 (ns re-frame.routing-framework-authority-test
-  "EP-0001 (rf2-3939ig) — generalized framework-authority minting.
+  "EP-0001 — generalized framework-authority minting.
 
   Routing is one of the legitimate runtime-db writers Spec 002 §Write
   authority names (alongside machines / elision / ssr). Its event handlers
   (`:rf.route/navigate`, `:rf.route/handle-url-change`,
   `:rf.route/url-requested` / `:rf.route/continue` / `:rf.route/cancel`)
-  read AND return the reserved `:rf.db/runtime` route slice. Before the fix `assemble-initial-ctx` minted
-  framework-write authority from `:rf/machine?` ONLY, so every navigation
-  tripped the `:rf.warning/app-handler-runtime-effect` ownership diagnostic
-  in dev — polluting the Xray Issues lens and training users that the
-  warning is noise.
+  read AND return the reserved `:rf.db/runtime` route slice. Minting
+  framework-write authority from `:rf/machine?` ONLY would make every
+  navigation trip the `:rf.warning/app-handler-runtime-effect` ownership
+  diagnostic in dev — polluting the Xray Issues lens and training users that
+  the warning is noise.
 
-  The fix introduces the general `:rf/framework-authority? true` registration-
+  So authority comes from the general `:rf/framework-authority? true` registration-
   meta key (stamped by the routing façade's `reg-event` registrations);
-  the router reads the general key (folding in the `:rf/machine?` implication
-  via `events/framework-authority?`).
+  `assemble-initial-ctx` reads the general key (folding in the `:rf/machine?`
+  implication via `events/framework-authority?`).
 
   These tests assert that a representative set of REAL framework navigations
-  emit ZERO `:rf.warning/app-handler-runtime-effect`, while preserving the
-  POSITIVE half of the diagnostic: an ordinary app handler returning
-  `:rf.db/runtime` still warns. The broad cross-subsystem conformance sweep
-  is a separate bead; this is the routing-focused regression.
+  emit ZERO `:rf.warning/app-handler-runtime-effect`, while the POSITIVE half
+  of the diagnostic holds: an ordinary app handler returning
+  `:rf.db/runtime` warns. This namespace is routing-focused.
 
-  ## Posture split (rf2-o5dbf)
+  ## Posture split
 
   READ THIS BEFORE ADDING A CASE. Every `@warns` assertion in this namespace
   reads the DEV trace bus: `:rf.warning/app-handler-runtime-effect` is emitted
@@ -36,7 +35,7 @@
   gone.
 
   All six are therefore inside `(when rf.interop/debug-enabled? …)` arms marked
-  `rf2-o5dbf`, kept VERBATIM. What runs under the gate is the navigation
+  \"Dev-instrumentation arm\". What runs under the gate is the navigation
   SCAFFOLDING each case drives — the route really commits, the pending slot
   really fills and clears, `:rf.route/continue` really completes — which is
   production-real runtime-db state and posture-independent.
@@ -92,7 +91,7 @@
       (is (= :route/article (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                     [:rf.runtime/routing :current :route-id]))
           "the navigate handler wrote the route slice (:rf.db/runtime applied)")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (empty? @warns)
             ":rf.route/navigate is a framework-authority writer — no ownership diagnostic")))))
@@ -106,7 +105,7 @@
       (is (= :route/search (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                    [:rf.runtime/routing :current :route-id]))
           "the url-change handler wrote the route slice")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (empty? @warns)
             ":rf.route/handle-url-change is a framework-authority writer — no diagnostic")))))
@@ -142,7 +141,7 @@
       (is (= :route/cart (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                  [:rf.runtime/routing :current :route-id]))
           ":rf.route/continue completed the navigation")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (empty? @warns)
             "url-requested / continue / cancel are framework-authority writers — no diagnostic")))))
@@ -161,13 +160,13 @@
       (is (= :route/loaded (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                    [:rf.runtime/routing :current :route-id]))
           "the :on-match route committed onto the slice")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (empty? @warns)
             "the commit-navigation path is a framework-authority writer — no diagnostic")))))
 
 ;; ===========================================================================
-;; The diagnostic still fires for a genuine non-framework writer (control)
+;; The diagnostic fires for a genuine non-framework writer (control)
 ;; ===========================================================================
 
 (deftest ordinary-app-handler-returning-runtime-db-still-warns
@@ -178,7 +177,7 @@
                      (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :hijacked}}}}))
     (let [warns (record-runtime-warnings! ::app-sneaky)]
       (rf/dispatch-sync [:app/sneaky-runtime-write])
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). This deftest
+      ;; Dev-instrumentation arm (see ns docstring). This deftest
       ;; IS the non-vacuity control for the five quiet cases above, and it can
       ;; only do that job in the posture where the diagnostic exists.
       (when rf.interop/debug-enabled?
@@ -188,17 +187,17 @@
             "the diagnostic names the offending app event-id")))))
 
 ;; ===========================================================================
-;; Machines still mint authority (the :rf/machine? implication is preserved)
+;; Machines mint authority (the :rf/machine? implication)
 ;; ===========================================================================
 
 (deftest machine-handler-still-mints-authority
-  (testing "a :rf/machine? true handler returning :rf.db/runtime stays silent (no regression)"
+  (testing "a :rf/machine? true handler returning :rf.db/runtime stays silent"
     (rf/reg-event :machine/runtime-write
                      {:doc "framework-authority" :rf/machine? true}
                      (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:m 1}}}))
     (let [warns (record-runtime-warnings! ::machine)]
       (rf/dispatch-sync [:machine/runtime-write])
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (empty? @warns)
-            ":rf/machine? still implies framework-write authority via framework-authority?")))))
+            ":rf/machine? implies framework-write authority via framework-authority?")))))

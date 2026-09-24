@@ -1,5 +1,5 @@
 (ns re-frame.routing-trace-emit-elision-prod-test
-  "Per Spec 009 §Production builds (bead rf2-xxd6z) — RUNTIME prod-elision
+  "Per Spec 009 §Production builds — RUNTIME prod-elision
   contract for the `re-frame.routing` trace surface. Companion to the
   string-grep sentinel sweep in `scripts/check-elision.cjs`: the grep
   catches keyword-literal survival in the bundle blob; this file pins
@@ -17,16 +17,16 @@
 
   Surfaces exercised:
 
-  - `:rf.route/fragment-changed`         (emitted by `:rf.route/handle-url-change` on fragment-only nav; rf2-cj9fn)
+  - `:rf.route/fragment-changed`         (emitted by `:rf.route/handle-url-change` on fragment-only nav)
   - `:rf.route.nav-token/allocated`      (emitted by `navigate` / `handle-url-change`)
-  - `:rf.route/registered`               (emitted by `reg-route` on first-time register; rf2-dn26r)
-  - `:rf.route/cleared`                  (emitted by `clear-route`; rf2-dn26r)
-  - `:rf.route/activated` / `:rf.route/deactivated` (emitted on navigation cross-route transition; rf2-dn26r)
+  - `:rf.route/registered`               (emitted by `reg-route` on first-time register)
+  - `:rf.route/cleared`                  (emitted by `clear-route`)
+  - `:rf.route/activated` / `:rf.route/deactivated` (emitted on navigation cross-route transition)
   - `:rf.warning/malformed-url`          (emitted on URL parse failure)
   - `:rf.warning/no-not-found-route`     (emitted when unmatched and no fallback)
   - `:rf.route/navigation-blocked`       (emitted by the `:can-leave` guard)
   - `:rf.warning/route-shadowed-by-equal-score` (emitted at `reg-route`)
-  - `:rf.error/can-leave-non-boolean`    (emitted by the `:can-leave` guard; rf2-5pyyl)
+  - `:rf.error/can-leave-non-boolean`    (emitted by the `:can-leave` guard)
   - `:rf.warning/can-leave-subs-artefact-missing` (emitted by the guard)
 
   Naming convention: files ending in `-elision-prod-test.cljs` are
@@ -47,10 +47,10 @@
             ;; the elision-probe pattern: requiring forces compilation;
             ;; the gates do the elision work inside the closed body.
             [re-frame.routing]
-            ;; rf2-qwm0a — listener surface lives in `re-frame.trace.tooling`.
+            ;; The listener surface lives in `re-frame.trace.tooling`.
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
-;; rf2-ps05ug: the routing entry points exercised below run the RECORDABLE
+;; The routing entry points exercised below run the RECORDABLE
 ;; `:rf.route/nav-allocation` cofx generator, whose registration declares a
 ;; real Malli `:schema` (`[:map [:token :string] [:counter :int]]`). That
 ;; `:schema` check is ALWAYS-ON (it validates durable causal-token state in
@@ -98,13 +98,13 @@
 ;; ---- :rf.route.nav-token/allocated + lifecycle trio elide under prod -----
 
 (deftest handle-url-change-emits-no-trace-under-prod
-  (testing "Per Spec 009 §Production-elision (rf2-xxd6z): dispatching
+  (testing "Per Spec 009 §Production-elision: dispatching
             `:rf.route/handle-url-change` under `:advanced` +
             `goog.DEBUG=false` runs the routing slice update but emits
             NO trace events. The `:rf.route/registered`,
             `:rf.route.nav-token/allocated`, `:rf.route/activated` /
-            `:rf.route/deactivated` (rf2-dn26r), and
-            `:rf.route/fragment-changed` (rf2-cj9fn) emits are DCE'd
+            `:rf.route/deactivated`, and
+            `:rf.route/fragment-changed` emits are DCE'd
             by the gate inside `trace/emit!`."
     (let [seen (listener-fixture
                  (fn []

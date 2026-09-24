@@ -8,7 +8,7 @@
   The check runs from the frame (re-)registration lifecycle hook
   (`:routing/on-frame-registered!`, fired by the frame engine
   `re-frame.frame/upsert-frame!` on BOTH first-time registration and
-  re-registration — rf2-h1vqa4: frames do not flow through
+  re-registration — frames do not flow through
   `registrar/register!`, so there is no registrar registration hook for
   frames; frame config is read from the frames store via
   `rf.frame/frame-meta`).
@@ -82,7 +82,7 @@
   `:url-bound? true` drops any prior claim for that frame (it relinquished the
   binding). `url-owner-frame-id` then resolves the FIRST-CLAIMED still-live
   binding — the incumbent — so a later duplicate whose id sorts before the
-  incumbent can no longer steal the browser URL (Spec 012 §Multi-frame routing:
+  incumbent cannot steal the browser URL (Spec 012 §Multi-frame routing:
   the existing owner is unchanged, the duplicate's history-mutation fxs no-op).
 
   Public so the façade can compose it into its

@@ -1,6 +1,6 @@
 (ns re-frame.routing-address-extraction-test
   "Focused tests for the shared RouteAddress extraction law
-  `re-frame.routing.address` (EP-0037 R0b).
+  `re-frame.routing.address` (EP-0037 R0).
 
   Pins the extraction law directly at the seam — the closed key classes, the
   whole-roster structural gate (`classify`), the address-only selection
@@ -33,7 +33,7 @@
     (is (contains? rf.routing.address/policy-keys :bypass-leave?)
         "EP-0037 R4 OI-3: the leave-only escape is the plain boolean :bypass-leave?")
     (is (not (contains? rf.routing.address/policy-keys :bypass-guards?))
-        "the set-valued :bypass-guards? is retired"))
+        "there is no set-valued :bypass-guards? policy key"))
   (testing "the navigate roster is address ∪ raw-URL ∪ policy ∪ edit"
     (is (= #{:to :params :query :fragment :url :replace? :scroll :bypass-leave? :query-merge}
            rf.routing.address/navigate-request-roster))))
@@ -76,15 +76,15 @@
   (testing "an in-place edit before any current route rejects loud"
     (is (= :no-current-route (:reason (rf.routing.address/classify {:query {:a 1}} nil))))))
 
-;; ---- rf2-16w8 — the `:query-merge` VALUE is a map of query deltas ---------
+;; ---- the `:query-merge` VALUE is a map of query deltas --------------------
 
 (deftest classify-rejects-non-map-query-merge
   ;; Per Spec 012 §Validity rules rule 9 / §In-place navigation: `:query-merge`
   ;; is a MAP of query deltas. Key PRESENCE discriminates the in-place branch,
-  ;; so the gate is the ONLY place that can speak about the VALUE — before
-  ;; this rule a present non-map value sailed through `classify` and reached
+  ;; so the gate is the ONLY place that can speak about the VALUE — without
+  ;; this rule a present non-map value would sail through `classify` and reach
   ;; `navigate-handler`'s unguarded `merge` fold, where Clojure's own
-  ;; collection semantics decided the outcome three different ways.
+  ;; collection semantics would decide the outcome three different ways.
   (let [current {:route-id :route/search :query {:q "x"}}]
 
     (testing "POSITIVE CONTROL — the hazard this rule closes is real on this host"
@@ -117,12 +117,12 @@
       (is (= :query-merge-not-map
              (:reason (rf.routing.address/classify {:query-merge #{:page}} current)))))
 
-    (testing "a MAP value still passes — the valid surface is unchanged"
+    (testing "a MAP value passes"
       (is (nil? (rf.routing.address/classify {:query-merge {}} current))
-          "{} remains a valid exact no-op")
+          "{} is a valid exact no-op")
       (is (nil? (rf.routing.address/classify {:query-merge {:page 2}} current)))
       (is (nil? (rf.routing.address/classify {:query-merge {:sort nil}} current))
-          "a nil INSIDE the delta map still deletes a key — the rule is about
+          "a nil INSIDE the delta map deletes a key — the rule is about
            the delta map itself, never its members")
       (is (nil? (rf.routing.address/classify {:query-merge {:page 0 :flag ""}} current))
           "falsy member values are legitimate and untouched")
@@ -131,11 +131,11 @@
       (is (not= (class (sorted-map :page 2)) (class {:page 2}))
           "control: that last row really did exercise a DIFFERENT map type"))
 
-    (testing "the pre-existing exclusions keep precedence over the value check"
+    (testing "the roster and exclusion rules take precedence over the value check"
       ;; The value rule sits AFTER the roster / mutual-exclusion rules, so a
-      ;; request that is wrong in two ways still reports the relationship it
-      ;; always reported. This is what stops the new rule silently re-labelling
-      ;; existing rejections.
+      ;; request that is wrong in two ways reports the roster / relationship
+      ;; violation, and the value rule never silently re-labels those
+      ;; rejections.
       (is (= :unknown-keys
              (:reason (rf.routing.address/classify {:query-merge "oops" :bogus 1} current))))
       (is (= :url-excludes-address
@@ -196,8 +196,8 @@
                                  :rf/default)]
       (is (= "/articles/x" (:href model))
           "the DOM attrs did not leak into the synthesised href")
-      ;; rf2-kuky.36: the payload is ONE key. `=` on the whole map is the
-      ;; pin — an address key creeping back in (`:to`, `:params`, `:query`,
+      ;; The payload is ONE key. `=` on the whole map is the
+      ;; pin — an address key added to it (`:to`, `:params`, `:query`,
       ;; `:fragment`) fails here rather than being silently tolerated. The
       ;; address is not lost, it is IN the url: `/articles/x` is what
       ;; `{:to :route/article :params {:slug "x"}}` synthesised, and

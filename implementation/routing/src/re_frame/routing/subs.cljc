@@ -8,7 +8,7 @@
   The route slice lives at `[:rf.runtime/routing :current]` per
   Spec-Schemas §`:rf/runtime-db` — `{:route-id :params :query :transition
   :error :fragment :nav-token}`. (`:route-id` is the slice key; the
-  consumer-facing sub-id stays `:rf.route/id`.) `:pending-navigation` has its
+  consumer-facing sub-id is `:rf.route/id`.) `:pending-navigation` has its
   own `:rf/pending-navigation` sub, and the optional Resources integration may
   add resource-blocking bookkeeping as another sibling. Because all of these
   sit beside `:current` under `[:rf.runtime/routing ...]`, the slice carries only the
@@ -28,8 +28,8 @@
   "Layer-1 sub fn for `:rf/route` — reads the route slice from
   `[:rf.runtime/routing :current]`.
 
-  Internal to the artefact (rf2-kuky.36 deleted the `re-frame.routing`
-  alias that re-exported it). The public read is the subscription vector
+  Internal to the artefact (there is no `re-frame.routing` alias
+  re-exporting it). The public read is the subscription vector
   `[:rf/route]`; a tool that must reach the slice without a subscription
   spells the normative path `[:rf.runtime/routing :current]` directly, which
   Conventions §Reserved runtime-db keys fixes."

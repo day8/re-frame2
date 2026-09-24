@@ -2,10 +2,9 @@
   "Registry / match / URL-construction tests for re-frame.routing
   (reg-route, match-url, route-url, the match/registry primitives, query
   coercion + the keyword-interning cap, optional groups, splats, pattern
-  parsing, and metadata validation). Split from routing_test.clj per
-  rf2-u8qe7y finding 3.
+  parsing, and metadata validation).
 
-  ## Posture split (rf2-o5dbf)
+  ## Posture split
 
   The registry is production-real and almost all of this namespace carries no
   posture guard: `reg-route` validation and its fail-loud throws, `match-url`
@@ -14,22 +13,22 @@
   `clojure -M:test` suite AND in `scripts/test-routing-prod-gate.sh` (the
   `-Dre-frame.debug=false` lane).
 
-  Three deftests observed registry facts through the DEV TRACE instead: the
-  `:rf.route/registered` and `:rf.route/cleared` lifecycle ops (rf2-dn26r) and
-  the `:rf.warning/route-shadowed-by-equal-score` advisory (rf2-6gzobp). All
+  Three deftests also observe registry facts through the DEV TRACE: the
+  `:rf.route/registered` and `:rf.route/cleared` lifecycle ops and
+  the `:rf.warning/route-shadowed-by-equal-score` advisory. All
   three emit through `trace/emit!`, gated on `rf.interop/debug-enabled?` and read
-  once at load time. Their assertions are kept VERBATIM inside
-  `(when rf.interop/debug-enabled? …)` arms marked `rf2-o5dbf`.
+  once at load time. Their trace assertions sit inside
+  `(when rf.interop/debug-enabled? …)` arms.
 
   Two of the shadow-advisory blocks are NEGATIVE (`(is (= [] warns))` for the
   every-app static case and the disjoint param-prefix pair) and would pass
-  vacuously under the gate. Outside the arm each of the three now asserts the
-  REGISTRY fact the trace was reporting on — read off `rf/handler-meta` and
+  vacuously under the gate. Outside the arm each of the three asserts the
+  REGISTRY fact the trace reports on — read off `rf/handler-meta` and
   `match-url`, which are always-on. In particular the shadow advisory's whole
   claim is about which route wins at match time, so `match-url` is the natural
   witness: `/a/7` really does resolve to the earlier registration and really
   does carry ITS capture name, and the three disjoint static routes really are
-  all reachable. Nothing was deleted or weakened."
+  all reachable."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as string]
             [re-frame.core :as rf]
@@ -45,10 +44,9 @@
 
 (use-fixtures :each rf.routing-test-support/reset-runtime)
 
-;; ---- rf2-hra3: route-url missing-required-param raises clear error -------
+;; ---- route-url missing-required-param raises clear error -----------------
 ;;
-;; Per test-coverage-review-2026-05-12 P3-14. Hardening: ensure
-;; `route-url` doesn't silently emit a malformed URL when a required
+;; `route-url` must not silently emit a malformed URL when a required
 ;; path param is absent.
 
 (deftest route-url-missing-required-path-param-throws
@@ -61,8 +59,8 @@
                nil
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex) "route-url with absent required param raises")
-      ;; rf2-vvixub — anchor on the canonical :rf.error/id discriminator
-      ;; (the message is now a human sentence + trailing token).
+      ;; Anchor on the canonical :rf.error/id discriminator
+      ;; (the message is a human sentence + trailing token).
       (is (= :rf.error/missing-route-param (:rf.error/id (ex-data ex)))
           "the structured error id is :rf.error/missing-route-param")
       (let [data (ex-data ex)]
@@ -79,7 +77,7 @@
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex)
           "nil :id behaves like an absent :id — same structured error")
-      ;; rf2-vvixub — anchor on the canonical :rf.error/id discriminator.
+      ;; Anchor on the canonical :rf.error/id discriminator.
       (is (= :rf.error/missing-route-param (:rf.error/id (ex-data ex))))))
 
   (testing "providing the param works — sanity check the happy path"
@@ -95,18 +93,18 @@
                nil
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex) "absent splat raises")
-      ;; rf2-vvixub — anchor on the canonical :rf.error/id discriminator.
+      ;; Anchor on the canonical :rf.error/id discriminator.
       (is (= :rf.error/missing-route-param (:rf.error/id (ex-data ex)))
           "splat absence uses the same structured error id"))))
 
-;; ---- rf2-6iam6 + rf2-ede1h.2: falsy path params (false / 0) round-trip;
+;; ---- falsy path params (false / 0) round-trip;
 ;; the empty string is rejected
 ;;
 ;; Per Spec 012 §Bidirectional URL ↔ params an absent or nil path param
 ;; raises :rf.error/missing-route-param; a present-but-falsy NON-EMPTY
 ;; value (`false` / `0`) is a legitimate segment that round-trips through
-;; url-encode (the pre-rf2-6iam6 `(or v throw)` form mis-classified them
-;; as missing). The EMPTY STRING is the exception (rf2-ede1h.2): it would
+;; url-encode (an `(or v throw)` form would mis-classify them
+;; as missing). The EMPTY STRING is the exception: it would
 ;; emit a zero-length segment (`/articles/`) which match-url's
 ;; trailing-slash normalisation erases before matching, so it cannot
 ;; round-trip — the path side rejects it on emission, like nil/absent.
@@ -131,7 +129,7 @@
            (:params (rf.routing/match-url (rf.routing/route-url {:to :route/page2 :params {:flag 0}}))))
         "0 → \"/page/0\" → {:flag \"0\"}"))
 
-  (testing "rf2-ede1h.2: an empty-string required path param is REJECTED on
+  (testing "an empty-string required path param is REJECTED on
             emission — a zero-length segment cannot round-trip"
     (rf/reg-route :route/slug {} "/articles/:slug")
     (let [ex (try
@@ -140,7 +138,7 @@
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex)
           "\"\" path param throws (it would emit \"/articles/\", which match-url normalises to \"/articles\" and fails to match)")
-      ;; rf2-vvixub — anchor on the canonical :rf.error/id discriminator.
+      ;; Anchor on the canonical :rf.error/id discriminator.
       (is (= :rf.error/missing-route-param (:rf.error/id (ex-data ex)))
           "the empty-string rejection reuses the missing-required-param error id")
       (is (= "" (:value (ex-data ex)))
@@ -154,17 +152,17 @@
                nil
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex))
-      ;; rf2-vvixub — anchor on the canonical :rf.error/id discriminator.
+      ;; Anchor on the canonical :rf.error/id discriminator.
       (is (= :rf.error/no-such-route (:rf.error/id (ex-data ex)))
           ":rf.error/no-such-route is the structured error for an unregistered id"))))
 
-;; ---- rf2-oq0ld: route-url address-shape boundary is exact + total --------
+;; ---- route-url address-shape boundary is exact + total -------------------
 ;;
 ;; Every ADDRESS-shape failure routes through :rf.error/route-url-validation
-;; rather than a raw or misleading host error: a NON-MAP address reached
-;; `(keys address)` and threw a host exception; a MISSING :to fell through to
-;; the nil-pattern check and raised the misleading :rf.error/no-such-route "id
-;; nil"; a MIXED-KIND bad-key set reached a plain `sort` and threw a compare
+;; rather than a raw or misleading host error. Unguarded, a NON-MAP address would reach
+;; `(keys address)` and throw a host exception; a MISSING :to would fall through to
+;; the nil-pattern check and raise the misleading :rf.error/no-such-route "id
+;; nil"; a MIXED-KIND bad-key set would reach a plain `sort` and throw a compare
 ;; ClassCastException instead of naming the keys. The companion CLJS parity
 ;; cases live in routing_url_non_edn_cljs_test.cljc.
 
@@ -208,7 +206,7 @@
              (:keys (ex-data ex)))
           ":keys are the heterogeneous bad keys in total canonical order"))))
 
-;; ---- rf2-94o54l.1/.3: route-url fails closed on host-stringified values --
+;; ---- route-url fails closed on host-stringified values -------------------
 ;;
 ;; EP-0012 §Canonical EDN identity (docs/EP/EP-0012 §893-896; Conventions
 ;; §584-592): "If a route param value cannot be represented as canonical EDN
@@ -216,13 +214,12 @@
 ;; the relevant boundary. It MUST NOT use host `str`, JS object stringification,
 ;; or object identity to invent a cache or route identity."
 ;;
-;; Before this fix the query KEY side was CEDN-guarded (the canonical-order
-;; sort runs each key through `rf.identity/canonical-bytes`), but path-param
-;; values and query VALUES went straight to `url/url-encode`'s host `(str v)`.
-;; A function / atom / arbitrary host object / non-portable number would have
-;; been host-stringified into a fabricated URL identity; a host `Date` /
-;; instant would have been host-stringified into a HOST-DIVERGENT, un-round-
-;; trippable segment. `route-url` now fails closed with
+;; The query KEY side is CEDN-guarded (the canonical-order sort runs each key
+;; through `rf.identity/canonical-bytes`); path-param values and query VALUES
+;; need the same guard, because `url/url-encode`'s host `(str v)` would
+;; host-stringify a function / atom / arbitrary host object / non-portable
+;; number into a fabricated URL identity, and a host `Date` / instant into a
+;; HOST-DIVERGENT, un-round-trippable segment. `route-url` fails closed with
 ;; `:rf.error/route-url-non-edn-value` BEFORE any URL string is returned.
 
 (defn- route-url-throws-non-edn?
@@ -250,11 +247,11 @@
         (is (some? ex)
             (str "a " (name label) " path-param value must fail closed, never "
                  "host-stringify into a URL"))
-        ;; rf2-du585y: assert the STRUCTURED :rf.error/id (Spec 009 §the
+        ;; Assert the STRUCTURED :rf.error/id (Spec 009 §the
         ;; stable discriminator) as the primary check; the message is secondary.
         (is (= :rf.error/route-url-non-edn-value (:rf.error/id (ex-data ex)))
             (str "the structured :rf.error/id for a " (name label) " path value"))
-        ;; rf2-vvixub — message is a human sentence + the trailing
+        ;; The message is a human sentence + the trailing
         ;; [:rf.error/<id>] token; assert the token, not exact equality.
         (is (re-find #"\[:rf\.error/route-url-non-edn-value\]" (ex-message ex))
             (str "the message token (secondary) for a " (name label) " path value"))
@@ -278,7 +275,7 @@
             (str "a " (name label) " query value must fail closed"))
         (is (= :rf.error/route-url-non-edn-value (:rf.error/id (ex-data ex)))
             (str "the structured :rf.error/id for a " (name label) " query value"))
-        ;; rf2-vvixub — message is a human sentence + the trailing
+        ;; The message is a human sentence + the trailing
         ;; [:rf.error/<id>] token; assert the token, not exact equality.
         (is (re-find #"\[:rf\.error/route-url-non-edn-value\]" (ex-message ex))
             (str "the message token (secondary) for a " (name label) " query value"))
@@ -295,7 +292,7 @@
       (is (some? ex) "a fn in an entered optional group fails closed")
       (is (= :rf.error/route-url-non-edn-value (:rf.error/id (ex-data ex)))
           "structured :rf.error/id (primary)")
-      ;; rf2-vvixub — assert the [:rf.error/<id>] token, not exact equality.
+      ;; Assert the [:rf.error/<id>] token, not exact equality.
       (is (re-find #"\[:rf\.error/route-url-non-edn-value\]" (ex-message ex)) "message token (secondary)")
       (is (= :section (:param (ex-data ex)))))))
 
@@ -309,9 +306,9 @@
         "a keyword is admitted and host-stably stringifies (the leading `:`
          percent-encodes to %3A — admitted, not rejected)")
     (is (= "/s/false"  (rf.routing/route-url {:to :route/scalar :params {:v false}}))
-        "a present-but-falsy boolean round-trips (existing contract)")
+        "a present-but-falsy boolean round-trips (the falsy-param contract)")
     (is (= "/s/0"      (rf.routing/route-url {:to :route/scalar :params {:v 0}}))
-        "a present-but-falsy integer round-trips (existing contract)")
+        "a present-but-falsy integer round-trips (the falsy-param contract)")
     (let [uuid (java.util.UUID/fromString "550e8400-e29b-41d4-a716-446655440000")]
       (is (= "/s/550e8400-e29b-41d4-a716-446655440000"
              (rf.routing/route-url {:to :route/scalar :params {:v uuid}}))
@@ -329,14 +326,14 @@
     (let [ex (route-url-throws-non-edn? :route/order
                                         {:id (atom :x)}
                                         {:note "ok"})]
-      ;; rf2-vvixub — anchor on the canonical :rf.error/id discriminator
+      ;; Anchor on the canonical :rf.error/id discriminator
       ;; (a structured error, never a string return value).
       (is (= :rf.error/route-url-non-edn-value (:rf.error/id (ex-data ex)))
           "a structured error, never a string return value"))))
 
-;; ---- rf2-u1na: match-url malformed-input edge cases ----------------------
+;; ---- match-url malformed-input edge cases --------------------------------
 ;;
-;; Per test-coverage-review-2026-05-12 P3-13. Hardening for the URL parser.
+;; Edge cases for the URL parser.
 
 (deftest match-url-empty-string
   (testing "match-url \"\" matches the root '/' route (the compiled regex
@@ -364,7 +361,7 @@
 (deftest match-url-repeated-query-key-last-wins
   (testing "repeated query keys — last value wins (the parser's array-map
             reduce assoc's left-to-right, so a later key replaces an
-            earlier one). rf2-5ifai: the route declares no :query
+            earlier one). The route declares no :query
             vocabulary, so the key stays a string."
     (rf/reg-route :route/search {} "/search")
     (let [m (rf.routing/match-url "/search?x=1&x=2")]
@@ -374,7 +371,7 @@
 
 (deftest match-url-unterminated-query
   (testing "a query pair without an '=' value parses as an empty string.
-            rf/2-5ifai: the route declares no :query vocabulary, so the
+            The route declares no :query vocabulary, so the
             key stays a string."
     (rf/reg-route :route/search {} "/search")
     (let [m (rf.routing/match-url "/search?foo=")]
@@ -382,16 +379,16 @@
       (is (= "" (get-in m [:query "foo"]))
           "an unterminated `?foo=` parses to (get :query \"foo\") \"\""))))
 
-;; ---- rf2-t3cfil: match-url :query is in CEDN-1 canonical KEY order --------
+;; ---- match-url :query is in CEDN-1 canonical KEY order -------------------
 ;;
-;; EP-0012 tier-2 routing consumer sweep. The inbound URL's query string
+;; The inbound URL's query string
 ;; carries keys in whatever left-to-right order the author of THAT URL chose,
 ;; but the route slice's `:query` is route DATA — an identity fact the
 ;; `:rf.route/query` sub, no-op detection, and SSR-hydration parity key off.
 ;; Two inbound URLs spelling the same query in different key orders MUST yield
 ;; the SAME `:query` identity (and the same key ORDER), so match-url reorders
 ;; the surviving entries into CEDN-1 canonical key order. This is the inbound
-;; mirror of route-url's already-canonical query emission (rf2-wgutc2): per
+;; mirror of route-url's canonical query emission: per
 ;; Conventions §Routes are prisms, both prism legs share ONE canonical order.
 
 (defn- canonical-key-order
@@ -483,20 +480,21 @@
              (:params parsed))
           "the slug round-trips through route-url → match-url"))))
 
-;; ---- rf2-wbvme + rf2-4ic0f: malformed percent-encoding fails closed -------
+;; ---- malformed percent-encoding fails closed -----------------------------
 ;;
-;; Per Spec 012 §Routing failure semantics. `URLDecoder/decode` (JVM) and
-;; `decodeURIComponent` (CLJS) throw on malformed `%` sequences. Hostile
+;; Per Spec 012 §Routing failure semantics. The percent decoders
+;; (`decode-percent-escapes` on the JVM, `decodeURIComponent` on CLJS) throw
+;; on malformed `%` sequences. Hostile
 ;; URLs, partner integrations with broken escaping, and back-button to a
 ;; malformed link must produce a route-miss (404 path), never a request-
 ;; handler crash.
 ;;
-;; Contract (rf2-4ic0f): uniform fail-closed across path / query /
+;; Contract: uniform fail-closed across path / query /
 ;; fragment — `match-url` returns nil regardless of which portion is
 ;; malformed. The runtime refuses any URL whose %-encoding cannot be
 ;; uniformly decoded.
 ;;
-;; Reproducer from the security audit: `(rf.routing/match-url "/search?x=%")`
+;; For example `(rf.routing/match-url "/search?x=%")`
 ;; resolves to nil (route-miss → `:rf.route/not-found` with
 ;; `:reason :malformed-url` at `:rf.route/handle-url-change`).
 
@@ -515,14 +513,14 @@
         "/% with no matching route is a route-miss, not an exception")))
 
 (deftest match-url-malformed-percent-in-query-fails-closed
-  (testing "rf2-4ic0f: malformed %-encoding in a query VALUE fails closed —
+  (testing "malformed %-encoding in a query VALUE fails closed —
             the WHOLE URL is a route-miss, not just the bad pair"
     (rf/reg-route :route/search {} "/search")
     (is (nil? (rf.routing/match-url "/search?x=%"))
         "single-pair malformed query → route-miss, no partial slice")
     (is (nil? (rf.routing/match-url "/search?good=1&bad=%&also=2"))
         "good neighbours do NOT keep the URL routable when one pair is malformed"))
-  (testing "rf2-4ic0f: malformed %-encoding in a query KEY fails closed"
+  (testing "malformed %-encoding in a query KEY fails closed"
     (rf/reg-route :route/search2 {} "/search2")
     (is (nil? (rf.routing/match-url "/search2?%=v"))
         "malformed key → route-miss, not a dropped pair")
@@ -530,7 +528,7 @@
         "bad-key with good neighbours still fails the whole URL")))
 
 (deftest match-url-malformed-percent-in-fragment-fails-closed
-  (testing "rf2-4ic0f: malformed %-encoding in the `#fragment` portion
+  (testing "malformed %-encoding in the `#fragment` portion
             fails closed — `match-url` returns nil"
     (rf/reg-route :route/page {} "/page")
     (is (nil? (rf.routing/match-url "/page#%"))
@@ -552,7 +550,7 @@
       (is (= "" (:fragment m)) "bare `#` decodes to empty string"))))
 
 (deftest malformed-url?-predicate-discriminates-decode-failures
-  (testing "rf2-4ic0f: `malformed-url?` returns true for any URL whose
+  (testing "`malformed-url?` returns true for any URL whose
             %-encoding cannot be uniformly decoded; false otherwise.
             `:rf.route/handle-url-change` uses this to write `:reason :malformed-url`
             on the `:rf.route/not-found` slice."
@@ -575,7 +573,7 @@
     (is (true? (rf.routing/malformed-url? "/page#%")))
     (is (true? (rf.routing/malformed-url? "/page#good%a")))))
 
-;; ---- rf2-070jt: match-url :fragment + route-url 4-arity round-trip --------
+;; ---- match-url :fragment + route-url 4-arity round-trip ------------------
 ;;
 ;; Per Spec 012 §Bidirectional URL ↔ params and §Fragments §Programmatic
 ;; navigation with fragments. match-url surfaces the URL's `#fragment`
@@ -604,7 +602,7 @@
           "absent #fragment → :fragment nil"))))
 
 (deftest match-url-fragment-with-query
-  (testing ":fragment is independent of the query string. rf2-5ifai: no
+  (testing ":fragment is independent of the query string. No
             :query vocabulary declared, so the key stays a string."
     (rf/reg-route :route/search {} "/search")
     (let [m (rf.routing/match-url "/search?q=clojure#results")]
@@ -667,11 +665,11 @@
 ;; Per Spec 012 §Bidirectional URL ↔ params. The qs builder
 ;; (registry.cljc) joins `(name k)=url-encode(v)` pairs with `&`.
 ;; Coverage elsewhere only hits the single-pair `{:lang "en"}` case
-;; (route-url-4-arity-appends-fragment:918), which can't observe pair
+;; (route-url-4-arity-appends-fragment), which can't observe pair
 ;; ORDERING or query-VALUE percent-encoding. These are the two behaviours
 ;; the multi-pair `&`-join + per-value `url-encode` exist for.
 ;;
-;; rf2-wgutc2 (EP-0012 correctness review item 2): query keys are emitted
+;; Query keys are emitted
 ;; in DETERMINISTIC CANONICAL ORDER (by CEDN-1 key bytes), NOT the caller's
 ;; insertion order — so the same query map spelled in different key orders
 ;; builds the BYTE-IDENTICAL URL (Conventions §The `:rf/path` algebra: "query
@@ -717,7 +715,7 @@
         "a space in a query key encodes to %20")))
 
 (deftest route-url-drops-nil-query-values-keeps-falsy
-  (testing "rf2-ee38b.8: a nil-valued query key is ELIDED from the URL
+  (testing "a nil-valued query key is ELIDED from the URL
             (not emitted as a bare `?key=`), while present-but-falsy
             values (false / 0 / \"\") round-trip"
     (rf/reg-route :route/list {} "/list")
@@ -739,8 +737,8 @@
 
 (deftest match-url-route-url-round-trip-with-fragment
   (testing "URL → match-url → route-url 4-arity → URL recovers the original
-            (the full bidirectional contract including #fragment). rf2-5ifai:
-            unknown query keys stay as strings; route-url accepts both
+            (the full bidirectional contract including #fragment).
+            Unknown query keys stay as strings; route-url accepts both
             keyword + string keys via `(name k)` so the round-trip holds."
     (rf/reg-route :route/docs {} "/docs/:page")
     (let [original "/docs/routing?lang=en#scroll-restoration"
@@ -753,19 +751,19 @@
       (is (= original rebuilt)
           "the rebuilt URL equals the original — fragment round-trips"))))
 
-;; ---- rf2-ede1h.1: route-url percent-encodes the fragment ------------------
+;; ---- route-url percent-encodes the fragment ------------------------------
 ;;
 ;; Per Spec 012 §Bidirectional URL ↔ params / §Fragments. `match-url`
 ;; decodes the `#fragment` portion through decodeURIComponent semantics
 ;; (`split-fragment` → `safe-url-decode`), so `route-url` MUST encode it
-;; symmetrically. Appending the raw value produced a `#fragment` that
-;; `match-url` rejected as malformed the moment the value carried a literal
+;; symmetrically. Appending the raw value would produce a `#fragment` that
+;; `match-url` rejects as malformed the moment the value carries a literal
 ;; `%` (the bare `%` fails to decode → whole-URL route-miss), breaking the
 ;; bidirectional contract for programmatic fragments.
 
 (deftest route-url-percent-encodes-fragment
   (testing "a fragment with a literal `%` is percent-encoded on emission
-            and round-trips through match-url (rf2-ede1h.1)"
+            and round-trips through match-url"
     (rf/reg-route :route/docs {} "/docs/:page")
     (let [built (rf.routing/route-url {:to :route/docs :params {:page "routing"} :query {} :fragment "50% done"})]
       (is (not (clojure.string/includes? built "% "))
@@ -795,25 +793,21 @@
 
 ;; ---- route-url REJECTS path-params not named by the pattern --------------
 ;;
-;; FLIPPED from `route-url-ignores-extra-path-params` (rf2-0iuh3). This test
-;; used to pin the opposite answer — that route-url's emitter consumes only the
-;; `:`/`*` segments it walks, so extra keys in path-params are SILENTLY
-;; ignored — on the reasoning that a call site might over-supply by passing a
-;; whole slice's `:params` back through.
-;;
-;; That silence split the navigation doors. `/probe/:id` with
-;; `{:id "7" :extra "x"}` built `/probe/7`, so the programmatic door committed
+;; Emitting only the `:`/`*` segments the pattern walks and SILENTLY ignoring
+;; extra keys in path-params would split the navigation doors. `/probe/:id` with
+;; `{:id "7" :extra "x"}` would build `/probe/7`, so the programmatic door would commit
 ;; `:params {:id "7" :extra "x"}` (a slice its own address bar could not spell,
-;; and a page reload could not reproduce) while a route-link CLICK resolved
-;; through that URL and committed `{:id "7"}` — with `[:rf.route/prefetch …]`
-;; following the programmatic answer, so hovering a link warmed one resource
-;; identity and clicking the same link activated another. An uncaptured path
-;; param is a prism break, and route-url already fails closed on emission for
+;; and a page reload could not reproduce) while a route-link CLICK resolves
+;; through that URL and commits `{:id "7"}` — with `[:rf.route/prefetch …]`
+;; following the programmatic answer, so hovering a link would warm one resource
+;; identity and clicking the same link activate another. An uncaptured path
+;; param is a prism break, and route-url fails closed on emission for
 ;; every other one (the empty-string segment; the sequential-optional-group
-;; prefix chain). The over-supply case the old reasoning protected is real but
-;; narrow — a slice's params came FROM a match, so they are captured by
-;; construction — and the one framework instance of it, the reserved
-;; `:rf.route/not-found` slice's `{:url … :reason …}` fact record, is exempt.
+;; prefix chain). Over-supplying — passing a whole slice's `:params` back
+;; through — is real but narrow: a slice's params come FROM a match, so they
+;; are captured by construction, and the one framework instance of it, the
+;; reserved `:rf.route/not-found` slice's `{:url … :reason …}` fact record, is
+;; exempt.
 ;;
 ;; Cross-door coverage (both activation doors + prefetch + the optional-group
 ;; typo the missing-param error can never catch) lives in
@@ -879,7 +873,7 @@
                       (catch clojure.lang.ExceptionInfo e e))]
           (is (some? ex)
               "non-conformant path-params raise")
-          ;; rf2-vvixub — message is a human sentence + the trailing
+          ;; The message is a human sentence + the trailing
           ;; [:rf.error/<id>] token; anchor on the canonical :rf.error/id
           ;; and assert the token substring, not exact equality.
           (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex)))
@@ -911,7 +905,7 @@
                       (catch clojure.lang.ExceptionInfo e e))]
           (is (some? ex)
               "empty :q rejects against the query schema")
-          ;; rf2-vvixub — anchor on :rf.error/id; assert the token, not equality.
+          ;; Anchor on :rf.error/id; assert the token, not equality.
           (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex))))
           (is (re-find #"\[:rf\.error/route-url-validation\]" (ex-message ex)))
           (is (= :query (:slot (ex-data ex)))))
@@ -924,7 +918,7 @@
         (finally (restore))))))
 
 (deftest route-url-elides-nil-query-before-validation-rf2-w3qgc
-  (testing "rf2-w3qgc: nil-valued query keys are elided BEFORE :query-schema
+  (testing "nil-valued query keys are elided BEFORE :query-schema
             validation, so `{:sort nil}` against a
             `:query [:map [:sort {:optional true} :string]]` route returns
             `/search` (the key is omitted) rather than throwing
@@ -936,7 +930,7 @@
         ;; is elided before validation, `{:sort nil}` reaches the predicate as
         ;; `{}` (key absent) and conforms.
         ;;
-        ;; rf2-3x7nj.12.1: a PREDICATE schema declares no query vocabulary (only
+        ;; A PREDICATE schema declares no query vocabulary (only
         ;; a `[:map …]` vector does), so `:sort` is an undeclared key and reaches
         ;; the predicate spelled the way the URL spells it — the string key
         ;; "sort" carrying a string value.
@@ -952,14 +946,14 @@
         (is (= "/search?sort=name"
                (rf.routing/route-url {:to :route/search :params {} :query {:sort "name"}}))
             "a present, valid :sort string still round-trips into the query")
-        ;; (2) A non-nil INVALID value STILL fails validation (the fix
-        ;; narrows only nil; it does not weaken the schema gate).
+        ;; (2) A non-nil INVALID value STILL fails validation (the elision
+        ;; covers only nil; it does not weaken the schema gate).
         (let [ex (try (rf.routing/route-url {:to :route/search :params {} :query {:sort 123}})
                       nil
                       (catch clojure.lang.ExceptionInfo e e))]
           (is (some? ex)
               "a non-nil invalid :sort (a number outside the allowlist) STILL fails validation")
-          ;; rf2-vvixub — anchor on :rf.error/id; assert the token, not equality.
+          ;; Anchor on :rf.error/id; assert the token, not equality.
           (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex))))
           (is (re-find #"\[:rf\.error/route-url-validation\]" (ex-message ex)))
           (is (= :query (:slot (ex-data ex))))
@@ -967,7 +961,7 @@
               ":value reports the elided map actually validated (nil-free)"))
         (finally (restore)))))
 
-  (testing "rf2-w3qgc: programmatic `:rf.route/navigate` and SSR route-link
+  (testing "programmatic `:rf.route/navigate` and SSR route-link
             with `{:sort nil}` push/produce `/search` without a validation
             error (the same nil-elision path through route-url)"
     (let [restore (rf.routing-test-support/with-stub-validator)]
@@ -993,14 +987,11 @@
         (finally (restore))))))
 
 ;; ============================================================================
-;; rf2-andwd — meaningful test gaps from the routing audit
+;; Pattern grammar, shadowing, coercion, defaults, optional groups and splats
 ;; ============================================================================
-;;
-;; Audit reference: ai/findings/refactor-audit-r2-routing-2026-05-14.md
-;; Lens 5 T1-T8.
 
 (deftest invalid-route-patterns-fail-at-registration
-  ;; rf2-gsmxlj — one fixture per `match/validate-route-pattern!` rejection
+  ;; One fixture per `match/validate-route-pattern!` rejection
   ;; branch (match.cljc:151-253 + its helpers). The validator is the fail-loud
   ;; reg-route authoring-boundary grammar gate; Spec 012 relies on it to stop a
   ;; malformed `:path` producing surprising matcher / URL-emitter behaviour
@@ -1028,7 +1019,7 @@
              ;; ---- bad param / splat identifier names (route-name-re) ----
              [:route/bad-param-name           "/:1bad"            "param name must be a bare identifier"]
              [:route/bad-splat-name           "/*1bad"            "splat name must be a bare identifier"]
-             ;; ---- splat not final (already covered pre-rf2-gsmxlj) ----
+             ;; ---- splat not final ----
              [:route/splat-not-final          "/files/*rest/more" "splats must be the final path segment"]
              ;; ---- optional-group grammar (validate-optional-group!,
              ;;      match.cljc:98-149) ----
@@ -1091,8 +1082,8 @@
     (is (= "/cart" (:path (rf/handler-meta {:source :store :kind :route :id :route/cart}))))
     (is (= "/cart" (rf.routing/route-url {:to :route/cart :params {}})))))
 
-;; ---- T1: :rf.warning/route-shadowed-by-equal-score warning ---------------
-;; rf2-6gzobp — the warning fires iff the rules-1-5 structural rank ties
+;; ---- :rf.warning/route-shadowed-by-equal-score warning -------------------
+;; The warning fires iff the rules-1-5 structural rank ties
 ;; AND the two patterns are co-matchable (some URL matches both — Spec 012
 ;; §Route ranking algorithm rule 6's "same URL family"). Equal rank alone
 ;; is NOT a conflict: rank tuples ignore literal text, so every same-shape
@@ -1120,7 +1111,7 @@
                   (fn []
                     (rf/reg-route :route/a {} "/a/:x")
                     (rf/reg-route :route/b {} "/a/:y")))]
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the SHADOWING the warning
+      ;; SEMANTIC, posture-independent: the SHADOWING the warning
       ;; describes is real match-time behaviour. `/a/7` matches both patterns
       ;; structurally; the earlier registration wins the rule-6 tiebreak, so
       ;; :route/b really is unreachable for this URL family. That is the fact
@@ -1129,7 +1120,7 @@
           "the earlier registration wins the rule-6 tiebreak at match time")
       (is (= {:x "7"} (:params (rf.routing/match-url "/a/7")))
           "…so the capture name is :x (:route/a's), not :y — :route/b is shadowed")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (= 1 (count warns))
             "exactly one warning for the conflicting pair")
@@ -1150,34 +1141,34 @@
                     (rf/reg-route :route/home    {} "/home")
                     (rf/reg-route :route/about   {} "/about")
                     (rf/reg-route :route/contact {} "/contact")))]
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): there is nothing to warn
+      ;; SEMANTIC, posture-independent: there is nothing to warn
       ;; ABOUT — all three routes are reachable, so no URL co-matches a pair.
       ;; Without this the `(= [] warns)` leg is vacuous under the gate.
       (is (= [:route/home :route/about :route/contact]
              (mapv #(:route-id (rf.routing/match-url %)) ["/home" "/about" "/contact"]))
           "every one of the three is reachable — the families are disjoint")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring); NEGATIVE over
+      ;; Dev-instrumentation arm (see ns docstring); NEGATIVE over
       ;; the trace ring, hence guarded.
       (when rf.interop/debug-enabled?
         (is (= [] warns)
             "N distinct static routes emit zero spurious shadow warnings"))))
 
   (testing "equal rank alone does NOT warn — distinct-literal param-prefix
-            pair (/x/:id vs /y/:slug, the pair the old over-broad scan
-            false-flagged) registers with ZERO shadow warnings"
+            pair (/x/:id vs /y/:slug, same rank but no shared URL)
+            registers with ZERO shadow warnings"
     (let [warns (shadow-warnings
                   (fn []
                     (rf/reg-route :route/x {} "/x/:id")
                     (rf/reg-route :route/y {} "/y/:slug")))]
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): both are reachable under
-      ;; their OWN capture names — the pair the old over-broad scan
-      ;; false-flagged genuinely does not shadow. Without this the
+      ;; SEMANTIC, posture-independent: both are reachable under
+      ;; their OWN capture names — the pair
+      ;; genuinely does not shadow. Without this the
       ;; `(= [] warns)` leg is vacuous under the gate.
       (is (= {:id "7"} (:params (rf.routing/match-url "/x/7")))
           "/x/:id keeps its own capture name")
       (is (= {:slug "7"} (:params (rf.routing/match-url "/y/7")))
           "/y/:slug keeps its own — neither shadows the other")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring); NEGATIVE over
+      ;; Dev-instrumentation arm (see ns docstring); NEGATIVE over
       ;; the trace ring, hence guarded.
       (when rf.interop/debug-enabled?
         (is (= [] warns)
@@ -1194,13 +1185,13 @@
                     (rf/reg-route :route/first  {} "/m/:x")
                     (rf/reg-route :route/second {} "/m/:y")
                     (rf/reg-route :route/third  {} "/m/:z")))]
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the warning's claim about
+      ;; SEMANTIC, posture-independent: the warning's claim about
       ;; WHICH route wins is a claim about `match-url`, so check it there.
       (is (= :route/first (:route-id (rf.routing/match-url "/m/7")))
           "the earliest-registered intersecting tie is the match-time winner")
       (is (= {:x "7"} (:params (rf.routing/match-url "/m/7")))
           "…and it is :route/first's capture name that survives, not :z's")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       ;; :route/second warns against :route/first; :route/third ties with
       ;; BOTH but the warning names :route/first — the match-time winner.
       (when rf.interop/debug-enabled?
@@ -1213,7 +1204,7 @@
   (testing "registering a large table of same-rank distinct-literal static
             routes — the worst case for the rank prefilter (every pair
             ties, so the co-matchability check runs O(N²/2) times) — stays
-            cheap and emits ZERO warnings (rf2-6gzobp)"
+            cheap and emits ZERO warnings"
     (let [n     300
           start (System/nanoTime)
           warns (shadow-warnings
@@ -1235,14 +1226,14 @@
       (is (< elapsed-ms 10000)
           (str "registration scan stayed bounded (took " elapsed-ms " ms)")))))
 
-;; ---- T2: :int / :keyword / :boolean query coercion ----------------------
+;; ---- :int / :keyword / :boolean query coercion --------------------------
 
 (deftest query-coercion-vocabulary
   (testing "coerce-by-type-form honours :int / :boolean for query-string
             values, and a BOUNDED `[:enum …]` keyword slot interns declared
             choices. A bare (unbounded) `:keyword` type-form is NOT usable —
-            it is rejected fail-loud at reg-route (rf2-qot6ii); `[:enum …]` is
-            the keyword path (the DoS-safe allowlist, rf2-3k3o7)."
+            it is rejected fail-loud at reg-route; `[:enum …]` is
+            the keyword path (the DoS-safe allowlist)."
     (rf/reg-route :route/search
                   {:query [:map
                            [:count    :int]
@@ -1253,9 +1244,9 @@
       (is (= 42 (get-in m [:query :count]))
           ":int coerces to a Long")
       (is (= :desc (get-in m [:query :sort]))
-          "rf2-3k3o7: a declared `[:enum …]` choice interns to its keyword —
-          the bounded allowlist that supersedes the un-round-trippable bare
-          `:keyword` slot (now rejected at reg-route, rf2-qot6ii)")
+          "a declared `[:enum …]` choice interns to its keyword —
+          the bounded allowlist; a bare `:keyword` slot cannot round-trip
+          and is rejected at reg-route")
       (is (= true (get-in m [:query :archived]))
           ":boolean coerces \"true\" to true")
       (is (= "hello" (get-in m [:query :plain]))
@@ -1275,15 +1266,15 @@
     (is (= "abc" (get-in (rf.routing/match-url "/p2?n=abc") [:query :n]))
         "non-numeric :int input is left as-is (no exception)"))
 
-  ;; rf2-oyw04: strict + host-IDENTICAL :int coercion. The whole string
+  ;; Strict + host-IDENTICAL :int coercion. The whole string
   ;; must be an integer literal (`^-?\d+$`) to coerce; otherwise it stays a
-  ;; string on BOTH hosts. The predecessor diverged on partial-numeric
-  ;; input: `Long/parseLong "12abc"` threw -> string passthrough (JVM),
+  ;; string on BOTH hosts. A lenient parse would diverge on partial-numeric
+  ;; input: `Long/parseLong "12abc"` throws -> string passthrough (JVM),
   ;; while `js/parseInt "12abc" 10` -> 12 (CLJS) — a Spec 011 hydration-
-  ;; mismatch hazard. Now both hosts agree. The cross-host conformance
+  ;; mismatch hazard. The cross-host conformance
   ;; vehicle is fixtures/routing-query-string-coercion.edn (run by both the
   ;; JVM and CLJS corpus harnesses); this is the artefact-local pin.
-  (testing "rf2-oyw04: :int coerces only whole integer literals; partial-
+  (testing ":int coerces only whole integer literals; partial-
             numeric and radix-prefixed input stays a string identically on
             JVM and CLJS"
     (rf/reg-route :route/page3 {:query [:map [:page :int]]} "/p3")
@@ -1292,23 +1283,23 @@
     (is (= -7 (get-in (rf.routing/match-url "/p3?page=-7") [:query :page]))
         "signed integer literal coerces")
     (is (= "12abc" (get-in (rf.routing/match-url "/p3?page=12abc") [:query :page]))
-        "partial-numeric input stays a STRING — the JVM/CLJS asymmetry
-         rf2-oyw04 closes (was 12 on CLJS, \"12abc\" on JVM)")
+        "partial-numeric input stays a STRING on both hosts — a lenient
+         parse would read 12 on CLJS and \"12abc\" on JVM")
     (is (= "0x10" (get-in (rf.routing/match-url "/p3?page=0x10") [:query :page]))
         "radix-prefixed input stays a string on both hosts")
     (is (= " 12" (get-in (rf.routing/match-url "/p3?page=%2012") [:query :page]))
         "leading-whitespace input stays a string on both hosts")))
 
-;; ---- rf2-fwz29i: OPTIONED Malli scalar schemas coerce like bare forms ----
+;; ---- OPTIONED Malli scalar schemas coerce like bare forms ----------------
 ;;
 ;; A scalar slot carrying ordinary Malli properties — `[:int {:min 1}]`,
 ;; `[:uuid {...}]`, `[:double {...}]`, `[:boolean {...}]`, or an optioned
 ;; enum `[:enum {...} :a :b]` — must coerce the URL string identically to
-;; its bare form (`:int`, `:uuid`, ...). The pre-fix table took the raw
-;; vector type-form, so `coerce-by-type-form` saw `[:int {:min 1}]` (not
-;; `:int`), skipped coercion, and the still-string value `"2"` failed the
-;; route's `[:int {:min 1}]` schema → `:validation-failed? true` → every
-;; valid deep link 404'd. `[:maybe inner]` wrappers coerce the inner type.
+;; its bare form (`:int`, `:uuid`, ...). Taking the raw vector type-form
+;; would hand `coerce-by-type-form` `[:int {:min 1}]` (not `:int`), skip
+;; coercion, and leave the string value `"2"` failing the route's
+;; `[:int {:min 1}]` schema → `:validation-failed? true` → every valid deep
+;; link 404s. `[:maybe inner]` wrappers coerce the inner type.
 
 (deftest rf2-fwz29i-optioned-scalar-query-coercion
   (testing "optioned scalar :query schemas coerce equivalently to bare forms"
@@ -1322,7 +1313,7 @@
               (str "/items?page=2&id=" uuid-str "&archived=true"))]
       (is (= :route/items (:route-id m)))
       (is (= 2 (get-in m [:query :page]))
-          "[:int {:min 1}] coerces \"2\" to 2 (was \"2\" → validation-failed)")
+          "[:int {:min 1}] coerces \"2\" to 2 (a string \"2\" would fail validation)")
       (is (= (parse-uuid uuid-str) (get-in m [:query :id]))
           "[:uuid {...}] coerces to a UUID object")
       (is (true? (get-in m [:query :archived]))
@@ -1357,7 +1348,7 @@
     (testing "[:int {:min 1}] path param coerces; validation passes"
       (let [m (rf.routing/match-url "/page/2")]
         (is (= :route/page (:route-id m)))
-        (is (= 2 (get-in m [:params :n])) "\"2\" coerced to 2 (was string → 404)")
+        (is (= 2 (get-in m [:params :n])) "\"2\" coerced to 2 (a string would 404)")
         (is (false? (:validation-failed? m)))))
 
     (testing "[:uuid {}] path param coerces to a #uuid; canonical route matches"
@@ -1387,7 +1378,7 @@
       (is (= "hostile-value" (get-in m3 [:query :sort]))
           "value outside the allowlist stays a string — no unbounded intern"))))
 
-;; ---- rf2-5s7l6d: :double / decimal route types are rejected at reg-route ----
+;; ---- :double / decimal route types are rejected at reg-route --------------
 ;;
 ;; A floating-point value has no canonical-EDN identity (`rf.identity/bad-number?`
 ;; rejects floats / ratios / NaN / ∞), so a `:double`-typed :params / :query key
@@ -1452,21 +1443,22 @@
       (is (= :desc (get-in m [:query :sort])) "enum keyword round-trips")
       (is (= "milk" (get-in m [:query :q])) ":string query round-trips")
       ;; route-url ∘ match-url ∘ route-url is the identity on the canonical URL —
-      ;; the EP-0012 prism law, now that no un-round-trippable float can enter.
+      ;; the EP-0012 prism law, which holds because no un-round-trippable float
+      ;; can enter.
       (is (= url (rf.routing/route-url {:to (:route-id m) :params (:params m) :query (:query m)}))
           "the prism round-trips byte-stably with only CEDN-admitted types"))))
 
-;; ---- rf2-dcmkke: keyword-enum route params round-trip through the prism ----
+;; ---- keyword-enum route params round-trip through the prism --------------
 ;;
-;; `route-url` emitted a keyword enum value with host `(str v)`, so `:asc`
-;; became `%3Aasc` on the wire. `match-url`'s enum-keyword decoder
+;; Emitting a keyword enum value with host `(str v)` would put `:asc` on the
+;; wire as `%3Aasc`. `match-url`'s enum-keyword decoder
 ;; (`[:rf.route/enum-keyword #{"asc" "desc"}]`) only recognises the declared
-;; TOKEN NAMES (`asc`, `desc`), so `%3Aasc` decoded to the STRING `":asc"`,
-;; not the keyword `:asc` — `match-url(route-url(...))` did not recover the
+;; TOKEN NAMES (`asc`, `desc`), so `%3Aasc` would decode to the STRING `":asc"`,
+;; not the keyword `:asc` — `match-url(route-url(...))` would not recover the
 ;; canonical enum keyword route data. EP-0012 §Route Prism Laws and Spec 012
-;; §924-936 (`/items?sort=desc` ↔ `{:sort :desc}`) require the round-trip.
-;; The fix maps a declared keyword-enum value to its schema token name on
-;; emission (query AND path), so `:asc` emits `asc` and round-trips.
+;; §924-936 (`/items?sort=desc` ↔ `{:sort :desc}`) require the round-trip, so
+;; `route-url` maps a declared keyword-enum value to its schema token name on
+;; emission (query AND path): `:asc` emits `asc` and round-trips.
 
 (deftest rf2-dcmkke-keyword-enum-query-round-trips
   (testing "a keyword-enum :query value emits its schema TOKEN NAME (not
@@ -1505,10 +1497,9 @@
 (deftest rf2-dcmkke-keyword-enum-carried-query-value-round-trips
   (testing "an enum query value CARRIED as a KEYWORD from a prior match-url into
             a target route-url round-trips. match-url coerces `sort=asc` to
-            `:asc`; route-url must then re-emit `:asc` as `asc`. EP-0037 R5: the
-            carry is the application's explicit fold over the destination
-            address, not the retired `:query-retain` metadata — the prism law
-            being pinned is identical either way."
+            `:asc`; route-url must then re-emit `:asc` as `asc`. The carry is
+            the application's explicit fold over the destination address;
+            there is no `:query-retain` route metadata (EP-0037 R5)."
     (rf/reg-route :route/list
                   {:query [:map [:sort [:enum :asc :desc]]]} "/list")
     ;; The carried value arrives as a KEYWORD (match-url already interned it
@@ -1557,7 +1548,7 @@
           "[:maybe :uuid] coerces the present capture to a UUID")
       (is (false? (:validation-failed? m))))))
 
-;; ---- rf2-3k3o7 / rf2-x0ngkv: keyword-interning defence on query keys -------
+;; ---- keyword-interning defence on query keys ------------------------------
 ;;
 ;; The keyword-interning DoS (an attacker-influenced URL stream with
 ;; N-unique query keys choosing N interns, each retained as long as a slice
@@ -1565,9 +1556,9 @@
 ;; promotes ONLY keys declared by the route's `:query` schema /
 ;; `:query-defaults` to keyword keys; every undeclared
 ;; URL key passes through as a **string**, so a hostile URL of N-unique
-;; undeclared keys interns ZERO keywords. No raw-query-size cap is needed
-;; (rf2-x0ngkv removed the redundant `default-max-decoded-keys` ceiling).
-;; The remaining defences:
+;; undeclared keys interns ZERO keywords. No raw-query-size cap is needed,
+;; and there is none.
+;; The defences:
 ;;
 ;; 1. Selective keywording — only keys declared by the route's `:query`
 ;;    schema / `:query-defaults` are promoted to keyword
@@ -1575,11 +1566,11 @@
 ;; 2. `:keyword`-typed value gate — `[:enum :a :b ...]` is the bounded
 ;;    keyword-allowlist path (values matching a declared choice intern,
 ;;    others stay string). A bare / unbounded `:keyword` slot is REJECTED
-;;    fail-loud at reg-route (rf2-qot6ii — it cannot round-trip the URL
-;;    prism); it is no longer silently accepted as a string.
+;;    fail-loud at reg-route (it cannot round-trip the URL prism) rather
+;;    than silently accepted as a string.
 
 (deftest rf2-3k3o7-repeated-query-key-last-wins-stays-string
-  (testing "rf2-5ifai: no :query vocabulary declared, so a repeated key
+  (testing "no :query vocabulary declared, so a repeated key
             stays a STRING and collapses last-wins — never interns a
             keyword, no cap involved"
     (rf/reg-route :route/search {} "/search")
@@ -1596,9 +1587,9 @@
 (deftest rf2-x0ngkv-many-undeclared-keys-stay-strings-no-cap
   (testing "a route declaring NO query vocabulary keeps EVERY URL key as a
             string regardless of cardinality — no per-URL key cap, the
-            keyword table is never extended (rf2-x0ngkv removed the cap)"
+            keyword table is never extended"
     (rf/reg-route :route/search {} "/search")
-    ;; Far more unique keys than the old 10000 cap would have permitted:
+    ;; Far more unique keys than a 10000-key cap would permit:
     ;; the parse succeeds (no throw) and every key is a STRING.
     (let [n   15000
           q   (clojure.string/join "&" (map #(str "k" % "=v") (range n)))
@@ -1631,7 +1622,7 @@
           "no `:unknown2` keyword in the result map"))))
 
 (deftest match-url-fail-closed-passes-through-match-and-miss
-  (testing "rf2-6t1xb: `match-url-fail-closed` is the generic
+  (testing "`match-url-fail-closed` is the generic
             navigation-resilience wrapper — a clean match and a bare miss
             both pass through with no `:throw-reason`"
     (rf/reg-route :route/search {} "/search")
@@ -1647,22 +1638,21 @@
         (is (nil? throw-reason)
             "a bare miss is NOT a throw — no discriminator")))))
 
-;; ---- rf2-5ifai: no :query vocabulary -> all string keys ------------------
+;; ---- no :query vocabulary -> all string keys ----------------------------
 ;;
-;; Per Spec 012 §Query strings and fragments and the rf2-tfgdv security
-;; review: a route declaring NO query vocabulary at all (no `:query` /
+;; Per Spec 012 §Query strings and fragments: a route declaring NO query
+;; vocabulary at all (no `:query` /
 ;; `:query-defaults`) keeps every URL key as a string.
 ;; Authors who want keyword keys declare them via `:query` /
 ;; `:query-defaults` — author-named intent is the
-;; trust boundary. Symmetrical to the rf2-3k3o7 value-side fix: hostile
+;; trust boundary. Symmetrical to the value-side enum allowlist: hostile
 ;; URLs composed of N-unique keys would otherwise choose N keyword interns,
 ;; and a bare `(reg-route :route/x {} "/x")` is the
 ;; high-cardinality public-surface case where the DoS hits hardest.
 
 (deftest rf2-5ifai-no-vocabulary-route-keeps-all-keys-as-strings
-  (testing "rf2-5ifai: a route declaring NO :query vocabulary keeps
-            every URL query key as a string. The legacy keyword-all
-            fallback is gone (pre-alpha — no back-compat shim)."
+  (testing "a route declaring NO :query vocabulary keeps every URL query
+            key as a string — there is no keyword-all fallback."
     (rf/reg-route :route/bare {} "/bare")
     (let [m (rf.routing/match-url "/bare?foo=1&bar=2&baz=3")]
       (is (some? m))
@@ -1671,7 +1661,7 @@
       (doseq [k [:foo :bar :baz]]
         (is (not (contains? (:query m) k))
             (str "no `" k "` keyword in the result map")))))
-  (testing "rf2-5ifai: even single-key URLs do not get a keyword promotion"
+  (testing "even single-key URLs do not get a keyword promotion"
     (rf/reg-route :route/single {} "/single")
     (let [m (rf.routing/match-url "/single?x=1")]
       (is (some? m))
@@ -1710,13 +1700,12 @@
           "value outside the enum allowlist stays as string — no intern"))))
 
 (deftest rf2-qot6ii-bare-keyword-rejected-at-reg-route
-  (testing "rf2-qot6ii supersedes the rf2-3k3o7 `bare :keyword stays string`
-            leg: a bare (unbounded) `:keyword`-typed slot cannot round-trip the
+  (testing "a bare (unbounded) `:keyword`-typed slot cannot round-trip the
             match-url / route-url prism (route-url host-stringifies :asc ->
             %3Aasc while match-url keeps a STRING that then fails the route's
-            own :keyword schema), so it is now REJECTED fail-loud at reg-route
+            own :keyword schema), so it is REJECTED fail-loud at reg-route
             rather than silently accepted. `[:enum …]` is the bounded keyword
-            path (the DoS-safe allowlist, still supported)."
+            path (the DoS-safe allowlist)."
     (let [ex (try
                (rf/reg-route :route/page
                              {:query [:map [:tag :keyword]]} "/page")
@@ -1732,7 +1721,7 @@
       (is (= :query (:slot (ex-data ex))))
       (is (= :tag (:param (ex-data ex)))))))
 
-;; ---- T3: :query-defaults populates absent keys -------------------------
+;; ---- :query-defaults populates absent keys -----------------------------
 
 (deftest query-defaults-populates-absent-keys
   (testing ":query-defaults supplies values for absent query keys; URL-
@@ -1755,7 +1744,7 @@
       (is (= "desc" (get-in m [:query :sort]))
           "URL-supplied :sort wins over default"))))
 
-;; ---- T4: route-url optional-group elision when inner params absent ----
+;; ---- route-url optional-group elision when inner params absent --------
 
 (deftest route-url-optional-group-elision
   (testing "route-url with absent optional-group params elides the group
@@ -1783,47 +1772,47 @@
            (rf.routing/route-url {:to :route/articles2 :params {:id "intro" :slug "welcome"}}))
         "all inner params present → group emits")))
 
-;; ---- rf2-8xvyo: empty-string path param inside an OPTIONAL GROUP is
+;; ---- empty-string path param inside an OPTIONAL GROUP is
 ;; rejected on emission, exactly like a top-level required path param.
 ;;
 ;; The optional-group gate enters a group when every inner param is
-;; `some?`. `(some? "")` is TRUE, so `{:id ""}` ENTERS the group and the
-;; pre-fix emitter wrote the value directly — emitting a zero-length
-;; segment (`/articles/`) that `match-url`'s trailing-slash normalisation
-;; erases (`/articles/` → `/articles`) before matching. The URL then
-;; round-trips back as the param ABSENT, diverging the committed route
-;; slice from the address bar (reload / popstate / SSR-hydration drift).
+;; `some?`. `(some? "")` is TRUE, so `{:id ""}` ENTERS the group, and writing
+;; the value directly would emit a zero-length segment (`/articles/`) that
+;; `match-url`'s trailing-slash normalisation erases (`/articles/` →
+;; `/articles`) before matching. The URL would then round-trip back as the
+;; param ABSENT, diverging the committed route slice from the address bar
+;; (reload / popstate / SSR-hydration drift).
 ;; Spec 012 §`route-url` nil-policy makes `""` a HARD ERROR for ANY path
 ;; segment — the optional-group path must apply the same invariant as the
-;; top-level `require-param` (rf2-ede1h.2). `false` / `0` are non-empty
+;; top-level `require-param`. `false` / `0` are non-empty
 ;; legitimate segments and still round-trip on either side.
 
 (deftest route-url-optional-group-empty-string-rejected
-  (testing "rf2-8xvyo: an empty-string param inside an optional group is
+  (testing "an empty-string param inside an optional group is
             REJECTED on emission — it cannot emit an un-round-trippable
             trailing slash (`/articles/`)"
     (rf/reg-route :route/og-articles {} "/articles{/:id}?")
-    ;; Sanity: absent elides, present-non-empty emits, as before.
+    ;; Sanity: absent elides, present-non-empty emits.
     (is (= "/articles"
            (rf.routing/route-url {:to :route/og-articles :params {}}))
         "absent :id → group elides; bare /articles")
     (is (= "/articles/intro"
            (rf.routing/route-url {:to :route/og-articles :params {:id "intro"}}))
         "present non-empty :id → group emits")
-    ;; The bug: `(some? "")` enters the group, then emits `/articles/`.
+    ;; The hazard: `(some? "")` enters the group, which would emit `/articles/`.
     (let [ex (try
                (rf.routing/route-url {:to :route/og-articles :params {:id ""}})
                nil
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex)
           "\"\" optional-group param throws (it would emit \"/articles/\", which match-url normalises to \"/articles\" and re-parses with :id ABSENT)")
-      ;; rf2-vvixub — anchor on the canonical :rf.error/id discriminator.
+      ;; Anchor on the canonical :rf.error/id discriminator.
       (is (= :rf.error/missing-route-param (:rf.error/id (ex-data ex)))
           "reuses the missing/empty-required-param error id")
       (is (= "" (:value (ex-data ex)))
           "ex-data carries the offending empty-string value")))
 
-  (testing "rf2-8xvyo: empty-string rejection holds for an optional group
+  (testing "empty-string rejection holds for an optional group
             trailing a REQUIRED top-level param (/articles/:id{/:slug}?)"
     (rf/reg-route :route/og-slug {} "/articles/:id{/:slug}?")
     ;; The required :id still round-trips; absent :slug elides.
@@ -1840,11 +1829,11 @@
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex)
           "\"\" optional-group :slug throws — it would emit the un-round-trippable \"/articles/5/\"")
-      ;; rf2-vvixub — anchor on the canonical :rf.error/id discriminator.
+      ;; Anchor on the canonical :rf.error/id discriminator.
       (is (= :rf.error/missing-route-param (:rf.error/id (ex-data ex))))
       (is (= "" (:value (ex-data ex))))))
 
-  (testing "rf2-8xvyo: false and 0 inside an optional group STILL round-trip —
+  (testing "false and 0 inside an optional group STILL round-trip —
             only the empty string is rejected (non-empty falsy is legitimate)"
     (rf/reg-route :route/og-flag {} "/items{/:flag}?")
     (is (= "/items/false"
@@ -1862,8 +1851,8 @@
 
 ;; ---- optional-group elision: the canonical slash-INSIDE spelling ---------
 ;;
-;; rf2-5u1r6a pins ONE optional-group spelling: slash-INSIDE the braces
-;; (`{/:id}?`, `{/:base}?` — rf2-av1). The group OWNS its leading slash, so
+;; The grammar has ONE optional-group spelling: slash-INSIDE the braces
+;; (`{/:id}?`, `{/:base}?`). The group OWNS its leading slash, so
 ;; eliding the whole group when its param is absent drops that slash cleanly
 ;; and can NEVER orphan a bracketing literal `/` — the `//about`
 ;; protocol-relative-URL footgun (a modifier-click escapes the app;
@@ -1872,12 +1861,12 @@
 ;; and a root-only group (`{/:base}?`) both elide to a single clean slash.
 ;;
 ;; The slash-OUTSIDE inline spelling (`{:base}?` between literal `/`s, e.g.
-;; `/{:base}?/about`) that rf2-8zvajk once accepted is now REJECTED at
-;; registration (`validate-optional-group!`), so no emitter separator-repair
-;; is needed — the drift is closed at the source.
+;; `/{:base}?/about`) is REJECTED at registration
+;; (`validate-optional-group!`), so no valid pattern needs an emitter
+;; separator-repair.
 
 (deftest route-url-optional-group-no-double-slash
-  (testing "rf2-5u1r6a: a LEADING optional group ({/:base}?/about) emits a
+  (testing "a LEADING optional group ({/:base}?/about) emits a
             single separator when absent — never `//`"
     (rf/reg-route :route/inline-about {} "{/:base}?/about")
     (is (= "/about"
@@ -1895,7 +1884,7 @@
       (is (= {} (:params m))
           "no :base param survives the round-trip")))
 
-  (testing "rf2-5u1r6a: a MID-PATH optional group (/docs{/:section}?/about)
+  (testing "a MID-PATH optional group (/docs{/:section}?/about)
             does not orphan a separator on either side"
     (rf/reg-route :route/docs-about {} "/docs{/:section}?/about")
     (is (= "/docs/about"
@@ -1905,7 +1894,7 @@
            (rf.routing/route-url {:to :route/docs-about :params {:section "api"}}))
         "present :section → /docs/api/about"))
 
-  (testing "rf2-5u1r6a: a TRAILING optional group (/articles{/:id}?)
+  (testing "a TRAILING optional group (/articles{/:id}?)
             does not leave a dangling slash"
     (rf/reg-route :route/articles-id {} "/articles{/:id}?")
     (is (= "/articles"
@@ -1915,7 +1904,7 @@
            (rf.routing/route-url {:to :route/articles-id :params {:id "5"}}))
         "present :id → /articles/5"))
 
-  (testing "rf2-5u1r6a: a ROOT-only optional group ({/:base}?) resolves to `/`
+  (testing "a ROOT-only optional group ({/:base}?) resolves to `/`
             when absent — never the empty string"
     (rf/reg-route :route/root-base {} "{/:base}?")
     (is (= "/"
@@ -1925,7 +1914,7 @@
            (rf.routing/route-url {:to :route/root-base :params {:base "x"}}))
         "present :base → /x"))
 
-  (testing "rf2-5u1r6a: the slash-OUTSIDE spelling (/{:base}?/about) is now
+  (testing "the slash-OUTSIDE spelling (/{:base}?/about) is
             REJECTED at registration — one canonical spelling only"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo #"slash-prefixed"
@@ -1936,23 +1925,23 @@
     (is (= "/articles" (rf.routing/route-url {:to :route/owning :params {}})))
     (is (= "/articles/5" (rf.routing/route-url {:to :route/owning :params {:id "5"}}))))
 
-  (testing "rf2-8zvajk: a splat value carrying embedded `//` is PRESERVED —
-            the fix collapses elision separators, NOT every `//` globally"
+  (testing "a splat value carrying embedded `//` is PRESERVED —
+            elision removes a group's own separator, NOT every `//` globally"
     (rf/reg-route :route/files {} "/files/*rest")
     (is (= "/files/a//b"
            (rf.routing/route-url {:to :route/files :params {:rest "a//b"}}))
         "an embedded double slash inside a splat value survives untouched")))
 
-;; ---- T4b: match-url optional-group param is ABSENT, not nil-valued ------
+;; ---- match-url optional-group param is ABSENT, not nil-valued -----------
 ;;
-;; Regression for rf2-yejde. Per Spec 012 §Path-pattern grammar (Optional
+;; Per Spec 012 §Path-pattern grammar (Optional
 ;; segment group): "param present only if matched." The canonical example
 ;; route /articles/:id{/:slug}? declares :params with {:optional true} on
 ;; :slug. Malli {:optional true} governs KEY PRESENCE, not nil values, so a
-;; present {:slug nil} is REJECTED. Pre-fix, match-against zipmap'd the
-;; unmatched optional group as :slug nil → a legitimate /articles/<id> URL
-;; failed :params validation and routed to not-found. The fix strips
-;; nil-valued keys after the zipmap so the unmatched param is absent.
+;; present {:slug nil} is REJECTED. Zipmapping the unmatched optional group
+;; as :slug nil would make a legitimate /articles/<id> URL fail :params
+;; validation and route to not-found, so match-against strips nil-valued
+;; keys after the zipmap and the unmatched param is absent.
 ;;
 ;; The stub :params predicate below mirrors Malli {:optional true}: :slug,
 ;; *when present*, must be a non-nil string; an ABSENT :slug is fine.
@@ -1996,7 +1985,7 @@
                 "the supplied :slug conforms")))
         (finally (restore))))))
 
-;; ---- T5: splat /files/*rest matches multi-segment paths ----------------
+;; ---- splat /files/*rest matches multi-segment paths --------------------
 
 (deftest splat-multi-segment-match
   (testing "splat /files/*rest matches /files/a/b/c with :params
@@ -2021,7 +2010,7 @@
 ;; ---- url-encode-splat per-segment encoding -------------------------------
 ;;
 ;; Per Spec 012 §Bidirectional URL ↔ params §Splat. `url-encode-splat`
-;; (url.cljc:27-31) splits on `/`, encodes EACH segment with
+;; (url.cljc) splits on `/`, encodes EACH segment with
 ;; encodeURIComponent semantics, and re-joins with literal `/`. The
 ;; ASCII-safe round-trip ("a/b/c") above can't observe the encode step
 ;; at all — it only proves `/` is preserved. This pins the actual reason
@@ -2048,7 +2037,7 @@
           "match-url decodes each segment back, recovering the original splat value"))))
 
 ;; ============================================================================
-;; rf2-cylse.5 — match-url coerces PATH params against the :params schema
+;; match-url coerces PATH params against the :params schema
 ;; (mirror of the query side). The canonical Spec 012 :uuid route must
 ;; round-trip a real UUID URL to {:id #uuid ...}, not 404. Exercised with
 ;; a real Malli validator (re-frame.schemas is required by this ns's
@@ -2056,7 +2045,7 @@
 ;; ============================================================================
 
 (deftest path-param-coercion-against-params-schema
-  (testing "rf2-cylse.5: a typed PATH param coerces against the route's
+  (testing "a typed PATH param coerces against the route's
             :params schema BEFORE validation — :int / :uuid round-trip,
             validation passes, and the canonical Spec 012 :uuid route
             matches a real UUID URL instead of 404ing"
@@ -2069,7 +2058,7 @@
         (is (= :route/page (:route-id m)))
         (is (= 42 (get-in m [:params :n])) "string \"42\" coerced to the number 42")
         (is (false? (:validation-failed? m))
-            "coerced :int conforms to [:n :int] — no validation failure (was true)")))
+            "coerced :int conforms to [:n :int] — no validation failure")))
 
     (testing ":uuid path param coerces to a #uuid object; canonical route matches"
       (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
@@ -2079,7 +2068,7 @@
             "string coerced to a real #uuid object (Spec 012:269)")
         (is (uuid? (get-in m [:params :id])) "the slice carries a UUID object, not a string")
         (is (false? (:validation-failed? m))
-            "coerced :uuid conforms to [:id :uuid] — the canonical route matches (was 404)")))
+            "coerced :uuid conforms to [:id :uuid] — the canonical route matches")))
 
     (testing ":string path param stays a string (no coercion); a non-UUID
               for a :uuid route stays a string and fails validation"
@@ -2099,18 +2088,18 @@
             "URL → coerced params → URL is byte-identical")))))
 
 ;; ============================================================================
-;; rf2-rv7so9 — :uuid coercion is HOST-SYMMETRIC for a non-lowercase capture.
+;; :uuid coercion is HOST-SYMMETRIC for a non-lowercase capture.
 ;; The JVM half of the cross-host parity pin; the CLJS half lives in
 ;; routing_url_non_edn_cljs_test.cljc (which runs on the node-test build).
 ;; Both hosts must coerce a mixed-/upper-case UUID to the SAME lowercase-
-;; canonical value and re-emit the SAME lowercase URL — pre-fix, JVM
-;; `parse-uuid` lowercased but CLJS `(uuid s)` stored the string verbatim, so
-;; the SAME uppercase-UUID deep link produced host-divergent :params and href
-;; (a Spec 011 SSR/hydrate mismatch).
+;; canonical value and re-emit the SAME lowercase URL — JVM `parse-uuid`
+;; lowercases while a bare CLJS `(uuid s)` stores the string verbatim, so
+;; without normalisation the SAME uppercase-UUID deep link would produce
+;; host-divergent :params and href (a Spec 011 SSR/hydrate mismatch).
 ;; ============================================================================
 
 (deftest uuid-path-non-lowercase-coerces-to-lowercase-canonical
-  (testing "ADVERSARIAL (rf2-rv7so9): a mixed-/upper-case :uuid path capture
+  (testing "ADVERSARIAL: a mixed-/upper-case :uuid path capture
             coerces to the lowercase-canonical UUID, passes validation, and
             re-emits the lowercase canonical URL — the JVM half of the parity
             pin (CLJS half in routing_url_non_edn_cljs_test.cljc)"
@@ -2129,17 +2118,17 @@
           "route-url re-emits the lowercase canonical URL (matches CLJS)"))))
 
 ;; ============================================================================
-;; rf2-cylse.1 — :int coercion is HOST-SYMMETRIC and TOTAL on oversized
+;; :int coercion is HOST-SYMMETRIC and TOTAL on oversized
 ;; integers. The JVM half of the cross-host parity pin; the CLJS half lives
 ;; in routing_history_cljs_test.cljs. Both hosts must agree EXACTLY.
 ;; ============================================================================
 
 (deftest int-coercion-oversized-host-parity-jvm
-  (testing "rf2-cylse.1: an integer literal above the cross-host
+  (testing "an integer literal above the cross-host
             safe-integer ceiling (2^53-1) PASSES THROUGH AS A STRING on
-            the JVM (was: exact Long, which CLJS rounds to a lossy double
-            — a Spec 011 hydration mismatch), and a >2^63 literal does NOT
-            throw (was: NumberFormatException escaping match-url)"
+            the JVM (an exact Long would be a lossy double on CLJS — a
+            Spec 011 hydration mismatch), and a >2^63 literal does NOT
+            throw (no NumberFormatException escapes match-url)"
     (rf/reg-route :route/items {:query [:map [:page :int]]} "/items")
 
     (testing "values within the safe-integer range still coerce"
@@ -2154,7 +2143,7 @@
           "2^53 exceeds MAX_SAFE_INTEGER → string passthrough (CLJS would be lossy)")
       (is (= "9007199254740993"
              (get-in (rf.routing/match-url "/items?page=9007199254740993") [:query :page]))
-          "the rf2-cylse.1 canonical lossy-double case → string on BOTH hosts")
+          "the canonical lossy-double case (2^53+1) → string on BOTH hosts")
       (is (= "-9007199254740993"
              (get-in (rf.routing/match-url "/items?page=-9007199254740993") [:query :page]))
           "negative oversized literal also passes through"))
@@ -2165,11 +2154,11 @@
           "no NumberFormatException escapes — direct match-url callers see a clean string"))))
 
 ;; ============================================================================
-;; rf2-dn26r — route lifecycle trace ops
+;; Route lifecycle trace ops
 ;; ============================================================================
 
 (deftest route-registered-trace-on-first-time-reg
-  (testing ":rf.route/registered fires on FIRST-TIME reg-route (rf2-dn26r).
+  (testing ":rf.route/registered fires on FIRST-TIME reg-route.
             Re-registration with the same id rides the cross-kind
             `:rf.registry/handler-replaced` trace; not re-emitted here.
             Mirrors the `:rf.flow/registered` symmetry."
@@ -2178,14 +2167,14 @@
       (rf/reg-route :route/home {} "/")
       (rf/reg-route :route/home {} "/") ;; re-register (no trace)
       (rf/unregister-listener! :trace ::reg-trace)
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the registration the trace
+      ;; SEMANTIC, posture-independent: the registration the trace
       ;; announces really landed, and the re-registration really was idempotent
       ;; rather than additive — one route row, one path.
       (is (= "/" (:path (rf/handler-meta {:source :store :kind :route :id :route/home})))
           "the route is registered at / after both calls")
       (is (= :route/home (:route-id (rf.routing/match-url "/")))
           "…and / resolves to it")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (let [reg-events (filter #(= :rf.route/registered (:operation %)) @traces)]
           (is (= 1 (count reg-events))
@@ -2196,21 +2185,21 @@
               ":path rides in :tags"))))))
 
 (deftest route-cleared-trace-on-unregister
-  (testing "clear-route emits :rf.route/cleared (rf2-dn26r)"
+  (testing "clear-route emits :rf.route/cleared"
     (rf/reg-route :route/transient {} "/transient")
     (let [traces (atom [])]
       (rf/register-listener! :trace ::cleared-trace (fn [ev] (swap! traces conj ev)))
       (rf/clear :route :route/transient)
       (rf/clear :route :route/transient) ;; idempotent, no trace
       (rf/unregister-listener! :trace ::cleared-trace)
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the clear the trace
+      ;; SEMANTIC, posture-independent: the clear the trace
       ;; announces really happened, and the SECOND clear really was idempotent
       ;; — it neither threw nor resurrected the row.
       (is (nil? (rf/handler-meta {:source :store :kind :route :id :route/transient}))
           "the route row is gone after clear-route")
       (is (nil? (:route-id (rf.routing/match-url "/transient")))
           "…and /transient no longer resolves to it")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (let [cleared-events (filter #(= :rf.route/cleared (:operation %)) @traces)]
           (is (= 1 (count cleared-events))
@@ -2219,13 +2208,11 @@
               ":route-id rides in :tags"))))))
 
 ;; ===========================================================================
-;; rf2-aleg9 — match-against direct function-boundary tests
-;; (follow-on from rf2-q1z1u F8)
+;; match-against direct function-boundary tests
 ;;
 ;; `match-against` is the pattern-matcher fn consumed by
-;; `re-frame.routing/match-url` (the owning-namespace export — never a
-;; `re-frame.core` façade one; rf2-bcjpq5 deleted the dormant core-side
-;; wrapper). The match-url-level tests above exercise it
+;; `re-frame.routing/match-url` (the owning-namespace export — there is no
+;; `re-frame.core` façade one). The match-url-level tests above exercise it
 ;; transitively via `:rf.route/navigate`, but a `match-against`-only
 ;; regression that happens to be neutralised by the facade's URL
 ;; normalisation (canonical-route-pattern, query-string parse,
@@ -2241,7 +2228,7 @@
 ;; ===========================================================================
 
 (deftest match-against-literal-segment-exact-match
-  (testing "rf2-aleg9 — literal-segment pattern matches its exact URL
+  (testing "literal-segment pattern matches its exact URL
             and returns an empty params map; a sibling URL with the
             same shape but different literal returns nil"
     (let [compiled (rf.routing.match/parse-pattern "/foo/bar")]
@@ -2255,7 +2242,7 @@
           "URL longer than pattern → nil (anchored end)"))))
 
 (deftest match-against-named-param-extraction
-  (testing "rf2-aleg9 — a `:id` segment captures the URL segment value
+  (testing "a `:id` segment captures the URL segment value
             into the params map under the keyword key"
     (let [compiled (rf.routing.match/parse-pattern "/users/:id")]
       (is (= {:id "42"} (rf.routing.match/match-against compiled "/users/42"))
@@ -2268,7 +2255,7 @@
           "missing param segment → nil"))))
 
 (deftest match-against-optional-group-omits-unmatched-param
-  (testing "rf2-yejde — a param inside an UNMATCHED optional group is
+  (testing "a param inside an UNMATCHED optional group is
             absent from the params map (not nil-valued), so downstream
             {:optional true} :params schemas accept the match (Spec 012
             §Path-pattern grammar §Optional segment group: 'param present
@@ -2282,7 +2269,7 @@
              (rf.routing.match/match-against compiled "/articles/5/intro"))
           "optional group matched → :slug present with its captured value")))
 
-  (testing "rf2-yejde — the nil-strip drops ONLY regex-unmatched (nil)
+  (testing "the nil-strip drops ONLY regex-unmatched (nil)
             captures; a legitimately matched capture survives. (Named param
             and splat regexes require a non-empty capture, so a captured
             value is always non-nil and is never dropped.)"
@@ -2293,7 +2280,7 @@
       (is (= {:a "x" :b "y"} (rf.routing.match/match-against compiled "/u/x/y"))))))
 
 (deftest match-against-splat-captures-multi-segment-tail
-  (testing "rf2-aleg9 — a `*rest` splat captures the entire trailing
+  (testing "a `*rest` splat captures the entire trailing
             path (slashes preserved) into the params map"
     (let [compiled (rf.routing.match/parse-pattern "/files/*path")]
       (is (= {:path "a"}
@@ -2307,26 +2294,25 @@
       (is (nil? (rf.routing.match/match-against compiled "/files"))
           "missing splat tail → nil"))))
 
-;; ---- rf2-yjali: named splat out-ranks the bare catch-all ----------------
+;; ---- named splat out-ranks the bare catch-all --------------------------
 ;;
 ;; Spec 012 §Route ranking algorithm rule 2: "The bare catch-all `/*` is
 ;; demoted below every other matching route." The catch-all is EXACTLY
 ;; the bare `/*` pattern (`is-catch-all? (= pattern "/*")` in the spec
 ;; pseudocode). A NAMED splat (`/*rest`) is a rest param, so it must
-;; out-rank `/*`. Before the rf2-yjali fix `parse-pattern`'s classifier
-;; flagged ANY single-splat-only pattern as catch-all, so `/*rest` tied
-;; with `/*` at the catch-all rank element instead of beating it.
-;; (rf2-1ugs5u lifted that catch-all element from index 3 to index 1 —
-;; ahead of total-length — so the bare `/*` loses to the root `/` too.)
+;; out-rank `/*`. A classifier flagging ANY single-splat-only pattern as
+;; catch-all would tie `/*rest` with `/*` at the catch-all rank element
+;; instead of letting it win. The catch-all element sits at index 1 —
+;; ahead of total-length — so the bare `/*` loses to the root `/` too.
 
 (deftest parse-pattern-named-splat-outranks-bare-catch-all
-  (testing "rf2-yjali — only the bare `/*` is catch-all; a named splat
+  (testing "only the bare `/*` is catch-all; a named splat
             `/*rest` ranks above it at the catch-all rank element
             (Spec 012 rule 2)"
     (let [catch-all (:rank (rf.routing.match/parse-pattern "/*"))
           rest-splat (:rank (rf.routing.match/parse-pattern "/*rest"))]
       ;; Rank element 1 (0-indexed) is the catch-all discriminator
-      ;; (Spec 012 rule 2, lifted ahead of total-length by rf2-1ugs5u):
+      ;; (Spec 012 rule 2, ranked ahead of total-length):
       ;; 0 = catch-all (less specific), 1 = not catch-all (more specific).
       (is (= 0 (nth catch-all 1))
           "bare `/*` is classified as the catch-all (rank elem 1 = 0)")
@@ -2341,31 +2327,31 @@
           "lexicographic compare: `/*rest` out-ranks `/*` (rule 2)"))))
 
 (deftest match-url-named-splat-wins-over-bare-catch-all
-  (testing "rf2-yjali — when both `/*rest` and `/*` are registered, a
+  (testing "when both `/*rest` and `/*` are registered, a
             multi-segment URL resolves to the named-splat route, not the
             catch-all (Spec 012 §Route ranking rule 2)"
     (rf/reg-route :route/catch-all {} "/*")
     (rf/reg-route :route/rest      {} "/*rest")
     (let [m (rf.routing/match-url "/some/deep/path")]
       (is (= :route/rest (:route-id m))
-          "named-splat route wins the rule-4 tiebreak against bare catch-all")
+          "named-splat route wins against the bare catch-all (rule-2 catch-all demotion)")
       (is (= {:rest "some/deep/path"} (:params m))
           "the named splat captures the whole tail under :rest"))))
 
-;; ---- rf2-1ugs5u: root `/` wins over the bare catch-all `/*` for URL "/" --
+;; ---- root `/` wins over the bare catch-all `/*` for URL "/" -------------
 ;;
 ;; Spec 012 §Route ranking algorithm rule 2: the bare catch-all `/*` is
-;; demoted below every other matching route. The bug: `/*` ALSO matches
+;; demoted below every other matching route. `/*` ALSO matches
 ;; the root URL "/" (the unnamed splat captures the literal "/"), and a
 ;; home route `{:path "/"}` parses to total-length 0 while `/*` is
-;; length 1. With total-length (rule 3) compared BEFORE the catch-all
-;; demotion, `/*` out-lengthed the root and won for "/" — shadowing the
-;; home route registration-order-independently. The fix lifts the
-;; catch-all discriminator (rank elem 1) ahead of total-length (rank
-;; elem 2) so the root (and every concrete route) wins over `/*`.
+;; length 1. Comparing total-length (rule 3) BEFORE the catch-all
+;; demotion would let `/*` out-length the root and win for "/" — shadowing
+;; the home route registration-order-independently. So the catch-all
+;; discriminator (rank elem 1) sits ahead of total-length (rank elem 2),
+;; and the root (and every concrete route) wins over `/*`.
 
 (deftest parse-pattern-root-outranks-bare-catch-all-rf2-1ugs5u
-  (testing "rf2-1ugs5u — the root `/` out-ranks the bare catch-all `/*`
+  (testing "the root `/` out-ranks the bare catch-all `/*`
             even though `/*` is the longer pattern; the catch-all
             discriminator (rank elem 1) is consulted before total-length
             (rank elem 2)"
@@ -2388,10 +2374,10 @@
            DESPITE being shorter — the catch-all demotion wins first"))))
 
 (deftest match-url-root-wins-over-catch-all-rf2-1ugs5u
-  (testing "rf2-1ugs5u — match-url \"/\" returns the ROOT route, not the
+  (testing "match-url \"/\" returns the ROOT route, not the
             catch-all, when both `/` and `/*` are registered
             (registration-order-independent)"
-    ;; catch-all registered FIRST so the bug (if present) can't hide
+    ;; catch-all registered FIRST so a rank defect (if present) can't hide
     ;; behind registration order — the rank cascade, not order, must win.
     (rf/reg-route :route/catch-all {} "/*")
     (rf/reg-route :route/home      {} "/")
@@ -2401,34 +2387,34 @@
       (is (= {} (:params m))
           "the root match carries an empty params map (no splat capture)")))
 
-  (testing "rf2-1ugs5u — the result is order-independent: home registered
+  (testing "the result is order-independent: home registered
             first ALSO resolves \"/\" to the home route"
     (rf/reg-route :route/home      {} "/")
     (rf/reg-route :route/catch-all {} "/*")
     (is (= :route/home (:route-id (rf.routing/match-url "/")))
         "home wins regardless of registration order"))
 
-  (testing "rf2-1ugs5u — the catch-all still wins a NON-root URL that the
+  (testing "the catch-all still wins a NON-root URL that the
             home route cannot match (the demotion only loses the root)"
     (rf/reg-route :route/home      {} "/")
     (rf/reg-route :route/catch-all {} "/*")
     (is (= :route/catch-all (:route-id (rf.routing/match-url "/anything/deep")))
         "catch-all still catches URLs no concrete route matches")))
 
-;; ---- rf2-dqlfty: rank rule 5 is a boolean bit, not the optional-group ----
+;; ---- rank rule 5 is a boolean bit, not the optional-group ---------------
 ;; COUNT (and rule 4 the same shape for splats)
 ;;
 ;; Spec 012 §Route ranking algorithm rule 5: "Exact routes beat
 ;; optional-group routes" — the pseudocode's discriminator is
-;; `(if has-optional? 0 1)`, a BOOLEAN bit. Pre-fix, `parse-pattern`
-;; ranked rule 5 (and rule 4, "named params beat rest params") by the raw
-;; segment COUNT (`(- optional)` / `(- splat)`), so two routes differing
-;; ONLY in HOW MANY optional groups (or splats) they declare ranked
-;; differently where the spec ties them — a cross-host divergence, since
-;; a conforming implementation following the spec pseudocode ties them.
+;; `(if has-optional? 0 1)`, a BOOLEAN bit. Ranking rule 5 (and rule 4,
+;; "named params beat rest params") by the raw segment COUNT
+;; (`(- optional)` / `(- splat)`) would rank two routes differing ONLY in
+;; HOW MANY optional groups (or splats) they declare differently where the
+;; spec ties them — a divergence from any conforming implementation that
+;; follows the spec pseudocode.
 
 (deftest parse-pattern-optional-group-count-does-not-affect-rank-rf2-dqlfty
-  (testing "rf2-dqlfty — one optional group and two optional groups rank
+  (testing "one optional group and two optional groups rank
             IDENTICALLY at rule 5 (rank element 4): both simply `have` an
             optional group, and the spec discriminator is has-optional?,
             not a magnitude"
@@ -2437,11 +2423,11 @@
       (is (= one-group two-groups)
           "one optional group and two optional groups rank IDENTICALLY —
            the spec ties them (rule 5 is has-optional?, not a magnitude);
-           pre-fix these ranked [1 1 1 0 -1] vs [1 1 1 0 -2] — NOT tied")
+           a count-based rank would read [1 1 1 0 -1] vs [1 1 1 0 -2] — NOT tied")
       (is (= 0 (nth one-group 4))
           "rank element 4 (rule 5) is the boolean bit: 0 = has an optional group")))
 
-  (testing "rf2-dqlfty — an EXACT route (no optional group) still out-ranks
+  (testing "an EXACT route (no optional group) still out-ranks
             both optional-group routes (rule 5 keeps discriminating exact
             vs optional — only the WITHIN-optional-group magnitude is
             collapsed)"
@@ -2451,9 +2437,9 @@
           "the exact route out-ranks the optional-group route (rule 5)"))))
 
 (deftest parse-pattern-splat-count-does-not-affect-rank-rf2-dqlfty
-  (testing "rf2-dqlfty — rule 4 (\"named params beat rest params\") is the
-            same boolean shape: a named param still beats a splat, but the
-            fix must not regress that cascade"
+  (testing "rule 4 (\"named params beat rest params\") is the
+            same boolean shape, and the bit keeps the cascade: a named
+            param beats a splat"
     (let [named (:rank (rf.routing.match/parse-pattern "/files/:name"))
           splat (:rank (rf.routing.match/parse-pattern "/files/*rest"))]
       (is (pos? (compare named splat))
@@ -2462,16 +2448,15 @@
       (is (= 0 (nth splat 3)) "splat: rule-4 bit is 0 (has a splat)"))))
 
 (deftest match-url-optional-group-count-tie-breaks-on-registration-order-rf2-dqlfty
-  (testing "rf2-dqlfty — two routes differing ONLY in optional-group COUNT
+  (testing "two routes differing ONLY in optional-group COUNT
             are a genuine structural TIE per Spec 012 rule 5; match-url
             resolves the tie via rule 6 (registration order) exactly as it
             would for any other structurally-identical pair. Register the
-            route with MORE optional groups FIRST: pre-fix, the route with
-            FEWER optional groups always won regardless of registration
-            order (rule 5's raw count shadowed rule 6) — this test would
-            have picked :route/one-group either way if it were registered
-            first, so the two-groups-first order is the one that actually
-            discriminates the bug from the fix"
+            route with MORE optional groups FIRST: a count-based rank would
+            let the route with FEWER optional groups win regardless of
+            registration order (the raw count shadowing rule 6), and with
+            :route/one-group registered first both rankings would pick it,
+            so the two-groups-first order is the one that discriminates them"
     (rf/reg-route :route/two-groups {} "/docs{/a}?{/b}?")
     (rf/reg-route :route/one-group  {} "/docs{/a}?")
     (is (= :route/two-groups (:route-id (rf.routing/match-url "/docs")))
@@ -2479,16 +2464,16 @@
          MORE optional groups) wins the tie for a URL both match — rule 6
          registration-order tiebreak, not rule 5's group count")))
 
-;; ---- rf2-rpjb5i: sequential optional groups form a prefix chain -----------
+;; ---- sequential optional groups form a prefix chain ----------------------
 ;;
 ;; The match-time regex reads adjacent optional groups POSITIONALLY, so
 ;; supplying only the LATER param elides the earlier group but emits the later
 ;; one into the earlier group's capture slot — `route-url {:page "5"}` on
-;; `/docs{/:section}?{/:page}?` used to build `/docs/5`, which `match-url` reads
+;; `/docs{/:section}?{/:page}?` would build `/docs/5`, which `match-url` reads
 ;; back as `{:section "5"}`: a SILENT prism-law break (both keys optional, so
-;; both legs pass validation). route-url now fails CLOSED on emission (the
+;; both legs pass validation). So route-url fails CLOSED on emission (the
 ;; prefix rule: a later optional group is reachable only when every earlier
-;; group is present), and every prefix-respecting combination still round-trips.
+;; group is present), and every prefix-respecting combination round-trips.
 
 (deftest sequential-optional-groups-prefix-rule-rf2-rpjb5i
   (rf/reg-route :route/docs
@@ -2514,14 +2499,14 @@
         (is (= params round)
             (str "round-trip for " (pr-str params) " via " (pr-str url)
                  " recovered " (pr-str round))))))
-  (testing "sanity: the ambiguous URL the pre-fix path would have built
-            (/docs/5) still reads back as the FIRST group — proving the
+  (testing "sanity: the ambiguous URL a page-only emission would build
+            (/docs/5) reads back as the FIRST group — proving the
             positional ambiguity the emission-side reject exists to prevent"
     (is (= {:section "5"} (:params (rf.routing/match-url "/docs/5")))
         "/docs/5 matches section, not page — so emitting page-only would corrupt")))
 
 (deftest match-against-root-pattern-matches-root-path
-  (testing "rf2-aleg9 — the special `/` pattern matches the root URL
+  (testing "the special `/` pattern matches the root URL
             and returns an empty params map; a deeper URL returns nil"
     (let [compiled (rf.routing.match/parse-pattern "/")]
       (is (= {} (rf.routing.match/match-against compiled "/"))
@@ -2532,7 +2517,7 @@
           "root pattern does NOT match a deeper path"))))
 
 (deftest match-against-no-match-returns-nil
-  (testing "rf2-aleg9 — when re-matches misses, match-against returns
+  (testing "when re-matches misses, match-against returns
             nil cleanly (no throw, no exception)"
     (let [compiled (rf.routing.match/parse-pattern "/users/:id/posts/:post-id")]
       (is (nil? (rf.routing.match/match-against compiled "/unrelated/path"))
@@ -2545,17 +2530,17 @@
           "the same pattern DOES match when both captures are present —
            sanity-check the test isn't accepting only the negative cases"))))
 
-;; ---- rf2-45b95: reg-route authoring-boundary metadata validation ----------
+;; ---- reg-route authoring-boundary metadata validation --------------------
 ;;
 ;; Spec 012 §Reserved route-metadata keys: reg-route has the largest
-;; registration shape in the v2 surface (twelve reserved keys). A typo'd
-;; key (:on-matched for :on-match) used to pass silently at registration
+;; registration shape in the v2 surface (twelve reserved keys). Unguarded, a
+;; typo'd key (:on-matched for :on-match) would pass silently at registration
 ;; and fail later at nav-time, or never. The authoring-boundary guardrail
-;; (rf2-45b95) rejects bare keys outside the reserved set LOUDLY at
+;; rejects bare keys outside the reserved set LOUDLY at
 ;; registration, naming the bad key; namespaced host/app keys pass.
 
 (deftest reg-route-rejects-unknown-bare-metadata-key
-  (testing "rf2-45b95: a typo'd bare metadata key (:on-matched for
+  (testing "a typo'd bare metadata key (:on-matched for
             :on-match) throws :rf.error/route-bad-metadata at
             registration, naming the bad key"
     (let [ex (try
@@ -2608,12 +2593,12 @@
       (is (= [:query-retain] (:keys (ex-data ex)))
           ":keys names exactly the retired key")
       (is (not (contains? (set (:reserved (ex-data ex))) :query-retain))
-          "the reserved vocabulary the error prints no longer offers :query-retain")
+          "the reserved vocabulary the error prints does not offer :query-retain")
       (is (contains? (set (:reserved (ex-data ex))) :query-defaults)
-          ":query-defaults survives the cut — only the retain slot is retired"))))
+          ":query-defaults is reserved — only the retain slot is retired"))))
 
 (deftest reg-route-accepts-valid-and-namespaced-metadata
-  (testing "rf2-45b95: a route using only reserved keys + namespaced
+  (testing "a route using only reserved keys + namespaced
             host/app keys registers fine (no false positives)"
     (is (= :route/ok
            (rf/reg-route :route/ok
@@ -2631,7 +2616,7 @@
     (is (some? (rf/handler-meta {:source :store :kind :route :id :route/ok}))
         "the route is queryable via handler-meta after a clean registration")))
 
-;; ---- rf2-nrc93: the :ns image-selection stamp on reg-route ---------------
+;; ---- the :ns image-selection stamp on reg-route --------------------------
 ;;
 ;; Spec 001 §Production elision contract: a PROGRAMMATIC registration leaves
 ;; the macro's source-coord capture unbound, so its descriptor carries no
@@ -2647,13 +2632,13 @@
 ;; "probe.ns" IS `:select-ns` selectability.
 
 (deftest reg-route-accepts-and-honours-the-ns-provenance-stamp
-  (testing "rf2-nrc93 (a): a bare `:ns` registers and reaches the source store.
-            RED before rf2-nrc93 — `:ns` was outside `reserved-route-keys`, so
-            the authoring guard threw :rf.error/route-bad-metadata naming it
-            and NOTHING was registered. Note `rf/reg-route` here is the MACRO
+  (testing "(a): a bare `:ns` registers and reaches the source store.
+            Outside `reserved-route-keys`, `:ns` would make the authoring guard
+            throw :rf.error/route-bad-metadata naming it, and NOTHING would be
+            registered. Note `rf/reg-route` here is the MACRO
             (this is a .clj namespace), which binds *pending-coords* to THIS
             test ns — the guard runs on the user map BEFORE merge-coords, so it
-            threw under the macro too. The store reading \"probe.ns\" rather
+            would throw under the macro too. The store reading \"probe.ns\" rather
             than \"re-frame.routing-registry-test\" therefore proves BOTH that
             the key is accepted AND that a user `:ns` overrides the captured
             one, per merge-coords' user-overrides-captured rule."
@@ -2664,35 +2649,34 @@
            (vec (keys (rf.source-store/descriptors-for :route :route/with-ns))))
         "the stamped :ns is the route descriptor's provenance — :select-ns-selectable"))
 
-  (testing "rf2-nrc93 (b): the typo guard still bites, and its printed
-            vocabulary now offers :ns"
+  (testing "(b): the typo guard still bites, and its printed
+            vocabulary offers :ns"
     (let [ex (try
                (rf/reg-route :route/still-typo {:on-matched [[:load]]} "/still-typo")
                nil
                (catch clojure.lang.ExceptionInfo e e))]
       (is (= :rf.error/route-bad-metadata (:rf.error/id (ex-data ex)))
-          "an unknown bare key is still rejected — widening the set by one did not open it")
+          "an unknown bare key is rejected — admitting :ns does not open the set")
       (is (= [:on-matched] (:keys (ex-data ex)))
-          ":keys still names exactly the offending key")
+          ":keys names exactly the offending key")
       (is (contains? (set (:reserved (ex-data ex))) :ns)
           ":ns is in the reserved vocabulary the error prints")
       (is (not-any? (set (:reserved (ex-data ex))) [:file :line :column])
-          "and ONLY :ns — :file / :line / :column stay out of the bare-key set (rf2-nrc93)")))
+          "and ONLY :ns — :file / :line / :column stay out of the bare-key set")))
 
-  (testing "rf2-nrc93 (c) CONTROL: the QUALIFIED spelling registered and was
-            honoured BEFORE this change and still is — qualified keys are never
-            checked by the guard. It pins that the routing half of rf2-nrc93
-            bought CONSISTENCY, not a new capability."
+  (testing "(c) CONTROL: the QUALIFIED spelling registers and is honoured —
+            qualified keys are never checked by the guard, so the bare `:ns`
+            adds CONSISTENCY, not a new capability."
     (is (= :route/qualified-ns
            (rf/reg-route :route/qualified-ns
                          {:rf.provenance/ns "probe.qualified"} "/qualified-ns"))
-        "a qualified :rf.provenance/ns always passed the bare-key guard")
+        "a qualified :rf.provenance/ns passes the bare-key guard")
     (is (= ["probe.qualified"]
            (vec (keys (rf.source-store/descriptors-for :route :route/qualified-ns))))
-        "and always reached the store")))
+        "and reaches the store")))
 
 (deftest reg-route-rejects-non-map-metadata
-  (testing "rf2-45b95: non-map metadata is rejected at the authoring
+  (testing "non-map metadata is rejected at the authoring
             boundary naming the route (no downstream NPE)"
     (let [ex (try (rf/reg-route :route/bad "/not-a-map" "/bad")
                   nil
@@ -2701,7 +2685,7 @@
           "non-map metadata surfaces the same canonical error id"))))
 
 (deftest reg-route-rejects-path-inside-metadata-map
-  (testing "rf2-wvh95f F1 / rf2-2u6s4b: under the canonical 3-slot grammar the
+  (testing "under the canonical 3-slot grammar the
             path pattern is the THIRD slot, so a `:path` LEFT INSIDE the
             metadata map is a mislocated key and MUST be rejected loudly with
             the structured `:rf.error/route-bad-metadata` — NOT silently

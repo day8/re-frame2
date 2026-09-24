@@ -1,17 +1,16 @@
 (ns re-frame.routing-nav-allocation-record-replay-test
-  "rf2-vcop6y — nav-token / pending-nav-id as RECORDABLE allocation coeffects
-  (d8mvke.6 Finding 3 fix).
+  "Nav-token / pending-nav-id as RECORDABLE allocation coeffects.
 
-  THE HOLE (pre-rf2-vcop6y): routing minted `:nav-token` (committed route
-  correlation) and the pending-nav `:id` (can-leave block) from the AMBIENT
-  `:rf.route/nav-counters` cofx — a host-cache read that was NEVER recorded —
-  and wrote them DURABLY to runtime-db. On replay the ambient read re-ran
-  against the live host cache and re-minted DIFFERENT ids, so recorded events
-  that reference the originals mismatched replayed state. Two concrete failures:
+  WHY RECORDABLE: routing mints `:nav-token` (committed route correlation) and
+  the pending-nav `:id` (can-leave block) and writes them DURABLY to
+  runtime-db. Minted from an AMBIENT host-cache read that is never recorded,
+  replay would re-run that read against the live host cache and re-mint
+  DIFFERENT ids, so recorded events that reference the originals would
+  mismatch replayed state. Two concrete failures:
 
     1. **pending-nav continue no-op on re-mint.** A live block mints \"pn-1\",
        writes it to the pending-navigation slot; a recorded
-       `[:rf.route/continue \"pn-1\"]` resolves it later. On replay the ambient
+       `[:rf.route/continue \"pn-1\"]` resolves it later. On replay a
        re-mint produces \"pn-2\", so `[:rf.route/continue \"pn-1\"]` no-ops and
        the navigation stays blocked forever.
     2. **nav-token stale-suppression flip.** A live commit writes :nav-token
@@ -21,32 +20,32 @@
        current → stale (or vice versa) — committing a result that should be
        suppressed, or suppressing one that should commit.
 
-  THE FIX: the ids ride two RECORDABLE, generator-backed allocation coeffects
-  (one per allocator, rf2-oosjmh) —
+  THE MECHANISM: the ids ride two RECORDABLE, generator-backed allocation coeffects
+  (one per allocator) —
     `:rf.route/nav-allocation         {:token \"nav-N\" :counter N}`
     `:rf.route/pending-nav-allocation {:id    \"pn-N\"  :counter N}`
   whose generator mints from the host snapshot at processing-start and whose
   value is RECORDED onto the causal token; strict replay re-presents the SAME
   id verbatim (and FAILS on a missing recorded allocation). The commit fx
   advances the host high-water with `max` so a restore/replay cannot rewind the
-  allocator (the never-recycle invariant, kept from rf2-oosjmh).
+  allocator (the never-recycle invariant).
 
   This namespace is the ADVERSARIAL acceptance: it reproduces both failures
-  under the re-mint scenario (the hole) and shows them FIXED when the recorded
-  allocation is re-presented under strict replay.
+  under the re-mint scenario (no recorded allocation) and shows them ABSENT
+  when the recorded allocation is re-presented under strict replay.
 
-  ## Posture split (rf2-o5dbf)
+  ## Posture split
 
-  Both failures and both fixes are production-real and carry no posture
+  Both failures and both replayed cases are production-real and carry no posture
   guard — the minted ids land in runtime-db, the `:rf.route/continue` no-op,
   the stale-suppression flip and its repair are all readable off runtime-db
   and app-db. They run in the ordinary `clojure -M:test` suite AND in
   `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false` lane).
 
   The single exception is the `:rf.route.nav-token/stale-suppressed` TRACE,
-  dev instrumentation behind `rf.interop/debug-enabled?`; it is kept VERBATIM
-  inside a `(when rf.interop/debug-enabled? …)` arm marked `rf2-o5dbf`, beside
-  the app-db assertion that already proves the same suppression happened."
+  dev instrumentation behind `rf.interop/debug-enabled?`; it sits
+  inside a `(when rf.interop/debug-enabled? …)` arm marked \"Dev-instrumentation
+  arm\", beside the app-db assertion that proves the same suppression happened."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
@@ -78,12 +77,12 @@
   (some? (rf/subscribe-once [:rf/pending-navigation] {:frame :rf/default})))
 
 ;; ===========================================================================
-;; The allocation-cofx SHAPE (rf2-vcop6y step 3): two RECORDABLE,
+;; The allocation-cofx SHAPE: two RECORDABLE,
 ;; generator-backed facts carrying both the id AND the allocator :counter.
 ;; ===========================================================================
 
 (deftest allocation-cofx-are-recordable-generator-backed-and-split
-  (testing "rf2-vcop6y step 3: TWO distinct recordable allocation coeffects —
+  (testing "TWO distinct recordable allocation coeffects —
             `:rf.route/nav-allocation` and `:rf.route/pending-nav-allocation`
             — each generator-backed (recordable, NOT provided) and carrying
             `{:token/:id .. :counter ..}` (the id + the allocator high-water)"
@@ -93,9 +92,10 @@
       (is (true? (:recordable? pn))  ":rf.route/pending-nav-allocation is recordable")
       (is (not (:provided? nav))     "nav-allocation is generator-backed, NOT provided")
       (is (not (:provided? pn))      "pending-nav-allocation is generator-backed, NOT provided"))
-    ;; The OLD ambient counter-snapshot cofx is GONE (step 2: do NOT record it).
+    ;; There is no ambient counter-snapshot cofx: an unrecorded host read is
+    ;; exactly what replay cannot reproduce.
     (is (nil? (rf/handler-meta {:source :store :kind :cofx :id :rf.route/nav-counters}))
-        "the ambient :rf.route/nav-counters cofx is retired (step 2)"))
+        "there is no ambient :rf.route/nav-counters cofx"))
 
   (testing "the generators mint {:token/:id .. :counter ..} from the host snapshot"
     (let [nav-gen (:handler-fn (rf/handler-meta {:source :store :kind :cofx :id :rf.route/nav-allocation}))
@@ -108,29 +108,28 @@
             "pending-nav-allocation mints {:id \"pn-1\" :counter 1} — a DISTINCT allocator")))))
 
 ;; ===========================================================================
-;; FAILURE 1 — pending-nav continue no-op on re-mint, now FIXED under replay.
+;; FAILURE 1 — pending-nav continue no-op on re-mint, absent under replay.
 ;; ===========================================================================
 
 (deftest failure-1-pending-nav-continue-no-op-on-remint
-  (testing "rf2-vcop6y FAILURE 1 (the hole): a re-mint produces a DIFFERENT
+  (testing "FAILURE 1 (the re-mint): a re-mint produces a DIFFERENT
             pending-nav id, so a recorded [:rf.route/continue \"pn-1\"] no-ops
             and the navigation stays blocked"
     (block-fixture!)
     ;; A PRIOR block already advanced the host pending-nav high-water to 1, so a
-    ;; fresh ambient re-mint (the retired behaviour) yields \"pn-2\", NOT the
-    ;; recorded \"pn-1\".
+    ;; fresh re-mint yields \"pn-2\", NOT the recorded \"pn-1\".
     (rf.routing.nav-counters/commit-counter! :rf/default :pending-nav-counter 1)
-    ;; LIVE re-mint (mirrors the ambient hole — no recorded allocation supplied).
+    ;; LIVE re-mint (no recorded allocation supplied).
     (rf/dispatch-sync [:rf.route/url-requested {:url "/home"}])
     (is (= "pn-2" (pending-id))
-        "the re-mint produced pn-2 (NOT the recorded pn-1) — the hole")
+        "the re-mint produced pn-2 (NOT the recorded pn-1)")
     ;; The recorded continue carries the ORIGINAL id \"pn-1\".
     (rf/dispatch-sync [:rf.route/continue "pn-1"])
     (is (blocked?)
-        "[:rf.route/continue \"pn-1\"] no-ops against the re-minted pn-2 — navigation STAYS BLOCKED (the bug)")))
+        "[:rf.route/continue \"pn-1\"] no-ops against the re-minted pn-2 — navigation STAYS BLOCKED")))
 
 (deftest failure-1-fixed-recorded-allocation-replays-same-pending-nav-id
-  (testing "rf2-vcop6y FIX: replaying the block with the RECORDED
+  (testing "REPLAY: replaying the block with the RECORDED
             `:rf.route/pending-nav-allocation` re-presents the SAME pn-1 even
             though the host counter advanced — so [:rf.route/continue \"pn-1\"]
             matches and the navigation proceeds"
@@ -144,13 +143,13 @@
                        :rf.cofx/mint-policy :strict})
     (is (= "pn-1" (pending-id))
         "strict replay re-presents the recorded pn-1 (NOT a re-minted pn-2)")
-    ;; The recorded continue now matches the re-presented id.
+    ;; The recorded continue matches the re-presented id.
     (rf/dispatch-sync [:rf.route/continue "pn-1"])
     (is (not (blocked?))
-        "[:rf.route/continue \"pn-1\"] matches the replayed pn-1 — navigation PROCEEDS (fixed)")))
+        "[:rf.route/continue \"pn-1\"] matches the replayed pn-1 — navigation PROCEEDS")))
 
 (deftest strict-replay-fails-on-missing-pending-nav-allocation
-  (testing "rf2-vcop6y step 6: strict replay FAILS LOUDLY when the recorded
+  (testing "strict replay FAILS LOUDLY when the recorded
             pending-nav allocation is missing (`:rf.error/missing-required-cofx`)
             — an incomplete record must not silently re-read the host"
     (block-fixture!)
@@ -165,11 +164,11 @@
           "the error names the missing recordable allocation"))))
 
 ;; ===========================================================================
-;; FAILURE 2 — nav-token stale-suppression flip on re-mint, now FIXED.
+;; FAILURE 2 — nav-token stale-suppression flip on re-mint, absent under replay.
 ;; ===========================================================================
 
 (deftest failure-2-nav-token-stale-suppression-flip-on-remint
-  (testing "rf2-vcop6y FAILURE 2 (the hole): a re-mint writes a DIFFERENT
+  (testing "FAILURE 2 (the re-mint): a re-mint writes a DIFFERENT
             :nav-token into the committed slice, so an async continuation
             carrying the RECORDED token mismatches the re-minted current — the
             stale-suppression gate flips (suppresses a result that should
@@ -179,9 +178,9 @@
     (let [traces (atom [])]
       (rf/register-listener! :trace ::flip (fn [ev] (swap! traces conj ev)))
       ;; A PRIOR navigation advanced the host nav-token high-water to 5, so a
-      ;; fresh ambient re-mint (the retired behaviour) yields \"nav-6\".
+      ;; fresh re-mint yields \"nav-6\".
       (rf.routing.nav-counters/commit-counter! :rf/default :nav-token-counter 5)
-      ;; LIVE re-mint (the hole) — the slice gets nav-6, NOT the recorded nav-1.
+      ;; LIVE re-mint — the slice gets nav-6, NOT the recorded nav-1.
       (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
       (is (= "nav-6" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                              [:rf.runtime/routing :current :nav-token]))
@@ -196,8 +195,8 @@
                           :carried-route-id  :route/article}])
       (rf/unregister-listener! :trace ::flip)
       (is (nil? (:article (rf/app-db-value :rf/default)))
-          "the recorded continuation (carried nav-1) was SUPPRESSED against the re-minted nav-6 — the bug (should have committed)")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The FLIP
+          "the recorded continuation (carried nav-1) was SUPPRESSED against the re-minted nav-6 — the original live run committed it")
+      ;; Dev-instrumentation arm (see ns docstring). The FLIP
       ;; itself — the recorded continuation was suppressed and never reached
       ;; app-db — is asserted immediately above, posture-independently.
       (when rf.interop/debug-enabled?
@@ -205,7 +204,7 @@
             "a stale-suppressed trace fired — the flipped decision")))))
 
 (deftest failure-2-fixed-recorded-allocation-replays-same-nav-token
-  (testing "rf2-vcop6y FIX: replaying the commit with the RECORDED
+  (testing "REPLAY: replaying the commit with the RECORDED
             `:rf.route/nav-allocation` re-presents the SAME nav-1 even though
             the host counter advanced — so a continuation carrying nav-1
             matches current and the result commits (the gate decision is
@@ -214,7 +213,7 @@
     (rf/reg-event :article/loaded (fn [{:keys [db]} [_ id payload]] {:db (assoc db :article {:id id :payload payload})}))
     ;; Same advanced host counter as the failing case — a re-mint WOULD give nav-6.
     (rf.routing.nav-counters/commit-counter! :rf/default :nav-token-counter 5)
-    ;; REPLAY: the recorded token carries BOTH allocations (a `transitioned`
+    ;; REPLAY: the recorded token carries BOTH allocations (a `handle-url-change`
     ;; event records both — both generate live; only nav-allocation is used on
     ;; the commit branch, but strict replay re-presents the full record).
     (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}]
@@ -224,16 +223,16 @@
     (is (= "nav-1" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                            [:rf.runtime/routing :current :nav-token]))
         "strict replay re-presents the recorded nav-1 (NOT a re-minted nav-6)")
-    ;; The recorded continuation carrying nav-1 now MATCHES current → commits.
+    ;; The recorded continuation carrying nav-1 MATCHES current → commits.
     (rf/dispatch-sync [:rf.test/simulate-http-resolution
                        {:on-success-event  [:article/loaded "A" "A-payload"]
                         :carried-nav-token "nav-1"
                         :carried-route-id  :route/article}])
     (is (= {:id "A" :payload "A-payload"} (:article (rf/app-db-value :rf/default)))
-        "the continuation (carried nav-1) matched the replayed nav-1 — committed (gate decision preserved, fixed)")))
+        "the continuation (carried nav-1) matched the replayed nav-1 — committed (gate decision preserved)")))
 
 (deftest strict-replay-fails-on-missing-nav-allocation
-  (testing "rf2-vcop6y step 6: strict replay FAILS LOUDLY when the recorded
+  (testing "strict replay FAILS LOUDLY when the recorded
             nav-token allocation is missing (`:rf.error/missing-required-cofx`)"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (let [ex (try (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}]
@@ -247,18 +246,18 @@
           "the error names the missing recordable allocation"))))
 
 ;; ===========================================================================
-;; The commit fx advances the host high-water with MAX (step 5): replay/restore
+;; The commit fx advances the host high-water with MAX: replay/restore
 ;; can re-establish the allocator from the recorded :counter but never rewind it.
 ;; ===========================================================================
 
 (deftest commit-advances-host-high-water-with-max-from-recorded-counter
-  (testing "rf2-vcop6y step 5: the commit fx advances the host high-water with
+  (testing "the commit fx advances the host high-water with
             `max` from the recorded allocation's :counter, so a replayed
             allocation re-establishes the allocator and a later live navigation
             mints strictly past it (no recycle)"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     ;; Replay an allocation whose recorded :counter is 9 (the host starts at 0).
-    ;; A `transitioned` record carries both allocations (both generate live).
+    ;; A `handle-url-change` record carries both allocations (both generate live).
     (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}]
                       {:rf.cofx {:rf.route/nav-allocation         {:token "nav-9" :counter 9}
                                  :rf.route/pending-nav-allocation {:id "pn-1" :counter 1}}
@@ -272,14 +271,14 @@
         "the next live token is nav-10 — monotone past the replayed high-water, no recycle")))
 
 ;; ===========================================================================
-;; Live navigations still allocate monotone non-recycled ids (acceptance:
-;; the fix is invisible to ordinary live behaviour).
+;; Live navigations allocate monotone non-recycled ids (acceptance: the
+;; recordable seam is invisible to ordinary live behaviour).
 ;; ===========================================================================
 
 (deftest live-navigation-still-monotone-and-non-recycling
-  (testing "rf2-vcop6y acceptance: with NO recorded allocation supplied, live
-            navigations mint monotone, non-recycled nav-tokens exactly as
-            before — the recordable seam is transparent to the live path"
+  (testing "acceptance: with NO recorded allocation supplied, live
+            navigations mint monotone, non-recycled nav-tokens — the
+            recordable seam is transparent to the live path"
     (rf/reg-route :route/a {} "/a")
     (rf/reg-route :route/b {} "/b")
     (rf/reg-route :route/c {} "/c")
@@ -295,31 +294,30 @@
         "a clean commit never advances the pending-nav allocator (no block branch taken)")))
 
 ;; ===========================================================================
-;; rf2-ps05ug — a malformed-but-PRESENT recorded allocation fails LOUDLY.
+;; A malformed-but-PRESENT recorded allocation fails LOUDLY.
 ;;
-;; THE HOLE (pre-rf2-ps05ug): both allocation cofx were registered with
-;; `:recordable? true` but NO `:schema`. `validate-recordable-value!`
-;; (cofx.cljc) is a no-op when the registration declares no `:schema`, so a
-;; supplied/replayed value that is structurally EDN but semantically wrong
-;; (`{:token nil :counter "bad"}`, `{:id nil :counter nil}`) was NOT missing
-;; → strict replay did not re-mint and did not throw. The handler folded the
-;; nil/wrong token / pending-nav id into DURABLE runtime-db and the host
-;; counter bump silently no-op'd, corrupting stale-suppression / continue-
-;; cancel instead of surfacing `:rf.error/cofx-value-invalid`.
+;; `validate-recordable-value!` (cofx.cljc) is a no-op when a registration
+;; declares no `:schema`, so without one a supplied/replayed value that is
+;; structurally EDN but semantically wrong (`{:token nil :counter "bad"}`,
+;; `{:id nil :counter nil}`) would NOT be missing → strict replay would
+;; neither re-mint nor throw. The handler would fold the nil/wrong token /
+;; pending-nav id into DURABLE runtime-db and the host counter bump would
+;; silently no-op, corrupting stale-suppression / continue-cancel instead of
+;; surfacing `:rf.error/cofx-value-invalid`.
 ;;
-;; THE FIX: a concrete `:schema` on each registration —
+;; So each registration carries a concrete `:schema` —
 ;;   :rf.route/nav-allocation         [:map [:token :string] [:counter :int]]
 ;;   :rf.route/pending-nav-allocation [:map [:id    :string] [:counter :int]]
 ;; so the supplied/replayed branch validates the present value and throws
 ;; `:rf.error/cofx-value-invalid` BEFORE the handler writes the route slice /
 ;; pending-navigation slot. (The schemas Malli validator is LIVE on this test
 ;; classpath — `routing-test-support` requires `re-frame.schemas`, whose
-;; facade wires the default Malli hooks on load, rf2-v96fh — so these assert
+;; facade wires the default Malli hooks on load — so these assert
 ;; the REAL validation path, not a vacuous no-validator pass.)
 ;; ===========================================================================
 
 (deftest strict-replay-fails-on-malformed-present-pending-nav-allocation
-  (testing "rf2-ps05ug: a PRESENT-but-malformed recorded pending-nav allocation
+  (testing "a PRESENT-but-malformed recorded pending-nav allocation
             fails with :rf.error/cofx-value-invalid BEFORE the handler writes
             pending-nav state (NOT folded in as a trusted value)"
     (block-fixture!)
@@ -342,7 +340,7 @@
           "no (corrupt) pending-nav id was folded into durable runtime-db"))))
 
 (deftest strict-replay-fails-on-malformed-present-nav-allocation
-  (testing "rf2-ps05ug: a PRESENT-but-malformed recorded nav-token allocation
+  (testing "a PRESENT-but-malformed recorded nav-token allocation
             fails with :rf.error/cofx-value-invalid BEFORE the commit handler
             writes the :nav-token into the durable route slice"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
@@ -364,8 +362,8 @@
           "no nil nav-token was folded into the durable route slice"))))
 
 (deftest live-allocation-still-conforms-to-schema
-  (testing "rf2-ps05ug acceptance: the live generator's produced allocation
-            conforms to the new :schema, so the schema is transparent to the
+  (testing "acceptance: the live generator's produced allocation
+            conforms to the :schema, so the schema is transparent to the
             ordinary (non-replay) path"
     (rf/reg-route :route/a {} "/a")
     ;; A live navigation runs the generator (well-formed `{:token \"nav-1\"

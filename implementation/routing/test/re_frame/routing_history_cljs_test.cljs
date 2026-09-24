@@ -1,6 +1,6 @@
 (ns re-frame.routing-history-cljs-test
-  "CLJS tests for the browser-history surface of routing
-  (rf2-wp0w4). Locks the popstate / hashchange / pushState /
+  "CLJS tests for the browser-history surface of routing.
+  Locks the popstate / hashchange / pushState /
   replaceState round-trip on the node-runtime test target.
 
   re-frame2's history-integration contract (Spec 012 §URL changes
@@ -12,10 +12,10 @@
                                   click (cause `:link`), popstate, initial, SSR.
 
   The runtime wires `window.addEventListener('popstate', ...)` itself,
-  automatically, as part of the `:url-bound?` frame LIFECYCLE (rf2-g8pbwg):
+  automatically, as part of the `:url-bound?` frame LIFECYCLE:
   a `:url-bound? true` frame's creation (or re-registration, when it
   resolves as the URL owner) installs the listener; its destroy removes it.
-  Some tests below still drive the browser→app leg by hand-dispatching
+  Some tests below drive the browser→app leg by hand-dispatching
   `:rf.route/handle-url-change` (the shape a hand-rolled/legacy listener, or
   SSR, uses) to pin the event's own contract independent of the automatic
   wiring; the dedicated lifecycle tests near the end of this file pin the
@@ -25,9 +25,9 @@
   the slice + fires :on-match + re-emits the nav-token-allocated trace).
 
   Mock approach — Node has no `window`/`document` globals, so this
-  file installs a minimal jsdom-style stub on `js/globalThis` via a
-  `:once` fixture (set up before `routing.cljc`'s fx run; torn down
-  after). The stub records `pushState` / `replaceState` calls onto an
+  file installs a minimal jsdom-style stub on `js/globalThis` via the
+  shared `with-window-stub-fixture` (set up before `routing.cljc`'s fx run;
+  torn down after). The stub records `pushState` / `replaceState` calls onto an
   in-memory entry stack and exposes `back` / `forward` / `go` so the
   popstate path can be driven without a real DOM. The fixture is
   scoped to this test ns; production code is untouched.
@@ -36,21 +36,21 @@
   restoration."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            ;; rf2-ktmto9: the first-registration/re-registration atomicity
+            ;; The first-registration/re-registration atomicity
             ;; tests read the frames registry record + the trace-policy
             ;; predicate directly to prove zero residue.
             [re-frame.frame :as rf.frame]
             [re-frame.trace :as rf.trace]
-            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            ;; The listener / buffer surface lives in re-frame.trace.tooling.
             [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.routing :as rf.routing]
-            ;; rf2-w3qgc: internal URL-classifier namespace — `external-url?`
+            ;; Internal URL-classifier namespace — `external-url?`
             ;; / `request-url->app-url` are not facade-exported, so the
             ;; non-string fail-closed test calls them directly.
             [re-frame.routing.url :as rf.routing.url]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
-            ;; rf2-y6e2zb: the browser history/location/document stub,
+            ;; The browser history/location/document stub,
             ;; `*history-state*`, `current-url`, and `with-window-stub-fixture`
             ;; are the SUPERSET fixture shared with routing_url_strategy_cljs_test.
             [re-frame.routing-browser-test-support
@@ -59,8 +59,8 @@
 ;; ---- window / history stub -----------------------------------------------
 ;;
 ;; The jsdom-style history/location/document stub, `*history-state*`,
-;; `current-url`, and `with-window-stub-fixture` now live in the shared
-;; re-frame.routing-browser-test-support ns (rf2-y6e2zb) — the SUPERSET fixture
+;; `current-url`, and `with-window-stub-fixture` live in the shared
+;; re-frame.routing-browser-test-support ns — the SUPERSET fixture
 ;; this suite and routing_url_strategy_cljs_test both drive. This suite reads
 ;; `*history-state*` / `current-url` directly and composes
 ;; `with-window-stub-fixture` FIRST in `use-fixtures` below.
@@ -69,7 +69,7 @@
   with-window-stub-fixture
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter
-     ;; rf2-1hncp2: the scroll-position cache is a module-level host atom
+     ;; The scroll-position cache is a module-level host atom
      ;; (not runtime-db), so the runtime reset does not touch it — drop it
      ;; explicitly so a captured position never leaks across tests.
      :init-fn (fn []
@@ -98,8 +98,8 @@
 ;; ---- routes used across the suite ---------------------------------------
 
 (defn- register-routes! []
-  ;; EP-0002 (rf2-9o48ih): URL ownership is now an EXPLICIT declaration —
-  ;; the runtime no longer infers `:rf/default` as the URL owner from
+  ;; EP-0002: URL ownership is an EXPLICIT declaration —
+  ;; the runtime does not infer `:rf/default` as the URL owner from
   ;; absence (`url-owner-frame-id` returns nil unless a frame declares
   ;; `:url-bound? true`). The fixture's `ensure-default-frame!` creates
   ;; `:rf/default` WITHOUT the slot, so opt it in explicitly here as this
@@ -182,7 +182,7 @@
         "external URL did not rewrite the app route to not-found")))
 
 (deftest url-requested-non-string-url-fails-closed-cljs-rf2-w3qgc
-  (testing "rf2-w3qgc: with a live window/location, a NON-STRING `:url`
+  (testing "with a live window/location, a NON-STRING `:url`
             (nil / number / boolean / object) is classed EXTERNAL and never
             pushed — JS would otherwise stringify it through `js/URL`
             (`new URL(null, base)` → `/null`, numbers → `/123`) and class it
@@ -221,30 +221,30 @@
            (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
         "the slice tracks the legitimate same-origin navigation")))
 
-;; ---- rf2-aftbmz: external-url? BROWSER js/URL branch — the open-redirect gate
+;; ---- external-url? BROWSER js/URL branch — the open-redirect gate
 ;;
-;; `external-url?` (url.cljc:203-236) is fail-closed by TWO impls of one
+;; `external-url?` (url.cljc) is fail-closed by TWO impls of one
 ;; contract: a JVM/no-window LEXICAL path (`safe-in-app-url?`, exhaustively
 ;; adversarial in routing_navigation_test.clj) and the CLJS LIVE-WINDOW path
-;; (js/URL + protocol-allowlist + origin-compare, url.cljc:224-231). The
+;; (js/URL + protocol-allowlist + origin-compare). The
 ;; browser path is the classifier that actually runs where an open redirect
 ;; is the live risk. Its `or` has TWO clauses:
 ;;
 ;;   (or (not (#{"http:" "https:"} protocol))        ; A — protocol allowlist
 ;;       (not= (.-origin parsed) (.-origin loc)))     ; B — origin compare
 ;;
-;; The window stub above (document origin https://app.example, node global
-;; `js/URL`) makes THIS branch run in the node-test target. Pre-existing
-;; coverage reached ONLY clause B (the single https://elsewhere.example
-;; vector at :320, plus the non-string guard which short-circuits BEFORE
-;; js/URL). Clause A — the non-http(s)-scheme gate — was reached by NO CLJS
-;; test, so a regression there (dropped allowlist, `.-host` vs `.-origin`,
-;; inverted compare) is a SILENT browser open-redirect the gates never catch.
+;; The shared window stub (document origin https://app.example, node global
+;; `js/URL`) makes THIS branch run in the node-test target. The single
+;; https://elsewhere.example vector in `url-requested-external-url-does-not-push-cljs`
+;; reaches ONLY clause B, and the non-string guard short-circuits BEFORE
+;; js/URL. Without a test of its own, a regression in clause A — the
+;; non-http(s)-scheme gate (dropped allowlist, `.-host` vs `.-origin`,
+;; inverted compare) — would be a SILENT browser open-redirect.
 ;; These deftests drive the JVM lexical bypass matrix through the browser
 ;; classifier so BOTH clauses are exercised + asserted.
 
 (deftest external-url-browser-protocol-allowlist-cljs-rf2-aftbmz
-  (testing "rf2-aftbmz: the live-window js/URL branch fails closed on
+  (testing "the live-window js/URL branch fails closed on
             non-http(s) schemes AND off-origin authorities — driving BOTH the
             protocol-allowlist clause and the origin-compare clause"
     (register-routes!)
@@ -282,11 +282,10 @@
             "same-origin absolute URL passes BOTH clauses → in-app (false)")))))
 
 (deftest request-url->app-url-canonicalizes-same-origin-absolute-cljs-rf2-aftbmz
-  (testing "rf2-aftbmz: request-url->app-url canonicalizes a SAME-ORIGIN
+  (testing "request-url->app-url canonicalizes a SAME-ORIGIN
             ABSOLUTE URL to its origin-relative pathname+search+hash via the
-            live-window js/URL leg (url.cljc:249-250) — the canonicalization
-            leg every prior nav test routed around by passing already-relative
-            URLs, so it was reached by no test"
+            live-window js/URL leg — the canonicalization leg a nav test
+            passing already-relative URLs never reaches"
     (register-routes!)
     (let [doc-origin (.-origin (.-location js/globalThis.window))]
       (is (= "/cart?q=1#frag"
@@ -301,14 +300,14 @@
            short-circuits the canonicalize (canonicalising it could fabricate
            an in-app-looking path)"))))
 
-;; rf2-fzbj.12 / rf2-gwye.26: `:rf.route/navigate {:url …}` normalises an
+;; `:rf.route/navigate {:url …}` normalises an
 ;; ACCEPTED raw reference to the location the browser will actually reach
 ;; BEFORE matching — the same `request-url->app-url` the link door runs — so the
 ;; committed route, its params and the pushed history entry describe ONE
-;; location. The raw string used to reach `match-url` verbatim: a same-origin
-;; absolute URL, a protocol-relative same-origin URL and a rooted dot-segment
-;; path all missed `/articles/:id` and committed not-found while the address bar
-;; showed the valid article URL.
+;; location. Handing the raw string to `match-url` verbatim would make a
+;; same-origin absolute URL, a protocol-relative same-origin URL and a rooted
+;; dot-segment path all miss `/articles/:id` and commit not-found while the
+;; address bar shows the valid article URL.
 (deftest navigate-raw-url-normalizes-before-matching-cljs-rf2-fzbj-12
   (register-routes!)
   (let [doc-origin (.-origin (.-location js/globalThis.window))
@@ -363,7 +362,7 @@
     (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
     (.scrollTo js/globalThis.window 12 345)
     (rf/dispatch-sync [:rf.route/url-requested {:url "/checkout"}])
-    ;; rf2-1hncp2: scroll-position caches are a HOST-SIDE TRANSIENT cache
+    ;; Scroll-position caches are a HOST-SIDE TRANSIENT cache
     ;; (not runtime-db) — read the frame's host cache, not the runtime-db.
     (is (= [12 345]
            (rf.routing/lookup-scroll-position
@@ -376,11 +375,11 @@
 
 (deftest duplicate-url-bound-frame-does-not-push-cljs
   (testing "a second :url-bound? true frame is reported but not allowed to mutate browser history"
-    ;; rf2-3l7xxz: `register-routes!` declares `:rf/default {:url-bound? true}`
+    ;; `register-routes!` declares `:rf/default {:url-bound? true}`
     ;; as the established (first-claimed) URL owner. The duplicate here sorts
     ;; AFTER `:rf/default` (`:zz/duplicate-owner`); the companion test below
     ;; covers the harder case — a duplicate that sorts BEFORE the incumbent,
-    ;; which the prior alphabetical resolver let STEAL the URL. A push from the
+    ;; which an alphabetical resolver would let STEAL the URL. A push from the
     ;; non-owner duplicate is suppressed.
     (register-routes!)
     (rf/make-frame {:id :zz/duplicate-owner :url-bound? true})
@@ -393,15 +392,15 @@
         "the non-owner frame still updates its own route slice")))
 
 (deftest duplicate-sorting-before-incumbent-does-not-steal-url-cljs
-  (testing "rf2-3l7xxz: a duplicate :url-bound? true frame whose id sorts
+  (testing "a duplicate :url-bound? true frame whose id sorts
             BEFORE the incumbent (:aaa-early < :rf/default) does NOT steal the
             browser URL — the incumbent still drives pushState, the duplicate's
-            push no-ops. This is the case the prior `(sort-by (str id))`
-            resolver got wrong (it would have made :aaa-early the owner)."
+            push no-ops. A `(sort-by (str id))` resolver would get this case
+            wrong, making :aaa-early the owner."
     (register-routes!)               ;; :rf/default claims the URL first
     (rf/make-frame {:id :aaa-early :url-bound? true})   ;; sorts before :rf/default
-    ;; The earlier-sorting duplicate navigates — under the bug it owned the URL
-    ;; and would push. It must NOT touch browser history now.
+    ;; The earlier-sorting duplicate navigates — an alphabetical resolver would
+    ;; make it the owner and push. It must NOT touch browser history.
     (rf/dispatch-sync [:rf.route/navigate {:to :hist/cart}] {:frame :aaa-early})
     (is (= ["/"] (:entries @*history-state*))
         "the earlier-sorting duplicate did NOT steal the URL / push to history")
@@ -484,19 +483,18 @@
              (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
           "the slice landed on /cart through the listener-driven popstate path"))))
 
-;; ---- rf2-6qgbs.4: popstate drives the URL-OWNER frame --------------------
+;; ---- popstate drives the URL-OWNER frame ----------------------------------
 ;;
-;; Regression for the step-deck Back/Forward bug. After rf2-6qgbs.3 a
-;; non-default frame can own the URL (`:rf/default` opts out, the
-;; non-default frame opts in). The PUSH side already routed through that
-;; owner (`:rf.nav/push-url` gate). The POP side did not — a hand-rolled
-;; popstate listener dispatched `:rf.route/handle-url-change` with no
-;; `:frame`, hitting `:rf/default` (now frozen) instead of the owner, so
-;; Back/Forward left the owner's route — and the rendered body — unchanged.
+;; A non-default frame can own the URL (`:rf/default` opts out, the
+;; non-default frame opts in). The PUSH side routes through that owner
+;; (`:rf.nav/push-url` gate), and the POP side must too: a popstate listener
+;; dispatching `:rf.route/handle-url-change` with no `:frame` would hit
+;; `:rf/default` instead of the owner, so Back/Forward would leave the owner's
+;; route — and the rendered body — unchanged.
 ;;
-;; rf2-g8pbwg: a `:url-bound? true` frame's REGISTRATION automatically
+;; A `:url-bound? true` frame's REGISTRATION automatically
 ;; (re)installs the listener when it resolves as `url-owner-frame-id` — no
-;; imperative install call. The installed listener still resolves the owner
+;; imperative install call. The installed listener resolves the owner
 ;; at POP TIME, so the test asserts the owner frame's slice round-trips on
 ;; back AND forward while `:rf/default` stays put.
 
@@ -506,13 +504,13 @@
 ;; same turn as `dispatchEvent` and the assertions can read it directly.
 
 (deftest popstate-drives-url-owner-non-default-frame-cljs
-  (testing "rf2-g8pbwg / rf2-6qgbs.4: the :url-bound? lifecycle automatically
+  (testing "the :url-bound? lifecycle automatically
             drives the non-default URL-owner frame on Back/Forward"
     (register-routes!)
     ;; Single-non-default-owner setup (the step-deck shape): default opts
     ;; OUT, a non-default frame opts IN, so `url-owner-frame-id` resolves
     ;; to the non-default owner — and `:sd/owner`'s make-frame automatically
-    ;; installs the listener for it (rf2-g8pbwg).
+    ;; installs the listener for it.
     (rf/make-frame {:id :rf/default :url-bound? false})
     (rf/make-frame {:id :sd/owner :url-bound? true})
     (is (= :sd/owner (rf.routing/url-owner-frame-id))
@@ -520,7 +518,7 @@
     ;; :rf/default briefly resolved as the URL owner during register-routes!
     ;; above (before opting out on the very next line), so its OWN
     ;; registration already triggered ONE automatic initial-URL sync
-    ;; (rf2-g8pbwg) — a side effect of having briefly BEEN the declared
+    ;; — a side effect of having briefly BEEN the declared
     ;; owner, not something popstate does. Capture that value so the
     ;; assertions below prove POPSTATE itself never touches the non-owner,
     ;; independent of whatever this shared-registrar test bundle's `match-url
@@ -554,13 +552,13 @@
           ":rf/default still untouched after Forward"))))
 
 (deftest popstate-targets-incumbent-after-earlier-sorting-duplicate-cljs
-  (testing "rf2-3l7xxz: after a duplicate :url-bound? true frame that sorts
+  (testing "after a duplicate :url-bound? true frame that sorts
             BEFORE the incumbent registers, popstate (Back/Forward) STILL
             targets the incumbent owner — not the earlier-sorting duplicate.
             The popstate listener resolves url-owner-frame-id at pop time, so a
-            stolen-ownership resolution would have driven the WRONG frame."
+            stolen-ownership resolution would drive the WRONG frame."
     (register-routes!)               ;; :rf/default claims the URL first + auto-installs
-    (rf/make-frame {:id :aaa-early :url-bound? true})   ;; sorts before :rf/default — a losing duplicate, never installs (rf2-g8pbwg)
+    (rf/make-frame {:id :aaa-early :url-bound? true})   ;; sorts before :rf/default — a losing duplicate, never installs
     (is (= :rf/default (rf.routing/url-owner-frame-id))
         "incumbent :rf/default is still the owner despite the earlier-sorting duplicate")
     ;; Incumbent forward-navigates (it owns push), building a history stack.
@@ -579,8 +577,8 @@
         "the earlier-sorting duplicate :aaa-early was NOT driven by popstate")))
 
 (deftest popstate-drives-default-owner-when-default-bound-cljs
-  (testing "rf2-g8pbwg / rf2-6qgbs.4: the automatically-installed listener
-            drives :rf/default when it is the owner (no regression)"
+  (testing "the automatically-installed listener
+            drives :rf/default when it is the owner"
     (register-routes!)
     ;; register-routes! explicitly declares :rf/default as URL-bound, so its
     ;; frame registration installed the listener.
@@ -598,25 +596,24 @@
         "Back restored the explicitly owned :rf/default slice to /cart")))
 
 ;; =========================================================================
-;; rf2-g8pbwg: the :url-bound? frame LIFECYCLE installs/removes the listener
+;; the :url-bound? frame LIFECYCLE installs/removes the listener
 ;; =========================================================================
 ;;
-;; The full fold this bead makes: `install-url-listener!` /
-;; `install-history-listener!` / `remove-url-listener!` /
-;; `remove-history-listener!` are DELETED from the public facade (no
-;; compatibility shim — pre-alpha). A `:url-bound? true` frame's CREATE
+;; There is no `install-url-listener!` / `install-history-listener!` /
+;; `remove-url-listener!` / `remove-history-listener!` on the public facade.
+;; A `:url-bound? true` frame's CREATE
 ;; installs the strategy listener; its DESTROY removes it. A losing
 ;; duplicate `:url-bound? true` registration never installs at all.
 
 (deftest url-bound-frame-lifecycle-installs-on-create-and-removes-on-destroy-cljs
-  (testing "rf2-g8pbwg: a :url-bound? true frame automatically installs its
+  (testing "a :url-bound? true frame automatically installs its
             popstate listener on create and removes it on destroy-frame! —
             zero imperative install/remove calls anywhere"
     (register-routes!)   ;; :rf/default {:url-bound? true} — auto-installs on create
     (is (= 1 (count (get-in @*history-state* [:listeners "popstate"])))
         "the listener installed automatically when the owner frame was created")
 
-    ;; Back/Forward already works with zero imperative wiring.
+    ;; Back/Forward works with zero imperative wiring.
     (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
     (.back (.-history js/globalThis.window))
     (.dispatchEvent js/globalThis.window #js {:type "popstate"})
@@ -630,10 +627,10 @@
         "destroy-frame! removed the browser popstate listener")))
 
 (deftest duplicate-url-bound-frame-does-not-reinstall-listener-cljs
-  (testing "rf2-g8pbwg: a losing duplicate :url-bound? true registration does
+  (testing "a losing duplicate :url-bound? true registration does
             NOT reinstall the popstate listener — the incumbent's listener
-            instance is untouched (Codex correction: a losing duplicate must
-            never install its own / a replacement strategy listener)"
+            instance is untouched (a losing duplicate never installs its own
+            / a replacement strategy listener)"
     (register-routes!)                          ;; :rf/default claims + auto-installs
     (let [installed-before (first (get-in @*history-state* [:listeners "popstate"]))]
       (is (some? installed-before)
@@ -644,26 +641,26 @@
           "the duplicate's registration did not tear down + reinstall the incumbent's listener"))))
 
 ;; =========================================================================
-;; rf2-3fc89f.11: URL-listener RECONCILIATION on ownership TRANSFER
+;; URL-listener RECONCILIATION on ownership TRANSFER
 ;; =========================================================================
 ;;
 ;; When URL ownership transfers between frames — the incumbent owner is
 ;; DESTROYED, or RELINQUISHES its binding by re-registering `:url-bound? false`
 ;; — while another live `:url-bound? true` claimant remains, the browser
-;; URL-change listener must REBIND to the new owner's strategy. Before the fix
-;; the destroy path removed the incumbent's listener and installed nothing (a
-;; live successor was left with ZERO browser listeners), and the re-registration
-;; opt-out path left the incumbent's stale listener in place (a history→hash
-;; handoff kept `popstate` and never installed `hashchange`). The single
+;; URL-change listener must REBIND to the new owner's strategy. A destroy path
+;; that removed the incumbent's listener and installed nothing would leave a
+;; live successor with ZERO browser listeners, and a re-registration opt-out
+;; that left the incumbent's listener in place would keep a stale `popstate`
+;; across a history→hash handoff and never install `hashchange`. The single
 ;; strategy-aware `reconcile-url-listener!` op, invoked after post-registration
 ;; claim changes AND after destroyed-owner claim removal, establishes exactly
 ;; one matching listener (or none).
 
 (deftest url-ownership-transfer-on-destroy-rebinds-listener-cljs-rf2-3fc89f-11
-  (testing "rf2-3fc89f.11: destroying the URL owner rebinds the browser listener
+  (testing "destroying the URL owner rebinds the browser listener
             to the live successor claimant — exactly one popstate listener,
-            url-owner resolves to B, and Back drives B's route slice (the bug
-            left ZERO listeners after the destroy)"
+            url-owner resolves to B, and Back drives B's route slice (never
+            ZERO listeners after the destroy)"
     (rf/reg-route :hist/home     {} "/")
     (rf/reg-route :hist/cart     {} "/cart")
     (rf/reg-route :hist/checkout {} "/checkout")
@@ -682,7 +679,7 @@
     (is (= :owner/b (rf.routing/url-owner-frame-id))
         "ownership resolved to the surviving claimant B")
     (is (= 1 (count (get-in @*history-state* [:listeners "popstate"])))
-        "exactly one popstate listener remains, rebound to B (was ZERO under the bug)")
+        "exactly one popstate listener remains, rebound to B (not ZERO)")
 
     ;; B owns the URL now: forward nav pushes, Back drives B's slice through the
     ;; rebound listener.
@@ -697,7 +694,7 @@
         "Back drove the NEW owner B's slice to /cart via the rebound popstate listener")))
 
 (deftest url-ownership-transfer-on-destroy-cross-strategy-rebinds-cljs-rf2-3fc89f-11
-  (testing "rf2-3fc89f.11: when the successor uses a DIFFERENT strategy,
+  (testing "when the successor uses a DIFFERENT strategy,
             destroying the owner tears the old popstate down and installs the
             successor's hashchange — a hashchange updates B from the
             hash-decoded path"
@@ -729,7 +726,7 @@
         "the rebound hashchange listener decoded #/active → /active and drove B")))
 
 (deftest url-ownership-transfer-on-reregistration-cross-strategy-cljs-rf2-3fc89f-11
-  (testing "rf2-3fc89f.11: when the incumbent HISTORY owner opts OUT via
+  (testing "when the incumbent HISTORY owner opts OUT via
             re-registration (:url-bound? false) while a live HASH claimant B
             remains, the listener rebinds to B's hashchange strategy WITHOUT B
             re-registering — a history→hash handoff must not keep the stale
@@ -758,7 +755,7 @@
         "the rebound hashchange listener drove B from the hash-decoded path")))
 
 (deftest same-owner-strategy-change-rewires-once-cljs-rf2-3fc89f-11
-  (testing "rf2-3fc89f.11 (preserve): re-registering the SAME owner with a
+  (testing "re-registering the SAME owner with a
             changed :url-strategy rewires exactly once — the history popstate is
             torn down, exactly one hashchange installed, no double listener"
     (rf/reg-route :hist/home   {} "/")
@@ -780,7 +777,7 @@
         "the rewired hashchange listener drives the same owner A")))
 
 (deftest destroying-non-owner-leaves-incumbent-listener-untouched-cljs-rf2-3fc89f-11
-  (testing "rf2-3fc89f.11 (preserve): reconciliation on a NON-owner frame
+  (testing "reconciliation on a NON-owner frame
             destroy leaves the incumbent owner's listener instance untouched —
             owner unchanged → no tear-down + reinstall, no stacking"
     (rf/reg-route :hist/home {} "/")
@@ -798,16 +795,16 @@
           "still exactly one popstate listener — no stacking"))))
 
 (deftest invalid-strategy-reregistration-rejects-and-preserves-listener-cljs-rf2-j538f7-11
-  (testing "rf2-j538f7.11 + rf2-ktmto9: re-registering the active URL owner with
+  (testing "re-registering the active URL owner with
             a MALFORMED custom :url-strategy (missing the CLJS browser legs)
             fails LOUD with :rf.error/invalid-url-strategy at the
             registration-time PREFLIGHT — BEFORE any write — so EVERY previously
             committed value survives: the frames-registry record (config +
             generation, the same object), the URL claim, and
             the incumbent working listener instance; and no
-            :rf.frame/re-registered trace fires. (#5633 proved only listener
-            survival; the preflight makes the whole re-registration
-            failure-atomic.)"
+            :rf.frame/re-registered trace fires. (The preflight makes the
+            whole re-registration failure-atomic, not only the listener's
+            survival.)"
     (rf/reg-route :hist/home {} "/")
     (rf/reg-route :hist/cart {} "/cart")
     (rf/make-frame {:id :owner/a :url-bound? true})       ;; history owner → popstate
@@ -864,24 +861,17 @@
         (finally
           (rf.trace.tooling/unregister-listener! cb-key))))))
 
-;; ---- rf2-ktmto9: FIRST-registration preflight — zero residue on failure ----
+;; ---- FIRST-registration preflight — zero residue on failure ---------------
 ;;
-;; Pre-fix, a URL owner's FIRST registration with a malformed custom
-;; :url-strategy threw only in the POST-create hook: the frame container was
-;; already built, the trace-policy flags written, and the
-;; :initial-events setup had already RUN before validation fired. The
+;; Validating a URL owner's malformed custom :url-strategy only in a
+;; POST-create hook would fire after the frame container is built, the
+;; trace-policy flags written, and the :initial-events setup RUN. The
 ;; registration-time preflight (through :routing/preflight-frame-config!)
 ;; validates the FINAL expanded config BEFORE any candidate-derived write, so
 ;; a failed first registration leaves NO frame record, NO
 ;; URL claim or listener, NO trace-policy residue, NO trace event, and NO
-;; :initial-events effect — via BOTH `rf/make-frame` arities.
-;;
-;; rf2-qo5xk: these two started life as the `rf/reg-frame` and `rf/make-frame`
-;; spellings of the same invariant. When `reg-frame` was retired, the
-;; mechanical rename sweep (rf2-h1vqa4 slice 3, ac10a404fb) renamed BOTH
-;; deftests to the same `…-make-frame-cljs-rf2-ktmto9` symbol, so the first
-;; was compiled and then silently replaced by the second — it has not run
-;; since. The surviving axis is the ARITY, so that is what the names now say.
+;; :initial-events effect — via BOTH `rf/make-frame` arities. The two
+;; deftests below differ by that ARITY, which is what their names say.
 
 (defn- assert-zero-residue-first-registration!
   "Shared assertion body for the two constructor spellings: run
@@ -904,7 +894,7 @@
       (is (not (contains? (set (rf/frame-ids)) frame-id))
           "no frame record was created")
       (is (nil? (rf/frame-meta frame-id))
-          "no frame config was seated (rf2-h1vqa4 — frames have no registrar rows)")
+          "no frame config was seated (frames have no registrar rows)")
       (is (nil? (rf.routing/url-owner-frame-id))
           "no URL claim was recorded")
       (is (empty? (get-in @*history-state* [:listeners "popstate"]))
@@ -920,7 +910,7 @@
         (rf.trace.tooling/unregister-listener! cb-key)))))
 
 (deftest first-registration-preflight-zero-residue-make-frame-1-arity-cljs-rf2-ktmto9
-  (testing "rf2-ktmto9: a URL owner's FIRST rf/make-frame — the 1-arity
+  (testing "a URL owner's FIRST rf/make-frame — the 1-arity
             config-only spelling, which resolves the DEFAULT descriptor pool —
             with a malformed custom :url-strategy fails at the
             registration-time preflight with ZERO residue: no container, no
@@ -939,7 +929,7 @@
         probe))))
 
 (deftest first-registration-preflight-zero-residue-make-frame-2-arity-cljs-rf2-ktmto9
-  (testing "rf2-ktmto9: the same zero-residue invariant through the OTHER
+  (testing "the same zero-residue invariant through the OTHER
             rf/make-frame arity — the 2-arity spelling that takes an explicit
             descriptor pool — with a malformed custom :url-strategy"
     (rf/reg-route :hist/home {} "/")
@@ -964,7 +954,7 @@
         probe))))
 
 (deftest throwing-installer-preserves-incumbent-listener-cljs-rf2-ktmto9
-  (testing "rf2-ktmto9 (keeps #5633's install-new-before-teardown handoff): a
+  (testing "the install-new-before-teardown handoff: a
             SHAPE-VALID custom strategy whose :install-listener! THROWS at
             install time PASSES the static preflight (shape/callability is the
             enforceable static contract — legs are never executed during
@@ -988,7 +978,7 @@
                     nil
                     (catch :default e e))]
         (is (some? ex) "the throwing installer propagates loudly"))
-      ;; The #5633 handoff: the replacement is installed BEFORE the incumbent
+      ;; The handoff installs the replacement BEFORE the incumbent
       ;; is torn down, so a throwing installer leaves the incumbent in place.
       (is (identical? incumbent (first (get-in @*history-state* [:listeners "popstate"])))
           "the incumbent popstate listener instance survived the failed handoff")
@@ -1003,19 +993,19 @@
                                 [:rf.runtime/routing :current])))
           "Back drove A's slice via the surviving popstate listener"))))
 
-;; ---- rf2-9vgyp7: first-load / deep-link route hydration at frame create ----
+;; ---- first-load / deep-link route hydration at frame create ---------------
 ;;
-;; The URL-owning frame's LIFECYCLE (rf2-g8pbwg) drives the initial URL sync: a
+;; The URL-owning frame's LIFECYCLE drives the initial URL sync: a
 ;; `:url-bound? true` frame's (re-)registration installs its strategy listener
 ;; and immediately syncs the CURRENT browser URL into the route slice — and it
 ;; does so SYNCHRONOUSLY during frame creation. `frame-root` runs that creation
 ;; at COMMIT (`re-frame.views.frame-boundary/frame-root-fc`'s useLayoutEffect) and
 ;; renders its children only AFTER the frame is live, so a `root-view` reading
 ;; `:rf/route` / `:rf.route/id` on its FIRST render sees the matched route, never
-;; a nil slice — even for a deep link or a hard refresh. (This is the correct
-;; ordering the retired imperative `install-url-listener!`-at-boot pattern could
-;; get wrong: install-before-frame-exists skipped the sync. The fold makes the
-;; frame lifecycle own the ordering.) This pins the guarantee: register the URL
+;; a nil slice — even for a deep link or a hard refresh. (An imperative
+;; install at boot could get this ordering wrong — installing before the frame
+;; exists would skip the sync — so the frame lifecycle owns the ordering.)
+;; This pins the guarantee: register the URL
 ;; owner while the browser already sits at a deep link and assert the slice is
 ;; hydrated the instant the frame exists — no dispatch, no render, no popstate.
 
@@ -1043,7 +1033,7 @@
       (is (= {:id "42"} (:params slice))
           "the deep-link path param hydrated into the slice — a first render sees it"))))
 
-;; ---- rf2-ede1h.3: blocked popstate restores the browser URL -------------
+;; ---- blocked popstate restores the browser URL -------------------------
 ;;
 ;; Per Spec 012 §Navigation blocking §Default flow step 4c — "the URL
 ;; does not change" on a block. A FORWARD nav never moved the URL, so
@@ -1056,9 +1046,9 @@
 ;; address bar to the current slice's URL so the two agree again.
 
 (deftest blocked-popstate-restores-url-cljs
-  (testing "rf2-ede1h.3: a :can-leave guard blocking a Back/Forward popstate
+  (testing "a :can-leave guard blocking a Back/Forward popstate
             restores the browser URL to the slice's route; the slice stays put"
-    ;; EP-0002 (rf2-9o48ih): URL ownership is explicit — opt `:rf/default` in
+    ;; EP-0002: URL ownership is explicit — opt `:rf/default` in
     ;; as the URL owner so the restore `:rf.nav/replace-url` fx fires.
     (rf/make-frame {:id :rf/default :url-bound? true})
     (rf/reg-route :hist/cart   {} "/cart")
@@ -1100,7 +1090,7 @@
            (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
         "the :rf/route slice STAYS on the editor route (the block did not commit /cart)")
 
-    ;; THE FIX: the browser address bar was restored to the slice's URL
+    ;; THE RESTORE: the browser address bar was restored to the slice's URL
     ;; via replaceState — URL and slice agree again. The entry count is
     ;; unchanged (a replace, not a push).
     (is (= "/editor/articles/X" (current-url *history-state*))
@@ -1121,9 +1111,9 @@
         "cancel leaves the restored URL in place")))
 
 (deftest forward-nav-block-does-not-restore-url-cljs
-  (testing "rf2-ede1h.3: a FORWARD-nav block emits NO :rf.nav/replace-url —
+  (testing "a FORWARD-nav block emits NO :rf.nav/replace-url —
             the URL never moved, so there is nothing to restore"
-    ;; EP-0002 (rf2-9o48ih): URL ownership is explicit — opt `:rf/default` in
+    ;; EP-0002: URL ownership is explicit — opt `:rf/default` in
     ;; as the URL owner (the assertion that NO replace-url fires is only
     ;; meaningful when the frame COULD own the URL).
     (rf/make-frame {:id :rf/default :url-bound? true})
@@ -1149,7 +1139,7 @@
       (is (= "/editor/articles/X" (current-url *history-state*))
           "the address bar still shows the editor route (it never moved)"))))
 
-;; ---- rf2-8zvajk: CONTINUE after a blocked popstate re-moves the URL ------
+;; ---- CONTINUE after a blocked popstate re-moves the URL -----------------
 ;;
 ;; The block above restored the address bar to the rejecting route's URL via
 ;; replaceState. On `:rf.route/continue` the resume replays the STORED
@@ -1164,10 +1154,10 @@
 ;; leaving the visible route and the browser URL divergent.
 
 (deftest blocked-popstate-continue-restores-url-cljs
-  (testing "rf2-8zvajk: :rf.route/continue after a blocked popstate moves the
+  (testing ":rf.route/continue after a blocked popstate moves the
             address bar to the requested URL — slice and URL agree, no new
             history entry"
-    ;; EP-0002 (rf2-9o48ih): URL ownership is explicit — opt `:rf/default` in
+    ;; EP-0002: URL ownership is explicit — opt `:rf/default` in
     ;; as the URL owner so the continue `:rf.nav/replace-url` fx fires.
     (rf/make-frame {:id :rf/default :url-bound? true})
     (rf/reg-route :hist/cart   {} "/cart")
@@ -1219,8 +1209,8 @@
 ;; Per Spec 012 §Fragments and routing.cljc's `:rf.route/handle-url-change`
 ;; handler — when only the URL fragment changes (the route-id,
 ;; :params, and :query are unchanged) the runtime updates
-;; [:rf.runtime/routing :current :fragment] and emits :rf.route/fragment-changed (rf2-cj9fn,
-;; pre-rename: `:rf.route/url-changed`) instead of re-firing :on-match.
+;; [:rf.runtime/routing :current :fragment] and emits :rf.route/fragment-changed
+;; instead of re-firing :on-match.
 ;; That's the framework's hashchange surface.
 
 (deftest hashchange-fragment-only-cljs
@@ -1228,7 +1218,7 @@
     (register-routes!)
     ;; Forward nav lands on /articles/intro.
     (rf/dispatch-sync [:rf.route/url-requested {:url "/articles/intro"}])
-    ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
+    ;; EP-0001: the route slice is durable routing runtime-db state.
     (let [pre-nav-token (-> (:rf.db/runtime (rf/frame-state-value :rf/default))
                             :rf.runtime/routing :current :nav-token)]
 
@@ -1257,12 +1247,12 @@
         (is (= "section-2"
                (:next-fragment (first @fragment-changed)))
             "trace carries :next-fragment")
-        ;; rf2-n0851k: the fragment-only trace carries the frame stamp
+        ;; The fragment-only trace carries the frame stamp
         ;; under :tags :frame so epoch/Xray capture and the frame
         ;; trace-disable gate cover fragment-only changes (Spec 012
         ;; §Multi-frame routing / Spec 009).
         (is (= :rf/default (:frame (first @fragment-changed)))
-            "rf2-n0851k: fragment-only trace is frame-attributed")
+            "fragment-only trace is frame-attributed")
         (is (zero? (count @allocations))
             "fragment-only nav does NOT allocate a new nav-token")
 
@@ -1294,16 +1284,16 @@
 ;; ---- malformed-% fail-closed (CLJS decode path) --------------------------
 ;;
 ;; Per Spec 012 §Routing failure semantics §Malformed percent-encoding
-;; (rf2-wbvme + rf2-4ic0f). The JVM suite pins the fail-closed contract
-;; against `URLDecoder/decode` (routing_test.clj:781-808). The CLJS
-;; runtime decodes via `js/decodeURIComponent`, which throws on a
-;; DIFFERENT set of malformed inputs than the JVM decoder — so the
+;; The JVM suite pins the fail-closed contract
+;; (`match-url-malformed-percent-in-path-is-route-miss` in
+;; routing_registry_test.clj). The CLJS runtime decodes via
+;; `js/decodeURIComponent`, not the JVM's own escape reader — so the
 ;; security-critical fail-closed path (hostile / broken URLs → route-miss,
 ;; never a runtime crash) needs a smoke on the runtime that actually
 ;; ships to browsers. `safe-url-decode` must swallow `js/decodeURIComponent`'s
 ;; throw and `match-url` must return nil, exactly as on the JVM.
 (deftest match-url-malformed-percent-fails-closed-cljs
-  (testing "rf2-4ic0f: malformed %-encoding fails closed on the CLJS
+  (testing "malformed %-encoding fails closed on the CLJS
             decodeURIComponent path — match-url returns nil, never throws"
     (register-routes!)
     (rf/reg-route :hist/search {} "/search")
@@ -1332,21 +1322,21 @@
       (is (= "hello world" (get-in m [:params :id]))
           "decodeURIComponent decodes the well-formed segment into the slice"))))
 
-;; rf2-oyw04: :int query coercion must be STRICT and IDENTICAL to the JVM.
-;; The predecessor used `js/parseInt v 10`, which is lenient: `parseInt
-;; "12abc" 10` -> 12, so `?page=12abc` produced the NUMBER 12 client-side
-;; while the JVM `Long/parseLong` threw and passed the STRING "12abc"
-;; through — a Spec 011 hydration-mismatch hazard violating Spec 012's
-;; "same handler both sides" + the Spec 000 Goal 2 cross-host bar. The fix
-;; coerces only when the whole string is an integer literal (`^-?\d+$`),
-;; else string passthrough — so this CLJS pin asserts the EXACT outputs the
-;; JVM `query-coercion-vocabulary` test (routing_test.clj T2) now expects.
+;; :int query coercion is STRICT and IDENTICAL to the JVM. A lenient
+;; `js/parseInt v 10` would turn `?page=12abc` into the NUMBER 12
+;; client-side (`parseInt "12abc" 10` -> 12) while the JVM passes the STRING
+;; "12abc" through — a Spec 011 hydration-mismatch hazard violating Spec
+;; 012's "same handler both sides" + the Spec 000 Goal 2 cross-host bar.
+;; Coercion applies only when the whole string is an integer literal
+;; (`^-?\d+$`), else string passthrough — so this CLJS pin asserts the EXACT
+;; outputs the JVM `query-coercion-vocabulary` test (routing_registry_test.clj)
+;; expects.
 ;; The corpus fixture routing-query-string-coercion.edn runs the same
 ;; `?page=12abc` call through both harnesses for the formal cross-host bar.
 (deftest int-query-coercion-strict-cljs
-  (testing "rf2-oyw04: :int coerces only whole integer literals on CLJS;
-            lenient `js/parseInt` partial-numeric coercion is closed so the
-            client agrees with the JVM"
+  (testing ":int coerces only whole integer literals on CLJS, with no
+            lenient `js/parseInt` partial-numeric coercion, so the client
+            agrees with the JVM"
     (register-routes!)
     (rf/reg-route :hist/list {:query [:map [:page :int]]} "/list")
     (is (= 12 (get-in (rf.routing/match-url "/list?page=12") [:query :page]))
@@ -1354,29 +1344,28 @@
     (is (= -7 (get-in (rf.routing/match-url "/list?page=-7") [:query :page]))
         "signed integer literal coerces")
     (is (= "12abc" (get-in (rf.routing/match-url "/list?page=12abc") [:query :page]))
-        "partial-numeric input stays a STRING (was 12 under js/parseInt) —
-         the cross-host asymmetry rf2-oyw04 closes")
+        "partial-numeric input stays a STRING (js/parseInt would give 12) —
+         no cross-host asymmetry")
     (is (= "0x10" (get-in (rf.routing/match-url "/list?page=0x10") [:query :page]))
         "radix-prefixed input stays a string, matching the JVM")
     (is (= " 12" (get-in (rf.routing/match-url "/list?page=%2012") [:query :page]))
         "leading-whitespace input stays a string, matching the JVM")
     (is (= "abc" (get-in (rf.routing/match-url "/list?page=abc") [:query :page]))
-        "fully non-numeric input stays a string (already symmetric)")))
+        "fully non-numeric input stays a string (symmetric on both hosts)")))
 
-;; rf2-cylse.1: :int coercion must be HOST-SYMMETRIC and TOTAL on OVERSIZED
-;; integer literals. The predecessor `js/parseInt` produced a LOSSY DOUBLE
-;; for a literal above 2^53 (e.g. 9007199254740993 -> ...92) while the JVM
-;; `Long/parseLong` stayed EXACT — the same URL yielded a DIFFERENT :query
-;; slice server vs client (a Spec 011 hydration mismatch), and a >2^63
-;; literal threw NumberFormatException on the JVM (route-miss) while CLJS
-;; committed a lossy float (page render) — a divergent OUTCOME. The fix
-;; bounds the literal at the cross-host safe-integer ceiling (2^53-1) and
+;; :int coercion is HOST-SYMMETRIC and TOTAL on OVERSIZED integer literals.
+;; `js/parseInt` would produce a LOSSY DOUBLE for a literal above 2^53 (e.g.
+;; 9007199254740993 -> ...92) where an exact JVM parse would not — the same
+;; URL would yield a DIFFERENT :query slice server vs client (a Spec 011
+;; hydration mismatch), and a >2^63 literal would route-miss on the JVM
+;; while CLJS commits a lossy float (page render) — a divergent OUTCOME.
+;; Coercion is bounded at the cross-host safe-integer ceiling (2^53-1) and
 ;; passes through AS A STRING above it on BOTH hosts. This CLJS pin asserts
 ;; the EXACT outputs the JVM `int-coercion-oversized-host-parity-jvm` test
 ;; expects.
 (deftest int-coercion-oversized-host-parity-cljs
-  (testing "rf2-cylse.1: oversized :int literals pass through as STRINGS on
-            CLJS (was a lossy double under js/parseInt), matching the JVM"
+  (testing "oversized :int literals pass through as STRINGS on
+            CLJS (js/parseInt would give a lossy double), matching the JVM"
     (register-routes!)
     (rf/reg-route :hist/items {:query [:map [:page :int]]} "/items")
     (testing "within the safe-integer range still coerces"
@@ -1390,7 +1379,7 @@
           "2^53 exceeds MAX_SAFE_INTEGER → string (js/parseInt would round)")
       (is (= "9007199254740993"
              (get-in (rf.routing/match-url "/items?page=9007199254740993") [:query :page]))
-          "the canonical lossy-double case → string on CLJS too (was ...92)")
+          "the canonical lossy-double case → string on CLJS too (js/parseInt would give ...92)")
       (is (= "-9007199254740993"
              (get-in (rf.routing/match-url "/items?page=-9007199254740993") [:query :page]))
           "negative oversized literal also passes through"))
@@ -1399,11 +1388,11 @@
              (get-in (rf.routing/match-url "/items?page=99999999999999999999999") [:query :page]))
           "string passthrough, matching the JVM (no throw / no lossy float)"))))
 
-;; rf2-cylse.5: PATH params coerce against the :params schema on CLJS too —
+;; PATH params coerce against the :params schema on CLJS too —
 ;; the canonical Spec 012 :uuid route must round-trip a real UUID URL to
 ;; {:id #uuid ...} on the browser, identically to the JVM (SSR) side.
 (deftest path-param-coercion-cljs
-  (testing "rf2-cylse.5: :int / :uuid PATH params coerce against the
+  (testing ":int / :uuid PATH params coerce against the
             :params schema before validation on CLJS"
     (register-routes!)
     (rf/reg-route :hist/page    {:params [:map [:n :int]]} "/page/:n")
@@ -1416,13 +1405,13 @@
           ":uuid path param coerced to a #uuid object")
       (is (uuid? (get-in m [:params :id])) "the slice carries a UUID object, not a string"))))
 
-;; rf2-fwz29i: OPTIONED Malli scalar schemas (`[:int {:min 1}]`,
+;; OPTIONED Malli scalar schemas (`[:int {:min 1}]`,
 ;; `[:uuid {}]`, `[:boolean {}]`, optioned enums, and
-;; `[:maybe inner]`) must coerce the URL string identically to the bare
-;; form on CLJS, exactly as on the JVM. The pre-fix coercion table held the
-;; raw vector type-form, so the still-string value failed the optioned
-;; schema and every valid deep link 404'd. This is the CLJS half of the
-;; JVM `rf2-fwz29i-*` pins in routing_test.clj.
+;; `[:maybe inner]`) coerce the URL string identically to the bare
+;; form on CLJS, exactly as on the JVM. A coercion table keyed on the raw
+;; vector type-form would leave the value a string, failing the optioned
+;; schema, so every valid deep link would 404. This is the CLJS half of the
+;; JVM `rf2-fwz29i-*` pins in routing_registry_test.clj.
 (deftest optioned-scalar-coercion-cljs-rf2-fwz29i
   (testing "optioned :query scalars coerce equivalently to bare forms on CLJS"
     (register-routes!)
@@ -1435,7 +1424,7 @@
           m (rf.routing/match-url
               (str "/items?page=2&id=" uuid-str "&archived=true"))]
       (is (= 2 (get-in m [:query :page]))
-          "[:int {:min 1}] coerces \"2\" to 2 (was string → 404)")
+          "[:int {:min 1}] coerces \"2\" to 2")
       (is (= (parse-uuid uuid-str) (get-in m [:query :id]))
           "[:uuid {...}] coerces to a UUID object")
       (is (true? (get-in m [:query :archived])) "[:boolean {...}] coerces")
@@ -1469,11 +1458,11 @@
           "[:maybe [:int {:min 1}]] coerces through wrapper + option")
       (is (false? (:validation-failed? m))))))
 
-;; rf2-zmcq6 (CODE half): {:fragment ""} normalizes to nil at the navigate
+;; {:fragment ""} normalizes to nil at the navigate
 ;; boundary on CLJS so the pushed URL and slice fragment agree with
 ;; URL-driven nav.
 (deftest navigate-empty-string-fragment-normalized-cljs
-  (testing "rf2-zmcq6: navigate {:fragment \"\"} writes :fragment nil and
+  (testing "navigate {:fragment \"\"} writes :fragment nil and
             pushes a fragment-less URL on CLJS"
     (register-routes!)
     (rf/reg-route :hist/docs {} "/docs/:page")
@@ -1568,12 +1557,12 @@
 
 ;; =========================================================================
 ;; 6. History-mutation defence-in-depth: a throwing pushState / replaceState
-;;    fails closed to a structured trace (rf2-u8qe7y finding 2)
+;;    fails closed to a structured trace
 ;; =========================================================================
 ;;
-;; The `url/external-url?` gate at the nav-event sinks (rf2-cylse.4)
-;; already fails cross-origin URLs closed before they reach the
-;; `:rf.nav/push-url` / `:rf.nav/replace-url` fxs, but the fx still wraps
+;; The `url/external-url?` gate at the nav-event sinks
+;; fails cross-origin URLs closed before they reach the
+;; `:rf.nav/push-url` / `:rf.nav/replace-url` fxs, and the fx also wraps
 ;; the actual browser history mutation in a shared try/catch
 ;; (`run-history-mutation!`) as a second line of defence. If the browser
 ;; throws (residual unsafe URL, invalid-URL restriction, jsdom/stub
@@ -1675,7 +1664,7 @@
             "the trace carries the browser error message")))))
 
 ;; =========================================================================
-;; rf2-k4exp1: programmatic fragment-only navigate drives real history
+;; programmatic fragment-only navigate drives real history
 ;; =========================================================================
 ;;
 ;; Spec 012 §Fragments / §Programmatic navigation with fragments. A
@@ -1692,11 +1681,11 @@
           [:rf.runtime/routing :current]))
 
 (deftest programmatic-fragment-only-navigate-drives-history-cljs-rf2-k4exp1
-  (testing "rf2-k4exp1: programmatic fragment-only navigate pushes / replaces /
+  (testing "programmatic fragment-only navigate pushes / replaces /
             clears the browser history without re-firing :on-match or allocating
             a new nav-token"
     ;; Register the routes BEFORE binding the URL owner, so the `:url-bound?`
-    ;; frame's create-time initial-URL sync (rf2-9vgyp7) matches a real route
+    ;; frame's create-time initial-URL sync matches a real route
     ;; rather than falling to not-found. (That sync also allocates a token, so
     ;; the teeth below capture the token AFTER the first explicit nav and assert
     ;; it is UNCHANGED — never a hardcoded "nav-1" — which is the real invariant:

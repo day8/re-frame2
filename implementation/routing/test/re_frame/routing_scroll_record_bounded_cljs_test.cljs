@@ -1,21 +1,21 @@
 (ns re-frame.routing-scroll-record-bounded-cljs-test
-  "rf2-s3n6h — the always-on `:rf.error/unsupported-scroll-strategy` record is
+  "The always-on `:rf.error/unsupported-scroll-strategy` record is
   STRUCTURAL and BOUNDED.
 
-  ## What rf2-2hkfy fixed, and what it left open
+  ## Whether it fires, and what it carries
 
-  rf2-2hkfy (#6376) fixed a real defect: the closed-vocabulary scroll
-  rejection was emitted through `trace/emit-error!` alone, which DCEs under
-  `:advanced` + `goog.DEBUG=false`, so the one configuration the branch exists
-  to cover — a schemas-less PRODUCTION host — got no scroll and no record. It
-  now fans through `rf.error-emit/emit-error-both!`, and it must STAY that way:
+  The closed-vocabulary scroll rejection fans through
+  `rf.error-emit/emit-error-both!`. Emitted through `trace/emit-error!` alone,
+  which DCEs under `:advanced` + `goog.DEBUG=false`, the one configuration the
+  branch exists to cover — a schemas-less PRODUCTION host — would get no
+  scroll and no record. It must STAY on both channels, but
   every assertion in this file is about the record's SHAPE, never about
   whether it fires. `re-frame.routing-scroll-always-on-elision-prod-test` owns
   the survives-production proof.
 
-  What #6376 left open is what the record CARRIES. Its `record-attrs` copied
-  the rejected `:strategy` verbatim and interpolated `(pr-str strategy)` into
-  a `:reason` string. Both rode axis 1.
+  This file pins what the record CARRIES. `record-attrs` copying
+  the rejected `:strategy` verbatim, or a `:reason` string interpolating
+  `(pr-str strategy)`, would both ride axis 1.
 
   That axis is not the dev trace. `dispatch-on-error!` passes the positional
   `:event` through `elision/elide-wire-value` — the per-path `:sensitive?` /
@@ -24,8 +24,8 @@
   because the listener registry is production-surviving and NOT privacy-gated.
   A `:rf.route/navigate` call's `:scroll` opt is per-call RUNTIME data, not
   necessarily static author configuration; on the schemas-less path it may be
-  any map / string / collection / host value. So the rejected value bypassed
-  the elision seam and rode off-box whole, with no bound.
+  any map / string / collection / host value. So the rejected value would
+  bypass the elision seam and ride off-box whole, with no bound.
 
   ## What is asserted here
 
@@ -87,7 +87,7 @@
        {:strategy strategy})
      (let [errs (unsupported-records @records)]
        (is (= 1 (count errs))
-           "exactly one always-on record — the rejection still fires (rf2-2hkfy)")
+           "exactly one always-on record — the rejection still fires")
        (first errs)))))
 
 ;; A rejected value carrying a distinctive, greppable sentinel in EVERY
@@ -127,7 +127,7 @@
 ;; ===========================================================================
 
 (deftest always-on-record-carries-no-fragment-of-the-rejected-value
-  (testing "rf2-s3n6h: a large / nested runtime `:strategy` is rejected and NO
+  (testing "a large / nested runtime `:strategy` is rejected and NO
             fragment of it — key, value, nested member, or scalar leaf —
             appears ANYWHERE in the serialized always-on record. Checked
             against the WHOLE record rather than slot-by-slot, so a future
@@ -147,17 +147,12 @@
 ;; ===========================================================================
 
 (deftest always-on-record-is-structural
-  (testing "rf2-s3n6h: the record keeps exactly the structural attribution —
+  (testing "the record keeps exactly the structural attribution —
             the supported vocabulary, the recovery, and a fixed
             closed-vocabulary type discriminator that cannot reproduce the
             value. `:strategy-type` reuses `re-frame.error/diag-value-summary`'s
             `:type` axis (one diagnostic vocabulary across surfaces) because
-            the record wants a discriminator, not a size. When this test
-            landed, taking only `:type` was also load-bearing: the summary's
-            `:keys` leg was unbounded in map-key count and reproduced key
-            content, and its `:head` leg reproduced a scalar's raw prefix.
-            rf2-210uq removed both, so the summary is now content-free by
-            construction and this assertion no longer depends on that"
+            the record wants a discriminator, not a size"
     (let [record (reject! (adversarial-strategy 50))]
       (is (= [:top :restore :preserve] (:supported record))
           "the supported vocabulary is named — fixed size, author-independent")
@@ -178,7 +173,7 @@
 ;; ===========================================================================
 
 (deftest dev-trace-retains-the-raw-value-and-rich-diagnosis
-  (testing "rf2-s3n6h: bounding axis 1 must not blind local debugging. The
+  (testing "bounding axis 1 must not blind local debugging. The
             dev-trace tags (axis 2, DCE'd under `:advanced` +
             `goog.DEBUG=false`) still carry the rejected value verbatim"
     (let [strategy (adversarial-strategy 3)
@@ -217,7 +212,7 @@
      (first (unsupported-records @records)))))
 
 (deftest event-attribution-and-elision-remain-intact
-  (testing "rf2-s3n6h: bounding `record-attrs` must not disturb the positional
+  (testing "bounding `record-attrs` must not disturb the positional
             `:event`, which reaches the record through
             `elision/elide-wire-value` — the documented seam. Attribution
             still names the originating navigation"
@@ -231,7 +226,7 @@
       (is (nil? (:event-id record)) "no event-id for a direct handler call"))))
 
 (deftest the-elision-seam-still-guards-the-event-slot-on-an-unknown-frame
-  (testing "rf2-s3n6h: the contrast that names the defect. On ONE record from an
+  (testing "the contrast that names the hazard. On ONE record from an
             UNKNOWN frame, the positional `:event` FAILS CLOSED to
             `:rf/redacted` (EP-0015 issue 1 — an unresolvable frame's elision
             registry is unreachable, so it must not fall through to a
@@ -259,7 +254,7 @@
   600)
 
 (deftest the-record-bound-holds-across-escalation-recovery-and-re-escalation
-  (testing "rf2-s3n6h: a bound checked against ONE big value is a static
+  (testing "a bound checked against ONE big value is a static
             ceiling — it passes a single transition and still admits a later,
             larger one. Drive the full sequence
             clean → small → HUGE → small → HUGER and pin the record size at

@@ -1,5 +1,5 @@
 (ns re-frame.routing-scroll-witness-test-support
-  "rf2-3x7nj.12.3 — the scenario shared by the per-adapter
+  "The scenario shared by the per-adapter
   `routing-scroll-after-commit-*-dom-cljs-test` witnesses.
 
   A cross-route navigation carries `:fragment`, and the element it names

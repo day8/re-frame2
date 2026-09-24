@@ -1,5 +1,5 @@
 (ns re-frame.routing-nav-fx-schemas-cljs-test
-  "rf2-sqams — END-TO-END proof that the runtime `:schema` on the four
+  "END-TO-END proof that the runtime `:schema` on the four
   standard `:rf.nav/*` fx actually gates the handlers.
 
   The JVM sibling (`routing_nav_fx_schemas_test.clj`) adjudicates the
@@ -58,7 +58,7 @@
      :init-fn (fn []
                 (rf.routing/reset-counters!)
                 (rf.routing/reset-scroll-cache!)
-                ;; rf2-2hkfy: the always-on error-emit listener registry is a
+                ;; The always-on error-emit listener registry is a
                 ;; `defonce` atom — clear it so a recorder from one test cannot
                 ;; leak into the next.
                 (rf.error-emit/clear-error-listeners!))}))
@@ -66,7 +66,7 @@
 ;; ---- helpers -------------------------------------------------------------
 
 (defn- own-the-url!
-  "Declare `:rf/default` the URL owner. EP-0002 (rf2-9o48ih): URL
+  "Declare `:rf/default` the URL owner. EP-0002: URL
   ownership is an EXPLICIT declaration — without this the history fxs
   no-op for a reason unrelated to schema validation, which would make a
   'nothing was pushed' assertion vacuous."
@@ -91,14 +91,14 @@
 
 (defn- unsupported
   "The `:rf.error/unsupported-scroll-strategy` events in a trace recording —
-  the always-on leg of the rf2-px26m rejection, emitted by the fx handler
+  the always-on leg of the unsupported-strategy rejection, emitted by the fx handler
   itself rather than by the (optional) schemas gate."
   [traces]
   (filterv #(= :rf.error/unsupported-scroll-strategy (:operation %)) traces))
 
 (defn- record-always-on-errors!
   "Install a recorder on the ALWAYS-ON error-emit axis (surface #4) and
-  return the atom it accumulates into. rf2-2hkfy: this is the channel the
+  return the atom it accumulates into. This is the channel the
   `:rf.error/unsupported-scroll-strategy` rejection has to ride — the
   dev-trace recorder `with-trace-recorder!` installs is DCE'd under
   `:advanced` + `goog.DEBUG=false`, so a test that only watches the trace
@@ -123,7 +123,7 @@
   (set! (.-scrollY js/window) y))
 
 (defn- committed!
-  "rf2-3x7nj.12.3: `:rf.nav/scroll` touches the page only after the view
+  "`:rf.nav/scroll` touches the page only after the view
   substrate commits, through the installed adapter's `:adapter/after-render`.
   Run `f` with that hook replaced by a queue, then run what it queued — the
   commit this build has no renderer to make."
@@ -141,7 +141,7 @@
 ;; =========================================================================
 
 (deftest nav-fx-registrations-carry-schema-on-cljs
-  (testing "rf2-sqams: the four standard nav fx carry a :schema on the CLJS
+  (testing "the four standard nav fx carry a :schema on the CLJS
             host too — the .cljc registrations are shared, but the gate only
             ever FIRES here, so the precondition is worth pinning where it
             matters"
@@ -155,7 +155,7 @@
 ;; =========================================================================
 
 (deftest push-url-with-malformed-args-never-reaches-pushstate
-  (testing "rf2-sqams: a non-string :rf.nav/push-url arg is rejected at the
+  (testing "a non-string :rf.nav/push-url arg is rejected at the
             fx-args boundary — window.history.pushState is NOT called, and
             the sibling fx in the same :fx vector still runs"
     (own-the-url!)
@@ -180,7 +180,7 @@
 
 (deftest push-url-with-a-well-formed-url-still-pushes
   (testing "POSITIVE control: the schema does not break working navigation —
-            a path-form URL string drives pushState exactly as before"
+            a path-form URL string drives pushState"
     (own-the-url!)
     (rf/reg-event :test/good-push
                   (fn [_ _] {:fx [[:rf.nav/push-url "/cart"]]}))
@@ -192,7 +192,7 @@
           "no schema-validation-failure for a conforming URL"))))
 
 (deftest replace-url-with-malformed-args-never-reaches-replacestate
-  (testing "rf2-sqams: :rf.nav/replace-url carries the SAME gate as its
+  (testing ":rf.nav/replace-url carries the SAME gate as its
             push sibling — the two history fxs must not have asymmetric
             args validation any more than asymmetric drain survival"
     (own-the-url!)
@@ -228,7 +228,7 @@
 ;; =========================================================================
 
 (deftest capture-scroll-with-malformed-args-never-writes-the-cache
-  (testing "rf2-sqams: :url is the cache KEY, so a capture without one (or
+  (testing ":url is the cache KEY, so a capture without one (or
             with a non-string one) must fail BEFORE the handler writes the
             host-side per-frame scroll-position cache"
     (set-scroll! 0 640)
@@ -247,7 +247,7 @@
                (-> (violations @traces) first :tags :rf.fx/id)))))))
 
 (deftest capture-scroll-with-a-non-string-url-never-writes-the-cache
-  (testing "rf2-sqams: a keyword :url would key the LRU cache with a value
+  (testing "a keyword :url would key the LRU cache with a value
             the symmetric restore lookup can never reconstruct"
     (rf/reg-event :test/kw-capture
                   (fn [_ _]
@@ -261,8 +261,8 @@
 (deftest capture-scroll-with-a-well-formed-url-still-captures
   (testing "POSITIVE control: {:url <string>} still captures — and the
             FRACTIONAL window.scrollX/Y a HiDPI / zoomed browser reports is
-            stored verbatim, which is exactly why rf2-cmdpj relaxed the
-            spec's :saved-pos members from :int to number?"
+            stored verbatim, which is exactly why the spec's :saved-pos
+            members are number? rather than :int"
     (set-scroll! 0.5 1234.75)
     (rf/reg-event :test/good-capture
                   (fn [_ _] {:fx [[:rf.nav/capture-scroll {:url "/cart"}]]}))
@@ -280,8 +280,8 @@
 ;; =========================================================================
 
 (deftest scroll-with-a-non-standard-keyword-strategy-never-scrolls
-  (testing "rf2-sqams: a bare non-standard keyword is a typo, and the
-            handler's nil default branch silently swallowed it. It is now
+  (testing "a bare non-standard keyword is a typo, which a nil default
+            branch would silently swallow. It is
             rejected at the args boundary and surfaced as a violation"
     (set-scroll! 0 500)
     (let [witness (sibling-calls)]
@@ -299,8 +299,8 @@
                (-> (violations @traces) first :tags :rf.fx/id)))))))
 
 (deftest scroll-with-a-malformed-saved-pos-never-scrolls
-  (testing "rf2-sqams: a :restore whose :saved-pos is not a two-number tuple
-            would previously reach `.scrollTo` with garbage coordinates
+  (testing "a :restore whose :saved-pos is not a two-number tuple
+            would otherwise reach `.scrollTo` with garbage coordinates
             (the handler's `sequential?` guard admits [\"0\" \"0\"])"
     (set-scroll! 0 500)
     (rf/reg-event :test/bad-saved-pos
@@ -316,9 +316,9 @@
 (deftest scroll-restore-with-a-fractional-saved-pos-still-scrolls
   (testing "POSITIVE control (the one that matters most): a FRACTIONAL
             :saved-pos — the shape a non-100%-zoom / HiDPI browser actually
-            captures — still drives `.scrollTo`. The pre-rf2-cmdpj spec
-            shape [:tuple :int :int] would have rejected this and silently
-            broken Back-button scroll restoration for every zoomed user"
+            captures — still drives `.scrollTo`. A spec
+            shape of [:tuple :int :int] would reject this and silently
+            break Back-button scroll restoration for every zoomed user"
     (set-scroll! 0 0)
     (rf/reg-event :test/restore
                   (fn [_ _]
@@ -353,7 +353,7 @@
           "no violation for the canonical planner output"))))
 
 (deftest scroll-top-with-an-optional-fragment-still-scrolls
-  (testing "POSITIVE control: the optional :fragment slot rf2-cmdpj added to
+  (testing "POSITIVE control: the optional :fragment slot in
             the spec shape validates. The stub's getElementById returns nil,
             so the handler falls through to `.scrollTo 0 0` — the point is
             that the ARGS passed the gate, not which branch ran"
@@ -368,27 +368,25 @@
           "the :top branch ran — args carrying :fragment were not rejected")
       (is (empty? (violations @traces))))))
 
-;; ---- rf2-px26m: the map form is REJECTED, not accepted-and-ignored ------
+;; ---- the map form is REJECTED, not accepted-and-ignored -----------------
 ;;
-;; This is the bug's red-before/green-after pin, and it replaces the old
-;; `scroll-with-a-map-form-strategy-still-passes` positive control, which
-;; asserted precisely the defect: `{:behavior :smooth :block :center}`
-;; validated, emitted no violation, and left the window untouched — a
-;; documented-looking option that was accepted and then silently ignored.
+;; A map strategy such as `{:behavior :smooth :block :center}` that
+;; validated, emitted no violation, and left the window untouched would be
+;; a documented-looking option accepted and then silently ignored.
 ;;
-;; Nothing in the runtime ever interpreted a map strategy (no registry, no
-;; callback, no late-bound hook), so the map form is gone from the schema
-;; and from Spec 012. Both of Spec 012's own advertised examples are
-;; exercised here, plus the empty map, because `[:or [:enum …] :map]` used
-;; to wave all three through.
+;; Nothing in the runtime interprets a map strategy (no registry, no
+;; callback, no late-bound hook), so neither the schema nor Spec 012 admits
+;; the map form. Two plausible map shapes are
+;; exercised here, plus the empty map, because a `[:or [:enum …] :map]` slot
+;; would wave all three through.
 
 (deftest scroll-with-a-map-form-strategy-is-rejected-at-the-args-boundary
-  (testing "rf2-px26m: a MAP strategy — including the exact
-            {:to :element :selector \"#article\"} shape Spec 012 used to
-            advertise as host-extensible — is now a violation, not a silent
-            no-op. The window is still untouched, but the author is TOLD"
-    (doseq [bad [{:to :element :selector "#article"}   ;; the old Spec 012 example
-                 {:behavior :smooth :block :center}    ;; the shape the bead names
+  (testing "a MAP strategy — including an element-target
+            {:to :element :selector \"#article\"} shape a \"host-extensible\"
+            strategy would take — is a violation, not a silent
+            no-op. The window is untouched, but the author is TOLD"
+    (doseq [bad [{:to :element :selector "#article"}   ;; an element-target map
+                 {:behavior :smooth :block :center}    ;; a scroll-behaviour map
                  {}]]                                  ;; the degenerate map
       (set-scroll! 0 700)
       (let [witness (sibling-calls)]
@@ -408,7 +406,7 @@
                  (-> (violations @traces) first :tags :rf.fx/id))))))))
 
 (deftest scroll-handler-emits-the-unsupported-strategy-error-directly
-  (testing "rf2-px26m: the ALWAYS-ON leg. The `:schema` gate above only
+  (testing "the ALWAYS-ON leg. The `:schema` gate above only
             exists when the OPTIONAL schemas artefact is on the classpath;
             without it fx-args validation soft-passes and the handler is the
             last line of defence. Calling the handler DIRECTLY bypasses the
@@ -436,14 +434,14 @@
           (is (string? (:reason tags))))))))
 
 (deftest scroll-handler-rejection-rides-the-always-on-error-axis
-  (testing "rf2-2hkfy: the rejection must ride the ALWAYS-ON error-emit axis,
-            not the dev trace alone. rf2-px26m routed the default branch
-            through `trace/emit-error!`, which is wrapped in
+  (testing "the rejection must ride the ALWAYS-ON error-emit axis,
+            not the dev trace alone. `trace/emit-error!` alone
+            is wrapped in
             `interop/debug-enabled?` and DCEs under `:advanced` +
-            `goog.DEBUG=false`. So on a PRODUCTION host without the optional
+            `goog.DEBUG=false`, so on a PRODUCTION host without the optional
             schemas artefact — precisely the configuration this branch exists
-            to cover — the handler ran, scrolled nothing, emitted nothing and
-            returned nil: the original defect, intact, for the consumers least
+            to cover — the handler would run, scroll nothing, emit nothing and
+            return nil, for the consumers least
             likely to notice. The record must reach a listener registered on
             the production-survivable axis"
     (set-scroll! 0 700)
@@ -457,11 +455,11 @@
             "and still performs no scroll")
         (let [r (first errs)]
           (is (= :rf.error/unsupported-scroll-strategy (:error r)))
-          ;; rf2-s3n6h: the record is STRUCTURAL. It named the rejected value
-          ;; verbatim until this test was corrected — `record-attrs` bypass the
-          ;; elision seam, so an arbitrary runtime `:scroll` opt rode off-box
-          ;; whole and unbounded (measured: 4.8 MB for a 2000-key value). The
-          ;; raw value now rides the dev trace alone; see
+          ;; The record is STRUCTURAL. `record-attrs` bypass the elision
+          ;; seam, so a record naming the rejected value verbatim would ship an
+          ;; arbitrary runtime `:scroll` opt off-box whole and unbounded
+          ;; (4.8 MB for a 2000-key value). The
+          ;; raw value rides the dev trace alone; see
           ;; `re-frame.routing-scroll-record-bounded-cljs-test`.
           (is (nil? (:strategy r))
               "the rejected value does NOT ride the production-surviving record")
@@ -480,11 +478,11 @@
           (is (number? (:time r)) ":time is a wall-clock millis number"))))))
 
 (deftest scroll-handler-rejection-emits-once-per-channel
-  (testing "rf2-2hkfy: fanning through `rf.error-emit/emit-error-both!` must not
+  (testing "fanning through `rf.error-emit/emit-error-both!` must not
             DOUBLE-emit. One unsupported strategy produces exactly one
             always-on record AND exactly one dev trace — the dev-trace tag map
-            being the one rf2-px26m shipped, so existing trace consumers
-            (Xray, epoch capture) see no change"
+            carrying the :strategy / :supported / :frame that trace consumers
+            (Xray, epoch capture) read"
     (set-scroll! 0 700)
     (let [records (record-always-on-errors!)]
       (with-trace-recorder! [traces]
@@ -497,12 +495,12 @@
           (is (= :rf/default (:frame tags)))
           (is (string? (:reason tags)))
           (is (= :no-scroll (:recovery (first (unsupported @traces))))
-              ":recovery is still hoisted to the envelope by build-event")))
+              ":recovery is hoisted to the envelope by build-event")))
       (is (= 1 (count (unsupported-records @records)))
           "exactly one always-on record — no double emission on that channel"))))
 
 (deftest scroll-handler-supported-strategies-emit-no-always-on-record
-  (testing "rf2-2hkfy POSITIVE control on the always-on channel: promoting the
+  (testing "POSITIVE control on the always-on channel: an always-on
             rejection must not make the WORKING strategies loud in production.
             `:top` / `:restore` / `:preserve` each drive their own branch and
             fan NO always-on record — `:preserve` in particular stays the
@@ -526,7 +524,7 @@
            silent no-op, not a rejection"))))
 
 (deftest scroll-handler-rejection-attributes-the-originating-event
-  (testing "rf2-2hkfy: when the fx context carries the originating event
+  (testing "when the fx context carries the originating event
             vector (Spec 002 §The binary fx-handler signature — `do-fx`
             threads `:event` onto the handler ctx), the always-on record is
             attributed to it, so an off-box shipper can tell WHICH navigation
@@ -550,7 +548,7 @@
             "the frame stamp is still present")))))
 
 (deftest scroll-handler-adversarial-near-miss-strategies
-  (testing "rf2-px26m adversarial: values that LOOK like a supported strategy
+  (testing "adversarial: values that LOOK like a supported strategy
             must still be rejected — a misspelt keyword, the string spelling,
             and a map that merely NAMES a supported strategy (the shape a
             'named strategy registry' would have used) get no special pass"
@@ -568,7 +566,7 @@
             (str "no scroll for " (pr-str bad)))))))
 
 (deftest scroll-handler-positive-control-the-three-supported-strategies
-  (testing "rf2-px26m POSITIVE control — the essential one. Making the
+  (testing "POSITIVE control — the essential one. Making the
             handler loud must not make it loud on the strategies that WORK:
             each of :top / :restore / :preserve still drives its own branch
             and emits NO unsupported-strategy error"
@@ -592,4 +590,4 @@
       (is (= [0 700] (scroll-xy)) ":preserve left the window alone")
       (is (empty? (unsupported @traces))
           ":preserve is a DOCUMENTED no-op — it must stay silent, which is
-           exactly what distinguishes it from the removed map form"))))
+           exactly what distinguishes it from a rejected map form"))))

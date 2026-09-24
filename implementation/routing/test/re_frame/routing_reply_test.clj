@@ -1,7 +1,7 @@
 (ns re-frame.routing-reply-test
   "Unit tests for `re-frame.routing.reply` — route-loader async work
   lowered onto the uniform reply envelope (EP-0011 §Route Loader
-  Completion; rf2-zqefg3.5).
+  Completion).
 
   Pins the route work-id tuple, the nav-token-as-`:suppress`-gate
   delegation to the shared `re-frame.reply` correctness boundary, and the
@@ -49,10 +49,9 @@
     (is (false? (rf.routing.reply/suppress? "nav-2" "nav-2")) "current → live")
     ;; A nil CAPTURED token while a navigation is live is suppressed: the
     ;; gate is present (`{:route/nav-token nil}`) with a nil value, which
-    ;; never equals the active token. This matches the original
-    ;; `(= nav-token current)` semantics and is the regression guard for
-    ;; the pre-fix bug where a cofx threaded nil and was silently eaten —
-    ;; nil is now suppressed (not committed) exactly as before.
+    ;; never equals the active token. This matches plain
+    ;; `(= nav-token current)` semantics: a completion that captured no
+    ;; token (a cofx that threaded nil) is suppressed, never committed.
     (is (true? (rf.routing.reply/suppress? nil "nav-2"))
         "a nil captured token under a live navigation is stale (never matches)")
     (is (false? (rf.routing.reply/suppress? nil nil))
@@ -93,7 +92,7 @@
         (is (= :rf.route/nav-token-stale (:rf.reply/stale-reason trace)))))))
 
 (deftest suppress-carries-completed-at-on-stale-reply
-  (testing "rf2-ux8sgg — a route loader that supplies the reply completion
+  (testing "a route loader that supplies the reply completion
             time (`:completed-at`, the recordable :rf/time-ms fact, EP-0017)
             carries it verbatim onto the stale reply; absence omits it. This
             pins the production lane the pure substrate exposes — the stale
@@ -119,7 +118,7 @@
             ":completed-at is omitted when the caller supplies none")))))
 
 (deftest suppress-is-universally-non-delivering
-  (testing "rf2-j538f7.14 — a stale route completion is UNIVERSALLY non-delivering
+  (testing "a stale route completion is UNIVERSALLY non-delivering
             through rf.routing.reply/suppress: no reply target, app or otherwise,
             receives it (delegated to re-frame.reply/suppress)"
     (is (false? (:deliver? (rf.routing.reply/suppress {:nav-token "nav-1"} "nav-2" nil)))
@@ -135,7 +134,7 @@
                                                   :re-frame.reply/stale-authority true})))
         "a forged authority datum grants nothing → not delivered")))
 
-;; ---- rf2-2avo53 — live completion through the shared substrate -------------
+;; ---- live completion through the shared substrate -------------------------
 
 (deftest live-reply-builds-status-ok-with-route-work-id
   (testing "live-reply builds the :status :ok route-loader reply joined to the

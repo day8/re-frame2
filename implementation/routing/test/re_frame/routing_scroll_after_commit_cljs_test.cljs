@@ -1,15 +1,15 @@
 (ns re-frame.routing-scroll-after-commit-cljs-test
-  "rf2-3x7nj.12.3 — `:rf.nav/scroll` touches the page AFTER the view substrate
+  "`:rf.nav/scroll` touches the page AFTER the view substrate
   commits the navigation, not inside the navigating event.
 
   The fx runs as the last `:fx` of the committing event, before any render.
   Scrolling there reads and moves the page being LEFT: a cross-route
   `:fragment` finds no element and lands at the top, and a Back `:restore` to
-  a taller page is clamped to the shorter one. The handler now schedules its
+  a taller page is clamped to the shorter one. The handler schedules its
   DOM half through the installed adapter's `:adapter/after-render` hook.
 
   The node lane has no renderer, so it cannot show a commit. It shows the
-  ORDERING the fix rests on, against a controllable hook standing in for the
+  ORDERING the deferral rests on, against a controllable hook standing in for the
   adapter's: the hook queues its callback and answers nil (as UIx's does once
   it has scheduled), and `flush!` is the commit. The real-page witness is the
   browser lane's `re-frame.routing-conduct-dom-cljs-test`.
@@ -64,7 +64,7 @@
 ;; ---- the deferral ----------------------------------------------------------
 
 (deftest the-page-moves-once-and-only-after-the-commit
-  (testing "rf2-3x7nj.12.3: with an after-render hook, the fx makes NO DOM call;
+  (testing "with an after-render hook, the fx makes NO DOM call;
             the page moves exactly once, when the hook fires. The hook answers
             nil after scheduling, so the decision cannot rest on its return
             value — a nil-means-absent fallback would scroll twice"
@@ -79,7 +79,7 @@
             (is (= expected @calls) (str (:strategy args) ": one, after the commit"))))))))
 
 (deftest a-fragment-on-the-arriving-page-is-found
-  (testing "rf2-3x7nj.12.3: `#install` exists only on the page being navigated
+  (testing "`#install` exists only on the page being navigated
             TO. Looked up inside the event it is missing and the page falls back
             to the top; looked up after the commit it is found"
     (with-queued-after-render
@@ -98,8 +98,8 @@
           (is (= [] @calls) "and the page never fell back to the top"))))))
 
 (deftest with-no-hook-the-page-moves-at-once
-  (testing "rf2-3x7nj.12.3: a host publishing no after-render hook scrolls
-            immediately, as it always did — no timer is invented for it"
+  (testing "a host publishing no after-render hook scrolls
+            immediately — no timer is invented for it"
     (let [original (rf.late-bind/get-fn :adapter/after-render)]
       (try
         (rf.late-bind/set-fn! :adapter/after-render nil)
@@ -110,7 +110,7 @@
         (finally (rf.late-bind/set-fn! :adapter/after-render original))))))
 
 (deftest with-no-adapter-installed-the-page-moves-at-once
-  (testing "rf2-3x7nj.12.3: loading an adapter publishes its ROUTED hook, which
+  (testing "loading an adapter publishes its ROUTED hook, which
             with no adapter installed falls back to a no-op that never calls
             the callback. That is a hookless host, so the scroll runs at once
             rather than being dropped"
@@ -124,7 +124,7 @@
       (is (= [[:scroll-to 0 420]] @calls)))))
 
 (deftest the-preserve-strategy-schedules-nothing
-  (testing "rf2-3x7nj.12.3: `:preserve` queues no callback and moves nothing.
+  (testing "`:preserve` queues no callback and moves nothing.
             (The unsupported-strategy rejection stays inside the event; the
             `routing-nav-fx-schemas-cljs-test` rejection rows pin that.)"
     (with-queued-after-render
@@ -135,7 +135,7 @@
           (is (= [] @calls)))))))
 
 (deftest a-deferred-scroll-on-a-pageless-host-does-nothing
-  (testing "rf2-3x7nj.12.3: deferred, the DOM half runs outside the fx's error
+  (testing "deferred, the DOM half runs outside the fx's error
             isolation — a throw there escapes into the adapter's render queue —
             so a client host with no `window` must not throw from it"
     (with-queued-after-render
@@ -150,8 +150,8 @@
 ;; ---- traversal scroll belongs to the runtime ---------------------------------
 
 (deftest installing-the-url-listener-claims-traversal-scroll
-  (testing "rf2-pk4i6.7 #3: under the browser's default \"auto\" its own
-            traversal restore raced `:rf.nav/scroll` on Back and won. The URL
+  (testing "under the browser's default \"auto\" its own traversal
+            restore would race `:rf.nav/scroll` on Back and win. The URL
             listener's install sets `history.scrollRestoration` to \"manual\""
     (set! (.-scrollRestoration (.-history js/window)) "auto")
     (rf/make-frame {:id :rf/default :url-bound? true})
@@ -170,7 +170,7 @@
           (flush!)
           (is (= [[:scroll-to 0 0]] @calls)))
         (reset! calls [])
-        (testing "rf2-3x7nj.12.3: a later navigation that commits before the
+        (testing "a later navigation that commits before the
                   render and asks for no scroll of its own is not moved by the
                   earlier navigation's scroll"
           (rf/dispatch-sync [:rf.route/navigate {:to :scroll/detail}])
@@ -179,7 +179,7 @@
           (is (= [] @calls)))))))
 
 (deftest a-scroll-never-crosses-into-a-new-incarnation-of-its-frame
-  (testing "rf2-3x7nj.12.3: a frame destroyed and rebuilt under the same id
+  (testing "a frame destroyed and rebuilt under the same id
             restarts its nav-tokens, so the token alone would match. The
             earlier incarnation's scroll is dropped; the new one's runs"
     (register-routes!)

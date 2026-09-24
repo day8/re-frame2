@@ -1,7 +1,7 @@
 (ns re-frame.route-algebra-view-test
-  "Tests for the derivation/process algebra view of routes (EP-0014 slice-5,
-  rf2-eiiifu). Per [spec/Derivations.md] §Routes expose algebra views
-  (graduated from EP-0014) and the `:rf/derivation-node` shape in
+  "Tests for the derivation/process algebra view of routes. Per
+  [spec/Derivations.md] §Routes expose algebra views
+  and the `:rf/derivation-node` shape in
   [spec/Spec-Schemas.md].
 
   `re-frame.routing.tooling/route-algebra-view` lowers every registered route
@@ -21,14 +21,14 @@
     - the live route slice projection (matched id / params / query /
       transition / nav-token / owner).
 
-  Slice-5 ships NO public accessor (EP-0014 issue-1 disposition): the views
+  There is NO public accessor (EP-0014 §Open Issues, issue 1): the views
   live in the bundle-isolated `re-frame.routing.tooling` sibling and are
   consumed by Xray + the conformance fixtures, which name that sibling
   directly. There is no `re-frame.core/route-algebra-view` public facade
-  export and — since rf2-kuky.86 — no `re-frame.routing` JVM convenience alias
+  export and no `re-frame.routing` JVM convenience alias
   either; `re-frame.derivation.graph` reaches the views by `requiring-resolve`.
 
-  ## Posture split (rf2-o5dbf)
+  ## Posture split
 
   The node SHAPE is production-real and carries no posture guard: the
   classifications, the `:rf/route` fact id, the inputs / output / source-form,
@@ -41,9 +41,9 @@
   `:doc` is a pure-documentation key the registrar STRIPS before storage in
   production builds (Spec 001 §Production elision contract, registrar.cljc
   §573-580) so its string bytes DCE out of the bundle. Both deftests below
-  therefore branch: the dev arm keeps the presence assertions VERBATIM, and
+  therefore branch: the dev arm makes the presence assertions, and
   the production arm asserts the ELISION — that the strip really happened.
-  Neither arm is vacuous; nothing was deleted or weakened."
+  Neither arm is vacuous."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -116,9 +116,9 @@
         "an unregistered route id projects to nil")))
 
 (deftest facade-publishes-no-algebra-view-alias
-  ;; rf2-kuky.86 — the absence pin that replaced the JVM presence pin. The
+  ;; The absence pin. The
   ;; views ship NO public accessor (Derivations §Routes expose algebra views):
-  ;; the `defn`s stay in `re-frame.routing.tooling` and the facade re-exports
+  ;; the `defn`s live in `re-frame.routing.tooling` and the facade re-exports
   ;; neither, so `re-frame.derivation.graph` reaches them by `requiring-resolve`
   ;; and CLJS tools by a direct `:require`.
   (testing "`re-frame.routing` re-exports neither route algebra view"
@@ -126,7 +126,7 @@
         "route-algebra-view is not a public name on the routing facade")
     (is (nil? (ns-resolve 're-frame.routing 'route-slice-algebra-view))
         "route-slice-algebra-view is not a public name on the routing facade"))
-  (testing "the tooling sibling still publishes both"
+  (testing "the tooling sibling publishes both"
     (is (some? (ns-resolve 're-frame.routing.tooling 'route-algebra-view)))
     (is (some? (ns-resolve 're-frame.routing.tooling 'route-slice-algebra-view)))))
 
@@ -207,8 +207,8 @@
                 ":blocking? is surfaced only when the entry declared it")))))))
 
 (deftest resource-edge-never-executes-entry-fns
-  ;; A route entry's remaining fn slots are `:params` and `:when` — the
-  ;; anonymous route-scope resolver tier is retired (rf2-kuky.83), so `:scope`
+  ;; A route entry's fn slots are `:params` and `:when` — there is no
+  ;; anonymous route-scope resolver tier, so `:scope`
   ;; is a declared override the static view reads verbatim.
   (testing "static projection NEVER invokes a resource entry's :params / :when fns (don't-execute rule)"
     (with-resources-route-key
@@ -287,13 +287,13 @@
     (let [node   ((rf.routing.tooling/route-algebra-view) :route/home)
           source (:source node)]
       (if rf.interop/debug-enabled?
-        ;; rf2-o5dbf — dev arm (see ns docstring), kept verbatim.
+        ;; Dev arm (see ns docstring).
         (do
           (is (some? source) ":source map is present when the registration carried coords")
           (is (some? (:ns source))     ":ns captured at the call site")
           (is (number? (:line source)) ":line captured at the call site")
           (is (some? (:file source))   ":file captured at the call site"))
-        ;; rf2-o5dbf — production arm: coord capture is DCE'd, so the node
+        ;; Production arm: coord capture is DCE'd, so the node
         ;; carries no `:source` at all. The rest of the node is unaffected.
         (do
           (is (nil? source)
@@ -305,9 +305,9 @@
   (testing ":doc supplied on the route metadata surfaces in the node"
     (rf/reg-route :route/home {:doc "the home route"} "/")
     (if rf.interop/debug-enabled?
-      ;; rf2-o5dbf — dev arm (see ns docstring), kept verbatim.
+      ;; Dev arm (see ns docstring).
       (is (= "the home route" (:doc ((rf.routing.tooling/route-algebra-view) :route/home))))
-      ;; rf2-o5dbf — production arm: `:doc` is stripped BEFORE storage so its
+      ;; Production arm: `:doc` is stripped BEFORE storage so its
       ;; string bytes leave the bundle, so the node cannot carry it.
       (is (not (contains? ((rf.routing.tooling/route-algebra-view) :route/home) :doc))
           "under -Dre-frame.debug=false the registrar strips :doc before storage"))))

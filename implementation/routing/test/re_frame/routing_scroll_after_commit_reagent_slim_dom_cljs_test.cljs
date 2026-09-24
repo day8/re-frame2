@@ -1,8 +1,8 @@
 (ns re-frame.routing-scroll-after-commit-reagent-slim-dom-cljs-test
-  "rf2-3x7nj.12.3 — the cross-route fragment row of
+  "The cross-route fragment row of
   `re-frame.routing-scroll-after-commit-reagent-dom-cljs-test`, under the
   reagent-slim adapter's ordinary mount path (`reagent2.dom.client`), whose
-  after-render queue runs on the render scheduler's own microtask (rf2-cdoo).
+  after-render queue runs on the render scheduler's own microtask.
 
   ns ends in `-dom-cljs-test`; under `:node-test` the row is a stated skip."
   (:require [cljs.test :refer-macros [async deftest is use-fixtures]]

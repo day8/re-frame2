@@ -1,11 +1,11 @@
 (ns re-frame.routing-scroll-after-commit-reagent-dom-cljs-test
-  "rf2-3x7nj.12.3 — WHERE THE PAGE LANDS, measured in a real browser under
+  "WHERE THE PAGE LANDS, measured in a real browser under
   the Reagent adapter's ordinary mount path.
 
-  The pages here are UNEQUAL in height on purpose. The older witnesses
+  The pages here are UNEQUAL in height on purpose. The other witnesses
   (`re-frame.routing-conduct-dom-cljs-test`, the Fresco navigation conduct
   test) give every pane the same filler so a saved offset is never clamped,
-  which is exactly what hid a scroll made BEFORE the new pane committed.
+  which would hide a scroll made BEFORE the new pane commits.
 
   Three rows:
 
@@ -14,11 +14,11 @@
     2. Back to a page TALLER than the one being left restores the full
        offset, with `history.scrollRestoration` set to \"manual\" so the
        browser's own restore cannot supply it.
-    3. The rf2-pk4i6.7 #3 check, starting from the browser's default
+    3. The traversal-scroll check, starting from the browser's default
        \"auto\": a route declaring `:scroll :top` is at the top after Back,
        and stays there. The page being left is TALL here, so a traversal
-       restore by the browser would not be clamped — measured at 3000 on the
-       pre-fix handler. Installing the URL listener claims the scroll
+       restore by the browser would not be clamped — it would land at
+       3000. Installing the URL listener claims the scroll
        (\"manual\"), so the browser's restore never runs.
 
   Every reading is taken inside an after-render callback queued behind the
@@ -131,7 +131,7 @@
                 (is (>= max-y deep-offset)
                     (str "precondition: the detail page can scroll " max-y "px, so a"
                          " browser restore to " deep-offset " would not be clamped. Without"
-                         " this the #3 row cannot fail")))
+                         " this row 3 cannot fail")))
               (js/Promise.
                 (fn [resolve]
                   (let [on-pop (fn on-pop [_]
@@ -172,7 +172,7 @@
       (back-after-deep-scroll!
         {:from-url top-list-url :detail ::tall-detail :scroll-restoration "auto"}
         (fn [y]
-          (testing "rf2-pk4i6.7 #3: the route asks for :top on every arrival"
+          (testing "the route asks for :top on every arrival"
             (is (= 0 y)
                 (str "Back left the page at " y ". The route declares `:scroll :top`,"
                      " so a non-zero reading is the browser's own traversal restore"

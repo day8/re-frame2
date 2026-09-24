@@ -125,12 +125,12 @@
      dispatch use `dispatch-sync!`: a `popstate` / `hashchange` fires on the
      browser's macrotask loop, never nested inside a re-frame drain, so the
      run-to-completion update is safe and the slice restores synchronously
-     within the same browser turn (the locked routing-history contract)."
+     within the same browser turn (the routing-history contract)."
      [owner-frame-id url-strategy]
      (let [browser-window (when (exists? js/window) js/window)
            decode-url (:decode url-strategy)
            install-listener! (:install-listener! url-strategy)
-           ;; EP-0037 R0b: `:rf.route/handle-url-change` stands for four
+           ;; EP-0037 R0: `:rf.route/handle-url-change` stands for four
            ;; doors, so the listener names WHICH one it is via the
            ;; runtime-internal `:rf.route/cause` rider on the event's trailing
            ;; opts map (the sibling of `:rf.route/decided?`). Both dispatches
@@ -144,7 +144,7 @@
                                        {:rf.route/cause cause}]
                                       {:frame current-owner-frame-id})))]
        (when browser-window
-         ;; Failure-atomic handoff (rf2-j538f7.11): install the REPLACEMENT
+         ;; Failure-atomic handoff: install the REPLACEMENT
          ;; listener FIRST, then tear the incumbent down only once the new one
          ;; is in hand. If `install-listener!` throws (a callable-but-throwing
          ;; adapter — the non-callable case already fails loud at
@@ -159,15 +159,14 @@
                    {:owner    owner-frame-id
                     :strategy url-strategy
                     :teardown new-teardown}))
-         ;; The runtime owns scroll on traversal (rf2-pk4i6.7 #3, measured in
-         ;; rf2-3x7nj.12.3): under the default "auto" the browser's own
-         ;; restore raced `:rf.nav/scroll` on Back and won.
+         ;; The runtime owns scroll on traversal: under the default "auto" the
+         ;; browser's own restore would race `:rf.nav/scroll` on Back and win.
          (when-let [h (.-history browser-window)]
            (set! (.-scrollRestoration h) "manual")))
        ;; Initial sync: hydrate the owner's slice from the current URL so a deep
        ;; link / reload / ownership transfer lands on the right route. Cause
        ;; `:initial` — this is the initial page load, not a Back/Forward.
-       ;; `:decode` is pure (rf2-3x7nj.12.2): the browser address is read here,
+       ;; `:decode` is pure: the browser address is read here,
        ;; at the boundary, and handed in.
        (dispatch-to-owner! :initial (decode-url (rf.routing.strategy/current-href)))
        nil)))

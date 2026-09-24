@@ -1,5 +1,5 @@
 (ns re-frame.routing.address
-  "The shared RouteAddress extraction law for re-frame2 routing (EP-0037 R0b).
+  "The shared RouteAddress extraction law for re-frame2 routing (EP-0037 R0).
 
   Per Spec 012 §The extraction law and Spec-Schemas §`:rf/route-address`:
   every navigation door extracts and validates the caller-authored
@@ -77,7 +77,7 @@
   Because presence rather than truthiness selects the branch, the VALUE of
   `:query-merge` is checked by `classify` rather than inferred by the fold
   that consumes it: it must be a map of query deltas, and a present non-map
-  (nil included) rejects `:reason :query-merge-not-map` (rf2-16w8)."
+  (nil included) rejects `:reason :query-merge-not-map`."
   #{:query :query-merge :fragment})
 
 (def link-behavior-keys
@@ -95,21 +95,18 @@
   WHOLE accepted-key roster the structural gate validates before extraction:
   address ∪ raw-URL escape ∪ policy ∪ edit. Any other key (namespaced or not)
   is rejected `:reason :unknown-keys` — the programmatic door carries NO
-  internal exemption (EP-0037 R4 retired the `:rf.route/enter-attempts`
-  resume rider along with the whole enter-resume protocol)."
+  internal exemption."
   (set/union address-keys raw-url-keys policy-keys edit-keys))
 
 ;; ---- the closed `:rf/route-address` value ---------------------------------
 ;;
 ;; The NORMATIVE schema for this value is `:rf/route-address` in
-;; Spec-Schemas.md; routing does not carry a second copy of it. A Malli-form
-;; `RouteAddress` value used to sit here (rf2-6r9j.3). It was inert: routing
-;; never read it, the optional Schemas artefact never imported it, and
-;; `valid-address?` below — the pure structural check the extractor applies to
-;; the EXTRACTED address — derives nothing from it. Its only remaining effect
-;; was to present, in an internal namespace, a second spelling of the contract
-;; that could drift from both the normative schema and the live gate. Keep the
-;; structural gate and the spec text as the two authorities.
+;; Spec-Schemas.md; routing does not carry a second copy of it. There is no
+;; Malli-form `RouteAddress` value here: `valid-address?` below — the pure
+;; structural check the extractor applies to the EXTRACTED address — needs
+;; none, and a second spelling of the contract in an internal namespace
+;; could drift from both the normative schema and the live gate. The
+;; structural gate and the spec text are the two authorities.
 
 (defn valid-address?
   "Pure structural predicate for the closed `:rf/route-address` shape
@@ -215,11 +212,10 @@
      order (`rf.identity/canonical-bytes`) so heterogeneous EDN keys never trip a
      `compare`-based `sort`.
   9. `:query-merge`'s VALUE is a map of query deltas — a present non-map
-     (including nil) rejects `:reason :query-merge-not-map` (rf2-16w8). `{}`
-     is a valid exact no-op; a nil INSIDE the map still deletes a key.
+     (including nil) rejects `:reason :query-merge-not-map`. `{}`
+     is a valid exact no-op; a nil INSIDE the map deletes a key.
 
-  This is the byte-for-byte gate `:rf.route/navigate` ran inline before R0b;
-  moving it here makes it the ONE definition every door's whole-roster
+  This is the ONE definition every door's whole-roster
   closure is measured against."
   [request current]
   (let [ks           (set (keys request))
@@ -252,21 +248,21 @@
       (and (contains? request :query-merge) dest?)
       {:reason :query-merge-in-place-only :keys [:query-merge]}
 
-      ;; rf2-16w8 — `:query-merge`'s VALUE is a map of query deltas. PRESENCE
+      ;; `:query-merge`'s VALUE is a map of query deltas. PRESENCE
       ;; discriminates the in-place branch (`edit-keys`), so this gate is the
       ;; only place that can speak about the value at all; without this rule a
-      ;; non-map sailed through to `navigate-handler`'s `merge` fold, where
-      ;; Clojure's collection semantics decided the outcome three ways: a
+      ;; non-map would sail through to `navigate-handler`'s `merge` fold, where
+      ;; Clojure's collection semantics would decide the outcome three ways: a
       ;; two-element vector IS a map entry to `merge`, so `{:query-merge
-      ;; [:page 2]}` silently COMMITTED a real navigation (query changed,
-      ;; nav-token advanced, URL pushed); a string reached a raw
-      ;; ClassCastException with no ex-data; and a present nil vanished into
+      ;; [:page 2]}` would silently COMMIT a real navigation (query changed,
+      ;; nav-token advanced, URL pushed); a string would reach a raw
+      ;; ClassCastException with no ex-data; and a present nil would vanish into
       ;; the fold's `if-let` as a silent no-op. One structural boundary, one
       ;; local explanation. Deliberately placed AFTER the roster and
-      ;; mutual-exclusion rules so a request that is wrong in two ways still
-      ;; reports the relationship it always reported.
+      ;; mutual-exclusion rules so a request that is wrong in two ways
+      ;; reports the roster / relationship violation first.
       ;;
-      ;; `{}` stays a valid exact no-op, and a nil INSIDE the delta map still
+      ;; `{}` is a valid exact no-op, and a nil INSIDE the delta map
       ;; deletes a key — this rule is about the delta map itself, never its
       ;; members. A present nil for the map itself rejects rather than
       ;; vanishing: omission is already the unambiguous spelling for "no

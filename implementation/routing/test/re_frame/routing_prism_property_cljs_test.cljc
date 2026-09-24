@@ -1,16 +1,16 @@
 (ns re-frame.routing-prism-property-cljs-test
   "Generative property test for the route PRISM — the third leg of the
   EP-0012 `:rf/path` algebra (EP-0012 §Validation/Conformance §Route prism
-  conformance, rf2-86amg8). The EP's named conformance item is:
+  conformance). The EP's named conformance item is:
 
     'For each registered route, GENERATE valid path params/query params
      from the route schemas and assert match-url(route-url(...)) returns
      canonical route data.'
 
   The FOUNDATION surfaces (path / identity) carry seeded-PRNG property
-  tests (`path-laws-cljs-test`, `identity-cedn1-cljs-test`); the prism was
-  example-checked only (the routing_registry_test hand-picked cases). This
-  closes that gap with a generative sweep over schema-conforming inputs.
+  tests (`path-laws-cljs-test`, `identity-cedn1-cljs-test`); the prism's
+  hand-picked example cases live in routing_registry_test, and this namespace
+  adds a generative sweep over schema-conforming inputs.
 
   ## Properties asserted (over deterministic draws)
 
@@ -20,19 +20,19 @@
        `:params` and `:query` recovering the drawn values (modulo the prism's
        documented string-coercion of URL captures).
     2. CANONICAL QUERY KEY ORDER — both prism legs share ONE canonical
-       order (Conventions §Routes are prisms / rf2-wgutc2 / rf2-t3cfil):
+       order (Conventions §Routes are prisms):
        `route-url` emits query keys in CEDN-1 canonical order and `match-url`
        returns them in CEDN-1 canonical order, so two inbound spellings of
        one query map yield `=` :query with identical key ORDER. Pinned over
        the generated draws, not just the example cases.
-    3. `:query-defaults` DO NOT BREAK THE PRISM (rf2-kqxe6.23). A route's
+    3. `:query-defaults` DO NOT BREAK THE PRISM. A route's
        declared defaults live in the resolved TARGET and never in the URL:
        `route-url` omits a key already at its default and `match-url` fills it
        back, so the URL `route-url` emits is a FIXED POINT of
        `route-url ∘ match-url` and the recovered `:query` is the drawn query
-       with the defaults filled. Drawn over a route that declares defaults —
-       properties 1-2 never drew one, which is precisely why the generator
-       could not find the door-parity split that shipped with them.
+       with the defaults filled. Drawn over a route that declares defaults,
+       because properties 1-2 never draw one and so cannot see a
+       default-handling split between the doors.
 
   ## Why a hand-rolled seeded PRNG (not clojure.test.check / Malli gen)
 
@@ -80,10 +80,10 @@
 ;; The prism round-trips STRINGS through the URL: a path capture and an
 ;; undeclared query value are both surfaced as strings by `match-url` (the
 ;; route declares no coercion vocabulary here, so the keyword-discipline
-;; rule keeps query keys as strings too — rf2-5ifai). So the generators draw
+;; rule keeps query keys as strings too). So the generators draw
 ;; URL-safe NON-EMPTY token strings:
 ;;
-;;   - non-empty (an empty path param is rejected on emission — rf2-ede1h.2;
+;;   - non-empty (an empty path param is rejected on emission;
 ;;     an empty query value is legal but kept simple here);
 ;;   - no `/` (the path separator) and no `%`, `?`, `#`, `&`, `=` raw — the
 ;;     prism percent-encodes/decodes these symmetrically, but keeping the
@@ -116,10 +116,10 @@
   `[query-map next-state]`. Keys are distinct URL-safe tokens; values are
   URL-safe tokens. An empty map (no query) is a legal draw."
   [state]
-  ;; 0..12 pairs, NOT 0..3 (rf2-c5cub). A bound of 4 could never draw a query
+  ;; 0..12 pairs, NOT 0..3. A bound of 4 could never draw a query
   ;; that crosses the 9th-key array-map promotion boundary, so the canonical-
-  ;; order properties below were green over a range in which the order could
-  ;; not be lost. Roughly 90 of the 300 draws now carry 9+ keys.
+  ;; order properties below would be green over a range in which the order
+  ;; cannot be lost. Roughly 90 of the 300 draws carry 9+ keys.
   (let [n (rnd state 13)]
     (loop [i 0, s (lcg-next state), acc {}]
       (if (= i n)
@@ -188,12 +188,11 @@
       (is (nil? failure)
           (str "prism round-trip property failed: " (pr-str failure))))))
 
-;; ---- property 3: a `:query-defaults` route still round-trips ---------------
+;; ---- property 3: a `:query-defaults` route round-trips ---------------------
 ;;
-;; The corpus combined `:query-defaults` with nothing: no suite drew a route
-;; declaring them, so the prism's own generative sweep could not see that
-;; `route-url` emitted a defaulted key the named-address doors never resolved.
-;; The draw below inhabits the shape. `:page` is the declared default; the
+;; A sweep that never draws a route declaring `:query-defaults` cannot see
+;; `route-url` emitting a defaulted key the named-address doors do not
+;; resolve. The draw below inhabits the shape. `:page` is the declared default; the
 ;; drawn query's keys are undeclared STRING keys, so they can never collide
 ;; with it (the keyword-discipline rule keeps undeclared URL keys as strings).
 
@@ -253,7 +252,7 @@
                   (not= url url')
                   [:not-a-fixed-point query url url']
 
-                  ;; (4) canonical key order still holds on the inbound leg,
+                  ;; (4) canonical key order holds on the inbound leg,
                   ;; defaults interleaved into the SAME order
                   (not= (canonical-key-order (keys expected))
                         (vec (keys (:query m))))
@@ -304,10 +303,10 @@
       (is (nil? failure)
           (str "prism canonical-order property failed: " (pr-str failure))))))
 
-;; ---- fixed examples at the array-map promotion boundary (rf2-c5cub) -------
+;; ---- fixed examples at the array-map promotion boundary ------------------
 ;;
 ;; The properties above DRAW their queries, so the 9th-key boundary is reached
-;; only by chance — and at the original `0..3` bound, never at all. These are
+;; only by chance — and at a `0..3` bound, never at all. These are
 ;; the FIXED cases either side of it: 8 keys (the largest a `PersistentArrayMap`
 ;; holds), 9 (the first promotion) and 12 (well past it), plus a
 ;; `:query-defaults` case that exercises the OUTBOUND REBUILD at 10 keys.
@@ -330,7 +329,7 @@
   "An `array-map` over `ks` IN THE GIVEN ORDER, so the fixture's own insertion
   order is never the canonical one. `apply array-map`, NOT `(into (array-map) …)`
   — `into` would promote at the 9th entry and scramble the very input this test
-  exists to control (rf2-c5cub). `:page` draws the declared default."
+  exists to control. `:page` draws the declared default."
   [ks]
   (apply array-map (mapcat (fn [k] [k (get wide-query k default-page)]) ks)))
 
@@ -342,7 +341,7 @@
 
 (defn- expected-string-query
   "What `match-url` recovers for `ks`: `:route/wide` declares no query
-  vocabulary, so every undeclared key comes back as a STRING (rf2-5ifai)."
+  vocabulary, so every undeclared key comes back as a STRING."
   [ks]
   (into {} (map (fn [k] [(name k) (get wide-query k)])) ks))
 
@@ -363,7 +362,7 @@
 (deftest route-url-and-match-url-keep-canonical-order-past-eight-keys
   (testing "route-url emits, and match-url returns, query keys in CEDN-1
             canonical order at 8, 9 and 12 distinct keys — i.e. past the
-            9th-entry array-map promotion boundary (rf2-c5cub)"
+            9th-entry array-map promotion boundary"
     (rf/reg-route :route/wide {} "/wide")
     (doseq [[n ks pinned]
             [[8  [:g :c :a :h :e :b :f :d]                wide-url-8]
@@ -392,7 +391,8 @@
   (testing "a :query-defaults route keeps canonical order through the outbound
             REBUILD too — `query-without-defaults` does not sort, it rebuilds the
             already-sorted map while dropping keys at their default, and past 8
-            surviving keys that rebuild re-scrambled what the sort had ordered"
+            surviving keys an `into`-based rebuild would re-scramble what the
+            sort had ordered"
     (rf/reg-route :route/wide-dflt {:query-defaults {:page default-page}} "/wide-dflt")
     (let [ks  [:g :page :c :a :i :e :b :h :f :d]
           q   (scrambled-query ks)

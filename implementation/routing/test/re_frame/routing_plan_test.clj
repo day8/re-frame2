@@ -1,27 +1,25 @@
 (ns re-frame.routing-plan-test
   "Focused tests for the pure navigation-planning seam
-  `re-frame.routing.plan` (rf2-u8qe7y finding 1).
+  `re-frame.routing.plan`.
 
-  Before the seam, the pre-commit navigation policy — fragment
+  The pre-commit navigation policy — fragment
   normalisation, the `:rf.route/not-found` fallback shape + `:reason`
   vocabulary, the identical-/fragment-only classification, and the
-  fail-closed telemetry intents — was duplicated across the programmatic
+  fail-closed telemetry intents — is shared by the programmatic
   (`:rf.route/navigate`) and URL-driven
-  `:rf.route/handle-url-change`) entry points, and parity was only pinned
-  by scattered end-to-end regression tests in `routing_test.clj` added
-  AFTER drift was discovered. These tests pin the parity cases directly
-  at the seam: a planner bug now fails here, localised, rather than
+  (`:rf.route/handle-url-change`) entry points. These tests pin the parity
+  cases directly at the seam: a planner bug fails here, localised, rather than
   surfacing as a cross-entry-point asymmetry caught (or missed) by an
   integration test.
 
   All functions under test are PURE — no registrar / runtime-db fixture
   needed except for `scroll-plan` (which reads a plain runtime-db map for
   the `:current` slice + an explicit host-side scroll-cache map for the
-  `:saved-pos` lookup, rf2-1hncp2)."
+  `:saved-pos` lookup)."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.routing.plan :as rf.routing.plan]))
 
-;; ---- empty-string fragment normalisation (rf2-zmcq6) ---------------------
+;; ---- empty-string fragment normalisation ---------------------------------
 
 (deftest normalize-fragment-collapses-empty-string
   (testing "an explicit empty-string fragment collapses to nil (route-url emits no trailing #)"
@@ -155,7 +153,7 @@
 
 ;; ---- scroll-plan (pure over a runtime-db map + an explicit scroll cache) -
 ;;
-;; rf2-1hncp2: `:saved-pos` is read from `:scroll-cache` — the frame's
+;; `:saved-pos` is read from `:scroll-cache` — the frame's
 ;; host-side transient scroll-position cache map (`{:positions :order}`),
 ;; threaded in EXPLICITLY by the caller — NOT from runtime-db. `:capture-fx`
 ;; / `:from` still read the durable `:current` slice from `rdb`.
@@ -190,7 +188,7 @@
 
 (deftest scroll-plan-restore-strategy-reads-saved-position
   (testing ":restore strategy pulls the saved [x y] for the url from the
-            explicit host-side scroll cache (rf2-1hncp2), NOT from runtime-db"
+            explicit host-side scroll cache, NOT from runtime-db"
     (let [rdb          {:rf.runtime/routing {:current {:route-id :route/home}}}
           scroll-cache {:positions {"/cart" [0 320]} :order ["/cart"]}
           {:keys [scroll-fx]}
@@ -207,7 +205,7 @@
             :saved-pos — the planner does not reach a runtime-db slot"
     (let [rdb {:rf.runtime/routing {:current          {:route-id :route/home}
                                     ;; a stale runtime-db scroll slot must
-                                    ;; NOT be consulted — storage moved out.
+                                    ;; NOT be consulted — scroll storage is host-side.
                                     :scroll-positions {"/cart" [9 9]}}}
           {:keys [scroll-fx]}
           (rf.routing.plan/scroll-plan {:rdb rdb :scroll-cache nil

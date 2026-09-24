@@ -14,7 +14,7 @@
   module-level `defonce` cache keyed by frame-id, like the scroll-position
   cache and other host-side registries.
 
-  ### Why host-side is a CORRECTNESS fix, not a churn judgment
+  ### Why host-side is a CORRECTNESS requirement, not a churn judgment
 
   A nav-token's only correctness property is the one events.cljc
   documents: *never recycle a value*. A recycled token could collide with
@@ -51,7 +51,7 @@
   WRITES the produced allocation back into the in-flight `:rf.cofx` causal
   record — so the epoch captures the allocation and **replay re-presents
   the SAME id verbatim** (no generator re-run; strict replay FAILS if the
-  recorded allocation is missing — `:rf.error/missing-required-cofx`). This
+  recorded allocation is missing — `:rf.error/missing-required-cofx`).
   This makes replay use the recorded id rather than rerunning the generator.
 
   The handler reads the recordable allocation flat under its id, writes ONLY
@@ -167,26 +167,26 @@
   (reset! nav-counters-cache {})
   nil)
 
-;; ---- the recordable allocation cofx (rf2-vcop6y) --------------------------
+;; ---- the recordable allocation cofx ---------------------------------------
 ;;
 ;; TWO recordable, generator-backed allocation coeffects — one per allocator
-;; (rf2-oosjmh: two distinct allocators ⇒ two distinct facts). Each generator
-;; reads the in-flight cascade's frame host snapshot (the same
-;; `rf.frame/*current-frame*` the retired ambient `:rf.route/nav-counters` cofx
-;; read) and mints the next id, returning the allocation map carrying BOTH the
+;; (two distinct allocators ⇒ two distinct facts). Each generator
+;; reads the in-flight cascade's frame host snapshot
+;; (`rf.frame/*current-frame*`)
+;; and mints the next id, returning the allocation map carrying BOTH the
 ;; id AND the allocator high-water `:counter`. Being RECORDABLE
 ;; (`:recordable? true`, NOT `:provided?`), the cofx machinery writes the
 ;; produced allocation back into the in-flight `:rf.cofx` causal record (EP-0017
 ;; §5, router `:live` policy) — so the epoch captures it and replay re-presents
-;; the SAME id verbatim. The retired ambient cofx was never recorded; replay
-;; re-minted DIFFERENT ids (the rf2-vcop6y hole). Strict replay FAILS on a
+;; the SAME id verbatim. An ambient, unrecorded cofx would let replay
+;; re-mint DIFFERENT ids. Strict replay FAILS on a
 ;; missing recorded allocation (`:rf.error/missing-required-cofx`).
 
 (def nav-allocation-cofx-meta
   "Metadata for the `:rf.route/nav-allocation` cofx registration: a
-  RECORDABLE generator-backed allocation of a fresh nav-token (rf2-vcop6y).
+  RECORDABLE generator-backed allocation of a fresh nav-token.
 
-  Carries a `:schema` (rf2-ps05ug, EP-0017 §5): the generator produces
+  Carries a `:schema` (EP-0017 §5): the generator produces
   `{:token \"nav-N\" :counter N}` and the commit handler folds `:token`
   into the durable route slice + rides `:counter` on the host high-water
   bump fx, so a supplied/replayed value MUST be shape-validated. Without
@@ -206,11 +206,11 @@ coeffects map (EP-0017 §5) to a nav commit handler that declares
 The handler writes only `:token` into the route slice and rides `:counter`
 on the `:rf.route/commit-nav-counter` fx (host high-water `max` bump).
 Recorded so record+replay re-presents the same nav-token verbatim
-(replay-determinism — rf2-vcop6y). Per Spec 012 §Navigation tokens."})
+(replay-determinism). Per Spec 012 §Navigation tokens."})
 
 (defn nav-allocation-cofx
   "Value-returning generator for the RECORDABLE `:rf.route/nav-allocation`
-  cofx (EP-0017 §5, rf2-vcop6y). Reads the in-flight cascade's frame
+  cofx (EP-0017 §5). Reads the in-flight cascade's frame
   (`rf.frame/*current-frame*`, bound by the router during processing), mints
   the next nav-token from the host high-water snapshot, and returns
   `{:token \"nav-N\" :counter N}`. Runs at processing-start under the
@@ -224,11 +224,10 @@ Recorded so record+replay re-presents the same nav-token verbatim
 
 (def pending-nav-allocation-cofx-meta
   "Metadata for the `:rf.route/pending-nav-allocation` cofx registration: a
-  RECORDABLE generator-backed allocation of a fresh pending-nav id
-  (rf2-vcop6y). A DISTINCT allocator from `:rf.route/nav-allocation`
-  (rf2-oosjmh).
+  RECORDABLE generator-backed allocation of a fresh pending-nav id. A
+  DISTINCT allocator from `:rf.route/nav-allocation`.
 
-  Carries a `:schema` (rf2-ps05ug, EP-0017 §5): the generator produces
+  Carries a `:schema` (EP-0017 §5): the generator produces
   `{:id \"pn-N\" :counter N}` and the can-leave block handler folds `:id`
   into the durable pending-navigation slot + rides `:counter` on the host
   high-water bump fx, so a supplied/replayed value MUST be shape-validated.
@@ -247,16 +246,16 @@ in the coeffects map (EP-0017 §5) to a nav entry handler that declares
 `:rf.cofx/requires [:rf.route/pending-nav-allocation]`. On a `:can-leave` block the handler
 writes only `:id` into the pending-navigation slot and rides `:counter` on
 the `:rf.route/commit-nav-counter` fx. Recorded so a recorded
-`[:rf.route/continue \"pn-N\"]` re-matches under replay (replay-determinism
-— rf2-vcop6y). Per Spec 012 §Navigation blocking — pending-nav protocol."})
+`[:rf.route/continue \"pn-N\"]` re-matches under replay
+(replay-determinism). Per Spec 012 §Navigation blocking — pending-nav protocol."})
 
 (defn pending-nav-allocation-cofx
   "Value-returning generator for the RECORDABLE
-  `:rf.route/pending-nav-allocation` cofx (EP-0017 §5, rf2-vcop6y). Reads
+  `:rf.route/pending-nav-allocation` cofx (EP-0017 §5). Reads
   the in-flight cascade's frame (`rf.frame/*current-frame*`), mints the next
   pending-nav id from the host high-water snapshot, and returns
   `{:id \"pn-N\" :counter N}`. Recorded + replay-stable like
-  `nav-allocation-cofx`; a distinct allocator (rf2-oosjmh)."
+  `nav-allocation-cofx`; a distinct allocator."
   []
   (let [[n id] (next-pending-nav-id (counter-snapshot rf.frame/*current-frame*))]
     {:id id :counter n}))
@@ -265,7 +264,7 @@ the `:rf.route/commit-nav-counter` fx. Recorded so a recorded
 
 (def commit-nav-counter-meta
   "Metadata for the `:rf.route/commit-nav-counter` fx registration. The
-  WRITE half of the host-side counter seam (rf2-oosjmh): records a new
+  WRITE half of the host-side counter seam: records a new
   monotone high-water mark into the host `nav-counters-cache`. Universal
   platform — the counters are host-side on both client and server (the
   route slice / nav-token exist under SSR too)."
@@ -295,26 +294,26 @@ from the recorded `:counter` and can never rewind the allocator. Per Spec
       (commit-counter! frame-id counter-key value))
     nil))
 
-;; ---- routing durable/transient CLASSIFICATION (rf2-oosjmh) ----------------
+;; ---- routing durable/transient CLASSIFICATION -----------------------------
 ;;
 ;; ONE routing-owned source of truth for how each piece of routing state is
-;; classified, so storage / SSR / docs / schemas can never silently drift
-;; apart again (the inconsistency rf2-oosjmh reconciled). This is a
+;; classified, so storage / SSR / docs / schemas cannot silently drift
+;; apart. This is a
 ;; CLASSIFICATION, not a single shared SSR+epoch allowlist: SSR is a
 ;; per-key durable-needed allowlist (what the client must reconstitute),
 ;; while epoch off-box egress is redact-all-unless-trusted (the whole
 ;; runtime-db partition is `:rf/redacted` off-box by default —
-;; `re-frame.epoch.tool_pair/elide-frame-state-slot`, Mike ruling #14).
+;; `re-frame.epoch.tool_pair/elide-frame-state-slot`).
 ;; Those policies have different shapes and cannot share one allowlist; the
-;; common ground is this classification of the categories. The MOVE (the
-;; counters + scroll going host-side) is the actual structural fix — it
+;; common ground is this classification of the categories. Holding the
+;; counters + scroll positions host-side is what
 ;; makes both rewind and off-box leakage structurally impossible; this
-;; table documents the result and guards future routing state.
+;; table documents that placement and guards future routing state.
 
 (def routing-state-classification
   "The canonical classification of every piece of per-frame routing
   state, by tier. SSR / docs / Spec-Schemas consume this so the
-  durable/transient split has ONE home (rf2-oosjmh).
+  durable/transient split has ONE home.
 
   Tiers:
 
@@ -349,9 +348,9 @@ slice)."}
 
    :host-transient
    {:keys [:scroll-positions :nav-token-counter :pending-nav-counter]
-    :doc  "Saved scroll positions (re-frame.routing.scroll, rf2-1hncp2) and
-the two monotonic allocator high-water marks (re-frame.routing.nav-counters,
-rf2-oosjmh). Held in module-level host caches keyed by frame-id — NOT
+    :doc  "Saved scroll positions (re-frame.routing.scroll) and
+the two monotonic allocator high-water marks (re-frame.routing.nav-counters).
+Held in module-level host caches keyed by frame-id — NOT
 runtime-db, so they neither rewind on epoch restore nor ride the
 SSR / epoch / trace egress wire."}})
 
@@ -359,5 +358,5 @@ SSR / epoch / trace egress wire."}})
   "The routing runtime-db keys that ride the SSR hydration payload — the
   `:durable-runtime-db` tier of `routing-state-classification`. Consumed by
   `re-frame.ssr.payload-policy/durable-routing-keys` so storage and the SSR
-  payload policy share ONE source of truth (rf2-oosjmh)."
+  payload policy share ONE source of truth."
   (get-in routing-state-classification [:durable-runtime-db :keys]))

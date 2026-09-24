@@ -1,7 +1,6 @@
 (ns re-frame.routing-path-census-test
-  "The in-bundle route-path census (rf2-wqnl; widened to reach the app trees
-  under `implementation/` and the routes they register from a FUNCTION by
-  rf2-p5og).
+  "The in-bundle route-path census, reaching the app trees under
+  `implementation/` and the routes they register from a FUNCTION.
 
   Route IDS are namespaced keywords, so two applications can never collide on
   one. Route PATHS are plain strings in the process-global registrar, and the
@@ -11,8 +10,7 @@
   ties go to the earlier registration (rank carries `(- reg-index)`), so the
   first one loaded wins every URL forever and the later is unreachable for URL
   ingress. The breakage then lands in a suite that has never heard of your
-  app, naming YOUR routes — which is how rf2-hic-025 (PR #7920) cost twelve
-  RealWorld assertions.
+  app, naming YOUR routes.
 
   The remedy is the in-bundle path-prefix convention written down in
   TESTING.md — every app or witness loaded into the shared bundle namespaces
@@ -24,16 +22,14 @@
 
   ## What this census reads, and why it is not a runtime walk
 
-  The rf2-wqnl ruling directed a node-lane test walking
-  `registrar/registrations :route` under the standard fixture. That was
-  built first and MEASURED: it sees 20 of the 39 top-level route
-  registrations in the app trees, and WHICH 20 depends on namespace require
-  order and on sibling test namespaces calling `registrar/clear-kind!` /
-  `clear-all!` mid-run. The half it could not see contained `:todo/all` and
-  `realworld-http`'s `:realworld/home` — the exact pair the ruling's own
-  allowlist instruction names. A census blind to half the bundle, including
-  the collision the ruling wrote down, would repeat this bead's own
-  phantom-warning failure mode, so the census reads the SOURCE instead: every
+  A node-lane test walking `registrar/registrations :route` under the
+  standard fixture would see only part of the top-level route
+  registrations in the app trees, and WHICH part would depend on namespace
+  require order and on sibling test namespaces calling
+  `registrar/clear-kind!` / `clear-all!` mid-run — it can miss `:todo/all`
+  and `realworld-http`'s `:realworld/home`, the very pair the allowlist
+  below names. A census blind to part of the bundle would be a phantom
+  all-clear, so the census reads the SOURCE instead: every
   NAMESPACE-LOAD-TIME `reg-route` form under the app trees, with its path
   canonicalised by the framework's own `canonical-route-pattern`.
 
@@ -42,30 +38,24 @@
   (adding requires to a test namespace to widen a runtime walk would reorder
   registrations, and registration order is what decides which duplicate wins).
 
-  ## Why it reads FORMS and not lines (rf2-p5og)
+  ## Why it reads FORMS and not lines
 
-  The first cut of this census anchored on a column-1 regex, and that filter
-  was described here as \"exactly the right one\". It was the right QUESTION —
-  only namespace-load-time registrations are process-global — asked by an
-  instrument that could not answer it. Three applications register their
+  The question is which registrations run at namespace load — only those are
+  process-global — and a line-oriented filter such as a column-1 regex
+  cannot answer it. Three applications — the slice, the Todo witness and the
+  navigation witness — register their
   routes through a `register!` FUNCTION called at column 1, because
   `re-frame.test-support`'s reset fixture rolls back a registration made
   before the fixture snapshot was taken; their `reg-route` forms are indented
-  inside a `defn` and the regex could not see one. Those three are the slice,
-  the Todo witness and the navigation witness — the applications whose
-  collision motivated rf2-wqnl in the first place. Nor could the regex have
-  been widened into place: the same three write the route id as a `def`'d
-  symbol (`(routing/reg-route feed …)`), and the old reader dropped any claim
-  whose id was not a keyword literal without a word. Measured before this
-  bead: adding `implementation/fresco/test` to `app-roots` moved the files
-  scanned from 101 to 231 and the claims found from 39 to 39.
+  inside a `defn`, where a column-1 regex cannot see one. The same three
+  write the route id as a `def`'d
+  symbol (`(routing/reg-route feed …)`), which a reader accepting only
+  keyword-literal ids would drop without a word.
 
-  So the reader is now `clojure.tools.reader` at `:features #{:cljs}` over the
+  So the reader is `clojure.tools.reader` at `:features #{:cljs}` over the
   whole file — on the classpath because it ships with
   `org.clojure/clojurescript`, a hard dep of core, so reading CLJS source
-  structurally costs no new dependency. (`re-frame.freehand.compiler.harvest`
-  read source with the same instrument for the same reason; it was removed
-  with its tree on 2026-08-16, rf2-0yp7w.) Reading forms
+  structurally costs no new dependency. Reading forms
   rather than lines answers the load-time question STRUCTURALLY:
 
     - The walk descends the whole file but never into a function body — `fn`,
@@ -78,7 +68,7 @@
       `::auto-resolved` keyword against the file's own `ns`.
 
   The `reg-route` calls inside `deftest` bodies, and inside the `defn`s only a
-  test calls, are therefore still not censused and still cannot false-flag —
+  test calls, are therefore not censused and cannot false-flag —
   by construction rather than by indentation.
 
   ## Nothing is dropped quietly
@@ -99,15 +89,14 @@
   structural rank, a different question from whether two applications silently
   overwrite each other, and even when it fires it goes to the instrumentation
   ring buffer that nothing in the node lane reads. It is not a registration
-  refusal either — `reg-route` still accepts a duplicate path, because a
+  refusal either — `reg-route` accepts a duplicate path, because a
   duplicate path is not always a bug (an emission-only registration that only
   ever synthesises hrefs by id is coherent and harmless). It is not a check on
   duplicate route IDS: one id registered from two files is an id replacement,
   the registrar is keyed by id so only one entry ever exists, and nothing is
   shadowed. This is a repo-side gate on the one composition where the path
   class bites: many apps, one process. Consumer apps are unaffected; there is
-  zero framework and zero spec surface here. Per the rf2-wqnl ruling —
-  option (a), narrowly scoped."
+  zero framework and zero spec surface here."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
@@ -123,8 +112,7 @@
   want: a NEW claimant on a shared path is precisely the event this gate
   exists to catch.
 
-  Two entries, both the state the app trees were already in when this census
-  was written. `/` is a URL-fidelity claim on every side of it:
+  Two entries. `/` is a URL-fidelity claim on every side of it:
 
     :todo/all             canonical TodoMVC — `/`, `/active`, `/completed`
                           are the spec's own URLs, and the guide's code blocks
@@ -138,19 +126,17 @@
 
   They are asymptomatic together because no suite here feeds another app's
   URL in: each app's tests ingress only its own URLs, and the shared claim is
-  the landing page nothing else navigates to. That is a property of TODAY'S
-  suites, not a guarantee — which is why a new claimant must come here and be
+  the landing page nothing else navigates to. That is a property of the
+  current suites, not a guarantee — which is why a new claimant must come here and be
   argued for rather than land silently. A witness app added to the bundle
   should prefix its paths (`/slice`, `/fresco-todo`) and never appear here.
-  Widening the census's reach to the Fresco witness applications (rf2-p5og)
-  added no entry and was never going to: all three were already prefixed.
+  The Fresco witness applications need no entry: all three are prefixed.
 
-  `/articles` is the weaker entry and the honest label for it is INHERITED,
-  not blessed: the resources capability demo and the routing capability
-  walkthrough both grew an articles list before the convention existed, and
-  neither URL is a fidelity claim — either could take a prefix. It is
+  `/articles` is the weaker entry: neither the resources capability demo's
+  nor the routing capability walkthrough's articles list is a fidelity
+  claim — either could take a prefix. It is
   allowlisted rather than fixed here because renaming another app's routes is
-  outside this bead (rf2-wqnl explicitly forbids it), and asymptomatic today
+  outside this census's remit, and it is asymptomatic
   because each app's suite ingresses only its own URLs. It is the entry to
   retire first if anyone is prefixing capability-demo paths."
   {"/"         #{:todo/all
@@ -211,8 +197,7 @@
 (defn unresolved-failure-message
   "Render the registrations the census REACHED but could not read as claims.
   Never a skip: a census that drops what it cannot resolve is a green light
-  over an unchecked path, which is the exact defect rf2-p5og found in its
-  predecessor."
+  over an unchecked path."
   [unresolved]
   (str "Route registration the census could not READ (rf2-p5og).\n\n"
        "These `reg-route` calls run at namespace load — so their paths are\n"
@@ -235,7 +220,7 @@
   test bundle. Directory-level, not app-level, so a NEW app is censused the
   moment it exists — there is no per-app roster to forget to update.
 
-  `implementation/fresco/test` is here (rf2-p5og) because `fresco/test` is a
+  `implementation/fresco/test` is here because `fresco/test` is a
   `:source-paths` entry of the top-level shadow build, so the witness
   applications under `re_frame/fresco/examples/` compile into the SAME node
   bundle as everything under `examples/` and their paths are exactly as
@@ -564,8 +549,8 @@
              (:claims (claims-in text "f.cljs"))))))
 
   (testing "a reg-route inside a defn CALLED at the top level is load-time —
-            the shape rf2-p5og's three witness applications are written in,
-            and the shape the column-1 regex could not see"
+            the shape three witness applications are written in,
+            and a shape a column-1 regex cannot see"
     (let [text (str "(ns example.routes (:require [re-frame.routing :as routing]))\n"
                     "(def feed \"The list page.\" ::feed)\n"
                     "(defn register! []\n"

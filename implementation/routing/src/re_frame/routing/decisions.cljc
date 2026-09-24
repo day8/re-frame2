@@ -85,7 +85,7 @@
   (allow) and `false` (reject) are accepted. Any non-boolean return
   REJECTS and emits the structured `error-id`, forcing the author to write
   `(boolean ...)` / `(not ...)` rather than rely on truthiness (the
-  classic polarity bug: a sub returning the dirty-flag value silently let
+  classic polarity bug: a sub returning the dirty-flag value would silently let
   the user navigate away and lose form state).
 
   The resolved target (`{:route-id :params :query :fragment :url}`) is
@@ -208,7 +208,7 @@
 
 (defn- current-app-url
   "The app URL a frame is CURRENTLY at, as the base an app reference resolves
-  against (rf2-3x7nj.12.2): the canonical reconstruction of its route slice
+  against: the canonical reconstruction of its route slice
   (`current-slice->url`); on a `:rf.route/not-found` slice — whose pattern, if
   it has one, is not where the user is — the requested app URL the slice
   preserves under `[:params :url]`; and `/` before the frame has any location,
@@ -228,7 +228,7 @@
 
 (defn request-app-url
   "Reduce a `{:url …}` / `:rf.route/url-requested` reference to the app URL the
-  cascade matches (rf2-3x7nj.12.2) — `rf.routing.url/request-url->app-url`,
+  cascade matches — `rf.routing.url/request-url->app-url`,
   given the two things it needs from the frame: the navigating frame's current
   app URL (from `rdb`, that frame's runtime-db), which an app reference
   resolves against, and the URL OWNER's strategy `:decode`, which an
@@ -300,8 +300,8 @@
         current-meta (rf.registrar/lookup :route (:route-id current))
         target-meta  (rf.registrar/lookup :route (:route-id target))
         ;; The public `:bypass-leave?` is a plain boolean (OI-3). Only the
-        ;; literal `true` bypasses; every other value (nil, false, a stray
-        ;; set left over from a retired spelling) bypasses nothing.
+        ;; literal `true` bypasses; every other value (nil, false, a set or
+        ;; any other truthy value) bypasses nothing.
         leave-ok?    (or (true? bypass-leave?)
                          (guard? frame (:route-id current) current-meta :can-leave
                                  target :rf.error/can-leave-non-boolean))
@@ -430,7 +430,7 @@
 ;; `re-frame.routing.resolve/url-resolution` — the seam the commit hop lowers
 ;; to as well. The link door reads it through `rf.routing.resolve/target-of-url`, so
 ;; stage 3, the guards, and the commit all resolve the same URL to the same
-;; target (EP-0037 R0b). Deriving it locally is what let a dead link bypass the
+;; target (EP-0037 R0). Deriving it locally would let a dead link bypass the
 ;; `:rf.route/not-found` route's `:can-enter` guard and push a history entry for
 ;; the already-active not-found URL.
 

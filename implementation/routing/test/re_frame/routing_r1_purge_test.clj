@@ -1,28 +1,23 @@
 (ns re-frame.routing-r1-purge-test
-  "EP-0037 R1 follow-through regression (merged-PR-#6875 audit).
+  "The routing façade purges two retired framework EVENT ids on every load
+  (EP-0037 R1: `:on-match` is fire-and-forget).
 
-  PR #6875 delivered the R1 contract by DELETING the registration calls for
-  the pre-R1 on-match machinery, but deletion alone does not evict a
-  registration a `defonce` registry already holds. A dev session that loaded
-  routing BEFORE the R1 cut and then `(require 're-frame.routing :reload)`s
-  under HMR keeps two retired framework registrations:
+  Not registering an id does not evict a
+  registration a `defonce` registry already holds. A dev session whose
+  registry holds these ids from a routing build that registered them, and that
+  then `(require 're-frame.routing :reload)`s
+  under HMR, would keep two retired framework registrations without the purge:
 
     - `:rf.route.internal/on-match-error`    — the route-match failure event.
     - `:rf.route.internal/settle-transition` — the per-route `:on-match`
                                                settle event.
 
-  A persisting settle event could still observe a new blocking-resource
+  A persisting settle event could observe a new blocking-resource
   `:loading` transition, route an `:on-match` throw through the retired
-  handler, and resurrect the removed route `:error` / `:on-error` behaviour —
+  handler, and resurrect route `:error` / `:on-error` behaviour —
   a contract violation under normal reload.
 
-  The third id this suite once covered — the corpus-wide
-  `:rf.route/on-match-error-trap` error listener — and the façade's idempotent
-  purge of it were deleted under rf2-kuky.19: no shipped code has registered
-  that id since the R1 cut, so the purge only covered an HMR session spanning
-  a change months old.
-
-  This suite reproduces the audit in a real JVM registry: it SEEDS the two
+  This suite works in a real JVM registry: it SEEDS the two
   retired registrations, exercises the ACTUAL reload path
   (`(require 're-frame.routing :reload)`), and proves the façade idempotently
   unregisters exactly those two — no registry reset, no user-registration
@@ -65,9 +60,10 @@
   (contains? @@#'re-frame.error-emit/listeners id))
 
 (defn- seed-retired-registrations!
-  "Install exactly what a pre-R1 generation left in the `defonce` registries:
-  the two internal events (via the framework-internal `rf.events/reg-event`, the
-  same call the pre-R1 façade used — reserved ids are legitimate on that path).
+  "Install exactly what a routing build that registered the retired ids leaves
+  in the `defonce` registries: the two internal events (via the
+  framework-internal `rf.events/reg-event` — reserved ids are legitimate on
+  that path).
   Each records into `seen` if it ever runs, so a surviving registration is
   behaviourally observable."
   [seen]
@@ -79,7 +75,7 @@
                     (fn [{:keys [db]} _] (swap! seen conj :on-match-error) {:db db})))
 
 ;; ============================================================================
-;; Acceptance criteria 1 + 3 — the reload purges exactly the two retired ids
+;; The reload purges exactly the two retired ids
 ;; ============================================================================
 
 (deftest reload-purges-the-two-retired-registrations
@@ -124,14 +120,14 @@
       (rf.error-emit/unregister-error-listener! ::user-probe))))
 
 ;; ============================================================================
-;; Acceptance criterion 2 — no stale machinery can convert an :on-match throw
+;; No stale machinery can convert an :on-match throw
 ;; ============================================================================
 
 (deftest reloaded-routing-cannot-convert-on-match-throw-into-route-error
-  (testing "after seeding the pre-R1 settle event and reloading, a throwing
+  (testing "after seeding the retired settle event and reloading, a throwing
             :on-match event (the shape a blocking-resource :loading route
-            drives) cannot be converted by stale R1 machinery into route
-            :error / a legacy route :on-error; the ordinary event error channel
+            drives) cannot be converted by stale machinery into route
+            :error / a route :on-error; the ordinary event error channel
             stays intact"
     (let [seen (atom #{})]
       (seed-retired-registrations! seen)

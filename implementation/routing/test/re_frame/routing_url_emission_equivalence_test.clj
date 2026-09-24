@@ -1,33 +1,31 @@
 (ns re-frame.routing-url-emission-equivalence-test
-  "rf2-cno31 — the teeth for `route-url`'s render-path cheapening.
+  "The teeth for `route-url`'s render-path specialisations.
 
-  `route-link` synthesises its href per render, and the rf2-6c237 clock
-  re-take priced that term at 8.21 µs per link — 1.70 ms on the census
-  acceptance page's 207 links, 7.4 ms on the feed's 900. Two diagnostic probes
-  (`link_decomp_probe_app`, `link_inner_probe_app`) decomposed it and found no
-  single dominant term but five ordinary ones, four of them inside `route-url`:
+  `route-link` synthesises its href per render, so `route-url` — and the
+  strategy consult beside it — run once per link per render. Their cost is
+  no single dominant term but several ordinary ones, each served by a
+  cheaper route:
 
-    the per-character emission walk   1.69 µs   (`(conj parts (str ch))` per
-                                                 literal character, then
-                                                 `apply str` over the result)
-    the address-key reject scan
-      + the empty-query sort          0.60 µs
-    `uncaptured-param-keys`' per-call
-      keyword set                     0.48 µs
-    the fail-closed URL-scalar guard  0.36 µs   (a whole CEDN-1 token string
-                                                 built and discarded)
-    the route-meta lookup             0.12 µs
+    the emission walk                 literal runs read in one `subs`, not a
+                                      `(conj parts (str ch))` per literal
+                                      character
+    the address-key reject scan       a direct walk of the address's entries;
+      + the empty-query sort          no sort without a query or a bad key
+    `uncaptured-param-keys`           a membership test with no per-call
+                                      keyword set
+    the fail-closed URL-scalar guard  answered by TYPE for four kinds, with no
+                                      CEDN-1 token string built and discarded
     ── and outside it ──
-    the render-time strategy consult  0.72 µs   (a merged `frame-meta` map per
-                                                 link, to read one key)
+    the render-time strategy consult  `frame-config`, not a merged
+                                      `frame-meta` map per link, to read one key
 
-  Each remedy is a SPECIALISATION, never a second implementation: the same
+  Each is a SPECIALISATION, never a second implementation: the same
   answers by a cheaper route. This namespace is what makes that claim
   falsifiable. Every assertion below is one a divergence would break.
 
   ## The mutations this file is proved against
 
-  Three were run against the shipped code, each reverted after:
+  Each of these three turns it red:
 
   1. **`\\{` deleted from `literal-run-end`'s boundary set.** A literal run then
      swallows the opening brace. RED: `literal-run-end-stops-at-every-sigil`,
@@ -45,15 +43,14 @@
 
   Mutation 3 is also why the walk decides for itself, in a branch of its own
   loop, rather than being switched on by an `(empty? groups)` gate computed
-  outside it. Written as a gate, the SAME mutation (dropping the gate) does not
-  fail — it HANGS: `literal-run-end` stops at `{` and returns the cursor
-  unmoved, so the loop spins and the suite never completes. It was run that way
-  first and had to be killed by hand at 722 s of CPU. A walk whose every branch
+  outside it. Written as a gate, the SAME mutation (dropping the gate) would not
+  fail — it would HANG: `literal-run-end` stops at `{` and returns the cursor
+  unmoved, so the loop would spin and the suite never complete. A walk whose every branch
   either advances the cursor or returns cannot do that, and it does not depend
   on a `:groups` map that a route-meta installed outside `reg-route` could
   disagree with.
 
-  Nothing here is a benchmark. The figures above name what the tests are
+  Nothing here is a benchmark. The table above names what the tests are
   guarding; the studio page carries the measurement."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -110,7 +107,7 @@
       (is (= "/profile/false" (rf.routing.registry/route-url {:to :eq/profile :params {:username false}})))
       (is (= "/profile/0"     (rf.routing.registry/route-url {:to :eq/profile :params {:username 0}})))))
 
-  (testing "patterns WITH an optional group — the general walk, untouched"
+  (testing "patterns WITH an optional group — the general walk"
     (is (= "/docs/api" (rf.routing.registry/route-url {:to :eq/docs :params {:section "api"}})))
     (is (= "/docs"     (rf.routing.registry/route-url {:to :eq/docs :params {}})))
     (is (= "/docs"     (rf.routing.registry/route-url {:to :eq/docs})))
@@ -161,7 +158,7 @@
       (is (= 0  (end ":only" 0))              "a sigil AT the cursor is a zero-length run"))))
 
 ;; ===========================================================================
-;; The fail-closed classes — every one of them still closed
+;; The fail-closed classes — every one of them closed
 ;; ===========================================================================
 
 (deftest the-emission-guards-still-refuse-what-they-always-refused
@@ -201,7 +198,7 @@
     (let [d (thrown-data #(rf.routing.registry/route-url {:to :eq/plain :replace? true}))]
       (is (= :bad-address-keys (:reason d)))
       (is (= [:replace?] (:keys d))))
-    (testing "bad keys are still reported in TOTAL canonical order"
+    (testing "bad keys are reported in TOTAL canonical order"
       (is (= [:replace? "url"]
              (:keys (thrown-data #(rf.routing.registry/route-url {:to :eq/plain
                                                        :replace? true
@@ -227,15 +224,15 @@
                                           :params {:username (inc 9007199254740991)}}))))
         "an integer outside the safe range is rejected on the slow leg"))
 
-  (testing "the four kinds the guard now answers by type still EMIT"
+  (testing "the four kinds the guard answers by type EMIT"
     (is (= "/profile/jane"  (rf.routing.registry/route-url {:to :eq/profile :params {:username "jane"}})))
     (is (= "/profile/%3Ajane"
            (rf.routing.registry/route-url {:to :eq/profile :params {:username :jane}}))
-        "an UNDECLARED keyword value host-stringifies, exactly as before")
+        "an UNDECLARED keyword value host-stringifies")
     (is (= "/profile/jane"  (rf.routing.registry/route-url {:to :eq/profile :params {:username 'jane}})))
     (is (= "/profile/true"  (rf.routing.registry/route-url {:to :eq/profile :params {:username true}}))))
 
-  (testing "a DECLARED keyword enum still emits its token, not %3A"
+  (testing "a DECLARED keyword enum emits its token, not %3A"
     (is (= "/by/desc" (rf.routing.registry/route-url {:to :eq/enum :params {:dir :desc}})))))
 
 ;; ===========================================================================
@@ -249,7 +246,7 @@
     (is (= "/search" (rf.routing.registry/route-url {:to :eq/sorted :query {}})))
     (is (= "/search" (rf.routing.registry/route-url {:to :eq/sorted :query {:sort nil}}))
         "a nil-valued key is elided, not emitted as a bare key"))
-  (testing "a query — the canonical-order sort, untouched"
+  (testing "a query — the canonical-order sort"
     (is (= "/search?sort=asc" (rf.routing.registry/route-url {:to :eq/sorted :query {:sort "asc"}})))
     (is (= "/search?page=2&sort=asc"
            (rf.routing.registry/route-url {:to :eq/sorted :query {:sort "asc" :page "2"}}))

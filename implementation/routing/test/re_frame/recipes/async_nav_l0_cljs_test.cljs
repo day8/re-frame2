@@ -1,5 +1,5 @@
 (ns re-frame.recipes.async-nav-l0-cljs-test
-  "THE THREE RECIPES' MODEL TIER (rf2-hic-054).
+  "THE THREE RECIPES' MODEL TIER.
 
   Every rule in `re-frame.recipes.async-nav` — first as pure functions,
   then through a real frame — with no DOM anywhere. The one claim that
@@ -22,8 +22,8 @@
 
   Every reply here is replayed by hand through the captured transport
   args, in the order the row chooses, inside `dispatch-sync`. That is
-  not a convenience: an `async` row aborts the whole `test:browser` run
-  on this tree if the fixture arrangement is wrong (rf2-u0j8, live), and
+  not a convenience: an `async` row can abort the whole `test:browser`
+  run if the fixture arrangement is wrong, and
   ordering a late arrival by hand is also strictly more precise than
   racing two timers and hoping."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -191,10 +191,8 @@
 
 (deftest without-the-merge-the-late-reply-clobbers
   ;; THE CONTROL for the row above, through the same frame: the accepted
-  ;; payload written as a whole slice, which is the corpus shape
-  ;; (`examples/real-apps/realworld_resources/article_editor.cljs`
-  ;; :304-314, the live rf2-y4mgw defect). The class is reachable, so
-  ;; the guarded row is measuring something.
+  ;; payload written as a whole slice, the shape the recipe replaces. The
+  ;; class is reachable, so the guarded row is measuring something.
   (capture-transport!)
   (with-app
     (fn [frame]
@@ -329,7 +327,7 @@
 
 (deftest the-guard-and-the-badge-read-one-definition
   ;; R-A6 in its navigation form: two recomputations of "is this dirty?"
-  ;; drifting apart. The fix is one DEFINITION, not one cached value.
+  ;; drifting apart. The answer is one DEFINITION, not one cached value.
   (with-app
     (fn [frame]
       (send! frame [:rf.route/navigate {:to rf.recipes.async-nav/editor-route :params {:slug "welcome"}}])

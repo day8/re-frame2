@@ -1,5 +1,5 @@
 (ns re-frame.routing-conduct-dom-cljs-test
-  "NAVIGATION CONDUCT, MEASURED THROUGH THE REAL BROWSER URL (rf2-hic-042).
+  "NAVIGATION CONDUCT, MEASURED THROUGH THE REAL BROWSER URL.
 
   A two-route application on routing's own public door, driven by the
   ACTUAL History API: `history.replaceState` for the cold deep link,
@@ -11,23 +11,22 @@
 
   ## Why this file exists beside the Fresco navigation witness
 
-  `re-frame.fresco.examples.navigation.conduct-dom-cljs-test` (PR #7970)
-  already measures focus-on-route and scroll restoration in a browser,
-  and this file does not repeat what that one proves. The merged-PR audit
-  of #7970 found two things it did NOT prove, and both are properties of
-  ROUTING rather than of a view substrate, so they are witnessed here:
+  `re-frame.fresco.examples.navigation.conduct-dom-cljs-test`
+  measures focus-on-route and scroll restoration in a browser,
+  and this file does not repeat what that one proves. Two properties of
+  ROUTING rather than of a view substrate are witnessed here, on
+  routing's own door:
 
-  1. **The focus recipe was document-global.** `document.querySelector`
+  1. **The focus recipe is scoped to its root.** `document.querySelector`
      over a marker every route shares focuses the FIRST match anywhere on
-     the page — so a second root, or a shell heading above the app, takes
-     the landing focus instead. Every row over there mounts exactly one
-     application, so the near-miss was legal and untested. The recipe
+     the page — so a second root, or a shell heading above the app, would
+     take the landing focus instead. The recipe
      below is scoped to its own root, and [[a-deep-link-through-the-real-url-focuses-inside-its-own-root]]
      mounts a DECOY marked heading ahead of the app to prove the scope is
      load-bearing rather than decorative.
 
-  2. **No row exercised browser location or history at all.** The deep
-     link was an `:initial-events` dispatch and Back was a hand-written
+  2. **Browser location and history are real.** In the Fresco witness the
+     deep link is an `:initial-events` dispatch and Back is a hand-written
      `:rf.route/handle-url-change` carrying a synthetic `:popstate` — the
      conduct the door produces, but not the door. Here the deep link is
      a URL the browser is genuinely sitting on when the frame registers,
@@ -41,11 +40,10 @@
   `re-frame.route-link-cljs-test`, but SYNTHETICALLY: it reads the handler
   off the rendered attrs map and calls it, rather than firing a browser
   gesture at a mounted anchor, and it names the three positions literally
-  instead of reading the class. The suite that drove them through the real
-  DOM, and the roster assertion that pinned its gestures against the class,
-  both retired with the compiled-view substrate (rf2-0yp7w), and nothing
-  replaced either. So this paragraph records a GAP rather than declining a
-  covered proof: no browser-level witness of prefetch survives on any
+  instead of reading the class. No suite drives them through the real
+  DOM, and no roster assertion pins browser gestures against the class.
+  So this paragraph records a GAP rather than declining a
+  covered proof: no browser-level witness of prefetch exists on any
   surface, and this file does not supply one.
 
   ## The URL is borrowed, and given back
@@ -110,8 +108,8 @@
   "The routes' `:on-match` handler, as a plain fn so the structural row can
   read what it returns without a browser.
 
-  It names `:root`, and that single key is the whole correction the audit
-  of PR #7970 asked for: the effect resolves its heading INSIDE this
+  It names `:root`, and that single key is what scopes the recipe:
+  the effect resolves its heading INSIDE this
   application's own root, so a marked heading belonging to anything else
   on the page cannot take the landing focus."
   [_ _]

@@ -1,5 +1,5 @@
 (ns re-frame.route-link-ssr-parity-cljs-test
-  "Cross-host `:href` parity for a strategy-bearing route-link (rf2-skr1c).
+  "Cross-host `:href` parity for a strategy-bearing route-link.
   This file is `*-cljs-test.cljc` so the shadow-cljs `:node-test` build runs
   it on the CLJS host alongside the JVM `clojure -M:test` runner — ONE table
   of expected hrefs, asserted through each host's PRODUCTION link door.
@@ -12,12 +12,12 @@
   frame declaring `(with-base-path history-url-strategy \"/demos\")` must
   render `/demos/active` on the server exactly as the hydrated client does.
 
-  Before this suite both JVM link doors hard-coded `identity` as the encoder
-  (`route-link-render-ssr` and the `:clj` arm of `link-model`), so the same
-  frame config rendered `/active` on the server and `/demos/active` on the
-  client. Nothing caught it: `route_link_test.clj` covered only the default
-  path-form strategy, and `routing_url_strategy_test.clj` proved the pure
-  encoders without composing them with an SSR render.
+  A JVM link door that hard-coded `identity` as the encoder
+  (`route-link-render-ssr` or the `:clj` arm of `link-model`) would render
+  `/active` on the server for the frame config that renders `/demos/active`
+  on the client. `routing_url_strategy_test.clj` proves the pure encoders
+  without composing them with an SSR render, so the composition needs this
+  table.
 
   Two doors, four strategy shapes, one table:
 
@@ -71,12 +71,13 @@
   `:encode`, so a door that stopped consulting the strategy cannot also
   rewrite the expectation.
 
-  The `:punct` column is rf2-j3tud's teeth at the LINK door. `url-encode`'s
-  JVM arm escaped `! ' ( ) ~` where `encodeURIComponent` leaves them
-  literal, so a `~`-bearing slug rendered `:href` `/articles/draft%7E1` on
+  The `:punct` column is host-symmetric encoding's teeth at the LINK door.
+  `java.net.URLEncoder` escapes `! ' ( ) ~` where `encodeURIComponent`
+  leaves them literal, so a `url-encode` JVM arm that did not correct it
+  would render a `~`-bearing slug's `:href` as `/articles/draft%7E1` on
   the server and `/articles/draft~1` on the hydrated client — a Spec 011
   hydration mismatch at the attribute the first client render compares.
-  The `x` / `comments` rows above could not see it: neither string carries
+  The `x` / `comments` rows above cannot see it: neither string carries
   a character the two encoders disagree about."
   [{:frame    :parity/history
     :strategy rf.routing.strategy/history-url-strategy
@@ -133,7 +134,7 @@
       (is (= punct (rendered-href frame punct-props))
           (str frame ": punctuation in the slug and query value stays LITERAL on"
                " this host — the JVM SSR render and the first CLJS render emit"
-               " the same :href (rf2-j3tud)")))))
+               " the same :href")))))
 
 (deftest link-model-href-agrees-across-hosts-for-every-strategy-shape
   (register-routes!)
@@ -151,14 +152,14 @@
           (str frame ": params + query ride inside link-model's encoded href"))
       (is (= punct (:href (rf.routing.link/link-model punct-props frame)))
           (str frame ": punctuation stays literal through link-model's href too"
-               " — the second door reads the same canonical bytes (rf2-j3tud)")))))
+               " — the second door reads the same canonical bytes")))))
 
 (deftest link-model-prefetch-agrees-across-hosts
-  (testing "rf2-kuky.37: the prefetch pair is PURE and identical on both
+  (testing "the prefetch pair is PURE and identical on both
            hosts. The JVM/SSR shell installs no handlers — it drops the event
            props with every other on-* — but it must EMIT and REFUSE exactly
            what the client does, or the server shell would accept a mode the
-           hydrated client rejects (the asymmetry EP-0037 R3 closed for the
+           hydrated client rejects (the symmetry EP-0037 R3 requires of the
            value check, reached here through the warm-up)"
     (register-routes!)
     (doseq [{:keys [frame] :as row} parity-cases]

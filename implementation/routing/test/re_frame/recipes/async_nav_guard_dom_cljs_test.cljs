@@ -1,6 +1,6 @@
 (ns re-frame.recipes.async-nav-guard-dom-cljs-test
   "THE DIRTY-NAVIGATION GUARD, HELD AGAINST THE BROWSER'S OWN BACK BUTTON
-  (rf2-hic-054, recipe 3).
+  (recipe 3).
 
   `re-frame.recipes.async-nav-l0-cljs-test` already proves the guard's
   whole model with zero DOM — blocked, parked, continued, cancelled,
@@ -24,7 +24,7 @@
 
   ## Built on `re-frame.routing-conduct-dom-cljs-test`'s seam, not beside it
 
-  That file (rf2-hic-042, PR #8031) established the arrangement this one
+  That file owns the arrangement this one
   reuses rather than reinvents: a `:url-bound? true` frame, so routing's
   registration installs its REAL `popstate` listener; a deep link that
   is a URL the browser is genuinely sitting on; `history.back()` rather
@@ -49,12 +49,11 @@
 
   Two rows here are `async`, unavoidably — a real `popstate` and a real
   `.click()` both arrive on the browser's own task loop. An async row
-  under the wrong fixture arrangement aborts the entire `test:browser`
-  run silently, every later namespace included (rf2-u0j8, live at time
-  of writing), so these use the same `make-reset-runtime-fixture`
-  `:async? true` arrangement PR #8031 proved in this lane, and the PR
-  body quotes this run's namespace and assertion counts against a
-  control.
+  under the wrong fixture arrangement can abort the entire `test:browser`
+  run silently, every later namespace included, so these use the same
+  `make-reset-runtime-fixture` `:async? true` arrangement
+  `re-frame.routing-conduct-dom-cljs-test` uses in this lane, and a run's
+  namespace and assertion counts are worth checking against a control.
 
   ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` discovers
   it; `:node-test` loads it too, where every engine-dependent row

@@ -1,5 +1,5 @@
 (ns re-frame.routing-classification-test
-  "EP-0025 routes follow-on (rf2-3r6k8i) — route OWNER data classification.
+  "EP-0025 routes — route OWNER data classification.
 
   Pins the `reg-route` subsystem-matrix row of EP-0025 (Spec 012 §Route data
   classification): a route declares projection-relative `:sensitive` / `:large`
@@ -20,7 +20,7 @@
   handler / subs always see real values), and it never leaks across a route
   change (the singleton drop).
 
-  ## Posture split (rf2-o5dbf)
+  ## Posture split
 
   The classification contract itself is production-real and carries NO posture
   guard — the fail-loud `reg-route` validation, the lowering / re-rooting into
@@ -28,14 +28,15 @@
   `rf.elision/elide-wire-value` redaction and the real SSR
   `rf.ssr.payload-policy/project-runtime-db` consumer all run in the ordinary
   `clojure -M:test` suite AND in `scripts/test-routing-prod-gate.sh` (the
-  `-Dre-frame.debug=false` lane). rf2-u2x6w established that this egress
-  genuinely happens in production, so that is exactly where it must be proven.
+  `-Dre-frame.debug=false` lane). This egress genuinely happens in
+  production, so that is exactly where it must be proven.
 
-  The one dev-only surface here is the rf2-x1x5am QUERY-KEY PROMOTION
+  The one dev-only surface here is the QUERY-KEY PROMOTION
   ADVISORY. It is an authoring hint, emitted through `trace/emit! :warning`,
   which sits behind `rf.interop/debug-enabled?` — read once at load time — so
-  under the real gate there is no advisory to observe. Its assertions are kept
-  VERBATIM inside `(when rf.interop/debug-enabled? …)` arms marked `rf2-o5dbf`.
+  under the real gate there is no advisory to observe. Its assertions sit
+  inside `(when rf.interop/debug-enabled? …)` arms, each commented as a
+  dev-instrumentation arm.
 
   Three of those deftests are QUIET tests — `(is (empty? warnings))`. With no
   trace bus every one of them passes VACUOUSLY, reporting \"no advisory fired\"
@@ -43,8 +44,7 @@
   In their place the DETECTION is asserted posture-independently on
   `rf.routing.classification/unpromoted-query-keys`, the pure always-on predicate
   `advise-query-promotion!` is built from: it is what decides whether a route
-  has the footgun, and only the announcement is dev-gated. Nothing was deleted
-  or weakened."
+  has the footgun, and only the announcement is dev-gated."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -55,8 +55,8 @@
             [re-frame.routing.classification :as rf.routing.classification]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rf.routing-test-support]
-            ;; rf2-ugoxyv: drive the REAL SSR egress consumer (project-runtime-db
-            ;; / project-routing-egress, #4896). SSR is a test-only dep of the
+            ;; Drive the REAL SSR egress consumer (project-runtime-db
+            ;; / project-routing-egress). SSR is a test-only dep of the
             ;; routing artefact (routing/deps.edn :test), so the routing suite
             ;; may exercise the real SSR projection.
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]))
@@ -106,7 +106,7 @@
 (deftest reg-route-classification-bare-keys-accepted
   (testing ":sensitive / :large pass the authoring-boundary bare-key guard"
     ;; The reserved-key guard rejects bare keys outside the reserved set; the
-    ;; EP-0025 keys are now in it, so they don't trip :rf.error/route-bad-metadata.
+    ;; EP-0025 keys are in it, so they don't trip :rf.error/route-bad-metadata.
     (is (some? (rf/reg-route :route/x {:sensitive [[:query :t]]} "/x")))))
 
 (deftest reg-route-rejects-malformed-classification-loud
@@ -254,19 +254,19 @@
         "the large-only path still lowers")))
 
 ;; ===========================================================================
-;; (rf2-y8k6br) Nested :large ANCESTOR + :sensitive DESCENDANT — the
+;; Nested :large ANCESTOR + :sensitive DESCENDANT — the
 ;; single most-important EP-0025 Egress-rules clause for routes. The
 ;; lowering only drops a :large path when it is EXACTLY equal to a
 ;; :sensitive path (classification.cljc large-only = (remove sens-set)
 ;; large-paths), so a :large ANCESTOR co-declared with a :sensitive
 ;; DESCENDANT lowers BOTH entries into the registry. The egress walker's
-;; nested-axis suppression (rf2-izlr7f) is the authority: at a :large-matched
+;; nested-axis suppression is the authority: at a :large-matched
 ;; node whose coordinate STRICTLY SHADOWS a :sensitive descendant, sensitive
 ;; DOMINATES — the walker descends-and-redacts the descendant rather than
 ;; emitting a :rf.size/large-elided marker that would leak the ancestor's
 ;; :path / :bytes / :type (and, under an explicit
 ;; :rf.egress/include-digests? true, a SHA-256 digest over the secret-bearing
-;; subtree; no egress profile turns digests on since rf2-3x7nj.32.6).
+;; subtree; no egress profile turns digests on).
 ;; ===========================================================================
 
 (deftest nested-large-ancestor-sensitive-descendant-redacts-at-egress
@@ -280,8 +280,7 @@
                   "/nested")
     ;; Lowering keeps BOTH (the drop is exact-equal only) — confirm the
     ;; ancestor lands :large and the descendant lands :sensitive. These two
-    ;; assertions pin the LOWERING contract and hold on main TODAY (independent
-    ;; of the egress-walker fix).
+    ;; assertions pin the LOWERING contract, independent of the egress walker.
     (rf/dispatch-sync [:rf.route/handle-url-change "/nested" {:rf.route/cause :link}])
     (is (contains? (route-large-paths)
                    [:rf.runtime/routing :current :query :payload])
@@ -315,10 +314,9 @@
           "the ancestor remains a walked map (descended, so the nested secret redacts)"))))
 
 ;; ===========================================================================
-;; (rf2-wpvd39) End-to-end :large-redacts-at-egress for a route. The route
-;; :large axis was asserted only as far as landing in the registry
-;; (activation-adds-large-entry); only :sensitive had an egress assertion.
-;; This pins the EP-0025 large-axis promise on the route surface: a
+;; End-to-end :large-redacts-at-egress for a route.
+;; `activation-adds-large-entry` follows the :large axis only as far as the
+;; registry; this pins the EP-0025 large-axis promise on the route surface: a
 ;; route-declared :large path holding an oversized value produces a
 ;; :rf.size/large-elided size marker AT EGRESS while non-classified slice
 ;; fields ride verbatim and the in-process handler/sub sees the raw value.
@@ -353,7 +351,7 @@
           "classification is read ONLY at egress — app code sees real values"))))
 
 ;; ===========================================================================
-;; (rf2-v8feh2) Cross-frame isolation of route classification. EP-0025 /
+;; Cross-frame isolation of route classification. EP-0025 /
 ;; Spec 012 §Singleton-drop: route classifications are PER-FRAME. Two
 ;; frames navigating different :sensitive routes each see ONLY their own
 ;; route-sourced entry in their registry, and frame A's egress never
@@ -417,7 +415,7 @@
                 {:sensitive-declarations
                  {[:auth :token]                              #{{:source :effect}}
                   ;; an effect ALSO co-classifies the route's absolute path —
-                  ;; it must SURVIVE the route reconcile (rf2-wdm1vg union).
+                  ;; it must SURVIVE the route reconcile (multi-owner union).
                   [:rf.runtime/routing :current :query :new]  #{{:source :effect}}
                   [:rf.runtime/routing :current :query :old]  #{{:source :route}}}}}
           out  (rf.routing.classification/apply-route-classification
@@ -453,9 +451,9 @@
           "a route without classification (and no prior slot) allocates nothing"))))
 
 ;; ===========================================================================
-;; (rf2-z07m4m) Authoring-boundary footguns on reg-route classification —
-;; reviewer 3/3 F6 (low). Two minor surfaces with no prior coverage, both
-;; pinned here so the intended (fail-open) behaviour is EXPLICIT:
+;; Authoring-boundary footguns on reg-route classification. Two minor
+;; surfaces, both pinned here so the intended (fail-open) behaviour is
+;; EXPLICIT:
 ;;
 ;;   (1) :clear-sensitive / :clear-large — a plausible copy-paste from the
 ;;       app-db commit-plane effect surface — are NOT classification keys
@@ -468,14 +466,14 @@
 ;;
 ;;   (2) :sensitive [[:query "token"]] with a STRING segment is accepted at
 ;;       validation as concrete EDN, but the runtime slice keys an undeclared
-;;       query key as a STRING and a DECLARED one as a KEYWORD (coerce-query,
-;;       rf2-5ifai). So a string-key declaration can never match a
+;;       query key as a STRING and a DECLARED one as a KEYWORD
+;;       (coerce-query). So a string-key declaration can never match a
 ;;       keyword-promoted slot — it fails OPEN. Spec 012 §319 warns of the
 ;;       keyword pairing; this locks the string-segment fail-open mode.
 ;; ===========================================================================
 
 (deftest clear-keys-are-not-classification-keys-ignored-by-extract
-  (testing "rf2-z07m4m: :clear-sensitive / :clear-large are NOT classification
+  (testing ":clear-sensitive / :clear-large are NOT classification
             keys — validate+extract returns nil (silently ignored, no decl)"
     ;; validate+extract triggers only on #{:sensitive :large}; a route carrying
     ;; ONLY clear-keys has no classification to lower (a route is a singleton —
@@ -488,7 +486,7 @@
         ":clear-large is not a classification key → no classification extracted")))
 
 (deftest clear-keys-rejected-loud-at-reg-route-bare-key-guard
-  (testing "rf2-z07m4m: a bare :clear-sensitive / :clear-large key is NOT in the
+  (testing "a bare :clear-sensitive / :clear-large key is NOT in the
             reserved set, so reg-route's authoring-boundary guard fails it LOUD
             (a typo cannot silently no-op at registration)"
     (is (thrown-with-msg?
@@ -501,19 +499,19 @@
         ":clear-large is an unreserved bare key → rejected at reg-route")))
 
 (deftest string-query-segment-accepted-at-validation
-  (testing "rf2-z07m4m: a :sensitive [[:query \"token\"]] STRING segment is
+  (testing "a :sensitive [[:query \"token\"]] STRING segment is
             accepted at validation as concrete EDN (it does not throw)"
     ;; A string IS a concrete EDN segment, so normalize-concrete admits it — the
     ;; declaration is well-formed and lowers a string-keyed path.
     (let [c (rf.routing.classification/validate+extract :route/strkey {:sensitive [[:query "token"]]})]
       (is (= [[:query "token"]] (:sensitive c))
           "the string-segment path is admitted verbatim as a concrete path")))
-  (testing "rf2-z07m4m: reg-route accepts the string-segment declaration too
+  (testing "reg-route accepts the string-segment declaration too
             (no throw at the authoring boundary)"
     (is (some? (rf/reg-route :route/strkey {:sensitive [[:query "token"]]} "/strkey")))))
 
 (deftest string-query-segment-fails-open-against-keyword-promoted-slice
-  (testing "rf2-z07m4m: a :sensitive [[:query \"token\"]] STRING-key declaration
+  (testing "a :sensitive [[:query \"token\"]] STRING-key declaration
             silently FAILS OPEN — a route that PROMOTES :token keys the slice
             with the KEYWORD :token, so the string-key decl never matches and the
             value ships RAW at egress (the documented fail-open mode)"
@@ -537,7 +535,7 @@
           "FAIL-OPEN: the keyword-promoted slot is NOT redacted by the string-key decl"))))
 
 (deftest keyword-query-decl-matches-keyword-promoted-slice
-  (testing "rf2-z07m4m (contrast): the CORRECT keyword-segment declaration DOES
+  (testing "(contrast) the CORRECT keyword-segment declaration DOES
             redact the keyword-promoted slice — the pairing the spec prescribes"
     (rf/reg-route :route/kwmatch
                   {:sensitive [[:query :token]] :query [:map [:token :string]]}
@@ -550,7 +548,7 @@
           "the keyword-segment decl matches the keyword-promoted slot → redacted"))))
 
 ;; ===========================================================================
-;; (rf2-x1x5am) reg-route-time query-key promotion ADVISORY. A :sensitive /
+;; reg-route-time query-key promotion ADVISORY. A :sensitive /
 ;; :large [:query k] path on a route that does NOT promote `k` to a keyword
 ;; (via :query / :query-defaults) silently fails open; the
 ;; advisory is a WARN (never a throw — fail-open is intended). These pin the
@@ -583,14 +581,14 @@
     promoted-keys))
 
 (deftest advisory-fires-for-unpromoted-sensitive-query-key
-  (testing "rf2-x1x5am: a :sensitive [[:query :token]] on a route with NO :query
+  (testing "a :sensitive [[:query :token]] on a route with NO :query
             schema naming :token emits the unpromoted-query-key advisory"
     (let [warnings (capture-warnings
                      #(rf/reg-route :route/advmiss {:sensitive [[:query :token]]} "/advmiss"))]
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the detection.
+      ;; SEMANTIC, posture-independent: the detection.
       (is (= #{:token} (unpromoted :route/advmiss {:sensitive [[:query :token]]} #{}))
           "the always-on predicate names :token as the unpromoted classified key")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (= 1 (count warnings)) "exactly one advisory fired")
         (let [w (first warnings)]
@@ -600,138 +598,138 @@
           (is (string? (:advice w)) "the advisory carries actionable guidance"))))))
 
 (deftest advisory-quiet-when-query-key-promoted
-  (testing "rf2-x1x5am: a :sensitive [[:query :token]] paired with a :query
+  (testing "a :sensitive [[:query :token]] paired with a :query
             schema naming :token (the correct pairing) emits NO advisory"
     (let [warnings (capture-warnings
                      #(rf/reg-route :route/advok
                                     {:sensitive [[:query :token]] :query [:map [:token :string]]}
                                     "/advok"))]
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the detection finds nothing
+      ;; SEMANTIC, posture-independent: the detection finds nothing
       ;; to advise on. Without this the `(empty? warnings)` leg below would pass
       ;; vacuously under the gate — an empty trace ring satisfies it trivially.
       (is (empty? (unpromoted :route/advok
                               {:sensitive [[:query :token]] :query [:map [:token :string]]}
                               #{:token}))
           "the always-on predicate finds no unpromoted key for the correct pairing")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring); NEGATIVE over
+      ;; Dev-instrumentation arm (see ns docstring); NEGATIVE over
       ;; the trace ring, hence guarded.
       (when rf.interop/debug-enabled?
         (is (empty? warnings) "no advisory when the query key is promoted")))))
 
 (deftest advisory-honours-defaults-promotion
-  (testing "rf2-x1x5am: :query-defaults also counts as promotion — a key
+  (testing ":query-defaults also counts as promotion — a key
             declared there does NOT trigger the advisory"
     (let [warnings (capture-warnings
                     #(rf/reg-route :route/advdef
                                    {:sensitive [[:query :page]] :query-defaults {:page 1}}
                                    "/advdef"))]
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): see the twin above.
+      ;; SEMANTIC, posture-independent: see the twin above.
       (is (empty? (unpromoted :route/advdef
                               {:sensitive [[:query :page]] :query-defaults {:page 1}}
                               #{:page}))
           ":query-defaults promotes :page → the predicate finds nothing")
-      ;; rf2-o5dbf — dev-instrumentation arm; NEGATIVE over the trace ring.
+      ;; Dev-instrumentation arm; NEGATIVE over the trace ring.
       (when rf.interop/debug-enabled?
         (is (empty? warnings) ":query-defaults promotes :page → no advisory")))))
 
 (deftest advisory-vocabulary-is-two-sources-not-three
-  (testing "EP-0037 R5: the promotion vocabulary shrank from THREE sources to
-            TWO. `:query-retain` is retired, so it neither widens the promoted
-            set nor appears in the advice text. A key that used to be promoted
-            solely because `:query-retain` named it now WARNS until the route
-            declares it in :query or :query-defaults."
+  (testing "EP-0037 R5: the promotion vocabulary is TWO sources, :query and
+            :query-defaults. `:query-retain` is not one: it neither widens the
+            promoted set nor appears in the advice text, so a key named only
+            by `:query-retain` WARNS until the route declares it in :query or
+            :query-defaults."
     (let [warnings (capture-warnings
                      #(rf/reg-route :route/advret
                                     {:sensitive [[:query :ref]]}
                                     "/advret"))]
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): with `:query-retain`
-      ;; retired, NOTHING promotes :ref, so the always-on predicate reports it.
+      ;; SEMANTIC, posture-independent: `:query-retain` is not a promotion
+      ;; source, so NOTHING promotes :ref and the always-on predicate reports it.
       (is (= #{:ref} (unpromoted :route/advret {:sensitive [[:query :ref]]} #{}))
-          "a key that was promoted only by the retired :query-retain is now unpromoted")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+          "a key only :query-retain would name is unpromoted")
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (= 1 (count warnings))
             "a classified query key with no :query / :query-defaults declaration warns")
         (let [{:keys [query-keys promoted-keys advice]} (first warnings)]
           (is (= [:ref] query-keys) "the unpromoted key is named")
-          (is (empty? promoted-keys) "nothing promotes it — the retain slot is gone")
+          (is (empty? promoted-keys) "nothing promotes it — there is no retain slot")
           (is (str/includes? advice ":query / :query-defaults")
-              "the advice names exactly the two surviving promotion sources")
+              "the advice names exactly the two promotion sources")
           (is (not (str/includes? advice ":query-retain"))
-              "the retired key is absent from the advice vocabulary")))
+              ":query-retain is absent from the advice vocabulary")))
       ;; …and `:query-retain` really is inert rather than merely unmentioned:
       ;; naming :ref there does NOT promote it. Posture-independent.
       (is (= #{:ref} (unpromoted :route/advret {:sensitive [[:query :ref]]} #{}))
           ":query-retain widens nothing — the promoted set is the caller's alone"))
-    ;; The migration the EP requires: DECLARE the key, and the advisory falls
-    ;; silent — the same key is now keyword-promoted for real.
+    ;; The remedy: DECLARE the key, and the advisory falls
+    ;; silent — the same key is then keyword-promoted for real.
     (let [migrated-meta {:sensitive [[:query :ref]]
                          :query     [:map [:ref {:optional true} :string]]}
           warnings      (capture-warnings
                           #(rf/reg-route :route/advret-migrated migrated-meta
                                          "/advret-migrated"))]
-      ;; SEMANTIC, posture-independent (rf2-o5dbf) — without this the negative
+      ;; SEMANTIC, posture-independent — without this the negative
       ;; leg below is vacuous under the gate.
       (is (empty? (unpromoted :route/advret-migrated migrated-meta #{:ref}))
-          "declaring :ref in the :query schema is the explicit migration")
-      ;; rf2-o5dbf — dev-instrumentation arm; NEGATIVE over the trace ring.
+          "declaring :ref in the :query schema is the explicit remedy")
+      ;; Dev-instrumentation arm; NEGATIVE over the trace ring.
       (when rf.interop/debug-enabled?
         (is (empty? warnings)
             "declaring :ref in the :query schema silences the advisory")))))
 
 (deftest advisory-fires-for-string-segment-and-large-axis
-  (testing "rf2-x1x5am: a STRING [:query \"token\"] segment (can never be a
+  (testing "a STRING [:query \"token\"] segment (can never be a
             keyword-promoted slot) AND a :large [:query k] unpromoted key both
             trigger the advisory"
     (let [w-str (capture-warnings
                   #(rf/reg-route :route/advstr {:sensitive [[:query "token"]]} "/advstr"))]
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): a STRING segment can never
+      ;; SEMANTIC, posture-independent: a STRING segment can never
       ;; name a keyword-promoted slot, so the predicate reports it whatever the
       ;; route promotes.
       (is (= #{"token"} (unpromoted :route/advstr {:sensitive [[:query "token"]]} #{:token}))
           "a string [:query \"token\"] segment is unpromotable by construction")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (= 1 (count w-str)) "the string-segment query key triggers the advisory")
         (is (= ["token"] (:query-keys (first w-str))) "the string key is named")))
     (let [w-large (capture-warnings
                     #(rf/reg-route :route/advlarge {:large [[:query :blob]]} "/advlarge"))]
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the :large axis is scanned
+      ;; SEMANTIC, posture-independent: the :large axis is scanned
       ;; too, not just :sensitive.
       (is (= #{:blob} (unpromoted :route/advlarge {:large [[:query :blob]]} #{}))
           "the predicate scans the :large axis as well as :sensitive")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (= 1 (count w-large)) "an unpromoted :large [:query k] key triggers the advisory")
         (is (= [:blob] (:query-keys (first w-large))))))))
 
 (deftest advisory-quiet-for-params-axis
-  (testing "rf2-x1x5am: a :sensitive [[:params k]] path NEVER triggers the
+  (testing "a :sensitive [[:params k]] path NEVER triggers the
             advisory — path captures are always keyword-keyed (immune)"
     (let [meta     {:sensitive [[:params :secret]]}
           warnings (capture-warnings
                      #(rf/reg-route :route/advparam meta "/advparam/:secret"))]
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the predicate only ever
+      ;; SEMANTIC, posture-independent: the predicate only ever
       ;; looks under a `[:query …]` head, so the :params axis cannot contribute.
       ;; Without this the negative leg below is vacuous under the gate.
       (is (empty? (unpromoted :route/advparam meta #{}))
           "the :params axis is immune to the query-promotion footgun")
-      ;; rf2-o5dbf — dev-instrumentation arm; NEGATIVE over the trace ring.
+      ;; Dev-instrumentation arm; NEGATIVE over the trace ring.
       (when rf.interop/debug-enabled?
         (is (empty? warnings) "no advisory fires for a :params-axis declaration")))))
 
 ;; ===========================================================================
-;; (rf2-ugoxyv + rf2-v0k2mq) Real EGRESS-CONSUMER + non-default PROFILE
+;; Real EGRESS-CONSUMER + non-default PROFILE
 ;; coverage. The egress assertions above call elide-wire-value MANUALLY under
 ;; the bare {:frame :rf/default} (no :rf.egress/profile), exercising the walker
-;; directly but NO real consumer — exactly the gap that masked the rf2-4xut98
-;; SSR leak. These drive a sensitive route through:
+;; directly but NO real consumer — a gap that would hide an SSR raw-ship
+;; leak. These drive a sensitive route through:
 ;;
-;;   (rf2-v0k2mq) project-egress under NAMED non-default egress profiles
+;;   (a) project-egress under NAMED non-default egress profiles
 ;;     (:rf.egress/ssr-hydration, :rf.egress/off-box-observability,
 ;;      :rf.egress/off-box-tool) — profile-AWARE redaction, not bare opts; and
-;;   (rf2-ugoxyv) the REAL SSR consumer product — re-frame.ssr.payload-policy/
-;;     project-runtime-db + project-routing-egress (the #4896 egress boundary) —
+;;   (b) the REAL SSR consumer product — re-frame.ssr.payload-policy/
+;;     project-runtime-db + project-routing-egress (the SSR egress boundary) —
 ;;     asserting the sensitive route's :query value redacts in the serialized
 ;;     :rf/runtime-db slice end-to-end, while an unclassified field rides raw.
 ;;
@@ -754,7 +752,7 @@
   (:rf.db/runtime (rf/frame-state-value :rf/default)))
 
 (deftest sensitive-route-redacts-under-ssr-hydration-profile
-  (testing "rf2-v0k2mq: a route-declared :sensitive query value redacts under the
+  (testing "a route-declared :sensitive query value redacts under the
             NAMED :rf.egress/ssr-hydration profile (not just bare opts)"
     (let [rdb    (navigate-sensitive-oauth!)
           elided (rf.projection/project-egress
@@ -766,7 +764,7 @@
       (is (= :route/oauth (:route-id slice)) "an unclassified field rides verbatim"))))
 
 (deftest sensitive-route-redacts-under-off-box-profiles
-  (testing "rf2-v0k2mq: the same route redacts under :rf.egress/off-box-observability
+  (testing "the same route redacts under :rf.egress/off-box-observability
             and :rf.egress/off-box-tool (every named off-box default profile)"
     (let [rdb (navigate-sensitive-oauth!)]
       (doseq [profile [:rf.egress/off-box-observability :rf.egress/off-box-tool]]
@@ -780,11 +778,11 @@
               (str "the :large query value elides to a size marker under " profile)))))))
 
 (deftest sensitive-route-redacts-through-real-ssr-consumer
-  (testing "rf2-ugoxyv: a :sensitive route driven through the REAL SSR consumer
-            (project-runtime-db → project-routing-egress, the #4896 egress
+  (testing "a :sensitive route driven through the REAL SSR consumer
+            (project-runtime-db → project-routing-egress, the SSR egress
             boundary) redacts the :query value in the serialized :rf/runtime-db
-            slice end-to-end — the adversarial coverage that would have caught
-            the rf2-4xut98 raw-ship leak"
+            slice end-to-end — the adversarial coverage for an SSR raw-ship
+            leak"
     (let [rdb   (navigate-sensitive-oauth!)
           ;; project-runtime-db resolves the current frame (:rf/default, pinned
           ;; by the reset-runtime fixture's with-frame) and runs the durable
@@ -800,14 +798,14 @@
       ;; The transient sibling never rides the wire (fail-closed allowlist).
       (is (not (contains? (:rf.runtime/routing slice) :pending-navigation))
           "only the durable :current slice ships")))
-  (testing "rf2-ugoxyv: the in-process slice still carries the RAW value"
+  (testing "the in-process slice still carries the RAW value"
     (is (= "secret123"
            (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                    [:rf.runtime/routing :current :query :token]))
         "classification is read ONLY at egress — app code sees the real value")))
 
 (deftest unclassified-route-rides-raw-through-real-ssr-consumer
-  (testing "rf2-ugoxyv: a route with NO classification rides its :query verbatim
+  (testing "a route with NO classification rides its :query verbatim
             through the real SSR consumer (the projection is path-precise, not a
             blanket scrub) — the negative control"
     (rf/reg-route :route/plain {:query [:map [:q :string]]} "/plain")
@@ -818,15 +816,14 @@
           "an unclassified query value rides verbatim through the SSR projection"))))
 
 ;; ===========================================================================
-;; (rf2-wdm1vg) MULTI-OWNER union — an effect-owned absolute path AND a route
+;; MULTI-OWNER union — an effect-owned absolute path AND a route
 ;; claim on the SAME absolute path survive INDEPENDENTLY. Spec 015 L149 permits
 ;; an app to additionally classify a subsystem's absolute runtime-db path from a
 ;; handler effect (`:source :effect`); a route change must NOT un-redact that
-;; effect-owned path. Both dispatch orders are pinned. On the pre-fix single-
-;; owner registry the route claim overwrote (forward order) or ignored (reverse
-;; order) the effect claim and then DELETED the path on route-leave — a live
-;; privacy fail-open on the AI-egress boundary. These are the cross-family
-;; reproduce→fix acceptance legs the bead enumerates.
+;; effect-owned path. Both dispatch orders are pinned. A single-owner registry
+;; would let the route claim overwrite (forward order) or ignore (reverse
+;; order) the effect claim and then DELETE the path on route-leave — a
+;; privacy fail-open on the AI-egress boundary.
 ;; ===========================================================================
 
 (def ^:private abs-token-path [:rf.runtime/routing :current :query :token])
@@ -861,7 +858,7 @@
 (deftest effect-then-route-then-route-leave-preserves-effect-claim
   (testing "forward order: an effect classifies the route's absolute :query
             :token path; a route ALSO claims it (union); after navigating AWAY
-            the effect claim SURVIVES and the path stays redacted (rf2-wdm1vg)"
+            the effect claim SURVIVES and the path stays redacted"
     (effect-classify-abs-token!)
     (is (token-path-classified?) "the effect claim is installed")
     (rf/reg-route :route/oauth
@@ -874,7 +871,7 @@
     ;; navigate to a route declaring NO classification (route-leave)
     (rf/dispatch-sync [:rf.route/handle-url-change "/plain" {:rf.route/cause :link}])
     (is (token-path-classified?)
-        "the effect claim SURVIVES the route change (the fix — the path was deleted before)")
+        "the effect claim SURVIVES the route change (a single-owner registry would delete the path)")
     (is (= #{{:source :effect}} (token-owners))
         "only the effect owner remains after the route left")
     (is (redacts-token-at-abs-path?)
@@ -883,8 +880,8 @@
 (deftest route-then-effect-then-route-leave-preserves-effect-claim
   (testing "reverse order: the route claims the absolute path first, THEN an
             effect classifies it (union — the effect is neither ignored nor a
-            clobber); after route-leave the effect claim SURVIVES (rf2-wdm1vg —
-            the effect claim was ignored then vanished before the fix)"
+            clobber); after route-leave the effect claim SURVIVES (a
+            single-owner registry would ignore it, then drop it)"
     (rf/reg-route :route/oauth
                   {:sensitive [[:query :token]] :query [:map [:token :string]]}
                   "/oauth")
@@ -896,7 +893,7 @@
         "the effect SET UNIONS in — it is not ignored under the standing route claim")
     (rf/dispatch-sync [:rf.route/handle-url-change "/plain" {:rf.route/cause :link}])
     (is (token-path-classified?)
-        "the effect claim SURVIVES the route change (the fix)")
+        "the effect claim SURVIVES the route change")
     (is (= #{{:source :effect}} (token-owners))
         "only the effect owner remains after the route left")
     (is (redacts-token-at-abs-path?)
