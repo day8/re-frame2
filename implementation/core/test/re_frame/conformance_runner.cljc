@@ -1,15 +1,13 @@
 (ns re-frame.conformance-runner
   "Host-neutral conformance corpus runner — the SINGLE authority for the
-  re-frame2 conformance-fixture harness (rf2-xurchk).
+  re-frame2 conformance-fixture harness.
 
-  Before this namespace the JVM runner (`re-frame.conformance-test`) and
-  the CLJS runner (`re-frame.conformance-corpus-cljs-test`) DUPLICATED
-  ~1,289 aligned lines of capability claims, fixture realisation, call
-  execution, matchers, result assembly, and reporting. The copies drifted
-  into a P1 correctness gap: eight runnable fixtures carry `:epoch-records`
-  expectations, but ONLY the JVM copy defined/invoked `check-epoch-records`
-  — so CLJS reported conformance while SILENTLY IGNORING those
-  expectations. `conformance_dsl_*` was a smaller drifting mirror.
+  The JVM runner (`re-frame.conformance-test`) and the CLJS runner
+  (`re-frame.conformance-corpus-cljs-test`) share this namespace rather than
+  each carrying its own copy of capability claims, fixture realisation, call
+  execution, matchers, result assembly, and reporting. Separate copies
+  drift: a host copy that never invoked `check-epoch-records` would report
+  conformance while SILENTLY IGNORING every `:epoch-records` expectation.
 
   This `.cljc` owns every host-neutral concern:
 
@@ -24,7 +22,7 @@
       SSR public-error)
     - `run-fixture` orchestration
     - the corpus body (`run-corpus`) with three-way capability
-      classification, EXPECTATION-KEY fail-loud (rf2-xurchk), reporting,
+      classification, EXPECTATION-KEY fail-loud, reporting,
       and the pass/floor/count `is` assertions
 
   The JVM / CLJS LEAVES are limited to genuinely host-specific operations:
@@ -39,10 +37,10 @@
        :register-trace-listener!   (fn [fixture-id listener-fn] …)
        :unregister-trace-listener! (fn [fixture-id] …)}
 
-  Production source and bundle graphs are UNCHANGED — this is a test-only
-  namespace under `core/test`, `:require`d only by the two leaf runners.
+  This is a test-only namespace under `core/test`, `:require`d only by the
+  two leaf runners, so production source and bundle graphs never see it.
 
-  ## Fail-loud expectation keys (rf2-xurchk)
+  ## Fail-loud expectation keys
 
   The core corpus runner OWNS a fixed set of `:fixture/expect` matchers
   (`corpus-checked-expect-keys`). Sibling conformance runners (flow / SSR /
@@ -50,9 +48,9 @@
   (`sibling-owned-expect-keys`, the delegated allowlist). A runnable
   fixture whose `:fixture/expect` names a key in NEITHER set is a typo /
   drift — the suite FAILS rather than silently ignoring it. This is the
-  `rf2-a3q1r` capability-allowlist discipline applied to expectation keys;
-  it is the structural guard against re-introducing the exact silent-ignore
-  bug this consolidation fixes."
+  capability-allowlist discipline (`known-skipped-capabilities`) applied to
+  expectation keys; it is the structural guard against a silently ignored
+  expectation."
   (:require
     #?(:clj  [clojure.test :refer [is]]
        :cljs [cljs.test :refer-macros [is]])
@@ -69,7 +67,7 @@
     [re-frame.subs :as rf.subs]
     [re-frame.conformance :as rf.conformance]
     [re-frame.identity :as rf.identity]
-    ;; rf2-bmqv — `:fixture/clock` replaces the Spec 005 §Clock-abstraction
+    ;; `:fixture/clock` replaces the Spec 005 §Clock-abstraction
     ;; primitives (`schedule-after!` / `cancel-scheduled!`) with a recording
     ;; realisation, and collapses the router's `next-tick` drain while a
     ;; captured host callback runs.
@@ -97,10 +95,10 @@
     ;; (`:epoch/settle!`, `:epoch/epoch-history`, `:epoch/clear-history!`,
     ;; …) at ns-load is what makes the router commit `:rf/epoch-record`s and
     ;; `rf/epoch-history` observe them. Required HERE (not just in the JVM
-    ;; leaf) so BOTH hosts record + check `:epoch-records` — the crux of
-    ;; rf2-xurchk. On the CLJS node-test build the epoch artefact is on the
-    ;; classpath (`epoch/src`); on the JVM core test build it is likewise
-    ;; reachable (the JVM leaf already required it pre-consolidation).
+    ;; leaf) so BOTH hosts record + check `:epoch-records`. On the CLJS
+    ;; node-test build the epoch artefact is on the classpath (`epoch/src`);
+    ;; on the JVM core test build it is likewise reachable (the JVM leaf
+    ;; requires it too).
     [re-frame.epoch]))
 
 ;; ---- claimed capability set -----------------------------------------------
@@ -115,11 +113,11 @@
     :core/sub
     :core/fx
     :core/error
-    ;; :core/trace + :core/frame — rf2-3pnob. Pattern-required surfaces per
+    ;; :core/trace + :core/frame — pattern-required surfaces per
     ;; the README's §Capability tagging list and worked-example table.
     :core/trace
     :core/frame
-    ;; EP-0026 (rf2-qp8qi8) — the image-API surface: `:select-ns` selection,
+    ;; EP-0026 — the image-API surface: `:select-ns` selection,
     ;; image-order layering, the shadow report, the fail-loud collision /
     ;; retired-key / inline-grammar taxonomy, and the omit-`:images` default
     ;; path. Exercised by the `image-*.edn` fixtures via `:assemble-image`.
@@ -131,11 +129,11 @@
     :fsm/timeout                                      ;; EP-0029 A4 — state + spawn :timeout / :on-timeout (lowers onto :after)
     :fsm/choice                                       ;; EP-0029 A5 — :type :choice transient / choice states (lowers onto :always)
     :fsm/internal-events                              ;; EP-0029 A6 — public / private :internal-events (dispatch-boundary refusal)
-    :fsm/tags                                         ;; rf2-ee0d (Nine States Stage 1)
-    :fsm/parallel-regions                             ;; rf2-l67o (Nine States Stage 2)
-    :fsm/final-states                                 ;; rf2-gn80 — :final? + :on-done + :output-key
-    :fsm/history                                      ;; rf2-mle6e — first-class history pseudo-states
-    :fsm/registration-validation                      ;; rf2-vf5cf — registration-error taxonomy via :reg-machine
+    :fsm/tags
+    :fsm/parallel-regions
+    :fsm/final-states                                 ;; :final? + :on-done + :output-key
+    :fsm/history                                      ;; first-class history pseudo-states
+    :fsm/registration-validation                      ;; registration-error taxonomy via :reg-machine
     :routing/match-url
     :ssr/render-to-string
     :ssr/hydration
@@ -143,43 +141,43 @@
     :ssr/head-contract
     :ssr/error-projection
     :schemas/runtime
-    :schemas/event-payload                            ;; rf2-jwm4
-    :schemas/sub-return                               ;; rf2-wcam
-    ;; :schemas/cofx — CLAIMED (rf2-hqwki4). The EP-0017 recordable-cofx
+    :schemas/event-payload
+    :schemas/sub-return
+    ;; :schemas/cofx — the EP-0017 recordable-cofx
     ;; `:schema` path: a declared recordable value that fails its
     ;; registration's `:schema` emits `:rf.error/cofx-value-invalid` and
     ;; throws during context assembly.
     :schemas/cofx
     :routing/ranking
-    ;; rf2-5u1r6a — path-pattern registration-validation (Mode-B :reg-route).
+    ;; Path-pattern registration-validation (Mode-B :reg-route).
     :routing/pattern-validation
     :routing/fragment
     :routing/blocking
     :routing/nav-token
-    ;; EP-0012 (rf2-qyb9l1) — CEDN-1 canonical-identity + `:rf/path` algebra.
+    ;; EP-0012 — CEDN-1 canonical-identity + `:rf/path` algebra.
     :identity/cedn1
-    :actor/spawn-destroy                              ;; rf2-mtq4h — renamed from :actor/spawn to align with spec vocabulary
+    :actor/spawn-destroy
     :actor/declarative-spawn
-    :actor/spawn-and-join                             ;; rf2-6vmw / rf2-er0t
-    ;; :actor/timeout retired per rf2-3y3y — :fsm/delayed-after subsumes it.
+    :actor/spawn-and-join
+    ;; There is no :actor/timeout capability — :fsm/delayed-after covers it.
     :flow/basic
     :flow/topo
     :flow/dirty-check
     :flow/toggle
     :flow/hot-reload
-    ;; Spec 009 §Flow trace events / Spec 013 §Flow tracing (rf2-2s1o).
+    ;; Spec 009 §Flow trace events / Spec 013 §Flow tracing.
     :flow/trace
-    ;; Spec 013 §Frame-scoping (rf2-29ovh).
+    ;; Spec 013 §Frame-scoping.
     :flow/frame-scoped
-    ;; Spec 014 — :rf.http/managed (rf2-z1mw).
+    ;; Spec 014 — :rf.http/managed.
     :rf.http/managed
-    ;; Spec 015 §Data classification (rf2-s2s3xv).
+    ;; Spec 015 §Data classification.
     :data-classification/classification-effects
-    ;; EP-0014 (rf2-k0meap.3) — the BROAD cross-family derivation graph.
+    ;; EP-0014 — the BROAD cross-family derivation graph.
     :derivation/algebra-graph
-    ;; rf2-djofbh — the NARROW subs+machines subset claim.
+    ;; The NARROW subs+machines subset claim.
     :derivation/algebra-graph-subs-machines
-    ;; Spec 016 §Resources (rf2-rul3ov).
+    ;; Spec 016 §Resources.
     :resources/ensure
     :resources/dedupe
     :resources/stale-suppression
@@ -193,12 +191,12 @@
   `:fixture/spec-version` is NOT in this set is reported as skipped."
   #{"1.0"})
 
-;; ---- known-skipped capabilities (rf2-a3q1r) ------------------------------
+;; ---- known-skipped capabilities -------------------------------------------
 ;;
 ;; A fixture declaring a capability not in `claimed-capabilities` AND not
 ;; here is a typo / claim-set drift and FAILS the suite (rather than being
-;; silently skipped — the pre-rf2-a3q1r behaviour that masked at least one
-;; bug). Adding a capability here is an explicit declaration that this build
+;; silently skipped, which would mask a bug). Adding a capability here is an
+;; explicit declaration that this build
 ;; INTENTIONALLY does not claim it.
 
 (def known-skipped-capabilities
@@ -211,7 +209,7 @@
     :ssr/chunked-response
     :ssr/render-tree-hash})
 
-;; ---- fail-loud expectation keys (rf2-xurchk) ------------------------------
+;; ---- fail-loud expectation keys -------------------------------------------
 ;;
 ;; The core corpus runner OWNS matchers for exactly these `:fixture/expect`
 ;; keys. This is the SINGLE definition — both hosts check the same keys.
@@ -262,7 +260,7 @@
 (defn unknown-expect-keys
   "Return the seq of `:fixture/expect` keys that are neither corpus-checked
   nor sibling-owned — i.e. keys this runner would SILENTLY IGNORE. A
-  non-empty result FAILS the fixture (rf2-xurchk fail-loud). Empty for every
+  non-empty result FAILS the fixture (fail-loud). Empty for every
   key currently in the corpus."
   [fixture]
   (remove #(or (contains? corpus-checked-expect-keys %)
@@ -278,7 +276,7 @@
     (every? claimed-capabilities caps)))
 
 (defn classify-capabilities
-  "Per rf2-a3q1r, partition a fixture's `:fixture/capabilities` into
+  "Partition a fixture's `:fixture/capabilities` into
   `{:claimed … :allowed … :unknown …}`. RUNNABLE iff `:unknown` and
   `:allowed` are both empty; SKIPPED (out-of-claim) iff `:unknown` empty and
   `:allowed` non-empty; FAILURE iff `:unknown` non-empty."
@@ -297,7 +295,7 @@
 (defn spec-version-claimed?
   "True if the fixture targets a spec version this build claims. A fixture
   without an explicit `:fixture/spec-version` is treated as unversioned and
-  accepted (legacy fixtures pre-versioning)."
+  accepted."
   [fixture]
   (let [v (:fixture/spec-version fixture)]
     (or (nil? v) (contains? claimed-spec-versions v))))
@@ -307,24 +305,23 @@
 ;; `collect-cofx-keys`, `realise-cofx-supplier`, and `normalize-event-handler`
 ;; are the SHARED handler-realisation primitives owned by `re-frame.conformance`
 ;; (core/src) — consumed here and by the per-feature artefact runners alike so
-;; the cofx-key walk / supplier lift / body-shape collapse live in one place
-;; (rf2-wy414k).
+;; the cofx-key walk / supplier lift / body-shape collapse live in one place.
 
 ;; Forward declaration — realise-machine-handlers is defined below (alongside
-;; the run-call :machine-transition path). Per rf2-msd4 the same realised
+;; the run-call :machine-transition path). The same realised
 ;; action/guard maps feed both the in-memory `machine-transition` callsite
 ;; and the registry `reg-machine` registrations.
 (declare realise-machine-handlers)
 
 (defn- claim-fixture-id!
-  "Bundle co-load hygiene (rf2-h1vqa4): before a fixture registers `(kind,
+  "Bundle co-load hygiene: before a fixture registers `(kind,
   id)`, drop every NON-nil-provenance source-store row for the id — a
   co-loaded app/testbed namespace registering the same id would otherwise
   sit beside the fixture's row and fail default-image assembly loud. The
   nil-provenance slot is deliberately KEPT: the fixture's fn-form
   registration REPLACES it in place, so a framework registration (e.g. the
   `:rf/time-ms` cofx) is never erased from the store — a plain
-  `forget-id!` here poisoned every LATER suite's lazily-captured
+  `forget-id!` here would poison every LATER suite's lazily-captured
   source-store baseline with the framework row missing."
   [kind id]
   (doseq [pns (keys (get-in @rf.source-store/kind->id->ns->descriptor [kind id]))
@@ -354,7 +351,7 @@
         (let [body (get cofx-bodies cofx-id [[:noop]])
               meta (get cofx-registry cofx-id {})]
           ;; A `:provided?` cofx is a boundary-supplied fact with NO supplier
-          ;; — its VALUE rides the dispatch token via `:rf.cofx`. Post-#4104,
+          ;; — its VALUE rides the dispatch token via `:rf.cofx`.
           ;; `reg-cofx` rejects `provided? true` + a supplier, so register
           ;; without one.
           (claim-fixture-id! :cofx cofx-id) ;; claim (see claim-fixture-id!)
@@ -365,7 +362,7 @@
     ;; consumed coeffect ids via `:rf.cofx/requires` (fx-only — a cofx-reading
     ;; body routes to an `:fx` handler).
     ;;
-    ;; EP-0018 Slice Z: there is ONE public `reg-event` (cofx-in, effects-map-out).
+    ;; EP-0018: there is ONE public `reg-event` (cofx-in, effects-map-out).
     ;; `rf.conformance/normalize-event-handler` collapses the DSL `[body-shape
     ;; handler]` pair to that single form — a :db-kind body `(fn [db event]
     ;; new-db)` is lifted to `(fn [cofx event] {:db …})`, an :fx-kind body passes
@@ -376,8 +373,8 @@
     ;; re-frame.ssr with nil provenance ns) must land in the SAME
     ;; source-store slot and REPLACE it, not sit beside it as a
     ;; cross-namespace duplicate that fails default-image assembly loud
-    ;; (:rf.error/image-duplicate-id) now that fixture frames resolve
-    ;; through the default image (rf2-h1vqa4).
+    ;; (:rf.error/image-duplicate-id), because fixture frames resolve
+    ;; through the default image.
     (doseq [[id steps] (get handlers-map :event)]
       (let [handler        (rf.conformance/normalize-event-handler
                              (rf.conformance/realise-event-handler steps))
@@ -389,7 +386,7 @@
                                      ks))
             event-meta     (cond-> (get event-registry id {})
                              (seq cofx-ids) (assoc :rf.cofx/requires cofx-ids))]
-        ;; CLAIM the id first (rf2-h1vqa4 bundle co-load hygiene): a fixture
+        ;; CLAIM the id first (bundle co-load hygiene): a fixture
         ;; owns its registration vocabulary for the run; a co-loaded testbed
         ;; app registering the same id from ITS namespace (e.g. the story
         ;; counter testbed's :counter/inc) would otherwise sit beside the
@@ -411,34 +408,34 @@
           :layer-1 (if (seq sub-meta)
                      (rf.subs/reg-sub id sub-meta body)
                      (rf.subs/reg-sub id body))
-          ;; EP-0001 (rf2-vzld77): a `[:get [:rf.runtime/… …]]` fixture sub
+          ;; EP-0001: a `[:get [:rf.runtime/… …]]` fixture sub
           ;; reads the runtime-db partition — register via reg-runtime-sub.
           :runtime-db (if (seq sub-meta)
                         (rf.subs/reg-runtime-sub id sub-meta body)
                         (rf.subs/reg-runtime-sub id body))
-          ;; A declared dependency list rides the metadata map (rf2-kuky.50):
+          ;; A declared dependency list rides the metadata map:
           ;; the fixture's `:inputs` go in as DATA rather than spliced
           ;; positionally, so the corpus registers through the one public form.
           :layer-2 (rf.subs/reg-sub id (assoc sub-meta :inputs (vec inputs)) body))))
-    ;; fx handlers — DSL bodies. Per rf2-yhfgf: an id with NO body in
+    ;; fx handlers — DSL bodies. An id with NO body in
     ;; :fixture/handlers but a meta in :fixture/registry is "declare the
     ;; dependency, leave the framework registration alone" — the harness does
     ;; NOT overwrite the framework-shipped fx with a noop.
     (let [adapter-helpers
           {:read-db!  (fn [frame-id]
                         (rf.frame/frame-app-db-value frame-id))
-           ;; EP-0001 (rf2-adwcv6): write the app-db PARTITION via
+           ;; EP-0001: write the app-db PARTITION via
            ;; `swap-frame-db!` — `rf.frame/app-db-container` is a READ-ONLY
            ;; projection over the one physical frame-state container.
            :write-db! (fn [frame-id new-db]
                         (rf.frame/swap-frame-db! frame-id (constantly new-db)))
            :dispatch! (fn [event frame-id]
                         (rf/dispatch event {:frame frame-id}))
-           ;; Per Cross-Spec Interaction §14 (rf2-60szl): dispatch-sync from an
+           ;; Per Cross-Spec Interaction §14: dispatch-sync from an
            ;; fx handler body trips the router's in-drain guard.
            :dispatch-sync! (fn [event frame-id]
                              (rf/dispatch-sync event {:frame frame-id}))
-           ;; Per EP-0027 §Handler-time guard (rf2-emqiqk): frame construction invoked
+           ;; Per EP-0027 §Handler-time guard: frame construction invoked
            ;; from an fx body (mid-cascade) trips the construction guard.
            :make-frame! (fn [frame-id config]
                           (rf/make-frame (assoc config :id frame-id)))}
@@ -454,11 +451,11 @@
             ;; FN form (no source-coord capture): a fixture stub of a
             ;; framework fx id (e.g. :rf.http/managed, :rf.nav/*) replaces
             ;; the framework's nil-provenance source-store slot instead of
-            ;; colliding at default-image assembly (rf2-h1vqa4). CLAIM the
+            ;; colliding at default-image assembly. CLAIM the
             ;; id first so a co-loaded app-namespace row can't collide.
             (claim-fixture-id! :fx id)
             (rf.fx/reg-fx id (assoc meta :handler-fn handler) handler)))))
-    ;; route registrations. rf2-wvh95f F1: the path pattern is the 3-slot
+    ;; route registrations. The path pattern is the 3-slot
     ;; VALUE; lift it out of the fixture meta map so the middle slot is a pure
     ;; metadata map.
     (doseq [[id meta] (get handlers-map :route)]
@@ -470,7 +467,7 @@
       (rf.registrar/register!
         :view id
         {:handler-fn (rf.conformance/realise-view-handler steps)}))
-    ;; machine registrations (rf2-msd4). Merge the fixture's realised action /
+    ;; machine registrations. Merge the fixture's realised action /
     ;; guard bodies into each machine-spec before reg-machine*.
     (let [machine-registry (get-in fixture [:fixture/registry :machine] {})]
       (when (seq machine-registry)
@@ -486,7 +483,7 @@
   "Register the fixture's app-db schemas. Called AFTER the runner's
   destroy-frame! step (so the `:schemas/on-frame-destroyed!` hook doesn't
   wipe them) and BEFORE `make-frame` (so the :initial-events cascade validates
-  the seeded state). Per rf2-wkxng / rf2-6m0se / rf2-cq1ak the fixture key is
+  the seeded state). The fixture key is
   `:app-schemas` — app-db schemas are NOT a registrar kind."
   [fixture]
   (doseq [[path schema] (get-in fixture [:fixture/registry :app-schemas])]
@@ -494,7 +491,7 @@
 
 (defn- realise-flows!
   "Register the fixture's static flows. Called AFTER `make-frame` — per Spec
-  013 flows are FRAME-SCOPED, so the destroy-frame! teardown hook (rf2-wbtjn)
+  013 flows are FRAME-SCOPED, so the destroy-frame! teardown hook
   clears any flows registered before the destroy step. Static shape lives
   under `:fixture/registry :flow`; body DSL under `:fixture/flow-bodies`."
   [fixture]
@@ -503,7 +500,7 @@
     (doseq [[flow-id flow-meta] flow-registry]
       (when-let [body (get flow-bodies flow-id)]
         (let [output-fn (rf.conformance/realise-flow-output-fn body)]
-          ;; rf2-bqstzr — the 3-slot grammar: (reg-flow flow-id metadata
+          ;; The 3-slot grammar: (reg-flow flow-id metadata
           ;; derive-fn). `flow-meta` is the reflection metadata middle slot.
           (rf/reg-flow flow-id flow-meta output-fn))))))
 
@@ -528,7 +525,7 @@
   Called AFTER `make-frame` and BEFORE `realise-flows!`.
 
   Each op carries EXACTLY ONE of the four axes, and that is CHECKED here
-  before anything is applied (rf2-7yth0). The `cond` below is
+  before anything is applied. The `cond` below is
   priority-ordered, so without the check a multi-axis op would silently
   apply only its first arm and an empty or unknown-key op would silently
   apply nothing — a fixture author writing two axes would get one, with no
@@ -540,7 +537,7 @@
             (case axis :sensitive :sensitive-declarations :large :declarations))
           ;; Delegate to the SAME core multi-owner ops the real commit-plane
           ;; effects use, so the seed writes the effect owner exactly as
-          ;; `apply-classification-effects` would (rf2-wdm1vg).
+          ;; `apply-classification-effects` would.
           (add-paths [reg axis paths]
             (rf.elision/add-claims reg (slot-for axis) {:source :effect} (map vec paths)))
           (clear-paths [reg axis paths]
@@ -577,7 +574,7 @@
     traces))
 
 (defn- collect-error-emit-records!
-  "Per rf2-wxe9t: register a corpus-wide error-emit listener for the duration
+  "Register a corpus-wide error-emit listener for the duration
   of `fixture-id`'s run; each tight error-record fanned out by
   `rf.error-emit/dispatch-on-error!` is appended to the returned atom in firing
   order. Host-neutral — `re-frame.error-emit` is a shared core ns."
@@ -591,7 +588,7 @@
 ;; ---- expectation matchers -------------------------------------------------
 
 (defn- check-error-emit-records
-  "Per rf2-wxe9t: positional partial-submap matcher for `:error-emit-records`
+  "Positional partial-submap matcher for `:error-emit-records`
   (mirror of `check-trace-emissions`). Returns a vector of failure strings."
   [actual-records expected-records]
   (loop [actual   actual-records
@@ -622,7 +619,7 @@
 ;; partial trace subset), and `resolve-sub` (`:sub-values` query-frame
 ;; resolution) are the SHARED expectation-matcher primitives owned by
 ;; `re-frame.conformance` (core/src) — consumed here and by the per-feature
-;; artefact runners alike (rf2-wy414k).
+;; artefact runners alike.
 
 (defn- normalise-effects-routed
   "Normalise `:effects-routed` entries (`{:fx-id F :args A}` map form OR
@@ -680,15 +677,14 @@
                  (conj failures (str "expected effect not routed: " (pr-str exp)))))))))
 
 (defn- check-epoch-records
-  "Per rf2-v0jwt — `:epoch-records` asserts against the recorded
+  "`:epoch-records` asserts against the recorded
   `:rf/epoch-record` ring. Each entry (`{:frame <id> :record <partial>}` or
   `{:record <partial>}` for implicit :rf/default) is a partial submap matched
   positionally against the named frame's history (oldest-first). Returns a
   vector of failure-strings.
 
-  THIS is the matcher whose CLJS absence was the rf2-xurchk correctness gap:
-  eight runnable fixtures carry `:epoch-records`, and pre-consolidation only
-  the JVM copy invoked it. Now shared, both hosts check it."
+  Shared, so both hosts check it — a host without this matcher would pass
+  every `:epoch-records` fixture while ignoring its expectation."
   [expected]
   (let [by-frame (group-by #(or (:frame %) :rf/default) expected)]
     (vec
@@ -725,7 +721,7 @@
           (rf/reg-route id (dissoc meta :path) (:path meta)))))
 
 (defn- register-resources!
-  "rf2-djofbh — register a fixture's `:fixture/registry :resource` entries
+  "Register a fixture's `:fixture/registry :resource` entries
   (Spec 016). A resource spec needs a `:request` fn, which EDN cannot carry;
   the corpus only asserts the registration-derived STATIC graph, so the
   runner synthesises a deterministic `:request` stub from the declared
@@ -746,7 +742,7 @@
 (defn- realise-machine-handlers
   "Build `{action-id → fn}` / `{guard-id → fn}` from a
   fixture's `:machine-action` / `:machine-guard` buckets. Per Spec 005
-  §Guards / §Actions (rf2-grw4i / rf2-v0rrr) the user-facing fn receives one
+  §Guards / §Actions the user-facing fn receives one
   context-map arg."
   [fixture]
   (let [handlers-map (or (:fixture/handlers fixture) {})
@@ -761,13 +757,13 @@
                                                   (assoc ctx :data
                                                          (assoc-in data path
                                                                    (rf.conformance/eval-value* v ctx))))
-                                        ;; rf2-8vo0: :fx args pass through
+                                        ;; :fx args pass through
                                         ;; eval-value* so reflection forms
                                         ;; resolve against the snapshot's :data.
                                         :fx     (let [[_ a b] step]
                                                   (update ctx :fx (fnil conj [])
                                                           [a (rf.conformance/eval-value* b ctx)]))
-                                        ;; rf2-msd4: a throwing action exercises
+                                        ;; A throwing action exercises
                                         ;; Cross-Spec §11 machine-action-exception.
                                         :throw  (throw (ex-info (str (second step))
                                                                 {:from-fixture? true}))
@@ -831,7 +827,7 @@
        :detail  (when (not= (:url call) rebuilt)
                   (str "round-trip " (:url call) " → " rebuilt))})
 
-    ;; Mode-B route-pattern validation (rf2-5u1r6a). `:pattern` is the raw
+    ;; Mode-B route-pattern validation. `:pattern` is the raw
     ;; `:path` string; `:expect-error :rf.error/invalid-route-pattern` ⇒ the
     ;; pure validator must throw an ex-info whose `:rf.error/id` equals that
     ;; id; absent `:expect-error` ⇒ a well-formed pattern must NOT throw.
@@ -869,7 +865,7 @@
                        " — winner-rank " w-rank " loser-rank " l-rank))})
 
     ;; SSR pure render: input is hiccup, in which a view is named by the
-    ;; portable `[:view-ref <id> & args]` marker (rf2-j81hs — a keyword
+    ;; portable `[:view-ref <id> & args]` marker (a keyword
     ;; head is a DOM element on every host, so the fixture cannot spell a
     ;; view as its head). `realise-view-refs` turns the marker into this
     ;; host's callable-head form before the emitter sees it. Opts may
@@ -900,7 +896,7 @@
                              (catch #?(:clj Throwable :cljs :default) e
                                {:snapshot nil
                                 :fx   [:error (ex-message e)]}))
-          ;; rf2-y3jv8q — a bounded-depth abort is `:status :error` with a
+          ;; A bounded-depth abort is `:status :error` with a
           ;; depth-exceeded `:kind`; project it onto the observable
           ;; atomic-rollback shape (input snapshot, empty effects).
           depth-abort?  (and (= :error (:status r))
@@ -921,7 +917,7 @@
                        "    expected effects:  " want-fx "\n"
                        "    actual   effects:  " fx-out))})
 
-    ;; pure registration-validation call (rf2-vf5cf). `:expect-error
+    ;; pure registration-validation call. `:expect-error
     ;; <category>` ⇒ the pure validator must throw that `:rf.error/id`.
     :reg-machine
     (let [want-error (:expect-error call)
@@ -942,7 +938,7 @@
                          "    expected: no error (well-formed machine)\n"
                          "    thrown:   " (ex-message thrown)))}))
 
-    ;; EP-0027 construction-engine registration call (rf2-kmk9z4). `:config`
+    ;; EP-0027 construction-engine registration call. `:config`
     ;; is passed to `make-frame`; `:expect-error <:rf.error/id>` ⇒ construction
     ;; must throw that id. The frame is destroyed afterward (best-effort).
     :make-frame
@@ -967,7 +963,7 @@
                          "    expected: no error (well-formed config)\n"
                          "    thrown:   " (ex-message thrown)))}))
 
-    ;; Spec 016 §Resources (rf2-rul3ov) — `:reg-resource` Mode-B registration-
+    ;; Spec 016 §Resources — `:reg-resource` Mode-B registration-
     ;; validation. `:expect-error <:rf.error/id>` ⇒ registration must throw
     ;; that id; absent ⇒ a well-formed spec must NOT throw. Cleared afterward.
     :reg-resource
@@ -995,7 +991,7 @@
                          "    expected: no error (well-formed spec)\n"
                          "    thrown:   " (ex-message thrown)))}))
 
-    ;; Spec 016 §Scope resolution (rf2-rul3ov) — `:resolve-scope` fail-closed.
+    ;; Spec 016 §Scope resolution — `:resolve-scope` fail-closed.
     ;; `:side` selects the write-side event resolver or the read-side sub
     ;; resolver; `:expect-error` ⇒ that id; absent ⇒ `:expect` is the returned
     ;; canonical scope. Pure — the fail-closed THROW is captured directly.
@@ -1032,7 +1028,7 @@
                          "\n    expected: " (pr-str (:expect call))
                          "\n    actual:   " (pr-str result)))}))
 
-    ;; EP-0012 (rf2-qyb9l1) — CEDN-1 canonical-identity golden ops (the FROZEN
+    ;; EP-0012 — CEDN-1 canonical-identity golden ops (the FROZEN
     ;; byte-contract, so an encoder rewrite fails the corpus on BOTH hosts).
     :canonical-bytes
     (let [actual (try (rf.identity/canonical-bytes (:value call))
@@ -1061,7 +1057,7 @@
                   (str "canonical-distinct expected DISTINCT identities: "
                        (pr-str (:a call)) " vs " (pr-str (:b call))))})
 
-    ;; rf2-eynsfe — `:canonical-value` pins the exact NORMALIZED value
+    ;; `:canonical-value` pins the exact NORMALIZED value
     ;; `canonical` returns (distinct from `:canonical-bytes`, which pins the
     ;; byte token). Used for the reserved tagged-instant tuple + its idempotence.
     :canonical-value
@@ -1093,7 +1089,7 @@
                          "\n    expected: " (pr-str (:expect call))
                          "\n    actual:   " (pr-str result)))}))
 
-    ;; EP-0012 (rf2-du585y) — `:rf/path` algebra LAW ops. `:path-over` carries
+    ;; EP-0012 — `:rf/path` algebra LAW ops. `:path-over` carries
     ;; a NAMED transform (`:fn`) so the fixture stays pure data.
     (:path-get :path-lookup :path-put :path-over :path-compose :path-prefix :path-overlap)
     (let [run-path-op
@@ -1121,7 +1117,7 @@
                        "\n    expected: " (pr-str expect)
                        "\n    actual:   " (pr-str actual)))})
 
-    ;; EP-0015 (rf2-t55hxg.2) — `:project-egress`. When the call OMITS
+    ;; EP-0015 — `:project-egress`. When the call OMITS
     ;; `:frame`, bind `*current-frame*` to nil so the projection is genuinely
     ;; frameless (the fail-closed posture); otherwise the ambient scope frame
     ;; would leak in.
@@ -1143,7 +1139,7 @@
                        "\n    expected: " (pr-str expect)
                        "\n    actual:   " (pr-str actual)))})
 
-    ;; EP-0015 (rf2-t55hxg.2) — `:redact-headers`. Frame-local carrier extends
+    ;; EP-0015 — `:redact-headers`. Frame-local carrier extends
     ;; the immutable built-in defaults; no frame can remove a default.
     :redact-headers
     (let [actual (try (rf.http.privacy-headers/redact-headers
@@ -1158,7 +1154,7 @@
                        "\n    expected: " (pr-str expect)
                        "\n    actual:   " (pr-str actual)))})
 
-    ;; EP-0015 (rf2-t55hxg.2) — `:ssr-apply-policy`. Allowlist-first SSR
+    ;; EP-0015 — `:ssr-apply-policy`. Allowlist-first SSR
     ;; hydration-payload projection; `:expect-error` for the fail-closed
     ;; validator on a missing / malformed policy.
     :ssr-apply-policy
@@ -1178,7 +1174,7 @@
                          "\n    expected: " (pr-str (:expect call))
                          "\n    actual:   " (pr-str result)))}))
 
-    ;; EP-0026 (rf2-qp8qi8) — `:assemble-image`. Pin the EP-0026 image-API
+    ;; EP-0026 — `:assemble-image`. Pin the EP-0026 image-API
     ;; surface host-agnostically against the live `rf.image/image` constructor +
     ;; `image-assembly` assembler. PURE — a function of the call's `:pool` +
     ;; `:images` specs. Inline bodies are realised to a host no-op (EDN cannot
@@ -1287,9 +1283,9 @@
            :detail  (str "assemble-image: assembly threw unexpectedly — "
                          (pr-str (or (:err outcome) (:err-msg outcome))))})))
 
-    ;; EP-0014 (rf2-k0meap.3; rf2-djofbh) — `:derivation-graph`. Compose the
+    ;; EP-0014 — `:derivation-graph`. Compose the
     ;; cross-family derivation/process graph over the FULL contributor set and
-    ;; assert normalized node + edge shapes. `:expect-graph` (rf2-ska8zk) is a
+    ;; assert normalized node + edge shapes. `:expect-graph` is a
     ;; SUBMAP over the WHOLE graph (the graph-level `:mode`/`:frame` shape).
     :derivation-graph
     (let [contributors  {:subs      {:static-fn  rf.subs.tooling/sub-algebra-view
@@ -1345,7 +1341,7 @@
 
 ;; ---- fixture execution ----------------------------------------------------
 
-;; ---- `:fixture/clock` — a controlled host clock (rf2-bmqv) ----------------
+;; ---- `:fixture/clock` — a controlled host clock ---------------------------
 ;;
 ;; Spec 005 §Clock abstraction names ONE host seam for delayed work:
 ;; `re-frame.interop/schedule-after!` and `cancel-scheduled!`. A fixture that
@@ -1472,7 +1468,7 @@
 
 (defn- dispatch-fixture-event!
   "Execute ONE `:fixture/dispatches` entry. Extracted from `run-fixture` so the
-  dispatch phase can be run inside the `:fixture/clock` redefs (rf2-bmqv)
+  dispatch phase can be run inside the `:fixture/clock` redefs
   without duplicating it. Must run inside the fixture's established frame
   scope."
   [ev sub-registry dispatch-error-failures]
@@ -1484,7 +1480,7 @@
       (rf/destroy-frame! (:destroy-frame ev))
 
       ;; Harness re-registration `{:reg-sub <sub-id> :body <body>}`
-      ;; (Cross-Spec Interaction §18, rf2-qei5a). The realised sub's
+      ;; (Cross-Spec Interaction §18). The realised sub's
       ;; :kind MUST drive the registration form.
       (contains? ev :reg-sub)
       (let [sub-id (:reg-sub ev)
@@ -1501,7 +1497,7 @@
           :layer-2 (rf.subs/reg-sub
                      sub-id (assoc sub-meta :inputs (vec inputs)) body)))
 
-      ;; EP-0017 (rf2-d8mvke.3): a dispatch asserting a boundary /
+      ;; EP-0017: a dispatch asserting a boundary /
       ;; context-assembly THROW. The throw escapes `dispatch-sync`, so
       ;; catch it here and compare the ex-data `:rf.error/id`.
       (contains? ev :expect-error)
@@ -1546,12 +1542,12 @@
           ;; Register the trace listener FIRST so registration-time warnings
           ;; (e.g. route-shadowed-by-equal-score) are captured.
           traces       (collect-traces host fid)
-          ;; rf2-wxe9t — capture the always-on error-emit substrate's tight
+          ;; Capture the always-on error-emit substrate's tight
           ;; error-records in parallel with the trace listener.
           err-records  (collect-error-emit-records! fid)
           _            (realise-handlers fixture)
           _            (register-routes! fixture)
-          ;; rf2-djofbh — resources register before make-frame / dispatches.
+          ;; Resources register before make-frame / dispatches.
           _            (register-resources! fixture)
           ;; `:fixture/runtime :platform` declares the simulated host platform.
           ;; On CLJS the default `interop/active-platform` is `:client`, so
@@ -1564,7 +1560,7 @@
                               (not (contains? (:fixture/frame-config fixture) :platform)))
                          (assoc :platform runtime-platform))
           frames-spec  (:fixture/frames fixture)
-          ;; EP-0002 (rf2-9o48ih) — the carried-invariant: registration-time
+          ;; EP-0002 — the carried-invariant: registration-time
           ;; frame-local surfaces and bare `dispatch-sync` resolve their target
           ;; from the established frame scope. Single-frame fixtures use
           ;; :rf/default; multi-frame fixtures carry explicit :frame opts.
@@ -1593,9 +1589,9 @@
                          (realise-flows! fixture))
           dispatches   (or (:fixture/dispatches fixture) [])
           sub-registry (get-in fixture [:fixture/registry :sub] {})
-          ;; EP-0017 (rf2-d8mvke.3): per-dispatch `:expect-error` assertions.
+          ;; EP-0017: per-dispatch `:expect-error` assertions.
           dispatch-error-failures (atom [])
-          ;; rf2-bmqv — `:fixture/clock`. Present ⇒ the dispatch phase runs
+          ;; `:fixture/clock`. Present ⇒ the dispatch phase runs
           ;; with the Spec 005 clock primitives recording rather than really
           ;; scheduling, and the declared steps run immediately after it,
           ;; still inside those redefs (a fired callback releases its own
@@ -1652,7 +1648,7 @@
                            (into {}
                                  (for [[fid _] expected-dbs]
                                    [fid (rf/app-db-value fid)])))
-            ;; EP-0001 (rf2-vzld77): durable framework runtime state lives in
+            ;; EP-0001: durable framework runtime state lives in
             ;; the runtime-db partition; fixtures assert it under
             ;; :final-runtime-db / :final-runtime-dbs.
             expected-rt  (:final-runtime-db expect)
@@ -1672,7 +1668,7 @@
                   {:query    query-v
                    :expected expected-val
                    :actual   (rf/subscribe-once qv {:frame frame-id})})))
-            ;; EP-0017 (rf2-d8mvke.3): NEGATIVE app-db path assertions. A
+            ;; EP-0017: NEGATIVE app-db path assertions. A
             ;; sentinel `get-in` distinguishes absent from present-with-nil.
             absent-failures
             (when expected-absent
@@ -1688,8 +1684,8 @@
             error-emit-failures (when (contains? expect :error-emit-records)
                                   (check-error-emit-records
                                     @err-records (:error-emit-records expect)))
-            ;; rf2-v0jwt / rf2-xurchk — :epoch-records. Now shared, both hosts
-            ;; assert against the recorded :rf/epoch-record ring.
+            ;; :epoch-records — both hosts assert against the recorded
+            ;; :rf/epoch-record ring.
             epoch-failures (when-let [er (:epoch-records expect)]
                              (check-epoch-records er))
             actual-effects (effects-routed-from-traces @traces)
@@ -1713,7 +1709,7 @@
                    :passed?  false})))]
         ;; Drop just this fixture's trace listener (host-specific registry).
         ((:unregister-trace-listener! host) fid)
-        ;; rf2-wxe9t — drop just this fixture's error-emit recorder.
+        ;; Drop just this fixture's error-emit recorder.
         (rf.error-emit/unregister-error-listener! [fid ::records])
         {:fixture-id   fid
          :passed?      (and (or (nil? expected-db) (rf.conformance/submap? expected-db final-db))
@@ -1779,9 +1775,9 @@
   (doseq [f failed]
     (println "  " (:fixture-id f))
     (when (:unknown-caps f)
-      (println "    unknown capabilities (rf2-a3q1r):" (:unknown-caps f)))
+      (println "    unknown capabilities:" (:unknown-caps f)))
     (when (:unknown-expect-keys f)
-      (println "    unknown :fixture/expect keys (rf2-xurchk):" (:unknown-expect-keys f)))
+      (println "    unknown :fixture/expect keys:" (:unknown-expect-keys f)))
     (when (:error f)
       (println "    error:" (:error f)))
     (when-let [td (:expected-db f)]
@@ -1828,10 +1824,10 @@
   "Run the whole conformance corpus. `fixtures` is a seq of `[filename
   fixture-map]` pairs (loaded host-specifically); `host` supplies the reset /
   trace-listener seams; `label` names the host in diagnostics (\"JVM\" /
-  \"CLJS\"). Performs the three-way capability classification (rf2-a3q1r), the
-  EXPECTATION-KEY fail-loud (rf2-xurchk), runs each claim-applicable fixture,
-  and emits the pass / floor / count `is` assertions. Silent on green
-  (rf2-try1x): the failure report only prints when there are failures."
+  \"CLJS\"). Performs the three-way capability classification, the
+  EXPECTATION-KEY fail-loud, runs each claim-applicable fixture,
+  and emits the pass / floor / count `is` assertions. Silent on green:
+  the failure report only prints when there are failures."
   [fixtures host label]
   (let [results (atom [])]
     (doseq [[fname fixture] fixtures]
@@ -1870,7 +1866,7 @@
                     :capabilities (:fixture/capabilities fixture)
                     :allowed      allowed})
 
-            ;; rf2-xurchk fail-loud — a runnable fixture whose :fixture/expect
+            ;; Fail-loud — a runnable fixture whose :fixture/expect
             ;; names a key this runner would silently ignore (neither
             ;; corpus-checked nor delegated to a sibling runner) FAILS.
             (seq bad-keys)
@@ -1884,8 +1880,8 @@
                                               "(delegated) expectation. Add a matcher "
                                               "to the shared runner, or add the key to "
                                               "sibling-owned-expect-keys if a dedicated "
-                                              "conformance runner owns it. Silent-ignore "
-                                              "is the rf2-xurchk drift class and is refused.")})
+                                              "conformance runner owns it. A silently ignored "
+                                              "expectation lets the hosts drift, so it is refused.")})
 
             :else
             (swap! results conj (assoc (run-fixture fixture host) :fname fname))))))
@@ -1894,7 +1890,7 @@
           passed  (filter :passed? run)
           failed  (remove :passed? run)
           skipped (filter :skipped? all)]
-      ;; rf2-3hamsq — non-empty floor. The lone (zero? (count failed)) below
+      ;; Non-empty floor. The lone (zero? (count failed)) below
       ;; passes GREEN over an empty / fully-skipped / orphaned corpus,
       ;; verifying NOTHING. Assert fixtures actually executed.
       (is (pos? (count run))
@@ -1905,7 +1901,7 @@
                "capability-vocab rename has orphaned the corpus."))
       (when (seq failed)
         (print-failures label all run passed failed skipped))
-      ;; Per rf2-3xt7: the suite fails unless EVERY claimed-applicable fixture
+      ;; The suite fails unless EVERY claimed-applicable fixture
       ;; passes. Skipped fixtures neither claim conformance nor block it.
       (is (zero? (count failed))
           (str "All claimed-applicable " label " conformance fixtures must pass; "
