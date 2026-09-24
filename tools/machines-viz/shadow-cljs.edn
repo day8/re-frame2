@@ -1,4 +1,4 @@
-;; rf2-odlm3 — tools/machines-viz's OWN CLJS test lane.
+;; tools/machines-viz's OWN CLJS test lane.
 ;;
 ;; WHY THIS FILE EXISTS. machines-viz's test tree is borrowed onto the
 ;; consolidated `implementation/shadow-cljs.edn` `:node-test` classpath via a
@@ -8,11 +8,11 @@
 ;; on the JVM only while the CLJS lane reports a green count that says nothing
 ;; about them.
 ;;
-;; The fix is NOT to rename them into the shared bundle. That arms them inside
-;; a ~11.5k-test run they can contaminate (rf2-ezbzvm: nine such files, enabled
-;; at once, exposed two fixtures calling `registrar/clear-all!` without
-;; restoring, breaking SIBLING namespaces), and it leaves the bijection gate
-;; blind either way — a borrowed root is held by that gate's B1 rule only.
+;; Renaming them into the shared bundle is NOT the answer. That would arm them
+;; inside a ~11.5k-test run they can contaminate (a fixture calling
+;; `registrar/clear-all!` without restoring breaks SIBLING namespaces), and it
+;; would leave the bijection gate blind either way — a borrowed root is held by
+;; that gate's B1 rule only.
 ;;
 ;; A lane declared HERE does both jobs at once:
 ;;
@@ -37,7 +37,7 @@
 ;;     arrival rather than on the audit that finds it, and a new `.cljc` that
 ;;     lands OUTSIDE the prefix reddens B2 — which is the gate saying "name it
 ;;     under the artefact, or declare `-jvm-test`", exactly the two outcomes
-;;     rf2-odlm3 asks every file in this tree to take.
+;;     every file in this tree must take.
 ;;
 ;; `-dom-cljs-test` namespaces match too and self-gate on `(browser?)` under
 ;; Node, as they already do in the consolidated build. A `.clj` suite is not
@@ -55,8 +55,8 @@
 ;; alias's `:main-opts` and then hands shadow's own arguments to cognitect's
 ;; test-runner. The two aliases carry the same test-only deps; `:cljs-test`
 ;; additionally carries the `page` root, which holds the viewer page entry
-;; `viewer_cljs_test.cljs` requires and which the published jar does not ship
-;; (rf2-k7l2o). See deps.edn.
+;; `viewer_cljs_test.cljs` requires and which the published jar does not ship.
+;; See deps.edn.
 {:deps {:aliases [:cljs-test]}
 
  ;; The repo installs exactly one node_modules (implementation/). Pointing at
