@@ -46,23 +46,22 @@
   for precise budgeting. Agents needing a precise size measure their
   drill-down result directly.
 
-  ## The unit is UTF-8 BYTES (rf2-2rtt6.132)
+  ## The unit is UTF-8 BYTES
 
-  Approximate in MAGNITUDE, exact in UNIT. Until rf2-2rtt6.132 the
-  sampled per-entry size was `(count (pr-str sample))` — UTF-16 CODE
-  UNITS — under a slot the wire vocabulary names `:bytes`, the same
-  slot `{:rf.size/large-elided …}` carries. Code units equal UTF-8
-  bytes only for ASCII, which is what makes the mistake fail OPEN: on
-  an ASCII payload the wrong expression prints the right number and a
-  green suite never notices, until a slice grows an em-dash or an
-  emoji. The figure is PUBLISHED on the wire to an agent, so it is now
-  measured with `TextEncoder` — UTF-8 by definition, carrying no
-  encoding argument a later edit could silently drop. Sampling still
-  serialises exactly one entry, so the cost model is unchanged.
+  Approximate in MAGNITUDE, exact in UNIT. The slot the wire vocabulary
+  names `:bytes` is the same slot `{:rf.size/large-elided …}` carries,
+  so the sampled per-entry size is UTF-8 bytes. `(count (pr-str
+  sample))` would measure UTF-16 CODE UNITS, which equal UTF-8 bytes
+  only for ASCII — a mistake that fails OPEN: on an ASCII payload the
+  wrong expression prints the right number and a green suite never
+  notices, until a slice grows an em-dash or an emoji. The figure is
+  PUBLISHED on the wire to an agent, so it is measured with
+  `TextEncoder` — UTF-8 by definition, carrying no encoding argument a
+  later edit could silently drop. Sampling serialises exactly one entry.
 
-  Correcting the unit can only ever RAISE the estimate (UTF-8 bytes are
-  never fewer than UTF-16 code units), and nothing in this server gates
-  on it — the marker is a planning hint, not a budget.")
+  UTF-8 bytes are never fewer than UTF-16 code units, and nothing in
+  this server gates on the estimate — the marker is a planning hint,
+  not a budget.")
 
 (def summary-keys-cap
   "Top-N keys included verbatim in a tree-summary marker. Above this,
@@ -90,8 +89,8 @@
 ;; Floors keep tiny scalar entries from rounding to zero and preserve a
 ;; sensible order-of-magnitude shape for shallow collections.
 ;;
-;; The unit is UTF-8 BYTES on every path here (rf2-2rtt6.132) — see the
-;; ns docstring for why `count`'s UTF-16 code units were the wrong ruler
+;; The unit is UTF-8 BYTES on every path here — see the
+;; ns docstring for why `count`'s UTF-16 code units are the wrong ruler
 ;; under a `:bytes` slot the wire vocabulary shares with
 ;; `{:rf.size/large-elided …}`.
 ;; ---------------------------------------------------------------------------
@@ -102,8 +101,8 @@
   in Node (which is the only host this `:node-script` server runs on)
   as well as in every browser. `^js` hints so `:advanced` cannot rename
   the call. Same helper shape as
-  `day8.re-frame2-xray.panels.epoch.format/pr-str-bytes` (rf2-2rtt6.131)
-  and `re-frame.bench.fresco.lane/utf8-bytes` (rf2-2rtt6.121)."
+  `day8.re-frame2-xray.panels.epoch.format/pr-str-bytes`
+  and `re-frame.bench.fresco.lane/utf8-bytes`."
   [s]
   (let [^js enc (js/TextEncoder.)
         ^js buf (.encode enc s)]
@@ -113,8 +112,8 @@
   "Per map-entry overhead for the key + `:`/space punctuation under
   `pr-str`, on TOP of the sampled value size. ~16 BYTES for a typical
   keyword key — keyword keys are ASCII in practice, where a byte and a
-  character are the same thing, so this constant needs no conversion;
-  only its prose was wrong (rf2-2rtt6.132)."
+  character are the same thing, so this constant is the same in either
+  unit."
   16)
 
 (def ^:const ^:private coll-entry-floor-bytes
@@ -129,7 +128,7 @@
   of the sampled estimate — bounded by the entry's own depth, NOT by
   the collection's `:count`. nil / empty sample ⇒ the floor.
 
-  BYTES, not `count`'s UTF-16 code units (rf2-2rtt6.132): the sampled
+  BYTES, not `count`'s UTF-16 code units: the sampled
   figure is multiplied up into the marker's `:bytes` slot and shipped to
   an agent, and the two rulers agree only on ASCII."
   [sample]
