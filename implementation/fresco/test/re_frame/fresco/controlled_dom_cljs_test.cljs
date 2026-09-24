@@ -9,8 +9,8 @@
   - **the trap**, reproduced. [[re-frame.fresco.impl.controlled/converge-to!]]
     is called twice with one argument different — the change handler's
     own closure value, then the per-instance record — and the first call
-    wipes a keystroke the model took verbatim. The regression the naive
-    form causes is measured here rather than asserted about elsewhere.
+    wipes a keystroke the model took verbatim. The loss the naive form
+    causes is measured here rather than asserted about elsewhere.
   - **the install guards**, exercised through `codec/as-element`, because
     the condition is about the emitted element and the emitted element
     is what the codec builds. A guard that does not hold leaves the
@@ -118,7 +118,7 @@
             (.setSelectionRange node 3 3)
             (rf.fresco.impl.controlled/converge-to! node "abXcd" 3 "abcd")
             (is (= "abcd" (.-value node))
-                "the accepted keystroke is GONE. This is the regression,
+                "the accepted keystroke is GONE. This is the trap,
                  measured rather than assumed")
             (is (= [2 2] (caret node))
                 "and the caret is two from the end of a string that no
@@ -266,15 +266,15 @@
 ;; mid-composition. The other half — the shadow that makes React's own
 ;; restore a no-op — needs React, and is read in
 ;; `arm1_controlled_grid_dom_cljs_test` §7; the exchange itself needs a
-;; browser composition and is read by `bench/fresco/ime_run.cjs`.
+;; browser composition and is read by
+;; `bench/fresco/src/re_frame/bench/fresco/ime_run.cjs`.
 
 (deftest a-composing-change-event-is-the-one-argument-that-suppresses-the-converge
   (testing "the same element, the same refused keystroke, one property
            different on the event. Not composing, the refused character
-           comes off the screen in-turn as it always did; composing, the
-           field is left exactly as the IME left it and the model has
-           still refused — which is the whole of the carve-out's first
-           half"
+           comes off the screen in-turn; composing, the field is left
+           exactly as the IME left it and the model has still refused —
+           which is the whole of the carve-out's first half"
     (if-not (browser?)
       (skip! ":node-test has no DOM")
       (let [!ran (atom 0)
@@ -302,8 +302,8 @@
 (deftest the-composition-reading-is-taken-off-the-native-event
   (testing "React hands a handler a synthetic event, so a gate reading
            `isComposing` off it would be dead. A synthetic target from a
-           node-side row carries no native event at all, which is why
-           every row written before the carve-out reads as it did"
+           node-side row carries no native event at all, so it reads as
+           not composing"
     (is (false? (rf.fresco.impl.controlled/composing-input? #js {:target #js {}})))
     (is (false? (rf.fresco.impl.controlled/composing-input? #js {})))
     (is (false? (rf.fresco.impl.controlled/composing-input? #js {:nativeEvent #js {}})))
@@ -333,7 +333,7 @@
            the shadow has no controlled value to hold"))))
 
 (deftest the-element-type-does-not-move-when-the-value-moves-between-nil-and-text
-  (testing "the same law on the VALUE axis (rf2-3x7nj.7.1). An unset model
+  (testing "the same law on the VALUE axis. An unset model
            reads nil — a draft nobody has typed, an entity with no title
            yet — and the first keystroke moves it to text; a commit that
            clears the draft moves it back. Both moves must keep the element
@@ -462,10 +462,10 @@
 ;; attribute: ONE reading of `type` in this namespace rather
 ;; than two, and the one the platform uses.
 ;;
-;; What they replace was silent, which is why it is worth a section. A
-;; shouted spelling failed the guard, so no wrapper was installed and the
-;; field fell through to React's own end-of-event restore: the value still
-;; converged, and the caret went to the end of the control. No throw, no
+;; The failure they guard is silent, which is why it is worth a section. A
+;; shouted spelling that failed the guard would install no wrapper and leave
+;; the field to React's own end-of-event restore: the value would still
+;; converge, and the caret would go to the end of the control. No throw, no
 ;; id, no warning — a subtly worse cursor and nothing to attribute it to.
 
 (defn- attribute-typed!
@@ -490,8 +490,8 @@
         emitted (fn [hiccup] (slot (rf.fresco.impl.codec/as-element hiccup) "onInput"))
         wrapped? (fn [hiccup] (not (identical? f (emitted hiccup))))]
     (testing "every caret-bearing type, shouted — each of these IS a text
-             entry control to the engine, and each used to walk past the
-             guard because the comparison was exact"
+             entry control to the engine, and an exact comparison would let
+             each walk past the guard"
       (doseq [t ["TEXT" "SEARCH" "URL" "TEL" "PASSWORD"]]
         (is (wrapped? [:input {:type t :value "x" :on-input f}])
             (str "type=" t))))
@@ -507,10 +507,10 @@
       (is (wrapped? [:input {:type :TEXT :value "x" :on-input f}]))
       (is (wrapped? [:input {:type :Password :value "x" :on-input f}])))
     (testing "while a type with NO caret stays refused at every spelling —
-             the fold widened which spellings the predicate recognises, not
-             which controls it accepts. `setSelectionRange` still throws on
-             these, so a fold that leaked one through would be worse than
-             the hole it closed"
+             the fold widens which spellings the predicate recognises, not
+             which controls it accepts. `setSelectionRange` throws on these,
+             so a fold that leaked one through would be worse than the hole
+             it closes"
       ;; `file` is deliberately absent: a controlled `:value` on one is
       ;; REFUSED outright at every spelling, which is
       ;; `file_input_value_dom_cljs_test`'s subject and not this row's.
@@ -532,18 +532,18 @@
       (is (not (wrapped? [:input {:type true :value "x" :on-input f}]))))))
 
 (deftest a-shouted-type-converges-in-turn-with-the-caret-where-the-edit-left-it
-  (testing "THE DEFECT, on the control it was about. The field held
-           `12345`, the user typed `z` at 2, and the model REFUSED it — so
-           the element still renders `12345` and the converge has a
+  (testing "THE SHOUTED SPELLING, on a control with a caret. The field
+           holds `12345`, the user types `z` at 2, and the model REFUSES it
+           — so the element still renders `12345` and the converge has a
            character to take off the screen inside the event.
 
-           Before the fold this row read `{:value \"12z345\" :caret [3 3]}`:
-           no wrapper was installed, so nothing ran, and the field was left
-           holding the refused character until React's own end-of-event
-           restore removed it a beat later with the caret at the end. The
-           lowercase companion is
+           Without the fold this row would read
+           `{:value \"12z345\" :caret [3 3]}`: no wrapper installed, nothing
+           run, and the field left holding the refused character until
+           React's own end-of-event restore removed it a beat later with
+           the caret at the end. The lowercase companion is
            `a-controlled-field-converges-through-the-handler-the-codec-emitted`,
-           and the whole of the difference between them was the spelling."
+           and the spelling is the whole of the difference between them."
     (if-not (browser?)
       (skip! ":node-test has no DOM")
       (let [!ran (atom 0)
@@ -553,8 +553,8 @@
               "the attribute keeps the author's case")
           (is (= "text" (.-type node))
               "and the IDL answers the platform's — this IS a text input,
-               with a caret, which is why the miss was a defect rather than
-               a taste")
+               with a caret, which is why a miss would be a defect rather
+               than a taste")
           (typed! node "z" 2)
           (is (= {:value "12345" :caret [2 2]}
                  (fire! [:input {:type     "TEXT"
@@ -587,9 +587,9 @@
            `TEXT` — or the other way — keeps its element type, and
            therefore its node, its focus and any composition in flight.
 
-           This row reads the same in both states, before the fold and
-           after, which is what makes it a statement about the design
-           rather than about the repair."
+           This row reads the same with or without the fold, which is what
+           makes it a statement about the design rather than about the
+           fold."
     (let [f   (fn [_e])
           typ (fn [t] (.-type (rf.fresco.impl.codec/as-element
                                [:input (cond-> {:value "1" :on-input f}
