@@ -1,31 +1,31 @@
 (ns re-frame2-pair.runtime-frame-image-test
-  "rf2-fzbj.15 F1 — call-time validation resolves through the OPERATING
-  FRAME's image, not the process source store.
+  "Call-time validation resolves through the OPERATING FRAME's image, not
+  the process source store.
 
   This exercises the SHIPPED preload (`re-frame2-pair.runtime`) against a
   REAL frame carrying a REAL inline image, with real `rf/image` /
   `rf/make-frame` / `rf/dispatch` / `rf/subscribe` underneath — not the
   pure core, and not a structural assertion that a validator is called.
-  The defect was invisible to both of those: `validate-registered` was
-  called, and it delegated to the correct pure helper; what was wrong was
-  the SET it handed that helper.
+  Neither of those can see this defect class: `validate-registered` can be
+  called, and delegate to the correct pure helper, while the SET it hands
+  that helper is wrong.
 
-  ## The defect
+  ## Why the frame's image
 
   A frame runs its own sealed image generation, so an `:reg-sub` /
   `:reg-event` defined INLINE IN AN IMAGE is registered for that frame
-  and absent from the process store. Validation read
-  `(rf/registrations {:source :store :kind k})`, so those ids came back
+  and absent from the process store. Validating against
+  `(rf/registrations {:source :store :kind k})` would return those ids as
   `:reason :unknown-id :known-count 0` — the typed read and the default
-  dispatch both refused, telling the operator 'nothing is registered'
+  dispatch would both refuse, telling the operator 'nothing is registered'
   about an app whose frame subscribes and dispatches perfectly well, and
   pushing them to raw `eval-cljs` for a gesture the typed tools support.
   The skill teaches per-frame image operation explicitly, so this is an
   ordinary supported shape rather than an exotic one.
 
-  Both directions are covered, because a set-membership repair can fail
-  either way: an image-only id must now be ACCEPTED, and a store-only id
-  excluded from the chosen frame must now be REFUSED (it would otherwise
+  Both directions are covered, because a set-membership lookup can fail
+  either way: an image-only id must be ACCEPTED, and a store-only id
+  excluded from the chosen frame must be REFUSED (it would otherwise
   validate and then dispatch into a frame that cannot serve it)."
   (:require [cljs.test :refer [deftest is testing]]
             [re-frame.core :as rf]
