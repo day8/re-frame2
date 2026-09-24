@@ -1,5 +1,5 @@
 (ns re-frame.ex-message-safe-cljs-test
-  "rf2-vzrxp3 — nil-safe thrown-value message extractor.
+  "Nil-safe thrown-value message extractor.
 
   The runtime catches thrown values at ~7 sites (the router pipeline
   exception, the cofx supplier throw, the fx-handler throw, the reactive /
@@ -32,7 +32,7 @@
 
 (deftest thrown-keyword-does-not-yield-nil
   (testing "a thrown keyword (CLJS-legal: `(throw :boom)`) degrades to a
-            non-nil rendering rather than nil — the footgun rf2-vzrxp3 closes.
+            non-nil rendering rather than nil — the footgun the extractor closes.
             On CLJS `(.-message :boom)` is nil; the safe extractor falls back
             to `(str :boom)`."
     (let [msg (rf.error/ex-message-safe :boom)]
@@ -68,10 +68,10 @@
    (deftest cljs-non-error-throwable-is-the-real-footgun
      ;; The CLJS-specific proof: a raw `(.-message e)` on a non-Error value
      ;; reads nil with NO error (the property is simply absent). This pins that
-     ;; the safe extractor does NOT regress to that behaviour.
+     ;; the safe extractor does NOT share that behaviour.
      (testing "raw (.-message v) on a non-Error value is nil — the unsafe path
                the extractor replaces"
        (is (nil? (.-message :boom))
-           "a thrown keyword has no .-message (this is WHY the raw read was unsafe)")
+           "a thrown keyword has no .-message (this is WHY the raw read is unsafe)")
        (is (some? (rf.error/ex-message-safe :boom))
            "the safe extractor does not propagate that nil"))))
