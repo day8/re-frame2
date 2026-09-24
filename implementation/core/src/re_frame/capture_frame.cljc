@@ -6,10 +6,7 @@
   An implementation namespace, not an app surface — apps call
   `re-frame.core/capture-frame`. It sits BELOW the facade so the `reg-view`
   macro's emitted body can name the constructor fully-qualified without a
-  compiler-only Var living on `re-frame.core` (rf2-93sxp; until then
-  `make-capture-frame` was a facade export whose manifest row read
-  `:tier :implementation` — annotation, not removal, per Conventions
-  §Removing or demoting a facade export).
+  compiler-only Var living on `re-frame.core`.
 
   The ops route through the facade's `^:no-doc` `dispatch-impl` /
   `dispatch-sync-impl` / `subscribe-impl` seams — the same `def`-aliases the
@@ -30,10 +27,10 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- capture-frame incarnation fence (rf2-9pyles) -------------------------
+;; ---- capture-frame incarnation fence --------------------------------------
 ;;
-;; A frame api is LOCKED to one frame, and moftbs (rf2-moftbs) made a frame's
-;; identity its EXACT incarnation (the record's `:drain-lock`), distinct across a
+;; A frame api is LOCKED to one frame, and a frame's identity is its
+;; EXACT incarnation (the record's `:drain-lock`), distinct across a
 ;; `destroy-frame!` + same-id reconstruction. So a frame api captured against a
 ;; LIVE frame A must stay bound to incarnation A: if A is later destroyed and a
 ;; same-id successor incarnation B reseats under the id, an op fired from a stale
@@ -47,13 +44,13 @@
 ;; as destroyed (recover-but-emit `:rf.error/frame-destroyed`, NOT a throw — these
 ;; ops fire from host cleanup where a throw would break the host teardown). It
 ;; applies UNIFORMLY to every op that resolves the target — `:dispatch`,
-;; `:dispatch-sync` (rf2-9pyles) AND `:subscribe` (rf2-tdjv7p, closing the same
+;; `:dispatch-sync` AND `:subscribe` (closing the same
 ;; silent cross-incarnation retarget for the read op so subscribe cannot read a
 ;; successor's app-db or leak a persisted reaction into its sub-cache). The pin
 ;; is EXACT even over a frame VALUE: the value carries its own construction token
-;; (`:rf.frame/incarnation-token`, rf2-moftbs), preferred before the id-keyed
+;; (`:rf.frame/incarnation-token`), preferred before the id-keyed
 ;; registry lookup so `(capture-frame <value>)` pins the same incarnation
-;; `(capture-frame <id>)` does (rf2-vclh63). When the captured id was NOT live at
+;; `(capture-frame <id>)` does. When the captured id was NOT live at
 ;; capture (`capture-frame`'s 1-arity lock-to-id form used from outside any scope,
 ;; a not-yet-mounted id, or a derived-read value carrying no token) nothing is
 ;; pinned and the op stays address-directed — the documented dynamic-id
@@ -67,11 +64,11 @@
   keyword id OR a frame VALUE.
 
   A construction frame VALUE carries its own exact token
-  (`:rf.frame/incarnation-token`, rf2-moftbs) — PREFER it so `(capture-frame
+  (`:rf.frame/incarnation-token`) — PREFER it so `(capture-frame
   <value>)` pins the SAME incarnation `(capture-frame <id>)` does. The id-keyed
   registry lookup (`frame-incarnation-token`) returns nil for a value map (the
   registry is keyed by id, not by the value), so without this the value path
-  silently lost its pin (rf2-vclh63). A keyword id — or a derived-read value that
+  would silently lose its pin. A keyword id — or a derived-read value that
   carries no construction token — falls to the id-keyed lookup: a live id pins,
   an absent/not-yet-mounted id (or a derived-read value, whose map is not a
   registry key) pins nothing. Namespace-qualified `rf.frame/…` is never shadowed by
@@ -88,7 +85,7 @@
   a frame VALUE's carried token is compared against the current live incarnation
   under its id — the id-keyed token lookup does not accept a value map, so without
   this a pinned value would read nil-live and be spuriously superseded on every
-  op (rf2-vclh63). nil `captured-incarnation` (an unpinned capture) is never
+  op. nil `captured-incarnation` (an unpinned capture) is never
   superseded."
   [frame-target captured-incarnation]
   (and (some? captured-incarnation)
@@ -102,8 +99,8 @@
   `dispatch-fn` (the `dispatch-impl` / `dispatch-sync-impl` alias, preserving the
   single `with-redefs` interception seam). `frame-target` is a keyword id OR a
   frame VALUE; the recover-but-emit stamps the normalized frame id (identity for
-  a keyword) so the diagnostic carries an id, never a value map (rf2-vclh63).
-  `op` (rf2-7xlvt) is the ALREADY-KNOWN operation realm — `:dispatch` or
+  a keyword) so the diagnostic carries an id, never a value map.
+  `op` is the ALREADY-KNOWN operation realm — `:dispatch` or
   `:dispatch-sync` — carried through the recover-but-emit so the frame-destroyed
   source-coord resolves under `[:event id]` exactly, never the realm-ambiguous
   fallback that could steal a same-keyword subscription's coord."
@@ -111,7 +108,7 @@
   (if (capture-target-superseded? frame-target captured-incarnation)
     (rf.router/emit-captured-frame-superseded!
       event (rf.frame/frame-target->id frame-target) op opts)
-    ;; rf2-dlld6: the `capture-target-superseded?` pre-check above and the
+    ;; The `capture-target-superseded?` pre-check above and the
     ;; ordinary address-directed dispatch below are SEPARATE operations. On the
     ;; concurrent JVM host frame A can be destroyed AND a same-id successor B
     ;; installed in the window between them, so a capture that just validated A
@@ -128,7 +125,7 @@
 
 (defn- capture-subscribe!
   "Route a captured `:subscribe` op through the SAME incarnation fence as
-  `capture-dispatch!` (rf2-tdjv7p): when the pinned incarnation is superseded,
+  `capture-dispatch!`: when the pinned incarnation is superseded,
   recover-but-emit `:rf.error/frame-destroyed` and return nil — never resolve a
   reaction against a same-id successor (which would read the successor's app-db
   and cache a reaction in its sub-cache). Otherwise delegate to `subscribe-thunk`
@@ -137,7 +134,7 @@
   fence — the dispatch half is above; reuses the dispatch fence's emit seam,
   passing `subscribe-call-site` as the `:rf.trace/call-site` so the drop is
   attributed to the subscribe coord, and the `:subscribe` operation realm
-  (rf2-7xlvt) so the frame-destroyed source-coord resolves under `[:sub id]`
+  so the frame-destroyed source-coord resolves under `[:sub id]`
   exactly — never a same-keyword event's coord."
   [subscribe-thunk frame-target captured-incarnation query-v subscribe-call-site]
   (if (capture-target-superseded? frame-target captured-incarnation)
@@ -172,8 +169,7 @@
   `frame-provider` / `frame-root` scope has unwound (the async-boundary
   case).
 
-  Per the frame-affordance redesign (rf2-kkut0) the captured frame is
-  AUTHORITATIVE: `:frame` is assoc'd LAST in the dispatch opts, so a
+  The captured frame is AUTHORITATIVE: `:frame` is assoc'd LAST in the dispatch opts, so a
   per-call `:frame` in `opts` CANNOT override it — the frame api is
   locked to one frame.
 
@@ -193,7 +189,7 @@
                           `rf.trace/with-call-site` wrapper; subscriptions
                           carry no `:source` axis. DCEs in production."
   [frame {:keys [dispatch-opts subscribe-call-site]}]
-  ;; rf2-9pyles: pin the EXACT incarnation live at capture so a later op cannot
+  ;; Pin the EXACT incarnation live at capture so a later op cannot
   ;; leak into a same-id successor. nil (id not live at capture) ⇒ address-directed.
   (let [captured-incarnation (capture-target-incarnation frame)
         dispatch-impl        (seam :core/dispatch-impl      rf.router/dispatch!)
@@ -213,13 +209,13 @@
        ([event opts] (capture-dispatch! dispatch-sync-impl :dispatch-sync frame captured-incarnation
                                         event (merge dispatch-opts opts {:frame frame}))))
      :subscribe
-     ;; rf2-tdjv7p: fence subscribe on the SAME incarnation pin as dispatch — a
+     ;; Fence subscribe on the SAME incarnation pin as dispatch — a
      ;; capture pinned to incarnation A whose frame was destroyed and reseated as
      ;; a same-id successor B must NOT subscribe into B (reading B's app-db,
      ;; caching a reaction in B's sub-cache); it recover-but-emits and returns nil.
      (fn subscribe-fn
        [query-v]
-       ;; rf2-dlld6: carry the EXACT captured incarnation into the read so
+       ;; Carry the EXACT captured incarnation into the read so
        ;; `subscribe-in-frame` validates it against the SAME record it resolves
        ;; from the sub-cache (one exact-incarnation operation) — closing the
        ;; identical check-then-use window the dispatch arm has: a same-id
