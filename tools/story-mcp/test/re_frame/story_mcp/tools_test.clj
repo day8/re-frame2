@@ -10,6 +10,7 @@
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.set :as set]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
@@ -22,6 +23,7 @@
             [re-frame.story.assertions :as rf.story.assertions]
             [re-frame.story.recorder :as rf.story.recorder]
             [re-frame.story.registrar :as rf.story.registrar]
+            [re-frame.story.schemas :as rf.story.schemas]
             [re-frame.story-mcp.config :as rf.story-mcp.config]
             [re-frame.story-mcp.protocol :as rf.story-mcp.protocol]
             [re-frame.story-mcp.server :as rf.story-mcp.server]
@@ -554,6 +556,30 @@
       (is (re-find #"reg-fragment" desc) "descriptor names reg-fragment")
       (is (re-find #"reg-check" desc) "descriptor names reg-check"))))
 
+(deftest get-story-instructions-agrees-with-the-variant-schema-and-tag-vocabulary
+  ;; rf2-3x7nj.34.2. Producer-derived: the onboarding text is checked against
+  ;; Story's own closed `:rf/variant` map and canonical tag sets, so a slot or
+  ;; tag that drifts on either side reds here. The text used to list `:expect`
+  ;; (a PLAN key the closed body schema refuses) as a `reg-variant` slot, and to
+  ;; say seven canonical tags ship when twelve do.
+  (let [text   (-> (invoke "get-story-instructions" {}) :content first :text)
+        ;; Keywords outside backtick code spans (a span such as `:state/*`
+        ;; names an axis in the prose, not a slot or a tag).
+        kws    (fn [s] (->> (str/replace (or s "") #"`[^`]*`" "")
+                            (re-seq #":[a-z][a-z0-9?!>/-]*")
+                            (map #(keyword (subs % 1)))
+                            set))
+        slots  (kws (second (re-find #"(?s)\(reg-variant [^{]*\{([^}]*)\}" text)))
+        schema (set (map first (drop 2 (second rf.story.schemas/Variant))))]
+    (testing "every reg-variant slot the text lists is a key the closed variant schema accepts"
+      (is (seq slots) "the reg-variant slot line was found")
+      (is (= #{} (set/difference slots schema))
+          "slots listed in the onboarding text that the closed :rf/variant map refuses"))
+    (testing "the canonical tags the text lists are exactly the ones Story pre-registers"
+      (is (= (set/union rf.story.schemas/canonical-tags rf.story.schemas/canonical-state-tags)
+             (kws (second (re-find #"(?s)ship pre-registered(.*?)`:!tag`" text)))))
+      (is (re-find #"Twelve canonical tags" text)))))
+
 (deftest get-story-instructions-emits-structured-content
   ;; The descriptor declares an `:outputSchema`, so the
   ;; official MCP SDK's high-level callTool REJECTS a result with no
@@ -774,6 +800,30 @@
     (is (success? r))
     (is (= :story.button/primary (-> r :structuredContent :id)))
     (is (= "Primary button." (-> r :structuredContent :body :doc)))))
+
+(deftest get-variant-descriptor-matches-the-raw-body-it-returns
+  ;; rf2-3x7nj.34.2. The registrar stores a variant body RAW, `:extends`
+  ;; intact, and the plan compiler is the single merge authority (spec/017),
+  ;; so `get-variant` on a child answers the child's own slots and nothing
+  ;; inherited. Its descriptor used to promise the opposite ("the resolved
+  ;; EDN, with `:extends` already applied"). The behaviour is read off the
+  ;; tool first, then the descriptor is held to it.
+  (rf.story/reg-variant* :story.button/child {:doc "child" :extends :story.button/primary})
+  (let [body    (-> (invoke "get-variant" {:variant-id "story.button/child"})
+                    :structuredContent :body)
+        explain (-> (invoke "explain-variant" {:variant-id "story.button/child"})
+                    :structuredContent :explain)
+        desc    (:description (some #(when (= "get-variant" (:name %)) %)
+                                    rf.story-mcp.tools.registry/tool-registry))]
+    (testing "the tool returns the raw body: :extends intact, the parent's :args not inherited"
+      (is (= :story.button/primary (:extends body)))
+      (is (not (contains? body :args))))
+    (testing "explain-variant carries the resolved view the raw body lacks"
+      (is (= "Save" (:label (:effective-args explain)))))
+    (testing "so the descriptor must not promise a resolved body, and must point at explain-variant"
+      (is (not (re-find #"(?i)already applied|resolved EDN|merged from" desc)) desc)
+      (is (re-find #"NOT resolved" desc) desc)
+      (is (re-find #"explain-variant" desc) desc))))
 
 (deftest explain-variant-happy
   ;; The agent mirror of the human Explain panel: the
