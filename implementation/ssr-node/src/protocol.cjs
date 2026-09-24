@@ -1,5 +1,5 @@
 'use strict';
-// THE JVM<->NODE RENDER PROTOCOL (rf2-hic-056).
+// THE JVM<->NODE RENDER PROTOCOL.
 //
 // This file is the contract and its validator, and it knows nothing about
 // HTTP, worker threads or how any of it is framed on a wire. That is the
@@ -10,14 +10,13 @@
 //
 // ## A RESPONSE IS A SEQUENCE OF FRAMES, NOT A STRING
 //
-// The bead's design constraint is that no layer bake in "one complete
-// string", so that a streaming caller later does not need a second
-// semantics. Every response here is therefore N `chunk` frames followed
-// by one terminal frame, where N is 1 for a `renderToString` module and
-// many for a streaming one. Joining is a decision the TRANSPORT makes,
-// once, at the edge — never something a middle layer does on the way
-// past, because a middle layer that joins is a middle layer that has to
-// be rewritten.
+// No layer bakes in "one complete string", so that a streaming caller
+// does not need a second semantics. Every response here is N `chunk`
+// frames followed by one terminal frame, where N is 1 for a
+// `renderToString` module and many for a streaming one. Joining is a
+// decision the TRANSPORT makes, once, at the edge — never something a
+// middle layer does on the way past, because a middle layer that joins is
+// a middle layer that has to be rewritten.
 //
 // A refusal arrives INSTEAD OF chunks and never after them. A caller that
 // has begun writing bytes to its own client cannot un-write them, so
@@ -27,7 +26,7 @@
 //
 // ## NODE RETURNS BODY MARKUP AND NOTHING ELSE
 //
-// This is the ruled topology rather than a simplification, and it is what
+// This is the designed topology rather than a simplification, and it is what
 // keeps the field lists below as short as they are.
 // `docs/design/fresco/production-server-arm.md` §5 sets the compliant
 // shape out arrow by arrow: `ssr-ring` drains the boot events and holds
@@ -55,12 +54,11 @@
 // runtime-db partition, each gated by an ENTRY-owned list (`stateAllowlist`
 // / `runtimeAllowlist`). The JVM projects them with
 // `re-frame.ssr.render-state/project` under its own `:render-state` policy
-// (rf2-8arzr shared contract S3/S4) and the bundle's entry seeds a fresh
-// frame from them with `render-state/restore!` — the framework decided that
-// install door, which is why the gap an earlier revision of the README
-// carried openly is closed. The invariants did not move: the service still
-// never decodes application data, an entry with no list for a partition
-// cannot be rendered, and a caller cannot widen its own allowance.
+// and the bundle's entry seeds a fresh frame from them with
+// `render-state/restore!` — the framework owns that install door. The
+// invariants hold for both partitions: the service never decodes
+// application data, an entry with no list for a partition cannot be
+// rendered, and a caller cannot widen its own allowance.
 //
 // ## FAIL-CLOSED MEANS THE FIELD LIST IS THE CONTRACT
 //
@@ -93,9 +91,8 @@ const PROTOCOL_VERSION = 1;
 
 /**
  * Refusal codes. Namespaced under `:rf.ssr-node/*` — a reserved-namespace
- * tenant per Conventions' `:rf/*` single-root scheme. Cataloguing the
- * family in `spec/Conventions.md` is a sequenced follow-up; that file is
- * hot-zone and this bead is fenced from it.
+ * tenant per Conventions' `:rf/*` single-root scheme, catalogued in
+ * `spec/Conventions.md`.
  */
 const CODE = Object.freeze({
   MALFORMED_REQUEST: ':rf.ssr-node/malformed-request',
@@ -150,8 +147,8 @@ const PARTITIONS = Object.freeze([
 const REFUSED_FIELDS = Object.freeze({
   initialEvents:
     'The JVM drains the boot events and holds the request frame. A Node side that drained ' +
-    'them itself forks the event drain, which is the host fork the adversarial review ' +
-    'rejected on the record. Send the drained state as `state` instead.',
+    'them itself forks the event drain, which is the host fork this contract refuses. ' +
+    'Send the drained state as `state` instead.',
   payloadPolicy:
     'The hydration payload is built on the JVM from its own app-db. Node returns body ' +
     'markup and nothing else, so there is no payload here for a policy to govern.',
@@ -193,14 +190,14 @@ const COMPLETE_FIELDS = Object.freeze(['type', 'chunks', 'renderMs', 'buildId', 
  *
  * The wording lives here, with the contract, because it IS the contract:
  * the module has one output channel and dropping a second one silently is
- * how a second one survives long enough to be depended on. This service
- * shipped for one commit with the returned value forwarded to the caller
- * as `meta`, HTTP happened not to serialise it, and "the current transport
- * drops it" was doing the work a guarantee was supposed to do.
+ * how a second one survives long enough to be depended on. A returned
+ * value forwarded to the caller — as `meta`, say — over a transport that
+ * happens not to serialise it would leave "the current transport drops
+ * it" doing the work a guarantee is supposed to do.
  *
- * THE ACCEPTED SET IS `{ undefined }` and nothing else. The door's first
- * cut spared `null` as well, on the reading that `null` is a kind of
- * nothing; it is not. Falling off the end of a function produces
+ * THE ACCEPTED SET IS `{ undefined }` and nothing else. `null` is not
+ * spared on the reading that it is a kind of nothing; it is not. Falling
+ * off the end of a function produces
  * `undefined`, so `undefined` is what absence looks like here, while
  * `return null` is a sentence someone wrote — and it is the likeliest
  * deliberate return this contract will ever be handed, because it reads
@@ -218,17 +215,17 @@ const MODULE_RETURN_REFUSAL =
  * What a caller is told when the render module threw.
  *
  * ONE WORDING FOR EVERY RENDER EXCEPTION, and the wording is this
- * contract's rather than the module's — which is the whole of the fix, so
- * it is worth saying why a fixed string beats the obvious alternative.
+ * contract's rather than the module's, so it is worth saying why a fixed
+ * string beats the obvious alternative.
  *
- * A thrown `Error` is the OTHER way out of a render, and it was carrying
+ * A thrown `Error` is the OTHER way out of a render, and it can carry
  * what the returned value is refused for. `message` is built from the
  * value being processed in every renderer worth the name — React names the
  * property that was undefined, a validator quotes the input, a template
  * interpolates the row — so this is not a leak that needs a module doing
  * something strange; it is a leak that needs a module having a bug.
  * `detail` is worse: nothing bounds what an application hangs on it. Both
- * crossed into the public `Refusal` and into the HTTP JSON body.
+ * would cross into the public `Refusal` and into the HTTP JSON body.
  *
  * `code` is the same untrusted property and a distinct failure. It is a
  * bare field on an ordinary `Error`, and `http.cjs`'s `statusFor` maps it
@@ -261,7 +258,7 @@ const RENDER_THREW_REFUSAL =
  * What a caller is told when the isolate died under their render.
  *
  * THE SAME LAW AS `RENDER_THREW_REFUSAL`, STATED BY THE OTHER RECEIVER —
- * and that there were two receivers is the whole of why this constant
+ * and that there are two receivers is the whole of why this constant
  * exists. `RENDER_THREW_REFUSAL` closes the throw `worker.cjs` is standing
  * in front of: the module throws while the service is inside
  * `await renderModule.render()`, so a `try` has it. A throw from a callback
@@ -271,11 +268,11 @@ const RENDER_THREW_REFUSAL =
  * parent's `Worker`, and `isolate.cjs` builds the refusal from an `Error`
  * that came from the application.
  *
- * It carried `err.message` and `err.stack`. The message is the module's own
- * wording, leaking for the reason `RENDER_THREW_REFUSAL` sets out at
- * length; the stack is worse than the message, because on top of that
- * wording it names every absolute path in the deployment's filesystem.
- * Both were on the public `Refusal` and in the HTTP JSON body.
+ * That `Error`'s `message` is the module's own wording, which would leak
+ * for the reason `RENDER_THREW_REFUSAL` sets out at length; its `stack` is
+ * worse than the message, because on top of that wording it names every
+ * absolute path in the deployment's filesystem. Neither goes on the public
+ * `Refusal` or into the HTTP JSON body.
  *
  * THE CODE STAYS `ISOLATE_LOST` AND IS NOT SMOOTHED INTO `RENDER_THREW`.
  * The two are different facts and the caller acts on the difference: a
@@ -284,11 +281,10 @@ const RENDER_THREW_REFUSAL =
  * licence to describe a crashed worker as a reusable one.
  *
  * The diagnosis is not lost. `isolate.cjs` writes the real exception, stack
- * and all, to the sidecar's stderr under the prefix `bin/serve.cjs` already
- * uses — and on this path that is not merely the better channel, it is the
- * only one there has ever been: the worker never caught anything, so its
- * own `reportRenderException` never ran. Before this, an operator's sole
- * copy of the fault was the one the caller was wrongly being handed.
+ * and all, to the sidecar's stderr under the prefix `bin/serve.cjs` uses —
+ * and on this path that is not merely the better channel, it is the only
+ * one: the worker never caught anything, so its own
+ * `reportRenderException` never ran.
  */
 const ISOLATE_LOST_REFUSAL =
   'the isolate died while rendering. The exception belongs to the application, not to this ' +
@@ -303,8 +299,8 @@ const ISOLATE_LOST_REFUSAL =
  * replace a terminated isolate.
  *
  * THE SAME LAW AGAIN, STATED BY A THIRD RECEIVER — and this one exists
- * because a refusal's AUDIENCE changed under it rather than because a new
- * refusal was needed. `isolate.cjs` builds one refusal for every boot
+ * because one refusal has two AUDIENCES, not because a different failure
+ * needs its own. `isolate.cjs` builds one refusal for every boot
  * failure, and it carries the module's own `message` and `stack` on
  * purpose: boot fails before the service listens, so its reader is the
  * operator standing at the process they just started. That reasoning is
@@ -313,24 +309,24 @@ const ISOLATE_LOST_REFUSAL =
  * its failure to everyone queued in `acquire()` — a caller across a wire,
  * reading a refusal written for somebody standing at a terminal.
  *
- * IT WAS THE WIDEST OF THE THREE LEAKS. The module's boot wording, the
- * absolute module path this deployment was pointed at, and — because the
- * boot receiver builds its `Refusal` straight from the posted `code`
- * without consulting `isRefusalCode` — a code the MODULE chose, which is
- * the spoof `RENDER_THREW_REFUSAL` closes on the render path arriving on
- * the boot path instead. A module that types `:rf.ssr-node/service-
- * saturated` onto its boot error turns its own broken bundle into the 503
- * a caller's retry policy sleeps on.
+ * IT WOULD BE THE WIDEST OF THE THREE LEAKS. The boot refusal carries the
+ * module's boot wording, the absolute module path this deployment was
+ * pointed at, and — because the boot receiver builds its `Refusal`
+ * straight from the posted `code` without consulting `isRefusalCode` — a
+ * code the MODULE chose, which is the spoof `RENDER_THREW_REFUSAL` closes
+ * on the render path arriving on the boot path instead. Forwarded to a
+ * waiter, a module that types `:rf.ssr-node/service-saturated` onto its
+ * boot error would turn its own broken bundle into the 503 a caller's
+ * retry policy sleeps on.
  *
  * THE CODE STAYS `ISOLATE_LOST`, for the reason its own constant gives:
  * an isolate really was lost and really was not replaced, and a caller
  * acts on that rather than on why the boot failed.
  *
- * The diagnosis moves to the operator, and on this path that is a strict
- * improvement rather than a trade. The handler's only statement used to be
- * the loop over waiters, so a replacement that failed with NOBODY queued
- * told no one at all: the pool shrank by an isolate in silence. The stderr
- * write is therefore unconditional.
+ * The diagnosis goes to the operator, and on this path that costs nothing:
+ * the loop over waiters tells no one when NOBODY is queued, so without a
+ * stderr write a failed replacement would shrink the pool by an isolate in
+ * silence. The stderr write is therefore unconditional.
  */
 const REPLACEMENT_FAILED_REFUSAL =
   'the service could not replace a terminated isolate, so the capacity you were waiting for ' +
@@ -428,7 +424,7 @@ function validateAllowlist(
  * with no `stateAllowlist` — or no `runtimeAllowlist` — is not an entry
  * that may read everything, it is an entry that cannot be rendered. A
  * permissive default on EITHER list is the whole-app-db-by-accident
- * failure the framework's payload policy was written to prevent, one wire
+ * failure the framework's payload policy exists to prevent, one wire
  * over — and the pricing dossier is explicit that the render projection's
  * failure mode is worse than the payload's, because a payload allowlist
  * that is too narrow costs the client a recompute while a render
@@ -481,14 +477,14 @@ function validateModule(renderModule, moduleLabel = '<render module>') {
  * the UTF-8 byte count of every key and value in it, so the caller can
  * hold both partitions to one ceiling. Throws `Refusal`.
  *
- * A SNAPSHOT AND NOT THE CALLER'S OWN OBJECT (rf2-ey07). What this returns
- * is what `isolate.cjs` hands to `postMessage`, and a structured clone is a
- * SECOND READ of every value in it. Returning the caller's object put that
+ * A SNAPSHOT AND NOT THE CALLER'S OWN OBJECT. What this returns is what
+ * `isolate.cjs` hands to `postMessage`, and a structured clone is a SECOND
+ * READ of every value in it. Returning the caller's object would put that
  * second read outside the validator's reach: a value backed by an accessor
  * — a getter, a Proxy, a lazily materialised row out of a serializer —
  * could be a well-formed EDN string when the checks below read it and
- * something else when the clone did, so the checks were about a value the
- * wire never saw. Copying the already-read, already-checked value into a
+ * something else when the clone does, so the checks would be about a value
+ * the wire never saw. Copying the already-read, already-checked value into a
  * fresh object closes that gap at its cause rather than guarding its
  * symptom: there is no second read to disagree with the first.
  */
@@ -555,7 +551,7 @@ function validatePartition(
  * caller reading its first refusal wants the field it got wrong, not the
  * consequence three checks downstream.
  *
- * AND EVERY FIELD IS READ EXACTLY ONCE (rf2-ey07). The request that comes
+ * AND EVERY FIELD IS READ EXACTLY ONCE. The request that comes
  * back is built from the values the checks below actually inspected, never
  * from a fresh read of the caller's object — because this request is what
  * `postMessage` structured-clones, and that clone is a second read the
