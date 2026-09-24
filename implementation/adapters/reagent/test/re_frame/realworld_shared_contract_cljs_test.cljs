@@ -1,20 +1,19 @@
 (ns re-frame.realworld-shared-contract-cljs-test
   "Contract tests for the shared Conduit WIRE contract
-   (`realworld-shared.schema` + `realworld-shared.http` — rf2-fhxwhj), the
+   (`realworld-shared.schema` + `realworld-shared.http`), the
    transport-neutral definitions both RealWorld examples (`realworld_http/` and
    `realworld_resources/`) build on.
 
    The contract source is example code (`examples/real-apps/realworld_shared/…`),
-   but the regression suite lives HERE in the adapter test tree per the
-   test-free-examples policy (rf2-8cevm) — the same posture the shared markdown
+   but the suite lives HERE in the adapter test tree per the
+   test-free-examples policy — the same posture the shared markdown
    renderer uses (`realworld_markdown_cljs_test.cljs`). Runs under the always-on
    `:node-test` gate (`cljs-test$` matches); these are pure functions + Malli
    data, so no DOM is needed.
 
-   This is the ONE place the transport-neutral contract is pinned. It replaces
-   the per-app copies that previously duplicated the same branch matrices twice
-   (`realworld_cljs_test.cljs` + `realworld_resources_cljs_test.cljs`). Each app
-   keeps only its own INTEGRATION assertions — that its request builders /
+   This is the ONE place the transport-neutral contract is pinned. Each app's
+   suite (`realworld_cljs_test.cljs`, `realworld_resources_cljs_test.cljs`)
+   carries only its own INTEGRATION assertions — that its request builders /
    resource registrations actually thread the shared contract through.
 
    Four contracts:
