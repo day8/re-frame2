@@ -1,9 +1,8 @@
 (ns re-frame.views.frame-boundary
   "Substrate-agnostic cores for the TWO frame-boundary components — the
-  ENSURE-shaped `rf/frame-root` and the SCOPE-only `rf/frame-provider` — that
-  the rf2-nyea0r split (API-shrink) carved out of the previously-merged
-  `frame-provider`. One verb per component (EP-0024 §Scope, carry, and
-  ownership, amended by rf2-nyea0r — *roots ensure; providers scope*):
+  ENSURE-shaped `rf/frame-root` and the SCOPE-only `rf/frame-provider`. One
+  verb per component (EP-0024 §Scope, carry, and ownership — *roots ensure;
+  providers scope*):
 
     - **`rf/frame-root` — ENSURE (commit-owned).** Create the frame if absent,
       REUSE it if present WITHOUT re-seeding, and provide its id to descendants.
@@ -24,19 +23,18 @@
       (`require-live-frame-for-scope!`) lives here so every shell validates
       against one place.
 
-  ## Why the split, and why frame-root is a COMMIT-OWNED TWO-PASS boundary
-  ## (rf2-nyea0r, ruled 2026-07-11)
+  ## Why two components, and why frame-root is a COMMIT-OWNED TWO-PASS boundary
 
-  The pre-split merged `frame-provider` ran `make-frame` (registry mutation +
-  synchronous `:initial-events`) FROM A COMPONENT BODY (render phase). That
-  violates React render purity, with a concrete failure: a Suspense-aborted /
-  concurrent pre-commit render creates + seeds a GHOST frame whose
-  once-per-lifetime initialization is consumed, yet the component never commits;
-  a later real mount then re-`make-frame`s the same id (idempotent replacement)
-  and never replays the initialization. Creating side-effecting state during
-  render is the root defect.
+  A component that ran `make-frame` (registry mutation + synchronous
+  `:initial-events`) FROM ITS BODY (render phase) would violate React render
+  purity, with a concrete failure: a Suspense-aborted / concurrent pre-commit
+  render would create + seed a GHOST frame whose once-per-lifetime
+  initialization is consumed, yet the component never commits; a later real
+  mount would then re-`make-frame` the same id (idempotent replacement) and
+  never replay the initialization. Creating side-effecting state during render
+  is the root defect.
 
-  `frame-root` fixes it by owning the ENSURE at COMMIT time, in two passes:
+  `frame-root` avoids it by owning the ENSURE at COMMIT time, in two passes:
 
     1. **First render emits NO descendant subtree.** `frame-root-fc` returns
        `nil` (no children, no Provider) on its first render — before the frame
@@ -68,7 +66,7 @@
   ## Fail-loud, both ways (did-you-mean)
 
   The two components have disjoint required keys, and each rejects the sibling's
-  key with a diagnostic that names the sibling (rf2-nyea0r):
+  key with a diagnostic that names the sibling:
 
     - `frame-provider` (SCOPE) given `:id`  → `:rf.error/frame-provider-given-id`
       (\"did you mean `frame-root`?\").
@@ -106,7 +104,7 @@
 ;; re-registration (EP-0027), NOT a teardown trick.
 
 (defn acquire-frame-root!
-  "ENSURE (rf2-nyea0r; EP-0024 amended). Create the named frame if absent, REUSE
+  "ENSURE (EP-0024). Create the named frame if absent, REUSE
   it WITHOUT re-seeding if present, and return the resolved frame id.
 
   Runs the unified `make-frame` over the frame-root's `opts` (`{:id :images
@@ -123,7 +121,7 @@
   via `rf.frame/frame-value->id`).
 
   CALLED FROM COMMIT PHASE (`frame-root-fc`'s `useLayoutEffect`), never from a
-  render body — that is the whole point of the rf2-nyea0r split."
+  render body — that is the whole point of the commit-owned boundary."
   [opts]
   (rf.frame/frame-value->id (rf.live-frame/make-frame opts)))
 
@@ -132,8 +130,8 @@
   consumes. Strips the two SUBSTRATE carriers that are not frame options — the
   `:children` carrier (substrate element macros fold trailing children onto
   `:children`) and the `:fallback` carrier (an optional pre-ready element,
-  reserved for a future declared-fallback pass) — and passes EVERY OTHER key
-  through: `:id`, `:images`, `:initial-events`, `:url-bound?`, and the
+  reserved: the boundary renders `nil` before it is ready) — and passes
+  EVERY OTHER key through: `:id`, `:images`, `:initial-events`, `:url-bound?`, and the
   record-config keys `make-frame` honours (`:fx-overrides`, `:preset`, …).
   `:initial-events` run ONCE per committed frame-id lifetime: the first creation
   runs the setup; a genuine remount / StrictMode re-acquire under the same id
@@ -143,7 +141,7 @@
   (dissoc props :children :fallback))
 
 (defn ^:no-doc require-frame-root-id!
-  "Validate the frame-root's `:id` (rf2-nyea0r; EP-0024 amended). A frame-root
+  "Validate the frame-root's `:id` (EP-0024). A frame-root
   names the frame it ensures, so `:id` is mandatory and must be a keyword — it is
   the addressing token descendants route to and the key `make-frame` ensures
   under. A missing / nil / non-keyword `:id` is a CONFIGURATION ERROR: emit +
@@ -158,7 +156,7 @@
     (rf.error/throw-error!
       :rf.error/frame-root-missing-id
       where-sym
-      (str "frame-root is the ENSURE component (rf2-nyea0r): it CREATES the frame "
+      (str "frame-root is the ENSURE component: it CREATES the frame "
            "if absent and REUSES it if present, so it needs an explicit keyword "
            "`:id` to ensure under. Got " (pr-str id) ". Pass `{:id :your/frame …}` "
            "(plus optional :images / :initial-events / :url-bound?). To merely "
@@ -167,9 +165,9 @@
       {:recovery :supply-frame-id
        :extra    {:received id}})))
 
-;; ---- did-you-mean: reject the sibling component's key (rf2-nyea0r) ---------
+;; ---- did-you-mean: reject the sibling component's key --------------------
 ;;
-;; The split gives each component ONE verb and ONE required key. Each shell
+;; Each component has ONE verb and ONE required key. Each shell
 ;; rejects the OTHER component's key up front with a diagnostic that names the
 ;; sibling, so a mistyped call fails at the boundary pointing at the right
 ;; component rather than mis-dispatching (or minting a phantom frame).
@@ -177,14 +175,14 @@
 (defn ^:no-doc reject-frame-provider-id!
   "The SCOPE-only `frame-provider` was given an `:id`. `:id` is the ENSURE
   key — providers SCOPE an already-live frame; they do not create one. Fail loud
-  with `:rf.error/frame-provider-given-id`, naming `frame-root` (rf2-nyea0r).
+  with `:rf.error/frame-provider-given-id`, naming `frame-root`.
   Covers the both-keys case too: a `{:frame … :id …}` prop map on a provider is
   still an `:id`-on-a-provider error. Never returns (always throws)."
   [id where-sym]
   (rf.error/throw-error!
     :rf.error/frame-provider-given-id
     where-sym
-    (str "frame-provider is the SCOPE-only component (rf2-nyea0r): it provides an "
+    (str "frame-provider is the SCOPE-only component: it provides an "
          "ALREADY-CREATED frame through React context and creates NOTHING, so it "
          "takes `:frame`, not `:id`. Got `:id " (pr-str id) "`. To CREATE the "
          "frame if absent (and reuse it if present, without re-seeding), use the "
@@ -196,14 +194,14 @@
 (defn ^:no-doc reject-frame-root-frame!
   "The ENSURE `frame-root` was given a `:frame`. `:frame` is the SCOPE key —
   frame-roots ENSURE a frame under `:id`; they do not scope an existing one. Fail
-  loud with `:rf.error/frame-root-given-frame`, naming `frame-provider`
-  (rf2-nyea0r). Covers the both-keys case too: a `{:id … :frame …}` prop map on a
+  loud with `:rf.error/frame-root-given-frame`, naming `frame-provider`.
+  Covers the both-keys case too: a `{:id … :frame …}` prop map on a
   frame-root is still a `:frame`-on-a-root error. Never returns (always throws)."
   [frame-val where-sym]
   (rf.error/throw-error!
     :rf.error/frame-root-given-frame
     where-sym
-    (str "frame-root is the ENSURE component (rf2-nyea0r): it CREATES / REUSES a "
+    (str "frame-root is the ENSURE component: it CREATES / REUSES a "
          "frame under `:id`, so it takes `:id`, not `:frame`. Got `:frame "
          (pr-str frame-val) "`. To merely SCOPE descendants to a frame that "
          "ALREADY EXISTS, use the SCOPE-only component "
@@ -213,12 +211,12 @@
      :extra    {:received frame-val}}))
 
 (defn ^:no-doc require-unchanged-root-opts!
-  "Fail loud when a MOUNTED frame-root's `:id` / opts change (rf2-nyea0r
-  amendment (4)). A committed frame-root scopes exactly one frame for its
-  lifetime; re-pointing it at a different frame id — or a different `make-frame`
-  configuration — is a CONFIGURATION ERROR, not a reconfiguration the boundary
-  supports (committed reconfiguration support is unearned machinery, and the
-  pre-split silent `useRef` ignore hid a real mistake). Emit + throw
+  "Fail loud when a MOUNTED frame-root's `:id` / opts change. A committed
+  frame-root scopes exactly one frame for its lifetime; re-pointing it at a
+  different frame id — or a different `make-frame` configuration — is a
+  CONFIGURATION ERROR, not a reconfiguration the boundary supports (committed
+  reconfiguration support would be unearned machinery, and silently ignoring
+  the change would hide a real mistake). Emit + throw
   `:rf.error/frame-root-reconfigured`. `committed` is the opts recorded at the
   first successful commit; `current` is this render's opts (both already stripped
   of `:children` / `:fallback`). Called from `frame-root-fc`'s render guard only
@@ -227,7 +225,7 @@
   (rf.error/throw-error!
     :rf.error/frame-root-reconfigured
     where-sym
-    (str "frame-root's `:id` / opts changed after it mounted (rf2-nyea0r): a "
+    (str "frame-root's `:id` / opts changed after it mounted: a "
          "committed frame-root scopes ONE frame for its lifetime and does not "
          "support in-place reconfiguration. Committed with " (pr-str committed)
          ", re-rendered with " (pr-str current) ". To scope a DIFFERENT frame, "
@@ -240,7 +238,7 @@
 ;; ---- SCOPE-only: fail-loud-if-absent guard --------------------------------
 ;;
 ;; `rf/frame-provider` provides an ALREADY-CREATED frame and creates / refreshes
-;; / destroys NOTHING. Per the EP-0024 amendment ruling it FAILS LOUD when the
+;; / destroys NOTHING. Per EP-0024 it FAILS LOUD when the
 ;; named frame is ABSENT (the scope-only guardrail Story + Xray rely on) — a
 ;; caller cannot silently scope a subtree to a frame that does not exist. The
 ;; guard lives here (beside the frame-root id guard) so both the Reagent and
@@ -264,7 +262,7 @@
       :rf.error/frame-provider-frame-absent
       where-sym
       (str "frame-provider {:frame " (pr-str frame-kw) "} is the SCOPE-only "
-           "component (rf2-nyea0r): it provides an ALREADY-CREATED frame through "
+           "component: it provides an ALREADY-CREATED frame through "
            "React context and creates nothing. No live frame is registered "
            "under " (pr-str frame-kw) " — it was never created, or it has been "
            "destroyed. To CREATE the frame if absent (and reuse it if present, "
@@ -279,7 +277,7 @@
 ;;
 ;; ONE React function component backs `rf/frame-root` on every React-shaped
 ;; substrate (Reagent via `:r>`, UIx via `createElement`). The commit-owned
-;; two-pass ENSURE lives here, not per adapter (rf2-nyea0r):
+;; two-pass ENSURE lives here, not per adapter:
 ;;
 ;;   PASS 1 (render, pre-ready): return nil. No frame exists yet, so there is
 ;;     nothing to scope and NO descendant subtree is emitted. A render React
@@ -294,13 +292,13 @@
 ;; A mounted `:id` / opts change is a render-phase fail-loud
 ;; (`:rf.error/frame-root-reconfigured`) — a committed root scopes exactly one
 ;; frame for its lifetime. There is deliberately NO unmount effect — the
-;; frame-root does not own the frame's teardown. True ownership stays explicit
+;; frame-root does not own the frame's teardown. True ownership is explicit
 ;; (`make-frame` + `destroy-frame!` inside a `create-class`).
 
 (defn ^:no-doc frame-root-fc
   "The React function component that ENSURES one frame at COMMIT time and scopes
-  it to its children — ONE implementation shared by every React-shaped substrate
-  (rf2-nyea0r). `props` is a JS object carrying:
+  it to its children — ONE implementation shared by every React-shaped
+  substrate. `props` is a JS object carrying:
 
     - `:rfOpts`   — the `make-frame` opts (an opaque CLJS value, already stripped
                     of `:children` / `:fallback` by `frame-root-opts`; passed
@@ -331,9 +329,9 @@
   compared against this render's opts.
 
   No unmount effect: the frame-root does NOT destroy the frame on unmount
-  (rf2-nyea0r / EP-0024 amendment — owned destroy-on-unmount retired). A genuine
+  (EP-0024: the frame-root does not own the frame's teardown). A genuine
   unmount leaves the frame live; a keyed remount re-ensures it (idempotent, no
-  re-seed). True ownership stays expressible as `make-frame` + `destroy-frame!`
+  re-seed). True ownership is expressible as `make-frame` + `destroy-frame!`
   inside a `create-class`."
   [^js props]
   (let [opts       (.-rfOpts props)
@@ -342,7 +340,7 @@
         ready?     (aget ready+set 0)
         set-ready  (aget ready+set 1)
         committed  (React/useRef nil)]
-    ;; Render-phase fail-loud guard (rf2-nyea0r amendment 4): once the boundary
+    ;; Render-phase fail-loud guard: once the boundary
     ;; has committed under an opts baseline, a differing opts on a later render
     ;; is a reconfiguration attempt — fail loud rather than silently ignore it.
     (when-let [prev (.-current committed)]
