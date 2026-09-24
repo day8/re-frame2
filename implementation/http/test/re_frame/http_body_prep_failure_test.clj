@@ -1,27 +1,26 @@
 (ns re-frame.http-body-prep-failure-test
-  "rf2-065xo finding 1 (JVM) — body realization + body encoding are a
+  "(JVM) Body realization + body encoding are a
   MANAGED request-preparation phase.
 
-  Defect (closed by this test): `run-attempt!` realized a `:body` thunk
-  and ran `encoding/encode-body` in its outer binding `let` — BEFORE
-  `record-in-flight!` registered the handle and BEFORE the platform
-  transport try/catch. A throwing body thunk or a non-serialisable body
-  ESCAPED `run-attempt!` and surfaced as a generic
-  `:rf.error/fx-handler-exception` (the catch-all in `re-frame.fx`'s fx
-  walk) instead of the caller's `:on-failure` with a `:rf.http/*` shape.
-  The caller waited forever; retry/backoff/cancellation were skipped;
-  instrumentation saw the wrong taxonomy.
-
-  Fix: `prepare-body!` runs the realization + encoding AFTER the handle
+  `prepare-body!` runs the realization + encoding AFTER the handle
   is registered, catches a throw, and routes a canonical
   `:rf.http/transport` failure (`:stage :request-prep`) through the
   normal `maybe-retry!` path — so `:on-failure`, retry policy, trace
   metadata, abort precedence, and sensitivity handling all stay
   consistent. `:rf.http/transport` is the spec's category for an error
   before the HTTP transaction completed (Spec 014 §Failure categories,
-  closed set — no new category minted), and it is in the retryable
+  closed set), and it is in the retryable
   subset, so a configured retry re-runs the attempt (re-invoking the
   thunk for a fresh handle).
+
+  Realizing a `:body` thunk and running `encoding/encode-body` BEFORE
+  `record-in-flight!` registers the handle and outside the platform
+  transport try/catch would let a throwing body thunk or a
+  non-serialisable body ESCAPE `run-attempt!` as a generic
+  `:rf.error/fx-handler-exception` (the catch-all in `re-frame.fx`'s fx
+  walk) instead of the caller's `:on-failure` with a `:rf.http/*` shape:
+  the caller would wait forever, retry/backoff/cancellation would be
+  skipped, and instrumentation would see the wrong taxonomy.
 
   These cases throw in the prep phase BEFORE any socket is touched, so
   no test server is needed — the failure is delivered synchronously
@@ -40,7 +39,7 @@
 ;; ---- a throwing body thunk -------------------------------------------------
 
 (deftest throwing-body-thunk-delivers-managed-transport-failure
-  (testing "rf2-065xo — a `:body` thunk that throws delivers ONE :on-failure reply with :rf.http/transport (NOT :rf.error/fx-handler-exception), and clears the registry"
+  (testing "a `:body` thunk that throws delivers ONE :on-failure reply with :rf.http/transport (NOT :rf.error/fx-handler-exception), and clears the registry"
     (let [replies     (atom [])
           traces      (atom [])
           listener-id ::body-thunk]
@@ -82,7 +81,7 @@
 ;; ---- a body that fails to encode -------------------------------------------
 
 (deftest unencodable-body-delivers-managed-transport-failure
-  (testing "rf2-065xo — a body that `encode-body` (JSON) rejects delivers ONE :on-failure reply with :rf.http/transport (NOT :rf.error/fx-handler-exception)"
+  (testing "a body that `encode-body` (JSON) rejects delivers ONE :on-failure reply with :rf.http/transport (NOT :rf.error/fx-handler-exception)"
     (let [replies     (atom [])
           traces      (atom [])
           listener-id ::encode-fail]
@@ -120,7 +119,7 @@
 ;; ---- retry when configured -------------------------------------------------
 
 (deftest throwing-body-thunk-retries-when-configured
-  (testing "rf2-065xo — when `:retry {:on #{:rf.http/transport} …}` is set, a throwing body thunk RETRIES (re-invoking the thunk per attempt) then finally fails :rf.http/transport"
+  (testing "when `:retry {:on #{:rf.http/transport} …}` is set, a throwing body thunk RETRIES (re-invoking the thunk per attempt) then finally fails :rf.http/transport"
     (let [replies     (atom [])
           invocations (atom 0)
           listener-id ::retry-thunk]
