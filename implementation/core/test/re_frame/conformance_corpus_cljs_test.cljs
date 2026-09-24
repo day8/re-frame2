@@ -1,16 +1,15 @@
 (ns re-frame.conformance-corpus-cljs-test
-  "CLJS LEAF of the conformance corpus runner (rf2-xurchk).
+  "CLJS LEAF of the conformance corpus runner.
 
   All host-neutral logic — capability claims, fixture realisation, call
   execution, expectation matchers, result assembly, and reporting — lives in
   `re-frame.conformance-runner` (a test-only `.cljc` shared byte-for-byte
-  with the JVM leaf `re-frame.conformance-test`). Before the rf2-xurchk
-  consolidation this file DUPLICATED that logic and DRIFTED: it never
-  defined `check-epoch-records`, so the eight runnable `:epoch-records`
-  fixtures were SILENTLY IGNORED on CLJS while reporting conformance. The
-  shared runner closes that gap — CLJS now evaluates every `:epoch-records`
-  fixture, and an unknown `:fixture/expect` key fails loud rather than being
-  ignored.
+  with the JVM leaf `re-frame.conformance-test`). Sharing it keeps the hosts
+  from drifting: a per-host copy of that logic can silently skip a whole
+  expectation kind — without `check-epoch-records`, every `:epoch-records`
+  fixture would be ignored while the leaf still reported conformance. CLJS
+  evaluates every `:epoch-records` fixture, and an unknown `:fixture/expect`
+  key fails loud rather than being ignored.
 
   This leaf owns only the genuinely host-specific seams handed to the runner
   as a HOST MAP:
@@ -25,7 +24,7 @@
       production-DCE split; the JVM leaf uses `re-frame.trace`).
 
   The requires below are the CLJS classpath + ns-load side-effect surface the
-  corpus exercises; most handler calls now live in the shared runner, which
+  corpus exercises; most handler calls live in the shared runner, which
   pulls its own deps (including `re-frame.epoch`, so the epoch hooks publish
   on CLJS too)."
   (:require [cljs.test :refer-macros [deftest is]]
@@ -44,7 +43,7 @@
             [re-frame.events]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.routing :as rf.routing]
-            ;; rf2-dbiv8 — the test-only `:rf.test/simulate-http-resolution`
+            ;; The test-only `:rf.test/simulate-http-resolution`
             ;; fixture event lives in this test-support ns; require here so it
             ;; registers at ns-load (CLJS has no `:reload`, so it must be live
             ;; before `pretest-registrar` snapshots it).
@@ -53,11 +52,11 @@
             ;; Spec 014 — :rf.http/managed registers at ns-load; reset uses its
             ;; clear-* fns.
             [re-frame.http.managed :as rf.http.managed]
-            ;; rf2-cdmle — canned-stub fxs gate on explicit test-support require.
+            ;; Canned-stub fxs gate on explicit test-support require.
             [re-frame.http.test-support]
-            ;; Spec 016 §Resources (rf2-rul3ov) — the host-cache reset.
+            ;; Spec 016 §Resources — the host-cache reset.
             [re-frame.resources.test-support :as rf.resources.test-support]
-            ;; The shared, host-neutral runner (rf2-xurchk).
+            ;; The shared, host-neutral runner.
             [re-frame.conformance-runner :as rf.conformance-runner])
   ;; Compile-time fixture inlining (see conformance_fixtures.clj). The macro
   ;; ns is .clj — shadow-cljs picks it up via :require-macros.
@@ -92,19 +91,17 @@
 ;; snapshotted here and restored in `reset-runtime!` below (the public verbs
 ;; register, unregister and clear — none of them reads). Same reach, same
 ;; suppression, as `re-frame.fresco.server-render-recovered-error-ssr-cljs-test`
-;; on `re-frame.error-emit/listeners`. The access itself is unchanged since
-;; rf2-qwm0a; only this ns's `:require` of `re-frame.trace.tooling` is new, and
-;; with it clj-kondo can resolve — and so grade — a symbol that previously
-;; reached the namespace transitively.
+;; on `re-frame.error-emit/listeners`. This ns `:require`s
+;; `re-frame.trace.tooling` directly, so clj-kondo resolves — and so grades —
+;; the symbol rather than seeing it reach the namespace transitively.
 #_{:clj-kondo/ignore [:private-call]}
 (def ^:private baseline-trace-listeners
-  ;; Per rf2-qwm0a the listener registry atom moved from
-  ;; `re-frame.trace/listeners` to `re-frame.trace.tooling/listeners` (the
-  ;; production-DCE split). This access is the CLJS bridge (the JVM leaf
+  ;; The listener registry atom lives in `re-frame.trace.tooling/listeners`
+  ;; (the production-DCE split). This access is the CLJS bridge (the JVM leaf
   ;; achieves the same effect via `(require 're-frame.ssr :reload)`).
   @re-frame.trace.tooling/listeners)
 
-;; rf2-i6oku — the FRAMEWORK-ONLY baseline, captured at NS-LOAD (like
+;; The FRAMEWORK-ONLY baseline, captured at NS-LOAD (like
 ;; `baseline-trace-listeners` above), BEFORE any sibling test namespace in the
 ;; shared node bundle registers its handlers. This ns's `:require`s pull in every
 ;; framework + optional-feature + test-support registration the fixtures need
@@ -126,8 +123,8 @@
   (atom nil))
 
 (def ^:private pretest-source-store
-  ;; rf2-h1vqa4: the SOURCE STORE snapshot paired with `pretest-registrar`.
-  ;; Frames now resolve through the store (the default image is assembled
+  ;; The SOURCE STORE snapshot paired with `pretest-registrar`.
+  ;; Frames resolve through the store (the default image is assembled
   ;; from it), so the inter-fixture rollback must keep the two in lockstep —
   ;; a registrar-only rollback leaves prior fixtures' rows in the store,
   ;; and a generation-resolved frame would silently run STALE handlers the
@@ -137,18 +134,18 @@
 ;; ---- runtime reset (CLJS-specific: snapshot/restore) ----------------------
 
 (defn- reset-runtime! []
-  ;; 1. Roll the registrar back to the pretest-snapshot, then drop `:route`
-  ;;    specifically (example apps register routes at ns-load whose rank
+  ;; 1. Roll the registrar back to the framework-only baseline, then drop
+  ;;    `:route` specifically (example apps register routes at ns-load whose rank
   ;;    tuples can collide with the fixture's equal-score cases). The fixture
   ;;    re-registers every route it needs.
   (reset! rf.registrar/kind->id->metadata framework-baseline-registrar)
-  ;; rf2-h1vqa4: roll the SOURCE STORE back in lockstep and drop the
+  ;; Roll the SOURCE STORE back in lockstep and drop the
   ;; resolved-generation cache — the raw `reset!` does not bump the store
   ;; generation counter, so a stale cache entry keyed on [identity counter]
   ;; could otherwise alias a DIFFERENT store content assembled earlier.
   (reset! rf.source-store/kind->id->ns->descriptor framework-baseline-source-store)
   (rf.image-assembly/clear-generation-cache!)
-  ;; rf2-h1vqa4: re-seed the routing test-support fixture event. THIS ns is
+  ;; Re-seed the routing test-support fixture event. THIS ns is
   ;; the namespace that loads `re-frame.routing.test-support`, so any suite
   ;; running right before the corpus leaves the live store rolled back to a
   ;; baseline captured BEFORE that load — the pretest snapshot above then
@@ -165,13 +162,13 @@
   ;; 3. Reset id-allocators so routing / machine fixtures see deterministic
   ;;    counters.
   (rf.routing/reset-counters!)
-  ;; rf2-oosjmh — the nav-token / pending-nav counters are host-side transient
-  ;; state now, so the `frames` reset above no longer clears them.
+  ;; The nav-token / pending-nav counters are host-side transient
+  ;; state, so the `frames` reset above does not clear them.
   (rf.routing/reset-nav-counters!)
   (rf.machines/reset-timers!)
   ;; 4. Drop the in-flight HTTP request registry between fixtures.
   (rf.http.managed/clear-all-in-flight!)
-  ;; 4a. Spec 014 §Middleware (rf2-yhfgf) — drop the per-frame request-side
+  ;; 4a. Spec 014 §Middleware — drop the per-frame request-side
   ;;     interceptor chain (a `defonce` atom).
   (rf.http.managed/clear-all-http-interceptors!)
   ;; 5. Dispose the currently-installed adapter and re-install plain-atom.
@@ -182,20 +179,18 @@
   ;;    Deliberate private-registry reach — see `baseline-trace-listeners`.
   #_{:clj-kondo/ignore [:private-call]}
   (reset! re-frame.trace.tooling/listeners baseline-trace-listeners)
-  ;; 7. rf2-wxe9t — drop every corpus-wide error-emit listener so a recorder
+  ;; 7. Drop every corpus-wide error-emit listener so a recorder
   ;;    installed for one fixture can't fire against the next fixture's drains.
   (rf.error-emit/clear-error-listeners!)
-  ;; 7a. rf2-v0jwt / rf2-xurchk — drop the per-frame epoch ring buffer (and
-  ;;     the in-flight capture buffer) between fixtures so `:epoch-records`
-  ;;     assertions observe THIS fixture's recorded epochs only. Pre-rf2-xurchk
-  ;;     the CLJS runner never checked `:epoch-records`, so it never cleared
-  ;;     the ring — now the shared runner asserts against it, this clear is
-  ;;     the CLJS counterpart of the JVM reset's epoch clear.
+  ;; 7a. Drop the per-frame epoch ring buffer (and the in-flight capture
+  ;;     buffer) between fixtures so `:epoch-records` assertions observe THIS
+  ;;     fixture's recorded epochs only — the CLJS counterpart of the JVM
+  ;;     reset's epoch clear.
   (when-let [f (rf.late-bind/get-fn :epoch/clear-history!)]
     (f))
   (when-let [f (rf.late-bind/get-fn :epoch/clear-epoch-listeners!)]
     (f))
-  ;; 8. Spec 016 §Resources (rf2-rul3ov) — drop the resource host-side caches
+  ;; 8. Spec 016 §Resources — drop the resource host-side caches
   ;;    so each `resources-*.edn` fixture's first load mints generation 1.
   (rf.resources.test-support/reset-resources!))
 
@@ -228,16 +223,15 @@
       (reset! rf.source-store/kind->id->ns->descriptor @pretest-source-store)
       (rf.image-assembly/clear-generation-cache!))))
 
-;; ---- rf2-xurchk acceptance self-tests -------------------------------------
+;; ---- acceptance self-tests ------------------------------------------------
 ;;
 ;; The CLJS counterpart of the JVM leaf's self-tests: prove the shared runner
-;; BITES on CLJS rather than silently ignoring expectations — the exact
-;; drift this consolidation fixes.
+;; BITES on CLJS rather than silently ignoring expectations — the drift a
+;; per-host copy of the runner invites.
 
 ;; A single-drain counter fixture (mirror of epoch-record-shape.edn) whose
-;; `:epoch-records` expectation is DELIBERATELY WRONG. Pre-rf2-xurchk CLJS
-;; ignored `:epoch-records`, so this would have PASSED; the shared runner
-;; MUST now fail it on CLJS too.
+;; `:epoch-records` expectation is DELIBERATELY WRONG. A runner that ignored
+;; `:epoch-records` would PASS it; the shared runner MUST fail it on CLJS too.
 (def ^:private epoch-mismatch-fixture
   {:fixture/id           :rf.test/epoch-records-deliberate-mismatch
    :fixture/spec-version "1.0"
@@ -273,7 +267,7 @@
                 {:fixture/expect {:final-app-db {} :epoch-records []}}))
       "corpus-checked expectation keys must NOT be flagged unknown"))
 
-;; ---- rf2-ska8zk NEGATIVE self-test for the :expect-graph guard ------------
+;; ---- NEGATIVE self-test for the :expect-graph guard -----------------------
 ;; Mirror of the JVM `derivation-graph-expect-graph-guard`. Saves / restores
 ;; the registrar (like the corpus runner) so it doesn't leak into siblings.
 (deftest derivation-graph-expect-graph-guard-cljs
@@ -302,7 +296,7 @@
       (reset! rf.source-store/kind->id->ns->descriptor @pretest-source-store)
       (rf.image-assembly/clear-generation-cache!))))
 
-;; ---- rf2-7yth0 NEGATIVE self-test for the classification-op guard ---------
+;; ---- NEGATIVE self-test for the classification-op guard -------------------
 ;; Mirror of the JVM `classification-op-map-guard`. Saves / restores the
 ;; registrar (like the corpus runner) so it doesn't leak into siblings.
 ;;
