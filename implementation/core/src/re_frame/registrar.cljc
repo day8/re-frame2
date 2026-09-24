@@ -27,7 +27,7 @@
   Tools introspecting app-db schemas go through `schemas/app-schemas`
   / `schemas/app-schema-meta`.
 
-  Per rf2-en00bk the `:flow` kind is RESERVED but the registrar slot is
+  The `:flow` kind is RESERVED but the registrar slot is
   intentionally **empty** — `reg-flow` writes only to the flows artefact's
   own per-frame store (`flows`, keyed `{frame-id {flow-id flow-map}}`),
   which is the single source of truth. Flows are FRAME-DIVERGENT-PER-ID
@@ -37,14 +37,14 @@
   Spec 001 §Registry model continuity. Tools introspecting flows go through
   `flows/flows` / `flows/flow-meta` / `flows/flows-snapshot` rather than
   `handlers :flow` / `handler-meta :flow` — matching the `:app-schema`
-  precedent (rf2-0frdi).
+  precedent.
 
-  Per rf2-h1vqa4 the `:frame` kind is likewise RESERVED with an intentionally
+  The `:frame` kind is likewise RESERVED with an intentionally
   **empty** registrar slot — the frame engine (`re-frame.frame/upsert-frame!`)
   writes only to the frames registry (`re-frame.frame/frames`), the single
   source of truth for seated frames. A frame is a LIVE runtime object, not an
   image-resolved program member: routing a `:frame` row through `register!`
-  leaked it into the provenance source store, bumping the source-store
+  would leak it into the provenance source store, bumping the source-store
   generation (invalidating the resolved-image-generation cache, EP-0023) and
   firing the live-frame reprojection hook on every seat/reseat. Frame
   introspection goes through `rf/frame-meta` / `rf/frame-ids` (Spec 002 §The
@@ -97,7 +97,7 @@
 (def kinds
   "The closed set of registry kinds for v1. Adding a new kind is a Spec change.
 
-  `:frame` is RESERVED with an intentionally EMPTY slot (rf2-h1vqa4) — seated
+  `:frame` is RESERVED with an intentionally EMPTY slot — seated
   frames live in the frames registry (`re-frame.frame/frames`), introspected
   via `rf/frame-meta` / `rf/frame-ids`; nothing writes `:frame` rows here
   (the `:flow` precedent below).
@@ -190,9 +190,9 @@
 ;;
 ;;     target frame -> resolved image generation -> registration resolution
 ;;
-;; A live frame OBJECT (`re-frame.live-frame/make-frame`) carries a SEALED
-;; image generation under `:rf.frame/generation` rather than addressing a realm
-;; registrar atom. The generation's `:rf.gen/resolver` is the id-disjoint
+;; A live frame (`re-frame.live-frame/make-frame`) has a SEALED image
+;; generation on its `frames` record (the `:generation` slot) rather than
+;; addressing a realm registrar atom. The generation's `:rf.gen/resolver` is the id-disjoint
 ;; `{[kind id] descriptor}` map a frame resolves `(kind, id)` lookups through
 ;; (the descriptor is the SAME registration-metadata shape `register!` stores —
 ;; it carries `:handler-fn` and every standard metadata key — because the
@@ -507,9 +507,9 @@
   `re-frame.cofx` recordable-value check that throws
   `:rf.error/cofx-value-invalid` — and its per-slot `:sensitive?` /
   `:large?` props survive ONLY to redact THAT validator's own failure trace
-  and thrown ex-data, NOT as a route into data classification (EP-0025
-  removed the schema→registry bridge, and the EP-0005 `:data-schema`→marks
-  bridge with it — see `re-frame.elision`). A resource `:data-schema`
+  and thrown ex-data, NOT as a route into data classification (EP-0025:
+  there is no schema→registry bridge, nor an EP-0005 `:data-schema`→marks
+  bridge — see `re-frame.elision`). A resource `:data-schema`
   drives NEITHER axis: it is a statically reflected shape fact with no
   runtime validation consumer, surfaced as the process-node `:schema` by
   `re-frame.resources.tooling`, and is retained as that reflection surface.
@@ -518,7 +518,7 @@
   per-frame elision registry, and a registration's transient-payload
   classification is the author's own `:sensitive` / `:large` / `:large?`
   keys, DERIVED at read time off this registrar by
-  `re-frame.classification/registration-classification` (rf2-ehexnw).
+  `re-frame.classification/registration-classification`.
   `:rf/id` and the handler fn ARE the registration.
 
   Adding a key here is a Spec change (Spec 001 §Production elision
@@ -558,35 +558,26 @@
   identity lives SOMEWHERE ELSE says where, by naming the key under
   `:executable-key`.
 
-  NO registration in the tree needs that today, and the one that did is
-  worth recording because it is what the indirection was built for.
-  Fresco's authoring-time `:view` alias
-  (`re-frame.fresco.impl.collector/publish-view-alias!`, rf2-5qaf4) used
-  to carry its minted head at a private `:fresco/component` with NO
-  `:handler-fn`, on the reasoning that a boundary is a React component
-  rather than a hiccup-returning render fn. Comparing `:handler-fn` on
-  that shape compares nil with nil, which reports `:different-fn? false`
-  for a real component swap and tells every hot-reload consumer the
-  reload was idempotent when it was not — so the alias named its private
-  slot here instead.
-
-  rf2-kuky.60 moved that head to `:handler-fn`, because `re-frame.views/
-  view-head` returns a `:view` slot it did not itself build exactly as
-  stored: the ordinary key costs the boundary nothing and buys
-  `(rf/view id)` an answer on every substrate. The default derivation is
-  therefore correct for it, and this indirection is now unexercised
-  rather than wrong. It stays — it is two `get`s and no branch, it is the
-  documented seam for the next registration that mints its executable
-  somewhere else, and removing it would put the next such registration
-  back on the silent-idempotent-reload defect above.
+  NO registration in the tree uses that. Fresco's authoring-time `:view`
+  alias (`re-frame.fresco.impl.collector/publish-view-alias!`) carries its
+  minted head at `:handler-fn`, because `re-frame.views/view-head` returns
+  a `:view` slot it did not itself build exactly as stored: the ordinary
+  key costs the boundary nothing and buys `(rf/view id)` an answer on every
+  substrate. The seam is for a registration whose executable is NOT a
+  `:handler-fn` — a boundary whose head is a React component kept at a
+  private slot with no `:handler-fn`, say. Comparing `:handler-fn` on that
+  shape would compare nil with nil, reporting `:different-fn? false` for a
+  real component swap and telling every hot-reload consumer the reload was
+  idempotent when it was not; naming the private slot under
+  `:executable-key` avoids that silent-idempotent-reload defect. It is two
+  `get`s and no branch.
 
   It POINTS at the slot rather than duplicating the head into a second
   one: one home for the value, and a registrar that stays ignorant of
   which substrate wrote the entry — it reads a key the registration
   itself named. Absent `:executable-key` — every framework `reg-*` in
-  the tree — this is exactly `(:handler-fn metadata)`, so no existing
-  kind changes behaviour. A non-map `metadata` answers nil, as the bare
-  `:handler-fn` lookup it replaces did."
+  the tree — this is exactly `(:handler-fn metadata)`. A non-map
+  `metadata` answers nil, as a bare `:handler-fn` lookup would."
   [metadata]
   (get metadata (get metadata :executable-key :handler-fn)))
 
@@ -642,18 +633,18 @@
         previous (-> @reg (get kind) (get id))]
     (swap! reg assoc-in [kind id] metadata)
     ;; EP-0023 provenance-preserving source store. In addition
-    ;; to the resolver-map write above (the unchanged default-image runtime
+    ;; to the resolver-map write above (the default-image runtime
     ;; path), record the descriptor in the source store keyed by
     ;; [kind id provenance-namespace]. Cross-namespace duplicate `(kind, id)`
     ;; registrations are BOTH retained there; a same-namespace re-eval replaces
     ;; its own source slot (hot reload). The store stamps `:rf.provenance/ns` as
     ;; a canonical string from the metadata's macro-captured `:ns` symbol. This
     ;; is a pure store write — NO assembly / selection / collision decision is
-    ;; made here (that is image assembly, a later EP-0023 slice). `metadata`
+    ;; made here (that is image assembly, `re-frame.image-assembly`). `metadata`
     ;; written into the resolver map intentionally stays untouched; the store
     ;; keeps its own provenance-stamped copy.
     (rf.source-store/record-descriptor! kind id metadata)
-    ;; RECORDING THE CHANGE COMPLETES BEFORE ANYTHING REACTS TO IT (rf2-1frc).
+    ;; RECORDING THE CHANGE COMPLETES BEFORE ANYTHING REACTS TO IT.
     ;;
     ;; These two hook batches are not peers. `registration-hooks` finish
     ;; RECORDING what just happened — `re-frame.live-frame`'s
@@ -662,20 +653,20 @@
     ;; resolution — while `replacement-hooks` REACT to it, and the reaction that
     ;; matters here is `re-frame.subs.cache`'s cache invalidation.
     ;;
-    ;; They used to run in the other order, and nothing noticed while every
-    ;; invalidated consumer merely dropped its cache entry and rebuilt LATER,
-    ;; past the mark. Since rf2-1frc one rebuilds DURING the invalidation: the
-    ;; React-hook spine reacquires from inside the disposal so a mounted
-    ;; component follows its subscription across the eviction instead of going
-    ;; deaf. Reacquiring before the projection was marked dirty resolved the
-    ;; frame's STALE generation and rebuilt the entry against the very body the
-    ;; re-registration had just replaced — the hot-reload the invalidation
-    ;; exists to serve, defeated by the order in which it was announced.
+    ;; A consumer that merely drops its cache entry and rebuilds LATER, past
+    ;; the mark, cannot tell the two orders apart — but one rebuilds DURING the
+    ;; invalidation: the React-hook spine reacquires from inside the disposal
+    ;; so a mounted component follows its subscription across the eviction
+    ;; instead of going deaf. Reacquiring before the projection was marked
+    ;; dirty would resolve the frame's STALE generation and rebuild the entry
+    ;; against the very body the re-registration had just replaced — the
+    ;; hot-reload the invalidation exists to serve, defeated by the order in
+    ;; which it was announced.
     ;;
     ;; Marking is a flag plus a coalesced `next-tick` schedule (per-frame
     ;; conditional at flush time, so marking on every `reg-*` is safe by that
-    ;; hook's own contract), and both batches run ISOLATED, so the move changes
-    ;; no failure propagation. What it changes is that a reactor now observes a
+    ;; hook's own contract), and both batches run ISOLATED, so the order
+    ;; affects no failure propagation — only that a reactor observes a
     ;; fully-recorded world.
     (doseq [f @registration-hooks]
       (try (f {:kind kind :id id :was previous :now metadata})
@@ -754,10 +745,10 @@
     ;; The always-on registration hooks — fired on BOTH first-time and
     ;; re-registration so cross-id invariants (e.g. routing's `:url-bound?`
     ;; exclusivity per Spec 012 §Multi-frame routing) are validated at the
-    ;; moment of any registration — now run ABOVE, before the replacement
-    ;; hooks. See the rf2-1frc note there for why the order is load-bearing.
+    ;; moment of any registration — run ABOVE, before the replacement
+    ;; hooks. See the note there for why the order is load-bearing.
     ;; Both sites are after the resolver-map and source-store writes, so a hook
-    ;; still inspects the final registry state exactly as it always did.
+    ;; inspects the final registry state.
     {:was previous :now metadata}))
 
 (defn unregister!
@@ -772,14 +763,14 @@
     ;; the id wholesale; mirror that in the source store by forgetting every
     ;; provenance slot for `(kind, id)`.
     (rf.source-store/forget-id! kind id)
-    ;; rf2-h1vqa4: a removal is a source-store change — mark the live-frame
+    ;; A removal is a source-store change — mark the live-frame
     ;; projection dirty (late-bound; the register side rides the registration
     ;; hook, removals ride this) so default-image frames drop the cleared
     ;; handler at their next resolution rather than resolving a stale sealed
-    ;; generation. rf2-9c2jf: NOT gated on `rf.interop/debug-enabled?` — the
+    ;; generation. NOT gated on `rf.interop/debug-enabled?` — the
     ;; sealed generation is produced unconditionally by `make-frame`, so
-    ;; skipping the dirty mark in production left a cleared handler resolving
-    ;; forever out of a store that no longer backs it. Late-bound by keyword;
+    ;; skipping the dirty mark in production would leave a cleared handler
+    ;; resolving forever out of a store that no longer backs it. Late-bound by keyword;
     ;; unpublished (no frame ever constructed) means no-op.
     (when-let [mark-dirty! (rf.late-bind/get-fn :live-frame/mark-projection-dirty!)]
       (mark-dirty!))
@@ -817,7 +808,7 @@
     ;; source-store generation) to HIT and return a stale generation that still
     ;; resolves the just-cleared `(kind, id)`s.
     (rf.source-store/clear-kind! kind)
-    ;; rf2-h1vqa4 / rf2-9c2jf: same ungated removal dirty-mark as
+    ;; Same ungated removal dirty-mark as
     ;; `unregister!` (see there).
     (when-let [mark-dirty! (rf.late-bind/get-fn :live-frame/mark-projection-dirty!)]
       (mark-dirty!))
@@ -857,7 +848,7 @@
   ;; namespace-string pool) in lockstep with the process-default resolver map,
   ;; so a test fixture starts each case from a clean state on both surfaces.
   (rf.source-store/clear-all!)
-  ;; rf2-h1vqa4 / rf2-9c2jf: same ungated removal dirty-mark as `unregister!`
+  ;; Same ungated removal dirty-mark as `unregister!`
   ;; (see there).
   (when-let [mark-dirty! (rf.late-bind/get-fn :live-frame/mark-projection-dirty!)]
     (mark-dirty!))
@@ -898,13 +889,13 @@
 
   The GENERATION-ROUTED branch pays that cost anyway, and cannot avoid it here:
   the resolver is keyed by a `[kind id]` PAIR, so the routed lookup must build
-  one. Measured at ~98 B/call on the JVM (rf2-ezwnl). The remedy is to re-key
-  the resolver `{kind {id descriptor}}` so both branches read the same paired
+  one. Measured at ~98 B/call on the JVM. Re-keying the resolver
+  `{kind {id descriptor}}` would let both branches read the same paired
   `get` — but `:rf.gen/resolver`'s `{[kind id] descriptor}` shape is normative
   (Spec API.md §`frame-generation`, Conventions.md §`:rf.gen/*`) and is read as
   plain data by Xray, the Pair MCP runtime and Story, so that is a spec change
-  and not a local one. Until then this comment is the honest version of the
-  paragraph above: the paired-`get` claim covers ONE of the two branches."
+  and not a local one. So the paired-`get` claim above covers ONE of the two
+  branches."
   [kind id]
   (if-let [resolver (generation-resolver)]
     (get resolver [kind id])
@@ -980,9 +971,9 @@
 ;; is fragile in async CLJS (a binding does not survive a `go` block or a
 ;; callback), so the atom is read directly instead.
 ;;
-;; Before this pair existed, a tool that needed the process store from inside a
-;; frame-resolved context had no public door and reached into
-;; `kind->id->metadata` directly (Xray's deleted `host_registry.cljs`).
+;; This pair is the public door for a tool that needs the process store from
+;; inside a frame-resolved context, so no tool reaches into
+;; `kind->id->metadata` directly.
 
 (defn store-registrations
   "The `{id metadata}` map for `kind` in the process SOURCE STORE — the
