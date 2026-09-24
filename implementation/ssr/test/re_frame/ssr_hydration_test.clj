@@ -1,85 +1,52 @@
 (ns re-frame.ssr-hydration-test
-  "Per rf2-pxb7t · Wave 3 of rf2-tglku (Migration-Audit §ssr_basic).
-
-  The pre-migration Playwright spec at `testbeds/ssr_basic/spec.cjs`
-  drove the SSR hydration baseline through a real browser load: read
-  the baked `<script id=\"__rf_payload\">`, dispatch `:rf/hydrate`,
-  render, observe seeded state + post-hydrate dispatch interactivity
-  + the per-request `:rf/response` round-trip + trace-bus emission
-  patterns.
+  "The SSR hydration baseline on the JVM: the `testbeds/ssr_basic`
+  payload through `:rf/hydrate`, seeded state + post-hydrate dispatch
+  interactivity + the per-request `:rf/response` round-trip + trace-bus
+  emission patterns.
 
   Every load-bearing assertion is platform-neutral — the contract
   surface (the `:rf/hydrate` handler, the [:rf.runtime/ssr :hydration] metadata,
   the compatibility-check fxs, `verify-hydration!`, the
   `:rf/response` shape) lives in `re-frame.ssr.hydrate` and
-  surrounding sub-namespaces, which are `.cljc`. Per the migration
-  audit's (A) classification the 11 substantive assertions migrate
-  to this JVM test using the JVM SSR-test conventions
+  surrounding sub-namespaces, which are `.cljc` — so these tests use
+  the JVM SSR-test conventions
   (`tf/reset-runtime` + `rf/make-frame` + `rf/dispatch-sync` +
   `rf/subscribe-once` for synchronous reads).
 
-  ## Migration map (Migration-Audit.md §ssr_basic)
-
-    spec.cjs assertion #3 (hydrated = 'hydrated')
-      → hydration-baseline-replaces-app-db-and-stashes-metadata
-    spec.cjs #4 (count = '7' seeded)
-      → hydration-baseline-replaces-app-db-and-stashes-metadata
-    spec.cjs #5 (title = 'seeded')
-      → hydration-baseline-replaces-app-db-and-stashes-metadata
-    spec.cjs #6 (post-inc click: count = '8')
-      → hydration-baseline-post-hydrate-dispatch-mutates-seeded-db
-    spec.cjs #7 (post-set-title click: title = 'hydrated')
-      → hydration-baseline-post-hydrate-dispatch-mutates-seeded-db
-    spec.cjs #8-11 (resp-status/ct/cookies-count/cookie-name)
-      → hydration-baseline-rf-response-slice-round-trips-via-payload
-    spec.cjs #12 (version check silently matches the SSR pattern-protocol
-                  constant — no :rf.ssr/compatibility-check-skipped, since
-                  the version check reads the constant and never skips)
-      → hydration-baseline-version-matches-ssr-constant-silently
-    spec.cjs #13 (no :rf.ssr/hydration-mismatch on baseline)
-      → hydration-baseline-no-mismatch-trace-when-server-hash-nil
-
-  Assertions #1-#2 (`expectVisible(ssr-basic)` + `expectVisible(hydrated)`)
-  are pure DOM-mount probes — the Migration-Audit classifies them (C);
-  per the rf2-pxb7t bead the whole `spec.cjs` is dropped and those
-  two assertions retire alongside (substrate mount is already covered
-  by the 3 adapter smokes per the audit's §Drop-or-keep recommendation).
-
-  ## Posture split (rf2-lwtlk)
+  ## Posture split
 
   The hydration CONTRACT is production-real throughout and is asserted here
   without a posture guard: which slice replaces app-db, which is rejected,
   that a rejected payload leaves BOTH partitions untouched and stashes no
-  metadata, that the retired plain `:app-db` alias stays dead, that
-  `hydrate!` establishes frame scope for its `:render-tree-fn`. None of that
-  needed changing — it was already green under `-Dre-frame.debug=false`.
+  metadata, that there is no plain `:app-db` alias, that
+  `hydrate!` establishes frame scope for its `:render-tree-fn`. All of it
+  holds under `-Dre-frame.debug=false`.
 
-  What kept the namespace off `scripts/test-ssr-prod-gate.sh` is the
+  What is posture-dependent is the
   DIAGNOSTIC that accompanies each rejection. `:rf.error/malformed-hydration-
   payload`, `:rf.error/hydration-frame-id-mismatch`,
   `:rf.ssr/hydration-mismatch` and the `:rf.ssr/version-mismatch` family all
   emit behind `interop/debug-enabled?`, read once at namespace-load time, so
   under the gate the framework announces none of it. Fail-CLOSED is the
   contract; the trace is how a developer hears about it. Every such assertion
-  is kept VERBATIM inside a `(when interop/debug-enabled? …)` arm marked
-  `rf2-lwtlk`.
+  sits inside a `(when interop/debug-enabled? …)` arm marked as a
+  dev-instrumentation arm.
 
-  The larger half of this split is the NEGATIVE trace assertions, none of
-  which were failing — which is exactly why they had to move. A dozen
+  The larger half of this split is the NEGATIVE trace assertions, which
+  cannot fail under the gate — which is exactly why they sit there. A dozen
   `(is (not-any? … @traces))` / `(is (empty? (filter … @traces)))` forms say,
   variously, that the well-formed payload did NOT trip the malformed
   diagnostic, that matching hashes produced no mismatch, that the server-side
   gate emitted no skipped-on-platform warning. Under the gate the ring is
-  empty for every input, so each is satisfied without distinguishing the case
-  it exists to distinguish. They sit in the dev arms with their positive
-  counterparts.
+  empty for every input, so each would be satisfied without distinguishing
+  the case it exists to distinguish. They sit in the dev arms with their
+  positive counterparts.
 
-  Three claims were observable ONLY through the trace and got a
-  production-visible witness instead of being guarded away (the rf2-7vk3z
-  shape):
+  Three claims would be observable ONLY through the trace, so each has a
+  production-visible witness instead of being guarded away:
 
     - whether the `:rf.ssr/check-*` fxs were ENQUEUED. Both the server-side
-      skip and the client-side counter-test now re-register the two fx ids
+      skip and the client-side counter-test re-register the two fx ids
       with a recording stub and read the recorded dispatches directly. That
       is a stronger statement than either the absence of a
       `:rf.fx/skipped-on-platform` warning or the presence of a
@@ -91,9 +58,9 @@
       `hydrate.cljc` builds one shared payload for the trace and the throw
       alike. A nil server hash must not throw; a divergent hash must.
 
-  `b5-...` at the foot of the namespace was already posture-correct: it reads
+  `mismatch-always-on-record-redacts-sensitive-payload-frame-id` reads
   the ALWAYS-ON `:errors` axis and guards its dev-trace half with
-  `(when dev-trace …)`. It is the shape the rest of this file now follows."
+  `(when dev-trace …)`. It is the shape the rest of this file follows."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
@@ -109,11 +76,11 @@
 
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
-;; rf2-lwtlk — a production-visible probe for "were the compatibility-check
+;; A production-visible probe for "were the compatibility-check
 ;; fxs ENQUEUED?".  Re-registers the two `:rf.ssr/check-*` fx ids with a
 ;; DECORATOR that records the dispatch and then delegates to the real
-;; handler-fn, so the observation is additive: the checks still run and still
-;; emit their dev traces, and the deftests' dev arms keep asserting them.  The
+;; handler-fn, so the observation leaves the checks in place: they run and
+;; emit their dev traces, and the deftests' dev arms assert them.  The
 ;; `tf/reset-runtime` fixture restores the untouched registrations between
 ;; deftests.
 ;;
@@ -138,18 +105,16 @@
 
 ;; The payload the testbed's `<script id=\"__rf_payload\">` bakes verbatim
 ;; (testbeds/ssr_basic/index.html lines 58-73). Pinning the literal here
-;; keeps the JVM-side migration anchored to the wire shape the (now
-;; deleted) Playwright spec observed.
-;; rf2-nv3mua: NO `:rf/frame-id` key. The pre-fix literal stamped
-;; `:rf/frame-id :rf/default`, but these JVM tests dispatch the payload into a
-;; freshly-`make-frame`'d `client-frame` (NOT `:rf/default`). Now that the
-;; `:rf/hydrate` handler fails CLOSED on a present-and-different `:rf/frame-id`
-;; (the bug fix), a literal `:rf/default` stamp against a synthetic
+;; keeps these JVM tests anchored to the testbed's wire shape.
+;; NO `:rf/frame-id` key, unlike the testbed's `:rf/frame-id :rf/default`:
+;; these JVM tests dispatch the payload into a
+;; freshly-`make-frame`'d `client-frame` (NOT `:rf/default`), and the
+;; `:rf/hydrate` handler fails CLOSED on a present-and-different `:rf/frame-id`,
+;; so a literal `:rf/default` stamp against a synthetic
 ;; `client-frame` would (correctly) be rejected as a frame-id mismatch. An
 ;; absent `:rf/frame-id` is the documented no-conflict shape — the dispatch
 ;; target stands — which is what these baseline tests intend (the testbed
-;; itself hydrated `:rf/default` and matched; the synthetic-frame migration is
-;; what introduced the latent mismatch the bug had been masking). The frame-id
+;; itself hydrates `:rf/default` and matches). The frame-id
 ;; mismatch + match paths are covered explicitly by the dedicated tests below
 ;; and in ssr_hydration_mismatch_test.
 (def ^:private baseline-payload
@@ -179,7 +144,7 @@
   (rf/reg-sub :count       (fn [db _] (or (:count db) 0)))
   (rf/reg-sub :title       (fn [db _] (or (:title db) "untitled")))
   (rf/reg-sub :server-resp (fn [db _] (:server-response db)))
-  ;; EP-0001 (rf2-vzld77): the SSR hydration metadata is durable runtime-db
+  ;; EP-0001: the SSR hydration metadata is durable runtime-db
   ;; state, so :hydrated? is a runtime-db sub.
   (rf.subs/reg-runtime-sub :hydrated? (fn [rt _] (boolean (get-in rt [:rf.runtime/ssr :hydration])))))
 
@@ -197,12 +162,11 @@
     (update :rf/app-db assoc :server-response (:rf/response payload))))
 
 ;; ===========================================================================
-;; spec.cjs §(2)+(3) → hydrated marker + seeded state from payload
+;; hydrated marker + seeded state from payload
 ;; ===========================================================================
 
 (deftest hydration-baseline-replaces-app-db-and-stashes-metadata
-  (testing "Migrated from testbeds/ssr_basic/spec.cjs assertions #3-#5.
-            :rf/hydrate replaces app-db with the payload's :rf/app-db
+  (testing ":rf/hydrate replaces app-db with the payload's :rf/app-db
             (Spec 011 §The :rf/hydrate event — `:replace-app-db` policy),
             stashes the version + nil server-hash under
             [:rf.runtime/ssr :hydration],
@@ -224,25 +188,22 @@
       ;; Lock the [:rf.runtime/ssr :hydration] metadata shape (the
       ;; testbed's view doesn't read these slots, but downstream tooling
       ;; — Xray / the late-bind compatibility-check fxs — does).
-      ;; EP-0001 (rf2-vzld77): the hydration metadata is durable runtime-db state.
+      ;; EP-0001: the hydration metadata is durable runtime-db state.
       (let [rt (:rf.db/runtime (rf/frame-state-value client-frame))]
         (is (= 1 (get-in rt [:rf.runtime/ssr :hydration :version]))
             ":rf/version rides on the hydration metadata block")
         (is (not (contains? (get-in rt [:rf.runtime/ssr :hydration]) :server-hash))
-            "nil :rf/render-hash is pruned from the metadata block
-             (rf2-asmj1 Q9 / cluster rf2-sljs1)")))))
+            "nil :rf/render-hash is pruned from the metadata block")))))
 
 ;; ===========================================================================
-;; spec.cjs §(4) → reactive substrate is live post-hydrate
+;; reactive substrate is live post-hydrate
 ;; ===========================================================================
 
 (deftest hydration-baseline-post-hydrate-dispatch-mutates-seeded-db
-  (testing "Migrated from testbeds/ssr_basic/spec.cjs assertions #6-#7.
-            The post-hydrate dispatch path (event → db → sub) is live —
+  (testing "The post-hydrate dispatch path (event → db → sub) is live —
             ::inc bumps the seeded :count, ::set-title overwrites the
             seeded :title. Proves the six-domino loop survives the
-            hydration handoff intact (the testbed's Playwright spec
-            observed the same via DOM re-render; subscribe-once reads
+            hydration handoff intact (subscribe-once reads
             the post-drain app-db directly)."
     (register-baseline-handlers!)
     (let [client-frame (rf.frame/make-anon-frame-record! {:doc "ssr-basic client frame"
@@ -262,12 +223,11 @@
           "post-hydrate ::set-title overwrites the seeded :title"))))
 
 ;; ===========================================================================
-;; spec.cjs §(5) → per-request :rf/response slice round-trips through the payload
+;; per-request :rf/response slice round-trips through the payload
 ;; ===========================================================================
 
 (deftest hydration-baseline-rf-response-slice-round-trips-via-payload
-  (testing "Migrated from testbeds/ssr_basic/spec.cjs assertions #8-#11.
-            Per Spec 011 §The hydration payload: the payload may
+  (testing "Per Spec 011 §The hydration payload: the payload may
             carry an optional :rf/response slice (status, headers,
             cookies, redirect). The testbed's client-side
             `materialise-response` hoists it into app-db at
@@ -293,18 +253,17 @@
             "the cookie's :name slot round-trips verbatim")))))
 
 ;; ===========================================================================
-;; spec.cjs §(6) → version check silently matches the SSR constant (rf2-qfb1i)
+;; version check silently matches the SSR constant
 ;; ===========================================================================
 
 (deftest hydration-baseline-version-matches-ssr-constant-silently
-  (testing "Migrated from testbeds/ssr_basic/spec.cjs assertion #12, updated
-            for rf2-qfb1i (the late-bind version hook was removed; the SSR
-            artefact now owns the pattern-protocol version).
+  (testing "There is no late-bind version hook: the SSR artefact owns the
+            pattern-protocol version.
             The baseline payload ships :rf/version = the SSR artefact's
             compiled-in pattern-protocol constant, so the :rf.ssr/check-version
             fx the :rf/hydrate handler dispatches resolves the client-side
             'actual' from that SAME constant and silently matches — NO
-            :rf.ssr/compatibility-check-skipped (the former no-hook baseline)
+            :rf.ssr/compatibility-check-skipped
             and NO :rf.ssr/version-mismatch. Best-effort, degraded-but-running,
             never crash (Spec 011 §The :rf/hydrate event)."
     (register-baseline-handlers!)
@@ -317,7 +276,7 @@
           payload      (materialise-response baseline-payload)]
       (with-trace-recorder! [traces]
         (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
-        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). BOTH are
+        ;; Dev-instrumentation arm (see ns docstring). BOTH are
         ;; negatives over the trace ring: vacuous under the gate, where a
         ;; skewed version would look identical to a matching one.
         (when rf.interop/debug-enabled?
@@ -328,15 +287,11 @@
               "payload :rf/version == the SSR constant → silent match"))))))
 
 ;; ===========================================================================
-;; spec.cjs §(7) → NO mismatch trace on the baseline
-;; ===========================================================================
-
-;; ===========================================================================
-;; rf2-7bcn0 — server-side :rf/hydrate skips the client-only check fxs
+;; server-side :rf/hydrate skips the client-only check fxs
 ;; ===========================================================================
 
 (deftest hydration-on-server-platform-skips-client-only-check-fxs
-  (testing "Per rf2-7bcn0: when :rf/hydrate runs on a frame whose resolved
+  (testing "When :rf/hydrate runs on a frame whose resolved
             platform is :server (test harness, isomorphic loopback), the
             handler MUST NOT enqueue the :rf.ssr/check-version /
             :rf.ssr/check-schema-digest fxs. The fxs themselves carry
@@ -357,18 +312,18 @@
       (let [dispatched (record-check-fx-dispatches!)]
         (with-trace-recorder! [traces]
           (rf/dispatch-sync [:rf/hydrate payload] {:frame server-frame})
-          ;; SEMANTIC, posture-independent (rf2-lwtlk): the handler-level gate
-          ;; is a statement about the EFFECT QUEUE, so read the queue. The
-          ;; original assertion inferred it from the absence of a dev warning,
-          ;; which cannot tell "never enqueued" from "warning elided".
+          ;; SEMANTIC, posture-independent: the handler-level gate
+          ;; is a statement about the EFFECT QUEUE, so read the queue.
+          ;; Inferring it from the absence of a dev warning
+          ;; cannot tell "never enqueued" from "warning elided".
           (is (= [] @dispatched)
               (str "the handler enqueued NEITHER :rf.ssr/check-* fx on a "
                    ":server-platform :rf/hydrate; saw: " (pr-str @dispatched)))
-          ;; Sanity: the handler still landed the app-db swap + metadata —
+          ;; Sanity: the handler landed the app-db swap + metadata —
           ;; the gate skipped only the check-fx dispatches, not the rest.
           (is (= 7 (rf/subscribe-once [:count] {:frame server-frame}))
-              ":rf/app-db still applied on the server-side run")
-          ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
+              ":rf/app-db applied on the server-side run")
+          ;; Dev-instrumentation arm (see ns docstring).
           (when rf.interop/debug-enabled?
             (let [skipped-checks
                   (filter (fn [ev]
@@ -383,14 +338,14 @@
                                      skipped-checks)))))))))))
 
 (deftest hydration-on-client-platform-still-dispatches-check-fxs
-  (testing "Per rf2-7bcn0 (counter-test to the server-side skip): on a
-            :client-platform frame the handler MUST still enqueue the
-            check fxs so legitimate client-side mismatches surface. Updated
-            for rf2-qfb1i: the version check's client-side 'actual' is the
+  (testing "Counter-test to the server-side skip: on a
+            :client-platform frame the handler MUST enqueue the
+            check fxs so legitimate client-side mismatches surface. The
+            version check's client-side 'actual' is the
             SSR artefact's compiled-in constant, so a payload whose
             :rf/version DIFFERS from it emits :rf.ssr/version-mismatch —
             observable proof the :rf.ssr/check-version fx dispatched on the
-            client frame (the rf2-7bcn0 gate did NOT over-skip on :client).
+            client frame (the server-side gate did NOT over-skip on :client).
             Without this counter-assertion the server-side gate could
             silently strip the client code path."
     (register-baseline-handlers!)
@@ -404,18 +359,18 @@
       (let [dispatched (record-check-fx-dispatches!)]
         (with-trace-recorder! [traces]
           (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
-          ;; SEMANTIC, posture-independent (rf2-lwtlk): the counter-test's
-          ;; claim is that the rf2-7bcn0 server-side gate did NOT over-skip on
+          ;; SEMANTIC, posture-independent: the counter-test's
+          ;; claim is that the server-side gate did NOT over-skip on
           ;; :client — i.e. the fx was ENQUEUED. Read the effect queue, which
-          ;; says so directly and in both postures; the mismatch trace was
-          ;; only ever a proxy for it.
+          ;; says so directly and in both postures; the mismatch trace is
+          ;; only a proxy for it.
           (is (contains? (set (map first @dispatched)) :rf.ssr/check-version)
               (str "on :client the handler still enqueued :rf.ssr/check-version; "
                    "saw: " (pr-str @dispatched)))
           (is (= (inc rf.ssr.payload-policy/pattern-protocol-version)
                  (some (fn [[id v]] (when (= :rf.ssr/check-version id) v)) @dispatched))
               "…carrying the payload's skewed :rf/version as its argument")
-          ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
+          ;; Dev-instrumentation arm (see ns docstring).
           (when rf.interop/debug-enabled?
             (let [mismatch (filter #(= :rf.ssr/version-mismatch (:operation %)) @traces)]
               (is (seq mismatch)
@@ -424,8 +379,7 @@
                        "saw operations: " (pr-str (mapv :operation @traces)))))))))))
 
 (deftest hydration-baseline-no-mismatch-trace-when-server-hash-nil
-  (testing "Migrated from testbeds/ssr_basic/spec.cjs assertion #13.
-            Per Spec 011 §Hydration-mismatch detection:
+  (testing "Per Spec 011 §Hydration-mismatch detection:
             verify-hydration! short-circuits when the server hash is
             nil — there is nothing to compare against. No
             :rf.ssr/hydration-mismatch trace fires on the baseline
@@ -446,7 +400,7 @@
         ;; value (Spec 011 — `(when (and server-hash
         ;; client-hash ...) ...)` short-circuits).
         (rf.ssr/verify-hydration! client-frame "abcdef01")
-        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). A NEGATIVE
+        ;; Dev-instrumentation arm (see ns docstring). A NEGATIVE
         ;; over the trace ring, and this deftest's ONLY assertion: under the
         ;; gate it would have passed without the short-circuit existing.
         (when rf.interop/debug-enabled?
@@ -455,7 +409,7 @@
                    "hash was nil); saw: "
                    (pr-str (mapv :operation @traces))))))
 
-      ;; SEMANTIC, posture-independent (rf2-lwtlk): drive the SAME nil-server-
+      ;; SEMANTIC, posture-independent: drive the SAME nil-server-
       ;; hash condition on a frame that asks for `:ssr {:on-mismatch
       ;; :hard-error}`. A detected mismatch escalates to a throw — always-on,
       ;; since hydrate.cljc builds one shared payload for the trace and the
@@ -472,22 +426,21 @@
              :on-mismatch :hard-error has nothing to escalate")))))
 
 ;; ===========================================================================
-;; rf2-gro94 — fail CLOSED on a malformed / untrusted hydration payload
+;; fail CLOSED on a malformed / untrusted hydration payload
 ;; ===========================================================================
 ;;
 ;; The payload is a DESERIALISED, UNTRUSTED transport input (the server's
-;; `pr-str`'d EDN). `:replace-app-db` is the locked merge policy, so a
+;; `pr-str`'d EDN). `:replace-app-db` is the merge policy, so a
 ;; non-map payload — or a present-but-non-map app-db slice — would
-;; otherwise be installed as the ENTIRE client app-db (a fail-OPEN, the
-;; same class the schemas / routing sweeps closed). The handler now
-;; REJECTS it: existing app-db unchanged + a
+;; otherwise be installed as the ENTIRE client app-db (a fail-OPEN). The
+;; handler REJECTS it: existing app-db unchanged + a
 ;; `:rf.error/malformed-hydration-payload` diagnostic. This drives the
 ;; rejection through the REAL `dispatch-sync` router (end-to-end), the
 ;; companion to the direct-handler invariant in
 ;; `re-frame.security.fail-closed-invariant-security-cljs-test`.
 
 (deftest malformed-hydration-payload-fails-closed-through-router
-  (testing "rf2-gro94 — a non-map payload, or a present-but-non-map app-db
+  (testing "A non-map payload, or a present-but-non-map app-db
             slice, dispatched as [:rf/hydrate …] through the router does
             NOT replace app-db: the pre-hydration client state survives and
             a :rf.error/malformed-hydration-payload trace fires."
@@ -516,7 +469,7 @@
           (is (false? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
               (str (pr-str bad-payload)
                    " must NOT stash hydration metadata (rejected, not applied)"))
-          ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). FAIL
+          ;; Dev-instrumentation arm (see ns docstring). FAIL
           ;; CLOSED is the contract and is pinned by the three assertions
           ;; above, all posture-independent; the diagnostic is how a
           ;; developer learns which payload was rejected and why.
@@ -527,8 +480,8 @@
                      (pr-str (mapv :operation @traces))))))))))
 
 (deftest wellformed-hydration-payload-still-applies-through-router
-  (testing "rf2-gro94 — the fail-closed guard is precise: a well-formed
-            payload (map with a map :rf/app-db slice) still replaces app-db
+  (testing "The fail-closed guard is precise: a well-formed
+            payload (map with a map :rf/app-db slice) replaces app-db
             through the router, and a no-slice map payload preserves the
             existing client slice (the documented client-only fallback) —
             neither emits the malformed diagnostic."
@@ -540,7 +493,7 @@
                           {:frame client-frame})
         (is (= 7 (rf/subscribe-once [:count] {:frame client-frame})) "server slice installed")
         (is (= "seeded" (rf/subscribe-once [:title] {:frame client-frame})))
-        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
+        ;; Dev-instrumentation arm (see ns docstring). Vacuous
         ;; under the gate; the PRECISION this deftest is for — the payload
         ;; was accepted — is pinned by the installed slice above.
         (when rf.interop/debug-enabled?
@@ -553,31 +506,31 @@
         (rf/dispatch-sync [:rf/hydrate {:rf/version 1}] {:frame client-frame})
         (is (= "kept" (rf/subscribe-once [:title] {:frame client-frame}))
             "no-slice payload preserves the existing client slice")
-        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
+        ;; Dev-instrumentation arm (see ns docstring). Vacuous
         ;; under the gate.
         (when rf.interop/debug-enabled?
           (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
               "a no-slice map payload is the legitimate client-only fallback, not malformed"))))))
 
 ;; ===========================================================================
-;; rf2-g00l2t — fail CLOSED on a present-but-non-map :rf/runtime-db slice
+;; fail CLOSED on a present-but-non-map :rf/runtime-db slice
 ;; ===========================================================================
 ;;
-;; EP-0001 (rf2-vzld77): hydration installs a coherent FRAME-STATE —
+;; EP-0001: hydration installs a coherent FRAME-STATE —
 ;; `:rf/app-db` becomes the app-db partition AND `:rf/runtime-db` becomes
 ;; the runtime-db partition (machine snapshots, route slice, SSR metadata).
-;; Before rf2-g00l2t the guard validated ONLY the app-db slice; a present-
+;; A guard validating ONLY the app-db slice would silently coerce a present-
 ;; but-non-map `:rf/runtime-db` (a corrupt / hostile / version-skewed
-;; payload) was silently coerced to nil and dropped, then the handler still
-;; installed a new app-db + hydration metadata — a partial hydration that
+;; payload) to nil and drop it, then install a new app-db + hydration
+;; metadata anyway — a partial hydration that
 ;; violates the spec's coherent-frame-state, fail-closed boundary (Spec 011
 ;; §The :rf/hydrate event — "Both partitions validate fail-closed before
-;; installation"). The guard now rejects it the SAME way as a non-map
+;; installation"). The guard rejects it the SAME way as a non-map
 ;; app-db slice: both partitions left unchanged, no compatibility-check
 ;; fxs fire, and `:rf.error/malformed-hydration-payload` is emitted.
 
 (deftest non-map-runtime-db-slice-fails-closed-through-router
-  (testing "rf2-g00l2t — a payload carrying a present-but-non-map
+  (testing "A payload carrying a present-but-non-map
             :rf/runtime-db slice (even with a perfectly valid :rf/app-db)
             is REJECTED through the router: neither the app-db partition
             NOR the runtime-db partition changes, no hydration metadata is
@@ -627,7 +580,7 @@
             (is (false? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
                 (str (pr-str bad-rt)
                      " must NOT stash hydration metadata (rejected, not applied)"))
-            ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Both
+            ;; Dev-instrumentation arm (see ns docstring). Both
             ;; halves belong here: the malformed diagnostic FAILS under the
             ;; gate, and "no compatibility-check fxs on the rejected path" is
             ;; a negative over the same empty ring, so it would have PASSED
@@ -648,8 +601,8 @@
                        " must NOT fire compatibility-check fxs on the rejected path")))))))))
 
 (deftest wellformed-runtime-db-slice-still-installs-through-router
-  (testing "rf2-g00l2t — the runtime-db guard is precise: a well-formed map
-            :rf/runtime-db slice still installs the runtime-db partition
+  (testing "The runtime-db guard is precise: a well-formed map
+            :rf/runtime-db slice installs the runtime-db partition
             through the router, and a wholly-absent :rf/runtime-db key is
             the legitimate no-server-runtime fallback (neither is malformed)."
     (register-baseline-handlers!)
@@ -664,7 +617,7 @@
         (is (= 7 (rf/subscribe-once [:count] {:frame client-frame})) "app-db slice installed")
         (is (= {:route-id :home} (rf/subscribe-once [:route-current] {:frame client-frame}))
             "the runtime-db route slice rode the payload and installed")
-        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
+        ;; Dev-instrumentation arm (see ns docstring). Vacuous
         ;; under the gate; the installed route slice above is the acceptance.
         (when rf.interop/debug-enabled?
           (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
@@ -674,23 +627,22 @@
       (with-trace-recorder! [traces]
         (rf/dispatch-sync [:rf/hydrate {:rf/app-db {:count 3}}] {:frame client-frame})
         (is (= 3 (rf/subscribe-once [:count] {:frame client-frame})) "app-db slice installed")
-        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
+        ;; Dev-instrumentation arm (see ns docstring). Vacuous
         ;; under the gate.
         (when rf.interop/debug-enabled?
           (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
               "an absent :rf/runtime-db key is the no-server-runtime fallback, not malformed"))))))
 
 ;; ===========================================================================
-;; rf2-1qem4q — the retired plain :app-db hydration alias stays DEAD
+;; there is no plain :app-db hydration alias
 ;; ===========================================================================
 ;;
 ;; The hydrate handler reads ONLY `:rf/app-db` (re-frame.ssr.hydrate line
-;; `new-db (or (:rf/app-db payload) db)`). A plain `:app-db` key never had
-;; alias status here. This negative regression pins that: a future worker
-;; who reintroduced an `(:app-db payload)` fallback (the v1-era unqualified
-;; spelling) would turn this test red. Without it the current happy-path
-;; tests would stay green — none dispatch a `:app-db`-keyed payload — so the
-;; alias could silently come back. The asserted behaviour: under the
+;; `new-db (or (:rf/app-db payload) db)`). This negative test pins that an
+;; unqualified `:app-db` key is not an alias: an `(:app-db payload)`
+;; fallback (the v1-era unqualified spelling) would turn it red, while the
+;; happy-path tests — none of which dispatch an `:app-db`-keyed payload —
+;; would stay green. The asserted behaviour: under the
 ;; documented open-map / no-slice semantics, a `{:app-db {…}}` payload is an
 ;; UNKNOWN no-slice payload (the `:rf/app-db` key is absent, so app-db is
 ;; left unchanged), NOT an alias that replaces app-db. It is also not
@@ -698,9 +650,9 @@
 ;; legitimate client-only fallback shape.
 
 (deftest plain-app-db-key-is-not-a-hydration-alias
-  (testing "rf2-1qem4q — [:rf/hydrate {:app-db {…}}] must NOT replace app-db.
-            The handler reads only :rf/app-db; the unqualified :app-db key is
-            a retired alias that stays dead. It behaves as an unknown no-slice
+  (testing "[:rf/hydrate {:app-db {…}}] must NOT replace app-db.
+            The handler reads only :rf/app-db; there is no unqualified
+            :app-db alias. It behaves as an unknown no-slice
             payload (app-db unchanged, client-only fallback), not as an alias."
     (register-baseline-handlers!)
     (let [client-frame (rf.frame/make-anon-frame-record! {:doc "alias-dead client frame"
@@ -714,16 +666,16 @@
           [:rf/hydrate {:app-db {:count 99 :title "legacy"}}]
           {:frame client-frame})
         (is (= 1 (rf/subscribe-once [:count] {:frame client-frame}))
-            "the plain :app-db key did NOT replace :count (alias stays dead —
+            "the plain :app-db key did NOT replace :count (there is no alias —
              the 99 from {:app-db {…}} must not land)")
         (is (= "pre-hydration" (rf/subscribe-once [:title] {:frame client-frame}))
-            "the plain :app-db key did NOT replace :title (alias stays dead —
+            "the plain :app-db key did NOT replace :title (there is no alias —
              \"legacy\" must not land)")
         (is (false? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
             "no hydration metadata stashed — the :rf/render-hash / :rf/version
              keys are absent, so the no-slice payload installs no metadata")
-        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
-        ;; under the gate; the alias-stays-dead claim is pinned by the three
+        ;; Dev-instrumentation arm (see ns docstring). Vacuous
+        ;; under the gate; the no-alias claim is pinned by the three
         ;; posture-independent assertions above.
         (when rf.interop/debug-enabled?
           (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
@@ -732,7 +684,7 @@
                    (pr-str (mapv :operation @traces)))))))))
 
 ;; ===========================================================================
-;; rf2-lq2ou — client-side hydration boot helper (ssr/hydrate!)
+;; client-side hydration boot helper (ssr/hydrate!)
 ;;
 ;; The symmetric client-side counterpart of `re-frame.ssr.ring/ssr-handler`.
 ;; `hydrate!` fuses the read → dispatch `:rf/hydrate` → `verify-hydration!`
@@ -756,7 +708,7 @@
     policy-opts))
 
 (deftest boot-hydrate-round-trips-server-payload-into-app-db
-  (testing "rf2-lq2ou: ssr/hydrate! with an explicit :payload dispatches
+  (testing "ssr/hydrate! with an explicit :payload dispatches
             :rf/hydrate against the target client frame, and a post-hydrate
             sub reflects the seeded slice — the server-build → hydrate! →
             sub round-trip. hydrate! returns the applied payload."
@@ -767,7 +719,7 @@
           ;; slice via the same payload-policy path the Ring adapter uses.
           server-app-db {:count 7 :title "seeded"
                          :server-only/auth "SECRET"}
-          ;; EP-0002 (rf2-acjknb): the server stamps the payload's
+          ;; EP-0002: the server stamps the payload's
           ;; :rf/frame-id with the SAME frame the client hydrates into, and
           ;; hydrate! VALIDATES the two agree. Build the payload under
           ;; `client-frame` so server + client carry one frame stamp.
@@ -793,7 +745,7 @@
            thus out of the hydrated client app-db"))))
 
 (deftest boot-hydrate-nil-payload-is-client-only-noop
-  (testing "rf2-lq2ou: ssr/hydrate! with no payload (nil — the client-only
+  (testing "ssr/hydrate! with no payload (nil — the client-only
             first-load shape) does NOT dispatch :rf/hydrate and returns
             nil. The caller renders against the empty app-db."
     (register-baseline-handlers!)
@@ -808,11 +760,10 @@
           "app-db is the empty default; the :count sub's fallback applies"))))
 
 (deftest boot-hydrate-verify-step-fires-mismatch-on-divergent-render
-  (testing "rf2-lq2ou: hydrate!'s VERIFY step runs verify-hydration!
+  (testing "hydrate!'s VERIFY step runs verify-hydration!
             against the :render-tree-fn SYNCHRONOUSLY, immediately after
             dispatching :rf/hydrate and before any host render (the
-            seed-and-synchronously-compute-tree contract — rf2-3w6dmy
-            finding 1). When the client render-tree hash != the server hash
+            seed-and-synchronously-compute-tree contract). When the client render-tree hash != the server hash
             carried on the payload, :rf.ssr/hydration-mismatch fires — the
             boot helper wires mismatch detection symmetric with the
             server's :render-hash marker."
@@ -823,7 +774,7 @@
                                        :ssr {:detect-mismatch? true}})
           ;; Server hash is a DELIBERATELY divergent value so the verify
           ;; step's comparison fails — proving the verify step actually ran.
-          ;; EP-0002 (rf2-acjknb): payload :rf/frame-id == the client target.
+          ;; EP-0002: payload :rf/frame-id == the client target.
           payload       (build-server-payload
                           client-frame {:count 7 :title "seeded"}
                           "server00"                 ;; != the client tree hash
@@ -833,14 +784,14 @@
           {:frame          client-frame
            :payload        payload
            :render-tree-fn (fn [] [:div.app [:span "client-render"]])})
-        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
+        ;; Dev-instrumentation arm (see ns docstring).
         (when rf.interop/debug-enabled?
           (is (some #(= :rf.ssr/hydration-mismatch (:operation %)) @traces)
               (str "verify step fired a :rf.ssr/hydration-mismatch (server hash "
                    "'server00' != client render-tree hash); saw: "
                    (pr-str (mapv :operation @traces))))))
 
-      ;; SEMANTIC, posture-independent (rf2-lwtlk): "the boot helper wires
+      ;; SEMANTIC, posture-independent: "the boot helper wires
       ;; mismatch detection" is the claim, and it has an always-on channel.
       ;; Run the SAME divergent-hash boot on a frame carrying
       ;; `:ssr {:on-mismatch :hard-error}`: hydrate! must escalate, and the
@@ -873,7 +824,7 @@
              :render-tree-fn returned, so the verify step really rendered")))))
 
 (deftest boot-hydrate-verify-step-silent-on-matching-render
-  (testing "rf2-lq2ou: when the client render-tree hash MATCHES the server
+  (testing "When the client render-tree hash MATCHES the server
             hash, the verify step is silent — no spurious mismatch on a
             successful hydration. Counter-test to the divergent-render case
             so the verify step can't be a false-positive generator."
@@ -885,7 +836,7 @@
           ;; Compute the server hash from the SAME tree so the round-trip
           ;; hashes agree — the happy path.
           matched-hash  (rf.ssr/render-tree-hash client-tree)
-          ;; EP-0002 (rf2-acjknb): payload :rf/frame-id == the client target.
+          ;; EP-0002: payload :rf/frame-id == the client target.
           payload       (build-server-payload
                           client-frame {:count 7 :title "seeded"}
                           matched-hash
@@ -895,18 +846,18 @@
           {:frame          client-frame
            :payload        payload
            :render-tree-fn (fn [] client-tree)})
-        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). A NEGATIVE
+        ;; Dev-instrumentation arm (see ns docstring). A NEGATIVE
         ;; over the trace ring: vacuous under the gate, where a DIVERGENT
         ;; render would look identical to a matching one.
         (when rf.interop/debug-enabled?
           (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %)) @traces)
               (str "matching hashes → no :rf.ssr/hydration-mismatch; saw: "
                    (pr-str (mapv :operation @traces)))))
-        ;; Sanity: the seed still landed (the verify step doesn't gate hydrate).
+        ;; Sanity: the seed landed (the verify step doesn't gate hydrate).
         (is (= 7 (rf/subscribe-once [:count] {:frame client-frame}))
-            ":rf/hydrate still applied the seeded slice"))
+            ":rf/hydrate applied the seeded slice"))
 
-      ;; SEMANTIC, posture-independent (rf2-lwtlk): the false-positive guard
+      ;; SEMANTIC, posture-independent: the false-positive guard
       ;; this deftest exists to be needs an always-on channel too. Same
       ;; matching-hash boot on an `:on-mismatch :hard-error` frame: it must
       ;; NOT throw, which the divergent case above proves it would.
@@ -926,7 +877,7 @@
              :hard-error — the verify step is not a false-positive generator")))))
 
 (deftest boot-hydrate-scopes-render-tree-fn-to-target-frame
-  (testing "rf2-0vk7b: hydrate! calls :render-tree-fn UNDER the target frame's
+  (testing "hydrate! calls :render-tree-fn UNDER the target frame's
             scope. The documented client-boot idiom
             `(fn [] ((rf/view :app/root)))` computes the tree by CALLING a
             registered view whose reg-view-injected `subscribe` resolves the
@@ -934,11 +885,10 @@
             render-tree-fn reads an AMBIENT frame-scoped subscription directly
             (`subscribe-once`, the same require-current-frame! resolution path).
 
-            Before the fix hydrate! ran render-tree-fn OUTSIDE any with-frame, so
-            the ambient read raised :rf.error/no-frame-context and client boot
-            aborted (mirroring the example/docstring symptom). After the fix
-            hydrate! pins the resolved frame around the call, the read resolves,
-            and the verify step runs — a divergent server hash fires
+            Running render-tree-fn OUTSIDE any with-frame would make the
+            ambient read raise :rf.error/no-frame-context and abort client
+            boot. hydrate! pins the resolved frame around the call, so the
+            read resolves and the verify step runs — a divergent server hash fires
             :rf.ssr/hydration-mismatch, proving the subscribing tree actually
             computed under scope."
     (register-baseline-handlers!)
@@ -952,7 +902,7 @@
           ;; The unwrapped idiom, distilled: reads an AMBIENT frame-scoped
           ;; subscription (exactly what a reg-view's injected `subscribe` does),
           ;; so it can ONLY succeed if hydrate! provides the frame scope.
-          ;; rf2-lwtlk — count the invocations so "it ran under frame scope"
+          ;; Count the invocations so "it ran under frame scope"
           ;; is witnessed positively rather than inferred from the absence of
           ;; a throw.
           render-tree-fn-calls (atom 0)
@@ -963,8 +913,8 @@
         ;; Simulate the BROWSER's client-boot condition: no ambient frame. The
         ;; ssr test fixture otherwise pins `*current-frame*` to `:rf/default`
         ;; (`test_fixture.clj` — the carried-invariant equivalent of wrapping
-        ;; every test in `(with-frame :rf/default …)`), which would MASK this bug
-        ;; by resolving the subscribe to `:rf/default`. `run`/`^:export run` in a
+        ;; every test in `(with-frame :rf/default …)`), which would MASK a
+        ;; missing scope by resolving the subscribe to `:rf/default`. `run`/`^:export run` in a
         ;; browser has no such scope, so unbind it here — only then does the
         ;; unwrapped render-tree-fn face the real no-frame-context condition.
         (binding [rf.frame/*current-frame* nil]
@@ -975,7 +925,7 @@
                 "hydrate! completed — the subscribing render-tree-fn did NOT
                  raise :rf.error/no-frame-context (it ran under the target frame
                  scope hydrate! established)")
-            ;; SEMANTIC, posture-independent (rf2-lwtlk): the render-tree-fn
+            ;; SEMANTIC, posture-independent: the render-tree-fn
             ;; was actually INVOKED. `(some? returned)` alone would also hold
             ;; if hydrate! had skipped the verify step entirely and so never
             ;; needed a frame scope — the exact regression this deftest
@@ -983,7 +933,7 @@
             (is (= 1 @render-tree-fn-calls)
                 "hydrate! invoked :render-tree-fn exactly once, under the
                  target frame's scope")
-            ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
+            ;; Dev-instrumentation arm (see ns docstring).
             (when rf.interop/debug-enabled?
               (is (some #(= :rf.ssr/hydration-mismatch (:operation %)) @traces)
                   (str "verify ran the subscribing render-tree-fn under frame scope "
@@ -991,13 +941,13 @@
                        (pr-str (mapv :operation @traces)))))))))))
 
 ;; ===========================================================================
-;; rf2-acjknb — EP-0002: hydrate! requires :frame; payload :rf/frame-id is
+;; EP-0002: hydrate! requires :frame; payload :rf/frame-id is
 ;; VALIDATED against the explicit target (no :rf/default-from-absence, no
 ;; silent side-pick on a frame-id conflict).
 ;; ===========================================================================
 
 (deftest boot-hydrate-absent-frame-raises-no-frame-context
-  (testing "rf2-acjknb (EP-0002): the client hydration target is carried —
+  (testing "EP-0002: the client hydration target is carried —
             :frame is REQUIRED. Calling hydrate! with no :frame raises
             :rf.error/no-frame-context rather than synthesising :rf/default.
             The malformed-payload guard never runs (the absence fails first
@@ -1011,7 +961,7 @@
           "an absent :frame surfaces :rf.error/no-frame-context"))))
 
 (deftest boot-hydrate-frame-id-mismatch-raises-structured-error
-  (testing "rf2-acjknb (EP-0002): the payload's :rf/frame-id is validated
+  (testing "EP-0002: the payload's :rf/frame-id is validated
             against the explicit :frame target. A present-and-different
             frame-id (the server rendered under a DIFFERENT frame than the
             client is installing into) raises a structured
@@ -1041,7 +991,7 @@
           "the mismatch is surfaced before the app-db replace; no slice landed"))))
 
 (deftest boot-hydrate-absent-payload-frame-id-no-conflict
-  (testing "rf2-acjknb (EP-0002): a payload carrying NO :rf/frame-id is not a
+  (testing "EP-0002: a payload carrying NO :rf/frame-id is not a
             conflict — there is nothing to disagree with, so the explicit
             client target stands and hydration proceeds normally."
     (register-baseline-handlers!)
@@ -1055,7 +1005,7 @@
           "the seeded slice landed — an absent payload :rf/frame-id is no conflict"))))
 
 ;; ===========================================================================
-;; rf2-nv3mua — the :rf/hydrate HANDLER enforces frame-id validation too, so
+;; the :rf/hydrate HANDLER enforces frame-id validation too, so
 ;; the direct-dispatch split path (`hydrate!`'s documented post-mount-verify
 ;; escape hatch) cannot bypass it. `hydrate!` validates+throws pre-dispatch
 ;; (covered above); these cover the handler boundary reached by a direct
@@ -1063,12 +1013,12 @@
 ;; ===========================================================================
 
 (deftest direct-dispatch-frame-id-mismatch-fails-closed
-  (testing "rf2-nv3mua: a direct dispatch of [:rf/hydrate payload] whose
+  (testing "A direct dispatch of [:rf/hydrate payload] whose
             present :rf/frame-id names a DIFFERENT frame than the dispatch
             target leaves app-db AND runtime-db unchanged and emits
             :rf.error/hydration-frame-id-mismatch — the handler will not
             silently install a server slice rendered for another frame.
-            This is the bypass the bead names: hydrate! throws pre-dispatch,
+            This is the bypass the handler check closes: hydrate! throws pre-dispatch,
             but a direct dispatch hits ONLY the handler."
     (register-baseline-handlers!)
     (let [client-frame (rf.frame/make-anon-frame-record! {:doc "nv3mua direct-dispatch client"
@@ -1095,12 +1045,13 @@
           (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value client-frame))
                             [:rf.runtime/machines :snapshots]))
               "the payload's runtime-db slice did NOT land — runtime-db untouched")
-          ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). The
+          ;; Dev-instrumentation arm (see ns docstring). The
           ;; BYPASS this deftest names — a direct dispatch reaching only the
           ;; handler — is closed by the four partition assertions above, all
           ;; posture-independent. The always-on fan-out of this same category
-          ;; is pinned on the `:errors` axis by the b5- deftest below, which
-          ;; has been green under the gate throughout.
+          ;; is pinned on the `:errors` axis by
+          ;; `mismatch-always-on-record-redacts-sensitive-payload-frame-id`
+          ;; below, which holds under the gate.
           (when rf.interop/debug-enabled?
             ;; the structured mismatch surfaced, carrying the two frames.
             (let [mismatch (first (filter #(= :rf.error/hydration-frame-id-mismatch
@@ -1116,7 +1067,7 @@
                     ":payload-frame-id is the payload's (server) frame stamp")))))))))
 
 ;; ===========================================================================
-;; rf2-7qbxbm / rf2-mrtis6 census B5 — the always-on corpus leg of the
+;; The always-on corpus leg of the
 ;; frame-id-mismatch rejection routes the UNTRUSTED deserialised
 ;; :payload-frame-id through project-egress, so a frame that declares it
 ;; sensitive does NOT ship it raw to off-box corpus listeners (Sentry /
@@ -1124,20 +1075,19 @@
 ;; ===========================================================================
 
 (deftest mismatch-always-on-record-redacts-sensitive-payload-frame-id
-  (testing "rf2-7qbxbm/B5: when the rejected frame declares the
+  (testing "When the rejected frame declares the
             :payload-frame-id path :sensitive, the ALWAYS-ON corpus record
             (the production-surviving off-box-shipper leg) carries the value
             REDACTED — it routes through project-egress — even though the dev
             trace keeps it raw. The sensitive deserialised payload value never
             fans out to a corpus listener raw."
     (register-baseline-handlers!)
-    ;; EP-0025 B4-ssr follow-on (rf2-ux7983): the rejected client frame declares
-    ;; the untrusted `:payload-frame-id` slot :sensitive through the post-purge
-    ;; mechanism — a B3 COMMIT-PLANE `:sensitive` effect the frame's init event
+    ;; EP-0025: the rejected client frame declares
+    ;; the untrusted `:payload-frame-id` slot :sensitive through
+    ;; a B3 COMMIT-PLANE `:sensitive` effect the frame's init event
     ;; returns alongside `:db` (EP-0025 §How it works / §Examples) — writing it
     ;; into the per-frame `[:rf.runtime/elision]` registry. So project-egress
-    ;; redacts it on the off-box leg, replacing the retired
-    ;; `:sensitive {:app-db}` durable annotation (deleted by the B1b purge).
+    ;; redacts it on the off-box leg.
     (rf/reg-event :rf.b5/classify
       (fn [_ _] {:sensitive [[:payload-frame-id]]}))
     (let [;; the rejected client frame declares the untrusted payload slot
@@ -1187,7 +1137,7 @@
           (rf.error-emit/unregister-error-listener! ::b5-corpus))))))
 
 (deftest direct-dispatch-matching-frame-id-hydrates-normally
-  (testing "rf2-nv3mua: a direct dispatch whose :rf/frame-id MATCHES the
+  (testing "A direct dispatch whose :rf/frame-id MATCHES the
             dispatch target installs the slice normally (the validation is
             precise — it rejects only present-and-DIFFERENT, never a match)."
     (register-baseline-handlers!)
@@ -1208,7 +1158,7 @@
           "hydration metadata stashed — the hydrate proceeded"))))
 
 (deftest direct-dispatch-absent-frame-id-hydrates-normally
-  (testing "rf2-nv3mua: a direct dispatch whose payload carries NO
+  (testing "A direct dispatch whose payload carries NO
             :rf/frame-id is no conflict — the dispatch target stands and the
             slice installs (the documented client-only / no-server-slice
             fallback shape). This is the path the baseline tests rely on."
@@ -1224,13 +1174,13 @@
           "absent frame-id → :title seeded"))))
 
 (deftest boot-hydrate-render-tree-fn-is-synchronous-and-post-seed
-  (testing "rf2-3w6dmy finding 1: hydrate!'s VERIFY contract is
+  (testing "hydrate!'s VERIFY contract is
             seed-and-synchronously-compute-tree — :render-tree-fn is called
             SYNCHRONOUSLY, BEFORE hydrate! returns, and AFTER :rf/hydrate
             seeded app-db (so the pure client tree it computes reflects the
             hydrated slice). It is NOT a post-mount/post-render callback: no
-            host render happens between :rf/hydrate and the call. This locks
-            the chosen contract in maintainer-visible terms."
+            host render happens between :rf/hydrate and the call. This pins
+            the contract in maintainer-visible terms."
     (register-baseline-handlers!)
     (let [client-frame (rf.frame/make-anon-frame-record! {:doc "boot-helper sync-contract frame"
                                        :platform :client
@@ -1238,9 +1188,9 @@
           ;; Records WHEN render-tree-fn ran + WHAT app-db it saw.
           called?       (atom false)
           seen-count    (atom ::not-called)
-          ;; EP-0002 (rf2-acjknb): stamp the payload's :rf/frame-id with the
+          ;; EP-0002: stamp the payload's :rf/frame-id with the
           ;; SAME frame the client hydrates into, so the carried-frame
-          ;; validation agrees (a :rf/default stamp would now raise
+          ;; validation agrees (a :rf/default stamp would raise
           ;; :rf.error/hydration-frame-id-mismatch against client-frame).
           payload       (build-server-payload
                           client-frame {:count 11 :title "seeded"}
