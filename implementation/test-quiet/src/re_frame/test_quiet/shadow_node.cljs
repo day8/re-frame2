@@ -36,7 +36,7 @@
   install a recording shim, run the body, then restore.  When our stub
   is in place, the saved value IS the stub; the recording shim still
   receives the calls; the restored value reverts to the stub.  Net
-  effect: in-test capture works unchanged; out-of-test side-effect
+  effect: in-test capture is unaffected; out-of-test side-effect
   warnings are buffered (replayed on red, dropped on green)."
   {:dev/always true}
   (:require
@@ -116,8 +116,8 @@
 
 ;; ----------------------------------------------------------------------
 ;; The single override shadow.test.node ships — exit the node process
-;; with the appropriate code.  Stays here because removing it would
-;; break CI's pass/fail signal.  On a RED run we first replay any
+;; with the appropriate code.  CI's pass/fail signal depends on it.
+;; On a RED run we first replay any
 ;; buffered `console.warn` diagnostics (the green-path stub withheld
 ;; them) so a failing run keeps the context that may explain it.
 ;;
@@ -140,7 +140,7 @@
 ;; `re-frame.test-quiet-shadow-node-cljs-test`: one buffers a warning whose
 ;; printing throws, the other replaces this defmethod with a no-op so the run
 ;; drains on the seeded code.  Removing either safeguard reds its own row and
-;; only that row (rf2-6r9j.89).
+;; only that row.
 
 (defmethod ct/report [:cljs.test/default :end-run-tests] [summary]
   (if (ct/successful? summary)
@@ -186,9 +186,9 @@
 
   The selection RULE deliberately does NOT live here.  No test can require
   this ns (`:dev/always` + the test-ns-enumeration macro is a compile cycle),
-  so a rule kept here could only ever be pinned by a second copy of itself —
-  and that copy drifted silently for as long as it existed (rf2-6r9j.76).
-  What stays here is the registry lookup the cycle actually forces."
+  so a rule placed here could only ever be pinned by a second copy of
+  itself, and a second copy drifts silently.  What lives here is the
+  registry lookup the cycle actually forces."
   [test-selectors]
   (rf.test-quiet.shadow-node-cli/select-matching-test-vars test-selectors (env/get-test-vars)))
 
@@ -237,7 +237,7 @@
                       " configuration error, not a pass: a renamed test file,"
                       " a one-character suffix drift, or a dropped"
                       " :source-paths entry empties a lane silently"
-                      " (rf2-qqzmf)."))
+                      "."))
         (js/process.exit 1)
         true)
 
@@ -293,7 +293,7 @@
       :else
       ;; Whole-suite path. `run-all-tests` over an empty test-var set reports
       ;; a 0-test success exactly as `run-test-vars` does, so it gets the same
-      ;; guard the `--test=` branch above has had all along (rf2-qqzmf).
+      ;; guard as the `--test=` branch above.
       (when-not (reject-below-test-floor! (resolve-min-tests)
                                           (count (env/get-test-vars)))
         (seed-failure-exit!)
