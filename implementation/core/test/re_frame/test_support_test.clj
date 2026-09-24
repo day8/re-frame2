@@ -1,13 +1,12 @@
 (ns re-frame.test-support-test
-  "Coverage for the public test-flavoured helpers landed under rf2-0l3s
-  (resolves rf2-hkr5; renamed under rf2-8j9m6):
+  "Coverage for the public test-flavoured helpers:
 
     - assert-path-equals
 
-  Plus rf2-j9phb (TE-R2.2): explicit hook-cascade coverage for
-  `make-reset-runtime-fixture` — pins that every row in the late-bind
-  reset-hook-table is fired exactly once per fixture invocation, so a
-  future refactor that drops a row breaks loudly rather than silently.
+  Plus explicit hook-cascade coverage for `make-reset-runtime-fixture` —
+  pins that every row in the late-bind reset-hook-table fires the
+  documented number of times per fixture invocation, so a change that
+  drops a row breaks loudly rather than silently.
 
   The fixture machinery (snapshot-registrar / restore-registrar! /
   make-reset-runtime-fixture) is exercised transitively by the rest of the
@@ -37,7 +36,7 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
-  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
+  ;; EP-0002: `init!` does not synthesise `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
@@ -71,7 +70,7 @@
   (rf/reg-event :counter/add
     (fn [{:keys [db]} [_ amt]] {:db (update db :n + amt)})))
 
-;; ---- assert-path-equals (rf2-8j9m6) ---------------------------------------
+;; ---- assert-path-equals ---------------------------------------------------
 
 (deftest assert-path-equals-pass
   (register-counter-handlers!)
@@ -103,14 +102,13 @@
       (is (= [:pass :pass] outcomes)
           ":rf/default and the named frame each carry their own state"))))
 
-;; ---- rf2-j9phb (TE-R2.2) — make-reset-runtime-fixture hook-cascade coverage ----
+;; ---- make-reset-runtime-fixture hook-cascade coverage --------------------------
 ;;
 ;; The fixture's per-test reset drives an inline table
 ;; (`test_support.cljc/reset-hook-table`) of late-bind hook keys
-;; across two phases (`:pre-dispose` and `:post-dispose`). The pure-shape
-;; refactor that landed via rf2-d7vw8 made the call-set explicit — but
-;; the call-set is still implicit: a future change that drops a row
-;; silently breaks the contract that "no hook gets dropped". This test
+;; across two phases (`:pre-dispose` and `:post-dispose`). The table makes
+;; the call-set explicit, but nothing else checks it: a change that drops a
+;; row would silently break the contract that "no hook gets dropped". This test
 ;; pins the contract by REPLACING each registered hook with a counting
 ;; sentinel, running one fixture invocation, and asserting each
 ;; sentinel fired exactly once.
@@ -128,11 +126,11 @@
 ;;   4. Assert each counter is exactly 1.
 ;;   5. Restore the late-bind atom from the snapshot.
 ;;
-;; Why this exists per round-2 audit rf2-byut1 §TE-R2.2: the existing
-;; test suite exercises the fixture transitively (50+ test files use
-;; `use-fixtures :each`), so a dropped hook would eventually surface
-;; as cross-test pollution. But that's a noisy long-range signal;
-;; this test catches the regression at the immediate seam.
+;; Why this exists: the rest of the test suite exercises the fixture
+;; transitively (through `use-fixtures :each`), so a dropped hook would
+;; eventually surface as cross-test pollution. But that's a noisy
+;; long-range signal; this test catches a dropped hook at the immediate
+;; seam.
 
 (def ^:private reset-hook-expected-counts
   "Per-fixture-invocation call count for every reset-hook-table key.
@@ -143,21 +141,20 @@
 
   `:flows/reset-flows!` is the documented exception: it fires twice —
   once mid-body (via `:pre-dispose`) and once in the `finally` block,
-  per the fixture docstring step 10 (\"Resets `rf.frame/frames` back to
-  `{}` for symmetry, and (when their artefacts are loaded) the flows
-  registry and `rf.schemas/schemas-by-frame`\"). The two-fire shape is
-  load-bearing — symmetric pre-test and post-test reset so a failing
-  test leaves no residue for the next. Pin the count here so a
-  refactor that drops EITHER call site (or unifies them into one) is
-  surfaced as a regression."
+  per the fixture docstring's post-test step that resets `rf.frame/frames`
+  back to `{}` for symmetry along with the flows registry. The two-fire
+  shape is load-bearing — symmetric pre-test and post-test reset so a
+  failing test leaves no residue for the next. Pinning the count here
+  means a change that drops EITHER call site (or unifies them into one)
+  fails this test."
   {:flows/reset-flows!              2  ;; pre + finally (symmetry)
    :schemas/clear-by-frame!         1
    :machines/reset-timers!          1
    :routing/reset-counters!         1
-   :routing/reset-nav-counters!     1  ;; rf2-oosjmh — host-side counters
-   :resources/reset-resources!      1  ;; rf2-yuc8o0 — host-side resources state
+   :routing/reset-nav-counters!     1  ;; host-side counters
+   :resources/reset-resources!      1  ;; host-side resources state
    :http/clear-all-in-flight!       1
-   :http/clear-all-http-interceptors! 1  ;; rf2-q14tde — interceptor-chain reset
+   :http/clear-all-http-interceptors! 1  ;; interceptor-chain reset
    :epoch/clear-history!            1
    :epoch/clear-epoch-listeners!          1
    :epoch/reset-config!             1
@@ -167,7 +164,7 @@
   (testing "every row in reset-hook-table fires the documented number of
             times per fixture call — once for most, twice for
             `:flows/reset-flows!` (pre-test + finally symmetry per the
-            fixture docstring step 10)"
+            fixture docstring's post-test frames/flows reset)"
     (let [snapshot      @rf.late-bind/hooks
           call-counts   (atom (zipmap (keys reset-hook-expected-counts)
                                       (repeat 0)))
@@ -219,15 +216,12 @@
                            (fn [] (swap! order conj :pre)))
         (rf.late-bind/set-fn! :epoch/clear-history!
                            (fn [] (swap! order conj :post)))
-        ;; The adapter's dispose call lands between the two phases —
-        ;; we don't have a clean late-bind hook on dispose itself, so
-        ;; instead we register a one-shot watch on the adapter atom:
-        ;; install + the immediate dispose flips the value twice.
-        ;; Simpler: just observe the two flows reset calls (pre-test +
-        ;; finally) on `:flows/reset-flows!` themselves and assert
-        ;; `:pre` and `:post` interleave the way the docstring
-        ;; describes — `:epoch/clear-history!` runs AFTER the first
-        ;; flows reset and BEFORE the finally flows reset.
+        ;; The adapter's dispose call lands between the two phases, but
+        ;; there is no late-bind hook on dispose itself, so observe the
+        ;; two flows reset calls (pre-test + finally) on
+        ;; `:flows/reset-flows!` and assert `:pre` and `:post` interleave
+        ;; the way the docstring describes — `:epoch/clear-history!` runs
+        ;; AFTER the first flows reset and BEFORE the finally flows reset.
         (let [fixture (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})]
           (fixture (fn [] :ran)))
         ;; Expected: pre (flows pre-dispose) → post (epoch post-dispose) →
@@ -238,28 +232,27 @@
         (finally
           (reset! rf.late-bind/hooks snapshot))))))
 
-;; ---- rf2-4775uc — `:init-fn` runs under the body's ambient frame ----------
+;; ---- `:init-fn` runs under the body's ambient frame -----------------------
 ;;
 ;; The fixture's `:init-fn` is per-suite setup that needs the registrar /
-;; adapter live (docstring step 7) — e.g. re-running an app's
+;; adapter live (the docstring's `:init-fn` step) — e.g. re-running an app's
 ;; `register-all!` / `install!` thunks, which can perform context-required
 ;; frame-local ops (`reg-app-schema` / `reg-flow` / a bare `dispatch`). Those
 ;; resolve `*current-frame*` and raise `:rf.error/no-frame-context` under no
-;; scope (rf2-5q7um6). Pre-fix the `:init-fn` ran OUTSIDE the ambient
-;; `*current-frame*` binding the fixture establishes around the body, so a
-;; bare frame-local op in setup threw frameless — surfacing (in the shared
-;; `:node-test` JS runtime) as the intermittent double-`done` suite-abort
-;; flake rf2-ofzxh9 / rf2-4775uc closed. Pin that the `:init-fn` now runs
-;; under the same carried-frame floor as the body.
+;; scope. Were the `:init-fn` run OUTSIDE the ambient `*current-frame*`
+;; binding the fixture establishes around the body, a bare frame-local op in
+;; setup would throw frameless — surfacing (in the shared `:node-test` JS
+;; runtime) as an intermittent double-`done` suite abort. Pin that the
+;; `:init-fn` runs under the same carried-frame floor as the body.
 
 (deftest make-reset-runtime-fixture-runs-init-fn-under-ambient-frame
   (testing "an adapter fixture runs `:init-fn` under the ambient `:rf/default`
             scope, so a context-required frame-local op in setup does NOT
-            raise `:rf.error/no-frame-context` (rf2-4775uc)"
+            raise `:rf.error/no-frame-context`"
     ;; Neutralise the enclosing `reset-runtime` fixture's ambient
     ;; `(with-frame :rf/default …)` so the `:rf/default` we observe is the
     ;; one THIS fixture binds around `:init-fn`, not the outer fixture's —
-    ;; mirroring the real flake context (cljs.test has no enclosing
+    ;; mirroring the cljs.test context (cljs.test has no enclosing
     ;; `with-frame`, so a frameless `:init-fn` would otherwise see nil).
     (binding [rf.frame/*current-frame* nil]
       (let [seen-frame (atom :unset)
@@ -283,12 +276,11 @@
 
 (deftest make-reset-runtime-fixture-init-fn-frameless-when-ambient-opted-out
   (testing "`:ambient-frame nil` keeps `:init-fn` frameless — tests that own
-            their frame creation must not run setup under a synthetic scope
-            (rf2-4775uc / rf2-9o48ih)"
+            their frame creation must not run setup under a synthetic scope"
     ;; Neutralise the enclosing `reset-runtime` fixture's ambient
     ;; `(with-frame :rf/default …)` so we observe THIS fixture's scope
-    ;; decision (not the outer one's) — in the real flake context cljs.test
-    ;; has no such enclosing `with-frame`.
+    ;; decision (not the outer one's) — under cljs.test there is no such
+    ;; enclosing `with-frame`.
     (binding [rf.frame/*current-frame* nil]
       (let [seen-frame (atom :unset)]
         (let [fixture (rf.test-support/make-reset-runtime-fixture
@@ -303,26 +295,24 @@
              `:ambient-frame nil` opts out (the fixture leaves
              `*current-frame*` unbound, so `current-frame` is nil)")))))
 
-;; ---- rf2-j9phb (TE-R2.3) — destroy-frame! hook-cascade coverage -----------
+;; ---- destroy-frame! hook-cascade coverage ---------------------------------
 ;;
-;; The other half of the round-2 audit finding. `destroy-frame!`'s
-;; rf2-ggkay refactor factored the cleanup-hook fires through the
-;; `safe-call-hook!` helper:
+;; `destroy-frame!` fires these cleanup hooks, each guarded
+;; (`safe-call-hook!` for ssr / machines, `notify-epoch-listeners!` for
+;; the epoch hook):
 ;;
 ;;   :ssr/on-frame-destroyed            — SSR side-channel atoms cleanup
 ;;   :machines/on-frame-destroyed!      — machines timer-table cleanup
 ;;   :epoch/on-frame-destroyed          — fired via notify-epoch-listeners!
 ;;
-;; Same shape as TE-R2.2: register a sentinel under each key, destroy a
-;; frame, assert all fired exactly once. (rf2-rxnnxh removed the obsolete
-;; no-op `:privacy/clear-suppression-cache!` hook — Path-D privacy has no
-;; warn-once cache, so the compatibility hook bought nothing.)
+;; Same shape as the reset-fixture coverage above: register a sentinel
+;; under each key, destroy a frame, assert all fired exactly once.
 
 (def ^:private destroy-frame-hook-keys
   "The destroy-frame! cleanup-hook keys. `:ssr` / `:machines` fire through
-  `rf.frame/safe-call-hook!` (rf2-ggkay) inside the destroy cascade; the two epoch
+  `rf.frame/safe-call-hook!` inside the destroy cascade; the two epoch
   keys fire directly (`:epoch/snapshot-frame-destroyed` BEFORE dissoc,
-  `:epoch/on-frame-destroyed` AFTER — rf2-vxgfnd.151). Mirrored here so the
+  `:epoch/on-frame-destroyed` AFTER). Mirrored here so the
   assertion visits each by name."
   [:ssr/on-frame-destroyed
    :machines/on-frame-destroyed!
@@ -331,7 +321,7 @@
 
 (deftest destroy-frame-fires-every-cleanup-hook-exactly-once
   (testing "every cleanup-hook in destroy-frame! fires exactly once
-            per destruction (rf2-j9phb / TE-R2.3)"
+            per destruction"
     (let [snapshot    @rf.late-bind/hooks
           call-counts (atom (zipmap destroy-frame-hook-keys (repeat 0)))]
       (try
@@ -354,13 +344,13 @@
 (deftest destroy-frame-cleanup-hooks-receive-frame-id
   (testing "cleanup hooks that take the destroyed frame's id receive it
             correctly — :ssr / :machines / :epoch all pass the id"
-    ;; :ssr / :machines take the destroyed id. rf2-vxgfnd.151 split the epoch
-    ;; teardown across two hooks: the PRE-dissoc :epoch/snapshot-frame-destroyed
-    ;; takes (id db-before db-after committed-at) — rf2-9neiq's two snapshots
-    ;; for the :halted-destroy record + rf2-bh56rc's destroying-event causal
+    ;; :ssr / :machines take the destroyed id. The epoch teardown spans
+    ;; two hooks: the PRE-dissoc :epoch/snapshot-frame-destroyed
+    ;; takes (id db-before db-after committed-at) — the two snapshots
+    ;; for the :halted-destroy record + the destroying event's causal
     ;; :time-ms — and the POST-dissoc :epoch/on-frame-destroyed takes
     ;; (id owner-token terminal-evidence) — exact frame ownership plus the
-    ;; pre-dissoc bundle. Pin each arg shape so a future refactor that swaps
+    ;; pre-dissoc bundle. Pin each arg shape so a change that swaps
     ;; positional → varargs (or drops the id) breaks loudly.
     (let [snapshot   @rf.late-bind/hooks
           captured-args (atom {})
@@ -413,25 +403,25 @@
         (is (true? (get @captured-args :epoch/terminal-evidence-arrived?))
             "the post-dissoc hook runs AFTER the pre-dissoc snapshot hook —
              the terminal-evidence bundle it publishes was captured first")
-        ;; rf2-9neiq / rf2-3aizt1: for this OUT-OF-RUN destroy, fs-before
+        ;; For this OUT-OF-RUN destroy, fs-before
         ;; (the pre-run snapshot from rf.frame/*run-frame-state-before*)
         ;; is nil (no in-flight run), while fs-after is the live
         ;; frame-state value read at destroy-time — the frame's initial empty
-        ;; two-partition frame-state. EP-0001 (rf2-3aizt1, decision #2): the
-        ;; snapshot hook now threads the whole frame-state (both partitions),
+        ;; two-partition frame-state. EP-0001 (Decision 2): the
+        ;; snapshot hook threads the whole frame-state (both partitions),
         ;; not app-db alone.
         (is (= [nil {:rf.db/app {} :rf.db/runtime {}}]
                (get @captured-args :epoch/snapshot-args))
             "snapshot hook receives (fs-before fs-after): nil pre-run
              (out-of-run destroy) + the destroy-time frame-state
-             {:rf.db/app {} :rf.db/runtime {}} (rf2-9neiq / rf2-3aizt1)")
-        ;; rf2-bh56rc: an out-of-run destroy has no in-flight causal
+             {:rf.db/app {} :rf.db/runtime {}}")
+        ;; An out-of-run destroy has no in-flight causal
         ;; token, so rf.frame/*run-time-ms* is unbound (nil) and the hook's
         ;; committed-at arrives nil. (No :halted-destroy record is committed
         ;; on this path, so the value is moot — the assertion pins the arg
         ;; shape, not a committed timestamp.)
         (is (contains? @captured-args :epoch/committed-at)
-            "snapshot hook receives the terminal committed-at arg (rf2-bh56rc)")
+            "snapshot hook receives the terminal committed-at arg")
         (is (nil? (get @captured-args :epoch/committed-at))
             "committed-at is nil for an out-of-cascade destroy (no token)")
         (finally
@@ -441,8 +431,7 @@
 
 (deftest poll-until-swallows-a-throwing-pred-jvm
   (testing "a `pred` that throws transiently is a falsy probe — keep polling to
-  the deadline — matching the CLJS arm. The JVM arm previously propagated the
-  throw out of poll-until on the first probe."
+  the deadline — matching the CLJS arm."
     ;; Throws on the first two probes, then succeeds → must resolve, not surface
     ;; the pred's exception.
     (let [calls (atom 0)]
