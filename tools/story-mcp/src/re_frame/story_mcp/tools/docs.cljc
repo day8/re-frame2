@@ -49,7 +49,7 @@
   `:ignored-tags` diagnostic slot (string forms, never interned) so the
   agent sees WHY the result is empty. A mixed known+unknown filter still
   applies the known tags and reports the dropped names. The
-  no-interning posture is preserved — `:ignored-tags` carries the raw
+  no-interning posture holds — `:ignored-tags` carries the raw
   supplied strings, the keyword table is untouched.
 
   Pagination via `rf.story-mcp.tools.cursor/page`. The stable-sort key is the
@@ -131,10 +131,10 @@
   spec/007 inclusion tags + the five `:state/*` magnitude
   tags = 12 entries total; bounded and not a function of registry
   size, so pagination does not apply). `:all` is the FULL tag catalogue
-  — canonical ∪ ALL custom — and is likewise returned in full
-  (rf2-3jqwlh): a field named `:all` that omitted un-fetched custom tags
-  under pagination was a semantic trap (an agent reading `:all` from page
-  one believed it held the whole catalogue). Only `:custom`
+  — canonical ∪ ALL custom — and is likewise returned in full, because
+  a field named `:all` that omitted un-fetched custom tags under
+  pagination would be a semantic trap (an agent reading `:all` from page
+  one would believe it held the whole catalogue). Only `:custom`
   (project-registered tags) paginates when the count exceeds `:limit`;
   the `:has-more?` / `:next-cursor` cursor drives that one slot. Small
   registries see no pagination metadata."
@@ -145,7 +145,7 @@
         custom-set (set/difference (set registered) (set canonical))
         custom     (vec (sort-by str custom-set))
         ;; :all is the FULL catalogue (canonical ∪ ALL custom), computed once
-        ;; from the whole custom-set — NOT the page slice (rf2-3jqwlh). Only
+        ;; from the whole custom-set — NOT the page slice. Only
         ;; :custom is page-sliced below; :canonical and :all are always
         ;; complete, so a paginated read never mistakes a partial :all for the
         ;; full tag set. (canonical and custom-set are disjoint by
@@ -202,8 +202,7 @@
   Returns each decorator's id, kind, and doc plus the kind-specific
   pure-data slots. The `:wrap` closure on `:hiccup` decorators is
   not transported — only a `:has-wrap?` boolean — because closures
-  don't survive EDN serialisation; agents inspecting the rendered
-  result use `preview-variant` instead. There is no decorator WRITE
+  don't survive EDN serialisation. There is no decorator WRITE
   tool: decorators carry closures JSON-RPC can't transport, so the
   enumeration is read-only.
 
@@ -266,7 +265,7 @@
   expected+consumed; there is no `:no-schema-errors` knob).
 
   The causal pair count reactive effects a cause event produced. Both add
-  the additive `:observed-cause-count` diagnostic (how many run-owned epoch
+  an `:observed-cause-count` diagnostic (how many run-owned epoch
   records named the cause). `:rf.assert/no-cascade-rerender` REQUIRES its
   cause to be observed by default: an unobserved cause resolves `:cannot-run`
   (not a vacuous pass under the `[0,0]` bound), with `{:require-cause? false}`
@@ -378,9 +377,9 @@
   which ship the SAME author data raw, and (b) the human Explain panel, which
   renders every slot raw — and `explain-variant` is the agent mirror of that
   panel. Routing the value slots through the fail-closed live-frame egress
-  boundary over-redacted the tool's most useful output (resolved args, final
-  setup/script order, network stubs) to `:rf/redacted` on the common no-run
-  inspection path; that boundary is retired for explain-variant.
+  boundary would over-redact the tool's most useful output (resolved args,
+  final setup/script order, network stubs) to `:rf/redacted` on the common
+  no-run inspection path, so explain-variant does not route through it.
 
   The `:extends`-resolved variant body is already public via `get-variant` /
   `variant->edn`; this adds the plan-compiler's source/merge/lowering
@@ -401,7 +400,7 @@
   declares an `:outputSchema`; the official MCP SDK's high-level
   `callTool` REJECTS an outputSchema-declaring tool that returns no
   structuredContent with JSON-RPC -32600. The structured slot carries
-  the same body map; the text slot remains the byte-stable EDN source of
+  the same body map; the text slot is the byte-stable EDN source of
   truth."
   [args]
   (rf.story-mcp.tools.args/with-variant args
@@ -493,7 +492,7 @@
   "Docs-category descriptors, in spec/002-Tool-Registry.md order."
   [{:name           "list-stories"
     :category       :docs
-    :description    (str "All registered stories, optionally filtered by tags. Each entry carries id, doc, tags, and child variant ids. Paginated per rf2-76sf6 (`:limit` default 25, optional `:cursor` continuation). "
+    :description    (str "All registered stories, optionally filtered by tags. Each entry carries id, doc, tags, and child variant ids. Paginated (`:limit` default 25, optional `:cursor` continuation). "
                          "A supplied `:tags` filter is always honoured: unknown tag names are dropped from the intersection and echoed back in an `:ignored-tags` slot — an unknown-only filter returns an empty `:stories` (never the full catalogue). "
                          "Examples: "
                          "1. All stories: {} -> {:stories [{:id :story.cart :doc \"...\" :tags [:dev :docs] :variants [:story.cart/empty :story.cart/full]} ...]}. "
@@ -545,7 +544,7 @@
 
    {:name           "list-tags"
     :category       :docs
-    :description    (str "Canonical tags + any custom tags registered by the project. The `:canonical` set is the bounded 12-entry vector — the seven spec/007 inclusion tags (`:dev :docs :test :screenshot :experimental :internal :agent`) plus the five rf2-k1k87 `:state/*` magnitude tags (`:state/empty :state/small :state/medium :state/large :state/special`). Paginated per rf2-76sf6 — but ONLY the `:custom` slot slices per `:limit` / `:cursor`; `:canonical` stays full (bounded 12) and `:all` (canonical ∪ ALL custom) is the FULL catalogue on every page, never a partial page (rf2-3jqwlh). "
+    :description    (str "Canonical tags + any custom tags registered by the project. The `:canonical` set is the bounded 12-entry vector — the seven spec/007 inclusion tags (`:dev :docs :test :screenshot :experimental :internal :agent`) plus the five `:state/*` magnitude tags (`:state/empty :state/small :state/medium :state/large :state/special`). Paginated — but ONLY the `:custom` slot slices per `:limit` / `:cursor`; `:canonical` stays full (bounded 12) and `:all` (canonical ∪ ALL custom) is the FULL catalogue on every page, never a partial page. "
                          "Examples: "
                          "1. Fresh registry: {} -> {:canonical [:agent :dev :docs :experimental :internal :screenshot :state/empty :state/large :state/medium :state/small :state/special :test] :custom [] :all [:agent :dev :docs ...]}. "
                          "2. Project with custom tags: {} -> {:canonical [...] :custom [:mobile :rtl] :all [:agent :dev :docs ... :mobile :rtl]}. "
@@ -561,7 +560,7 @@
 
    {:name           "list-modes"
     :category       :docs
-    :description    (str "Registered modes (Chromatic-style saved tuples of args). Each entry is `{:id :doc :args}`. Paginated per rf2-76sf6 (`:limit` default 25, optional `:cursor`). "
+    :description    (str "Registered modes (Chromatic-style saved tuples of args). Each entry is `{:id :doc :args}`. Paginated (`:limit` default 25, optional `:cursor`). "
                          "Examples: "
                          "1. Project with modes: {} -> {:modes [{:id :mode/dark :doc \"Dark theme\" :args {:theme :dark}} {:id :mode/mobile :doc \"...\" :args {:viewport :mobile}}]}. "
                          "2. Fresh registry (no project modes): {} -> {:modes []}. "
@@ -577,14 +576,14 @@
 
    {:name           "list-decorators"
     :category       :docs
-    :description    (str "Read-only enumeration of registered decorators (rf2-mqp1u). Each entry carries "
+    :description    (str "Read-only enumeration of registered decorators. Each entry carries "
                          "`:id`, `:kind`, `:doc` plus the kind-specific pure-data slots: `:has-wrap?` "
                          "for `:hiccup` decorators (the `:wrap` closure itself doesn't transport over "
                          "MCP); `:init` + `:app-db-patch` for `:frame-setup`; `:fx-id` + `:response` "
                          "for `:fx-override`. There is no decorator WRITE tool — decorators carry "
                          "closures JSON-RPC can't transport, so the enumeration is read-only. "
                          "Optional `:kind` arg narrows to one "
-                         "decorator kind. Paginated per rf2-76sf6 (`:limit` default 25, optional "
+                         "decorator kind. Paginated (`:limit` default 25, optional "
                          "`:cursor`). "
                          "Examples: "
                          "1. All decorators: {} -> {:decorators [{:id :with-router :kind :hiccup :doc \"...\" :has-wrap? true} {:id :seed-cart :kind :frame-setup :doc \"...\" :init [...] :app-db-patch {...}} {:id :stub-http :kind :fx-override :fx-id :http :response {...}}]}. "
@@ -605,7 +604,7 @@
 
    {:name           "list-assertions"
     :category       :docs
-    :description    (str "The ten canonical `:rf.assert/*` declarations with payload arity + semantics (the seven dispatched assertions plus the three tape-evaluated ones: `:rf.assert/schema-error` and the causal pair `:rf.assert/caused` / `:rf.assert/no-cascade-rerender`). The causal pair count reactive effects a cause produced and carry `:observed-cause-count`; `:rf.assert/no-cascade-rerender` requires its cause be observed by default (an unobserved cause → `:cannot-run`, never a vacuous `[0,0]` pass), with `{:require-cause? false}` the one opt-out (`:require-cause?` is rejected on `:rf.assert/caused`). PLUS `:registered` — the FULL assertion vocabulary the Story plan compiler accepts (`known-assertion-ids`): the ten canonical ids, the DOM family (`:rf.assert/dom-visible|dom-hidden|dom-text`), and the visual / a11y oracles (`:rf.assert/visual-snapshot`, `:rf.assert/a11y`, `:rf.assert/a11y-structural`). The browser-tier ids (DOM / visual / a11y) require a richer runner — a headless run refuses them with `:cannot-run`, never a silent pass. Paginated per rf2-76sf6 — `:canonical` (the 10-entry doc vector) stays full; `:registered` slices per `:limit` / `:cursor`. "
+    :description    (str "The ten canonical `:rf.assert/*` declarations with payload arity + semantics (the seven dispatched assertions plus the three tape-evaluated ones: `:rf.assert/schema-error` and the causal pair `:rf.assert/caused` / `:rf.assert/no-cascade-rerender`). The causal pair count reactive effects a cause produced and carry `:observed-cause-count`; `:rf.assert/no-cascade-rerender` requires its cause be observed by default (an unobserved cause → `:cannot-run`, never a vacuous `[0,0]` pass), with `{:require-cause? false}` the one opt-out (`:require-cause?` is rejected on `:rf.assert/caused`). PLUS `:registered` — the FULL assertion vocabulary the Story plan compiler accepts (`known-assertion-ids`): the ten canonical ids, the DOM family (`:rf.assert/dom-visible|dom-hidden|dom-text`), and the visual / a11y oracles (`:rf.assert/visual-snapshot`, `:rf.assert/a11y`, `:rf.assert/a11y-structural`). The browser-tier ids (DOM / visual / a11y) require a richer runner — a headless run refuses them with `:cannot-run`, never a silent pass. Paginated — `:canonical` (the 10-entry doc vector) stays full; `:registered` slices per `:limit` / `:cursor`. "
                          "Examples: "
                          "1. Default: {} -> {:canonical [{:id :rf.assert/path-equals :payload \"[path expected]\" :semantics \"(= (get-in @app-db path) expected)\"} ...] :registered [:rf.assert/a11y :rf.assert/a11y-structural :rf.assert/caused :rf.assert/dispatched? :rf.assert/dom-hidden ...]}. "
                          "2. With budget knob: {:max-tokens 1000} -> same shape, tighter cap. "
@@ -637,7 +636,7 @@
 
    {:name           "explain-variant"
     :category       :docs
-    :description    (str "The variant-plan `:explain` projection for a variant — the SAME data the human Explain panel renders (spec/017 §Explain API). Answers 'why did the plan resolve this way': the `:extends` source/parent chain, resolved `:compose` fragments/checks, `:strict-conflicts` (winning + losing sources + the deciding rule), the per-field `:merge` rules, `:args` / `:substitutions` / `:effective-args`, view-arg schema + validation, `:network` route stubs + their lowered fx, `:sub-overrides` + fidelity, the final `:setup-order` / `:script-order`, `:checks` / `:assertions`, `:required-runner`, `:platforms`, `:tags`. AUTHOR DATA — ships RAW, exactly like `get-variant` / `variant->edn` (rf2-7k5mce): `explain-variant` is a no-run tool over the registry side-table, so every slot — including the plan-RESOLVED value slots (`:effective-args` / `:args` / `:substitutions` / `:network` route replies / `:db-seed` / `:sub-overrides` / `:setup-order` / `:script-order`) — is static author data resolved from the variant's own registration, not observed user runtime. The threat model scopes the `:sensitive` / `:large` marks to observed runtime, not authored registration data, so there is nothing runtime-sensitive to redact; it renders exactly what the human Explain panel shows. No `:include-sensitive` knob. The agent mirror of the human Explain panel (rf2-ba86n.17). "
+    :description    (str "The variant-plan `:explain` projection for a variant — the SAME data the human Explain panel renders (spec/017 §Explain API). Answers 'why did the plan resolve this way': the `:extends` source/parent chain, resolved `:compose` fragments/checks, `:strict-conflicts` (winning + losing sources + the deciding rule), the per-field `:merge` rules, `:args` / `:substitutions` / `:effective-args`, view-arg schema + validation, `:network` route stubs + their lowered fx, `:sub-overrides` + fidelity, the final `:setup-order` / `:script-order`, `:checks` / `:assertions`, `:required-runner`, `:platforms`, `:tags`. AUTHOR DATA — ships RAW, exactly like `get-variant` / `variant->edn`: `explain-variant` is a no-run tool over the registry side-table, so every slot — including the plan-RESOLVED value slots (`:effective-args` / `:args` / `:substitutions` / `:network` route replies / `:db-seed` / `:sub-overrides` / `:setup-order` / `:script-order`) — is static author data resolved from the variant's own registration, not observed user runtime. The threat model scopes the `:sensitive` / `:large` marks to observed runtime, not authored registration data, so there is nothing runtime-sensitive to redact; it renders exactly what the human Explain panel shows. No `:include-sensitive` knob. The agent mirror of the human Explain panel. "
                          "Examples: "
                          "1. Plain variant: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :explain {:source-chain [:story.cart/full] :parent-chain [] :compose [] :strict-conflicts [] :effective-args {...} :required-runner #{} ...}}. "
                          "2. Extends + compose: {:variant-id \":story.cart/full-with-discount\"} -> {:explain {:source-chain [:story.cart/full :story.cart/full-with-discount] :parent-chain [:story.cart/full] :compose [{:kind :fragment :id :frag/logged-in}] ...}}. "
@@ -653,7 +652,7 @@
 
    {:name           "get-docs-markdown"
     :category       :docs
-    :description    (str "Render a story's documentation as GitHub-flavoured Markdown (rf2-i0kyy). "
+    :description    (str "Render a story's documentation as GitHub-flavoured Markdown. "
                          "Composes the story `:doc` + per-variant `:doc` + args / argtypes / tags / "
                          "decorators into a single paste-ready string. The other docs tools "
                          "(`get-story`, `get-variant`, `variant->edn`) return EDN — useful for "
