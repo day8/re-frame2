@@ -12,8 +12,8 @@
       violates the schema is REJECTED: the fx skips the write, the prior
       valid `:data` survives, and one `:where :machine-data
       :phase :update-snapshot :rollback? false` trace fires.
-   2. **Valid patch installs.** A conforming `:data` patch merges as
-      before; no trace.
+   2. **Valid patch installs.** A conforming `:data` patch merges; no
+      trace.
    3. **No-schema machine.** A machine without `[:schemas :data]` patches
       freely; no trace (the boundary is opt-in via the schema).
    4. **Spawned actor.** An escape-hatch `:data` patch on a SPAWNED actor
@@ -231,8 +231,8 @@
 
 (deftest update-snapshot-db-key-still-rejected
   (testing "a :db key in the escape-hatch patch still surfaces
-            :rf.error/machine-action-wrote-db and is dropped (the
-            validation rewrite must not regress the :db hard-disallow);
+            :rf.error/machine-action-wrote-db and is dropped (schema
+            validation must not bypass the :db hard-disallow);
             a valid :data alongside it still installs"
     (let [DataSchema [:map [:n pos-int?]]
           spec       {:initial :idle
