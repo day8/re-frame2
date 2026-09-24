@@ -30,7 +30,7 @@
     guards: a correctly-shaped run option carrying an identifier the
     server does not know (`:active-modes` id, `:cell-overrides` KEY)
     is refused rather than dropped, so a typo cannot execute a
-    different scenario than the one the agent asked for (rf2-sw1d).
+    different scenario than the one the agent asked for.
     `substrate-arg-error` is the same rule on the third run-option
     slot.
 
@@ -141,18 +141,20 @@
 
 (defn- align-nested-override-keys
   "Align a caller-supplied override VALUE's wire keys with the keys the
-  base value ALREADY carries, recursively (rf2-49o8).
+  base value ALREADY carries, recursively.
 
   Story supports nested keyword-keyed args and deep-merges cell overrides
   into them, but the JSON ingress deliberately leaves nested arg keys as
-  STRINGS (only the top-level override key was resolved). So a
-  `{\"settings\": {\"title\": \"Edited\"}}` override against a registered
-  `{:settings {:title \"Nested title\" :enabled? true}}` deep-merged to
+  STRINGS (only the top-level override key is resolved). So without this
+  alignment a `{\"settings\": {\"title\": \"Edited\"}}` override against a
+  registered `{:settings {:title \"Nested title\" :enabled? true}}` would
+  deep-merge to
   `{:settings {:title \"Nested title\" :enabled? true \"title\" \"Edited\"}}` —
-  the consumer reading `[:settings :title]` still saw the OLD value, the
-  run evaluated an arg the agent had asked to change, and
-  `snapshot-identity` keyed the unintended mixed-key tuple. No unknown-id
-  guard fired, because the top-level `settings` key was perfectly valid.
+  the consumer reading `[:settings :title]` would still see the OLD value,
+  the run would evaluate an arg the agent had asked to change, and
+  `snapshot-identity` would key the unintended mixed-key tuple. No
+  unknown-id guard would fire, because the top-level `settings` key is
+  perfectly valid.
 
   The alignment is deliberately narrow:
 
@@ -197,18 +199,17 @@
 
   A MAP value is walked by [[align-nested-override-keys]] against the
   base value it overrides, so a nested wire key reaches the keyword-keyed
-  arg it names instead of landing beside it (rf2-49o8). Everything else
-  passes through verbatim — values are data, not identifiers.
+  arg it names instead of landing beside it. Everything else passes
+  through verbatim — values are data, not identifiers.
 
-  The drop is DEFENCE IN DEPTH, not the boundary contract. This
-  docstring used to add 'a typo'd override simply doesn't apply', which
-  described the behaviour accurately but was the wrong answer at an
-  agent boundary: the three handlers now refuse an unknown override key
-  up front via `run-opts-semantic-error` (rf2-sw1d), so a typo returns
-  `isError` naming the key rather than a successful run for a reduced
-  tuple. By the time this coercer sees a map from a handler, every key
-  has already resolved; the drop survives only so a direct-invoke caller
-  that skips the guard still cannot intern."
+  The drop is DEFENCE IN DEPTH, not the boundary contract. 'A typo'd
+  override simply doesn't apply' would be the wrong answer at an agent
+  boundary, so the three handlers refuse an unknown override key up
+  front via `run-opts-semantic-error`: a typo returns `isError` naming
+  the key rather than a successful run for a reduced tuple. By the time
+  this coercer sees a map from a handler, every key has already
+  resolved; the drop exists only so a direct-invoke caller that skips
+  the guard still cannot intern."
   [overrides base]
   (when (map? overrides)
     (let [allowed (set (keys base))]
@@ -296,7 +297,7 @@
   coerced value — it only rejects; `read-run-opts` still performs the
   no-intern `safe-keyword` coercion for the honoured path.
 
-  Two rejection modes (rf2-3fc89f.21 — never silently drop the request to
+  Two rejection modes (never silently drop the request to
   `:substrate nil`):
 
     - substrate capability UNREACHABLE (the JVM stdio host has no browser
@@ -368,7 +369,7 @@
   absent — an ABSENT option legitimately defaults); otherwise an
   `isError` result naming the offending raw ids and the accepted set.
 
-  ## Why this refuses rather than drops (rf2-sw1d)
+  ## Why this refuses rather than drops
 
   `read-run-opts` resolves both slots through the bounded-allowlist
   `safe-keyword` gate and DROPS what misses, which is the correct
@@ -384,14 +385,14 @@
   one round trip; a silently different run costs it the whole chain of
   inference built on the result.
 
-  This is the same rule the boundary already applies on its other
-  identifier axes — unknown top-level argument keys
+  This is the same rule the boundary applies on its other identifier
+  axes — unknown top-level argument keys
   (`:rf.story-mcp/unknown-arguments`), an unknown `:variant-id` /
   `:story-id`, an unknown `:substrate` (`substrate-arg-error`) and an
   unknown decorator `:kind` are all refused, each naming the accepted
-  set — extended to the two nested slots that still dropped. It does NOT
-  change Story's own runtime resolution, which stays deliberately
-  tolerant so the UI shell and play runner can ignore a stale persisted
+  set — applied to the two nested slots. It does NOT touch Story's own
+  runtime resolution, which is deliberately tolerant so the UI shell
+  and play runner can ignore a stale persisted
   mode (`re-frame.story.args/mode-args`, whose contract explicitly
   delegates the diagnosis here: *\"tools surface the mismatch as a
   validation warning\"*). Passive hydration may discard stale state; an
@@ -417,13 +418,13 @@
   drift from the allowlist actually enforced. Nothing here hard-codes a
   roster.
 
-  ## No-intern invariant preserved
+  ## No-intern invariant
 
   Unknown ids are reported as RAW strings via `raw-id-str`. The
   membership probe is `safe-keyword`, which resolves through
   `find-keyword` on the JVM, so a hostile caller streaming unique
-  identifiers still interns nothing — the security posture that
-  introduced the drop is kept; only the success is withdrawn."
+  identifiers still interns nothing — the no-intern posture holds; only
+  a success for an unknown id is refused."
   [arguments vk]
   (let [raw-modes     (:active-modes arguments)
         modes?        (some? raw-modes)
@@ -472,14 +473,14 @@
 
   VALIDATION is NOT this function's job — it is a pure coercer. Call
   `run-opts-shape-error` (shape), `substrate-arg-error` and
-  `run-opts-semantic-error` (unknown identifiers, rf2-sw1d) first and
+  `run-opts-semantic-error` (unknown identifiers) first and
   short-circuit on a non-nil result. This function assumes
   `:active-modes` (when present) is already a collection and
   `:cell-overrides` (when present) is already a map; fed a scalar,
   `:active-modes` silently degrades (a string iterates
   character-by-character) rather than erroring. Every handler runs the
   full guard chain, so in production every id reaching here already
-  resolved — the drops below are the retained no-intern floor for a
+  resolved — the drops below are the no-intern floor for a
   direct-invoke caller, not the boundary's answer to a typo.
 
   Shared by the `preview-variant`, `run-variant`, and
@@ -582,7 +583,7 @@
   The deadline this resolves is enforced by `tools.lifecycle/
   run-variant-blocking` over the SYNCHRONOUS Story work (a JVM
   `[:wait]` is an inline `Thread/sleep`), not just the post-return
-  dereference — see that fn's docstring (rf2-j538f7.31)."
+  dereference — see that fn's docstring."
   [arguments]
   (min max-timeout-ms
        (rf.mcp-base.args/parse-positive-int (:timeout-ms arguments) default-timeout-ms)))
