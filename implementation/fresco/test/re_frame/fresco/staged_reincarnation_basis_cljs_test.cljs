@@ -39,11 +39,10 @@
 
   It claims the term is LOAD-BEARING: with it, the number moves; without
   it — removing `@!generation` from the sum turns this row red — the
-  number ties. It does not claim the
-  term is a complete repair. A frame holding NO other cell at the
-  reincarnation has nothing to rewire, so no flush bumps the generation
-  and the basis ties with or without the term; that half of the
-  `:node-key` axis is the one `commit-basis`'s docstring already
+  number ties. It does not claim the term is a complete repair. A frame
+  holding NO other cell at the reincarnation has nothing to rewire, so no
+  flush bumps the generation and the basis ties with or without the term;
+  that half of the `:node-key` axis is the one `commit-basis`'s docstring
   concedes and is not this row's to close.
 
   The harness is the commit seam, as in `reincarnation_cells_cljs_test`:
