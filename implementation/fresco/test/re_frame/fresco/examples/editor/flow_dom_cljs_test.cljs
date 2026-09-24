@@ -13,11 +13,10 @@
     firing an event, which is the whole of what `::h/revision` buys.
 
   The word *eventless* in that third claim is load-bearing rather than
-  descriptive. A keystroke's own
-  divergence is converged in the turn that typed it — the second claim
-  above IS that mechanism — so a reset row built on typing would assert a
-  value that has been on the glass since before the reset and stay green
-  with the counter deleted.
+  descriptive. A keystroke's own divergence is converged in the turn that
+  typed it — the second claim above IS that mechanism — so a reset row
+  built on typing would assert a value that has been on the glass since
+  before the reset and stay green with the counter deleted.
   [[what-the-revision-bump-is-actually-load-bearing-FOR]] carries the
   reasoning and the measurement.
 
