@@ -25,8 +25,8 @@
                everything up to the ref-count attach
     RGSUB      + the ref-count attach and the post-swap re-check
 
-  Two RETIRED spellings are kept live beside their replacements as
-  PAIRED CONTROLS in the same process, so each saving is a falsifiable
+  Two RETIRED spellings sit beside the shipped ones as PAIRED
+  CONTROLS in the same process, so each saving is a falsifiable
   prediction rather than a before/after story:
 
     S1-EAGER   `require-current-frame!` with the `{:where :event-id}`
