@@ -189,7 +189,7 @@
   rather than failing navigation.
 
   This is the SINGLE scroll-cache keying function, used SYMMETRICALLY on both
-  sides (rf2-g1i5m6): CAPTURE keys the leaving slice's position under this
+  sides: CAPTURE keys the leaving slice's position under this
   reconstruction, and RESTORE looks up under the SAME reconstruction of the
   incoming popstate URL's resolved route. Because both sides run through
   `route-url`, the key is canonical on both (canonical query-key order, no
@@ -219,7 +219,7 @@
 (def capture-scroll-meta
   "Metadata for the `:rf.nav/capture-scroll` fx registration.
 
-  EP-0015 (rf2-1wmni6 / rf2-pbbo68): the args carry `{:url ...}` — a
+  EP-0015: the args carry `{:url ...}` — a
   reconstructed route URL whose query/fragment are carrier-shaped values
   (`?token=…`, `#access_token=…`). The core fx trace surface records
   `:rf.fx/args` verbatim onto `:rf.fx/handled` (and the JVM
@@ -231,9 +231,9 @@
   receives the real URL in-process (the projection touches only the trace
   tags, never the handler input), so scroll capture keeps working.
 
-  rf2-sqams: carries the `:rf.fx.nav/capture-scroll-args` `:schema`
+  Carries the `:rf.fx.nav/capture-scroll-args` `:schema`
   (`[:map [:url :string]]`) per [Spec-Schemas §Standard fx args
-  schemas]. `:url` is the cache KEY, so a missing / non-string one now
+  schemas]. `:url` is the cache KEY, so a missing / non-string one
   fails at the Spec 010 §step-5 `:fx-args` boundary rather than
   silently writing nothing (or a garbage key) into the host-side
   scroll-position cache. Malli maps are open, so the handler's internal
@@ -244,13 +244,13 @@
    :doc       "Capture the current browser scroll position into the
 host-side per-frame transient scroll-position cache (keyed by url)
 before leaving a route. The cache is NOT runtime-db state and does not
-egress to trace / epochs / SSR (rf2-1hncp2)."})
+egress to trace / epochs / SSR."})
 
 (defn capture-scroll-handler
   "`:rf.nav/capture-scroll` fx handler. Registered by the façade so a
   `:reload` re-wires it on a fresh registrar.
 
-  rf2-1hncp2: scroll positions are a host-side TRANSIENT cache — write
+  Scroll positions are a host-side TRANSIENT cache — write
   the module-level `scroll-positions-cache` atom (keyed by frame-id), NOT
   the runtime-db partition. This keeps them off the trace / epoch / SSR
   egress wire and out of local time-travel frame-state."
@@ -275,7 +275,7 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
 (def scroll-fx-meta
   "Metadata for the `:rf.nav/scroll` fx registration.
 
-  EP-0015 (rf2-1wmni6 / rf2-pbbo68): the args carry `:from` / `:to` route
+  EP-0015: the args carry `:from` / `:to` route
   DESCRIPTORS (each `{:id :params :query}`) and a `:fragment` — all
   carrier-shaped (route params can be document-ids / tokens; a `#fragment`
   can be an OAuth implicit-grant token). The core fx trace records
@@ -295,7 +295,7 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
   per-route schema decision (which the fx layer cannot make — it does not
   carry the matched route's schema).
 
-  rf2-sqams: carries the `:rf.fx.nav/scroll-args` `:schema` per
+  Carries the `:rf.fx.nav/scroll-args` `:schema` per
   [Spec-Schemas §Standard fx args schemas]. The gate is orthogonal to
   the `:sensitive` marks above — `:schema` runs on the handler's INPUT
   (Spec 010 §step 5, before the handler), the marks run on the trace
@@ -323,7 +323,7 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
   "The human diagnosis for a rejected `:rf.nav/scroll` `:strategy`.
 
   A CONSTANT, deliberately: it names the closed vocabulary and the fix but
-  NEVER the offending value (rf2-s3n6h). That is what lets it ride the
+  NEVER the offending value. That is what lets it ride the
   always-on, production-surviving, non-privacy-gated record alongside the
   structural slots — an interpolated `(pr-str strategy)` could not. The raw
   value is not lost to a developer: it rides the dev-trace `:strategy` tag,
@@ -335,26 +335,24 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
 
 (defn- emit-unsupported-strategy!
   "Fan the closed-vocabulary rejection out on BOTH error channels through the
-  shared `rf.error-emit/emit-error-both!` seam (rf2-2hkfy).
+  shared `rf.error-emit/emit-error-both!` seam.
 
-  rf2-px26m made the handler's default branch loud instead of nil, but it
-  emitted through `rf.trace/emit-error!` ALONE — and that surface is wrapped in
-  `rf.interop/debug-enabled?`, so it DCEs under CLJS `:advanced` +
-  `goog.DEBUG=false`. The rejection therefore only ever fired where the
+  Emitting through `rf.trace/emit-error!` ALONE would not do: that surface is
+  wrapped in `rf.interop/debug-enabled?`, so it DCEs under CLJS `:advanced` +
+  `goog.DEBUG=false`, and the rejection would only ever fire where the
   OPTIONAL schemas artefact had already caught the same value one step
   earlier at the Spec 010 §step-5 `:fx-args` boundary. On a schemas-less
   PRODUCTION host — the exact configuration the branch exists to cover, and
-  the consumers least likely to notice — the handler ran, performed no
-  scroll, emitted nothing, and returned nil: the original rf2-px26m defect,
-  intact.
+  the consumers least likely to notice — the handler would run, perform no
+  scroll, emit nothing, and return nil.
 
-  `emit-error-both!` is the existing two-channel helper every catalogued
-  production-reachable runtime error site already uses. Axis 1 is the
+  `emit-error-both!` is the two-channel helper every catalogued
+  production-reachable runtime error site uses. Axis 1 is the
   always-on `dispatch-on-error!` listener registry — NOT gated on
   `rf.interop/debug-enabled?`, so the record survives `goog.DEBUG=false` and
   reaches off-box shippers. Axis 2 is the dev-only `rf.trace/emit-error!`
-  surface, which keeps the EXACT tag map rf2-px26m shipped, so dev-trace
-  consumers (the existing suite, Xray, epoch capture) see no change. One
+  surface, carrying the dev-trace tag map that dev-trace consumers (the
+  test suite, Xray, epoch capture) read. One
   call, one record per channel — no double emission.
 
   Production is therefore no less safe than dev: under `goog.DEBUG=false`
@@ -367,11 +365,11 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
   which case both it and `:event-id` ride as nil, exactly as the other
   non-dispatch-attributed always-on rows do.
 
-  ## The two channels carry DIFFERENT payloads (rf2-s3n6h)
+  ## The two channels carry DIFFERENT payloads
 
-  rf2-2hkfy made the record always-on; rf2-s3n6h made it SAFE to be always-on.
-  Its first cut copied the rejected `:strategy` verbatim into `record-attrs`
-  and interpolated `(pr-str strategy)` into `:reason`, which put an arbitrary
+  The record is always-on, so what it carries must be SAFE to be always-on.
+  Copying the rejected `:strategy` verbatim into `record-attrs`, or
+  interpolating `(pr-str strategy)` into `:reason`, would put an arbitrary
   runtime value on axis 1.
 
   Axis 1 is not the dev trace. `dispatch-on-error!` passes the positional
@@ -382,10 +380,10 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
   and NOT privacy-gated. A `:rf.route/navigate` call's per-call `:scroll` opt
   is runtime data, not necessarily static author configuration, and on the
   schemas-less path it may be any map / string / collection / host value. So
-  the raw copy bypassed the elision seam on the one channel that ships off-box.
-  Measured on the pre-fix code, a 2000-key strategy produced a 4.8 MB record —
-  and the same record's `:event` slot had already been redacted to
-  `:rf/redacted` by the seam the attrs walked around.
+  a raw copy would bypass the elision seam on the one channel that ships
+  off-box: a 2000-key strategy would produce a 4.8 MB record, while the same
+  record's `:event` slot is redacted to `:rf/redacted` by the seam the attrs
+  walk around.
 
   The split, therefore:
 
@@ -402,12 +400,12 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
   EVERY top-level map key unbounded and reproduces key content, so it is not
   itself a bound.
 
-  `:reason` is now a CONSTANT (`unsupported-strategy-reason`) that names the
+  `:reason` is a CONSTANT (`unsupported-strategy-reason`) that names the
   vocabulary and the fix without naming the offending value. That is what makes
-  it safe on axis 1, and it also removes the `pr-str` of an arbitrary value from
+  it safe on axis 1, and it also keeps any `pr-str` of an arbitrary value off
   the rejection path entirely — no gate needed, on any build. The rejection
-  itself is unchanged and remains unconditional: nothing here is wrapped in
-  `rf.interop/debug-enabled?`, so #6376's always-on guarantee stands."
+  itself is unconditional: nothing here is wrapped in
+  `rf.interop/debug-enabled?`, so the always-on guarantee holds."
   [frame event strategy]
   (rf.error-emit/emit-error-both!
     :rf.error/unsupported-scroll-strategy
@@ -462,14 +460,14 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
 #?(:cljs
    (defn- after-commit!
      "Run `f` once the view substrate has committed the navigation that
-     emitted it (rf2-3x7nj.12.3). The fx runs inside the navigating event,
+     emitted it. The fx runs inside the navigating event,
      before any render, so a scroll made here would read and move the page
      being LEFT.
 
      Through the installed adapter's `:adapter/after-render` hook when there
      is one — decided by the hook's PRESENCE, never by what it returns, since
      a hook that has scheduled `f` may answer nil. With no installed adapter
-     publishing the hook, `f` runs at once, as it always did. The routed
+     publishing the hook, `f` runs at once. The routed
      hook's own fallback drops `f` rather than running it, so a bundle that
      has loaded an adapter but installed none counts as hookless.
 
@@ -489,21 +487,20 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
   "`:rf.nav/scroll` fx handler. Registered by the façade so a `:reload`
   re-wires it on a fresh registrar.
 
-  rf2-3x7nj.12.3: `:top` and `:restore` touch the page only after the new
+  `:top` and `:restore` touch the page only after the new
   route has committed (`after-commit!`); the strategy check and its rejection
   stay synchronous.
 
-  rf2-px26m: the strategy vocabulary is CLOSED. The default branch used
-  to return nil, which made every map-form strategy — the shape Spec 012
-  once advertised as \"host-extensible\" — a silent no-op: accepted by
-  the schema, carried through the planner, and then ignored, with no
+  The strategy vocabulary is CLOSED. A default branch returning nil would
+  make every unrecognised strategy a silent no-op on a schemas-less host:
+  carried through the planner and then ignored, with no
   diagnostic and no scroll. There is no extension seam here (no registry,
   callback, or late-bound hook interprets a strategy), so an unrecognised
   value is a caller bug, not an extension point. It emits a loud
   `:rf.error/unsupported-scroll-strategy` naming the offending value and
   the supported set.
 
-  This is the ALWAYS-ON leg, and rf2-2hkfy made it genuinely so. The
+  This is the ALWAYS-ON leg. The
   `:schema` on the registration rejects the same values one step earlier
   (Spec 010 §step 5, `:fx-args`), but only when the OPTIONAL schemas
   artefact is on the classpath — without it, fx-args validation soft-passes
