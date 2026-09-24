@@ -49,7 +49,8 @@
 ;;
 ;; An OAuth-callback-shaped route: the `:query :token` carries a live secret
 ;; (classify SENSITIVE → redact), the `:params :payload` carries a large blob
-;; (classify LARGE → elide to the size marker), and `:query :return-to` is a
+;; (classify LARGE — which the hydration wire does NOT size-elide, rf2-hjz4r,
+;; so it rides whole), and `:query :return-to` is a
 ;; plain navigation breadcrumb (classified by nothing → rides verbatim). The
 ;; declaration is PROJECTION-RELATIVE to the route's `{:query … :params …}`
 ;; current-state projection, exactly as Spec 012 documents.
@@ -95,16 +96,17 @@
 
 (deftest sensitive-route-query-redacted-in-hydration-projection
   (testing "a route-declared sensitive :query path is redacted to :rf/redacted
-            in the SSR :rf/runtime-db projection; the large :params path elides;
-            the plain :query sibling rides verbatim; the transient
+            in the SSR :rf/runtime-db projection; the large :params path rides
+            whole (the hydration wire applies no size elision, rf2-hjz4r); the
+            plain :query sibling rides verbatim; the transient
             :pending-navigation is stripped"
     (install-route-classification!)
     (let [slice   (rf.ssr.payload-policy/project-runtime-db (runtime-db-with-secret-route))
           current (get-in slice [:rf.runtime/routing :current])]
       (is (= :rf/redacted (get-in current [:query :token]))
           "route-declared sensitive :query :token redacted in the hydration slice")
-      (is (contains? (get-in current [:params :payload]) :rf.size/large-elided)
-          "route-declared large :params :payload elided to the size marker")
+      (is (= "huge-callback-blob-value" (get-in current [:params :payload]))
+          "route-declared large :params :payload rides whole — the client route needs it")
       (is (= "/dashboard" (get-in current [:query :return-to]))
           "the unclassified :query sibling rides the wire verbatim")
       (is (= route-id (:route-id current))
@@ -112,14 +114,12 @@
       (is (not (contains? (:rf.runtime/routing slice) :pending-navigation))
           "transient :pending-navigation is stripped by the durable allowlist")
       (is (not (.contains (pr-str slice) "secret-oauth-token"))
-          "no raw token survives anywhere in the projected runtime-db slice")
-      (is (not (.contains (pr-str slice) "huge-callback-blob-value"))
-          "no raw large value survives in the projected runtime-db slice"))))
+          "no raw token survives anywhere in the projected runtime-db slice"))))
 
 (deftest full-hydration-payload-redacts-route-slice
   (testing "the full :rf/hydration-payload's :rf/runtime-db carries the
-            redacted/elided route :query / :params, not the raw classified
-            values"
+            redacted route :query token, not the raw secret; the large
+            :params value rides whole"
     (install-route-classification!)
     (let [rt-slice (rf.ssr.payload-policy/project-runtime-db (runtime-db-with-secret-route))
           payload  (rf.ssr.payload-policy/build-payload
@@ -127,10 +127,9 @@
                      {:version 1 :runtime-db rt-slice})
           current  (get-in payload [:rf/runtime-db :rf.runtime/routing :current])]
       (is (= :rf/redacted (get-in current [:query :token])))
-      (is (contains? (get-in current [:params :payload]) :rf.size/large-elided))
+      (is (= "huge-callback-blob-value" (get-in current [:params :payload])))
       (is (not (.contains (pr-str payload) "secret-oauth-token"))
-          "the hydration blob the client receives carries no raw secret")
-      (is (not (.contains (pr-str payload) "huge-callback-blob-value"))))))
+          "the hydration blob the client receives carries no raw secret"))))
 
 (deftest unclassified-route-slice-rides-verbatim
   (testing "a route whose frame declares no classification ships its :current

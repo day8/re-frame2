@@ -83,11 +83,15 @@
     ;; off-box / on-box-redacted boundaries fail closed.
     (doseq [p [:rf.egress/off-box-observability
                :rf.egress/local-redacted
-               :rf.egress/ssr-hydration
                :rf.egress/public-error]]
       (let [o (rf.projection/profile-size-opts p)]
         (is (false? (:rf.egress/include-sensitive? o)) (str p " redacts sensitive"))
         (is (false? (:rf.egress/include-large? o))     (str p " elides large"))))
+    ;; ssr-hydration redacts sensitive but applies NO size elision: the
+    ;; payload is the browser's live state, not a tool budget (rf2-hjz4r).
+    (let [o (rf.projection/profile-size-opts :rf.egress/ssr-hydration)]
+      (is (false? (:rf.egress/include-sensitive? o)) "ssr-hydration redacts sensitive")
+      (is (true? (:rf.egress/include-large? o))      "ssr-hydration keeps large values"))
     ;; off-box-tool shares that floor and does NOT turn digests on
     ;; (rf2-3x7nj.32.6): its §10 structural indicators are the marker's own
     ;; :path / :bytes / :type / :handle; a digest is an explicit override.
@@ -117,7 +121,6 @@
     (doseq [p [:rf.egress/off-box-observability
                :rf.egress/off-box-tool
                :rf.egress/local-redacted
-               :rf.egress/ssr-hydration
                :rf.egress/public-error]]
       (let [out (rf/project-egress (sample-value)
                   {:frame :proj/offbox :rf.egress/profile p})]
@@ -126,7 +129,15 @@
         (is (large-marker? (get-in out [:docs :blob]))
             (str p ": large leaf elided to a marker"))
         (is (= 3 (get-in out [:public :count]))
-            (str p ": unmarked sibling passes through"))))))
+            (str p ": unmarked sibling passes through")))))
+  (testing ":rf.egress/ssr-hydration redacts sensitive but keeps large whole —
+            the payload is the browser's live state, not a tool budget (rf2-hjz4r)"
+    (mk-frame! :proj/hydration)
+    (let [out (rf/project-egress (sample-value)
+                {:frame :proj/hydration :rf.egress/profile :rf.egress/ssr-hydration})]
+      (is (redacted? (get-in out [:auth :token])) "sensitive leaf redacted")
+      (is (= big-string (get-in out [:docs :blob])) "large leaf rides whole")
+      (is (= 3 (get-in out [:public :count])) "unmarked sibling passes through"))))
 
 (deftest local-raw-includes-sensitive-and-large
   (testing ":rf.egress/local-raw passes sensitive AND large through verbatim"

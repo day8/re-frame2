@@ -11,8 +11,9 @@
   `:rf/runtime-db` slice ships `:rf.runtime/machines` so the client
   re-materialises actors. `re-frame.ssr.payload-policy/project-runtime-db`
   consults this hook so a snapshot whose frame classifies a `:data` path
-  `:sensitive` / `:large` has that field redacted / elided in the
-  hydration blob — the frame's classification registry governs machine `:data`
+  `:sensitive` has that field redacted in the hydration blob (a `:large` one
+  rides whole — no size elision on this wire, rf2-hjz4r) — the frame's
+  classification registry governs machine `:data`
   egress. Like resources (which has `:ssr/extend-runtime-db-projection`),
   machines provides this SSR projection hook.
 
@@ -21,9 +22,9 @@
   `project-ssr-runtime-db` projects the `:rf.runtime/machines` slice for the
   SSR hydration boundary: each snapshot's `:data` is run through the merged
   frame's merged `re-frame.projection/project-egress` policy under the
-  `:rf.egress/ssr-hydration` profile, so any classified `:data` path
-  redacts (`:rf/redacted`) / elides (`:rf.size/large-elided`) before it rides
-  the wire. The projection uses SHARED frame-independent primitives — NEVER a
+  `:rf.egress/ssr-hydration` profile, so any `:sensitive` `:data` path
+  redacts (`:rf/redacted`) before it rides the wire, and a `:large` one rides
+  whole, as that profile keeps large values. The projection uses SHARED frame-independent primitives — NEVER a
   family-private elider.
 
   Machine `:data` egress classification lives in the per-frame elision
@@ -74,8 +75,8 @@
   and redact via
   the SHARED frame-independent `re-frame.classification/redact-with-paths`
   walker — `:sensitive` slots to
-  `:rf/redacted`, `:large` to the `:rf.size/large-elided` marker (sensitive
-  wins). Snapshot egress does not consult per-slot `:sensitive?` / `:large?`
+  `:rf/redacted`. `:large` slots ride whole: the hydration wire applies no
+  size elision (rf2-hjz4r). Snapshot egress does not consult per-slot `:sensitive?` / `:large?`
   schema marks; the frame classification registry is the egress source of truth.
 
   The snapshot's NON-`:data` slots (`:state`, `:tags`, `:rf/machine-type`, the
@@ -86,17 +87,19 @@
   [actor-id snapshot frame-id]
   (if-not (and (map? snapshot) (contains? snapshot :data) frame-id)
     snapshot
-    (let [{:keys [sensitive large]} (rf.classification/frame-snapshot-classification frame-id actor-id)
+    (let [{:keys [sensitive]} (rf.classification/frame-snapshot-classification frame-id actor-id)
           ;; frame-snapshot-classification returns snapshot-rooted paths ([:data …]);
           ;; the SSR projector walks the bare :data MAP, so strip the leading
           ;; :data segment to index into it directly.
           strip   (fn [paths] (into [] (comp (filter #(= :data (first %)))
                                              (map #(subvec (vec %) 1)))
                                     paths))
-          s-paths (strip sensitive)
-          l-paths (strip large)]
-      (if (or (seq s-paths) (seq l-paths))
-        (update snapshot :data rf.classification/redact-with-paths s-paths l-paths)
+          s-paths (strip sensitive)]
+      ;; rf2-hjz4r — no large paths: the hydration wire applies no size
+      ;; elision (the `:rf.egress/ssr-hydration` profile's rule), because the
+      ;; client re-materialises the actor from this `:data`.
+      (if (seq s-paths)
+        (update snapshot :data rf.classification/redact-with-paths s-paths [])
         snapshot))))
 
 (defn project-ssr-runtime-db

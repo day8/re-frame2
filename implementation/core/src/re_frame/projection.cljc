@@ -45,7 +45,7 @@
   | `:rf.egress/off-box-tool` | MCP / AI / tool wire; redact sensitive, elide large, include structural indicators. |
   | `:rf.egress/local-redacted` | on-box dev UI default; suppress sensitive display. |
   | `:rf.egress/local-raw` | trusted local operator; include sensitive AND large. |
-  | `:rf.egress/ssr-hydration` | projection AFTER the §14 allowlist; defence-in-depth. |
+  | `:rf.egress/ssr-hydration` | projection AFTER the §14 allowlist; defence-in-depth; redact sensitive, no size elision (the browser needs the data). |
   | `:rf.egress/public-error` | client-safe error projection; never internal raw values. |
 
   ## Fail-closed (EP-0002 / Spec 015 §Direct reads)
@@ -123,9 +123,16 @@
 (def ^:private profile->size-opts
   "Resolve each profile to its default `:rf.egress/*` opt-set (the §10
   default-behaviour table). Every boundary except `:rf.egress/local-raw`
-  fails closed (`include-sensitive?`/`include-large?` both false) and NO
-  profile turns digests on; `:rf.egress/local-raw` is the single
-  trusted-local boundary that opts sensitive AND large back in.
+  redacts sensitive (`include-sensitive?` false) and NO profile turns
+  digests on; `:rf.egress/local-raw` is the single trusted-local boundary
+  that opts sensitive AND large back in.
+
+  `:rf.egress/ssr-hydration` is the one other boundary that keeps large
+  values (`include-large?` true, rf2-hjz4r). Size elision protects tool
+  token budgets and hosted monitors; the hydration payload is installed as
+  the browser's LIVE state by `:rf/hydrate`, so an elided value arrived as
+  a `:rf.size/large-elided` marker map where the page needed its data.
+  Sensitive still redacts there.
 
   `:rf.egress/off-box-tool` shares `:rf.egress/off-box-observability`'s
   size floor; what differs is the boundary it NAMES. Its §10 \"structural
@@ -156,7 +163,7 @@
 
    :rf.egress/ssr-hydration
    {:rf.egress/include-sensitive? false
-    :rf.egress/include-large?     false
+    :rf.egress/include-large?     true
     :rf.egress/include-digests?   false}
 
    :rf.egress/public-error
