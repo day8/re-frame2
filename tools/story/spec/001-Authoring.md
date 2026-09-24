@@ -406,8 +406,7 @@ no fn-slots):
  :xray-panel           <panel-kw>               ; (rf2-v1ach) default Xray panel for the RHS embed
  :xray                 {:open?  <bool>          ;   per-story Xray preset — see §Xray preset slot
                          :panel  <panel-kw>      ;   preset: auto-select this panel on mount
-                         :filters {...}
-                         :focus   {...}}}
+                         :filters {...}}}
 ```
 
 That listing is the authoring core, not the closed set: the schema
@@ -625,7 +624,7 @@ The variant body's `:xray-panel` wins over the parent story's; the
 resolver lives in `re-frame.story.ui.xray-embed/resolve-panel`. The
 `:xray` preset's own `:panel` slot (§Xray preset slot) is a distinct
 auto-config step — it dispatches `:rf.xray/select-tab` on mount,
-alongside `:open?` / `:filters` / `:focus` — not a second spelling of
+alongside `:open?` / `:filters` — not a second spelling of
 the embed default.
 
 Story's local `Variant` schema
@@ -650,7 +649,10 @@ level.
 | `:open?` | boolean | Auto-open the whole Xray shell (popout / escape-hatch path; the RHS embed owns its own mount). |
 | `:panel` | panel keyword | Dispatches `:rf.xray/select-tab`. Distinct from the `:xray-panel` embed default above. |
 | `:filters` | `{:in [<event-id> ...] :out [<event-id> ...]}` | Pre-populates Xray's ribbon filter pills. |
-| `:focus` | `{:event-pos <n>}` | Dispatches `:rf.xray/focus-event`. Rare — usually you want LIVE to track head. |
+
+The preset map is closed, like the story and variant bodies that carry
+it: an unknown or misspelled sub-slot fails registration with
+`:rf.error/story-shape` / `:rf.error/variant-shape`, naming the key.
 
 ##### `:filters` — compact keywords, lowered at the boundary
 

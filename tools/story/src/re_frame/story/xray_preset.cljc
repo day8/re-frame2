@@ -11,8 +11,7 @@
       {:xray {:open?    true                 ; auto-open the shell
                :panel    :trace               ; pre-select panel
                :filters  {:out [:my/noise]    ; filter pre-population
-                          :in  []}
-               :focus    {:event-pos 5}}}     ; pre-focus a cascade pos
+                          :in  []}}}
 
   Every slot is optional. A missing `:xray` slot is the v0 behaviour
   (no auto-mount, no tab focus).
@@ -495,18 +494,6 @@
          lowered))))
 
 #?(:cljs
-   (defn- apply-focus!
-     "Dispatch a focus pre-selection if `:event-pos` is set. We use
-     `:rf.xray/focus-event` with the position when Xray exposes it
-     via the spine — feature-detect for safety."
-     [focus]
-     (when (and (map? focus) (:event-pos focus))
-       (safe-call! ":rf.xray/focus-event"
-                   rf/dispatch
-                   [:rf.xray/focus-event {:event-pos (:event-pos focus)}]
-                   {:frame :rf/xray}))))
-
-#?(:cljs
    (defn apply-preset!
      "Apply the resolved Xray preset for `variant-id`. No-op when no
      preset is set.
@@ -517,14 +504,13 @@
        2. `:panel` set → dispatch `:rf.xray/select-tab` into `:rf/xray`.
        3. `:filters` set → lower to Xray pills, seed
           `:rf.xray/filters`, and hydrate the live `:rf/xray` slot.
-       4. `:focus`   set → dispatch `:rf.xray/focus-event` with coords.
 
      Returns the resolved preset (or nil) so the shell can log /
      debug-introspect what fired.
 
      No-op in a published static export (rf2-n440v — `drive-xray?`).
-     Every one of the four steps targets an Xray that a `release` build
-     does not have: `:open?` reaches `mount/open!`, and the other three
+     Every one of the three steps targets an Xray that a `release` build
+     does not have: `:open?` reaches `mount/open!`, and the other two
      dispatch `:rf.xray/*` at a `:rf/xray` frame that was never seated.
      A story carrying a valid `:xray {:open? true :panel :epoch}` preset
      is therefore inert in a published export and unchanged in dev."
@@ -537,8 +523,6 @@
            (apply-panel! (:panel preset)))
          (when (:filters preset)
            (apply-filters! (:filters preset)))
-         (when (:focus preset)
-           (apply-focus! (:focus preset)))
          preset))))
 
 ;; ---- selection-watcher hook (CLJS-only) ----------------------------------
