@@ -618,10 +618,10 @@
   ;; **The limit is deliberate, so this row's green is a decision and not an
   ;; oversight.** The runtime does not chase deferred reads hidden in mutable
   ;; references, I7's text says so, and the guide warns rather than the
-  ;; runtime enforcing. Do not
-  ;; weaken or delete this row — it is the standing measurement of a boundary
-  ;; the product chose. If enforcement is ever extended here, this is the row
-  ;; that goes red, and that is what it is for.
+  ;; runtime enforcing. Do not weaken or delete this row — it is the
+  ;; standing measurement of a boundary the product chose. If enforcement is
+  ;; ever extended here, this is the row that goes red, and that is what it
+  ;; is for.
   (let [!parked (atom nil)]
     (probe! (fn [_]
               (reset! !parked (fn [] (rf.fresco/sub [:re/right])))
