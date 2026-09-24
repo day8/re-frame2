@@ -24,12 +24,9 @@
   When `--allow-sensitive-reads` is ON, the per-call arg wins.
 
   The gate governs the SENSITIVE axis only. `:elision` is the size
-  override and is honoured on every launch (rf2-ealv5 /
-  rf2-3x7nj.32.4): `:elision false` overlays `:rf.egress/include-large?
-  true` on the off-box-tool profile with the walker still running, so it
-  cannot reveal a declared-sensitive slot. (Until rf2-t55hxg.13,
-  `:elision false` skipped the walker entirely, which is why the gate
-  once forced it too; that coupling is gone.)
+  override and is honoured on every launch: `:elision false` overlays
+  `:rf.egress/include-large? true` on the off-box-tool profile with the
+  walker still running, so it cannot reveal a declared-sensitive slot.
 
   ## Single intention-naming predicate
 
@@ -99,7 +96,7 @@
                  false)
 
   `:elision` (the size override) is NOT gated — it is parsed
-  unconditionally (rf2-ealv5 / rf2-3x7nj.32.4).
+  unconditionally.
 
   Positive-sense and single-name, this predicate matches its truth
   value to the operator's intent, so a call site answers \"did the
