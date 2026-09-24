@@ -2,28 +2,16 @@
   "THE PUBLIC DOOR'S MACRO SHAPES, pinned by contract rather than by donor
   digest.
 
-  `arm1/lang.clj` defines the three macros a consumer writes against, and
-  its row in `frozen-sources.edn` once held each of them to its donor.
-  Splitting the runtime made that row inexpressible —
-  `defview`'s expansion target moved from `impl.runtime/mint-view!` to
-  `impl.collector/mint-view!`, and `:renames` is a one-to-one table that
-  cannot say which of six modules a call site should now name — so the row
-  was retired, and retiring a row drops the donor digest along with the
-  comparison. The other two macros were collateral: `event` and `defhost`
-  still match their donor exactly, but a row is judged whole, and the
-  alternative — a per-shape exemption — is the one thing that gate must
-  never grow.
-
-  So the AUTHORING SURFACE, the part of the package a consumer actually
-  writes against, briefly became the least-checked thing in it. This file
-  is the replacement instrument, and it is deliberately a different KIND
-  of check: the freeze gate answers *is the package the prototype, moved*,
-  which stopped being answerable for a file whose namespace legitimately
-  moved. What a consumer needs answered instead is *does the door still
-  hand back what it promises* — a contract, not a provenance diff. Byte-
-  for-byte expansion snapshots were considered and rejected: incidental
-  symbol and def-layout detail would make safe refactoring noisy for no
-  consumer confidence.
+  The bench prototype's `arm1/lang.clj` defines the same three macros,
+  but *is the package the prototype, moved* is not answerable for them:
+  `defview`'s expansion target is `impl.collector/mint-view!` here where
+  the prototype's is `impl.runtime/mint-view!`. So the AUTHORING SURFACE,
+  the part of the package a consumer actually writes against, is checked
+  by a different KIND of instrument: what a consumer needs answered is
+  *does the door still hand back what it promises* — a contract, not a
+  provenance diff. Byte-for-byte expansion snapshots would be the wrong
+  instrument too: incidental symbol and def-layout detail would make safe
+  refactoring noisy for no consumer confidence.
 
   Witnesses A, B and C cover the three macros; D and E are a
   second claim about `defhost`, this time about the SHAPE of the form
@@ -70,9 +58,8 @@
 
   ## Naming
 
-  The spellings asserted here are the prototype's — `defview`, `event`,
-  `defhost`. The naming review recommends `h/event` for the callback form;
-  when that lands, the sweep renames these witnesses with everything else."
+  The spellings asserted here are the public door's, and the prototype's
+  alike — `defview`, `event`, `defhost`."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
@@ -166,8 +153,8 @@
 
 (defn- rendered
   "One boundary, server-rendered under a frame — React running the body
-  for real, which is the level this collision bit at as hard as it bit at
-  the kit's."
+  for real, which is the level this collision bites at as hard as it
+  bites at the kit's."
   [hiccup]
   ;; `renderToString` is not inside React's act queue, and the flag is set
   ;; outright for the reason the package smoke gives: the helper that
@@ -184,11 +171,11 @@
 
   (testing "a body that calls a helper named after its view resolves the
             AUTHOR's helper: React runs the body once and the markup is the
-            helper's, where the emitted fn's self-binding recursed forever"
+            helper's, where a self-binding emitted fn would recurse forever"
     (is (re-find #"<li[^>]*class=\"ticket\"[^>]*>ticket 7</li>"
                  (rendered [ticket {:id 7}]))))
 
-  (testing "and the identifier the expansion DOES decide is unchanged — the
+  (testing "and the identifier the expansion DOES decide holds — the
             `\"<ns>/<sym>\"` name React DevTools shows and Spec 009 keys
             `rf:render:<name>` on"
     (is (= "re-frame.fresco.public-door-macros-cljs-test/ticket"
@@ -198,11 +185,11 @@
 ;; Witnesses D and E — `h/defhost`'s two shapes, and what is outside them
 ;; ---------------------------------------------------------------------------
 ;;
-;; The door's arity is part of its contract, and it was the one part
-;; nothing checked. `[component opts]` is a fixed-width destructure over a
-;; variadic tail, so a second options map minted as if absent — the head
-;; read back consistent (it simply had no slots) and the markup written at
-;; a declared slot could never arrive. `mint-host!` refuses an option key
+;; The door's arity is part of its contract. `[component opts]` is a
+;; fixed-width destructure over a variadic tail, so unguarded, a second
+;; options map would mint as if absent — the head would read back
+;; consistent (it simply has no slots) and the markup written at a
+;; declared slot could never arrive. `mint-host!` refuses an option key
 ;; it does not know for exactly that reason, one layer down; this is the
 ;; same rule at the door.
 ;;
@@ -221,8 +208,8 @@
   (try (f) nil (catch :default e (ex-data e))))
 
 (deftest defhost-refuses-a-form-after-its-options-map
-  (testing "a second options map is not merged and never was — it is
-            DISCARDED, so the declaration is refused at the door rather than
+  (testing "a second options map is not merged — the destructure would
+            DISCARD it, so the declaration is refused at the door rather than
             minting a head whose declared slots silently do not exist"
     (let [data (error-data
                  #(rf.fresco/defhost two-options-host badge-component
@@ -247,11 +234,10 @@
         "with its options intact")))
 
 (deftest defhost-refuses-options-that-are-not-a-map
-  (testing "`mint-host!` went straight from the nil-component check to
-            `(keys opts)`, so a non-map reached `keys` and whatever that
-            raised was not a declaration refusal. `h/reg-state` has had this
-            guard since it was written; this is the same guard on the
-            comparable surface"
+  (testing "unguarded, a non-map would go straight from `mint-host!`'s
+            nil-component check to `(keys opts)`, and whatever `keys`
+            raised would not be a declaration refusal. `h/reg-state` carries
+            the same guard; this is it on the comparable surface"
     (let [data (error-data #(rf.fresco.impl.codec/mint-host! "doc/in-the-wrong-place"
                                               badge-component
                                               "a docstring in the wrong place"))]
