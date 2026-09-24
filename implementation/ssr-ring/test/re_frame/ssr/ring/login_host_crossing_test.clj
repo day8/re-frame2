@@ -1,15 +1,12 @@
 (ns re-frame.ssr.ring.login-host-crossing-test
-  "rf2-8arzr.5 — THE LOGIN ARM'S JVM HOST WITNESS.
+  "THE LOGIN ARM'S JVM HOST WITNESS.
 
-  Slice E shipped `examples/substrates/fresco/login/` as the native-Fresco
-  PRODUCT witness for the ssr-node crossing, and the merged-PR audit found
-  that half of it did not run: `host.clj` commented out its `login.model`
-  require because the shared model was ClojureScript-only, the example
-  README said in so many words that the JVM host could not run, and no gate
-  loaded the namespace or drove the advertised Ring handler. A compile error
-  in it passed every gate silently.
+  `examples/substrates/fresco/login/` is the native-Fresco PRODUCT witness
+  for the ssr-node crossing, and its JVM host is half of it. Without a gate
+  that loads the namespace and drives the advertised Ring handler, a compile
+  error in the host would pass every gate silently.
 
-  This namespace is the gate that was missing, in two tiers.
+  This namespace is that gate, in two tiers.
 
   UNTAGGED — runs in the default `:test` lane, no Node. Loading this
   namespace requires `fresco.login.host`, which requires the shared
@@ -46,7 +43,7 @@
   bundle inside a JVM test would buy nothing that test does not already
   hold, and would put shadow-cljs on this lane.
 
-  ## The fail-open the audit named, proved closed
+  ## The fail-open, proved closed
 
   The sidecar refuses a host that asks for MORE than the entry allows. It
   cannot refuse one that asks for LESS — that host is served a page
@@ -95,7 +92,7 @@
       (f))))
 
 ;; ===========================================================================
-;; The sidecar — slice B's launcher on the login fixture, port 0
+;; The sidecar — the ssr-node launcher on the login fixture, port 0
 ;; ===========================================================================
 
 (def ^:private launcher
@@ -259,7 +256,6 @@
 
 ;; ===========================================================================
 ;; UNTAGGED — the documented LAUNCH: the JVM boot, and the client assets
-;; (rf2-gwye.61, rf2-gwye.62)
 ;;
 ;; Still no Node. The peer here is an in-process JDK `HttpServer` answering
 ;; `/render` the way the sidecar does, which is enough to make the host emit
@@ -299,7 +295,7 @@
   {:uri "/" :request-method :get :headers {}})
 
 (deftest the-documented-boot-installs-the-adapter
-  ;; rf2-gwye.61. The example's Node boot and browser boot each initialise
+  ;; The example's Node boot and browser boot each initialise
   ;; their OWN process; neither can initialise the JVM. Requiring
   ;; `re-frame.ssr` PUBLISHES its adapter — `rf/init!` is what seats one —
   ;; so a host whose launch omits it serves a bare 500 with a healthy
@@ -339,9 +335,10 @@
           (is (nil? (host/init!))))))))
 
 (deftest the-composed-app-serves-the-client-bundle-at-the-shell-s-script-url
-  ;; rf2-gwye.62. `ssr-handler` renders a document for EVERY request it is
-  ;; given, so serving it bare answered the `<script src>` in the page it had
-  ;; just served with another copy of that page — and the script never ran.
+  ;; `ssr-handler` renders a document for EVERY request it is
+  ;; given, so serving it bare would answer the `<script src>` in the page it
+  ;; has just served with another copy of that page — and the script would
+  ;; never run.
   ;; Routing is the host application's job; `host/make-app` is the minimum
   ;; that does it, and this row drives the shell's OWN advertised URL rather
   ;; than a literal copy of it, so the two cannot drift apart silently.
@@ -389,7 +386,7 @@
               (is (= "text/javascript" (get headers "Content-Type")))))
 
           (testing "an asset this build does not carry is a MISS, not a login
-                    page — a 200 here is what made every wrong URL look served"
+                    page — a 200 here would make every wrong URL look served"
             (let [before @hits
                   {:keys [status body]} (app {:uri            "/no-such-asset.js"
                                               :request-method :get
@@ -423,8 +420,7 @@
       (is (str/includes? body "<div id=\"app\"")
           "shell: the #app root the client hydrator adopts by id")
       (is (str/includes? body "src=\"/main.js\"")
-          "shell: the client bundle, at the URL `host/make-app` maps it to —
-           `/js/` was a path nothing served (rf2-gwye.62)")
+          "shell: the client bundle, at the URL `host/make-app` maps it to")
       ;; The host names no `:content-type`, so the handler emits none and
       ;; leaves the header to the runtime — asserted as measured rather
       ;; than as assumed.
@@ -448,8 +444,7 @@
       (is (str/includes? (str (marked body "login-draft")) ":rf/redacted")
           "with the draft password redacted at the projection — the render
            cannot print a secret it was never handed")
-      ;; MEASURED, and worth stating because the prose used to imply
-      ;; otherwise: the runtime partition is EMPTY on this deployment. The
+      ;; The runtime partition is EMPTY on this deployment. The
       ;; `:auth.login/flow` machine is self-seeding — it materialises a
       ;; snapshot the first time it is dispatched at or subscribed to — and
       ;; the shipped host does neither, because the render happens in Node.
@@ -458,7 +453,7 @@
       ;; below proves the partition is live rather than decorative.
       (is (= "" (marked body "login-runtime-keys"))
           "nothing in the runtime partition: the host never drives the machine")
-      (println (format "[rf2-8arzr.5] login host render-state: app-db keys %s / runtime-db keys %s"
+      (println (format "[login-host-crossing] login host render-state: app-db keys %s / runtime-db keys %s"
                        (pr-str (marked body "login-state-keys"))
                        (pr-str (marked body "login-runtime-keys")))))
 
