@@ -67,7 +67,7 @@
 ;; Development only. `re-frame.schemas.validate` reads
 ;; `:schemas/humanize-explain!` solely inside its
 ;; `interop/debug-enabled?`-gated emit bodies, so a production build has
-;; no reader for this hook, and publishing it unconditionally rooted
+;; no reader for this hook, and publishing it unconditionally would root
 ;; `malli.error` for nothing. Same gate here: `:advanced` +
 ;; `goog.DEBUG=false` folds the form away and `malli.error` leaves the
 ;; bundle. Consumers use the same hook regardless of validator adapter.
