@@ -1,19 +1,20 @@
 (ns re-frame.spawn-all-address-collision-cljs-test
   "A `:spawn-all` invoke whose distinct logical children RESOLVE to the same
-  actor address is REJECTED fail-closed (rf2-qlzh9).
+  actor address is REJECTED fail-closed.
 
-  PR #6213 (rf2-ek435) stores prepared children as `{<spawned-id> prepared}`,
+  A join slot stores its prepared children as `{<spawned-id> prepared}`,
   but `:spawn-all` permits two DISTINCT logical children to resolve to the SAME
   actor address — a `:fixed-actor-id` literal shared by two children, or a fixed
   id colliding with a generated `<type>#n` — because registration
-  (`validate-spawn-all!`) guards only LOGICAL `:id` uniqueness. The map then
-  silently overwrites one prepared entry / one live actor: the first child
-  consumes the other's spec/snapshot and drops the only entry, and the later
-  child falls back to a second resolution/validation. Only one of the two logical
-  children ever completes, so an `:all` join waits forever on the missing one.
+  (`validate-spawn-all!`) guards only LOGICAL `:id` uniqueness. Unguarded, the map
+  would silently overwrite one prepared entry / one live actor: the first child
+  would consume the other's spec/snapshot and drop the only entry, and the later
+  child would fall back to a second resolution/validation. Only one of the two
+  logical children would ever complete, so an `:all` join would wait forever on
+  the missing one.
 
-  Fix: `spawn-all-init-fx`'s admission preflight detects resolved-address
-  aliasing over the prepared children as a THIRD fail-closed condition (alongside
+  So `spawn-all-init-fx`'s admission preflight detects resolved-address
+  aliasing over the raw per-child spawn args as a THIRD fail-closed condition (alongside
   unregistered TYPE + spawn-time schema rejection), rejects the whole invoke
   atomically (the childless reject sentinel), and emits ONE deterministic
   `:rf.error/machine-spawn-all-duplicate-id` — the same category the
@@ -29,7 +30,7 @@
    3. control — distinct resolved addresses (all-generated) install cleanly with
       NO collision reject.
    4. privacy — the reject trace carries STRUCTURAL context only, never `:data`.
-   5. ORDER (rf2-ri19s) — the alias is STRUCTURAL, decided from the pre-allocated
+   5. ORDER — the alias is STRUCTURAL, decided from the pre-allocated
       child args alone, so it rejects BEFORE any type resolution, snapshot build,
       or `[:schemas :data]` callback: an aliased batch whose children are ALSO
       schema-invalid / unregistered emits the collision reject and NOTHING else."
@@ -88,7 +89,7 @@
   (rf.machines.test-support/events-of :rf.error/machine-spawn-all-duplicate-id))
 
 ;; ---------------------------------------------------------------------------
-;; Ordering probes (rf2-ri19s).
+;; Ordering probes.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private reject-operations
@@ -100,10 +101,9 @@
 
 (defn- reject-order
   "The captured admission-reject operations in EMISSION order — the sequence
-  rf2-ri19s pins. Pre-fix, an aliased batch of schema-invalid children yielded
-  `[:rf.error/schema-validation-failure :rf.error/schema-validation-failure
-    :rf.error/machine-spawn-all-duplicate-id]`; the structural alias must be the
-  ONLY entry."
+  the ORDER tests pin. For an aliased batch of schema-invalid children the
+  structural alias must be the ONLY entry — no
+  `:rf.error/schema-validation-failure` precedes it."
   []
   (into [] (comp (map :operation) (filter reject-operations))
         (or (rf.machines.test-support/captured-events) [])))
@@ -127,7 +127,7 @@
    :states  {:running {}}})
 
 ;; ===========================================================================
-;; (1) THE BUG — two children sharing a :fixed-actor-id collapse to one actor.
+;; (1) Two children sharing a :fixed-actor-id alias one actor address.
 ;; ===========================================================================
 
 (deftest fixed-fixed-collision-rejects-the-whole-invoke
@@ -135,8 +135,9 @@
             resolve to one actor address: the invoke is rejected fail-closed (the
             childless reject sentinel, no :rf/prepared scratch, no snapshot
             installed) and ONE :rf.error/machine-spawn-all-duplicate-id fires
-            naming both offending logical child ids + the resolved address. The
-            pre-fix path silently overwrote one prepared entry / one live actor."
+            naming both offending logical child ids + the resolved address.
+            Unguarded, one prepared entry / one live actor would be silently
+            overwritten."
     (rf/reg-machine :sa/dup plain-child)
     (rf/reg-machine :sup/dup
                     (parent-over [{:id :a :machine-id :sa/dup :fixed-actor-id :dup/actor}
@@ -240,11 +241,10 @@
             :rf.error/machine-spawn-all-duplicate-id — no
             :rf.error/schema-validation-failure precedes it, and the application
             [:schemas :data] validator is never CALLED for the aliased children.
-            Pre-fix the preflight prepared every child first, so the captured
-            order was [schema-failure schema-failure duplicate-id]: the
-            structural invalidity did not fail first, and a validator/listener
-            that swapped the owner frame could pre-empt the collision reject
-            entirely."
+            Preparing every child first would capture [schema-failure
+            schema-failure duplicate-id]: the structural invalidity would not
+            fail first, and a validator/listener that swapped the owner frame
+            could pre-empt the collision reject entirely."
     (reset! validator-calls 0)
     (rf/reg-machine :sa/order counting-child)
     (rf/reg-machine :sup/order
@@ -258,11 +258,11 @@
     (is (zero? @validator-calls)
         "no child [:schemas :data] validator was CALLED — the aliased batch never reached preparation")
     (is (= {:rf/spawn-all-rejected? true} (join-slot :sup/order))
-        "still one childless reject sentinel — the atomic reject shape is unchanged (rf2-qlzh9)")
+        "one childless reject sentinel — the same atomic reject shape as (1)")
     (is (nil? (snap-of :order/actor))
         "nothing installed at the aliased address")
     (is (= [[:order/actor [:a :b]]] (:collisions (:tags (first (collision-rejects)))))
-        "declaration-order diagnostics survive the hoist")))
+        "declaration-order diagnostics hold when the alias is decided first")))
 
 ;; ===========================================================================
 ;; (6) ORDER, adversarial — alias + UNREGISTERED sibling + multiple groups.
@@ -275,7 +275,7 @@
             emits ONE collision reject naming BOTH groups in declaration order
             and NOTHING else — no :rf.error/machine-spawn-unregistered-type for
             the unregistered member, no schema failure for the invalid one. This
-            pins that the hoist is ahead of registry resolution too, and that the
+            pins that alias detection precedes registry resolution too, and that the
             multi-group diagnostic order does not fall back on map hash order
             (which differs between CLJ and CLJS)."
     (reset! validator-calls 0)
@@ -304,12 +304,10 @@
     (is (nil? (snap-of :g2/actor)) "nothing installed at the second aliased address")
     (let [tags       (:tags (first (collision-rejects)))
           collisions (:collisions tags)]
-      ;; rf2-hys95 — GROUP order is now a contract too, read positionally off
-      ;; the ordered carrier. Previously this could only assert membership: the
-      ;; diagnostic published `(into {} collisions)`, so group order came out of
-      ;; an unordered presentation (an array-map at this size, a hash map past
-      ;; the small-map threshold) and asserting it would have pinned an
-      ;; accident.
+      ;; GROUP order is a contract too, read positionally off the ordered
+      ;; carrier. A map presentation (`(into {} collisions)`) would leave group
+      ;; order unordered (an array-map at this size, a hash map past the
+      ;; small-map threshold), so asserting it there would pin an accident.
       (is (= [[:g1/actor [:a :d]] [:g2/actor [:b :c]]] collisions)
           "both groups in FIRST-APPEARANCE order (:g1/actor before :g2/actor), each naming its children in DECLARATION order (:a before :d, :b before :c)")
       (is (vector? collisions)
@@ -320,7 +318,7 @@
       (is (= [:forking] (:invoke-id tags)) "invoke identity carried"))))
 
 ;; ===========================================================================
-;; (7) ORDER — GROUP order survives past the small-map threshold (rf2-hys95).
+;; (7) ORDER — GROUP order survives past the small-map threshold.
 ;; ===========================================================================
 
 (deftest collision-groups-carry-declaration-order-past-the-array-map-threshold
@@ -334,11 +332,10 @@
             `spawn-all-address-collisions` already computes in first-appearance
             order — read positionally, identically on both hosts.
 
-            Pre-fix `reject-address-collision!` did `(into {} collisions)` and
-            published only the map, discarding the carrier: on CLJ ten grouped
-            addresses seq'd as g6 g0 g8 g9 g3 g7 g5 g1 g4 g2. A developer reading
-            the reject to find WHICH declarations collided got a shuffled list
-            that also differed between hosts."
+            Publishing only `(into {} collisions)` would discard the carrier:
+            on CLJ ten grouped addresses seq as g6 g0 g8 g9 g3 g7 g5 g1 g4 g2,
+            so a developer reading the reject to find WHICH declarations
+            collided would get a shuffled list that also differs between hosts."
     (rf/reg-machine :sa/wide plain-child)
     (let [n        10
           addr     (fn [i] (keyword "g" (str "actor" i)))
