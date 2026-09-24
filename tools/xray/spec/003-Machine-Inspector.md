@@ -1263,7 +1263,10 @@ shape carries no value-redaction concern.
 > into the chart's SVG/PNG/clipboard export. The chart therefore applies
 > a **local-redacted projection to the Context band by default**, keyed
 > on host-declared `:context-band-sensitive` / `:context-band-large`
-> sets (derived from the machine's `[:schemas :data]` slot props) with an
+> sets (derived from the machine definition's own projection-relative
+> `:sensitive` / `:large` declaration by
+> `context-redaction/derive-classification`, where a whole-`:data`
+> declaration covers every key, runtime-added ones included) with an
 > explicit `:context-band-raw?` trusted-local opt-in — see
 > [machines-viz API §Context-band egress contract](../../machines-viz/spec/API.md#context-band-egress-contract--local-redacted-by-default-rf2-27e38h--ep-0015).
 > Xray's value-free type-caption shape is a redaction no-op, so this
