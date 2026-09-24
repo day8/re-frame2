@@ -9,13 +9,12 @@
   Two tiers, declared wins:
 
     1. **Declared (authoritative).** When the machine spec declares its
-       data-context schema at `[:schemas :data]` (a Malli `[:map [k schema] …]`;
-       the EP-0029 A3 clean-break home for what EP-0005 called `:data-schema`),
+       data-context schema at `[:schemas :data]` (a Malli `[:map [k schema] …]`),
        the shape is read straight off the schema's `:map` entries. This is
        AUTHORITATIVE — the author declared the context shape — so the chart
        drops the `inferred from :data` badge for that machine.
     2. **Inferred (one-sample).** When there is no `[:schemas :data]` schema,
-       fall back to the pre-existing behaviour: derive `{key → type}` from
+       fall back to deriving `{key → type}` from
        ONE sample of the definition's initial `:data`, which the chart badges
        `inferred from :data` because a partial initial `:data` can mislead.
 
@@ -38,9 +37,7 @@
 ;; ---- inferred (one-sample, from initial :data) -------------------------
 
 (defn- value-type-caption
-  "The type caption for a sampled `:data` VALUE — the inferred path. Mirrors
-  the original `topology-view/static-context-shape` ladder (rf2-vcnvj) so the
-  inferred shape is unchanged by the declared-over-inferred split."
+  "The type caption for a sampled `:data` VALUE — the inferred path."
   [v]
   (cond
     (nil? v)        "nil"
@@ -55,7 +52,7 @@
     :else           "value"))
 
 (defn infer-shape
-  "rf2-vcnvj — derive `{key → type-caption}` from one sample of the
+  "Derive `{key → type-caption}` from one sample of the
   definition's initial `:data`. Returns nil when `:data` is not a map (so the
   panel stays hidden). Pure."
   [definition]
@@ -138,13 +135,13 @@
 ;; Malli wrapper heads whose FIRST contained schema carries the real shape —
 ;; `[:and [:map …] [:fn …]]`, `[:or …]`, `[:schema [:map …]]`, etc. Walking
 ;; these as plain data lets a declared `:map` nested under a refinement
-;; wrapper still be recognised as DECLARED (rf2-2btfzr) rather than slipping
+;; wrapper still be recognised as DECLARED rather than slipping
 ;; through to one-sample inference. Heads are matched by the schema's vector
 ;; HEAD keyword; everything that is not one of these stops the unwrap.
 (def ^:private map-unwrap-heads #{:and :or :schema :ref})
 
 (defn map-schema
-  "rf2-2btfzr — unwrap common Malli wrappers to find the contained `:map`
+  "Unwrap common Malli wrappers to find the contained `:map`
   schema and return it (the `[:map …]` vector), else nil. A bare `[:map …]`
   is returned as-is; a wrapper such as `[:and [:map …] [:fn …]]`,
   `[:or [:map …] …]`, or `[:schema [:map …]]` is descended (FIRST informative
@@ -168,7 +165,7 @@
           :else nil)))))
 
 (defn declared-shape
-  "rf2-3q4k5b / rf2-2btfzr — derive `{key → type-caption}` from a machine's
+  "Derive `{key → type-caption}` from a machine's
   declared `[:schemas :data]` schema when it is (or WRAPS) a Malli `:map`. Returns the
   shape map — POSSIBLY EMPTY for a declared-but-empty `[:map]` /
   `[:map {:closed true}]` — when a contained `:map` is found, else nil when
@@ -196,7 +193,7 @@
                        (filter vector?))]
       ;; ALWAYS return a map (possibly empty) once a `:map` is declared, so
       ;; the empty `[:map]` / `[:map {:closed true}]` case is authoritative
-      ;; rather than dropping to inference (rf2-2btfzr).
+      ;; rather than dropping to inference.
       (into {}
             (map (fn [entry]
                    (let [k        (first entry)
@@ -210,7 +207,7 @@
 ;; ---- declared-over-inferred top-level ----------------------------------
 
 (defn static-context-shape
-  "rf2-3q4k5b / rf2-2btfzr — the declared-over-inferred static Context shape
+  "The declared-over-inferred static Context shape
   for a machine DEFINITION. Returns `{:shape {key → type-caption} :inferred?
   bool}`:
 
@@ -223,7 +220,7 @@
       empty shape, but inference is NOT triggered (declared-but-empty ≠
       undeclared).
     - Otherwise the shape is INFERRED from one sample of the initial `:data`
-      and `:inferred?` is TRUE (rf2-5tz9p's behaviour, unchanged).
+      and `:inferred?` is TRUE.
 
   Returns nil when neither a `:map`-shaped `[:schemas :data]` schema nor a map
   `:data` is present (the panel stays hidden). Pure — testable without a browser."
