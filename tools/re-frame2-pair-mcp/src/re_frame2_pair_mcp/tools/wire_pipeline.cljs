@@ -39,10 +39,10 @@
   counts app-side over exactly the value it returns, and that count
   flows back via `:server-elided` on the opts map.
 
-  `:snapshot-map` does NOT take the app-side count (rf2-3x7nj.32.8): the
+  `:snapshot-map` does NOT take the app-side count: the
   eval form walks every frame's full `:app-db`, every `:sub-cache` entry
   and every epoch, and the path slice and the summary pass then remove
-  markers, so that figure over-reported for a summary or a path-sliced
+  markers, so that figure would over-report for a summary or a path-sliced
   read. The arm counts over its own post-summary result instead, with a
   `:full` `:epochs` slice counted before dedup.
 
@@ -78,9 +78,9 @@
   least one frame's path didn't resolve; empty / absent otherwise.
 
   Tools call this once and splice the result through
-  `wire/with-indicators` onto their envelope — the per-tool tail
-  collapses from a 20-line `let` of intermediate names to a 5-line
-  pipeline call + envelope assembly.
+  `wire/with-indicators` onto their envelope — the per-tool tail is a
+  short pipeline call + envelope assembly rather than a long `let` of
+  intermediate names.
 
   ## Role: orchestrator (first stop on the wire)
 
@@ -118,7 +118,7 @@
 
 (defn- count-shipped-markers
   "Count the `:rf.size/large-elided` markers the snapshot response
-  actually SHIPS (rf2-3x7nj.32.8). `summarised` is the post-summary
+  actually SHIPS. `summarised` is the post-summary
   snapshot: a path-sliced `:app-db` holds only the addressed subtree and
   a summary-mode slice is a `{:rf.mcp/summary ...}` marker holding no
   value at all, so a marker outside the path or inside a summarised
@@ -151,11 +151,11 @@
 
   `:elided-large` counts the markers ENCOUNTERED in the response
   payload (Spec 009 §Indicator field), so it is counted AFTER the path
-  slice and the summary pass, both of which remove markers
-  (rf2-3x7nj.32.8). The eval form's app-side `:elided-count` is taken
+  slice and the summary pass, both of which remove markers. The eval
+  form's app-side `:elided-count` is taken
   over the whole walked state — every frame's full `:app-db`, every
-  `:sub-cache` entry, every epoch — so it is NOT used here: it reported
-  markers a summary or a path-sliced read never contained."
+  `:sub-cache` entry, every epoch — so it is NOT used here: it would
+  report markers a summary or a path-sliced read never contains."
   [snapshot {:keys [incl? mode dedup? path slice-mode slice-modes]}]
   (let [app-db-mode           (pipeline/resolve-slice-mode :app-db slice-modes slice-mode)
         [scrubbed dropped]    (sensitive/scrub-snapshot-sensitive snapshot incl?)
@@ -175,7 +175,7 @@
          other-modes :resolved-modes} (pipeline/summarise-other-slices-in-snapshot
                                         deduped slice-modes slice-mode)
         ;; :elided-large counts the markers in the payload that SHIPS,
-        ;; per Spec 009 §Indicator field (rf2-3x7nj.32.8).
+        ;; per Spec 009 §Indicator field.
         elided                (count-shipped-markers
                                 summarised diff-encoded
                                 (= :full (get other-modes :epochs)))
@@ -216,9 +216,9 @@
         ;; N). The marker SET is identical pre/post dedup — dedup only
         ;; re-shapes structural references; it never drops a marker —
         ;; so counting pre-dedup is exact and the markers still ride the
-        ;; wire intact. Mirrors the `:snapshot-map` arm, which already
-        ;; sidesteps this by using the server `:server-elided` count
-        ;; taken before dedup.
+        ;; wire intact. Mirrors the `:snapshot-map` arm, which counts a
+        ;; `:full` `:epochs` slice over its pre-dedup form for the same
+        ;; reason.
         elided         (rf.mcp-base.elision/count-elided-markers encoded)]
     {:value      deduped
      :indicators {:dropped dropped
@@ -273,7 +273,7 @@
                       `:scalar-value` arm uses this instead of
                       re-walking the payload; missing ⇒ a local walk.
                       The `:snapshot-map` arm ignores it and counts what
-                      it ships (rf2-3x7nj.32.8).
+                      it ships.
 
   Unknown `:kind` throws — the dispatch is closed to three cases and
   silently degrading would mask a programmer typo / a new-payload
@@ -294,15 +294,15 @@
           :scalar-value (run-scalar-value payload opts)
           ;; Canonical thrown-error shape per Spec 009 §The thrown-error shape:
           ;; the human sentence + a trailing `[:rf.error/<id>]` token IS the
-          ;; ex-message. Load-bearing here (rf2-jquiy), but via RELAY 2, not
+          ;; ex-message. Load-bearing here, but via RELAY 2, not
           ;; relay 1: all five `run-wire-pipeline` call sites sit inside an
           ;; `eval-after-runtime!` `on-value`, so this throw fires during
           ;; response shaping and meets `probe/err->result` — NOT
           ;; `server.cljs`'s `invoke-and-guard`, which only catches throws
           ;; raised before the nREPL round-trip. The two relays keep opposite
-          ;; halves of the exception; `err->result` merges both since
-          ;; rf2-6tzm5, which is what makes this message reach the agent at
-          ;; all (before it, only the ex-data below did, and this text was
+          ;; halves of the exception; `err->result` merges both, which is
+          ;; what makes this message reach the agent at all (without the
+          ;; merge only the ex-data below would, and this text would be
           ;; dead prose). The ex-data therefore carries the agent's branchable
           ;; slots — `:rf.error/id`, `:kind`, `:valid` — and the message
           ;; carries the sentence; `error_boundary_test` pins both.
