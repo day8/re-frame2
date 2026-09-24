@@ -20,7 +20,7 @@
       carried scope), and
     - `(or… :rf/default)` resolution floor
 
-  in PRODUCTION source. `:rf/default` remains a perfectly legal EXPLICIT
+  in PRODUCTION source. `:rf/default` is a perfectly legal EXPLICIT
   frame id (a migration may pick it, a test may register + select it) — the
   ban is on using it as an *absence repair*, not on the keyword itself.
 
