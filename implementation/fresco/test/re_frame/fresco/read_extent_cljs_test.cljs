@@ -75,9 +75,8 @@
     the `:refused` assertions above are not a helper that only knows one
     verb.
 
-  Beyond the suite, each refusal was shown red by removing its guard from
-  the runtime and restoring it; the PR body carries that ledger. Nothing
-  under `src/` is changed by this bead.
+  Beyond the suite, each refusal reddens when its guard is removed from
+  the runtime.
 
   ## What is NOT witnessed here, and what it is owed to
 
@@ -145,7 +144,7 @@
   "A frame with a known db. `IS_REACT_ACT_ENVIRONMENT` is set outright for
   the reason the commit-owns harness gives: nothing here runs inside React's
   `act` queue, and the prototype helper that carries the line lives in the
-  bench tree the freeze gate forbids this package from importing."
+  bench tree, which this package may not import."
   []
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
   (rf/make-frame {:id frame-id})
@@ -193,7 +192,7 @@
   "The exact stable shape every escape past the render frame must carry.
 
   The four keys are the contract: the stable id, the source coordinate as the
-  runtime can state one today, core's `:no-recovery` disposition, and the
+  runtime can state one, core's `:no-recovery` disposition, and the
   query that was refused. `:reason` is deliberately NOT frozen here — it is prose, and
   re-routing the complaint text through `re-frame.error` is the complaint
   catalogue's to rule on, as the file/line/column coordinate this `:where`
@@ -340,7 +339,7 @@
         (let [release-2 (rf.fresco.impl.collector/commit-boundary! second-entry (fn []))]
           ;; React's order at a changed subscription: subscribe the new,
           ;; then release the old. Doing it the other way round is the
-          ;; variant `hmr_remount` pinned, and the outcome is the same.
+          ;; variant `hmr_remount` pins, and the outcome is the same.
           (release-1)
 
           (testing "the arrived key gained a reader"
@@ -512,8 +511,8 @@
 
 (deftest an-escaped-lazy-sequence-refuses-where-an-in-window-one-is-legal
   (seeded!)
-  ;; THE ROW THE BEAD SINGLES OUT, and it is the one whose two halves are
-  ;; the same carrier. A `for` inside a body is legal because the codec
+  ;; THE LAZY-SEQUENCE ROW, and it is the one whose two halves are the
+  ;; same carrier. A `for` inside a body is legal because the codec
   ;; forces it inside the window; a lazy sequence that ESCAPES the render —
   ;; parked in a mutable reference rather than returned — is realised with
   ;; no body on the stack and refuses.
@@ -616,10 +615,10 @@
   ;; and if it is forced inside ANOTHER body's render the frame slot finds a
   ;; frame and is satisfied.
   ;;
-  ;; **The limit is ratified, so this row's green is a decision and not an
-  ;; oversight.** Closing it was weighed and ruled against: the runtime does
-  ;; not chase deferred reads hidden in mutable references, I7's text says so,
-  ;; and the guide warns rather than the runtime enforcing. Do not
+  ;; **The limit is deliberate, so this row's green is a decision and not an
+  ;; oversight.** The runtime does not chase deferred reads hidden in mutable
+  ;; references, I7's text says so, and the guide warns rather than the
+  ;; runtime enforcing. Do not
   ;; weaken or delete this row — it is the standing measurement of a boundary
   ;; the product chose. If enforcement is ever extended here, this is the row
   ;; that goes red, and that is what it is for.
@@ -679,7 +678,7 @@
     ;; and this is the row that says the census agrees.
     ;;
     ;; **This row is insurance rather than a measurement, and it is worth
-    ;; saying which.** No perturbation in the read-extent ledger reds it: with
+    ;; saying which.** Removing an extent guard does not red it: with
     ;; the extent guard removed the escaped reads reach `subscribe-once`,
     ;; which refuses before acquiring anything, so the zeros hold either
     ;; way. What keeps it from being a zero the instrument cannot make
