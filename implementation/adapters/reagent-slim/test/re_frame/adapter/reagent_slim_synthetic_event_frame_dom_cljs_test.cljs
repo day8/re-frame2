@@ -1,6 +1,6 @@
 (ns re-frame.adapter.reagent-slim-synthetic-event-frame-dom-cljs-test
   "reagent-slim half of the deferred-callback frame-law real-DOM matrix
-  (rf2-leeqp; completes the stock-Reagent proof rf2-xzgs3j /
+  (completes the stock-Reagent proof
   `views-synthetic-event-frame-dom-cljs-test`).
 
   WHAT THIS PINS. A view's `:on-*` handler runs LATER — on the user's
@@ -16,16 +16,15 @@
   UNqualified injected `dispatch` dispatches correctly after the render
   boundary.
 
-  The stock-Reagent twin (`re-frame.views-synthetic-event-frame-dom-cljs-test`,
-  rf2-xzgs3j) proves this under `reagent.dom.client`. The existing
-  reagent-slim client-runtime smoke
-  (`adapters/reagent-slim/testbed/smoke.cjs`) proves only the
-  captured/injected HAPPY path. This suite closes the gap the bead flags:
+  The stock-Reagent twin (`re-frame.views-synthetic-event-frame-dom-cljs-test`)
+  proves this under `reagent.dom.client`. The reagent-slim client-runtime
+  smoke (`adapters/reagent-slim/testbed/smoke.cjs`) proves only the
+  captured/injected HAPPY path. This suite pins the other half:
   the BARE-dispatch FAILURE under the day8/reagent-slim substrate
   (`reagent2.dom.client` + `re-frame.adapter.reagent-slim`), with a real
   synthetic click.
 
-  RIGOUR (rf2-leeqp acceptance). The working half settles on a CAUSAL
+  RIGOUR. The working half settles on a CAUSAL
   signal — `test-support/poll-until` waits for the frame's app-db to
   actually advance, NOT a fixed sleep. A SINGLE idempotent finalizer
   (`finalize!`) unmounts the root, removes the DOM node, destroys the
@@ -99,7 +98,7 @@
   (.querySelector mount-node (str "[data-testid='" testid "']")))
 
 (deftest synthetic-event-frame-advice-real-dom-proof-reagent-slim
-  "rf2-leeqp — real synthetic click proves the deferred-callback frame law
+  "Real synthetic click proves the deferred-callback frame law
    under reagent-slim.
 
    A `reg-view` mounted under a `frame-provider` on a real `reagent2`
@@ -133,7 +132,7 @@
           (let [mount-node (.createElement js/document "div")]
             (reset! node-atom mount-node)
             (.appendChild (.-body js/document) mount-node)
-            (rf/make-frame {:id target :doc "rf2-leeqp reagent-slim synthetic-event proof frame"})
+            (rf/make-frame {:id target :doc "reagent-slim synthetic-event proof frame"})
             (rf/reg-event :syn/init (fn [{:keys [db]} _] {:db (assoc db :n 0)}))
             (rf/reg-event :syn/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
             (rf/reg-sub :syn/n (fn [db _] (:n db)))
@@ -178,10 +177,10 @@
                     ;; `cljs.test/run-block` a continuation that runs the WHOLE
                     ;; remainder of the run synchronously, so a rejection
                     ;; handler downstream of the step that finished the row
-                    ;; claims whatever a LATER namespace throws and prints it
-                    ;; against this row's label (rf2-e8kc). The CAS inside
-                    ;; `finalize!` swallowed the second `done`; it could not
-                    ;; swallow the misattributed failure.
+                    ;; would claim whatever a LATER namespace throws and print
+                    ;; it against this row's label. The CAS inside `finalize!`
+                    ;; would swallow the second `done`, but not the
+                    ;; misattributed failure.
                     (.catch (fn [e]
                               (is false
                                   (str "injected dispatch never advanced the render frame: "
