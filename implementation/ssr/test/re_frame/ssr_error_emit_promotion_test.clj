@@ -1,26 +1,23 @@
 (ns re-frame.ssr-error-emit-promotion-test
-  "EP-0008 (rf2-hhutya) ACCEPTANCE — the promoted SSR error categories ride
-  the ALWAYS-ON `register-error-listener!` error-emit axis (surface #4)
-  under `interop/debug-enabled? = false`, WITHOUT altering the wire outcome
-  (the 200 / degraded-200 / 5xx the request would have produced before
-  promotion).
+  "EP-0008 ACCEPTANCE — the SSR error categories on the ALWAYS-ON
+  `register-error-listener!` error-emit axis (surface #4) reach it under
+  `interop/debug-enabled? = false`, WITHOUT altering the wire outcome (the
+  200 / degraded-200 / 5xx the request produces either way).
 
-  The count is deliberately NOT stated here. It read \"seven\" while
-  rf2-tildz was promoting `:rf.ssr/hydration-mismatch` and
-  `:rf.ssr/suspense-boundary-failed`, and nothing in this file asserts a
-  count, so the number could drift unchallenged — the roster of record is
-  the Spec 009 catalogue's `always-on` Channel cells, which
+  The count is deliberately NOT stated here: nothing in this file asserts a
+  count, so a number stated here could drift unchallenged — the roster of
+  record is the Spec 009 catalogue's `always-on` Channel cells, which
   `parsed-always-on-set-equals-the-exercise-literal` pins to the
   `always-on-categories` literal.
 
-  THOSE TWO CATEGORIES HAVE NO ACCEPTANCE LEG HERE YET. Their
-  `non-projection-eligible-errors` entries make exactly the claim this
+  `:rf.ssr/hydration-mismatch` and `:rf.ssr/suspense-boundary-failed` HAVE
+  NO ACCEPTANCE LEG HERE. Their `non-projection-eligible-errors` entries make exactly the claim this
   file's (A) EXERCISE / (B) WIRE-UNCHANGED pattern exists to pin — reaches
   the listener under `debug-enabled? = false`, and the response is still
   the 200 it would have been — so this is the natural home for it.
 
-  The promotion adds the production-survivable OFF-BOX RECORD; the wire
-  consequence is unchanged. The per-category acceptance has two legs:
+  The always-on emit adds a production-survivable OFF-BOX RECORD; it does
+  not change the wire consequence. The per-category acceptance has two legs:
 
     (A) EXERCISE — register a `register-error-listener!` consumer under
         `debug-enabled? = false` (the production posture, the dev trace
@@ -28,11 +25,11 @@
         listener received a record whose `:error` slot is the category.
         This proves the category survives `-Dre-frame.debug=false`.
 
-    (B) WIRE-UNCHANGED — pin the response status the category was supposed
-        to leave alone:
+    (B) WIRE-UNCHANGED — pin the response status the category leaves
+        alone:
           - PROJECTION-ELIGIBLE (`:rf.error/ssr-render-failed`) → 5xx
-            (the render-time projection stamps it; promotion's buffered
-            duplicate is cleared so no double-stamp / re-project).
+            (the render-time projection stamps it; the always-on emit's
+            buffered duplicate is cleared so no double-stamp / re-project).
           - NON-PROJECTING recoverable degradations
             (`:rf.error/ssr-head-resolution-failed`,
              `:rf.error/ssr-ring-error-view-failed`) → 200 (degraded).
@@ -49,9 +46,9 @@
     - the substrate install: `ssr-error-projector-substrate-test`
     - HTTP-wire pins: `re-frame.ssr.ring-test`,
       `re-frame.ssr.ring-streaming-test`
-  This suite is the CHANNEL-level acceptance that EACH promoted category
+  This suite is the CHANNEL-level acceptance that EACH category above
   reaches `register-error-listener!` under debug-off AND that surfacing it
-  there does not flip the wire — the rf2-hhutya conformance leg."
+  there does not flip the wire — the EP-0008 conformance leg."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -118,21 +115,21 @@
   (rf/reg-event ::set-title (fn [{:keys [db]} [_ t]] {:db (assoc db :title t)}))
   (rf/reg-sub :count (fn [db _] (or (:count db) 0)))
   (rf/reg-sub :title (fn [db _] (or (:title db) "untitled")))
-  ;; EP-0001 (rf2-vzld77): hydration metadata is durable runtime-db state.
+  ;; EP-0001: hydration metadata is durable runtime-db state.
   (rf.subs/reg-runtime-sub :hydrated?
     (fn [rt _] (boolean (get-in rt [:rf.runtime/ssr :hydration])))))
 
 ;; ===========================================================================
-;; (A) EXERCISE — each promoted category fans out through
+;; (A) EXERCISE — each always-on category fans out through
 ;;     register-error-listener! under debug-off.
 ;; ===========================================================================
 
 (deftest ssr-render-failed-reaches-listener-under-debug-off
-  (testing "rf2-hhutya: `:rf.error/ssr-render-failed` reaches an always-on
+  (testing "`:rf.error/ssr-render-failed` reaches an always-on
             listener under `debug-enabled? = false` (PROJECTION-ELIGIBLE).
             Driving `project-render-exception!` surfaces the off-box record
             AND stamps the 5xx via the DIRECT projection — the wire status
-            is the projector's 500, unchanged by promotion."
+            is the projector's 500, unchanged by the always-on emit."
     (let [fid  (make-server-frame)
           seen (capture-always-on!)]
       (with-redefs [rf.interop/debug-enabled? false]
@@ -145,14 +142,14 @@
           (is (= 500 (:status public-error))
               "project-render-exception! returned the projector's 500")
           (is (= 500 (:status (rf.ssr/get-response fid)))
-              "the response status is the projector's 500 — promotion did
-               NOT double-stamp or re-project (the buffered duplicate was
-               cleared)")
+              "the response status is the projector's 500 — the always-on
+               emit did NOT double-stamp or re-project (the buffered
+               duplicate is cleared)")
           (is (= 1 (count (filter #{:rf.error/ssr-render-failed} @seen)))
               "exactly one off-box record (no duplicate fan-out)"))))))
 
 (deftest sanitised-on-projection-reaches-listener-under-debug-off
-  (testing "rf2-hhutya: `:rf.error/sanitised-on-projection` reaches an
+  (testing "`:rf.error/sanitised-on-projection` reaches an
             always-on listener under `debug-enabled? = false` when the
             active projector throws, AND is NON-PROJECTING + one-shot (the
             projection listener skips it, so surfacing it does not re-enter
@@ -188,7 +185,7 @@
                re-enter the projector it reports on"))))))
 
 (deftest malformed-hydration-payload-frameless-reaches-listener-under-debug-off
-  (testing "rf2-hhutya: the PRE-FRAME `read-server-payload` parse failure
+  (testing "the PRE-FRAME `read-server-payload` parse failure
             emits a FRAMELESS `:rf.error/malformed-hydration-payload`
             always-on record (`:frame nil`) under `debug-enabled? = false`
             — the EP-0002 resolution-6 frameless precedent. WIRE-UNCHANGED:
@@ -224,7 +221,7 @@
                projection — no status moved"))))))
 
 (deftest malformed-hydration-payload-frameful-reaches-listener-under-debug-off
-  (testing "rf2-hguive: the FRAMEFUL `:rf/hydrate` shape-guard emit
+  (testing "the FRAMEFUL `:rf/hydrate` shape-guard emit
             (the frame EXISTS) rides the always-on
             `register-error-listener!` axis under `debug-enabled? = false`
             — the production posture where the dev trace surface is elided.
@@ -234,10 +231,10 @@
             record reaches the off-box listener carrying the frame context
             (`:frame <client-frame>`, `:where 'rf.ssr/hydrate`,
             `:failing-id :rf/hydrate`, `:recovery :no-recovery`). This pins
-            the frameful site the bead names — before this only the
-            PRE-FRAME frameless sibling (above) was pinned on the always-on
-            axis under debug-off, so the frameful site could silently
-            regress to dev-trace-only while the fail-closed-state tests in
+            the frameful site — without it only the PRE-FRAME frameless
+            sibling (above) would be pinned on the always-on axis under
+            debug-off, so the frameful site could silently regress to
+            dev-trace-only while the fail-closed-state tests in
             `ssr_hydration_test` still passed.
 
             ADVERSARIAL: the assertion is NOT merely 'the rejection
@@ -308,11 +305,11 @@
 ;; ===========================================================================
 
 (deftest non-projecting-categories-do-not-move-the-status-on-the-always-on-axis
-  (testing "rf2-hhutya: the recoverable-degradation + post-commit members,
+  (testing "the recoverable-degradation + post-commit members,
             delivered to the ALWAYS-ON `error-emit-projection-listener`
             under `debug-enabled? = false`, are SKIPPED — neither buffered
-            nor projected — so the response status stays 200. Promotion
-            changed what SHIPPERS see, NOT what the WIRE does."
+            nor projected — so the response status stays 200. The always-on
+            record changes what SHIPPERS see, NOT what the WIRE does."
     (doseq [cat [:rf.error/ssr-head-resolution-failed
                  :rf.error/ssr-ring-error-view-failed
                  :rf.error/ssr-streaming-writer-failed
@@ -337,11 +334,11 @@
                    flip the wire")))))))
 
 (deftest projection-eligible-render-failed-still-projects-on-the-always-on-axis
-  (testing "rf2-hhutya (control): `:rf.error/ssr-render-failed` is
+  (testing "control: `:rf.error/ssr-render-failed` is
             PROJECTION-ELIGIBLE — delivered to the always-on listener it
             IS buffered and projects a 5xx. Proves the skip in the test
             above is targeted to the non-projecting set, not a blanket
-            no-op, and that the projection-eligible promotion still drives
+            no-op, and that the projection-eligible always-on record drives
             the status under production hardening."
     (let [fid (make-server-frame)]
       (with-redefs [rf.interop/debug-enabled? false]
@@ -354,5 +351,5 @@
         (is (seq (get @rf.ssr.error-listener/pending-error-traces fid))
             "ssr-render-failed IS buffered on the always-on axis")
         (is (= 500 (:status (rf.ssr/get-response fid)))
-            "and projects a 5xx — the projection-eligible promotion drives
-             the status under debug-off")))))
+            "and projects a 5xx — the projection-eligible always-on record
+             drives the status under debug-off")))))
