@@ -1,5 +1,5 @@
 (ns re-frame.route-link-seam-cljs-test
-  "The substrate-neutral link seam (rf2-vxgfnd.95.5) — `rf.routing.link/link-model` +
+  "The substrate-neutral link seam — `rf.routing.link/link-model` +
   `rf.routing.link/activate-link!`. These are the two routing-owned late-bound hooks a
   view artefact's own route-link consumes so that artefact
   reimplements NONE of the routing link law.
@@ -10,9 +10,9 @@
   deferral, `.preventDefault` + dispatch to the CAPTURED render frame stamped
   `:source :router`). The click law itself is the SAME `plain-left-click?` /
   `native-anchor?` the `:route/link` view uses (route_link_cljs_test); this file
-  pins the SEAM the ui view rides.
+  pins the SEAM a view artefact's route-link rides.
 
-  Per Spec 012 §Linking from views and the rf2-5yovjt ruling."
+  Per Spec 012 §Linking from views."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.trace.tooling :as rf.trace.tooling]
@@ -82,11 +82,10 @@
       (is (= "/articles/intro?tab=summary" href))
       (is (= {:url "/articles/intro?tab=summary"}
              (second payload))
-          "rf2-kuky.36: the address rides IN the url, not beside it — params
+          "the address rides IN the url, not beside it — params
            and query are re-derived by the match the handler runs anyway")))
-  ;; rf2-e9974 pinned `:fragment` in the payload as a distinct slot;
-  ;; rf2-kuky.36 shrank the payload to `{:url …}`, so the fragment is pinned
-  ;; where it now lives — inside the synthesised url — on both surfaces (see
+  ;; The payload is `{:url …}`, so the fragment is pinned
+  ;; where it lives — inside the synthesised url — on both surfaces (see
   ;; `plain-left-click-passes-params-query-and-fragment` for the click side).
   (testing "a fragment rides the url the payload carries, as well as the href"
     (let [{:keys [href payload]} (rf.routing.link/link-model {:to :route/cart :fragment "totals"} nil)]
@@ -98,7 +97,7 @@
   (rf/reg-route :route/article {:params [:map [:id :string]]
                                 :query  [:map [:tab [:enum :summary :details]]]}
                 "/articles/:id")
-  (testing "rf2-kuky.37: a link that opted in carries the minted warm-up
+  (testing "a link that opted in carries the minted warm-up
            vector AND the positions it belongs at, so a seam consumer never
            restates routing's position list"
     (let [{:keys [prefetch prefetch-keys]}
@@ -154,7 +153,7 @@
                     :payload (:payload model) :native? (:native? model)})]
     (is prevented? "plain left-click prevents default")
     (is (= [:rf.route/url-requested {:url "/cart"}] dispatched))
-    (is (= :router source) "the click stamps :source :router (rf2-t1lxr / rf2-1ve9h)")
+    (is (= :router source) "the click stamps :source :router")
     (is (= :frame/main frame)
         "dispatch targets the captured render frame verbatim (committed-frame target)")))
 
