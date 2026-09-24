@@ -56,7 +56,9 @@
 ;; `:fail-next-boot?` is read from app-db at request time and, when armed, the
 ;; next `/user.json` load answers a 503 instead. That URL is the interesting
 ;; one: it fails inside the `:spawn-all`, so you also watch `:on-any-failed`
-;; cancel its two siblings on the way to `:failed`. The flag is a ONE-SHOT —
+;; cancel its two siblings on the way to `:failed` (while armed, the stub holds
+;; their loads open so they are still in flight — see `held-url-fragments`
+;; below). The flag is a ONE-SHOT —
 ;; the stub disarms it as it fires — so the Retry button on the failure screen
 ;; boots cleanly and the whole arc is two clicks.
 
@@ -102,6 +104,18 @@
 ;; as well as the boot's own `:failed` screen.
 (def ^:private fail-url-fragment "/user.json")
 
+;; The rigged URL's two siblings in the same `:spawn-all`. While the seam is
+;; armed the stub leaves their loads unanswered, so both are still in flight
+;; when /user.json fails and `:on-any-failed` has two survivors to cancel.
+;; Left alone they would both finish first: every reply rides the same delay,
+;; and /user.json is the last of the three children to ask. A shorter delay
+;; for the failure alone would not do either, because the cancelled loaders'
+;; replies would still arrive later, at addresses that no longer exist, and
+;; each would be reported as `:rf.error/no-such-handler`. A real
+;; `:rf.http/managed` request is aborted when its loader is destroyed. This
+;; fake backend has nothing to abort, so it never answers.
+(def ^:private held-url-fragments ["/routes.json" "/flags.json"])
+
 (rf/reg-fx :boot.demo/http-stub
   {:doc       "Our stand-in for `:rf.http/managed`: match the URL by
                substring to pick a canned payload, then DELEGATE to the
@@ -112,8 +126,10 @@
 
                Reads the `:fail-next-boot?` app-db flag at request time:
                when armed, the `/user.json` load answers a 503 through
-               `:rf.http/managed-canned-failure` instead, and the stub
-               disarms the flag on its way past so the next boot is clean.
+               `:rf.http/managed-canned-failure` instead, its two siblings'
+               loads go unanswered so `:on-any-failed` has them to cancel,
+               and the stub disarms the flag on its way past so the next
+               boot is clean.
 
                The framework canned-success handler owns everything about
                the delayed reply: `:after-ms` defers it via the
@@ -126,16 +142,19 @@
                transport plumbing is entirely the framework's."
    :platforms #{:server :client}}
   (fn fx-managed-boot-demo [frame-ctx args-map]
-    (let [url   (-> args-map :request :url)
+    (let [url    (-> args-map :request :url)
           ;; The fx context carries the envelope frame as `:frame`. The
           ;; `:fail-next-boot?` toggle is an ordinary app-db slice (written by
           ;; `:boot.demo/set-fail-next`), so read it off the frame's APP-db
           ;; partition (`:rf.db/app`) — app state lives there, not in the
           ;; `:rf.db/runtime` partition, which is framework runtime only.
-          db    (:rf.db/app (rf/frame-state-value (:frame frame-ctx)))
-          fail? (and (str/includes? (str url) fail-url-fragment)
-                     (boolean (:fail-next-boot? db)))]
-      (if fail?
+          db     (:rf.db/app (rf/frame-state-value (:frame frame-ctx)))
+          armed? (boolean (:fail-next-boot? db))
+          fail?  (and armed? (str/includes? (str url) fail-url-fragment))
+          hold?  (and armed? (boolean (some #(str/includes? (str url) %)
+                                            held-url-fragments)))]
+      (cond
+        fail?
         ;; Armed: answer this one load with a 503 so the boot takes its
         ;; `:failed` branch. Disarm first (it's a one-shot), then hand off to
         ;; the canned-failure fx — its reply rides `:after-ms` →
@@ -153,6 +172,15 @@
                                  :kind     :rf.http/http-5xx
                                  :tags     {:status  503
                                             :message "Simulated /user.json outage (the demo's failure seam)."})))
+
+        hold?
+        ;; Armed, and this is one of /user.json's two siblings: no reply at
+        ;; all, so the loader is still in flight when the 503 lands (see
+        ;; `held-url-fragments`). The flag is still armed here, because all
+        ;; three children ask before the disarm dispatched above is handled.
+        nil
+
+        :else
         ;; Otherwise the ordinary happy path. Delegate to the framework
         ;; canned-success handler. Passing `frame-ctx` straight through
         ;; preserves the `:frame` stamp and the originating `:event`, so the
