@@ -165,7 +165,7 @@
          and does not run the child's body")))
 
 (deftest the-key-survives-a-filter-flip
-  ;; The structural half of the bead's keyed-identity acceptance: under
+  ;; The structural half of the keyed-identity claim: under
   ;; :active the middle row is gone and the two survivors keep the keys
   ;; they had. React reconciles by key, so the same keys mean the same
   ;; DOM nodes — which the mounted suite then asserts by IDENTITY.
