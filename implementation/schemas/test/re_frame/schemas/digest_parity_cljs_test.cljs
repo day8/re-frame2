@@ -1,17 +1,16 @@
 (ns re-frame.schemas.digest-parity-cljs-test
   "CLJS side of the app-schemas-digest cross-runtime byte-identity
-  parity smoke (rf2-xssfv).
+  parity smoke.
 
   Spec 010 §Digest algorithm pins the digest as byte-identical between
   CLJS and JVM runtimes: `'cross-runtime reproducible — a CLJS server
   and a CLJS client running the same schema set produce the same
-  digest, byte-for-byte'`. The empty-set vector was pinned at
-  rf2-0z1z; this file extends the corpus and locks the CLJS pipeline
+  digest, byte-for-byte'`. This file locks the CLJS pipeline
   (`goog.crypt.Sha256` + `goog.crypt/stringToUtf8ByteArray` +
   `byteArrayToHex`) to the same literals the JVM pipeline
   (`java.security.MessageDigest` + `String#getBytes(UTF_8)`) pins.
 
-  Pattern mirrors `re-frame.source-coord-parity-cljs-test` (rf2-1q9de)
+  Pattern mirrors `re-frame.source-coord-parity-cljs-test`
   — both runtimes consume the SAME fixture map (loaded from a shared
   `.cljc` fixtures namespace) and pin the SAME canonical literal. The
   literal IS the cross-host byte-comparison point. The companion JVM
@@ -63,7 +62,7 @@
           (str "Fixture literals must be pairwise distinct — got "
                (pr-str literals))))))
 
-;; ---- host-divergent printer cases (rf2-k0hqk) -----------------------------
+;; ---- host-divergent printer cases -----------------------------------------
 ;;
 ;; The `whole-number-double` fixture rides in `all-fixtures` above, so
 ;; the cross-host literal is asserted by
@@ -77,10 +76,10 @@
 ;; duplicated here where it could only ever be vacuous.
 
 (deftest cljs-whole-number-double-fixture-is-integer-valued
-  (testing "rf2-k0hqk — what this host CAN check: the fixture's `:min`
-            still denotes the whole number the shared literal was pinned
+  (testing "what this host CAN check: the fixture's `:min`
+            denotes the whole number the shared literal was pinned
             over. On CLJS `1.0` and `1` are one value, which is exactly
-            why the JVM's `1.0` had to be normalised towards the integer
+            why the JVM's `1.0` is normalised towards the integer
             rather than the other way about."
     (let [m (rf.schemas.digest-parity-fixtures/whole-number-double-min)]
       (is (number? m))
@@ -90,7 +89,7 @@
            the divergence itself, stated as an assertion"))))
 
 (deftest cljs-fn-bearing-schema-digest-is-process-stable
-  (testing "rf2-k0hqk — a schema carrying a bare predicate must serialise
+  (testing "a schema carrying a bare predicate must serialise
             to a name-derived token rather than the host's `#object[…]`
             print. The properties asserted here are the same ones the JVM
             side asserts, over the same fixture, computed in the shared
@@ -118,10 +117,10 @@
           (str "two different predicates must still digest differently — "
                (pr-str bytes) " vs " (pr-str other-predicate-bytes))))))
 
-;; ---- ambient printer limits (rf2-gwye.14) ---------------------------------
+;; ---- ambient printer limits -----------------------------------------------
 
 (deftest cljs-printer-limits-never-reach-digest-bytes
-  (testing "rf2-gwye.14 — a bounded *print-length* / *print-level* in the
+  (testing "a bounded *print-length* / *print-level* in the
             calling context changes neither the bytes and digests computed
             under it nor what the memo serves once the binding ends"
     (let [{:keys [baseline results]} (rf.schemas.digest-parity-fixtures/printer-limit-observations)]
