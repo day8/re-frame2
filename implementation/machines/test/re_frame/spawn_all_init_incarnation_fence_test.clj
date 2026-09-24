@@ -1,11 +1,10 @@
 (ns re-frame.spawn-all-init-incarnation-fence-test
-  "rf2-8nxsh — fence `spawn-all-init-fx`'s admission preflight AND its durable
-  join / reject-sentinel writes to the EXACT frame incarnation.
+  "`spawn-all-init-fx`'s admission preflight AND its durable join /
+  reject-sentinel writes are fenced to the EXACT frame incarnation.
 
   `spawn-all-init-fx` captures an exact-incarnation `continue?` before the
-  admission preflight, but on current main it wrote the reject sentinel and the
-  live join through a bare-id `rf.frame/swap-runtime-db!` WITHOUT rechecking
-  ownership after:
+  admission preflight, and rechecks ownership before it writes the reject
+  sentinel or the live join, because both writes follow:
 
     - the preflight's `[:schemas :data]` validators (application code that can
       synchronously destroy owner frame A and publish a same-id successor B),
@@ -13,10 +12,11 @@
     - the reject path's `reject-unregistered-spawn!` emissions (callback-bearing
       always-on records + dev traces).
 
-  A validator (or a reject-record listener) that swapped A for B therefore let
-  A-derived join-state / the reject sentinel install into B via the bare-id
-  write, leaving B holding an IMPOSSIBLE join it never spawned — and the
-  `:rf.machine.spawn-all/started` trace fired against B under A's authority.
+  Through a bare-id `rf.frame/swap-runtime-db!` write, a validator (or a
+  reject-record listener) that swapped A for B would install A-derived
+  join-state / the reject sentinel into B, leaving B holding an IMPOSSIBLE join
+  it never spawned — and the `:rf.machine.spawn-all/started` trace would fire
+  against B under A's authority.
 
   These fixtures drive `spawn-all-init-fx` DIRECTLY under a bound event owner
   (A's dequeue-time token), with a destroyer that publishes same-id B on the
@@ -25,13 +25,13 @@
   lands on B. Deterministic + single-threaded — the destroyer runs INSIDE the
   callback, so no latch coordination is needed.
 
-  The ruled policy (mirrored from the completion / spawn-tail fence,
-  rf2-3evq0x): already-entered authored callbacks may unwind, but loss of
-  exact-incarnation ownership is a TERMINAL fence for every subsequent
-  framework-owned write / tail. Cover conforming, failing, AND throwing schema
-  validators plus unregistered-child rejection with a reject-record listener;
-  ordinary all-valid and rejection behaviour stays unchanged (the fence is
-  scoped to owner-loss only — the two live-owner controls)."
+  The policy (shared with the completion / spawn-tail fence): already-entered
+  authored callbacks may unwind, but loss of exact-incarnation ownership is a
+  TERMINAL fence for every subsequent framework-owned write / tail. The
+  fixtures cover conforming, failing, AND throwing schema validators plus
+  unregistered-child rejection with a reject-record listener; ordinary
+  all-valid and rejection behaviour is unaffected (the fence is scoped to
+  owner-loss only — the two live-owner controls)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
@@ -237,7 +237,7 @@
 
 (deftest live-owner-accept-seeds-a-live-join
   (testing "control: an all-valid invoke whose validator does NOT destroy A seeds
-            a LIVE child-bearing join and fires the started trace — unchanged"
+            a LIVE child-bearing join and fires the started trace — unaffected by the fence"
     (rf/reg-machine :fence/strict strict-child)
     (let [{:keys [join-slot started]}
           (run-init :rf2-8nxsh/live-accept :par/a [:forking]
@@ -255,7 +255,7 @@
 
 (deftest live-owner-reject-seeds-the-sentinel
   (testing "control: an unregistered child with NO destroyer seeds the childless
-            reject sentinel and fans exactly one reject record — unchanged"
+            reject sentinel and fans exactly one reject record — unaffected by the fence"
     (rf/reg-machine :fence/ok ok-child)
     (let [{:keys [join-slot records started]}
           (run-init :rf2-8nxsh/live-reject :par/a [:forking]
