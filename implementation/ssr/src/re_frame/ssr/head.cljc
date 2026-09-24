@@ -29,8 +29,7 @@
   reachable via `re-frame.core` through the `:ssr/reg-head` late-bind hook
   so core never statically `:require`s this namespace. The READ is not
   re-exported onto core: `re-frame.ssr` carries `head-model` and
-  `head-model->html`, and consumers reach them there or here —
-  rf2-kuky.44 / rf2-kuky.87 / rf2-kuky.89."
+  `head-model->html`, and consumers reach them there or here."
   (:require [re-frame.late-bind :as rf.late-bind]
             [re-frame.ssr.head.emit :as rf.ssr.head.emit]
             [re-frame.ssr.head.registry :as rf.ssr.head.registry]))
