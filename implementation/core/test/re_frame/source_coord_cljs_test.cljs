@@ -1,16 +1,15 @@
 (ns re-frame.source-coord-cljs-test
-  "Per rf2-ts1a — CLJS-side smoke check for `:rf.trace/call-site` on
+  "CLJS-side smoke check for `:rf.trace/call-site` on
   `:rf.error/*` trace events. JVM-side coverage lives in
   `source_coord_jvm_test.cljc`; the macro-expansion path is identical
   across both targets (the `.cljc` macros run on the Clojure side of
   the compiler in either case), so this file primarily verifies that
-  the CLJS bundle wires up the dynamic-var read end-to-end without a
-  regression."
+  the CLJS bundle wires up the dynamic-var read end-to-end."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.router :as rf.router]
             [re-frame.subs :as rf.subs]
-            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            ;; The listener / buffer surface lives in re-frame.trace.tooling.
             [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
@@ -74,7 +73,6 @@
       (is (some? miss))
       (is (not (contains? miss :rf.trace/call-site))))))
 
-;; The former `cljs-inject-cofx-macro-stamps-call-site` deftest is retired with
-;; `inject-cofx` (EP-0017 slice A.3): it no longer builds an interceptor or
-;; emits `:rf.error/no-such-cofx`. The dispatch / subscribe call-site stamping
-;; (above) is unaffected.
+;; There is no `inject-cofx` (EP-0017 slice A.3), so there is no inject-cofx
+;; call-site deftest here. The dispatch / subscribe call-site stamping (above)
+;; does not depend on it.
