@@ -19,9 +19,7 @@
          day8/re-frame2-ssr {:local/root "../ssr"}
          ;; The JVM->Node adapter (`re-frame.ssr.ring.node`) speaks JSON to
          ;; the bounded Node render sidecar. This is ssr-ring's ONE dependency
-         ;; beyond core and ssr — first-party, no transitive deps — accepted
-         ;; by the crossing ruling (rf2-8arzr S6); cheshire and hand-rolled
-         ;; JSON were rejected there.
+         ;; beyond core and ssr — first-party, with no transitive deps.
          org.clojure/data.json {:mvn/version "2.5.1"}}
 
  :aliases
@@ -30,11 +28,11 @@
          ;; production SSR dependency.
          ;;
          ;; The two `../../examples` roots are the login arm's JVM host
-         ;; witness (rf2-8arzr.5, `login_host_crossing_test.clj`): it
+         ;; witness (`login_host_crossing_test.clj`): it
          ;; requires `fresco.login.host` (examples/substrates) which
          ;; requires the shared `login.model` (examples/core). Loading the
-         ;; namespace is half the witness — before this, a compile error in
-         ;; that host passed every gate silently. Same shape as
+         ;; namespace is half the witness — without it, a compile error in
+         ;; that host would pass every gate silently. Same shape as
          ;; implementation/core/deps.edn's `:test`, which puts the example
          ;; buckets on the classpath for `re-frame.examples-test`.
          :extra-paths ["test"
@@ -84,7 +82,7 @@
    :main-opts   ["-m" "re-frame.test-quiet.runner" "--dir" "test"
                  "-i" ":slow" "-i" ":stress"]}
 
-  ;; The JVM->Node->JVM crossing witness (rf2-8arzr.4): only the tests
+  ;; The JVM->Node->JVM crossing witness: only the tests
   ;; tagged `:crossing`. Each spawns implementation/ssr-node's serve launcher
   ;; on a plain fixture render module (test/fixtures/node/) via
   ;; ProcessBuilder, so Node 24 must be on PATH. CI runs it as its own job
@@ -93,7 +91,7 @@
   :crossing-test
   {:extra-paths ["test"
                  ;; The login arm's JVM host and the model it holds — the
-                 ;; product half of the crossing (rf2-8arzr.5).
+                 ;; product half of the crossing.
                  "../../examples/core"
                  "../../examples/substrates"]
    :extra-deps  {day8/re-frame2-schemas    {:local/root "../schemas"}
