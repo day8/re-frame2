@@ -150,8 +150,12 @@
   {:flows/reset-flows!              2  ;; pre + finally (symmetry)
    :schemas/clear-by-frame!         1
    :machines/reset-timers!          1
+   :fx/reset-dispatch-later-timers! 1
+   :machines/reset-spawn-order!     1
    :routing/reset-counters!         1
    :routing/reset-nav-counters!     1  ;; host-side counters
+   :routing/reset-url-claims!       1
+   :routing/reset-url-listener!     1
    :resources/reset-resources!      1  ;; host-side resources state
    :http/clear-all-in-flight!       1
    :http/clear-all-http-interceptors! 1  ;; interceptor-chain reset
@@ -188,6 +192,9 @@
         (let [fixture (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})]
           (fixture (fn [] :ran)))
 
+        (is (= (set (map :hook @#'rf.test-support/reset-hook-table))
+               (set (keys reset-hook-expected-counts)))
+            "the expected counts name every reset-hook-table row and no other key")
         (doseq [[k expected] reset-hook-expected-counts]
           (is (= expected (get @call-counts k))
               (str k " fired " expected " time(s) per fixture invocation")))
