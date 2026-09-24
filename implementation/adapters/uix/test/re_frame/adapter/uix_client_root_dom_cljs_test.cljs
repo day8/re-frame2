@@ -1,5 +1,5 @@
 (ns re-frame.adapter.uix-client-root-dom-cljs-test
-  "rf2-kuky.56 — the real-DOM half of the UIx client-root contract
+  "The real-DOM half of the UIx client-root contract
   (`client-root` / `render!` / `unmount!`, Spec 006 §The client root). The
   node twin (`re-frame.adapter.uix-client-root-cljs-test`) covers inert
   allocation and the element-slot guard; this one lets the shared React
@@ -16,8 +16,8 @@
        the same container, or an update rendered through a DIFFERENT
        wrapper shape, both remount the subtree and mint a new node. The
        node surviving with new text is only possible if one Root
-       reconciled the same top element — which is exactly the risk
-       rf2-kuky.56 named for the `:update!` path.
+       reconciled the same top element — which is exactly the risk on the
+       `:update!` path.
     2. A hydrating first render ADOPTING the server node (same node
        object) is the hydrate-once proof — `createRoot` would replace it.
     3. Unmount idempotence and mount-afresh-after-release are read off the
@@ -150,12 +150,12 @@
         (drop-host! el-live)
         (drop-host! el-gone)))))
 
-;; ---- adapter teardown over a MOUNTED use-sub (rf2-3x7nj.2.2) --------------
+;; ---- adapter teardown over a MOUNTED use-sub ------------------------------
 ;;
 ;; The row above mounts a tree with no subscription. This one mounts a
 ;; committed `use-sub`, which is what the drain meets in a real app: the
 ;; sub-cache walk disposes the hook's reaction BEFORE the roots unmount, so the
-;; hook's rf2-1frc reacquisition fires on a component that is still mounted.
+;; hook's reacquisition fires on a component that is still mounted.
 ;; It must let go, as it does for a destroyed frame. Rebuilding would reach
 ;; `make-derived-value` through an adapter already claimed for disposal, and
 ;; `rf/destroy-adapter!` would rethrow `:rf.error/adapter-disposed` from an
