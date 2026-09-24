@@ -18,20 +18,19 @@
   a false green — `impl.mount/browser?` is the guard, and the sentence it
   prints names what was not measured.
 
-  The native authoring tier this file used to measure as a third arm was
-  retired by the rf2-6c12m.3 ruling; the two arms that remain —
-  handwritten React and UIx — are the floor that ruling kept. The file
-  keeps its name for the node-lane sibling's reason.
+  The two arms are handwritten React and UIx; there is no native
+  authoring tier to measure as a third. The name says three arms for the
+  node-lane sibling's reason.
 
   ## Hydration is deliberately NOT here
 
-  It belongs to the *per-surface SSR/hydration witnesses*, which this
-  file unblocks. Writing a two-route hydration row here would put a
+  It belongs to the *per-surface SSR/hydration witnesses*. Writing a
+  two-route hydration row here would put a
   second authority on the same claim ahead of the one that owns it, and
   the two would drift on the first policy change.
   The server bytes each route produces ARE measured, in the node-lane
   sibling; what happens when React meets those bytes on a client is the
-  next bead's subject.
+  hydration witnesses' subject.
 
   ## One door for both routes, and why that is the honest shape
 
@@ -233,7 +232,7 @@
           (testing "the premise: both arms mounted. One arm agreeing with
                     itself while the other rendered nothing is the failure
                     this row is most exposed to, and it is the one the
-                    node-lane sibling was actually bitten by"
+                    node-lane sibling's premise row guards too"
             (is (every? some? (vals found)) (pr-str (keys found))))
 
           (testing "and each painted the value it read — one frame, two
