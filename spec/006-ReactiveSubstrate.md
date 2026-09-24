@@ -10,7 +10,7 @@ re-frame2 separates the dataflow core from the reactivity / rendering **substrat
 
 > **Substrate scope: React + VDOM.** re-frame2 commits to **React + VDOM** as the rendering substrate. The adapter contract has *two* parts. The **reactive-container** half (entries 1-5 + 9 of [§The adapter API contract](#the-adapter-api-contract): `make-state-container`, `read-container`, `replace-container!`, `subscribe-container`, `make-derived-value`, `dispose-adapter!`) is *substrate-agnostic in shape* — its description does not mention React; it would generalise to any reactive primitive. The **render-side** half (entries 6-8 + the optional `flush-render!`: `render`, `render-to-string`, `register-context-provider`, `flush-render!`) is **React-shaped**: `render` mounts via `react-dom/client.createRoot`, `render-to-string` walks a hiccup-or-equivalent virtual-DOM tree to HTML (the contract for SSR ([Spec 011](011-SSR.md))), and `register-context-provider` returns a `React.createContext`-style provider. Ports are scoped to the eight JS-cross-compile-to-React-binding languages enumerated in [000 §The pattern](000-Vision.md#the-pattern-js-cross-compile-language-agnostic). Non-React substrates (Vue, Solid, Svelte, vanilla DOM, Replicant, Lit) are out of scope; substrate-agnostic shape on the reactive-container side reflects "the contract generalises if we ever wanted it to," not "we ship adapters for them."
 
-> **Terminology.** Throughout this spec, "**substrate**" names the abstract contract — the closed set of functions an adapter must implement. "**Adapter**" names each implementation of that contract. Adapters fill one of two roles: **view adapters** (Reagent, reagent-slim, UIx) drive a live render surface, while **headless adapters** (plain-atom and SSR) have no view layer. The one canonical inventory — every adapter's `:kind`, published namespace, Maven coordinate, repository home, and lifecycle role — is [§CLJS reference scope](#cljs-reference-scope); this spec's other adapter-set claims point there rather than restating it. The ruled disposition (unchanged): Reagent, reagent-slim, and UIx live on as first-class, actively-supported adapters. Helix was removed at S7/W13 (rf2-d6epb, 2026-07-22), and the two donor view substrates — `re-frame.ui` and Freehand — were removed on 2026-08-16 (rf2-0yp7w).
+> **Terminology.** Throughout this spec, "**substrate**" names the abstract contract — the closed set of functions an adapter must implement. "**Adapter**" names each implementation of that contract. Adapters fill one of two roles: **view adapters** (Reagent, reagent-slim, UIx) drive a live render surface, while **headless adapters** (plain-atom and SSR) have no view layer. The one canonical inventory — every adapter's `:kind`, published namespace, Maven coordinate, repository home, and lifecycle role — is [§CLJS reference scope](#cljs-reference-scope); this spec's other adapter-set claims point there rather than restating it. Reagent, reagent-slim, and UIx are first-class, actively-supported adapters.
 
 This Spec defines:
 
@@ -92,7 +92,7 @@ This is **pattern contract**, not merely one acceptable representation. A confor
 - An **app-only commit** is symmetric: the `runtime-db` projection does not propagate, so framework route/machine subs are untouched, and app authors never carry runtime paths in their sub code.
 - A commit touching **both** partitions propagates to both projections.
 
-**Commit boundary.** The drain's commit step (per [002 §Run-to-completion §commit](002-Frames.md#run-to-completion-dispatch-drain-semantics)) installs an app-db change (`:db` effect), a runtime-db change (`:rf.db/runtime` effect), or both as **one atomic `replace-container!` on the frame-state container** (`commit-frame-transition!`). There is never a window where one partition is committed and the other is not; an app/runtime cascade is one coherent frame-state transition. **Single-commit contract (rf2-uhk9ko):** dev-mode schema validation runs over the complete CANDIDATE transition BEFORE this install — a settling event performs at most ONE `replace-container!` on the frame-state container, and a schema-REJECTED candidate performs ZERO (no forward write, no restore write). The substrate therefore never observes an invalid candidate: no container watch fires, no derived value recomputes, and no subscriber (a Reagent reaction, a `useSyncExternalStore` snapshot, an epoch-scheduler drain) is notified for a rejected dispatch — the retired install-then-rollback write-pair, whose forward write leaked the invalid value to synchronous observers, no longer exists. The frame-state coeffect is injected by reference (no copy), so a pure app event pays nothing for the runtime partition it never touches.
+**Commit boundary.** The drain's commit step (per [002 §Run-to-completion §commit](002-Frames.md#run-to-completion-dispatch-drain-semantics)) installs an app-db change (`:db` effect), a runtime-db change (`:rf.db/runtime` effect), or both as **one atomic `replace-container!` on the frame-state container** (`commit-frame-transition!`). There is never a window where one partition is committed and the other is not; an app/runtime cascade is one coherent frame-state transition. **Single-commit contract:** dev-mode schema validation runs over the complete CANDIDATE transition BEFORE this install — a settling event performs at most ONE `replace-container!` on the frame-state container, and a schema-REJECTED candidate performs ZERO (no forward write, no restore write). The substrate therefore never observes an invalid candidate: no container watch fires, no derived value recomputes, and no subscriber (a Reagent reaction, a `useSyncExternalStore` snapshot, an epoch-scheduler drain) is notified for a rejected dispatch — an install-then-rollback write-pair would leak the invalid value to synchronous observers through its forward write. The frame-state coeffect is injected by reference (no copy), so a pure app event pays nothing for the runtime partition it never touches.
 
 Layer-1 app subs read the **app-db** projection; framework subs (`[:rf/machine <id>]`, `[:rf.route/*]`) read the **runtime-db** projection. Both are ordinary derived-value sources to the rest of the sub-cache machinery — the projection split is invisible to the invalidation algorithm below, which sees two layer-1 inputs instead of one. These runtime-db framework subs are read the same way as any other subscription — the ordinary `subscribe` naming the reserved `:rf/*` vector (`[:rf/machine <id>]` per [005 §Subscribing to machines](005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub), `[:rf/route]` / `[:rf/pending-navigation]` per [012 §Reading the route is a sub](012-Routing.md#reading-the-route-is-a-sub), and — for the optional Resources artefact — `[:rf/resource <query>]` / `[:rf/mutation {:instance <instance>}]` per [016 §Subscriptions (passive)](016-Resources.md#subscriptions-passive)). There is no named-read-sugar fn layered over them: a runtime-db framework read is a subscription vector, one grammar (per [Conventions §Reserved sub-ids](Conventions.md#reserved-sub-ids)). The vectors stay canonical (an `:inputs` declaration still names the vector), and the same grammar covers ordinary app-db content — including flow output — read with the plain `subscribe`.
 
@@ -147,7 +147,7 @@ CLJS-headless: returns a `clojure.core/atom`.
 TS-React: returns a tiny atom-shape (`{value, subscribers}`) wired into React via `useSyncExternalStore`.
 Fable / Scala.js / PureScript / Kotlin/JS / Melange / ReScript / Reason / Squint: same atom-shape over the host's React binding's `useSyncExternalStore` equivalent.
 
-**Construction is failure-atomic, and the container is GC-owned (rf2-vxgfnd.198).** `make-state-container` must either **throw before it returns** or return a **disposal-free** value. "Throw before it returns" is a statement about *residue*, not about ordering: a constructor that acquires a host or registry resource — a watch, a listener, a slot in a process-global ownership table — and only then fails must **release that resource before the throw escapes** (rf2-vxgfnd.292). Nothing else can. The core never sees the unreturned container, so it holds no reference to drop and no verb to call; a resource stranded here is stranded for the process's lifetime, and a retried construction strands another. This is the same internal failure-atomicity [§`make-derived-value`](#make-derived-value-source-containers-compute-fn--container) requires of a projection that throws partway through wiring its sources, stated for the container constructor. There is no per-container teardown verb — the [ten-fn adapter surface](#the-adapter-api-contract) exposes no state-container `dispose`, and a returned container is reclaimed by GC together with the frame record that drops it (normal teardown disposes the two `make-derived-value` projections layered over the container, per [§`make-derived-value`](#make-derived-value-source-containers-compute-fn--container), but never the physical container itself). The core leans on this when frame construction fails partway: it acquires the state container and then each partition projection into locals, and if a *later* projection throws it disposes the successfully-returned projections in reverse acquisition order and drops the state container for GC — it has no verb to release it, and needs none. A conformant adapter therefore must not pin the returned container behind a strong reference the core cannot reach (a global ownership registry that outlives the container's reachability), because the core releases it only by dropping its own reference.
+**Construction is failure-atomic, and the container is GC-owned.** `make-state-container` must either **throw before it returns** or return a **disposal-free** value. "Throw before it returns" is a statement about *residue*, not about ordering: a constructor that acquires a host or registry resource — a watch, a listener, a slot in a process-global ownership table — and only then fails must **release that resource before the throw escapes**. Nothing else can. The core never sees the unreturned container, so it holds no reference to drop and no verb to call; a resource stranded here is stranded for the process's lifetime, and a retried construction strands another. This is the same internal failure-atomicity [§`make-derived-value`](#make-derived-value-source-containers-compute-fn--container) requires of a projection that throws partway through wiring its sources, stated for the container constructor. There is no per-container teardown verb — the [ten-fn adapter surface](#the-adapter-api-contract) exposes no state-container `dispose`, and a returned container is reclaimed by GC together with the frame record that drops it (normal teardown disposes the two `make-derived-value` projections layered over the container, per [§`make-derived-value`](#make-derived-value-source-containers-compute-fn--container), but never the physical container itself). The core leans on this when frame construction fails partway: it acquires the state container and then each partition projection into locals, and if a *later* projection throws it disposes the successfully-returned projections in reverse acquisition order and drops the state container for GC — it has no verb to release it, and needs none. A conformant adapter therefore must not pin the returned container behind a strong reference the core cannot reach (a global ownership registry that outlives the container's reachability), because the core releases it only by dropping its own reference.
 
 ### `(read-container container) → value` and `(replace-container! container new-value) → nil`
 
@@ -196,13 +196,13 @@ The derived container's caching responsibility is **adapter discretion**: an ada
 
 CLJS-Reagent: a Reagent `reaction` — memoising; re-runs only when an input deref changes by `=`. CLJS-headless (plain-atom adapter): an `IDeref` wrapper that recomputes on every read; no memoisation at the substrate layer because SSR runs each sub at most a handful of times per request and the sub-cache (when present) handles `=`-equality cascading. TS-React / UIx / other JS-cross-compile ports: an `IDeref`+`IWatchable`-shaped wrapper that recomputes on read and broadcasts change via the source containers' watch machinery (see [§CLJS reference: UIx as alternative substrate](#cljs-reference-uix-as-alternative-substrate)).
 
-**Watchable is necessary, not sufficient — a demand-driven derived value must be ACTIVATED (rf2-8cnxg).** The push clause at the top of this section — the derived container updates automatically when any source's value changes, and `subscribe-container` works on it as on a base container — is an obligation on *behaviour*, and reifying the host's watch interface does not on its own discharge it. On a substrate whose derived values are push-based from birth it does: the React-hook spine's `make-derived-value` wires one watch per source at construction, so the value it returns is live the moment it exists. The ratom family is **demand-driven** instead. A Reagent `Reaction` learns its sources only by being run through `deref-capture`, and a plain `read-container` taken outside a reactive context runs the compute-fn raw and leaves the reaction subscribed to nothing — a container that reifies the watch interface, accepts an `add-watch`, and then notifies nobody for as long as it lives. A Reagent *component* never meets this, because its render **is** the capture context; a re-frame-native view cell that reads outside a component render is not a component, so nothing supplies one on its behalf. An adapter on a demand-driven host is therefore conformant only if it publishes the optional `:adapter/activate-derived-value!` late-bind hook, whose one job is to put a returned derived value on the substrate's push path. Like `:adapter/derived-container?` above it rides the late-bind table rather than the adapter spec map, so the ten-fn contract shape is unchanged — and it is genuinely optional. In the CLJS reference the ratom family alone publishes it, Reagent over `reagent.ratom/run` and reagent-slim over its own `activate!`; the React-hook spine, the plain-atom adapter, test-react and the JVM derived value publish nothing at all, and the routed call bottoms out as a no-op. Absence is the correct answer for a host with no capture step to perform, not an omission to be diagnosed.
+**Watchable is necessary, not sufficient — a demand-driven derived value must be ACTIVATED.** The push clause at the top of this section — the derived container updates automatically when any source's value changes, and `subscribe-container` works on it as on a base container — is an obligation on *behaviour*, and reifying the host's watch interface does not on its own discharge it. On a substrate whose derived values are push-based from birth it does: the React-hook spine's `make-derived-value` wires one watch per source at construction, so the value it returns is live the moment it exists. The ratom family is **demand-driven** instead. A Reagent `Reaction` learns its sources only by being run through `deref-capture`, and a plain `read-container` taken outside a reactive context runs the compute-fn raw and leaves the reaction subscribed to nothing — a container that reifies the watch interface, accepts an `add-watch`, and then notifies nobody for as long as it lives. A Reagent *component* never meets this, because its render **is** the capture context; a re-frame-native view cell that reads outside a component render is not a component, so nothing supplies one on its behalf. An adapter on a demand-driven host is therefore conformant only if it publishes the optional `:adapter/activate-derived-value!` late-bind hook, whose one job is to put a returned derived value on the substrate's push path. Like `:adapter/derived-container?` above it rides the late-bind table rather than the adapter spec map, so the ten-fn contract shape is unchanged — and it is genuinely optional. In the CLJS reference the ratom family alone publishes it, Reagent over `reagent.ratom/run` and reagent-slim over its own `activate!`; the React-hook spine, the plain-atom adapter, test-react and the JVM derived value publish nothing at all, and the routed call bottoms out as a no-op. Absence is the correct answer for a host with no capture step to perform, not an omission to be diagnosed.
 
 **Activation happens when an observer attaches, never at construction.** A substrate calls the hook once per attaching observer, immediately before it installs that observer's change watch and takes its baseline read. That placement is normative, and it is what keeps activation per-observer: a subscription nothing observes is never activated, and the hook must be idempotent so the second and later observers over one cached node do not force a recompute. It also forecloses the tempting alternative reading. An adapter could satisfy the notification clause by making `make-derived-value` itself eager — Reagent's `:auto-run true` is the one-line version — and that is **not** conformant: an eager derived value recomputes every subscription over the frame-state container synchronously inside the drain's `replace-container!`, discarding the substrate's batching and turning one app-db write into a full-graph recompute, which is precisely the cascade [§Invalidation algorithm](#invalidation-algorithm) exists to collapse. The hook must also be total — safe to call on any container a substrate may hand it, including a base container or a derived value some *other* adapter produced in a mixed-substrate test bundle.
 
-**Construction is failure-atomic, and the result is disposable (rf2-vxgfnd.198).** Two obligations let the core unwind a partially-built frame without adding an eleventh adapter function:
+**Construction is failure-atomic, and the result is disposable.** Two obligations let the core unwind a partially-built frame without adding an eleventh adapter function:
 
-- **Internal failure-atomicity.** If `make-derived-value` throws *before* it returns, it must first release any watch or host resource it had already installed. The core's frame constructor never received the value and so cannot dispose it — an un-returned partial allocation must unwind itself. A constructor that wires **several** sources in sequence therefore needs a failure boundary around the whole wiring, not merely careful ordering within one step: on failure it releases the acquired wires in **reverse acquisition order**, **attempts every release** even if one of them throws, and re-raises the **primary** construction error rather than a secondary failure raised while unwinding (rf2-vxgfnd.292). Because an un-returned value is unreachable, this unwind is the only thing standing between a partial wiring and a permanent leak — so it is ordinary control flow on every build, never a development-only assertion.
+- **Internal failure-atomicity.** If `make-derived-value` throws *before* it returns, it must first release any watch or host resource it had already installed. The core's frame constructor never received the value and so cannot dispose it — an un-returned partial allocation must unwind itself. A constructor that wires **several** sources in sequence therefore needs a failure boundary around the whole wiring, not merely careful ordering within one step: on failure it releases the acquired wires in **reverse acquisition order**, **attempts every release** even if one of them throws, and re-raises the **primary** construction error rather than a secondary failure raised while unwinding. Because an un-returned value is unreachable, this unwind is the only thing standing between a partial wiring and a permanent leak — so it is ordinary control flow on every build, never a development-only assertion.
 - **Disposable result.** Every successfully returned derived value must be **safe to pass to `re-frame.interop/dispose!`** — the same seam that releases it at normal frame teardown — and that call must release whatever host resource the value installed: a source watch, a reaction subscription, an entry in an adapter-owned registry. A derived value that installs *no* host resource (a recompute-on-`read-container` value, which holds only its source references) needs no disposal, and `interop/dispose!` on it is a sound no-op; the obligation bites only where the value externally owns a resource GC alone would not reclaim.
 
 Together these make **frame construction** failure-atomic. The core acquires the `app-db` and `runtime-db` projections into locals, and if the second throws it `interop/dispose!`s the first in reverse acquisition order before re-raising the original error, so a frame that never installs strands no watch (the physical frame-state container is left to GC per [§`make-state-container`](#make-state-container-initial-value--container) above). In the reference adapters the obligation is met three ways: the React-hook spine (UIx) reifies the re-frame-owned `re-frame.disposable/IDisposable` and its `-dispose` removes every source watch; the Reagent family returns a disposable `Reaction`; and the plain-atom, SSR, and headless test adapters recompute on `read-container` and own no source watch to strand (the plain-atom value additionally reifies `IDisposable` to carry the sub-cache's on-dispose callbacks — [§Reference counting and disposal](#reference-counting-and-disposal)).
@@ -239,7 +239,7 @@ Renders the render-tree onto the substrate's surface and returns a function that
 CLJS-Reagent: wraps `reagent.dom.client/create-root` + `reagent.dom.client/render` (React 19 client-Root API; the same `createRoot` shape React 18 introduced); the unmount-fn closes over the Root and calls `(rdc/unmount root)`. Hydrate path uses `(rdc/hydrate-root mount-point render-tree)` which returns its own Root.
 SSR-on-JVM: this function isn't called server-side — `render-to-string` is used instead. The adapter may stub `render` to throw on the JVM.
 
-**Idempotence is a property of the root's ownership, not of the thunk alone (rf2-k5r9t).** The adapter tracks every Root `render` creates or hydrates in one active set — the set [§Adapter disposal lifecycle](#adapter-disposal-lifecycle) drains — and membership in that set is the single liveness fact. The unmount-fn releases the root only while the set still holds it, so a second call is a no-op, and a root `dispose-adapter!` has already drained is not released again by its own thunk: the host unmount is reached exactly once per root, whichever of the two callers gets there first. An adapter that keeps liveness anywhere else (a flag in the thunk, say) is not conformant, because the drain cannot see it.
+**Idempotence is a property of the root's ownership, not of the thunk alone.** The adapter tracks every Root `render` creates or hydrates in one active set — the set [§Adapter disposal lifecycle](#adapter-disposal-lifecycle) drains — and membership in that set is the single liveness fact. The unmount-fn releases the root only while the set still holds it, so a second call is a no-op, and a root `dispose-adapter!` has already drained is not released again by its own thunk: the host unmount is reached exactly once per root, whichever of the two callers gets there first. An adapter that keeps liveness anywhere else (a flag in the thunk, say) is not conformant, because the drain cannot see it.
 
 #### The client root (adapter-owned, reusable)
 
@@ -260,7 +260,7 @@ Semantics, each of which those adapters prove under test:
 - **Hydration.** `{:hydrate? true}` on the first `render!` hydrates once (per Spec 011); a hydrated Root is thereafter updated with the plain render op, never hydrated again, whatever `opts` later calls carry.
 - **Teardown.** `unmount!` releases the Root and returns the handle to inert; it is idempotent. Because the Root sits in an active set the adapter's `dispose-adapter!` drains, `dispose-adapter!` releases a still-live handle's Root exactly once, an already-unmounted handle is not released again, and a `render!` after either release mounts afresh. On the three spine adapters that set is the spine's own, shared with every `render` root, and the adapter's own `dispose-adapter!` drains it. Fresco's roots are neither the spine's nor any adapter's — `h/render!` never routes through the `render` slot, so a Fresco root is created by Fresco's own door whatever adapter is installed — so the package's set is drained at the PROCESS teardown boundary, by `(rf/destroy-adapter!)` itself before it invokes the installed adapter's disposer. The guarantee therefore carries no adapter qualifier: it holds for a Fresco application that installs UIx or Reagent exactly as it holds for one that installs Fresco's own adapter.
 
-The handle is caller-owned and explicit — allocate it under a `defonce`, hand it to `render!` — and there is no process-global registry of handles or mount points, no implicit default adapter, and no auto-mount at namespace load. It is the new door beside `render`, not a replacement: the one-shot contract keeps working for every existing caller.
+The handle is caller-owned and explicit — allocate it under a `defonce`, hand it to `render!` — and there is no process-global registry of handles or mount points, no implicit default adapter, and no auto-mount at namespace load. It is a second door beside `render`, not a replacement: the one-shot contract serves every caller that wants it.
 
 ### `(render-to-string render-tree opts) → string`
 
@@ -287,7 +287,7 @@ Optional. **Synchronously** commits the substrate's pending renders to the surfa
 
 This is **distinct** from a test-only flush. The compatibility React adapters (Reagent,
 reagent-slim, UIx) ship their own `flush-views!` wrappers, which are dev/test-scoped
-boundaries around direct React 19 `act`. `flush-render!` remains the production-grade
+boundaries around direct React 19 `act`. `flush-render!` is the production-grade
 adapter-contract surface, callable from app or tooling code with no `act()`
 test-environment opt-in, and a substrate MUST NOT put a test helper on its adapter slot.
 
@@ -339,9 +339,8 @@ diagnostic evidence.
 
 Those are three constraints that pull against one another, and an adapter satisfies
 none of them by ordinary control flow. Propagating the first throw where it happens
-abandons every later resource; catching each throw and discarding it — the shape every
-React-shaped adapter shipped before rf2-ss8x — buys the drain by making a malfunctioning
-teardown indistinguishable from a clean one, so a test fixture, a hot-reload cycle or a
+abandons every later resource; catching each throw and discarding it buys the drain by
+making a malfunctioning teardown indistinguishable from a clean one, so a test fixture, a hot-reload cycle or a
 programmer sees `nil` and continues past a listener or host resource that never released.
 The conformant shape is capture: attempt every step under its own boundary, keep the
 **first** thrown value by PRESENCE (`nil` and `false` are legal CLJS throws, so a
@@ -349,9 +348,7 @@ truthiness test reintroduces the silent hole), finalize ownership, and only then
 the kept value. Which of "attaches" or "reports" an adapter picks is its own choice; the
 three React-shaped adapters (Reagent, reagent-slim, UIx) share one drain and take the
 attachment arm, hanging the later failures off the rethrown primary as
-`rfAdapterTeardownSecondaryErrors` — the same convention a failed-first-mount rollback
-uses for `rfUiRollbackCleanupError` ([§Failed-first-mount rollback is one teardown
-transaction](#failed-first-mount-rollback-is-one-teardown-transaction)). Attachment never
+`rfAdapterTeardownSecondaryErrors`. Attachment never
 wraps or replaces: the primary reaches the caller with its identity and stack untouched,
 so a `catch` that matched it before still matches. A primary that cannot carry the
 attachment (a thrown `nil`/`false`/string/number) is still rethrown intact and simply
@@ -359,270 +356,37 @@ carries no secondary evidence — the evidence is the cheaper thing to lose. A f
 may install after destruction returns or throws; that install clears the disposed
 breadcrumb.
 
-For a substrate that owns its own root registry, host resources include **every public
-Root** in that registry, not only Roots created by the generic React spine. Disposal fences new public Root creation across the complete
-two-phase lifecycle (public-root snapshot drain **and** generic-spine cleanup), snapshots
-one exact generation, and attempts every Root in that snapshot even if a sibling throws.
-It never refreshes the snapshot or chases a same-id replacement it did not acquire. Each exact
-incarnation releases its registry claim, ViewCells, and observation handles at the **settlement
-boundary** — not merely when the host `.unmount` returns (see [§Public Root teardown lifecycle and
-settlement](#public-root-teardown-lifecycle-and-settlement)); a throwing
-host unmount remains observable but cannot strand siblings. If React consumed a
-throwing Root handle before clearing its container, the adapter clears the remaining
-DOM and the pinned React container-ownership marker and releases the **root-id and
-identifier-prefix** so a subsequent `rf/init!` can re-mount the same root-id into a
-**fresh** container. The **exact consumed container node** is NOT proven free — a
-throwing `.unmount` may have queued late host DOM work that has not settled — so it is
-recorded fail-closed (see [§Settlement independence](#settlement-independence)) and its
-reuse fails loud. The first cleanup error stays primary;
-later cleanup failures remain attached as diagnostic evidence.
+**A frame api captured before disposal never reaches a successor frame.** A host's
+deferred teardown can run a predecessor root's layout and effect cleanups after
+`dispose-adapter!` has returned and an immediate `install-adapter!` / `rf/init!` has
+reseated a same-id frame; a cleanup dispatching through a frame api captured before
+disposal would otherwise resolve the bare id at call time and mutate that successor. So a
+frame api (`capture-frame`, and the `reg-view` render-time injection) captured against a
+**live** frame pins that frame's exact incarnation (its `:drain-lock`, per
+[002 §capture-frame](002-Frames.md)). If the captured incarnation is later destroyed —
+the id unclaimed, **or** a same-id successor incarnation reseated under it — **every** op
+the stale api exposes behaves uniformly: `:dispatch` and `:dispatch-sync` RECOVER (the
+event is never enqueued into the successor), and `:subscribe` RECOVERS by reading nothing
+and returning **nil** (it never resolves a reaction against the successor's app-db nor
+caches an entry in the successor's sub-cache). Each emits the production-survivable
+`:rf.error/frame-destroyed` **exactly once**, exactly as an op into a destroyed frame
+does. The captured incarnation is carried through into target selection / enqueue / read,
+so validation and target consumption are **one exact-incarnation operation** — the pinned
+token is compared against the same record the router / sub resolves for the enqueue or
+read. There is therefore **no liveness-check-to-bare-id-use window**: on the concurrent
+JVM host, an actor that destroys the captured incarnation and reseats a same-id successor
+between the capture's liveness pre-check and its ordinary address-directed consumption can
+never redirect the stale op into that successor. The fence is **recover-but-emit**, not
+throwing: it guards a predecessor cleanup that fires after both the successor adapter and
+a same-id successor frame are live, and these ops run from host cleanup, where a throw
+would break the very teardown running them. A capture whose id was **not** live at
+capture (the `capture-frame` 1-arity lock-to-id form used from outside any scope) pins
+nothing and stays address-directed.
 
 The adapter is single-use after disposal; restart requires `(install-adapter!)` again.
 
 In CLJS-Reagent: clears Reagent's reaction caches, unmounts any active root.
 In CLJS-headless: no-op (no resources held).
-
-### Public Root teardown lifecycle and settlement
-
-Adapter-wide disposal (above) drains every public Root; a single `unmount!` follows
-the same law for one Root. Both are governed by a three-state per-Root lifecycle. A
-substrate client tracks every public Root in a per-document registry keyed by
-root-id. A Root's registry claim — which occupies its **root-id**, its **container** DOM node, and
-its effective **identifier-prefix** as one unit, and carries a per-mount opaque **incarnation**
-token — moves through three states:
-
-- **`:live`** — registered before the first render, with root-id, container, and prefix all
-  claimed. The steady state of a mounted Root.
-- **`:tearing-down`** — `unmount!` marks the claim tearing-down BEFORE it drives the host React
-  `.unmount`, identity-guarded to this exact Root. The claim keeps occupying id + container +
-  prefix. This is a **host-ownership claim state**, not a promise that framework owners are still
-  live: a deferred teardown retains them until settlement, while a throwing cleanup force-deads
-  the exact incarnation immediately and leaves only the unproven host claim quarantined.
-- **`:released`** — the claim is dropped (identity-guarded, so a stale handle never evicts a newer
-  claim), freeing id/container/prefix for reuse.
-
-The `:tearing-down → :released` transition happens at the **settlement boundary**, which is NOT the
-moment the host `.unmount` returns.
-
-#### Synchronous vs deferred settlement
-
-`unmount!` drives the host `.unmount` through the root-teardown window with an `on-settled`
-callback that releases the claim. There are two outcomes:
-
-- **Synchronous teardown.** React ran this root's effect cleanups during `.unmount`. `on-settled`
-  fires inline: `:tearing-down` is cleared before `unmount!` returns, so the state is never
-  observable to callers, and the ratified same-container immediate re-mount is preserved.
-- **Deferred teardown.** react-dom 19.2 refuses a synchronous `.unmount` from inside render/commit
-  — it consumes the handle, returns normally, and schedules the teardown for a later microtask. The
-  driver holds `on-settled` and schedules a **settlement microtask FIFO-ordered after React's own
-  deferred teardown**; that microtask reaps the root's still-owned ViewCells to `:dead` and only
-  then fires `on-settled`. The claim stays `:tearing-down` across the whole deferred window and
-  reaches `:released` at the microtask.
-
-Which outcome applies is a **root-level settlement law**, independent of ViewCell population. A
-teardown is deferred iff a committed root reporter for this incarnation has not yet torn down AND
-its mount-lifetime cleanup sentinel did not fire during the `.unmount`. Every rendered root —
-cell-bearing, compiled-static/cell-less, or entirely Activity-hidden — commits that reporter, so
-its deferral is observed regardless of whether the root owns any connected ViewCell. An explicit
-`unmount!` of an unrendered / pre-commit root committed no reporter, so nothing is pending and it
-settles synchronously. A failed-first-mount rollback is deliberately stricter, below.
-
-#### Failed-first-mount rollback is one teardown transaction
-
-If a fresh `mount` has allocated and registered its React Root but its first element/host render
-throws synchronously, rollback uses the same exact-incarnation teardown machinery as `unmount!`:
-
-1. mark the complete id/container/identifier-prefix claim `:tearing-down` **before** touching the
-   host Root;
-2. drive `.unmount` through the root-teardown window, so every framework owner attached to that
-   exact incarnation is force-dead if cleanup throws;
-3. preserve the mount error as the thrown primary value. If host cleanup also throws, attach that
-   exact secondary value as `rfUiRollbackCleanupError`; and
-4. on a normal cleanup return, release the identity-guarded predecessor claim at the **next FIFO
-   microtask**, not inline. No commit reporter exists for a failed first render, so the current
-   mount/error stack is the conservative settlement fence. Same-id and different-id/same-container
-   retries in that stack fail before successor allocation; retry after the microtask is admitted.
-
-If cleanup throws, no release is scheduled: the framework incarnation is dead but the host surface
-is unproven, so the claim remains quarantined `:tearing-down`. The exact-root identity guard means a
-late predecessor release can never evict a successfully mounted successor incarnation.
-
-#### Settlement independence
-
-Settlement fires in the two cases a cell-connectivity probe would miss:
-
-- **Zero connected ViewCells.** The reporter wraps every render, so the host-teardown signal is
-  present even for a root that owns no connected cell (a compiled-static root, or one whose whole
-  tree is Activity-hidden). Settlement fires and the claim releases on that root-level signal, not
-  on any cell — closing the gap where a cell-connectivity probe mis-read a still-scheduled deferred
-  teardown as synchronous and released the claim early.
-- **A throwing host `.unmount`.** The exact generation is force-dead (every cell of that
-  incarnation reaped, its handles released) and the host error rethrows, but `on-settled` is NOT
-  fired. The container cannot be proven free in-process, so the claim **fails closed** — quarantined
-  `:tearing-down` (`:cleanup-failure?`), never released into a possibly-still-scheduled React
-  teardown. A second `unmount!` is a no-op (the tearing-down guard); recovery is a fresh container.
-  The adapter-wide drain may afterwards **reclaim** the consumed surface — clearing its DOM and
-  deleting the pinned React container-ownership marker, retiring the spent reporter authority, and
-  releasing the **root-id + identifier-prefix** so the same root-id re-mounts on a **fresh**
-  container after re-init. That reclaim is NOT proof the surface settled: a throwing `.unmount`
-  may have **queued** late host DOM work (a scheduled `replaceChildren`) before it threw, and that
-  authority is unobservable in-process, so clearing the current DOM + marker is a **snapshot**, not
-  a settlement boundary. The **exact container node** is therefore recorded fail-closed (a
-  WeakSet denylist of poisoned nodes — not a task tracker), and its reuse is rejected with
-  `:rf.error/root-container-consumed` (recovery: a fresh node). An isolated public `unmount!`
-  leaves that reclaim to its caller; until it runs, the still-`:tearing-down` quarantine itself
-  fences the exact id/container/prefix.
-
-#### Tearing-down reuse diagnostics
-
-Because a `:tearing-down` claim keeps occupying its id/container/prefix, any attempt to reuse that
-exact identity during the deferred window is rejected fail-closed — never admitted onto a container
-React is still scheduled to clear. A **merely deferred** teardown reuses the three catalogued root
-diagnostics ([Spec 009](009-Instrumentation.md)), which each gain a tearing-down cause and emit
-`:tearing-down? true` in their `:existing` evidence; a **throwing/consumed** teardown adds one new
-id, `:rf.error/root-container-consumed` (rf2-sddbc), because its recovery (a fresh node — never a
-wait-for-settlement) is genuinely distinct.
-
-- **`:rf.error/duplicate-root-id`** — a reentrant `mount` / `create-root` (and `hydrate-root`, once
-  S5 wires it through the same pre-render admission check) claiming the same root-id. For a
-  **deferred** owner the message names the in-flight deferred unmount and directs the caller to
-  re-mount after settlement or use a distinct `:root-id` with a fresh container (recovery
-  `:make-root-ids-unique`); client `:existing` carries the owner's `:provenance`, `:site`, and
-  `:tearing-down? true`. For a **`:cleanup-failure?`** owner (a throwing `.unmount`) it is HONEST
-  that there is NO settlement to wait for — the id frees only when the adapter is destroyed and
-  reinstalled, and the exact container is fail-closed regardless — so the recovery is structurally
-  distinct (`:reinit-adapter-or-use-a-fresh-identity`, never a wait) and `:existing` additionally
-  carries `:cleanup-failure? true`, so a structured consumer recovers the terminal-vs-deferred
-  distinction the message draws. A same-id retry onto the **exact poisoned node** is reported as
-  `:rf.error/root-container-consumed` (checked ahead of this arm), so the duplicate-id arm fires on a
-  same-id retry onto a **different fresh node**. All arms carry the ordinary `:arriving` evidence.
-- **`:rf.error/root-container-in-use`** — a mount whose container is still owned by a **merely
-  deferred** tearing-down root. The node frees once teardown settles; recovery is a fresh node or a
-  re-mount after settlement. Data carries `:owner-root-id` and `:existing {:tearing-down? true}`.
-- **`:rf.error/root-container-consumed`** — a mount onto a container a **throwing/consumed** host
-  `.unmount` poisoned (rf2-sddbc). Checked ahead of the **duplicate-root-id and in-use arms**, so a
-  same-id retry onto the exact poisoned node reports the consumed node here rather than hiding it
-  behind duplicate-ID ordering (rf2-h05lm). The node can NEVER be proven free (queued host work is
-  unobservable), so recovery is a fresh node — never a wait-for-settlement. Two arms: an isolated
-  `unmount!` quarantine still holding the `:cleanup-failure?` claim (`:owner-root-id` names it), and
-  the post-reclaim `consumed-containers` denylist (id/prefix already released for a same-id re-mount
-  on a fresh node). Data carries `:root-id` and optional `:owner-root-id`.
-- **`:rf.error/root-not-live`** — a `render!` into a tearing-down Root. A tearing-down root is not
-  live: its React tree is being unmounted, so rendering into it would drive a consumed/unmounting
-  handle. It fails the same loud way as an unmounted or superseded root; recover by recreating the
-  root after settlement (a throwing-cleanup quarantine recreates onto a fresh container). Data
-  carries `:existing {:tearing-down? true}`.
-
-The effective-prefix arm (`:rf.error/duplicate-identifier-prefix`) is fenced the same way, since
-the prefix is quarantined as part of the one claim.
-
-#### Adapter-destruction completion
-
-Adapter-wide `dispose-adapter!` drains an exact one-generation snapshot of the live-root registry,
-unmounting each Root under the closed root-admission fence. A deferred teardown leaves its claim
-`:tearing-down` when the drain returns — settlement is still scheduled. **`dispose-adapter!` keeps
-its synchronous `nil` completion; no asynchronous Promise boundary is introduced.** Completion is
-honest without awaiting the microtask because the still-`:tearing-down` claims survive the drain (a
-fresh `install-adapter!` / `rf/init!` does not wipe the registry), so the pre-render admission check
-fail-closes reuse of the exact id/container until settlement, and the post-destroy admission
-breadcrumb meanwhile rejects any fresh public-root creation with `:rf.error/adapter-disposed`. A
-**deferred** exact id/container becomes reusable once the deferred settlement releases the claim. On
-the **throwing** path the adapter's container reclaim releases the id/prefix (a same-id re-mount on a
-fresh container) but does NOT prove the exact node free — the node is recorded fail-closed
-(`:rf.error/root-container-consumed`), so on that path the exact **container** is never reusable;
-recovery is a fresh node.
-
-#### Successor-generation settlement fence
-
-`dispose-adapter!` returning synchronously while a predecessor teardown is still deferred, composed
-with an immediate `install-adapter!` / `rf/init!`, must not let the **successor** generation become
-usable before the predecessor's host cleanup authority has settled. The immediate `rf/init!` clears
-the disposed breadcrumb, so the breadcrumb alone no longer fences root creation; and a predecessor's
-deferred host `.unmount` runs its layout/effect cleanups **after** `rf/init!` returns — a cleanup
-that dispatches through a frame api captured before disposal would otherwise resolve the bare id at
-call time and mutate a **same-id successor frame** the new generation reseated. Two composed fences
-close this window; either is individually sufficient for its axis, and together they are exact:
-
-1. **Successor root-admission fence.** While any live-root claim registered under a **prior** adapter
-   generation is still `:tearing-down` **and its teardown is genuinely settlement-pending** (a
-   deferred host teardown React has not settled — NOT a `:cleanup-failure?` quarantine), the pre-render
-   admission check rejects a fresh public compiled Root — under **any** id, not merely the exact
-   quarantined one — with the typed lifecycle error `:rf.error/adapter-teardown-in-flight` (Spec 009).
-   This is **distinct** from the pre-`init!` `:rf.error/adapter-disposed` breadcrumb: a fresh adapter
-   *is* installed, but the successor generation cannot admit a Root — and so cannot ENSURE a fresh
-   same-id frame — until the predecessor settles. Because the claim records the exact generation it
-   was admitted under, an ordinary **same-generation** deferred `unmount!` mid-settlement never blocks
-   a sibling mount; only an unsettled **predecessor** generation does. A `:cleanup-failure?` quarantine
-   is EXCLUDED (rf2-sddbc): a throwing `.unmount` never settles, so counting it would globally fence
-   every successor Root **forever**; its fail-closed reach is instead the exact poisoned container
-   alone (`:rf.error/root-container-consumed`), leaving unrelated fresh roots free to admit. Once the
-   deferred settlement releases the predecessor claim, admission reopens and the exact id/container is
-   reusable; on the throwing path the reclaim releases the id/prefix (a same-id re-mount on a **fresh**
-   container) while the exact container stays fail-closed.
-
-2. **Incarnation-keyed frame-capture fence.** A frame api (`capture-frame`, and the `reg-view`
-   render-time injection) captured against a **live** frame pins that frame's exact incarnation (its
-   `:drain-lock`, per [002 §capture-frame](002-Frames.md)). If the captured incarnation is later
-   destroyed — the id unclaimed, **or** a same-id successor incarnation reseated under it — **every**
-   op the stale api exposes behaves uniformly: `:dispatch` and `:dispatch-sync` RECOVER (the event is
-   never enqueued into the successor), and `:subscribe` RECOVERS by reading nothing and returning
-   **nil** (it never resolves a reaction against the successor's app-db nor caches an entry in the
-   successor's sub-cache). Each emits the production-survivable `:rf.error/frame-destroyed`
-   **exactly once**, exactly as an op into a destroyed frame does. The captured incarnation is carried
-   through into target selection / enqueue / read, so validation and target consumption are **one
-   exact-incarnation operation** — the pinned token is compared against the same record the router / sub
-   resolves for the enqueue or read. There is therefore **no liveness-check-to-bare-id-use window**: on
-   the concurrent JVM host, an actor that destroys the captured incarnation and reseats a same-id
-   successor between the capture's liveness pre-check and its ordinary address-directed consumption can
-   never redirect the stale op into that successor (rf2-dlld6). This fence is **recover-but-emit**, not
-   throwing: it is the last-line guard for a predecessor cleanup — including a throwing-host quarantine
-   React later self-completes — that fires after both the successor adapter and a same-id successor
-   frame are live, and these ops run from host cleanup, where a throw would break the very teardown
-   running them. A capture whose id was **not** live at capture (the `capture-frame` 1-arity
-   lock-to-id form used from outside any scope) pins nothing and stays address-directed.
-
-    A **throwing** synchronous sibling of this fence existed until 2026-08-16, and is recorded rather
-    than dropped because an older cross-reference may still send a reader looking for it: it was the
-    retired `re-frame.ui` `(frame)` operation bundle's own incarnation check, and it went with that
-    artefact (rf2-0yp7w). Nothing replaced it, so the recover-but-emit fence above is the only
-    incarnation fence there is — as [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)
-    records for `:rf.error/frame-destroyed`, whose `:op` realm enum is exactly `:dispatch` /
-    `:dispatch-sync` / `:subscribe` since the fourth value `:capture`, which named that retired read
-    alone, was struck on 2026-09-04 (rf2-xtqs).
-
-This is consistent with **"Disposal is total"** and **"no state survives"** (the adapter-revertibility
-contract above): the surviving `:tearing-down` claim is a **host-ownership quarantine** tracking a
-teardown React itself still owns, not adapter-internal observer/value state carried across
-`dispose-adapter!` / `install-adapter!`. The successor generation installs fresh and holds no
-predecessor state; it is merely **fenced from admitting Roots** until the host teardown it did not
-perform has settled. Cleanup failure remains **fail-closed** — a throwing host `.unmount` never fires
-`on-settled`, so its claim stays quarantined `:tearing-down` (`:cleanup-failure?`); an exact-incarnation
-adapter container reclaim retires its reporter and releases the id/prefix (a same-id re-mount on a
-fresh container), but does NOT prove the exact node free — a throwing `.unmount` may have queued late
-host DOM work, unobservable in-process. So the exact container node stays fail-closed
-(`:rf.error/root-container-consumed`, rf2-sddbc); the reclaim is a snapshot, not an affirmative
-settlement boundary, and re-`init!` alone never silently unblocks that node. Unlike a deferred
-teardown, a cleanup-failure quarantine does NOT globally fence the successor generation — only its
-exact container — so unrelated fresh roots admit normally.
-
-### JavaScript host capability boundary
-
-The CLJS weak root-ownership registry requires the host's standard **`WeakRef`** constructor.
-Without it, the implementation has only two dishonest choices: strongly retain every ordinarily
-unmounted ViewCell for the Root's lifetime, or drop Activity-hidden cells that root/frame teardown
-must still discover. Root admission therefore probes and captures `WeakRef` exactly once, before
-frame preflight, React Root allocation, live-root registration, or ViewCell ownership mutation.
-The direct `attach-root!` seam applies the same gate before writing the cell or registry. An
-unsupported host throws `:rf.error/ui-platform-incompatible` with
-`:platform :javascript`, `:capability :js/WeakRef`, and recovery
-`:use-a-weakref-capable-javascript-runtime`; there is no strong-reference fallback, polling loop,
-or per-render capability check.
-
-`FinalizationRegistry` is **optional**. When present, one captured module-lifetime reaper removes
-collected WeakRef husks eagerly. When absent, every synchronous ownership scan compacts cleared
-refs and drops empty incarnation entries; deterministic `teardown!` removal remains the normal
-fast path on both arms. The JVM host uses its synchronized `WeakHashMap` membership and does not
-participate in this JavaScript capability gate.
 
 ## Revertibility constraints on adapters
 
@@ -703,16 +467,14 @@ The annotation site MUST sit inside `(when interop/debug-enabled? ...)` (the CLJ
 
 ### Historical: JSX source-coord props (removed — never worked)
 
-> **Status: removed (Option A).** An earlier version of this contract called for the wrapper to ALSO inject the JSX-shaped source-coord props (`_jsxFileName` / `_jsxLineNumber` / `_jsxColumnNumber`) per `@babel/plugin-transform-react-jsx-source`, with the intent of making React DevTools' "View source" gesture jump to the `reg-view` definition.
+> **The wrapper injects no JSX-shaped source-coord props** (`_jsxFileName` / `_jsxLineNumber` / `_jsxColumnNumber`, per `@babel/plugin-transform-react-jsx-source`). They would not make React DevTools' "View source" gesture jump to the `reg-view` definition, for two reasons that compound:
 >
-> The feature never delivered. Two problems compounded:
+> 1. Reagent passes these props through as DOM attributes (it does not route them to React.createElement's `__source` slot), so React's runtime would emit "does not recognize the `_jsx*` prop on a DOM element" console warnings for every annotated view's root.
+> 2. React DevTools does not read "View source" from element props anyway — it reads `__source` off `React.createElement`'s third argument, which is set by the Babel plugin at JSX-compile time and is not reachable from hiccup.
 >
-> 1. Reagent passes these props through as DOM attributes (it does not route them to React.createElement's `__source` slot), so React's runtime emitted "does not recognize the `_jsx*` prop on a DOM element" console warnings for every annotated view's root.
-> 2. React DevTools does not read "View source" from element props anyway — it reads `__source` off `React.createElement`'s third argument, which is set by the Babel plugin at JSX-compile time and is not reachable from hiccup. So the DevTools gesture never lit up for re-frame2-registered views.
+> The injection would therefore buy dev-console noise with no DevTools benefit. The `data-rf2-source-coord` and `data-rf-view` DOM attributes (which DO work and are consumed by re-frame-pair, Xray's hover-highlight, and IDE jump-to-source tooling) ride the same wrapper.
 >
-> Net effect: dev-console noise with no DevTools benefit. The injection was dropped cleanly. The `data-rf2-source-coord` and `data-rf-view` DOM attributes (which DO work and are consumed by re-frame-pair, Xray's hover-highlight, and IDE jump-to-source tooling) ride the same wrapper unchanged.
->
-> If a future pass restores React DevTools "View source" integration, the correct path is to thread `__source` into the React element at element-creation time (cloneElement's third arg, or a substrate hook that participates in element construction) — not via element props.
+> A React DevTools "View source" integration would have to thread `__source` into the React element at element-creation time (cloneElement's third arg, or a substrate hook that participates in element construction) — not via element props.
 
 ### Documented exemption: non-DOM roots
 
@@ -734,11 +496,11 @@ When a registered view's render-fn returns a fn (Reagent's Form-2 closure shape)
 
 Headless test adapters (no DOM) are exempt. Every in-scope React-binding adapter MUST honour this contract: the CLJS reference view adapters rostered in [§CLJS reference scope](#cljs-reference-scope) (Reagent, reagent-slim, UIx, Fresco) and every JS-cross-compile-language port (TypeScript-React, Feliz / Fable.React, scalajs-react / Slinky, React.Basic, kotlin-react, ReasonReact / Melange-React). The server-side equivalent is the [JVM `reg-view*` registration boundary](011-SSR.md#source-coord-annotation-under-ssr) — a debug-gated wrapper on the stored `:handler-fn` (`re-frame.views.jvm-source-coord-annotation`) that stamps BOTH `data-rf2-source-coord` and `data-rf-view` on the registered view's root, so server-rendered pages carry both. The JVM SSR emitter itself carries no annotation logic; it stringifies the hiccup the registration boundary already annotated.
 
-**re-frame.fresco is bound, and reaches the contract by a different route (rf2-c5w1).** The roster above names the canonical inventory rather than re-stating a list, which is that section's own convention, and the inventory has carried Fresco as a shipped **view adapter** since it was written; being the re-frame-native view layer buys no exemption from a contract quantified over adapters. [011 §Source-coord annotation under SSR](011-SSR.md#source-coord-annotation-under-ssr) reaches the same conclusion independently for the server render, where the obligation is on *every host*.
+**re-frame.fresco is bound, and reaches the contract by a different route.** The roster above names the canonical inventory rather than re-stating a list, which is that section's own convention, and the inventory carries Fresco as a shipped **view adapter**; being the re-frame-native view layer buys no exemption from a contract quantified over adapters. [011 §Source-coord annotation under SSR](011-SSR.md#source-coord-annotation-under-ssr) reaches the same conclusion independently for the server render, where the obligation is on *every host*.
 
 What differs is the MECHANISM, and two facts force it. A `h/defview` registers through the registrar directly rather than through `reg-view*`: its `:view` entry is an ALIAS carrying the captured coordinate and no `:handler-fn`, because a Fresco boundary is a React component rather than a hiccup-returning render fn. So the `:adapter/wrap-view` late-bind hook the other adapters annotate from is never consulted — and could not be, since a `defview` is declared at namespace load, which routinely precedes `rf/init!`. Fresco therefore stamps inside its own codec path: both attributes are built ONCE per declaration when the boundary is minted, and merged into the root hiccup's attribute map on each body run, under `interop/debug-enabled?`. The id is the one the alias registered — the same `(keyword "<ns>" "<sym>")` `reg-view` derives from its own symbol — and both values come from this spec's single cross-host formatters (`re-frame.source-coords/format-source-coord` and `format-view-id`), so a Fresco boundary's attributes are byte-identical to a Reagent one's for the same id and a tool reads one contract across both. §CRITICAL constraint: mutate, do not wrap is satisfied by construction: the merge adds two entries to an attribute map the codec was already walking, costing no wrapper, no fiber and no hook — which is what lets the annotation sit inside Fresco's per-boundary hook budget.
 
-**One clause is deliberately NOT taken: Fresco emits no one-shot warning for a non-DOM root.** The §Documented exemption warning exists to teach a pair-tool footgun, and it is well judged where a non-DOM root is a corner case. Under Fresco it is not one — a boundary whose root is another declared view is the ordinary composition, and a fragment root is ordinary too — so the warning would fire on idiomatic code, once per such view in an application, on the false reading that it had done something wrong. The exemption ITSELF is honoured exactly: the codec's own head classifier annotates a `:tag` root and nothing else, so fragments, `[:> …]` crossings, `defhost` islands and boundary heads are all skipped, and the author's own value wins a collision — held at the CANONICAL REACT SLOT rather than at the key. Fresco's codec accepts five spellings of one attribute (keyword, namespaced keyword, symbol, namespaced symbol and string) and folds every one onto a single React prop name, so a merge keyed by `=` would leave a body's `"data-rf-view"` beside the framework's `:data-rf-view` and let the attribute map's iteration order pick the emitted value — the guarantee failing nondeterministically rather than failing. The framework's entry is therefore dropped at any slot the author already claims, in any spelling, and the annotation a body did NOT write is still stamped beside the one it did (rf2-c5w1, audit of PR #9191). Tools lose nothing by the dropped console arm — the coordinate for an unannotated boundary stays recoverable through `(rf/handler-meta {:source :store :kind :view :id id})`, the fallback this section already names, because the alias registered it.
+**One clause is deliberately NOT taken: Fresco emits no one-shot warning for a non-DOM root.** The §Documented exemption warning exists to teach a pair-tool footgun, and it is well judged where a non-DOM root is a corner case. Under Fresco it is not one — a boundary whose root is another declared view is the ordinary composition, and a fragment root is ordinary too — so the warning would fire on idiomatic code, once per such view in an application, on the false reading that it had done something wrong. The exemption ITSELF is honoured exactly: the codec's own head classifier annotates a `:tag` root and nothing else, so fragments, `[:> …]` crossings, `defhost` islands and boundary heads are all skipped, and the author's own value wins a collision — held at the CANONICAL REACT SLOT rather than at the key. Fresco's codec accepts five spellings of one attribute (keyword, namespaced keyword, symbol, namespaced symbol and string) and folds every one onto a single React prop name, so a merge keyed by `=` would leave a body's `"data-rf-view"` beside the framework's `:data-rf-view` and let the attribute map's iteration order pick the emitted value — the guarantee failing nondeterministically rather than failing. The framework's entry is therefore dropped at any slot the author already claims, in any spelling, and the annotation a body did NOT write is still stamped beside the one it did. Tools lose nothing by the dropped console arm — the coordinate for an unannotated boundary stays recoverable through `(rf/handler-meta {:source :store :kind :view :id id})`, the fallback this section already names, because the alias registered it.
 
 ### Source-coord stamping for state machines
 
@@ -748,7 +510,7 @@ Both surfaces share the production-elision contract: the co-location dev arm is 
 
 ## View tagging contract
 
-> **Status: v1-required for every in-scope React-binding adapter** (the roster is [§Cross-host](#cross-host) above). `data-rf-view` is **the** runtime view-id capture surface — there is no other. It serves two lookups that ship today: the **forward** one, where a view-id resolves its rendered root (`[data-rf-view='<id>']` — Xray's hover-highlight, re-frame-pair's `ui/read`), and the **reverse** one, where an arbitrary node resolves its producing view via the nearest tagged ancestor (re-frame-pair's `ui/read` again). **Hierarchy capture** — a parent/children tree over those tags — is tool-owned and **optional**: no port owes a walker, no conformance family grades one, and the CLJS reference ships none because no reference tool consumes one (see [§Hierarchy inference](#hierarchy-inference-tool-side-optional) below). The tag adds a single attribute per registered view and costs ~zero in production (elision-gated).
+> **Status: v1-required for every in-scope React-binding adapter** (the roster is [§Cross-host](#cross-host) above). `data-rf-view` is **the** runtime view-id capture surface — there is no other. It serves two lookups that ship: the **forward** one, where a view-id resolves its rendered root (`[data-rf-view='<id>']` — Xray's hover-highlight, re-frame-pair's `ui/read`), and the **reverse** one, where an arbitrary node resolves its producing view via the nearest tagged ancestor (re-frame-pair's `ui/read` again). **Hierarchy capture** — a parent/children tree over those tags — is tool-owned and **optional**: no port owes a walker, no conformance family grades one, and the CLJS reference ships none because no reference tool consumes one (see [§Hierarchy inference](#hierarchy-inference-tool-side-optional) below). The tag adds a single attribute per registered view and costs ~zero in production (elision-gated).
 
 The same per-render wrapper that injects `data-rf2-source-coord` (§Source-coord annotation above) also injects `data-rf-view="<id>"` on the rendered root DOM element when `interop/debug-enabled?` is true. The two attributes ride the same wrapper, the same walk, and the same production-elision gate — there is no separate code path or separate elision contract.
 
@@ -814,26 +576,24 @@ Hierarchy is **not** part of this contract — the framework's commitment is the
 1. Enumerate `[data-rf-view]` in document order (`document.querySelectorAll`), reading `data-rf-view` and `data-rf2-source-coord` off each node.
 2. Take each element's **nearest tagged ancestor** as its parent; depth is the count of tagged ancestors.
 
-The known limits above apply to anything so derived. The reverse half of that rule ships today as re-frame-pair's `nearest-view-root`, which resolves an arbitrary node to its producing view — the one live instance of DOM-containment inference in the tree. No port owes an implementation, no conformance family grades one, and the CLJS reference ships no walker.
+The known limits above apply to anything so derived. The reverse half of that rule ships as re-frame-pair's `nearest-view-root`, which resolves an arbitrary node to its producing view — the one live instance of DOM-containment inference in the tree. No port owes an implementation, no conformance family grades one, and the CLJS reference ships no walker.
 
-> **Decision, 2026-09-04 (rf2-2vpm).** The React Fiber-walker locked on 2026-05-19 as the primary hierarchy path was built (`fe4ff001b9`, PR #1533) and retired with its only consumer (`9781aa4e24`, PR #1741) the next day; this tag path landed five hours after that deletion (`da39b0c0f8`, PR #1780), so the two never coexisted. Hierarchy capture is now tool-owned and optional, the Fiber design is not a contract, and the unwired reference walker was removed.
->
-> Revisit only when a named Xray surface needs *logical* rather than DOM parentage (fragments, portals), and then only after a mounted-React spike that proves root discovery (container vs host keys), committed-tree selection, and a registry identity join.
+> **No React Fiber walker is part of this contract.** Hierarchy capture is tool-owned and optional. A Fiber walker is worth specifying only when a named Xray surface needs *logical* rather than DOM parentage (fragments, portals), and then only after a mounted-React spike that proves root discovery (container vs host keys), committed-tree selection, and a registry identity join.
 
 ## React DevTools support (zero-config, dev-only)
 
-re-frame2 is Reagent-substrate-native (see §Reactive Substrate above). The framework MUST therefore make React DevTools — the industry-standard React-app inspection tool — work cleanly against any re-frame2 app. The two contracts below are framework-level; an app author opts into none of them, they fire by the same wrappers that handle the source-coord and view-tagging contracts.
+re-frame2 renders through React (see [§Abstract](#abstract)). The framework MUST therefore make React DevTools — the industry-standard React-app inspection tool — work cleanly against any re-frame2 app. The two contracts below are framework-level; an app author opts into none of them, they fire by the same wrappers that handle the source-coord and view-tagging contracts.
 
 1. **Component display-name = registered view-id.** Every adapter's `reg-view` wrapper MUST stamp the React `displayName` of the wrapped component to the view-id's **performance/display projection** — `re-frame.performance/entry-id`, the same call [009 §Naming convention](009-Instrumentation.md#naming-convention) uses to build the `<id>` half of `rf:render:<id>` — so React DevTools' component tree shows `<cart/total-line>` rather than the CLJS-munged function name or an anonymous Reagent wrapper. Reagent's class-component machinery reads `.-displayName` off the input fn and forwards it to the constructed component; React-hook substrates (UIx) set it directly on the wrapped function component. Gated on `interop/debug-enabled?` so the per-view id-string literal elides in production builds.
 
-> **Amendment, 2026-08-07 (rf2-976bw) — the projection, not the keyword.** This item originally required `(str view-id)`, giving `<:cart/total-line>`. That conflicted with [009 §Naming convention](009-Instrumentation.md#naming-convention), which makes the `<id>` in the measure name and **the id the substrate publishes to the developer** one identifier, "so a name read off the User-Timing stream is directly jumpable in the tooling". A keyword stringifies *with* its colon, so the same view read `:cart/total-line` in DevTools while its own bracket wrote `rf:render:cart/total-line`; pasting one into the other produced `rf:render::cart/total-line` and matched nothing. 009 is the binding statement and this item now conforms to it.
+> **The projection, not the keyword.** `(str view-id)` would give `<:cart/total-line>`, and [009 §Naming convention](009-Instrumentation.md#naming-convention) makes the `<id>` in the measure name and **the id the substrate publishes to the developer** one identifier, "so a name read off the User-Timing stream is directly jumpable in the tooling". A keyword stringifies *with* its colon, so the same view would read `:cart/total-line` in DevTools while its own bracket writes `rf:render:cart/total-line`; pasting one into the other would produce `rf:render::cart/total-line` and match nothing. 009 is the binding statement and this item conforms to it.
 >
-> The distinction the amendment draws is between two things a view-id is used for, and the answer differs because the requirements differ:
+> The distinction is between two things a view-id is used for, and the answer differs because the requirements differ:
 >
 > - The **logical registry id** is a keyword — what `reg-view` registers, what `(rf/view :cart/total-line)` looks up. It is the thing itself.
 > - The **performance/display projection** is `entry-id`'s rendering of that keyword: colon-free, namespace preserved. It is what a *human or a tool reads*, and every surface that publishes a name to a developer publishes this one, through the same fn, so two spellings cannot drift into existence.
 >
-> `data-rf-view` is deliberately **not** amended and keeps `(str view-id)`. It is not a display projection but a round-trippable **encoding**: [§View tagging contract](#view-tagging-contract) requires the attribute to be reversible to the registered keyword, and `re-frame.source-coords/parse-view-id` reads the leading `:` back to distinguish a keyword id from a string one. A projection has no inverse to preserve; an encoding does.
+> `data-rf-view` deliberately keeps `(str view-id)`. It is not a display projection but a round-trippable **encoding**: [§View tagging contract](#view-tagging-contract) requires the attribute to be reversible to the registered keyword, and `re-frame.source-coords/parse-view-id` reads the leading `:` back to distinguish a keyword id from a string one. A projection has no inverse to preserve; an encoding does.
 
 
 
@@ -880,14 +640,14 @@ This is what makes the two lookup guarantees ([§Lookup algorithm](#lookup-algor
 - **(a) A value-keyed persistent-collection map** — the query vector is the key of a map whose key equality is `rf=` (e.g. an Immutable.js `Map` keyed by an Immutable.js `List`, or the host PDS library's equivalent). This is the reference-aligned mechanism (CLJS uses a persistent map keyed by the persistent query vector directly) and is RECOMMENDED. Note that [Implementor-Checklist F2](Implementor-Checklist.md)'s *first-listed* TS option (Immer) supplies structural sharing but **neither** a value equality **nor** a value-keyed map — a port following that suggestion must add both; the mechanism is not free with every PDS library.
 - **(b) An interned canonical encoding** — the query vector is reduced to a stable canonical key (a string/bytes interning `rf=`-equal vectors to one key), e.g. the [CEDN-1 canonical byte encoding](Conventions.md#canonical-byte-encoding-cedn-1). If a host chooses (b), the query-vector **arguments** MUST lie in a portable canonical domain (so map-key order, vector-vs-list kind, and present-nil are all handled by the encoding, as CEDN-1 already pins), and a dev-mode `:rf.error/*`-family diagnostic SHOULD flag an out-of-domain argument rather than silently mis-keying it.
 
-> **Cache-key domain vs `rf=` domain — an open reconciliation (flagged for review).** `rf=` (above) matches CLJS number equality and therefore **permits finite floats** in a query argument (`NaN !== NaN`, `-0 = 0`), whereas CEDN-1's identity domain **fails closed on all floating-point values** ([Conventions §Canonical EDN identity](Conventions.md#canonical-edn-identity), by design — durable identity must not hash a float). A host on mechanism **(a)** has no tension: a value-keyed map keys directly on `rf=` and admits float-bearing args natively, exactly as the reference does. A host on mechanism **(b)** inherits CEDN-1's float rejection and would either forbid float-bearing query arguments or need a **CEDN-float extension scoped to the cache-key domain only** (not to durable identity). **The minimal choice pinned here is: mechanism (a) is the reference-aligned default and admits finite floats; the CEDN-float extension for mechanism (b) is *not* specified in this pass** — a (b) host today must keep float-bearing values out of query arguments (encode them at the boundary, as CEDN-1 already requires elsewhere) or await that extension. Whether to bless a cache-key-scoped CEDN-float extension is left as an explicit decision for review; it is called out in [§Open questions](#open-questions).
+> **Cache-key domain vs `rf=` domain — an open reconciliation (flagged for review).** `rf=` (above) matches CLJS number equality and therefore **permits finite floats** in a query argument (`NaN !== NaN`, `-0 = 0`), whereas CEDN-1's identity domain **fails closed on all floating-point values** ([Conventions §Canonical EDN identity](Conventions.md#canonical-edn-identity), by design — durable identity must not hash a float). A host on mechanism **(a)** has no tension: a value-keyed map keys directly on `rf=` and admits float-bearing args natively, exactly as the reference does. A host on mechanism **(b)** inherits CEDN-1's float rejection and would either forbid float-bearing query arguments or need a **CEDN-float extension scoped to the cache-key domain only** (not to durable identity). **The minimal choice pinned here is: mechanism (a) is the reference-aligned default and admits finite floats; the CEDN-float extension for mechanism (b) is *not* specified** — a (b) host must keep float-bearing values out of query arguments (encode them at the boundary, as CEDN-1 already requires elsewhere) or await that extension. Whether to bless a cache-key-scoped CEDN-float extension is left as an explicit decision for review; it is called out in [§Open questions](#open-questions).
 
 **Conformance.** Two fixtures pin the observable contract for hosts whose native collections are reference-keyed:
 
 - [`sub-cache-dedupes-equal-query-v.edn`](conformance/fixtures/sub-cache-dedupes-equal-query-v.edn) — query vectors that are `rf=`-but-not-identical (distinct allocations, differing map-arg insertion order) resolve to **one** cache key; not-`rf=` vectors resolve to distinct keys. Asserted at the cache-key identity boundary the value-keyed cache relies on.
 - [`sub-cache-key-map-arg-order.edn`](conformance/fixtures/sub-cache-key-map-arg-order.edn) — two query vectors carrying a map argument in different insertion order share **one** cache key, pinned both at the byte level (one canonical token stream) and the identity level.
 
-> **Conformance-observability note (flagged).** Both fixtures assert the cache **key** identity — the pure mechanism a value-keyed cache rests on — which is the JVM-runnable, host-portable surface the corpus already exercises for canonical identity. A deeper *live-runtime* assertion — subscribe the same query through two **distinct host allocations** in one frame and count exactly one cache-slot creation (`:rf.sub/first-run? true` once) — would catch a reference-keyed host directly, but needs a new Mode-A harness primitive (the current sub-DSL has no "subscribe this query twice through distinct instances" op, and CLJS EDN vectors are value-equal so two literals are already one key). That live-observability extension is left as follow-up.
+> **Conformance-observability note (flagged).** Both fixtures assert the cache **key** identity — the pure mechanism a value-keyed cache rests on — which is the JVM-runnable, host-portable surface the corpus already exercises for canonical identity. A deeper *live-runtime* assertion — subscribe the same query through two **distinct host allocations** in one frame and count exactly one cache-slot creation (`:rf.sub/first-run? true` once) — would catch a reference-keyed host directly, but needs a new Mode-A harness primitive (the current sub-DSL has no "subscribe this query twice through distinct instances" op, and CLJS EDN vectors are value-equal so two literals are already one key). That live-observability extension is not specified.
 
 ### Cache shape
 
@@ -1159,30 +919,30 @@ A ratom-family substrate (Reagent, reagent-slim) offers a cached subscription **
 - **The eviction site emits, whichever route reached it.** Because the substrate can dispose a reaction that is still cached, the on-dispose hook can be the call that removes the slot. When it is, it MUST emit `:rf.sub/dispose` with `:rf.sub/reason :no-more-derefers`, exactly as a ref-count-driven eviction does: the guarantee in [§Disposal guarantees](#disposal-guarantees) is about the eviction, not about which call drove it. That emit MUST be conditional on this call having actually removed the slot, so a slot already removed by a cache-driven path — every one of which removes the slot *before* disposing the reaction — is never reported twice.
 - **An owner that never commits is reaped at one host macrotask.** A component's render reaction is created in render, and React renders passes it then discards — a Suspense boundary suspending on mount (including React 19's pre-render of the suspended subtree), an error boundary catching on mount, a hidden `Activity` never shown — so no unmount will ever dispose such an owner, and it would hold every reference it took, and go on force-updating an instance that never mounted, for the life of the page. An adapter that can observe the commit MUST treat an owner created while its instance is not mounted as provisional, under the rules [§Render-phase provisional acquisition and commit adoption](#render-phase-provisional-acquisition-and-commit-adoption) sets for a hook's render-phase reference: armed when the owner is created, before the render body runs (a render that throws has already taken its references); released one host macrotask later unless the commit has adopted the instance; bounded by render ATTEMPTS within the horizon and zero past it; and correct when it loses the race, because an instance adopted after its owner was reaped re-renders against current values. An instance React hides is no longer adopted — React unmounts it on hide, may re-render it while hidden, and may delete it without unmounting it again — so an owner created while it is hidden is provisional too. **Stock Reagent is the documented exception.** Reagent 2.0.1 creates its render reaction inside `render`, disposes it only from the cleanup `componentWillUnmount` queues, and exposes no commit signal an adapter can observe, so on the stock adapter such an owner — and every reference it holds — is retained for the life of the page. That is a known limitation of the stock adapter, not a contract violation of the cache: the count is still exactly the references live owners hold; the stock substrate simply never lets this owner go.
 
-*CLJS reference: the render-owned reference is taken in `re-frame.subs` and released through `re-frame.subs/unsubscribe-if-reaction`; the owner is the substrate's in-flight reactive context, reached through the `:adapter/reactive-owner` late-bind hook that the ratom adapters alone publish. The React-hook substrates take the other branch — they own their reference through their commit cleanup — and publish no owner, so none of this applies to them (rf2-ty246). The never-committed owner is reaped by reagent-slim's class render path, `reagent2.impl.component`, at the React-hook spine's 4 ms horizon (rf2-3x7nj.6.3).*
+*CLJS reference: the render-owned reference is taken in `re-frame.subs` and released through `re-frame.subs/unsubscribe-if-reaction`; the owner is the substrate's in-flight reactive context, reached through the `:adapter/reactive-owner` late-bind hook that the ratom adapters alone publish. The React-hook substrates take the other branch — they own their reference through their commit cleanup — and publish no owner, so none of this applies to them. The never-committed owner is reaped by reagent-slim's class render path, `reagent2.impl.component`, at the React-hook spine's 4 ms horizon.*
 
 #### Three subtleties
 
 1. **A sub can become live again after disposal.** A view unmounts and its last subscription drops; the slot disposes. Later, the same view re-mounts (cache miss, fresh computation). This is correct — the cache is performance, not state. The recomputed value will `=` what was disposed (same body, same `app-db`); no observable difference. **Shared-component re-mount in the same cascade**: when view A unmounts and view B (which subscribes to the same `query-v`) mounts in the same React commit, the sub is disposed by A's cleanup then re-built by B's mount. The disposed reaction and the rebuilt reaction are distinct objects but compute the same value; the cost is one extra `compute-and-cache!` call (one reaction allocation, one body run) — accepted as the "most honest" cost of closing the wasted-recompute window.
-2. **Eager subs.** A future `:reg-sub-by-path` (post-v1) might keep its cache slot live regardless of ref-count, for performance. v1 has no eager subs; if added, the contract surface is `entry.eager? = true` and the disposal path skips the slot. **SA-4 — untracked note (no bead filed yet):** this is a post-v1 design direction with no concrete tracking bead, so it does not qualify as `:post-v1 tracked` (which requires a `rf2-<id>`). **Fires-when trigger:** measured perf demand — a real workload where the per-subscribe rebuild cost of an always-recomputed path sub is the dominant cost. The disposal seam is already pinned (`entry.eager? = true` ⇒ disposal skips the slot), so the note tracks the *decision to add eager subs*, not an open disposal question; a tracking bead is filed only when that perf trigger fires.
+2. **Eager subs.** A future `:reg-sub-by-path` (post-v1) might keep its cache slot live regardless of ref-count, for performance. v1 has no eager subs; if added, the contract surface is `entry.eager? = true` and the disposal path skips the slot. **SA-4 — untracked note:** this is a post-v1 design direction with no tracking bead, so it does not qualify as `:post-v1 tracked`. **Fires-when trigger:** measured perf demand — a real workload where the per-subscribe rebuild cost of an always-recomputed path sub is the dominant cost. The disposal seam is pinned (`entry.eager? = true` ⇒ disposal skips the slot), so the note tracks the *decision to add eager subs*, not an open disposal question.
 3. **Disposal cascades.** When a layer-2 sub disposes, its layer-1 inputs lose one reader each (the parent's `on-dispose` callback calls `unsubscribe` on every declared input symmetrically with the construction-time subscribes). If an input was held only by that layer-2 sub, it cascades to disposal in the same tick. The whole cascade — parent + every transitively-held input — completes within the call that drove the parent's 1 → 0 transition.
 
 #### Render-phase provisional acquisition and commit adoption
 
 *React-hook substrates only. The algorithm above is unchanged by this subsection: the cache never holds a ref-count-0 entry, and the 1 → 0 transition still disposes in-tick with no grace period. What follows constrains a particular class of **owner**, not the cache.*
 
-A React render and the commit that owns it are two moments, and only the commit may own resources. A hook substrate that reads a subscription during render therefore faces a choice: hold a reference the commit can inherit, or hold nothing and rebuild. The ratom family makes the same choice implicitly — its render reaction holds its watches and its render-owned references from render onward — and [§Which lifetime governs a ratom adapter](#which-lifetime-governs-a-ratom-adapter) states what becomes of such an owner when its render never commits. Holding nothing is what the earlier rule required — and on a cold read it made a single mount pay for two constructions, because the render's balanced `subscribe`/`unsubscribe` round trip crossed the 1 → 0 edge and destroyed the reaction the commit was about to want.
+A React render and the commit that owns it are two moments, and only the commit may own resources. A hook substrate that reads a subscription during render therefore faces a choice: hold a reference the commit can inherit, or hold nothing and rebuild. The ratom family makes the same choice implicitly — its render reaction holds its watches and its render-owned references from render onward — and [§Which lifetime governs a ratom adapter](#which-lifetime-governs-a-ratom-adapter) states what becomes of such an owner when its render never commits. Holding nothing makes a single mount pay for two constructions on a cold read, because the render's balanced `subscribe`/`unsubscribe` round trip crosses the 1 → 0 edge and destroys the reaction the commit is about to want.
 
 The contract is therefore:
 
 - **The render phase MAY acquire a reference, PROVISIONALLY.** A hook substrate's render-phase read MAY take an ordinary ref-count and hold it for the commit to adopt. It is an ordinary reference held by an ordinary owner — the entry it keeps alive is at ref-count ≥ 1 throughout, and no cache mechanism, entry state, or reaping policy is added to satisfy it.
-- **The reaper is armed at acquisition, and is a host MACROTASK.** The release MUST be scheduled before the acquiring expression returns, unconditionally, and MUST NOT depend on any subsequent React callback running. It MUST be a macrotask (a `setTimeout`-class task): React installs the subscription as a passive effect, and a microtask reaper drains at the end of the current task — before that flush — so it would reap every provisional reference before the commit that was meant to adopt it. **A macrotask is necessary and NOT sufficient: WHICH macrotask decides whether the adoption is realised.** Measured on the shipping client mount path (`createRoot(…).render(…)` through the [§`render`](#render-render-tree-mount-point-opts--unmount-fn) slot, no `act`, no `flushSync`): a `setTimeout 0` armed during the render fires *before* React returns to flush the passive effect, at one boundary and at three hundred alike, so every cold read is reaped and rebuilt and the double build is paid in full. Longer delays (4 ms, 32 ms) and `requestIdleCallback` cleared it in the same measurement; `requestAnimationFrame` cleared it at one boundary and not at three hundred; a `MessageChannel` post did not, React's own message being posted later on the same FIFO source. The reference implementation's horizon is therefore **4 ms** — the shortest measured delay that clears the double build at both sizes, so an abandoned render holds its graph no longer than the adoption requires. **None of these is a guarantee** — React specifies no maximum render-to-subscribe interval, so no horizon can be sized against a contract, and any choice among them is a margin. This bullet therefore constrains the *class* of the primitive; a substrate MAY pick any macrotask, and the last bullet is the one that carries the weight. *(rf2-2rtt6.25, merged-PR audit of #7305; horizon ruled by rf2-2rtt6.71, witness placement ruled by rf2-2rtt6.80. Conformance witness: `assert-use-sub-browser-runner-schedule-rebuilds`, which mounts through the adapter render slot and pins the two constructions — it witnesses the **test runner's** schedule, whose render-to-passive-flush gap measures >128 ms, and so is evidence that a macrotask reaper can lose, not evidence about the margin on a consumer's page. That the 4 ms horizon clears the double build was measured on the ruling's own single-mount instrument at N = 1 and N = 300, and that measurement is now runnable: `node implementation/fresco/test/re_frame/bench/fresco/adoption_witness_run.cjs` is a committed adoption witness which measures a quiet single-mount page's render-to-passive-flush gap FIRST, prints it on every run, and REFUSES to read an adoption integer at all unless that gap sits comfortably inside the horizon. Nothing invokes it on a schedule — re-run it whenever the `react` / `react-dom` / `playwright` pins or the browser posture change, since those pins are exact and are the only events that can move this race.)*
-- **The horizon is one host macrotask.** A render that never commits — abandoned, suspended, unmounted before commit, or thrown out of — retains no ref-count **beyond one host macrotask**. This is the ONE contract-visible change the provisional hand-off makes: the zero-leak property of an abandoned render is unchanged, but its zero-**point** is the horizon rather than the render's own return. A conformance witness asserts **== 0 past the horizon** — and *past* is the operative word, because the reference horizon is the 4 ms delay of the bullet above (rf2-2rtt6.71) rather than the immediate `setTimeout 0` it once was: a witness that settles on a bare `setTimeout 0` of its own now runs *before* the reap and measures nothing. *Within* the horizon the count is bounded by the number of render ATTEMPTS the host made, not by one: React replays a suspended render, and each attempt is a fresh fiber with fresh hook state, so each attempt holds its own provisional reference (measured: 2 for the reference Suspense-abort witness). Bounded-by-attempts and zero-at-horizon is the guarantee; a specific small integer is not.
+- **The reaper is armed at acquisition, and is a host MACROTASK.** The release MUST be scheduled before the acquiring expression returns, unconditionally, and MUST NOT depend on any subsequent React callback running. It MUST be a macrotask (a `setTimeout`-class task): React installs the subscription as a passive effect, and a microtask reaper drains at the end of the current task — before that flush — so it would reap every provisional reference before the commit that was meant to adopt it. **A macrotask is necessary and NOT sufficient: WHICH macrotask decides whether the adoption is realised.** Measured on the shipping client mount path (`createRoot(…).render(…)` through the [§`render`](#render-render-tree-mount-point-opts--unmount-fn) slot, no `act`, no `flushSync`): a `setTimeout 0` armed during the render fires *before* React returns to flush the passive effect, at one boundary and at three hundred alike, so every cold read is reaped and rebuilt and the double build is paid in full. Longer delays (4 ms, 32 ms) and `requestIdleCallback` cleared it in the same measurement; `requestAnimationFrame` cleared it at one boundary and not at three hundred; a `MessageChannel` post did not, React's own message being posted later on the same FIFO source. The reference implementation's horizon is therefore **4 ms** — the shortest measured delay that clears the double build at both sizes, so an abandoned render holds its graph no longer than the adoption requires. **None of these is a guarantee** — React specifies no maximum render-to-subscribe interval, so no horizon can be sized against a contract, and any choice among them is a margin. This bullet therefore constrains the *class* of the primitive; a substrate MAY pick any macrotask, and the last bullet is the one that carries the weight. *(Conformance witness: `assert-use-sub-browser-runner-schedule-rebuilds`, which mounts through the adapter render slot and pins the two constructions — it witnesses the **test runner's** schedule, whose render-to-passive-flush gap measures >128 ms, and so is evidence that a macrotask reaper can lose, not evidence about the margin on a consumer's page. That the 4 ms horizon clears the double build was measured on a single-mount instrument at N = 1 and N = 300, and that measurement is runnable: `node bench/fresco/src/re_frame/bench/fresco/adoption_witness_run.cjs` is a committed adoption witness which measures a quiet single-mount page's render-to-passive-flush gap FIRST, prints it on every run, and REFUSES to read an adoption integer at all unless that gap sits comfortably inside the horizon. Nothing invokes it on a schedule — re-run it whenever the `react` / `react-dom` / `playwright` pins or the browser posture change, since those pins are exact and are the only events that can move this race.)*
+- **The horizon is one host macrotask.** A render that never commits — abandoned, suspended, unmounted before commit, or thrown out of — retains no ref-count **beyond one host macrotask**. This is the ONE contract-visible effect of the provisional hand-off: an abandoned render still leaks nothing, but its zero-**point** is the horizon rather than the render's own return. A conformance witness asserts **== 0 past the horizon** — and *past* is the operative word, because the reference horizon is the 4 ms delay of the bullet above rather than an immediate `setTimeout 0`: a witness that settles on a bare `setTimeout 0` of its own runs *before* the reap and measures nothing. *Within* the horizon the count is bounded by the number of render ATTEMPTS the host made, not by one: React replays a suspended render, and each attempt is a fresh fiber with fresh hook state, so each attempt holds its own provisional reference (measured: 2 for the reference Suspense-abort witness). Bounded-by-attempts and zero-at-horizon is the guarantee; a specific small integer is not.
 - **Release is one-shot and identity-guarded.** Exactly one of the adopting commit and the reaper may release a given provisional reference, and the decrement applies only while the cache slot still holds that reference's reaction. Hot reload, cache clear, and frame destroy evict slots out from under live holders; that eviction takes the reference with it, so a late release MUST no-op rather than underflow a successor entry rebuilt under the same key.
 - **At most one provisional reference per read site.** A render pass that re-runs its acquisition (React may discard a memo, double-render under StrictMode, or restart an interrupted render) MUST release the previous provisional reference **after** taking its replacement, so a re-rendering site cannot accumulate references and cannot cross the disposal edge between the two.
-- **Correctness MUST NOT depend on the reaper losing the race.** If the horizon expires before the commit arrives, the entry disposes and the commit rebuilds — the pre-existing behaviour. The hand-off is an optimisation whose failure mode is the thing it replaced. This bullet is not decoration, and it is what makes a *timed* horizon acceptable at all. On the reference implementation's public mount path the horizon expired first, every time, until rf2-2rtt6.71 moved it to 4 ms; it clears that path now by a measured margin and by nothing stronger, so a React scheduling change could restore the old outcome without notice. Either way everything else in this subsection holds — the zero-leak property, the identity guard, the one-shot release, the disposal cascade — and the cost of losing the race is one extra construction. A substrate MAY implement this subsection and realise none of its saving; what it MUST NOT do is depend on realising it.
+- **Correctness MUST NOT depend on the reaper losing the race.** If the horizon expires before the commit arrives, the entry disposes and the commit rebuilds — exactly what holding nothing does. The hand-off is an optimisation whose failure mode is the behaviour it improves on. This bullet is not decoration, and it is what makes a *timed* horizon acceptable at all. On the reference implementation's public mount path a `setTimeout 0` horizon expires first, every time; the 4 ms horizon clears that path by a measured margin and by nothing stronger, so a React scheduling change could make it expire first again without notice. Either way everything else in this subsection holds — the zero-leak property, the identity guard, the one-shot release, the disposal cascade — and the cost of losing the race is one extra construction. A substrate MAY implement this subsection and realise none of its saving; what it MUST NOT do is depend on realising it.
 
-*CLJS reference: `re-frame.substrate.spine/use-subscribe`, released through `re-frame.subs/unsubscribe-if-reaction` (identity-guarded) — rf2-2rtt6.25, ruled on rf2-2rtt6.14. A re-frame-native view substrate takes the other branch of the same choice and acquires nothing during render (invariant 1 of [§The six frozen invariants](#the-six-frozen-invariants)); both satisfy the cache contract, and neither is a licence for the other's mechanism.*
+*CLJS reference: `re-frame.substrate.spine/use-subscribe`, released through `re-frame.subs/unsubscribe-if-reaction` (identity-guarded). A re-frame-native view substrate takes the other branch of the same choice and acquires nothing during render (invariant 1 of [§The six frozen invariants](#the-six-frozen-invariants)); both satisfy the cache contract, and neither is a licence for the other's mechanism.*
 
 ### `(subscribe-once query-v) → value` / `(subscribe-once query-v {:frame f}) → value`
 
@@ -1195,7 +955,7 @@ The **one-shot, non-reactive read** of a subscription's current value. `subscrib
 (subscribe-once query-v {:frame f})                   ;; → value (explicit-frame opts form)
 ```
 
-**Call-shape parallel with `subscribe`.** The 2-arity is `[query-v opts]` ONLY, exactly as [`subscribe`](API.md#dispatch-and-subscribe) — no `vector?` shape-discrimination, no frame-first positional form (API-shrink #1, rf2-csbbwu deleted it entirely): `opts` may carry `{:frame f}` (a frame-id keyword or a live frame value); ambient when absent. Because `subscribe-once` shares `subscribe`'s exact call shape, an author who learned `(subscribe [:x] {:frame f})` writes the same `(subscribe-once [:x] {:frame f})` and the runtime binds the frame correctly — closing the same misbinding footgun EP-0024 closed for `subscribe` (a frame-first `[:x]` would otherwise have bound as frame-id and `{:frame f}` as query-v). `unsubscribe` (below) deliberately does **not** gain an opts-map form — it is pure teardown, never a hot in-view call, so the (unaffected) frame-first form is its sole explicit-frame shape.
+**Call-shape parallel with `subscribe`.** The 2-arity is `[query-v opts]` ONLY, exactly as [`subscribe`](API.md#dispatch-and-subscribe) — no `vector?` shape-discrimination, no frame-first positional form: `opts` may carry `{:frame f}` (a frame-id keyword or a live frame value); ambient when absent. Because `subscribe-once` shares `subscribe`'s exact call shape, an author who learned `(subscribe [:x] {:frame f})` writes the same `(subscribe-once [:x] {:frame f})` and the runtime binds the frame correctly — the opts form closes the same misbinding footgun it closes for `subscribe` (a frame-first `[:x]` would bind as frame-id and `{:frame f}` as query-v). `unsubscribe` (below) deliberately has **no** opts-map form — it is pure teardown, never a hot in-view call, so the frame-first form is its sole explicit-frame shape.
 
 Semantically, `subscribe-once` is `subscribe` + deref + immediate `unsubscribe`:
 
@@ -1263,9 +1023,9 @@ Three contract guarantees this enforces:
 ### Cross-spec interactions
 
 - **Drain-loop integration** ([002 §Drain-loop pseudocode](002-Frames.md#drain-loop-pseudocode)): invalidation fires once per `process-event!`, at the single deferred `:db` install (step 2) — the flow transform has already rewritten the pending `:db` effect as the outermost `:after` (step 1, per [013 §Drain integration](013-Flows.md#drain-integration)), so the value installed is the flow-augmented db. There is exactly one invalidation per event, at that install, and subscriptions observe the **flow-augmented** db on recompute. A handler can rely on subscriptions reflecting the new `app-db` from inside `do-fx` (the `:fx` walk at step 3, after the install).
-- **Hot reload** ([001-Registration](001-Registration.md)): re-registering a sub disposes the cache slot for that query (regardless of ref-count); next subscribe rebuilds with the new body. Tracked with the rest of hot-reload semantics in the bead-tracked work.
+- **Hot reload** ([001-Registration](001-Registration.md)): re-registering a sub disposes the cache slot for that query (regardless of ref-count); next subscribe rebuilds with the new body.
 - **Machine subscriptions** ([005 §Subscribing to machines via the `:rf/machine` sub](005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub)): a machine's snapshot lives in **runtime-db** at `[:rf.runtime/machines :snapshots <id>]` and is read like any other slice of the runtime-db projection; the framework-registered `:rf/machine` sub is a thin convenience over `reg-sub` that reads the runtime-db projection rather than the app-db projection. Sub-cache invalidation works the same — a machine snapshot change is a runtime-db commit, which propagates to framework subs only (per [§Frame-state container and partition projections](#frame-state-container-and-partition-projections)).
-- **`clear-sub` is a registry-only operation**: `(clear-sub id)` and `(clear-sub)` remove `:sub` registrations but leave already-materialised per-frame cache slots in place. Caching is governed by the disposal contract above (synchronous ref-counting on derefer-count → 0, hot-reload eviction, frame-destroy eviction); cache eviction independent of those triggers is `clear-sub-cache!`'s job. This split preserves v1's documented contract — see the `clear-sub` docstring's note: "Depending on the usecase, it may be necessary to call `clear-sub-cache!` afterwards."
+- **`clear-sub` is a registry-only operation**: `(clear-sub id)` and `(clear-sub)` remove `:sub` registrations but leave already-materialised per-frame cache slots in place. Caching is governed by the disposal contract above (synchronous ref-counting on derefer-count → 0, hot-reload eviction, frame-destroy eviction); cache eviction independent of those triggers is `clear-sub-cache!`'s job. This split matches v1's documented contract — see the `clear-sub` docstring's note: "Depending on the usecase, it may be necessary to call `clear-sub-cache!` afterwards."
 
 ### Per-host implementation notes
 
@@ -1281,7 +1041,7 @@ Three contract guarantees this enforces:
 > from live core source, so the numbering is part of the contract: an invariant is never
 > renumbered, only re-worded.
 
-These are normative (R-2). Each names the bug class it deletes.
+These are normative. Each names the bug class it deletes.
 
 1. **Render resolves and probes without ownership.** A render pass may resolve targets
    and probe their values; it MUST NOT increment a ref-count, register a watch or
@@ -1325,9 +1085,8 @@ These are normative (R-2). Each names the bug class it deletes.
    shown. The comparison is therefore not a headless-only concession — it is a staged site's
    only correction on **every** host, watchable ones included. The staged case — over a
    real sub-cache, on a watchable browser host — is pinned by
-   `implementation/fresco/test/re_frame/bench/fresco/arm1/staged_read_tear_cljs_test.cljs`.
-   The retained case's shipped row went with the donor view substrates when they were
-   removed on 2026-08-16 (rf2-0yp7w), and the invariant below is the contract either way.
+   `bench/fresco/src/re_frame/bench/fresco/arm1/staged_read_tear_cljs_test.cljs`;
+   no shipped row pins the retained case, and the invariant binds it either way.
    *(Deletes: painting a frame computed from stale reads; a coincident-version
    reincarnation misread as unchanged; a retained headless site that self-corrects through
    no channel; a staged site that paints stale on a dependency's first render and never
@@ -1340,7 +1099,7 @@ These are normative (R-2). Each names the bug class it deletes.
    finalization](#render-batch-finalization--the-host-checkpoint-boundary) enumerates all
    three, and states why an earlier close moves none of the four guarantees); the UI
    scheduler has no hook from router drain finalization and observes no drain boundary at
-   all (rf2-vxgfnd.166). An event/frame **epoch** is a
+   all. An event/frame **epoch** is a
    commit-phase + diagnostic-evidence unit (one per dequeued event — per
    [002 §Drain versus event](002-Frames.md#drain-versus-event--the-epoch-unit)); it is
    **not** a React render boundary. Source-side notification is constant work — mark the
@@ -1356,8 +1115,8 @@ These are normative (R-2). Each names the bug class it deletes.
    separates renders ([§Render-batch
    finalization](#render-batch-finalization--the-host-checkpoint-boundary) states all four
    guarantees). **No render count may be inferred from the number of event/frame epochs,
-   nor from the number of drains** — "one render batch per router drain" is **retired** as
-   normative and survives only as the common case, true exactly when callers yield between
+   nor from the number of drains** — "one render batch per router drain" is **not**
+   normative; it is only the common case, true exactly when callers yield between
    drains.
    *(Deletes: zombie children; N-notifications-per-event fan-out; the false
    N-epochs⇒N-renders equation; the false drain-quiescence render boundary.)*
@@ -1374,7 +1133,7 @@ host commit can see ([§The second closer](#the-second-closer--a-synchronous-hos
 or an explicit headless/test flush. The window is armed by the **first** dirty mark, not by
 the start of a drain, and it closes at the **host's** checkpoint, not at the end of a
 drain: this scheduler has no hook from router drain finalization and observes no drain
-boundary at all (rf2-vxgfnd.166). A run-to-completion drain may settle several queued
+boundary at all. A run-to-completion drain may settle several queued
 events, each settling its derivations (Phases 1–2) and marking dirty cells (Phase 3) as it
 commits its **own** epoch record; when the window closes, each dirty ViewCell is flushed
 **once** into the host scheduler and React performs **one read/render batch** over every
@@ -1392,7 +1151,7 @@ Four guarantees follow, and they are the whole contract:
    synchronous drains.
 4. Drains separated by a real **host yield** render separately.
 
-"One render batch per router drain" is **retired** as normative. It remains the common
+"One render batch per router drain" is **not** normative. It is the common
 case — true exactly when callers yield between drains (guarantee 4) — and it is not a rule
 this scheduler enforces, or could enforce without a drain-finalization seam that
 deliberately does not exist. Render separation follows host checkpoints, never the epoch
@@ -1405,7 +1164,7 @@ a torn frame paint before the correction runs. A single microtask, armed by the 
 mark of the window, cannot run until the synchronous stack unwinds, so it fires strictly
 **after** that stack completes — at the event loop's microtask checkpoint, which runs
 **before** the next paint — never between two queued events of the same drain, and always
-before a torn frame can show (rf2-vxgfnd.40). That microtask is the window's **guaranteed**
+before a torn frame can show. That microtask is the window's **guaranteed**
 closer, and outside a synchronous host flush it is still the only one that ever runs;
 [§The second closer](#the-second-closer--a-synchronous-host-commit-must-be-able-to-close-the-window)
 below covers the one that runs inside one. The third closer in the enumeration above — the
@@ -1422,11 +1181,10 @@ run-to-completion event drain is still open, by calling the shared
 `re-frame.frame/guard-open-drain!` in core. It throws `:rf.error/flush-in-open-epoch`
 synchronously, before the caller touches its registry, carrying the active `:frame` and
 `:frame-epoch`. The requirement is a **standing** one: no in-repo substrate publishes such
-a flush today — its callers went with the donor view substrates removed by rf2-0yp7w — and
-the law stayed in core because it is core's rather than theirs. It rejects a misuse of an
-**explicit** flush; it is not the automatic scheduling boundary, which consults no drain
-state at all, and the adapter's distinct production/tooling `flush-render!` contract is
-unchanged (RULED, rf2-cydkp).
+a flush, and the law lives in core because it is core's rather than any substrate's. It
+rejects a misuse of an **explicit** flush; it is not the automatic scheduling boundary,
+which consults no drain state at all, and it does not touch the adapter's distinct
+production/tooling `flush-render!` contract.
 [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) carries the
 category and the reasoning.
 
@@ -1435,13 +1193,13 @@ category and the reasoning.
 A dirty mark is **constant work**, and it schedules no host render work at all: it records
 the cause, enrols the cell in the open pending window, and arms the microtask. Nothing a
 React scheduler can see has happened. `react-dom/flushSync` returns as soon as the work
-scheduled *inside its callback* has committed — so it committed nothing, reported nothing,
-and a state write made inside it left the DOM showing the old value. The caller who reaches
-for a synchronous flush is exactly the caller about to measure layout, move focus, set a
-caret, or hand off to imperative third-party code, and that caller got a stale page in
-silence (rf2-w2m25).
+scheduled *inside its callback* has committed — so with the microtask as the only closer it
+would commit nothing, report nothing, and leave the DOM showing the old value of a state
+write made inside it. The caller who reaches for a synchronous flush is exactly the caller
+about to measure layout, move focus, set a caret, or hand off to imperative third-party
+code, and that caller would get a stale page in silence.
 
-**The microtask is not abolished, and must not be.** Making a mark notify synchronously
+**The microtask closer stays, and must.** Making a mark notify synchronously
 would recompute and re-render inside the source write — the trap invariant 6 exists to
 forbid — and would dissolve the coalescing every batch here rests on. The remedy is a
 **second closer**, not a different first one.
@@ -1452,8 +1210,8 @@ runs first closes the window; the other finds it empty and does nothing. The thi
 the enumeration above — the explicit headless/test flush — is a caller's door rather than a
 scheduled checkpoint, and nothing here touches it.
 
-1. **The host microtask** — the guaranteed closer, armed first, unchanged, and still the
-   owner of the ordinary batch.
+1. **The host microtask** — the guaranteed closer, armed first, and the owner of the
+   ordinary batch.
 2. **The host render checkpoint** — a render the host's own scheduler performs, whose
    *synchronous* commit phase closes the window. The CLJS realisation renders one
    nil-returning sentinel into a detached
@@ -1468,7 +1226,8 @@ closes the window, and flushes the cells' resulting updates before the flush ret
 DOM is current on the next line. **Outside one** that update takes an ordinary lane and the
 host reaches it later, by which time the microtask closer — armed first, and therefore
 first out of a FIFO queue — has already closed the window and the sentinel's effect finds
-nothing pending. Batching outside a synchronous flush is bit-for-bit what it was.
+nothing pending. Batching outside a synchronous flush is bit-for-bit what the microtask
+alone would do.
 
 Two ordering rules make that safe rather than merely true, and both are normative:
 
@@ -1477,7 +1236,7 @@ Two ordering rules make that safe rather than merely true, and both are normativ
   report a scheduling failure to, so a host closer that throws must never cost the window
   its guaranteed one.
 - A host with no render scheduler installs **no** second closer and is unaffected. The
-  headless (JVM/SSR) host is that case: it closes its window explicitly, exactly as before.
+  headless (JVM/SSR) host is that case: it closes its window explicitly.
 
 None of the four guarantees moves. Neither closer can run while the marking stack is still
 unwinding — both are armed by the mark, and a synchronous flush runs its callback to
@@ -1486,8 +1245,8 @@ across batches (guarantee 1) and N epochs settled in one drain still coalesce in
 batch (guarantee 2). Guarantee 3 is **permissive**: drains finishing before the same host
 checkpoint *may* share a batch, so an earlier close spends latitude the guarantee already
 grants rather than breaching it. Guarantee 4 is untouched — drains separated by a real host
-yield still render separately. What changed is only *which* checkpoint may close a window a
-**synchronous commit** is waiting on.
+yield still render separately. The second closer changes only *which* checkpoint may close
+a window a **synchronous commit** is waiting on.
 
 The consumer-facing consequence is the whole point of the mechanism: **a state write made
 inside a synchronous host flush is committed to the DOM before that flush returns.** The
@@ -1579,8 +1338,8 @@ exactly what the old body owned.
 
 ### Frame binding and retarget
 
-A view is bound to its frame through the shared frame context, and the **interpreted shell
-observes that context unconditionally**. A provider retarget from frame A to frame B must
+A view is bound to its frame through the shared frame context, and the **shell observes
+that context unconditionally**. A provider retarget from frame A to frame B must
 rebind a child even when the child's own props are equal, so the shell must be a real
 context CONSUMER — a private-slot read resolves the right value but subscribes to nothing,
 and the host correctly bails a non-consumer whose props did not move, leaving its
@@ -1590,11 +1349,6 @@ Retarget is exactly a re-commit against a different frame. The whole bundle move
 dependencies are re-resolved and acquired against B before A's are released, and the
 committed event destination becomes B — without changing one callback identity, because
 identity belongs to the site and the destination belongs to the commit.
-
-A **compiled** shell may elide this machinery only when its manifest PROVES that neither
-the view nor its events are frame-sensitive. Absent that proof the machinery stays: an
-unrestricted body's reads have not been enumerated, so there is nothing to base an
-elision on.
 
 ### Occurrence identity across a reorder
 
@@ -1640,94 +1394,6 @@ A read outside any active render is refused for the same reason: it has no owner
 nothing would ever release it. Non-reactive callers use the frame-explicit one-shot read
 ([§`subscribe-once`](#subscribe-once-query-v--value--subscribe-once-query-v-frame-f--value)),
 which resolves, probes, returns, and releases without installing a dependency.
-
-## The subscription law
-
-> **Status: normative.** `v/sub` is the paved path's reactive read. Its value, resolution,
-> invalidation and commit-safety are stated once here and hold in **both** execution modes; the
-> [atomic shell](#the-atomic-shell) owns the commit those semantics ride on; the
-> surrounding authoring surface was `spec/004-Views.md`'s and went with it (rf2-h89ri).
-
-`v/sub` takes a subscription **query vector** and returns that subscription's current **value**
-— not a reactive reference, not a deref-able container. It reads through the substrate's own
-adapter-internal read path and resolves against the frame the render is bound to, so a subscription read
-in a view is the same value the rest of re-frame2 computes for that query
-([§Subscription cache](#subscription-cache--contract-and-operational-semantics)). The substrate adds
-no second reactive system and no second value model.
-
-The one-shot, non-reactive read keeps its own name —
-[`subscribe-once`](#subscribe-once-query-v--value--subscribe-once-query-v-frame-f--value), a
-`re-frame.core` verb, never a substrate one. The two are deliberately not one form under two
-meanings (D005): `v/sub` always means *a reactive read owned by this render*, and the ownerless
-read says what it does.
-
-### A render-owned value
-
-A `v/sub` inside a render resolves and probes and **acquires nothing** — no ref-count, no
-watch, no cache node — and records the read on the render's own candidate, in document order.
-The SELECTED commit is the one place those records become owned dependencies: the published
-bundle's dependency set is exactly the queries the committed render read, in render order, and
-a render the host never selects owns none of them. So `v/sub` is safe in a render the host may
-restart or abandon — that is what lets it be the paved read rather than a resource a
-speculative render could leak.
-
-The value is **stabilized**: a recompute whose result is `rf=`-equal to the site's prior
-committed value returns the exact prior value object, and an `rf=`-equal query keeps the prior
-query object, so an equal value is not movement and does not churn identity downstream.
-
-Subscription **handle counts are internal.** `v/sub` returns a value; the ref-count, the
-derived container and the disposal edge belong to the substrate and its shell, and are never part of
-what an author reads or what a return conveys.
-
-### The render-only rule
-
-`v/sub` is legal **only during an active declared render**. A read with no render to belong to
-has no owner — nothing would ever release it — so it is refused loudly with
-`:rf.error/view-read-outside-render` rather than probed and dropped to a silent `nil`. The
-diagnostic is raised **before** the target is resolved, so the refused read performs no
-observation work. A REPL probe, a timer, a `v/event` / `v/handler` callback, a promise
-continuation, or any foreign callback that reaches for `v/sub` gets the same diagnostic at the
-call site, and the recovery is the frame-explicit one-shot read.
-
-This is the authoring name for the capture law the shell states for its reads
-([§Same-render-thread capture](#same-render-thread-capture)); `v/sub` inherits the same
-same-thread rule below.
-
-### Capture through helper functions
-
-The render owns a `v/sub` wherever the call **lexically sits**, including inside an ordinary
-`defn` helper the body calls:
-
-```clojure
-(defn- money [q] (format-currency (v/sub q)))   ;; a plain defn, not a view
-
-(v/defview receipt [_]
-  [:dl [:dd (money [:cart/subtotal])]           ;; captured by receipt's render
-       [:dd (money [:cart/tax])]])
-```
-
-`money` is a helper, not a boundary: it owns no occurrence and no subscriptions of its own, and
-its `v/sub` is recorded on the *calling* render's candidate exactly as an inline read would be.
-The capture rides the active render, not the call depth, so refactoring an inline read into a
-helper — or back — changes neither ownership nor evidence. It is **same-thread** capture, so a
-read conveyed to a child thread (`future`, `pmap`, `bound-fn`) is refused with
-`:rf.error/view-forked-capture` before it probes
-([§Same-render-thread capture](#same-render-thread-capture)).
-
-### Invalidation and atomic recommit
-
-When an input a committed `v/sub` depends on changes value (by `rf=`), the occurrence is marked
-and the host re-renders it. The new render reads whatever queries its body now reaches, and its
-commit republishes the **whole bundle** — dependencies, event targets and evidence — in one
-step ([§The selected render bundle](#the-selected-render-bundle)). Invalidation therefore
-recomputes and recommits **atomically**: there is no window in which the occurrence's
-dependencies came from one render and its committed values from another, and an `rf=`-equal
-recompute republishes an identical bundle rather than churning it.
-
-Neither mode changes these semantics. The interpreted tier records the reads a committed render
-actually made — exact for that generation, not a static upper bound for the program; the
-compiled tier additionally proves a finite set of possible read sites. What `v/sub`
-*means* — a render-owned, stabilized, same-thread reactive read — is one sentence in both.
 
 ## What happens when a sub references an unknown sub
 
@@ -1843,11 +1509,11 @@ This section is the **bridging pseudocode** for both. For each contract function
 ;; Total disposal. Order matters: tear down sub-cache Reactions first (so
 ;; nothing observes a ratom going away), then unmount any active React
 ;; Roots, then clear adapter-private caches. Frame-providers are stateless
-;; (a single zero-arity component services every frame keyword per
-;;) so there is no provider-side cache to flush. Reagent's own
-;; reaction-graph caches GC themselves once their last watcher drops, so
-;; the explicit `(ratom/flush!)` step the v1-pseudocode named is not
-;; needed — disposing the cached Reactions above is sufficient.
+;; (a single zero-arity component services every frame keyword) so there
+;; is no provider-side cache to flush. Reagent's own reaction-graph caches
+;; GC themselves once their last watcher drops, so no explicit
+;; `(ratom/flush!)` step is needed — disposing the cached Reactions above
+;; is sufficient.
 (defn dispose-adapter! []
   ;; Step 1 — cancel in-flight reactive subscriptions across every live
   ;; frame's per-frame sub-cache. Reaches each Reaction via
@@ -1935,7 +1601,7 @@ The per-frame **sub-cache** ([§Subscription cache invalidation](#subscription-c
 
 What this gives:
 
-- **Hot reload** ([001-Registration](001-Registration.md), bead-tracked): re-registering a sub disposes the cache slot for that query; next subscribe rebuilds with the new body.
+- **Hot reload** ([001-Registration](001-Registration.md)): re-registering a sub disposes the cache slot for that query; next subscribe rebuilds with the new body.
 - **Frame teardown** ([002 §Destroy](002-Frames.md#destroy)): `dispose-frame-subs!` fires from the frame's lifecycle hook; every reaction is disposed; no leaks.
 - **Layer-1/2/3 semantics**: the recursion in `compute-and-cache` builds a chain. A layer-2 sub's reaction reads a layer-1 sub's reaction; Reagent's tracking propagates `=`-equality up the chain.
 
@@ -1977,7 +1643,7 @@ The `read-frame-from-context` lookup chain (`*current-frame*` dynamic var → Re
 
 **The reason, once.** The same component tree must resolve the same frame under either scheduling mode — a scheduled concurrent render and a synchronous one (`act()`, `flushSync`, a server render) must not disagree — so a hook must not depend on which imperative scope happens to surround a flush, including work that scope did not schedule. A hook is the *hold* face of `capture-frame`, not the scoped one: a body's dynamic extent has unwound by the time React renders the component that body returned, so the dynamic tier can only answer for a different render than the one asking. And a hook that reads a JS-thread global mid-render is hidden context in the one place React identity matters ([Principles §Low hidden context](Principles.md)).
 
-**The imperative tier is unchanged.** `dispatch`, `subscribe`, the 0-arity `(capture-frame)`, `current-frame-id`, handlers, `reg-view` injection and the Reagent class-component chain all keep the dynamic-var → React-context → error chain above. The divergence between the two tiers is deliberate: they run at different instants, and only one of them runs inside the scope that bound the var.
+**The imperative tier keeps the full chain.** `dispatch`, `subscribe`, the 0-arity `(capture-frame)`, `current-frame-id`, handlers, `reg-view` injection and the Reagent class-component chain all use the dynamic-var → React-context → error chain above. The divergence between the two tiers is deliberate: they run at different instants, and only one of them runs inside the scope that bound the var.
 
 #### Frame propagation across React-binding ports
 
@@ -2116,7 +1782,7 @@ The plain-atom adapter is **trivially** revertibility-compliant ([§Reference-ad
 
 - `(rf/init! adapter-map)` — install the literal adapter spec.
 
-Calling `(rf/init!)` with no args raises a language-level `ArityException` at the call site (the no-arg arity was cut from the fn defn entirely, so the mistake surfaces at compile/load time rather than at runtime). Calling `(rf/init! :reagent)` (or any non-map value) and `(rf/init! nil)` raise `:rf.error/no-adapter-specified` at runtime — there is no default-adapter registry and no keyword-to-adapter lookup table. The runtime error message points the consumer at the adapter-ns + adapter-Var pattern.
+Calling `(rf/init!)` with no args raises a language-level `ArityException` at the call site (there is no no-arg arity, so the mistake surfaces at compile/load time rather than at runtime). Calling `(rf/init! :reagent)` (or any non-map value) and `(rf/init! nil)` raise `:rf.error/no-adapter-specified` at runtime — there is no default-adapter registry and no keyword-to-adapter lookup table. The runtime error message points the consumer at the adapter-ns + adapter-Var pattern.
 
 **No registry, no implicit defaults.** There is no default-adapter registry: `(rf/init! adapter-map)` takes the adapter spec explicitly. Two reasons:
 
@@ -2129,22 +1795,22 @@ A mixed-substrate app — say a build that imports both `re-frame.adapter.reagen
 
 **`init!` is idempotent for the SEATED adapter, not for any adapter.** Re-calling `(rf/init! …)` with the adapter already seated is a no-op. Calling it with a **different** adapter raises the same `:rf.error/adapter-already-installed` and leaves the seated adapter untouched — swapping substrates means `(rf/destroy-adapter!)` first. Two spec maps are the same adapter when they carry the same canonical `:rf.adapter/*` `:kind`, or when they are the identical map; the front door does not silently ignore an adapter it was handed, which is what [Conventions §No silent swallow](Conventions.md#no-silent-swallow--recognised-input-must-signal) requires of a recognised input the runtime cannot honour.
 
-The canonical-`:kind` half of that rule is what keeps hot reload working. Every adapter Var is a plain `def`, so a reload re-evaluates the map with fresh fn identities and a `^:dev/after-load` boot re-calls `init!` with a structurally fresh map — but a canonical `:rf.adapter/*` kind is a stable token that survives the re-evaluation, so the re-call stays the no-op it was. A **custom** adapter carrying no canonical kind falls back to object identity, so re-evaluating its Var on reload and re-calling `init!` *does* raise: hold such an adapter in a `defonce`, or call `destroy-adapter!` in the after-load fn.
+The canonical-`:kind` half of that rule is what keeps hot reload working. Every adapter Var is a plain `def`, so a reload re-evaluates the map with fresh fn identities and a `^:dev/after-load` boot re-calls `init!` with a structurally fresh map — but a canonical `:rf.adapter/*` kind is a stable token that survives the re-evaluation, so the re-call is a no-op. A **custom** adapter carrying no canonical kind falls back to object identity, so re-evaluating its Var on reload and re-calling `init!` *does* raise: hold such an adapter in a `defonce`, or call `destroy-adapter!` in the after-load fn.
 
 The CLJS adapter namespaces (Reagent, reagent-slim, UIx) and the SSR namespace each export their `adapter` Var; the contract surface is the same ten-fn map (see [§The adapter API contract](#the-adapter-api-contract) above). The plain-atom adapter in `re-frame.substrate.plain-atom` is reachable on both JVM and CLJS — useful for headless tests on either platform.
 
 ## CLJS reference: UIx as alternative substrate
 
-> **A first-class adapter, alongside the others.** The UIx adapter is a **first-class, actively-supported** view adapter — it lives on alongside the stock-Reagent compatibility/interop tier and the reagent-slim adapter, and is **not** scheduled for removal. See [§CLJS reference scope](#cljs-reference-scope) for each adapter's lifecycle role. The section below documents it as it ships.
+> **A first-class adapter, alongside the others.** The UIx adapter is a **first-class, actively-supported** view adapter, alongside the stock-Reagent compatibility/interop tier and the reagent-slim adapter. See [§CLJS reference scope](#cljs-reference-scope) for each adapter's lifecycle role. The section below documents it as it ships.
 
 The UIx adapter ships in `day8/re-frame2-uix` and implements the same ten-fn contract as the Reagent adapter — same observable behaviour for events, subs, effects; different rendering substrate for views.
 
 The UIx adapter's design decisions are:
 
-1. **Hook naming.** The substrate's subscription surface is `use-sub`, matching the React/UIx idiom. It is ONE name across React function components: `re-frame.fresco.native/use-sub` is the same operation for an island under Fresco, and rf2-kuky.57 unified the UIx spelling onto it. The rule the pair follows is the noun/verb one — the VERB returns a subscription (`rf/subscribe`, Reagent's reaction), the NOUN returns its value (`h/sub` in a Fresco body, `use-sub` in a function component) — which is why the ergonomics are symmetric to Reagent's `(rf/subscribe ...)` deref shape while the naming is not: hooks live in hook-named space, and the thing a hook hands back is a value.
-2. **Frame propagation.** Both the UIx and Reagent adapters read the *same* React Context object — factored out of `re-frame.views` into `re-frame.adapter.context` (CLJS-only file in core). A future mixed-substrate app's frame-provider chain therefore composes across substrates rather than living in per-adapter silos.
-3. **Auto-injection.** None for UIx — the hook surface is the canonical UIx access path. Components call `(use-sub [:foo])` to read, and hold frame ops via the `use-frame` hook (rf2-y6dz8t): `(let [{:keys [dispatch]} (use-frame)] …)` returns EXACTLY what `(rf/capture-frame)` returns — the frame-locked ops map — for the ambient provider frame, resolved from React context ONLY (the one hook rule, below) and reference-stable across re-renders for the same resolved frame INCARNATION: a frame keyword is an *address*, not an identity, so destroying the resolved frame and creating another under the same id retargets the map, exactly as a provider swap does. The word `incarnation` is load-bearing rather than pedantic — `capture-frame` pins the exact incarnation live when it ran and every op on the bundle refuses a superseded target, so a bundle that survived a same-id reincarnation would not be merely stale, it would be silently inert. There is no UIx-side analogue to `reg-view`'s `dispatch` / `subscribe` lexical bindings; `use-frame` is capture-frame in hook position, nothing more (no options map, no variants — an explicit frame is `(rf/capture-frame frame-id)`, no hook needed).
-4. **`reg-view` macro scope.** `reg-view` stays Reagent-only (auto-defs the Var, auto-injects the lexical `dispatch` / `subscribe`, threads source-coords through Reagent's `:contextType` machinery). Most UIx components are bare `defui`; a UIx author reaches for `reg-view*` (the plain-fn surface in `re-frame.core`) only when a component needs registry-keyed view addressing. Source-coord stamping for UIx-rendered roots happens at the adapter's render-time wrapper, not at registration time.
+1. **Hook naming.** The substrate's subscription surface is `use-sub`, matching the React/UIx idiom. It is ONE name across React function components: `re-frame.fresco.native/use-sub` is the same operation for an island under Fresco. The rule the pair follows is the noun/verb one — the VERB returns a subscription (`rf/subscribe`, Reagent's reaction), the NOUN returns its value (`h/sub` in a Fresco body, `use-sub` in a function component) — which is why the ergonomics are symmetric to Reagent's `(rf/subscribe ...)` deref shape while the naming is not: hooks live in hook-named space, and the thing a hook hands back is a value.
+2. **Frame propagation.** Both the UIx and Reagent adapters read the *same* React Context object, which lives in `re-frame.adapter.context` (CLJS-only file in core). A mixed-substrate app's frame-provider chain therefore composes across substrates rather than living in per-adapter silos.
+3. **Auto-injection.** None for UIx — the hook surface is the canonical UIx access path. Components call `(use-sub [:foo])` to read, and hold frame ops via the `use-frame` hook: `(let [{:keys [dispatch]} (use-frame)] …)` returns EXACTLY what `(rf/capture-frame)` returns — the frame-locked ops map — for the ambient provider frame, resolved from React context ONLY (the one hook rule, below) and reference-stable across re-renders for the same resolved frame INCARNATION: a frame keyword is an *address*, not an identity, so destroying the resolved frame and creating another under the same id retargets the map, exactly as a provider swap does. The word `incarnation` is load-bearing rather than pedantic — `capture-frame` pins the exact incarnation live when it ran and every op on the bundle refuses a superseded target, so a bundle that survived a same-id reincarnation would not be merely stale, it would be silently inert. There is no UIx-side analogue to `reg-view`'s `dispatch` / `subscribe` lexical bindings; `use-frame` is capture-frame in hook position, nothing more (no options map, no variants — an explicit frame is `(rf/capture-frame frame-id)`, no hook needed).
+4. **`reg-view` macro scope.** `reg-view` is Reagent-only (auto-defs the Var, auto-injects the lexical `dispatch` / `subscribe`, threads source-coords through Reagent's `:contextType` machinery). Most UIx components are bare `defui`; a UIx author reaches for `reg-view*` (the plain-fn surface in `re-frame.core`) only when a component needs registry-keyed view addressing. Source-coord stamping for UIx-rendered roots happens at the adapter's render-time wrapper, not at registration time.
 5. **Source-coord DOM annotation.** The UIx adapter wraps user components in a thin layer that calls `React.cloneElement` to add `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on the rendered root DOM element when `interop/debug-enabled?` is true. Production-elision contract: under `:advanced` + `goog.DEBUG=false` the entire wrapper branch DCEs and the literal `data-rf2-source-coord` string fragment is absent from the bundle. Fragments and non-DOM roots are exempt with the standard one-shot warning per id.
 6. **Render flush for tests.** The adapter exposes `flush-views!` wrapping React's `act()`. Tests dispatching against a UIx-mounted tree call `(flush-views!)` after a dispatch to settle pending React effects before reading the DOM. The entry point is **per-adapter-require** — `(rf.adapter.uix/flush-views!)`, NOT centralised through `re-frame.test-support` — per the adapter-dependency-direction rule in [§What an adapter MUST NOT do](#what-an-adapter-must-not-do); see [Spec 008 §Adapter-aware test helpers](008-Testing.md#adapter-aware-test-helpers--flush-views) for the test-author-facing rationale.
 7. **Curated example set.** counter + login (under `examples/substrates/uix/counter/` and `examples/substrates/uix/login/`) — the representative pair that shares its substrate-agnostic dataflow (events, subs, schemas, machine, managed-HTTP stub) with the Reagent siblings, chosen because it spans the substrate-contract surface a UIx app exercises. Realworld is skipped per Decision 7 — heavy with Reagent-flavoured idioms; deferred until a UIx user wants it. **Coverage shape:** the `examples/` tree is test-free, so these two example pages carry *compile coverage* only (`test:examples-compile`); the *runtime* substrate-contract smoke (mount → subscribe → dispatch → re-render) is the single adapter-owned testbed at `implementation/adapters/uix/testbed/` (one mount+dispatch+assert smoke per adapter), not a per-example browser gate. Substrate-agnostic behaviour the login page would exercise — the login machine, its Malli schemas, the managed-HTTP stub — is covered by the canonical Reagent suite and the feature artefacts' own tests; the UIx-specific view-layer surface (`use-sub`, the `use-frame` hold hook, capture-frame capture, after-render flush, source-coord DOM annotation) is covered by the UIx adapter's CLJS tests under `implementation/adapters/uix/test/`. See [Conventions §Adapter test matrix policy](Conventions.md#adapter-test-matrix-policy).
@@ -2161,21 +1827,21 @@ Every other adapter primitive (read, replace, subscribe-container, dispose) is s
 
 ## Cross-substrate affordance summary
 
-The ten-fn substrate contract is identical across adapters, but the three **view-author-facing** surfaces — *read a subscription*, *scope a frame to a subtree*, *flush pending renders in a test* — differ per substrate because each rides its host's idiom (Reagent's reactive deref vs the React-hooks model). A dev moving between substrates needs the one-glance map; this table is it. Each React-shaped adapter's `frame-provider` / `frame-root` is a **native substrate component** (UIx `defui`); Fresco's are its own head kind, lowered by its codec (rf2-kuky.58) — the props cross as the author's CLJS map and the head names the frame its children lower under. All three substrates therefore spell both verbs in the tree, and each realises them over the SAME shared cores. The *scope* surface below is `frame-provider {:frame …}` (rf2-nyea0r split; see [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md)): **roots ensure; providers scope** — `frame-provider {:frame …}` scopes an existing frame into a React subtree (failing loud if absent), and its sibling `frame-root {:id …}` ensures a named frame at commit; see [002 §`frame-provider`](002-Frames.md#frame-provider--the-scope-only-component-cljs-reference) and [002 §`frame-root`](002-Frames.md#frame-root--the-ensure-component-cljs-reference). Each is realized per-adapter and reads the same React context.
+The ten-fn substrate contract is identical across adapters, but the three **view-author-facing** surfaces — *read a subscription*, *scope a frame to a subtree*, *flush pending renders in a test* — differ per substrate because each rides its host's idiom (Reagent's reactive deref vs the React-hooks model). A dev moving between substrates needs the one-glance map; this table is it. Each React-shaped adapter's `frame-provider` / `frame-root` is a **native substrate component** (UIx `defui`); Fresco's are its own head kind, lowered by its codec — the props cross as the author's CLJS map and the head names the frame its children lower under. All three substrates therefore spell both verbs in the tree, and each realises them over the SAME shared cores. The *scope* surface below is `frame-provider {:frame …}` (see [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md)): **roots ensure; providers scope** — `frame-provider {:frame …}` scopes an existing frame into a React subtree (failing loud if absent), and its sibling `frame-root {:id …}` ensures a named frame at commit; see [002 §`frame-provider`](002-Frames.md#frame-provider--the-scope-only-component-cljs-reference) and [002 §`frame-root`](002-Frames.md#frame-root--the-ensure-component-cljs-reference). Each is realized per-adapter and reads the same React context.
 
-> **The columns and their lifecycle roles.** The Reagent column is the stock-Reagent compatibility/interop tier, the UIx column is a first-class, actively-supported adapter, and the Fresco column is the re-frame-native view substrate — all three live on. **reagent-slim** (also first-class and actively-supported) shares the Reagent column's view-author affordances exactly — the same ratom-family `@(rf/subscribe …)` deref — so it takes no separate column; only its test-flush primitive differs (noted in the flush row). This table maps the shipping view adapters as they stand today — see the canonical inventory in [§CLJS reference scope](#cljs-reference-scope) for the complete set and each adapter's lifecycle role. (Helix was removed at S7/W13 — rf2-d6epb, 2026-07-22; the two donor view substrates were removed on 2026-08-16 — rf2-0yp7w.)
+> **The columns and their lifecycle roles.** The Reagent column is the stock-Reagent compatibility/interop tier, the UIx column is a first-class, actively-supported adapter, and the Fresco column is the re-frame-native view substrate. **reagent-slim** (also first-class and actively-supported) shares the Reagent column's view-author affordances exactly — the same ratom-family `@(rf/subscribe …)` deref — so it takes no separate column; only its test-flush primitive differs (noted in the flush row). This table maps the shipping view adapters — see the canonical inventory in [§CLJS reference scope](#cljs-reference-scope) for the complete set and each adapter's lifecycle role.
 
 | Affordance | Reagent (`day8/re-frame2-reagent`) | UIx (`day8/re-frame2-uix`) | Fresco (`day8/re-frame2-fresco`) |
 |---|---|---|---|
 | **Read a subscription** | `@(rf/subscribe [:q …])` — reactive deref inside a `reg-view`/Form-2 render fn. | `(use-sub [:q …])` — React hook (re-renders on change via `useSyncExternalStore`). | `(h/sub [:q …])` — the ambient collector, callable anywhere in an `h/defview` body including inside a `when` or a `for`, where several reads in one body join one boundary; `(n/use-sub [:q …])` (`re-frame.fresco.native`) is the same value as a React hook, for a raw function component mounted as an island. |
-| **Explicit-frame read** | `@(rf/subscribe [:q …] {:frame f})` — the opts form; `subscribe` has arities `[query-v]` / `[query-v opts]` only. | `(use-sub [:q …] {:frame f})` — the SAME opts form, `:frame` required in that arity. The frame-first positional shape is gone (rf2-kuky.57), as it is on `subscribe` / `subscribe-once` / `dispatch` (API-shrink #1, rf2-csbbwu). Scoping the subtree with `frame-provider {:frame f}` and reading with the 1-arity is the other spelling, and the better one wherever a whole subtree shares the frame. | No per-read override: a body reads the frame of the boundary it is under. Read a second frame by nesting an `h/frame-provider` on it. |
-| **Frame resolution (1-arg form)** | dynamic-var → React-context (the surrounding provider, of either family member) → **nil** (no `:rf/default` floor; raises `:rf.error/no-frame-context`) — the IMPERATIVE chain, because a Reagent view reads through `rf/subscribe` rather than through a hook. | **React context ONLY** — the surrounding `frame-provider` / `frame-root`, read via `use-context`; no dynamic-var tier, and no boundary above raises `:rf.error/no-frame-context`. The one hook rule; see [§One frame-resolution rule for React hooks](#one-frame-resolution-rule-for-react-hooks). | The frame the enclosing `h/frame-root` / `h/frame-provider` named — the same one hook rule, which Fresco's native tier has always followed; no `:rf/default` floor, and a body rendering outside every frame refuses. |
+| **Explicit-frame read** | `@(rf/subscribe [:q …] {:frame f})` — the opts form; `subscribe` has arities `[query-v]` / `[query-v opts]` only. | `(use-sub [:q …] {:frame f})` — the SAME opts form, `:frame` required in that arity. There is no frame-first positional shape, here or on `subscribe` / `subscribe-once` / `dispatch`. Scoping the subtree with `frame-provider {:frame f}` and reading with the 1-arity is the other spelling, and the better one wherever a whole subtree shares the frame. | No per-read override: a body reads the frame of the boundary it is under. Read a second frame by nesting an `h/frame-provider` on it. |
+| **Frame resolution (1-arg form)** | dynamic-var → React-context (the surrounding provider, of either family member) → **nil** (no `:rf/default` floor; raises `:rf.error/no-frame-context`) — the IMPERATIVE chain, because a Reagent view reads through `rf/subscribe` rather than through a hook. | **React context ONLY** — the surrounding `frame-provider` / `frame-root`, read via `use-context`; no dynamic-var tier, and no boundary above raises `:rf.error/no-frame-context`. The one hook rule; see [§One frame-resolution rule for React hooks](#one-frame-resolution-rule-for-react-hooks). | The frame the enclosing `h/frame-root` / `h/frame-provider` named — the same one hook rule; no `:rf/default` floor, and a body rendering outside every frame refuses. |
 | **Scope an existing frame to a subtree** (`frame-provider {:frame …}`) | Native hiccup component; **trailing-positional children**: `[rf/frame-provider {:frame :f} [header] [main]]` — provide an existing frame's id; fail loud if absent. | Native `defui` component, mounted via `$`; **idiomatic `$` trailing children**: `($ frame-provider {:frame :f} ($ header) ($ main))`. | Native hiccup head; **trailing-positional children**: `[h/frame-provider {:frame :f} [header] [main]]` — provide an existing frame's id; fail loud if absent. The refusal is raised at LOWERING, before the subtree is built, because Fresco lowers eagerly and a subtree scoped to nothing must not be built at all. |
-| **Ensure a named frame for a subtree** (`frame-root {:id …}`) | `[rf/frame-root {:id :f :images […]} [header] [main]]` — create-if-absent at commit / reuse-no-reseed / provide id; **no destroy-on-unmount**; takes `make-frame` opts. | `($ frame-root {:id :f :images […]} ($ header) ($ main))`. | `[h/frame-root {:id :f :images […]} [header] [main]]` — the same head, the same `make-frame` opts, the same commit-owned two-pass (core's `frame-root-fc`, unforked). Its children lower in the core's ready pass, under the frame-locked dispatch of the frame the ENSURE has just made, so markup below the head acts on the head's frame and a callback lowered there is pinned to that incarnation (rf2-3x7nj.7.2). The root door's `:frame` / `:initial-events` config keys are retired: `h/render!`'s opts carry `:hydrate?` and `:identifier-prefix` and refuse the rest (rf2-kuky.58, rf2-kuky.59). |
-| **`nil` `:frame`** (scope shape) | CONFIGURATION ERROR: the SCOPE-only `frame-provider {:frame …}` REQUIRES a `:frame` — a frame-id keyword OR the live frame value `make-frame` returns (normalized one way to its id before React Context is written; the same one frame-target grammar `dispatch` / `subscribe` teach, API-shrink #1 rf2-csbbwu). A `nil` `:frame` emits + throws `:rf.error/no-frame-context` — no `:rf/default` floor (see [§Frame-provider via React context](#frame-provider-via-react-context)); a non-nil target that is *neither* a keyword nor a live frame value is the distinct `:rf.error/bad-frame-provider-arg`. | Same — raises `:rf.error/no-frame-context`. | Same — `h/frame-provider` requires a `:frame` and a `nil` raises `:rf.error/no-frame-context`. |
+| **Ensure a named frame for a subtree** (`frame-root {:id …}`) | `[rf/frame-root {:id :f :images […]} [header] [main]]` — create-if-absent at commit / reuse-no-reseed / provide id; **no destroy-on-unmount**; takes `make-frame` opts. | `($ frame-root {:id :f :images […]} ($ header) ($ main))`. | `[h/frame-root {:id :f :images […]} [header] [main]]` — the same head, the same `make-frame` opts, the same commit-owned two-pass (core's `frame-root-fc`, unforked). Its children lower in the core's ready pass, under the frame-locked dispatch of the frame the ENSURE has just made, so markup below the head acts on the head's frame and a callback lowered there is pinned to that incarnation. The root door takes no `:frame` / `:initial-events` config keys: `h/render!`'s opts carry `:hydrate?` and `:identifier-prefix` and refuse the rest. |
+| **`nil` `:frame`** (scope shape) | CONFIGURATION ERROR: the SCOPE-only `frame-provider {:frame …}` REQUIRES a `:frame` — a frame-id keyword OR the live frame value `make-frame` returns (normalized one way to its id before React Context is written; the same one frame-target grammar `dispatch` / `subscribe` teach). A `nil` `:frame` emits + throws `:rf.error/no-frame-context` — no `:rf/default` floor (see [§Frame-provider via React context](#frame-provider-via-react-context)); a non-nil target that is *neither* a keyword nor a live frame value is the distinct `:rf.error/bad-frame-provider-arg`. | Same — raises `:rf.error/no-frame-context`. | Same — `h/frame-provider` requires a `:frame` and a `nil` raises `:rf.error/no-frame-context`. |
 | **Frame keyword fidelity under the mount idiom** | `:r>` interop head bypasses Reagent prop conversion, so a namespaced frame keyword survives the React-context round trip. | The native `defui` routes props through UIx's lossless `argv` channel (and folds native trailing children onto `:children` via `glue-args`) — keyword frame-ids survive intact by construction. | Not applicable: a frame-boundary head's props cross as the author's CLJS map (the codec's own head kind, not a `defhost` crossing), so a namespaced frame keyword never meets a React prop conversion. |
 | **Hold the ambient frame's ops** (capture-frame's per-substrate spelling) | `reg-view` injection — the lexically-bound `dispatch` / `subscribe` (internally the same `make-capture-frame` ops); `(rf/capture-frame)` directly for async holds outside the injected bindings. | `(use-frame)` — React hook returning EXACTLY the `(rf/capture-frame)` ops map for the ambient provider frame; reference-stable per resolved frame *incarnation* — a same-id destroy-and-recreate retargets it, because the bundle is pinned to the incarnation and not to the address. | `(rf/capture-frame)` called directly in an `h/defview` body — a body is ordinary CLJS, so the hold primitive needs no substrate spelling; `(n/use-frame)` in a React island. |
-| **Flush pending renders in a test** | `rf.adapter.reagent/flush-views!` (wraps React's `act()` — the canonical cross-substrate test-flush hook); Reagent's own `r/flush!` also works, and `reagent-slim` ships `reagent2.dom.client/flush-views!`. | `(rf.adapter.uix/flush-views!)` — wraps React's `act()` (per-adapter-require entry point). | No published test-flush surface today. The shared React spine's `flush-views!` is reachable only through `re-frame.fresco.substrate/spine-fns`, which is `^:no-doc` and carries no manifest row. |
+| **Flush pending renders in a test** | `rf.adapter.reagent/flush-views!` (wraps React's `act()` — the canonical cross-substrate test-flush hook); Reagent's own `r/flush!` also works, and `reagent-slim` ships `reagent2.dom.client/flush-views!`. | `(rf.adapter.uix/flush-views!)` — wraps React's `act()` (per-adapter-require entry point). | No published test-flush surface. The shared React spine's `flush-views!` is reachable only through `re-frame.fresco.substrate/spine-fns`, which is `^:no-doc` and carries no manifest row. |
 | **`reg-view` macro** | Available (canonical view-registration surface). | `reg-view*` (plain-fn) when registry addressing is needed; most components are bare `defui`. | `h/defview` — Fresco's own view-authoring macro, and the shape a Fresco view is written in; core's `reg-view` registry is a separate concern. |
 
 > **One primitive, three faces.** `capture-frame` is THE hold primitive; `reg-view` injection and `use-frame` are its two ergonomic spellings. The hold row above adds no second primitive: each substrate spells `capture-frame` in its own idiom — Reagent injects its ops lexically at `reg-view` registration, UIx returns them from a hook — and every spelling yields the same frame-locked ops map defined in [002 §`capture-frame` — the keystone affordance](002-Frames.md#capture-frame--the-keystone-affordance-cljs-reference).
@@ -2237,7 +1903,7 @@ The server-side adapter is the distinct **`re-frame.ssr` adapter** (`:kind :rf.a
 
 ## CLJS reference scope
 
-> **Adapter disposition (EP-0030 Resolved Decisions, 2026-07-17, Mike).** **Reagent, UIx, and reagent-slim live on as first-class, actively-supported adapters** — not frozen, not retiring. **Helix was removed** at S7/W13 (rf2-d6epb, 2026-07-22), and the two donor view substrates — `re-frame.ui` and Freehand — were removed on 2026-08-16 (rf2-0yp7w). The adapter API contract and each adapter's technical lifecycle role are unchanged; the "frozen tier" label is retired in favour of "compatibility/interop tier."
+> **Adapter disposition.** **Reagent, UIx, and reagent-slim are first-class, actively-supported adapters** — not frozen, not retiring. The stock-Reagent adapter's tier is the "compatibility/interop tier"; each adapter's technical lifecycle role is the one the inventory below records.
 
 The **core** artefact `day8/re-frame2` carries the substrate-agnostic runtime (the registrar, the drain, the dispatch envelope, the trace stream, sub topology, sub computation, effect-map interpretation), the adapter API contract, the headless **plain-atom adapter** (in the inventory below), and — per Decision 2 — the shared React frame Context object at `re-frame.adapter.context` that every React-shaped adapter consumes.
 
@@ -2245,10 +1911,10 @@ The **canonical adapter inventory** below is the single source of truth for the 
 
 | Adapter | `:kind` | Published namespace (exports `adapter`) | Maven coordinate | Repository home | Lifecycle role |
 |---|---|---|---|---|---|
-| **Reagent** | `:rf.adapter/reagent` | `re-frame.adapter.reagent` | `day8/re-frame2-reagent` | `implementation/adapters/reagent/` | **View adapter — first-class, actively-supported.** The stock-Reagent compatibility/interop tier; today's browser default and the worked reference in [§Reagent as default adapter](#cljs-reference-reagent-as-default-adapter). |
+| **Reagent** | `:rf.adapter/reagent` | `re-frame.adapter.reagent` | `day8/re-frame2-reagent` | `implementation/adapters/reagent/` | **View adapter — first-class, actively-supported.** The stock-Reagent compatibility/interop tier; the browser default and the worked reference in [§Reagent as default adapter](#cljs-reference-reagent-as-default-adapter). |
 | **reagent-slim** | `:rf.adapter/reagent-slim` | `re-frame.adapter.reagent` — the **publication exception**: the in-tree source ns is `re-frame.adapter.reagent-slim`, renamed to the canonical `re-frame.adapter.reagent` at publication (IMPL-SPEC §13.1) so the slim jar is a drop-in swap for the stock jar. | `day8/reagent-slim` — drops the `re-frame2-` prefix (the lone coordinate exception, per IMPL-SPEC DECISION-1). | `implementation/adapters/reagent-slim/` | **View adapter — first-class, actively-supported.** The slim `reagent2.*` implementation with no stock-Reagent dependency (React 19). |
 | **UIx** | `:rf.adapter/uix` | `re-frame.adapter.uix` | `day8/re-frame2-uix` | `implementation/adapters/uix/` | **View adapter — first-class, actively-supported.** UIx 2.x hooks substrate; see [§UIx as alternative substrate](#cljs-reference-uix-as-alternative-substrate). |
-| **Fresco** | `:rf.adapter/fresco` | `re-frame.fresco.substrate` | `day8/re-frame2-fresco` | `implementation/fresco/` | **View adapter — view-substrate-owned, OPTIONAL module.** Fresco's own observation half, built on `re-frame.substrate.spine`, so a Fresco application depends on core plus Fresco alone instead of adding a second substrate coordinate. Nothing under the artefact's `src/` requires it, so a build that never asks for it carries neither the module nor the spine; a Fresco tree that installs Reagent or UIx instead keeps working unchanged. |
+| **Fresco** | `:rf.adapter/fresco` | `re-frame.fresco.substrate` | `day8/re-frame2-fresco` | `implementation/fresco/` | **View adapter — view-substrate-owned, OPTIONAL module.** Fresco's own observation half, built on `re-frame.substrate.spine`, so a Fresco application depends on core plus Fresco alone instead of adding a second substrate coordinate. Nothing under the artefact's `src/` requires it, so a build that never asks for it carries neither the module nor the spine; a Fresco tree that installs Reagent or UIx instead works unchanged. |
 | **plain-atom** | `:rf.adapter/plain-atom` | `re-frame.substrate.plain-atom` | *(none — ships inside the core artefact `day8/re-frame2`)* | `implementation/core/` | **Headless adapter (no view layer).** A `clojure.core/atom` container, reachable on both JVM and CLJS; used by headless tests and some SSR paths. **Distinct from the SSR adapter** below. |
 | **SSR** | `:rf.adapter/ssr` | `re-frame.ssr` | `day8/re-frame2-ssr` | `implementation/ssr/` | **Headless adapter (no view layer).** JVM server-side rendering — carries `render-to-string` directly in its slot; the `:render` slot throws `:rf.error/render-on-headless-adapter`. **Distinct from plain-atom** (which some SSR paths also use). |
 
@@ -2275,7 +1941,7 @@ A cooperative rendering substrate — a rendering layer designed natively to coo
 
 ### Multi-adapter coexistence (post-v1)
 
-The current contract is single-adapter-per-process. If a concrete use case for per-frame adapter selection emerges, multi-adapter support can be added additively without breaking the single-adapter contract. Deferred to a post-v1 cycle (untracked note — no bead filed yet).
+The contract is single-adapter-per-process. If a concrete use case for per-frame adapter selection emerges, multi-adapter support can be added additively without breaking the single-adapter contract. Deferred to a post-v1 cycle (untracked note — no bead filed yet).
 
 #### Post-v1 Tracking
 
@@ -2286,7 +1952,7 @@ The current contract is single-adapter-per-process. If a concrete use case for p
 
 ### CEDN-float cache-key extension (post-v1, flagged for review)
 
-The [host value model](#host-value-model--rf-equality-and-value-keyed-caching) pins mechanism **(a)** (a value-keyed persistent-collection map keyed by `rf=`) as the reference-aligned default, which admits finite-float query arguments natively — matching the CLJS reference, which caches on the persistent query vector directly. Mechanism **(b)** (an interned CEDN-1 canonical key) inherits CEDN-1's fail-closed-on-floats identity domain, so a (b) host today cannot carry a float-bearing query argument without encoding it at the boundary first.
+The [host value model](#host-value-model--rf-equality-and-value-keyed-caching) pins mechanism **(a)** (a value-keyed persistent-collection map keyed by `rf=`) as the reference-aligned default, which admits finite-float query arguments natively — matching the CLJS reference, which caches on the persistent query vector directly. Mechanism **(b)** (an interned CEDN-1 canonical key) inherits CEDN-1's fail-closed-on-floats identity domain, so a (b) host cannot carry a float-bearing query argument without encoding it at the boundary first.
 
 Whether to bless a **CEDN-float extension scoped to the cache-key domain only** (finite floats permitted as cache-key arguments, `NaN`/infinities still rejected, durable-identity CEDN-1 unchanged) is left open. It would let a (b) host admit the same float-bearing query arguments an (a) host and the reference already accept, at the cost of one paragraph reconciling it against CEDN-1's fail-closed stance ([Conventions §Canonical EDN identity](Conventions.md#canonical-edn-identity)).
 
@@ -2305,7 +1971,7 @@ Resolved: the consumer passes an adapter spec map explicitly to `(rf/init! adapt
 
 See [§Adapter selection at boot](#adapter-selection-at-boot) above for the boot-time wiring, the legal call shapes, and the rationale (explicit > implicit; bundle-size; no implicit cross-adapter coupling).
 
-Re-installing after frames exist is an error — and so is `init!` with a *different* adapter, which reaches the same door (`:rf.error/adapter-already-installed` trace event; recovery: `:no-recovery`, the call is rejected). Re-calling `init!` with the adapter already seated remains an idempotent no-op.
+Re-installing after frames exist is an error — and so is `init!` with a *different* adapter, which reaches the same door (`:rf.error/adapter-already-installed` trace event; recovery: `:no-recovery`, the call is rejected). Re-calling `init!` with the adapter already seated is an idempotent no-op.
 
 Other-language ports follow the same pattern: each adapter package exports a public adapter spec; the consumer requires the package and passes the spec to the language's `init!` equivalent.
 
@@ -2319,12 +1985,12 @@ Two complementary accessors:
     - `:rf.adapter/reagent-slim` — CLJS browser, slim adapter (no stock-Reagent dep)
     - `:rf.adapter/uix` — CLJS browser, UIx substrate
     - `:rf.adapter/fresco` — CLJS browser, Fresco's own view-substrate-owned adapter (the optional `re-frame.fresco.substrate` module of `day8/re-frame2-fresco`)
-    - `:rf.adapter/ui`, `:rf.adapter/freehand` — **retired kinds, still reserved.** Both donor view substrates were removed on 2026-08-16 (rf2-0yp7w) and nothing in the reference produces either value; the kinds remain catalogued under the [Conventions tombstone rule](Conventions.md#reserved-namespaces-framework-owned) — reserved, never recycled — exactly as `:rf.adapter/helix` has been since S7/W13. (Until rf2-k97c.4 these three were additionally named in a defensive refusal set in Xray's `mount.cljs`, against a stale co-loaded build presenting one. That set went with the refusal path it served; the reservation never depended on it, and no consumer branches on these values today)
+    - `:rf.adapter/ui`, `:rf.adapter/freehand` — **reserved, never recycled.** Nothing in the reference produces either value; the kinds are catalogued under the [Conventions tombstone rule](Conventions.md#reserved-namespaces-framework-owned) — reserved, never recycled — exactly as `:rf.adapter/helix` is, and no consumer branches on these three values.
     - `:rf.adapter/plain-atom` — CLJS JVM headless / tests / Node-based CLJS
     - `:rf.adapter/ssr` — CLJS JVM SSR (re-frame.ssr adapter)
     - **no `:kind` at all** — a user-installed custom adapter that picked none of the canonical kinds simply omits the key; nothing is synthesised for it, and its presence is read off the MAP rather than off `:kind`
 
-There is exactly ONE adapter read and it is map-shaped (rf2-kuky.4, 2026-09-06). The former keyword/map discriminator pair is struck: `current-adapter-spec` was deleted and `current-adapter` folded onto its behaviour, because the keyword form was literally `(:kind (current-adapter-spec))` — two reads of one value, free to diverge in return type. Branch code that wants the discriminator asks for the KEY, `(:kind (rf/current-adapter))`; tool code that wants the contract fn handles, or an identity check across the install/dispose lifecycle, uses the map directly.
+There is exactly ONE adapter read and it is map-shaped. There is no separate keyword read: it would be literally `(:kind (current-adapter))` — two reads of one value, free to diverge in return type. Branch code that wants the discriminator asks for the KEY, `(:kind (rf/current-adapter))`; tool code that wants the contract fn handles, or an identity check across the install/dispose lifecycle, uses the map directly.
 
 A PRESENCE check therefore inspects the MAP, never `:kind`: a kind-less custom adapter is installed and present while `(:kind (rf/current-adapter))` reads `nil`.
 
@@ -2347,7 +2013,7 @@ destruction settles the slot is empty and a fresh adapter can install without a
 collision. Exact-generation comparison prevents a stale finalizer from clearing a
 replacement installation.
 
-`(re-frame.substrate.adapter/adapter-disposed?)` returns the breadcrumb's value as a read-only predicate for tools and test harnesses that want to assert the lifecycle state without provoking a throw. It is an OWNING-NAMESPACE read, not a `re-frame.core` facade export — the facade spelling was deleted under rf2-kuky.4 (2026-09-06) with zero non-test consumers.
+`(re-frame.substrate.adapter/adapter-disposed?)` returns the breadcrumb's value as a read-only predicate for tools and test harnesses that want to assert the lifecycle state without provoking a throw. It is an OWNING-NAMESPACE read, not a `re-frame.core` facade export.
 
 ### Single adapter per process
 
@@ -2356,7 +2022,7 @@ One adapter per process. Frames within a process all use the same adapter.
 Reasons:
 
 1. Per-frame adapter selection adds complexity in the runtime, the registry, and the dispatch envelope (which adapter's reactivity is in scope?).
-2. The use cases people propose for multi-adapter (headless tests inside a browser app; mixed Reagent and UIx) are better served by separate processes (test JVMs, separate apps) or by the existing `compute-sub` headless path (no reactivity at all).
+2. The use cases people propose for multi-adapter (headless tests inside a browser app; mixed Reagent and UIx) are better served by separate processes (test JVMs, separate apps) or by the `compute-sub` headless path (no reactivity at all).
 
 Re-installing an adapter after frames exist is rejected (per [Adapter selection](#adapter-selection) above).
 
