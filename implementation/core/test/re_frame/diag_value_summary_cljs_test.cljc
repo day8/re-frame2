@@ -1,5 +1,5 @@
 (ns re-frame.diag-value-summary-cljs-test
-  "rf2-uwqale / rf2-210uq — EP-0015 diagnostic value-summary gate.
+  "Diagnostic value-summary gate.
 
   Spec 015 §Data-Classification forbids raw application values in
   framework exception messages / ex-data: a value baked into a flattened
@@ -7,33 +7,32 @@
   host log, SSR error handler, observability) BEFORE the record projector
   can classify the path, and path-based projection cannot recover a value
   that no longer sits at a path. `re-frame.error/diag-value-summary`
-  produces an EP-0015-safe SUMMARY — never the raw value.
+  produces a classification-safe SUMMARY — never the raw value.
 
-  ## rf2-210uq — the summary used to disclose what it was handed
+  ## What a summary must not disclose
 
   The primitive is reached for BECAUSE an author believes it cannot
-  disclose, and PR #7204 routes malformed reserved-`:rf.server/*` fx args
-  (a cookie `:value` is a session token) through it into both a thrown
-  message and ex-data. It did not meet that claim. Four distinct paths
-  carried input content into the output:
+  disclose: malformed reserved-`:rf.server/*` fx args (a cookie `:value`
+  is a session token) are routed through it into both a thrown message and
+  ex-data. Four paths could carry input content into the output, and each
+  is pinned closed:
 
-    1. `:head` on a STRING — any string of 24 chars or fewer rode back
-       VERBATIM, and a longer one rode back as its raw first 24 chars. A
-       short token was reproduced whole; a bearer token leaked its prefix.
+    1. `:head` on a STRING — a short string would ride back VERBATIM and a
+       longer one as its raw prefix, so a short token would be reproduced
+       whole and a bearer token would leak its prefix.
     2. `:keys` on a MAP — every top-level key, uncapped and unsanitised.
        App/user-controlled keys carry content, and an attacker-sized key
-       set made the 'bounded' summary arbitrarily large.
-    3. `:head` on a KEYWORD or SYMBOL — returned `(str v)` with NO length
-       bound at all, on the guess that such values are always structural.
+       set would make a 'bounded' summary arbitrarily large.
+    3. `:head` on a KEYWORD or SYMBOL — `(str v)` with no length bound, on
+       the guess that such values are always structural.
        `(keyword some-user-string)` is not.
     4. `:head` on a NUMBER / BOOLEAN / unknown `:scalar` — a card number,
-       a PIN or an arbitrary host object's `toString` is content, and the
-       `:scalar` leg calls `toString` on a value the framework knows
-       nothing about.
+       a PIN or an arbitrary host object's `toString` is content, and an
+       unknown host object is a value the framework knows nothing about.
 
   ## The contract this gate pins
 
-  A summary now carries SHAPE and NOTHING ELSE: a `:type` drawn from a
+  A summary carries SHAPE and NOTHING ELSE: a `:type` drawn from a
   closed keyword vocabulary, and — for a counted collection or string — an
   integer `:count`. That is a STRUCTURAL guarantee rather than a
   redaction-quality argument: no expression in the summary is derived from
@@ -54,13 +53,13 @@
 ;; ---- the adversarial corpus ----------------------------------------------
 
 (def ^:private sentinel
-  "EXACTLY 24 characters — the historic `diag-head-limit`. A secret whose
-  first 24 chars are this marker was reproduced WHOLE by the old
-  `(subs s 0 24)` prefix, which is the sharpest available witness."
+  "EXACTLY 24 characters. A 24-char `(subs s 0 24)` prefix of a secret
+  whose first 24 chars are this marker would reproduce the marker WHOLE,
+  which is the sharpest available witness."
   "SENTINELSENTINELSENTINEL")
 
 (def ^:private short-secret
-  "16 chars — UNDER the historic limit, so the old head returned it verbatim."
+  "16 chars — UNDER a 24-char head, which would return it verbatim."
   "SENTINELSENTINEL")
 
 (def ^:private long-secret
@@ -87,7 +86,7 @@
              o)))
 
 (def ^:private adversarial-corpus
-  "Hostile input, not tidy input: secrets at and around the old head
+  "Hostile input, not tidy input: secrets at and around a 24-char head
   boundary, sentinel-bearing map keys of every key type, keys carrying
   markup and control characters, a 2000-key map, nesting, and host objects
   whose `toString` answers or throws."
@@ -106,7 +105,7 @@
       (str "\u001b[31m" sentinel "\u001b[0m")        2
       (str "line1\nline2\r\n" sentinel)              3
       (str sentinel "\u0000")                  4}
-     ;; a VERY large map — the old `:keys` leg grew without bound
+     ;; a VERY large map — a `:keys` leg would grow without bound
      (into {} (map (fn [i] [(str sentinel "-key-" i) i])) (range 2000))
      ;; nesting: neither outer keys nor inner content may surface
      {:outer {:inner {(keyword sentinel) long-secret}}}
@@ -159,21 +158,21 @@
   shape; 64 leaves room without letting anything input-sized through."
   64)
 
-;; ---- rf2-210uq witnesses: nothing given comes back -----------------------
+;; ---- witnesses: nothing given comes back ---------------------------------
 
 (deftest a-short-secret-is-not-reproduced
-  (testing "a secret UNDER the historic 24-char head limit was returned
-            verbatim as `:head`; the summary must disclose none of it"
+  (testing "a secret UNDER a 24-char head limit would come back verbatim
+            as a `:head`; the summary must disclose none of it"
     (let [s (rf.error/diag-value-summary short-secret)]
       (is (= :string (:type s)))
       (is (= (count short-secret) (:count s)) "length is shape, and stays")
       (is (not (str/includes? (pr-str s) "SENTINEL"))
-          "the short secret rode back WHOLE in the pre-fix `:head`"))))
+          "the short secret rode back WHOLE in the summary"))))
 
 (deftest a-long-secrets-raw-prefix-is-not-reproduced
   (testing "a bearer-token-shaped secret whose first 24 chars are the
-            sentinel: the pre-fix `(subs s 0 24)` head reproduced the
-            sentinel EXACTLY, which is the leak the old test accepted"
+            sentinel: a `(subs s 0 24)` head would reproduce the
+            sentinel EXACTLY"
     (let [s (rf.error/diag-value-summary long-secret)]
       (is (= :string (:type s)))
       (is (= (count long-secret) (:count s)))
@@ -213,8 +212,8 @@
             (str "hostile key fragment reached the output: " (pr-str fragment)))))))
 
 (deftest a-very-large-map-summarises-to-a-fixed-size
-  (testing "the pre-fix `:keys` leg grew with the key set, so an
-            attacker-sized map inflated the 'bounded' summary without limit"
+  (testing "a `:keys` leg would grow with the key set, so an
+            attacker-sized map would inflate a 'bounded' summary without limit"
     (let [m       (into {} (map (fn [i] [(str sentinel "-key-" i) i])) (range 2000))
           printed (pr-str (rf.error/diag-value-summary m))]
       (is (= 2000 (:count (rf.error/diag-value-summary m))))
@@ -223,9 +222,10 @@
           (str "summary grew with the input: " (count printed) " chars")))))
 
 (deftest keyword-and-symbol-heads-are-not-reproduced
-  (testing "the pre-fix `:head` returned keywords/symbols with NO length
-            bound at all, on the guess that they are always structural. A
-            keyword built from user input is not (rf2-210uq leak 3)"
+  (testing "a `:head` returning keywords/symbols with NO length bound, on
+            the guess that they are always structural, would reproduce user
+            content. A keyword built from user input is not structural
+            (leak 3 in the ns docstring)"
     (doseq [v [(keyword sentinel)
                (symbol sentinel)
                (keyword (str/join "" (repeat 200 sentinel)))]]
@@ -237,7 +237,7 @@
 (deftest scalar-values-are-not-reproduced
   (testing "a number, a boolean and an unknown host object are CONTENT — a
             card number and a `toString` the framework knows nothing about
-            (rf2-210uq leak 4)"
+            (leak 4 in the ns docstring)"
     (is (= {:type :number} (rf.error/diag-value-summary 4111111111111111)))
     (is (= {:type :boolean} (rf.error/diag-value-summary true)))
     (is (= {:type :boolean} (rf.error/diag-value-summary false)))
