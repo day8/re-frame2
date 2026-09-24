@@ -1,5 +1,5 @@
 (ns re-frame.router-front-of-queue-cljs-test
-  "Per rf2-j20a7 / Spec 005 §Level 4 — machine-internal continuation
+  "Per Spec 005 §Level 4 — machine-internal continuation
   events insert at the FRONT of the per-frame router queue, while
   ordinary (external) dispatches stay plain-FIFO at the back.
 
@@ -26,7 +26,7 @@
   while `:in-sync-drain?` holds), then the sync drain pops them in queue
   order. Run-order is recorded into an atom by each handler.
 
-  EP-0002 (rf2-9wa0lf): the top-level seed dispatch carries an explicit
+  EP-0002: the top-level seed dispatch carries an explicit
   `{:frame :rf/default}` (the shared fixture registers `:rf/default` as
   an ordinary frame). The CHILD `dispatch!` calls inside the seed handler
   inherit the handler's frame binding, so they need no explicit frame —
@@ -36,7 +36,7 @@
   Dual-target (`.cljc`): the JVM runner selects it on `.*-test$`, Shadow's
   `:node-test` build on `cljs-test$`. The `-cljs-test` suffix is therefore
   load-bearing — a `.cljc` test whose ns ends in a plain `-test` compiles
-  nowhere but the JVM and reads as covered (rf2-dn6v7, rf2-lgozq)."
+  nowhere but the JVM and reads as covered."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
@@ -45,17 +45,17 @@
             [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
-;; ## Posture split (rf2-d2841)
+;; ## Posture split
 ;;
 ;; The LEAP-FROG ITSELF is production behaviour and is asserted without a
 ;; posture guard: `@run-log` records the order handlers actually ran in,
 ;; straight off the handlers, with no channel involved. That is what this file
-;; is about and it runs under `scripts/test-core-prod-gate.sh` unchanged.
+;; is about and it runs under `scripts/test-core-prod-gate.sh` as written.
 ;;
 ;; The `:rf.event/run-start` epoch assertions are a claim about the trace
 ;; stream — "one per dequeued event, none collapsed by the front-insertion" —
-;; and are kept verbatim inside a `(when rf.interop/debug-enabled? …)` arm marked
-;; `rf2-d2841`. Their always-on partner is the `@run-log` assertion directly
+;; and sit verbatim inside a `(when rf.interop/debug-enabled? …)` arm.
+;; Their always-on partner is the `@run-log` assertion directly
 ;; above them in the same body, which pins the same order from the handler
 ;; side.
 ;; ---------------------------------------------------------------------------
@@ -169,7 +169,7 @@
         (finally (rf/unregister-listener! :trace ::epoch-rec)))
       ;; Run order reflects the leap-frog.
       (is (= [:seed :c1 :c2 :ext] @run-log))
-      ;; rf2-d2841 — dev-instrumentation arm (see ns header §Posture split).
+      ;; Dev-instrumentation arm (see ns header §Posture split).
       ;; One :run-start per dequeued event — four distinct events, none
       ;; collapsed by the front-insertion. The always-on partner is the
       ;; `@run-log` assertion directly above.
