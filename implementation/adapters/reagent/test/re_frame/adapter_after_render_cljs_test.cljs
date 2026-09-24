@@ -1,6 +1,6 @@
 (ns re-frame.adapter-after-render-cljs-test
   "Behavioural coverage for the Reagent adapter's `:adapter/after-render`
-  hook (rf2-ynjts.2 — testing coverage & rigour pass).
+  hook.
 
   The Reagent adapter injects stock `reagent.core/after-render` under the
   `:adapter/after-render` hook (see `re-frame.adapter.reagent` `:hook-ops`).
@@ -8,9 +8,9 @@
   schedule-a-callback-after-render seam resolves to Reagent's render
   queue when the Reagent adapter is installed.
 
-  Existing coverage and the gap this file closes:
+  Coverage elsewhere, and what this file adds:
 
-    - `re-frame.late-bind-hooks-cljs-test` already pins that the
+    - `re-frame.late-bind-hooks-cljs-test` pins that the
       `:adapter/after-render` key is PUBLISHED in the late-bind table and
       listed in the directory with this adapter as a producer. That is a
       wiring/publication pin — it never CALLS the hook.
@@ -23,11 +23,11 @@
       and is gated on a real DOM (`with-browser-act`). It does NOT — and
       cannot — exercise Reagent's mechanism (`r/after-render` drives
       Reagent's own batching queue, not a React `useLayoutEffect`
-      sentinel). So the Reagent-side behaviour was unverified anywhere:
-      no test confirmed that a callback handed to `interop/after-render`
-      under the Reagent adapter actually FIRES.
+      sentinel). So neither pins the Reagent-side behaviour: that a
+      callback handed to `interop/after-render` under the Reagent adapter
+      actually FIRES.
 
-  This file plants the Reagent-specific behavioural pin. Stock Reagent's
+  This file is the Reagent-specific behavioural pin. Stock Reagent's
   `r/after-render` enqueues onto `reagent.impl.batching`'s render queue and
   arms a deferred drain (`next-tick`, which is `fake-raf` ⇒ a 16ms
   setTimeout under :node-test since there is no `js/window`); the queue
@@ -118,18 +118,19 @@
       (is (= [:first :second :third] @order)
           "all enqueued callbacks fire in enqueue order on a single drain"))))
 
-;; ---- (4) copied / wrapped adapter map routes to the live hook (rf2-dkl5z1) --
+;; ---- (4) copied / wrapped adapter map routes to the live hook --
 ;;
 ;; `route-hook!` routes by stable token (the canonical :rf.adapter/* :kind),
 ;; not object identity — so a copied / wrapped stock-Reagent adapter map STILL
-;; drives its live `:adapter/after-render` hook. Pre-fix, installing an
-;; `assoc`'d copy made the routed closure's identity guard fail and the hook
-;; fell through to the `(constantly nil)` chain bottom: `interop/after-render`
-;; became a silent no-op (the callback would never fire on r/flush).
+;; drives its live `:adapter/after-render` hook. Routed by identity, an
+;; `assoc`'d copy would fail the routed closure's identity guard and the hook
+;; would fall through to the `(constantly nil)` chain bottom:
+;; `interop/after-render` would be a silent no-op (the callback would never
+;; fire on r/flush).
 
 (deftest copied-adapter-map-routes-to-live-after-render-hook
   (testing "a copied stock-Reagent adapter map still drives the live
-            :adapter/after-render hook (rf2-dkl5z1)"
+            :adapter/after-render hook"
     (let [original (rf.substrate.adapter/current-adapter)
           copied   (assoc rf.adapter.reagent/adapter :rf.test/instrumentation-wrapper true)
           fired    (atom 0)]
@@ -147,7 +148,7 @@
             (str "the callback FIRED on the render-queue drain under the COPIED"
                  " Reagent adapter map — the routed :adapter/after-render hook"
                  " dispatched to its live impl despite the copy's distinct"
-                 " identity (rf2-dkl5z1)"))
+                 " identity"))
         (finally
           (r/flush)
           (rf.substrate.adapter/dispose-adapter!)
