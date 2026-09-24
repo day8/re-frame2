@@ -1,6 +1,6 @@
 (ns re-frame.resources-provenance-stamp-cljs-test
   "The `:ns` image-selection stamp on the resource family — `reg-resource`,
-  `reg-mutation`, `reg-resource-scope` (rf2-nrc93, ruled option D).
+  `reg-mutation`, `reg-resource-scope`.
 
   Spec 001 §Production elision contract: a PROGRAMMATIC registration (fn-alias,
   JVM-direct, code-generated) leaves the macro's source-coord capture unbound,
@@ -8,8 +8,8 @@
   `:select-ns` `:include` globs never match it. Stamping `:ns` (or the qualified
   `:rf.provenance/ns`) in the registration metadata is the documented remedy on
   every REGISTRAR-BACKED kind — and these three build their own registrar map
-  from their canonical spec, so before rf2-nrc93 they dropped both keys
-  SILENTLY and the descriptor landed under nil provenance.
+  from their canonical spec, so they must forward both keys: dropping them
+  would be SILENT, landing the descriptor under nil provenance.
 
   Dual-target (`.cljc` + `_cljs_test`): the JVM runner picks it up via the
   `.*-test$` ns regex; Shadow's `:node-test` build via the `cljs-test$` regex.
@@ -32,7 +32,7 @@
 
 ;; ---- fixtures -------------------------------------------------------------
 
-;; FN form, not the `{:before … :after …}` map form (rf2-4yw1). `cljs.test`
+;; FN form, not the `{:before … :after …}` map form. `cljs.test`
 ;; accepts both shapes; `clojure.test` accepts only a function, and given a map
 ;; it invokes it as one — a map called with the test thunk is a KEY LOOKUP that
 ;; returns nil and never runs the test. The JVM lane then reports zero tests for
@@ -57,8 +57,8 @@
 
 ;; ---- minimal valid metadata per kind --------------------------------------
 ;;
-;; None of the three validators is a closed map, which is why a caller's `:ns`
-;; passes validation today and the drop is SILENT.
+;; None of the three validators is a closed map, so a caller's `:ns`
+;; passes validation and a dropped key would be SILENT.
 
 (def ^:private request-fn
   (fn [_params _ctx] {:request {:method :get :url "/api/probe"}}))
@@ -103,7 +103,7 @@
 
 ;; ---- (c) CONTROL: the instrument reads ABSENCE -----------------------------
 ;;
-;; Passes BEFORE and AFTER the fix. It is what makes every `["probe.ns"]`
+;; Passes whether or not the stamp is forwarded. It is what makes every `["probe.ns"]`
 ;; below a measurement rather than a coincidence: an unstamped programmatic
 ;; registration really does land under nil provenance.
 
@@ -116,7 +116,7 @@
           (str kind ": no stamp, no provenance — the instrument reads absence")))))
 
 (deftest positive-control-reg-event-honours-the-bare-ns-stamp
-  (testing "CONTROL — the shared registrar has always honoured a bare `:ns`
+  (testing "CONTROL — the shared registrar honours a bare `:ns`
             stamp, so the instrument is known to read PRESENCE too"
     (rf.registrar/register! :event :probe/control
                             {:ns 'probe.control :handler-fn (fn [_cofx _event] nil)})
@@ -127,22 +127,22 @@
 
 (deftest bare-ns-stamp-is-forwarded-to-the-source-store
   (doseq [kind kinds]
-    (testing (str "rf2-nrc93 — a bare `:ns` on " kind "'s metadata reaches the "
+    (testing (str "a bare `:ns` on " kind "'s metadata reaches the "
                   "source store, so the registration is :select-ns-selectable")
       (reg! kind :probe/bare {:ns 'probe.ns})
       (is (= ["probe.ns"] (provenance-keys kind :probe/bare))
-          (str kind ": RED before rf2-nrc93 — the wrapper built its registrar "
-               "map from the canonical spec and dropped :ns, giving [nil]")))))
+          (str kind ": a wrapper building its registrar map from the "
+               "canonical spec alone would drop :ns, giving [nil]")))))
 
 ;; ---- (b) qualified `:rf.provenance/ns` ------------------------------------
 
 (deftest qualified-provenance-ns-stamp-is-forwarded-to-the-source-store
   (doseq [kind kinds]
-    (testing (str "rf2-nrc93 — the qualified `:rf.provenance/ns` on " kind "'s "
+    (testing (str "the qualified `:rf.provenance/ns` on " kind "'s "
                   "metadata reaches the source store too")
       (reg! kind :probe/qualified {:rf.provenance/ns "probe.qualified"})
       (is (= ["probe.qualified"] (provenance-keys kind :probe/qualified))
-          (str kind ": RED before rf2-nrc93 — dropped alongside :ns, giving [nil]")))))
+          (str kind ": a dropped :rf.provenance/ns would give [nil]")))))
 
 ;; ---- (d) precedence: the qualified key wins -------------------------------
 
@@ -151,10 +151,10 @@
   (doseq [kind kinds]
     (testing (str "both stamps on one " kind " metadata map: the store reads the "
                   "explicit `:rf.provenance/ns` FIRST (source_store.cljc), so it "
-                  "wins — rf2-nrc93 forwards both keys and changes no precedence")
+                  "wins — the wrapper forwards both keys and changes no precedence")
       (reg! kind :probe/both {:ns 'probe.bare :rf.provenance/ns "probe.qualified"})
       (is (= ["probe.qualified"] (provenance-keys kind :probe/both))
-          (str kind ": RED before rf2-nrc93 — both keys dropped, giving [nil]")))))
+          (str kind ": dropping both keys would give [nil]")))))
 
 ;; ---- (e) a user `:ns` overrides macro-captured coords ---------------------
 
@@ -169,5 +169,5 @@
                                                    :column 1}]
         (reg! kind :probe/override {:ns 'probe.target}))
       (is (= ["probe.target"] (provenance-keys kind :probe/override))
-          (str kind ": RED before rf2-nrc93 — the stamp was dropped and the "
-               "captured coords answered instead, giving [\"probe.generated\"]")))))
+          (str kind ": a dropped stamp would let the captured coords "
+               "answer instead, giving [\"probe.generated\"]")))))
