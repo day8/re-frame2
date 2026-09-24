@@ -1,19 +1,18 @@
 (ns re-frame.core-epoch-egress-profile-test
-  "rf2-ylvp4m — the CORE epoch projection WRAPPER (`rf/project-egress`,
+  "The CORE epoch projection WRAPPER (`rf/project-egress`,
   `re-frame.core-epoch`) honors the EP-0015 §10 named
-  `:rf.egress/profile` boundary selector, not just the legacy unqualified
+  `:rf.egress/profile` boundary selector, not just the unqualified
   `:include-*` opts.
 
-  The epoch artefact (`re-frame.epoch.tool-pair`) already implements the
-  EP-0015 model (rf2-1afn7q); this suite pins it END-TO-END THROUGH THE CORE
+  The epoch artefact (`re-frame.epoch.tool-pair`) implements the
+  EP-0015 model; this suite pins it END-TO-END THROUGH THE CORE
   FACADE WRAPPER — `rf/project-egress` is the public surface consumers reach
-  for, and the bead's finding was that the wrapper's documented vocabulary
-  lagged the EP. The test drives the named selector through the wrapper and
+  for. The test drives the named selector through the wrapper and
   asserts the profile is honored (`:rf.egress/local-raw` ships the raw value
   where the off-box boundaries elide it, and an explicit
   `:rf.egress/include-digests? true` overlay on the tool profile adds a
   `:digest`), proving the wrapper passes `:rf.egress/profile` and the override
-  layer through rather than only the legacy booleans. Since rf2-3x7nj.32.6 no
+  layer through rather than only the unqualified booleans. No
   profile turns digests on: off-box-tool and off-box-observability share one
   size floor and differ by the boundary they NAME, so their markers are equal.
 
@@ -25,7 +24,7 @@
   because the surface under test is the CORE facade wrapper, not the artefact
   internals.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   Two halves that look like one. The epoch RING is fed from the dev trace
   stream and `epoch.capture/observe-trace-event!` opens with
@@ -35,19 +34,19 @@
   function of a record map plus the frame's DURABLE elision registry, and both
   of those exist in production.
 
-  Reading the profile claims off the live ring conflated the two, and the
-  conflation was expensive. With the ring empty, `raw` is nil,
-  `large-marker-body` is nil, and SIX assertions passed for that reason alone:
+  Reading the profile claims off the live ring would conflate the two, and
+  expensively. With the ring empty, `raw` is nil,
+  `large-marker-body` is nil, and SIX assertions would pass for that reason alone:
   `(= default-body obs-body)` (nil = nil), `(not (contains? obs-body :digest))`
   (nil contains nothing), the tool-equals-observability marker check, the raw-
   bytes-never-egress row over an empty string, `(not-any? ... obs-hist)` over an
   empty history, and the human-sentence check over a nil message. An egress-
-  PRIVACY suite certifying that no raw bytes escaped, having projected nothing.
+  PRIVACY suite would certify that no raw bytes escaped, having projected
+  nothing.
 
-  So the profile rows now drive a SYNTHETIC record — the same shape the ring
-  holds — and run in both postures. The live-ring rows are kept verbatim inside
-  `(when rf.interop/debug-enabled? ...)` arms as what they always were: the CAPTURE
-  half."
+  So the profile rows drive a SYNTHETIC record — the same shape the ring
+  holds — and run in both postures. The live-ring rows sit inside
+  `(when rf.interop/debug-enabled? ...)` arms as the CAPTURE half."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
@@ -78,19 +77,20 @@
 (defn- big-string [n] (apply str (repeat n "X")))
 
 (defn- synthetic-record
-  "A hand-built epoch record of the shape the ring holds (rf2-d2841). The ring
+  "A hand-built epoch record of the shape the ring holds. The ring
   is fed from the dev trace stream and is empty under -Dre-frame.debug=false;
   the PROJECTION being tested is a pure function of the record plus the frame's
   durable elision registry, so driving it directly exercises the same wrapper
   code path in BOTH postures."
   [frame-id payload]
-  ;; rf2-kuky.92 / rf2-bv1p — the `:kind` DISCRIMINATOR is what makes
+  ;; The `:kind` DISCRIMINATOR is what makes
   ;; `project-egress` dispatch this to the epoch ARM instead of walking it as
   ;; a kindless tree. It is load-bearing HERE rather than decorative: a bare
   ;; walk starts at `:path []`, so the frame's `[:blob :payload]` large
   ;; declaration cannot match `[:db-after :blob :payload]` and the 50KB
-  ;; payload egresses RAW. That is precisely the fail-open guard G1 exists to
-  ;; close, and an unstamped fixture here would assert it away.
+  ;; payload egresses RAW. That is precisely the fail-open the epoch-record
+  ;; arm of `project-egress` exists to close, and an unstamped fixture here
+  ;; would assert it away.
   {:kind      :rf/epoch-record
    :frame     frame-id
    :db-before {:blob {:payload nil}}
@@ -105,15 +105,15 @@
       (:rf.size/large-elided slot))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-ylvp4m — the CORE wrapper honors :rf.egress/profile.
+;; The CORE wrapper honors :rf.egress/profile.
 ;; ---------------------------------------------------------------------------
 
 (deftest core-project-egress-honors-egress-profile
-  (testing "rf2-ylvp4m — `rf/project-egress` (the core facade wrapper)
+  (testing "`rf/project-egress` (the core facade wrapper)
             honors the named EP-0015 §10 :rf.egress/profile selector:
             :rf.egress/local-raw ships the raw value while both off-box
             boundaries elide it, and neither off-box boundary carries a
-            :digest by default (rf2-3x7nj.32.6) — the explicit
+            :digest by default — the explicit
             :rf.egress/include-digests? true overlay adds one."
     (rf/make-frame {:id :ep/main})
     (install-large-path! :ep/main)
@@ -122,7 +122,7 @@
                     {:db (assoc-in db [:blob :payload] payload)}))
     (rf/dispatch-sync [:store (big-string 50000)] {:frame :ep/main})
 
-    ;; ---- ALWAYS-ON (rf2-d2841): the profile selector, driven on a record
+    ;; ---- ALWAYS-ON: the profile selector, driven on a record
     ;;      whose existence does not depend on the dev trace stream.
     (let [synth        (synthetic-record :ep/main (big-string 50000))
           default-body (large-marker-body (rf/project-egress synth))
@@ -143,8 +143,8 @@
       (is (not (contains? obs-body :digest))
           ":rf.egress/off-box-observability (through the wrapper) omits :digest")
       (is (not (contains? tool-body :digest))
-          ":rf.egress/off-box-tool (through the wrapper) omits :digest by default
-           (rf2-3x7nj.32.6)")
+          ":rf.egress/off-box-tool (through the wrapper) omits :digest by
+           default")
       (is (= tool-body obs-body)
           "the tool boundary shares observability's size floor, so the markers are equal")
       (is (= 50000 (count (get-in (rf/project-egress
@@ -157,7 +157,7 @@
                                        :rf.egress/include-digests? true}))))
           "the explicit digest overlay composes on the tool profile (a sha256 string on the JVM)"))
 
-    ;; ---- rf2-d2841 dev arm: the CAPTURE half — that a real dispatch put a
+    ;; ---- Dev arm: the CAPTURE half — that a real dispatch put a
     ;;      record of exactly that shape into the ring. The ring is fed from the
     ;;      dev trace stream (`epoch.capture/observe-trace-event!` is gated), so
     ;;      it is empty under -Dre-frame.debug=false.
@@ -184,9 +184,7 @@
       (is (= default-body obs-body)
           "the bare 1-arity default == :rf.egress/off-box-observability")
       ;; THE PROFILE IS HONORED THROUGH THE WRAPPER: local-raw ships the raw
-      ;; value, and neither off-box boundary carries a :digest by default
-      ;; (rf2-3x7nj.32.6). Pre-finding, the wrapper documented only the legacy
-      ;; :include-* booleans, masking the named selector as a public surface.
+      ;; value, and neither off-box boundary carries a :digest by default.
       (is (not (contains? obs-body :digest))
           ":rf.egress/off-box-observability (through the wrapper) omits :digest")
       (is (not (contains? tool-body :digest))
@@ -199,17 +197,17 @@
           ":rf.egress/local-raw ships the raw value — the named selector is honored end-to-end")))))
 
 (deftest core-project-egress-rejects-unknown-profile
-  (testing "rf2-ylvp4m — an unknown :rf.egress/profile through the core wrapper
+  (testing "an unknown :rf.egress/profile through the core wrapper
             is rejected against the shared closed enum (a typo is a loud error,
             never a silent permissive walk)."
     (rf/make-frame {:id :ep/main})
     (rf/reg-event :store (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
     (rf/dispatch-sync [:store 1] {:frame :ep/main})
-    ;; ALWAYS-ON (rf2-d2841): a closed-enum rejection is a property of the
+    ;; ALWAYS-ON: a closed-enum rejection is a property of the
     ;; wrapper, not of the ring. Driven on a synthetic record so a typo stays
-    ;; loud in the posture that ships — reading it off the live ring meant that
-    ;; under the gate `raw` was nil, `project-egress` returned nil for a
-    ;; non-map, and NOTHING was rejected at all.
+    ;; loud in the posture that ships — read off the live ring under the gate,
+    ;; `raw` would be nil, `project-egress` would return nil for a non-map,
+    ;; and NOTHING would be rejected at all.
     (let [raw  (synthetic-record :ep/main "v")
           ex   (try (rf/project-egress raw {:rf.egress/profile :rf.egress/not-real})
                     nil
@@ -219,7 +217,7 @@
       (is (some? ex) "an unknown profile throws through the wrapper")
       (is (= :rf.error/unknown-egress-profile (:rf.error/id data))
           "the throw carries the closed-enum rejection id")
-      ;; rf2-krrv87: the epoch-boundary guard routes through the SAME shared
+      ;; The epoch-boundary guard routes through the SAME shared
       ;; `re-frame.projection/unknown-egress-profile-ex` builder as the in-file
       ;; guard, so the message carries the [:rf.error/unknown-egress-profile]
       ;; greppability token and the canonical :where / :recovery slots — only
@@ -232,7 +230,7 @@
           ":where names the epoch boundary helper")
       (is (= :use-a-known-profile (:recovery data)))
       ;; The epoch site's thrown shape is IDENTICAL (but for :where) to the
-      ;; shared builder's — proving the dedup: one reason, two call sites.
+      ;; shared builder's — one reason, two call sites.
       (let [canonical (rf.projection/unknown-egress-profile-ex
                         'rf/project-egress :rf.egress/not-real)]
         (is (= (ex-message canonical) msg)
@@ -241,17 +239,16 @@
             "the epoch throw's ex-data == the shared builder's")))))
 
 (deftest whole-ring-composition-threads-egress-profile
-  ;; rf2-kuky.7 — the whole-ring convenience (`projected-history`) is GONE;
-  ;; the supported spelling is ordinary composition over `epoch-history`.
-  ;; This pins that the composition carries the named profile to every
-  ;; record, which is the property the retired door used to own.
+  ;; There is no whole-ring convenience: the supported spelling is ordinary
+  ;; composition over `epoch-history`. This pins that the composition carries
+  ;; the named profile to every record.
   ;;
-  ;; rf2-d2841 — the composition maps over the RING, so it has nothing to
+  ;; The composition maps over the RING, so it has nothing to
   ;; thread a profile to under -Dre-frame.debug=false. There is no synthetic
   ;; stand-in: the ring is the subject. The per-record profile threading it
   ;; delegates to is covered always-on above.
   (when rf.interop/debug-enabled?
-  (testing "rf2-kuky.7 — `(mapv #(rf/project-egress % opts)
+  (testing "`(mapv #(rf/project-egress % opts)
             (rf/epoch-history frame-id))` threads the named
             :rf.egress/profile boundary to every record."
     (rf/make-frame {:id :ep/main})
@@ -270,7 +267,7 @@
           "the tool-profile history carries at least one large marker")
       (is (not-any? #(contains? (large-marker-body %) :digest)
                     (filter large-marker-body tool-hist))
-          "no large marker in the tool-profile history carries a :digest (rf2-3x7nj.32.6)")
+          "no large marker in the tool-profile history carries a :digest")
       (is (not-any? #(contains? (large-marker-body %) :digest)
                     (filter large-marker-body obs-hist))
           "the default observability history omits the :digest on every record")
