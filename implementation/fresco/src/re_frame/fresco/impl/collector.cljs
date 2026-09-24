@@ -88,8 +88,9 @@
   over the frame keyword: a callback lowered under incarnation A calls
   A's own `:dispatch-sync`, so once A is destroyed core's `capture-frame`
   fence refuses it (`:rf.error/frame-destroyed`) instead of resolving the
-  address again and writing whoever occupies it now (rf2-x874,
-  docs/design/fresco/product/invariants.md, the rf2-hic-013 record)."
+  address again and writing whoever occupies it now
+  (docs/design/fresco/product/invariants.md, §The callback and
+  frame-incarnation rule)."
   [ops]
   (let [dispatch-sync (:dispatch-sync ops)]
     (fn dispatch-for-frame [event]
@@ -146,10 +147,9 @@
   "One constant keyword for every cell's value-change watch. A watch key
   need only be unique within the watched reference, and it is: at most
   one cell per `(frame, query)`, and no two cells hold the same
-  reaction. A keyword minted per cell bought that same uniqueness at a
+  reaction. A keyword minted per cell would buy that same uniqueness at a
   `Keyword`, its name and its qualified string retained per unique key
-  (docs/design/fresco/studio/the-cold-read-mount-term.md, the mint's
-  retirement)."
+  (docs/design/fresco/studio/the-cold-read-mount-term.md)."
   ::cell-watch)
 
 (declare flush! retire-entries-naming!)
@@ -176,7 +176,7 @@
     ;; incarnation's value on that render — which is why the paint looks
     ;; recovered — but the boundary holds no cell, no watch and no reader
     ;; edge, so the next write to the successor notifies nothing and the
-    ;; value freezes (rf2-3awu).
+    ;; value freezes.
     ;;
     ;; So retire the cached subscribe identity: the entries naming this key
     ;; are evicted, the next real render mints a fresh entry, and React's
@@ -338,8 +338,8 @@
   frame teardown, none of which is a place to subscribe; a microtask and
   never a macrotask, because the re-stamp is the render/commit tear's
   correction and design law React 3 requires it before visible paint
-  (ruling rf2-2l17 on docs/design/fresco/product/invariants.md, the
-  rf2-hic-013 record; the argument in
+  (docs/design/fresco/product/invariants.md, §The callback and
+  frame-incarnation rule; the argument in
   docs/design/fresco/architecture.md, section The collector)."
   [^js cell]
   (when-not (.-disposed cell)
@@ -507,8 +507,8 @@
       ;; to move (measured in Chromium: epoch 3 re-stamped to 3, the
       ;; notification delivered and ignored, the predecessor's value left
       ;; on screen). The floor can only raise a stamp, so the sum stays
-      ;; monotone (docs/design/fresco/product/invariants.md, rf2-hic-013;
-      ;; `reincarnation-paint-dom-cljs-test`).
+      ;; monotone (docs/design/fresco/product/invariants.md, §The callback
+      ;; and frame-incarnation rule; `reincarnation-paint-dom-cljs-test`).
       (doseq [^js cell dirty]
         (set! (.-epoch cell) (max (inc (.-epoch cell))
                                   (rf.fresco.impl.generation/commit-basis (.-frameKw cell)))))
@@ -564,7 +564,7 @@
   resolves through its own image and a `reg-sub` from earlier in the
   tick is visible to this read (`cold-probe-cljs-test`). Creates no
   cache entry, takes no reference, installs no watch. The memo is per
-  read, not run-shared, because the shared one cost more than it saved
+  read, not run-shared, because a run-shared one costs more than it saves
   on the acceptance shape (2.75 vs 1.42 µs/read;
   docs/design/fresco/studio/the-cold-read-mount-term.md)."
   [frame-kw query-v]
@@ -710,8 +710,8 @@
   during the render and claimed during the commit, and on a root React
   renders concurrently (`hydrateRoot`) a `setTimeout 0` armed inside the
   render beats React's passive flush, so the entry is evicted before it
-  is claimed and the next render re-subscribes. 4 ms was the shortest
-  probed delay that read 1.00N
+  is claimed and the next render re-subscribes. 4 ms is the shortest
+  probed delay that reads 1.00N
   (docs/design/fresco/studio/coldmount-double-build-priced.md).
 
   A MARGIN, NOT A CONTRACT: React documents no maximum
@@ -1011,10 +1011,10 @@
   body that wrote either attribute itself keeps the value it wrote. That
   win is held AT THE CANONICAL SLOT and not at the key
   (`without-authored-slots`), because this codec accepts five spellings of
-  one attribute and `merge` is keyed by `=` — so a body writing the string
-  `\"data-rf-view\"` beside the framework's keyword left both in the map
-  and let iteration order pick, which is the guarantee failing
-  nondeterministically rather than failing (rf2-c5w1, audit of PR #9191).
+  one attribute and `merge` is keyed by `=` — so, held at the key, a body
+  writing the string `\"data-rf-view\"` beside the framework's keyword would
+  leave both in the map and let iteration order pick, which is the
+  guarantee failing nondeterministically rather than failing.
   Ownership is per slot: the annotation a body did NOT write is still
   stamped beside the one it did."
   [hiccup attrs]
@@ -1267,14 +1267,14 @@
 
   `:handler-fn` is the ONE executable slot every substrate's `:view`
   entry uses, so `(rf/view id)` answers this boundary the way it answers
-  a Reagent or a UIx head (rf2-kuky.60). `re-frame.views/view-head`
+  a Reagent or a UIx head. `re-frame.views/view-head`
   returns a `:view` slot it did not itself build EXACTLY AS STORED — no
   `compose-view`, no `:adapter/wrap-view`, no componentise — so the head
   a caller gets back is `identical?` to the one the `def` bound. That
   pass-through is the whole reason this writes `registrar/register!`
   directly rather than `rf/reg-view*`: `reg-view*` builds a `:handler-fn`
   WRAPPER and componentises it, and a Fresco boundary is already a React
-  component that stamps its own annotations (rf2-c5w1) — routing it
+  component that stamps its own annotations — routing it
   through core's pipeline would wrap and double-stamp it. The registrar
   reads executable identity at `(get metadata (get metadata :executable-key
   :handler-fn))`, so a head stored under `:handler-fn` needs no
