@@ -223,7 +223,7 @@ And the sub family is wider than the one you've used. `:rf/mutation` returns the
 [:rf.mutation/error    {:instance [:favorite slug]}]   ;; the structured error envelope on failure
 ```
 
-One more command rounds out the surface, alongside `:rf.mutation/execute`. **`:rf.mutation/clear`** is the instance's causal reset — `[:rf.mutation/clear {:instance [:favorite slug]}]` drops the runtime instance back to `:idle` and best-effort aborts any in-flight work for it. You reach for it to wipe a stale `:success` / `:error` before re-using an instance id: the editor below clears `:editor/save` on every entry, so a fresh form never shows the last save's outcome. (It's a dispatched *event*, not the `clear-mutation` registration-lifecycle function — same `clear` word, two registers, exactly as `:rf.resource/clear-scope` and `clear-resource` divide on the read side.)
+One more command rounds out the surface, alongside `:rf.mutation/execute`. **`:rf.mutation/clear`** is the instance's causal reset — `[:rf.mutation/clear {:instance [:favorite slug]}]` drops the runtime instance back to `:idle` and best-effort aborts any in-flight work for it. That abort makes it a *cancellation*, not a forget: a write still in flight loses its request — no proof the server didn't perform it — and its late reply is suppressed, so its `:invalidates` never run and your lists keep serving the pre-write rows. So clear an instance whose write has settled — the editor below does it from its save's own continuation — and when a form needs a fresh start while an earlier write may still be out, don't clear on entry: give each session its own instance id, as that editor does. (It's a dispatched *event*, not the `clear-mutation` registration-lifecycle function — same `clear` word, two registers, exactly as `:rf.resource/clear-scope` and `clear-resource` divide on the read side.)
 
 !!! warning "Gotcha — `:result` on the instance, `:value` in a reply"
 
@@ -454,19 +454,31 @@ The editor's `app-db` slice is an ordinary form in Part 3's mold: a `:draft` the
   (->> (str/split (or s "") #",")
        (map str/trim) (remove str/blank?) vec))
 
-;; The editor route's :on-match (registered below): fresh slice, prior
-;; save instance cleared.
+;; Each visit to the editor is its own form session, named by the
+;; navigation's token — so each session watches a fresh instance.
+(defn save-instance [nav-token] [:editor/save nav-token])
+
+;; The editor route's :on-match (registered below): a fresh slice. There's
+;; no instance to clear — this visit's token names a new one — so a save
+;; still in flight from an earlier visit runs to completion.
 (rf/reg-event :editor/initialise
   (fn [{:keys [db]} _]
-    {:db (assoc db :editor (editor-slice))
-     :fx [[:dispatch [:rf.mutation/clear {:instance :editor/save}]]]}))
+    {:db (assoc db :editor (editor-slice))}))
+
+;; The form watches this visit's instance:
+;; [:rf/mutation {:instance @(subscribe [:editor/save-instance])}]
+(rf/reg-sub :editor/save-instance {:inputs [[:rf/route]]}
+  (fn [[route] _] (save-instance (:nav-token route))))
 ```
 
-Submit validates, then fires the mutation. The continuation is named right at the call site:
+The token comes from the route slice: besides the keys you met in Part 1, `:rf/route` carries a `:nav-token`, a fresh [nav-token](../../routing/glossary.md#nav-token) for every navigation. A handler asks for the same token with `:rf.cofx/requires`, the way Part 3's boot handler asked for the saved session token.
+
+Submit validates, then fires the mutation. The continuation is named right at the call site, and it carries the token too:
 
 ```clojure
 (rf/reg-event :editor/submit
-  (fn [{:keys [db]} _]
+  {:rf.cofx/requires [:rf.route/nav-token]}
+  (fn [{:keys [db] :rf.route/keys [nav-token]} _]
     (let [{:keys [slug draft baseline]} (:editor db)
           errors (validate-draft draft)]
       (cond
@@ -483,29 +495,38 @@ Submit validates, then fires the mutation. The continuation is named right at th
                            :params   (cond-> (-> (select-keys draft [:title :description :body])
                                                  (assoc :tagList (parse-tag-list (:tagList draft))))
                                        slug (assoc :slug slug))
-                           :instance :editor/save
-                           :reply-to [:editor/replied]
+                           :instance (save-instance nav-token)
+                           :reply-to [:editor/replied nav-token]
                            :cause    [:submit :editor/save]}]]]}))))
 ```
 
-When the runtime accepts the write's reply, it dispatches `[:editor/replied reply]` — your event target, with one canonical **reply map** appended as the final argument:
+When the runtime accepts the write's reply, it dispatches `[:editor/replied nav-token reply]` — your event target, with one canonical **reply map** appended as the final argument:
 
 ```clojure
 (rf/reg-event :editor/replied
-  (fn [{:keys [db]} [_ {:keys [status value]}]]
-    (if (not= :ok status)
+  {:rf.cofx/requires [:rf.route/nav-token]}
+  (fn [{:keys [db] :rf.route/keys [nav-token]} [_ issued-under {:keys [status value instance]}]]
+    (cond
+      ;; Issued under a visit the reader has since left: not this page's to
+      ;; act on. The instance is this write's own, so retire it and stop.
+      (not= issued-under nav-token)
+      {:fx [[:dispatch [:rf.mutation/clear {:instance instance}]]]}
+
       ;; Failure already shows on the form via the instance's :error state.
+      (not= :ok status)
       {}
+
       ;; The save replies with the saved article: re-seed the editor so the
       ;; draft is CLEAN (the :can-leave guard below will let us go), clear
       ;; the instance, and navigate.
+      :else
       (let [article (:article value)]
         {:db (assoc db :editor (editor-slice (:slug article) (draft-from-article article)))
-         :fx [[:dispatch [:rf.mutation/clear {:instance :editor/save}]]
+         :fx [[:dispatch [:rf.mutation/clear {:instance instance}]]
               [:dispatch [:rf.route/navigate {:to :conduit.article/show :params {:slug (:slug article)}}]]]}))))
 ```
 
-That `{:keys [status value]}` is the reply map's public shape: `:status` tells you how the write settled, and `:value` carries the decoded result on `:ok`. It's the same closed envelope every managed-async surface in re-frame2 produces — [the uniform reply](../../core/glossary.md#the-uniform-reply).
+That `{:keys [status value instance]}` is the reply map's public shape: `:status` tells you how the write settled, `:value` carries the decoded result on `:ok`, and `:instance` names the instance the write ran under. It's the same closed envelope every managed-async surface in re-frame2 produces — [the uniform reply](../../core/glossary.md#the-uniform-reply). The token check comes first because a write runs to completion wherever the reader goes: a save that answers after they've left the editor mustn't pull them off the page they chose. On success its `:invalidates` have already run, so — success or failure — retiring its own instance is all that's left to do.
 
 Three rules make `:reply-to` trustworthy:
 
@@ -513,7 +534,7 @@ Three rules make `:reply-to` trustworthy:
 - **The continuation observes a settled world.** The phase order is fixed: populate and invalidate run first, the instance settles, *then* `:reply-to` dispatches. By the time `:editor/replied` runs, the lists are already marked stale and refetching.
 - **Workflow goes in `:reply-to`; cache consequences go on the registration.** Navigate, toast, update a session — those are continuation. "Which reads did this break" — that's `:invalidates` / `:populates`, declared once. Don't invalidate tags from a continuation.
 
-And here's the point this part exists to land: `[:editor/replied]` is **data**. It's not a closure awaiting a Promise. It's an event vector, sitting in the execute payload where Xray can show it (the mutation's `replied` trace op is that dispatch), where a test can assert it, and where replay can re-run it deterministically. The async workflow "save, then navigate" is on the record, step by step.
+And here's the point this part exists to land: `[:editor/replied nav-token]` is **data**. It's not a closure awaiting a Promise. It's an event vector, sitting in the execute payload where Xray can show it (the mutation's `replied` trace op is that dispatch), where a test can assert it, and where replay can re-run it deterministically. The async workflow "save, then navigate" is on the record, step by step.
 
 ??? info "From re-frame v1"
 
@@ -521,7 +542,7 @@ And here's the point this part exists to land: `[:editor/replied]` is **data**. 
 
 ??? note "Going deeper — the continuation is a value, not a callback"
 
-    `await postArticle()` binds the next step to a stack frame: a closure that exists only while the promise is pending, invisible once it resolves. `:reply-to [:editor/replied]` binds it to a *value* — an event vector that any process can read, store, compare, or re-dispatch. That's the difference between a continuation captured in the language runtime (a `k` you can't see) and a continuation reified as data (a `k` you can print). The cost is a touch more ceremony; the prize is a workflow that's inspectable after the fact, assertable in a test, and replayable deterministically. [Why no await: continuations are data](../../async/continuations-are-data.md) makes the full argument.
+    `await postArticle()` binds the next step to a stack frame: a closure that exists only while the promise is pending, invisible once it resolves. `:reply-to [:editor/replied nav-token]` binds it to a *value* — an event vector that any process can read, store, compare, or re-dispatch. That's the difference between a continuation captured in the language runtime (a `k` you can't see) and a continuation reified as data (a `k` you can print). The cost is a touch more ceremony; the prize is a workflow that's inspectable after the fact, assertable in a test, and replayable deterministically. [Why no await: continuations are data](../../async/continuations-are-data.md) makes the full argument.
 
 ## Guard the half-written draft
 
