@@ -175,8 +175,8 @@
     (is (= #{:articles :order :drafts :save :digest :locale :theme}
            (set (keys db')))
         "a commit moves two keys and mints none — in particular no
-         `:revision` counter, which this application measured and does not
-         carry (rf2-36bd; see db's namespace docstring)")))
+         `:revision` counter, which this application does not need (see
+         db's namespace docstring)")))
 
 ;; ---------------------------------------------------------------------------
 ;; i18n — a hole is visible
@@ -227,9 +227,8 @@
       (is (true? (read-sub frame [::rf.fresco.examples.slice.subs/dirty? "intents"])))
       (rf/dispatch-sync [::rf.fresco.examples.slice.events/discard {:slug "intents"}] {:frame frame})
       (is (= "Intents are data" (:title (read-sub frame [::rf.fresco.examples.slice.subs/draft "intents"])))
-          "the MODEL moved, which is the whole of the reset here — the
-           counter this handler used to bump beside it was measured inert
-           and removed (rf2-36bd)")
+          "the MODEL moved, which is the whole of the reset here — no
+           revision counter moves beside it, and none needs to")
       (is (false? (read-sub frame [::rf.fresco.examples.slice.subs/dirty? "intents"]))))))
 
 (deftest a-local-problem-never-reaches-the-server
