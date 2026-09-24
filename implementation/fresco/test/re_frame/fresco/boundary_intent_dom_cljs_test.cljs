@@ -7,27 +7,28 @@
   `:children` are hiccup **data**, written in the parent boundary's body
   — and both are **lowered inside the class component's own React
   render**, after that body's dynamic extent has unwound. With no ambient
-  frame re-bound there, `intent/*dispatch*` was nil at the moment the
-  codec walked those props, so
+  frame re-bound there, `intent/*dispatch*` would be nil at the moment the
+  codec walks those props, so
 
       [boundary {:fallback [:button {:on-click [:app/retry]} \"try again\"]
                  :reset-key attempt}
        [risky {}]]
 
-  raised `:rf.error/fresco-intent-outside-boundary` while the boundary
-  rendered its fallback — and an `h/event` at an event position raised the
-  same id at invocation.
+  would raise `:rf.error/fresco-intent-outside-boundary` while the boundary
+  rendered its fallback — and an `h/event` at an event position would raise
+  the same id at invocation. The class binds the frame it reads through
+  `contextType` around that lowering, and these rows pin that binding.
 
   ## Why the fallback half is the sharp one
 
   HD-020(c) ships `:fallback` **beside** `:reset-key`, and the reason it
   gives is that \"the retry is the CALLER's to schedule\". The control that
   schedules it is a button, the button lives in the fallback, and its
-  `:on-click` is an intent — so the ruling's own worked example was the
-  one thing the component could not render. Worse than unwritable: a
-  fallback that throws while rendering does not fail quietly in a corner,
-  it takes the *next* boundary up, so an application's error path became
-  an application-wide failure.
+  `:on-click` is an intent — so without the binding, HD-020(c)'s own
+  worked example would be the one thing the component could not render.
+  Worse than unwritable: a fallback that throws while rendering does not
+  fail quietly in a corner, it takes the *next* boundary up, turning an
+  application's error path into an application-wide failure.
 
   ## The closed roster rides here too
 
@@ -36,9 +37,10 @@
   builds: a refusal raised inside the class's own `render` escapes to the
   boundary ABOVE, so reading it takes a watcher. The claim is that
   `h/error-boundary`'s four props are a CLOSED roster and a shape, refused
-  rather than dropped — `{:on-errors …}` used to mint, cross `rfProps`
-  intact and be consulted by nothing, and `{:on-error :app/failed}` used
-  to reach `report!`'s `:else nil` and swallow every caught error.
+  rather than dropped — unrefused, `{:on-errors …}` would mint, cross
+  `rfProps` intact and be consulted by nothing, and `{:on-error
+  :app/failed}` would reach `report!`'s `:else nil` and swallow every
+  caught error.
 
   Each row carries its **near-miss positive control** in the same
   `deftest`, one character or one bracket away from the refused form, so
@@ -59,14 +61,14 @@
   4. an **`h/event` on a native child** does;
   5. the intent lands in the frame the **boundary** was mounted under,
      proved against a second live frame rather than against an absence;
-  6. a boundary with no frame above it is still legal until something
-     below it writes an intent, and that intent is still the loud error,
-     **named** — and the boundary's OWN `:on-error` vector is one of
-     those intents, refused at its first render rather than accepted and
-     dropped when it catches;
-  7. the class still spends **no hook** — in its error state as well as
-     its healthy one, so the repair did not buy the fence what
-     `impl.presence-react` had to buy it.
+  6. a boundary with no frame above it is legal until something below it
+     writes an intent, and that intent is the loud error, **named** — and
+     the boundary's OWN `:on-error` vector is one of those intents,
+     refused at its first render rather than accepted and dropped when it
+     catches;
+  7. the class spends **no hook** — in its error state as well as its
+     healthy one, so binding the frame does not buy the fence what
+     `impl.presence-react` has to buy it.
 
   ## Why the shapes are on SEPARATE subjects
 
@@ -224,9 +226,9 @@
   [:p.ok "recovered"])
 
 (rf.fresco/defview retry-screen
-  "HD-020(c)'s ADVERTISED CASE, and the reason this bead is P2: a fallback
-  whose whole point is a retry control, beside the `:reset-key` that makes
-  the retry the caller's to schedule rather than the boundary's to guess."
+  "HD-020(c)'s ADVERTISED CASE: a fallback whose whole point is a retry
+  control, beside the `:reset-key` that makes the retry the caller's to
+  schedule rather than the boundary's to guess."
   [_]
   [boundary {:fallback  [:div.fb
                          [:p "that did not work"]
@@ -297,7 +299,7 @@
               "and the child that threw rendered nothing")
           (testing "the click reaches the frame, and the reset-key it moved
                     re-mounts the child — the whole of what `:fallback` beside
-                    `:reset-key` was sold on"
+                    `:reset-key` is sold on"
             (click! (query handle ".retry"))
             (is (= 1 (:attempt (db frame-id)))
                 "the intent on the fallback dispatched")
@@ -348,9 +350,8 @@
               (str "the boundary lowered its CHILDREN with no ambient frame. "
                    "Escaped: " (pr-str (escaped))))
           (is (some? (query handle ".dismiss"))
-              "the screen rendered at all — before this repair the intent on the
-               child raised during the class's own render and there was no
-               button to click")
+              "the screen rendered at all — an intent on the child that raised
+               during the class's own render would leave no button to click")
           (is (nil? (:dismissed (db frame-id))))
           (click! (query handle ".dismiss"))
           (is (= [1] (:dismissed (db frame-id))))
@@ -403,7 +404,7 @@
           (finally (rf.fresco.impl.mount/release! a) (rf.fresco.impl.mount/release! b)))))))
 
 ;; ---------------------------------------------------------------------------
-;; 6 — a frameless boundary is legal; an intent under one is still the loud error
+;; 6 — a frameless boundary is legal; an intent under one is the loud error
 ;; ---------------------------------------------------------------------------
 
 (defn- frameless-root!
@@ -489,7 +490,7 @@
                       carrying the intent, so the recovery is readable off the
                       refusal itself. Escaped: " (pr-str (ex-data @!caught))))
             (finally (rf.fresco.impl.mount/release! handle)))))
-      (testing "THE NEAR MISS, on the axis this guard was one step from
+      (testing "THE NEAR MISS, on the axis this guard is one step from
                 over-reaching: a FUNCTION `:on-error` needs no frame, so the
                 same frameless boundary takes one, catches a deliberate
                 descendant failure and renders its fallback. It is the
@@ -511,16 +512,16 @@
             (finally (rf.fresco.impl.mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 7 — the fence: the class still spends no hook, in its error state too
+;; 7 — the fence: the class spends no hook, in its error state too
 ;; ---------------------------------------------------------------------------
 
 (deftest the-boundary-spends-no-hook-in-its-error-state-either
-  (testing "`impl.presence-react` had to buy a `useContext` to resolve its frame,
-           and paid for it in HD-025's stated cost. This class did not: it
-           already resolves its frame through `contextType`, which is a
-           property of the component rather than a hook call, so the repair
-           is invisible at React's dispatcher. Counted on the page where the
-           new binding actually runs — a boundary in its ERROR state,
+  (testing "`impl.presence-react` buys a `useContext` to resolve its frame,
+           and pays for it in HD-025's stated cost. This class does not: it
+           resolves its frame through `contextType`, which is a property of
+           the component rather than a hook call, so the binding is
+           invisible at React's dispatcher. Counted on the page where the
+           binding actually runs — a boundary in its ERROR state,
            rendering the fallback"
     (if-not (rf.fresco.impl.mount/browser?)
       (skip! ":node-test has no DOM")
@@ -539,8 +540,8 @@
                                                         [retry-screen {}]))))]
             (try
               (is (some? (query @handle ".retry"))
-                  "the fallback really did render, so the counts below were
-                   taken over the path this repair changed")
+                  "the fallback really did render, so the counts below are
+                   taken over the path that binds the frame")
               (is (= #{"useContext" "useSyncExternalStore"} (set names))
                   (str "every dispatcher read on this page belongs to a "
                        "`defview` SHELL — the two `runtime/shell-hook-ledger` "
@@ -617,10 +618,10 @@
     (do
       (fresh! frame-id)
       (testing "a BARE intent keyword is what somebody writes who has not yet
-                noticed intents are vectors here. It matched neither `vector?`
-                nor `fn?`, fell to `report!`'s `:else nil`, and swallowed every
-                caught error — so it is refused at the declaration, in `render`,
-                BEFORE anything has thrown"
+                noticed intents are vectors here. It matches neither `vector?`
+                nor `fn?`, so unrefused it would fall to `report!`'s `:else
+                nil` and swallow every caught error — so it is refused at the
+                declaration, in `render`, BEFORE anything has thrown"
         (let [handle (watched-root! frame-id
                        [boundary {:on-error :fresco.bdy/noted
                                   :fallback [:p.fb "unused"]}
@@ -652,7 +653,7 @@
                 "one bracket apart from the refused form, and it fires")
             (finally (rf.fresco.impl.mount/release! handle)))))
       (testing "THE OTHER NEAR MISS. An explicit `nil` says no reporting was
-                asked for, which is the one value `report!`'s last arm still
+                asked for, which is the one value `report!`'s last arm
                 means. A guard that refused it would refuse a legal page"
         (fresh! frame-id)
         (let [handle (watched-root! frame-id
@@ -677,11 +678,10 @@
 ;; else, StrictMode runs the failing render TWICE and `componentDidCatch`
 ;; still fires ONCE — and cites its witness by name in the fenced bench
 ;; tree (`arm1_lifecycle_dom_cljs_test/the-boundary-reports-once-under-strictmode`),
-;; whose green no longer transfers: the bench twin stopped being
-;; digest-pinned to the shipped class when the freeze manifest retired
-;; `arm1/boundary.cljs`. This is that witness restated against the shipped
-;; door — provenance, not a dependency — with the failed-reset arm folded
-;; in: a reset the caller schedules with the cause still in place is a NEW
+;; whose green does not transfer: the bench twin is a donor copy, not
+;; digest-pinned to the shipped class. This is that witness restated
+;; against the shipped door — a restatement, not a dependency — with the
+;; failed-reset arm folded in: a reset the caller schedules with the cause still in place is a NEW
 ;; failure, so it reports exactly once more.
 
 (rf.fresco/defview strict-guarded
