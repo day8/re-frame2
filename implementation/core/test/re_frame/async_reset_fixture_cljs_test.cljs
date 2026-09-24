@@ -22,7 +22,7 @@
 
   These tests prove: (1) a bare dispatch-sync drains in an async body; (2) the
   map fixture also serves synchronous bodies; (3) the two return shapes; (4) the
-  fn-form still drains a bare dispatch-sync; (5) the fn/map mixing hazard the
+  fn-form drains a bare dispatch-sync; (5) the fn/map mixing hazard the
   async `:before`'s per-test re-ensure guards against."
   (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
             [re-frame.core :as rf]
@@ -88,14 +88,14 @@
       (is (fn? (:before m)) "…with a zero-arg :before")
       (is (fn? (:after m))  "…and a zero-arg :after"))))
 
-;; ---- 4. the fn-form still drains a bare dispatch-sync ---------------------
+;; ---- 4. the fn-form drains a bare dispatch-sync ---------------------------
 ;;
-;; Belt-and-braces alongside the whole existing suite (dozens of fn-form
-;; users): drive a fn-form fixture MANUALLY (not via use-fixtures) and prove a
-;; bare dispatch-sync inside its synchronous body still drains.
+;; Belt-and-braces alongside the dozens of fn-form users in the suite: drive a
+;; fn-form fixture MANUALLY (not via use-fixtures) and prove a bare
+;; dispatch-sync inside its synchronous body drains.
 
 (deftest fn-form-still-drains-a-bare-dispatch-sync
-  (testing "the unchanged fn-form fixture establishes an ambient scope for a sync body"
+  (testing "the fn-form fixture establishes an ambient scope for a sync body"
     (let [fix (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})]
       (fix (fn []
              (rf/reg-event :ar/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
