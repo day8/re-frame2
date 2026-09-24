@@ -89,12 +89,12 @@
 
 (def ^:private template-keys
   "The template's own arguments. `:substrate` is the one and only
-   selector; every retired feature flag is simply unknown here."
+   selector; any other flag is simply unknown here."
   #{:substrate})
 
 (defn- gate-arg-keys!
   "Fail closed on any argument that is neither a deps-new harness key nor a
-   template key. A typo, or a flag this template no longer accepts, throws
+   template key. A typo, or a flag this template does not accept, throws
    `:rf.error/template-unknown-flag` before any file is written."
   [data]
   (let [known   (set/union deps-new-harness-keys template-keys)
