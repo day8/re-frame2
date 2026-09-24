@@ -50,8 +50,8 @@
 (deftest off-box-profiles-redact-frame-owned-app-db
   (testing "project-egress under each off-box / redacted profile redacts the
             :sensitive :app-db leaf and elides the :large :app-db leaf under
-            frame-owned durable classification (the post-EP-0025 commit-plane
-            contract, NOT retired frame config)"
+            frame-owned durable classification (the EP-0025 commit-plane
+            contract)"
     (mk-frame! :pub/offbox)
     (doseq [profile [:rf.egress/off-box-tool
                      :rf.egress/off-box-observability
