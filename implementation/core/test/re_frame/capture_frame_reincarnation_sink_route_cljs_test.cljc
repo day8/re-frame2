@@ -1,47 +1,45 @@
 (ns re-frame.capture-frame-reincarnation-sink-route-cljs-test
-  "rf2-qjfrw — keep a stale `rf/capture-frame` op's dead-incarnation failure OUT of
-  the same-id SUCCESSOR frame's own `:observability :errors` sink. The capture-realm
-  residual of rf2-bf0io (which fixed the compiled `re-frame.ui` `(frame)` bundle).
+  "A stale `rf/capture-frame` op's dead-incarnation failure stays OUT of the
+  same-id SUCCESSOR frame's own `:observability :errors` sink.
 
   `rf/capture-frame` is EXACT-INCARNATION authority: an op invoked on a bundle
   captured for incarnation A, after A is destroyed, RECOVER-but-EMITs
   `:rf.error/frame-destroyed` (never leaks into a same-id successor). The emit
   fans out on TWO channels — the corpus-wide always-on record (axis 1) and the
-  dev trace (axis 2). But the corpus emit ALSO drove the EP-0015 §9 frame-OWNED
-  `:observability :errors` sink route, which resolves the record's bare frame id
-  to the CURRENT frame. When a same-id SUCCESSOR B has replaced the destroyed A,
-  that bare id resolves to B — so A's stale-op failure was delivered into B's OWN
-  error sink (the bead's repro: B's sink receives A's `:rf.error/frame-destroyed`).
-  A dead incarnation must NOT reach a live frame's sink (frame isolation;
-  exact-incarnation attribution).
+  dev trace (axis 2). The corpus emit would ALSO drive the EP-0015 §9
+  frame-OWNED `:observability :errors` sink route, which resolves the record's
+  bare frame id to the CURRENT frame. When a same-id SUCCESSOR B has replaced
+  the destroyed A, that bare id resolves to B — so A's stale-op failure would
+  be delivered into B's OWN error sink. A dead incarnation must NOT reach a
+  live frame's sink (frame isolation; exact-incarnation attribution).
 
-  The fix reuses rf2-bf0io's internal `route-frame?` seam at BOTH capture rejection
-  sites:
+  Both capture rejection sites pass the internal `route-frame?` seam false:
     - the SYNCHRONOUS supersession PRE-CHECK (`capture-target-superseded?` →
       `router/emit-captured-frame-superseded!` → `router/emit-frame-destroyed!`,
-      which now passes `route-frame?` false whenever a captured-op `:op` is
+      which passes `route-frame?` false whenever a captured-op `:op` is
       present), and
     - the durable LATE expected-incarnation-mismatch fences in `dispatch!` /
       `dispatch-sync!` (router) and `subscribe-in-frame` (subs — via
-      `emit-frame-destroyed-recovery!`, which now takes an explicit
+      `emit-frame-destroyed-recovery!`, which takes an explicit
       `route-frame?`).
-  The corpus-wide record and the dev trace still fire EXACTLY ONCE; only the
+  The corpus-wide record and the dev trace fire EXACTLY ONCE; only the
   frame-owned sink route is suppressed. Ordinary address-directed errors keep the
   default route.
 
   These tests pin, for `:dispatch` / `:dispatch-sync` / `:subscribe`:
     - the REINCARNATION regression through the PRE-CHECK seam: A's stale captured
-      op never increments same-id B's `:errors` sink (red-before: it does;
-      after: 0), with a vacuity probe proving B's sink is genuinely armed;
+      op never increments same-id B's `:errors` sink (0; without the
+      suppression it is 1), with a vacuity probe proving B's sink is
+      genuinely armed;
     - the same regression through the LATE expected-incarnation-mismatch seam
       (the op passes the pre-check, then A is superseded by B before the bare-id
       resolve — reproduced by a one-shot interposition on the pre-check's own
       liveness read);
-    - PRESERVED: exactly one corpus-wide `:rf.error/frame-destroyed` record +
-      one dev trace still fire; the surviving record keeps A's bare frame id,
+    - the record itself: exactly one corpus-wide `:rf.error/frame-destroyed`
+      record + one dev trace fire; the surviving record keeps A's bare frame id,
       `:op` realm, and structural head; a subscribe keeps RAW query identity;
-    - LIVE routing intact: an ordinary handler-exception on a LIVE frame still
-      reaches its frame-owned sink (the default `route-frame?` path is untouched).
+    - LIVE routing: an ordinary handler-exception on a LIVE frame reaches its
+      frame-owned sink (the default `route-frame?` path).
 
   Dual-runtime `*_cljs_test.cljc`: the shadow `:node-test` build
   (`npm run test:cljs`) AND the JVM `clojure -M:test` runner both run it. Plain
@@ -49,15 +47,15 @@
   `rf.frame/frame-incarnation-live?` (a plain `defn`), so `with-redefs` intercepts
   the cross-namespace pre-check call on both hosts.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
-  This file is almost entirely ALWAYS-ON already, because the bead it pins is
-  itself an always-on concern: the EP-0015 §9 frame-owned `:errors` sink route
+  This file is almost entirely ALWAYS-ON, because what it pins is itself an
+  always-on concern: the EP-0015 §9 frame-owned `:errors` sink route
   and the corpus-wide error record (axis 1) both survive
-  `-Dre-frame.debug=false`. The regression — B's sink staying clean — the
+  `-Dre-frame.debug=false`. The regression guard — B's sink staying clean — the
   recovery, the attribution on the surviving record, and the vacuity probe that
   proves B's sink is armed therefore ALL run under
-  `scripts/test-core-prod-gate.sh` unchanged.
+  `scripts/test-core-prod-gate.sh`.
 
   Exactly ONE assertion is posture-dependent: `(= 1 (count traces))`, the axis-2
   DEV TRACE counterpart in `assert-preserved-record!`. It sits inside a
@@ -96,9 +94,9 @@
 
 ;; The three captured ops under test, each invoking its arm of a captured bundle.
 ;; `head` is the structural event/query head that must ride the surviving record;
-;; `raw-event` is the corpus `:event` we can pin (subscribe keeps RAW identity per
-;; #6497/#6516; dispatch/dispatch-sync `:event` is elision-dependent and NOT
-;; asserted here — the route suppression this bead adds does not touch it).
+;; `raw-event` is the corpus `:event` we can pin (subscribe keeps RAW identity;
+;; dispatch/dispatch-sync `:event` is elision-dependent and NOT asserted here —
+;; the route suppression does not touch it).
 (def ^:private op-cases
   [{:op :subscribe     :invoke (fn [h] ((:subscribe h)     subscribe-query))
     :head :reinc/n      :raw-event subscribe-query}
@@ -150,16 +148,16 @@
 
 (defn- assert-preserved-record!
   "The route suppression must NOT drop the corpus record or the dev trace, nor
-  mutate the surviving record's attribution. Exactly one of each still fires,
+  mutate the surviving record's attribution. Exactly one of each fires,
   carrying A's bare captured frame id, the `:op` realm, and the structural head."
   [{:keys [records traces]} op fid head raw-event]
-  (is (= 1 (count records)) "EXACTLY ONE corpus-wide :rf.error/frame-destroyed record still fans")
-  ;; rf2-d2841 — axis 2 is the DEV trace and emits nothing under
+  (is (= 1 (count records)) "EXACTLY ONE corpus-wide :rf.error/frame-destroyed record fans")
+  ;; Axis 2 is the DEV trace and emits nothing under
   ;; -Dre-frame.debug=false. Axis 1, asserted above and picked apart below, is
-  ;; the production-survivable channel and the one this bead's regression
+  ;; the production-survivable channel and the one this regression guard
   ;; actually lives on, so the rest of this fn stays outside the arm.
   (when rf.interop/debug-enabled?
-    (is (= 1 (count traces))  "EXACTLY ONE dev trace on axis 2 still fires"))
+    (is (= 1 (count traces))  "EXACTLY ONE dev trace on axis 2 fires"))
   (let [r (first records)]
     (is (= :rf.error/frame-destroyed (:error r))    "corpus category retained")
     (is (= fid (:frame r))                          "corpus record carries A's captured bare frame id")
@@ -167,12 +165,12 @@
     (is (= head (:event-id r))                      "structural event/query head retained")
     (when (not= ::unchecked raw-event)
       (is (= raw-event (:event r))
-          "subscribe keeps RAW query identity on the surviving corpus record (#6497/#6516)"))))
+          "subscribe keeps RAW query identity on the surviving corpus record"))))
 
 (defn- probe-vacuity!
   "B's sink IS armed and capable of receiving: an ordinary error routed DIRECTLY
   to B lands in it — so the zero above is REAL suppression, not an unwired /
-  mis-declared sink. Mirrors the rf2-bf0io vacuity probe."
+  mis-declared sink."
   [fid b-sink]
   (let [before (count @b-sink)]
     (rf.observability/route-error!
@@ -189,10 +187,10 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest stale-capture-precheck-never-reaches-successor-error-sink
-  (testing "Per rf2-qjfrw (pre-check seam): a captured op whose pinned incarnation
+  (testing "pre-check seam: a captured op whose pinned incarnation
             A was destroyed and reseated as same-id B fails the synchronous
             pre-check and recover-but-emits — but B's OWN :errors sink stays CLEAN
-            (red before: B's sink count is 1 with A's stale op). The dead
+            (without the suppression B's sink count is 1 with A's stale op). The dead
             incarnation's bare frame id must never resolve to the live successor's
             sink."
     (doseq [{:keys [op invoke head raw-event]} op-cases]
@@ -258,10 +256,10 @@
       (op))))
 
 (deftest stale-capture-late-mismatch-never-reaches-successor-error-sink
-  (testing "Per rf2-qjfrw (late expected-incarnation-mismatch seam): a captured op
+  (testing "late expected-incarnation-mismatch seam: a captured op
             that PASSES the pre-check, then loses A to a same-id successor B before
             the bare-id resolve, recover-but-emits at the late fence — but B's OWN
-            :errors sink stays CLEAN (red before: B's sink receives A's failure).
+            :errors sink stays CLEAN (without the suppression B's sink receives A's failure).
             Reproduces the concurrent-JVM destroy-A/create-B window deterministically."
     (doseq [{:keys [op invoke head raw-event]} op-cases]
       (testing (str "stale " (name op) " across a same-id reincarnation (late mismatch)")
@@ -290,14 +288,14 @@
             (probe-vacuity! fid b-sink)))))))
 
 ;; ---------------------------------------------------------------------------
-;; PRESERVED — live routing is untouched: the default route-frame? path still
-;; delivers an ordinary handler-exception to a LIVE frame's own sink.
+;; LIVE routing — the default route-frame? path delivers an ordinary
+;; handler-exception to a LIVE frame's own sink.
 ;; ---------------------------------------------------------------------------
 
 (deftest ordinary-live-error-still-reaches-frame-owned-sink
-  (testing "the default route-frame? path is untouched (rf2-qjfrw suppresses ONLY
-            the dead-incarnation capture seams): a handler-exception on a LIVE
-            frame still routes ONE :rf.observe/error record to that frame's
+  (testing "the default route-frame? path delivers (ONLY the dead-incarnation
+            capture seams suppress it): a handler-exception on a LIVE
+            frame routes ONE :rf.observe/error record to that frame's
             declared :observability :errors sink."
     (let [seen    (atom [])
           fid     :qjfrw/live
@@ -306,7 +304,7 @@
       (rf/reg-event :qjfrw/boom {:frame fid}
         (fn [_ _] (throw (ex-info "kaboom" {:cause :test}))))
       (rf/dispatch-sync [:qjfrw/boom] {:frame fid})
-      (is (= 1 (count @seen)) "the live frame's error sink still receives exactly one record")
+      (is (= 1 (count @seen)) "the live frame's error sink receives exactly one record")
       (let [r (first @seen)]
         (is (= :rf.observe/error (:kind r)))
         (is (= fid (:frame r)))
