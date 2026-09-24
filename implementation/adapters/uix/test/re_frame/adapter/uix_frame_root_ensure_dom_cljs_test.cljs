@@ -1,15 +1,12 @@
 (ns re-frame.adapter.uix-frame-root-ensure-dom-cljs-test
-  "UIx DOM/browser regression coverage for the NATIVE `frame-root` `defui`'s
-  ENSURE (`{:id …}`) config through UIx's `$` → `glue-args` marshalling seam
-  (rf2-0bhnwm; rf2-nyea0r split).
+  "UIx DOM/browser coverage for the NATIVE `frame-root` `defui`'s ENSURE
+  (`{:id …}`) config through UIx's `$` → `glue-args` marshalling seam.
 
   WHY THIS EXISTS. `re-frame.adapter.uix/frame-root` is a native UIx `defui`
-  (the ENSURE component; rf2-nyea0r split `frame-provider` into SCOPE-only
-  `frame-provider` + ENSURE `frame-root`). The SCOPE-only `frame-provider` is
-  already pinned end-to-end through `$` by
+  (the ENSURE component, beside the SCOPE-only `frame-provider`). The
+  SCOPE-only `frame-provider` is pinned end-to-end through `$` by
   `frame-provider-trailing-children-propagate-frame`
-  (uix_use_sub_dom_cljs_test) — the moved-up-seam regression
-  (rf2-z7hfp / rf2-7kii2). The ENSURE `frame-root` config through `$` — the
+  (uix_use_sub_dom_cljs_test). The ENSURE `frame-root` config through `$` — the
   `:id` KEYWORD, the nested `:initial-events` / `:images` vectors, the
   `:url-bound?` boolean — reconstructed by `glue-args` into the clean CLJS props
   map before the `defui` hands props to `frame-boundary/frame-root-react-element`
@@ -76,7 +73,7 @@
 ;; ---- ENSURE `:id` + `:initial-events` + `:url-bound?` through `$` ----------
 
 (deftest ensure-id-arm-marshals-config-through-dollar
-  (testing "UIx — ($ frame-root {:id .. :initial-events [[..]] :url-bound? ..}) ENSURE arm marshals config through $/glue-args (rf2-0bhnwm)"
+  (testing "UIx — ($ frame-root {:id .. :initial-events [[..]] :url-bound? ..}) ENSURE arm marshals config through $/glue-args"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (let [act-fn (get-act)]
@@ -85,7 +82,7 @@
           ;; Clear the fixture's ambient `:rf/default` dynamic scope so the
           ;; 1-arg `use-sub` in ProbeEnsure resolves through the ENSURE
           ;; provider's React-context tier (the created frame), not a
-          ;; shadowing dynamic frame. Mirrors the SCOPE-arm regression's note.
+          ;; shadowing dynamic frame. Mirrors the SCOPE-arm test's note.
           (binding [rf.frame/*current-frame* nil]
             (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
             (reset! ensure-observed [])
@@ -132,7 +129,7 @@
 ;; ---- ENSURE `:images` through `$` -----------------------------------------
 
 (deftest ensure-images-arm-marshals-image-vector-through-dollar
-  (testing "UIx — ($ frame-root {:id .. :images [img] :initial-events [[..]]}) ENSURE :images vector marshals through $/glue-args (rf2-0bhnwm)"
+  (testing "UIx — ($ frame-root {:id .. :images [img] :initial-events [[..]]}) ENSURE :images vector marshals through $/glue-args"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (let [act-fn (get-act)]
