@@ -1,36 +1,36 @@
 (ns re-frame.routing-scroll-always-on-elision-prod-test
-  "rf2-2hkfy — the ACCEPTANCE probe for the unsupported-scroll-strategy
+  "The ACCEPTANCE probe for the unsupported-scroll-strategy
   rejection, under the one build configuration that can actually falsify it.
 
-  ## The gap this file closes
+  ## The gap this file guards
 
-  rf2-px26m (#6333) removed the map form from `:rf.nav/scroll`'s args schema
-  and made `scroll-fx-handler`'s default branch loud instead of returning
-  nil. Spec 012 and the source both called that default branch \"the
+  `:rf.nav/scroll`'s args schema admits no map form, and
+  `scroll-fx-handler`'s default branch is loud rather than returning
+  nil. Spec 012 and the source both call that default branch \"the
   ALWAYS-ON leg\" — the thing standing between the author and silence when
   the OPTIONAL schemas artefact is absent and the Spec 010 §step-5 `:fx-args`
   gate therefore soft-passes.
 
-  It was not always-on. It emitted through `trace/emit-error!`, whose whole
+  Emitting through `trace/emit-error!` alone would not be always-on: its whole
   body is wrapped in `interop/debug-enabled?` and constant-folds away under
   `:advanced` + `goog.DEBUG=false`. Compose the two optional-ness conditions
-  and the rejection disappeared exactly where it was needed:
+  and the rejection would disappear exactly where it is needed:
 
     schemas present  + dev   → schema gate fires (rejection never needed)
     schemas present  + prod  → schema gate fires (rejection never needed)
     schemas ABSENT   + dev   → handler fires, dev trace delivers   ← the only
                                                                      leg the
-                                                                     old tests
-                                                                     covered
+                                                                     dev suite
+                                                                     covers
     schemas ABSENT   + prod  → handler fires, trace DCE'd, NOTHING ← the gap
 
   The bottom row is a production app that loaded routing but not schemas: it
-  performed no scroll, emitted no production-surviving record, and returned
-  nil. That is the accepted-and-ignored option rf2-px26m set out to remove,
+  would perform no scroll, emit no production-surviving record, and return
+  nil — the accepted-and-ignored outcome the closed vocabulary rules out,
   reproduced for the consumers least likely to notice it.
 
-  rf2-2hkfy fans the category through the existing two-channel seam
-  (`rf.error-emit/emit-error-both!`) instead. Axis 1 — the `dispatch-on-error!`
+  The handler therefore fans the category through the two-channel seam
+  (`rf.error-emit/emit-error-both!`). Axis 1 — the `dispatch-on-error!`
   listener registry — is NOT gated on `interop/debug-enabled?`, so the record
   survives here.
 
@@ -51,7 +51,9 @@
   sibling suite's require would install the gate process-wide and no
   `:fx`-driven dispatch here could honestly represent a schemas-less host.
   Invoking `scroll-fx-handler` directly is the established idiom for that
-  configuration in this repo (see the rf2-px26m leg in the dev suite): it
+  configuration in this repo (see
+  `scroll-handler-emits-the-unsupported-strategy-error-directly` in the dev
+  suite): it
   reaches the handler with the fx-args gate bypassed, which is precisely what
   a soft-pass does.
 
@@ -69,7 +71,7 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.routing.scroll :as rf.routing.scroll]
             [re-frame.test-support :as rf.test-support]
-            ;; rf2-qwm0a — the dev trace listener surface. Registered here to
+            ;; The dev trace listener surface. Registered here to
             ;; prove the dev channel is genuinely DCE'd in this build, which
             ;; is what makes the always-on assertion non-vacuous.
             [re-frame.trace.tooling :as rf.trace.tooling]))
@@ -116,7 +118,7 @@
   (set! (.-scrollY js/window) y))
 
 (defn- committed!
-  "rf2-3x7nj.12.3: `:rf.nav/scroll` touches the page only after the view
+  "`:rf.nav/scroll` touches the page only after the view
   substrate commits, through the installed adapter's `:adapter/after-render`.
   Run `f` with that hook replaced by a queue, then run what it queued — the
   commit this build has no renderer to make."
@@ -135,13 +137,13 @@
 ;; ===========================================================================
 
 (deftest unsupported-strategy-record-survives-prod-without-schemas
-  (testing "rf2-2hkfy: under `:advanced` + `goog.DEBUG=false`, with the
+  (testing "under `:advanced` + `goog.DEBUG=false`, with the
             `:fx-args` schema gate soft-passed (schemas-less host), an
             unsupported `:rf.nav/scroll` strategy performs NO scroll and fans
             EXACTLY ONE `:rf.error/unsupported-scroll-strategy` record out
-            through the always-on `register-error-listener!` substrate. Before
-            rf2-2hkfy this branch emitted only through the DCE'd
-            `trace/emit-error!`, so this assertion saw zero records — the
+            through the always-on `register-error-listener!` substrate. A
+            branch emitting only through the DCE'd
+            `trace/emit-error!` would leave this assertion with zero records — the
             regression this test exists to catch"
     (with-window-stub
       (fn []
@@ -157,12 +159,12 @@
                 "and still performs no scroll — :recovery :no-scroll")
             (let [r (first errs)]
               (is (= :rf.error/unsupported-scroll-strategy (:error r)))
-              ;; rf2-s3n6h — the record that survives production is
-              ;; STRUCTURAL. It carried the rejected value verbatim until
-              ;; this test was corrected: `record-attrs` are merged past the
-              ;; elision seam, so an arbitrary runtime `:scroll` opt shipped
-              ;; off-box whole and unbounded. Production is exactly where that
-              ;; mattered most, which is why the assertion belongs here too.
+              ;; The record that survives production is STRUCTURAL.
+              ;; `record-attrs` are merged past the elision seam, so carrying
+              ;; the rejected value verbatim would ship an arbitrary runtime
+              ;; `:scroll` opt off-box whole and unbounded. Production is
+              ;; exactly where that matters most, which is why the assertion
+              ;; belongs here too.
               (is (nil? (:strategy r))
                   "the rejected value does NOT ride the off-box record")
               (is (= :map (:strategy-type r))
@@ -186,7 +188,7 @@
 ;; ===========================================================================
 
 (deftest dev-trace-channel-is-elided-while-the-record-still-fires
-  (testing "rf2-2hkfy: the two channels are genuinely INDEPENDENT under prod.
+  (testing "the two channels are genuinely INDEPENDENT under prod.
             A trace listener sees NOTHING (the `trace/emit-error!` half is
             constant-folded away by `interop/debug-enabled?`) while the
             always-on listener still receives the record. If this test ever
@@ -211,14 +213,14 @@
                safe than dev"))))))
 
 ;; ===========================================================================
-;; (c) Positive controls — promoting the rejection must not make the WORKING
+;; (c) Positive controls — the always-on rejection must not make the WORKING
 ;;     strategies loud in production.
 ;; ===========================================================================
 
 (deftest supported-strategies-emit-no-record-under-prod
-  (testing "rf2-2hkfy POSITIVE control under prod: `:top` / `:restore` /
+  (testing "POSITIVE control under prod: `:top` / `:restore` /
             `:preserve` each drive their own branch and fan NO always-on
-            record. `:preserve` in particular remains the SILENT documented
+            record. `:preserve` in particular is the SILENT documented
             no-op (Spec 012) — it must never become a rejection"
     (with-window-stub
       (fn []
