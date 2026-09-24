@@ -284,6 +284,9 @@
             ;; is SUPERSEDED by this write (the caller settles its work row),
             ;; so its late reply fails the work-id gate and cannot revert it.
             :current-work   nil)
+          ;; rf2-w5p2p — and a feed read's pending sweep goes with it, or the
+          ;; next load-more settle chains its legs over the written pages.
+          rf.resources.state/clear-refetch-sweep
           ;; EP-0019 / byl7bk: a patch is an authoritative durable write
           ;; (re-stamps :loaded-at / :stale-at, clears :invalidated-at), so it
           ;; bumps the per-entry :revision write identity UNCONDITIONALLY —
@@ -326,6 +329,8 @@
           ;; rf2-3x7nj.11.3 — as `patch-entry`: a read in flight is superseded.
           :current-work   nil
           :tags           (or tags (:tags base) #{}))
+        ;; rf2-w5p2p — as `patch-entry`: so is its pending feed sweep.
+        rf.resources.state/clear-refetch-sweep
         ;; EP-0019 / byl7bk: a populate is an authoritative durable write (it
         ;; seeds / re-stamps :loaded-at / :stale-at / :tags), so it bumps the
         ;; per-entry :revision write identity UNCONDITIONALLY — including the

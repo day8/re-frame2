@@ -1640,30 +1640,31 @@
   `record` the settling work record. Spec 016 §Race and in-flight semantics:
   the attempt in flight when an invalidation lands never covers it.
 
-  - DEFINITE: a mark written during the attempt was kept by the settle
-    (`rf.resources.state/invalidation-kept-by-settle`).
+  - DEFINITE: a mark written during the attempt, which the settle kept
+    (`rf.resources.state/invalidation-kept-by-settle`, read off the PRE-settle
+    entry — a feed page settle also keeps an OLDER mark its page does not
+    cover, rf2-wcsjy, and that one is not this attempt's to follow up).
   - TENTATIVE: an invalidation recorded on the attempt (its tags did not match
     the entry's old tags) whose tags intersect the tags just produced marks
     the entry stale at the recorded time; one that does not intersect is
     discarded, so an unrelated mutation never stales an unrelated resource.
 
-  Returns `[settled' follow-up-tags]`: `follow-up-tags` is non-nil when the
-  entry was left stale AND has active owners AT SETTLE — the caller then
-  dispatches ONE `:rf.resource/refetch`. An owner-free entry keeps the stale
-  mark only."
+  Returns `[settled' follow-up-tags]`: `follow-up-tags` is non-nil when an
+  invalidation that landed during the attempt left the entry stale AND it has
+  active owners AT SETTLE — the caller then dispatches ONE
+  `:rf.resource/refetch`. An owner-free entry keeps the stale mark only."
   [entry settled record]
   (let [pending       (:pending-invalidation record)
         pending-hit?  (and pending
                            (seq (set/intersection (set (:tags settled))
                                                   (set (:tags pending)))))
-        definite?     (some? (:invalidated-at settled))
+        definite?     (some? (rf.resources.state/invalidation-kept-by-settle entry))
         settled'      (if (and pending-hit? (not definite?))
                         (rf.resources.state/entry-invalidate
                           settled (:invalidated-at pending))
-                        settled)
-        stale?        (some? (:invalidated-at settled'))]
+                        settled)]
     [settled'
-     (when (and stale? (seq (:active-owners settled')))
+     (when (and (or definite? pending-hit?) (seq (:active-owners settled')))
        (if definite? (:tags entry) (:tags pending)))]))
 
 (defn- follow-up-refetch-fx

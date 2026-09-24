@@ -1062,3 +1062,142 @@
         (is (some? (:refresh-error e)))
         (is (nil? (:page-error e)))
         (is (not (contains? e :refetch-sweep)) "the sweep cursor is cleared")))))
+
+;; ===========================================================================
+;; 14. rf2-wcsjy — a page settle clears only a stale mark its attempt COVERS
+;; ===========================================================================
+;;
+;; rf2-3x7nj.10.1 keeps a mark written DURING the settling attempt. A feed page
+;; covers less than a scalar reply: an appended page refreshes none of the pages
+;; the feed already held, and one sweep leg refreshes one page of the window. So
+;; a load-more never clears the mark, and a sweep clears one only when it
+;; predates the sweep, at the leg that completes the refresh window.
+
+(defn- invalidate-feed! []
+  (rf/dispatch-sync [:rf.resource/invalidate-tags {:scope :rf.scope/global
+                                                   :tags #{[:feed :recent]}
+                                                   :cause [:test :write]}]))
+
+(defn- refetch-feed! [resource]
+  (rf/dispatch-sync [:rf.resource/refetch {:resource resource :scope :rf.scope/global
+                                           :params {:filter :recent} :cause [:test :refresh]}]))
+
+(defn- in-flight-page-index []
+  (:rf.resource/page-index (second (:on-success @last-managed-args))))
+
+(deftest a-load-more-keeps-a-mark-the-feed-already-had
+  (let [k    (accumulate-3! :wa/feed {})
+        held (:data (entry k))]
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:test :w]}])
+    (invalidate-feed!)
+    (is (some? (:invalidated-at (entry k))) "FIXTURE — the owner-free feed is marked stale")
+    (load-more! :wa/feed)
+    (reply-success! (page [:d] nil))
+    (let [e (entry k)]
+      (is (= (conj held (page [:d] nil)) (:data e)) "page 3 appended; pages 0-2 untouched")
+      (is (some? (:invalidated-at e)) "the append refreshed none of the pages the mark covers"))
+    (ensure! :wa/feed)
+    (is (= 0 (in-flight-page-index)) "the next ensure refetches rather than fresh-skipping")))
+
+(deftest a-later-sweep-leg-keeps-a-mark-written-during-an-earlier-one
+  (let [k (accumulate-3! :wb/feed {:refetch {:refetch-all-pages? true}})]
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:test :w]}])
+    (refetch-feed! :wb/feed)
+    (invalidate-feed!)
+    (reply-success! (page [:a*] "c1"))
+    (is (some? (:invalidated-at (entry k))) "10.1 — page 0 keeps the mark written during it")
+    (reply-success! (page [:b*] "c2"))
+    (is (some? (:invalidated-at (entry k))) "page 1 does not refresh page 0's pre-write data")
+    (reply-success! (page [:c*] "c3"))
+    (let [e (entry k)]
+      (is (not (contains? e :refetch-sweep)) "FIXTURE — the sweep ran to its end")
+      (is (some? (:invalidated-at e)) "page 0 still holds pre-invalidation data, so the feed ends stale"))))
+
+(deftest a-sweep-clears-a-mark-it-covers-only-once-the-window-is-refetched
+  (testing "a mark that predates the sweep survives until the final leg"
+    (let [k (accumulate-3! :wc/feed {:refetch {:refetch-all-pages? true}})]
+      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:test :w]}])
+      (invalidate-feed!)
+      (ensure! :wc/feed)
+      (reply-success! (page [:a*] "c1"))
+      (is (some? (:invalidated-at (entry k))) "pages 1-2 still hold pre-invalidation data")
+      (is (= 1 (in-flight-page-index)) "the sweep continues; the owned feed is not refetched again")
+      (reply-success! (page [:b*] "c2"))
+      (is (some? (:invalidated-at (entry k))))
+      (reply-success! (page [:c*] "c3"))
+      (is (nil? (:invalidated-at (entry k))) "the final leg completes the refresh window")))
+  (testing "a leg that fails leaves the feed stale"
+    (let [k (accumulate-3! :wd/feed {:refetch {:refetch-all-pages? true}})]
+      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:test :w]}])
+      (invalidate-feed!)
+      (ensure! :wd/feed)
+      (reply-success! (page [:a*] "c1"))
+      (reply-failure! {:kind :rf.http/server :status 503})
+      (let [e (entry k)]
+        (is (not (contains? e :refetch-sweep)) "FIXTURE — the failed leg stopped the sweep")
+        (is (some? (:invalidated-at e)) "pages 1-2 were never refreshed"))))
+  (testing "CONTROL — the window-preserving default refreshes page 0 only, which covers it"
+    (let [k (accumulate-3! :we/feed {})]
+      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:test :w]}])
+      (invalidate-feed!)
+      (ensure! :we/feed)
+      (reply-success! (page [:a*] "c1"))
+      (is (nil? (:invalidated-at (entry k)))))))
+
+;; ===========================================================================
+;; 15. rf2-w5p2p — an authoritative write drops the superseded read's sweep
+;; ===========================================================================
+;;
+;; A `:populates` / `:patches` write supersedes a read in flight
+;; (rf2-3x7nj.11.3). The sweep that read would have chained goes with it, or the
+;; next load-more's settle picks its obsolete cursor up and re-fetches pages the
+;; write just installed.
+
+(def ^:private written-pages
+  [(page [:A] "c1") (page [:B] "c2") (page [:C] "c3")])
+
+(defn- reg-feed-writes! [resource]
+  (let [target {:resource resource :params {:filter :recent} :scope :rf.scope/global}]
+    (rf/reg-mutation :wp/populate
+      {:scope :rf.scope/global
+       :params-schema [:map [:filter :keyword]]
+       :populates (fn [_params result] {target result})}
+      (fn [_ _] {:request {:method :put :url "/api/feed"}}))
+    (rf/reg-mutation :wp/patch
+      {:scope :rf.scope/global
+       :params-schema [:map [:filter :keyword]]
+       :patches (fn [_params _result] {target (fn [_old result] result)})}
+      (fn [_ _] {:request {:method :put :url "/api/feed"}}))))
+
+(defn- write-over-a-sweep-then-load-more! [resource mutation-id]
+  (let [k (accumulate-3! resource {:refetch {:refetch-all-pages? true}})]
+    (reg-feed-writes! resource)
+    (refetch-feed! resource)
+    (let [page-0 @last-managed-args]
+      (is (= [["c1" 1] ["c2" 2]] (:refetch-sweep (entry k))) "FIXTURE — the sweep tail is armed")
+      (rf/dispatch-sync [:rf.mutation/execute {:mutation mutation-id :params {:filter :recent}
+                                               :instance :w5p2p}])
+      (reply-success! written-pages)
+      (let [e (entry k)]
+        (testing "the write lands and supersedes the read in flight (11.3 controls)"
+          (is (= written-pages (:data e)))
+          (is (nil? (:current-work e))))
+        (is (not (contains? e :refetch-sweep)) "the superseded read's sweep goes with it"))
+      (reply-success! page-0 (page [:old] "c1"))
+      (is (= written-pages (:data (entry k))) "the late page-0 reply is suppressed")
+      (load-more! resource)
+      (let [load-more-args @last-managed-args]
+        (is (= 3 (in-flight-page-index)) "FIXTURE — the load-more fetches page 3")
+        (reply-success! (page [:D] nil))
+        (is (= (conj written-pages (page [:D] nil)) (:data (entry k))))
+        (is (identical? load-more-args @last-managed-args) "no abandoned sweep leg is fetched")
+        (is (nil? (:current-work (entry k))) "nothing is in flight")))
+    (testing "a deliberate refetch still sweeps per the policy"
+      (refetch-feed! resource)
+      (is (= [["c1" 1] ["c2" 2] ["c3" 3]] (:refetch-sweep (entry k)))))))
+
+(deftest a-populate-drops-the-sweep-of-the-read-it-supersedes
+  (write-over-a-sweep-then-load-more! :wpp/feed :wp/populate))
+
+(deftest a-patch-drops-the-sweep-of-the-read-it-supersedes
+  (write-over-a-sweep-then-load-more! :wpq/feed :wp/patch))
