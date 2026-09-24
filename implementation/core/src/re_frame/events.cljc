@@ -5,10 +5,10 @@
   The ONE public event form is `reg-event` — pure (cofx, event) → a closed
   effects map (EP-0018). Coeffects in, a closed effects map out.
 
-  `reg-event` is the single event-registration form. `reg-event-db` /
-  `reg-event-fx` are REMOVED and public `reg-event-ctx` is demoted to a
-  framework-internal `context -> context` primitive; calling any of the
-  removed public names is a hard error naming the replacement (the
+  `reg-event` is the single event-registration form. There is no public
+  `reg-event-db` / `reg-event-fx` / `reg-event-ctx` (a `context -> context`
+  handler is a framework-internal primitive); calling any of those
+  public names is a hard error naming the replacement (the
   facade-exported throwing stubs `re-frame.events/reg-event-db` /
   `reg-event-fx` / `reg-event-ctx` raise
   `:rf.error/reg-event-db-removed` / `-fx-removed` / `-ctx-removed`, per
@@ -203,10 +203,10 @@
   (`reject-at-boundary-without-schema!`), production enforcement
   (`re-frame.spec/validate-at-boundary!`) and rejection attribution
   (`re-frame.router/run-chain`, which stamps `:rf/boundary-rejected?` on a
-  step-1 refusal — rf2-mwv4e) all ask THIS question, so the three can never
+  step-1 refusal) all ask THIS question, so the three can never
   disagree about which handlers are guarded. An ordinary dev-only `:schema`
   refusal on an unflagged handler is deliberately NOT marked: that surface has
-  no production counterpart (rf2-bkvu5).
+  no production counterpart.
 
   `true?` rather than truthy: `:boundary?` is `:boolean` in `EventHandlerMeta`,
   so any other value is a mis-declaration and reads as unflagged."
@@ -220,11 +220,11 @@
   and is structurally meaningless without one, so the registrar rejects the
   call at registration time rather than waiting until first dispatch.
 
-  KEY presence, not truthiness (rf2-6eh5h): `{:schema nil :boundary? true}`
+  KEY presence, not truthiness: `{:schema nil :boundary? true}`
   registers, and the `nil` token is delegated to the backend as an opaque
   value.
 
-  Hard-fail by design (per the pre-alpha posture): no warn-and-accept
+  Hard-fail by design: no warn-and-accept
   fallback. The two fixes are (1) attach a `:schema` to the metadata map, or
   (2) drop `:boundary?`."
   [reg-fn-name id meta]
@@ -266,7 +266,7 @@
 ;; :rf/path vectors) are commit-plane state effects too, applied WITH the :db
 ;; write; their PAYLOAD shape is policed separately by
 ;; `re-frame.elision/classification-effect-defect` at the same boundary. All
-;; OTHER unknown top-level keys remain shape errors.
+;; OTHER unknown top-level keys are shape errors.
 ;;
 ;; The runtime polices this contract at the router's FINAL-effects boundary:
 ;; a top-level key outside the closed set REFUSES the event. Nothing commits —
@@ -298,7 +298,7 @@
   #{:db :rf.db/runtime :fx
     :sensitive :large :clear-sensitive :clear-large})
 
-;; ---- the FINAL-effects shape carrier (rf2-04tx) ---------------------------
+;; ---- the FINAL-effects shape carrier --------------------------------------
 ;;
 ;; ONE check at ONE boundary. `effect-map-defect` is a PURE first-defect-or-nil
 ;; validator over the effects map the ROUTER is about to consume — the same
@@ -310,21 +310,20 @@
 ;; ABORTS the event: no `:db`, no `:rf.db/runtime`, no classification install,
 ;; no `:fx`. No partial commit.
 ;;
-;; ## Why refuse rather than drop (rf2-04tx)
+;; ## Why refuse rather than drop
 ;;
 ;; The runtime RECOGNISES the key — it polices it on every dispatch, in every
 ;; build — and then declines to honour it. Dropping it is the named violation
-;; shape of Conventions §No silent swallow: the `:db` write lands while the
-;; effect the programmer wrote never runs, so the handler LOOKS like it worked.
-;; That partial-success disguise is what defeats a gate asserting a label plus
-;; "nothing has happened yet"; it hid a dead `:dispatch-later` timer in the
-;; fresco testbed's operator instruments, and an eleven-week-dead
-;; `persist-chart-collapsed` fx inside Xray itself. Both go red on first run
-;; under the refusal.
+;; shape of Conventions §No silent swallow: the `:db` write would land while the
+;; effect the programmer wrote never runs, so the handler would LOOK like it
+;; worked. That partial-success disguise defeats a gate asserting a label plus
+;; "nothing has happened yet": a dead `:dispatch-later` timer or a dead fx
+;; would hide behind a handler that looks healthy. Under the refusal it goes
+;; red on first run.
 ;;
 ;; The refusal is UNIFORM ACROSS BUILDS and NOT configurable. Erasing it in
 ;; production would make dev abort what production commits — a build fork
-;; strictly worse than either uniform choice. The DETECTION was already
+;; strictly worse than either uniform choice. The DETECTION is
 ;; unconditional and free (the zero-allocation `every?` pre-check below), so the
 ;; refusal hangs off an already-taken cold branch: no hot-path cost.
 ;;
@@ -534,7 +533,7 @@
   no-op; any non-map return emits :rf.error/effect-handler-bad-return with
   :no-recovery and the dispatch becomes a no-op.
 
-  ONE CHECK AT ONE BOUNDARY (rf2-04tx). This site does NOT police the
+  ONE CHECK AT ONE BOUNDARY. This site does NOT police the
   effect-map's top-level shape and is NOT an abort site. It projects the
   returned map VERBATIM — foreign top-level keys and a malformed `:fx` value
   included — so the shape the programmer actually wrote reaches the router's
@@ -616,7 +615,7 @@
               ;; interceptor may rebuild or tamper with `ctx`, but cannot forge
               ;; ownership of a fresh same-id incarnation.
               owner-token (rf.frame/current-event-owner-token)]
-          ;; Option A terminal-incarnation law: the authored handler has
+          ;; Terminal-incarnation law: the authored handler has
           ;; already entered, so it is allowed to return.  But if it destroyed
           ;; A (and perhaps installed a fresh same-id B), its returned value is
           ;; inert.  In particular, do not run handler-return shape policing or
@@ -634,7 +633,7 @@
               (if-not (rf.frame/event-continuation-live? frame-id owner-token)
                 (assoc ctx :rf/stale-incarnation? true)
                 (do
-                  ;; EP-0001: a `:db` effect carrying the retired
+                  ;; EP-0001: a `:db` effect carrying the reserved
                   ;; `:rf/runtime` app-db root is a HARD ERROR — reject it at
                   ;; the single post-commit chokepoint. No-op when absent.
                   (reject-legacy-runtime-root!
@@ -684,8 +683,7 @@
   Machine handlers imply authority from the framework-owned `:rf/machine?`
   stamp (the machine registrar `reg-machine*` already stamps `:rf/machine?
   true`), so they need no separate `:rf/framework-authority?` key — this
-  predicate folds the implication in, keeping the machine contract
-  unchanged.
+  predicate folds the implication in.
 
   Reserved BY CONVENTION, not a capability gate: the
   effect is applied either way; the flag only governs the dev diagnostic."
@@ -805,7 +803,7 @@
 
 (defn- merge-form-source
   "Merge `*pending-form-source*` into `m` under `:rf.handler/source`
-  (Spec 009 §`:rf.handler/source`, Xray Spec 021 §11.2 B.7 stretch).
+  (Spec 009 §`:rf.handler/source`, Xray Spec 021 §11.2 B.7).
   User-supplied `:rf.handler/source` overrides the auto-
   captured value (mirrors `rf.source-coords/merge-coords` semantics — so
   tooling that synthesises registrations from another source can stamp
@@ -838,7 +836,7 @@
   depends on which registry is authoritative, so each caller supplies it:
   `register-event!` against the registrar (`validate-refs-registered!`), an
   inline image event at assembly against the frame's own generation
-  (`image-assembly/check-references!`, rf2-3x7nj.5.1).
+  (`image-assembly/check-references!`).
 
   RETAIN-vs-STRIP: the raw `:interceptors`
   key is STRIPPED from the stored metadata. The registrar entry already stores
@@ -884,7 +882,7 @@
 ;; framework's own seeding. The set is deliberately narrow (today `:rf/set-db`
 ;; and `:rf/settle-flows` — see the def's docstring for why each is in): the
 ;; OTHER framework `:rf/*` events (`:rf/hydrate`,
-;; `:rf.route/url-requested`, `:rf/server-init`, …) are still registered through the
+;; `:rf.route/url-requested`, `:rf/server-init`, …) are registered through the
 ;; public `reg-event` by their owning feature artefacts, so they are NOT listed
 ;; here; widening the set is a Spec change.
 
@@ -954,14 +952,14 @@
     4. register under `:event` with `:handler-fn` retained for tooling
        introspection and `:rf.handler/source` carrying the macro-captured
        form-source string when present (Spec 009);
-    5. return the event id. Path-D schema-first privacy has no
+    5. return the event id. Schema-first privacy has no
        user-facing redaction interceptor to police at registration time.
 
   Returns the event id."
   [reg-fn-name id args]
   (reject-reserved-event-id! reg-fn-name id)
   (let [[raw-meta handler-fn] (normalise-args reg-fn-name args)
-        ;; rf2-x68lzo — no-silent-swallow on the registration metadata KEYS:
+        ;; No-silent-swallow on the registration metadata KEYS:
         ;; a retired bare key (`:spec`) hard-errors, an unknown bare key warns,
         ;; namespaced/known keys pass. Runs on the raw user meta (which still
         ;; carries `:interceptors`, a known `:event` key) BEFORE `:interceptors`
@@ -994,7 +992,7 @@
     ;; author paths (EP-0025 — frame-declared paths are the sole app-db
     ;; classification mechanism).
     (rf.classification/validate-classification! :event meta)
-    ;; rf2-kqxe6.20: replacing a framework REPLACEABLE DEFAULT
+    ;; Replacing a framework REPLACEABLE DEFAULT
     ;; (`:rf.route/entry-denied` / `:rf.route/navigation-blocked`) replaces
     ;; BEHAVIOUR — not the framework's own payload shape. The carriers the
     ;; framework CONSTRUCTS in that payload (`:requested-url` / `:destination` /
@@ -1012,7 +1010,7 @@
                        :interceptors (-> [] (into interceptors) (conj wrapped)))
           (seq requires-parsed)
           (assoc :rf.cofx/requires-parsed requires-parsed)))
-      ;; rf2-kqxe6.20, the INVERSE half of the retention above: namespace load
+      ;; The INVERSE half of the retention above: namespace load
       ;; order must not decide the effective classification. When THIS
       ;; registration is the framework seeding its replaceable default, an
       ;; application override for the same id may ALREADY be in the source store
@@ -1126,7 +1124,7 @@
 ;;     through `rf.error/throw-error!` so it THROWS (EP-0027 §Failure — a bad
 ;;     `[:rf/set-db x]` argument is a setup-step throw). `:rf/set-db` takes a
 ;;     single map and has no second-argument meaning, so `[:rf/set-db {} :junk]`
-;;     is a mis-call (rf2-izy3b2), not a silently-ignored extra. Set app-db
+;;     is a mis-call, not a silently-ignored extra. Set app-db
 ;;     empty with `[:rf/set-db {}]`.
 ;;   - It REPLACES all of app-db (it is NOT a merge); for partial updates, write
 ;;     an ordinary event.
@@ -1168,10 +1166,10 @@
         ;; EP-0027 §`:rf/set-db`: EXACTLY ONE argument. The event vector is
         ;; `[:rf/set-db new-db]` (count 2); any trailing args (count > 2) are a
         ;; mis-call — `:rf/set-db` REPLACES the whole app-db with its single map
-        ;; argument and has no second-argument meaning, so extra args were
-        ;; previously SILENTLY IGNORED (a fail-open gap on the framework's own
-        ;; reserved seed event, against the EP's clarity-over-leniency posture).
-        ;; rf2-izy3b2: reject them LOUD with the same discriminator. (count 1 —
+        ;; argument and has no second-argument meaning, so SILENTLY IGNORING
+        ;; extra args would be a fail-open gap on the framework's own
+        ;; reserved seed event, against the EP's clarity-over-leniency posture.
+        ;; Reject them LOUD with the same discriminator. (count 1 —
         ;; the no-argument case — falls through to `valid-set-db-arg?` below,
         ;; which rejects the `nil` it reads as the missing arg.)
         extra-args? (> (count event) 2)]
@@ -1199,7 +1197,7 @@
 (def ^:private set-db-standard-meta
   "The Spec 001 registration metadata the `:rf/set-db` standard ships. Shared by
   the regular-registrar registration and the EP-0023 framework-standard registry
-  descriptor so both surfaces carry an identical `:doc` (rf2-v1xzoo). NOT
+  descriptor so both surfaces carry an identical `:doc`. NOT
   marked replaceable / invariant-coupled: it is an ordinary developer-friendly
   standard (default non-replaceable, no conformance invariant)."
   {:doc "Framework-standard app-db seeding event (EP-0027). `[:rf/set-db
@@ -1270,8 +1268,8 @@
 ;; continuations the registering/clearing handler queued with its own
 ;; `:dispatch` effects and they read the settled `app-db`.
 ;;
-;; This is the framework performing, once, the follow-up no-op dispatch the
-;; contract used to make every application hand-write.
+;; This is the framework performing, once, the follow-up no-op dispatch every
+;; application would otherwise hand-write.
 ;;
 ;; PRIVATE BY CONSTRUCTION, not by convention. It is NOT registered — not into
 ;; the registrar, not into the EP-0023 image standard registry. The router's
@@ -1282,15 +1280,15 @@
 ;;
 ;;   * it never appears in `rf.registrar/registrations :event`, so it adds no row
 ;;     to an app's event catalogue, tooling projection, or generated code — the
-;;     ceremony this change exists to delete does not simply move from the app
+;;     ceremony it exists to remove does not simply move from the app
 ;;     into the framework;
 ;;   * it needs no image-standard registration, because a generation-routed
 ;;     `rf.registrar/lookup` returns nil for an unregistered id and falls through
 ;;     to the same seam — so it resolves identically in every image generation;
-;;   * `reserved-event-ids` still lists it, because the registrar IS consulted
+;;   * `reserved-event-ids` lists it anyway, because the registrar IS consulted
 ;;     first: an app registration would shadow it silently.
 ;;
-;; It remains dispatchable by hand (`[:rf/settle-flows]`) — every event id is.
+;; It is dispatchable by hand (`[:rf/settle-flows]`) — every event id is.
 ;; Doing so is harmless and uninteresting: it writes nothing of its own and
 ;; merely runs the flow pass that the next event would have run anyway.
 
@@ -1343,11 +1341,11 @@
 
 ;; ---- retired public names — facade-exported throwing stubs ----------------
 ;;
-;; EP-0018 §2/§3 + EP-0007 rule 2: `reg-event-db` / `reg-event-fx` are REMOVED
-;; and public `reg-event-ctx` is demoted to a framework-internal primitive.
-;; There is NO working alias (an alias would preserve exactly the vocabulary
-;; the EP removes). Instead the retired public NAMES survive ONLY as throwing
-;; stubs so a stale `(rf/reg-event-db …)` call site fails LOUDLY with an
+;; EP-0018 §2/§3 + EP-0007 rule 2: there is no public `reg-event-db` /
+;; `reg-event-fx` / `reg-event-ctx` (`context -> context` is a framework-internal
+;; primitive). There is NO working alias (an alias would preserve exactly the
+;; vocabulary the EP removes). Instead the retired public NAMES exist ONLY as
+;; throwing stubs so a stale `(rf/reg-event-db …)` call site fails LOUDLY with an
 ;; actionable error naming the replacement — never an opaque "no such var".
 ;;
 ;; These are FACADE-EXPORTED (resolvable as `rf/reg-event-db` / `-fx` / `-ctx`
@@ -1468,20 +1466,19 @@
   (raise-removed-reg-event-by-row! (get removed-reg-event-by-sym 'reg-event-fx) args))
 
 (defn ^:no-doc reg-event-ctx
-  "DEMOTED to a framework-internal primitive in EP-0018 (off the public
-  surface). Calling public `reg-event-ctx` is the hard error
+  "Off the public surface per EP-0018 (a framework-internal
+  primitive). Calling public `reg-event-ctx` is the hard error
   `:rf.error/reg-event-ctx-removed`, naming `reg-interceptor` as the public
   replacement for application full-context work. See spec/001-Registration.md
   §The retired event-registration names."
   [& args]
   (raise-removed-reg-event-by-row! (get removed-reg-event-by-sym 'reg-event-ctx) args))
 
-;; rf2-kuky.80: no `clear-event` fn here. `:event` owns no tear-down lifecycle of
+;; There is no `clear-event` fn here. `:event` owns no tear-down lifecycle of
 ;; its own — removal IS `rf.registrar/unregister!`, which forgets provenance,
 ;; marks the live-frame projection dirty and emits `:rf.registry/handler-cleared`
-;; — so the kind-keyed `(rf/clear :event id)` calls the registrar directly and this
-;; one-line indirection is gone. The nilary clear-all went with it: its only
-;; callers were fixtures, which use `rf.registrar/clear-kind!`.
+;; — so the kind-keyed `(rf/clear :event id)` calls the registrar directly. Nor
+;; is there a nilary clear-all: fixtures use `rf.registrar/clear-kind!`.
 
 ;; ---- EP-0023 inline-registration lowering --------------------------------
 ;;
@@ -1507,7 +1504,7 @@
   metadata map (nil when the entry has none); `impl` is the raw handler fn.
 
   The inline contract is exactly the registrar's contract (EP-0026 §Inline
-  Registration Grammar; rf2-3x7nj.5.1), so this runs the SAME registration-time
+  Registration Grammar), so this runs the SAME registration-time
   checks `register-event!` runs: the metadata keys, the `:interceptors` chain
   SHAPE, `:boundary?` without `:schema`, the `:sensitive` / `:large`
   classification, and the `:rf.cofx/requires` parse. Two `register-event!`
@@ -1520,8 +1517,8 @@
   `register-event!` stores it; the router resolves each ref against the frame's
   generation at dispatch.
 
-  Top-level metadata is load-bearing: the runtime reads `:rf.trace/no-emit?`
-  (rf2-x76af2.25), `:boundary?` / `:schema` and the classification there, and
+  Top-level metadata is load-bearing: the runtime reads `:rf.trace/no-emit?`,
+  `:boundary?` / `:schema` and the classification there, and
   the satisfaction step (`router/assemble-initial-ctx`) reads
   `:rf.cofx/requires-parsed` (EP-0017 §4/§5). Writes nothing to the registrar.
   Image-assembly merges the result UNDER the descriptor, preserving `:impl` +
