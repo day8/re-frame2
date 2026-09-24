@@ -146,13 +146,13 @@
     4. if the handler emits a `:db` effect whose focused value is `identical?`
        to the original focused slice, rewrites the effect back to the ORIGINAL
        full app-db OBJECT (NOT an `assoc-in` allocation) — preserving the
-       frame-commit `identical?` no-op (rf2-ekq28v);
+       frame-commit `identical?` no-op;
     5. otherwise widens (`assoc-in`) the focused value into the original app-db
        at `path-vector`;
     6. restores the ORIGINAL full app-db as the `:db` coeffect on unwind — the
        focus is handler-scoped, so no stage after this interceptor's `:after`
        (an outer interceptor, or the framework's own outermost flow stage) may
-       see the slice standing in for the root (rf2-bw76).
+       see the slice standing in for the root.
 
   `path-vector` MUST be a vector (validated by the factory below, which throws
   `:rf.error/path-interceptor-bad-path` otherwise). The root path `[]` focuses
@@ -177,7 +177,7 @@
             ;; path: `re-frame.interceptor/invoke-after` concatenates the stack
             ;; into a context's absolute app-db focus, so the dev-only
             ;; after-delta capture can redact a focused slice at its true
-            ;; offset (rf2-fc84b). The vector is already held, so the entry
+            ;; offset. The vector is already held, so the entry
             ;; allocates nothing new. Reserved-namespace slot (Conventions
             ;; §Reserved namespaces).
             (update :rf.interceptor.path/stack (fnil conj [])
@@ -202,14 +202,14 @@
                         ;; object so every stage that runs after this `:after`
                         ;; sees the unfocused root. Nested paths restore in
                         ;; LIFO order (inner → outer slice → root).
-                        ;; rf2-bw76: the framework's outermost flow stage falls
+                        ;; The framework's outermost flow stage falls
                         ;; back to `[:coeffects :db]` as the pending app-db when
                         ;; the handler emitted NO `:db` effect (router.cljc,
-                        ;; `pending-db`). Leaving the coeffect focused made an
-                        ;; ordinary effect-only focused event hand the flow pass
-                        ;; its own sub-slice as the ROOT — the flow pass then
-                        ;; staged that slice as a root `:db` effect and every
-                        ;; sibling key was erased. Restoring the original OBJECT
+                        ;; `pending-db`). Leaving the coeffect focused would make
+                        ;; an ordinary effect-only focused event hand the flow
+                        ;; pass its own sub-slice as the ROOT — the flow pass
+                        ;; would then stage that slice as a root `:db` effect and
+                        ;; erase every sibling key. Restoring the original OBJECT
                         ;; (not a rebuilt map) also keeps rule 4's `identical?`
                         ;; commit no-op intact.
                         (assoc-in [:coeffects :db] original-db))
@@ -251,14 +251,14 @@
   regular-registrar registration AND the EP-0023 framework-standard registry
   registration carry the SAME factory object — so a generation-routed
   `registrar/lookup` and a registrar-atom `lookup` resolve the standard path
-  interceptor identically (rf2-32siq3.41)."
+  interceptor identically."
   {:factory path-factory})
 
 (def path-interceptor-metadata
   "The Spec 001 registration metadata the `:rf.interceptor/path` standard ships.
   Shared by the regular-registrar `reg-interceptor*` and the EP-0023
   framework-standard registry descriptor so both surfaces carry identical
-  `:rf/interceptor-descriptor` slots (rf2-32siq3.41)."
+  `:rf/interceptor-descriptor` slots."
   {:doc "Framework-standard path interceptor (EP-0022). Focuses an event
         handler on an app-db sub-slice at the given path-vector; the handler
         sees/returns only the slice, spliced back into full app-db.
@@ -266,7 +266,7 @@
 
 ;; EP-0023 framework-standard registry — the named invariant the
 ;; `:rf.interceptor/path` standard is coupled to (Spec 002 §Standard
-;; `:rf.interceptor/path` rule 4 / rf2-ekq28v): an unchanged focused slice
+;; `:rf.interceptor/path` rule 4): an unchanged focused slice
 ;; widens back to the ORIGINAL full app-db OBJECT so the frame-commit
 ;; `identical?` no-op is preserved. The invariant-coupled lock keeps the
 ;; standard non-replaceable until a conformance profile proves a replacement
@@ -276,7 +276,7 @@
   :rf.interceptor.path/commit-identical-no-op)
 
 (defn register-standard-interceptors!
-  "Register the framework-standard interceptors (currently only
+  "Register the framework-standard interceptors (only
   `:rf.interceptor/path`) into the active registrar AND the EP-0023
   framework-standard registry. Idempotent — called at namespace load AND from
   `re-frame.core/init!` so the standard refs survive a test fixture's
@@ -284,7 +284,7 @@
   everything else). Mirrors how the reserved fx survive via defmethod — the
   standard interceptors re-seed here on every boot.
 
-  TWO surfaces, ONE descriptor (rf2-32siq3.41):
+  TWO surfaces, ONE descriptor:
 
     * the REGULAR registrar (`reg-interceptor*`) — the default-image /
       no-generation resolution path, where `registrar/lookup` reads the
@@ -303,7 +303,7 @@
 
   The standard is marked NON-replaceable and INVARIANT-COUPLED via
   `:rf.standard/requires-conformance #{:rf.interceptor.path/commit-identical-no-op}`
-  (the rule-4 frame-commit `identical?` no-op, rf2-ekq28v): a public app image
+  (the rule-4 frame-commit `identical?` no-op): a public app image
   MUST NOT shadow it — a collision FAILS LOUD
   (`:rf.error/image-standard-replacement-forbidden`). EP-0026 §Framework Standard
   Registrations: standards are protected, and there is NO public
@@ -320,7 +320,7 @@
   ;; descriptor carries `:rf/interceptor-descriptor` (the factory) so a
   ;; generation-routed `interceptor-registry/resolve-ref` reads it identically to
   ;; the registrar path. Marked invariant-coupled (non-replaceable until a
-  ;; conformance profile exists — rf2-32siq3.41).
+  ;; conformance profile exists).
   (rf.image-assembly/register-standard!
     :interceptor :rf.interceptor/path
     (assoc path-interceptor-metadata
