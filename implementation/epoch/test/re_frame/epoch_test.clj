@@ -6268,10 +6268,10 @@
               "exactly the two live-incarnation failures announced, in one process"))))))
 
 (deftest restore-trace-commit-carries-owner-token
-  (testing "rf2-sdeae — the deferred resource-trace commit is a per-intent
+  (testing "the deferred resource-trace commit is a per-intent
             callback fan-out, so perform-restore! carries the captured exact
             incarnation token INTO the commit hook (the same `:owner-token`
-            shape the pre-write reconcile already receives) rather than fencing
+            shape the pre-write reconcile receives) rather than fencing
             only the outer call."
     (rf/make-frame {:id :test/sdeae-commit})
     (rf/reg-event :seed-c
@@ -6294,11 +6294,11 @@
         (is (= :test/sdeae-commit (first @seen))
             "the commit hook is told WHICH frame the intents belong to")
         (is (identical? incarnation-token (:owner-token (second @seen)))
-            "ACCEPTANCE — the EXACT captured incarnation token is carried into the
+            "the EXACT captured incarnation token is carried into the
              commit fan-out so it can revalidate at every intent boundary")
         (finally (rf.late-bind/set-fn! ck c0))))))
 
-;; rf2-obi8rr — the resources restore-reconcile success rows
+;; The resources restore-reconcile success rows
 ;; (:rf.resource/restored / :rf.resource/owner-released) must NOT leak when the
 ;; frame-state install fails. The reconcile runs BEFORE the atomic install and
 ;; defers those rows (riding them back as metadata); perform-restore! emits
@@ -6338,7 +6338,7 @@
                                (do (doseq [{:keys [level op tags]} intents]
                                      (rf.trace/emit! level op tags))
                                    rdb)))))
-      ;; 3-arity, mirroring the real ssr.cljc body since rf2-sdeae: the commit is
+      ;; 3-arity, mirroring the real ssr.cljc body: the commit is
       ;; a per-intent callback fan-out, so it takes the frame-id + the restore's
       ;; captured `:owner-token` and revalidates exact ownership at every intent.
       (rf.late-bind/set-fn! ck
@@ -6355,7 +6355,7 @@
         (rf.late-bind/set-fn! ck c0)))))
 
 (deftest restore-failed-install-emits-no-resource-success-traces
-  (testing "rf2-obi8rr ACCEPTANCE — a restore whose frame-state install FAILS
+  (testing "a restore whose frame-state install FAILS
             (the post-liveness teardown race: replace-frame-state! returns nil)
             emits NO :rf.resource/restored or :rf.resource/owner-released rows,
             even though resources rode in the snapshot — the reconcile deferred
@@ -6388,12 +6388,12 @@
               (is (not-any? #(= :rf.epoch/restored (:operation %)) @recorded)
                   "no :rf.epoch/restored (the install never landed)")
               (is (not-any? #(= :rf.resource/restored (:operation %)) @recorded)
-                  "ACCEPTANCE — no :rf.resource/restored leaked for the failed restore")
+                  "no :rf.resource/restored leaked for the failed restore")
               (is (not-any? #(= :rf.resource/owner-released (:operation %)) @recorded)
-                  "ACCEPTANCE — no :rf.resource/owner-released leaked for the failed restore"))))))))
+                  "no :rf.resource/owner-released leaked for the failed restore"))))))))
 
 (deftest restore-successful-install-emits-deferred-resource-traces
-  (testing "rf2-obi8rr — a SUCCESSFUL restore DOES emit the deferred
+  (testing "a SUCCESSFUL restore DOES emit the deferred
             :rf.resource/restored + :rf.resource/owner-released rows (committed
             after the install landed) — the deferral does not drop them on the
             happy path."
@@ -6423,7 +6423,7 @@
                 "the deferred :rf.resource/owner-released row is committed on success")))))))
 
 (deftest replace-frame-state-app-only-post-liveness-teardown-returns-false
-  (testing "rf2-s93722 — perform-replace-frame-state! (app-only map) returns
+  (testing "perform-replace-frame-state! (app-only map) returns
             false, emits :rf.error/no-such-handler (kind :frame), and does NOT
             record a synthetic epoch, emit :rf.epoch/db-replaced, or fan out a
             record when frame/replace-frame-state! returns nil AFTER the
@@ -6463,7 +6463,7 @@
             "no synthetic epoch recorded into the dropped ring")))))
 
 (deftest replace-frame-state-runtime-only-post-liveness-teardown-returns-false
-  (testing "rf2-s93722 — perform-replace-frame-state! (runtime-only map)
+  (testing "perform-replace-frame-state! (runtime-only map)
             returns false, emits :rf.error/no-such-handler (kind :frame), and
             records / fans out NO synthetic epoch when
             frame/replace-frame-state! returns nil AFTER the liveness check
@@ -6504,7 +6504,7 @@
             "no synthetic epoch recorded into the dropped ring")))))
 
 (deftest replace-frame-state-post-liveness-teardown-returns-false
-  (testing "rf2-s93722 — perform-replace-frame-state! returns false, emits
+  (testing "perform-replace-frame-state! returns false, emits
             :rf.error/no-such-handler (kind :frame), and records / fans out NO
             synthetic epoch when replace-frame-state! returns nil AFTER the
             liveness check passed."
@@ -6543,12 +6543,12 @@
         (is (= [] (rf/epoch-history :test/short-lived))
             "no synthetic epoch recorded into the dropped ring")))))
 
-;; rf2-s93722 — guard the OTHER side of the nil/empty-set distinction: a
+;; Guard the OTHER side of the nil/empty-set distinction: a
 ;; live-frame NO-OP write (the value `=` the current slice) returns an EMPTY
 ;; changed-key-set (non-nil), so it MUST stay a success — NOT be misread as a
 ;; destroyed-frame drop.
 (deftest replace-frame-state-app-only-noop-write-stays-successful
-  (testing "rf2-s93722 — a no-op replace-frame-state! (an app-only map whose
+  (testing "a no-op replace-frame-state! (an app-only map whose
             value equals the current app-db) returns an EMPTY (non-nil)
             changed-key-set from the frame write, so the perform helper
             treats it as success — true return, :rf.epoch/db-replaced
@@ -6576,12 +6576,12 @@
           "the synthetic epoch IS recorded for the no-op write"))))
 
 ;; ============================================================================
-;;  rf2-7i872 — listener observation bookkeeping race (unregister mid-fan-out)
+;;  Listener observation bookkeeping race (unregister mid-fan-out)
 ;; ============================================================================
 ;;
 ;; notify-listeners! iterates a listener SNAPSHOT, then per cb-id calls
 ;; record-observation! (writing the separate observed-frames-by-cb atom)
-;; BEFORE invoking the callback. record-observation! is gated (rf2-7i872) on
+;; BEFORE invoking the callback. record-observation! is gated on
 ;; the cb-id still being a live listener at record time: if
 ;; unregister-epoch-listener! removes a cb between the snapshot and the
 ;; record-observation! call, an ungated write would RE-INTRODUCE the stale
@@ -6589,7 +6589,7 @@
 ;; :rf.epoch.cb/silenced-on-frame-destroy trace on frame destroy.
 
 (deftest record-observation-skips-unregistered-cb-no-stale-bookkeeping
-  (testing "rf2-7i872 — record-observation! against a cb that has been
+  (testing "record-observation! against a cb that has been
             unregistered does NOT re-introduce an observed-frames-by-cb
             entry. (The exact ordering notify-listeners! exposes: snapshot
             taken, cb dropped, then record-observation! fires for the stale
@@ -6613,7 +6613,7 @@
            record-observation! refused to re-introduce bookkeeping for a dead cb"))))
 
 (deftest unregister-mid-fanout-no-bogus-silencing-trace
-  (testing "rf2-7i872 — the precise unregister-mid-fan-out interleaving
+  (testing "the precise unregister-mid-fan-out interleaving
             notify-listeners! exposes: a listener snapshot is taken (carrying
             ::victim), ::victim is unregistered, THEN record-observation! is
             invoked for the stale ::victim id from the snapshot. The stale id
@@ -6629,7 +6629,7 @@
 
     (let [recorded (record-trace!)]
       ;; ::victim is a freshly-registered listener that has NOT yet observed
-      ;; any frame (put-listener! clears its observation ledger). It is live
+      ;; any frame (a fresh generation carries no observations). It is live
       ;; in the registry when the fan-out snapshot is taken.
       (rf/register-listener! :epoch ::victim (fn [_] nil))
       (let [;; (1) notify-listeners! takes the snapshot (includes ::victim +
@@ -6665,29 +6665,31 @@
              unregistered ::victim cb")))))
 
 ;; ============================================================================
-;;  rf2-j538f7.5 — same-id listener replacement generation race
+;;  Same-id listener replacement generation race
 ;; ============================================================================
 ;;
-;; `put-listener!` previously published the new callback and cleared the prior
-;; observation ledger in TWO separate swaps. A concurrent `notify-listeners!`
-;; fan-out could, in the window between them, record the NEW callback's frame
-;; observation — which the registering thread's second swap then ERASED, so a
-;; later frame destroy emitted NO `:rf.epoch.cb/silenced-on-frame-destroy` for a
-;; callback that had genuinely consumed the frame (a false negative under
-;; ordinary JVM concurrency). The fix folds callback + monotonically-increasing
-;; GENERATION token into one atomic registration and stamps every observation
-;; with the recording generation, so a same-id replacement can neither erase a
-;; fresh observation nor let a stale one arm the new registration.
+;; `put-listener!` publishes the new callback together with a freshly-minted,
+;; monotonically-increasing GENERATION token in ONE atomic swap, and every
+;; observation is stamped with the recording generation, so a replacement never
+;; clears the observation ledger. Were the publish and a ledger clear TWO
+;; separate swaps, a concurrent `notify-listeners!` fan-out could, in the window
+;; between them, record the NEW callback's frame observation — which the
+;; registering thread's second swap would then ERASE, so a later frame destroy
+;; would emit NO `:rf.epoch.cb/silenced-on-frame-destroy` for a callback that
+;; had genuinely consumed the frame (a false negative under ordinary JVM
+;; concurrency). With generation-stamped observations a same-id replacement can
+;; neither erase a fresh observation nor let a stale one arm the new
+;; registration.
 
 (deftest same-id-replacement-preserves-new-callback-observation
-  (testing "rf2-j538f7.5 — a same-id listener replacement paused right after the
+  (testing "a same-id listener replacement paused right after the
             new callback is published records the NEW callback's frame
             observation and does NOT erase it, so frame destroy emits exactly
             one silencing trace for the new callback. Reproduction: a watch on
             the private listeners atom parks the replacement thread at the
             publish point; a record is fanned out while parked; then the
-            replacement is released. On the pre-fix two-swap code the second
-            swap erased the observation (zero silences); the fix preserves it."
+            replacement is released. A separate ledger-clearing second swap
+            would erase the observation (zero silences)."
     (rf/make-frame {:id :j538/race})
     (let [fired          (atom 0)
           recorded       (record-trace!)
@@ -6724,8 +6726,8 @@
             (is (not= ::timeout (deref replace-fut 5000 ::timeout))
                 "replacement thread completed")
             (remove-watch listeners-atom ::barrier))))
-      ;; After the replacement completes, the observation must SURVIVE — the
-      ;; pre-fix second swap erased it here.
+      ;; After the replacement completes, the observation must SURVIVE — a
+      ;; separate ledger-clearing swap would erase it here.
       (is (contains? (get (rf.epoch.state/observations-snapshot) ::probe) :j538/race)
           "the new callback's observation survived the completed replacement")
       (rf/destroy-frame! :j538/race)
@@ -6740,7 +6742,7 @@
       (rf/unregister-listener! :epoch ::probe))))
 
 (deftest stale-old-generation-fanout-cannot-arm-new-registration
-  (testing "rf2-j538f7.5 (mirror) — a fan-out that snapshotted the OLD
+  (testing "mirror — a fan-out that snapshotted the OLD
             generation before a same-id replacement cannot add an observation to
             the NEW registration: record-observation! with the stale generation
             token is refused, and a later frame destroy emits no silencing trace
@@ -6770,7 +6772,7 @@
       (rf/unregister-listener! :epoch ::probe))))
 
 (deftest generation-scoped-observations-across-frames
-  (testing "rf2-j538f7.5 — old and new generations observing DIFFERENT frames:
+  (testing "old and new generations observing DIFFERENT frames:
             replacement retires only the old generation's live observation, the
             new observation survives, each destroy is a true positive/negative,
             and same-key frame recreation re-arms."
