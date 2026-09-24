@@ -1,23 +1,23 @@
 (ns re-frame.frame-construction-atomic-jvm-test
-  "rf2-vxgfnd.198 / rf2-vxgfnd.292 — partial frame-container allocation must be
-  FAILURE-ATOMIC.
+  "Partial frame-container allocation must be FAILURE-ATOMIC.
 
-  THE DEFECT. `new-frame-record` acquires three opaque adapter values in
+  THE HAZARD. `new-frame-record` acquires three opaque adapter values in
   sequence before the `frames` registry owns them: the physical frame-state
   container (`make-state-container`), then the app-db partition projection, then
   the runtime-db partition projection (both `make-derived-value`). If the SECOND
-  or THIRD call throws, no complete frame record exists — yet the successfully
-  returned earlier values were never unwound. A conforming adapter that tracks a
-  state container and a first projection (installing a real host resource — a
-  watch), then throws while building the second projection, was left owning that
-  first projection's watch even though frame installation failed. Retried, the
-  allocation counts grew with no corresponding live frame.
+  or THIRD call throws, no complete frame record exists — so the successfully
+  returned earlier values must be unwound. Otherwise a conforming adapter that
+  tracks a state container and a first projection (installing a real host
+  resource — a watch), then throws while building the second projection, would
+  be left owning that first projection's watch even though frame installation
+  failed, and each retry would grow the allocation counts with no corresponding
+  live frame.
 
   THE CONTRACT (Spec 006, no new adapter fn):
     - A returned physical state container is GC-owned — no per-container
       disposal verb; `make-state-container` either throws before returning or
       returns a disposal-free value. \"Throws before returning\" is about
-      RESIDUE, not ordering (rf2-vxgfnd.292): a constructor that acquires a host
+      RESIDUE, not ordering: a constructor that acquires a host
       or registry resource and only then fails must release it before the throw
       escapes, because the core never receives the container and has no verb
       that could reach it.
@@ -37,9 +37,9 @@
   residue, and a clean retry. No sleeps, no global adapter dispose, no
   whole-process reset is used as the per-frame rollback.
 
-  Pre-fix, the second-projection case leaves `:proj-1`'s watch owned (the
-  rollback never disposed it) — `residual-watches` is non-empty and the test
-  FAILS."
+  Without the rollback, the second-projection case would leave `:proj/p1`'s
+  watch owned — `residual-watches` would be non-empty and the test would
+  FAIL."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -69,7 +69,7 @@
 ;;   :containers      — vector of every state container handed out (so a test can
 ;;                      read the real watch set off the JVM atom).
 ;;   :pinned          — set of containers currently PINNED in the adapter's own
-;;                      ownership registry (rf2-vxgfnd.292). The state
+;;                      ownership registry. The state
 ;;                      constructor acquires this pin BEFORE its fault point, so
 ;;                      an armed throw has something real to unwind. This is the
 ;;                      state-container leak surface: the core never receives an
@@ -164,8 +164,8 @@
     (test-fn)
     (finally
       ;; Restore the shared plain-atom baseline every OTHER test namespace
-      ;; expects. `rf/init!` is idempotent for the adapter it seated (rf2-kuky.1
-      ;; — a DIFFERENT adapter raises `:rf.error/adapter-already-installed`), so
+      ;; expects. `rf/init!` is idempotent for the adapter it seated (a
+      ;; DIFFERENT adapter raises `:rf.error/adapter-already-installed`), so
       ;; a custom tracking adapter left installed here would make the next
       ;; namespace's plain-atom boot throw. Cold + reinstall
       ;; plain-atom leaves the process exactly as neighbouring fixtures assume.
@@ -202,7 +202,7 @@
     (is (empty? @(:pinned state))
         "the registry pin the constructor acquired BEFORE its fault was released
          before the throw escaped — nothing else could have released it, since
-         the core never received the container (rf2-vxgfnd.292)")
+         the core never received the container")
     (is (zero? @(:derived-count state)) "make-derived-value was never reached")
     (is (false? (rf.trace/frame-trace-disabled? :atomic/state-throw))
         "no trace-policy residue — the no-emit flag the failed config requested
@@ -268,7 +268,7 @@
 ;; ===========================================================================
 ;; The SECOND projection throws — the FIRST (already returned) projection must
 ;; be disposed exactly once, in reverse acquisition order. THE headline case:
-;; pre-fix the first projection's watch is stranded.
+;; without the rollback the first projection's watch would be stranded.
 ;; ===========================================================================
 
 (deftest second-projection-throw-disposes-first-in-reverse-order
@@ -287,8 +287,9 @@
          once, in reverse acquisition order (proj/p2 threw and never returned)")
     (is (empty? @(:watched state))
         "zero returned-projection watches survive — proj/p1 was disposed by the
-         reverse-order rollback and proj/p2 unwound itself. PRE-FIX proj/p1's
-         watch is stranded and this set is #{:proj/p1}")
+         reverse-order rollback and proj/p2 unwound itself. Without the
+         rollback proj/p1's watch would be stranded and this set would be
+         #{:proj/p1}")
     (is (empty? (residual-watches state))
         "no residual watch on any container — the leak surface is clean")
     (is (false? (rf.trace/frame-trace-disabled? :atomic/second-throw))
