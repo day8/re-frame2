@@ -254,9 +254,10 @@
       (throw (ex-info "leaf carries no BEGIN/END generated markers" {})))
     ;; `end` points just PAST the end marker, so the tail still carries the
     ;; newline that terminated the marker's own line. Emitting one here as well
-    ;; appended a blank line on every run — cumulative, not a one-off, because
-    ;; the next run's tail then began with two. Consume the tail's newline and
-    ;; re-emit exactly one, which makes a no-op regeneration a no-op.
+    ;; would append a blank line on every run — cumulative, not a one-off,
+    ;; because the next run's tail would then begin with two. Consume the
+    ;; tail's newline and re-emit exactly one, which makes a no-op
+    ;; regeneration a no-op.
     (let [tail (subs text end)]
       (str (subs text 0 start)
            (str/trim-newline new-region) "\n"
@@ -283,14 +284,14 @@
 (defn- gate-args!
   "Fail closed on ANY argument, before a single byte is written.
 
-   This script takes none. It used to ignore whatever it was given and run
-   its normal generate-and-write path regardless, so `--check` — the mode a
-   caller most naturally reaches for — silently REGENERATED and exited 0.
+   This script takes none. Ignoring an argument and running the normal
+   generate-and-write path regardless would make `--check` — the mode a
+   caller most naturally reaches for — silently REGENERATE and exit 0.
    That is the failure-open shape: a well-formed green from an instrument
    that did the opposite of what was asked.
 
-   Refusing what it does not understand is the fix, rather than growing a
-   second checker: the no-write check already exists, and is named below so
+   It refuses what it does not understand rather than growing a second
+   checker: the no-write check already exists, and is named below so
    the caller who typed `--check` is routed to it instead of being told only
    that they were wrong. Same shape as the template's own
    `day8.re-frame2-template.hooks/gate-arg-keys!`, which this script loads
