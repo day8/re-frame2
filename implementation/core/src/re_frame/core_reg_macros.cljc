@@ -8,7 +8,7 @@
   the `with-coords-form` helper plus the `defreg-macro` macro-defining
   macro.
 
-  Carved out of `re-frame.core` so the public namespace stays a thin
+  Separate from `re-frame.core` so the public namespace stays a thin
   facade focused on user-visible Var resolution rather than macro
   expansion bulk; this ns owns the cohesive responsibility of every
   registration-site `reg-*` macro's compile-time coord stamping. The
@@ -18,14 +18,14 @@
   `ns-alias/Var` lookup); each shell is a one-line `(defreg-macro …)`
   form that delegates here.
 
-  rf2-xnym: the rationale for `(symbol (str (ns-name *ns*)))` rather
+  The rationale for `(symbol (str (ns-name *ns*)))` rather
   than `(ns-name *ns*)` — in CLJS macro context the ns-symbol may
   carry the consumer namespace's `:doc` metadata, which would then get
   serialised into the bundle and defeat production elision. Every
   reg-* macro routes its `(meta &form)` / `*file*` / `*ns*` capture
   through `with-coords-form` so the rationale lives in one place.
 
-  File naming uses the flat dash-form (per Conventions; rf2-2vbm):
+  File naming uses the flat dash-form (per Conventions):
   CLJS `goog.provide` for `re-frame.core` overwrites its parent
   object, which would wipe a previously-loaded `re-frame.core.X`."
   (:require [re-frame.error :as rf.error]
@@ -40,14 +40,14 @@
      "Wrap `body-form` in a binding of `rf.source-coords/*pending-coords*`
      to the compile-time coord map for `form-meta` / `file` / `ns-sym`.
      Caller passes `(meta &form)`, `*file*`, and the metadata-free
-     ns-symbol (per the rf2-xnym rationale above). Returns a syntax-
+     ns-symbol (per the rationale above). Returns a syntax-
      quote-safe form suitable for a reg-* defmacro to emit.
 
-     The rf2-52gw helper: centralises the `(binding [...] (target ...))`
-     skeleton that every reg-* macro emits, so each defmacro becomes a
+     Centralises the `(binding [...] (target ...))`
+     skeleton that every reg-* macro emits, so each defmacro is a
      one-line delegation rather than a 12-line repetition.
 
-     Per rf2-3un2g §Production elision: the bound coord-map is emitted
+     Production elision: the bound coord-map is emitted
      under an `(if interop/debug-enabled? <dev> <prod>)` gate. Dev rides
      the full [[rf.source-coords/coords-form]] (with `:column`); prod rides
      [[rf.source-coords/prod-coords-form]] (no `:column`). Closure folds the
@@ -66,7 +66,7 @@
                   ~(rf.source-coords/prod-coords-form form-meta file ns-sym))]
         ~body-form)))
 
-;; ---- pure-documentation (:doc) literal-map elision (rf2-9wwkcm) ----------
+;; ---- pure-documentation (:doc) literal-map elision -----------------------
 ;;
 ;; Per Spec 001 §Production elision contract, `:doc` is the one PURE-
 ;; documentation registration-metadata key. `re-frame.registrar/register!`
@@ -120,7 +120,7 @@
 #?(:clj
    (defn gate-doc-arg
      "Rewrite a single reg-* macro argument `arg` for pure-documentation
-     elision (rf2-9wwkcm). When `arg` is a LITERAL metadata-map carrying a
+     elision. When `arg` is a LITERAL metadata-map carrying a
      pure-documentation key (`:doc`), return an
      `(if re-frame.interop/debug-enabled? <arg> <arg-without-doc-keys>)`
      form so Closure constant-folds the gate under `:advanced` +
@@ -143,12 +143,12 @@
 #?(:clj
    (defn gate-doc-args
      "Map `gate-doc-arg` across a reg-* macro's argument seq, gating every
-     literal doc-bearing metadata-map for production elision (rf2-9wwkcm).
+     literal doc-bearing metadata-map for production elision.
      Returns the rewritten arg seq the macro splices into its delegate call."
      [args]
      (map gate-doc-arg args)))
 
-;; ---- inline-image :registrations metadata gate (rf2-v2j8e) ---------------
+;; ---- inline-image :registrations metadata gate ---------------------------
 ;;
 ;; `rf/image` is a value CONSTRUCTOR, not a `reg-*` registration. Its inline
 ;; `:registrations` sections carry per-entry metadata maps
@@ -157,7 +157,7 @@
 ;; `re-frame.image-assembly/strip-descriptor-documentation` normalization runs.
 ;; Per Spec 001 §Production elision contract a runtime strip cannot DCE
 ;; call-site string bytes; only an OUTER `goog.DEBUG` gate at the authoring seam
-;; can. The `rf/image` MACRO (re-frame.core, rf2-v2j8e) runs `gate-image-spec`
+;; can. The `rf/image` MACRO (re-frame.core) runs `gate-image-spec`
 ;; over its spec so every LITERAL doc-bearing inline metadata map rides the SAME
 ;; `(if interop/debug-enabled? <full> <stripped>)` gate the `reg-*` macros emit
 ;; via `gate-doc-arg` — DCEing the `:doc` string under `:advanced` +
@@ -167,7 +167,7 @@
 #?(:clj
    (defn ^:private gate-inline-image-entry
      "Gate the metadata slot of ONE inline `:registrations` entry FORM for
-     `:doc` string elision (rf2-v2j8e). An inline entry is a call-shaped tuple
+     `:doc` string elision. An inline entry is a call-shaped tuple
      `[id body]` (no metadata) or `[id metadata body]` (EP-0026 §Inline
      Registration Grammar). Only a 3-tuple carries a metadata slot; when that
      slot is a LITERAL doc-bearing map it is rewritten via [[gate-doc-arg]] to
@@ -184,8 +184,8 @@
 #?(:clj
    (defn gate-image-spec
      "Rewrite an `rf/image` SPEC FORM so every LITERAL doc-bearing inline
-     `:registrations` metadata map crosses the compile-time production gate
-     (rf2-v2j8e). The image-authoring-boundary analogue of [[gate-doc-args]]:
+     `:registrations` metadata map crosses the compile-time production gate.
+     The image-authoring-boundary analogue of [[gate-doc-args]]:
      walk each `:registrations` section's `[id metadata body]` entries and gate
      their literal metadata slot via [[gate-inline-image-entry]].
 
@@ -213,7 +213,7 @@
 
 ;; ---- defreg-macro --------------------------------------------------------
 ;;
-;; `defreg-macro` (rf2-bd6zl) is a macro-defining macro that emits a
+;; `defreg-macro` is a macro-defining macro that emits a
 ;; canonical reg-* defmacro body: captures source-coords at the caller's
 ;; call site and splices the args through to a fn-form delegate.
 ;; `~'&form` / `~'*file*` / `~'*ns*` escapes resolve at the INNER
@@ -258,7 +258,7 @@
           ~docstring
           ~(or attr-map {})
           [~'& args#]
-          ;; rf2-9wwkcm: gate any literal doc-bearing metadata-map arg so its
+          ;; Gate any literal doc-bearing metadata-map arg so its
           ;; `:doc` string DCEs under :advanced + goog.DEBUG=false.
           (with-coords-form (meta ~'&form) ~'*file*
                             (symbol (str (ns-name ~'*ns*)))
@@ -266,13 +266,13 @@
 
 ;; ---- defreg-event-macro --------------------------------------------------
 ;;
-;; Per Spec 009 §`:rf.handler/source` and Xray Spec 021 §11.2 B.7
-;; stretch (rf2-xgfuy): the one `reg-event` macro (EP-0018) additionally
+;; Per Spec 009 §`:rf.handler/source` and Xray Spec 021 §11.2 B.7:
+;; the one `reg-event` macro (EP-0018) additionally
 ;; captures the WHOLE `(reg-event :id ...)` form as a string under
 ;; `:rf.handler/source` so Xray's Event panel can render the source
 ;; inline.
 ;;
-;; Scope decision (rf2-xgfuy): capture the WHOLE form (`(reg-event
+;; It captures the WHOLE form (`(reg-event
 ;; :id [interceptors] (fn ...))`), not just the handler-fn. The Xray
 ;; Event panel mockup (Spec 021 §2.2) renders the macro name + id +
 ;; full handler-fn body — the whole form gives the consumer everything
@@ -294,7 +294,7 @@
      source*` to the compile-time `pr-str` of `whole-form` (the entire
      `(reg-event :id ...)` form as the user wrote it). Returns a
      syntax-quote-safe form suitable for the `reg-event` defmacro to
-     emit. Per rf2-xgfuy.
+     emit.
 
      The bound value rides an outer `(if interop/debug-enabled? <src>
      nil)` gate so Closure DCEs the source-string literal under
@@ -311,7 +311,7 @@
    (defmacro defreg-event-macro
      "Emits a `defmacro` for a `reg-event-{db,fx,ctx}` surface. Same
      coord-capture skeleton as [[defreg-macro]] PLUS the form-source
-     capture per rf2-xgfuy: the emitted macro binds
+     capture: the emitted macro binds
      `rf.source-coords/*pending-form-source*` to a DEBUG-gated `pr-str`
      of the whole user-written form so `re-frame.events/register-
      event!` can stamp `:rf.handler/source` into the registry meta.
@@ -325,7 +325,7 @@
           ~docstring
           ~(or attr-map {})
           [~'& args#]
-          ;; rf2-9wwkcm: gate any literal doc-bearing metadata-map arg so its
+          ;; Gate any literal doc-bearing metadata-map arg so its
           ;; `:doc` string DCEs under :advanced + goog.DEBUG=false. (The
           ;; form-source `pr-str` captured by `with-form-source-form` already
           ;; DCEs its own `:doc` bytes via the form-source debug-gate; this
@@ -337,14 +337,14 @@
 
 ;; ---- reg-machine expansion (co-located per-element source) ---------------
 ;;
-;; The bespoke reg-* form (Spec 005 §Source-coord stamping; rf2-xbtj) —
+;; The bespoke reg-* form (Spec 005 §Source-coord stamping) —
 ;; doesn't fit the splice-through pattern because the spec form is walked
-;; at compile time. Per rf2-npvsx the walk produces ONE cohesive map per
+;; at compile time. The walk produces ONE cohesive map per
 ;; guard / action — `:guards {<id> {:fn .. :source-coords
-;; .. :source-code ..}}` — and per rf2-vqja2 it CO-LOCATES a reference-site
+;; .. :source-code ..}}` — and CO-LOCATES a reference-site
 ;; `:source-coords` onto each MAP node inside the `:states` tree (state-node
 ;; / transition map) at its spec path, rather than building a flat
-;; `:rf.machine/state-coords` side-index that paralleled `:states`. The
+;; side-index parallel to `:states`. The
 ;; walker drops to the unchanged spec for non-literal forms (a runtime
 ;; symbol) and tools fall back to the top-level handler-meta call-site
 ;; coords.
@@ -352,7 +352,7 @@
 #?(:clj
    (def ^:private machine-element-slots
      "The machine-spec slots whose `{<id> <fn>}` values are co-located into
-     `{<id> {:fn .. :source-coords .. :source-code ..}}` per rf2-npvsx."
+     `{<id> {:fn .. :source-coords .. :source-code ..}}`."
      [:guards :actions]))
 
 #?(:clj
@@ -363,12 +363,11 @@
      there's nothing to stamp) OR an `(if interop/debug-enabled? <dev>
      <prod>)` expression.
 
-     Per rf2-npvsx the two arms CO-LOCATE per-element source onto each
-     `:guards` / `:actions` entry, and per rf2-vqja2
-     they CO-LOCATE a reference-site `:source-coords` onto each MAP node
-     inside the `:states` tree — rather than building the old
-     `:rf.machine/source-coords` / `:rf.machine/handler-source` /
-     `:rf.machine/state-coords` side-indexes:
+     The two arms CO-LOCATE per-element source onto each
+     `:guards` / `:actions` entry, and
+     CO-LOCATE a reference-site `:source-coords` onto each MAP node
+     inside the `:states` tree — rather than building separate
+     side-indexes:
 
      - DEV arm: `rf.source-coords/collocate-element-source` merges the per-id
        `{:source-coords {...} :source-code \"...\"}` data (built by the
@@ -381,7 +380,7 @@
        `:source-code` strings — a `{<slot> <source-string>}` map keyed by the
        inline `:entry`/`:exit`/`:guard`/`:action` slot — onto each enclosing
        node (the `{<map-spec-path> {<slot> <source>}}` index from
-       `walk-machine-inline-source`; rf2-se70xj). The inline-fn slot values
+       `walk-machine-inline-source`). The inline-fn slot values
        themselves stay bare fns (the runtime engine resolves them via `fn?`
        and stamps them as the trace `:action-id`/`:guard-id`).
      - PROD arm: `rf.source-coords/wrap-element-fns` collapses each entry to
@@ -399,7 +398,7 @@
      (which stamps the spec it registers) and the `defmachine` macro (which
      stamps the spec it `def`s, so a value-registered machine —
      `(defmachine m …)` then `(reg-machine :id m)` — carries per-element
-     source even though `reg-machine` sees only the symbol; rf2-gwj8l)."
+     source even though `reg-machine` sees only the symbol)."
      [spec-form ns-sym file value-expr]
      (if-not (map? spec-form)
        value-expr
@@ -413,10 +412,9 @@
              ;; Reference-site (states-tree) coords, keyed by each MAP node's
              ;; spec-path. Built syntax-quote-safe (`:ns` quoted) so the
              ;; splice doesn't namespace-resolve the consumer's ns at compile
-             ;; time (ClassNotFoundException). Per rf2-vqja2 these are
+             ;; time (ClassNotFoundException). These are
              ;; co-located ONTO each state-node / transition map at runtime
-             ;; rather than assoc'd into a flat `:rf.machine/state-coords`
-             ;; side-index.
+             ;; rather than assoc'd into a flat side-index.
              state-coords (into {}
                                 (map (fn [[path coords]]
                                        [path
@@ -425,14 +423,14 @@
                                           (:line coords)   (assoc :line (:line coords))
                                           (:column coords) (assoc :column (:column coords)))]))
                                 (rf.source-coords/walk-machine-spec spec-form ns-sym file))
-             ;; Inline-fn source-code index (rf2-se70xj): per enclosing
+             ;; Inline-fn source-code index: per enclosing
              ;; `:states`-tree map-node spec-path, the `{<slot>
              ;; <source-string>}` map for each inline `:entry`/`:exit`/
              ;; `:guard`/`:action` fn LITERAL. Plain strings — syntax-quote-
              ;; safe with no further quoting (unlike the coord maps' `:ns`
              ;; symbol). Co-located alongside the reference-site coords so an
-             ;; inline action's CODE renders (it previously fell through to a
-             ;; bare-fn `pr-str` → `#object[Function]`).
+             ;; inline action's CODE renders (without it, the action would
+             ;; fall through to a bare-fn `pr-str` → `#object[Function]`).
              inline-src   (rf.source-coords/walk-machine-inline-source spec-form)
              ;; Only co-locate slots actually present on the spec; both
              ;; helpers no-op on an absent slot, but emitting calls only for
@@ -468,7 +466,7 @@
 #?(:clj
    (defn expand-reg-machine
      "Build the expansion form for a `reg-machine` macro call. Per
-     Spec 005 §Source-coord stamping; rf2-xbtj / rf2-npvsx. `form-meta`
+     Spec 005 §Source-coord stamping. `form-meta`
      is `(meta &form)`; `ns-sym` / `file` are `*ns*` / `*file*` at
      expansion time. The per-element co-location + reference-site coord
      index ride [[stamp-machine-spec-expr]]'s `interop/debug-enabled?`
@@ -478,28 +476,28 @@
      onto each `:guards` / `:actions` entry of the
      spec, which `reg-machine*` stores under `:rf/machine` in the machine's
      `:event` registration. Tooling reads `(rf/handler-meta {:source :store :kind :machine-guard :id [machine-id guard-id]})`, which DERIVES the fn-source on demand from
-     that `:event` spec (rf2-ftrcv, supersedes rf2-npvsx — no registrar
+     that `:event` spec (no registrar
      side-table). The PROD arm collapses each entry to `{:fn <fn>}` (no
      source), so the derivation returns nil under elision.
 
      When `machine` is NOT a literal map (a symbol bound by `def` /
      `defmachine`, a let-bound expr), [[stamp-machine-spec-expr]] returns
      the spec expr unchanged — the co-located source lives on the
-     def'd value instead (via `defmachine`; rf2-gwj8l).
+     def'd value instead (via `defmachine`).
 
-     Per rf2-wgmipl the 6-arg form threads an `opts-form` — the event-vector
+     The 6-arg form threads an `opts-form` — the event-vector
      `:schema` (and any other) registration-metadata map — into the emitted
-     3-arg `reg-machine` call. Per rf2-wvh95f F2 the `opts` metadata map is the
+     3-arg `reg-machine` call. The `opts` metadata map is the
      canonical Spec 001 MIDDLE slot, so the emitted call is `(reg-machine
      machine-id opts spec)` (opts middle, spec last). `opts-form` is a RUNTIME
      expression evaluated at the call site (not walked at expansion time). The
-     5-arg form (no opts) emits the bare 2-arg `reg-machine` call, unchanged.
+     5-arg form (no opts) emits the bare 2-arg `reg-machine` call.
 
-     Per rf2-tfiutq the opts-form rides `gate-doc-arg` so a LITERAL doc-bearing
+     The opts-form rides `gate-doc-arg` so a LITERAL doc-bearing
      opts map (`(reg-machine :id {:doc \"…\"} spec)`) DCEs its `:doc` string
-     under `:advanced` + `goog.DEBUG=false` — closing the parity gap with the
-     splice-through `defreg-macro` / `defreg-event-macro` surfaces (which gate
-     every literal doc-bearing arg). A non-literal opts expression (a symbol, a
+     under `:advanced` + `goog.DEBUG=false` — the same gate the
+     splice-through `defreg-macro` / `defreg-event-macro` surfaces apply to
+     every literal doc-bearing arg. A non-literal opts expression (a symbol, a
      computed map, a `merge` call) passes through unchanged — its `:doc`, if
      any, still strips from the stored handler-meta via the runtime `register!`
      strip, but its string bytes are outside the macro's reach."
@@ -511,15 +509,15 @@
             stamped     (stamp-machine-spec-expr machine ns-sym file machine-sym)
             inline?     (not (identical? stamped machine-sym))
             no-opts?    (= opts-form ::no-opts)
-            ;; rf2-tfiutq — gate a literal doc-bearing opts map for `:doc`
+            ;; Gate a literal doc-bearing opts map for `:doc`
             ;; string elision, exactly as the splice-through reg-* surfaces do.
             opts-form   (if no-opts? opts-form (gate-doc-arg opts-form))
             reg-call    (fn [spec-expr]
                           (if no-opts?
                             `(re-frame.core-machines/reg-machine ~machine-id ~spec-expr)
-                            ;; rf2-wvh95f F2 — opts is the MIDDLE slot.
+                            ;; opts is the MIDDLE slot.
                             `(re-frame.core-machines/reg-machine ~machine-id ~opts-form ~spec-expr)))]
-        ;; Per rf2-3un2g §Production elision: the binding-value rides an
+        ;; Production elision: the binding-value rides an
         ;; outer `interop/debug-enabled?` gate so Closure DCEs the dev
         ;; coords (with `:column`) under `:advanced + goog.DEBUG=false`.
         ;; See [[with-coords-form]] for the rationale.
@@ -533,19 +531,19 @@
               (reg-call machine)
               ;; Explicit gensym (not an auto-gensym) so the binding symbol is
               ;; stable across the two syntax-quote contexts the `reg-call`
-              ;; helper straddles (rf2-wgmipl refactor).
+              ;; helper straddles.
               `(let [~machine-sym ~machine
                      ~stamped-sym ~stamped]
                  ~(reg-call stamped-sym))))))))
 
 #?(:clj
    (defn expand-defmachine
-     "Build the expansion form for a `defmachine` macro call (rf2-gwj8l).
+     "Build the expansion form for a `defmachine` macro call.
      `(defmachine name spec)` expands to a `(def name <stamped-spec>)`
      where the literal spec is walked at expansion time and per-element
      source is co-located onto each `:guards` / `:actions` entry
      (plus a reference-site `:source-coords`
-     co-located onto each `:states`-tree map node per rf2-vqja2), gated on
+     co-located onto each `:states`-tree map node), gated on
      `interop/debug-enabled?` so the dev-only source DCEs under
      `:advanced + goog.DEBUG=false`.
 
@@ -556,7 +554,7 @@
      The co-located source travels WITH the value, so when the machine is
      registered the stamped spec (with its `:source-code` entries) is stored
      under `:rf/machine` in the `:event` registration, and `(rf/handler-meta {:source :store :kind :machine-guard :id [machine-id guard-id]})` derives the fn-source from it on
-     demand (rf2-ftrcv — no registrar side-table written).
+     demand (no registrar side-table is written).
 
      `ns-sym` / `file` are `*ns*` / `*file*` at expansion time. An
      optional leading `doc` string rides through to the emitted `def`
