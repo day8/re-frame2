@@ -1,12 +1,12 @@
 (ns re-frame.image-framework-base-cljs-test
-  "rf2-3x7nj.5.2 — the FRAMEWORK BASE beneath an explicit `:images`
+  "The FRAMEWORK BASE beneath an explicit `:images`
   composition, pinned over explicit synthetic descriptor pools.
 
   An explicit image selects by `:rf.provenance/ns`, and the framework's own
   feature handlers register through the fn-alias path with NO provenance, so
-  before the base no `:select-ns` could ever reach `:rf.route/navigate`,
+  no `:select-ns` can reach `:rf.route/navigate`,
   `:rf.http/managed`, `:rf/resource` or core's own `:rf/time-ms` — and none of
-  them is a protected standard. The ruling (option B): assembly layers every
+  them is a protected standard. So assembly layers every
   loaded framework-owned registration (nil provenance, id under the reserved
   `:rf` root, plus the `:route/link` view) BENEATH the app images under the
   reserved pseudo-image id `:rf/framework`, minus the protected standards.
@@ -15,7 +15,7 @@
   one id outside the root), the isolation control (an app's nil-provenance id
   outside the root stays invisible), later-image shadowing reported against
   `:rf/framework`, the lone-anonymous-image edge, the replaceable-default
-  carrier union on the new inline-override path, standards untouched, the
+  carrier union on the inline-override path, standards untouched, the
   default image untouched, `:rf.gen/images` untouched, and caching.
 
   The live-store, producer-derived half (the real routing / http / resources /
@@ -93,7 +93,7 @@
       (is (= ::time-ms    (handler-of gen :cofx :rf/time-ms)) ":rf/* id")
       (is (= ::route-link (handler-of gen :view :route/link))
           "the one public framework id outside the reserved root"))
-    (testing "the app's own selection is unchanged"
+    (testing "the app's own selection is unaffected"
       (is (= ::app-boot (handler-of gen :event :app/boot))))
     (testing "isolation control: nothing outside framework ownership rides the base"
       (is (nil? (handler-of gen :event :app/programmatic))
@@ -113,7 +113,7 @@
   (let [gen (rf.image-assembly/assemble-default pool)]
     (is (= ::navigate (handler-of gen :event :rf.route/navigate)))
     (is (= ::app-programmatic (handler-of gen :event :app/programmatic))
-        "the default image still projects the WHOLE pool")
+        "the default image projects the WHOLE pool")
     (is (= [] (:rf.gen/shadows gen))
         "the default image has no base layer, so no :rf/framework shadow")))
 
@@ -228,14 +228,14 @@
       (let [gen (rf.image-assembly/assemble [app-image] pool)]
         (is (= std-set-db (handler-of gen :event :rf/set-db)))
         (is (= [] (:rf.gen/shadows gen)))))
-    (testing "an app image colliding with a standard still fails loud"
+    (testing "an app image colliding with a standard fails loud"
       (is (= :rf.error/image-standard-replacement-forbidden
              (err-id #(rf.image-assembly/assemble
                         [app-image]
                         (conj pool (reg-desc "app.core" :event :rf/set-db ::app-set-db)))))))))
 
 ;; ===========================================================================
-;; 5. Caching is unchanged
+;; 5. Caching
 ;; ===========================================================================
 
 (deftest an-unchanged-composition-returns-the-cached-generation
