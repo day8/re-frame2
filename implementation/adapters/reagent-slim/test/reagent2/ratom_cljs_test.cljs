@@ -1,5 +1,5 @@
 (ns reagent2.ratom-cljs-test
-  "Unit tests for reagent2.ratom (Stage 4-A, rf2-6hyy).
+  "Unit tests for reagent2.ratom.
 
   Covers:
 
@@ -204,13 +204,14 @@
       (ratom/dispose! r)
       (is (= [:on-dispose-kwarg :added] @fired)))))
 
-;; ---- dispose! idempotence + re-entrancy (rf2-1bzlai) ----------------------
+;; ---- dispose! idempotence + re-entrancy -----------------------------------
 ;;
-;; The reagent-slim Reaction kept the stock-Reagent nine-field shape but its
-;; `dispose!` fired `on-dispose` / `on-dispose-arr` WITHOUT clearing them and
-;; carried no disposed guard, so a second `dispose!` re-fired every callback
-;; and a callback that defensively re-entered `dispose!` could double-fire /
-;; recurse. These pin the adapter Reaction's own `dispose!`, not a toy reify.
+;; The reagent-slim Reaction keeps the stock-Reagent nine-field shape, with
+;; no disposed-flag field. A `dispose!` that fired `on-dispose` /
+;; `on-dispose-arr` WITHOUT clearing them would re-fire every callback on a
+;; second `dispose!`, and a callback that defensively re-entered `dispose!`
+;; could double-fire / recurse. These pin the adapter Reaction's own
+;; `dispose!`, not a toy reify.
 
 (deftest reaction-dispose-is-idempotent
   (testing "a second dispose! does NOT re-fire on-dispose / add-on-dispose! callbacks"
@@ -233,8 +234,8 @@
     (let [fired (atom [])
           r     (ratom/make-reaction (fn [] 1))]
       ;; The :on-dispose-arr callbacks receive the Reaction; the first one
-      ;; defensively re-disposes it — the re-entrant shape rf2-1bzlai calls
-      ;; out. The holders are cleared before firing, so the re-entrant call
+      ;; defensively re-disposes it — the re-entrant shape. The holders are
+      ;; cleared before firing, so the re-entrant call
       ;; sees nil holders and re-fires nothing.
       (ratom/add-on-dispose! r (fn [this]
                                  (swap! fired conj :re-entrant-cb)
@@ -373,17 +374,14 @@
 
 ;; ---------------------------------------------------------------------------
 ;; throwing Reaction body — the check=true (_queued-run / flush!) error path
-;; rf2-ee38b.15 P2 regression pin
 ;; ---------------------------------------------------------------------------
 
 (deftest throwing-reaction-checked-recompute-preserves-error
-  ;; Pre-rf2-ee38b.15, `_run` did `(set! state res)` unconditionally; on the
-  ;; check=true error path `_try-capture` had already set `state` to the
-  ;; caught error, but `_run` then clobbered it with the catch-block's
-  ;; return value (`false`), AND `notify-watches!` fired with that spurious
-  ;; `false`.
-  ;; The fix: `_try-capture` sets state on the success branch; `_run` only
-  ;; sets state when NOT check.
+  ;; On the check=true error path `_try-capture` sets `state` to the caught
+  ;; error, and `_run` only sets state when NOT check — so the captured
+  ;; error survives, and watchers see no spurious `false` (the value a
+  ;; catch block ending in `(set! dirty? false)` would hand back to a `_run`
+  ;; that overwrote `state` unconditionally).
   ;;
   ;; Drive the checked (`_queued-run` → `_run this true`) path: a no-auto-run
   ;; inner reaction, subscribed to its source by deref'ing it inside an
@@ -484,7 +482,7 @@
            (pr-str (ratom/make-reaction (fn [] [:p 1])))))))
 
 ;; ---------------------------------------------------------------------------
-;; pr-atom's *ratom-context* guard (rf2-3hqm)
+;; pr-atom's *ratom-context* guard
 ;;
 ;; Printing must not make the printer depend on what it printed. A ratom's
 ;; own deref happens at the `-pr-writer` call site, building `{:val ...}`
