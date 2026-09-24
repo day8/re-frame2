@@ -20,9 +20,9 @@
   "The version every envelope carries. A consumer checks it first and
   refuses any other — there is no compatibility path, and a shape that
   evolved under an unchanged stamp is the one defect a version exists to
-  prevent. v3 folds the former scope/basis axes into `:complete?` and
-  `:loss`, drops the `:naming`, `:host` and `:origin` sub-projections,
-  and names the declared views mounted on a boundary as `:views`."
+  prevent. v3 states completeness as `:complete?` and `:loss`, carries no
+  `:naming`, `:host` or `:origin` sub-projection, and names the declared
+  views mounted on a boundary as `:views`."
   :re-frame.fresco.evidence/v3)
 
 (def producer
