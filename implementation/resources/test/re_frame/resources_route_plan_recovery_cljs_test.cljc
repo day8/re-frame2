@@ -1,15 +1,13 @@
 (ns re-frame.resources-route-plan-recovery-cljs-test
-  "rf2-ma8r — WHEN a `:url-bound?` frame plans its route's resources, and what
+  "WHEN a `:url-bound?` frame plans its route's resources, and what
   a FAILED plan can be recovered by.
 
-  The bead that produced this file was filed as a live-frame reprojection bug:
-  a consumer workspace whose `init!` did `(rf/make-frame {:id :rf/default
-  :url-bound? true})` FIRST and registered its resources / mutations / fx
-  AFTERWARDS saw the frame 'never pick up anything registered after
-  make-frame'. That reading is refuted — late registration IS reprojected — and
-  what is actually going on is an ORDERING fact about `:url-bound?` frames plus
-  a recovery door that the report did not reach for. This file pins both, so
-  neither has to be re-derived.
+  An app whose `init!` does `(rf/make-frame {:id :rf/default :url-bound?
+  true})` FIRST and registers its resources / mutations / fx AFTERWARDS can
+  look as if the frame 'never picks up anything registered after make-frame'.
+  It does — late registration IS reprojected. The symptom comes from an
+  ORDERING fact about `:url-bound?` frames plus a recovery door the app has
+  to reach for. This file pins both.
 
   ## 1. A `:url-bound?` frame syncs the CURRENT URL at CONSTRUCTION (CLJS)
 
