@@ -615,7 +615,7 @@
                            ["unwrapping saves (WRAP - RAW)"          (- (per "N-CWFRWRAP") (per "N-CWFRRAW"))]
                            ["  ... predicted by N-RESTGT"            (per "N-RESTGT")]]]
             (println (format ";;   %-38s %8.1f B/call" lbl v)))
-          (println ";; the attach, part by part (RC-ATTACH is the shipped form):")
+          (println ";; the attach, part by part (RC-CAND is the shipped form; RC-ATTACH is the update-in comparison):")
           (doseq [l ["RC-ATTACH" "RC-CAND" "RC-GUARD" "RC-SWAPID" "RC-UPDIN"
                      "RC-NEST" "RC-ASSOC" "RC-EASSOC"]]
             (println (format ";;   %-38s %8.1f B/call" l (per l))))
