@@ -1,11 +1,10 @@
 (ns re-frame.capture-frame-test
-  "Design-pinning tests for the frame-affordance redesign (rf2-kkut0.1):
-  `capture-frame` (the keystone OPERATION BUNDLE, and per API-shrink #1
-  rf2-csbbwu the ONE public HOLD primitive), `re-frame.frame/bind-fn` (the
-  INTERNAL relocated `frame-bound-fn*` dynamic-rebinding primitive),
-  `current-frame-id`, `app-db-value`, and the absence of the removed public
-  names (`bound-fn`, `dispatcher`, `subscriber`, `get-frame-db`,
-  `current-frame`, `frame-bound-fn`, `frame-bound-fn*`, `frame-value->id`).
+  "Design-pinning tests for the frame affordances: `capture-frame` (the
+  keystone OPERATION BUNDLE, and the ONE public HOLD primitive),
+  `re-frame.frame/bind-fn` (the INTERNAL dynamic-rebinding primitive),
+  `current-frame-id`, `app-db-value`, and the absence of the public names
+  `bound-fn`, `dispatcher`, `subscriber`, `get-frame-db`, `current-frame`,
+  `frame-bound-fn`, `frame-bound-fn*` and `frame-value->id`.
   Per Spec 002 §capture-frame and `re-frame.core.cljc`.
 
   `capture-frame` exists to support async callbacks where the dynamic-var
@@ -18,34 +17,30 @@
   handle, then EXIT the with-frame scope before invoking its ops —
   proving the captured frame survives the unwind.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
-  NO GUARD WAS NEEDED HERE, and the reason is the question rf2-d2841's fourth
-  pass learned to ask on the error axis: IS THE CATEGORY PROMOTED?
-  `:rf.error/frame-destroyed` is one of the categories `error-emit` fans onto
-  the always-on corpus-wide listener registry (`error-emit` ns docstring,
-  §promoted set covers frame-destroyed dispatch / subscribe), so every incarnation
-  -fence assertion in this file survives the production gate verbatim once it
-  reads the ERROR-EMIT registry instead of the `:trace` stream. That is the whole
-  change: `re-frame.error-emit/register-error-listener!`, and `(:error rec)`
-  where the trace spelled `(:operation ev)`. (rf2-kuky.69 retired the public
-  facade spelling for that registry; the registry itself is implementation tier
-  and is exactly what a test like this one is meant to read.)
+  No posture guard is needed here: `:rf.error/frame-destroyed` is one of the
+  categories `error-emit` fans onto the always-on corpus-wide listener
+  registry (`error-emit` ns docstring, §promoted set covers frame-destroyed
+  dispatch / subscribe), and every incarnation-fence assertion in this file
+  reads that ERROR-EMIT registry — `re-frame.error-emit/register-error-listener!`
+  and `(:error rec)` — rather than the dev `:trace` stream, so it holds under
+  the production gate verbatim. (The registry is implementation tier, with no
+  public facade spelling, and is exactly what a test like this one is meant to
+  read.)
 
-  It matters more here than the mechanical size of the diff suggests. These are
-  incarnation-fence tests — the class of defect where a capture pinned to a
-  destroyed incarnation leaks into a same-id successor and mutates it — and
-  every one of them was previously unexecuted under the posture that ships.
+  That matters because these are incarnation-fence tests — the class of defect
+  where a capture pinned to a destroyed incarnation leaks into a same-id
+  successor and mutates it — and they belong under the posture that ships.
 
-  TWO VACUOUS PASSES CAME OFF (rf2-d2841 class 1 — a negative over an empty
-  trace ring), and both were in deftests already GREEN under the gate:
   `live-target-not-reported-destroyed-when-only-owner-dies-async` / `-sync`
   each certify `(zero? (count (filter #(= :rf.error/frame-destroyed …))))` —
-  the LIVE target was not wrongly reported destroyed — over a stream that
-  carried nothing at all. A false-negative check on a fence is exactly the
-  assertion you least want passing for free; re-aimed at the always-on stream
-  it now discriminates, with its sibling deftests supplying the control that
-  the same stream DOES carry the category when the fence genuinely fires."
+  the LIVE target was not wrongly reported destroyed. Over a dev trace ring,
+  empty under the gate, that negative would pass for free; a false-negative
+  check on a fence is exactly the assertion you least want passing for free.
+  Over the always-on stream it discriminates, with its sibling deftests
+  supplying the control that the same stream DOES carry the category when the
+  fence genuinely fires."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
@@ -60,7 +55,7 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf/init! rf.substrate.plain-atom/adapter)
-  ;; EP-0002 (rf2-jue6sp): `init!` no longer synthesises `:rf/default`.
+  ;; EP-0002: `init!` does not synthesise `:rf/default`.
   ;; Register it explicitly as an ordinary frame so the tests that
   ;; observe `:rf/default`'s app-db (and the explicit-id capture cases)
   ;; have a real frame; the no-arg capture forms still REQUIRE a carried
@@ -141,27 +136,25 @@
 
 ;; ---- incarnation fence: a stale capture never retargets a same-id successor
 ;;
-;; rf2-9pyles pinned the EXACT incarnation live at capture so a captured op
+;; A capture pins the EXACT incarnation live at capture so a captured op
 ;; cannot leak into a same-id successor reseated after the captured incarnation
-;; was destroyed. These pin the two consistency gaps closed on top of it:
-;;   - rf2-tdjv7p: the `:subscribe` op is fenced on the SAME pin as dispatch —
+;; was destroyed. These pin two consistency properties of that pin:
+;;   - the `:subscribe` op is fenced on the SAME pin as dispatch —
 ;;     a superseded subscribe recover-but-emits (returns nil) rather than
 ;;     silently resolving a reaction into the successor's sub-cache.
-;;   - rf2-vclh63: a capture over a frame VALUE pins the value's carried EXACT
-;;     incarnation token, so a value-capture fences identically to an id-capture
-;;     (before the fix the value path silently lost its pin).
+;;   - a capture over a frame VALUE pins the value's carried EXACT
+;;     incarnation token, so a value-capture fences identically to an
+;;     id-capture.
 
 (deftest stale-capture-subscribe-does-not-retarget-same-id-successor
-  (testing "rf2-tdjv7p — a capture pinned to incarnation A, after A is destroyed
+  (testing "a capture pinned to incarnation A, after A is destroyed
             and a same-id successor B reseats, MUST NOT subscribe into B (reading
             B's app-db, caching a reaction in B's sub-cache). It recover-but-
             emits :rf.error/frame-destroyed and returns nil rather than
             throwing — these ops fire from host cleanup, where a throw would
             break the host teardown. Recover-but-emit is this category's ONLY
-            behaviour: the retired re-frame.ui (frame) bundle was a second,
-            THROWING surface for it until it went with that artefact on
-            2026-08-16 (rf2-0yp7w), and nothing replaced it (Spec 009 §Error
-            contract, the :rf.error/frame-destroyed row)."
+            behaviour (Spec 009 §Error contract, the :rf.error/frame-destroyed
+            row)."
     (rf/reg-event :fh/seed (fn [{:keys [db]} [_ v]] {:db {:value v}}))
     (rf/reg-sub :fh/value (fn [db _] (:value db)))
     ;; Incarnation A of :fh/sub-stale, seeded with :A-value.
@@ -177,8 +170,8 @@
       (rf/dispatch-sync [:fh/seed :B-value] {:frame :fh/sub-stale})
       (let [errs (atom [])]
         (rf.error-emit/register-error-listener! ::sub-stale (fn [rec] (swap! errs conj rec)))
-        ;; Before the fix this returned a reaction reading B's :B-value; the
-        ;; fence makes it recover-but-emit and return nil.
+        ;; Without the fence this would return a reaction reading B's
+        ;; :B-value; the fence makes it recover-but-emit and return nil.
         (let [result (subscribe [:fh/value])]
           (rf.error-emit/unregister-error-listener! ::sub-stale)
           (is (nil? result)
@@ -188,19 +181,19 @@
               "the superseded subscribe recover-but-emits :rf.error/frame-destroyed"))))))
 
 (deftest capture-frame-over-value-pins-exact-incarnation
-  (testing "rf2-vclh63 — (capture-frame <frame-value>) pins the value's EXACT
+  (testing "(capture-frame <frame-value>) pins the value's EXACT
             incarnation via its carried :rf.frame/incarnation-token, so a
             dispatch through the capture after the frame is destroyed and a
             same-id successor reseats recover-but-emits instead of mutating the
-            successor. A LIVE value-capture still dispatches into its frame — the
+            successor. A LIVE value-capture dispatches into its frame — the
             pin is exact, not a spurious supersession."
     (rf/reg-event :fh/mark (fn [{:keys [db]} [_ v]] {:db (assoc db :mark v)}))
     ;; Incarnation A — capture the construction VALUE (carries its exact token).
     (let [frame-a (rf/make-frame {:id :fh/vpin :doc "incarnation A"})]
       (is (some? (rf.frame/frame-value-incarnation-token frame-a))
-          "precondition: a fresh make-frame VALUE carries its incarnation token (rf2-moftbs)")
+          "precondition: a fresh make-frame VALUE carries its incarnation token")
       (let [{:keys [dispatch-sync]} (rf/capture-frame frame-a)]
-        ;; Live path: the value-capture dispatches into incarnation A — the new
+        ;; Live path: the value-capture dispatches into incarnation A — the
         ;; pin must NOT spuriously supersede a live capture.
         (dispatch-sync [:fh/mark :A-mark])
         (is (= :A-mark (:mark (rf/app-db-value :fh/vpin)))
@@ -210,8 +203,8 @@
         (rf/make-frame {:id :fh/vpin :doc "incarnation B (successor)"})
         (let [errs (atom [])]
           (rf.error-emit/register-error-listener! ::vpin (fn [rec] (swap! errs conj rec)))
-          ;; Before the fix the unpinned value-capture retargeted B and set
-          ;; :mark; the carried-token pin makes it recover-but-emit.
+          ;; An unpinned value-capture would retarget B and set :mark; the
+          ;; carried-token pin makes it recover-but-emit.
           (dispatch-sync [:fh/mark :leaked])
           (rf.error-emit/unregister-error-listener! ::vpin)
           (is (nil? (:mark (rf/app-db-value :fh/vpin)))
@@ -219,18 +212,16 @@
           (is (some #(= :rf.error/frame-destroyed (:error %)) @errs)
               "the superseded value-capture dispatch recover-but-emits :rf.error/frame-destroyed"))))))
 
-;; ---- rf2-dlld6: carry the captured incarnation THROUGH target consumption ---
+;; ---- carry the captured incarnation THROUGH target consumption ------------
 ;;
-;; rf2-9pyles/tdjv7p/vclh63 (above) pinned the exact incarnation and had
-;; `capture-target-superseded?` VALIDATE it — but that check and the ordinary
-;; address-directed dispatch/subscribe it then delegated to were SEPARATE
-;; operations. On the concurrent JVM host frame A can be destroyed AND a same-id
-;; successor B installed in the window between the check returning "A live" and
-;; the ordinary implementation resolving the bare id — so a check-passing stale
-;; capture leaked into B (`{:successor-db {:owner :B :marked-by :stale-capture}}`
-;; in the reproduction). The fix carries the captured incarnation through into
-;; the rf.router/sub resolve so validation and target consumption are ONE
-;; exact-incarnation operation.
+;; `capture-target-superseded?` VALIDATES the pinned incarnation, but a check
+;; separate from the address-directed dispatch/subscribe it delegates to would
+;; leave a window: on the concurrent JVM host frame A can be destroyed AND a
+;; same-id successor B installed between the check returning "A live" and the
+;; implementation resolving the bare id, so a check-passing stale capture
+;; would leak into B. The captured incarnation is therefore carried through
+;; into the rf.router/sub resolve, so validation and target consumption are
+;; ONE exact-incarnation operation.
 ;;
 ;; These fixtures interpose ONE-SHOT on `rf.frame/frame-incarnation-live?` — the
 ;; predicate `capture-target-superseded?` consults — and, at the moment the
@@ -266,7 +257,7 @@
       (op))))
 
 (deftest stale-capture-dispatch-sync-does-not-retarget-same-id-successor
-  (testing "rf2-dlld6 (dispatch-sync arm) — a capture whose pre-check validated
+  (testing "dispatch-sync arm — a capture whose pre-check validated
             incarnation A, superseded by same-id B before the bare-id resolve,
             MUST NOT dispatch-sync into B. It recover-but-emits
             :rf.error/frame-destroyed and leaves B byte-for-byte unchanged."
@@ -285,7 +276,7 @@
           "the superseded dispatch-sync recover-but-emits :rf.error/frame-destroyed"))))
 
 (deftest stale-capture-async-dispatch-does-not-enqueue-into-same-id-successor
-  (testing "rf2-dlld6 (async dispatch arm) — a superseded capture's async
+  (testing "async dispatch arm — a superseded capture's async
             dispatch enqueues NOTHING into same-id successor B; it recover-but-
             emits and B stays byte-for-byte unchanged."
     (rf/reg-event :fh/mark (fn [{:keys [db]} _] {:db (assoc db :marked-by :stale-capture)}))
@@ -308,7 +299,7 @@
           "the superseded async dispatch recover-but-emits :rf.error/frame-destroyed"))))
 
 (deftest stale-capture-subscribe-race-does-not-read-or-cache-in-same-id-successor
-  (testing "rf2-dlld6 (subscribe arm) — a capture whose pre-check validated A,
+  (testing "subscribe arm — a capture whose pre-check validated A,
             superseded by same-id B before the sub-cache resolve, neither reads
             B's app-db nor installs a reaction/cache entry in B; it returns nil
             and recover-but-emits."
@@ -328,25 +319,25 @@
       (is (some #(= :rf.error/frame-destroyed (:error %)) @errs)
           "the superseded subscribe recover-but-emits :rf.error/frame-destroyed"))))
 
-;; ---- rf2-7w1im: the POST-comparison boundary (not only the pre-check) -------
+;; ---- the POST-comparison boundary (not only the pre-check) ----------------
 ;;
-;; rf2-dlld6 (above) made the OUTER subscribe-in-frame comparison validate the
-;; captured incarnation — but that comparison and the DURABLE build it delegates
-;; a miss / hit-eviction rebuild to were still separate operations. On the
-;; concurrent JVM host frame A can be destroyed AND a same-id successor B
-;; installed in the window between the comparison returning "A" and
-;; `compute-and-cache!` re-resolving the bare id — so a comparison-passing
-;; capture leaked its read / cache-write / recursive-input resolution into B.
-;; rf2-7w1im carries the pinned incarnation THROUGH the build (compute-and-cache!
-;; → build-and-cache!*), which re-fences it and reads the container / writes the
-;; sub-cache / subscribes inputs off the validated record, so the whole captured
-;; subscribe is ONE exact-incarnation operation.
+;; The OUTER subscribe-in-frame comparison validates the captured incarnation,
+;; but a comparison separate from the DURABLE build it delegates a miss /
+;; hit-eviction rebuild to would leave a window: on the concurrent JVM host
+;; frame A can be destroyed AND a same-id successor B installed between the
+;; comparison returning "A" and `compute-and-cache!` re-resolving the bare id,
+;; so a comparison-passing capture would leak its read / cache-write /
+;; recursive-input resolution into B. The pinned incarnation is therefore
+;; carried THROUGH the build (compute-and-cache! → build-and-cache!*), which
+;; re-fences it and reads the container / writes the sub-cache / subscribes
+;; inputs off the validated record, so the whole captured subscribe is ONE
+;; exact-incarnation operation.
 ;;
 ;; These fixtures interpose ONE-SHOT on `rf.subs/compute-and-cache!` — entered only
 ;; AFTER the outer comparison validated A and delegated the miss/rebuild — and,
 ;; at that boundary, destroy A and reseat a same-id successor B (seeded with
 ;; :B-value) BEFORE the real build runs. That is exactly the JVM interleaving the
-;; earlier `frame-incarnation-live?` pre-check interposition (rf2-dlld6) CANNOT
+;; `frame-incarnation-live?` pre-check interposition above CANNOT
 ;; reach: it fires at the pre-check, before the outer comparison. Deterministic +
 ;; single-threaded (the swap runs inside the interposed call), so no latch.
 
@@ -374,7 +365,7 @@
       (op))))
 
 (deftest stale-capture-subscribe-post-comparison-miss-does-not-retarget-successor
-  (testing "rf2-7w1im (miss arm) — a captured subscribe whose OUTER incarnation
+  (testing "miss arm — a captured subscribe whose OUTER incarnation
             comparison validated A, then superseded by same-id B AFTER that
             comparison but BEFORE the durable build (compute-and-cache!), must not
             read B, install a reaction in B, or return B's value. It returns nil,
@@ -402,7 +393,7 @@
           "exactly one :rf.error/frame-destroyed emit"))))
 
 (deftest live-capture-subscribe-miss-still-reads-its-own-incarnation
-  (testing "rf2-7w1im (genuine-subscribe control) — with NO interposition a
+  (testing "genuine-subscribe control — with NO interposition a
             captured subscribe that misses builds against its OWN incarnation,
             caches in its OWN sub-cache, and reads its value; the fence rejects
             ONLY a superseded read, never a genuine same-incarnation one."
@@ -418,7 +409,7 @@
           "the reaction is cached in its own frame's sub-cache"))))
 
 (deftest stale-capture-subscribe-recursive-input-not-resolved-in-successor
-  (testing "rf2-7w1im (recursive-input arm) — a captured layer-2 subscribe whose
+  (testing "recursive-input arm — a captured layer-2 subscribe whose
             ENTRY build validated A, then superseded by same-id B before the
             layer-1 INPUT build, must not recursively resolve the input in B. The
             input build's fence rejects; neither the entry nor its input installs
@@ -445,16 +436,16 @@
       (is (some #(= :rf.error/frame-destroyed (:error %)) @errs)
           "the recursive input's build fence emits :rf.error/frame-destroyed"))))
 
-;; ---- rf2-a2x2w: exactly-once when A is lost AFTER the token match ----------
+;; ---- exactly-once when A is lost AFTER the token match --------------------
 ;;
-;; rf2-dlld6 (above) fenced the A→B mismatch AT the token comparison. A LATER
-;; window remained: A can be lost AFTER dispatch! / dispatch-sync! pass the
+;; The A→B mismatch is fenced AT the token comparison, which leaves a LATER
+;; window: A can be lost AFTER dispatch! / dispatch-sync! pass the
 ;; expected-token comparison (A still current then, so the mismatch clause does
 ;; NOT fire) but BEFORE the async enqueue linearizes under the router monitor /
-;; the sync drain-lock is acquired. The `target-live?` / lock guards correctly
-;; keep successor B untouched — but pre-fix they SILENTLY returned (no emit,
-;; violating the recover-but-EMIT contract). rf2-a2x2w recover-but-emits EXACTLY
-;; ONCE from this window too, realm-exact via the threaded `:op`.
+;; the sync drain-lock is acquired. The `target-live?` / lock guards keep
+;; successor B untouched, and a SILENT return there would violate the
+;; recover-but-EMIT contract, so this window recover-but-emits EXACTLY ONCE
+;; too, realm-exact via the threaded `:op`.
 ;;
 ;; These fixtures interpose ONE-SHOT on the router's private enqueue / sync-drain
 ;; seam — entered ONLY after the cond's token comparison passed — and, at that
@@ -462,13 +453,13 @@
 ;; guarded incarnation re-check then fences the enqueue / seed-push out, so the
 ;; post-token-match window is exercised deterministically (single-threaded — the
 ;; swap runs inside the interposed call, no latch). The MUTATION TOOTH is the
-;; emit COUNT: pre-fix these returned silently (zero emits); the fix makes it one.
+;; emit COUNT: a silent return reads zero emits; the contract is one.
 
 (defn- run-supersede-at-enqueue
   "Interpose ONE-SHOT on `rf.router/ensure-drain-scheduled!` (dispatch!'s async
   enqueue seam, reached only after the cond passed the token comparison): the
   first entry destroys A and reseats a same-id successor B, THEN delegates to the
-  real seam — whose router-monitor liveness re-check now fences the enqueue out.
+  real seam — whose router-monitor liveness re-check fences the enqueue out.
   Reproduces A lost after the token match but before the async enqueue."
   [frame-id op]
   (let [real  @#'rf.router/ensure-drain-scheduled!
@@ -485,7 +476,7 @@
   "Interpose ONE-SHOT on `rf.router/drain-block!` (dispatch-sync!'s sync-drain seam,
   reached only after the cond passed the token comparison AND both `target-live?`
   guards held): the first entry destroys A and reseats same-id B, THEN delegates
-  to the real seam — whose post-CAS incarnation re-check now resets the lock
+  to the real seam — whose post-CAS incarnation re-check resets the lock
   WITHOUT running the seed-push. Reproduces A lost after the token match but
   before the drain-lock acquire."
   [frame-id op]
@@ -500,12 +491,12 @@
       (op))))
 
 (deftest stale-capture-async-dispatch-post-token-match-emits-exactly-once
-  (testing "rf2-a2x2w (async, gap 2) — a captured async dispatch that PASSED the
+  (testing "async arm — a captured async dispatch that PASSED the
             exact-incarnation token comparison, then lost A before the enqueue
             linearized under the router monitor, recover-but-emits EXACTLY ONE
             :rf.error/frame-destroyed and enqueues NOTHING into successor B.
-            MUTATION TOOTH: pre-fix this post-token-match window returned SILENTLY
-            (zero emits)."
+            MUTATION TOOTH: a SILENT return from this post-token-match window
+            reads zero emits."
     (rf/reg-event :fh/mark (fn [{:keys [db]} _] {:db (assoc db :marked-by :stale-capture)}))
     (rf/make-frame {:id :fh/race :doc "incarnation A"})
     (let [{:keys [dispatch]} (rf/capture-frame :fh/race)   ;; pins A
@@ -519,11 +510,11 @@
           "EXACTLY ONE :rf.error/frame-destroyed for the post-token-match async loss"))))
 
 (deftest stale-capture-dispatch-sync-post-token-match-emits-exactly-once
-  (testing "rf2-a2x2w (dispatch-sync, gap 2) — a captured dispatch-sync that
+  (testing "dispatch-sync arm — a captured dispatch-sync that
             PASSED the exact-incarnation token comparison, then lost A before the
             drain-lock acquire, recover-but-emits EXACTLY ONE
             :rf.error/frame-destroyed and processes NOTHING into successor B.
-            MUTATION TOOTH: pre-fix this window returned SILENTLY."
+            MUTATION TOOTH: a SILENT return from this window reads zero emits."
     (rf/reg-event :fh/mark (fn [{:keys [db]} _] {:db (assoc db :marked-by :stale-capture)}))
     (rf/make-frame {:id :fh/race :doc "incarnation A"})
     (let [{:keys [dispatch-sync]} (rf/capture-frame :fh/race)   ;; pins A
@@ -536,35 +527,37 @@
       (is (= 1 (count (filter #(= :rf.error/frame-destroyed (:error %)) @errs)))
           "EXACTLY ONE :rf.error/frame-destroyed for the post-token-match sync loss"))))
 
-;; ---- rf2-iqfbg: a live target is NOT reported destroyed when only the ------
+;; ---- a live target is NOT reported destroyed when only the ----------------
 ;;      ORIGINATING event OWNER dies -------------------------------------------
 ;;
-;; rf2-a2x2w (above) made a falsey `enqueued?` / `drained?` recover-but-emit one
-;; `:rf.error/frame-destroyed`, to cover a captured target A lost after its token
+;; A falsey `enqueued?` / `drained?` recover-but-emits one
+;; `:rf.error/frame-destroyed` for a captured target A lost after its token
 ;; match. But that falsey result is NOT target-specific: the enqueue/drain path
 ;; guards on `target-live?`, which FUSES `owner-live?` with target-incarnation
 ;; liveness. So the enqueue also fences out (falsey) when only the ORIGINATING
 ;; event OWNER died — a benign framework-owned-tail cutoff (a callback keeps
 ;; running after it destroyed its own frame and issues a captured dispatch) —
-;; while the captured target is fully LIVE. Pre-fix the a2x2w gate emitted a
-;; FALSE `:rf.error/frame-destroyed` naming the live target frame, mis-steering
-;; off-box diagnostics at the wrong frame / lifecycle failure.
+;; while the captured target is fully LIVE. A gate keyed on the falsey result
+;; alone would emit a FALSE `:rf.error/frame-destroyed` naming the live target
+;; frame, mis-steering off-box diagnostics at the wrong frame / lifecycle
+;; failure.
 ;;
 ;; These fixtures bind a genuine exact owner token for `:audit/owner`, capture a
 ;; DIFFERENT live target `:audit/target`, then interpose ONE-SHOT on the router's
 ;; `emit-dispatched-trace!` seam (the first thing the captured op's `:else`
 ;; branch does, after the token comparison passed) to destroy ONLY the owner —
 ;; the exact production outcome when continuation dies during that callback-
-;; bearing seam. The MUTATION TOOTH is the emit COUNT: pre-fix these emitted one
-;; false frame-destroyed for the live target; the fix keeps owner-continuation
-;; cutoff SILENT (zero emits) while the target stays untouched.
+;; bearing seam. The MUTATION TOOTH is the emit COUNT: a gate keyed on the
+;; falsey result alone emits one false frame-destroyed for the live target;
+;; owner-continuation cutoff stays SILENT (zero emits) while the target stays
+;; untouched.
 
 (defn- run-owner-death-at-dispatch
   "Interpose ONE-SHOT on `rf.router/emit-dispatched-trace!` (reached in the captured
   op's `:else` branch only after the token comparison passed): the first entry
   destroys ONLY the originating event `owner-id` — the captured TARGET is left
   fully live — THEN delegates to the real seam. `emit-dispatched-trace!` returns
-  `(target-live?)`, which now reads `owner-live?` false and short-circuits the
+  `(target-live?)`, which reads `owner-live?` false and short-circuits the
   enqueue/drain to falsey WITHOUT the target ever being touched. Reproduces the
   originating owner's continuation dying during the callback-bearing dispatch
   seam while the captured target stays live."
@@ -582,13 +575,13 @@
       (op))))
 
 (deftest live-target-not-reported-destroyed-when-only-owner-dies-async
-  (testing "rf2-iqfbg (async) — a captured async dispatch whose ORIGINATING event
+  (testing "async — a captured async dispatch whose ORIGINATING event
             OWNER dies during the dispatch seam, while the captured TARGET stays
             LIVE, DROPS the operation (target untouched) and emits NO
             :rf.error/frame-destroyed. The falsey `enqueued?` is an owner-
             continuation cutoff, NOT target destruction. ADVERSARIAL MUTATION
-            TOOTH: pre-fix (the a2x2w gate `(and capture-op (not enqueued?))`)
-            emitted a FALSE frame-destroyed naming the still-live target frame."
+            TOOTH: a gate of `(and capture-op (not enqueued?))` alone emits a
+            FALSE frame-destroyed naming the still-live target frame."
     (rf/reg-event :audit/touch (fn [{:keys [db]} _] {:db (assoc db :marked-by :owner-death)}))
     (rf/make-frame {:id :audit/owner  :doc "originating event owner"})
     (rf/make-frame {:id :audit/target :doc "captured target A (stays live)"})
@@ -610,13 +603,13 @@
           "NO frame-destroyed: a live target is never reported destroyed for an owner cutoff"))))
 
 (deftest live-target-not-reported-destroyed-when-only-owner-dies-sync
-  (testing "rf2-iqfbg (dispatch-sync) — a captured dispatch-sync whose ORIGINATING
+  (testing "dispatch-sync — a captured dispatch-sync whose ORIGINATING
             event OWNER dies during the dispatch seam, while the captured TARGET
             stays LIVE, processes NOTHING (target untouched) and emits NO
             :rf.error/frame-destroyed. The falsey `drained?` is an owner-
             continuation cutoff, NOT target destruction. ADVERSARIAL MUTATION
-            TOOTH: pre-fix (the a2x2w gate `(and capture-op (not drained?))`)
-            emitted a FALSE frame-destroyed naming the still-live target frame."
+            TOOTH: a gate of `(and capture-op (not drained?))` alone emits a
+            FALSE frame-destroyed naming the still-live target frame."
     (rf/reg-event :audit/touch (fn [{:keys [db]} _] {:db (assoc db :marked-by :owner-death)}))
     (rf/make-frame {:id :audit/owner  :doc "originating event owner"})
     (rf/make-frame {:id :audit/target :doc "captured target A (stays live)"})
@@ -639,13 +632,13 @@
 
 ;; ---- contract: (capture-frame) outside any scope RAISES (EP-0002) ---------
 ;;
-;; rf2-jue6sp: the no-arg capture form captures ONLY when a real scope
+;; The no-arg capture form captures ONLY when a real scope
 ;; exists at capture time. Capturing outside any with-frame / provider
 ;; raises :rf.error/no-frame-context — it does NOT capture :rf/default.
 
 (deftest capture-frame-outside-with-frame-raises-no-frame-context
   (testing "(capture-frame) with no active scope raises :rf.error/no-frame-context
-            instead of capturing :rf/default (rf2-jue6sp)"
+            instead of capturing :rf/default"
     (is (nil? rf.frame/*current-frame*) "no with-frame scope established")
     (let [e (try (rf/capture-frame) nil
                  (catch clojure.lang.ExceptionInfo e e))]
@@ -657,7 +650,7 @@
 
 (deftest capture-frame-explicit-frame-works-outside-scope
   (testing "(capture-frame frame-id) needs no scope — the explicit-id capture
-            shape for async callbacks / tools / tests (rf2-jue6sp)"
+            shape for async callbacks / tools / tests"
     (rf/reg-event :fh/explicit-touch (fn [{:keys [db]} _] {:db (assoc db :touched? true)}))
     (is (nil? rf.frame/*current-frame*) "no scope established")
     (let [h (rf/capture-frame :rf/default)]
@@ -669,14 +662,14 @@
       (is (true? (:touched? (rf/app-db-value :rf/default)))
           "the explicit handle routes to the named frame"))))
 
-;; ---- re-frame.frame/bind-fn — the INTERNAL relocated frame-bound-fn* -----
+;; ---- re-frame.frame/bind-fn — the INTERNAL dynamic-rebinding primitive ---
 ;;
-;; API-shrink #1 (rf2-csbbwu) DELETES the public `frame-bound-fn` macro /
-;; `frame-bound-fn*` fn from the facade — `capture-frame` (above) is the
-;; ONE public HOLD primitive. Its genuinely-different dynamic-rebinding
-;; semantics (re-establish `*current-frame*` around an ARBITRARY already-
-;; held fn, not a pre-bound op bundle) survive internally as
-;; `re-frame.frame/bind-fn` — the Codex caveat this suite pins.
+;; The facade has no `frame-bound-fn` macro / `frame-bound-fn*` fn —
+;; `capture-frame` (above) is the ONE public HOLD primitive. The
+;; genuinely-different dynamic-rebinding semantics (re-establish
+;; `*current-frame*` around an ARBITRARY already-held fn, not a pre-bound op
+;; bundle) live internally as `re-frame.frame/bind-fn`, which this suite
+;; pins.
 
 (deftest bind-fn-rebinds-frame-after-scope-unwinds
   (testing "(rf.frame/bind-fn frame-id f) wraps f so *current-frame* is
@@ -710,7 +703,7 @@
   (testing "bind-fn re-establishes the dynamic binding around an ARBITRARY
             already-held fn (e.g. one that itself calls current-frame-id) —
             the genuinely-different semantics from capture-frame's pre-bound
-            op bundle that the Codex caveat required to survive internally"
+            op bundle"
     (rf/make-frame {:id :fbf/D :doc "bind-fn current-frame-id probe"})
     (let [captured (rf/with-frame :fbf/D
                      (rf.frame/bind-fn :fbf/D rf/current-frame-id))]
@@ -718,12 +711,12 @@
       (is (= :fbf/D (captured))
           "the wrapped arbitrary fn (current-frame-id) reads :fbf/D"))))
 
-;; ---- renamed reads -------------------------------------------------------
+;; ---- current-frame-id / app-db-value reads -------------------------------
 
 (deftest current-frame-id-requires-scope
   (testing "(current-frame-id) reads the established scope's id inside a scope,
             and raises :rf.error/no-frame-context outside any scope — no
-            :rf/default floor (rf2-jue6sp / EP-0002)"
+            :rf/default floor (EP-0002)"
     (rf/make-frame {:id :cfi/probe :doc "probe"})
     ;; Inside a scope: the bound id.
     (is (= :cfi/probe (rf/with-frame :cfi/probe (rf/current-frame-id)))
@@ -753,17 +746,17 @@
     (is (nil? (rf/app-db-value :fdb/never-registered))
         "nil for an unregistered frame")))
 
-;; ---- removed public names are absent -------------------------------------
+;; ---- absent public names -------------------------------------------------
 
 (deftest removed-public-names-are-absent
-  (testing "the deleted public names are NOT interned in re-frame.core"
+  (testing "these public names are NOT interned in re-frame.core"
     ;; `ns-interns` (NOT `ns-resolve`) — `ns-resolve` would follow the
-    ;; clojure.core referral for `bound-fn` (we dropped the
+    ;; clojure.core referral for `bound-fn` (re-frame.core does not
     ;; `:refer-clojure :exclude [bound-fn]`, so clojure.core/bound-fn is
-    ;; visible again). The contract is that re-frame.core no longer
-    ;; INTERNS its own Var under these names.
+    ;; visible). The contract is that re-frame.core does not
+    ;; INTERN its own Var under these names.
     (let [interned (ns-interns 're-frame.core)]
       (doseq [sym '[bound-fn dispatcher subscriber get-frame-db current-frame
                     frame-bound-fn frame-bound-fn* frame-value->id]]
         (is (nil? (get interned sym))
-            (str "re-frame.core/" sym " must be removed (DELETE, not deprecate)"))))))
+            (str "re-frame.core/" sym " must be absent (not deprecated)"))))))
