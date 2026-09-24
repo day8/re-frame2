@@ -1,16 +1,15 @@
 (ns day8.re-frame2-machines-viz.chart.compute-layout-error-cljs-test
-  "rf2-4lyvh — pins for the `chart/compute-layout!` ELK error path.
+  "Pins for the `chart/compute-layout!` ELK error path.
 
   ## What this guards
 
-  Before rf2-4lyvh, `compute-layout!` had two `(catch :default _ nil)`
-  clauses that discarded ELK errors entirely; the downstream
-  `(when result ...)` guard in MachineChart then no-op'd, leaving
-  every node at the default origin (stacked boxes; no console output;
-  no diagnostic). The fix surfaces ELK failures THREE ways — the bus
+  `compute-layout!` surfaces an ELK failure THREE ways — the bus
   (`:rf.error/machines-viz-elk-layout-failed`), a dev-only
   `console.error`, AND a `:layout-error` slot on the callback result-
-  map so the chart can render an in-panel banner.
+  map so the chart can render an in-panel banner. Discarding the error
+  would leave the downstream `(when result ...)` guard in MachineChart
+  a no-op and every node at the default origin (stacked boxes; no
+  console output; no diagnostic).
 
   This suite pins:
 
@@ -27,7 +26,7 @@
 
   `compute-layout!` is JS-interop-heavy but the elkjs Promise + the
   trace bus are both Node-runnable. We rebind the private
-  `chart/invoke-elk-layout!` (an indirection added precisely so tests
+  `chart/invoke-elk-layout!` (an indirection that exists so tests
   can substitute the elkjs call) + `re-frame.trace/emit-error!` so
   the suite never reaches the real elkjs runtime. No DOM needed."
   (:require [cljs.test :refer-macros [deftest is testing async]]
@@ -48,8 +47,8 @@
 
 (defn- silence-console!
   "Stub `js/console.error` to a no-op for the duration of `f`. The
-  failure path under test deliberately calls `console.error` (dev-
-  build operator affordance per rf2-4lyvh), so the test would
+  failure path under test deliberately calls `console.error` (a dev-
+  build operator affordance), so the test would
   otherwise spam the test runner's stdout with stack traces that
   read as failures. Returns the value of `(f)`."
   [f]
@@ -202,7 +201,7 @@
             (set! (.-error js/console) orig-console)
             (done)))))))
 
-;; ---- negative: happy path keeps existing contract ---------------------
+;; ---- negative: the happy path emits no error --------------------------
 
 (deftest compute-layout-happy-path-does-not-emit-error-trace
   (testing "When elkjs resolves cleanly, NO `:rf.error/*` trace fires
