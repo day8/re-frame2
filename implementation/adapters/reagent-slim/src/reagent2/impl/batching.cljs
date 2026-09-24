@@ -1,11 +1,10 @@
 (ns reagent2.impl.batching
-  "Render scheduler for the day8/reagent-slim artefact (rf2-6hyy Stage 4-B).
+  "Render scheduler for the day8/reagent-slim artefact.
 
   Per IMPL-SPEC §2.9 + §4: a microtask-based scheduler that composes
-  cleanly with React 19's concurrent rendering. Replaces stock
-  Reagent's three-phase `requestAnimationFrame` queue (which doesn't
-  cooperate with React 18+ concurrent rendering — see Stage 1 §1.12 +
-  rewrite-analysis.md §2.4).
+  cleanly with React 19's concurrent rendering, where stock Reagent's
+  three-phase `requestAnimationFrame` queue does not cooperate with
+  React 18+ concurrent rendering.
 
   The contract per IMPL-SPEC §4.6:
 
@@ -13,7 +12,7 @@
       - All currently-dirty components have re-rendered.
       - All Reactions whose dependencies changed have recomputed.
       - All :after-render callbacks queued before flush! fired, each
-        having observed the COMMITTED DOM (rf2-cdoo).
+        having observed the COMMITTED DOM.
 
   The user-facing `(reagent2.dom.client/flush-views!)` test primitive
   composes this synchronous drain with `react/act` (per §4.2). The
@@ -27,12 +26,12 @@
     schedule        ;; force a microtask schedule (no-op if already scheduled)
     flush!          ;; synchronous drain (test primitive's worker)
     mark-rendered   ;; clear a component's dirty flag (called by render)
-    render-commit   ;; injected host commit boundary (rf2-cdoo, see below)
+    render-commit   ;; injected host commit boundary (see below)
 
-  Stage 4-A wired `reagent2.ratom/rea-schedule` as a `clojure.core/atom`
+  `reagent2.ratom/rea-schedule` is a `clojure.core/atom`
   hook. This ns installs a scheduler fn into that atom at load time so
   a Reaction whose dependency changes triggers a microtask drain
-  automatically — closing the loop opened in 4-A's docstring."
+  automatically."
   (:require [reagent2.ratom :as ratom]))
 
 ;; ---------------------------------------------------------------------------
@@ -73,7 +72,7 @@
   (set! (.-cljsIsDirty c) false))
 
 ;; ---------------------------------------------------------------------------
-;; Host commit boundary (rf2-cdoo)
+;; Host commit boundary
 ;;
 ;; This ns must stay host-neutral: it is required by `reagent2.core` and by
 ;; the component layer, and a Node / SSR consumer that never loads
@@ -81,12 +80,12 @@
 ;; commit boundary is INJECTED rather than required, exactly as
 ;; `reagent2.ratom/rea-schedule` injects the scheduler in the other
 ;; direction — `reagent2.dom.client` installs `react-dom/flushSync` here at
-;; ns-load, and with nothing installed the queue keeps its bare drain.
+;; ns-load, and with nothing installed the queue runs its bare drain.
 ;;
 ;; Why a boundary is needed at all: under React 19 `createRoot`, a bare
 ;; `forceUpdate` issued from outside React's batching context is SCHEDULED,
 ;; not committed — the DOM still holds the old value when the call returns.
-;; `flush-render!` already documents and relies on this; `flush-queues` below
+;; `flush-render!` documents and relies on this; `flush-queues` below
 ;; is where the ordinary microtask path needs it, so that a callback
 ;; promised "after the next React commit" actually gets one.
 ;; ---------------------------------------------------------------------------
@@ -156,7 +155,7 @@
     (when-some [fs after-render-queue]
       (set! after-render-queue nil)
       (dotimes [i (alength fs)]
-        ;; Per-callback throw isolation (rf2-p27yih): swallow so one
+        ;; Per-callback throw isolation: swallow so one
         ;; misbehaving :after-render callback cannot strand the rest of
         ;; the queue or abort the flush. Mirrors
         ;; `re-frame.substrate.spine/drain-after-render-queue!`, the
@@ -170,16 +169,16 @@
     ;; further component renders into component-queue, which we then
     ;; pick up in flush-render below.
     (ratom/flush!)
-    ;; rf2-cdoo — POST-COMMIT, not merely post-forceUpdate. `after-render`
+    ;; POST-COMMIT, not merely post-forceUpdate. `after-render`
     ;; promises "after the next React commit", and a bare `forceUpdate`
     ;; issued from this microtask is only SCHEDULED by React 19 (the same
-    ;; automatic-batching fact `reagent2.dom.client/flush-render!` already
+    ;; automatic-batching fact `reagent2.dom.client/flush-render!`
     ;; documents), so draining the callbacks straight after `flush-render`
-    ;; handed them the OLD DOM. When callbacks are waiting, the dirty pass
+    ;; would hand them the OLD DOM. When callbacks are waiting, the dirty pass
     ;; therefore runs inside the host's commit boundary — supplied by
     ;; `reagent2.dom.client` through `render-commit` so this ns stays
     ;; host-neutral (no react-dom require; a Node/SSR consumer that never
-    ;; loads the DOM client keeps the bare drain).
+    ;; loads the DOM client runs the bare drain).
     ;;
     ;; The gate is deliberate: a turn with NO pending callback keeps the
     ;; ordinary concurrent path, so an ordinary reactive re-render is not
@@ -215,7 +214,7 @@
 (defn do-after-render
   "Register `f` to run at the end of the next flush turn — i.e. after
   every dirty component has re-rendered AND React has COMMITTED that
-  render, so `f` observes the new DOM (rf2-cdoo). The public ABI for
+  render, so `f` observes the new DOM. The public ABI for
   `reagent2.core/after-render`.
 
   Schedules a microtask drain so `f` fires even if no component is
@@ -242,10 +241,10 @@
 ;; ---------------------------------------------------------------------------
 ;; Wire reagent2.ratom/rea-schedule
 ;;
-;; Stage 4-A left rea-schedule as a clojure.core/atom containing nil.
+;; rea-schedule is a clojure.core/atom, nil until a scheduler is installed.
 ;; A Reaction whose dependency changes calls `(when-let [s @rea-schedule] (s))`
-;; on the first enqueue (rea-queue empty → fresh array). Stage 4-B's
-;; job is to install a scheduler fn into that atom so a Reaction-side
+;; on the first enqueue (rea-queue empty → fresh array). This ns
+;; installs a scheduler fn into that atom so a Reaction-side
 ;; dep change triggers a microtask drain on the render side too.
 ;;
 ;; The wiring runs at namespace-load time — requiring this ns is the
