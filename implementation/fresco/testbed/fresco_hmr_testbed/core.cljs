@@ -1,6 +1,6 @@
 (ns fresco-hmr-testbed.core
   "THE HMR TESTBED SHELL — two frames, two roots, one `^:dev/after-load`
-  hook, and a door that answers the questions the DOM cannot (rf2-vsgq).
+  hook, and a door that answers the questions the DOM cannot.
 
   `fresco-hmr-testbed.views` is the namespace under test and the only
   file the gate edits. This one is the application around it: it seeds two
@@ -14,24 +14,23 @@
   counter, the identity baseline and the ref sink must all outlive that,
   or the instrument would be replaced by the event it is measuring. This
   is not a testbed quirk: it is the discipline any hot-reloadable app
-  keeps, and getting it wrong here would have shown up as a gate that
-  could not tell a remount from its own amnesia.
+  keeps, and getting it wrong here would show up as a gate that could not
+  tell a remount from its own amnesia.
 
   ## The reload hook is the ORDINARY shape, deliberately
 
   [[reload!]] re-runs `(rf/make-frame {:id …})` and re-renders each root.
   `make-frame` on a live id is idempotent replacement — config refresh,
-  durable state preserved — which `hmr_registry_cljs_test` measured at the
-  arm and which this gate now measures through a real reload. The OTHER
+  durable state preserved — which `hmr_registry_cljs_test` measures at the
+  arm and this gate measures through a real reload. The OTHER
   shape, a hook that destroys the frame first, genuinely reincarnates;
   [[destroy-and-remake!]] is that transition, exposed as the routing row's
   negative control rather than as the hook's behaviour.
 
-  **Both halves of the hook are PUBLIC calls** (rf2-e2al). The re-render
-  used to reach `impl.mount/render!`, because the door had no re-render
-  on it — which meant this file demonstrated a hot-reload hook a consumer
-  could not have written. `h/render!` is that door now, and
-  [[render-all!]] is spelled the way a consumer's own hook is.
+  **Both halves of the hook are PUBLIC calls.** The re-render goes
+  through `h/render!`, so [[render-all!]] is spelled the way a consumer's
+  own hook is — a hook that reached into `impl.mount` would demonstrate
+  one a consumer could not write.
 
   ## The door, and what it refuses to do
 
@@ -150,7 +149,7 @@
 ;; The lost-cleanup sabotage, installed at React's own seam
 ;; ---------------------------------------------------------------------------
 ;;
-;; The fault the #7755 audit named is "a renderer failing to run
+;; The fault under test is "a renderer failing to run
 ;; old-generation cleanup on type replacement". It is a RENDERER fault, so
 ;; it is modelled at the renderer: the function React calls to unsubscribe
 ;; is swallowed, and the runtime — untouched — never learns that the
@@ -208,12 +207,11 @@
 ;; keep a retired registration alive.
 ;;
 ;; It exists because `{:count 1 :stale 1}` is a true statement that does
-;; not say what happened, and the first time this suite produced one it
-;; cost a round of guessing. With tags the same failure reads
+;; not say what happened. With tags the same failure reads
 ;; `now [r1] was [r1]` — the successor never acquired — or `now [r1 r2]`
 ;; — the predecessor never let go — and those are different bugs. The
 ;; tags are never compared for identity themselves; `identical?` above is
-;; still what decides. They are for the human reading the red.
+;; what decides. They are for the human reading the red.
 (defonce ^:private reg-tags (js/WeakMap.))
 (defonce ^:private !next-tag (volatile! 0))
 
@@ -304,11 +302,10 @@
   actually RENDERS.
 
   One question per head, answered as a boolean: is it the same object the
-  baseline captured? `same?` is rf2-y5x6j's and rf2-iq0a's shared claim
-  that a reload REPLACES. That is React's own remount rule — a top-level
-  `def` the save re-evaluates is a fresh allocation, never a lookup by
-  name — and until this gate nothing had measured it under a real
-  recompile."
+  baseline captured? `same?` answers the claim that a reload REPLACES.
+  That is React's own remount rule — a top-level `def` the save
+  re-evaluates is a fresh allocation, never a lookup by name — and this
+  gate measures it under a real recompile."
   [base]
   (let [now (views/live-heads)
         was (:heads base)]
@@ -444,7 +441,7 @@
                           true)
          :reincarnate   (fn [frame-name label]
                           (destroy-and-remake! (frame-of frame-name) label))
-         ;; --- the split region (rf2-y5x6j, rf2-iq0a) ---------------------
+         ;; --- the split region -------------------------------------------
          :islandLoads   (fn [] (views/island-loads))
          :islandRefs    (fn [frame-name slot]
                           (clj->js (dissoc (get @!island-nodes
