@@ -1,35 +1,35 @@
 (ns re-frame.interceptor-test
-  "Dedicated coverage for the v2 retained interceptor surface (Spec 002).
+  "Dedicated coverage for the interceptor surface (Spec 002).
 
-  v2 trims the v1 interceptor stdlib down to a tiny retained set:
+  The interceptor stdlib is a tiny set:
     - the framework-standard `[:rf.interceptor/path <path-vector>]` ref
       (its consumer `standard-path-interceptor`)
     - ->interceptor* (and the supporting context plumbing)
 
-  (`inject-cofx` is removed — EP-0017 / rf2-w9xyx1 — not on the facade;
-  coeffect delivery is the `:rf.cofx/requires` declaration. The public
-  `rf/path` VALUE constructor is removed too — EP-0022 / rf2-dgtdna — a stale
+  (There is no `inject-cofx` on the facade (EP-0017);
+  coeffect delivery is the `:rf.cofx/requires` declaration. There is no public
+  `rf/path` VALUE constructor (EP-0022): a stale
   `(rf/path …)` call is the hard error `:rf.error/path-removed` naming the ref.
-  The standard `unwrap-interceptor` VALUE is removed too — EP-0022 / rf2-3qeu38
-  — the framework ships no standard unwrap; the canonical spelling is
+  The framework ships no standard `unwrap-interceptor` VALUE (EP-0022); the
+  canonical spelling is
   handler-payload destructuring, or a PROJECT-registered `:app/unwrap`
-  interceptor. The unwrap deftests below exercise such a project-local
-  interceptor — they no longer depend on a framework-owned value.)
+  interceptor, and the unwrap deftests below exercise such a project-local
+  interceptor.)
 
-  These are exercised obliquely by smoke / conformance tests, but nothing
-  pins their contract directly. This namespace does — one deftest per
+  Smoke / conformance tests exercise these obliquely; this namespace pins
+  their contract directly — one deftest per
   interceptor plus a chain-composition deftest covering before-order /
   after-reverse-order / exception-interruption.
 
   Tests run on the JVM via the plain-atom adapter; per the project
   invariant the JVM interop layer must work.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   Every assertion here is posture-independent — it holds in the ordinary
   `clojure -M:test` suite AND under the real production gate
   (`scripts/test-core-prod-gate.sh`, `-Dre-frame.debug=false`) — UNLESS it sits
-  inside a `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`. That is
+  inside a `(when rf.interop/debug-enabled? …)` arm. That is
   what lets the bulk of this namespace — chain composition, before-order /
   after-reverse-order, the `:rf.interceptor/path` ref, ctx-delta — run in the
   production lane.
@@ -44,15 +44,15 @@
     * `:source-coord`. The trace tag rides the dev-only trace surface, and
       the REGISTRATION coord is production-elided too: under the gate
       `source-coords/merge-coords` strips the coords from the public registry
-      meta (rf2-3un2g), so the resolver has nothing to stamp on the built
-      value (rf2-tq26u) — the coord discriminators are dev-only as a pair.
+      meta, so the resolver has nothing to stamp on the built
+      value — the coord discriminators are dev-only as a pair.
 
-  The rf2-mszrz ATTRIBUTION contract (`:failing-id` = the true failing
+  The pipeline-exception ATTRIBUTION contract (`:failing-id` = the true failing
   component) is production-real on the always-on error-emit axis, which lifts
   `:failing-id` / `:reason` onto its record whenever they differ from
-  `:event-id` (error_emit.cljc §`emit-error-both!`). Giving it a
-  posture-independent `:errors`-axis twin is the rf2-7vk3z shape and is tracked
-  separately; it is deliberately NOT bolted on here."
+  `:event-id` (error_emit.cljc §`emit-error-both!`). Its posture-independent
+  `:errors`-axis twin lives in `re-frame.on-error-cljs-test`, not here (see
+  §pipeline-exception attribution below)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -75,7 +75,7 @@
   ;; Framework-shipped registrations live in routing.cljc / ssr.cljc /
   ;; machines.cljc and are wiped by clear-all!. None of these tests need
   ;; them, so we skip the require-reload dance — keeps the fixture cheap.
-  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
+  ;; `init!` does not synthesise `:rf/default`, and
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
@@ -119,11 +119,7 @@
 (deftest path-interceptor-uses-reserved-namespace
   (testing "the path interceptor stashes its db-stack under
             :rf.interceptor.path/stack (reserved namespace per Spec
-            Conventions §Reserved namespaces). Regression for rf2-mn0qc.
-            EP-0022 (rf2-0adhqs.9): the standard `[:rf.interceptor/path …]`
-            factory interceptor stashes under the `:rf.interceptor.path/stack`
-            reserved slot (the old `:rf/path-stack` belonged to the now-
-            deprecated `rf/path` value-constructor)."
+            Conventions §Reserved namespaces)."
     (let [seen-keys (atom nil)]
       ;; A spy interceptor sandwiched between `path` and the handler runs
       ;; AFTER path's :before, so the context it sees must carry the stash
@@ -147,14 +143,14 @@
       (is (not (contains? @seen-keys :path-stack))
           "the bare :path-stack key must NOT appear (reserved-namespace contract)")
       (is (= 11 (get-in (rf/app-db-value :rf/default) [:foo :bar]))
-          "the rename did not break the path interceptor's splice-back behaviour"))))
+          "the path interceptor's splice-back behaviour holds"))))
 
 (deftest path-interceptor-nesting
   (testing "nested [:rf.interceptor/path …] interceptors compose correctly —
             the LIFO stack semantics of :rf.interceptor.path/stack mean an inner
             path's :after restores the outer slice and the outer :after splices
             back into the full app-db. Pins the stack semantics independent of
-            the slot-key rename (rf2-mn0qc)."
+            the slot key."
     (rf/reg-event :path-nest/init (fn [{:keys [db]} _] {:db {:a {:b {:c 7} :sib :keep}}}))
     (rf/reg-event :path-nest/inc
                      ;; The outer `path` focuses to {:b {:c 7} :sib :keep};
@@ -170,8 +166,8 @@
       (is (= :keep (get-in db [:a :sib]))
           "siblings under the outer focus are preserved"))))
 
-;; Per rf2-rwlj2 / Round-2 audit finding CQ-R2.5: the `:after` arm of
-;; `path` only writes `:effects :db` when the handler actually produced
+;; The `:after` arm of the path interceptor
+;; only writes `:effects :db` when the handler actually produced
 ;; one. When the handler emits no `:db` effect (an `:fx`-only handler
 ;; return, or any handler that returns `{}`), the path
 ;; interceptor passes through cleanly — no spurious `:db` effect, no
@@ -188,8 +184,8 @@
       (rf/reg-event :path-noop/init
                        (fn [{:keys [db]} _] {:db {:foo {:bar 10} :other :preserved}}))
       ;; A reg-event handler that emits ONLY `:fx`, no `:db`.
-      ;; Pre-fix the path interceptor would have spliced the unchanged
-      ;; slice back into `:effects :db` regardless — producing a
+      ;; A splice-back that ignored that would write the unchanged
+      ;; slice into `:effects :db` regardless — a
       ;; spurious DB write the handler never asked for.
       ;; Sandwich-spy that captures the effects map produced by the
       ;; handler-side chain — i.e. AFTER the handler ran and BEFORE the
@@ -221,7 +217,7 @@
         (is (= :preserved (:other db))
             "the path didn't touch the rest of app-db either")))))
 
-;; rf2-bw76 — the `:before` arm focuses `[:coeffects :db]` on the slice. That
+;; The `:before` arm focuses `[:coeffects :db]` on the slice. That
 ;; focus is HANDLER-scoped: the `:after` unwind must put the original full
 ;; app-db object back, or every stage that runs after the path interceptor
 ;; sees the slice as if it were the whole root.
@@ -231,11 +227,11 @@
 ;; `(-> ctx :coeffects :db)` as the pending app-db (router.cljc — `pending-db`),
 ;; hands THAT to the flow transform as the root, and stages the transform's
 ;; result as a root `:db` effect. With the coeffect left focused, an ordinary
-;; no-op / effect-only focused event replaces the entire app-db with its own
-;; sub-slice and every sibling key is erased.
+;; no-op / effect-only focused event would replace the entire app-db with its
+;; own sub-slice and erase every sibling key.
 
 (deftest path-interceptor-restores-db-coeffect-on-unwind
-  (testing "rf2-bw76: the path interceptor's :after restores the ORIGINAL full
+  (testing "the path interceptor's :after restores the ORIGINAL full
             app-db as the `:db` coeffect — the focus is handler-scoped, so an
             interceptor OUTSIDE the path sees the unfocused root in its :after"
     (let [outer-after-db (atom :unset)]
@@ -261,7 +257,7 @@
            the path interceptor unwinds — not the focused slice"))))
 
 (deftest path-interceptor-no-db-effect-preserves-root-under-flows
-  (testing "rf2-bw76: a path-focused handler that emits NO :db effect must not
+  (testing "a path-focused handler that emits NO :db effect must not
             let the outermost flow pass overwrite the root app-db with its
             focused slice — nil, {} and {:fx []} returns all preserve the root"
     (rf/reg-event :bw76/init
@@ -301,8 +297,7 @@
                ") preserves every root key and the flow's root-derived value")))))
 
 (deftest path-interceptor-still-splices-back-when-handler-emits-db
-  (testing "(path ...) still splices when the handler DOES emit :db —
-            rf2-rwlj2 fix preserves the happy path"
+  (testing "(path ...) splices when the handler DOES emit :db — the happy path"
     (rf/reg-event :path-emit/init (fn [{:keys [db]} _] {:db {:foo {:bar 10}}}))
     (rf/reg-event :path-emit/inc
                      {:interceptors [[:rf.interceptor/path [:foo :bar]]]}
@@ -312,19 +307,19 @@
     (rf/dispatch-sync [:path-emit/init])
     (rf/dispatch-sync [:path-emit/inc])
     (is (= 11 (get-in (rf/app-db-value :rf/default) [:foo :bar]))
-        "handler that emits :db still gets its slice spliced back")))
+        "handler that emits :db gets its slice spliced back")))
 
-;; Per rf2-mas2y: when an EARLIER interceptor's `:before` throws,
+;; When an EARLIER interceptor's `:before` throws,
 ;; `execute-chain` short-circuits all downstream `:before` stages
 ;; (including the path interceptor's) yet still runs every `:after` in reverse
 ;; (teardown contract). The path interceptor's `:before` therefore never pushed
 ;; onto `:rf.interceptor.path/stack`, so its `:after` must NOT call `(pop [])` —
 ;; that would throw a SPURIOUS second error masking the original cause. The
-;; sibling `unwrap` interceptor is already guarded for this case (it no-ops when
-;; `:rf/unwrap-stash` is absent); the path interceptor mirrors that guard.
+;; project-local `unwrap` interceptor below carries the same guard (it no-ops
+;; when `:rf/unwrap-stash` is absent).
 ;;
-;; rf2-dgtdna: the legacy `rf/path` value constructor is removed (EP-0022); the
-;; surviving path surface is `standard-path-interceptor` (the
+;; There is no `rf/path` value constructor (EP-0022); the
+;; path surface is `standard-path-interceptor` (the
 ;; `[:rf.interceptor/path …]` factory's consumer), so this raw-chain test builds
 ;; that interceptor value directly. Source: std_interceptors.cljc —
 ;; `standard-path-interceptor`'s `:after` no-ops when
@@ -359,19 +354,18 @@
           "the path interceptor's no-op :after produced no :db effect when its
            :before never ran"))))
 
-;; ---- unwrap (PROJECT-LOCAL, EP-0022 / rf2-3qeu38) -------------------------
+;; ---- unwrap (PROJECT-LOCAL, EP-0022) --------------------------------------
 ;;
-;; EP-0022 removed the framework `unwrap-interceptor` VALUE: the framework
-;; ships no standard unwrap; the canonical spelling is handler-payload
+;; The framework ships no standard `unwrap-interceptor` VALUE (EP-0022); the
+;; canonical spelling is handler-payload
 ;; destructuring, or — for genuine chain-wide reshaping — a PROJECT-registered
 ;; `:app/unwrap` interceptor with the project's own `:before` / `:after`.
 ;; These deftests register exactly such a project-local interceptor and
 ;; reference it by id, so they pin the chain mechanics (event-coeffect rewrite
 ;; + restore, bad-shape diagnostic) WITHOUT depending on a framework-owned
 ;; value. The diagnostic category is project-owned
-;; (`:test.app/unwrap-bad-event-shape`) — the framework
-;; `:rf.error/unwrap-bad-event-shape` category was removed with the value
-;; (Spec 009 §Error event catalogue).
+;; (`:test.app/unwrap-bad-event-shape`); the framework catalogue carries no
+;; unwrap category (Spec 009 §Error event catalogue).
 
 (def ^:private project-unwrap-interceptor
   "A PROJECT-LOCAL unwrap interceptor (NOT a framework value). Asserts the
@@ -452,7 +446,7 @@
           "handler runs with the original event vector when the shape check fails")
 
       ;; The structured trace fired.
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
+      ;; Dev-instrumentation arm (see ns docstring). The
       ;; "keeps-event-unchanged" half of this deftest's name is the
       ;; `@seen-event` assertion above, which runs in both postures.
       (when rf.interop/debug-enabled?
@@ -484,7 +478,7 @@
       ;; Wrong arity — three elements instead of two.
       (rf/dispatch-sync [:unwrap-bad-test/arity {:ok :map} :extra])
       (rf/unregister-listener! :trace ::unwrap-arity)
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (some #(= :test.app/unwrap-bad-event-shape (:operation %)) @traces)
             ":test.app/unwrap-bad-event-shape fires for arity mismatch too"))
@@ -508,10 +502,10 @@
 
 ;; ---- cofx delivery (EP-0017: declared-only, value-returning) --------------
 ;;
-;; `inject-cofx` is removed (EP-0017 slice A.3). Coeffect delivery is context
+;; There is no `inject-cofx` (EP-0017). Coeffect delivery is context
 ;; assembly, not a chain member: a handler declares `:rf.cofx/requires` and the
 ;; value-returning supplier's result arrives flat. The full cofx behaviour /
-;; error family is pinned in `re-frame.cofx-test`; here we keep a thin
+;; error family is pinned in `re-frame.cofx-test`; here is a thin
 ;; smoke that the delivery threads into a handler alongside the standard
 ;; `:db` / `:event` coeffects.
 
@@ -553,8 +547,8 @@
     (let [trail (atom [])
           ;; Three custom interceptors, named A / B / C, that each push a
           ;; tagged entry into `trail` from both their :before and :after
-          ;; slots. The handler itself pushes :handler. Since EP-0022
-          ;; (chains are reference-only) `mk` REGISTERS the interceptor under
+          ;; slots. The handler itself pushes :handler. Chains are
+          ;; reference-only (EP-0022), so `mk` REGISTERS the interceptor under
           ;; its tag id and RETURNS the id keyword for the chain to reference.
           mk (fn [tag]
                (rf/reg-interceptor
@@ -585,8 +579,7 @@
 ;; ---- chain composition ----------------------------------------------------
 ;;
 ;; Driven directly through rf.interceptor/execute-chain so the test pins the
-;; chain runtime's contract without leaning on the dispatch path. This is
-;; the level the bead's "chain composition" deliverable refers to.
+;; chain runtime's contract without leaning on the dispatch path.
 
 (deftest chain-composition
   (testing "execute-chain runs every :before in order then every :after in
@@ -621,7 +614,7 @@
   (testing "an :after that throws does NOT prevent the handler from completing,
             but IS captured on the context as :rf/interceptor-error.
 
-            The downstream chain runtime currently records the error and lets
+            The chain runtime records the error and lets
             subsequent :after stages still run (they receive the error-bearing
             context). This pins THAT contract — the handler completed (we see
             :handler-ran), the throwing :after's id is recorded, and we DID
@@ -671,11 +664,10 @@
   (testing "multiple interceptors failing record ALL errors but
             :rf/interceptor-error remains the FIRST.
 
-            Per rf2-mm2a: prior to the fix, the second `assoc` would
-            clobber the first — the original cause was lost. The fix
-            keeps `:rf/interceptor-error` pinned to the FIRST error
-            (existing tracing reads the root cause) and appends every
-            error in occurrence order to `:rf/interceptor-errors`."
+            `:rf/interceptor-error` stays pinned to the FIRST error
+            (tracing reads the root cause) and every error is appended in
+            occurrence order to `:rf/interceptor-errors`; a plain second
+            `assoc` would clobber the first and lose the original cause."
     (let [;; A :before that throws (interceptor :before-bad), then an
           ;; :after that throws on the way back out (interceptor :after-bad).
           ;; The short-circuit means :before-bad's :before fires, but
@@ -717,7 +709,7 @@
   (testing "a failing :before short-circuits subsequent :before stages
             but :after stages still run (teardown contract).
 
-            Per rf2-mm2a: with the short-circuit, downstream :before
+            With the short-circuit, downstream :before
             stages don't see partial context. The :after pass is
             unconditional so interceptors can clean up resources their
             :before claimed."
@@ -759,15 +751,15 @@
           "only the one (uncaught) :before error is in the vector —
            skipped :before stages don't synthesize errors"))))
 
-;; ---- context-plumbing helpers (rf2-ynjts.1) -------------------------------
+;; ---- context-plumbing helpers ---------------------------------------------
 ;;
 ;; `get-coeffect` / `assoc-coeffect` / `update-coeffect` / `get-effect` /
 ;; `assoc-effect` are the public read/write substrate every custom
 ;; interceptor uses (re-exported as `rf/get-coeffect` etc. per
 ;; spec/API.md §Interceptors). The chain / dispatch tests above exercise
-;; them obliquely, but nothing pinned their ARITY contracts directly —
+;; them obliquely; these pin their ARITY contracts directly —
 ;; in particular the 3-arity `not-found` forms of the two readers and
-;; `update-coeffect`'s trailing-args form had no coverage. These are
+;; `update-coeffect`'s trailing-args form. These are
 ;; pure fns over the context map; pinning them here means an arity
 ;; regression surfaces at the source rather than via a far-off cascade
 ;; assertion. Driven directly against a literal context map — no runtime.
@@ -868,25 +860,25 @@
       (is (= {:db {}} (:effects ctx'))
           ":effects untouched"))))
 
-;; ---- pipeline-exception attribution (rf2-mszrz) ---------------------------
+;; ---- pipeline-exception attribution ---------------------------------------
 ;;
-;; The :before/:after chain runs three distinct kinds of component — the
-;; coeffect injectors, the user interceptors, and the handler-wrapping
-;; interceptor (the terminal :before). Before rf2-mszrz a throw from ANY of
-;; them collapsed into a single :rf.error/handler-exception attributed to the
-;; event. These tests pin the post-fix contract: each kind emits its own
+;; A dispatch runs three distinct kinds of component — the
+;; coeffect suppliers, the user interceptors, and the handler-wrapping
+;; interceptor (the terminal :before). A throw from ANY of
+;; them must not collapse into a single :rf.error/handler-exception attributed
+;; to the event: each kind emits its own
 ;; category with :failing-id = the true failing component, mirroring the
-;; already-distinct flow (:rf.error/flow-eval-exception) and fx
+;; distinct flow (:rf.error/flow-eval-exception) and fx
 ;; (:rf.error/fx-handler-exception) categories.
 ;;
-;; PRODUCTION TWIN (rf2-mlh1h). The attribution below is read off the DEV
+;; PRODUCTION TWIN. The attribution below is read off the DEV
 ;; TRACE, which emits nothing under -Dre-frame.debug=false — hence the
 ;; `(when rf.interop/debug-enabled? …)` arms. The contract itself is
 ;; production-real: `error-emit/emit-error-both!` lifts `:failing-id` +
 ;; `:reason` onto the ALWAYS-ON record whenever the failing id differs from
 ;; `:event-id`. That half is witnessed in `re-frame.on-error-cljs-test`
-;; (rf2-n4x74b's four `*-record-carries-failing-*-id` deftests, plus
-;; rf2-mlh1h's phase / event-id pair), which captures through the `:errors`
+;; (the `*-exception-record-*-failing-*-id` deftests, plus a
+;; phase / event-id pair), which captures through the `:errors`
 ;; stream and runs in BOTH postures. Do not conclude from the dev-only arms
 ;; here that the production lifting is unasserted — it is asserted there.
 
@@ -908,12 +900,12 @@
                      (fn [{:keys [db]} _] {:db (throw (ex-info "handler blew up" {}))}))
     (let [db-before (rf/app-db-value :rf/default)
           errs      (capture-error-traces [:mszrz/handler-boom])]
-      ;; SEMANTIC, posture-independent (rf2-d2841): the no-abort contract —
+      ;; SEMANTIC, posture-independent: the no-abort contract —
       ;; the throw is contained, `dispatch-sync` returns, and the failed
       ;; event commits nothing.
       (is (= db-before (rf/app-db-value :rf/default))
           "a throwing handler commits nothing; the runtime does not abort")
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The negative
+      ;; Dev-instrumentation arm (see ns docstring). The negative
       ;; control is inside the arm too: under the gate `errs` is empty, so
       ;; `empty?` would pass for the wrong reason.
       (when rf.interop/debug-enabled?
@@ -930,10 +922,9 @@
                                  (:operation %)) errs))
               "no coeffect / interceptor category for a pure handler throw")))))
 
-  ;; The former "coeffect INJECTION throw → :rf.error/coeffect-exception"
-  ;; sub-test is retired with `inject-cofx` (EP-0017 slice A.3): coeffect
-  ;; delivery is now context assembly, not a `:before` chain member, so a
-  ;; throwing supplier no longer rides the interceptor classification path.
+  ;; There is no coeffect-INJECTION case here: coeffect delivery is context
+  ;; assembly (EP-0017), not a `:before` chain member, so a
+  ;; throwing supplier does not ride the interceptor classification path.
 
   (testing "user interceptor :BEFORE throw → :rf.error/interceptor-exception (failing-id = interceptor, phase :before)"
     (rf/reg-interceptor :mszrz/before-icpt
@@ -943,12 +934,12 @@
                      (fn [{:keys [db]} _] {:db db}))
     (let [db-before (rf/app-db-value :rf/default)
           errs      (capture-error-traces [:mszrz/before-boom])]
-      ;; SEMANTIC, posture-independent (rf2-d2841): a throwing `:before`
+      ;; SEMANTIC, posture-independent: a throwing `:before`
       ;; interrupts the chain — the handler never commits — without aborting
       ;; the runtime.
       (is (= db-before (rf/app-db-value :rf/default))
           "a throwing :before interrupts the chain; nothing is committed")
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (let [ix (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
           (is (= 1 (count ix)) "exactly one interceptor-exception")
@@ -962,15 +953,15 @@
 
   (testing "user interceptor :AFTER throw → :rf.error/interceptor-exception (failing-id = interceptor, phase :after)"
     ;; The :after chain runs after the handler; an :after throw must
-    ;; attribute to the interceptor (phase :after), not the handler — the
-    ;; collapse rf2-mszrz explicitly fixes for the :after side too.
+    ;; attribute to the interceptor (phase :after), not the handler — no
+    ;; collapse on the :after side either.
     (rf/reg-interceptor :mszrz/after-icpt
                          {:after (fn [_] (throw (ex-info "after blew up" {})))})
     (rf/reg-event :mszrz/after-boom
                      {:interceptors [:mszrz/after-icpt]}
                      (fn [{:keys [db]} _] {:db db}))
     (let [errs (capture-error-traces [:mszrz/after-boom])]
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (let [ix (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
           (is (= 1 (count ix)) "exactly one interceptor-exception")
@@ -982,7 +973,7 @@
           (is (empty? (filterv #(= :rf.error/handler-exception (:operation %)) errs))
               "an interceptor :after throw does NOT report as handler-exception"))))))
 
-;; ---- explicit source-coord on the lowering constructor (rf2-siheh) --------
+;; ---- explicit source-coord on the lowering constructor --------------------
 ;;
 ;; `->interceptor*` (`re-frame.interceptor`, the ONE lowering constructor)
 ;; captures no coord of its own — there is no syntactic call site to
@@ -991,9 +982,8 @@
 ;; (rf.interceptor/error-record) → the router threads it onto the
 ;; `:rf.error/interceptor-exception` trace's `:source-coord` tag, so the Xray
 ;; Epoch INTERCEPTOR row can render a jump-to-source chip (parity with EVENT
-;; HANDLER / SUBSCRIPTIONS / VIEWS). The facade's coord-capturing
-;; `->interceptor` macro, which used to bake that coord from `(meta &form)`,
-;; is gone (rf2-93sxp — no library caller; `reg-interceptor` is the authoring
+;; HANDLER / SUBSCRIPTIONS / VIEWS). The facade carries no coord-capturing
+;; `->interceptor` macro (`reg-interceptor` is the authoring
 ;; form), so the threading contract is pinned with an explicit coord.
 
 (def ^:private probe-coord
@@ -1032,7 +1022,7 @@
                   {:interceptors [:siheh/before-icpt]}
                   (fn [{:keys [db]} _] {:db db}))
     (let [errs (capture-error-traces [:siheh/before-boom])]
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring): the trace is
+      ;; Dev-instrumentation arm (see ns docstring): the trace is
       ;; not emitted in production.
       (when rf.interop/debug-enabled?
         (let [ix (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
@@ -1046,8 +1036,8 @@
     ;; registering it via the PROGRAMMATIC `reg-interceptor*` fn (no macro,
     ;; no `*pending-coords*`) captures no registration coord either — so
     ;; nothing rides through resolution onto the trace. (A `reg-interceptor`
-    ;; MACRO registration now stamps its registration-site coord onto the
-    ;; resolved value — rf2-tq26u — so the no-coord degradation is pinned on
+    ;; MACRO registration stamps its registration-site coord onto the
+    ;; resolved value, so the no-coord degradation is pinned on
     ;; the programmatic path, the one Xray spec 021 documents as plain-text.)
     (rf.interceptor-registry/reg-interceptor* :siheh/fn-before-icpt
                          (rf.interceptor/->interceptor*
@@ -1057,22 +1047,22 @@
                      {:interceptors [:siheh/fn-before-icpt]}
                      (fn [{:keys [db]} _] {:db db}))
     (let [errs (capture-error-traces [:siheh/fn-before-boom])]
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (let [ix (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
           (is (= 1 (count ix)) "exactly one interceptor-exception")
           (is (nil? (get-in (first ix) [:tags :source-coord]))
               "no :source-coord tag — the fn path captured none"))))))
 
-;; ---- ctx-delta falsy-key correctness (rf2-tq8l9m) -------------------------
+;; ---- ctx-delta falsy-key correctness --------------------------------------
 
 (deftest compute-ctx-delta-keeps-changed-values-under-falsy-keys
-  ;; rf2-tq8l9m — `segment-delta` computed the both-maps `common` key set via
-  ;; `(filter ks-b ks-a)`, using the key SET as the filter predicate. A set
-  ;; returns the ELEMENT (not a boolean), so a key literally `false` / `nil`
-  ;; tested falsy and was DROPPED from `common` — silently omitting a
-  ;; changed-in-place value under that key from the `:changed` diff. Fixed by
-  ;; an explicit `(contains? ks-b %)` membership test that keeps falsy keys.
+  ;; `segment-delta` computes the both-maps `common` key set with an explicit
+  ;; `(contains? ks-b %)` membership test. Using the key SET itself as the
+  ;; filter predicate (`(filter ks-b ks-a)`) would return the ELEMENT (not a
+  ;; boolean), so a key literally `false` / `nil` would test falsy and be
+  ;; DROPPED from `common` — silently omitting a changed-in-place value under
+  ;; that key from the `:changed` diff.
   ;; `compute-ctx-delta` is private (a dev-only trace projection); reach it via
   ;; its var. Pure fn — no runtime needed.
   (let [compute (deref #'rf.interceptor/compute-ctx-delta)]
