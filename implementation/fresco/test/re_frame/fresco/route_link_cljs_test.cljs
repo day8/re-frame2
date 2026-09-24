@@ -64,8 +64,8 @@
         b (rendered {:to :conduit.profile/show :params {:username "jane"} :class "author"} "jane")]
     (is (= a b)
         "the whole anchor — href, click decision, veto — is a value `=` can
-         see, which is the axis the prevent head was ruled on (HD-026) and
-         the axis a closure-carrying anchor loses")
+         see, which is the axis HD-026 decides the prevent head on and the
+         axis a closure-carrying anchor loses")
     (is (= :a (first a)))
     (is (= "/profile/jane" (:href (second a)))
         "the href is the routing artefact's own synthesis — no hand-built URL")
@@ -197,7 +197,7 @@
            and it dispatches on the frame captured at RENDER (the same frame
            `require-frame!` pinned the click to). Reading the vector alone
            would pass on a link that warms nothing, which is the defect this
-           bead exists to close"
+           row exists to close"
     (let [!seen     (atom [])
           [_ attrs] (rendered {:to :conduit.profile/show :params {:username "jane"}
                                :prefetch :intent}
@@ -240,11 +240,11 @@
           "the author's own hover intent passes through untouched"))))
 
 (deftest a-bad-prefetch-value-is-still-routings-refusal
-  (testing "unchanged by the wiring: a PRESENT `:prefetch` that is not
-           `:intent` is routing's `:rf.error/route-link-bad-prefetch`, raised
-           from inside the seam before Fresco's claimed-position check is
-           reached. The two ids stay distinct — that one means the value is
-           bad, this bead's means the value is good and the position is taken"
+  (testing "a PRESENT `:prefetch` that is not `:intent` is routing's
+           `:rf.error/route-link-bad-prefetch`, raised from inside the seam
+           before Fresco's claimed-position check is reached. The two ids
+           stay distinct — that one means the value is bad, Fresco's means
+           the value is good and the position is taken"
     (doseq [bad [:render :viewport true false nil]]
       (is (thrown-with-msg?
             js/Error #"route-link-bad-prefetch"
@@ -340,11 +340,11 @@
 
 (deftest a-function-veto-rides-the-vector-and-reaches-the-seam-by-identity
   (testing "the roster's IMPERATIVE half (HD-024: whoever holds the event
-           owns it) had no exercise anywhere — every veto row used nil or
-           the prevent head, so `on-click-roster!`'s fn arm and
-           `lower-veto`'s could rot with every declarative row green. A
-           plain function at :on-click renders, and rides the navigate
-           vector's :veto slot by identity"
+           owns it). Every other veto row uses nil or the prevent head, so
+           without this one `on-click-roster!`'s fn arm and `lower-veto`'s
+           could rot with every declarative row green. A plain function at
+           :on-click renders, and rides the navigate vector's :veto slot by
+           identity"
     (let [veto      (fn a-veto [_e] nil)
           [_ attrs] (rendered {:to :conduit.profile/show :params {:username "jane"}
                                :on-click veto}
