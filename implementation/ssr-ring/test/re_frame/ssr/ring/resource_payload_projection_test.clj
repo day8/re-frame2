@@ -237,7 +237,7 @@
           (is (empty? entries)
               (str "the coarse feed entry contributes no row to the "
                    "runtime-db slice — stated as absence of the ROW, "
-                   "not as an empty payload: " (pr-str entries)))
+                   "not as a metadata-only row: " (pr-str entries)))
           ;; the confirm-by-revert control: the projection is not silently
           ;; empty for everyone. The NON-sensitive counterpart of this exact
           ;; render still ships its row, asserted by
