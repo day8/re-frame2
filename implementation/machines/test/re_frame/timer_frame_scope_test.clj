@@ -33,7 +33,7 @@
 ;; lingers in the timer table so we can read it back. The synchronous
 ;; pure-side transition emits the :rf.machine/after-schedule fx; the fx
 ;; handler in `re-frame.machines.timer` installs the host-clock handle
-;; under [<frame-id> [<parent-id> <invoke-id-vec> <delay-key>]].
+;; under [<frame-id> {:parent <parent-id> :spawn <invoke-id-vec> :delay <delay-key>}].
 
 (def ^:private spec
   {:initial :idle
@@ -107,10 +107,10 @@
     (is (contains? @rf.machines.timer/after-timers :ds/keep)
         "destroy-frame! on the discarded frame must not touch the survivor's entries")))
 
-;; ---- regression: 0-arity reset still clears everything --------------------
+;; ---- regression: 0-arity reset clears everything --------------------------
 
 (deftest zero-arity-reset-timers-clears-every-frame
-  (testing "0-arity reset-timers! preserves its pre-rf2-ysa94 contract"
+  (testing "0-arity reset-timers! clears every frame's timers"
     (rf/reg-machine :iso0/m spec)
     (rf/make-frame {:id :iso0/a})
     (rf/make-frame {:id :iso0/b})
