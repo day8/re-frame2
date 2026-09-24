@@ -23,7 +23,7 @@
       - All :after-render callbacks queued before flush-views! fired.
       - React's pending work has committed (act() has run to completion).
 
-  Suspense-ordering choice for `flush-views!` (rf2-w6ef):
+  Suspense-ordering choice for `flush-views!`:
 
     microtask -> act -> microtask
 
@@ -56,7 +56,7 @@
     (c) re-renders a component, (d) the component throws a Promise
     that resolves synchronously — the test's post-flush-views!
     assertion sees the resolved-tree state. Demonstrated by the
-    Suspense test in dom_client_cljs_test.cljs.
+    Suspense tests in reagent2/dom/client_cljs_test.cljs.
 
   Production cost: zero. `flush-views!` is gated on `js/goog.DEBUG` and
   DCEs entirely under `:advanced` + `goog.DEBUG=false`."
@@ -67,25 +67,25 @@
             ["react-dom/client" :as react-dom-client]))
 
 ;; ---------------------------------------------------------------------------
-;; Host commit boundary for the ORDINARY scheduled queue (rf2-cdoo)
+;; Host commit boundary for the ORDINARY scheduled queue
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `reagent2.core/after-render` promises to run its callback after the next
 ;; React commit, and the slim adapter publishes it at `:adapter/after-render`,
-;; so `re-frame.interop/after-render` lands on that queue. But
-;; `reagent2.impl.batching`'s microtask drain called each dirty component's
-;; bare `forceUpdate` and then ran the callbacks immediately — and under React
-;; 19 `createRoot` a bare `forceUpdate` from outside React's batching context
-;; is SCHEDULED, not committed (the same fact `flush-render!` below documents
-;; and relies on). The callback therefore read the OLD DOM. Measured on the
-;; real-DOM ordinary path: the callback saw `n=1` after a dispatch to `n=2`.
+;; so `re-frame.interop/after-render` lands on that queue. But under React 19
+;; `createRoot` a bare `forceUpdate` from outside React's batching context is
+;; SCHEDULED, not committed (the same fact `flush-render!` below documents and
+;; relies on). A microtask drain that called each dirty component's bare
+;; `forceUpdate` and then ran the callbacks immediately would hand them the
+;; OLD DOM: on the real-DOM ordinary path a callback would see `n=1` after a
+;; dispatch to `n=2`.
 ;;
-;; The repair is the seam stock Reagent already uses — the queue asks the HOST
-;; to bracket its dirty-component pass — with the direction of the dependency
-;; kept as it was: `batching` requires nothing of react-dom, and this ns, which
+;; So the queue asks the HOST to bracket its dirty-component pass — the seam
+;; stock Reagent uses — with the dependency pointing one way: `batching`
+;; requires nothing of react-dom, and this ns, which
 ;; is the DOM host by definition, installs the boundary into it at ns-load.
 ;; A consumer that never loads this ns (Node, SSR through
-;; `reagent2.dom.server`) keeps the bare drain and pulls no react-dom.
+;; `reagent2.dom.server`) runs the bare drain and pulls no react-dom.
 ;;
 ;; `batching` applies it only on turns with a pending after-render callback, so
 ;; an ordinary reactive re-render keeps React 19's concurrent scheduling and is
@@ -98,7 +98,7 @@
     true))
 
 ;; ---------------------------------------------------------------------------
-;; flush-views! — test-flush primitive (Stage 4-B)
+;; flush-views! — test-flush primitive
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Implementation note on `react/act`: `act` is a top-level export of
@@ -110,7 +110,7 @@
 ;; ONE lookup on every supported tree, and the pre-18.3
 ;; `react-dom/test-utils` location is below the floor.
 ;;
-;; The probe stays a probe rather than a direct call because React's
+;; It is a probe rather than a direct call because React's
 ;; PRODUCTION bundle deliberately omits `act`; `flush-views!` degrades to
 ;; a plain synchronous flush there (see below) rather than calling an
 ;; absent export.
@@ -126,7 +126,7 @@
   test fixture that swaps the React module mid-run sees the swap on the
   next `flush-views!`.
 
-  React-19 floor (rf2-uuzkp, rf2-6r9j.35). `(.-act react)` is the ONE
+  React-19 floor. `(.-act react)` is the ONE
   lookup: the repository pins react / react-dom 19.3.0 and generated
   consumers with it, so the pre-18.3 `react-dom/test-utils` location is
   below the floor and probing it would buy nothing. A nil result therefore
@@ -134,9 +134,9 @@
   `flush-views!` degrades to a plain synchronous flush — the documented
   safe behaviour, not a compatibility path.
 
-  The canonical cross-substrate test-flush entry point remains the
+  The canonical cross-substrate test-flush entry point is the
   adapter-ns Var `re-frame.adapter.reagent-slim/flush-views!` (surfaced
-  identically across substrates per rf2-b6nm5 Decision 6), which routes
+  identically across substrates), which routes
   through the spine's `resolve-act-fn`. Reach this substrate-level
   `flush-views!` directly only for its Promise return / Suspense
   ordering."
@@ -162,8 +162,8 @@
   but there is nothing to await and the return is nil.
 
   NOT the canonical cross-substrate hook. The adapter-ns Var
-  `re-frame.adapter.reagent-slim/flush-views!` is the converged
-  nil-returning contract (rf2-b6nm5, Decision 6), surfaced under the
+  `re-frame.adapter.reagent-slim/flush-views!` is the shared
+  nil-returning contract, surfaced under the
   same name from every adapter ns and routed through the spine. Reach
   THIS one only for the Promise return / deterministic Suspense
   ordering.
@@ -191,7 +191,7 @@
                          (microtask-tick))))))))))
 
 ;; ---------------------------------------------------------------------------
-;; flush-render! — production synchronous render-commit (rf2-40a84 / rf2-0bz5ah)
+;; flush-render! — production synchronous render-commit
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The production-grade synchronous render-commit the adapter's
@@ -202,7 +202,7 @@
 ;; `react-dom/flushSync` boundary so the forced re-renders COMMIT TO THE
 ;; DOM synchronously before this returns.
 ;;
-;; Why the flushSync boundary is load-bearing (rf2-0bz5ah). Under React 19
+;; Why the flushSync boundary is load-bearing. Under React 19
 ;; `createRoot`, a bare `forceUpdate` issued from outside React's batching
 ;; context is subject to automatic batching: React SCHEDULES the re-render
 ;; rather than committing it synchronously, so the DOM still reflects the
@@ -224,8 +224,8 @@
 (defn flush-render!
   "Run `f`, then synchronously drain + COMMIT pending render work to the
   DOM. Wraps `(do (f) (batching/flush!))` in `react-dom/flushSync` so the
-  forced re-renders commit synchronously under React 19 `createRoot`
-  (rf2-0bz5ah). Returns nil.
+  forced re-renders commit synchronously under React 19 `createRoot`.
+  Returns nil.
 
   Single component pass: `batching/flush!` drains the component queue
   exactly ONCE inside the `flushSync` boundary. `ratom/flush!` fully
@@ -246,7 +246,7 @@
   nil)
 
 ;; ---------------------------------------------------------------------------
-;; Mount entries (Stage 4-D)
+;; Mount entries
 ;;
 ;; The mount-side surface per IMPL-SPEC §2.4. `render` walks the user's
 ;; hiccup `el` once via `reagent2.impl.template/as-element` and hands
