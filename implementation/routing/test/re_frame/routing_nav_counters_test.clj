@@ -1,13 +1,13 @@
 (ns re-frame.routing-nav-counters-test
-  "rf2-oosjmh — host-side nav-token / pending-nav counter reconciliation.
+  "Host-side nav-token / pending-nav counters.
 
   The two monotonic routing ALLOCATORS (`:nav-token-counter` /
-  `:pending-nav-counter`) moved OUT of the `[:rf.runtime/routing ...]`
-  runtime-db partition into a host-side per-frame transient cache
-  (`re-frame.routing.nav-counters`), mirroring the rf2-1hncp2 scroll
-  cache. The driving correctness reason: an epoch restore replaces the
-  runtime-db partition WHOLESALE, which — when the counter lived in
-  runtime-db — rewound it, recycling a token an in-flight async
+  `:pending-nav-counter`) live OUTSIDE the `[:rf.runtime/routing ...]`
+  runtime-db partition, in a host-side per-frame transient cache
+  (`re-frame.routing.nav-counters`), mirroring the scroll
+  cache. The correctness reason: an epoch restore replaces the
+  runtime-db partition WHOLESALE, so a counter held in runtime-db would
+  be rewound, recycling a token an in-flight async
   continuation might still carry (the recycle events.cljc's invariant
   forbids). Held host-side the counter is a high-water mark untouched by
   restore, so a post-restore allocation always exceeds any pre-restore
@@ -17,7 +17,7 @@
     - restore-then-navigate: after an epoch restore that rewinds the
       runtime-db route slice, the NEXT navigate mints a FRESH token that
       does NOT recycle a pre-restore value;
-    - the counters are NOT in runtime-db after the move;
+    - the counters are NOT in runtime-db;
     - `:pending-navigation` STAYS in runtime-db (subscribable) but is
       stripped from the SSR hydration payload;
     - the routing classification table + SSR allowlist share one source
@@ -33,10 +33,10 @@
 
 (use-fixtures :each rf.routing-test-support/reset-runtime)
 
-;; ---- the move: counters are NOT runtime-db state -------------------------
+;; ---- counters are NOT runtime-db state -----------------------------------
 
 (deftest counters-not-in-runtime-db-after-navigation
-  (testing "rf2-oosjmh: a navigation mints a nav-token but leaves NO
+  (testing "a navigation mints a nav-token but leaves NO
             nav-token-counter / pending-nav-counter in the runtime-db
             routing partition — the counters live host-side"
     (rf/reg-route :route/a {} "/a")
@@ -57,7 +57,7 @@
 ;; ---- restore-then-navigate: no token recycle across an epoch restore -----
 
 (deftest restore-then-navigate-allocates-fresh-token-from-host-cache
-  (testing "rf2-oosjmh: an epoch restore rewinds the runtime-db route slice
+  (testing "an epoch restore rewinds the runtime-db route slice
             (the active nav-token goes back to its restored value), but the
             host-side counter is a high-water mark untouched by restore — so
             the NEXT navigation mints a token that exceeds any pre-restore
@@ -94,7 +94,7 @@
                              [:rf.runtime/routing :current :nav-token]))
           "the restore rewound the runtime-db slice's active token to nav-1")
       ;; The host counter is UNTOUCHED by the runtime-db replace — that is
-      ;; the whole point of the move.
+      ;; the whole point of holding it host-side.
       (is (= 3 (:nav-token-counter (rf.routing.nav-counters/counter-snapshot :rf/default)))
           "the host-side high-water mark survived the restore (NOT rewound)")
 
@@ -107,12 +107,11 @@
         (is (= "nav-4" fresh)
             "post-restore navigation mints nav-4 — monotone past the high-water mark")
         (is (not (contains? #{"nav-1" "nav-2" "nav-3"} fresh))
-            "the fresh token does NOT recycle any pre-restore value (the invariant the move protects)")))))
+            "the fresh token does NOT recycle any pre-restore value (the invariant host-side allocation protects)")))))
 
 (deftest restore-rewinds-runtime-db-counter-would-recycle-without-the-move
-  (testing "rf2-oosjmh control: demonstrate the bug class the move fixes —
-            had the counter been IN the restored runtime-db, the restore
-            would have rewound it and the next allocation would recycle a
+  (testing "control: a counter held IN the restored runtime-db would be
+            rewound by the restore, and the next allocation would recycle a
             token. The host-side counter is consulted instead, so even a
             restored runtime-db carrying a STALE counter cannot drive a
             recycle"
@@ -121,7 +120,8 @@
     (rf/dispatch-sync [:rf.route/handle-url-change "/x/2" {:rf.route/cause :link}])  ;; nav-2
 
     ;; A maliciously-stale restore even plants an old counter value in the
-    ;; runtime-db (a v1-shaped snapshot). The handler ignores it — it reads
+    ;; runtime-db (a snapshot shaped as though the counter lived there). The
+    ;; handler ignores it — it reads
     ;; the HOST counter — so no recycle.
     (rf.frame/replace-runtime-db!
       :rf/default
@@ -136,7 +136,7 @@
     ;; The planted runtime-db `:nav-token-counter 1` would have driven the
     ;; next alloc to "nav-2" if the allocator read runtime-db. It does NOT —
     ;; it reads the HOST high-water mark (2), so the next token is "nav-3".
-    ;; This is the structural fix: the runtime-db counter is irrelevant.
+    ;; Structurally, the runtime-db counter is irrelevant.
     (is (= "nav-3" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                            [:rf.runtime/routing :current :nav-token]))
         "the host high-water mark (2) drives the next alloc to nav-3, ignoring the planted stale runtime-db counter")
@@ -153,7 +153,7 @@
 ;; ---- :pending-navigation stays subscribable but is SSR-stripped ----------
 
 (deftest pending-navigation-subscribable-and-pending-nav-counter-host-side
-  (testing "rf2-oosjmh / D2: a blocked navigation writes :pending-navigation
+  (testing "a blocked navigation writes :pending-navigation
             to runtime-db (subscribable via :rf/pending-navigation) and mints
             a pending-nav id from the HOST counter — leaving NO
             pending-nav-counter in runtime-db"
@@ -176,14 +176,14 @@
       (is (= "pn-1" (:id pending)) "the pending-nav id is minted from the host counter")
       (is (= :link (:cause pending)) "the pending-nav slot carries the blocked door's cause")
       (is (contains? routing-rt :pending-navigation)
-          ":pending-navigation IS a runtime-db key (D2 — must stay subscribable)")
+          ":pending-navigation IS a runtime-db key (it must stay subscribable)")
       (is (not (contains? routing-rt :pending-nav-counter))
           "the pending-nav-counter is NOT a runtime-db key (it is host-side)"))
     (is (= 1 (:pending-nav-counter (rf.routing.nav-counters/counter-snapshot :rf/default)))
         "the pending-nav high-water mark lives in the host-side cache")))
 
 (deftest pending-navigation-stripped-from-ssr-payload
-  (testing "rf2-oosjmh / D2: :pending-navigation is stripped from the SSR
+  (testing ":pending-navigation is stripped from the SSR
             hydration payload (fail-closed allowlist ships only :current),
             even though it stays in runtime-db for local subscription"
     (let [runtime-db {:rf.runtime/routing
@@ -199,7 +199,7 @@
 ;; ---- one source of truth: classification ⇔ SSR allowlist -----------------
 
 (deftest routing-classification-is-single-source-of-truth-for-ssr-allowlist
-  (testing "rf2-oosjmh STRUCTURAL: the SSR durable-routing allowlist equals
+  (testing "STRUCTURAL: the SSR durable-routing allowlist equals
             the routing-owned classification's :durable-runtime-db tier — so
             storage / SSR / docs can never silently drift"
     (is (= (vec rf.ssr.payload-policy/durable-routing-keys)
@@ -218,7 +218,7 @@
 ;; ---- per-frame teardown drops the host counter ---------------------------
 
 (deftest destroy-frame-releases-host-counter-entry
-  (testing "rf2-oosjmh: destroying a frame releases its host-side nav-counter
+  (testing "destroying a frame releases its host-side nav-counter
             entry (the :routing/on-frame-destroyed! teardown, shared with the
             scroll cache) so a long-running per-request-frame process does
             not leak one counter entry per destroyed frame"
