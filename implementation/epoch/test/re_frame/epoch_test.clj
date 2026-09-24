@@ -33,19 +33,19 @@
             ;; they throw `:rf.error/flows-artefact-missing`. Loading it
             ;; HERE means the capture/restore fixture's ns-load registrar
             ;; snapshot includes the flows surface. Alias unused — the
-            ;; fixture no longer touches the private flows atoms (the
+            ;; fixture does not touch the private flows atoms (the
             ;; reset-hook table owns flows reset).
             [re-frame.flows]
-            ;; rf2-bh56rc: `with-redefs`'d in the :committed-at causal-time
+            ;; `with-redefs`'d in the :committed-at causal-time
             ;; tests to a sentinel clock, proving the durable :committed-at
             ;; comes from the committing token's :time-ms, not an ambient
             ;; clock read at assembly time. Both `now-ms` (elapsed clock) and
             ;; `epoch-now-ms` (wall-clock, the surface the router stamps fresh
-            ;; tokens from — rf2-n1rh0f / EP-0010 §Time) are pinned.
+            ;; tokens from — EP-0010 §Time) are pinned.
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
-            ;; rf2-eig68k — require the schemas FAÇADE, not the `.malli`
+            ;; Require the schemas FAÇADE, not the `.malli`
             ;; validator adapter. The dependency runs ONE way:
             ;; `re-frame.schemas` `:require`s `re-frame.schemas.malli`
             ;; (publishing the Malli validate/explain hooks) — the reverse
@@ -57,7 +57,7 @@
             ;; live in `re-frame.schemas`). Requiring the façade installs
             ;; BOTH layers: the registrar hooks the `reg-app-schema` tests
             ;; need AND the Malli validate hook the runtime-db
-            ;; schema-mismatch precondition (rf2-szbzei) drives a real
+            ;; schema-mismatch precondition drives a real
             ;; failure through. Side-effect require — alias unused.
             [re-frame.schemas :as rf.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -71,7 +71,7 @@
             ;; unit tests (the `@#'state/value-changed-epoch-for` scan
             ;; against a hand-built `@#'state/histories` ring, and the
             ;; shipped-default accessor probe) — NOT for fixture config
-            ;; reset, which now flows through the public `configure!`
+            ;; reset, which flows through the public `configure!`
             ;; boundary + the `:epoch/reset-config!` reset hook.
             [re-frame.epoch.state :as rf.epoch.state]
             [re-frame.epoch.tool-pair :as rf.epoch.tool-pair]
@@ -81,23 +81,23 @@
             ;; bodies; loading routing HERE (rather than reloading it in
             ;; the fixture) means the capture/restore fixture's ns-load
             ;; registrar snapshot includes routing's registrations and
-            ;; restores them around each test (rf2-yw1w1u).
+            ;; restores them around each test.
             [re-frame.routing]
-            ;; rf2-v6z0: machines is a separate artefact whose late-bind
+            ;; machines is a separate artefact whose late-bind
             ;; hook publishes `rf/reg-machine` only when the namespace is
             ;; loaded. Several restore-* tests register machines via
             ;; `rf/reg-machine` in their bodies; without this require they
             ;; throw `:rf.error/machines-artefact-missing`. Side-effect
             ;; require — the namespace alias is unused.
             [re-frame.machines]
-            ;; rf2-u5kmf8 — read the machine `:after` host-clock timer table
+            ;; Read the machine `:after` host-clock timer table
             ;; directly to prove an end-to-end restore releases the restored
             ;; frame's armed timer handles (the orphaned async host work).
             [re-frame.machines.timer :as rf.machines.timer]))
 
 ;; ---- fixtures --------------------------------------------------------------
 ;;
-;; rf2-yw1w1u — the canonical capture/restore fixture. It snapshots the
+;; The canonical capture/restore fixture. It snapshots the
 ;; registrar at ns-load and restores around each test (so the routing /
 ;; schemas / machines registrations this ns's `:require` chain brought
 ;; live survive cross-ns runs without a `clear-all!` + reload dance), and
@@ -105,11 +105,11 @@
 ;; `:epoch/clear-epoch-listeners!`, `:epoch/reset-config!`) so each test
 ;; starts from a clean epoch slate with config reset to the shipped
 ;; default. The `:init-fn` re-applies the suite's non-default
-;; `:trace-events-keep 5` (rf2-iegsz — a keep<depth OVERRIDE so the
+;; `:trace-events-keep 5` (a keep<depth OVERRIDE so the
 ;; elision path is reachable with a handful of dispatches; NOT the
 ;; shipped default of 50 = :depth, see
-;; `re-frame.epoch.state/default-trace-events-keep`; Mike pair-debug
-;; 2026-05-27) through the public `configure!` boundary — no test ns
+;; `re-frame.epoch.state/default-trace-events-keep`) through the public
+;; `configure!` boundary — no test ns
 ;; reaches into the private `state/config` var for fixture reset. The
 ;; `:init-fn` runs AFTER the post-dispose reset hooks, so the override
 ;; lands on top of the freshly-reset default.
@@ -186,7 +186,7 @@
       (is (vector? (:sub-runs r)))
       (is (vector? (:renders r)))
       (is (vector? (:effects r)))
-      ;; rf2-rly4a — the settling cascade's :dispatch-id is pinned as a
+      ;; The settling cascade's :dispatch-id is pinned as a
       ;; first-class slot (the stable epoch-id ↔ cascade link Xray's
       ;; focus correlation reads). It must equal the :dispatch-id tag the
       ;; cascade's own trace events carry.
@@ -196,7 +196,7 @@
              (some #(get-in % [:tags :rf.trace/dispatch-id]) (:trace-events r)))
           ":dispatch-id slot equals the cascade's trace :rf.trace/dispatch-id tag"))))
 
-;; ---- rf2-1xdotm: the epoch record carries the POST-GENERATION :rf.cofx -----
+;; ---- the epoch record carries the POST-GENERATION :rf.cofx ----------------
 ;;
 ;; Per EP-0017 §Recordable coeffects + Tool-Pair §Replay-mint-policy: replay
 ;; re-drives a recorded event through the application's own handlers by
@@ -211,7 +211,7 @@
 ;; value back into the in-flight `:rf.cofx` record).
 ;;
 ;; The assembled `:rf/epoch-record` carries `:trigger-event` / `:event-id` /
-;; `:dispatch-id` AND a first-class `:rf.cofx` replay token (rf2-1xdotm), so a
+;; `:dispatch-id` AND a first-class `:rf.cofx` replay token, so a
 ;; tool replaying from the record can supply the exact facts the original run
 ;; consumed. Without that token a strict replay would miss a generated fact
 ;; and fail with `:rf.error/missing-required-cofx`. These tests pin the
@@ -222,7 +222,7 @@
 ;; receives the recorded value.
 
 (deftest epoch-record-carries-post-generation-rf-cofx
-  (testing "rf2-1xdotm — the assembled :rf/epoch-record exposes the complete
+  (testing "the assembled :rf/epoch-record exposes the complete
             post-generation flat :rf.cofx replay token: the framework
             :rf/time-ms provided fact AND the generator-backed recordable fact
             minted during the ORIGINAL dispatch (the value as it was AFTER the
@@ -283,12 +283,12 @@
         (is (= 1781078400123 (:recorded-at (rf/app-db-value :test/replay)))
             "the replay handler received the recorded :rf/time-ms")))))
 
-;; ---- rf2-bh56rc: :committed-at is the committing token's causal time -------
+;; ---- :committed-at is the committing token's causal time ------------------
 ;;
 ;; Per EP-0010 §Time (epoch record causal time) + Spec 002 §The World-Input
 ;; Rule: the durable :committed-at fact MUST come from the committing causal
 ;; token's `:rf.cofx` :time-ms (read ONCE at the causal boundary,
-;; envelope construction, from `interop/epoch-now-ms` per rf2-n1rh0f), NOT an
+;; envelope construction, from `interop/epoch-now-ms`), NOT an
 ;; ambient clock read at epoch assembly time. These tests pin that conversion:
 ;; they stub BOTH host clocks (`interop/now-ms` + `interop/epoch-now-ms`) to a
 ;; sentinel so a regression that re-reads the ambient clock at assembly would
@@ -298,14 +298,14 @@
 (deftest committed-at-comes-from-supplied-token-time-ms
   (testing "the durable :committed-at on a clean settle is the committing
             token's `:rf.cofx` :time-ms — NOT an ambient now-ms
-            read at assembly time (rf2-bh56rc / EP-0010 §Time)"
+            read at assembly time (EP-0010 §Time)"
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (let [token-time 1781078400123      ; the supplied causal token time
           clock-time 9999999999999]     ; the (wrong) ambient clock sentinel
       ;; Stub BOTH host clocks (the elapsed `interop/now-ms` AND the
       ;; wall-clock `interop/epoch-now-ms` the router stamps fresh tokens
-      ;; from — rf2-n1rh0f) to a value NOTHING legitimate should stamp into
+      ;; from) to a value NOTHING legitimate should stamp into
       ;; the record. The router preserves a caller-supplied :time-ms (it only
       ;; fills :time-ms when absent), so the token time below rides through;
       ;; pinning both clocks makes a regression that re-reads either ambient
@@ -324,7 +324,7 @@
 (deftest committed-at-replay-stable-across-wall-clock-drift
   (testing "replaying the same event with the same supplied :time-ms yields
             equal :committed-at even as the wall clock advances — the
-            replay-stability EP-0010 §Time guarantees (rf2-bh56rc)"
+            replay-stability EP-0010 §Time guarantees"
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
@@ -332,7 +332,7 @@
       ;; First commit under one wall-clock, second under a DIFFERENT one —
       ;; both supply the SAME causal token :time-ms (the replay scenario).
       ;; Pin BOTH clock surfaces (elapsed `now-ms` + wall-clock
-      ;; `epoch-now-ms`, rf2-n1rh0f) so neither ambient read can leak into
+      ;; `epoch-now-ms`) so neither ambient read can leak into
       ;; :committed-at across the drift.
       (with-redefs [rf.interop/now-ms       (constantly 100)
                     rf.interop/epoch-now-ms (constantly 100)]
@@ -354,7 +354,7 @@
             ITS OWN token's :time-ms — an :fx-dispatched child gets a fresh
             token (the router does NOT inherit the parent's :time-ms), so the
             child's :committed-at is the freshly-stamped clock value, while
-            the parent's is its supplied token time (rf2-bh56rc / EP-0010
+            the parent's is its supplied token time (EP-0010
             §Dispatch Envelope Stamping — children are distinct causal tokens)"
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:order []}}))
@@ -367,7 +367,7 @@
           ;; The child has no supplied token, so the router stamps its
           ;; :time-ms fresh at the causal boundary (envelope construction) from
           ;; `interop/epoch-now-ms` — the wall-clock-epoch surface for durable
-          ;; causal time (rf2-n1rh0f / EP-0010 §Time), NOT `interop/now-ms`
+          ;; causal time (EP-0010 §Time), NOT `interop/now-ms`
           ;; (which is the elapsed-measurement clock: `performance.now()` on
           ;; CLJS). Pinned to this sentinel by the redef below.
           child-clock 5550000000000]
@@ -385,7 +385,7 @@
              assembly-time clock read")))))
 
 (deftest record-multi-event-cascade
-  (testing "per rf2-nj6p7 (Spec 002 §Drain versus event): each dequeued
+  (testing "per Spec 002 §Drain versus event: each dequeued
             event in a multi-event drain commits its OWN epoch — an
             :fx [[:dispatch …]] child is a separate dequeued event, so it
             yields a separate record, NOT folded into the parent's epoch"
@@ -428,7 +428,7 @@
           ":db-after of :outer / :inner-1 / :inner-2 chains per event")
       ;; Distinct correlation: each epoch has its own :epoch-id, and the
       ;; per-event :rf.trace/dispatch-id rides the trace stream distinctly. Per
-      ;; rf2-nj6p7 + Spec 009 §Dispatch correlation, each epoch's
+      ;; Spec 009 §Dispatch correlation, each epoch's
       ;; :trace-events carry EXACTLY ONE :rf.trace/dispatch-id (one dispatch-id =
       ;; one epoch) — a child's :rf.event/dispatched marker (fired during the
       ;; parent's do-fx) rides the CHILD's epoch, not the parent's.
@@ -450,7 +450,7 @@
              — the child is a separate dequeued event / epoch")))))
 
 (deftest initial-events-event-is-its-own-epoch
-  (testing "per rf2-nj6p7 (Spec 002 §Drain versus event): the frame-creation
+  (testing "per Spec 002 §Drain versus event: the frame-creation
             :initial-events event is itself a dequeued event, so it commits its
             OWN epoch — distinct from any later user dispatch's epoch"
     (rf/reg-event :app/init (fn [{:keys [db]} _] {:db {:booted true :n 0}}))
@@ -478,15 +478,14 @@
       (is (apply distinct? (mapv :epoch-id history))
           "each has its own :epoch-id"))))
 
-;; ---- machine macrostep stays ONE epoch (rf2-nj6p7) ------------------------
+;; ---- machine macrostep stays ONE epoch ------------------------------------
 
-;; EP-0001 (rf2-vzld77) re-enabled by bead 7 (rf2-3aizt1). The epoch record now
-;; captures the whole frame-state (`:frame-state-before/-after`, decision #2);
-;; the machine snapshot lives in the runtime-db partition at
+;; The epoch record captures the whole frame-state
+;; (`:frame-state-before/-after`, EP-0001 decision #2); the machine snapshot lives in the runtime-db partition at
 ;; `[:rf.db/runtime :rf.runtime/machines :snapshots …]`. This asserts the
 ;; macrostep's terminal state is captured there.
 (deftest machine-raise-macrostep-is-one-epoch
-  (testing "per rf2-nj6p7 + Spec 005 §macrostep: a machine's :raise sub-events
+  (testing "per Spec 005 §macrostep: a machine's :raise sub-events
             are in-memory microsteps inside a SINGLE macrostep — they ride
             the TRIGGERING event's epoch and do NOT allocate new epochs.
             Only separately-dequeued events get their own epoch."
@@ -568,7 +567,7 @@
           "the three most-recent are kept; oldest evicted"))))
 
 (deftest ring-cap-materialises-and-releases-evicted-records
-  ;; rf2-rkbil correctness review: the ring cap MUST materialise the
+  ;; The ring cap MUST materialise the
   ;; retained window into a fresh PersistentVector. A bare
   ;; `(subvec history+ ...)` view does NOT release the evicted records —
   ;; `SubVector.cons` keeps appending to the same growing underlying
@@ -601,7 +600,7 @@
             (str "history must be a materialised PersistentVector, not a "
                  "SubVector view that retains the evicted records' backing "
                  "storage; got " (class history)))
-        ;; Belt-and-braces: if a future refactor reintroduces a SubVector,
+        ;; Belt-and-braces: if a future refactor introduces a SubVector,
         ;; assert its backing vector is bounded by the depth rather than
         ;; the full append count (the leak signature).
         (when (instance? clojure.lang.APersistentVector$SubVector history)
@@ -620,27 +619,27 @@
 
     (is (= [] (rf/epoch-history :test/main)))))
 
-;; ---- depth reduction prunes the live rings (rf2-f8wu) ----------------------
+;; ---- depth reduction prunes the live rings ---------------------------------
 ;;
-;; `(rf/configure! {:epoch-history {:depth N}})` used to change only the
-;; config atom: rings already holding records kept their old contents and
-;; were re-capped only on a LATER append. That left TWO distinct failures,
-;; and a fix closing one without the other looks green on a single-axis
+;; `(rf/configure! {:epoch-history {:depth N}})` prunes every live ring at
+;; the configure! boundary. Changing only the config atom — re-capping a ring
+;; only on a LATER append — would leave TWO distinct failures, and a fix
+;; closing one without the other looks green on a single-axis
 ;; test — so both are pinned below.
 ;;
-;;   QUERYABLE  — `epoch-history` and its off-box projection both read the
-;;                un-pruned vector, so records the operator believed were
-;;                dropped stayed visible (and their `:db-before` /
-;;                `:db-after` / `:trace-events` payloads stayed retained,
+;;   QUERYABLE  — `epoch-history` and its off-box projection would both read
+;;                the un-pruned vector, so records the operator believed were
+;;                dropped would stay visible (and their `:db-before` /
+;;                `:db-after` / `:trace-events` payloads retained,
 ;;                which is the whole point of the memory knob).
 ;;   RESTORABLE — `restore-epoch!` / `replay-epoch!` resolve their targets
-;;                off that SAME vector, so a saved id still rewound the
+;;                off that SAME vector, so a saved id would still rewind the
 ;;                frame to state the app had moved past. That is a
 ;;                correctness failure rather than a leak.
 ;;
-;; Depth 0 was the sharp case and permanent: `record!` skips
-;; `append-record` entirely at depth 0, so no later append ever arrived to
-;; repair the ring. It contradicted Tool-Pair §Time-travel twice over —
+;; Depth 0 is the sharp case: `record!` skips
+;; `append-record` entirely at depth 0, so no later append would arrive to
+;; repair the ring. That would contradict Tool-Pair §Time-travel twice over —
 ;; "Setting depth to 0 disables the per-frame ring buffer (so
 ;; `(rf/epoch-history frame-id)` returns `[]`)", and the "Bounded history"
 ;; rule that "the runtime keeps the last N epochs per frame ... Older
@@ -709,7 +708,7 @@
       (let [res (rf/replay-epoch! :test/main saved-id)]
         (is (false? (:ok? res)))
         (is (= :rf.epoch/replay-unknown-epoch (:reason res))
-            "replay refuses the retired id through the EXISTING failure mode"))
+            "replay refuses the retired id through the unknown-epoch failure mode"))
       (is (= {:n 2} (rf/app-db-value :test/main))
           "the refused replay left frame state untouched"))))
 
@@ -810,7 +809,7 @@
       (is (= 1 @a) "the original listener no longer fires after re-register under the same key")
       (is (= 1 @b) "the replacement listener fires"))))
 
-;; ---- rf2-s60jx / rf2-j538f7.5: multi-listener observations + re-register gen --
+;; ---- multi-listener observations + re-register gen ------------------------
 ;;
 ;; `notify-listeners!` invokes `record-observation!` once per listener per
 ;; event settle, stamping `observed-frames-by-cb[cb-id][frame-id]` with the
@@ -826,7 +825,7 @@
 ;;      silencing trace for that cb, and once the new callback DOES observe the
 ;;      frame its silencing re-arms under the new generation. The token scoping
 ;;      is what keeps the re-registration from inheriting the old generation's
-;;      ledger (the rf2-j538f7.5 mirror hazard) OR erasing a fresh observation.
+;;      ledger OR erasing a fresh observation.
 
 (deftest multi-listener-observed-frames-and-re-register-generation
   (testing "two listeners both observing the same frame land independent
@@ -930,7 +929,7 @@
           "epoch history records both cascades despite the throwing listener"))))
 
 (deftest listener-exception-emits-trace
-  (testing "rf2-i5khp — a throwing listener emits a
+  (testing "a throwing listener emits a
             :rf.epoch.cb/listener-exception error trace per broken
             invocation, carrying :cb-id, :frame, :rf.epoch/id; isolation
             still holds (other listeners continue to fire)"
@@ -959,7 +958,7 @@
         (is (every? (fn [ev] (= ::throwing (-> ev :tags :cb-id))) exc-events)
             ":cb-id tag identifies the broken listener registration key")
         (is (every? (fn [ev] (some? (-> ev :tags :rf.epoch/id))) exc-events)
-            ":rf.epoch/id tag (canonical, rf2-ifdsar) links the failure to the assembled record")
+            ":rf.epoch/id tag (canonical) links the failure to the assembled record")
         (is (every? (fn [ev] (string? (-> ev :tags :message))) exc-events)
             ":message tag carries the exception message")
         (is (every? (fn [ev] (= :no-recovery (:recovery ev))) exc-events)
@@ -970,7 +969,7 @@
 
       (is (= 2 @survivor)
           "isolation contract still holds: sibling listener kept firing
-           — the trace emit is additive, not a behaviour change")
+           — the trace emit does not change delivery")
       (is (= 2 (count (rf/epoch-history :test/main)))
           "history still records every cascade"))))
 
@@ -1003,7 +1002,7 @@
                   events)
             ":rf.epoch/restored fired with the matching :rf.epoch/id")))))
 
-;; ---- frame-state snapshot/restore (EP-0001 rf2-3aizt1, decision #2 + #9) ---
+;; ---- frame-state snapshot/restore (EP-0001 decisions #2 + #9) ------------
 
 (deftest epoch-captures-whole-frame-state-both-partitions
   (testing "an epoch record captures the canonical :frame-state-before /
@@ -1034,7 +1033,7 @@
           ":db-before is the app-db projection of :frame-state-before"))))
 
 (deftest restore-rewinds-whole-frame-state-revives-runtime-db
-  (testing "restore-epoch! reinstalls BOTH partitions (decision #9): a rewind to
+  (testing "restore-epoch! reinstalls BOTH partitions (EP-0001 decision #9): a rewind to
             an epoch whose runtime-db carried a machine snapshot revives that
             snapshot, not just the app-db partition. The machine TYPE is
             registered so the restored snapshot reference resolves (it is a
@@ -1071,11 +1070,11 @@
       (is (= {:state :live :data {} :meta {}}
              (get-in (:rf.db/runtime (rf/frame-state-value :test/main))
                      [:rf.runtime/machines :snapshots :m/x]))
-          "restore revived the runtime-db machine snapshot (decision #9)")
+          "restore revived the runtime-db machine snapshot (EP-0001 decision #9)")
       (is (= {:phase :machine-alive} (rf/app-db-value :test/main))
           "restore also rewound the app-db partition"))))
 
-;; ---- runtime-db subsystem reconcile on restore (rf2-7r5mc2) ----------------
+;; ---- runtime-db subsystem reconcile on restore -----------------------------
 ;;
 ;; perform-restore! installs the captured frame-state WHOLESALE — a runtime
 ;; subsystem whose durable snapshot is not safe to install verbatim must be
@@ -1089,7 +1088,7 @@
 ;; resources artefact's resources-restore-cljs-test.
 
 (deftest reconcile-runtime-db-on-restore-consults-hook-and-installs-result
-  (testing "rf2-7r5mc2 — reconcile-runtime-db-on-restore passes the runtime-db
+  (testing "reconcile-runtime-db-on-restore passes the runtime-db
             partition + frame-id to the :resources/reconcile-on-restore hook and
             returns the frame-state with the hook's reconciled runtime-db installed."
     (let [hook-key :resources/reconcile-on-restore
@@ -1098,7 +1097,7 @@
       (try
         ;; Stub a reconcile that records its inputs and rewrites the runtime-db
         ;; (the resources artefact's real reconcile does the settle/dangling work).
-        ;; rf2-obi8rr — the hook is now consulted with a third `opts` arg
+        ;; The hook is consulted with a third `opts` arg
         ;; (`{:defer-traces? true}`) so its success traces ride back deferred;
         ;; the stub records it to pin that the seam passes the opts through.
         (rf.late-bind/set-fn! hook-key
@@ -1112,7 +1111,7 @@
               "the hook receives the runtime-db PARTITION value")
           (is (= :test/x (:frame-id @seen)) "the hook receives the carried frame-id")
           (is (= {:defer-traces? true :restore-time-ms nil :owner-token nil} (:opts @seen))
-              "rf2-obi8rr — the hook is consulted with :defer-traces? true so it does not emit success rows before the install; rf2-wshzsp — and a :restore-time-ms slot (nil here, the 2-arity no-token path); rf2-qfrh4 — and an :owner-token slot (nil here, the 2-arity no-incarnation path) so the reconcile can fence its bare-id host-table clear to the exact incarnation")
+              "the hook is consulted with :defer-traces? true so it does not emit success rows before the install, a :restore-time-ms slot (nil here, the 2-arity no-token path) and an :owner-token slot (nil here, the 2-arity no-incarnation path) so the reconcile can fence its bare-id host-table clear to the exact incarnation")
           (is (true? (get-in out [:rf.db/runtime :rf.runtime/reconciled?]))
               "the hook's reconciled runtime-db is installed back into the frame-state")
           (is (= {:n 1} (:rf.db/app out)) "the app-db partition is untouched"))
@@ -1120,9 +1119,8 @@
           (rf.late-bind/set-fn! hook-key original))))))
 
 (deftest reconcile-runtime-db-on-restore-noop-without-hook
-  (testing "rf2-7r5mc2 — absent the :resources/reconcile-on-restore hook (no
-            resources artefact), the frame-state installs verbatim (the
-            pre-rf2-7r5mc2 behaviour)."
+  (testing "absent the :resources/reconcile-on-restore hook (no
+            resources artefact), the frame-state installs verbatim."
     (let [hook-key :resources/reconcile-on-restore
           original (rf.late-bind/get-fn hook-key)]
       (try
@@ -1134,7 +1132,7 @@
           (rf.late-bind/set-fn! hook-key original))))))
 
 (deftest reconcile-runtime-db-on-restore-noop-on-app-db-only-record
-  (testing "rf2-7r5mc2 — a frame-state with only the app-db partition (no
+  (testing "a frame-state with only the app-db partition (no
             :rf.db/runtime key) passes through unchanged even when the hook
             is present (nothing to reconcile)."
     (let [hook-key :resources/reconcile-on-restore
@@ -1150,7 +1148,7 @@
           (rf.late-bind/set-fn! hook-key original))))))
 
 (deftest perform-restore!-reconciles-installed-runtime-db
-  (testing "rf2-7r5mc2 — end-to-end: perform-restore! runs the
+  (testing "end-to-end: perform-restore! runs the
             :resources/reconcile-on-restore hook over the runtime-db it is about
             to install, so the FRAME's restored runtime-db carries the reconciled
             value (a mid-flight slice never installs verbatim)."
@@ -1169,7 +1167,7 @@
         ;; Stub the reconcile: settle the mid-flight entry (loading → loaded-ish)
         ;; + clear current-work, standing in for the resources artefact's real
         ;; reconcile so the epoch wiring is exercised without a resources dep.
-        ;; rf2-obi8rr — accept the third `opts` arg (`{:defer-traces? true}`).
+        ;; Accept the third `opts` arg (`{:defer-traces? true}`).
         (rf.late-bind/set-fn! hook-key
                            (fn [rdb _frame-id _opts]
                              (-> rdb
@@ -1192,7 +1190,7 @@
           (rf.late-bind/set-fn! hook-key original))))))
 
 (deftest perform-restore!-threads-restored-epoch-causal-time-as-restore-time-ms
-  (testing "rf2-wshzsp — perform-restore! threads the RESTORED epoch's causal
+  (testing "perform-restore! threads the RESTORED epoch's causal
             :committed-at (the committing token's :rf.cofx :time-ms,
             replay-stable per EP-0010 §Time) into the reconcile hook as
             :restore-time-ms — NOT the live install wall clock. The hook stamps a
@@ -1240,7 +1238,7 @@
         (finally
           (rf.late-bind/set-fn! hook-key original))))))
 
-;; ---- restore-time host-transient quiesce (rf2-u5kmf8) ----------------------
+;; ---- restore-time host-transient quiesce -----------------------------------
 ;;
 ;; EP-0011 / Managed-Effects §SSR, preload, hydration, and restore: "Hydration
 ;; and epoch restore MUST NOT revive host work." A restore installs the captured
@@ -1251,7 +1249,7 @@
 ;; cancel/clear the orphaned host handles so a late pre-restore completion is
 ;; stale-suppressed and never delivers to its original `:rf/reply-to` target.
 ;;
-;; The `:resources/reconcile-on-restore` hook (rf2-7r5mc2) covers the Resources
+;; The `:resources/reconcile-on-restore` hook covers the Resources
 ;; subsystem; the OTHER managed async subsystems need their own restore-time
 ;; cleanup. perform-restore! fires a generic host-transient quiesce hook chain
 ;; (`:machines/on-frame-restored!`, `:http/abort-in-flight-for-frame!`) AFTER a
@@ -1263,7 +1261,7 @@
 ;; suppression LOGIC is pinned in each subsystem's own artefact test.
 
 (deftest perform-restore!-quiesces-orphaned-async-host-work
-  (testing "rf2-u5kmf8 — a successful restore fires the host-transient quiesce
+  (testing "a successful restore fires the host-transient quiesce
             hook chain for the managed async subsystems (machines :after timers,
             non-resource managed HTTP) addressed to the restored frame, so the
             async host work the unwound epochs spawned is cancelled/cleared."
@@ -1292,7 +1290,7 @@
           (rf.late-bind/set-fn! http-key orig-http))))))
 
 (deftest perform-restore!-quiesce-noop-without-hooks
-  (testing "rf2-u5kmf8 — absent the machines / http artefacts (hooks nil) the
+  (testing "absent the machines / http artefacts (hooks nil) the
             restore install is a clean pass-through (apps with no async host work
             pay nothing)."
     (rf/make-frame {:id :test/main})
