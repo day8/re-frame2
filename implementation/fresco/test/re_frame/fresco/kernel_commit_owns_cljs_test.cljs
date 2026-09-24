@@ -47,10 +47,9 @@
   `runtime/cell-readers`, `runtime/residue` — and never on the value a
   body rendered. That is deliberate: a value assertion stays green under
   a real leak, because a leaked subscription does not change what is
-  painted. It changes what is **retained** and
-  what will be **notified**. One extra reader slot on a cell is invisible
-  to the markup and fatal to the invariant, so the reader slot is what is
-  read.
+  painted. It changes what is **retained** and what will be **notified**.
+  One extra reader slot on a cell is invisible to the markup and fatal to
+  the invariant, so the reader slot is what is read.
 
   ## No clock, and no hand-rolled reaper delay
 
