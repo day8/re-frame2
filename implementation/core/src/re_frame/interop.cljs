@@ -44,9 +44,9 @@
 ;;
 ;; The seven `:adapter/*` reactive hooks below are published once per
 ;; loaded React-shaped adapter at ns-load time (see Spec 006 §Substrate
-;; adapter contract and rf2-jicu2). They are read on every render /
+;; adapter contract). They are read on every render /
 ;; subscribe / reaction tear-down — sticky-cache via
-;; `rf.late-bind/get-fn-cached` (rf2-f72pd) so the resolution is one
+;; `rf.late-bind/get-fn-cached` so the resolution is one
 ;; per-key atom slot rather than a `@hooks` map walk per call.
 
 ;; ---- after-render hook ----------------------------------------------------
@@ -84,8 +84,7 @@
 
 (defn activate-derived-value!
   "Put a `make-derived-value` result on the substrate's PUSH path — i.e.
-  make it actually notify its watches when a source moves (rf2-8cnxg /
-  rf2-jt8vz).
+  make it actually notify its watches when a source moves.
 
   Spec 006 §`make-derived-value` says the derived container \"updates
   automatically when any source's value changes\" and that
@@ -172,7 +171,7 @@
   timing spans, machines timer relative delays). On CLJS this is
   `performance.now()` when available — a high-resolution timestamp relative
   to the page/worker origin, NOT epoch wall-clock. Do NOT use it for durable
-  wall-clock facts; use `epoch-now-ms` (rf2-n1rh0f / EP-0010 §Time)."
+  wall-clock facts; use `epoch-now-ms` (EP-0010 §Time)."
   []
   (if (and (exists? js/performance) (exists? js/performance.now))
     (js/performance.now)
@@ -200,7 +199,7 @@
 ;; DEFAULT and nothing else — `:client` on CLJS, INCLUDING CLJS-on-Node —
 ;; with no process-wide setter: a CLJS-on-Node SSR runtime that wants
 ;; `:server` fx semantics tags the FRAME, which is what every in-repo SSR
-;; host already does.
+;; host does.
 ;;
 ;; Per-frame `:config :platform` is the ONLY override, and it wins.
 
