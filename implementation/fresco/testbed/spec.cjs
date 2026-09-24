@@ -1,8 +1,7 @@
 'use strict';
 
 /*
- * THE CONTROLLED-INPUT WITNESSES — invariant I15, in three real engines
- * (rf2-hic-016).
+ * THE CONTROLLED-INPUT WITNESSES — invariant I15, in three real engines.
  *
  * `serve-and-run-fresco-controlled-testbed.cjs` compiles the testbed,
  * serves it, and runs everything below once per engine in Chromium,
@@ -39,8 +38,8 @@
  * ## Composition
  *
  * `Input.imeSetComposition` is a CDP method and CDP is Chromium's protocol,
- * so the repo's existing real-IME harness
- * (`fresco/test/re_frame/bench/fresco/ime_run.cjs`) states its scope as
+ * so the repo's real-IME harness
+ * (`bench/fresco/src/re_frame/bench/fresco/ime_run.cjs`) states its scope as
  * Chromium only. This gate needs the carve-out witnessed on WebKit and
  * Firefox, where no such protocol exists, so composition here is the event
  * SEQUENCE a composition produces — `compositionstart`, `beforeinput` and
@@ -70,10 +69,10 @@ window.__TB__ = (function () {
   // The browser's own value setter, which is the one React's value tracker
   // is watching. See the spec header.
   //
-  // SELECT was added by rf2-hic-040 and is the same mechanism for the same
+  // SELECT is the same mechanism for the same
   // reason: React installs its value tracker on select as well as on input
   // and textarea, so a select driven through the patched setter would look
-  // unchanged to React and the controlled restore this bead measures would
+  // unchanged to React and the controlled restore the roster measures would
   // never run.
   function nativeSet(node, v) {
     var proto = node.tagName === 'TEXTAREA'
@@ -129,7 +128,7 @@ window.__TB__ = (function () {
   // read on the next task rather than the next line.
   function settle() { return new Promise(function (r) { setTimeout(r, 0); }); }
 
-  // --- rf2-hic-040's vocabulary --------------------------------------------
+  // --- the roster's vocabulary ---------------------------------------------
   // \`read\` touches \`selectionStart\`, which is not applicable to a
   // checkbox, a radio, a select, a file input or a number/date/range field.
   // Reading it there is engine conduct rather than a property of this
@@ -155,12 +154,11 @@ window.__TB__ = (function () {
   //
   // \`chosen\` and \`dotValue\` are captured BEFORE the event goes
   // out, and that ordering is the whole reason this helper exists rather
-  // than two lines at each call site. The first cut read the selection
-  // after \`dispatchEvent\` and every engine reported one option where two
-  // had been chosen — because React's controlled restore had ALREADY run
-  // inside the dispatch and converged the element. The row that was meant
-  // to establish "the user chose two" was reading the aftermath of the
-  // conduct it was the premise for.
+  // than two lines at each call site. Read after \`dispatchEvent\`, every
+  // engine reports one option where two were chosen — because React's
+  // controlled restore has ALREADY run inside the dispatch and converged
+  // the element — so a row meant to establish "the user chose two" would
+  // be reading the aftermath of the conduct it is the premise for.
   function choose(id, values) {
     var n = el(id);
     Array.prototype.forEach.call(n.options, function (o) {
@@ -171,8 +169,8 @@ window.__TB__ = (function () {
     // standard defines as the first selected option in tree order and does
     // not redefine for a \`multiple\` select. Captured so the rows below can
     // state what the marker is NOT: \`impl.intent/target-value\` reads
-    // \`selectedOptions\` on this control (rf2-42vlw), and the gap between
-    // this scalar and that list is the whole of what the fix recovered.
+    // \`selectedOptions\` on this control, and the gap between this
+    // scalar and that list is the whole of what that reading recovers.
     var dotValue = n.value;
     n.dispatchEvent(new Event('change', { bubbles: true }));
     return {
@@ -253,8 +251,8 @@ class Witness {
 // committed state". Read on the line after the dispatch, before the task
 // yields.
 //
-// These rows are the invariant as stated, and each one's expectation was
-// flipped to confirm it is wired to a real reading. They do NOT attribute
+// These rows are the invariant as stated, and each one's expectation,
+// flipped, reds — so each is wired to a real reading. They do NOT attribute
 // the conduct to this runtime, and the runner's `## Coverage` block says
 // why it was measured rather than argued: React's own end-of-event restore
 // corrects any value the converge got wrong, in the same discrete event.
@@ -290,11 +288,10 @@ async function sameTurnConvergence(page, witness) {
   witness.eq(model.fields.empty, '', 'the store did not move on the empty field');
 }
 
-// `beforeinput` is CARRIED by every edit this spec dispatches, and until
-// rf2-hic-016's second pass nothing distinguished a run with it from a run
-// without — the `{ beforeinput: false }` knob on `edit` had no caller.
-// Carrying an event is not witnessing it, so this section makes the knob
-// load-bearing in both directions: `beforeinput` alone moves nothing, and
+// `beforeinput` is CARRIED by every edit this spec dispatches, and carrying
+// an event is not witnessing it, so this section makes `edit`'s
+// `{ beforeinput: false }` knob load-bearing in both directions:
+// `beforeinput` alone moves nothing, and
 // an `input` with no `beforeinput` in front of it converges exactly as one
 // with. That is what makes the composition SEQUENCE below faithful rather
 // than decorative — the sequence is the browser's, and the converge hangs
@@ -374,7 +371,7 @@ async function caretAcrossTheEcho(page, witness) {
   witness.eq(notes.start, 3, 'the caret survived on a textarea');
 
   // Every converge leaves a CARET rather than a range — `converge-to!`
-  // restores one offset, which is the whole of rf2-n3dxw's honest limit.
+  // restores one offset, which is the whole of its honest limit.
   witness.eq(grouped.start === grouped.end, true, 'the converge leaves a collapsed caret');
 }
 
@@ -405,8 +402,8 @@ async function caretUnderRealTyping(page, witness) {
 
 // I15 — "preserve selection". A keystroke collapses a selection by itself,
 // so the only place the question is live is an OUT-OF-BAND write: a model
-// correction no keystroke caused, which `converge!` is deliberately not on
-// (rf2-n3dxw). What survives there is React's own selection restore, and
+// correction no keystroke caused, which `converge!` is deliberately not on.
+// What survives there is React's own selection restore, and
 // what it does is measured per engine rather than assumed.
 async function selectionAcrossAnOutOfBandWrite(page, witness) {
   const observed = await page.evaluate(async () => {
@@ -430,10 +427,9 @@ async function selectionAcrossAnOutOfBandWrite(page, witness) {
   witness.record('out-of-band-write-lands-in-the-same-task',
     observed.immediate.value === 'ZZZZZZ');
   witness.eq(observed.before.end - observed.before.start, 2, 'a range was selected to begin with');
-  // The PREMISE of the recorded direction below, which went unread until
-  // rf2-hic-016's second pass. An engine that had never honoured
-  // `'backward'` would have recorded the same post-write direction as the
-  // others and agreed with them perfectly — three engines agreeing about a
+  // The PREMISE of the recorded direction below. An engine that never
+  // honoured `'backward'` would record the same post-write direction as the
+  // others and agree with them perfectly — three engines agreeing about a
   // selection that was never directional. Recording an outcome whose
   // premise is unread is the cross-engine comparator's one blind spot.
   witness.eq(observed.before.direction, 'backward',
@@ -448,7 +444,7 @@ async function selectionAcrossAnOutOfBandWrite(page, witness) {
   });
 }
 
-// I15 — "preserve in-flight composition". The carve-out (rf2-digtt): while
+// I15 — "preserve in-flight composition". The carve-out: while
 // a composition is live nothing writes the field, and the model's refusal
 // lands whole and visible at `compositionend`. Driven on the REFUSING
 // field, which is the case the CDP harness measured plain React destroying.
@@ -594,8 +590,8 @@ async function compositionReleaseEdges(page, witness) {
 // every composing `input` — `controlled.cljs`'s `shadowed-props` calls
 // `inner` before it branches on `composing-input?` — so a model that
 // ACCEPTS moves right through the exchange. That is stated in
-// `controlled.cljs` as the deferral's honest limit and was witnessed in
-// Chromium alone (`front/revision_dom_cljs_test`), which is the wrong
+// `controlled.cljs` as the deferral's honest limit and is witnessed in
+// Chromium alone by `revision_dom_cljs_test`, which is the wrong
 // number of engines for a claim about how a discrete event is flushed.
 //
 // It is also the fact the manual native-IME checklist's "app-db clean
@@ -683,23 +679,23 @@ async function revisionResetPreservesIdentity(page, witness) {
 // The reset's other half: a revision that arrives while a composition is
 // LIVE. `controlled.cljs` documents the deferral at length — there is no
 // cancel primitive, and the only immediate write available (`element.value`)
-// aborts the exchange — and `front/revision_dom_cljs_test` asserted it on
+// aborts the exchange — and `revision_dom_cljs_test` asserts it on
 // the Chromium-only `:browser-test` lane. A deferral is a claim about the
 // order an engine flushes a discrete event's work, so it belongs here.
 //
-// ## Why it takes two fields, and what one of them alone could not say
+// ## Why it takes two fields, and what one of them alone cannot say
 //
-// The section shipped on the ACCEPTING `revision` field and the #7815
-// audit found it non-discriminating there, correctly: by the time the bump
-// fires, the composing `:tb/edit` has already moved that field's model to
-// `keepあ`, so an immediate reassertion and a deferred one have the SAME
-// string to write and the row reads `keepあ` under either. A witness whose
-// expected value does not move when the law is broken is decoration.
+// On the ACCEPTING `revision` field alone the section is non-discriminating:
+// by the time the bump fires, the composing `:tb/edit` has already moved
+// that field's model to `keepあ`, so an immediate reassertion and a
+// deferred one have the SAME string to write and the row reads `keepあ`
+// under either. A witness whose expected value does not move when the law
+// is broken is decoration.
 //
-// `revision-strict` is the repair, and the whole of it is a model policy:
-// it REFUSES the kana, so while the draft is on screen the reset's target
-// is `42` and the draft is `42あ`. Now the two conducts are two different
-// strings, and the mutation the row names — implementing the reset as the
+// `revision-strict` supplies the discrimination, and the whole of it is a
+// model policy: it REFUSES the kana, so while the draft is on screen the
+// reset's target is `42` and the draft is `42あ`. There the two conducts are
+// two different strings, and the mutation the row names — implementing the reset as the
 // immediate `element.value` write `controlled.cljs` rejects — turns it red
 // on the line that reads the field mid-exchange.
 //
@@ -838,7 +834,7 @@ async function ownedCheckedPair(page, witness) {
   witness.eq(toggled.off.model, false, 'with the store agreeing');
 }
 
-// RECORDED, not gated (the conformance matrix is hic-040). A form reset
+// RECORDED, not gated (the conformance matrix is below). A form reset
 // returns a control to its `defaultValue`, and `defaultValue` is exactly
 // the per-instance record `controlled/last-rendered` reads — so a reset is
 // the one ordinary browser action that touches the converge's own
@@ -897,7 +893,7 @@ async function formResetAndFillProxy(page, witness) {
 }
 
 // ===========================================================================
-// rf2-hic-040 — THE CONTROL / DOM CONFORMANCE MATRIX
+// THE CONTROL / DOM CONFORMANCE MATRIX
 //
 // Everything above is I15, which is a law about TEXT: one control shape in
 // seven model policies. The rows below are a different question — does
@@ -906,11 +902,10 @@ async function formResetAndFillProxy(page, witness) {
 // unsupported. `docs/design/fresco/product/dispositions.md` section 2.3 is
 // the roster and this block fills it.
 //
-// Three of these rows are FINDINGS rather than confirmations, and they are
-// asserted rather than recorded because each is deterministic: the reserved
-// `::h/value` marker under-reads a multiple select, a file input cannot be
-// value-controlled at all, and a kebab KEYWORD does not reach a custom
-// element as a dashed attribute. Each is asserted in the direction the
+// Two of these rows are FINDINGS rather than confirmations, and they are
+// asserted rather than recorded because each is deterministic: a file input
+// cannot be value-controlled at all, and a kebab KEYWORD does not reach a
+// custom element as a dashed attribute. Each is asserted in the direction the
 // runtime actually behaves, so the row reds if the behaviour changes in
 // either direction — a finding that is only written down is a finding that
 // rots.
@@ -1020,32 +1015,29 @@ async function selectMultipleSupported(page, witness) {
     'and the element echoes the committed selection, not the chosen one');
 }
 
-// SELECT, multiple — the NAIVE spelling, and the FINDING it used to be.
+// SELECT, multiple — the NAIVE spelling, through the reserved marker.
 //
-// This row was written against the bug and asserted it: `::h/value` lowered
-// to `(.-value target)`, `HTMLSelectElement.value` is the first selected
-// option in tree order, and so the marker delivered ONE option however many
-// the user chose — a handler could not tell a single-option selection from
-// a truncated one, and nothing refused it. rf2-42vlw fixed that:
 // `impl.intent/target-value` reads `selectedOptions` on a `<select
-// multiple>`, so the marker now delivers the SELECTION, a list, `[]` when
+// multiple>`, so `::h/value` delivers the SELECTION, a list, `[]` when
 // nothing is picked, exactly as `spec/004B-UI-Tree-and-Conversion.md` rules
-// it for the same DOM control on the sibling substrate.
+// it for the same DOM control on the sibling substrate. A marker lowered to
+// `(.-value target)` would deliver ONE option however many the user chose,
+// because `HTMLSelectElement.value` is the first selected option in tree
+// order — and a handler could not tell a single-option selection from a
+// truncated one.
 //
-// The row is kept and turned around rather than deleted, because what it
-// witnesses is still a real difference the platform makes: `select.value`
-// remains the scalar first option in all three engines, and the assertion
-// on `dotValue` below is what stops the marker's answer from being
-// confused with it. Turning a row around is the gate working — it reds when
-// this conduct changes in EITHER direction.
+// That is a real difference the platform makes: `select.value` is the
+// scalar first option in all three engines, and the assertion on
+// `dotValue` below is what stops the marker's answer from being confused
+// with it. The row reds when this conduct changes in EITHER direction.
 async function reservedMarkerReadsTheWholeMultipleSelection(page, witness) {
   const run = await page.evaluate(async () => {
     const before = window.__TB__.model().edits['picks-marker'] || 0;
     const drove = window.__TB__.choose('picks-marker', ['a', 'c']);
     // Read on the NEXT LINE: React's controlled restore for a select runs
     // inside the discrete event, so whatever the echo made of the
-    // selection is already settled here — this is where the discard used
-    // to be visible, and where its absence is now the claim.
+    // selection is already settled here — this is where a discard would
+    // be visible, and where its absence is the claim.
     const inTurn = window.__TB__.selected('picks-marker');
     await window.__TB__.settle();
     const m = window.__TB__.model();
@@ -1065,7 +1057,7 @@ async function reservedMarkerReadsTheWholeMultipleSelection(page, witness) {
   witness.eq(run.drove.dotValue, 'a',
     'the platform\'s `select.value` STILL answers one option — the marker is not reading it');
   // `raw` and `model` are compared by SHAPE, not by a joined string: this
-  // row is about a list arriving where a scalar used to, and `'a,c'` is
+  // row is about a list arriving where a scalar could, and `'a,c'` is
   // reachable from `['a,c']` and from `[['a','c']]` as well as from the
   // truth. The DOM reads below stay joined — `selectedOptions` is a flat
   // list of option values by construction.
@@ -1092,8 +1084,8 @@ async function reservedMarkerReadsTheWholeMultipleSelection(page, witness) {
 // supported path works, and the assignment the controlled path would make
 // is shown to throw in each engine. The absence of a source-located Fresco
 // refusal is a FINDING recorded against the matrix, not repaired here — the
-// repair mints an error id, and an error id owes a `spec/009` row, which is
-// hot zone this bead may not touch.
+// repair mints an error id, and an error id owes a `spec/009` row, so it is
+// a spec change rather than a testbed one.
 async function fileInputIsUncontrollable(page, witness) {
   await page.setInputFiles('[data-testid="file"]', [
     { name: 'one.txt', mimeType: 'text/plain', buffer: Buffer.from('1') },
@@ -1207,7 +1199,7 @@ async function contenteditableIsNotAControlledField(page, witness) {
     // An edit, the way a contenteditable edit arrives: the browser has
     // already changed the content, and an `input` event follows.
     //
-    // The existing TEXT NODE is mutated rather than replaced, which is both
+    // The rendered TEXT NODE is mutated rather than replaced, which is both
     // what a simple contenteditable keystroke does and the only version of
     // this that is a witness. Assigning `textContent` detaches the node
     // React is holding, so the next model change would write to a node no
@@ -1354,10 +1346,10 @@ async function asyncNormalization(page, witness) {
 // FORM RESET, AUTOFILL and FORMDATA — the three ordinary browser actions
 // that read or write a control behind the runtime's back.
 //
-// rf2-hic-016 RECORDED the reset and the fill proxy and said the
-// conformance matrix was this bead's. This is that: the same conduct as
-// REQUIRED rows, plus the extraction the matrix names and the two control
-// classes a text field cannot speak for.
+// `form-reset-and-fill-proxy` RECORDS the reset and the fill proxy; this is
+// the conformance matrix's version of them: the same conduct as REQUIRED
+// rows, plus the extraction the matrix names and the two control classes a
+// text field cannot speak for.
 //
 // NATIVE autofill is not here and is not claimed: Chromium's drive is a CDP
 // method needing an address profile, and neither Firefox nor WebKit exposes
@@ -1390,7 +1382,7 @@ async function formResetAutofillAndFormData(page, witness) {
   witness.eq(run.checkedOff.data['form-flag'], undefined,
     'an unchecked box contributes nothing at all');
 
-  // AUTOFILL, as the proxy that can be driven everywhere — now REQUIRED
+  // AUTOFILL, as the proxy that can be driven everywhere — REQUIRED here
   // rather than recorded. Two shapes: one carrying an input event, which is
   // indistinguishable from a keystroke, and one carrying nothing, which is
   // the pathological case a password manager can still produce.
@@ -1414,9 +1406,9 @@ async function formResetAutofillAndFormData(page, witness) {
     'and the store is untouched by it — nothing here polls the DOM');
 
   // FORM RESET, across the three control classes. The text row is the one
-  // rf2-hic-016 recorded (`defaultValue` is already the model, so the reset
-  // is visually inert); the checkbox and the select are this bead's, and
-  // their conduct is RECORDED because `defaultChecked` and `defaultSelected`
+  // `form-reset-and-fill-proxy` records (`defaultValue` is already the model,
+  // so the reset is visually inert); the checkbox and the select are this
+  // section's, and their conduct is RECORDED because `defaultChecked` and `defaultSelected`
   // are maintained by React on different rules from `defaultValue`.
   const reset = await page.evaluate(async () => {
     window.__TB__.el('form-reset').click();
@@ -1476,7 +1468,7 @@ async function svgAttributes(page, witness) {
   witness.eq(run.circle.r, '6', 'while ordinary numeric attributes coerce to strings');
 }
 
-// CUSTOM ELEMENTS — and the third finding.
+// CUSTOM ELEMENTS — and the second finding.
 //
 // React 19 passes an unknown prop on a custom element through as an
 // ATTRIBUTE under the name it was given. The name it was given is the slot
@@ -1520,16 +1512,15 @@ async function customElementAttributes(page, witness) {
 // section above already uses the programmatic one. What would rot silently
 // is the wiring, so the wiring is what this pins.
 //
-// BOTH arms, and that is the #7815 audit's finding: this pinned `arm-bump`
-// alone while the section and the PR claimed both instruments were held,
-// so a dead `arm-unmount` button — or an arm firing an event nobody
-// registered — stayed green. Spending five seconds per arm per engine to
-// find out is not the answer either. The answer is that the arm RESOLVES
-// its event when it is armed and puts it in the readout, so the queued
-// event is a thing on screen rather than a branch that will be taken
-// later, and both arms are witnessed in the turn they are clicked.
+// BOTH arms, because pinning `arm-bump` alone would leave a dead
+// `arm-unmount` button — or an arm firing an event nobody registered —
+// green. Spending five seconds per arm per engine to find out is not the
+// answer either. The answer is that the arm RESOLVES its event when it is
+// armed and puts it in the readout, so the queued event is a thing on
+// screen rather than a branch that will be taken later, and both arms are
+// witnessed in the turn they are clicked.
 //
-// It still runs LAST deliberately: the armed dispatches land five seconds
+// It runs LAST deliberately: the armed dispatches land five seconds
 // later, which is a wait no gate should spend and a bump no later section
 // should receive. The page closes long before either fires.
 // The armed delay this section drives at, and the ceiling it waits under.
@@ -1557,15 +1548,13 @@ const TESTBED_ROOT = '[data-testid="fresco-controlled-testbed"]';
 /**
  * Wait for the app to mount after a re-navigation, under the navigation's own
  * ceiling, and fail with the one thing the bare wait could not say: WHICH of
- * the two candidate mechanisms it was (rf2-vinj).
+ * the two candidate mechanisms it was.
  *
- * A single webkit run of this section timed out here at Playwright's anonymous
- * 30s, having taken about six seconds over the twelve sections before it. The
- * bead that filed it left slow-versus-hung open, because it could not
- * reproduce. Forty consecutive local webkit re-navigations, with the same
- * multi-second idle gap the real section has, put this mount at p50 80ms and
- * max 108ms with no stalls — so 30,000ms is not a slow mount, it is a stopped
- * one. What it is NOT is a mechanism, and a ceiling cannot supply one.
+ * Forty consecutive local webkit re-navigations, with the same multi-second
+ * idle gap the real section has, put this mount at p50 80ms and max 108ms
+ * with no stalls — so a mount that runs into a ceiling measured in tens of
+ * seconds is not a slow mount, it is a stopped one. What a ceiling is NOT is
+ * a mechanism, and it cannot supply one.
  *
  * So the failure carries the page's own state at the moment the ceiling fires,
  * chosen to separate the candidates rather than to describe the page:
@@ -1584,12 +1573,12 @@ const TESTBED_ROOT = '[data-testid="fresco-controlled-testbed"]';
  * line. It deliberately does not witness `window.__TB__`: the runner installs
  * that via `addInitScript`, so it is present before the page's own script on
  * every navigation and would report a bundle that never loaded as one that
- * ran. That is not hypothetical — it is what the first cut of this asserted,
- * and a 1ms-ceiling run caught it saying `appRan: true` about a document still
- * in `readyState: 'loading'` with no bundle fetched at all.
+ * ran. That is not hypothetical — under a 1ms ceiling a probe on
+ * `window.__TB__` reports `appRan: true` about a document still in
+ * `readyState: 'loading'` with no bundle fetched at all.
  *
- * Whichever it is, the next occurrence closes the question instead of filing
- * the bead again.
+ * Whichever it is, an occurrence answers the question itself rather than
+ * leaving it open.
  */
 async function waitForRemount(page, runContext) {
   try {
@@ -1617,7 +1606,7 @@ async function waitForRemount(page, runContext) {
       'budget that wraps the section, so the re-navigation is what failed. ' +
       'The same mount measures p50 80ms locally, which is why this reads as ' +
       'a stopped mount rather than a slow one — the state below says which ' +
-      `(rf2-vinj, and the docstring above reads it): ${JSON.stringify(at)}`);
+      `(the docstring above reads it): ${JSON.stringify(at)}`);
   }
 }
 
@@ -1644,30 +1633,24 @@ async function armedEdgesAreWired(page, witness, runContext) {
     mounted: !!document.querySelector('[data-testid="mountable"]'),
   }));
   witness.eq(unmount.label, 'armed: unmount -> [:tb/toggle-mounted] fires in 5s',
-    'and the event the unmount arm will fire, which nothing pinned before');
+    'and the event the unmount arm will fire, pinned as the bump arm\'s is');
   witness.eq(unmount.mounted, before.mounted, 'the field is still mounted — this one is deferred too');
 
   // AND THE FIRE. Everything above is equally true of an arm that never
   // armed: the label is rendered from the dispatch that set it, and
   // "nothing has happened yet" is exactly what a dead timer looks like.
-  // Both arms shipped DEAD for that reason — `:tb/arm` returned a v1
-  // top-level `:dispatch-later` beside `:db`, which re-frame2's closed
-  // effect-map (seven top-level keys: `#{:db :rf.db/runtime :fx}` plus the
-  // four EP-0025 commit-plane classification effects, migration M-8) does
-  // not carry — and this section was green in three engines throughout,
-  // while the operator instrument it claims to pin could not fire. That is
-  // the PRE-rf2-04tx contract: the foreign key was dropped while the `:db`
-  // beside it committed, so the label rendered with no timer behind it.
-  // Today that spelling refuses the event pre-commit, label and all.
-  // Measured 2026-08-11: 15s after the click the readout still read
-  // `armed`, while a plain 5000ms `setTimeout` in the same page returned
-  // in 5006ms.
+  // `:tb/arm` carries its `:dispatch-later` inside `:fx` because
+  // re-frame2's effect-map is closed (seven top-level keys:
+  // `#{:db :rf.db/runtime :fx}` plus the four EP-0025 commit-plane
+  // classification effects, migration M-8) and refuses a v1 top-level
+  // `:dispatch-later` beside `:db` pre-commit, label and all; a timer that
+  // dies any other way leaves the label standing, and only the fire below
+  // can tell the operator instrument this section pins from a dead one.
   //
   // `?arm-ms` shortens the OPERATOR's five seconds for this section only.
-  // It costs under a second per engine rather than the thirty the #7815
-  // audit rightly refused, and the readout is rendered from the same
-  // number, so a stuck default reads wrong here before anything is
-  // waited on.
+  // It costs under a second per engine rather than thirty, and the readout
+  // is rendered from the same number, so a stuck default reads wrong here
+  // before anything is waited on.
   //
   // The re-navigation carries the RUNNER's navigation ceiling rather than a
   // literal of its own: it is the same navigation, to the same server, as the
@@ -1678,14 +1661,13 @@ async function armedEdgesAreWired(page, witness, runContext) {
   // missing ceiling REFUSES here rather than defaulting, which is the same
   // choice `examples/scripts/spec-helpers.cjs` makes for spec-side callers.
   //
-  // AND SO DOES THE MOUNT-WAIT THAT FOLLOWS IT (rf2-vinj). It was bare until
-  // that bead, which made the paragraph above true of the `goto` and false of
-  // the line under it: `waitUntil` is `'commit'`, so the navigation is only
-  // half done when `goto` returns and the mount-wait is the other half of the
-  // SAME operation — yet it took Playwright's anonymous 30s while the goto
-  // took 60,000. One operation, two budgets, and the second one invisible in
-  // the source. That is the shape this comment already refuses; it just wore
-  // a name the sweep did not police, which is now fixed there too.
+  // AND SO DOES THE MOUNT-WAIT THAT FOLLOWS IT. `waitUntil` is `'commit'`,
+  // so the navigation is only half done when `goto` returns and the
+  // mount-wait is the other half of the SAME operation — a bare mount-wait
+  // would take Playwright's anonymous 30s beside the goto's ceiling, one
+  // operation with two budgets and the second one invisible in the source.
+  // That is the shape this comment refuses, so `waitForRemount` takes the
+  // runner's ceiling too.
   const base = page.url().split('?')[0];
   if (typeof runContext.navTimeoutMs !== 'number') {
     throw new Error(
@@ -1741,7 +1723,7 @@ const SECTIONS = [
   ['a-revision-arriving-mid-composition', aRevisionArrivingMidComposition],
   ['owned-checked-pair', ownedCheckedPair],
   ['form-reset-and-fill-proxy', formResetAndFillProxy],
-  // rf2-hic-040's conformance matrix. It runs after rf2-hic-016's witnesses
+  // The conformance matrix. It runs after the I15 witnesses
   // and BEFORE `armed-edges-are-wired`, deliberately: that section
   // re-navigates, which reseeds the whole store, so anything placed after it
   // would be reading a different page from the one every row above touched.
