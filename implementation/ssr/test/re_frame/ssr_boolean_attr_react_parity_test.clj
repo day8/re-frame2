@@ -1,18 +1,19 @@
 (ns re-frame.ssr-boolean-attr-react-parity-test
-  "rf2-r9kf (second pass) — the SSR boolean attribute-value rosters pinned
+  "The SSR boolean attribute-value rosters pinned
   against react-dom ITSELF, not against another re-frame serialiser.
 
-  WHY THIS FILE EXISTS, AND WHY `ssr_emit_test`'s parity deftest could not
-  do its job. The first pass gave the hiccup emitter and the structural-tree
-  serialiser ONE shared classifier (`html-helpers/boolean-attr-class`). That
-  removed the drift between them — and with it the only check that had been
-  watching. A parity test between two CONSUMERS of a shared table cannot
+  WHY THIS FILE EXISTS, AND WHY a parity deftest between serialisers cannot
+  do its job. The hiccup emitter and the structural-tree
+  serialiser share ONE classifier (`html-helpers/boolean-attr-class`). That
+  removes the drift between them — and with it any check that compares
+  them. A parity test between two CONSUMERS of a shared table cannot
   validate the table: both sides read the same rosters, so both are wrong in
-  the same way and agree. The post-merge audit found exactly that. The
-  classifier was internally consistent and still missing eight names —
+  the same way and agree. A classifier can be internally consistent and
+  still miss names —
   `disablePictureInPicture`, `disableRemotePlayback`, `scoped`, `seamless`
   (presence) and `autoReverse`, `externalResourcesRequired`, `focusable`,
-  `preserveAlpha` (stringifying) — with every in-repo test green.
+  `preserveAlpha` (stringifying) are eight such — with every in-repo test
+  green.
 
   Only something OUTSIDE the shared source can catch that, so the evidence
   here is react-dom's own output:
@@ -23,7 +24,7 @@
     halves are React's — the candidate names are the values of react-dom's
     own `possibleStandardNames` table, and \"is this a boolean attribute?\"
     is React's own development-build warning rather than our opinion. Taking
-    the candidate list from our roster would have reproduced the blind spot
+    the candidate list from our roster would reproduce the blind spot
     exactly: a name missing from the roster would be missing from the probe.
 
   This namespace reads that EDN, DERIVES the class from React's bytes in
@@ -33,29 +34,27 @@
   (`value` and `ismap`); they are named below with their reasons, and each is
   pinned so that the premise reding is itself a failure.
 
-  ## The second hole, and it was this file's own shape (rf2-u82a)
+  ## Non-boolean values
 
-  Every row here drove the emitters with `true` and `false` and nothing else,
-  and that was not a gap in coverage so much as a gap the file could not see
+  A drive with `true` and `false` and nothing else has a gap it cannot see
   past. TWO OF THE FOUR CLASSES ARE INDISTINGUISHABLE FOR A BOOLEAN:
   `:presence` and `:overloaded` both render `name=\"\"` for `true` and
   nothing for `false`. They part only on a NON-boolean value — a presence
   name collapses it, an overloaded name keeps it — so a boolean-only probe
   cannot derive the difference, a boolean-only drive cannot catch a
   serialiser getting it wrong, and the roster could merge the two classes
-  with every row green. It had: `attr-string` sent every non-boolean value
-  down its ordinary branch and emitted `disabled=\"yes\"` where react-dom
-  emits `disabled=\"\"`, while `re-frame.ssr.ui-tree` next door collapsed —
-  two SSR pipelines answering ONE input two ways, which is precisely the
-  drift the first pass of this file was written to stop.
+  with every row green. A merged roster would send every non-boolean value
+  down `attr-string`'s ordinary branch and emit `disabled=\"yes\"` where
+  react-dom emits `disabled=\"\"`, while `re-frame.ssr.ui-tree` next door
+  collapsed — two SSR pipelines answering ONE input two ways, which is
+  precisely the drift this file exists to stop.
 
   The fixture therefore carries FOUR more values per attribute — `\"yes\"`,
-  `\"\"`, `0` and `\"0\"` — and the class is derived four ways instead of
-  three. Those four are not arbitrary: the presence collapse runs on
+  `\"\"`, `0` and `\"0\"` — and the class is derived four ways. Those four
+  are not arbitrary: the presence collapse runs on
   JAVASCRIPT truthiness, and Clojure disagrees about `\"\"` and the number
   `0` (logically true here, falsy there), while the string `\"0\"` is the
-  trap in the other direction. The evidence is still React's; only the
-  question got wider.
+  trap in the other direction. The evidence is React's throughout.
 
   Then it drives every row through the PUBLIC emitters — `emit/
   render-to-string`, `streaming/render-shell`, and `ui-tree/emit-ui-tree` —
@@ -120,11 +119,10 @@
   non-boolean value is KEPT — `download=\"report.pdf\"`), or `:ordinary`
   (neither boolean reaches markup).
 
-  THE BOOLEAN PAIR ALONE CANNOT SEPARATE THE MIDDLE TWO (rf2-u82a). Presence
+  THE BOOLEAN PAIR ALONE CANNOT SEPARATE THE MIDDLE TWO. Presence
   and overloaded render identically for `true` and for `false`; they part
-  only on a non-boolean value, which is exactly the case the first version of
-  this file never probed and `attr-string` therefore got wrong for every
-  member of `boolean-attrs`. `:string-markup` — react-dom's own bytes for the
+  only on a non-boolean value, the case a boolean-only probe never reaches.
+  `:string-markup` — react-dom's own bytes for the
   value `\"yes\"`, on the same element — is what tells them apart, so the
   distinction is derived from React here rather than declared by us."
   [{:keys [attribute true-markup false-markup string-markup]}]
@@ -180,31 +178,25 @@
     :re-frame    :presence
     :because
     "004B §Booleans and their neighbours names `ismap` in the boolean set,
-     and the roster follows the spec. The spec's ORIGINAL justification for
-     the name was measured false (rf2-u6zw): it read \"the react-dom/server
-     19.2.0 boolean-attribute list ... includes `ismap` (React 19 dropped the
-     camel `isMap` prop)\", but react-dom 19.2.0 accepts no boolean `ismap` in
-     ANY spelling — the name is absent from its `possibleStandardNames`
-     altogether, a boolean warns \"Received `true` for a non-boolean
-     attribute\" and emits NOTHING, and so it can never reach this evidence
-     fixture. 004B has since RULED on the row rather than merely naming it:
-     `ismap` IS a real HTML boolean attribute on `<img>`, presence is the
-     HTML-correct rendering, and the grammar tracks HTML where the two part
-     on a genuine HTML boolean attribute. The expected class below is
-     therefore unchanged — what changed is that the divergence is now stated
-     in 004B with its reason instead of hiding inside a false provenance.
+     and the roster follows the spec. react-dom 19.2.0 accepts no boolean
+     `ismap` in ANY spelling — the name is absent from its
+     `possibleStandardNames` altogether, a boolean warns \"Received `true`
+     for a non-boolean attribute\" and emits NOTHING, and so it can never
+     reach this evidence fixture. 004B rules on the row: `ismap` IS a real
+     HTML boolean attribute on `<img>`, presence is the HTML-correct
+     rendering, and the grammar tracks HTML where the two part on a genuine
+     HTML boolean attribute. The divergence is stated in 004B with its
+     reason.
 
-     rf2-u82a EXTENDS the same divergence to a non-boolean value, and does so
-     deliberately rather than by oversight: `{:ismap \"yes\"}` now renders
-     bare `ismap` here, where react-dom's pass-through default renders
-     `ismap=\"yes\"`. Presence-class is presence-class for every value — 004B
-     says exactly that in its `hidden` row, which calls `hidden` *a pure
-     boolean attr, not an enumerated exception* and records that the draft's
-     `\"until-found\"` string carve-out was FALSIFIED. Re-introducing a
-     value-shaped carve-out for one name is the shape 004B removed, and it
-     would make the class un-statable as a class. The divergence is also
-     strictly smaller than the boolean one already ruled: for `true`,
-     react-dom emits no `ismap` at all while this grammar emits it."}})
+     The same divergence covers a non-boolean value, deliberately rather than
+     by oversight: `{:ismap \"yes\"}` renders bare `ismap` here, where
+     react-dom's pass-through default renders `ismap=\"yes\"`. Presence-class
+     is presence-class for every value — 004B says exactly that in its
+     `hidden` row, which calls `hidden` *a pure boolean attr, not an
+     enumerated exception*. A value-shaped carve-out for one name would make
+     the class un-statable as a class. The divergence is also strictly
+     smaller than the boolean one: for `true`, react-dom emits no `ismap` at
+     all while this grammar emits it."}})
 
 (defn- expected-class
   "What `boolean-attr-class` must say for `attribute-name`: React's class,
@@ -217,7 +209,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest react-evidence-fixture-is-present-and-substantial
-  (testing "rf2-r9kf — the fixture loads, names the react-dom it was measured
+  (testing "The fixture loads, names the react-dom it was measured
             against, and carries a plausible number of rows. A missing or
             empty fixture would make every doseq below iterate nothing and
             report a clean pass, which is the one failure mode this whole
@@ -238,7 +230,7 @@
          overloaded split below derive `:presence` for everything and agree
          with a classifier that had never learned the difference"))
 
-  (testing "rf2-r9kf — NON-VACUITY: the eight names the audit found missing
+  (testing "NON-VACUITY: the eight names the ns docstring lists
             are actually IN the evidence, so the agreement asserted below is
             agreement about them and not about a fixture that omits them"
     (let [named (set (map :attribute (rows)))]
@@ -254,7 +246,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest boolean-attr-class-agrees-with-installed-react-dom
-  (testing "rf2-r9kf — every attribute react-dom accepts a boolean for is
+  (testing "Every attribute react-dom accepts a boolean for is
             classified the way react-dom classifies it. This is the check the
             two-serialiser parity test structurally cannot make: the evidence
             comes from outside both consumers of the roster"
@@ -268,7 +260,7 @@
                  (pr-str (:false-markup row))))))))
 
 (deftest the-presence-overloaded-split-is-real-in-react-s-own-bytes
-  (testing "rf2-u82a NON-VACUITY — the four-way derivation above is only a
+  (testing "NON-VACUITY — the four-way derivation above is only a
             check if the evidence actually carries BOTH middle classes. A
             fixture with no `:overloaded` row would let `boolean-attr-class`
             call `download` anything at all and still agree"
@@ -282,7 +274,7 @@
         (is (= #{"download" "capture"} overloaded)
             "and they are the two 004B names them"))))
 
-  (testing "rf2-u82a — react-dom collapses a presence attribute on JAVASCRIPT
+  (testing "react-dom collapses a presence attribute on JAVASCRIPT
             truthiness, and this is the premise the emitters are held to
             below. It matters because CLOJURE disagrees about exactly two of
             these four values: `\"\"` and the NUMBER 0 are logically TRUE in
@@ -305,10 +297,9 @@
         (is (present? string-zero-markup)
             (str attribute " — the STRING \"0\" is truthy: attribute present")))))
 
-  (testing "rf2-u82a — while an OVERLOADED name keeps every non-boolean value
-            it is given, falsy ones included. This is the half the current
-            `:else` branch already gets right, and pinning it is what stops a
-            repair to the presence class taking `download=\"report.pdf\"` with
+  (testing "While an OVERLOADED name keeps every non-boolean value
+            it is given, falsy ones included. Pinning it is what stops a
+            change to the presence class taking `download=\"report.pdf\"` with
             it"
     (doseq [row (rows)
             :when (= :overloaded (react-class row))]
@@ -322,7 +313,7 @@
             (str attribute " keeps the number 0 as \"0\""))))))
 
 (deftest documented-divergences-still-have-their-premise
-  (testing "rf2-r9kf — `value` is deliberately NOT booleanish here. The
+  (testing "`value` is deliberately NOT booleanish here. The
             exception is only defensible while react-dom really does
             stringify it, so the premise is pinned: if react-dom stops, this
             reds and the decision gets re-taken rather than inherited"
@@ -333,19 +324,19 @@
       (is (= :ordinary (rf.ssr.html-helpers/boolean-attr-class "value"))
           "re-frame leaves `value` ordinary — see `divergences`")))
 
-  (testing "rf2-r9kf — `ismap` is the divergence in the OTHER direction: the
+  (testing "`ismap` is the divergence in the OTHER direction: the
             roster carries it on 004B's word, react-dom refuses a boolean
             `ismap` and so cannot appear in the evidence at all"
     (is (not (contains? (set (map (comp collapse :attribute) (rows))) "ismap"))
         "react-dom accepts no boolean `ismap`, so no row can exist for it")
     (is (= :presence (rf.ssr.html-helpers/boolean-attr-class "ismap"))
-        "the roster follows 004B here; since rf2-u6zw the divergence is ruled
-         and stated in 004B's own row, not merely recorded downstream")))
+        "the roster follows 004B here; the divergence is ruled and stated in
+         004B's own row, not merely recorded downstream")))
 
 (deftest every-roster-name-is-backed-by-react-evidence
-  (testing "rf2-r9kf — the REVERSE direction. Agreeing with React about the
+  (testing "The REVERSE direction. Agreeing with React about the
             names React named is half a check: a name invented here, or one
-            react-dom has since dropped, would never appear in the evidence
+            react-dom does not carry, would never appear in the evidence
             and would sail through the test above. Every roster member must be
             evidenced, or be a documented divergence"
     (let [evidenced (into {} (map (juxt (comp collapse :attribute) react-class))
@@ -385,15 +376,15 @@
     :ordinary               "<div></div>"))
 
 ;; ---------------------------------------------------------------------------
-;; The NON-BOOLEAN drive (rf2-u82a).
+;; The NON-BOOLEAN drive.
 ;;
 ;; Everything above this line hands the emitters `true` and `false` only, and
-;; that is the shape of the hole it left: a presence attribute given a
-;; non-boolean value took `attr-string`'s ordinary `:else` branch and emitted
-;; `disabled="yes"`, where react-dom collapses to `disabled=""` and the
-;; structural-tree serialiser next door already collapsed too. Two SSR
-;; pipelines disagreeing about one input, with every row in this file green,
-;; because no row could reach the input.
+;; that leaves a hole: a presence attribute given a non-boolean value that
+;; took `attr-string`'s ordinary `:else` branch would emit `disabled="yes"`,
+;; where react-dom collapses to `disabled=""` and the structural-tree
+;; serialiser next door collapses too. Two SSR pipelines would disagree about
+;; one input, with every boolean row green, because no such row can reach
+;; the input.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private non-boolean-probe-values
@@ -412,14 +403,14 @@
   [attribute markup]
   (react-writes? attribute markup "=\""))
 
-;; rf2-dgyi — RESERVED PROPS THAT REACHED THIS CORPUS BY AN ARTEFACT OF THE
-;; PROBE'S INCLUSION TEST, AND FOR WHICH THE MARKUP MODEL BELOW DOES NOT HOLD.
+;; RESERVED PROPS THAT REACH THIS CORPUS BY AN ARTEFACT OF THE PROBE'S
+;; INCLUSION TEST, AND FOR WHICH THE MARKUP MODEL BELOW DOES NOT HOLD.
 ;;
 ;; `boolean_attr_classes.cjs` admits a name when `createElement('div', {name:
 ;; true})` neither throws nor warns "Received `true` for a non-boolean
 ;; attribute". `dangerouslySetInnerHTML` THROWS, so the probe's own comment
 ;; records it as excluded. `children` does neither — it is a perfectly legal
-;; React prop — so it was admitted, and its six rows faithfully record what
+;; React prop — so it is admitted, and its six rows faithfully record what
 ;; react-dom does with it. What they record is that it is NOT AN ATTRIBUTE:
 ;;
 ;;   :true-markup "<div></div>"        :string-markup       "<div>yes</div>"
@@ -430,12 +421,12 @@
 ;; element's CONTENT, emitting no `children=` attribute for any of the six
 ;; values. So the generic arm below — "every other class keeps the value",
 ;; i.e. stringifies it into an attribute — is a MODEL that this one name
-;; falsifies, and it was falsifying it silently: before `children` joined the
-;; SSR strip roster the emitter wrote `<div children="0"></div>`, the model
-;; expected `<div children="0"></div>`, the row said `<div>0</div>`, and the
-;; test was GREEN. The failure message printed react-dom's real markup all
-;; along; nothing compared against it. That is the shape this file's own
-;; docstring exists to rule out — a check that agrees with the thing it
+;; falsifies, and it would falsify it silently: were `children` off the SSR
+;; strip roster, the emitter would write `<div children="0"></div>`, the model
+;; would expect `<div children="0"></div>`, the row says `<div>0</div>`, and
+;; the test would be GREEN. The failure message would print react-dom's real
+;; markup; nothing would compare against it. That is the shape this file's
+;; own docstring exists to rule out — a check that agrees with the thing it
 ;; checks — reached through the EXPECTATION function rather than through the
 ;; classifier.
 ;;
@@ -448,21 +439,21 @@
 ;; For `"yes"`/`0`/`"0"` react-dom renders the value as CONTENT and this
 ;; emitter renders nothing, because honouring a content channel is a
 ;; children-path change rather than an attribute-path one (see
-;; `html-helpers/content-channel-names`). That gap is filed on rf2-dgyi, and
+;; `html-helpers/content-channel-names`), and
 ;; `reserved-prop-content-residual-is-known` below PINS it, so it is a
 ;; recorded divergence with a test that goes red the day somebody closes it
 ;; rather than an omission a later reader has to rediscover.
 (def ^:private reserved-props
   #{"children"})
 
-;; rf2-slr59 — THE SAME FALSIFIED MODEL, A SECOND TIME. react-dom's
+;; THE SAME FALSIFIED MODEL, A SECOND TIME. react-dom's
 ;; `pushAttribute` drops `defaultValue` and `defaultChecked` on every element
 ;; (they are form-control props, honoured only by the `<input>` / `<textarea>`
 ;; / `<select>` arms), and these two rows record exactly that: `<div></div>`
-;; at all six values. The hiccup emitters used to write `defaultValue="0"`,
-;; the generic arm below expected it, and the test was green against a row
-;; saying otherwise. The emitters now drop both props off a form control, as
-;; react-dom does, and `reserved-prop-row-carries-no-attribute` asserts the
+;; at all six values. Hiccup emitters that wrote `defaultValue="0"` would
+;; match the generic arm below and stay green against a row saying
+;; otherwise. The emitters drop both props on every element except the form
+;; controls that honour them, as react-dom does, and `reserved-prop-row-carries-no-attribute` asserts the
 ;; premise against the fixture for these names too.
 (def ^:private form-default-props
   #{"defaultValue" "defaultChecked"})
@@ -471,8 +462,8 @@
   "The `<div>` markup the hiccup emitters must produce for a NON-boolean
   `value`. For the presence class the expectation is react-dom's OWN verdict
   on the same value — read off the row rather than restated — re-spelled in
-  this grammar's bare presence form. For a RESERVED prop (rf2-dgyi) or a
-  form-control default prop (rf2-slr59) react-dom writes no attribute at any
+  this grammar's bare presence form. For a RESERVED prop or a
+  form-control default prop react-dom writes no attribute at any
   value and this emitter drops the prop, so the expectation is the bare
   element. Every other class keeps the value."
   [klass attribute {:keys [field serialised]} row]
@@ -490,11 +481,11 @@
     (str "<div " attribute "=\"" serialised "\"></div>")))
 
 (deftest reserved-prop-row-carries-no-attribute
-  (testing "rf2-dgyi — the premise of the `reserved-props` exception, taken
+  (testing "The premise of the `reserved-props` exception, taken
             from the FIXTURE rather than asserted in a comment: react-dom
             writes no `children=` attribute at ANY of the six probe values.
             If a future react-dom ever did, this exception would be wrong and
-            this row is what says so. rf2-slr59 — the same premise for the two
+            this row is what says so. The same premise holds for the two
             form-control default props"
     (doseq [attribute (concat reserved-props form-default-props)
             row       (rows)
@@ -513,7 +504,7 @@
             (str attribute " is absent from the react-dom evidence"))))))
 
 (deftest reserved-prop-content-residual-is-known
-  (testing "rf2-dgyi — the KNOWN, FILED gap. react-dom renders a reserved
+  (testing "The KNOWN gap. react-dom renders a reserved
             content prop's value as the element's CONTENT; this emitter drops
             the prop and renders nothing, because honouring it is a
             children-path change (`emit/emit-element`, `streaming/
@@ -532,11 +523,11 @@
         (when (not= "<div></div>" react-markup)
           (is (not= react-markup ours)
               (str "react-dom renders " (pr-str react-markup)
-                   " as CONTENT — if this now matches, the residual has been
-                    closed and this pin should be retired with the bead")))))))
+                   " as CONTENT — if this matches, the residual is closed
+                    and this pin is obsolete")))))))
 
 (deftest render-to-string-follows-react-for-every-non-boolean-probe-value
-  (testing "rf2-u82a — the PUBLIC hiccup render path over the whole evidence
+  (testing "The PUBLIC hiccup render path over the whole evidence
             and all four non-boolean values. A presence name collapses a
             truthy value to its bare self and omits a JS-falsy one; an
             overloaded name keeps every value it is given; a stringifying or
@@ -553,8 +544,8 @@
                  (pr-str (get row (:field probe)))))))))
 
 (deftest render-shell-follows-react-for-every-non-boolean-probe-value
-  (testing "rf2-u82a — and the STREAMING hiccup mode, which re-derives
-            attributes through the same shared helper. A repair landing on
+  (testing "And the STREAMING hiccup mode, which re-derives
+            attributes through the same shared helper. A change landing on
             one hiccup mode only is the drift this pins"
     (doseq [row   (rows)
             probe non-boolean-probe-values]
@@ -567,7 +558,7 @@
             (str attribute " " (pr-str (:value probe)) " (" klass ")"))))))
 
 (deftest render-to-string-follows-react-for-every-evidenced-attribute
-  (testing "rf2-r9kf — the PUBLIC hiccup render path, table-driven over the
+  (testing "The PUBLIC hiccup render path, table-driven over the
             whole react-dom evidence and both boolean values. A presence name
             emits a bare attribute for `true` and nothing for `false`; a
             stringifying name emits a quoted `\"true\"`/`\"false\"` and is
@@ -581,8 +572,8 @@
             (str attribute " " value " (" klass ")"))))))
 
 (deftest render-shell-follows-react-for-every-evidenced-attribute
-  (testing "rf2-r9kf — the STREAMING hiccup mode re-derives attributes through
-            the same shared helper, so the same table must hold there. A fix
+  (testing "The STREAMING hiccup mode re-derives attributes through
+            the same shared helper, so the same table must hold there. A change
             landing on one hiccup mode only is exactly the drift this pins"
     (doseq [row   (rows)
             value [true false]]
@@ -607,7 +598,7 @@
 
     (and (not= baseline true-html) (= baseline false-html))
     ;; The two middle classes are one shape for a boolean, so the split is
-    ;; read off a NON-boolean value exactly as react-dom's own is (rf2-u82a):
+    ;; read off a NON-boolean value exactly as react-dom's own is:
     ;; a presence name collapses `"yes"` onto the same output `true` gave, an
     ;; overloaded name keeps it. Still name-agnostic — this compares the
     ;; serialiser's outputs with each other, never with the author's spelling.
@@ -625,8 +616,8 @@
   (rf.ssr.ui-tree/emit-ui-tree {:rf.ui/tree-version 1 :tag :div :attrs attrs}))
 
 (deftest structural-tree-serialiser-follows-react-for-every-evidenced-attribute
-  (testing "rf2-r9kf AC5 — the structural-tree serialiser is the parity
-            REFERENCE, and it now has to agree with react-dom too rather than
+  (testing "The structural-tree serialiser is the parity
+            REFERENCE, and it has to agree with react-dom too rather than
             merely with the hiccup emitter. Compared as classes, not bytes:
             the two pipelines stay separate (004B) and differ in presence
             spelling and attribute naming; what must not differ is the class"
@@ -643,12 +634,12 @@
               (str attribute " (" klass ") — structural-tree serialiser")))))))
 
 (deftest structural-tree-serialiser-collapses-on-react-s-truthiness
-  (testing "rf2-u82a — the structural-tree serialiser's presence collapse held
-            its OWN truthiness predicate, and it disagreed with react-dom on
-            two of these four values: it read the number `0` as present (only
-            `nil` was absent) and a whitespace string as absent (`str/blank?`).
-            Both rules are now the one shared helper the hiccup emitter uses,
-            so the two pipelines cannot answer one input two ways again.
+  (testing "The structural-tree serialiser's presence collapse uses the one
+            shared truthiness helper the hiccup emitter uses, so the two
+            pipelines cannot answer one input two ways. An OWN predicate would
+            disagree with react-dom on two of these four values — reading the
+            number `0` as present (only `nil` absent) or a whitespace string
+            as absent (`str/blank?`).
             Name-agnostic: the serialiser renames attributes through the React
             prop vocabulary, so every comparison is between its OWN outputs"
     (let [baseline (tree-html {})]
