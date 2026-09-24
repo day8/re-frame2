@@ -1,5 +1,5 @@
 (ns re-frame.subs-image-local-classification-production-test
-  "rf2-7vk3z — \"no cross-frame classification bleed\", witnessed without the
+  "\"No cross-frame classification bleed\", witnessed without the
   trace stream.
 
   ## The invariant, and where it really lives
@@ -14,9 +14,8 @@
 
   Dropping the trace assertions would make that suite green while retiring live
   coverage of a privacy invariant, so this namespace re-proves it through
-  production-visible witnesses instead. Doing that first required establishing
-  WHICH HALF of the invariant is production-real, because the two halves have
-  different answers:
+  production-visible witnesses instead. WHICH HALF of the invariant is
+  production-real matters, because the two halves have different answers:
 
   **The RESOLUTION half is production-real and is pinned here.** Which image's
   `sub-meta` a frame's reaction resolves for a given sub id is decided by
@@ -55,7 +54,7 @@
   `scripts/test-core-prod-gate.sh` automatically (that lane's roster is an
   EXCLUSION list — a new namespace joins by default). Nothing here rebinds
   `interop/debug-enabled?`: the flag is read once at namespace-load time and a
-  rebind cannot reach it (rf2-f7qj4)."
+  rebind cannot reach it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.classification :as rf.classification]
             [re-frame.core :as rf]
@@ -114,7 +113,7 @@
 ;; ===========================================================================
 
 (deftest two-frames-resolve-their-own-image-local-declaration-in-every-posture
-  (testing "rf2-7vk3z — two frames install the SAME inline sub id with
+  (testing "two frames install the SAME inline sub id with
             DIFFERENT `:sensitive` declarations. Each resolves ITS OWN, and
             neither falls back to the conflicting same-id GLOBAL. Witnessed by
             the public subscription return value and by the resolved metadata
@@ -150,7 +149,7 @@
           "and the unclassified GLOBAL supplied neither"))))
 
 (deftest replacing-a-generation-swaps-value-and-declaration-together
-  (testing "rf2-7vk3z — replacing frame A's image generation makes subsequent
+  (testing "replacing frame A's image generation makes subsequent
             resolution read the NEW declaration: not the OLD generation's path,
             and not the conflicting global. Because handler and declaration
             come from ONE resolved map, a stale-generation read would show up
@@ -165,7 +164,8 @@
            @(rf/subscribe [:img/read] {:frame :img/frame-a})))
 
     ;; Generation 2 classifies :public instead. Frame memory (the sub cache) is
-    ;; preserved across the swap, so clear it to force a fresh reaction
+    ;; preserved across the swap; the same-id re-construction evicts the
+    ;; changed sub, and the explicit clear below forces a fresh reaction
     ;; resolved against the NEW generation — an HMR sub reload.
     (install-image-frame! :img/frame-a
       (inline-sub-image :img/g2 :img/read {:sensitive [[:public]]}
@@ -183,9 +183,9 @@
 ;; ===========================================================================
 
 (deftest projector-redacts-per-the-actually-resolved-declaration
-  (testing "rf2-7vk3z — the dev-posture suite's chokepoint fixtures HAND the
-            projector a fabricated declaration, so they stay green even if real
-            image-local resolution had fallen back to the global. This closes
+  (testing "the dev-posture suite's chokepoint fixtures HAND the
+            projector a fabricated declaration, so they would stay green even
+            if real image-local resolution fell back to the global. This closes
             that gap without a trace listener: the declaration fed in is the one
             `resolved-sub-meta` really produced for each live frame,
             reconstructed exactly as `re-frame.subs.memo` reconstructs it.
