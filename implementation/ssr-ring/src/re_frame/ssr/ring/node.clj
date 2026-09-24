@@ -1,17 +1,16 @@
 (ns re-frame.ssr.ring.node
   "The JVM->Node adapter: `renderer`, the one non-local implementation of
   `ssr-handler`'s render-body seam (`:renderer`, Spec 011 §HTTP response
-  contract) — slice D of the ssr-node crossing programme (rf2-8arzr, shared
-  contract S1–S7). It dials the bounded sidecar `implementation/ssr-node`
+  contract). It dials the bounded sidecar `implementation/ssr-node`
   ships and takes back body markup, and nothing else.
 
-  ## What crosses, and what does not (S1, S2, S3)
+  ## What crosses, and what does not
 
   Per request, INSIDE the request frame's scope and AFTER the boot-event
   drain and the blocking-resource settle, the renderer:
 
     1. projects the settled frame under the caller's `:render-state`
-       policy — `re-frame.ssr.render-state/project` (slice C), the
+       policy — `re-frame.ssr.render-state/project`, the
        fail-closed per-partition allowlist that is DISTINCT in policy from
        the hydration payload's `:payload` and shares its envelope;
     2. serialises both partitions per key to EDN text
@@ -25,7 +24,7 @@
     4. returns the sidecar's body bytes as `:body-html`, verbatim, with
        `:render-hash nil` — a native root carries no structural hash, so
        the page ships no `data-rf-render-hash` marker and no payload
-       `:rf/render-hash` (the unresolved-root behaviour, rf2-q1b96).
+       `:rf/render-hash` (the unresolved-root behaviour).
 
   The JVM keeps everything else: the request frame, the drain, the head,
   `__rf_payload` (built from the JVM's own app-db under the SEPARATE
@@ -33,7 +32,7 @@
   projection and frame teardown. `:root-view` is not read — with a custom
   renderer it is optional and ignored (`lifecycle/validate-required-opts!`).
 
-  ## Transport (S6)
+  ## Transport
 
   ONE `java.net.http.HttpClient` per renderer, built at construction and
   reused — a per-call client defeats connection pooling. EVERY request
@@ -48,7 +47,7 @@
   refuses before the JVM gives up: the sidecar's render-timeout refusal is
   a diagnosable event, a socket the caller abandoned is not.
 
-  That budget bounds the WHOLE exchange, body included (rf2-fzbj.24).
+  That budget bounds the WHOLE exchange, body included.
   `HttpRequest.Builder.timeout` bounds only the phase before the response
   headers arrive, so a peer that answers 200 promptly and then stalls
   mid-body is a wait the JDK never ends — and the Ring request, and its
@@ -58,13 +57,13 @@
   `:rf.error/ssr-node-deadline` with `:observed-by :jvm`.
 
   JSON is `org.clojure/data.json` — ssr-ring's one dependency beyond core
-  and ssr, accepted by the ruling (first-party, no transitive deps).
+  and ssr (first-party, no transitive deps).
 
-  ## Errors (S5)
+  ## Errors
 
   Every way the crossing can fail throws AT THE RENDER CALL SITE with a
-  live frame, so every one routes through the EXISTING render-failure
-  projection — `re-frame.ssr/project-render-exception!`, the `:error-view`
+  live frame, so every one routes through the same render-failure
+  projection as any render throw — `re-frame.ssr/project-render-exception!`, the `:error-view`
   side of Spec 011's error-handling division — as a projected 5xx. The
   sidecar's own HTTP status is NEVER copied to the browser, and no partial
   page is possible: the body render fails before any shell is assembled.
@@ -104,7 +103,7 @@
                                     nil here, so nothing downstream would
                                     catch it. The sidecar already refuses a
                                     mismatched REQUEST; this is the defensive
-                                    check on the ANSWER (S7). ex-data
+                                    check on the ANSWER. ex-data
                                     `:expected`, `:serving` (nil when the
                                     answer named no build).
 
@@ -115,7 +114,7 @@
   payload family's ids with `:opt :render-state`, exactly as
   `render-state/validate-policy-opts!` documents.
 
-  ## Deployment posture (S7)
+  ## Deployment posture
 
   The default endpoint is `http://127.0.0.1:8148`, the launcher's default
   bind. Any absolute http(s) URL is accepted — a non-loopback sidecar is
@@ -208,7 +207,7 @@
 (defn- endpoint-uri
   "`:endpoint` as a `URI`, or the construction error. Absolute, http(s),
   with a host — the shape a dialler needs; nothing about WHERE the host
-  is (S7)."
+  is."
   ^URI [endpoint]
   (require-non-empty-string! :endpoint endpoint)
   (let [^URI uri (try (URI. ^String endpoint) (catch URISyntaxException _ nil))]
@@ -259,7 +258,7 @@
 
 (defn http-timeout-ms
   "The explicit per-request HTTP timeout derived from DEFAULT-MERGED
-  `opts` — `:timeout-ms` + `:admission-ms` + `wire-margin-ms` (S6). Pure;
+  `opts` — `:timeout-ms` + `:admission-ms` + `wire-margin-ms`. Pure;
   exposed so a deployment can read the number the adapter will wait."
   [{:keys [timeout-ms admission-ms]}]
   (+ timeout-ms admission-ms wire-margin-ms))
@@ -375,7 +374,7 @@
   JVM's own budget expiring).
 
   `sendAsync` and a bounded wait on completion, rather than the blocking
-  `send` (rf2-fzbj.24): the derived budget has to bound COMPLETE body
+  `send`: the derived budget has to bound COMPLETE body
   consumption, and `HttpRequest.Builder.timeout` does not — a peer that
   answers 200 promptly and then stalls mid-body is a wait the JDK never
   ends. Expiry CANCELS the exchange (`cancel(true)` reaches the underlying
@@ -393,7 +392,7 @@
       (catch TimeoutException _
         (.cancel pending true)
         (throw-deadline! opts :jvm))
-      ;; An interrupted host thread keeps its existing meaning — it is
+      ;; An interrupted host thread keeps its own meaning — it is
       ;; neither a deadline nor unreachability — but the exchange still has
       ;; to go, and the flag is restored for whoever set it.
       (catch InterruptedException cause
@@ -474,7 +473,7 @@
                                (endpoint-uri (:endpoint validated-opts)))
         client               (build-client transport-timeout-ms)]
     (fn node-renderer [{frame-id :frame-id handler-opts :opts}]
-      (let [;; rf2-hjz4r — the HANDLER's `:payload-include-sensitive`, so the
+      (let [;; The HANDLER's `:payload-include-sensitive`, so the
             ;; markup the sidecar prints and the payload agree on a permitted
             ;; value.
             partitions   (rf.ssr.render-state/project
