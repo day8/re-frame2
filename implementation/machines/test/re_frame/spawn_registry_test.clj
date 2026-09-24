@@ -9,7 +9,7 @@
 
    1. **Spawn writes the slot.** Entering a `:spawn`-bearing state
       writes `[:rf.runtime/machines :spawned <parent> <invoke-id>] = <spawned-id>` in
-      the frame's app-db, alongside the spawned actor's snapshot at
+      the frame's runtime-db, alongside the spawned actor's snapshot at
       `[:rf.runtime/machines :snapshots <spawned-id>]`.
 
    2. **Destroy reads the slot, tears down, clears.** Exiting the
@@ -31,9 +31,9 @@
       do not collide either.
 
   The CLJS-side coverage of the same invariants lives in
-  machines_cljs_test.cljs (machine-spawn-cljs and friends); these
+  machines_spawn_cljs_test.cljs (machine-spawn-cljs and friends); these
   JVM-side tests run on the plain-atom substrate and assert against
-  the in-app-db slot directly."
+  the runtime-db slot directly."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines.test-support :as rf.machines.test-support]
@@ -103,11 +103,11 @@
 
 ;; ---- (2b) ADVERSARIAL: the parent's own :rf/spawned DATA slot is cleared ---
 ;; on teardown too, so the in-snapshot data slot (mechanism 1 — XState-context
-;; parity) mirrors the runtime registry EXACTLY (Spec 005:2938). This is the
-;; stale-id footgun the rf2-yh21ah Option-A cleanup closes: BEFORE the fix, an
-;; action reading `[:data :rf/spawned <invoke-id>]` AFTER the child completed
-;; got a DEAD id (the data slot outlived the actor). AFTER the fix, the read
-;; returns nil — the actor is gone AND its capture is gone, together.
+;; parity) mirrors the runtime registry EXACTLY (Spec 005:2938). That closes a
+;; stale-id footgun: were the data slot to outlive the actor, an action reading
+;; `[:data :rf/spawned <invoke-id>]` AFTER the child completed would get a DEAD
+;; id. Instead the read returns nil — the actor is gone AND its capture is
+;; gone, together.
 
 (deftest destroy-clears-parent-data-rf-spawned-slot-no-dead-id
   (testing "an action reading [:data :rf/spawned <invoke-id>] AFTER exit-cascade teardown sees NO dead id"
@@ -155,7 +155,7 @@
         ;; THE ADVERSARIAL ASSERTION: the parent's own :data :rf/spawned slot
         ;; for this invoke-id was ALSO cleared — no dead id lingers.
         (is (nil? (get-in (snapshot :sup/data-clear) [:data :rf/spawned [:working]]))
-            "parent's :data :rf/spawned slot cleared on child teardown — NO dead id (footgun gone)")
+            "parent's :data :rf/spawned slot cleared on child teardown — NO dead id")
         ;; The now-empty :rf/spawned data map is pruned (lazy-allocation mirror):
         ;; a parent that spawned exactly one child leaves NO {:rf/spawned {}}
         ;; residue in its :data after the child dies.
@@ -314,7 +314,7 @@
         (is (= :worker/proc#1 spawned-id)
             "parent's :data carries the spawned id under [:rf/spawned <invoke-id>] — XState-context parity")
         ;; SYMMETRY: the parent's :data slot equals the runtime registry slot
-        ;; (the reverse-index that already existed); they key on the SAME
+        ;; (the runtime-db reverse index); they key on the SAME
         ;; <invoke-id>. The :data read is the in-snapshot, no-coupling view.
         (is (= spawned-id
                (get-in (frame-db) [:rf.runtime/machines :spawned :sup/captures [:working]]))
@@ -398,7 +398,7 @@
             "B's id recorded under its own distinct invoke-id key — no collision with A's key")
         ;; A's earlier binding was CLEARED when A was torn down on :a-running
         ;; exit — the :data slot mirrors the runtime registry exactly
-        ;; (rf2-yh21ah Option A), so no dead id lingers. The keyed-map shape
+        ;; so no dead id lingers. The keyed-map shape
         ;; is what keeps B's live capture and A's absence INDEPENDENT (a single
         ;; 'last-spawned' slot would have been overwritten, not cleared).
         (is (nil? (get-in d [:rf/spawned [:a-running]]))
@@ -419,7 +419,7 @@
             ":spawn-all records the full children id-map under the shared invoke-id — both children, no clobber")))))
 
 (deftest runtime-db-reverse-index-still-works
-  (testing "the runtime-db reverse-index read still resolves the id (no regression alongside the new :data read)"
+  (testing "the runtime-db reverse-index read resolves the id alongside the :data read"
     (let [child  {:initial :running :data {} :states {:running {}}}
           parent {:initial :idle
                   :states  {:idle    {:on {:start :working}}
@@ -432,11 +432,11 @@
             via-registry (get-in db [:rf.runtime/machines :spawned :sup/reverse [:working]])
             via-data     (get-in (snapshot :sup/reverse) [:data :rf/spawned [:working]])]
         (is (= :worker/proc#1 via-registry)
-            "the runtime-db reverse-index slot still resolves the spawned id (unchanged)")
+            "the runtime-db reverse-index slot resolves the spawned id")
         (is (= via-registry via-data)
-            "the new :data read and the pre-existing reverse-index agree on the id")
+            "the :data read and the reverse-index agree on the id")
         (is (some? (get-in db [:rf.runtime/machines :snapshots via-registry]))
-            "the actor's snapshot is reachable from the reverse-index id, as before")))))
+            "the actor's snapshot is reachable from the reverse-index id")))))
 
 ;; ---- (5) keyword-form [:rf.machine/destroy actor-id] imperative destroy --
 ;;
