@@ -1,8 +1,8 @@
 (ns re-frame.resources-mutation-cljs-test
-  "Mutation over managed HTTP (rf2-dwme29, Spec 016 §Deferred slices /
-  EP-0003 §Mutations — the first public-beta gate, the LAST core slice).
+  "Mutation over managed HTTP (Spec 016 §Deferred slices /
+  EP-0003 §Mutations).
 
-  These JVM+CLJS unit tests pin the slice's semantics:
+  These JVM+CLJS unit tests pin the mutation semantics:
 
     1. reg-mutation / clear-mutation registration + introspection, and the
        fail-closed authoring boundary (missing :request / :params-schema);
@@ -12,7 +12,7 @@
     3. concurrency — two submissions of the SAME mutation id under
        different instance ids never clobber each other's pending/result;
     4. success → controlled resource PATCH / POPULATE then tag invalidation
-       (composing with the landed :rf.resource/invalidate-tags);
+       (composing with :rf.resource/invalidate-tags);
     5. failure settles the instance :error (no :refresh-error analogue);
        optional after-failure / after-settle invalidation timing;
     6. before-request invalidation timing;
@@ -37,7 +37,7 @@
    [re-frame.elision :as rf.elision]
    [re-frame.privacy :as rf.privacy]
    [re-frame.reply :as rf.reply]
-   ;; rf2-x76af2.13 — the mutation classification-lowering regression reads the
+   ;; The mutation classification-lowering test reads the
    ;; per-frame elision registry the succeeded-handler lowers into, then projects
    ;; the populated entry's data through the registry-driven egress projector.
    [re-frame.resources.classification :as rf.resources.classification]
@@ -48,10 +48,7 @@
    [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
    [re-frame.resources.mutation-events :as rf.resources.mutation-events]
    [re-frame.resources.mutation-registry :as rf.resources.mutation-registry]
-   ;; work-ledger: used by the cross-frame request-id correlation assertions
-   ;; (rf2-sxyrzk). The per-suite `(timers/reset-cache!)` was dropped with the
-   ;; rf2-784223 fixture consolidation (shared reset hook clears timer caches),
-   ;; so the `timers` alias is no longer required here.
+   ;; work-ledger: used by the cross-frame request-id correlation assertions.
    [re-frame.resources.work-ledger :as rf.resources.work-ledger]
    [re-frame.resources.test-support]
    ;; production HTTP fx surface (so the transport feature probe resolves);
@@ -69,10 +66,10 @@
 (def ^:private scheduled-timers (atom []))
 
 (defn- capturing-transport-fixture
-  ;; rf2-784223: the shared `make-reset-runtime-fixture`'s
-  ;; `:resources/reset-resources!` post-dispose hook already clears the
-  ;; resource state + timer host caches before this fixture runs — no
-  ;; per-suite reset is repeated here.
+  ;; The shared `make-reset-runtime-fixture`'s
+  ;; `:resources/reset-resources!` post-dispose hook clears the
+  ;; resource state + timer host caches before this fixture runs, so this
+  ;; fixture does no reset of its own.
   [f]
   (reset! last-managed-args nil)
   (reset! scheduled-timers [])
@@ -103,8 +100,7 @@
 
 (defn- instances
   "The frame's whole live mutation-INSTANCE table, read at its reserved
-  runtime-db path (Spec 016 §Mutations) — the whole-table read that
-  replaced the retired `rf/mutations` bundle."
+  runtime-db path (Spec 016 §Mutations) — the whole-table read."
   ([] (instances :rf/default))
   ([frame-id]
    (or (get-in (runtime-db frame-id) (rf.resources.mutation-runtime/instances-path)) {})))
@@ -165,7 +161,7 @@
 
 (defn- record-target-skipped-warnings!
   "Run `body-fn` with a trace listener installed; return the vector of every
-  `:rf.warning/mutation-target-skipped` warning emitted during it (rf2-1vpbld)."
+  `:rf.warning/mutation-target-skipped` warning emitted during it."
   [body-fn]
   (let [seen (atom [])
         k    ::target-skipped-recorder]
@@ -184,12 +180,12 @@
   REFUSAL is legible: per Spec 009 §Observability channels a listener is the
   only ALWAYS-ON channel, so a category that fans a record here is loud in dev
   AND in a production build, while a category that fans nothing is invisible
-  everywhere. (Since PR #8108 there is ALSO a browser-console fallback, but it
+  everywhere. (There is ALSO a browser-console fallback, but it
   is not the always-on contract and cannot fire here: it needs a dev build, a
   browser host — this suite is the Node lane, no `js/document` — and nothing to
-  have ROUTED the record, whereas the listener below owns it; since rf2-kuky.18
+  have ROUTED the record, whereas the listener below owns it;
   a frame's registered `:observability :errors` sink owns it too.) Sibling of
-  `record-mutation-traces!` above (rf2-06lp)."
+  `record-mutation-traces!` above."
   [body-fn]
   (let [seen (atom [])
         k    ::error-record-recorder]
@@ -226,7 +222,7 @@
     (is (nil? (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/save}))))))
 
 (deftest reg-mutation-fail-closed
-  (testing "rf2-wvh95f F1 — the request handler is the THIRD slot; a :request
+  (testing "the request handler is the THIRD slot; a :request
             left INSIDE the metadata map is rejected as a mislocated key"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"mutation-bad-spec"
@@ -237,7 +233,7 @@
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"mutation-bad-spec"
           (rf/reg-mutation :m/no-schema {} (fn [_ _] {:request {:url "/x"}})))))
-  (testing "rf2-t65lqt — a non-map metadata (the MIDDLE slot) is rejected with
+  (testing "a non-map metadata (the MIDDLE slot) is rejected with
             the canonical error id naming the mutation, not a raw host throw"
     (let [ex (try (rf/reg-mutation :m/bad-vec [] save-article-request)
                   nil
@@ -260,10 +256,10 @@
   {:request {:method :put :url "/api/defn"}})
 
 (deftest reg-mutation-rejects-non-callable-request
-  ;; rf2-76md — `:rf.mutation/execute` invokes the THIRD slot as
-  ;; `((:request spec) params nil)`, but registration only checked `contains?`.
-  ;; A non-callable value therefore registered cleanly and failed at the first
-  ;; WRITE, in two shapes: a number/string as a raw host cast error with
+  ;; `:rf.mutation/execute` invokes the THIRD slot as
+  ;; `((:request spec) params nil)`. A registration that only checked
+  ;; `contains?` would let a non-callable value register cleanly and fail at
+  ;; the first WRITE, in two shapes: a number/string as a raw host cast error with
   ;; `ex-data` nil, and a keyword/map SILENTLY as nil (it is `ifn?`, so it is
   ;; invoked and returns the 2-arity not-found default) => a nil args map.
   (testing "the two rejected classes are genuinely distinct (discriminator —
@@ -296,8 +292,8 @@
         (is (nil? (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/nonfn-request})))
             (str "a rejected " (pr-str bad) " is NOT introspectable — the "
                  "rejection precedes registry mutation")))))
-  (testing "OVER-REJECTION GUARD — every legitimate handler shape still
-            registers unchanged, on BOTH hosts. This is the half that protects
+  (testing "OVER-REJECTION GUARD — every legitimate handler shape
+            registers, on BOTH hosts. This is the half that protects
             working code."
     (doseq [[label good] [["inline fn"     (fn [_p _c] {:request {:url "/i"}})]
                           ["defn'd fn"     defn-write]
@@ -332,7 +328,7 @@
                   `var?` arm is redundant rather than load-bearing"))))
 
 (deftest reg-mutation-rejects-invalidate-timing-typo
-  ;; rf2-t8j7oj — :invalidate-timing is a CLOSED four-value enum (Spec 016
+  ;; :invalidate-timing is a CLOSED four-value enum (Spec 016
   ;; §Mutations). A typo (`:after-succes`) would register cleanly and then
   ;; silently skip every invalidation timing branch at runtime
   ;; (`(or (:invalidate-timing spec) :after-success)` only defaults nil; a
@@ -360,19 +356,18 @@
     (rf/clear :mutation :m/default)))
 
 (deftest execute-unregistered-refuses-and-names-the-id
-  ;; rf2-06lp. This test was previously named `execute-unregistered-is-loud`
-  ;; and asserted ONLY `(nil? @last-managed-args)` — a claim a SILENT NO-OP
-  ;; satisfies exactly as well as a refusal does. It therefore could not have
-  ;; caught the regression it was named for, and a reader who met the symptom
-  ;; in an app (no instance, no request, `:idle` afterwards — byte-identical to
-  ;; "nobody asked") had no gate telling them the runtime HAD refused. The
+  ;; Asserting ONLY `(nil? @last-managed-args)` would not be enough — a SILENT
+  ;; NO-OP satisfies that exactly as well as a refusal does, and a reader who
+  ;; met the symptom in an app (no instance, no request, `:idle` afterwards —
+  ;; byte-identical to "nobody asked") would have no gate telling them the
+  ;; runtime HAD refused. So this test reads the refusal itself. The
   ;; refusal is real: `rf.resources.mutation-registry/require-mutation-spec!` runs as the FIRST statement
   ;; of `execute-handler`, so the id lookup fails before any instance row,
   ;; work-ledger row, optimistic patch or transport lowering exists.
   ;;
-  ;; The granularity line sits EARLIER than rf2-04tx's (a foreign top-level
+  ;; The granularity line sits EARLIER than the router's (a foreign top-level
   ;; effect key is refused at the router's final-effects boundary, after the
-  ;; handler has run) and for the same reason rf2-04tx drew one at all: the
+  ;; handler has run) and for the same reason the router draws one at all: the
   ;; hazard is partial success disguised as success. For a mutation that hazard
   ;; is a DURABLE instance row — an instance minted and left at `:pending` with
   ;; no request behind it would be a write that reports itself in flight
@@ -391,9 +386,9 @@
         ;; Read off the always-on `:errors` axis, not stderr: per Spec 009
         ;; §Observability channels a listener is the only ALWAYS-ON channel, so
         ;; this listener is where a refusal is legible in dev AND prod. The
-        ;; browser-dev console fallback (#8108) is not a second reading here —
+        ;; browser-dev console fallback is not a second reading here —
         ;; it needs nothing to have ROUTED the record, and this listener owns it
-        ;; (rf2-kuky.18: a frame's registered `:observability :errors` sink owns
+        ;; (a frame's registered `:observability :errors` sink owns
         ;; it too; neither arm fires here).
         (is (some? rec)
             ":rf.mutation/execute fanned an always-on error record")
@@ -409,7 +404,7 @@
             "the human message names the id too")))))
 
 (deftest execute-registered-under-another-kind-still-refuses
-  ;; rf2-06lp, the identity half of the guard. `require-mutation-spec!` keys on
+  ;; The identity half of the guard. `require-mutation-spec!` keys on
   ;; the `:mutation` REGISTRAR KIND, not on "is this keyword registered
   ;; somewhere" — a resource id reads as a perfectly well-formed keyword and
   ;; resolves in a sibling registrar, so a guard that widened to any known id
@@ -433,8 +428,8 @@
       (is (= :r/article (:mutation-id (ex-data (:exception rec))))))))
 
 (deftest execute-registered-mutation-is-not-refused
-  ;; rf2-06lp, the OTHER direction — the direction a guard is almost never
-  ;; tested for. A REGISTERED id must run exactly as before: instance minted,
+  ;; The OTHER direction — the direction a guard is almost never
+  ;; tested for. A REGISTERED id must run normally: instance minted,
   ;; write lowered, and the always-on `:errors` axis SILENT. An over-eager
   ;; guard shows up here as a spurious record on an otherwise-working write,
   ;; which no other assertion in this suite would notice.
@@ -476,7 +471,7 @@
         (is (= {:method :put :url "/api/articles/w" :body {:slug "w"}} (:request args)))))))
 
 (deftest execute-started-at-from-token-time-ms
-  ;; rf2-dsyqmz / EP-0010 §Resources, Mutations, And Work-Ledger Timestamps:
+  ;; EP-0010 §Resources, Mutations, And Work-Ledger Timestamps:
   ;; :rf.mutation/execute writes the durable instance :started-at from the
   ;; TRIGGERING TOKEN'S :time-ms (the causal world input), NOT an ambient
   ;; clock read in the reducer. Scripting the dispatch's :rf.cofx
@@ -560,7 +555,7 @@
                 GET lowered, the entry back in flight)"
         (let [e (entry rkey)]
           ;; the active-owner entry refetched: it is in flight again, and a
-          ;; fresh managed-HTTP GET was lowered. rf2-ifzg4 — :invalidated-at
+          ;; fresh managed-HTTP GET was lowered. :invalidated-at
           ;; is NOT cleared by the refetch's start-load; it stands until a
           ;; SUCCESSFUL settle satisfies it, so this entry reads stale while
           ;; the refetch is in flight (stale-while-revalidate, Spec 016
@@ -598,7 +593,7 @@
       (is (= [rkey] (:affected-keys (instance :p1)))))))
 
 (deftest success-settled-at-and-populate-loaded-at-from-reply-completed-at
-  ;; rf2-40dqi6 / EP-0010 §Resources, Mutations: a terminal mutation success
+  ;; EP-0010 §Resources, Mutations: a terminal mutation success
   ;; reply writes the instance :settled-at from the reply completion time,
   ;; and ANY resource patch/populate :loaded-at the mutation produces uses
   ;; that SAME causal completion time (off the reply token, never an ambient
@@ -627,7 +622,7 @@
         (is (= (+ completed-at 60000) (:stale-at e)))))))
 
 (deftest failure-settled-at-from-reply-completed-at
-  ;; rf2-r65m41 / EP-0010 §Resources, Mutations + §Managed Effects: a terminal
+  ;; EP-0010 §Resources, Mutations + §Managed Effects: a terminal
   ;; mutation FAILURE reply writes :settled-at from the reply completion time
   ;; carried on the failure reply token — the handler MUST NOT re-read the
   ;; clock. The host :completed-at rides the reply event's :rf.cofx
@@ -664,7 +659,7 @@
         (is (= #{[:article "w"]} (:tags e)))))))
 
 (deftest populate-lowers-sensitive-classification-without-manual-reconcile
-  ;; rf2-x76af2.13 — the entry-mutating mutation handlers are wrapped in
+  ;; The entry-mutating mutation handlers are wrapped in
   ;; resource-events/with-classification-lowering (like the resource reply
   ;; handlers), so the per-frame elision registry stays in step with :entries
   ;; after a mutation. A :populates can CREATE a brand-new registered-resource
@@ -674,9 +669,9 @@
   ;;
   ;; NON-VACUOUS: this dispatches a REAL mutation and NEVER calls
   ;; reconcile-registry (unlike the classification suites, which manually
-  ;; reconcile before asserting). Pre-fix — succeeded-handler unwrapped — the
-  ;; registry has no :acct/profile declaration, so project-entry-data rides the
-  ;; :ssn verbatim and the redaction assertion FAILS.
+  ;; reconcile before asserting). With the succeeded-handler unwrapped, the
+  ;; registry would have no :acct/profile declaration, so project-entry-data
+  ;; would ride the :ssn verbatim and the redaction assertion would FAIL.
   (rf/reg-resource :acct/profile
                    {:scope :rf.scope/global
                     :params-schema [:map [:slug :string]]
@@ -700,15 +695,15 @@
               (redaction is an egress concern, not a durable one)"
       (is (= :loaded (:status e)))
       (is (= {:ssn "123-45-6789" :name "Alice"} (:data e))))
-    (testing "rf2-x76af2.13 — the succeeded-handler LOWERED the resource's
+    (testing "the succeeded-handler LOWERED the resource's
               :data :ssn declaration into the frame registry (under :source
               :resource), WITHOUT the test reconciling"
       (is (= #{{:source :resource}}
              (get (rf.elision/sensitive-declarations :rf/default)
                   [:rf.runtime/resources :entries k-id :data :ssn]))
           "the mutation handler kept the elision registry in step with :entries"))
-    (testing "rf2-x76af2.13 — SSR project-entry-data redacts the field via the
-              registry the handler lowered (the drift is closed)"
+    (testing "SSR project-entry-data redacts the field via the
+              registry the handler lowered (no drift)"
       (let [projected (rf.resources.classification/project-entry-data
                         (:data e) k-id :rf/default :rf.egress/ssr-hydration)]
         (is (= rf.privacy/redacted-sentinel (:ssn projected))
@@ -718,7 +713,7 @@
             "no raw sensitive value rides")))))
 
 (deftest success-populate-arms-stale-and-gc-timers
-  ;; rf2-h4cv5e — a mutation :populates seeds a fresh, OWNERLESS :loaded entry
+  ;; A mutation :populates seeds a fresh, OWNERLESS :loaded entry
   ;; with a durable :stale-at / :gc-after-ms policy. The success handler MUST
   ;; arm the advisory stale / GC timers for it (mirroring the resource read
   ;; path) — otherwise the populated entry would carry a GC policy but NO armed
@@ -741,7 +736,7 @@
     (reply-success! @last-managed-args {:slug "w" :title "Fresh"})
     (testing "the populated entry is ownerless (no active owner)"
       (is (empty? (:active-owners (entry rkey)))))
-    (testing "rf2-h4cv5e — the success handler armed the advisory stale / GC
+    (testing "the success handler armed the advisory stale / GC
               timers for the populated key, mirroring the resource read path's
               :rf.resource/schedule-timers emission"
       (is (= 1 (count @scheduled-timers)))
@@ -751,13 +746,13 @@
         (is (= 60000 (get-in args [:timers :stale])))
         (is (= 300000 (get-in args [:timers :gc])) "a GC timer is armed for the populated entry")
         (is (false? (:server? args)) "client frame — not SSR-gated")))
-    (testing "rf2-h4cv5e — the populated ownerless entry is GC-eligible: a
+    (testing "the populated ownerless entry is GC-eligible: a
               fired GC timer (re-checking owners + generation) removes it"
       (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key rkey}])
       (is (nil? (entry rkey)) "GC removed the inactive populated entry"))))
 
 (deftest success-patch-arms-timers-for-policy-keys
-  ;; rf2-h4cv5e — a :patches refresh of an existing entry re-arms its advisory
+  ;; A :patches refresh of an existing entry re-arms its advisory
   ;; timers from the resource policy too (the patch moved :loaded-at /
   ;; :stale-at forward, so the prior timer's basis is stale).
   (rf/reg-resource :r/article
@@ -780,7 +775,7 @@
     (reset! scheduled-timers [])
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/patch :params {:slug "w"} :instance :pat-gc1}])
     (reply-success! @last-managed-args {:title "new"})
-    (testing "rf2-h4cv5e — the patch re-armed the entry's stale / GC timers"
+    (testing "the patch re-armed the entry's stale / GC timers"
       (is (= 1 (count @scheduled-timers)))
       (let [args (first @scheduled-timers)]
         (is (= rkey (:resource/key args)))
@@ -788,7 +783,7 @@
         (is (= 300000 (get-in args [:timers :gc])))))))
 
 (deftest success-populate-no-explicit-policy-arms-default-gc-timer
-  ;; rf2-bbpu11 (Option A) — a populate of a resource declaring NO explicit
+  ;; A populate of a resource declaring NO explicit
   ;; :gc-after-ms still arms the framework's DEFAULT GC timer (absent
   ;; normalizes to 300000 at registration, exactly as the read path); stale
   ;; stays unarmed (its own absent-default is never-time-stale, unaffected).
@@ -838,9 +833,9 @@
     ;; ensure WITHOUT an owner so the invalidation leaves the matched entry
     ;; stale (an ownerless entry is left stale / GC-eligible, NOT refetched —
     ;; so the :invalidated-at fact is observed with no refetch in play at all).
-    ;; rf2-ifzg4 — a refetch would no longer clear it at start-load either;
+    ;; A refetch would not clear it at start-load either;
     ;; only a SUCCESSFUL settle satisfies an invalidation. The ownerless setup
-    ;; is kept because it isolates the timing fact under test.
+    ;; isolates the timing fact under test.
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :r/article :scope :rf.scope/global
                         :params {:slug "w"}}])
@@ -900,18 +895,18 @@
       (is (= {:fresh "result"} (:result (instance :i)))))))
 
 (deftest stale-mutation-suppressed-trace-carries-canonical-reply-envelope
-  ;; rf2-mn4j89 / rf2-hh8nzd / rf2-uwqs7l — the canonical :status :stale reply
+  ;; The canonical :status :stale reply
   ;; envelope rides the PRODUCTION mutation stale-suppression trace. The
-  ;; behaviour-only `stale-mutation-reply-suppressed` above PASSED SILENTLY
-  ;; while the production stale branch discarded the canonical reply; these
-  ;; assertions FAIL before rf2-mn4j89 and pin the fix.
+  ;; behaviour-only `stale-mutation-reply-suppressed` above would pass even if
+  ;; the production stale branch discarded the canonical reply; these
+  ;; assertions pin the envelope itself.
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :rv}])
   (let [gen1-args @last-managed-args]
     ;; supersede with a second execute under the SAME instance id → gen 2 live.
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :rv}])
     (is (= 2 (:generation (instance :rv))))
-    (testing "rf2-mn4j89 — the STALE gen-1 reply is recorded :status :stale /
+    (testing "the STALE gen-1 reply is recorded :status :stale /
               :rf.reply/work-status :suppressed via the shared substrate, with the
               carried-vs-current (1 vs 2) generation pair on the production
               :rf.mutation/stale-suppressed trace; NO durable write"
@@ -921,7 +916,7 @@
             sup    (first (filterv #(= :rf.mutation/stale-suppressed (:operation %)) traces))]
         (is (some? sup) ":rf.mutation/stale-suppressed fired for the stale reply")
         (let [tags (:tags sup)]
-          ;; bespoke facts preserved (additive, not replaced). rf2-o6c2jr —
+          ;; the bespoke facts ride alongside the canonical ones. There is
           ;; no bare :work/id duplicate; the work identity rides ONLY as
           ;; :rf.reply/work-id (asserted below).
           (is (= :rv      (:instance tags)))
@@ -946,7 +941,7 @@
           (is (nil? (:result i)) "stale reply did NOT write a result"))))))
 
 ;; ===========================================================================
-;; 7b. rf2-jzh5gq — a mutation reply whose stamped :rf.frame/id does not match
+;; 7b. A mutation reply whose stamped :rf.frame/id does not match
 ;;     the RECEIVING frame is REJECTED (the mutation analogue of the resource
 ;;     cross-frame reply test). Two frames at the same instance/generation: a
 ;;     misrouted reply must NOT durably settle the wrong frame.
@@ -969,7 +964,7 @@
                          {:mutation :m/save :params {:slug "w"} :instance :form/x}]
                         {:frame fb})
       (let [args-a (first @all-args)]
-        (testing "rf2-jzh5gq — frame A's reply (payload stamped :rf.frame/id = A)
+        (testing "frame A's reply (payload stamped :rf.frame/id = A)
                   dispatched INTO frame B is rejected: frame B's pending
                   instance is NOT settled (no cross-frame durable write even at
                   the same instance/generation)"
@@ -1059,7 +1054,7 @@
             'test)))))
 
 ;; ===========================================================================
-;; 11. rf2-3yyaur — patch / populate TARGET scoped key validation (fail-closed)
+;; 11. patch / populate TARGET scoped key validation (fail-closed)
 ;; ===========================================================================
 
 (defn- article-resource-spec []
@@ -1078,13 +1073,13 @@
 ;; `mutation-registry-rejects-non-edn-params` does, and proves the
 ;; dispatch-path fail-closed behavior by OBSERVING no partial cache mutation).
 
-;; The map-form exact target is the only public input form (EP-0016 Rider 2 /
-;; slice 6). The events layer RESOLVES each target map's :scope to a concrete
+;; The map-form exact target is the only public input form (EP-0016 Rider 2).
+;; The events layer RESOLVES each target map's :scope to a concrete
 ;; value first, then `validate-target-key!` validates the [resolved-scope
 ;; resource params] identity. These unit tests pass the resolved scope directly.
 
 (deftest validate-target-key-rejects-unregistered-resource
-  ;; rf2-3yyaur — a controlled patch / populate targeting an UNREGISTERED
+  ;; A controlled patch / populate targeting an UNREGISTERED
   ;; resource fails CLOSED (the patched / seeded entry would be unreachable by
   ;; any subscription).
   (testing "an unregistered resource id is rejected"
@@ -1118,7 +1113,7 @@
                                        (constantly true) 'test :patches)))))
 
 (deftest validate-target-key-rejects-reserved-scope-typo
-  ;; rf2-3yyaur — a bare framework-reserved :rf.scope/* keyword outside the
+  ;; A bare framework-reserved :rf.scope/* keyword outside the
   ;; closed enum (a typo) would silently write under a wrong scope — rejected.
   ;; The events layer resolves the map :scope first; a typo'd literal resolves
   ;; to itself and is caught here.
@@ -1135,7 +1130,7 @@
              (constantly true) 'test :patches)))))
 
 (deftest validate-target-key-rejects-non-edn-params
-  ;; rf2-3yyaur — a host value in the target's params / scope reaches the
+  ;; A host value in the target's params / scope reaches the
   ;; cache-key boundary and is rejected (the EDN discipline resource params
   ;; follow).
   (testing "non-EDN params rejected"
@@ -1152,7 +1147,7 @@
             (constantly true) 'test :patches)))))
 
 (deftest validate-target-map-strict-policy-rejects-whole-map
-  ;; rf2-3yyaur / EP-0016 Rider 2 — the DEFAULT (:strict) policy (pre-write /
+  ;; EP-0016 Rider 2 — the DEFAULT (:strict) policy (pre-write /
   ;; optimistic / execute-time callers, where no server write has landed): one
   ;; bad target — recoverable OR corruption-class — rejects the WHOLE arm (no
   ;; partial write); valid targets are re-keyed by the canonical STORAGE key;
@@ -1173,8 +1168,8 @@
                {:resource :r/article :params {:slug "x"} :scope :rf.scope/glabal} :bad}
               resolve-scope (constantly true) :patches 'test))))
     (testing "a RECOVERABLE bad target (unregistered) ALSO rejects the whole arm under :strict"
-      ;; the pre-write / optimistic surface still whole-arm-rejects an
-      ;; unregistered resource (rf2-1vpbld — only the POST-WRITE settle path relaxes).
+      ;; the pre-write / optimistic surface whole-arm-rejects an
+      ;; unregistered resource (only the POST-WRITE settle path relaxes).
       (is (thrown-with-msg?
             #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
             (rf.resources.mutation-runtime/validate-target-map!
@@ -1197,7 +1192,7 @@
       (is (= [nil []] (rf.resources.mutation-runtime/validate-target-map! nil resolve-scope (constantly true) :patches 'test))))))
 
 (deftest validate-target-map-skip-recoverable-policy
-  ;; rf2-1vpbld — the POST-WRITE settle policy (:skip-recoverable): a RECOVERABLE
+  ;; The POST-WRITE settle policy (:skip-recoverable): a RECOVERABLE
   ;; bad sibling (unregistered resource / non-map / non-keyword :resource) is
   ;; DROPPED-AND-collected (not thrown) while the VALID siblings still canonicalize
   ;; + land — the server write already committed, so a typo must not strand the
@@ -1251,7 +1246,7 @@
       (is (= [nil [] []] (rf.resources.mutation-runtime/validate-target-map! nil resolve-scope (constantly true) :patches 'test :skip-recoverable))))))
 
 (deftest classify-target-key-corruption-vs-recoverable
-  ;; rf2-1vpbld — the pure classifier: recoverable cases return [:skip …]
+  ;; The pure classifier: recoverable cases return [:skip …]
   ;; (dropped by the relaxed settle policy), corruption-class THROWS.
   (testing "an unregistered resource classifies :skip :unregistered-resource"
     (is (= [:skip :unregistered-resource {:target (pr-str {:resource :r/nope :params {:slug "w"}})
@@ -1280,13 +1275,13 @@
             {:resource :r/nope :params {:slug "w"}} (fn []) (constantly false) 'test :patches)))))
 
 (deftest recoverable-patch-target-skipped-while-valid-sibling-lands
-  ;; rf2-1vpbld — end-to-end POST-WRITE settle: a mutation whose :patches has
+  ;; End-to-end POST-WRITE settle: a mutation whose :patches has
   ;; ONE recoverable bad target (an UNREGISTERED resource) and one VALID sibling.
   ;; The server write ALREADY COMMITTED (the reply event fired post-write), so
   ;; the bad sibling is DROPPED-AND-WARNED while the valid sibling LANDS and the
-  ;; instance SETTLES — instead of the old all-or-nothing throw that stranded the
-  ;; whole committed mutation (the asymmetry-fix: a patch on a missing entry
-  ;; already no-ops; an unregistered target now does too, with a loud warning).
+  ;; instance SETTLES — an all-or-nothing throw would strand the
+  ;; whole committed mutation (a patch on a missing entry
+  ;; no-ops; an unregistered target does too, with a loud warning).
   (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
   (let [good-key (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})
         bad-key  [:rf.scope/global :r/never-registered {:slug "w"}]]
@@ -1310,7 +1305,7 @@
       (testing "the VALID sibling patch LANDED (the recoverable bad target was dropped, not all-or-nothing)"
         (is (= {:title "new"} (:data (entry good-key))) "good entry patched")
         (is (nil? (entry bad-key)) "the unregistered key was never written"))
-      (testing "the instance SETTLED :success + the work row :completed (the actual defect — the throw used to strand both)"
+      (testing "the instance SETTLED :success + the work row :completed (a throw would strand both)"
         (let [i (instance :bad1)]
           (is (= :success (:status i)) "instance reached :success")
           (is (= {:title "new"} (:result i)) "result settled"))
@@ -1333,7 +1328,7 @@
           (is (= :patches (:arm pay))))))))
 
 (deftest corruption-class-patch-target-still-throws-no-partial-mutation
-  ;; rf2-1vpbld — the CORRUPTION-class throw is KEPT: a :patches target carrying
+  ;; The CORRUPTION-class throw stands: a :patches target carrying
   ;; a reserved-scope TYPO (which would silently write the cache under a WRONG
   ;; scope) STILL aborts the whole arm — no relaxed policy may swallow a
   ;; wrong-identity write. The event loop catches the throw, so we observe the
@@ -1360,7 +1355,7 @@
       (is (= {:title "old"} (:data (entry good-key))) "good entry unchanged — corruption still fails closed"))))
 
 (deftest recoverable-populate-target-skipped-while-valid-sibling-lands
-  ;; rf2-1vpbld — :populates smoke: an unregistered populate target is
+  ;; :populates smoke: an unregistered populate target is
   ;; SKIPPED-AND-WARNED while the valid sibling SEEDS the cache and the instance
   ;; SETTLES.
   (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
@@ -1383,7 +1378,7 @@
         (is (= [:r/never-registered] (mapv :resource skipped)))))))
 
 (deftest recoverable-remove-target-skipped-while-valid-sibling-lands
-  ;; rf2-1vpbld — :removes smoke: an unregistered remove target is
+  ;; :removes smoke: an unregistered remove target is
   ;; SKIPPED-AND-WARNED while the valid sibling DROPS its entry and the instance
   ;; SETTLES.
   (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
@@ -1412,7 +1407,7 @@
         (is (= [:unregistered-resource] (mapv :reason skipped)))))))
 
 (deftest valid-patch-target-still-applies
-  ;; rf2-3yyaur — the happy path is UNCHANGED: a well-formed, registered,
+  ;; The happy path: a well-formed, registered,
   ;; serializable target patches normally (validation is transparent on valid
   ;; input, and canonicalizes the key so an alternate spelling still lands).
   (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
@@ -1436,11 +1431,11 @@
       (is (= [rkey] (:affected-keys (instance :ok1)))))))
 
 ;; ===========================================================================
-;; 12. rf2-agrjvk — before-request invalidation PRECEDES request lowering
+;; 12. before-request invalidation PRECEDES request lowering
 ;; ===========================================================================
 
 (deftest before-request-invalidation-precedes-lowering
-  ;; rf2-agrjvk — the contract says :before-request invalidation fires BEFORE
+  ;; The contract says :before-request invalidation fires BEFORE
   ;; the request is lowered to transport. Prove it on the returned :fx VECTOR
   ;; (fx run in order): the :rf.resource/invalidate-tags dispatch must sit at a
   ;; LOWER index than the :rf.http/managed lower fx.
@@ -1460,14 +1455,14 @@
     (testing "both the invalidation dispatch and the managed-HTTP lower are present"
       (is (some? inv-ix) "a before-request invalidation dispatch was emitted")
       (is (some? low-ix) "the managed-HTTP request was lowered"))
-    (testing "EP-0003 §Mutations / rf2-agrjvk — invalidation is ordered BEFORE
+    (testing "EP-0003 §Mutations — invalidation is ordered BEFORE
               the request lowering in the fx vector"
       (is (< inv-ix low-ix)
           (str "invalidation (index " inv-ix ") must precede lowering (index "
                low-ix "); got fx ids " (pr-str fx-ids))))))
 
 (deftest no-before-request-invalidation-leaves-order-intact
-  ;; rf2-agrjvk — a default (:after-success) timing emits NO before-request
+  ;; A default (:after-success) timing emits NO before-request
   ;; dispatch; the lower fx is still present and the reorder is a no-op.
   (rf/reg-mutation :m/save (save-article-spec) save-article-request) ;; default :after-success
   (let [cofx {:rf.db/runtime {} :rf.frame/id :rf/default
@@ -1483,11 +1478,11 @@
       (is (some #{:rf.http/managed} fx-ids)))))
 
 ;; ===========================================================================
-;; 13. rf2-e8wj5t — serializable mutation INSTANCE ids (reject host values)
+;; 13. serializable mutation INSTANCE ids (reject host values)
 ;; ===========================================================================
 
 (deftest execute-rejects-non-serializable-instance-id-fails-closed
-  ;; rf2-e8wj5t — a non-serializable caller-supplied instance id is rejected
+  ;; A non-serializable caller-supplied instance id is rejected
   ;; BEFORE any runtime-db / work-ledger write or HTTP lowering (the id is
   ;; durable + trace-visible + epoch-restore-safe). The event loop catches the
   ;; throw, so we observe the fail-closed EFFECT: nothing lowered to transport,
@@ -1503,7 +1498,7 @@
     (is (empty? (instances :rf/default)))))
 
 (deftest validate-instance-id-accepts-scalars-and-vectors
-  ;; rf2-e8wj5t — valid scalar / vector instance ids pass (they ARE
+  ;; Valid scalar / vector instance ids pass (they ARE
   ;; epoch / restore-safe serializable EDN).
   (testing "scalar ids pass"
     (is (= :form/save-1 (rf.resources.mutation-runtime/validate-instance-id! :form/save-1 'test)))
@@ -1519,7 +1514,7 @@
           (rf.resources.mutation-runtime/validate-instance-id! (fn []) 'test)))))
 
 (deftest execute-with-valid-vector-instance-id
-  ;; rf2-e8wj5t — a vector instance id (a common row-keyed form shape) is
+  ;; A vector instance id (a common row-keyed form shape) is
   ;; accepted end-to-end and stored on the durable instance.
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute
@@ -1530,12 +1525,12 @@
       (is (= [:row 7] (:instance/id i))))))
 
 (deftest cedn-distinct-sequential-instance-ids-do-not-clobber
-  ;; rf2-8iciw8 — two caller-supplied instance ids that are CEDN-distinct but
+  ;; Two caller-supplied instance ids that are CEDN-distinct but
   ;; Clojure-= (a vector `[:row 7]` and a list `'(:row 7)`) MUST address
-  ;; DISTINCT runtime rows. The instance id was used directly as a Clojure map
-  ;; key under :rf.runtime/mutations, and `(= [:row 7] '(:row 7))` is TRUE, so
-  ;; the second execute would clobber the first's row (and a later settle /
-  ;; clear would gate the wrong one).
+  ;; DISTINCT runtime rows. Using the instance id directly as a Clojure map
+  ;; key under :rf.runtime/mutations would collapse them, since
+  ;; `(= [:row 7] '(:row 7))` is TRUE: the second execute would clobber the
+  ;; first's row (and a later settle / clear would gate the wrong one).
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (let [all-args (atom [])]
     (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
@@ -1573,7 +1568,7 @@
             (is (= {:id :v} (:result (instance iv))))))))))
 
 (deftest cedn-distinct-sequential-instance-ids-clear-independently
-  ;; rf2-8iciw8 — `:rf.mutation/clear` must target the row by the SAME byte
+  ;; `:rf.mutation/clear` must target the row by the SAME byte
   ;; identity, so clearing `[:row 7]` does NOT also clear / gate `'(:row 7)`.
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (let [all-args (atom [])]
@@ -1593,7 +1588,7 @@
         (is (= il (:instance/id (instance il))) "and keeps its kind-preserving id")))))
 
 ;; ===========================================================================
-;; ADVERSARIAL (rf2-sxyrzk / eu2ifi) — two frames executing the SAME mutation
+;; ADVERSARIAL — two frames executing the SAME mutation
 ;; instance at the SAME generation get DISTINCT frame-qualified transport
 ;; request-ids, so the process-global managed-HTTP in-flight registry cannot
 ;; supersede / abort one frame's write with the other's. Both frames settle
@@ -1646,7 +1641,7 @@
               "frame B's instance still pending — untouched by frame A's reply"))))))
 
 ;; ===========================================================================
-;; 14. rf2-6bff0q / EP-0016 D1 — mutation completion continuation (:reply-to)
+;; 14. EP-0016 D1 — mutation completion continuation (:reply-to)
 ;;
 ;; A `:rf.mutation/execute` may carry a call-site `:reply-to` event target. On
 ;; an ACCEPTED terminal reply the runtime dispatches that target with the
@@ -1747,7 +1742,7 @@
       (is (= :ok (:status (last ev)))))))
 
 (deftest reply-to-durable-target-rejects-malformed-and-host-handle-at-fn-boundary
-  ;; rf2-6kdcs9 — the call-site `:reply-to` is transport-payload-only, but it
+  ;; The call-site `:reply-to` is transport-payload-only, but it
   ;; MUST be data-only. The execute handler runs it through
   ;; `re-frame.reply/durable-target` AT ISSUANCE, before any runtime-db /
   ;; work-ledger write, transport lower, or trace. The throw itself is asserted
@@ -1774,7 +1769,7 @@
            (rf.reply/durable-target [:test/save-replied])))))
 
 (deftest execute-rejects-malformed-reply-to-fails-closed
-  ;; rf2-6kdcs9 — the dispatch-path fail-closed EFFECT: a malformed call-site
+  ;; The dispatch-path fail-closed EFFECT: a malformed call-site
   ;; `:reply-to` rejects BEFORE any transport lower / instance write (the throw
   ;; itself is asserted directly above). The event loop catches the throw, so
   ;; we observe the absence of side effects (mirrors
@@ -1863,7 +1858,7 @@
     (is (= :cancelled (:status (second (first @replied)))))))
 
 (deftest accepted-abort-reply-settles-ledger-cancelled
-  ;; rf2-qsn30x (EP-0011): an ACCEPTED mutation abort/cancel reply
+  ;; EP-0011: an ACCEPTED mutation abort/cancel reply
   ;; (`{:kind :rf.http/aborted}`, which the reply substrate lowers to
   ;; `:status :cancelled` / `:rf.reply/work-status :cancelled`) must settle the
   ;; work-ledger row terminal `:cancelled` — NOT `:failed`. The ledger
@@ -1890,7 +1885,7 @@
       (is (nil? (:error (:outcome rec)))))))
 
 (deftest accepted-failure-reply-still-settles-ledger-failed
-  ;; rf2-qsn30x guard: a genuine (non-abort) failure reply still settles the
+  ;; Guard: a genuine (non-abort) failure reply still settles the
   ;; ledger row `:failed` — the abort branch must NOT swallow ordinary
   ;; failures into `:cancelled`.
   (reg-capture-continuation!)
@@ -1944,8 +1939,7 @@
       (is (= 0 (count @replied))))))
 
 (deftest no-reply-to-fires-no-continuation
-  ;; Backwards compatibility — an execute WITHOUT `:reply-to` behaves exactly
-  ;; as before (no continuation dispatched).
+  ;; An execute WITHOUT `:reply-to` dispatches no continuation.
   (reg-capture-continuation!)
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute
@@ -1956,7 +1950,7 @@
     (is (= :success (:status (instance :nc1))))))
 
 ;; ===========================================================================
-;; rf2-ru73k6 F2 — the :rf.mutation/replied trace lands AFTER settlement
+;; The :rf.mutation/replied trace lands AFTER settlement
 ;; ===========================================================================
 
 (defn- ops-of
@@ -2052,14 +2046,13 @@
       (is (= :error (:status (second (first @replied))))))))
 
 ;; ===========================================================================
-;; 15. rf2-fi6tda.2 — invalidated/stale keys flow into :affected-keys
+;; 15. invalidated/stale keys flow into :affected-keys
 ;; ===========================================================================
 ;;
 ;; Spec 016 §Mutation completion continuations: `:affected-keys` are the keys
-;; POPULATED, PATCHED, REMOVED, OR MARKED STALE by the accepted reply. The
-;; success path previously unioned only patched + populated keys, and the
-;; failure invalidation recorded an EMPTY set — the keys an invalidation pass
-;; stales were dropped. These pin the fix (the runtime pre-computes the stale
+;; POPULATED, PATCHED, REMOVED, OR MARKED STALE by the accepted reply. These
+;; pin that the keys an invalidation pass stales are included, on both the
+;; success and the failure path (the runtime pre-computes the stale
 ;; keys through the SAME shared match the dispatched invalidate-tags uses).
 
 (deftest invalidation-only-success-includes-stale-keys-in-affected-keys
@@ -2084,12 +2077,12 @@
                        {:mutation :m/touch :params {:slug "w"} :instance :iv1
                         :reply-to [:test/save-replied]}])
     (reply-success! @last-managed-args {:ok true})
-    (testing "rf2-fi6tda.2 — the stale-marked key is in the reply :affected-keys
+    (testing "the stale-marked key is in the reply :affected-keys
               even though nothing was populated/patched"
       (let [reply (second (first @replied))]
         (is (= 1 (count @replied)))
         (is (contains? (:affected-keys reply) rkey)
-            "the invalidated key flows into :affected-keys (was dropped before)")))
+            "the invalidated key flows into :affected-keys")))
     (testing "and the instance :affected-keys records it too"
       (is (= #{rkey} (set (:affected-keys (instance :iv1))))))))
 
@@ -2108,8 +2101,8 @@
                        {:mutation :m/save :params {:slug "w"} :instance :afk1
                         :reply-to [:test/save-replied]}])
     (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 503})
-    (testing "rf2-fi6tda.2 — an :after-failure invalidation's stale key is in
-              :affected-keys (the failure path previously recorded #{})"
+    (testing "an :after-failure invalidation's stale key is in
+              :affected-keys"
       (let [reply (second (first @replied))]
         (is (= :error (:status reply)))
         (is (contains? (:affected-keys reply) rkey))))
@@ -2117,7 +2110,7 @@
       (is (= #{rkey} (set (:affected-keys (instance :afk1))))))))
 
 ;; ===========================================================================
-;; 16. rf2-fi6tda.3 finding 1 — mutation :removes drops exact entries
+;; 16. mutation :removes drops exact entries
 ;; ===========================================================================
 
 (deftest mutation-removes-drops-the-exact-entry-and-reports-it
@@ -2179,7 +2172,7 @@
       (is (= [] (:removed (:patch-summary (instance :dm1))))))))
 
 ;; ===========================================================================
-;; 17. rf2-fi6tda.4 finding 1 — pin the runtime :rf.mutation/replied trace
+;; 17. the runtime :rf.mutation/replied trace
 ;; ===========================================================================
 
 (deftest replied-trace-emitted-on-accepted-reply-with-full-shape
@@ -2234,12 +2227,12 @@
       (is (= 1 (count stale-rows))))))
 
 ;; ===========================================================================
-;; 14. mutation-state fails closed without an explicit frame (rf2-a76921)
+;; 18. mutation-state fails closed without an explicit frame
 ;; ===========================================================================
 
 (deftest mutation-state-fails-closed-without-frame
-  ;; rf2-a76921 — the mutation introspection half MUST be symmetric with
-  ;; `resource-state` (rf2-c8lgy3): a frameless `mutation-state` call cannot
+  ;; The mutation introspection half MUST be symmetric with
+  ;; `resource-state`: a frameless `mutation-state` call cannot
   ;; silently pass nil through to `frame-runtime-db-value` (which returns nil
   ;; for a missing frame) and return a nil that is INDISTINGUISHABLE from a
   ;; genuinely absent instance. Per EP-0002 the frame target is carried
