@@ -100,7 +100,7 @@ Every entry in the table above is JVM-runnable, with the exceptions listed below
 
 - ✓ `make-frame` / `destroy-frame!` / `with-frame` / `with-new-frame`
 - ✓ `dispatch-sync` and the entire dispatch pipeline (router, drain, interceptors)
-- ✓ All `reg-event-*` handler invocation
+- ✓ All `reg-event` handler invocation
 - ✓ Override application (`:fx-overrides`, `:interceptor-overrides`, `:interceptors`)
 - ✓ `app-db` mutation and snapshot reading
 - ✓ Cofx injection
@@ -161,7 +161,7 @@ For test groups that share setup, register a named test frame once and reset bet
       (test-fn)
       (finally
         (rf/destroy-frame! :test-fixture)               ;; reset between tests — destroy +
-        (rf/make-frame test-fixture-config)))))         ;; re-make-frame, no dedicated verb (rf2-lxwpob)
+        (rf/make-frame test-fixture-config)))))         ;; re-make-frame, no dedicated verb
 
 (deftest one-thing
   (rf/dispatch-sync [:auth/login-pressed] {:frame :test-fixture})
@@ -191,7 +191,7 @@ For testing state machine transitions, skip the frame entirely:
 
 ### Pattern 5 — single-frame e2e fixture
 
-The dominant shape for app-developer end-to-end tests: one frame, one install hook (the app's `install!` fn that registers events / subs / views), one root view, and an assertion that the rendered text matches after dispatching. There is **no bespoke single-frame fixture macro** — the pattern composes from primitives that already exist and are adopted at scale:
+The dominant shape for app-developer end-to-end tests: one frame, one install hook (the app's `install!` fn that registers events / subs / views), one root view, and an assertion that the rendered text matches after dispatching. There is **no bespoke single-frame fixture macro** — the pattern composes from these primitives:
 
 1. **`re-frame.test-support/make-reset-runtime-fixture`** — an `:adapter` (and an `:init-fn` that holds the `reg-event` / `reg-sub` / `reg-view` calls the test relies on) seats the ambient `:rf/default` frame and rolls the registrar back between tests. Install it once with `(use-fixtures :each …)`.
 2. **The `re-frame.test-helpers` hiccup walkers** ([§View-assertion helpers](#view-assertion-helpers-re-frametest-helpers)) — call the root view fn directly and walk the returned tree (`find-by-testid` + `text-content` for content; `invoke-handler` to drive a click).
@@ -266,7 +266,7 @@ The managed-HTTP artefact (Spec 014) ships its entire test surface in a single n
 | `re-frame.http.test-support` | **All HTTP test machinery.** Loading the namespace registers `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure`, and defines the stub-routing helpers (`with-request-stubs` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`). None of the three is a `re-frame.core` re-export and none publishes a late-bind hook — call them directly through this namespace. Production code must NOT `:require` this namespace. | `(reg-fx :rf.http/managed-canned-success ...)`, `(reg-fx :rf.http/managed-canned-failure ...)`, `with-request-stubs`, `install-managed-request-stubs!`, `uninstall-managed-request-stubs!` (see [API.md §HTTP requests (Spec 014)](API.md#http-requests-spec-014)) |
 | `re-frame.http.managed` | **Production fx home only.** Hosts the production-eligible `:rf.http/managed` / `:rf.http/managed-abort` fxs, the middleware family, and the registry helpers. No test surfaces ship here. | `:rf.http/managed`, `:rf.http/managed-abort`, `reg-http-interceptor`, `clear-http-interceptor`, `clear-all-in-flight!`, the privacy denylist surface |
 
-A test reaching for "the HTTP stub helper" — macros, canned-stub fx ids in a `:fx-overrides` map, or the `re-frame.core` stub re-exports — `:require`s `re-frame.http.test-support`. Production / SSR code paths require only `re-frame.http.managed`; the test-support namespace stays out of the require closure so the canned-stub fxs and the stub-family late-bind hooks remain unregistered (classpath absence on JVM/SSR; module-graph DCE on CLJS `:advanced`).
+A test reaching for "the HTTP stub helper" — macros, canned-stub fx ids in a `:fx-overrides` map, or the `re-frame.core` stub re-exports — `:require`s `re-frame.http.test-support`. Production / SSR code paths require only `re-frame.http.managed`; the test-support namespace stays out of the require closure so the canned-stub fxs remain unregistered (classpath absence on JVM/SSR; module-graph DCE on CLJS `:advanced`).
 
 ## Fixture-granularity ladder
 
@@ -313,7 +313,7 @@ The fixture-granularity ladder above isolates tests by **snapshot/restore of the
         (rf/destroy-frame! :test/cart)))))               ;; drop the frame + its state for GC
 ```
 
-**Composing an overrides image is the explicit dependency seam.** Instead of injecting a capability map, a hermetic test composes a later image whose `:registrations` stub exactly the effects/coeffects it needs to control (`:cart.http/post`, a fixed clock, a seeded random source). Image order resolves the composition — the later overrides image wins — and the `:rf.gen/shadows` report on `rf/frame-generation` names each registration it shadowed, so the test can assert on exactly which doubles it installed. This is the **injectable** alternative to process-global stubs discovered by namespace load order. (There is no `make-frame :capabilities` map and no `:rf.image/requires` capability-check; model a host dependency as an overriding registration instead. The `:rf.capability/*` vocabulary itself remains the name for those runtime services — see [Runtime-Subsystems §Capability maps](Runtime-Subsystems.md#capability-maps).)
+**Composing an overrides image is the explicit dependency seam.** Instead of injecting a capability map, a hermetic test composes a later image whose `:registrations` stub exactly the effects/coeffects it needs to control (`:cart.http/post`, a fixed clock, a seeded random source). Image order resolves the composition — the later overrides image wins — and the `:rf.gen/shadows` report on `rf/frame-generation` names each registration it shadowed, so the test can assert on exactly which doubles it installed. This is the **injectable** alternative to process-global stubs discovered by namespace load order. (There is no `make-frame :capabilities` map and no `:rf.image/requires` capability-check; model a host dependency as an overriding registration instead. The `:rf.capability/*` vocabulary itself is the name for those runtime services — see [Runtime-Subsystems §Capability maps](Runtime-Subsystems.md#capability-maps).)
 
 **The public surface** (all from `re-frame.core`, per [API §Registration](API.md#registration)): `(rf/make-frame {:id … :images [...] :adapter …})` builds + registers a hermetic-by-default frame from the named images; `(rf/destroy-frame! frame-or-id)` drops it (runs `:on-destroy`, the machine teardown cascade, and sub-cache disposal). Each frame runs its own resolved image generation, so two frames can hold different handlers for the same id without collision.
 
@@ -573,7 +573,7 @@ Form-3 components built via `r/create-class` are detected (the reagent-slim clas
 
 ### Selector convention — `:data-testid` vs `:data-test` vs custom
 
-React conventionally uses `:data-testid`; some codebases (notably Story) standardised on `:data-test` before the rename; framework tools may use their own prefix (Xray uses `:data-rf-xray-*`). The namespace ships two layers:
+React conventionally uses `:data-testid`; some codebases (notably Story) use `:data-test`; framework tools may use their own prefix (Xray uses `:data-rf-xray-*`). The namespace ships two layers:
 
 - `find-by-attr` / `find-all-by-attr` / `find-by-attr-prefix` — the underlying. Match against any attr key the caller supplies. Use directly when the codebase keys on `:data-test` or a custom attribute.
 - `find-by-testid` / `find-all-by-testid` / `find-by-testid-prefix` — thin wrappers that pre-bind the attr to `:data-testid`. Use for the common React-convention case.
@@ -623,15 +623,14 @@ This complements the JVM-runnable list in [§Normative surface §JVM-runnable bo
 
 ## The `ui.test` contract — headless testing for compiled views
 
-**RETIRED (rf2-0yp7w).** `re-frame.ui.test` was the test surface of the compiled-view
-substrate `re-frame.ui`, which was removed on 2026-08-16 together with Freehand. Its
-three tiers (headless structural `render` / `text` / `attrs`, the CLJS mounted host
-`with-root` / `flush!` / `flush-presence!`, and the `.cljc` authoring constraint that
-separated them) are retired with it. The heading is kept because
-[004B](004B-UI-Tree-and-Conversion.md) and [004C](004C-Roots-and-Mount.md) still
+**There is no `ui.test` contract.** `re-frame.ui.test` would be the test surface of the
+compiled-view substrate `re-frame.ui`, and neither ships: there is no headless structural
+`render` / `text` / `attrs` and no CLJS mounted host `with-root` / `flush!` /
+`flush-presence!`. The heading stays because
+[004B](004B-UI-Tree-and-Conversion.md) and [004C](004C-Roots-and-Mount.md)
 address this anchor.
 
-The surviving headless surface is the hiccup-walk `re-frame.test-helpers` of
+The headless view-test surface is the hiccup-walk `re-frame.test-helpers` of
 [§JVM-runnable boundary for hiccup-walk](#jvm-runnable-boundary-for-hiccup-walk)
 above, which serves the stock-Reagent compatibility tier.
 
@@ -662,7 +661,7 @@ The mechanics above (fixture patterns, JVM-runnable surfaces, view-assertion hel
 ### Async tests — `poll-until` vs explicit sleeps
 
 - **`poll-until`** for *settles* — the post-condition is observable in state and the test wants to wait for the drain / HTTP reply to land. Bounded deadline; fails fast on a truly stuck condition. JVM-synchronous; CLJS returns a `js/Promise` for composition with `cljs.test/async`. It serves view-content settles too: the predicate re-renders the root view and walks it with `find-by-testid` / `text-content` until the text matches.
-- **Explicit `Thread/sleep` / `js/setTimeout`** for *windows* — the sleep IS the contract under test (grace-period elapse, throttle/debounce window, "prove no event fires within window N"). Annotate the intent locally with a `;; Timer-semantics sleep: ...` comment so audits don't re-flag it.
+- **Explicit `Thread/sleep` / `js/setTimeout`** for *windows* — the sleep IS the contract under test (grace-period elapse, throttle/debounce window, "prove no event fires within window N"). Annotate the intent locally with a `;; Timer-semantics sleep: ...` comment so a reader does not mistake it for a settle.
 
 ### Per-test granularity heuristic
 
@@ -781,7 +780,7 @@ No special integration — works because `cljs.test` and `clojure.test` work. Ka
 
 ### `re-frame-test` (existing community library)
 
-The `day8/re-frame-test` library provides `run-test-sync` and similar helpers. re-frame2 does **not** ship a `run-test-sync` shim — `dispatch-sync` is settle-by-default. Test suites built against `re-frame-test` rewrite the `run-test-sync` body to inline `dispatch-sync` calls under the standard per-test `make-reset-runtime-fixture` (or a manual `snapshot-registrar` / `restore-registrar!` bracket for ad-hoc bodies) — see [MIGRATION §M-52](../migration/from-re-frame-v1/README.md#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture). The surviving re-frame-test assertion helper ships in `re-frame.test-support`: `assert-path-equals`, which shares a name root with the `:rf.assert/*` Story event-family, per [MIGRATION §M-62](../migration/from-re-frame-v1/README.md#m-62-test-assertion-fn-family-alignment--assert-state--assert-path-equals). A full-db check compares directly against `app-db-value`; a sequence of events is a `doseq` over `dispatch-sync`. The require is `re-frame.test-support` per [MIGRATION §M-25](../migration/from-re-frame-v1/README.md#m-25-re-frametest-helpers-renamed-to-re-frametest-support).
+The `day8/re-frame-test` library provides `run-test-sync` and similar helpers. re-frame2 does **not** ship a `run-test-sync` shim — `dispatch-sync` is settle-by-default. Test suites built against `re-frame-test` rewrite the `run-test-sync` body to inline `dispatch-sync` calls under the standard per-test `make-reset-runtime-fixture` (or a manual `snapshot-registrar` / `restore-registrar!` bracket for ad-hoc bodies) — see [MIGRATION §M-52](../migration/from-re-frame-v1/README.md#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture). re-frame2's counterpart to re-frame-test's assertion helpers ships in `re-frame.test-support`: `assert-path-equals`, which shares a name root with the `:rf.assert/*` Story event-family, per [MIGRATION §M-62](../migration/from-re-frame-v1/README.md#m-62-test-assertion-fn-family-alignment--assert-state--assert-path-equals). A full-db check compares directly against `app-db-value`; a sequence of events is a `doseq` over `dispatch-sync`. The require is `re-frame.test-support` per [MIGRATION §M-25](../migration/from-re-frame-v1/README.md#m-25-re-frametest-helpers-renamed-to-re-frametest-support).
 
 ## Forward compatibility with stories
 
@@ -795,9 +794,8 @@ A test fixture is a story-variant minus the rendering — the story library's `r
 
 ## Story plan execution surface and evidence tools
 
-> Forward-reference normative section (NewTestStory EPIC). The
-> Story-as-test work introduces a variant-plan execution model and a set
-> of evidence tools. **These tools are Story-owned** — they ship in the
+> Forward-reference normative section. Story-as-test has a
+> variant-plan execution model and a set of evidence tools. **These tools are Story-owned** — they ship in the
 > `re-frame.story.*` namespaces under `tools/story/src` and their full
 > contract is normative in
 > [`tools/story/spec/017-Testing-Story.md`](../tools/story/spec/017-Testing-Story.md)
@@ -812,24 +810,23 @@ A test fixture is a story-variant minus the rendering — the story library's `r
 > Story-facing surface from the 008 side because it is the general
 > testing-substrate counterpart of the 008 helpers
 > (`re-frame.test-support` / `re-frame.test-helpers` / `compute-sub`) — it
-> describes the tools, it does not relocate their ownership. These
-> primitives have landed — `settled-boundary`, the invariant sentinels /
-> `first-bad-epoch`, the run-artifact replay / determinism utilities, and
-> `canonicalize` are all shipped in `re-frame.story.*` and build on the
-> substrate seams named above.
+> describes the tools, it does not relocate their ownership.
+> `settled-boundary`, the invariant sentinels / `first-bad-epoch`, the
+> run-artifact replay / determinism utilities, and `canonicalize` all
+> ship in `re-frame.story.*` and build on the substrate seams named above.
 
 ### `settled-boundary`
 
 `settled-boundary` is the author-facing settlement contract for a
-`[:dispatch event-vector]` step. It is **not** a new headless scheduler:
-in the `:headless` runner it is the existing `dispatch-sync`
+`[:dispatch event-vector]` step. It is **not** a separate headless scheduler:
+in the `:headless` runner it is the `dispatch-sync`
 run-to-fixed-point drain (§Normative surface), projected rather
 than reimplemented. Richer runners add adapter-supplied flushes with a
 declared bound:
 
 - `:headless` — the frame's event queue is drained AND all synchronous
   re-dispatches have settled (the `dispatch-sync` semantics this Spec
-  already guarantees);
+  guarantees);
 - `:cljs-reactive` — the above AND reaction recomputation has flushed;
 - `:dom` / `:browser` — the above AND the adapter's `act()` / microtask
   flush has completed, within a declared maximum (the per-adapter
@@ -874,7 +871,7 @@ Spec provides):
 (first-bad-epoch epoch-tape invariant)
 ```
 
-Invariants run after each committed epoch (via the existing epoch-listener
+Invariants run after each committed epoch (via the epoch-listener
 seam) and report through the test framework; they MUST NOT throw from the
 listener. Each spec SHOULD carry frame id, epoch id, event, path,
 expected, actual, and source where possible. `first-bad-epoch` is a pure
@@ -913,13 +910,13 @@ items below).
 determinism, semantic diff, snapshot identity, `:plan-hash` / `:run-hash`,
 future golden-slice comparison, and the inline-plan-to-registered-variant
 metamorphic relation all consume. It MUST live in a fingerprinting
-namespace (not the canonical-vocabulary installer), fold the existing
+namespace (not the canonical-vocabulary installer), fold the
 snapshot-identity `canonical-form` / `content-hash` / `snapshot-tuple`
 path into one implementation, strip accumulator/volatile fields, impose a
 total per-slot ordering, enumerate the `:plan-hash` inputs, and compute
-`:run-hash` over the canonical epoch slice. It MUST be built **before**
-anything consumes it (else the metamorphic gate is vacuous and
-near-duplicate canonicalizers drift) and ship with an adversarial corpus
+`:run-hash` over the canonical epoch slice. Every consumer MUST go
+through it (else the metamorphic gate is vacuous and near-duplicate
+canonicalizers drift), and it MUST ship with an adversarial corpus
 proving semantic differences change the hash while volatile fields do
 not.
 
@@ -954,35 +951,35 @@ Testing and stories share infrastructure (frames, overrides, drain, dispatch-syn
 
 ## Open questions
 
-> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all three items are **post-v1, untracked notes** — design directions beyond v1 with no tracking bead filed yet (so none qualifies as `:post-v1 tracked`, which requires a `rf2-<id>`). "Snapshot / fixture serialization" — foundation exists; a packaged helper is user-space. "Property-based testing integration" — a pattern doc, no framework change. "Model-based testing harness over `machine-transition`" — library territory, not framework (the pure `machine-transition` contract is sufficient for path exploration from a caller-supplied settled starting snapshot). A tracking bead is filed for each only when its reconsideration trigger below fires.
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all three items are **post-v1, untracked notes** — design directions beyond v1 with no tracking bead (so none qualifies as `:post-v1 tracked`, which requires a `rf2-<id>`). "Snapshot / fixture serialization" — foundation exists; a packaged helper is user-space. "Property-based testing integration" — a pattern doc, no framework change. "Model-based testing harness over `machine-transition`" — library territory, not framework (the pure `machine-transition` contract is sufficient for path exploration from a caller-supplied settled starting snapshot). A tracking bead is filed for each only when its reconsideration trigger below fires.
 
 ### Snapshot / fixture serialization (post-v1)
 
-Some tests want to capture a frame's `app-db` and replay it later (golden-master testing, regression checks). Foundation supports this trivially (`(spit "fixture.edn" (pr-str (app-db-value f)))`); a helper is user-space. Deferred to a post-v1 cycle (untracked note — no bead filed yet).
+Some tests want to capture a frame's `app-db` and replay it later (golden-master testing, regression checks). Foundation supports this trivially (`(spit "fixture.edn" (pr-str (app-db-value f)))`); a helper is user-space. Deferred to a post-v1 cycle (an untracked note).
 
 #### Post-v1 Tracking
 
 - **Foundation in v1.** `app-db-value` returns a plain value; `pr-str` / EDN reader round-trips it. No framework change is needed for the raw capture/replay path.
 - **Scope deferred.** A packaged helper (`golden-master`, `regression-check`) with the ergonomic API (file-naming convention, diff rendering, `clojure.test`-style failure report) is user-space library work.
-- **Reconsideration trigger.** The same snapshot/diff scaffolding hand-rolled independently in **three or more** consumer-app test suites or re-frame2 tool test-suites (story, xray, re-frame2-pair). It deliberately does **not** watch `examples/`, which is test-free by locked policy (rf2-8cevm) and so can never emit this signal — the demand shows up where tests actually live.
+- **Reconsideration trigger.** The same snapshot/diff scaffolding hand-rolled independently in **three or more** consumer-app test suites or re-frame2 tool test-suites (story, xray, re-frame2-pair). It deliberately does **not** watch `examples/`, which is test-free by policy and so can never emit this signal — the demand shows up where tests actually live.
 - **Out of scope for this note.** Cross-process replay (record-on-prod, replay-on-dev) — that wants the trace-buffer surface, not a snapshot helper.
 
 ### Property-based testing integration (post-v1)
 
-`test.check`-style generative testing fits cleanly into re-frame2 — `make-frame` is cheap, generators produce event sequences, properties check invariants. Documented as a pattern post-v1. Deferred to a post-v1 cycle (untracked note — no bead filed yet).
+`test.check`-style generative testing fits cleanly into re-frame2 — `make-frame` is cheap, generators produce event sequences, properties check invariants. Deferred to a post-v1 cycle as a pattern doc (an untracked note).
 
-**This section is the single home for the property-based-testing pattern**, including its *schema-driven* variant — where the generators come from `:schema` registrations (per [010 §Schema-driven generative tests](010-Schemas.md#schema-driven-generative-tests-post-v1)) rather than hand-written generators. That 010 section is a cross-link *into* here, not a peer to defer to: there is one pattern doc, and it lives here. (Previously the two docs pointed at each other with no home named — that circular defer is now broken by naming 008 the home.)
+**This section is the single home for the property-based-testing pattern**, including its *schema-driven* variant — where the generators come from `:schema` registrations (per [010 §Schema-driven generative tests](010-Schemas.md#schema-driven-generative-tests-post-v1)) rather than hand-written generators. That 010 section is a cross-link *into* here, not a peer to defer to: there is one pattern doc, and it lives here.
 
 #### Post-v1 Tracking
 
 - **Foundation in v1.** `make-frame` is cheap and isolated; `dispatch-sync` settles synchronously per [Resolved decisions](#resolved-decisions); the schema-validator hook (Spec 010) gives invariants a place to live.
 - **Scope deferred.** A guide-tier pattern document: generators for event sequences, invariants expressed as schemas, shrinking strategies for event-sequence failures. No framework primitive missing.
-- **Reconsideration trigger.** A consumer app or a re-frame2 tool test-suite ships a hand-rolled `test.check` harness over `make-frame` / `dispatch-sync` (event-sequence generators + schema-expressed invariants) that would be materially shorter if the pattern doc and any thin generator helper existed — the demand is a real generative suite in a real repo, not the schema-driven variant merely "landing first."
+- **Reconsideration trigger.** A consumer app or a re-frame2 tool test-suite ships a hand-rolled `test.check` harness over `make-frame` / `dispatch-sync` (event-sequence generators + schema-expressed invariants) that would be materially shorter if the pattern doc and any thin generator helper existed — the demand is a real generative suite in a real repo, not the schema-driven variant alone.
 - **Out of scope for this note.** A bundled `test.check` dependency — re-frame2 stays library-agnostic.
 
 ### Model-based testing harness over `machine-transition` (post-v1)
 
-`@xstate/test`-style: treat a transition table as a graph and *generate* test cases automatically — paths, state-coverage, transition-coverage, shortest-path-to-state, guard-coverage. Path exploration is a few dozen lines over the public `machine-transition`. Two things a trustworthy harness needs are not on the public surface: a pure *settled* initial snapshot — birth (the initial `:entry` cascade plus its `:always` / `:raise` settle) runs only inside the runtime, so a walk from a structural initial snapshot skips it — and which declared transition handled each event, the fact exact transition coverage rests on, which the public result does not name. Generated paths are not assertions either: a walk replays the implementation against itself, so the intended outcomes come from the programmer. Deferred to a post-v1 cycle (untracked note — no bead filed yet).
+`@xstate/test`-style: treat a transition table as a graph and *generate* test cases automatically — paths, state-coverage, transition-coverage, shortest-path-to-state, guard-coverage. Path exploration is a few dozen lines over the public `machine-transition`. Two things a trustworthy harness needs are not on the public surface: a pure *settled* initial snapshot — birth (the initial `:entry` cascade plus its `:always` / `:raise` settle) runs only inside the runtime, so a walk from a structural initial snapshot skips it — and which declared transition handled each event, the fact exact transition coverage rests on, which the public result does not name. Generated paths are not assertions either: a walk replays the implementation against itself, so the intended outcomes come from the programmer. Deferred to a post-v1 cycle (an untracked note).
 
 #### Post-v1 Tracking
 
@@ -1012,7 +1009,7 @@ This is library territory, not framework. See [005 §Future](005-StateMachines.m
 
 ### Built-in test-runner namespace
 
-re-frame2 ships a `re-frame.test-support` convenience namespace (renamed from v1's `re-frame.test`). Users `(:require [re-frame.test-support :as ts])` to reach the fixture machinery and the test-flavoured helpers, paired with `(:require [re-frame.core :as rf])` for the dispatch / frame / sub primitives. `re-frame.test-support` does NOT re-export from `re-frame.core` — keeping the two namespaces separate preserves the rule that `re-frame.core` is the production primitive surface (used by application code) and `re-frame.test-support` is the test-only convenience surface (required only by test files). View-assertion test files additionally `:require [re-frame.test-helpers :as th]` per [§View-assertion helpers](#view-assertion-helpers-re-frametest-helpers).
+re-frame2 ships a `re-frame.test-support` convenience namespace (the counterpart of v1's `re-frame.test`). Users `(:require [re-frame.test-support :as ts])` to reach the fixture machinery and the test-flavoured helpers, paired with `(:require [re-frame.core :as rf])` for the dispatch / frame / sub primitives. `re-frame.test-support` does NOT re-export from `re-frame.core` — keeping the two namespaces separate preserves the rule that `re-frame.core` is the production primitive surface (used by application code) and `re-frame.test-support` is the test-only convenience surface (required only by test files). View-assertion test files additionally `:require [re-frame.test-helpers :as th]` per [§View-assertion helpers](#view-assertion-helpers-re-frametest-helpers).
 
 The canonical helper inventory is the union of three namespaces:
 
@@ -1097,11 +1094,11 @@ CLJS (returns a `js/Promise` — compose with `(.then ...)` under `cljs.test/asy
 
 **The rejection handler goes upstream of the single trailing `done`, and calls it on neither path.** `cljs.test/run-block` hands `done` a continuation that runs the *whole remainder of the run* synchronously, so a `.catch` sitting **downstream** of `done` claims whatever a later namespace throws as this row's failure — printing it against this row's label — and then calls `done` a second time, re-forcing `run-block`'s unrealized delay and re-running the offending namespace. Assert in `.then`, report and return `nil` in `.catch`, finish in one trailing `.then`; shared teardown belongs in that trailing step, where it is written once and still runs once per path. `re-frame.test-support`'s own `poll-until` docstring states this rule and shows this shape.
 
-Timer-semantics sleeps that must stay (grace-period elapse, throttle/debounce, "prove no event fires within window N", host-clock advancement) keep their `Thread/sleep` / `js/setTimeout` but annotate the intent inline with a `;; Timer-semantics sleep: ...` comment so audits don't re-flag them.
+Timer-semantics sleeps that must stay (grace-period elapse, throttle/debounce, "prove no event fires within window N", host-clock advancement) keep their `Thread/sleep` / `js/setTimeout` but annotate the intent inline with a `;; Timer-semantics sleep: ...` comment so a reader does not mistake them for settles.
 
 ### `re-frame-test` library compatibility
 
-re-frame2 does **not** ship a `run-test-sync` shim — `dispatch-sync` is already settle-by-default, so the v1 macro was pure migration tax. The full disposition (the `run-test-sync` rewrite, the `assert-state` → `assert-path-equals` split, and the `re-frame.test` → `re-frame.test-support` namespace rename) is stated once in [§`re-frame-test` (existing community library)](#re-frame-test-existing-community-library) under Test-framework adapters; this entry records it as a resolved decision and does not restate it.
+re-frame2 does **not** ship a `run-test-sync` shim — `dispatch-sync` is settle-by-default, so the v1 macro would be pure migration tax. The full disposition (the `run-test-sync` rewrite, the `assert-state` → `assert-path-equals` split, and the `re-frame.test` → `re-frame.test-support` namespace rename) is stated once in [§`re-frame-test` (existing community library)](#re-frame-test-existing-community-library) under Test-framework adapters; this entry records it as a resolved decision and does not restate it.
 
 ### Headless rendering for visual regression
 
