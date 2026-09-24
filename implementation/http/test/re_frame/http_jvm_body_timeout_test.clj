@@ -1,11 +1,11 @@
 (ns re-frame.http-jvm-body-timeout-test
-  "rf2-fzbj.11 / rf2-gwye.13 — on the JVM, `:timeout-ms` bounds the WHOLE
+  "On the JVM, `:timeout-ms` bounds the WHOLE
   attempt, response body included.
 
   `HttpRequest.Builder.timeout` stops protecting an attempt once the response
-  HEADERS arrive, so an upstream that sends headers promptly and then stalls the
-  body used to hold the request past its budget indefinitely — or deliver
-  success after it. Spec 014 §`:timeout-ms` security defaults names exactly that
+  HEADERS arrive, so relying on it alone would let an upstream that sends
+  headers promptly and then stalls the body hold the request past its budget
+  indefinitely — or deliver success after it. Spec 014 §`:timeout-ms` security defaults names exactly that
   slow-loris body as what the default exists to bound.
 
   The server is local and deterministic: headers and one body byte go out at
