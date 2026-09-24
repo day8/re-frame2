@@ -1,5 +1,5 @@
 (ns re-frame.ssr-doc-example-node-build-id-test
-  "rf2-8arzr.6 ACCEPTANCE — the \"Render on Node\" recipe in
+  "ACCEPTANCE — the \"Render on Node\" recipe in
   `docs/ssr/concepts.md` writes ONE build id in THREE places, and this
   suite fails when they diverge.
 
@@ -16,13 +16,13 @@
   refusal on EVERY request, and the refusal names the skew rather than
   the edit that caused it.
 
-  Nothing was checking that. `mkdocs build --strict` renders the page and
+  Nothing else checks that. `mkdocs build --strict` renders the page and
   `scripts/check_doc_slugs.py` validates its links and anchors; neither
-  reads inside a fence, let alone compares two of them. So the one defect
-  this recipe can carry that breaks every request for the reader was
-  invisible to every gate the page had — the same blind spot
-  `re-frame.ssr-doc-example-projector-test` and
-  `re-frame.ssr-doc-example-form-action-test` were written for, reached
+  reads inside a fence, let alone compares two of them. So without this
+  suite the one defect this recipe can carry that breaks every request for
+  the reader would be invisible to every gate the page has — the same blind
+  spot `re-frame.ssr-doc-example-projector-test` and
+  `re-frame.ssr-doc-example-form-action-test` cover, reached
   through a different kind of drift: theirs is code that stops working,
   this one is two literals that stop agreeing.
 
@@ -55,7 +55,7 @@
 
 (def ^:private concepts-page
   "`docs/ssr/concepts.md`, anchored to a CLASSPATH RESOURCE rather than the
-  working directory (rf2-ywrwkl; the same anchoring
+  working directory (the same anchoring
   `re-frame.ssr-doc-example-projector-test` uses for the API page). A
   `(io/file \"../../docs/...\")` form would resolve correctly under the
   per-artefact gate run from `implementation/ssr/` and silently MIS-SCOPE
@@ -134,7 +134,7 @@
 ;; ===========================================================================
 
 (deftest the-paired-build-id-literals-do-not-diverge
-  (testing "rf2-8arzr.6: the recipe's server bundle and its JVM host name the
+  (testing "the recipe's server bundle and its JVM host name the
             same build id. They are checked against each other at RUN time by
             the sidecar and the adapter, in both directions, so a page whose
             two literals disagree is a recipe that refuses every request the
@@ -142,9 +142,9 @@
             the edit. The page states this rule itself; this is the assertion
             that holds it."
     (is (seq @bundle-build-id)
-        "step 2 still declares a non-empty build id on the server bundle")
+        "step 2 declares a non-empty build id on the server bundle")
     (is (seq @adapter-build-id)
-        "step 3 still hands the renderer a non-empty :build-id")
+        "step 3 hands the renderer a non-empty :build-id")
     (is (= @bundle-build-id @adapter-build-id)
         (str "the recipe's build-id literals have DIVERGED: the server "
              "bundle's `goog-define build-id` is " (pr-str @bundle-build-id)
@@ -158,7 +158,7 @@
 ;; ===========================================================================
 
 (deftest the-ready-line-transcript-reports-the-bundles-build-id
-  (testing "rf2-8arzr.6: the sample `ready` line is the sidecar reporting the
+  (testing "the sample `ready` line is the sidecar reporting the
             loaded module's own id, not a third independent choice. An edit
             that moves the two fences and leaves the transcript behind
             publishes output no run of this recipe can produce — and the
