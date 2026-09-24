@@ -1,11 +1,10 @@
 (ns re-frame.bench.read-attribution-cljs
-  "rf2-x0fe2 — the READ path, measured on the host re-frame2 SHIPS TO.
+  "The READ path, measured on the host re-frame2 SHIPS TO.
 
-  Every allocation figure on this surface — rf2-21pck, rf2-mvqwe (PR
-  #7151), rf2-j8ls2 / rf2-ncjyt (PR #7154) — is a JVM figure, taken with
-  `com.sun.management.ThreadMXBean/getThreadAllocatedBytes`. That was
-  always stated. It MATTERS because the JVM decomposition's largest single
-  term is one that does not exist in ClojureScript at all:
+  `read_attribution.clj`'s allocation figures are JVM figures, taken with
+  `com.sun.management.ThreadMXBean/getThreadAllocatedBytes`. That MATTERS
+  because the JVM decomposition's largest single term is one that does not
+  exist in ClojureScript at all:
 
     the dynamic `binding` of `rf.registrar/*generation*` inside
     `call-with-frame-resolution`      ~760 B/call JVM      ~0 in CLJS
@@ -14,8 +13,7 @@
   `TBox` assoc'd into the thread's binding map (itself a path copy), and a
   `Frame`. CLJS has no threads and no binding stack — `binding` expands to
   `let` + `set!` + `try`/`finally` restore. So the JVM ranking of
-  `subscribe`'s cache-HIT cost may be ranking work a browser app does not
-  pay, and three beads were prioritised off that ranking.
+  `subscribe`'s cache-HIT cost may rank work a browser app does not pay.
 
   This namespace is `read_attribution.clj`'s CLJS counterpart. It measures
   the SAME ladder, arm for arm, so the two can be compared TERM BY TERM.
@@ -23,10 +21,8 @@
   ## What it does NOT do
 
   It carries no observation-port arm and computes no
-  Freehand-versus-Reagent increment. It never did; the JVM sibling's port
-  ladder was the only one, and it went when the port was retired
-  (rf2-63t1i). This file measures `@(subscribe [:q])` and its parts,
-  which is what rf2-x0fe2 asks for and all it asks for.
+  substrate-versus-substrate increment. This file measures
+  `@(subscribe [:q])` and its parts, and nothing else.
 
   ## Why NODE, and what that costs
 
@@ -54,35 +50,33 @@
   `--expose-gc`) and sized so its whole allocation fits one nursery. A
   sample whose counter FELL is discarded and counted.
 
-  Three faults were fixed in that harness on 2026-07-27, and all three are
-  designed out here rather than inherited:
+  Three instrument faults are designed out here:
 
-  1. **A shared counter clobbered by a control** (rf2-xu0ma / PR #7229).
-     `keep!` is a type-PRESERVING increment; the old `arm-ctl` wrote a
-     DOUBLE into the same counter, so every subsequent `keep!` boxed a
+  1. **A shared counter clobbered by a control.**
+     `keep!` is a type-PRESERVING increment; a control that writes a
+     DOUBLE into the same counter makes every subsequent `keep!` box a
      fresh 16-byte `HeapNumber` — 4,800 B/call on odd rounds, nothing on
-     even ones. Deterministic, so it read as ZERO VARIANCE, not noise.
+     even ones. Deterministic, so it reads as ZERO VARIANCE, not noise.
      Here `keep!` and `reset-sink!` are the ONLY writers of `sink`,
      `reset-sink!` writes the literal Smi `0`, and it runs OUTSIDE the
      measured window. No arm can charge another.
 
-  2. **A positive control reading 2x its own prediction** (rf2-l3jv4 / PR
-     #7230). One `.slice()` call SITE saw both PACKED_SMI and
-     PACKED_DOUBLE receivers; at that polymorphic site the Smi receiver
-     loses V8's clone fast path and allocates its elements store twice.
-     The prediction was right and the measurement was wrong. The two
-     factories below are character-for-character identical ON PURPOSE and
-     must not be merged.
+  2. **A positive control reading 2x its own prediction.** One `.slice()`
+     call SITE that sees both PACKED_SMI and PACKED_DOUBLE receivers is
+     polymorphic, and at that site the Smi receiver loses V8's clone fast
+     path and allocates its elements store twice. The prediction is right
+     and the measurement wrong. The two factories below are
+     character-for-character identical ON PURPOSE and must not be merged.
 
-  3. **An arm-order guard that exits 2 on refusal** (rf2-om73r). It
+  3. **An arm-order guard that exits 2 on refusal.** It
      partitions each arm's per-round figures by predecessor AND by
      position and refuses `unchecked` as loudly as `contaminated`.
-     One downgrade exists (rf2-hydpy): a refusal every one of whose arms
+     One downgrade exists: a refusal every one of whose arms
      provably reads the instrument's per-WINDOW floor — shown by the
-     rf2-tmzie reps sweep, per arm, at the time of refusal — is quoted as
+     reps sweep, per arm, at the time of refusal — is quoted as
      CERTIFIED AT THE FLOOR (each arm an upper bound, never a p50) and the
      run exits 0. Any arm the sweep cannot attribute keeps exit 2; the
-     guard itself, its tolerance and its refusals are untouched.
+     downgrade leaves the guard, its tolerance and its refusals as they are.
 
   ## Read-back: \"N unverified of M\"
 
@@ -96,18 +90,18 @@
 
   ## Position beats adjacency, so warm first
 
-  The same study measured one control over sixteen consecutive windows with
-  nothing else varying: `42.32`, then six windows at `10.3`, then `8.12`
-  for ever. The first window read 5.3x the settled value and the next six
-  read +27%; the PREDECESSOR is worth 0.0-0.3%. So `RA_WARM_WINDOWS`
+  One control, measured over sixteen consecutive windows with nothing else
+  varying, reads `42.32`, then six windows at `10.3`, then `8.12` for ever.
+  The first window reads 5.3x the settled value and the next six read
+  +27%; the PREDECESSOR is worth 0.0-0.3%. So `RA_WARM_WINDOWS`
   full-size windows per arm are run and discarded before any round is
   measured, on top of `RA_WARMUP` bare calls and the calibration probe.
 
   ## The controls, and the floor
 
-  A control whose size is ASSERTED rather than checked has been wrong twice
-  on this surface. So the control is read as a SLOPE across sizes, which
-  cancels every header and every constant:
+  A control whose size is ASSERTED rather than checked goes wrong silently.
+  So the control is read as a SLOPE across sizes, which cancels every header
+  and every constant:
 
     `.slice()` of a PACKED double-element JS array of D elements allocates
     a `FixedDoubleArray` of D unboxed 8-byte slots plus a fixed header. V8
@@ -116,14 +110,14 @@
 
   and the SMI pair at the same D reads the regime off the process. Both are
   reported predicted-vs-measured at every size, not merely as a slope —
-  printing only the slope is how an arm reading exactly TWICE its
-  prediction at BOTH sizes went unremarked for as long as it did.
+  printing only the slope lets an arm reading exactly TWICE its prediction
+  at BOTH sizes go unremarked.
 
-  And the SMI pair REFUSES rather than merely commenting (rf2-l3jv4). It
-  used to print `*** NEITHER — the SMI arm is not measuring a tagged-slot
-  copy ***` and then exit 0 under the arm-order guard's `VERDICT:
-  reportable` beside it, so the exact recurrence the control exists to catch
-  could still be published. `re-frame.bench.calibration` turns the ratios
+  And the SMI pair REFUSES rather than merely commenting: printing `***
+  NEITHER — the SMI arm is not measuring a tagged-slot copy ***` and then
+  exiting 0 under the arm-order guard's `VERDICT: reportable` beside it
+  would publish the exact recurrence the control exists to catch.
+  `re-frame.bench.calibration` turns the ratios
   and the slope into a boolean, and this run's exit code is the OR of three
   independent refusals: the arm order's, the read-back's, and the control's.
   The DBL LARGE pair's ~+9% is deliberately NOT gated — it is an understood
@@ -157,7 +151,7 @@
   differ by 75%. No re-shaping of a thunk arm can remove it: the arm would
   have to stop allocating the thing it exists to price. `-main` prints the
   bimodality table, and a thunk-dominated arm is quotable as its RANGE and as
-  an upper bound at the high mode, never as a p50 alone (rf2-ktrvw).
+  an upper bound at the high mode, never as a p50 alone.
 
   Nothing this file publishes rests on one: the binding figure is
   `N-BINDONLY`, which carries no closure, and the budget and symmetry checks
@@ -176,13 +170,13 @@
               and the ref-count attach
     RGREAD    `@(subscribe q)` — the whole substrate-free reader
 
-  ### Inside `subscribe`'s cache-HIT path (rf2-j8ls2 / rf2-ncjyt)
+  ### Inside `subscribe`'s cache-HIT path
 
   S1..S4 re-walk `rf.subs/subscribe`'s 1-arity through PUBLIC functions only,
   each a strict prefix of the next and of `RGSUB`:
 
     S1-CURFRM  `(or (resolve-current-frame) (require-current-frame! ...))`
-               — the SHIPPED reader-then-require spelling (rf2-a8bw0)
+               — the SHIPPED reader-then-require spelling
     S2-TGTID   + `frame-target->id`
     S3-CWFR    + `call-with-frame-resolution` around an empty thunk — the
                flush consult, the generation read, and THE BINDING
@@ -192,15 +186,15 @@
   Two RETIRED spellings are kept live beside their replacements as PAIRED
   CONTROLS in one process, so each claimed saving is falsifiable:
 
-    S1-EAGER   the `{:where :event-id}` payload built EAGERLY (pre-rf2-a8bw0)
+    S1-EAGER   the `{:where :event-id}` payload built EAGERLY
     N-CWFRWRAP `cwfr` behind the retired `frame-resolution-target` wrapper,
                against N-CWFRRAW, the shipped form. Their difference must
-               equal N-RESTGT (rf2-8gb3t).
+               equal N-RESTGT.
 
   ### The ref-count attach, part by part
 
-    RC-ATTACH  the PRE-rf2-j8ls2 `update-in` spelling — the paired control
-    RC-CAND    the form that replaced it in `rf.subs/bump-ref-count-fn`
+    RC-ATTACH  the `update-in` spelling — the paired control
+    RC-CAND    the shipped form, in `rf.subs/bump-ref-count-fn`
     RC-GUARD   the same `swap-vals!` returning `m` UNCHANGED
     RC-SWAPID  `(swap-vals! cache identity)` — the machinery alone
     RC-UPDIN   pure `(update-in m [k :ref-count] (fnil inc 0))`
@@ -208,9 +202,9 @@
     RC-ASSOC   pure `(assoc m k entry)` — the outer HAMT path copy alone
     RC-EASSOC  pure `(assoc entry :ref-count n)` — the inner copy alone
 
-  ### The pre-node lookups (rf2-ncjyt / rf2-ezwnl)
+  ### The pre-node lookups
 
-    N-RESTGT   the throwaway frame VALUE the retired wrapper minted
+    N-RESTGT   the throwaway frame VALUE the retired wrapper mints
     N-GENREAD  `frame-resolution-generation`
     N-FLUSH    the late-bind flush consult
     N-BINDONLY THE BINDING, standalone — the term that is ~46% of the JVM
@@ -221,13 +215,13 @@
     N-NEWFN    ONE closure per inner iteration and nothing else — no callee,
                no binding, not even a call. It prices the thunk every arm
                above hands to somebody, and it is what says the bimodal step
-               those arms carry is closure CREATION (rf2-ktrvw, below).
+               those arms carry is closure CREATION (below).
     N-LOOKGEN  `rf.registrar/lookup :sub` with `*generation*` BOUND — the
                generation-routed branch that allocates a `[kind id]` key
-               vector per call (rf2-ezwnl, ~98 B/call JVM)
+               vector per call (~98 B/call JVM)
     N-LOOKATOM the same lookup on the registrar-atom branch
 
-  ### The ambient-frame reader's route (rf2-f70iq)
+  ### The ambient-frame reader's route
 
   `S0-SCOPE - S0-VAR` prices the CLJS-only React-context consult and says
   nothing about WHERE the bytes go. The H arms walk the route:
@@ -249,17 +243,17 @@
   inlines it and it reads zero, which is a fast path the shipped code never
   takes. `S0-SCOPE - H-ROUTED - H-FVID` must close to the floor, and does.
 
-  These arms publish NO routed hooks — they only call ones that already exist.
-  That is deliberate: an earlier revision added four re-spellings of
-  `route-hook!` itself, which changed how many shapes had passed through the
-  shared `same-adapter?` and `apply` sites, moved `S0-SCOPE` from 264.0 to
-  280.0 B/read, and split eight arms 4x-7x by PHASE. The guard refused, and was
-  right. Do not add hook-PUBLISHING arms to this plan.
+  These arms publish NO routed hooks — they only call existing ones. That is
+  deliberate: publishing re-spellings of `route-hook!` itself changes how many
+  shapes pass through the shared `same-adapter?` and `apply` sites. Measured,
+  four such arms move `S0-SCOPE` from 264.0 to 280.0 B/read and split eight
+  arms 4x-7x by PHASE, and the guard rightly refuses. Do not add
+  hook-PUBLISHING arms to this plan.
 
   ## Cache HIT, and why the db is held STILL
 
   Every arm here is measured against an UNCHANGING app-db. That is the
-  cache-HIT shape the bead names, and it is what a re-render triggered by
+  cache-HIT shape under study, and it is what a re-render triggered by
   unrelated state does. It is ALSO the one place the JVM harness and this
   one cannot be compared arm-for-arm without saying so: the JVM plain-atom
   adapter's derived value RECOMPUTES ON EVERY DEREF (there is no caching
@@ -278,8 +272,8 @@
   RA_SAMPLES (samples per arm across ALL rounds, default 42), RA_ROUNDS
   (default 6 — at least six, so the guard's phase thirds are ranges rather
   than single samples), RA_WARM_WINDOWS (full-size discarded windows per
-  arm, default 12 — 6 was `write_attribution`'s figure and the FORWARD plan
-  refuses on two arms at 6 while the reversed plan passes. More warm-up
+  arm, default 12 — at `write_attribution`'s 6, the FORWARD plan refuses
+  on two arms while the reversed plan passes. More warm-up
   cannot settle the closure bimodality above, and is not meant to: that is a
   per-window choice, not a settling curve), RA_WARMUP (bare
   calls before calibration, default 3),
@@ -323,7 +317,7 @@
 (defn- env-num [k d] (js/parseFloat (env k (str d))))
 
 ;; ---------------------------------------------------------------------------
-;; the sink — rf2-xu0ma, and it is the instrument
+;; the sink — and it is the instrument
 ;;
 ;; `keep!` is a type-PRESERVING increment: given an Smi it produces an Smi and
 ;; allocates nothing. Given a DOUBLE it produces a double, and storing that
@@ -331,8 +325,8 @@
 ;; 16 B with pointer compression OFF, 12 B with it ON. An arm with a
 ;; 300-iteration inner loop would then read 4800 B/call MORE than it costs,
 ;; purely because something earlier in the plan left a double in this slot.
-;; That is exactly what happened in `write_attribution.cljs`, and it presented
-;; as ZERO VARIANCE rather than noise, because it was deterministic.
+;; It presents as ZERO VARIANCE rather than noise, because it is
+;; deterministic.
 ;;
 ;; THE INVARIANT: `keep!` and `reset-sink!` are the ONLY writers. `reset-sink!`
 ;; writes the literal Smi `0` and runs OUTSIDE the measured window, so it can
@@ -392,7 +386,7 @@
 
 (defn- ctl-key [kind d] (str kind "-" d))
 
-;; rf2-l3jv4 — TWO factories, one per ELEMENT KIND, and the duplication is the
+;; TWO factories, one per ELEMENT KIND, and the duplication is the
 ;; whole point. `.slice()`'s clone fast path is keyed on the RECEIVER's elements
 ;; kind, and V8 has one inline cache per call SITE — that is, per function BODY,
 ;; shared by every closure made from it. One body closed over both kinds of
@@ -420,7 +414,7 @@
 
 (defn- arm-ctl-smi
   "The PACKED_SMI control, character-for-character `arm-ctl-dbl`'s body and
-  separate from it on purpose (rf2-l3jv4)."
+  separate from it on purpose."
   [d]
   (let [t (get @ctl-templates (ctl-key "SMI" d))]
     (fn []
@@ -442,8 +436,8 @@
 
 (defonce ^:private rig (volatile! nil))
 
-;; rf2-f70iq — was `:adapter/current-frame` already published when the bench
-;; installed its adapter? Read before `rf/init!`, printed with the figures.
+;; Was `:adapter/current-frame` already published when the bench installed
+;; its adapter? Read before `rf/init!`, printed with the figures.
 (defonce ^:private pre-published (volatile! nil))
 
 (def ^:private fid :ra/frame)
