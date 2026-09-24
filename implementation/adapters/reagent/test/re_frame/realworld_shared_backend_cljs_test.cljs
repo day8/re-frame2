@@ -3,15 +3,15 @@
    (`realworld-shared.demo-backend`), which both RealWorld examples run offline
    against.
 
-   THE PROPERTY UNDER TEST IS TEMPORAL, and it is the one the previous version of
-   this suite could not see. That version called a pure URL/method-to-payload
-   router ONCE per assertion and checked the envelope SHAPE, which is exactly the
-   wrong instrument: every write returned a well-formed reply, every assertion
-   passed, and the backend still threw the write away. Create returned a derived
-   slug and inserted nothing; post-comment returned a comment while `GET
-   .../comments` stayed `[]` forever; favourite echoed the flag you asked for and
-   the next list read handed back the seed corpus. A successful write was erased
-   by the read it triggered (rf2-9n43e).
+   THE PROPERTY UNDER TEST IS TEMPORAL, and a shape check cannot see it. Calling
+   a pure URL/method-to-payload router ONCE per assertion and checking the
+   envelope SHAPE is exactly the wrong instrument: every write would return a
+   well-formed reply and every assertion would pass while the backend threw the
+   write away — create returning a derived slug and inserting nothing,
+   post-comment returning a comment while `GET .../comments` stayed `[]`
+   forever, favourite echoing the flag you asked for while the next list read
+   handed back the seed corpus. A successful write would be erased by the read
+   it triggered.
 
    So every test here is a SEQUENCE. Each one walks a `world` — a state atom
    stepped by `demo/transition`, exactly as the apps' `demo/respond` steps
@@ -27,9 +27,9 @@
    `identical-sequences-are-deterministic` below asserts that directly.
 
    The backend source is example code
-   (`examples/real-apps/realworld_shared/demo_backend.cljs`), but the regression
-   suite lives HERE in the adapter test tree per the test-free-examples policy
-   (rf2-8cevm). Runs under the always-on `:node-test` gate; `transition` is a
+   (`examples/real-apps/realworld_shared/demo_backend.cljs`), but the suite
+   lives HERE in the adapter test tree per the test-free-examples policy.
+   Runs under the always-on `:node-test` gate; `transition` is a
    pure fn (state + args-map -> [state' reply]), so no frame or DOM is needed."
   (:require [cljs.test :refer-macros [deftest testing is]]
             [malli.core :as m]
@@ -100,7 +100,7 @@
                         (some #(when (= "second-article" (:slug %)) %)))]
         (is (true? (:favorited detail))   "the detail refetch still says favourited")
         (is (= 1 (:favoritesCount detail)) "with the count the write produced")
-        (is (true? (:favorited listed))   "and so does the list refetch — the one that used to revert it")))))
+        (is (true? (:favorited listed))   "and so does the list refetch — the read a discarded write would revert")))))
 
 ;; ============================================================================
 ;; ARTICLE CRUD — create / update / delete, each read back
@@ -121,7 +121,7 @@
         (is (= "my-new-post" (:slug fetched)))
         (is (= "My New Post" (:title fetched)))
         (is (not= "hello-conduit" (:slug fetched))
-            "and emphatically not the first seed article, which is what it used to do")))
+            "and emphatically not the first seed article")))
     (testing "the new article is at the top of page 1 and counted in the grand total"
       (let [page1 (ok! w :get "/articles?limit=10&offset=0")]
         (is (= "my-new-post" (first (slugs page1))) "newest first")
@@ -187,7 +187,7 @@
         (is (= 404 (:status (:tags (:failure reply)))))
         (is (not= "hello-conduit"
                   (some-> reply :ok :article :slug))
-            "the old fallback returned hello-conduit here, which is how create-then-navigate lied")))
+            "a first-article fallback would return hello-conduit here, and create-then-navigate would lie")))
     (testing "so are writes against one"
       (is (= 404 (:status (:tags (failure! w :put "/articles/nope" {:body {:article {:title "x"}}})))))
       (is (= 404 (:status (:tags (failure! w :delete "/articles/nope")))))
@@ -275,7 +275,7 @@
       (let [written (:profile (ok! w :post (str "/profiles/" seed-author "/follow")))]
         (is (true? (:following written)))
         (is (true? (:following (:profile (ok! w :get (str "/profiles/" seed-author)))))
-            "the profile refetch agrees — it used to always say false")))
+            "the profile refetch agrees")))
     (testing "and the feed fills with that author's articles, paged like any other list"
       (let [feed (ok! w :get "/articles/feed?limit=10&offset=0")]
         (is (= 10 (count (:articles feed))))
@@ -393,11 +393,10 @@
 ;; NEGATIVE CONTROL
 ;; ============================================================================
 ;;
-;; This is the test that fails if somebody quietly reverts the point of the
-;; change — either by discarding the transition's next-state (writes stop
-;; landing) or by having reads consult the seed constants again (writes land
-;; nowhere anybody can see). Both of those are exactly what the old backend did,
-;; and both are invisible to a shape assertion.
+;; This is the test that fails if the backend stops holding state — either by
+;; discarding the transition's next-state (writes stop landing) or by having
+;; reads consult the seed constants (writes land nowhere anybody can see).
+;; Both are invisible to a shape assertion.
 
 (deftest negative-control-the-seed-is-a-starting-value-not-a-store
   (let [seed-snapshot (vec demo/seed-articles)
