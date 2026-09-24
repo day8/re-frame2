@@ -1,6 +1,6 @@
 (ns re-frame.resources-infinite-registration-cljs-test
   "Registry validation for the `:infinite` resource registration kind
-  (EP-0021 wave 2, Spec 016 §Infinite resources and load-more feeds, the
+  (Spec 016 §Infinite resources and load-more feeds, the
   `:rf/infinite-resource-args` slice).
 
   These tests lock the AUTHORING-boundary gate: `:infinite true` selects the
@@ -12,8 +12,8 @@
   the runtime-threaded reserved `:request` ctx, not the spec.
 
   RUNTIME page state-transitions live in the sibling
-  `resources_infinite_state_cljs_test`; the load-more EVENT (wave 3) and the
-  merged-list SUBS (wave 4) are out of scope here."
+  `resources_infinite_state_cljs_test`; the load-more EVENT and the
+  merged-list SUBS are out of scope here."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.registrar :as rf.registrar]
@@ -22,7 +22,7 @@
 (defn- base-infinite-spec
   "A minimal VALID `:infinite` resource METADATA map — the ordinary REQUIRED
   keys plus the `:infinite` flag + the REQUIRED `:next-page-param` (R8). The
-  `:request` handler is the THIRD reg-resource slot (rf2-wvh95f F1); see
+  `:request` handler is the THIRD reg-resource slot; see
   `base-infinite-request`."
   []
   {:doc             "test infinite feed"
@@ -38,7 +38,7 @@
     {:request {:method :get :url "/api/feed"
                :params (cond-> {} page-param (assoc :cursor page-param))}}))
 
-;; FN form, not the `{:before … :after …}` map form (rf2-4yw1). `cljs.test`
+;; FN form, not the `{:before … :after …}` map form. `cljs.test`
 ;; accepts both shapes; `clojure.test` accepts only a function, and given a map
 ;; it invokes it as one — a map called with the test thunk is a KEY LOOKUP that
 ;; returns nil and never runs the test. The JVM lane then reports zero tests for
@@ -172,12 +172,12 @@
     (is (false? (rf.resources.registry/infinite-resource? {})))))
 
 ;; ===========================================================================
-;; rf2-x76af2.12 — `:page-data-schema` is a RETIRED key: HARD-REJECTED, never
-;; silently stored. It once claimed to be the per-page egress/classification
-;; contract but drove neither validation nor egress (a privacy trap). The reject
+;; `:page-data-schema` is a RETIRED key: HARD-REJECTED, never
+;; silently stored. A per-page egress/classification key that drove neither
+;; validation nor egress would be a privacy trap. The reject
 ;; NAMES BOTH replacements: per-page VALIDATION → the request's `:decode`;
 ;; durable per-page egress CLASSIFICATION → projection-relative
-;; `:sensitive` / `:large`. (EP-0021 R5 superseded by EP-0025.)
+;; `:sensitive` / `:large` (EP-0025).
 ;; ===========================================================================
 
 (defn- capture-ex
@@ -207,7 +207,7 @@
           data (ex-data ex)
           msg  (ex-message ex)]
       (is (= :rf.error/resource-bad-spec (:rf.error/id data))
-          "the reject rides the existing :rf.error/resource-bad-spec family")
+          "the reject rides the :rf.error/resource-bad-spec family")
       (is (= :page-data-schema (:key data))
           "ex-data names the retired key (actionable)")
       (is (= :feed/retired2 (:resource-id data)) "ex-data names the resource")
