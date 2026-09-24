@@ -1,9 +1,9 @@
 (ns re-frame.ssr.failed-root-isolation-cljs-test
-  "Failed-root isolation (S5-C) — Spec 011 §Failed-root isolation.
+  "Failed-root isolation — Spec 011 §Failed-root isolation.
 
   **A page is N roots, and one of them failing must not stop the others
   from hydrating and running.** That is the whole contract, and it is the
-  ergonomics payoff of the stage: a page assembled from independently
+  ergonomics payoff: a page assembled from independently
   rendered regions stays up when one region is broken.
 
   ## The proof obligation, and why it is shaped this way
@@ -34,7 +34,7 @@
   each arm is failed by its own lever and falsified by its own
   `boot-page-without-isolation!` counterpart.
 
-  ## The red-before is permanent and executable
+  ## The unguarded twin is permanent and executable
 
   `boot-page-without-isolation!` IS `boot-one-root!` with the try/catch
   deleted — the bare hydrate-then-mount loop a host writes when it does
@@ -68,14 +68,12 @@
             [re-frame.ssr.install :as rf.ssr.install]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]))
 
-;; rf2-qj4g — COLD-START the adapter slot rather than assuming it is empty.
-;; `init!` is idempotent only for the adapter ALREADY SEATED (rf2-kuky.1);
-;; handed a DIFFERENT one it raises `:rf.error/adapter-already-installed`
-;; instead of silently ignoring the call. This ns runs in the shared node
-;; bundle beside suites that seat Reagent / UIx / plain-atom, so a bare
-;; `init!` here was a NO-OP whenever one of them ran first — every test
-;; below then exercised the SSR flow on somebody else's substrate and
-;; passed for the wrong reason. Destroy first, seat the adapter this ns
+;; COLD-START the adapter slot rather than assuming it is empty.
+;; `init!` is idempotent only for the adapter ALREADY SEATED; handed a
+;; DIFFERENT one it raises `:rf.error/adapter-already-installed`. This ns
+;; runs in the shared node bundle beside suites that seat Reagent / UIx /
+;; plain-atom, so a bare `init!` here would meet whichever adapter one of
+;; them left seated. Destroy first, seat the adapter this ns
 ;; NAMES, and destroy again on the way out so the slot is left cold for
 ;; whichever namespace the runner reaches next.
 (use-fixtures :once
@@ -107,8 +105,8 @@
   because the runtime resolves the platform as
   `(or (-> rec :config :platform) (interop/active-platform))` and the
   host-wide marker is already `:client` on CLJS.
-  `the-fixture-frames-are-actually-platform-tagged` is what keeps that
-  accident from coming back."
+  `the-fixture-frames-are-actually-platform-tagged` is what catches that
+  accident."
   []
   (let [fid (keyword "rf.isolation" (str "f" (swap! frame-counter inc)))]
     (rf/make-frame {:id fid :platform :client})
@@ -183,7 +181,7 @@
    :page/other-response))
 
 (defn- boot-page-without-isolation!
-  "THE RED-BEFORE, kept permanently executable: `boot-one-root!` with the
+  "THE UNGUARDED TWIN, kept permanently executable: `boot-one-root!` with the
   try/catch deleted. This is the bare loop a host writes without the
   boundary — hydrate each root, mount it, move on. The first failure
   escapes and every root after it is never reached."
@@ -266,7 +264,7 @@
                           (str "conflict @" fail-idx))))))
 
 ;; ---------------------------------------------------------------------------
-;; The red-before — the same four levers, without the boundary
+;; The unguarded twin — the same four levers, without the boundary
 ;; ---------------------------------------------------------------------------
 
 (defn- measure-unisolated!
@@ -370,7 +368,7 @@
            dead root's install still protects it"))))
 
 ;; ---------------------------------------------------------------------------
-;; A payload the handler REFUSES never claims (rf2-gwye.19 / rf2-fzbj.10)
+;; A payload the handler REFUSES never claims
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The seed-did-not-land case above is a frame that is GONE. This is the
@@ -402,16 +400,16 @@
         (is (= before (rf/app-db-value fid))
             (str label ": the handler refused it, so app-db is unchanged"))
         (is (nil? (rf.ssr.install/installed-payload fid))
-            (str label ": MEASURED before the fix, the refused payload held "
-                 "the ledger claim for a seed that never landed"))
+            (str label ": the refused payload holds no ledger claim — a seed "
+                 "that never landed claims nothing"))
         (is (zero? @verified)
             (str label ": no verification runs against a seed that never landed"))
         (rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 7})
                                :root-id :page/good})
         (is (hydrated? fid)
-            (str label ": the corrected payload installs — before the fix it "
-                 "threw :rf.error/frame-payload-conflict against data that "
-                 "was never installed"))
+            (str label ": the corrected payload installs — a stale claim "
+                 "would throw :rf.error/frame-payload-conflict against data "
+                 "that was never installed"))
         (is (= :page/good (:installed-by (rf.ssr.install/installed-payload fid)))
             (str label ": and the claim is the corrected root's"))))))
 
@@ -419,7 +417,7 @@
   (testing "through hydrate-page!: a refused first root, a corrected second
             root on the SAME frame, and an unrelated third root. The refused
             root takes the client-only outcome; the corrected one seeds the
-            frame; the unrelated one boots as it always did."
+            frame; the unrelated one boots normally."
     (reg-bump!)
     (let [a        (fresh-frame!)
           b        (fresh-frame!)
@@ -433,8 +431,8 @@
                      {:frame b :root-id :page/peer :payload (payload-for {:count 7})
                       :mount-fn (mount! :peer)}])]
       (is (= [:hydrated :hydrated :hydrated] (mapv :status outcomes))
-          "MEASURED before the fix: [:hydrated :failed :hydrated] — the corrected
-           root met a conflict with the refused one's claim")
+          "every root boots — a claim left by the refused root would fail the
+           corrected one on a conflict: [:hydrated :failed :hydrated]")
       (is (nil? (:payload (first outcomes)))
           "the refused root reports what a client-only root reports: no payload")
       (is (= [:bad :good :peer] @mounted)
@@ -443,7 +441,7 @@
       (is (interactive? a) "and it is running")
       (is (= :page/good (:installed-by (rf.ssr.install/installed-payload a)))
           "the claim belongs to the root whose seed landed")
-      (is (hydrated? b) "the unrelated root booted as before"))))
+      (is (hydrated? b) "the unrelated root booted too"))))
 
 ;; ---------------------------------------------------------------------------
 ;; A contained failure is never silent
