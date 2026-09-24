@@ -81,9 +81,9 @@
                    "and then mutate the subscription cache during the render phase "
                    "while contributing ZERO collector edges — leaving a boundary that "
                    "never re-renders when that subscription moves, which is HD-002 "
-                   "clause (a)'s forbidden class. It used to succeed silently under "
-                   "some adapters and throw under others; now it refuses under all "
-                   "of them. Carrying the frame out of the render needs neither: "
+                   "clause (a)'s forbidden class, and it refuses under every "
+                   "adapter alike. "
+                   "Carrying the frame out of the render needs neither: "
                    "`(rf/capture-frame)` and `(rf/current-frame-id)` answer this "
                    "boundary's own frame inside a body, because a capture and an "
                    "identity read make no edge and no mutation.")})
@@ -221,8 +221,8 @@
   no edge. Lowered with no owner in scope it rebinds nil for each, and a
   handler lowered inside raises the ordinary
   `:rf.error/fresco-intent-outside-boundary`. A dispatch from INSIDE the
-  call is not policed; React's render-phase warnings are the report
-  (rf2-6c12m.20). Design record: docs/design/fresco/decisions.md HD-024,
+  call is not policed; React's render-phase warnings are the report.
+  Design record: docs/design/fresco/decisions.md HD-024,
   its 2026-08-03 and 2026-08-30 addenda."
   [_k f]
   (let [owner-dispatch *dispatch*
