@@ -748,8 +748,8 @@
     (add! (always-diet-for-state by-entry states path))
     ;; (d) a raised compound/parallel done signal
     ;; (`[:rf.machine/done <node-path>]`) selects the completed node's `:on-done`
-    ;; transition (a separate slot from `:on`); add its guard/action diet + the
-    ;; `:always` closure reachable from its target so an `:on-done` callback's
+    ;; transition (a separate slot from `:on`); add its guard/action diet + its
+    ;; target's `:entry` / `:always` diet so an `:on-done` callback's
     ;; `:rf.cofx/requires` is ensured before the done transition is selected.
     (on-done-diet-for-event by-entry states event region add! add-target!)
     ;; (d') a raised single-`:spawn` failure (`[:rf.machine.spawn/error
@@ -759,8 +759,8 @@
     ;; (e) the synthetic `:after` timer signal
     ;; (`[:rf.machine.timer/after-elapsed delay-key epoch decl-path]`) fires the
     ;; scheduling node's `:after`-table transition at decl-path/delay-key — a
-    ;; slot separate from `:on`. Add its candidates' guard/action diet + the
-    ;; `:always` closure from each target, mirroring `parallel-root-diet`'s
+    ;; slot separate from `:on`. Add its candidates' guard/action diet + each
+    ;; target's `:entry` / `:always` diet, mirroring `parallel-root-diet`'s
     ;; root-`:after` clause.
     (after-diet-for-event by-entry states event region add! add-target!)
     @acc))
