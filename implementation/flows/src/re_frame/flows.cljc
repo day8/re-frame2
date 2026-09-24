@@ -19,10 +19,9 @@
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.privacy :as rf.privacy]
-            ;; No require of `re-frame.flows.tooling` on EITHER runtime
-            ;; (rf2-kuky.86). The JVM-only require existed solely to back the
-            ;; `flow-algebra-view` facade alias; that is retired, so tooling is
-            ;; now unreachable from this facade on both runtimes and Closure
+            ;; No require of `re-frame.flows.tooling` on EITHER runtime: the
+            ;; facade carries no `flow-algebra-view` alias, so tooling is
+            ;; unreachable from this facade on both runtimes and Closure
             ;; removes it whenever no tool requires the sibling directly.
             [re-frame.trace :as rf.trace]))
 
@@ -45,19 +44,19 @@
 
 ;; Flow metadata is frame-scoped and therefore cannot use the frame-blind
 ;; registrar metadata slot. Both per-frame reads take one opts MAP with a
-;; REQUIRED `:frame` (rf2-kuky.84) — no ambient default, no trailing
+;; REQUIRED `:frame` — no ambient default, no trailing
 ;; frame-target sniffing.
 (def flows              rf.flows.registry/flows)
 (def flow-meta          rf.flows.registry/flow-meta)
 
 (def reg-flow           rf.flows.registry/reg-flow)
-;; rf2-kuky.80: no public `clear-flow` re-export here — the registrar inverse
-;; is the one kind-keyed `(rf/clear :flow id)`. The registry fn below stays as
+;; No public `clear-flow` re-export here — the registrar inverse
+;; is the one kind-keyed `(rf/clear :flow id)`. The registry fn below is
 ;; the late-bind hook target.
 (def reset-flows!       rf.flows.registry/reset-flows!)
 (def reset-last-inputs! rf.flows.registry/reset-last-inputs!)
 
-;; rf2-kuky.86: no `flow-algebra-view` facade alias. The flow algebra view
+;; No `flow-algebra-view` facade alias. The flow algebra view
 ;; ships NO public accessor (Derivations §Flows expose algebra views) — every
 ;; tool requires the bundle-isolated `re-frame.flows.tooling` directly, and
 ;; `re-frame.derivation.graph` reaches it through `requiring-resolve` on the
@@ -100,7 +99,7 @@
 
 (defn- sensitive-output?
   "True when the frame's elision registry classifies anything inside `output`,
-  written at the flow's `:output-path`, as sensitive (rf2-3x7nj.18.1).
+  written at the flow's `:output-path`, as sensitive.
 
   The wire walker that redacts the failure trace's `:value` slot decides. It
   runs here with `:large` left alone, and the output is sensitive exactly when
@@ -120,7 +119,7 @@
 (defn- explain-size-marker
   "The `:rf.size/large-elided` marker that stands in for a failing output's
   `:explain` when the frame's elision registry classifies anything in the
-  output large, else nil (rf2-srvio). `elided` is the output as the wire
+  output large, else nil. `elided` is the output as the wire
   walker elided it for the trace's `:value` slot, so the walker decides: the
   output is size-classified exactly when that walk placed a marker in it.
 
@@ -151,7 +150,7 @@
         schema (:schema flow)]
     (cond
       (not (live?)) false
-      ;; KEY-presence, not value truthiness (rf2-6eh5h): a present nil /
+      ;; KEY-presence, not value truthiness: a present nil /
       ;; false `:schema` on the flow is a declaration whose exact token is
       ;; delegated to the registered validator below; only an ABSENT key
       ;; means no declaration.
@@ -200,7 +199,7 @@
                       ;; the egress gate drops it. This runs after the seam,
                       ;; so sensitive wins over any size marker it substituted.
                       ;; Otherwise an output the registry classifies large
-                      ;; gets a size marker in place of `:explain` (rf2-srvio),
+                      ;; gets a size marker in place of `:explain`,
                       ;; as Spec 010's size arm does for a `:large?` schema —
                       ;; unless the seam already redacted it, since sensitive
                       ;; wins there too.
@@ -233,7 +232,7 @@
 ;; sort, same dirty check, same phases, same error id — so nothing here
 ;; branches on the caller except the two things that genuinely differ.
 ;;
-;; WHICH flows it may evaluate for the FIRST time (rf2-3x7nj.18.2). A drain is
+;; WHICH flows it may evaluate for the FIRST time. A drain is
 ;; where a flow's first evaluation belongs (Spec 013 §Why a direct `reg-flow`
 ;; does not settle), so the drain evaluates a flow with no dirty-check row. The
 ;; direct-clear settle does not: it re-evaluates only flows that have already
@@ -403,7 +402,7 @@
         ;; whole attribution mechanism: an `assoc-in` that cannot write the
         ;; declared `:output-path` into the pending app-db is structurally
         ;; unreachable from the derive handler, so it can never be reported as
-        ;; the programmer's `:derive` fn throwing (rf2-gpj9r).
+        ;; the programmer's `:derive` fn throwing.
         (let [started-at-ms  (when rf.interop/debug-enabled? (rf.interop/now-ms))
               derive-outcome (try
                                {::output (apply (:derive flow) new-inputs)}
@@ -456,7 +455,7 @@
 (defn- first-evaluation-deferred?
   "True when this pass must leave `flow` untouched for the next drain: it is
   the direct-clear settle, and the flow has not evaluated since it was
-  (re-)registered (rf2-3x7nj.18.2). The flow's slot, and anything established
+  (re-)registered. The flow's slot, and anything established
   downstream of it, keep their current values until that drain — the stale
   but OWNED state Spec 013 §Re-registration already accepts. The drain itself
   never defers: a first evaluation is its job."
@@ -528,9 +527,9 @@
   vacations, then rethrows. The router discards the pending db, preserving
   all-or-nothing event semantics."
   ([frame-id db runtime-db]
-   ;; Preserve the established three-argument late-bind contract. Inside an
+   ;; The three-argument late-bind contract. Inside an
    ;; event, core's private owner binding supplies the exact A token; direct
-   ;; callers have no token and retain the legacy frame-id-scoped behaviour.
+   ;; callers have no token and get frame-id-scoped (non-exact) behaviour.
    (if-let [owner-token (rf.frame/current-event-owner-token)]
      (run-flows-on-db* frame-id db runtime-db owner-token true)
      (run-flows-on-db* frame-id db runtime-db nil false)))
@@ -550,7 +549,7 @@
   same dirty check, same failure taxonomy — it only supplies the db and writes
   the result back, with one exception: it performs no FIRST evaluation. A flow
   that has not evaluated since it was (re-)registered is left for the next
-  drain (`first-evaluation-deferred?`, rf2-3x7nj.18.2), because a direct
+  drain (`first-evaluation-deferred?`), because a direct
   `reg-flow` promises exactly that and a clear of some other flow must not
   break the promise.
 
@@ -570,19 +569,19 @@
   unwinds with it because the settle is synchronous.
 
   The pass ALSO runs under `owner-token`'s exact-owner trace continuation
-  (rf2-gwye.63). `:exact-owner-token` fences the pass's own writes — cache,
+  `:exact-owner-token` fences the pass's own writes — cache,
   output, validation — but a trace it emits is a separate callback pipeline
   whose stages recheck ownership only while a continuation predicate is
   installed (`trace/continuation-live?` reads the always-true default
   otherwise), and this settle runs inside the cold serialized region, which
   DEFERS listener delivery past the release. `deferred-continue` captures
   whatever predicate stood at emit time, so without this wrap the dependent's
-  `:rf.flow/computed` fan-out carries the always-continue default: a listener
-  that destroys A mid-fan-out no longer suppresses the listeners behind it,
-  and the observer receives A's computed evidence after A's destruction was
-  claimed. Every other route already supplies one — the ordinary event route
+  `:rf.flow/computed` fan-out would carry the always-continue default: a listener
+  that destroys A mid-fan-out would not suppress the listeners behind it,
+  and the observer would receive A's computed evidence after A's destruction was
+  claimed. Every other route supplies one — the ordinary event route
   inherits the router's, and the sibling direct register / replace / clear
-  emits install their own (rf2-pwum1g, rf2-rxsldx). The scope wraps the WHOLE
+  emits install their own. The scope wraps the WHOLE
   pass, not the computed emit alone, so the sibling skip / failure / schema
   observations cannot escape it either, and it AND-composes with any enclosing
   predicate.
@@ -627,5 +626,5 @@
 (rf.late-bind/set-fn! :flows/teardown-on-frame-destroy!
                    rf.flows.registry/teardown-on-frame-destroy!)
 ;; Core's `:fx` walk settles a frame whose state it changed only when the frame
-;; holds a flow (rf2-3x7nj.9.7).
+;; holds a flow.
 (rf.late-bind/set-fn! :flows/frame-has-flows? rf.flows.registry/frame-has-flows?)
