@@ -1,5 +1,5 @@
 (ns re-frame.epoch-jvm-prod-gate-test
-  "rf2-sk5hf — READ THIS FIRST. Despite the namespace's name, this suite is
+  "READ THIS FIRST. Despite the namespace's name, this suite is
   NOT THE LOAD-TIME GATE. Every test below rebinds
   `re-frame.interop/debug-enabled?` with `with-redefs`, which happens after the
   framework has loaded; the gate itself is read ONCE at `re-frame.interop` load
@@ -7,10 +7,10 @@
   runs. What is pinned here is that the epoch surfaces honour a REBOUND flag —
   a real contract, and not the production posture.
 
-  rf2-9c2jf is why the distinction is worth a paragraph: a TOTAL
-  `dispatch-sync` failure under the documented gate, handler run ZERO times,
-  green for as long as it existed, camouflaged by a roster of suites whose
-  NAMES said `prod_gate` while not one of them ran under it.
+  The distinction is worth a paragraph because a load-time defect can fail
+  `dispatch-sync` TOTALLY under the documented gate — handler run ZERO times —
+  and stay green behind a roster of suites whose NAMES say `prod_gate` while
+  not one of them runs under it.
 
   The lanes that DO reach the load-time gate:
 
@@ -30,41 +30,35 @@
     * `re-frame.prod-gate-dispatch-jvm-test` — the child-JVM pattern for a
       defect that only reproduces at load time.
 
-  THE EPOCH ARTEFACT NOW HAS SUCH A LANE (rf2-bo8lq). `:prod-gate` in
+  THE EPOCH ARTEFACT HAS SUCH A LANE: `:prod-gate` in
   `implementation/epoch/deps.edn`, `scripts/test-epoch-prod-gate.sh`, the
-  `jvm-epoch-prod-gate` job and `re-frame.epoch-prod-gate-lane-pin-test` did not
-  exist when the paragraph above was written; the surfaces below had then never
-  executed under the posture they are about, which bit harder here than
-  elsewhere, the whole security rationale (rf2-vnjfg / rf2-0la4f) being that the
-  ring must not retain `:db-before` / `:db-after` / raw `:trace-events` in a
-  production heap.
+  `jvm-epoch-prod-gate` job and `re-frame.epoch-prod-gate-lane-pin-test`.
+  Without it the surfaces below would never execute under the posture they are
+  about, which matters more here than elsewhere: the whole security rationale
+  is that the ring must not retain `:db-before` / `:db-after` / raw
+  `:trace-events` in a production heap.
 
-  THIS FILE'S OWN DISCLAIMER STILL STANDS, and the distinction is worth keeping
-  straight now that both things are true at once. Every deftest below still
-  rebinds the Var, so this file still does not reach the load-time gate on its
-  own. What changed is that all but one of its deftests are now ALSO executed
-  by the lane above, in a JVM where the property is genuinely on the command
-  line — so the same assertions are made twice, once against a rebound flag and
-  once against a real one. The one remaining deftest is `^:requires-debug`: it
-  asserts epoch's DEV parity, which the production lane by definition cannot.
+  THIS FILE'S OWN DISCLAIMER STANDS beside that lane, and the two are worth
+  keeping straight. Every deftest below rebinds the Var, so this file does not
+  reach the load-time gate on its own. But all but one of its deftests are ALSO
+  executed by the lane above, in a JVM where the property is genuinely on the
+  command line — so the same assertions are made twice, once against a rebound
+  flag and once against a real one. The remaining deftest is
+  `^:requires-debug`: it asserts epoch's DEV parity, which the production lane
+  by definition cannot.
 
-  Stated precisely, since the loose version of this sentence caused the original
-  confusion: epoch reads the gate only as `(when interop/debug-enabled? …)`
+  Stated precisely, since the loose version of this sentence is itself a
+  hazard: epoch reads the gate only as `(when interop/debug-enabled? …)`
   inside fn bodies, which is a runtime Var deref, so the rebinds below do reach
-  epoch's own gated branches — this suite was never vacuous. What a rebind
+  epoch's own gated branches — this suite is not vacuous. What a rebind
   cannot reach is what the framework decided while it LOADED under the dev
   default: top-level registrations, `defonce` initialisation, interceptor chains
-  composed once at load. That is the half the lane adds, and the half rf2-9c2jf
-  lived in.
+  composed once at load. That is the half the lane adds, and the half a total
+  `dispatch-sync` failure would live in.
 
-  HOW THIS WENT UNSAID FOR SO LONG, worth recording because the mechanism is
-  general. rf2-f7qj4 re-docstringed the three core suites in exactly this shape
-  and wrote a ratchet — `re-frame.prod-gate-naming-drift-test` — to stop the
-  next one. That ratchet enumerated core's test tree only, so it never saw this
-  file; `re-frame.interop-debug-gate-test`'s docstring meanwhile asserted that
-  the epoch suite \"carries the same caveat\", which was simply not true. A
-  cross-reference is not a check. rf2-sk5hf widened the walk to every
-  artefact's `test/` tree, and this file is the one thing it found.
+  `re-frame.prod-gate-naming-drift-test` holds every artefact's `test/` tree
+  to that distinction: a file whose name claims the gate must reach it or
+  disclaim it. This file disclaims it, in the sentence at the top.
 
   ## What this suite pins
 
@@ -82,15 +76,15 @@
   `re-frame.jvm-prod-gate-integration-test`. This file is the epoch
   artefact's contribution.
 
-  ## Why every negative assertion below is paired with a WITNESS (rf2-t7qh8)
+  ## Why every negative assertion below is paired with a WITNESS
 
   Almost everything this suite claims is an ABSENCE — an empty ring, a silent
   listener, a record that was never assembled. An absence is
   satisfied by two different worlds: the gate elided the recording (the claim),
-  or the dispatch never happened at all (a defect). rf2-9c2jf was the second
-  world — `dispatch-sync` running its handler ZERO times under the documented
-  gate — and a bare `(is (empty? …))` cannot tell them apart. It reports green
-  for both, which is what let rf2-9c2jf live.
+  or the dispatch never happened at all (a defect). A load-time defect puts a
+  run in the second world — `dispatch-sync` running its handler ZERO times
+  under the documented gate — and a bare `(is (empty? …))` cannot tell the two
+  apart: it reports green for both.
 
   So each of these deftests asserts, beside the absence, that the dispatch it is
   reasoning about actually landed: the handler's app-db write is read back
@@ -108,17 +102,17 @@
             ;; (see epoch_test.clj for the same dance).
             [re-frame.machines]))
 
-;; rf2-yw1w1u — canonical capture/restore fixture. Snapshots the
+;; Canonical capture/restore fixture. Snapshots the
 ;; registrar at ns-load + restores around each test, fires the epoch
 ;; reset-hook table (history / listeners / config-to-default), and the
 ;; `:init-fn` re-applies the suite's non-default `:trace-events-keep 5`
-;; (NOT the shipped 50 = :depth; Mike pair-debug 2026-05-27) through the
+;; (NOT the shipped 50 = :depth) through the
 ;; public `configure!` boundary — no test ns reaches into the private
 ;; `state/config` var. The `:init-fn` runs OUTSIDE each test's
 ;; `(with-redefs [interop/debug-enabled? false] ...)`, so config lands at
 ;; the normal gate value.
 ;;
-;; EP-0002 (rf2-9o48ih / rf2-nn0jqa): `init!` no longer synthesises
+;; EP-0002: `init!` does not synthesise
 ;; `:rf/default`. The canonical fixture, when handed an `:adapter`, ALSO
 ;; ensures the conventional `:rf/default` frame and binds it as the body's
 ;; ambient scope — the carried-invariant equivalent of wrapping every test
@@ -131,18 +125,18 @@
     {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 5}}))}))
 
-;; rf2-t7qh8 — the witness read. See the docstring section above: it is what
+;; The witness read. See the docstring section above: it is what
 ;; separates "epoch recorded nothing" from "nothing happened".
 (defn- app-db-of [frame-id]
   (:rf.db/app (rf/frame-state-value frame-id)))
 
 (deftest epoch-history-inert-when-debug-disabled
-  (testing "Per rf2-0la4f: when the JVM debug gate reads false, the
+  (testing "when the JVM debug gate reads false, the
             per-frame epoch ring stays empty regardless of how many
             events drain. No `:db-before` / `:db-after` /
-            `:trace-events` payloads land in heap memory — the
-            primary motivating concern of the audit (tokens / PII /
-            secrets retained in SSR process memory) is addressed."
+            `:trace-events` payloads land in heap memory, so no
+            tokens / PII / secrets are retained in SSR process
+            memory."
     (with-redefs [rf.interop/debug-enabled? false]
       (rf/reg-event :prod-gate.epoch/inc
                        (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
@@ -156,7 +150,7 @@
           "epoch ring is empty under disabled debug gate"))))
 
 (deftest epoch-cb-silent-when-debug-disabled
-  (testing "Per rf2-0la4f: a registered epoch listener does NOT
+  (testing "a registered epoch listener does NOT
             fire under the disabled debug gate. No record fan-out
             means no tool/plugin callback in-process can observe
             `:db-before` / `:db-after` / raw trace vectors."
@@ -175,7 +169,7 @@
             "epoch listener silent under disabled debug gate")))))
 
 (deftest restore-epoch-refuses-when-debug-disabled
-  (testing "Per rf2-0la4f: `restore-epoch!` MUST refuse to operate
+  (testing "`restore-epoch!` MUST refuse to operate
             when the JVM debug gate is off. The state-rewrite admin
             surface is dev-only; SSR production processes do NOT
             give arbitrary in-process code the ability to mutate
@@ -185,7 +179,7 @@
           "restore-epoch! returns false (refuses to operate)"))))
 
 (deftest replay-epoch-refuses-when-debug-disabled
-  (testing "rf2-ov144: `replay-epoch!` is gated exactly like `restore-epoch!`
+  (testing "`replay-epoch!` is gated exactly like `restore-epoch!`
             — under the disabled gate it returns `false`, resolves no record
             and dispatches nothing. The dispatch-shaped time-travel surface
             is dev-only for the same reason the state-rewrite one is."
@@ -217,15 +211,14 @@
       (is (false? (rf/replace-frame-state! :rf/default {:rf.db/app {:any "db"}}))
           "replace-frame-state! returns false (refuses to operate)"))))
 
-;; rf2-bo8lq — `^:requires-debug` (core's existing dev-only declaration,
-;; rf2-d2841). This deftest is a statement about the DEV posture, so the epoch
-;; production-gate lane excludes it (`-e :requires-debug` in the `:prod-gate`
-;; alias). Measured, not guessed: under a real load-time `-Dre-frame.debug=false`
-;; it is one of exactly two reds in this namespace, and both are these dev-parity
-;; sanity tests. A `(when interop/debug-enabled? …)` posture arm would be the
-;; WRONG repair — it would leave a deftest with no assertion at all under the
-;; gate, reporting green for a run that executed nothing, which is the false
-;; green this programme exists to close. It still runs, exactly once, in
+;; `^:requires-debug` is core's dev-only declaration. This deftest is a
+;; statement about the DEV posture, so the epoch production-gate lane excludes
+;; it (`-e :requires-debug` in the `:prod-gate` alias): under the real
+;; load-time gate the ring is empty, so it fails by design. A
+;; `(when interop/debug-enabled? …)` posture arm would be the WRONG repair — it
+;; would leave a deftest with no assertion at all under the gate, reporting
+;; green for a run that executed nothing, which is the false green the
+;; production-gate lane exists to close. It runs exactly once, in
 ;; `clojure -M:test`.
 (deftest ^:requires-debug epoch-still-records-with-default-gate
   (testing "Sanity: with the gate at its default `true` reading
@@ -238,10 +231,10 @@
     (is (pos? (count (rf.epoch/epoch-history :rf/default)))
         "epoch ring has at least one record under default gate")))
 
-;; ---- rf2-vq5o0 privacy-surface JVM false-path coverage ------------------
+;; ---- privacy-surface JVM false-path coverage ----------------------------
 
 (deftest whole-ring-projection-empty-under-disabled-gate
-  (testing "Per rf2-mrsck / rf2-vq5o0: with the JVM debug gate off,
+  (testing "with the JVM debug gate off,
             no records land in the ring, so the whole-ring projection
             composition reads the empty vector. The projection surface composes with the
             production-elision gate at the upstream (record assembly)
@@ -260,7 +253,7 @@
           "empty whole-ring projection under the disabled gate"))))
 
 (deftest sensitive-rollup-not-computed-under-disabled-gate
-  (testing "Per rf2-mrsck: the sensitive rollup is computed once per
+  (testing "the sensitive rollup is computed once per
             assembled record (in build-record). The gate-disabled
             path elides record assembly entirely; the rollup never
             runs. We verify by asserting the ring stays empty — no
@@ -277,7 +270,7 @@
           "no record assembled — rollup never reached"))))
 
 (deftest project-egress-pure-transform-survives-disabled-gate
-  (testing "Per rf2-vq5o0: project-egress is a pure data transform
+  (testing "project-egress is a pure data transform
             — it does NOT consult interop/debug-enabled?. A consumer
             that already holds a record (replayed in a JVM test
             fixture, or surfaced from a recorded session) can still
