@@ -23,13 +23,12 @@
 ;; is in place by the time `discover-app` probes.
 ;;
 ;; `:deps true` routes classpath resolution through this
-;; artefact's `deps.edn`. The earlier shape declared `:dependencies`
-;; here AND a parallel set of `:local/root` entries in `deps.edn` —
+;; artefact's `deps.edn`, and no `:dependencies` are declared here:
 ;; shadow-cljs's own `:dependencies` slot wins when both are present,
-;; so the `:local/root "../../../../implementation/core"` entry (and
-;; therefore `re-frame.core`) was silently dropped and the build
-;; failed with "namespace re-frame.core not available". Same idiom
-;; as `tools/re-frame2-pair-mcp/shadow-cljs.edn`.
+;; so a parallel set here would silently drop the
+;; `:local/root "../../../../implementation/core"` entry (and therefore
+;; `re-frame.core`) and fail the build with "namespace re-frame.core
+;; not available". Same idiom as `tools/re-frame2-pair-mcp/shadow-cljs.edn`.
 ;;
 ;; The nREPL port file lands at `.shadow-cljs/nrepl.port` (shadow-cljs
 ;; 3.x default cache-root); the hermetic orchestrator and re-frame2-pair-mcp's
@@ -53,15 +52,16 @@
  ;; projections, the multi-frame resolver, the id-validation core, the
  ;; epoch timing + matcher, the snapshot
  ;; scope resolver, and the orient assembler — rather than a Babashka mirror
- ;; that could drift from the shipped code (rf2-etsj8p). Run with
+ ;; that could drift from the shipped code. Run with
  ;; `shadow-cljs compile pure-test && node target/pure-test.js`.
- ;; The build also carries `runtime-frame-image-test` (rf2-fzbj.15): the
+ ;; The build also carries `runtime-frame-image-test`: the
  ;; call-time id validation resolves through a frame's IMAGE, and only a
  ;; real frame + real `rf/image` + the real preload can witness that. It
  ;; is the same artefact under test — the shipped preload — reached one
  ;; layer up from its pure core, so it runs in the same build rather than
  ;; in a second one. Hence `-test$` rather than `pure-test$`; the build id
- ;; and the `test:pure` script keep their names, which CI addresses.
+ ;; and the `test:pure` script are named for the pure core, and CI
+ ;; addresses them by those names.
  :pure-test
  {:target :node-test
  :output-to "target/pure-test.js"
