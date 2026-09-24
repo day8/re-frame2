@@ -16,14 +16,14 @@
   schemas without violating the opaque-schema boundary.
 
   A LOCAL `{:registry ...}` on a schema's own props is the one registry shape
-  the walk CAN see and therefore must fail closed on (rf2-amgtr): the props map
+  the walk CAN see and therefore must fail closed on: the props map
   names the referenced shapes outright, so — unlike a bare keyword reference —
   there is no ambiguity with a primitive to trade against. Its values are still
   not walked; the form classifies opaque and registration nudges once.
 
   Register vector-form EDN when per-slot flags must be visible. Compiled,
   nested opaque and local-registry schemas fail closed in validation redaction;
-  keyword registry references remain flag-invisible and therefore require the
+  keyword registry references are flag-invisible and therefore require the
   vector form for precise privacy declarations.
   The traversal is parameterized by flag key so both supported flags share the
   same operator and path semantics."
@@ -70,13 +70,13 @@
   coordinate system: the runtime elision walk descends a tuple / event-
   vector value (a vector) through its literal-index fork (`fork-index-paths`
   — `(conj c i)` in `re-frame.elision`), which matches a position-pinned
-  declaration exactly. No elision-side change is required — the index fork
-  is schema-agnostic (it walks the runtime value), so `:cat`/`:catn`/`:tuple`
-  all align through the same generic path.
+  declaration exactly. The elision side needs nothing position-specific —
+  the index fork is schema-agnostic (it walks the runtime value), so
+  `:cat`/`:catn`/`:tuple` all align through the same generic path.
 
   `:tuple` is always positional. A `:cat` / `:catn` is positional only when
   `fixed-width-sequence?` holds and it is not itself spliced into an
-  enclosing regex op; otherwise its elements descend index-free (rf2-gwye.11)."
+  enclosing regex op; otherwise its elements descend index-free."
   #{:tuple :cat :catn})
 
 (defn- schema-properties
@@ -99,7 +99,7 @@
 (def ^:private regex-ops
   "Malli's sequence (regex) operators. As an element of an enclosing sequence
   one of these is SPLICED into it and consumes zero, one or many input values,
-  so its input position cannot be read off its schema position (rf2-gwye.11)."
+  so its input position cannot be read off its schema position."
   #{:cat :catn :alt :altn :? :* :+ :repeat})
 
 (defn- sequence-element-schema
@@ -118,7 +118,7 @@
   `:tuple`, and for a `:cat` / `:catn` only when every element consumes
   exactly one value — a keyword, symbol, fn, or non-regex vector form. A
   regex, malformed or compiled element makes the width unknowable from the
-  pure data (rf2-gwye.11), so the node falls back to a whole-node decision."
+  pure data, so the node falls back to a whole-node decision."
   [op children]
   (or (= op :tuple)
       (every? (fn [child]
@@ -198,8 +198,7 @@
       `:catn` with a regex element (`[:cat [:* :int] Payload]`) cannot map an
       input index to an element, so it descends like `:sequential` — every
       element at the SAME `base-path`, `:catn` entry flags claiming
-      `base-path` — and value-path alignment falls back to the whole node
-      (rf2-gwye.11).
+      `base-path` — and value-path alignment falls back to the whole node.
 
     - Other positional / nameless container ops (`:vector`, `:set`,
       `:sequential`, `:maybe`, `:and`, `:or`, `:not`, …) descend into each
@@ -221,7 +220,7 @@
 (defn- walk-flags
   "The recursion behind `walk-flagged-schema`. `spliced?` is true when
   `schema` is an element of a regex op, where a `:cat` / `:catn` is spliced
-  into the enclosing sequence and owns no input positions (rf2-gwye.11)."
+  into the enclosing sequence and owns no input positions."
   ([flag-key schema base-path acc spliced?]
    (cond
      ;; Keyword schema (`:string`, `:int`, `:any`, registry-name kw, …)
@@ -268,7 +267,7 @@
 
          ;; A non-positional `:catn` is entry-shaped exactly like a
          ;; dispatch-bearing op: entry flags and element schemas both claim
-         ;; the base-path (rf2-gwye.11).
+         ;; the base-path.
          (or (contains? dispatch-bearing-ops op)
              (and (= op :catn) (not positional?)))
          (reduce
@@ -292,9 +291,8 @@
            acc'
            children)
 
-         ;; `:tuple` / `:cat` / `:catn` — position-bearing (`:tuple`
-         ;; rf2-ss06u.4; `:cat`/`:catn` rf2-4q681i). Each element has its
-         ;; OWN schema; element `i` descends at `(conj base-path i)` so a
+         ;; `:tuple` / `:cat` / `:catn` — position-bearing. Each element has
+         ;; its OWN schema; element `i` descends at `(conj base-path i)` so a
          ;; per-position `:sensitive?` / `:large?` flag claims that exact
          ;; index, NOT the shared base-path. Mirrors the `:map` name-bearing
          ;; descent with integer position keys, giving the sibling precision
@@ -306,7 +304,7 @@
          ;; schema's props, both claiming `(conj base i)`. Either shape
          ;; descends the element schema at the position-pinned path. A
          ;; variable-width or spliced `:cat` is not `positional?` and takes
-         ;; the index-free `:else` descent instead (rf2-gwye.11).
+         ;; the index-free `:else` descent instead.
          positional?
          (first
            (reduce
@@ -376,8 +374,8 @@
   This is the extractor for a schema built PER CALL rather than registered
   at boot — a managed-HTTP request's `:decode`, where a literal operand such
   as `[:= id]` makes every request's schema a distinct value. Fed to the
-  never-evicted memo, each such schema would be a permanent entry
-  (rf2-3x7nj.19.4). So this, not the memo, is what the
+  never-evicted memo, each such schema would be a permanent entry. So
+  this, not the memo, is what the
   `:schemas/extract-sensitive-paths-from-schema` late-bind hook publishes to
   other artefacts."
   [schema base-path]
@@ -508,15 +506,15 @@
 ;; ops the tail is DATA — `[:= 42]` holds the value `42`, `[:enum 1 2]` the
 ;; members, `[:> 10]` a comparator bound, `[:re "x"]` a pattern — and the
 ;; scalar primitives (`:int`, `:string`, …) carry no child schema at all.
-;; Recursing into those data operands is the rf2-3fc89f.12
-;; bug: an ordinary literal (`42`, `"x"`) reaches the opaque `:else` and the
-;; whole schema is false-flagged as carrying an opaque child. So the walk
+;; Recursing into those data operands would be wrong: an ordinary literal
+;; (`42`, `"x"`) would reach the opaque `:else` and false-flag the whole
+;; schema as carrying an opaque child. So the walk
 ;; projects the true child schemas per operator instead of treating every tail
 ;; element as a child. Classification is structural (no Malli/validator
 ;; introspection) and covers the shipped Malli 0.20.1 default registry.
 ;;
-;; `[:ref ::k]` is the one data tail that does NOT make its form walkable
-;; (rf2-3aafh). Its tail is data, so the walk cannot descend it — but the
+;; `[:ref ::k]` is the one data tail that does NOT make its form walkable.
+;; Its tail is data, so the walk cannot descend it — but the
 ;; shape it names holds the per-slot flags, so a clean walk here would report
 ;; flag-free on a schema whose flags simply live elsewhere. It fails closed,
 ;; on the opaque side, alongside a local `:registry`.
@@ -550,7 +548,7 @@
 ;; (scalar primitives). The opacity walk MUST NOT descend into these — their
 ;; tails are operands, not child schemas.
 ;;
-;; `:ref` is deliberately NOT a member (rf2-3aafh). Its tail is data too, but
+;; `:ref` is deliberately NOT a member. Its tail is data too, but
 ;; being un-descendable is not the same as being flag-free: the referenced
 ;; shape carries the per-slot flags and lives where the walk cannot reach it.
 ;; It gets its own fail-closed arm in `opacity-child-schemas` instead.
@@ -568,14 +566,14 @@
   map is metadata to the walk, and the child is a bare keyword the walker
   deliberately treats as a flag-free primitive (see `schema-opaque?`).
 
-  Registry VALUES are deliberately NOT walked (rf2-amgtr). Walking them would
+  Registry VALUES are deliberately NOT walked. Walking them would
   mean resolving references, which is schema interpretation — the job Spec 010
   §The `:schema` value is opaque to re-frame reserves for the registered
   validator. Fail-closed over-redaction is the documented direction: the whole
   failure redacts and registration nudges once toward the walkable shape.
 
   The explicit `[:ref …]` form fails closed for the same reason and by the
-  same route (rf2-3aafh) — a second spelling of the same unresolvable
+  same route — a second spelling of the same unresolvable
   reference, classified by its own arm in `opacity-child-schemas`.
 
   Returns boolean. Pure."
@@ -600,19 +598,19 @@
   to the opacity walk (see the operator-classification note above). Returns a
   sequence of child schemas for a known structural op, an empty sequence for a
   known literal / scalar op (its tail is data), or `::opaque` for a schema
-  carrying a local `:registry`, for an explicit `[:ref …]` reference form
-  (rf2-3aafh), or for an unclassified op — in every case the walk cannot
+  carrying a local `:registry`, for an explicit `[:ref …]` reference form,
+  or for an unclassified op — in every case the walk cannot
   prove the schema's flags are reachable, so it fails closed."
   [schema]
   (let [op (nth schema 0)]
     (cond
-      ;; rf2-amgtr — a local `:registry` puts the referenced shapes (and their
+      ;; A local `:registry` puts the referenced shapes (and their
       ;; per-slot flags) behind keyword references the walk resolves nowhere.
       ;; Checked BEFORE the op dispatch: the props map is op-independent, and
       ;; the ops it lands on are the walkable ones (`:schema` / `:map` / …)
       ;; whose classification would otherwise report a clean, flag-free walk.
       (schema-local-registry? schema)     ::opaque
-      ;; rf2-3aafh — an explicit `[:ref ::k]` is a reference whose target the
+      ;; An explicit `[:ref ::k]` is a reference whose target the
       ;; pure-data walk resolves nowhere, so a `{:sensitive? true}` slot on the
       ;; referenced shape is honoured by Malli and invisible here. Fail closed,
       ;; like a local `:registry`. The BARE keyword (`::k`) stays walkable: a
@@ -637,8 +635,8 @@
   inspects that entry before its tail). Literal / config operands (`:=` value,
   `:enum` members, comparator bounds, `:re` pattern) are DATA, not child
   schemas, so the projection never descends into them. An explicit `[:ref …]`
-  is data-tailed too, but classifies `::opaque` rather than walkable
-  (rf2-3aafh): the shape it names carries the per-slot flags, and the walk
+  is data-tailed too, but classifies `::opaque` rather than walkable:
+  the shape it names carries the per-slot flags, and the walk
   resolves it nowhere. Only ever called on a descended value, never on the
   caller's original root argument —
   see `schema-has-opaque-child?` for the root/nested split."
@@ -660,19 +658,19 @@
   unclassified operator shape. Redaction and registration warnings use this
   recursive predicate so a compiled child cannot hide inside a walkable root.
 
-  The recursion is OPERATOR-AWARE (rf2-3fc89f.12): it descends only the true
+  The recursion is OPERATOR-AWARE: it descends only the true
   child-schema positions of each Malli operator. Literal / config operands
   (`:=` value, `:enum` members, `:re` pattern, comparator bounds, scalar
   primitives) are DATA, not child schemas, so they are NOT recursed into —
   an ordinary `[:= 42]` / `[:enum 1 2]` is fully walkable and
-  NOT opaque. An explicit `[:ref …]` is the exception (rf2-3aafh): its tail is
+  NOT opaque. An explicit `[:ref …]` is the exception: its tail is
   data as well, but the shape it references holds the per-slot flags and the
   pure-data walk resolves it nowhere, so it fails CLOSED like a local
   `:registry`. An actual compiled value in a real schema position (a `:map`
   slot's tail, a container element, a `:map-of` key/value, a `:cat`/`:tuple`
   element, a `:multi`/`:orn` branch, …) still fails closed, as does a genuinely
   unknown operator shape, as does a local `:registry` at any depth
-  (`schema-local-registry?`, rf2-amgtr).
+  (`schema-local-registry?`).
 
   Root functions and symbols are opaque and fail closed (via `schema-opaque?`).
   The same values used as nested schema tails are considered flag-free because
@@ -703,8 +701,8 @@
 ;; path that descends INTO collection elements (`[1 :token]` for a
 ;; vector-of-maps, `["a" :secret]` for a map-of), but the walker builds
 ;; its `{path declaration}` map at INDEX-FREE base-paths — homogeneous
-;; positional / keyed containers descend at the same base-path (walker
-;; comment lines ~145-148) because the element index is not a declarable
+;; positional / keyed containers descend at the same base-path (see
+;; `walk-flagged-schema`) because the element index is not a declarable
 ;; app-db slot. Aligning the two coordinate systems means dropping the
 ;; collection-navigation segment that these ops contribute. `:map-of`
 ;; descends into its VALUE schema (child index 1); the homogeneous
@@ -742,7 +740,7 @@
   either subtree is opaque. `:map` segments are kept (real app-db
   keys); index-bearing-op segments are dropped.
 
-  Per rf2-ss06u.2 the fallback MUST carry `aligned-prefix` (the segments
+  The fallback MUST carry `aligned-prefix` (the segments
   consumed so far) alongside the leftover subschema: a `:sensitive?`
   declaration on an ANCESTOR that align-in-path already consumed and
   discarded (e.g. `[:s]` marked sensitive, the failing leaf `[:s :k]`
@@ -755,7 +753,7 @@
   too, so a descendant failure under a sensitive ancestor stays
   redacted + stamped.
 
-  Per rf2-hi0tf8 the `:ok` outcome ALSO carries the `leaf-schema` the
+  The `:ok` outcome ALSO carries the `leaf-schema` the
   walk arrived at (the schema at `in-path`'s terminus), not just the
   aligned path: a path can resolve cleanly through vector-form `:map` /
   `:tuple` / … structure right up to a NESTED opaque child (a compiled
@@ -800,8 +798,7 @@
               ;; Key not found in the schema (shape drift) — fail-SAFE.
               [:fallback schema aligned-path])
 
-            ;; `:tuple` / `:cat` / `:catn` — POSITION-bearing (`:tuple`
-            ;; rf2-ss06u.4; `:cat`/`:catn` rf2-4q681i). Unlike the
+            ;; `:tuple` / `:cat` / `:catn` — POSITION-bearing. Unlike the
             ;; homogeneous index-bearing ops below, each element has its OWN
             ;; schema, so the integer index IS a discriminating segment (the
             ;; positional analogue of a `:map` key). Malli reports the
@@ -810,16 +807,15 @@
             ;; in `aligned-path` — the walker emits per-position declaration paths
             ;; (`(conj base i)`), so a failure at element `i` aligns to that
             ;; same `[… i]` and prefix-matches ONLY that position's
-            ;; declaration. Dropping it (the prior `:cat` behaviour, which
-            ;; collapsed every element onto the shared base-path) made a
-            ;; sensitive sibling over-redact an unrelated non-sensitive
-            ;; failure — the rf2-4q681i fix. `:tuple`/`:cat` element `segment` is
+            ;; declaration. Dropping it would collapse every element onto the
+            ;; shared base-path and make a sensitive sibling over-redact an
+            ;; unrelated non-sensitive failure. `:tuple`/`:cat` element `segment` is
             ;; `children[segment]` (bare schema); `:catn` element `segment` is a
             ;; NAME-bearing entry (`[name props? schema]`) so we descend into
             ;; its schema part. A VARIABLE-WIDTH `:cat` / `:catn` (a regex
             ;; element) cannot say which element input index `segment`
             ;; addresses — `children[segment]` may be a different child — so
-            ;; it falls back to the whole node (rf2-gwye.11).
+            ;; it falls back to the whole node.
             (contains? position-bearing-ops op)
             (if-let [child (when (and (int? segment)
                                       (< segment (count children))
@@ -844,7 +840,7 @@
             ;; into the VALUE schema (child 1), because a `:map-of` key is a
             ;; navigable locator, not a declarable app-db slot. BUT when the
             ;; KEY SCHEMA (child 0) is itself sensitive-or-opaque
-            ;; (rf2-6ijdgh) the key IS the secret, and that sensitivity is
+            ;; the key IS the secret, and that sensitivity is
             ;; INVISIBLE once we descend into the value: an opaque / nested-
             ;; opaque key contributes NO walker declaration (the pure-data
             ;; walker's `:else` bailout silently skips a compiled `m/schema`
@@ -894,9 +890,9 @@
             ;; Any other op (`:and`/`:or`/`:multi`/`:orn`/registry refs/
             ;; opaque values) — we can't reliably resolve the segment;
             ;; redact fail-SAFE iff the leftover subschema OR the consumed
-            ;; ancestor prefix declares anything sensitive (rf2-ss06u.2 —
-            ;; the consumed ancestor's `:sensitive?` is invisible in the
-            ;; leftover, so the prefix MUST ride along).
+            ;; ancestor prefix declares anything sensitive (the consumed
+            ;; ancestor's `:sensitive?` is invisible in the leftover, so the
+            ;; prefix MUST ride along).
             :else
             [:fallback schema aligned-path]))))))
 
@@ -910,16 +906,16 @@
 (defn sanitize-sensitive-path
   "Return `in-path` with every VALUE-BEARING segment replaced by the
   `:rf/redacted` sentinel, walking `schema` in lockstep with the raw
-  `in-path`. Per rf2-ss06u.1 — privacy in the `:path` trace tag.
+  `in-path`. This is privacy in the `:path` trace tag.
 
   Malli reports a `:set` failure's `:in` segment as the failing element
   VALUE itself (not an index — sets have no positional index), e.g.
   `:in = ({:token 99 :ssn \"...\"} :token)`. `validate-app-schema!`
   concats the raw `:in` into the structural `:path` tag, which Spec 010
-  declares unredacted (`:path` is categorical / locator data) — so for a
-  `:set` the entire failing element map (including any sibling secrets in
-  it) ships VERBATIM in `:path`, defeating the `:sensitive?` redaction
-  the `:value` / `:explain` slots already apply.
+  declares unredacted (`:path` is categorical / locator data) — so,
+  unsanitised, a `:set` failure would ship the entire failing element map
+  (including any sibling secrets in it) VERBATIM in `:path`, defeating the
+  `:sensitive?` redaction the `:value` / `:explain` slots apply.
 
   Scrubbing rules:
 
@@ -927,7 +923,7 @@
       (it is both unnavigable AND value-bearing), even when scalar.
     - `:map-of` keys — navigable locators by default (KEEP them so `:path`
       stays a useful `get-in` locator), UNLESS the key SCHEMA itself is
-      declared `:sensitive?` (rf2-612mri). A `[:map-of [:string
+      declared `:sensitive?`. A `[:map-of [:string
       {:sensitive? true}] …]` uses the secret AS the key; Malli reports
       that secret verbatim as the `:in` key segment, so a failing value
       under a sensitive key would otherwise ship the secret in `:path` /
@@ -935,56 +931,54 @@
       schema declares sensitivity, the key segment is scrubbed.
     - DECLARED `:map` keys, `:vector` / `:sequential` / `:tuple` / `:cat` /
       `:catn` integer indices — navigable scalar locators; KEEP them so
-      `:path` stays a useful `get-in` locator for those shapes (the bead's
-      regression requirement). A `:map` segment that is NOT a declared child
-      is different (rf2-j538f7.13): a `[:map {:closed true} …]` extra-key
+      `:path` stays a useful `get-in` locator for those shapes. A `:map`
+      segment that is NOT a declared child is different: a
+      `[:map {:closed true} …]` extra-key
       failure reports the CALLER-SUPPLIED extra key itself as the segment —
       user data, possibly a credential — so the key-not-found branch fails
       closed INCLUDING the current segment.
     - A VARIABLE-WIDTH `:cat` / `:catn` (a regex element such as `:*` /
-      `:?`, rf2-gwye.11) cannot say which element an index addresses, so it
+      `:?`) cannot say which element an index addresses, so it
       takes the FAIL-CLOSED tail below.
     - Transparent wrappers contribute NO `:in` segment — descend without
       consuming. `:maybe` is genuinely single-child (`[:maybe inner]`) so
-      the lockstep walk continues precisely. `:and` / `:or` are MULTI-child
-      (rf2-jqx2at): with more than one child the branch that produced the
+      the lockstep walk continues precisely. `:and` / `:or` are MULTI-child:
+      with more than one child the branch that produced the
       failing `:in` cannot be identified from the path alone (an `:or` value
       matched some ONE branch; an `:and` value is constrained by ALL), so
       following only the first child can mis-classify a LATER branch's
       value-bearing segment — e.g. a `:sensitive?` `:map-of` key, or a `:set`
       element — as a navigable locator and ship it VERBATIM in `:path` /
-      `:reason` (the earlier draft treated `:and` / `:or` as single-child
-      transparent — the leak this closes). They descend ONLY in the
+      `:reason`. They descend ONLY in the
       degenerate single-child case (unambiguous); otherwise, like the
       multi-branch wrappers (`:multi` / `:orn`) and any other / opaque op,
       the branch is ambiguous and the walk drops to the FAIL-CLOSED tail.
 
-  FAIL-CLOSED tail (rf2-ss06u.1 / rf2-ss06u.2 / rf2-612mri): once the
+  FAIL-CLOSED tail: once the
   lockstep walk cannot confidently continue (a multi-branch / opaque op,
   or the schema bottoms out before the path does), EVERY remaining segment
   is scrubbed — scalars included. Past an unresolvable point the sanitizer
   cannot PROVE a segment is a structural locator: a scalar in the tail may
-  be a navigable index/key OR a value-bearing `:set` scalar element (the
-  rf2-612mri leak shape — `[:orn [:tokens [:set [:string {:sensitive?
-  true}]]]]` reports `:in = [123456789]`, the secret element itself, and
-  the prior scalar-keep pass leaked it into `:path` / `:reason`), and a
-  non-scalar can only be a value-bearing collection. Since the sanitizer
+  be a navigable index/key OR a value-bearing `:set` scalar element
+  (`[:orn [:tokens [:set [:string {:sensitive? true}]]]]` reports
+  `:in = [123456789]`, the secret element itself, which keeping scalars
+  would leak into `:path` / `:reason`), and a non-scalar can only be a
+  value-bearing collection. Since the sanitizer
   runs ONLY on slots already proven `:sensitive?`, fail-closed scrubbing of
   the unresolvable tail can never lose navigability that matters (the
   resolvable `:map` / `:vector` / `:tuple` / `:map-of` shapes keep their
   locators on their OWN branches above and never reach the tail) — and
-  keeping any tail scalar would under-redact. Per the bead: over-redaction
-  on these wrapper shapes is acceptable; the value-protection direction
-  must never under-redact. This closes both the deep nesting the
-  adversarial generator surfaced (`{:a #{{:auth #{{:secret …}}}}}` under an
-  `:orn`) and the scalar set-element leak (rf2-612mri).
+  keeping any tail scalar would under-redact. Over-redaction on these
+  wrapper shapes is acceptable; the value-protection direction must never
+  under-redact. This covers both deep nesting (`{:a #{{:auth #{{:secret
+  …}}}}}` under an `:orn`) and a scalar set element.
 
   Pure; same `(schema, in-path)` always produces the same output.
   Returns a vector."
   [schema in-path]
   (letfn [(fail-closed-tail [sanitized-path remaining-path]
             ;; Cannot resolve the schema further — scrub EVERY remaining
-            ;; segment (rf2-612mri). A tail scalar cannot be proven a
+            ;; segment. A tail scalar cannot be proven a
             ;; structural locator past an unresolvable op (it may be a
             ;; value-bearing `:set` element), so keeping it would
             ;; under-redact; the resolvable navigable shapes keep their
@@ -1021,12 +1015,12 @@
                          (subvec remaining-path 1)
                          (conj sanitized-path segment)))
                 ;; Key not found — the segment is NOT a declared slot, so it
-                ;; cannot be proven a structural locator (rf2-j538f7.13). For
+                ;; cannot be proven a structural locator. For
                 ;; a `[:map {:closed true} …]` extra-key failure Malli reports
                 ;; the CALLER-SUPPLIED EXTRA KEY VALUE itself as the `:in`
                 ;; segment — arbitrary user data (decoded JSON keys, headers,
                 ;; hostile input) that may itself be a credential. Keeping it
-                ;; (the earlier `(conj sanitized-path segment)` shape) shipped the secret
+                ;; would ship the secret
                 ;; VERBATIM through `:path` / `:reason` despite `:value` /
                 ;; `:explain` being redacted. Fail closed INCLUDING the
                 ;; current segment; declared keys keep the precise branch
@@ -1050,9 +1044,9 @@
               ;; secret and must be scrubbed, else it ships verbatim in
               ;; `:path` / `:reason` despite `:value` / `:explain` being
               ;; redacted. Two shapes:
-              ;;   - a VECTOR-form `:sensitive?` key (rf2-612mri) —
+              ;;   - a VECTOR-form `:sensitive?` key —
               ;;     `schema-has-sensitive?` sees it directly; and
-              ;;   - a COMPILED / nested-opaque key (rf2-6ijdgh),
+              ;;   - a COMPILED / nested-opaque key,
               ;;     `(m/schema [:string {:sensitive? true}])` or
               ;;     `[:and (m/schema …)]` — invisible to
               ;;     `schema-has-sensitive?` (the pure-data walker cannot
@@ -1072,7 +1066,7 @@
                        (subvec remaining-path 1)
                        (conj sanitized-path sanitized-segment)))
 
-              ;; A VARIABLE-WIDTH `:cat` / `:catn` (rf2-gwye.11) — the input
+              ;; A VARIABLE-WIDTH `:cat` / `:catn` — the input
               ;; index does not identify the element, so the lockstep walk
               ;; cannot continue. Fail CLOSED like any ambiguous op.
               (and (contains? position-bearing-ops op)
@@ -1082,8 +1076,8 @@
               ;; Other index-bearing ops — the segment is a navigable index
               ;; (`:vector` / `:sequential` / `:tuple` / `:cat` / `:catn`);
               ;; keep it and descend into the element schema. The
-              ;; per-position ops (`:tuple` / `:cat` / `:catn`, rf2-ss06u.4 /
-              ;; rf2-4q681i) index `children[segment]`; `:catn` then strips the
+              ;; per-position ops (`:tuple` / `:cat` / `:catn`) index
+              ;; `children[segment]`; `:catn` then strips the
               ;; decorative name (`[name props? schema]`) to reach the
               ;; element schema. The homogeneous ones (`:vector` /
               ;; `:sequential`) share one element schema (child 0).
@@ -1117,7 +1111,7 @@
                 (recur child remaining-path sanitized-path)
                 (fail-closed-tail sanitized-path remaining-path))
 
-              ;; `:and` / `:or` — MULTI-child wrappers (rf2-jqx2at). With
+              ;; `:and` / `:or` — MULTI-child wrappers. With
               ;; more than one child the branch that produced the failing
               ;; `:in` cannot be identified from the path alone (an `:or`
               ;; value matched some ONE branch; an `:and` value is
@@ -1139,7 +1133,7 @@
               (fail-closed-tail sanitized-path remaining-path))))))))
 
 (defn schema-sensitive-at?
-  "Path-targeted sensitivity check (rf2-oh4se). Returns true when the
+  "Path-targeted sensitivity check. Returns true when the
   slot at `in-path` inside `schema` is sensitive under Spec 010
   §`:sensitive?`. `in-path` is the navigation path relative to the
   schema's root (the value path Malli reports as `:in` in its explain
@@ -1159,7 +1153,7 @@
       re-leak it if shipped).
 
   Per Spec 010 §`:sensitive?` — privacy in schema-validation error
-  traces; replaces the coarse whole-schema `schema-has-sensitive?`
+  traces; used instead of the coarse whole-schema `schema-has-sensitive?`
   check at the `validate-app-schema!` emit-site when a leaf path is
   extractable from the explainer output.
 
@@ -1171,7 +1165,7 @@
   Malli's `:in` carries collection indices / `:map-of` keys
   (`[1 :token]`, `[\"a\" :secret]`) whereas the walker's decl paths are
   index-free (`[:token]`, `[:secret]`) — positional/keyed containers
-  descend at the same base-path. Per rf2-g5auo the raw `:in` is first
+  descend at the same base-path. The raw `:in` is first
   aligned to the walker's coordinate system (`align-in-path`) before the
   prefix match, so a `:sensitive?` slot nested inside a `:vector` /
   `:sequential` / `:set` / `:tuple` / `:map-of` is matched (and
@@ -1180,12 +1174,12 @@
   fail-SAFE: it redacts iff the leftover subschema declares anything
   sensitive OR is itself opaque / hides a nested opaque child (descendant
   under the unresolved op) OR a sensitive declaration is an ANCESTOR of
-  the already-consumed prefix (rf2-ss06u.2 — a `:sensitive?` container
+  the already-consumed prefix (a `:sensitive?` container
   the alignment already descended through and discarded, e.g. `[:s]`
   sensitive with the leaf `[:s :k]` under a transparent `:and` /
   `:multi` / `:orn` wrapper).
 
-  Per rf2-hi0tf8: even when the path DOES fully align (every segment
+  Even when the path DOES fully align (every segment
   resolves through recognised vector-form ops), the walk can arrive
   exactly AT a nested opaque child — e.g. `[:map [:token (m/schema
   [:string {:sensitive? true}])]]` resolving `[:token]` lands cleanly on
@@ -1206,17 +1200,17 @@
         ;;   - the leftover subschema carries any sensitive declaration
         ;;     (a descendant under the unresolved op), OR
         ;;   - the leftover subschema is itself opaque or hides a nested
-        ;;     opaque child (rf2-hi0tf8 — the unresolved op MAY be an
+        ;;     opaque child (the unresolved op MAY be an
         ;;     opaque compiled value directly, or a resolvable wrapper
         ;;     that embeds one further down), OR
         ;;   - a sensitive declaration is an ancestor of (or equal to) the
-        ;;     prefix align-in-path already consumed (rf2-ss06u.2 — the
+        ;;     prefix align-in-path already consumed (the
         ;;     consumed-ancestor `:sensitive?` is invisible in the leftover
         ;;     subtree; without this the failing value under a sensitive
         ;;     ancestor wrapped by :and/:multi/:orn LEAKS verbatim).
         ;; The ancestor check is `prefix? declaration-path aligned-prefix` only —
         ;; a sensitive SIBLING outside the consumed prefix must NOT taint
-        ;; the failing slot (preserves the precise-narrowing win). Here
+        ;; the failing slot (that keeps the check path-precise). Here
         ;; `aligned-prefix` is the third value in the `:fallback` shape.
         ;;
         ;; `opaque-nested-tail?`, not `schema-has-opaque-child?`:
@@ -1236,9 +1230,9 @@
                         (keys declarations))))))
         ;; Fully aligned (`:ok`). `aligned-path` is the declaration path;
         ;; `leaf-schema` is the schema the walk arrived at (the
-        ;; `:ok` shape). Per rf2-hi0tf8 that leaf may itself be a nested
+        ;; `:ok` shape). That leaf may itself be a nested
         ;; opaque child the path resolution walked straight into — check
-        ;; it alongside the existing ancestor/descendant sensitive-decl
+        ;; it alongside the ancestor/descendant sensitive-decl
         ;; scan. `opaque-nested-tail?` (not `schema-has-opaque-child?`) for
         ;; the same reason as the `:fallback` branch above — `leaf-schema` was
         ;; reached by descent, so a bare fn/symbol there is flag-free.
