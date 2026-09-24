@@ -7,7 +7,10 @@
 ;; Strings and unknown types pass through.
 ;;
 ;; Per rf2-3k3o7 + rf2-qot6ii a bare (unbounded) `:keyword` slot is both an
-;; unbounded keyword-interning DoS site (JVM keywords intern forever) AND
+;; unbounded keyword-interning DoS site (the URL chooses what gets interned;
+;; each intern is an allocation plus an insert into the process-global
+;; keyword table, and the keyword lives as long as something references it,
+;; so the cost is churn and retention rather than a permanent leak) AND
 ;; has no round-trippable URL form, so it is REJECTED fail-loud at
 ;; reg-route (rf2-qot6ii) — never coerced here. Authors who want a
 ;; keyword-typed slot declare an `[:enum :a :b ...]` allowlist — the
