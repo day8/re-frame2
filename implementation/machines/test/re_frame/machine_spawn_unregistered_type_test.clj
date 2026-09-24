@@ -9,7 +9,7 @@
   allocates NO spawned-id, records NO spawn-order entry, fires
   NO `:rf.machine.spawn/spawned` trace, and dispatches NO `:start`.
 
-  Pinned here (the bead's required contract):
+  Pinned here:
 
    1. **Single `:spawn` reject contract.** A declarative `:spawn` of an
       unregistered TYPE installs nothing (snapshot / slot /
@@ -32,7 +32,7 @@
       spec-less child would never reach a `:final?` state, so no completion
       would ever be minted for it, blocking
       `(= n-done n-total)` forever) AND it does not orphan the registered
-      siblings (rf2-qb1j5z). `spawn-all-init-fx` seeds a reject SENTINEL
+      siblings. `spawn-all-init-fx` seeds a reject SENTINEL
       (`{:rf/spawn-all-rejected? true}`, no `:children`): the join interceptor
       treats it as no live child-bearing join so a stray sibling completion is the documented
       no-op (no hang), and the registered siblings' per-child spawns detect
@@ -40,7 +40,7 @@
       seeded join to ever tear it down).
 
    5. **No false reject.** A registered `:machine-id` and an inline
-      `:definition` spawn still install cleanly (the gate fires only on the
+      `:definition` spawn install cleanly (the gate fires only on the
       unregistered-type case)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -136,7 +136,7 @@
             "exactly ONE always-on record for the rejected spawn")
         (let [r (first records)]
           (is (= :rf.error/machine-spawn-unregistered-type (:error r))
-              "the new always-on category")
+              "the always-on category")
           (is (= :ghost/worker (:machine-id r))
               "structural :machine-id names the unregistered TYPE")
           (is (= :rf/default (:frame r))
@@ -215,7 +215,7 @@
       (rf/reg-machine :sup/join parent)
       (let [records (with-error-records
                       #(rf/dispatch-sync [:sup/join [:start]]))]
-        ;; FAIL-CLOSED, and EXACTLY ONCE (rf2-smya7a). `spawn-all-init-fx`'s
+        ;; FAIL-CLOSED, and EXACTLY ONCE. `spawn-all-init-fx`'s
         ;; preflight is the SOLE emitter for a rejected invoke: the offending
         ;; child's own per-child spawn fx consults the invoke sentinel BEFORE
         ;; its child-local unregistered gate and suppresses silently, rather
@@ -231,7 +231,7 @@
                (get-in (frame-db) [:rf.runtime/machines :spawned :sup/join [:forking]]))
             "the reject sentinel (no :children) is seeded for a :spawn-all with an unregistered child")
         ;; ATOMIC reject: the registered sibling :gc/ok was SUPPRESSED — no
-        ;; orphan actor installed (rf2-qb1j5z).
+        ;; orphan actor installed.
         (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots :gc/ok#1]))
             "the registered sibling was suppressed — no orphan snapshot")
         (is (not (some #{:gc/ok#1} (rf.machines.spawn-order/frame-order :rf/default)))
@@ -270,7 +270,7 @@
             EXACTLY N dev traces — one per offending machine-id, never two.
             Duplicate production-surviving records distort off-box failure
             rates and make ONE malformed invoke look like TWO independent
-            boundary failures per child (rf2-smya7a)"
+            boundary failures per child"
     (let [ok-child {:initial :running :data {} :states {:running {}}}]
       (rf/reg-machine :card/ok ok-child)
       ;; :card/missing-a and :card/missing-b are NEVER reg-machine'd.
@@ -280,8 +280,8 @@
                                          {:id :b  :machine-id :card/missing-b}]))
       (let [records (with-error-records
                       #(rf/dispatch-sync [:sup/card [:start]]))]
-        ;; TWO offending children ⇒ TWO records. The old gate order (child-local
-        ;; unregistered check ahead of the invoke sentinel) produced FOUR.
+        ;; TWO offending children ⇒ TWO records. Checking the child-local
+        ;; unregistered gate ahead of the invoke sentinel would produce FOUR.
         (is (= 2 (count records))
             "exactly TWO always-on records — one per offending child, not four")
         (is (= [:card/missing-a :card/missing-b]
@@ -381,7 +381,7 @@
           "a child-done against a childless reject sentinel (no live join) is a no-op — never resolves, never hangs"))))
 
 ;; ===========================================================================
-;; (5) No false reject — registered TYPE + inline :definition still spawn.
+;; (5) No false reject — registered TYPE + inline :definition spawn.
 ;; ===========================================================================
 
 (deftest registered-type-spawn-not-rejected
@@ -413,7 +413,7 @@
                    ;; A `:fixed-actor-id` gives the inline-definition spawn a
                    ;; deterministic address (an inline-`:definition`
                    ;; declarative `:spawn` has no `:machine-id` to drive the
-                   ;; gensym allocator — orthogonal to this bead).
+                   ;; gensym allocator — orthogonal to this gate).
                    :working {:spawn {:definition    {:initial :running
                                                      :data    {}
                                                      :states  {:running {}}}
