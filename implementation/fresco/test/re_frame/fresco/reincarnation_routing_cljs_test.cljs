@@ -239,9 +239,9 @@
   ;; frame was live under the id, so `capture-frame` pinned nothing and the op
   ;; stays address-directed.
   ;;
-  ;; It is also the bead's named sabotage — "removing the incarnation check
-  ;; must make the revived-handle case red" — performed through the documented
-  ;; seam rather than by redefining a substrate var.
+  ;; It is also the sabotage that shows removing the incarnation check makes
+  ;; the revived-handle case red, performed through the documented seam rather
+  ;; than by redefining a substrate var.
   (testing "an UNPINNED capture, address-directed by construction, writes the
             successor — so section 2's silence is the incarnation pin and
             nothing else"
@@ -267,10 +267,10 @@
 ;; inputs — and the way to say that is to assert the SAME contract in all
 ;; three states rather than to assert it once.
 ;;
-;; The two halves are asserted together on purpose. Before the repair, cache
-;; warmth traded them off: a warm memo refused the retained callback (safe) AND
-;; refused the live successor's fresh one (dead controls); a cold or evicted
-;; memo routed the fresh one AND silently revived the successor through the
+;; The two halves are asserted together on purpose. Under late binding, cache
+;; warmth trades them off: a warm memo refuses the retained callback (safe) AND
+;; refuses the live successor's fresh one (dead controls); a cold or evicted
+;; memo routes the fresh one AND silently revives the successor through the
 ;; retained one. A suite asserting only the refusals would be green on a
 ;; runtime where nothing dispatches at all.
 
@@ -283,18 +283,20 @@
 
 (def ^:private postures
   "The three states the arm's one frame row can be in when a retained callback
-  fires, established AFTER the successor has seated. Each was a different wrong
-  answer before rf2-x874, which is why all three are asserted:
+  fires, established AFTER the successor has seated. Under late binding
+  (section 8) each gives a different wrong answer, which is why all three
+  are asserted:
 
     :cold   nothing has touched the row since the successor seated, so it still
-            describes the PREDECESSOR. Pre-fix this was the single
-            accidentally-correct branch — the refusal was the stale memo's
+            describes the PREDECESSOR. Under late binding this is the single
+            accidentally-correct branch — the refusal is the stale memo's
             doing rather than any check — and the branch that
-            eviction-on-destruction would have destroyed.
+            eviction-on-destruction would destroy.
     :warm   the successor has rendered, so the row describes the SUCCESSOR.
-            Pre-fix a retained keyword-closure read this row and wrote B.
-    :reset  the row was dropped outright. Pre-fix the fire-time
-            `capture-frame` pinned B and wrote it with nothing emitted, which
+            Under late binding a retained keyword-closure reads this row and
+            writes B.
+    :reset  the row was dropped outright. Under late binding the fire-time
+            `capture-frame` pins B and writes it with nothing emitted, which
             is the ordinary case: a boundary that rendered but that nobody
             clicked before the teardown."
   [[:cold  (fn [])]
@@ -327,7 +329,7 @@
             ;; A render under the PREDECESSOR, so the row genuinely describes A
             ;; when the successor seats. Without it the `:cold` posture would be
             ;; an empty table rather than a stale row, and the stale row is the
-            ;; case that used to leave the successor's own controls dead.
+            ;; case where late binding leaves the successor's own controls dead.
             _        (render-dispatch)
             _        (reincarnate! "B")
             _        (establish!)
@@ -335,14 +337,14 @@
             {:keys [refusals]} (with-refusals #(on-click [:reinc/mark posture]))]
         (is (= posture (marked))
             "the live incarnation's own control WRITES its own app-db — the
-             half that was red on main whenever the memo was warm")
+             half late binding reddens whenever the memo is warm")
         (is (empty? refusals)
             "and nothing is refused, because the closure was minted against
              the incarnation it is dispatching into")))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5. One handler identity per incarnation — the property the perf budget and
-;;    the fix both rest on
+;;    the pin both rest on
 ;; ---------------------------------------------------------------------------
 
 (deftest the-ambient-dispatch-has-one-identity-per-live-incarnation
@@ -433,7 +435,7 @@
         (is (empty? refusals))))))
 
 ;; ---------------------------------------------------------------------------
-;; 7. Reset still empties the inventory
+;; 7. Reset empties the inventory
 ;; ---------------------------------------------------------------------------
 
 (deftest reset-empties-the-frame-memo
@@ -441,7 +443,7 @@
   (render-dispatch)
   (is (contains? @rf.fresco.impl.frames/!frame-ops frame-id)
       "a render leaves exactly one row behind — the bundle and the ambient
-       dispatch are one record now, so acquiring the dispatch acquires both")
+       dispatch are one record, so acquiring the dispatch acquires both")
   (is (= 1 (:frames (rf.fresco.test.runtime/stats)))
       "which is what the residue census counts under its `:frame-ops` token")
   (rf.fresco.impl.collector/reset-runtime!)
@@ -449,14 +451,13 @@
   (is (= 0 (:frames (rf.fresco.test.runtime/stats)))))
 
 ;; ---------------------------------------------------------------------------
-;; 8. NEGATIVE CONTROL — restore late keyword resolution and BOTH failures
-;;    come back
+;; 8. NEGATIVE CONTROL — late keyword resolution reproduces BOTH failures
 ;; ---------------------------------------------------------------------------
 
 ;; A control that showed only a stale callback going inert would be incomplete:
 ;; a cache in which nothing resolves at all would pass it too. So this one
 ;; asserts a positive WRITE in one branch and a positive REFUSAL in the other —
-;; the two failures the defect actually had — and then runs the same two
+;; the two failures late binding actually has — and then runs the same two
 ;; scenarios through the runtime under test, which must answer the opposite way
 ;; in both.
 
@@ -510,7 +511,7 @@
             "it is refused — the liveness half of the same defect"))))
 
   (testing "and the runtime under test answers the OPPOSITE way in both, which
-            is what makes the two branches above a control on the FIX rather
+            is what makes the two branches above a control on the PIN rather
             than two more measurements of a dead cache"
     (incarnate! "A")
     (let [retained (render-dispatch)]
