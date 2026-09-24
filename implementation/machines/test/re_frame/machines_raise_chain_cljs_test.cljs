@@ -3,15 +3,15 @@
   substrate.
 
   Per Spec 005 §`:raise`: an `:action` may return `{:fx [[:raise <event-vec>]]}`
-  to re-enter the same machine pre-commit. The handler in `drain-raises`
-  recurses through `machine-transition`, so a chain of raises threads through
-  multiple transitions before the macrostep commits.
+  to re-enter the same machine pre-commit. `drain-to-fixed-point` dequeues
+  each raised event and recurses through `machine-transition-single`, so a
+  chain of raises threads through multiple transitions before the macrostep
+  commits.
 
-  `drain-raises` calls `machine-transition` directly, backed by an explicit
-  `(declare machine-transition)` forward reference. This test pins
-  regression coverage for the :raise-chain path on CLJS so that future
-  refactors of `drain-raises` cannot silently break the recursive entry
-  point."
+  `drain-to-fixed-point` calls `machine-transition-single` directly, backed by
+  an explicit `(declare machine-transition-single)` forward reference. This
+  test pins the :raise-chain path on CLJS so that a refactor of the drain
+  cannot silently break the recursive entry point."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -26,7 +26,7 @@
 (def ^:private snapshot rf.machines.test-support/snapshot)
 
 (deftest machine-raise-chain-cljs
-  (testing "an action's [:raise <event>] re-enters machine-transition and fires the chained transition (rf2-c0nt)"
+  (testing "an action's [:raise <event>] re-enters machine-transition and fires the chained transition"
     (let [log (atom [])
           machine
           {:initial :idle
@@ -47,7 +47,7 @@
       (rf/reg-machine :rf2-c0nt/raise-chain machine)
       (rf/dispatch-sync [:rf2-c0nt/raise-chain [:go-1]])
       (is (= :final (:state (snapshot :rf2-c0nt/raise-chain)))
-          ":raise chained idle → middle → final in a single macrostep (this is the assertion that fails on main pre-fix because drain-raises' runtime resolve returns nil on CLJS, so the chained transition never fires)")
+          ":raise chained idle → middle → final in a single macrostep (the drain calls machine-transition-single directly; a runtime resolve would return nil on CLJS and the chained transition would never fire)")
       (is (= [:bump-action :landed-action] @log)
           "both the originating action and the raised transition's action ran")))
 
