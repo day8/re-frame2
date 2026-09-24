@@ -275,7 +275,7 @@
   `:declarations` (large) sub-maps. A path ALSO claimed by another owner
   (`{:source :effect}` commit-plane effects / `{:source :flow …}` flow outputs /
   `{:source :machine …}` / `{:source :resource}`) survives untouched and unions
-  at egress-lookup time (rf2-wdm1vg); an emptied axis slot is pruned by the core
+  at egress-lookup time; an emptied axis slot is pruned by the core
   ops.
 
   Reconcile-aware (router `re-frame.elision/reconcile-runtime-db-effect`): a
@@ -333,9 +333,6 @@
 ;; promote `k` to a keyword (via `:query` / `:query-defaults`)
 ;; silently fails open at egress — the keyword decl never matches the runtime
 ;; STRING key. PARAMS are immune (always keyword-keyed), so this is query-only.
-;; EP-0037 R5 shrank the promotion vocabulary from three sources to two: the
-;; retired `:query-retain` no longer promotes anything, so a key that was only
-;; keyword-promoted through it now WARNS until the route declares it.
 
 (defn unpromoted-query-keys
   "Return the set of query keys a route's `classification` (the
