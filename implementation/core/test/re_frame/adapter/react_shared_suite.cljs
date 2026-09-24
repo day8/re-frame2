@@ -5993,9 +5993,9 @@
 ;; input chain twice. The render phase keeps its reference in escrow, so the
 ;; commit's subscribe HITS and adopts.
 ;;
-;; READ THIS ROW FOR EXACTLY WHAT IT MEASURES. It mounts under `act()`, which forces React's passive
-;; `useSyncExternalStore` subscribe to run before control returns — and that IS
-;; the ordering the hand-off needs. So this row pins the MECHANISM — escrow,
+;; READ THIS ROW FOR EXACTLY WHAT IT MEASURES. It mounts under `act()`, which
+;; forces React's passive `useSyncExternalStore` subscribe to run before
+;; control returns — and that IS the ordering the hand-off needs. So this row pins the MECHANISM — escrow,
 ;; hit, adopt, 2 → 1 — under a schedule that lets it run to completion, and by
 ;; itself it establishes nothing about the schedule a consumer mounts on.
 ;;
@@ -6335,8 +6335,8 @@
 ;; the second free to break silently.
 ;;
 ;; THE OBSERVATION is the render→commit first-commit row above, re-run with
-;; nothing forcing the schedule. A frozen render value compares equal to itself, so it
-;; can never report movement to React's pre-commit store-consistency check; a
+;; nothing forcing the schedule. A frozen render value compares equal to
+;; itself, so it can never report movement to React's pre-commit store-consistency check; a
 ;; live reaction can. On a transition lane React re-reads every store before
 ;; committing and throws the render away if one moved, so the FIRST committed,
 ;; layout-visible DOM discriminates the two legs directly: `g=1` means leg (2)
@@ -7028,7 +7028,7 @@
             mount-node             (make-mount-node!)
             root                   (react-dom-client/createRoot mount-node)]
         ;; Spies record the call shape and delegate to the canonical bodies
-        ;; (mirroring the existing spy bypass — see the rf2-mwft2
+        ;; (mirroring the existing spy bypass — see the
         ;; stable-deps-key spy comment).
         (with-redefs [rf.subs/unsubscribe
                       (fn spy-unsubscribe-arity
@@ -7052,13 +7052,13 @@
             (is (every? #(some? (:frame-id %)) @release-calls)
                 (str "every spine-driven release carries an explicit frame-id pin — a nil "
                      "here means the spine is resolving the frame somewhere the release "
-                     "cannot follow (rf2-kuky.57). Observed: "
+                     "cannot follow. Observed: "
                      (pr-str (mapv :frame-id @release-calls))))
             (is (every? #(vector? (:query-v %)) @release-calls)
                 "every release names a query VECTOR in the second position")
             (is (not-any? #(map? (:third %)) @release-calls)
                 (str "no release passes a MAP in the third position — that is the retired "
-                     "grace-period `opts` shape re-entering the spine (rf2-cmfln). "
+                     "grace-period `opts` shape re-entering the spine. "
                      "Observed third-arg types: "
                      (pr-str (mapv #(cond (map? (:third %)) :map
                                           (nil? (:third %)) :nil
@@ -7067,7 +7067,7 @@
             (is (every? #(some? (:third %)) @release-calls)
                 "every release names the REACTION it actually holds — a nil third arg
                  means the identity guard has nothing to compare and the release
-                 degrades to the address-only behaviour rf2-1frc removed")
+                 degrades to an address-only release")
             ;; Any plain `unsubscribe` the spine still drives keeps its
             ;; canonical 2-arity shape.
             (is (or (empty? @unsubscribe-arg-counts)
@@ -7078,37 +7078,36 @@
             (finally
               (try (.unmount root) (catch :default _ nil))))))))))
 
-;; ---- view-unmount parity (rf2-te71r — React-hook twin of rf2-9hoos) -------
+;; ---- view-unmount parity (React-hook twin of the Reagent unmount hook) ----
 ;;
-;; Phase-A (rf2-9hoos) emits :rf.view/unmounted on the Reagent family via
-;; a per-render-instance reaction-dispose hook; the React-hook substrates
-;; (UIx) had no tracked render reaction to ride, so the views-side
-;; arm no-oped there. rf2-te71r adds a React.useEffect empty-deps cleanup
-;; in the shared spine's wrap-view that fires the emit on unmount. Real
+;; The Reagent family emits :rf.view/unmounted via a per-render-instance
+;; reaction-dispose hook; the React-hook substrates (UIx) have no tracked
+;; render reaction to ride, so the shared spine's wrap-view carries a
+;; React.useEffect empty-deps cleanup that fires the emit on unmount. Real
 ;; mount/unmount needs a DOM (jsdom is NOT in the node runner), so this is
 ;; a browser-DOM assertion — the neighbour of refcount-cleanup-on-unmount.
 ;;
 ;; The registered head `(rf/view id)` is rendered DIRECTLY through
 ;; `React/createElement` as a function component, so the spine wrap-view's
 ;; useEffect belongs to a real React instance whose teardown fires the
-;; cleanup. Since rf2-oz7wr that head is the adapter's `componentize-view`
+;; cleanup. That head is the adapter's `componentize-view`
 ;; shell — a genuine JS function — so no intermediate host is needed. The
 ;; probe is built in the suite (raw `React/createElement`, no substrate
 ;; `defui`/`$` needed) so every React-hook adapter forwards it unchanged — a
 ;; gap on one is a gap on all.
 
 (defn assert-view-unmount-emits-on-react-hook-teardown
-  "rf2-te71r: mounting then unmounting a registered view under a
+  "Mounting then unmounting a registered view under a
   React-hook substrate (UIx) emits exactly one :rf.view/unmounted
   carrying the required :rf.view/id + :frame tags (plus the :rf.view/render-key
   instance tuple). The emit rides the spine wrap-view's React.useEffect
-  empty-deps cleanup — the React-hook parity for the phase-A Reagent
+  empty-deps cleanup — the React-hook parity for the Reagent
   reaction-dispose unmount hook.
 
   cfg keys:
     :substrate-kw  keyword fragment used to mint a per-substrate view-id"
   [{:keys [substrate-kw name]}]
-  (testing (str name " — :rf.view/unmounted fires on React-hook view teardown (rf2-te71r)")
+  (testing (str name " — :rf.view/unmounted fires on React-hook view teardown")
     (with-browser-act
      (fn [act-fn]
       (let [view-id   (mint-kw substrate-kw "unmount-parity-probe")
@@ -7120,7 +7119,7 @@
         ;; Register a trivial DOM-rooted view. Its wrapper carries the
         ;; spine wrap-view's unmount-sentinel child (which holds the
         ;; useEffect arm), and `(rf/view id)` is the adapter's mountable
-        ;; component head (rf2-oz7wr), so it goes STRAIGHT into
+        ;; component head, so it goes STRAIGHT into
         ;; `React/createElement` as the component type — no host component
         ;; invoking it. The spine sentinel element rides in the returned
         ;; tree and React renders it as a real instance whose teardown fires
@@ -7150,22 +7149,22 @@
               (try (.unmount root) (catch :default _ nil))))))))))
 
 (defn assert-void-root-view-unmount-no-warning
-  "rf2-ghfkkk (DOM-mount counterpart of
-  `assert-void-root-view-sentinel-is-fragment-sibling`): a registered view
+  "DOM-mount counterpart of
+  `assert-void-root-view-sentinel-is-fragment-sibling`: a registered view
   whose root is a VOID DOM element (`input`) mounts and unmounts under the
   React-hook substrate with NO React void-element warning/error, and STILL
-  fires exactly one `:rf.view/unmounted` on teardown. Pre-fix the spine
-  appended the unmount sentinel as a CHILD of the void element, which React
-  rejects (console.error: 'input is a void element tag and must neither
+  fires exactly one `:rf.view/unmounted` on teardown. An unmount sentinel
+  appended as a CHILD of the void element would be rejected by React
+  (console.error: 'input is a void element tag and must neither
   have children nor use dangerouslySetInnerHTML') — and the broken element
-  could fail to mount, dropping the unmount emit. The Fragment-sibling fix
+  could fail to mount, dropping the unmount emit. The Fragment sibling
   keeps the void root child-free while preserving the sentinel's teardown
   arm.
 
   Browser-DOM gate (real createRoot / unmount); skipped on node-test via
   `with-browser-act`. cfg keys: :substrate-kw, :name."
   [{:keys [substrate-kw name]}]
-  (testing (str name " — void <input> root: mounts/unmounts with no React void-element warning; :rf.view/unmounted still fires once (rf2-ghfkkk)")
+  (testing (str name " — void <input> root: mounts/unmounts with no React void-element warning; :rf.view/unmounted still fires once")
     (with-browser-act
      (fn [act-fn]
       (let [view-id  (mint-kw substrate-kw "void-root-unmount-probe")
@@ -7177,7 +7176,7 @@
         ;; Registered view returns a VOID DOM root (an <input>). The spine's
         ;; wrap-view must Fragment-wrap it with the sentinel as a sibling so
         ;; React never sees children on the void element. Mounted through the
-        ;; registered head directly (rf2-oz7wr) — no manual-invocation host.
+        ;; registered head directly — no manual-invocation host.
         (rf/reg-view* view-id (fn [] (React/createElement "input" #js {:type "text"})))
         (let [head       (rf/view view-id)
               mount-node (make-mount-node!)
@@ -7207,17 +7206,17 @@
               (try (.unmount root) (catch :default _ nil))))))))))
 
 (defn assert-mounted-display-name-is-devtools-visible
-  "rf2-976bw: mount the spine's `wrap-view` head as a real React component
+  "Mount the spine's `wrap-view` head as a real React component
   and read the name the way React DevTools does — off the committed fiber's
   `type` — rather than off the fn property. Spec 006 item 1 is a claim about
-  what a developer READS in the component tree; rf2-fa4ly pinned the stamp
-  and never exercised the mount.
+  what a developer READS in the component tree; pinning the stamp alone
+  never exercises the mount.
 
   `wrap-view` is the head this row mounts because it is the surface whose
   OWN stamp is under test: `wrap-view` is published for direct use by
   code-gen and library scaffolding (`re-frame.adapter.uix/wrap-view`), so
-  its `displayName` has to be right independently of the registry. Since
-  rf2-oz7wr a REGISTERED view's mounted head is instead the adapter's
+  its `displayName` has to be right independently of the registry. A
+  REGISTERED view's mounted head is instead the adapter's
   `componentize-view` shell, which carries the same
   `rf.performance/entry-id` stamp from the same single source; the registry
   path's own direct mount is covered by
@@ -7226,7 +7225,7 @@
   Browser-DOM gate (real createRoot); skipped on node-test via
   `with-browser-act`. cfg keys: :substrate-kw, :name, :wrap-view."
   [{:keys [substrate-kw name wrap-view]}]
-  (testing (str name " — the MOUNTED component's DevTools name is the colon-free projection (rf2-976bw)")
+  (testing (str name " — the MOUNTED component's DevTools name is the colon-free projection")
     (with-browser-act
      (fn [act-fn]
       (let [id         (mint-kw substrate-kw "display-name-mounted")
@@ -7252,39 +7251,40 @@
             (try (.unmount root) (catch :default _ nil)))))))))
 
 ;; ===========================================================================
-;; rf2-1frc / rf2-kuky.57 — subscription LIFETIME across a framework-owned
-;; eviction, and the explicit-target refusal.
+;; Subscription LIFETIME across a framework-owned eviction, and the
+;; explicit-target refusal.
 ;; ===========================================================================
 ;;
-;; Three defects, one mechanism: what a mounted hook HOLDS and what it later
+;; Three hazards, one mechanism: what a mounted hook HOLDS and what it later
 ;; RELEASES have to be the same concrete thing.
 ;;
 ;;   * `use-sub` memoizes `subscribe-fn` on `[stable-key]`, so React calls it
 ;;     exactly ONCE per (frame, query) target and never again for the life of
-;;     that target. It took one reaction there and kept it. When the framework
-;;     evicted and disposed that reaction — `reg-sub` re-registration,
-;;     `clear-sub-cache!`, or (rf2-4lp1) a frame generation change — the
-;;     disposed handle held no source watches, so `on-change` could never fire
-;;     again and the component went permanently DEAF; meanwhile `get-snap`
-;;     still found a key-matching entry and derefed it, so the component kept
-;;     rendering the OLD sub body. `assert-use-sub-reacquires-after-eviction`.
+;;     that target. A hook that took one reaction there and kept it would,
+;;     when the framework evicts and disposes that reaction — `reg-sub`
+;;     re-registration, `clear-sub-cache!`, or a frame generation change —
+;;     hold a disposed handle with no source watches, so `on-change` could
+;;     never fire again and the component would go permanently DEAF;
+;;     meanwhile `get-snap` would still find a key-matching entry and deref
+;;     it, so the component would keep rendering the OLD sub body.
+;;     `assert-use-sub-reacquires-after-eviction`.
 ;;
-;;   * The commit cleanup released by (frame, query) ADDRESS. After an
-;;     eviction, once an independent consumer had rebuilt the same key, that
-;;     address named the SUCCESSOR's entry — so unmounting the original
-;;     decremented a reference it never acquired.
+;;   * A commit cleanup that released by (frame, query) ADDRESS would, after
+;;     an eviction and once an independent consumer had rebuilt the same key,
+;;     name the SUCCESSOR's entry — so unmounting the original would
+;;     decrement a reference it never acquired.
 ;;     `assert-use-sub-stale-cleanup-does-not-release-a-successor`.
 ;;
-;;   * The explicit `[query-v opts]` arm passed `(:frame opts)` straight
-;;     through, and `rf.subs/subscribe`'s opts arity treats a nil target as
-;;     "ambient". So `(use-sub [:q] {})` under a provider ACQUIRED the ambient
-;;     frame's reaction while the hook stored nil in its stable key — and every
-;;     release then resolved nil, found no frame, and no-opped. An unbalanced
-;;     reference behind a contract that promised a refusal.
-;;     `assert-use-sub-nil-explicit-frame-refuses-without-retaining`.
+;;   * An explicit `[query-v opts]` arm that passed `(:frame opts)` straight
+;;     through would meet `rf.subs/subscribe`'s opts arity, which treats a nil
+;;     target as "ambient". So `(use-sub [:q] {})` under a provider would
+;;     ACQUIRE the ambient frame's reaction while the hook stored nil in its
+;;     stable key — and every release would then resolve nil, find no frame,
+;;     and no-op. An unbalanced reference behind a contract that promises a
+;;     refusal. `assert-use-sub-nil-explicit-frame-refuses-without-retaining`.
 
 (defn assert-use-sub-reacquires-after-eviction
-  "rf2-1frc: a MOUNTED `use-sub` must follow its (frame, query) target across a
+  "A MOUNTED `use-sub` must follow its (frame, query) target across a
   framework-owned cache eviction — the ordinary live-reload path. After
   re-registering the sub body under a mounted, unchanged component:
 
@@ -7296,7 +7296,7 @@
   while the hook holds exactly ONE durable reference on the REBUILT entry (no
   leak, no double-take), and unmount still returns it.
 
-  The two `is` forms marked THE BUG are the pre-fix control: without
+  The two `is` forms marked THE BUG are the discriminating ones: without
   reacquisition (a) reads the v1 value and (b) never fires at all.
 
   cfg keys:
@@ -7307,12 +7307,12 @@
     :ev-frame / :ev-query  frame-id + query-id keywords for this probe"
   [{:keys [name probe-evict-element probe-evict-observed evict-target
            ev-frame ev-query]}]
-  (testing (str name " — use-sub reacquires its subscription after the cached reaction is evicted (rf2-1frc)")
+  (testing (str name " — use-sub reacquires its subscription after the cached reaction is evicted")
     (with-browser-act
      (fn [act-fn]
       (reset! evict-target ev-frame)
       (reset! probe-evict-observed [])
-      (rf/make-frame {:id ev-frame :doc "rf2-1frc eviction/reacquisition probe frame"})
+      (rf/make-frame {:id ev-frame :doc "eviction/reacquisition probe frame"})
       (rf/reg-event ::ev-seed (fn [{:keys [db]} _] {:db {:n 1}}))
       (rf/dispatch-sync [::ev-seed] {:frame ev-frame})
       (rf/reg-event ::ev-set  (fn [{:keys [db]} [_ n]] {:db {:n n}}))
@@ -7346,14 +7346,15 @@
             ;; re-run and `subscribe-fn` is not re-invoked.
             (act-fn (fn [] (.render root (probe-evict-element))))
             (is (= 101 (last @probe-evict-observed))
-                "THE BUG (rf2-1frc): a re-render must read the REPLACEMENT body — pre-fix `get-snap` derefed the disposed v1 handle and read 1")
+                "THE BUG: a re-render must read the REPLACEMENT body — a `get-snap` that derefed the disposed v1 handle would read 1")
 
             ;; (b) Still REACTIVE. A disposed reaction has no source watches, so
-            ;; pre-fix this dispatch produced no notification at all.
+            ;; without reacquisition this dispatch would produce no notification
+            ;; at all.
             (reset! probe-evict-observed [])
             (act-fn (fn [] (rf/dispatch-sync [::ev-set 2] {:frame ev-frame})))
             (is (= 102 (last @probe-evict-observed))
-                "THE BUG (rf2-1frc): the component must still be notified by an app-db write after the eviction — pre-fix it was permanently deaf")
+                "THE BUG: the component must still be notified by an app-db write after the eviction — without reacquisition it would be permanently deaf")
 
             ;; Exactly one durable ref on the REBUILT entry: reacquisition takes
             ;; one reference, not zero (a leak of the component's liveness) and
@@ -7370,12 +7371,12 @@
             (try (.unmount root) (catch :default _ nil)))))))))
 
 (defn assert-use-sub-stale-cleanup-does-not-release-a-successor
-  "rf2-1frc, the ownership edge. After an eviction and a SUCCESSOR consumer
+  "The ownership edge. After an eviction and a SUCCESSOR consumer
   acquiring the rebuilt entry, unmounting the ORIGINAL consumer must release
   only what it holds — never the successor's reference.
 
-  The committed cleanup released by (frame, query) ADDRESS, which after a
-  rebuild names the successor's entry. With two mounted consumers of the same
+  A committed cleanup that released by (frame, query) ADDRESS would, after a
+  rebuild, name the successor's entry. With two mounted consumers of the same
   key, unmounting one must leave ref-count 1 and the survivor still reactive.
 
   cfg keys: reuses the eviction probe surface, plus a second INDEPENDENT
@@ -7386,13 +7387,13 @@
   [{:keys [name probe-evict-element probe-evict-observed evict-target
            probe-evict-successor-element probe-evict-successor-observed
            ev-frame ev-query]}]
-  (testing (str name " — a stale committed cleanup does not release a successor's reference (rf2-1frc)")
+  (testing (str name " — a stale committed cleanup does not release a successor's reference")
     (with-browser-act
      (fn [act-fn]
       (reset! evict-target ev-frame)
       (reset! probe-evict-observed [])
       (reset! probe-evict-successor-observed [])
-      (rf/make-frame {:id ev-frame :doc "rf2-1frc successor-ownership probe frame"})
+      (rf/make-frame {:id ev-frame :doc "successor-ownership probe frame"})
       (rf/reg-event ::so-seed (fn [{:keys [db]} _] {:db {:n 1}}))
       (rf/dispatch-sync [::so-seed] {:frame ev-frame})
       (rf/reg-event ::so-set  (fn [{:keys [db]} [_ n]] {:db {:n n}}))
@@ -7428,7 +7429,7 @@
             (act-fn (fn [] (.unmount root-original)))
 
             (is (identical? successor (get-in @cache [k :reaction]))
-                "THE BUG (rf2-1frc): the successor's entry survives the original's unmount — an address-only release could dispose it out from under a live holder")
+                "THE BUG: the successor's entry survives the original's unmount — an address-only release could dispose it out from under a live holder")
             (is (= 1 (or (get-in @cache [k :ref-count]) 0))
                 "exactly ONE reference remains — the survivor's; the stale cleanup neither stole it nor left its own behind")
 
@@ -7441,18 +7442,18 @@
             (try (.unmount root-successor) (catch :default _ nil)))))))))
 
 (defn assert-use-sub-nil-explicit-frame-refuses-without-retaining
-  "rf2-kuky.57 (audit reopen): the explicit `(use-sub query-v opts)` arm must
+  "The explicit `(use-sub query-v opts)` arm must
   resolve ONE concrete frame target BEFORE any subscription acquisition. A
   missing `:frame` (`{}`) or an explicitly nil one (`{:frame nil}`), under a
   perfectly valid AMBIENT provider, must REFUSE with
   `:rf.error/no-frame-context` and retain NOTHING.
 
-  Pre-fix, `(:frame opts)` went straight through to `rf.subs/subscribe`, whose
-  opts arity spells a nil target as ambient — so the hook acquired the ambient
-  frame's reaction (ref-count 1) while storing nil in its stable key, and every
-  later release resolved nil, found no frame and no-opped. The ref-count
-  assertion below is the load-bearing one: a refusal that leaks is not a
-  refusal.
+  If `(:frame opts)` went straight through to `rf.subs/subscribe`, whose
+  opts arity spells a nil target as ambient, the hook would acquire the
+  ambient frame's reaction (ref-count 1) while storing nil in its stable key,
+  and every later release would resolve nil, find no frame and no-op. The
+  ref-count assertion below is the load-bearing one: a refusal that leaks is
+  not a refusal.
 
   The legal explicit target is exercised as a CONTROL in the same frame, so a
   green here cannot come from the arm having stopped working altogether.
@@ -7468,10 +7469,10 @@
                                       frame-provider element factory"
   [{:keys [name substrate-kw probe-nil-frame-element nil-frame-opts
            nil-frame-observed nf-frame nf-query frame-provider-mount-element]}]
-  (testing (str name " — a missing/nil explicit :frame refuses and retains nothing (rf2-kuky.57)")
+  (testing (str name " — a missing/nil explicit :frame refuses and retains nothing")
     (with-browser-act
      (fn [act-fn]
-      (rf/make-frame {:id nf-frame :doc "rf2-kuky.57 nil-explicit-frame probe frame"})
+      (rf/make-frame {:id nf-frame :doc "nil-explicit-frame probe frame"})
       (rf/reg-event ::nf-seed (fn [{:keys [db]} _] {:db {:v 7}}))
       (rf/dispatch-sync [::nf-seed] {:frame nf-frame})
       (rf/reg-sub nf-query (fn [db _] (:v db)))
@@ -7490,8 +7491,9 @@
                   root       (react-dom-client/createRoot mount-node)]
               (try
                 ;; Mounted UNDER a valid ambient provider for `nf-frame`, so the
-                ;; ONLY thing wrong is the explicit target. Pre-fix that ambient
-                ;; frame is exactly what got acquired and never released.
+                ;; ONLY thing wrong is the explicit target. That ambient frame
+                ;; is exactly what a pass-through arm would acquire and never
+                ;; release.
                 (try
                   (act-fn (fn [] (.render root
                                    (frame-provider-mount-element
@@ -7501,25 +7503,21 @@
                                           @traces)))
                     (str label " — the explicit arm refused with :rf.error/no-frame-context rather than silently resolving an ambient frame"))
                 ;; The refusal happens BEFORE the hook returns, so the probe
-                ;; never records anything. Pre-fix it rendered and recorded the
-                ;; ambient frame's value for this query.
+                ;; never records anything. A pass-through arm would render and
+                ;; record the ambient frame's value for this query.
                 (is (empty? @nil-frame-observed)
-                    (str label " — THE BUG (rf2-kuky.57): the hook refused instead of returning an ambient read; pre-fix it rendered and recorded "
+                    (str label " — THE BUG: the hook refused instead of returning an ambient read; it rendered and recorded "
                          (pr-str @nil-frame-observed)))
                 ;; THE LEAK ASSERTION, and it sweeps EVERY live frame rather
-                ;; than the provider's alone. Which frame the pre-fix code
-                ;; leaked INTO is not fixed: `{:frame nil}` fell through to the
-                ;; ambient 1-arity, which at the time resolved dynamic-var
-                ;; first and React context second — so under a `with-frame`
-                ;; scope it acquired there, and under a bare provider it
-                ;; acquired the provider's frame. (rf2-kuky.62 has since made
-                ;; the ambient hook context-only, so today only the provider
-                ;; arm is reachable; the sweep below is kept unnarrowed anyway,
-                ;; because it costs nothing and a narrowed one would have to be
-                ;; re-derived every time the chain moves.) Either way the
-                ;; reference is unbalanced, because the
-                ;; hook stored nil in its stable key and every release resolved
-                ;; nil, found no frame and no-opped. `nf-query` is unique to
+                ;; than the provider's alone. Which frame a pass-through arm
+                ;; would leak INTO depends on how the ambient 1-arity resolves:
+                ;; the ambient hook is context-only, so only the provider arm
+                ;; is reachable, but the sweep is kept unnarrowed because it
+                ;; costs nothing and a narrowed one would have to be
+                ;; re-derived every time the chain moves. Either way the
+                ;; reference would be unbalanced, because the hook would store
+                ;; nil in its stable key and every release would resolve nil,
+                ;; find no frame and no-op. `nf-query` is unique to
                 ;; this assertion, so ANY cache holding a slot for it is a
                 ;; retained reference this refused read is responsible for.
                 (let [retained (into []
@@ -7530,7 +7528,7 @@
                                            (filter (fn [[_ rc]] (pos? (or rc 0)))))
                                      (rf.frame/frame-ids))]
                   (is (empty? retained)
-                      (str label " — THE BUG (rf2-kuky.57): a refused read must retain NO sub-cache reference in ANY frame; found "
+                      (str label " — THE BUG: a refused read must retain NO sub-cache reference in ANY frame; found "
                            (pr-str retained))))
                 (finally
                   (rf.trace.tooling/unregister-listener! lk)
@@ -7560,7 +7558,7 @@
               (try (.unmount root) (catch :default _ nil))))))))))
 
 (defn assert-use-sub-live-frame-value-target-balances
-  "rf2-kuky.57, the other half of resolving ONE concrete target: a live frame
+  "The other half of resolving ONE concrete target: a live frame
   VALUE (`make-frame`'s return token) is a legal explicit target, and it must
   acquire and release the SAME entry a keyword target does. The arm normalizes
   through `rf.frame/frame-target->id` before acquisition, so the hook's stable
@@ -7571,11 +7569,11 @@
     :nf-frame / :nf-query"
   [{:keys [name probe-nil-frame-element nil-frame-opts nil-frame-observed
            nf-frame nf-query]}]
-  (testing (str name " — a live frame VALUE explicit target acquires and releases the same entry (rf2-kuky.57)")
+  (testing (str name " — a live frame VALUE explicit target acquires and releases the same entry")
     (with-browser-act
      (fn [act-fn]
       (let [frame-value (rf/make-frame {:id nf-frame
-                                        :doc "rf2-kuky.57 frame-value target probe frame"})]
+                                        :doc "frame-value target probe frame"})]
         (rf/reg-event ::fv-seed (fn [{:keys [db]} _] {:db {:v 3}}))
         (rf/dispatch-sync [::fv-seed] {:frame nf-frame})
         (rf/reg-sub nf-query (fn [db _] (:v db)))
