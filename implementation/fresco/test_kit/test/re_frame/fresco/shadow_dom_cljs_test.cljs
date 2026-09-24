@@ -1,5 +1,5 @@
 (ns re-frame.fresco.shadow-dom-cljs-test
-  "SHADOW COMPARISON, AND THE PROOF THAT IT CAN REDDEN (rf2-kyum).
+  "SHADOW COMPARISON, AND THE PROOF THAT IT CAN REDDEN.
 
   `hm/shadow!` mounts a reference implementation and a candidate against
   isolated copies of one seeded frame, drives both with one script, and
@@ -12,10 +12,9 @@
   ## The sabotage twins are the point, not the decoration
 
   A comparator that has never been seen to fail is not evidence. It is
-  the same defect as a census that cannot fail — three of which the first
-  half of this bead (rf2-hic-055, the migration reporter) found by
-  building controls exactly like these. So every green row here has a red
-  row one line away from it:
+  the same defect as a census that cannot fail, and controls exactly like
+  these are how such a census is caught. So every green row here has a
+  red row one line away from it:
 
   | Row | Twin | What the red must NAME |
   |---|---|---|
@@ -32,10 +31,10 @@
   each**, so a red proves the comparator saw that form and not the shape
   of the view around it.
 
-  ## The last three rows are a REGRESSION, and they were once green
+  ## The last three rows guard a false green
 
-  PR #8007's merged-PR audit reproduced this exactly: a reference select
-  at `\"two\"` beside a candidate at `\"one\"`, identical option markup,
+  A reference select at `\"two\"` beside a candidate at `\"one\"`, with
+  identical option markup, is a pair a markup-only comparison calls
   `{:status :green :checkpoints 1}`. A form control keeps two values and
   only the DEFAULT is in the bytes — `value` is `defaultValue`, `checked`
   is `defaultChecked`, an option's `selected` is `defaultSelected` —
@@ -51,8 +50,8 @@
   across frames — and it is also what makes raw equality unfair at one
   slot: an intent can carry the rendering frame's keyword as ordinary
   data, and two isolated mounts have two different keywords.
-  `capsule-replay-verdict.md` found that result and names shadow
-  comparison while stating it. [[a-mounts-own-address-normalises]] drives
+  `capsule-replay-verdict.md` states that result and names shadow
+  comparison while doing so. [[a-mounts-own-address-normalises]] drives
   both directions of the remedy: a mount's OWN address normalises, and a
   FOREIGN one still reddens.
 
@@ -73,7 +72,7 @@
             [re-frame.test-support :as rf.test-support]
             ;; The ONE second view library this namespace names, and only so
             ;; that [[foreign-title-row]] is a genuinely foreign element type.
-            ;; `hm/shadow!` itself still requires none — that is its design.
+            ;; `hm/shadow!` itself requires none — that is its design.
             [reagent.core :as r]))
 
 ;; ---------------------------------------------------------------------------
@@ -331,7 +330,7 @@
              difference)))))
 
 ;; ---------------------------------------------------------------------------
-;; The live control state — the false green PR #8007's audit found
+;; The live control state — the false green a markup-only comparison gives
 ;; ---------------------------------------------------------------------------
 
 (defn- markup-of [handle] (rf.fresco.test/canonical-dom (:container handle)))
@@ -346,15 +345,15 @@
           (is (= ["two" "one"]
                  [(.-value (.querySelector (:container (:reference s)) "select.pick"))
                   (.-value (.querySelector (:container (:candidate s)) "select.pick"))])))
-        (testing "and their markup is byte-identical, which is why this was green"
+        (testing "and their markup is byte-identical, which is why markup alone calls it green"
           (is (= (markup-of (:reference s)) (markup-of (:candidate s)))
               (str "a selection is written by moving option.selected and no "
                    "attribute tracks it, so the serialiser sees one page twice")))
-        (testing "the comparator now names the select, the slot and both values"
+        (testing "the comparator names the select, the slot and both values"
           (let [{:keys [status checkpoints difference]} ((:checkpoint! s))]
             (is (= :red status)
-                (str "this answered {:status :green :checkpoints 1} before "
-                     "rf2-kyum's reopening: a port could select the wrong "
+                (str "a markup-only comparison answers {:status :green :checkpoints 1} "
+                     "here: a port could select the wrong "
                      "option with every byte of markup and every intent agreeing"))
             (is (= 1 checkpoints))
             (is (= :dom (:kind difference)))
@@ -380,7 +379,7 @@
         (finally ((:stop! s)))))))
 
 ;; ---------------------------------------------------------------------------
-;; The adjacent slots — so the repair is not a `select` special case
+;; The adjacent slots — so the live comparison is not a `select` special case
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `value` and `checked` go DIRTY under a real user and the attribute stays at
@@ -388,7 +387,7 @@
 ;; at all. Each of these drives the pair apart at exactly one such slot,
 ;; touching no attribute and dispatching no intent, and each checks that the
 ;; markup is STILL identical afterwards — without which the row would be
-;; asserting something the old comparator already caught.
+;; asserting something the attribute comparison already catches.
 
 (defn- live-difference
   "Mount an identical pair, prove the comparator starts green, move one
@@ -535,10 +534,10 @@
 ;;
 ;; Every row above is `h/defview` on BOTH sides, which is the one shape a
 ;; migration never has. `hm/shadow!`'s documented route crosses the ORIGINAL in
-;; through the runtime's own `[:> C props]` door, and nothing here executed
-;; that route — which is how the `:article-id` defect in the door's own
-;; docstring example survived to be found by reading rather than by a red
-;; (rf2-rx99, split out as rf2-g1a8).
+;; through the runtime's own `[:> C props]` door, and the row below is the one
+;; that executes that route; without it, a defect on the route — like the
+;; `:article-id` rename the door's own docstring warns about — could only be
+;; found by reading rather than by a red.
 ;;
 ;; One row, and no sabotage twin: the drift classes are already twinned above,
 ;; and what is new here is the ROUTE, not a claim about the comparator.
@@ -592,8 +591,8 @@
                                  :candidate [candidate-row {}]
                                  :seed      seed}))]
     (is (= :rf.error/fresco-test-bad-option (:rf.error/id d))
-        (str "`:seed` was this surface's own earlier spelling for "
-             ":initial-events; accepted in silence it would compare two "
+        (str "a stray `:seed`, a natural guess at "
+             ":initial-events, accepted in silence would compare two "
              "UNSEEDED views and call them the same"))
     (is (= [:seed] (:unknown d)))))
 
