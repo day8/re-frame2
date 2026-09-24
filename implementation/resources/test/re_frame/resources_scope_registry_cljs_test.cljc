@@ -1,12 +1,12 @@
 (ns re-frame.resources-scope-registry-cljs-test
   "Named resource-scope resolvers — `reg-resource-scope` / `clear-resource-scope`
-  / the `resolve-resource-scope` resolver helper (rf2-hls77w, EP-0016 D3 slice 2,
+  / the `resolve-resource-scope` resolver helper (EP-0016 D3,
   Spec 016 §Named resource-scope resolvers).
 
   Dual-target (`.cljc` + `_cljs_test`): the JVM runner picks it up via the
   `.*-test$` ns regex; Shadow's `:node-test` build via the `cljs-test$` regex.
 
-  What's under test (the slice's validation plan items):
+  What's under test:
 
     1. registration + introspection under the `:resource-scope` kind; the
        `:resource-scope` kind is in the core registrar's closed set;
@@ -19,8 +19,8 @@
        unregistered id;
     6. the whole-db read is an ordinary root-path input (`{:db [:db []]}`) and
        `:whole-db?` is DERIVED from the declaration, never authored; `:inputs`
-       is REQUIRED and the retired 2-arity / `:doc`-only spellings are rejected
-       loudly (rf2-kuky.34);
+       is REQUIRED and the 2-arity / `:doc`-only spellings are rejected
+       loudly;
     7. the `{:from-db id}` reference resolver (use-time resolution + nil
        fail-closed);
     8. a resolved scope routes through the shared concrete-scope
@@ -36,7 +36,7 @@
 
 ;; ---- fixtures -------------------------------------------------------------
 
-;; FN form, not the `{:before … :after …}` map form (rf2-4yw1). `cljs.test`
+;; FN form, not the `{:before … :after …}` map form. `cljs.test`
 ;; accepts both shapes; `clojure.test` accepts only a function, and given a map
 ;; it invokes it as one — a map called with the test thunk is a KEY LOOKUP that
 ;; returns nil and never runs the test. The JVM lane then reports zero tests for
@@ -62,7 +62,7 @@
     (try (body-fn) (finally (rf.trace.tooling/unregister-listener! k)))
     @seen))
 
-;; rf2-bqstzr — the canonical declared-inputs resolver split into the 3-slot
+;; The canonical declared-inputs resolver, split into the 3-slot
 ;; grammar's metadata middle slot (`session-meta`: `:doc` + `:inputs`) and the
 ;; value `:resolve` fn (`session-resolve`), so call sites read
 ;; `(reg-resource-scope id session-meta session-resolve)`.
@@ -106,7 +106,7 @@
 ;; ===========================================================================
 
 (deftest reg-resource-scope-fail-closed
-  ;; rf2-bqstzr — the 3-slot grammar `(reg-resource-scope scope-id metadata
+  ;; The 3-slot grammar `(reg-resource-scope scope-id metadata
   ;; resolve-fn)`: the resolver fn is the VALUE slot, `:inputs` lives in the
   ;; metadata MIDDLE slot.
   (testing "a non-fn value slot throws invalid-resource-scope-spec"
@@ -147,9 +147,9 @@
 
 (deftest runtime-source-is-reserved-not-shipped
   ;; Spec 016 §Route-derived scope is reserved — `[:runtime path]` is named
-  ;; in the input vocabulary but NOT shipped in this slice. Declaring one is
+  ;; in the input vocabulary but NOT shipped. Declaring one is
   ;; a loud, NAMED reservation error (distinct from an unknown-source typo)
-  ;; so a consumer knows it un-defers rather than that it is a typo.
+  ;; so a consumer knows the source is reserved rather than misspelled.
   (testing "[:runtime path] is rejected with the reserved-source error"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-scope-source-reserved"
@@ -207,7 +207,7 @@
 ;; ===========================================================================
 
 (deftest whole-db-is-a-declared-root-path-input
-  ;; rf2-kuky.34 — there is no bare-fn sugar and no first-arg meaning-shift.
+  ;; There is no bare-fn sugar and no first-arg meaning-shift.
   ;; Reading the whole db is spelled `{:inputs {:db [:db []]}}`, and the
   ;; `:whole-db?` cost mark tooling reads (EP-0015 disposition 8) is DERIVED
   ;; from that declaration rather than authored by a second registration mode.
@@ -258,8 +258,8 @@
       (is (= [:db] (:inputs row)) "the declared input NAME, not a synthetic one"))))
 
 (deftest inputs-is-required
-  ;; rf2-kuky.34 — the `:doc`-only metadata variant and the retired 2-arity
-  ;; spelling are both gone; each is a loud registration error.
+  ;; The `:doc`-only metadata variant and the 2-arity spelling are each a
+  ;; loud registration error.
   (testing ":doc-only metadata (no :inputs) is a loud registration error naming
             :inputs"
     (is (thrown-with-msg?
@@ -277,7 +277,7 @@
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
           (rf.resources/reg-resource-scope :s/empty-meta {} (fn [_inputs _ctx] nil)))))
-  (testing "the retired 2-arity spelling is rejected loudly on both hosts"
+  (testing "the 2-arity spelling is rejected loudly on both hosts"
     ;; `apply` defeats any host-side STATIC arity check so both hosts exercise
     ;; the same call. CLJS does not arity-check a single-arity fn at runtime
     ;; either: the resolver lands in the metadata slot and the
@@ -317,20 +317,20 @@
           (rf.resources.scope-registry/resolve-from-db-reference {:from-db :s/nope} {} 'test)))))
 
 ;; ===========================================================================
-;; 7. No :rf.egress/output-sensitivity claim (EP-0025, rf2-71dr8t) — the
-;;    derived-sensitivity PROPAGATION enum is removed; the key is silently
-;;    ignored if present (NOT validated fail-closed). The declared :db input
-;;    paths accessor remains for tooling.
+;; 7. No :rf.egress/output-sensitivity claim (EP-0025) — there is no
+;;    derived-sensitivity PROPAGATION enum; the key is silently ignored if
+;;    present (NOT validated fail-closed). The declared `:inputs` stay on the
+;;    canonical spec for tooling.
 ;; ===========================================================================
 
 (deftest output-sensitivity-claim-silently-ignored
   (testing "a resolver carries no :output-sensitivity on its canonical spec
-            (the propagation enum is gone — EP-0025)"
+            (there is no propagation enum — EP-0025)"
     (rf.resources/reg-resource-scope :s/default session-meta session-resolve)
     (is (nil? (:output-sensitivity (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id :s/default}))))))
   (testing "a present :rf.egress/output-sensitivity key is silently ignored, not
             stored, and registration does NOT throw (Spec 015 §No propagation:
-            the key is gone and silently ignored if present)"
+            the key is silently ignored if present)"
     (doseq [claim [:rf.egress/inherit :rf.egress/sensitive :rf.egress/public]]
       (is (= :s/claim
              (rf.resources/reg-resource-scope :s/claim
@@ -342,7 +342,7 @@
                                   {:inputs {:db [:db []]}}
                                   (fn [_inputs _ctx] nil))
     (is (nil? (:output-sensitivity (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id :s/whole-db-claim}))))))
-  (testing "a value that was a fail-closed enum typo is now silently ignored —
+  (testing "a misspelled value is silently ignored —
             no :rf.error/invalid-resource-scope-spec throw"
     (is (= :s/was-typo-claim
            (rf.resources/reg-resource-scope :s/was-typo-claim
@@ -350,11 +350,11 @@
                                          session-resolve)))))
 
 ;; ===========================================================================
-;; 8. The canonical 3-slot registration grammar (rf2-bqstzr)
+;; 8. The canonical 3-slot registration grammar
 ;; ===========================================================================
 
 (deftest reg-resource-scope-conforms-to-3-slot-grammar
-  ;; rf2-bqstzr — `reg-resource-scope` is `(reg-resource-scope scope-id
+  ;; `reg-resource-scope` is `(reg-resource-scope scope-id
   ;; metadata resolve-fn)`: the `:resolve` fn is the value slot, `:inputs`
   ;; lives in the metadata middle slot, matching reg-resource / reg-mutation /
   ;; reg-route.
@@ -367,7 +367,7 @@
       (is (= {:username [:db [:auth :user :username]]} (:inputs m)))
       (is (identical? session-resolve (:resolve m)))
       (is (false? (:whole-db? m)))))
-  ;; rf2-kuky.34 — the 3-slot grammar is now the ONLY arity. The retired
+  ;; The 3-slot grammar is the ONLY arity. The
   ;; 2-arity and `:doc`-only spellings are pinned as loud registration errors
   ;; by `inputs-is-required` above.
   (testing "the resolver first arg is the resolved inputs map"
