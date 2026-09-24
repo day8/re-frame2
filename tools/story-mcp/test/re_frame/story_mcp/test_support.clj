@@ -12,9 +12,7 @@
   NEVER inverts the transform — the wire contract is that the agent host
   calls `re-frame.mcp-base.dedup/expand` directly on the `:rf.mcp/dedup-table`
   cache-map — so the inverse is test-only and lives here, signalling
-  \"test-only\" by location (rf2-ywkiss moved it out of the production
-  `tools.dedup` namespace, which itself was removed as a pass-through
-  facade over `re-frame.mcp-base.dedup`)."
+  \"test-only\" by location."
   (:require [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
             [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]))
 
