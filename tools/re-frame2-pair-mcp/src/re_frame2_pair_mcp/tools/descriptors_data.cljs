@@ -75,11 +75,11 @@
                            :description "Error reason keyword (as a string). Present iff :ok? false."}
                 "rf.mcp/cache-hit" {:type "object"
                                     :additionalProperties true
-                                    :description (str "Wire-bounded marker (rf2-3rt1f). When present, REPLACES the "
+                                    :description (str "Wire-bounded marker. When present, REPLACES the "
                                                       "normal envelope; ships on a per-session cache hit.")}
                 "rf.mcp/overflow"  {:type "object"
                                     :additionalProperties true
-                                    :description (str "Wire-bounded marker (rf2-rvyzy). When present, REPLACES the "
+                                    :description (str "Wire-bounded marker. When present, REPLACES the "
                                                       "normal envelope; ships when the cap step fires.")}}
    :description (str "Result envelope: success / error map carrying :ok? + tool-specific slots. "
                      "Wire-bounded markers (:rf.mcp/cache-hit, :rf.mcp/overflow) replace the "
@@ -133,7 +133,7 @@
 (def ^:private destructive-annotations
   "Annotations for state-mutating tools — `dispatch`, `eval-cljs`, and
   `tail-build` (its `:probe` is arbitrary CLJS evaluated in the runtime,
-  so it can express any mutation eval-cljs can — rf2-3x7nj.32.1).
+  so it can express any mutation eval-cljs can).
   Mutations happen in the browser runtime; agent hosts should gate
   these behind explicit user confirmation by default."
   {:destructiveHint true
@@ -181,9 +181,9 @@
 
 (def discover-app
   {:name "discover-app"
-   :description (str "Verify the shadow-cljs nREPL is reachable, confirm the re-frame2-pair runtime preload landed, and report a health summary. Run this first every session. A failed probe is classified by a diagnostic ladder (rf2-7tgfk): :reason :nrepl-unreachable (nREPL down), :build-not-running (start the build), :no-runtime-connected (build runs but no tab attached — reload/open the page or pick the right build), or :runtime-loaded-but-preload-missing (runtime live but the pair preload entry is absent — add the preload). :runtime-not-preloaded is reserved as the degradation fallback when the ladder cannot otherwise classify. "
+   :description (str "Verify the shadow-cljs nREPL is reachable, confirm the re-frame2-pair runtime preload landed, and report a health summary. Run this first every session. A failed probe is classified by a diagnostic ladder: :reason :nrepl-unreachable (nREPL down), :build-not-running (start the build), :no-runtime-connected (build runs but no tab attached — reload/open the page or pick the right build), or :runtime-loaded-but-preload-missing (runtime live but the pair preload entry is absent — add the preload). :runtime-not-preloaded is reserved as the degradation fallback when the ladder cannot otherwise classify. "
                      "The :ok? true health summary carries :frames + :app-frames (the public addressing surface — EP-0023's image -> frame -> event-stream model targets a FRAME id). "
-                     "Every :ok? true result carries a :freshness token (rf2-ertqw): {:runtime-instance-id <uuid> :runtime-loaded-at <ms> :compile-cycle <monotonic int> :build-flushed-at <ms> :runtime-count <n> :heartbeat-age-ms <ms> :liveness :fresh|:stale-build|:no-runtime|:unknown}. Check :liveness BEFORE trusting reads — :stale-build means the build recompiled after the running browser code loaded (RELOAD the page), :no-runtime means no tab is connected. "
+                     "Every :ok? true result carries a :freshness token: {:runtime-instance-id <uuid> :runtime-loaded-at <ms> :compile-cycle <monotonic int> :build-flushed-at <ms> :runtime-count <n> :heartbeat-age-ms <ms> :liveness :fresh|:stale-build|:no-runtime|:unknown}. Check :liveness BEFORE trusting reads — :stale-build means the build recompiled after the running browser code loaded (RELOAD the page), :no-runtime means no tab is connected. "
                      "Examples: "
                      "1. No arg, exactly one build running: {} -> auto-selects it: {:ok? true :debug-enabled? true :frames [:rf/default] :coord-annotation-enabled? true :build-id :examples/step-deck :auto-selected-build :examples/step-deck :freshness {:liveness :fresh ...} :note \"...auto-selected it.\"}. "
                      "2. Named build: {:build \"app\"} -> {:ok? true ... :build-id :app}, no auto-selection (explicit build honoured verbatim). "
@@ -197,13 +197,13 @@
                  :properties {:build {:type "string"
                                       :description (str "shadow-cljs build id. Colon-tolerant: "
                                                         "\"examples/step-deck\" and \":examples/step-deck\" "
-                                                        "resolve identically (rf2-8ohwv). "
+                                                        "resolve identically. "
                                                         "Omit it when exactly one build is running — discover-app "
-                                                        "auto-selects it and notes the choice (rf2-v70kv). "
+                                                        "auto-selects it and notes the choice. "
                                                         "Falls back to app when none can be inferred.")}
                               :port {:type "integer"
                                      :description (str "Resolve the serving build from a browser URL's port via "
-                                                       "the shadow-cljs :dev-http map (rf2-fyf0h). E.g. you opened "
+                                                       "the shadow-cljs :dev-http map. E.g. you opened "
                                                        "http://localhost:8031/counter -> pass {:port 8031} and "
                                                        "discover-app finds the build whose :output-dir is served "
                                                        "on that port — no manual grep of shadow-cljs.edn. A port "
@@ -217,10 +217,10 @@
 
 (def orient
   {:name "orient"
-   :description (str "App-shape orientation summary in ONE round-trip (rf2-3bu3d.8) — \"what is this app "
-                     "and what can I drive?\". First-contact on an UNFAMILIAR app otherwise took several "
+   :description (str "App-shape orientation summary in ONE round-trip — \"what is this app "
+                     "and what can I drive?\". First-contact on an UNFAMILIAR app would otherwise take several "
                      "calls (discover-app + snapshot top-keys + list-handlers + list-subscriptions + "
-                     "machines); orient composes them by reusing the existing introspection surfaces. "
+                     "machines); orient composes them by reusing the introspection surfaces. "
                      "Most valuable for devs NOT working on re-frame2 tooling: they hand you an arbitrary "
                      "app and you need a fast map of it. "
                      "Returns: :liveness {:debug-enabled? :frame-count :app-frame-count :ambiguous-frame? "
@@ -255,10 +255,10 @@
 (def eval-cljs
   {:name "eval-cljs"
    :description (str "Evaluate a ClojureScript form in the connected browser runtime via shadow-cljs's cljs-eval. Returns the EDN value. "
-                     "Enabled by default (rf2-a0z0h); the operator opts OUT via --no-eval at server launch. "
-                     "Opt-in :await (rf2-xn4f9) awaits Promise-returning forms server-side — single call, no js/window mailbox dance. "
-                     "Frame targeting (rf2-ntuzf): optional :frame arg wraps the form in `(re-frame.core/with-frame <frame> <form>)` so "
-                     "`(rf/subscribe ...)` / `(rf/dispatch ...)` inside the form resolve against the named frame. EP-0002 (rf2-bd4div): "
+                     "Enabled by default; the operator opts OUT via --no-eval at server launch. "
+                     "Opt-in :await awaits Promise-returning forms server-side — single call, no js/window mailbox dance. "
+                     "Frame targeting: optional :frame arg wraps the form in `(re-frame.core/with-frame <frame> <form>)` so "
+                     "`(rf/subscribe ...)` / `(rf/dispatch ...)` inside the form resolve against the named frame. EP-0002: "
                      "without :frame the form carries NO frame stamp, so a frame-scoped op inside it raises :rf.error/no-frame-context — it does NOT "
                      "fall back to :rf/default. Supply :frame for any frame-scoped form. :frame is synchronous-lexical ONLY: an async continuation "
                      "inside the form (a .then after a Promise resolves) is past the with-frame extent and must capture the frame explicitly. "
@@ -277,13 +277,13 @@
                  :properties {:form       {:type "string" :description "The CLJS form to evaluate."}
                               :build      {:type "string" :description "shadow-cljs build id (default: app)"}
                               :frame      {:type "string"
-                                           :description (str "Operating frame for the form's lexical scope (rf2-ntuzf). "
+                                           :description (str "Operating frame for the form's lexical scope. "
                                                              "When supplied, the form is wrapped in "
                                                              "(re-frame.core/with-frame <frame> <form>) server-side so "
                                                              "(rf/subscribe ...) / (rf/dispatch ...) / (rf/current-frame-id) "
                                                              "inside the form resolve against the named frame. Accepts "
                                                              "bare names (\"app/main\") or EDN-shaped strings "
-                                                             "(\":app/main\"). EP-0002 (rf2-bd4div): when omitted the form "
+                                                             "(\":app/main\"). EP-0002: when omitted the form "
                                                              "carries NO frame stamp — a frame-scoped op inside it raises "
                                                              ":rf.error/no-frame-context rather than running against a "
                                                              "synthesised :rf/default. Synchronous-lexical ONLY: an async "
@@ -300,8 +300,8 @@
                                                              "other code). Rejections surface as :rf.error/eval-cljs-rejected; "
                                                              "exceeding :timeout-ms surfaces as :rf.error/eval-cljs-timeout. "
                                                              "Composes with :frame — the with-frame wrap is the outer-"
-                                                             "most form, the await mailbox sentinel rides through. "
-                                                             "Added by rf2-xn4f9.")}
+                                                             "most form, the await mailbox sentinel "
+                                                             "rides through.")}
                               :timeout-ms {:type "integer"
                                            :description (str "Maximum ms to wait for a Promise to settle when "
                                                              ":await is true. Default 5000. Ignored when :await is "
@@ -318,14 +318,14 @@
 (def dispatch
   {:name "dispatch"
    :description (str "Fire a re-frame2 event tagged with :origin :pair. "
-                     "DEFAULT mode returns the re-frame2 CONSEQUENCE (rf2-3bu3d.2): a synchronous dispatch "
+                     "DEFAULT mode returns the re-frame2 CONSEQUENCE: a synchronous dispatch "
                      "whose result carries `:epoch-id`, `:db-changed?`, `:changed-paths`, `:effects-fired`, "
                      "and `:no-op?` — so a no-op VISIBLY returns `:db-changed? false :effects-fired [] "
                      ":no-op? true` instead of a fake `{:mode :sync}` ack. `dispatch -> verify` is one call. "
                      "Set `queued` for the async transport-ack shape (`:settled? false` when the cascade "
                      "hasn't drained — poll `watch-epochs` for the settlement). Set `trace` for the full "
                      "assembled :rf/epoch-record. "
-                     "The `event` arg is parsed as EDN ONCE server-side (rf2-vflrg / rf2-3bu3d.3), ECHOed "
+                     "The `event` arg is parsed as EDN ONCE server-side, ECHOed "
                      "back under `:resolved`, and the event-id is VALIDATED against the live :event registrar: "
                      "an unknown id returns `:reason :unknown-id` with `:nearest` matches (e.g. \"unknown "
                      ":event :rf/xrayy; did you mean :rf/xray?\") and does NOT dispatch — never a silent no-op. "
@@ -333,15 +333,15 @@
                      "returns `:reason :not-an-event-vector`; unreadable input returns `:reason "
                      ":invalid-event-edn`. Host-form source (e.g. `(println :x)`) is rejected — use "
                      "`eval-cljs` for arbitrary evaluation. "
-                     "Cascade summary (rf2-6yqdl): every successful dispatch surfaces a `:cascade-summary` "
+                     "Cascade summary: every successful dispatch surfaces a `:cascade-summary` "
                      "slot projecting the resulting :rf/epoch-record — `:epoch-id`, `:event-id`, "
                      "`:event-vector`, `:frame`, `:outcome` (:ok / :blocked / :error), `:db-diff` "
                      "(depth-1 path summary), `:fx-fired` (vector of distinct fx-ids), `:subs-recomputed` / "
-                     "`:renders` (counts), `:machine-transitions`, `:elapsed-ms`. Queued mode (the default) "
+                     "`:renders` (counts), `:machine-transitions`, `:elapsed-ms`. Queued mode "
                      "additionally carries `:cascade-summary-pending? true` when the cascade hasn't drained "
                      "yet — poll `watch-epochs` for the eventual settlement. See the §Cascade Summary "
                      "subsection in spec/003-Tool-Catalogue.md for the full shape. "
-                     "Render-settle (rf2-gfu33): set `await-render true` and the tool resolves only AFTER the "
+                     "Render-settle: set `await-render true` and the tool resolves only AFTER the "
                      "substrate has flushed the new state to the DOM and the next paint is scheduled — `dispatch -> "
                      "observe the DOM` becomes one deterministic step (no manual requestAnimationFrame dance in "
                      "eval-cljs). The flush is substrate-agnostic: it routes through the framework's "
@@ -350,7 +350,7 @@
                      "`await-render` forces synchronous dispatch (the cascade must commit before the render can "
                      "settle) and merges `:settled? true` into the result. A settle that doesn't complete within "
                      "`timeout-ms` (default 5000) returns `:reason :rf.error/dispatch-await-render-timeout`. "
-                     "Dispatch-and-settle (rf2-vk79g): set `settle true` for the MOST COMPLETE single-call shape — "
+                     "Dispatch-and-settle: set `settle true` for the MOST COMPLETE single-call shape — "
                      "dispatch → SYNCHRONOUSLY flush renders → return the assembled epoch INCLUDING its "
                      "`:rf.view/render` + `:rf.view/unmounted` entries. ONE call = dispatch → render → complete "
                      "epoch. Unlike `await-render` (which flushes via the rAF-scheduled `after-render` hook, "
@@ -363,21 +363,21 @@
                      "setTimeout + flush! + re-read dance. SCOPE: async fx (http / timers) stay observed via "
                      "watch-epochs — `settle` only settles the synchronous cascade + render flush. `settle` wins "
                      "over await-render / trace / queued. "
-                     "PRIVACY (rf2-olvr5 / rf2-m9duxl): the epoch-bearing modes (`trace` / `settle`) return a RAW "
+                     "PRIVACY: the epoch-bearing modes (`trace` / `settle`) return a RAW "
                      ":rf/epoch-record and ALWAYS route it through the framework's off-box projection "
                      "(`re-frame.core/project-egress`) before crossing the wire — declared-`:sensitive?` app-db "
                      "slots redact to `:rf/redacted` by default. Pass `include-sensitive true` to keep those slots "
                      "verbatim (app-db sensitive axis only; honoured ONLY under `--allow-sensitive-reads`, else "
                      "forced false). The default sync / queued / await-render consequence shapes carry no raw "
                      "app-db, so the knob is a no-op there. "
-                     "Reproducible dispatch (rf2-q6s1nb / EP-0010 + EP-0017): set `cofx` to an EDN map of scripted "
+                     "Reproducible dispatch (EP-0010 + EP-0017): set `cofx` to an EDN map of scripted "
                      "recordable coeffects — `\"{:rf/time-ms 1781078400123}\"` (and optionally owner-qualified app "
                      "facts like `:counter/delta`) — and the dispatched event carries that exact wall-clock time / "
                      "recorded fact instead of a freshly-stamped one. The router preserves the supplied map "
                      "verbatim (filling only `:rf/time-ms` when absent), so the resulting state is DETERMINISTIC "
                      "and an agent can replay a fixture and assert the SAME output. `:rf/time-ms` must be an integer "
                      "(epoch ms); a malformed map returns `:reason :invalid-cofx` without dispatching. "
-                     "Strict replay (rf2-v52xsr / EP-0017 §6 / Tool-Pair §Replay): `cofx` ALONE is the LIVE "
+                     "Strict replay (EP-0017 §6 / Tool-Pair §Replay): `cofx` ALONE is the LIVE "
                      "scripted-coeffect path — the router's `:live` default, so a declared recordable fact ABSENT "
                      "from the token is freshly MINTED. To REPLAY a recorded event (re-present its recorded `:rf.cofx` "
                      "and reproduce the run) set `replay true`: the dispatch re-drives the event under "
@@ -387,7 +387,7 @@
                      "`replay` is strict even with no `cofx` token (an empty record still halts on any declared "
                      "recordable fact). Use `replay true` to ASSERT a fixture reproduces; omit it (with or without "
                      "`cofx`) for ordinary live dispatch. "
-                     "Envelope override re-supply (rf2-m7x0qb / Tool-Pair §Replay): a strict replay is faithful "
+                     "Envelope override re-supply (Tool-Pair §Replay): a strict replay is faithful "
                      "only if the recorded envelope's own `:fx-overrides` / `:interceptor-overrides` ride along "
                      "with `:rf.cofx` — a run recorded with an active `:interceptor-overrides` would otherwise "
                      "replay under a DIFFERENT effective interceptor chain. To replay a recorded epoch, pass its "
@@ -409,7 +409,7 @@
                      "6. Dispatch-and-settle (full settled epoch): {:event \"[:list/toggle]\" :settle true} -> {:ok? true :mode :settle :settled? true :epoch-id 11 :epoch {...} :render-events [{:operation :rf.view/render :tags {...}} {:operation :rf.view/unmounted :tags {...}}] :cascade-summary {:renders 2 ...}} — one call returns the dispatch's complete epoch WITH the view renders/unmounts. "
                      "7. Bad event shape: {:event \"42\"} -> {:ok? false :reason :not-an-event-vector :event-edn 42}. "
                      "8. Reproducible dispatch (scripted causal time): {:event \"[:todo/add {:text \\\"buy milk\\\"}]\" :cofx \"{:rf/time-ms 1781078400123}\"} -> {:ok? true :mode :sync :epoch-id 7 :db-changed? true ...} — the new todo's :created-at reads the scripted 1781078400123, so a replay asserts the SAME app-db. 9. Bad cofx: {:event \"[:x]\" :cofx \"[:not :a :map]\"} -> {:ok? false :reason :invalid-cofx :hint \"cofx must be a MAP ...\"}. 10. Strict replay (re-present a recorded token): {:event \"[:todo/add {:text \\\"buy milk\\\"}]\" :replay true :cofx \"{:rf/time-ms 1781078400123 :counter/delta 4}\"} -> the dispatch re-drives under :rf.cofx/mint-policy :strict; a COMPLETE record reproduces the run, an INCOMPLETE one (missing a declared recordable fact) fails with :rf.error/missing-required-cofx instead of re-minting. "
-                     "11. Strict replay re-supplying the recorded envelope overrides (rf2-m7x0qb): {:event \"[:cart/checkout]\" :replay true :cofx \"{:rf/time-ms 1781078400123}\" :fx-overrides {\":http\": \":stub-http\"} :interceptor-overrides {\":audit/record-event\": null}} -> the replay re-drives under :rf.cofx/mint-policy :strict WITH the recorded :http stub AND the recorded interceptor removal active — the same effective chain the original run had, not a silently different one. "
+                     "11. Strict replay re-supplying the recorded envelope overrides: {:event \"[:cart/checkout]\" :replay true :cofx \"{:rf/time-ms 1781078400123}\" :fx-overrides {\":http\": \":stub-http\"} :interceptor-overrides {\":audit/record-event\": null}} -> the replay re-drives under :rf.cofx/mint-policy :strict WITH the recorded :http stub AND the recorded interceptor removal active — the same effective chain the original run had, not a silently different one. "
                      "12. Unreplayable fx-override sentinel: {:event \"[:cart/checkout]\" :replay true :fx-overrides {\":http\": \":rf/fn-override\"}} -> {:ok? false :reason :rf.error/unreplayable-fx-override :target :http :hint \"...\"} — the recorded override was a CLJS fn the router could not serialize; the tool refuses rather than silently redirecting to a non-existent fx.")
    :typicalTokens 300
    :annotations destructive-annotations
@@ -417,10 +417,10 @@
    :inputSchema {:type "object"
                  :properties {:event {:type "string" :description "The event vector as EDN, e.g. \"[:cart/checkout]\" or \"[:cart/add {:sku \\\"abc\\\"}]\". MUST be a vector — non-vector EDN and host-form source are rejected. Parsed once, echoed under :resolved, and the event-id validated against the live :event registrar (unknown -> :reason :unknown-id + :nearest, NOT dispatched)."}
                               :sync  {:type "boolean" :description "Force synchronous dispatch returning the consequence. Default mode already returns the consequence synchronously; this is the explicit form."}
-                              :queued {:type "boolean" :description "Opt into the async transport-ack shape instead of the default consequence: returns :settled? false when the cascade hasn't drained, so the agent polls watch-epochs for the settlement (rf2-3bu3d.2)."}
+                              :queued {:type "boolean" :description "Opt into the async transport-ack shape instead of the default consequence: returns :settled? false when the cascade hasn't drained, so the agent polls watch-epochs for the settlement."}
                               :trace {:type "boolean"}
                               :await-render {:type "boolean"
-                                             :description (str "Render-settle (rf2-gfu33): when true, resolve only AFTER the "
+                                             :description (str "Render-settle: when true, resolve only AFTER the "
                                                                "substrate has flushed the new state to the DOM and the next "
                                                                "paint is scheduled, so `dispatch -> observe` is one "
                                                                "deterministic step. The flush routes through the "
@@ -431,7 +431,7 @@
                                                                "into the result. Default false. A settle exceeding :timeout-ms "
                                                                "returns :rf.error/dispatch-await-render-timeout.")}
                               :settle {:type "boolean"
-                                       :description (str "Dispatch-and-settle (rf2-vk79g): when true, dispatch then "
+                                       :description (str "Dispatch-and-settle: when true, dispatch then "
                                                          "SYNCHRONOUSLY flush pending renders via the substrate "
                                                          "adapter's flush-render! (React flushSync / reagent.core/flush, "
                                                          "resolved from the INSTALLED adapter — no substrate hardcoding; "
@@ -461,14 +461,14 @@
                                                                          "EITHER a colon-prefixed keyword id or a bracket-shaped "
                                                                          "\"[id arg]\" EDN string for a parameterized ref (e.g. "
                                                                          "\"[:rf.interceptor/path [:cart]]\"); null removes the "
-                                                                         "matched interceptor. rf2-m7x0qb / Tool-Pair §Replay: "
+                                                                         "matched interceptor. Tool-Pair §Replay: "
                                                                          "to replay a recorded epoch, pass its OWN "
                                                                          "`:interceptor-overrides` (read off the "
                                                                          ":rf/epoch-record) here alongside `replay true` — a "
                                                                          "recorded active override re-presents verbatim rather "
                                                                          "than silently replaying under a different chain.")}
                               :cofx {:type "string"
-                                     :description (str "Reproducible dispatch (rf2-q6s1nb / EP-0010 + EP-0017): an EDN MAP "
+                                     :description (str "Reproducible dispatch (EP-0010 + EP-0017): an EDN MAP "
                                                        "of scripted recordable coeffects threaded into the dispatch "
                                                        "envelope as :rf.cofx, e.g. \"{:rf/time-ms 1781078400123}\" (and "
                                                        "optionally owner-qualified app facts like :counter/delta). The "
@@ -483,7 +483,7 @@
                                                        "alone is LIVE — pair it with `replay true` to re-present a "
                                                        "recorded token under the strict replay policy.")}
                               :replay {:type "boolean"
-                                       :description (str "Strict replay (rf2-v52xsr / EP-0017 §6 / Tool-Pair §Replay): "
+                                       :description (str "Strict replay (EP-0017 §6 / Tool-Pair §Replay): "
                                                          "when true, re-drive the event under :rf.cofx/mint-policy "
                                                          ":strict, re-presenting the recorded `cofx` token verbatim. A "
                                                          "recorded recordable fact MISSING from the token fails LOUDLY "
@@ -497,11 +497,11 @@
                                                          "minted). Set true to ASSERT a fixture reproduces. `replay` "
                                                          "hard-wires the strict cofx policy ONLY — a faithful replay ALSO "
                                                          "needs the recorded envelope's own `fx-overrides` / "
-                                                         "`interceptor-overrides` (rf2-m7x0qb) passed as those separate "
+                                                         "`interceptor-overrides` passed as those separate "
                                                          "args, read off the :rf/epoch-record, per Tool-Pair §Replay.")}
                               :include-sensitive {:type "boolean"
-                                                  :description (str "Epoch-egress privacy opt-in for the :trace / :settle modes "
-                                                                    "(rf2-olvr5 / rf2-m9duxl). Those modes return a RAW "
+                                                  :description (str "Epoch-egress privacy opt-in for the :trace / :settle modes. "
+                                                                    "Those modes return a RAW "
                                                                     ":rf/epoch-record (:db-before / :db-after / :trace-events; "
                                                                     ":settle also :render-events) that ALWAYS routes through the "
                                                                     "framework's off-box projection (re-frame.core/project-egress) "
@@ -509,8 +509,8 @@
                                                                     "watch-epochs. Default false: declared-:sensitive? app-db slots "
                                                                     "in the projected epoch redact to :rf/redacted. Set true to pass "
                                                                     "them through verbatim — honoured ONLY when the server was "
-                                                                    "launched with --allow-sensitive-reads; otherwise forced false "
-                                                                    "(rf2-z7roa). Governs the app-db sensitive axis ONLY: the "
+                                                                    "launched with --allow-sensitive-reads; otherwise forced false. "
+                                                                    "Governs the app-db sensitive axis ONLY: the "
                                                                     "orthogonal fx-args / runtime-db / large axes stay "
                                                                     "fail-closed regardless. Ignored by the default "
                                                                     "sync / queued / await-render consequence shapes (they carry no "
@@ -536,7 +536,7 @@
                      "histories are supported. Disabled/missing epoch recording refuses BEFORE dispatch "
                      "with :no-epoch-recorded. Proceed only on :ok? true AND :rolled-back? true; "
                      ":rollback-failed means simulated state can still be live. NOT --allow-writes-gated. "
-                     "Returns the same :cascade-summary shape as dispatch (rf2-6yqdl) — operators read one "
+                     "Returns the same :cascade-summary shape as dispatch — operators read one "
                      "vocabulary for both. A caller :fx-overrides is REJECTED (:reason :fx-overrides-unsupported): "
                      "the sink records every fx before override resolution, so an override cannot influence the "
                      "simulation without executing a body — to try a canned http stub, dispatch (not dry-run) "
@@ -551,7 +551,7 @@
                      ":include-sensitive true is honoured ONLY when the server was launched with "
                      "--allow-sensitive-reads, otherwise forced false. :would-fire-effects[*].args "
                      "are RAW fx-handler args (HTTP bodies, dispatched event vectors, payment maps) NOT rooted "
-                     "at app-db, so the walker cannot prove them safe — they FAIL CLOSED (rf2-6to9xj, matching "
+                     "at app-db, so the walker cannot prove them safe — they FAIL CLOSED (matching "
                      "the epoch projector's :effects[*].args): :args redacts to :rf/redacted for EVERY fx "
                      "by default, while :fx-id / the effect kind ride through so you still see WHICH effects "
                      "would fire. Opt the raw args back in with :include-fx-args true (honoured ONLY under "
@@ -570,10 +570,10 @@
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:event {:type "string"
-                                      :description "The event vector as EDN, e.g. \"[:cart/checkout]\". MUST be a vector — same EDN-data posture as dispatch (rf2-vflrg)."}
+                                      :description "The event vector as EDN, e.g. \"[:cart/checkout]\". MUST be a vector — same EDN-data posture as dispatch."}
                               :frame {:type "string" :description "Operating frame (e.g. \":checkout\"). Defaults to the operating frame."}
                               :cofx {:type "string"
-                                     :description (str "Reproducible dry-run (rf2-3q7gep / EP-0017): an EDN MAP of scripted "
+                                     :description (str "Reproducible dry-run (EP-0017): an EDN MAP of scripted "
                                                        "recordable coeffects threaded into the simulated dispatch as :rf.cofx, "
                                                        "e.g. \"{:rf/time-ms 1781078400123}\" (and optionally owner-qualified app "
                                                        "facts like :counter/delta). Identical posture to dispatch's :cofx: the "
@@ -592,20 +592,20 @@
                                                           ":rf.egress/off-box-tool profile floor so large slots ride verbatim, but "
                                                           "declared-:sensitive? slots STILL redact to :rf/redacted (use "
                                                           ":include-sensitive for those). Honoured on every launch — no launch flag "
-                                                          "needed (rf2-ealv5). Does NOT "
+                                                          "needed. Does NOT "
                                                           "govern :would-fire-effects[*].args — those fail closed independently "
                                                           "(see :include-fx-args).")}
                               :include-sensitive {:type "boolean"
                                                   :description (str "Pass declared-:sensitive? app-db slots through verbatim instead of "
                                                                     "redacting to :rf/redacted. Default false. Honoured ONLY when the "
                                                                     "server was launched with --allow-sensitive-reads; otherwise forced "
-                                                                    "false (rf2-z7roa).")}
+                                                                    "false.")}
                               :include-fx-args {:type "boolean"
                                                 :description (str "Pass the RAW :would-fire-effects[*].args (fx-handler arguments — HTTP "
                                                                   "bodies, dispatched event vectors, payment maps) through verbatim instead "
                                                                   "of failing closed to :rf/redacted. These are NOT rooted at app-db so the "
                                                                   "elision walker cannot prove them safe; off-box egress fails closed by "
-                                                                  "default (rf2-6to9xj, matching the epoch projector's :effects[*].args). "
+                                                                  "default (matching the epoch projector's :effects[*].args). "
                                                                   "Default false. Honoured ONLY when the server was launched with "
                                                                   "--allow-sensitive-reads; otherwise forced false. Orthogonal to "
                                                                   ":include-sensitive (a different keyspace).")}
@@ -619,7 +619,7 @@
 
 (def restore-epoch
   {:name "restore-epoch"
-   :description (str "Time-travel undo (rf2-ee38b.18): rewind a frame's whole frame-state — BOTH the app-db and "
+   :description (str "Time-travel undo: rewind a frame's whole frame-state — BOTH the app-db and "
                      "runtime-db partitions — to a recorded prior epoch's `:frame-state-after` value, reinstalled "
                      "atomically via `replace-frame-state!`. Machine snapshots, the route slice, elision "
                      "declarations, and SSR metadata are revived alongside app-db, not just the app-db projection. "
@@ -630,7 +630,7 @@
                      "INTEGERS), so pass an integer id as \"7\" and it reads as the number 7. "
                      "Returns false (`:reason :restore-rejected`) when the id is not in the ring or a drain is "
                      "in flight (the documented `:rf.epoch/*` failure modes); the frame-state is unchanged on failure. "
-                     "Cascade summary (rf2-6yqdl): a successful restore surfaces `:cascade-summary` projecting "
+                     "Cascade summary: a successful restore surfaces `:cascade-summary` projecting "
                      "the TARGET epoch (`:event-id`, `:event-vector`, `:db-diff` from the pre-restore live db "
                      "to the target's `:db-after`, `:fx-fired` from the original cascade, `:restore? true`). "
                      "Additionally `:unreplayable-effects` enumerates fx the original cascade fired that the "
@@ -660,7 +660,7 @@
 
 (def replay-epoch
   {:name "replay-epoch"
-   :description (str "Strict replay of a retained epoch in ONE call (rf2-ov144 / Tool-Pair §Replay): re-drive the "
+   :description (str "Strict replay of a retained epoch in ONE call (Tool-Pair §Replay): re-drive the "
                      "named epoch's recorded event through the app's own handlers with its RAW argument-bearing "
                      "`:trigger-event`, its recorded post-generation `:rf.cofx` token under `:rf.cofx/mint-policy "
                      ":strict`, and BOTH recorded override maps (`:fx-overrides` / `:interceptor-overrides`) — all "
@@ -708,16 +708,16 @@
 
 (def replace-app-db
   {:name "replace-app-db"
-   :description (str "State injection (rf2-ee38b.18): replace a frame's app-db with an arbitrary EDN value the "
+   :description (str "State injection: replace a frame's app-db with an arbitrary EDN value the "
                      "runtime never recorded — the JSON-loaded-bug-repro case per spec/Tool-Pair.md §Pair-tool "
                      "writes. Wraps the `replace-frame-state!` Tool-Pair write primitive as an app-only partial map "
                      "(`{:rf.db/app v}`): bypasses the dispatch loop, "
                      "replaces the container directly, and records a synthetic `:rf/epoch-record` "
                      "(`:event-id :rf.epoch/db-replaced`) so a later `restore-epoch` can rewind past the injection. "
                      "The `db` arg is parsed as EDN DATA (not host source — same injection-closing posture as "
-                     "`dispatch`, rf2-vflrg). Fails (`:reason :reset-rejected`) on no-such-frame, drain-in-flight, "
+                     "`dispatch`). Fails (`:reason :reset-rejected`) on no-such-frame, drain-in-flight, "
                      "or app-schema mismatch; the app-db is unchanged on failure. "
-                     "Cascade summary (rf2-6yqdl): a successful reset surfaces `:cascade-summary` projecting "
+                     "Cascade summary: a successful reset surfaces `:cascade-summary` projecting "
                      "the synthetic `:rf.epoch/db-replaced` epoch — `:event-id :rf.epoch/db-replaced`, `:db-diff` "
                      "summarising before-vs-after at depth 1, `:fx-fired []` (state injection bypasses fx). "
                      "See the §Cascade Summary subsection in spec/003-Tool-Catalogue.md. "
@@ -749,15 +749,15 @@
                      "Per spec/009 §Privacy this forwarder default-drops items carrying `:sensitive? true` "
                      "at the top level; opt back in with `include-sensitive true`. Dropped count surfaces "
                      "as `:dropped-sensitive` on the result when non-zero. "
-                     "Each epoch's :db-after is diff-encoded against its own :db-before by default (rf2-1wdzp) "
+                     "Each epoch's :db-after is diff-encoded against its own :db-before by default "
                      "— pass `epochs-mode \"full\"` for the full-pair shape (the time-travel-restore mode) (needed for time-travel restore). "
                      "A `{:rf.size/large-elided ...}` marker in a record describes that epoch's value, but its `:path` "
                      "addresses the CURRENT app-db: `get-path` on it returns today's value, not that epoch's — read the "
                      "past value with the eval-cljs recipe in get-path's description. "
-                     "The epoch vector is structurally deduped by default (rf2-obpa9) — repeated subtrees "
+                     "The epoch vector is structurally deduped by default — repeated subtrees "
                      "(notably the per-record `:db-before` reference) collapse to a `{:rf.mcp/dedup-table ...}` "
                      "wrapper; the agent host calls `(re-frame.mcp-base.dedup/expand cache)` to reconstruct. Pass `dedup false` to skip. "
-                     "Cursor pagination (rf2-kbqq3): the response is bounded at `:limit` records (default 50). "
+                     "Cursor pagination: the response is bounded at `:limit` records (default 50). "
                      "When more remain, `:next-cursor` carries an opaque continuation token and `:has-more? true`; "
                      "pass `cursor` back on the next call to resume. The window's upper bound is sticky across "
                      "pages — fresh epochs landing during pagination don't sneak in mid-iteration. A cursor "
@@ -780,7 +780,7 @@
                                             :enum ["diff" "full"]}
                               :dedup knobs/dedup-property
                               :include-sensitive {:type "boolean"
-                                                   :description "Opt back in to forwarding `:sensitive? true` items. Default false. Also governs off-box record projection (rf2-6wvh5): default-false routes every egressed epoch through `re-frame.core/project-egress` — declared-sensitive `:db-*`/`:trigger-event`/`:trace-events` slots redact to `:rf/redacted`, declared-large slots elide to `:rf.size/large-elided`. `true` (honoured only when the server was launched with --allow-sensitive-reads) ships the raw records."}
+                                                   :description "Opt back in to forwarding `:sensitive? true` items. Default false. Also governs off-box record projection: default-false routes every egressed epoch through `re-frame.core/project-egress` — declared-sensitive `:db-*`/`:trigger-event`/`:trace-events` slots redact to `:rf/redacted`, declared-large slots elide to `:rf.size/large-elided`. `true` (honoured only when the server was launched with --allow-sensitive-reads) ships the raw records."}
                               :build {:type "string"}}
                  :additionalProperties false}})
 
@@ -793,7 +793,7 @@
    :description (str "Pull-mode poll: returns the epochs matching `pred` that landed after `since-id`. "
                      "Call repeatedly to live-watch. Predicate keys: :event-id, :event-id-prefix, :effects, "
                      ":touches-path, :sub-ran, :render, :origin, :frame, :timing-ms. "
-                     ":timing-ms (rf2-r3azh) is a server-side wall-clock filter — accepts a number (sugar for "
+                     ":timing-ms is a server-side wall-clock filter — accepts a number (sugar for "
                      "`>= N`) or a comparison string (`\">100\"`, `\"<=50\"`, `\">=100\"`, `\"<200\"`, `\"=42\"`). "
                      "Compares against the cascade's elapsed-ms derived from the `:rf.event/run-start` / "
                      "`:rf.event/run-end` trace pair. The filter rides server-side so non-matching epochs "
@@ -801,13 +801,13 @@
                      "(e.g. only :>100ms epochs) shrinks the payload roughly proportional to the match rate. "
                      "Per spec/009 §Privacy this forwarder "
                      "default-drops items carrying `:sensitive? true`; opt back in with `include-sensitive true`. "
-                     "Each epoch's :db-after is diff-encoded against its own :db-before by default (rf2-1wdzp) "
+                     "Each epoch's :db-after is diff-encoded against its own :db-before by default "
                      "— pass `epochs-mode \"full\"` for the full-pair shape (the time-travel-restore mode). "
                      "A `{:rf.size/large-elided ...}` marker in a match describes that epoch's value, but its `:path` "
                      "addresses the CURRENT app-db: `get-path` on it returns today's value, not that epoch's — read the "
                      "past value with the eval-cljs recipe in get-path's description. "
-                     "The matches vector is structurally deduped by default (rf2-obpa9); pass `dedup false` to skip. "
-                     "Cursor pagination (rf2-kbqq3): the matches vector is bounded at `:limit` (default 50). "
+                     "The matches vector is structurally deduped by default; pass `dedup false` to skip. "
+                     "Cursor pagination: the matches vector is bounded at `:limit` (default 50). "
                      "When more matches remain, `:next-cursor` is non-nil and `:has-more? true`; pass `cursor` "
                      "back to consume the next page. The `:cursor` arg overrides `:since-id` when both are "
                      "supplied. A cursor whose epoch-id has aged out of the ring surfaces as "
@@ -827,11 +827,11 @@
                               :limit    knobs/limit-property
                               :cursor   knobs/cursor-property
                               :epochs-mode {:type "string"
-                                            :description "How :db-after rides the wire: \"diff\" (default) or \"full\" (legacy, opt-in for time-travel restore)."
+                                            :description "How :db-after rides the wire: \"diff\" (default) or \"full\" (opt-in for time-travel restore)."
                                             :enum ["diff" "full"]}
                               :dedup    knobs/dedup-property
                               :include-sensitive {:type "boolean"
-                                                   :description "Opt back in to forwarding `:sensitive? true` items. Default false. Also governs off-box record projection (rf2-6wvh5): default-false routes every egressed epoch through `re-frame.core/project-egress` — declared-sensitive `:db-*`/`:trigger-event`/`:trace-events` slots redact to `:rf/redacted`, declared-large slots elide to `:rf.size/large-elided`. `true` (honoured only when the server was launched with --allow-sensitive-reads) ships the raw records."}
+                                                   :description "Opt back in to forwarding `:sensitive? true` items. Default false. Also governs off-box record projection: default-false routes every egressed epoch through `re-frame.core/project-egress` — declared-sensitive `:db-*`/`:trigger-event`/`:trace-events` slots redact to `:rf/redacted`, declared-large slots elide to `:rf.size/large-elided`. `true` (honoured only when the server was launched with --allow-sensitive-reads) ships the raw records."}
                               :build    {:type "string"}}
                  :additionalProperties false}})
 
@@ -861,7 +861,7 @@
                      "4. Timed out (value never left the baseline): {:probe \"(my.app/build-marker)\" :baseline \"41\" :wait-ms 500} -> {:ok? false :reason :timed-out}. "
                      "5. Probe without baseline: {:probe \"(rand)\"} -> {:ok? false :reason :missing-baseline}.")
    :typicalTokens 100
-   ;; rf2-3x7nj.32.1 — `:probe` is arbitrary CLJS evaluated in the runtime
+   ;; `:probe` is arbitrary CLJS evaluated in the runtime
    ;; (repeatedly), so the tool is NOT read-only: the read-only set is the
    ;; one hosts auto-approve.
    :annotations destructive-annotations
@@ -882,44 +882,44 @@
    :description (str "Coarse-grained per-frame state read in one round-trip — the mega-op for investigate-X workflows. "
                      "Returns a map keyed by frame-id whose values carry the requested slices: "
                      ":app-db, :sub-cache, :machines, :epochs, :traces. "
-                     "Server-side composition over the existing per-slice runtime readers. "
+                     "Server-side composition over the per-slice runtime readers. "
                      "Prefer this over chaining 5-10 individual reads. "
-                     "Lazy-summary default (rf2-u2029): each rich slice in the response is replaced with a "
+                     "Lazy-summary default: each rich slice in the response is replaced with a "
                      "`{:rf.mcp/summary {:type :map|:vector :keys [...] :count N :bytes ~B}}` marker by "
                      "default — keeps a discovery snapshot under the wire cap by construction. Agents drill "
                      "into the slice they actually need via `mode \"full\"` (every slice expands), per-slice "
                      "`modes {\"app-db\": \"full\"}` (one slice expands), or — for the :app-db slice only — "
-                     "the `path` arg (rf2-tygdv: returns the addressed subtree). "
-                     "Path slicing (rf2-tygdv): the `:app-db` slice supports a `path` arg (an EDN-encoded "
+                     "the `path` arg (returns the addressed subtree). "
+                     "Path slicing: the `:app-db` slice supports a `path` arg (an EDN-encoded "
                      "vector of keys, e.g. \"[:cart :items 0]\"). With `path`, returns the addressed subtree. "
                      "Path-slicing supersedes the slice-level mode for `:app-db`. "
-                     "Diff-encoded epochs (rf2-1wdzp): each epoch in the `:epochs` slice has its `:db-after` "
+                     "Diff-encoded epochs: each epoch in the `:epochs` slice has its `:db-after` "
                      "replaced with a structural diff against its own `:db-before` by default — pass "
                      "`epochs-mode \"full\"` for full-pair shape (the time-travel-restore mode, which needs verbatim state). "
                      "Diff-encode runs before the lazy-summary so `bytes` hints reflect post-shrink cost. "
                      "Per spec/009 §Privacy the `:traces` and `:epochs` slices default-drop items carrying "
                      "`:sensitive? true`; opt back in with `include-sensitive true`. "
-                     "Per Tool-Pair §Direct-read privacy posture (rf2-vflrg) the `:app-db` and `:sub-cache` "
+                     "Per Tool-Pair §Direct-read privacy posture the `:app-db` and `:sub-cache` "
                      "slices are routed through `re-frame.core/project-egress` with off-box defaults — "
                      "declared-sensitive paths return the `:rf/redacted` sentinel and large slots return "
                      "the `:rf.size/large-elided` marker; the same `include-sensitive true` flag opts back "
                      "in to seeing the raw value at sensitive paths. The `:machines` slice is RUNTIME-DB "
-                     "partition state (EP-0001, rf2-vzld77): machine snapshots live in the durable runtime-db "
+                     "partition state (EP-0001): machine snapshots live in the durable runtime-db "
                      "partition, which Spec 011 §Off-box redaction REDACTS/OMITS off-box by default. Under the "
                      "default `:rf.egress/off-box-tool` posture (Tool-Pair EP-0015 adoption) the whole "
                      "`:machines` slice therefore FAILS CLOSED to the `:rf/redacted` sentinel — its `:data` "
                      "(which can carry durable sensitive runtime state, classified schema-first via per-slot "
                      "`[:schemas :data]` `:sensitive?` / `:large?` props per Spec 015) never crosses the wire raw. "
                      "There is NO top-level machine `:sensitive` / `:large` key and NO interceptor-based "
-                     "payload redaction (both retired by EP-0015 — the slice is gated by the off-box egress "
+                     "payload redaction (neither exists under EP-0015 — the slice is gated by the off-box egress "
                      "posture, not a public interceptor). The trusted-local `--allow-sensitive-reads` gate "
                      "(surfaced as `include-sensitive true`) threads through to ship the live runtime-db "
                      "snapshots — an opt-in to richer runtime-db diagnostics, never a bypass of projection. "
-                     "Each frame's `:epochs` slice is structurally deduped (rf2-obpa9) after diff-encoding — "
+                     "Each frame's `:epochs` slice is structurally deduped after diff-encoding — "
                      "repeated subtrees (notably the per-record `:db-before` reference) collapse to a "
                      "`{:rf.mcp/dedup-table ...}` wrapper; agent host reconstructs via `re-frame.mcp-base.dedup/expand`. "
                      "Pass `dedup false` to skip. "
-                     "Size-elision (rf2-urjnc): each frame's `:app-db` slice is run through "
+                     "Size-elision: each frame's `:app-db` slice is run through "
                      "`re-frame.core/project-egress` server-side before crossing the wire — a value at or "
                      "below a path classified `:large` is substituted with a "
                      "`{:rf.size/large-elided {:path [...] :handle [:rf.elision/at <path>] ...}}` marker. "
@@ -935,7 +935,7 @@
                      "`include-sensitive true`, the latter honoured only when launched with "
                      "`--allow-sensitive-reads` (else forced false). The opt-ins thread through the walk; "
                      "nothing bypasses it. "
-                     "Default frame scope = APP FRAMES ONLY (rf2-3bu3d.6): reserved :rf/* TOOL frames "
+                     "Default frame scope = APP FRAMES ONLY: reserved :rf/* TOOL frames "
                      "(Xray's :rf/xray, an SSR slot, …) are EXCLUDED by default so a first investigate-read "
                      "doesn't OVERFLOW on tool-frame inspection state (:rf/default is an app frame and is "
                      "retained). When tool frames are excluded the response carries a :note naming them. "
@@ -972,16 +972,16 @@
                                         :oneOf [{:type "string"}
                                                 {:type "array" :items {:type "string"}}]}
                               :mode    {:type "string"
-                                        :description (str "Global lazy-summary mode (rf2-u2029). "
+                                        :description (str "Global lazy-summary mode. "
                                                           "\"summary\" (default) replaces every rich slice "
                                                           "(:app-db when no `path`, :sub-cache, :machines, :epochs, :traces) "
                                                           "with a `{:rf.mcp/summary ...}` marker — top-level keys, "
                                                           "count, and approximate bytes. \"full\" expands every "
-                                                          "slice to its raw payload (legacy pre-rf2-u2029 behaviour). "
+                                                          "slice to its raw payload. "
                                                           "Per-slice override via `modes` takes precedence.")
                                         :enum ["summary" "full"]}
                               :modes   {:type "object"
-                                        :description (str "Per-slice mode override (rf2-u2029) — a map "
+                                        :description (str "Per-slice mode override — a map "
                                                           "{slice-name: \"summary\"|\"full\"}. Recognised slices: "
                                                           "app-db, sub-cache, machines, epochs, traces. Slices not "
                                                           "listed fall back to the global `mode` arg (default \"summary\"). "
@@ -1017,12 +1017,12 @@
                      "when the path doesn't resolve. The deepest-valid-prefix lets the agent re-aim "
                      "without a binary search. Use this when `snapshot`'s summary mode (default) "
                      "tells you which key carries the answer. "
-                     "Batch read (rf2-lbm21): pass `paths` (plural) — a vector of path vectors — to "
+                     "Batch read: pass `paths` (plural) — a vector of path vectors — to "
                      "read N app-db subtrees in ONE round-trip instead of N calls. Returns "
                      "`{:ok? true :results {<path> {:exists? bool :value <subtree>}}}`; each value is "
                      "elided exactly like the singular surface. `path` and `paths` are mutually "
                      "exclusive (supplying both -> :reason :path-and-paths-both-supplied). "
-                     "Size-elision (rf2-urjnc): the resolved value is run through "
+                     "Size-elision: the resolved value is run through "
                      "`re-frame.core/project-egress` server-side — a value at or below a path classified "
                      "`:large` returns a `{:rf.size/large-elided ...}` marker carrying its `:path`, "
                      "`:bytes`, `:type` and a `:handle [:rf.elision/at <path>]`, not the raw bytes. A "
@@ -1035,7 +1035,7 @@
                      "epoch's. To read a past elided value use eval-cljs, e.g. "
                      "`(if-let [r (re-frame2-pair.runtime/epoch-by-id 7 :my/app)] (get-in r [:db-after :doc :body]) {:epoch-unavailable 7})` "
                      "— use `:db-before` when the marker came from that side. "
-                     "Privacy / profile (rf2-vflrg, per Tool-Pair §Direct-read privacy posture + EP-0015 "
+                     "Privacy / profile (per Tool-Pair §Direct-read privacy posture + EP-0015 "
                      "§10): the surface defaults to the `:rf.egress/off-box-tool` profile — declared-"
                      "sensitive paths return the `:rf/redacted` sentinel and large slots elide. `elision "
                      "false` is the size override, honoured on every launch (no launch flag needed): it "
@@ -1060,7 +1060,7 @@
                                                         "exclusive with `paths`.")
                                       :oneOf [{:type "string"}
                                               {:type "array" :items {:type "string"}}]}
-                              :paths {:description (str "Batch read (rf2-lbm21): a vector of paths, each itself "
+                              :paths {:description (str "Batch read: a vector of paths, each itself "
                                                         "a path vector — reads N subtrees in one round-trip. "
                                                         "EDN-encoded (e.g. \"[[:cart :total] [:user :id]]\") or a "
                                                         "JSON array whose entries are EDN path strings / segment "
@@ -1087,7 +1087,7 @@
 (def read-sub
   {:name "read-sub"
    :description (str "Read a subscription value — the #1 read on any re-frame2 app — VALIDATED, with "
-                     "no-silent-swallow parity with dispatch (rf2-3bu3d.7). PREFER this over raw "
+                     "no-silent-swallow parity with dispatch. PREFER this over raw "
                      "`eval-cljs` `@(re-frame.core/subscribe [:foo])`: that is stringly (you must know "
                      "the ns alias), UNVALIDATED (a typo'd sub-id silently subscribes to a non-existent "
                      "sub and hands back nil/garbage), and un-elided (a huge value can blow the wire). "
@@ -1150,26 +1150,26 @@
 
 (def read-dom
   {:name "read-dom"
-   :description (str "View-plane READ (rf2-nfjil): query the RENDERED DOM by CSS selector and return matched "
+   :description (str "View-plane READ: query the RENDERED DOM by CSS selector and return matched "
                      "count + per-node {:tag :text :attrs}. The data-plane reads (snapshot / get-path / "
                      "trace-window / list-subscriptions) tell you what's in app-db and the trace; read-dom "
                      "tells you what the app actually PUT ON SCREEN — the answer to 'did the UI update?' / "
                      "'what does the rendered node say?'. Generalises the source-coord reads (handler-meta's "
                      ":rf.mcp/source-uri — where a handler is DEFINED) to rendered-CONTENT reads (what's on screen NOW). "
-                     "Pairs with dispatch :await-render (rf2-gfu33): dispatch -> settle -> read-dom is a "
+                     "Pairs with dispatch :await-render: dispatch -> settle -> read-dom is a "
                      "deterministic three-step observe. "
                      "READ-ONLY by construction — the browser-side form calls querySelectorAll and reads "
                      "textContent / attribute strings only; it never assigns a property, dispatches, or mutates a node. "
                      "Capped at the SOURCE: the per-node text cap (:max-text, default 2000 chars) and the matched-node "
                      ":limit (default 50) are applied browser-side so only bounded EDN crosses the wire — a 5 MB <pre> "
                      "never leaves the tab. Over-cap text is replaced with the framework's {:rf.size/large-elided "
-                     "{:type :dom-text :chars N :preview \"...\"}} marker (same convention get-path / snapshot emit, rf2-urjnc). "
+                     "{:type :dom-text :chars N :preview \"...\"}} marker (same convention get-path / snapshot emit). "
                      ":sub-selector runs RELATIVE to each matched node (node.querySelectorAll) to narrow a coarse match "
                      "(a card) to its inner parts (the card's .title). :attrs picks which attributes ride; omit it and a "
                      "curated default set rides PLUS a data-* / aria-* sweep (the re-frame2 view-plane idiom for surfacing "
                      "rendered state). :count is the full pre-:limit tally; :truncated? flips true when more matched than were returned. "
-                     "PRIVACY (rf2-p9scds, EP-0025 fail-open): rendered DOM text / attribute values can carry a secret "
-                     "copied out of a declared-sensitive app-db slot into a non-app-db DOM position. EP-0025 removed "
+                     "PRIVACY (EP-0025 fail-open): rendered DOM text / attribute values can carry a secret "
+                     "copied out of a declared-sensitive app-db slot into a non-app-db DOM position. EP-0025 does no "
                      "value-match redaction (taint-by-equality), so such a RE-KEYED secret SHIPS RAW under the off-box "
                      "gate — read-dom is FAIL-OPEN: it does not value-match rendered content against app-db secrets. "
                      "Over-cap text still elides to the {:rf.size/large-elided ...} marker, and the surface still fails "
@@ -1201,7 +1201,7 @@
                                              :description (str "Per-node textContent character cap (default 2000). Text longer than "
                                                                "this is replaced with a {:rf.size/large-elided {:type :dom-text "
                                                                ":chars N :preview \"...\"}} marker — same shape get-path / snapshot "
-                                                               "emit for over-threshold app-db slots (rf2-urjnc).")}
+                                                               "emit for over-threshold app-db slots.")}
                               :attrs        {:type "array"
                                              :items {:type "string"}
                                              :description (str "Attribute names to include per node, e.g. [\"id\" \"class\" \"data-state\"]. "
@@ -1211,7 +1211,7 @@
                                                                "in control — no prefix sweep.")}
                               :frame        {:type "string"
                                              :description (str "Frame-id (e.g. \":rf/default\") naming the source frame for the "
-                                                               "off-box gate (rf2-p9scds). EP-0025 fail-open: rendered nodes are "
+                                                               "off-box gate. EP-0025 fail-open: rendered nodes are "
                                                                "NOT value-redacted against the frame's app-db secrets — a re-keyed "
                                                                "DOM secret ships raw. Defaults to the operating frame. Under the "
                                                                "off-box gate an ambiguous frame (multi-app, none pinned) fails "
@@ -1226,7 +1226,7 @@
 
 (def read-ui
   {:name "read-ui"
-   :description (str "The typed ui/read op (rf2-3bu3d.1) — a.k.a. view/rendered. Given a VIEW-ID (or a point / "
+   :description (str "The typed ui/read op — a.k.a. view/rendered. Given a VIEW-ID (or a point / "
                      "CSS selector) return the RENDERED subtree as structured, ELIDED data PLUS the re-frame2 "
                      "ENTITY that produced it, in ONE round-trip. The complement to read-dom: read-dom needs an "
                      "explicit CSS selector and returns only content; read-ui rides the view-id<->DOM map, so it "
@@ -1243,8 +1243,8 @@
                      ":col} from the attribute, augmented with :file via handler-meta :view), :render-key (a stable "
                      "node hash), and :subs-read (the frame's live materialised sub-cache query-vectors — which subs "
                      "feed this view). The :content slot is {:tag :text :attrs}. "
-                     "PRIVACY (rf2-p9scds, EP-0025 fail-open): the rendered :content (text AND attrs) can carry a secret "
-                     "copied out of a declared-sensitive app-db slot into a non-app-db DOM position. EP-0025 removed "
+                     "PRIVACY (EP-0025 fail-open): the rendered :content (text AND attrs) can carry a secret "
+                     "copied out of a declared-sensitive app-db slot into a non-app-db DOM position. EP-0025 does no "
                      "value-match redaction (taint-by-equality), so such a RE-KEYED secret SHIPS RAW under the off-box "
                      "gate — read-ui is FAIL-OPEN: it does not value-match :content against app-db secrets. The hard "
                      ":max-text cap (default 2000) still trims the common large case to the {:rf.size/large-elided ...} "
@@ -1295,7 +1295,7 @@
                                          :description (str "Per-node textContent character cap (default 2000). Text longer "
                                                            "than this collapses to a {:rf.size/large-elided {:type :dom-text "
                                                            ":chars N :preview \"...\"}} marker before the elision walker runs "
-                                                           "— same shape get-path / snapshot emit (rf2-urjnc).")}
+                                                           "— same shape get-path / snapshot emit.")}
                               :frame    {:type "string"
                                          :description (str "Operating frame (e.g. \":stories\") — scopes the :subs-read "
                                                            "slice and the elision registry. Defaults to the operating frame.")}
@@ -1306,8 +1306,8 @@
 ;; The three re-frame.fresco.tool reads — the adapter-neutral evidence a
 ;; pairing agent reads from a running app. Each ships one self-describing form
 ;; that RESOLVES the door at runtime rather than referencing its vars — a
-;; namespace the build never loaded is rejected by shadow's analyzer before the
-;; form runs, which is what used to hide :evidence-tier-unavailable (rf2-t2ec);
+;; reference to a namespace the build never loaded would be rejected by shadow's
+;; analyzer before the form runs, hiding :evidence-tier-unavailable;
 ;; every read answers inside the evidence envelope (:schema / :producer /
 ;; :read / :complete? / :loss) and egresses only bounded serializable data (no
 ;; cell / React handle, and no read VALUE at all). Absence is honest:
@@ -1315,11 +1315,11 @@
 ;; Fresco app nothing pulled it into), :evidence-tier-inactive (a production
 ;; build; the door is dev-only).
 ;;
-;; THREE, not the five view reads this family replaced (rf2-n3mb). Fresco mints
-;; no boundary identity and keeps no view registry, so read-view-manifest /
-;; read-view-dependencies / read-view-event-sites — static questions about a
-;; view named by its declared id — have no counterpart here and are not shipped
-;; as tools that would answer them with a fabricated emptiness. A dev build does
+;; THREE reads, and no static per-view ones. Fresco mints no boundary identity
+;; and keeps no view registry, so static questions about a view named by its
+;; declared id (its manifest, its dependencies, its event sites) have no
+;; counterpart here and are not shipped as tools that would answer them with a
+;; fabricated emptiness. A dev build does
 ;; name the declared views that rendered each edge set (:views, with source
 ;; coordinates), so a row reads as app.views/todo-row beside its key.
 ;; ---------------------------------------------------------------------------
@@ -1405,7 +1405,7 @@
                      "sum React compares — so 'which of my reads moved' has an answer — EXCEPT where an "
                      "egress policy elided a query whole and folded two boundaries reading DIFFERENT cells "
                      "onto one identity, which is reported as :unknown rather than as a sum no boundary ever "
-                     "compared (rf2-h9lt); a fold of two READ ORDERS of the same cells keeps its exact "
+                     "compared; a fold of two READ ORDERS of the same cells keeps its exact "
                      "number. LEADS: the commit "
                      "seam records no cascade id, so no retained run can be joined to a re-run — not "
                      "occasionally, not when the ring is short, and not fixable with a bigger ring — and "
@@ -1442,7 +1442,7 @@
 
 (def record
   {:name "record"
-   :description (str "First-class signal recorder (rf2-zo4b9): install a READ-ONLY observer over one or more "
+   :description (str "First-class signal recorder: install a READ-ONLY observer over one or more "
                      "SIGNALS with a STOP condition, let the human interact, then read the change-log back with "
                      "read-recording. The canonical move for catching intermittent / human-in-the-loop bugs "
                      "(render-timing races reproducible only under real mouse input). Returns IMMEDIATELY with a "
@@ -1459,15 +1459,15 @@
                      "{:signal 0 :path [...] :equals <v>} / {:signal 0 :contains <substr>}; compiled to a pure "
                      "value-comparison fn — no host source crosses the wire). READ-ONLY: never dispatches, never mutates "
                      "app-db, never writes the DOM. "
-                     "PRIVACY (rf2-8fin7.2, EP-0025 fail-open): the :app-db / :sub sample VALUES are walked by "
+                     "PRIVACY (EP-0025 fail-open): the :app-db / :sub sample VALUES are walked by "
                      "`re-frame.core/project-egress` at sample time BEFORE they enter the change-log read back by "
                      "read-recording — declared-`:large?` slots collapse to markers, declared-`:sensitive?` leaves redact "
                      "BY PATH — the SAME off-box posture as snapshot / get-path. Pass `elision false` (the "
                      "size override, honoured on every launch) to record large values raw; `include-sensitive "
                      "true` (honoured only under --allow-sensitive-reads) to record sensitive ones raw. "
-                     "rf2-p9scds — the :dom / :focus sample VALUES are DERIVED reads (a rendered textContent / attribute / "
+                     "The :dom / :focus sample VALUES are DERIVED reads (a rendered textContent / attribute / "
                      "focus descriptor can carry a secret copied out of a sensitive app-db slot into a non-app-db DOM "
-                     "position). EP-0025 removed value-match redaction, so such a RE-KEYED secret in a :dom / :focus "
+                     "position). EP-0025 does no value-match redaction, so such a RE-KEYED secret in a :dom / :focus "
                      "sample SHIPS RAW (FAIL-OPEN) — record does not value-match content against app-db secrets. To keep "
                      "a secret out of :dom / :focus samples, classify its app-db PATH so it is redacted before a view "
                      "renders it. (:app-db / :sub signals still need a resolvable frame under the off-box gate — an "
@@ -1498,7 +1498,7 @@
                                             :description "Drop-oldest ring cap on the change-log (default 2000). Bounds memory on a forgotten recording."}
                               :elision {:type "boolean"
                                         :description (str "Apply the size/sensitive elision walker "
-                                                          "(`re-frame.core/project-egress`, rf2-8fin7.2) to the "
+                                                          "(`re-frame.core/project-egress`) to the "
                                                           ":app-db / :sub sample VALUES this recorder ships back through "
                                                           "read-recording — declared-`:large?` slots collapse to "
                                                           "`{:rf.size/large-elided ...}` markers, declared-`:sensitive?` "
@@ -1514,7 +1514,7 @@
                                                   :description (str "Pass declared-`:sensitive?` :app-db / :sub sample leaves through "
                                                                     "verbatim instead of redacting to `:rf/redacted`. Default false. "
                                                                     "Honoured ONLY when the server was launched with "
-                                                                    "--allow-sensitive-reads; otherwise forced false (rf2-8fin7.2). "
+                                                                    "--allow-sensitive-reads; otherwise forced false. "
                                                                     "Orthogonal to `:elision` (the size/large axis) — a gate-ON caller "
                                                                     "wanting fully-raw samples passes both `:elision false` and "
                                                                     "`:include-sensitive true`.")}
@@ -1530,7 +1530,7 @@
 
 (def read-recording
   {:name "read-recording"
-   :description (str "Read back a recording's change-log (rf2-zo4b9) — the diagnostic re-read paired with record. "
+   :description (str "Read back a recording's change-log — the diagnostic re-read paired with record. "
                      "Returns {:ok? true :recording-id <id> :status :recording|:stopped :stopped-reason <kw|nil> "
                      ":frames-sampled <n> :count <n> :entries [{:i <signal-index> :signal {...} :value <v> :t <ms> "
                      ":frame <frame-counter>} ...]}. Each entry is one CHANGE — the moment signal :i took a new value; "
@@ -1562,7 +1562,7 @@
 
 (def watch-until
   {:name "watch-until"
-   :description (str "Block until a predicate over a signal holds (rf2-zo4b9) — the blocking counterpart to record. "
+   :description (str "Block until a predicate over a signal holds — the blocking counterpart to record. "
                      "The answer to \"wait until focus lands on the modal\" / \"wait until app-db's [:upload :status] "
                      "flips to :done\". Like tail-build, the server polls a cheap runtime read on a fixed cadence "
                      "(~100ms) until the condition trips or `timeout-ms` (default 30000) elapses — no rAF loop, no "
@@ -1576,14 +1576,14 @@
                      "{:signal 0 :path [...] :equals <v>} / {:signal 0 :contains <substr>} / {:signal 0} (any non-nil). "
                      "Compiled to a pure value-comparison fn — no host source crosses the wire. READ-ONLY: never "
                      "dispatches or mutates. "
-                     "PRIVACY (rf2-8fin7.2, EP-0025 fail-open): the :app-db / :sub values returned in the `:sample` / "
+                     "PRIVACY (EP-0025 fail-open): the :app-db / :sub values returned in the `:sample` / "
                      "`:last-sample` slots are walked by `re-frame.core/project-egress` server-side — declared-`:large?` "
                      "slots collapse to markers, declared-`:sensitive?` leaves redact BY PATH — the SAME off-box posture as "
                      "snapshot / get-path / record. The predicate evaluates over the UNWALKED values, so elision never "
                      "changes whether the watch trips. Pass `elision false` (the size override, honoured on every launch) "
                      "for raw large samples; `include-sensitive true` (honoured only under --allow-sensitive-reads) for "
-                     "raw sensitive ones. rf2-p9scds — the :dom / :focus sample values are DERIVED "
-                     "reads; EP-0025 removed value-match redaction, so a secret RE-KEYED out of a sensitive app-db slot into "
+                     "raw sensitive ones. The :dom / :focus sample values are DERIVED "
+                     "reads; EP-0025 does no value-match redaction, so a secret RE-KEYED out of a sensitive app-db slot into "
                      "a :dom / :focus sample SHIPS RAW (FAIL-OPEN) — classify its app-db PATH to redact it at the source. "
                      "(:app-db / :sub signals still need a resolvable frame under the off-box gate — an ambiguous frame "
                      "fails closed with :reason :ambiguous-frame.) "
@@ -1612,7 +1612,7 @@
                                            :description "Max ms to wait for the predicate to hold (default 30000). On expiry returns :reason :watch-timeout with the final :last-sample."}
                               :elision {:type "boolean"
                                         :description (str "Apply the size/sensitive elision walker "
-                                                          "(`re-frame.core/project-egress`, rf2-8fin7.2) to the :app-db / "
+                                                          "(`re-frame.core/project-egress`) to the :app-db / "
                                                           ":sub VALUES returned in the `:sample` (on hold) and "
                                                           "`:last-sample` (on timeout) slots — declared-`:large?` slots "
                                                           "collapse to `{:rf.size/large-elided ...}` markers, "
@@ -1629,7 +1629,7 @@
                                                                     "verbatim in the `:sample` / `:last-sample` slots instead of "
                                                                     "redacting to `:rf/redacted`. Default false. Honoured ONLY when "
                                                                     "the server was launched with --allow-sensitive-reads; otherwise "
-                                                                    "forced false (rf2-8fin7.2). Orthogonal to `:elision` (the size "
+                                                                    "forced false. Orthogonal to `:elision` (the size "
                                                                     "axis) — a gate-ON caller wanting fully-raw samples passes both "
                                                                     "`:elision false` and `:include-sensitive true`.")}
                               :frame   {:type "string"
@@ -1646,12 +1646,12 @@
   {:name "list-subscriptions"
    :description (str "List the LIVE reactive subscriptions materialised in a frame's per-frame sub-cache — the answer to "
                      "'what subscriptions are currently active?'. Reads the SAME source `snapshot`'s :sub-cache slice reads "
-                     "(re-frame.subs.tooling/sub-cache-snapshot, via the runtime's `sub-cache` fn), so the two never disagree (rf2-qicji). "
+                     "(re-frame.subs.tooling/sub-cache-snapshot, via the runtime's `sub-cache` fn), so the two never disagree. "
                      "The reactive cache is ref-counted and live: an entry appears the moment a view subscribes and DISAPPEARS "
                      "when the last consumer disposes the reaction — so a disposed sub no longer shows up here. "
                      "Returns `{:ok? true :frame <id> :count N :subs [<query-v> ...]}` (query-vectors only, sorted, stable across calls); "
                      "with `:include-values true` each entry becomes `{:query-v <v> :value <current-deref> :ref-count <n> :input-kind <:db|:static|:parametric> :realized-inputs [<query-v> ...]}`. "
-                     ":input-kind + :realized-inputs (rf2-e3acps) are the live counterpart to the static sub-topology: :realized-inputs are the REALIZED input query-vectors for the concrete outer query-v "
+                     ":input-kind + :realized-inputs are the live counterpart to the static sub-topology: :realized-inputs are the REALIZED input query-vectors for the concrete outer query-v "
                      "(the literal :inputs list for a :static sub, the (input-fn query-v) result for a :parametric sub, [] for a layer-1 :db reader — query-vectors, not values, so they ride raw). "
                      "Empty `:subs` vector when nothing is subscribed in the frame. "
                      "Frame resolution mirrors snapshot/get-path: omit `:frame` to use the operating frame; a multi-frame session "
@@ -1667,10 +1667,10 @@
                  :properties {:frame          {:type "string"
                                                :description "Frame to read. Accepts bare names (\"rf/default\") or EDN-shaped strings (\":rf/default\"). Defaults to the operating frame; a multi-frame session with no selection -> :reason :ambiguous-frame."}
                               :include-values {:type "boolean"
-                                               :description "When true, each entry carries :value (current deref), :ref-count, :input-kind (:db/:static/:parametric), and :realized-inputs (the realized input query-vectors for the concrete query-v — rf2-e3acps) alongside :query-v. Default false (query-vectors only — the cheap 'what's subscribed' read). Each :value is run through the size-elision walker server-side before egress (rf2-f1ose): a value over a declared-sensitive app-db slot redacts to :rf/redacted (unless `include-sensitive true` under --allow-sensitive-reads), a declared-large value elides to :rf.size/large-elided (unless `elision false`, honoured on every launch). :realized-inputs are query-vectors (not values), so they ride raw."}
+                                               :description "When true, each entry carries :value (current deref), :ref-count, :input-kind (:db/:static/:parametric), and :realized-inputs (the realized input query-vectors for the concrete query-v) alongside :query-v. Default false (query-vectors only — the cheap 'what's subscribed' read). Each :value is run through the size-elision walker server-side before egress: a value over a declared-sensitive app-db slot redacts to :rf/redacted (unless `include-sensitive true` under --allow-sensitive-reads), a declared-large value elides to :rf.size/large-elided (unless `elision false`, honoured on every launch). :realized-inputs are query-vectors (not values), so they ride raw."}
                               :elision        knobs/elision-property
                               :include-sensitive {:type "boolean"
-                                                   :description "Opt declared-sensitive sub `:value`s back in to raw egress (the walker's `:rf.egress/include-sensitive?` opt). Default false; honoured only when the server was launched with --allow-sensitive-reads (rf2-f1ose)."}
+                                                   :description "Opt declared-sensitive sub `:value`s back in to raw egress (the walker's `:rf.egress/include-sensitive?` opt). Default false; honoured only when the server was launched with --allow-sensitive-reads."}
                               :build          {:type "string"}}
                  :additionalProperties false}})
 
@@ -1683,7 +1683,7 @@
    :description (str "Return the registration-metadata map for a registered "
                      "handler — source-coord (file/line/column/ns), :doc, :tags, "
                      "and any custom slots emitted by the reg-* macro. The wire "
-                     "pipeline (rf2-cibp8) decorates the :source-coord map with "
+                     "pipeline decorates the :source-coord map with "
                      "an :rf.mcp/source-uri string the AI host renders as a "
                      "clickable jump-to-editor link. "
                      "SOURCE AS DATA: on kind=event a dev build also carries "
@@ -1721,7 +1721,7 @@
                      "declared cache consequences. Nested handler fns "
                      "(:request/:tags/:invalidates/:populates/:resolve) ride as "
                      "the :rf/fn sentinel so the meta is EDN-clean. App-db "
-                     "schemas are NOT a registrar kind (rf2-cq1ak) — their "
+                     "schemas are NOT a registrar kind — their "
                      "metadata lives in the schemas artefact's per-frame side-"
                      "table, queried via `re-frame.schemas/app-schemas {:frame f}` /  "
                      "`re-frame.schemas/app-schema-meta {:frame f :path p}` instead. The `machine` kind "
@@ -1729,7 +1729,7 @@
                      "which reads the :rf/machine registrar projection (Spec 005 §Querying "
                      "machines) — there is no machine-meta accessor; the other kinds route through "
                      "(rf/handler-meta {:source :store :kind kind :id id}). The OPTIONAL :frame arg "
-                     "(rf2-srobm0, EP-0023) re-keys the lookup through THAT "
+                     "(EP-0023) re-keys the lookup through THAT "
                      "frame's running image generation — surfacing the resolved "
                      "descriptor's :rf.provenance/ns + inline/image + :standard "
                      "facts plus an :rf.image/coordinate rollup naming which "
@@ -1755,7 +1755,7 @@
                                                        "as a string, e.g. \"[:rf/composite :x]\".")}
                               :frame {:type "string"
                                       :description (str "OPTIONAL frame id keyword, e.g. \":main\". "
-                                                        "The EP-0023 forward direction (rf2-srobm0): "
+                                                        "The EP-0023 forward direction: "
                                                         "resolves the (kind, id) through THAT frame's "
                                                         "OWN running image generation rather than the "
                                                         "process-global registrar — the same (kind, id) "
@@ -1795,12 +1795,12 @@
                      "{kind \"resource-scope\"}` enumerates the named scope "
                      "resolvers on a resources app — drill any with "
                      "`handler-meta` for its declared :inputs. App-db "
-                     "schemas are NOT a registrar kind (rf2-cq1ak) — use "
+                     "schemas are NOT a registrar kind — use "
                      "`re-frame.schemas/app-schemas {:frame f}` for schema enumeration. The `machine` "
                      "kind lists every event handler flagged `:rf/machine? "
                      "true` — the preload's `re-frame2-pair.runtime/machines-list`, which filters that flag over the public `(rf/registrations {:source :store :kind :event})` read; the other kinds lift the id "
                      "vector off the registrar's per-kind map. The OPTIONAL "
-                     ":frame arg (rf2-srobm0, EP-0023) enumerates only the ids "
+                     ":frame arg (EP-0023) enumerates only the ids "
                      "THAT frame's running image generation carries for the "
                      "kind — the selected universe that frame runs, not the "
                      "process-wide namespace-union. Returns "
@@ -1821,7 +1821,7 @@
                                      :enum ["event" "sub" "fx" "cofx" "interceptor" "view" "route" "head" "error-projector" "resource" "mutation" "resource-scope" "machine"]}
                               :frame {:type "string"
                                       :description (str "OPTIONAL frame id keyword, e.g. \":main\". "
-                                                        "The EP-0023 forward direction (rf2-srobm0): "
+                                                        "The EP-0023 forward direction: "
                                                         "enumerates only the ids THAT frame's OWN "
                                                         "running image generation carries for the kind "
                                                         "rather than the process-global registrar — the "
@@ -1899,8 +1899,8 @@
    :description (str "Pin the session's OPERATING FRAME — the FRAME that frame-targeted ops (dispatch, "
                      "snapshot, get-path, read-sub, list-subscriptions, …) resolve to when you DON'T "
                      "pass a per-call :frame. The public address is the FRAME id (EP-0023's image -> "
-                     "frame -> event-stream model targets a frame; the old EP-0013 (realm, frame) address "
-                     "collapses to one public frame-id space). re-frame2 is multi-frame (Spec 002): with "
+                     "frame -> event-stream model targets a frame, in one public frame-id space). "
+                     "re-frame2 is multi-frame (Spec 002): with "
                      "two-plus app frames registered and no pin, those ops REFUSE with :reason "
                      ":ambiguous-frame rather than guess a target. Pin once with this op and they resolve "
                      "to the pinned frame from then on — the escape from :ambiguous-frame (tier 2 of the "
@@ -1974,10 +1974,10 @@
 
 (def get-re-frame2-pair-instructions
   {:name "get-re-frame2-pair-instructions"
-   :description (str "Return the re-frame2-pair-mcp agent-onboarding text (rf2-fnpqg): six routing rules "
+   :description (str "Return the re-frame2-pair-mcp agent-onboarding text: six routing rules "
                      "(which tool to reach for at each decision), EDN posture, "
                      "tagged-mutation conventions, the wire-boundary "
-                     "pipeline. It does NOT enumerate the tools (rf2-wyza) — you already hold every "
+                     "pipeline. It does NOT enumerate the tools — you already hold every "
                      "descriptor from tools/list, and a name that misses returns :unknown-tool with the "
                      "live name list; what the text adds is the CROSS-tool judgement no single "
                      "description can carry. "

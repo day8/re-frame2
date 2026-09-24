@@ -68,7 +68,7 @@
     (let [desc (:description (descriptor-named "list-subscriptions"))]
       (is (re-find #"reactive" desc))
       (is (re-find #"sub-cache" desc))
-      (is (re-find #"rf2-qicji" desc)))))
+      (is (re-find #"never disagree" desc)))))
 
 ;; ---------------------------------------------------------------------------
 ;; list-subscriptions — reads the reactive cache
