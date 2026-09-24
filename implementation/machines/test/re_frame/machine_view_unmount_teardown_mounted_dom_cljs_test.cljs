@@ -1,5 +1,5 @@
 (ns re-frame.machine-view-unmount-teardown-mounted-dom-cljs-test
-  "rf2-kmdi9 — the REAL MOUNTED integration proof of the view-unmount ↔
+  "The REAL MOUNTED integration proof of the view-unmount ↔
   machine-lifecycle contract (Cross-Spec Interaction 22).
 
   WHY THIS FILE EXISTS. The sibling headless suite
@@ -22,7 +22,7 @@
   unmount hook, React committed the unmount, and the render reaction's
   disposal fired the marker. That is exactly the chain the direct-emitter
   file bypasses — so stubbing `views/install-unmount-hook!` reds THIS file
-  while the headless file stays green (the rf2-kmdi9 teeth contrast).
+  while the headless file stays green.
 
   Two mounted fixtures, mirroring the two headless ones:
 
@@ -30,15 +30,15 @@
        fires the view teardown marker via the REAL disposal path but
        leaves the machine's snapshot/state/handler LIVE, emitting no
        machine destroy on EITHER teardown channel (Spec 009 §Two-channel
-       teardown). The NEGATIVE (machine still live) guards the retracted
-       implicit-teardown coupling from drifting back.
+       teardown). The NEGATIVE (machine still live) guards against any
+       implicit-teardown coupling.
 
     B. `mounted-explicit-destroy-emits-one-fx-explicit-and-releases` — an
        EXPLICIT application-cleanup destroy, issued while the view is
        still mounted, emits EXACTLY ONE `:rf.machine/destroyed` with
        `:reason :explicit` on the fx channel, ZERO on the registrar
-       channel, clears the snapshot, unregisters the handler, and releases
-       the `[:machine id]` resource owner — while the still-mounted view
+       channel, clears the snapshot, leaves the registration standing, and
+       releases the `[:machine id]` resource owner — while the still-mounted view
        survives (it re-renders the now-nil snapshot). A subsequent REAL
        unmount then fires exactly one `:rf.view/unmounted` and adds NO
        further machine destroy: the two teardowns are independent even
@@ -69,7 +69,7 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
-;; EP-0002 (rf2-9o48ih): `:ambient-frame nil` opts out of the fixture's default
+;; EP-0002: `:ambient-frame nil` opts out of the fixture's default
 ;; ambient `*current-frame*` :rf/default scope. The mounted views resolve their
 ;; frame from the enclosing `frame-provider` via the React-context tier; an
 ;; ambient :rf/default scope would shadow that tier and the participating view
@@ -103,10 +103,9 @@
   The trace listener is PROCESS-GLOBAL and the `:browser-test` runner shares
   one page across every `-dom-cljs-test` namespace, so an unrelated suite's
   deferred `:rf.view/unmounted` disposal can land inside this fixture's
-  settle window. Counting every view's teardown marker was therefore always
-  an under-specified way to assert THIS view's teardown — it passed on
-  scheduling luck, and rf2-i3dvj (which removed compiler-inserted awaits from
-  call-site expansions in async contexts) shifted that luck. Narrowing to the
+  settle window. Counting every view's teardown marker would be an
+  under-specified way to assert THIS view's teardown — its verdict would turn
+  on scheduling luck. Narrowing to the
   view under test asserts what the fixture actually means."
   [traces op view-id]
   (filterv #(= view-id (-> % :tags :rf.view/id)) (ops-of traces op)))
@@ -129,7 +128,7 @@
 ;; ===========================================================================
 
 (deftest mounted-bare-unmount-leaves-machine-live
-  (testing "rf2-kmdi9 — MOUNT a view that participates in a live machine, then
+  (testing "MOUNT a view that participates in a live machine, then
             UNMOUNT it through the real reagent.dom.client teardown path: the
             REAL disposal fires exactly one :rf.view/unmounted, but the machine's
             snapshot/state/handler stay LIVE and NO machine destroy fires on
@@ -150,7 +149,7 @@
               ;; synchronously, so a rejection handler downstream of the step
               ;; that finished the row claims whatever a LATER namespace throws,
               ;; prints it against this row's label, and fires `done` a second
-              ;; time (rf2-e8kc). The chain's single `done` sits at its tail.
+              ;; time. The chain's single `done` sits at its tail.
               report!    (fn [err]
                            (is false (str "mounted bare-unmount fixture threw: " (pr-str err)))
                            nil)
@@ -232,10 +231,10 @@
 ;; ===========================================================================
 
 (deftest mounted-explicit-destroy-emits-one-fx-explicit-and-releases
-  (testing "rf2-kmdi9 — with a participating view MOUNTED, an EXPLICIT destroy
+  (testing "with a participating view MOUNTED, an EXPLICIT destroy
             emits EXACTLY ONE :rf.machine/destroyed :reason :explicit on the fx
             channel, ZERO on the registrar channel, clears the snapshot,
-            unregisters the handler, and releases the [:machine id] owner — while
+            leaves the registration standing, and releases the [:machine id] owner — while
             the still-mounted view survives. A later REAL unmount fires the view
             teardown and adds NO further machine destroy (independent teardowns)."
     (if-not (browser?)
@@ -250,7 +249,7 @@
               root       (rdc/create-root (.createElement js/document "div"))
               cleanup!   (fn [] (try (act-fn #(rdc/unmount root)) (catch :default _ nil)))
               ;; Reports; it does NOT finish — as in fixture A above, and for
-              ;; the same reason (rf2-e8kc).
+              ;; the same reason.
               report!    (fn [err]
                            (is false (str "mounted explicit-destroy fixture threw: " (pr-str err)))
                            nil)
@@ -304,7 +303,7 @@
             (is (nil? (rf.machines.test-support/snapshot frame-id machine-id))
                 "snapshot cleared — the machine's state storage is released")
             (is (some? (rf.registrar/lookup :event machine-id))
-                "rf2-xjee — the DEFINITION is NOT a per-instance resource: the
+                "the DEFINITION is NOT a per-instance resource: the
                  explicit destroy releases the instance's storage and its
                  resource owners and leaves the registration standing")
             (is (= [[:machine machine-id]] @released)
