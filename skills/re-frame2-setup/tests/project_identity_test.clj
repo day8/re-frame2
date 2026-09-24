@@ -8,15 +8,15 @@
 ;;;; Clojure namespace, the source/test directory path, the npm package name
 ;;;; and the output directory are RELATED BUT DIFFERENT STRINGS, and
 ;;;; `tools/template/src/day8/re_frame2_template/hooks.clj` computes each one
-;;;; separately. The manual route used to say only "rename `acme` / `my-app`
-;;;; consistently", which is deterministic for the reference identity and
-;;;; underspecified for every other one: a textual rename of
+;;;; separately. An instruction to "rename `acme` / `my-app` consistently" is
+;;;; deterministic for the reference identity and underspecified for every
+;;;; other one: a textual rename of
 ;;;; `com.acme/my-cool-app` naturally lands `src/com.acme/my_cool_app`, which
 ;;;; does not back the namespace `shadow-cljs.edn`'s `:init-fn` names, and the
 ;;;; scaffold dies at the terminating compile wearing an error that mentions
 ;;;; neither the name nor the rename.
 ;;;;
-;;;; So SKILL.md now carries ONE identity rule, stated for both routes, and
+;;;; So SKILL.md carries ONE identity rule, stated for both routes, and
 ;;;; this suite is what stops the two drifting apart. It does not restate the
 ;;;; rule — it EXECUTES the rule as SKILL.md words it and compares the result
 ;;;; against the template's real `data-fn`, for the four inputs whose answers
@@ -182,7 +182,7 @@
             :nested-dirs "com/acme/my_cool_app"
             :npm-name    "my-cool-app"}
            (hook-identity {:top "com.acme" :main "my-cool-app"}))
-        (str "tools/template/.../hooks.clj no longer derives the identity that "
+        (str "tools/template/.../hooks.clj does not derive the identity that "
              "template_test.clj's name-derivation-dotted-group-test proves against a "
              "real deps-new emission. The generator changed: re-read the hook and "
              "update SKILL.md §Project identity in the same commit."))))
@@ -207,7 +207,7 @@
       (is (= "com/acme/my_cool_app" nested-dirs))
       (is (= "my-cool-app" npm-name))
       (is (= 3 (count (distinct [namespace nested-dirs npm-name])))
-          "the three identity forms collapsed into one string — the rule stopped distinguishing them.")
+          "the three identity forms collapsed into one string — the rule does not distinguish them.")
       (is (not (str/includes? nested-dirs "."))
           (str "the source path kept a `.` from the group. `src/com.acme/my_cool_app` is the "
                "natural result of a token rename and does NOT back the namespace "
@@ -228,17 +228,17 @@
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
                           #":rf\.error/template-npm-name-invalid"
                           (hook-identity {:top "acme" :main "_private"}))
-        "the template no longer rejects an npm-invalid artefact segment."))
+        "the template does not reject an npm-invalid artefact segment."))
   (testing "SKILL.md gives the manual route the same pre-flight, before file one"
     (let [section @identity-section]
       (is (seq section) "SKILL.md carries no `## Project identity` section.")
       (is (str/includes? section "[a-z0-9~-][a-z0-9._~-]*")
-          (str "SKILL.md §Project identity no longer states npm's name rule verbatim. "
+          (str "SKILL.md §Project identity does not state npm's name rule verbatim. "
                "The manual route has no exception machinery — the rule IS the gate."))
       (is (str/includes? section "214")
-          "SKILL.md §Project identity no longer states npm's 214-character ceiling.")
+          "SKILL.md §Project identity does not state npm's 214-character ceiling.")
       (is (contains-all? section ["before" "write"])
-          (str "SKILL.md §Project identity no longer orders the npm check BEFORE writing. "
+          (str "SKILL.md §Project identity does not order the npm check BEFORE writing. "
                "The generator throws before it emits; a manual route that checks afterwards "
                "leaves the partial scaffold the generator never leaves.")))))
 
@@ -281,13 +281,13 @@
   (testing "neither SKILL.md nor first-counter.md gives a consistent rename as the whole operation"
     (doseq [[label body] [["SKILL.md" @skill-md] ["first-counter.md" @first-counter-md]]]
       (is (not (re-find #"(?i)renam(e|ed)[^.\n]{0,60}consistent" body))
-          (str label " still instructs a consistent token rename for an author-supplied "
+          (str label " instructs a consistent token rename for an author-supplied "
                "name. That is deterministic only for `acme/my-app`: the namespace, the "
                "source path and the npm name are different transforms of the same "
                "coordinate. Point at SKILL.md §Project identity instead."))))
   (testing "first-counter.md routes a named project to the one rule"
     (is (str/includes? @first-counter-md "Project identity")
-        (str "first-counter.md no longer routes an author-supplied name to SKILL.md's "
+        (str "first-counter.md does not route an author-supplied name to SKILL.md's "
              "identity rule. The leaf is the reference scaffold; it must not grow a "
              "second, hand-maintained copy of the derivation (design.md L13)."))))
 
