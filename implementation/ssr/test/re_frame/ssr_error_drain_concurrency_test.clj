@@ -1,9 +1,9 @@
 (ns re-frame.ssr-error-drain-concurrency-test
-  "rf2-hzttr finding 4 — `consume-pending-traces!` MUST pull-and-clear a
-  frame's pending error-trace buffer ATOMICALLY.
+  "`consume-pending-traces!` MUST pull-and-clear a frame's pending
+  error-trace buffer ATOMICALLY.
 
-  The pre-fix shape DEREF'd the atom, read the frame's traces, then
-  `swap! dissoc`'d the frame key in a SEPARATE transition:
+  A non-atomic shape would DEREF the atom, read the frame's traces, then
+  `swap! dissoc` the frame key in a SEPARATE transition:
 
       (let [snap   @pending-error-traces
             traces (get snap frame-id [])]
@@ -14,25 +14,26 @@
   Under concurrent SSR / streaming error paths many server frames are
   live at once (the canonical shape — see ssr-ring's concurrency stress
   test). A `buffer-error-trace!` append for the SAME frame landing
-  between the deref and the dissoc was silently dropped: the deref read
-  the pre-append value, then the dissoc deleted the whole frame key —
-  including the just-appended trace. A dropped error trace can lose a
+  between the deref and the dissoc would be silently dropped: the deref
+  reads the pre-append value, then the dissoc deletes the whole frame key
+  — including the just-appended trace. A dropped error trace can lose a
   fail-closed status upgrade (a 200 shipped where a 5xx was due) or
   incomplete diagnostics — exactly the operational path this listener is
   meant to harden.
 
-  The fix uses `swap-vals!` so the read and the clear happen in one
+  `consume-pending-traces!` uses `swap-vals!` so the read and the clear happen in one
   CAS-retried transition: an append that races the drain either lands
   before the CAS (rides in the returned `old` value) or after it
   (survives in the atom for the next drain). No trace is lost either way.
 
   This test reproduces the race by interleaving appends and drains across
   many threads, then asserts CONSERVATION: every appended trace is either
-  drained exactly once OR still buffered — none vanish. The pre-fix code
-  loses traces under this load nondeterministically; the fix never does.
+  drained exactly once OR still buffered — none vanish. The non-atomic
+  shape loses traces under this load nondeterministically; `swap-vals!`
+  never does.
 
   JVM-only — the race requires real parallelism, which the Node CLJS
-  runtime does not have. The fix itself is platform-neutral `.cljc`
+  runtime does not have. The drain itself is platform-neutral `.cljc`
   (`swap-vals!` exists on both runtimes); this test pins the JVM
   concurrency contract."
   (:require [clojure.test :refer [deftest is testing]]
@@ -48,7 +49,7 @@
          update frame-id (fnil conj []) trace))
 
 (deftest consume-pending-traces-loses-no-trace-under-concurrent-append
-  (testing "rf2-hzttr finding 4 — interleaved appends + drains for the SAME
+  (testing "interleaved appends + drains for the SAME
             frame never lose a trace. Drained-count + still-buffered-count
             equals total-appended (conservation)."
     (let [frame-id      :rf.test/drain-race
@@ -98,7 +99,7 @@
              no duplication")))))
 
 (deftest consume-pending-traces-clears-the-frame-key
-  (testing "rf2-hzttr finding 4 — a drain that pulls traces also removes the
+  (testing "a drain that pulls traces also removes the
             frame's key (the clear half of the atomic pull-and-clear), so a
             subsequent drain on the same frame returns empty."
     (let [frame-id :rf.test/drain-clear]
@@ -113,7 +114,7 @@
             "a second drain returns empty — the buffer was cleared")))))
 
 (deftest consume-pending-traces-empty-frame-is-noop
-  (testing "rf2-hzttr finding 4 — draining a frame with no buffered traces
+  (testing "draining a frame with no buffered traces
             returns [] and does not introduce a spurious frame key
             (swap-vals! dissoc of an absent key is a no-op)."
     (let [frame-id :rf.test/drain-empty]
