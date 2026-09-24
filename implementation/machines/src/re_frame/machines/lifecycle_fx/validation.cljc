@@ -631,6 +631,88 @@
                     "state's own :after / :timeout instead.")
                {:after (:after machine)})))))
 
+;; ---- machine-root slots no runtime path reads ------------------------------
+;;
+;; Per Spec 005 §State nodes (the machine root): the root is validated as a
+;; state node, so it accepts the whole state-node vocabulary, but the runtime
+;; reads only part of it there. It honours `:entry` / `:exit` / `:tags` (birth,
+;; teardown, the tag union), `:on` (the ancestor fallback), `:initial` /
+;; `:states` / `:type` / `:regions`, and on a `:type :parallel` root `:after`
+;; (with the `:timeout` / `:on-timeout` that lowers onto it) and an action-only
+;; `:on-done`. The keys below are read on a state node and never on the root —
+;; the root is entered once at birth, never re-entered, and never a final
+;; state — so each would register and do nothing. Reject them loudly, naming
+;; the substitute. A flat root's `:after` / `:timeout` keep their own refusal
+;; (`validate-non-parallel-root-after!`).
+
+(def ^:private root-unread-keys
+  "State-node keys no runtime path reads on ANY machine root."
+  #{:spawn :spawn-all :always :choice :final? :output-key :error? :deep? :default-target})
+
+(def ^:private flat-root-unread-keys
+  "State-node keys no runtime path reads on a flat / compound machine root, in
+  addition to `root-unread-keys`. A parallel root's `:on-done` is its
+  all-regions-final signal; a flat root finishes by entering a top-level
+  `:final?` state instead."
+  #{:on-done})
+
+(defn- root-slot-substitute
+  "The substitute an author reaches for in place of root key `k`."
+  [k parallel?]
+  (case k
+    (:spawn :spawn-all)
+    (if parallel?
+      (str "For a child that lives as long as the machine, declare " k " on "
+           "the state of a single-state region (a :type :parallel root cannot "
+           "be wrapped in a compound).")
+      (str "For a child that lives as long as the machine, wrap the tree in "
+           "one compound state and declare " k " there."))
+
+    :always
+    (str "The root is entered once and never re-entered, so it has no "
+         "eventless settle: route :initial into a state whose :always fires "
+         "at birth.")
+
+    :choice
+    (str "A :choice belongs on a :type :choice state; make the :initial state "
+         "one to decide at birth.")
+
+    (:final? :output-key :error?)
+    (str "The root is never a final state: the machine finishes when it enters "
+         "a :final? state that is a direct child of the root, which carries "
+         ":output-key / :error?.")
+
+    (:deep? :default-target)
+    (str ":deep? / :default-target belong on a :type :history node inside a "
+         "compound state.")
+
+    :on-done
+    (str "A flat or compound machine finishes by entering a top-level :final? "
+         "state; to continue after a sub-flow completes, wrap it in a compound "
+         "state and declare :on-done there.")))
+
+(defn- validate-root-slots!
+  "Reject every machine-root key no runtime path reads there with
+  `:rf.error/machine-root-slot-not-supported`, naming the key(s) and the
+  substitute. Flat, compound and `:type :parallel` roots alike."
+  [machine]
+  (let [parallel? (rf.machines.parallel/parallel? machine)
+        unread    (cond-> root-unread-keys
+                    (not parallel?) (into flat-root-unread-keys))
+        offending (vec (sort (filter #(contains? machine %) unread)))]
+    (when (seq offending)
+      (throw (validation-error
+               :rf.error/machine-root-slot-not-supported
+               (str "the machine root declares " (key-labels offending)
+                    ", which the runtime never reads on the root, so "
+                    (if (next offending) "they" "it")
+                    " would be silently ignored. The root runs its :entry "
+                    "at birth and its :exit at teardown, and joins its :tags "
+                    "to the tag union. "
+                    (str/join " " (distinct (map #(root-slot-substitute % parallel?)
+                                                 offending))))
+               {:offending-keys offending})))))
+
 (defn- walk-state-nodes
   "Yield `[state-key state-node]` pairs for every node under `:states`,
   recursing through `:states` maps. Used by the registration-time
@@ -2033,7 +2115,13 @@
   with `:rf.error/machine-unknown-spawn-key` (namespaced keys pass — the open
   extension carve-out). A non-set `:tags` slot is rejected with
   `:rf.error/machine-bad-tags` (never silently coerced to a set), mirroring
-  `:rf.error/machine-bad-internal-events`."
+  `:rf.error/machine-bad-internal-events`.
+
+  Per Spec 005 §State nodes (the machine root): a machine root declaring a
+  state-node key no runtime path reads on the root (`:spawn`, `:spawn-all`,
+  `:always`, `:choice`, `:final?`, `:output-key`, `:error?`, `:deep?`,
+  `:default-target`, and a flat root's `:on-done`) throws
+  `:rf.error/machine-root-slot-not-supported`."
   [machine]
   ;; Validate the `:timeout` / `:on-timeout` grammar on the raw
   ;; spec FIRST, so diagnostics name the `:timeout` / `:on-timeout` keys the
@@ -2084,6 +2172,9 @@
   ;; `:states`, so validate the root explicitly (a typo'd top-level key —
   ;; `:innitial`, `:gaurds` — must not slip through).
   (validate-node-keys! :rf/root machine true)
+  ;; The root accepts the state-node vocabulary above; refuse the part of it
+  ;; no runtime path reads on the root, before any slot validator reads it.
+  (validate-root-slots! machine)
   (validate-node-transition-keys! :rf/root machine)
   (validate-tags! :rf/root machine)
   (doseq [[s n] (walk-state-nodes machine)]
@@ -2273,6 +2364,11 @@
       (doseq [root roots
               [_ t] (:after root)]
         (check-transition! t :rf/root)))
+    ;; The machine root's own `:entry` / `:exit` run at birth and teardown
+    ;; (`walk-state-nodes` does not yield the root), so their refs resolve
+    ;; here like any state's.
+    (check-action! (:entry machine) :rf/root :entry)
+    (check-action! (:exit  machine) :rf/root :exit)
     ;; The PARALLEL ROOT's own `:on-done` (fired when all
     ;; regions reach final) carries `:guard` / `:action` refs that must
     ;; resolve at registration. (`walk-state-nodes` yields per-region nodes,

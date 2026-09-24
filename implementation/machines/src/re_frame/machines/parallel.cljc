@@ -357,14 +357,14 @@
     (rf.machines.transition/denormalise-state full-path decl)))
 
 (defn- compute-tags-parallel
-  "Per Spec 005 §Tags compose across regions: union every active state's
-  `:tags` across every active region."
+  "Per Spec 005 §Tags compose across regions: union the machine root's
+  `:tags` with every active state's `:tags` across every active region."
   [machine state-map]
   (transduce
     (map (fn [[region-name region-state]]
            (rf.machines.transition/compute-tags (region-machine machine region-name) region-state)))
     set/union
-    #{}
+    (rf.machines.transition/root-tags machine)
     state-map))
 
 (defn- commit-tags-parallel
@@ -824,20 +824,38 @@
   entered region node, so it is scheduled explicitly via
   `rf.machines.transition/schedule-root-after-fx` (which bumps the root's per-path epoch on
   the snapshot and emits the same `:scheduled` trace + `:after-schedule` fx a
-  state's `:after` emits)."
+  state's `:after` emits).
+
+  Per Spec 005 §State nodes (the machine root): the machine root's own
+  `:entry` runs FIRST, before the initial descent of any state or region —
+  its fx and its cascade step lead the Result's."
   [machine initial-snapshot]
-  (if (parallel? machine)
-    (let [regions-r (reduce-regions machine initial-snapshot bootstrap-step)]
-      (if (rf.machines.result/fail? regions-r)
-        regions-r
-        (rf.machines.result/with-ok [snap fx] regions-r
-          (let [[snap' root-after-fx]
-                (rf.machines.transition/schedule-root-after-fx machine snap false)]
-            (-> (rf.machines.result/ok snap' (into (vec fx) root-after-fx))
-                (rf.machines.result/with-handled (rf.machines.result/handled? regions-r))
-                (rf.machines.result/with-microsteps (rf.machines.result/microsteps regions-r))
-                (rf.machines.result/with-cascade (rf.machines.result/cascade regions-r)))))))
-    (bootstrap-step machine initial-snapshot)))
+  (let [root-r (rf.machines.transition/run-root-entry machine initial-snapshot)]
+    (if (rf.machines.result/fail? root-r)
+      root-r
+      (rf.machines.result/with-ok [snap0 root-fx] root-r
+        (let [descent-r
+              (if (parallel? machine)
+                (let [regions-r (reduce-regions machine snap0 bootstrap-step)]
+                  (if (rf.machines.result/fail? regions-r)
+                    regions-r
+                    (rf.machines.result/with-ok [snap fx] regions-r
+                      (let [[snap' root-after-fx]
+                            (rf.machines.transition/schedule-root-after-fx machine snap false)]
+                        (-> (rf.machines.result/ok snap' (into (vec fx) root-after-fx))
+                            (rf.machines.result/with-handled (rf.machines.result/handled? regions-r))
+                            (rf.machines.result/with-microsteps (rf.machines.result/microsteps regions-r))
+                            (rf.machines.result/with-cascade (rf.machines.result/cascade regions-r)))))))
+                (bootstrap-step machine snap0))]
+          (if (rf.machines.result/fail? descent-r)
+            descent-r
+            (rf.machines.result/with-ok [snap fx] descent-r
+              (-> (rf.machines.result/ok snap (into (vec root-fx) fx))
+                  (rf.machines.result/with-handled (rf.machines.result/handled? descent-r))
+                  (rf.machines.result/with-microsteps (rf.machines.result/microsteps descent-r))
+                  (rf.machines.result/with-cascade
+                    (into (vec (rf.machines.result/cascade root-r))
+                          (rf.machines.result/cascade descent-r)))))))))))
 
 (declare machine-transition)
 ;; `drain-parent-queue` consults the parallel root `:on` ancestor fallback for a
@@ -1930,14 +1948,29 @@
   For flat / compound machines, drops straight into the single-machine
   helper.
 
+  Per Spec 005 §State nodes (the machine root): the machine root's own
+  `:exit` runs LAST, after every state's and every region's `:exit`.
+
   Returns a `re-frame.machines.result/Result` carrying the post-cascade
-  snapshot + accumulated fx, or a `rf.machines.result/fail` if any region's `:exit`
+  snapshot + accumulated fx, or a `rf.machines.result/fail` if any `:exit`
   action threw."
   [machine snapshot]
-  (if (parallel? machine)
-    ;; Normalise region order (idempotent for a registered machine) — the
-    ;; destroy exit cascade is a public engine entry NOT behind the transition
-    ;; desugar seam, so canonicalise here too before `reduce-regions` reads it.
-    (reduce-regions (normalise-region-order machine) snapshot
-                    rf.machines.transition/run-active-exit-cascade)
-    (rf.machines.transition/run-active-exit-cascade machine snapshot)))
+  (let [states-r (if (parallel? machine)
+                   ;; Normalise region order (idempotent for a registered
+                   ;; machine) — the destroy exit cascade is a public engine
+                   ;; entry NOT behind the transition desugar seam, so
+                   ;; canonicalise here too before `reduce-regions` reads it.
+                   (reduce-regions (normalise-region-order machine) snapshot
+                                   rf.machines.transition/run-active-exit-cascade)
+                   (rf.machines.transition/run-active-exit-cascade machine snapshot))]
+    (if (rf.machines.result/fail? states-r)
+      states-r
+      (rf.machines.result/with-ok [snap fx] states-r
+        (let [root-r (rf.machines.transition/run-root-exit machine snap)]
+          (if (rf.machines.result/fail? root-r)
+            root-r
+            (rf.machines.result/with-ok [snap' root-fx] root-r
+              (rf.machines.result/with-cascade
+                (rf.machines.result/ok snap' (into (vec fx) root-fx))
+                (into (vec (rf.machines.result/cascade states-r))
+                      (rf.machines.result/cascade root-r))))))))))
