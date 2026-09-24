@@ -1,17 +1,14 @@
 (ns re-frame.fresco.examples.grid.row-total-layer2-dom-cljs-test
-  "L3 — THE LAYER-1 / LAYER-2 CONTRAST THE PER-KEYSTROKE CENSUS NAMES AND
-  DECLINES TO CLAIM.
+  "L3 — THE LAYER-1 / LAYER-2 CONTRAST THE PER-KEYSTROKE CENSUS NAMES.
 
-  > The remedy, where one is wanted, is the ordinary one and is not a new
-  > mechanism: a derived read stated as a layer-2 subscription over its own
-  > inputs is memoised on *those inputs* rather than on app-db, so it does
-  > not re-run when they have not moved. Nothing in this corpus has
-  > measured that contrast yet, and this page does not claim it — it is
-  > named as the next question rather than as an answer.
-  >
-  > — `docs/design/fresco/product/per-keystroke.md` §4
+  `docs/design/fresco/product/per-keystroke.md` §4 names the remedy for a
+  derived read that re-runs on every keystroke, and it is the ordinary
+  one rather than a new mechanism: a derived read stated as a layer-2
+  subscription over its own inputs is memoised on *those inputs* rather
+  than on app-db, so it does not re-run when they have not moved.
 
-  This file measures it. Nothing else about the grid changes: the
+  This file measures that contrast, and §4.1 there reports the reading.
+  Nothing else about the grid changes: the
   application's `::subs/row-total` is a LAYER-1 reader over the whole of
   `app-db`, so a keystroke re-runs every mounted row's fold and nine of
   the ten at 10x10 recompute a total that did not move. [[row-total-l2]]
@@ -21,20 +18,18 @@
 
   ## The arm is HERE, and the application is untouched
 
-  `examples.grid.subs` and `examples.grid.views` are byte-identical to what
-  they were before this file existed, and the fence over this measurement is
-  why: *the witness applications model proper re-frame2 and are evidence about
-  the public door. If a layer-2 spelling wins, changing `examples/grid` is a
-  separate decision with its own bead — this file measures a contrast, it does
-  not adopt one.* So the contrast arm lives in the suite, beside
+  `examples.grid.subs` and `examples.grid.views` carry nothing of this
+  measurement, because the witness applications model proper re-frame2 and
+  are evidence about the public door. Adopting a layer-2 spelling in
+  `examples/grid` is a separate decision — this file measures a contrast, it
+  does not adopt one. So the contrast arm lives in the suite, beside
   `grid.scaling-dom-cljs-test`'s coarse anti-shapes, for the same reason those
   do.
 
   ## Both arms on ONE instrument, in one file
 
-  [[with-counted-subs]] is the per-keystroke census's counter, kept here
-  since the census suite retired with its budget gate (2026-08-29,
-  rf2-6c12m.8). Both arms are measured with it — the application's
+  [[with-counted-subs]] is the per-keystroke census's counter. Both arms
+  are measured with it — the application's
   layer-1 spelling AND the layer-2 restatement — so the contrast is a
   reading rather than an arithmetic comparison between two instruments
   run in two places. The census's published figures (111 at 10x10, 31 at
@@ -45,10 +40,10 @@
 
   A `:parametric` sub's `input-fn` is pure in the QUERY VECTOR — it cannot
   read `app-db` — so a row's width has to arrive in the query itself:
-  `[::row-total-l2 row cols]`, where the layer-1 spelling was
+  `[::row-total-l2 row cols]`, where the layer-1 spelling is
   `[::subs/row-total row]`. The width is to hand (the row's own body
-  already read the dimensions to lay its cells out), but the read is no
-  longer addressed by row alone, and a page whose derived read's INPUT SET
+  already reads the dimensions to lay its cells out), but the read is not
+  addressed by row alone, and a page whose derived read's INPUT SET
   is not knowable from its query vector cannot take this spelling at all.
   That is a real authoring difference and it is reported beside the
   counts rather than under them.
