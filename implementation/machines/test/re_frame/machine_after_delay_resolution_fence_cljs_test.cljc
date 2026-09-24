@@ -1,12 +1,12 @@
 (ns re-frame.machine-after-delay-resolution-fence-cljs-test
-  "rf2-gwye.21 — an `:after` arm rechecks its captured frame incarnation
+  "An `:after` arm rechecks its captured frame incarnation
   immediately after resolving the delay, before reserving its timer-table slot.
 
   Delay resolution is callback-bearing even when the delay is pure: a fn-form
   delay that reads a subscription through `compute-sub` emits a synchronous
   `:rf.sub/run` trace, and a listener there can destroy frame A and publish a
-  same-id B that arms its own timer at the identical key. The A continuation
-  used to reserve its slot unconditionally at `[frame-id k]`, overwriting B's
+  same-id B that arms its own timer at the identical key. An A continuation
+  that reserved its slot unconditionally at `[frame-id k]` would overwrite B's
   entry, and then — its later owner check correctly noticing A's loss — reclaim
   that reservation, leaving B with no entry: B's host handle orphaned, its
   timeout never dispatched, and its teardown unable to cancel it.
