@@ -34,7 +34,7 @@
   | [[strictmodes-double-invoke-is-not-additive]] | React runs every body twice and mounts, unmounts and remounts every effect |
   | [[a-body-that-throws-after-its-reads-is-caught-and-the-retry-acquires-exactly-once]] | a render-phase throw, caught by `h/error-boundary`, retried through `:reset-key` |
 
-  A fifth property the bead names — **delayed commit** — is
+  A fifth property — **delayed commit** — is
   [[a-write-landing-in-the-render-to-commit-gap-heals-the-boundary]]: a
   sibling's `useLayoutEffect` writes after every body has returned and
   before React runs the passive effect that acquires, which is the
@@ -45,9 +45,8 @@
   Two kinds, chosen for two different failure modes.
 
   **Reader membership** (`runtime/cell-readers`) carries every
-  abandonment row. The reason is the lesson a sibling witness paid for on
-  the controlled-input surface the same night: a value assertion stays
-  green under a real leak. If an abandoned attempt DID acquire, the page
+  abandonment row, because a value assertion stays green under a real
+  leak. If an abandoned attempt DID acquire, the page
   still paints the correct text — React committed the right tree, and the
   leaked registration is simply an extra slot on a cell that no cleanup
   will ever remove. `exactly 1 reader` and `2 readers` render identically
@@ -162,7 +161,7 @@
   "A concurrent root, rendered WITHOUT `flushSync`.
 
   Deliberately not `mount/root!`. That door renders inside `flushSync`
-  because the witnesses it was built for read the DOM on the next line;
+  because the witnesses it serves read the DOM on the next line;
   here a synchronous flush would be inventing a schedule — Suspense and
   transitions are React's concurrent business, and a row that forced them
   sync would be a row about the forced schedule. Every wait below is a
@@ -185,9 +184,8 @@
   The DOM text appears at the mutation phase, but `useSyncExternalStore`
   calls `subscribe` in a **passive** effect that React flushes later. A row
   that read the reader count the moment its text appeared would be reading
-  it before the acquisition it is asserting about — measured: the
-  StrictMode row failed exactly there, at `0` readers, on a page already
-  showing the committed value.
+  it before the acquisition it is asserting about, and would see `0`
+  readers on a page already showing the committed value.
 
   Waiting a chosen number of milliseconds would fix that and would be the
   assumption this file refuses to make. So the wait is a **write
@@ -274,7 +272,7 @@
 (def ^:private !throw? (atom false))
 
 (rf.fresco/defview thrower
-  "Reads FIRST and throws SECOND — the bead's rollback shape. The reads are
+  "Reads FIRST and throws SECOND — the rollback shape. The reads are
   real reads, taken before the failure, so a runtime that acquired at
   render would have acquired them."
   [_]
@@ -434,8 +432,7 @@
             ;; With one boundary reading one key the additivity defect is
             ;; INVISIBLE: a scratch that accumulated `[left left]` still
             ;; resolves to the read SET `#{left}`, so the acquired edges are
-            ;; identical and the row passes with the reset defeated —
-            ;; measured, on the sabotage run that was supposed to red it.
+            ;; identical and the row passes with the reset defeated.
             ;; With two boundaries the second body's scratch accumulates the
             ;; FIRST's key, so it acquires an edge it never read and `left`
             ;; gains a reader nothing will ever release. That is the defect
@@ -528,8 +525,7 @@
                 (teardown-census! handle)))
             ;; `!throw?` is disarmed on the single trailing step, which runs on
             ;; BOTH paths — the `.catch` returns normally rather than finishing
-            ;; the row — so the reset that used to be duplicated across the two
-            ;; arms is now stated once.
+            ;; the row — so the reset is stated once rather than in each arm.
             (.catch (report-failure! "error-retry witness" handle))
             (.then (fn [_] (reset! !throw? false) (done))))))))
 
