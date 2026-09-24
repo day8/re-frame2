@@ -142,7 +142,7 @@
   serialiser (boolean `true` → bare attribute name; `false` / `nil` →
   omitted; all other values are `escape-attr`-escaped). When
   `:html-attrs` is absent OR omits `:lang`, the `:lang` opt is the
-  fallback so existing callers keep working. When `:html-attrs`
+  fallback. When `:html-attrs`
   supplies `:lang`, it wins.
 
   Args:
