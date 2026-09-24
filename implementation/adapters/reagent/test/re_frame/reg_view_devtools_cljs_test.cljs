@@ -1,6 +1,6 @@
 (ns re-frame.reg-view-devtools-cljs-test
-  "Per Spec 006 §React DevTools support (rf2-fa4ly, amended by
-  rf2-976bw): the reg-view wrapper sets a React `displayName` to the
+  "Per Spec 006 §React DevTools support: the reg-view wrapper sets a
+  React `displayName` to the
   registered view-id's performance/display projection, and the React
   Context backing the frame-provider carries a recognisable
   `displayName` for the Context inspector.
@@ -14,16 +14,15 @@
     - THE EQUALITY ROW: `(performance/build-name :render id)` equals
       `\"rf:render:\" + displayName`. Spec 009 §Naming convention makes
       the two ONE identifier, and asserting each half is separately
-      well-formed is exactly the shape that let them drift (rf2-976bw:
-      DevTools showed `:cart/total-line` while the bracket wrote
+      well-formed would let them drift (DevTools showing
+      `:cart/total-line` while the bracket writes
       `rf:render:cart/total-line`). Only an equality can catch that.
     - The frame-context's React `displayName` is set to `\"rf2-frame\"`.
-    - Regression (rf2-rohdn): NO `:_jsxFileName` / `:_jsxLineNumber`
+    - NO `:_jsxFileName` / `:_jsxLineNumber`
       / `:_jsxColumnNumber` JSX-shaped source-coord props are injected
-      into rendered hiccup. The earlier rf2-fa4ly injection never
-      worked (Reagent passed them through as DOM attributes; DevTools
-      reads `__source` from React.createElement, not element props)
-      and rf2-rohdn dropped it.
+      into rendered hiccup. Such props would not work (Reagent passes
+      them through as DOM attributes; DevTools reads `__source` from
+      React.createElement, not element props).
 
   Production-elision is verified separately by the elision-probe
   build (sentinel `rf2-frame` in `scripts/check-elision.cjs`) and by
@@ -56,7 +55,7 @@
             preserved — so React DevTools shows
             `<re-frame.reg-view-devtools-cljs-test/dn-auto>` in the
             component tree AND the name is the one the rf:render:
-            measure carries (rf2-976bw)"
+            measure carries"
     (rf/reg-view dn-auto [] [:p "hi"])
     (let [wrapped (rf/view :re-frame.reg-view-devtools-cljs-test/dn-auto)]
       (is (some? wrapped) "the view is registered")
@@ -76,10 +75,10 @@
           "the override id drives displayName"))))
 
 (deftest display-name-and-render-measure-are-one-identifier
-  (testing "rf2-976bw — THE equality row. Spec 009 §Naming convention makes
+  (testing "THE equality row. Spec 009 §Naming convention makes
             the `<id>` in `rf:render:<id>` and the id the substrate
             publishes to the developer ONE identifier. Asserting each half
-            is separately well-formed is what let them drift; this asserts
+            is separately well-formed would let them drift; this asserts
             they are the same string, so a change to either spelling that
             is not made to both fails here."
     (rf/reg-view ^{:rf/id :rf.devtools-test/one-identifier} one-id-view
@@ -96,21 +95,20 @@
              (rf.performance/build-name :render id))
           "the measure name is the documented shape for a namespaced id"))))
 
-;; ---- JSX source-coord props (regression: must NOT be injected) -----------
+;; ---- JSX source-coord props (must NOT be injected) -----------------------
 ;;
-;; rf2-rohdn removed the JSX-prop injection (rf2-fa4ly): the props leaked
+;; There is no JSX-prop injection: the props would leak
 ;; to the DOM as attributes, triggering React's "unrecognised prop on a
-;; DOM element" console warnings, AND the feature didn't deliver its
+;; DOM element" console warnings, AND would not deliver their
 ;; intended benefit (React DevTools' "View source" reads `__source`
 ;; off `React.createElement`'s third arg — set by
 ;; `@babel/plugin-transform-react-jsx-source` at JSX-compile time, NOT
-;; from element props). These regression tests pin the absence so a
-;; well-intentioned re-introduction doesn't bring the noise back.
+;; from element props). These tests pin the absence so a
+;; well-intentioned introduction doesn't bring the noise.
 
 (deftest jsx-source-props-not-injected-by-macro-path
   (testing "a macro-registered view's rendered hiccup carries NO
-            `_jsx*` props (rf2-rohdn regression — feature never
-            worked, dropped to remove dev-console noise)"
+            `_jsx*` props (they would only add dev-console noise)"
     (rf/reg-view ^{:rf/id :rf.devtools-test/no-jsx-macro}
                  no-jsx-macro-view []
       [:section "body"])
@@ -128,7 +126,7 @@
 
 (deftest jsx-source-props-not-injected-by-programmatic-path
   (testing "a programmatic `reg-view*` registration also carries NO
-            `_jsx*` props (rf2-rohdn — covers both macro + non-macro
+            `_jsx*` props (covers both macro + non-macro
             entry points)"
     (rf/reg-view* :rf.devtools-test/no-jsx-prog
                   (fn [] [:em "p"]))
@@ -145,7 +143,7 @@
 (deftest jsx-source-props-preserve-user-supplied
   (testing "if user code stamps `_jsx*` props themselves (e.g. a hand-
             crafted React-DevTools shim), the framework does NOT
-            overwrite or strip them — passthrough is opaque (rf2-rohdn)"
+            overwrite or strip them — passthrough is opaque"
     (rf/reg-view ^{:rf/id :rf.devtools-test/user-jsx} user-jsx-view []
       [:p {:_jsxFileName "by-user.cljs" :_jsxLineNumber 99} "ok"])
     (let [render (rf/view :rf.devtools-test/user-jsx)
