@@ -1,28 +1,28 @@
 (ns re-frame.join-parallel-attempt-select-test
-  "rf2-wsrtlw — select parallel `:spawn-all` joins by EXACT-ATTEMPT COORDINATE before
+  "Parallel `:spawn-all` joins are selected by EXACT-ATTEMPT COORDINATE before
   folding.
 
-  #5839's exact-attempt check runs AFTER the runtime has selected which
-  active `:spawn-all` join owns an inbound completion. That selection was by
-  child-id ownership (first owning match in declaration order). When two active
-  parallel regions legitimately reuse the logical child id, a later region's
-  exact-current completion is mis-routed to the first region's join, rejected
-  there as `:attempt-superseded`, and its own join hangs.
+  The exact-attempt check runs AFTER the runtime has selected which
+  active `:spawn-all` join owns an inbound completion. Selecting by child-id
+  ownership (first owning match in declaration order) would break when two
+  active parallel regions legitimately reuse the logical child id: a later
+  region's exact-current completion would be mis-routed to the first region's
+  join, rejected there as `:attempt-superseded`, and its own join would hang.
 
-  The fix routes the completion to the region whose LIVE join-state IS the exact
+  So the completion is routed to the region whose LIVE join-state IS the exact
   attempt the completion's coordinate names (parent/invoke identity + attempt
   token + spawned instance), BEFORE the fold gate; child-id ownership is only a
   fallback for unstamped / unknown completions (which the fold gate then
   suppresses fail-closed).
 
-  Under the child-completion protocol the completion is no longer a child-authored
+  Under the child-completion protocol the completion is not a child-authored
   event: the child reaches a `:final?` leaf and the runtime's finalize cascade
   mints the carrier, reading the coordinate straight off the child's own
-  `:rf/join-child` record. That REMOVES one half of the original ambiguity — there
-  is no shared completion keyword any more, because there is no child-authored
-  keyword at all — and leaves the half this test exists for: two live joins under
-  ONE parent, both owning a child logically named `:worker`. Selection still has to
-  be by coordinate rather than by that name.
+  `:rf/join-child` record. So there is no shared completion keyword, because
+  there is no child-authored keyword at all — which leaves the ambiguity this
+  test exists for: two live joins under ONE parent, both owning a child
+  logically named `:worker`. Selection has to be by coordinate rather than by
+  that name.
 
   Two regions `:r1` / `:r2` each declare a `:spawn-all` with the SAME logical
   child id `:worker`. The test completes `:r2`'s worker first and asserts ONLY
@@ -66,8 +66,8 @@
 (defn- region-spawn-all
   "A two-child (`:worker` + never-completing `:helper`) `:spawn-all` region
   resolving to a region-distinct `on-complete` event. The `:worker` logical id
-  is shared across the two regions, which is exactly the ambiguity the fix
-  routes past by exact-attempt coordinate; completing `:worker` alone is
+  is shared across the two regions, which is exactly the ambiguity
+  exact-attempt routing resolves; completing `:worker` alone is
   NON-DECISIVE (the `:all` join still awaits `:helper`), so the join-state
   persists to be asserted on."
   [worker-type on-complete ready-state]
