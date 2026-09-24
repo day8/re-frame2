@@ -1,10 +1,10 @@
 (ns reagent2.impl.template-reserved-head-elision-prod-test
-  "The reserved-`:rf/*`-head reject SURVIVES production (rf2-01zvu).
+  "The reserved-`:rf/*`-head reject SURVIVES production.
 
-  WHY THIS FILE EXISTS. rf2-2hkfy is the cautionary precedent: a rejection
-  described as \"always-on\" turned out to be `goog.DEBUG`-gated and was
-  therefore ABSENT from the build users actually ship — the guard existed
-  only in dev, which is precisely where it was least needed. A fail-loud
+  WHY THIS FILE EXISTS. A rejection described as \"always-on\" can turn
+  out to be `goog.DEBUG`-gated and therefore ABSENT from the build users
+  actually ship — the guard existing only in dev, which is precisely
+  where it is least needed. A fail-loud
   guard that elides in production is worse than none, because the dev run
   is green and the shipped app paints the phantom silently.
 
@@ -17,11 +17,11 @@
   `-dom-cljs-test$` and do NOT match this ns.
 
   WHAT IS ASSERTED — the observable OUTCOME, not merely \"an exception\".
-  rf2-1b0po found dispatching into a destroyed frame is a silent no-op
-  rather than a throw, and rf2-6pfpt / rf2-2amkm found this whole class
-  routinely fails to throw on CLJS at all (`(inc nil)` is `1`). So the
+  A failure path on CLJS can be a silent no-op rather than a throw
+  (dispatching into a destroyed frame is one), and whole classes of error
+  fail to throw on CLJS at all (`(inc nil)` is `1`). So the
   load-bearing assertion is the one below that NO element is produced for a
-  reserved head — the phantom is what the bead is about. The thrown
+  reserved head — the phantom is what the guard is about. The thrown
   payload is checked as well, but it is the phantom's ABSENCE that states
   the contract.
 
@@ -75,7 +75,7 @@
     (is (nil? (:painted (render-outcome [:rf/button {}])))
         "an unreserved twin must not disarm the guard in the shipped build"))
 
-  (testing "the string-aliased cache-hit guard holds in production too (rf2-sgbna)"
+  (testing "the string-aliased cache-hit guard holds in production too"
     ;; A STRING head "rf/x" and the reserved keyword `:rf/x` share the cache
     ;; key "rf/x"; seeding the string form must not let the keyword ride the
     ;; cache-HIT path and paint a phantom in the shipped :advanced build.
