@@ -277,21 +277,21 @@
     :runtime [:deferred]
     :refuses {:rf.error/id :rf.error/fresco-deferred-read-at-boundary
               :where       're-frame.fresco.test}
-    :why     (str "The kit "
-                  "borrows the RUNTIME's id here, and the runtime's reason has "
-                  "to come with it: opacity is honest "
-                  "only where the runtime CAN read a form, and the `:runtime` "
-                  "column says it cannot read this one — an unforced `delay` "
-                  "crosses a native child position untouched, so the refusal "
-                  "waiting for the author is the crossing's, not React's. A "
-                  "pointer to L3 would point at a tier where the identical "
-                  "refusal waits, "
-                  "and a test asserting the id ALONE "
-                  "could not "
-                  "see it. The advice rides in `:reason`, prose this table does "
-                  "not freeze; `:where` is the KIT, on the `defhost` row's "
-                  "precedent: what is borrowed is the id and the reason, never "
-                  "the raising site.")}
+    :why     (str "The kit borrows the RUNTIME's id here, "
+                  "and the runtime's reason has to come with it: "
+                  "opacity is honest only where the runtime CAN "
+                  "read a form, and the `:runtime` column says it "
+                  "cannot read this one — an unforced `delay` "
+                  "crosses a native child position untouched, so "
+                  "the refusal waiting for the author is the "
+                  "crossing's, not React's. A pointer to L3 would "
+                  "point at a tier where the identical refusal "
+                  "waits, and a test asserting the id ALONE could "
+                  "not see it. The advice rides in `:reason`, "
+                  "prose this table does not freeze; `:where` is "
+                  "the KIT, on the `defhost` row's precedent: "
+                  "what is borrowed is the id and the reason, "
+                  "never the raising site.")}
 
    {:case    "an unforced `delay` in a BOUNDARY's PROPS — the row both sides refuse"
     :form    [a-boundary {:x (delay 1)}]
@@ -304,14 +304,14 @@
                   "crossing and will not force an author's explicit deferral, "
                   "so the props map is where the walk raises. Spec 009's row "
                   "for this id states that trigger in those words. The kit's "
-                  "own generic `:rf.error/ui-tree-malformed` here, telling the "
-                  "author to hoist the delay to a site of its own, would be "
-                  "strictly "
-                  "vaguer than the runtime at exactly the crossing the refusal "
-                  "exists for, and advice with no exit, because the delay is "
-                  "already at its own site. "
-                  "`:where` is the KIT, on the row "
-                  "above's precedent.")}
+                  "own generic `:rf.error/ui-tree-malformed` "
+                  "here, telling the author to hoist the "
+                  "delay to a site of its own, would be "
+                  "strictly vaguer than the runtime at exactly "
+                  "the crossing the refusal exists for, and "
+                  "advice with no exit, because the delay is "
+                  "already at its own site. `:where` is the "
+                  "KIT, on the row above's precedent.")}
 
    {:case    "a REALIZED `delay` in a boundary's props CROSSES — the row above's control"
     :form    [a-boundary {:x (doto (delay 1) deref)}]
@@ -329,10 +329,10 @@
                   "refuses — a `Delay` is outside 004B's value grammar however "
                   "forced — but with its OWN id, which is the honest one: "
                   "nothing is waiting for this author at the crossing. Its "
-                  "REASON matters too: this delay is at a prop of its own "
-                  "already, so telling the author to hoist it would point back "
-                  "at the form just written — "
-                  "advice with no exit. The reason "
+                  "REASON matters too: this delay is at a prop "
+                  "of its own already, so telling the author to "
+                  "hoist it would point back at the form just "
+                  "written — advice with no exit. The reason "
                   "names the two exits that work: a data value, or L3.")}
 
    {:case    "an SVG subtree carries `:ns`, and `:foreignObject` reverts"
