@@ -33,7 +33,12 @@
        folded into the matching :data slot (no cross-talk).
      - boot-failure-path          — a failure during the parallel
        phase routes the boot to :failed and records the error in
-       :data."
+       :data.
+     - boot-join-child-failure-path — /user.json alone fails inside the
+       :spawn-all, under the real BootData schema. The boot reaches
+       :failed through :on-any-failed, the failure never lands in the
+       :user slot, and both in-flight siblings are cancelled
+       (rf2-3x7nj.41.1)."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -90,6 +95,30 @@
     (fn [frame-ctx args]
       (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-failure)]
         (stub frame-ctx (assoc args :kind kind :tags tags))))))
+
+(defn- reg-join-failure-stub!
+  "Register an fx-id for the JOIN-child failure path. /config.json answers
+   `config` and /user.json fails. /routes.json and /flags.json are NEVER
+   answered, so those two siblings are still in flight whenever the failure
+   lands. That makes the cancellation deterministic without depending on
+   which reply arrives first."
+  [fx-id config]
+  (rf/reg-fx fx-id
+    {:platforms #{:client :server}}
+    (fn [frame-ctx args]
+      (let [url (str (-> args :request :url))]
+        (cond
+          (re-find #"/config\.json$" url)
+          ((rf.registrar/handler :fx :rf.http/managed-canned-success)
+           frame-ctx (assoc args :value config))
+
+          (re-find #"/user\.json$" url)
+          ((rf.registrar/handler :fx :rf.http/managed-canned-failure)
+           frame-ctx (assoc args :kind :rf.http/http-5xx
+                                 :tags {:status 503 :message "user.json outage"}))
+
+          ;; routes / flags: held in flight — no reply at all.
+          :else nil)))))
 
 ;; ============================================================================
 ;; DEMO PAYLOADS
@@ -227,6 +256,49 @@
         (let [err (rf/compute-sub [:app.boot/error] db)]
           (assert (some? err)
                   "expected :app.boot/error to be populated on the failure path"))))))
+
+(deftest boot-join-child-failure-path
+  (testing "rf2-3x7nj.41.1 — /user.json alone fails inside the :spawn-all: the boot reaches :failed, the failure never lands in :user, and the in-flight siblings are cancelled"
+    ;; `boot-failure-path` above reaches `:failed` through the single-`:spawn`
+    ;; config loader's `:on-error`, because its blanket stub fails /config.json
+    ;; first. This one lets config succeed and fails a JOIN child, with the
+    ;; real `BootData` schema attached. Before the fix the failed child's
+    ;; per-child `:on-done` folded the 503 map into `:user` (`[:maybe User]`),
+    ;; the schema rollback swallowed the carrier, and the boot hung at
+    ;; `:loading-deps` for ever.
+    (reg-join-failure-stub! :boot.test/fail-user-json test-config)
+    (let [traces (atom [])]
+      (rf/register-listener! :trace ::join-failure (fn [ev] (swap! traces conj ev)))
+      (try
+        (with-new-frame [f (rf.frame/make-anon-frame-record!
+                             {:initial-events [[:boot/initialise]]
+                              :fx-overrides {:rf.http/managed
+                                             :boot.test/fail-user-json}})]
+          (let [db        (rf/frame-state-value f)
+                boot-data (get-in db [:rf.db/runtime :rf.runtime/machines :snapshots :app/boot :data])
+                cancels   (filterv #(= :rf.machine.spawn/cancelled-on-join-resolution
+                                       (:operation %))
+                                   @traces)
+                cancelled (into #{} (map #(-> % :tags :child-id)) cancels)
+                live?     (fn [actor-id]
+                            (some? (get-in db [:rf.db/runtime :rf.runtime/machines
+                                               :snapshots actor-id])))
+                rejected  (filterv #(and (= :rf.error/schema-validation-failure (:operation %))
+                                         (= :machine-data (-> % :tags :where)))
+                                   @traces)]
+            (is (= :failed (rf/compute-sub [:app.boot/state] db))
+                "the join's :on-any-failed took the boot to :failed")
+            (is (= 503 (:status (rf/compute-sub [:app.boot/error] db)))
+                "the /user.json failure is the recorded error")
+            (is (nil? (:user boot-data))
+                "the failure never reached the :user child's :on-done fold")
+            (is (= [] rejected)
+                "no :machine-data schema rejection on the way")
+            (is (= #{:routes :flags} cancelled)
+                ":on-any-failed cancelled both siblings, which were still in flight")
+            (is (not-any? live? (map #(-> % :tags :spawned-id) cancels))
+                "the cancelled siblings were actually torn down")))
+        (finally (rf/unregister-listener! :trace ::join-failure))))))
 
 ;; ============================================================================
 ;; MACHINE :data SCHEMA BOUNDARY  (rf2-t5ky67 issue 2)
