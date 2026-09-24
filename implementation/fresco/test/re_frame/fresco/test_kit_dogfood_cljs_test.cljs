@@ -27,24 +27,24 @@
   form and a data key-map. Every row below names the bench witness it
   answers.
 
-  ## Which tier each claim went to, which is the finding
+  ## Which tier each claim sits at
 
-  Re-expressing them sorted the file into three tiers, and the sorting is
-  the interesting part:
+  Re-expressed, the claims sort into three tiers, and the sorting is the
+  interesting part:
 
   | bench witness | here | tier |
   |---|---|---|
-  | the seeded shape, the subs, narrow/broad writes, keyed insert/delete, drafts | unchanged, and needing nothing from the kit | L0 |
+  | the seeded shape, the subs, narrow/broad writes, keyed insert/delete, drafts | as the bench states them, needing nothing from the kit | L0 |
   | a lowered intent reaches a real event handler | `ht/fire!` | L1 |
   | the controlled field carries its value through the marker | `ht/fire!` + `ht/controlled?` | L1 |
   | the form submits once and prevents navigation | `ht/fire!` | L1 |
   | the key-map commits, cancels, and is silent mid-composition | `ht/fire!` | L1 |
   | what the rendered screen OFFERS to dispatch | `ht/tree` + `ht/intents` | L2 |
 
-  The L0 rows needed no kit at all, which is L0's contract holding: they
+  The L0 rows need no kit at all, which is L0's contract holding: they
   are pure re-frame and the substrate is not in them. The composition
-  rows needed exactly one door, and the tree row is a claim the bench
-  file could not make at all."
+  rows need exactly one door, and the tree row is a claim the bench
+  file cannot make at all."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
@@ -206,7 +206,7 @@
 ;; the-key-map-commits-on-enter-cancels-on-escape-and-is-silent-mid-
 ;; composition.
 ;;
-;; Each bench row lowered a form with `codec/as-element` and pulled the
+;; Each bench row lowers a form with `codec/as-element` and pulls the
 ;; wrapper off `(.-props el)`. Each row here calls one public door.
 
 (deftest l1-a-lowered-intent-reaches-a-real-event-handler
@@ -325,8 +325,8 @@
 ;; L2 — what the rendered screen OFFERS to dispatch
 ;; ---------------------------------------------------------------------------
 ;;
-;; No bench counterpart: the front file could not make this claim, because
-;; there was no tree to make it against. It is the claim the intent script
+;; No bench counterpart: the front file cannot make this claim, because it
+;; has no tree to make it against. It is the claim the intent script
 ;; makes in a browser — *these are the intents this page carries* — taken
 ;; on the rendering instead of on the interaction, and the two are
 ;; deliberately different evidence. A site can exist and never fire; a
