@@ -160,6 +160,7 @@
    "contextmenu" "contextMenu"
    "controlslist" "controlsList"
    "crossorigin" "crossOrigin"
+   "dangerouslysetinnerhtml" "dangerouslySetInnerHTML"
    "datetime" "dateTime"
    "defaultchecked" "defaultChecked"
    "defaultvalue" "defaultValue"
@@ -777,12 +778,14 @@
   in `:attrs` is a malformed tree, and emitting it would put markup on the
   wire that the client never paints.
 
-  Read off the name this serialiser writes, which for these four is the
-  key's `name`, and matched case-sensitively: `:x/ref`, `\"ref\"` and
-  `'ref` are refused exactly as `:ref` is, while `:Key` is a different
-  name and an ordinary attribute.
+  Read off the React prop name the key canonicalises to (`react-prop-name`)
+  and matched case-sensitively: `:x/ref`, `\"ref\"` and `'ref` are refused
+  exactly as `:ref` is, and so are `:dangerously-set-inner-html` and
+  `:dangerouslysetinnerhtml`, which `standard-names` folds onto
+  `dangerouslySetInnerHTML`, while `:Key` is a different name and an
+  ordinary attribute.
 
-  The hiccup tier DROPS the same keys (`html-helpers/strip-prop?`) rather
+  The hiccup tier DROPS the four names (`html-helpers/strip-prop?`) rather
   than refusing them; Spec 011 §XSS at output boundaries names both
   dispositions and why they differ."
   {"key"                     "put it on the node as :key"
@@ -791,18 +794,18 @@
    "dangerouslySetInnerHTML" "put the trusted markup in a {:html s} child node"})
 
 (defn- reject-reserved-attrs!
-  "Refuse an element whose `:attrs` carries a `reserved-attr-names` key,
-  through the shared malformed-tree path at the element's own path.
-  `:value` is the offending key as written."
+  "Refuse an element whose `:attrs` carries a key whose React prop name is
+  a `reserved-attr-names` slot, through the shared malformed-tree path at
+  the element's own path. `:value` is the offending key as written."
   [attrs path]
   (doseq [attribute-key (keys attrs)
           :when (or (ident? attribute-key) (string? attribute-key))
-          :let  [emitted-name (dom-attr-name (name attribute-key))]
-          :when (contains? reserved-attr-names emitted-name)]
+          :let  [react-name (react-prop-name (name attribute-key))]
+          :when (contains? reserved-attr-names react-name)]
     (malformed-node!
       (str "an element's :attrs carries " (rf.error/pr-form attribute-key)
-           ", which React reads as its `" emitted-name "` slot and never writes "
-           "as an attribute — " (get reserved-attr-names emitted-name))
+           ", which React reads as its `" react-name "` slot and never writes "
+           "as an attribute — " (get reserved-attr-names react-name))
       path {:value attribute-key})))
 
 (declare emit-node mark-selected selected-values)
@@ -948,8 +951,9 @@
   (`:default-value`/`:default-checked` -> `value`/`checked`; `:value` on
   `:textarea` -> the text child; `:value` on `:select` -> `selected` on the
   matching option), then the attribute conversion, then children. `:events`
-  and `:key` have no HTML presence and are never read here; a
-  `reserved-attr-names` key inside `:attrs` is refused before any of it."
+  and `:key` have no HTML presence and are never read here; a key inside
+  `:attrs` whose React prop name is a `reserved-attr-names` slot is
+  refused before any of it."
   [element path]
   (reject-reserved-attrs! (:attrs element) path)
   (let [tag                 (:tag element)
