@@ -1,29 +1,29 @@
 (ns re-frame.machine-timer-incarnation-fence-cljs-test
-  "rf2-ijlhj — bind machine `:after` timer CANCELLATION BATCHES and the
+  "Bind machine `:after` timer CANCELLATION BATCHES and the
   cancel→reschedule continuation to ONE captured frame incarnation.
 
-  PR #6049 (rf2-rbxdxa) made single-entry resource RELEASE successor-aware, but
-  the cancellation CLAIM still re-read the slot's current occupant, and the batch
-  loops / reschedule paths recaptured the incarnation per key. Three residual
-  seams let a cancellation land on a same-id successor B:
+  A successor-aware single-entry resource RELEASE is not enough on its own: a
+  cancellation CLAIM that re-reads the slot's current occupant, or a batch loop /
+  reschedule path that recaptures the incarnation per key, lets a cancellation
+  land on a same-id successor B. Three seams:
 
-    1. CAPTURE→READ — a batch snapshots A's entries, but each single-entry cancel
-       re-read `@after-timers[frame-id k]` for its claim token. If A was replaced
-       by same-id B at the same key between snapshot and claim (a JVM thread race,
-       or a callback on a prior cancellation's `:rf.machine.timer/cancelled`
-       trace), the cancel claimed/removed B by B's OWN token.
+    1. CAPTURE→READ — a batch snapshots A's entries. A single-entry cancel that
+       re-read `@after-timers[frame-id k]` for its claim token would, if A was
+       replaced by same-id B at the same key between snapshot and claim (a JVM
+       thread race, or a callback on a prior cancellation's
+       `:rf.machine.timer/cancelled` trace), claim/remove B by B's OWN token.
 
     2. TWO-KEY CALLBACK REPLACEMENT — cancelling A/k1 fires the callback-bearing
        `:cancelled` trace; a listener can destroy A, publish same-id B, and re-arm
-       B/k2. The batch then advanced to k2, recaptured B, and cancelled B's host
+       B/k2. A batch that advanced to k2 and recaptured B would cancel B's host
        work.
 
     3. ON-RESOLUTION / SUPERSEDE — `on-sub-changed!` cancels then bare-ID reads +
        reschedules; a listener that replaced A with B on the `:on-resolution`
-       trace's stack got A-derived timer work installed into B (and B's re-arm
-       superseded).
+       trace's stack would get A-derived timer work installed into B (and B's
+       re-arm superseded).
 
-  The fix cancels every BATCH entry by the SNAPSHOTTED attempt token (never the
+  The timer cancels every BATCH entry by the SNAPSHOTTED attempt token (never the
   re-read occupant — B's fresh token fails the atomic claim), binds the batch to
   ONE incarnation predicate captured at entry (loop short-circuit + release
   fence), and fences the `on-sub-changed!` reschedule + `schedule-after-timer!`
@@ -127,7 +127,7 @@
     (is (not (some #(identical? hB2 %) @cancelled))
         "B's handle was NOT cancelled by the A-scoped batch")
     (is (some #(identical? hA1 %) @cancelled)
-        "A/k1's own handle was cancelled (ordinary live-owner cancellation preserved)")))
+        "A/k1's own handle was cancelled (ordinary live-owner cancellation)")))
 
 ;; ===========================================================================
 ;; TEST 2 — TWO-KEY CALLBACK REPLACEMENT + real incarnation swap: cancelling A/k1
@@ -253,7 +253,7 @@
         "exactly the single :on-resolution cancel fired; nothing A-derived reached B")))
 
 ;; ===========================================================================
-;; TEST 4 — CONTROL: an ordinary live-owner batch (no successor) still cancels
+;; TEST 4 — CONTROL: an ordinary live-owner batch (no successor) cancels
 ;; every snapshotted entry fully — the fence is scoped strictly to owner loss.
 ;; ===========================================================================
 
