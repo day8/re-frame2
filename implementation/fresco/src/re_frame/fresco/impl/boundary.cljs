@@ -9,7 +9,7 @@
   This is it, and it is deliberately the smallest thing that satisfies
   the three keys. The decision's words are quoted as it wrote them; the
   export is spelled `h/error-boundary`, which is what the naming ledger
-  rules (row 12). The var HERE keeps the short name — it is
+  rules (row 12). The var HERE carries the short name — it is
   `impl.boundary`'s own, an implementation detail no consumer types, and
   it is what the `:rf.error/fresco-boundary-*` ids and their Spec 009
   rows are named after.
@@ -70,8 +70,8 @@
   intents are vectors here — would swallow every caught error and return
   nil.
 
-  **And a THIRD door, which is the one that stayed open longest** because
-  what comes through it is not malformed at all (`rf2-wdvlp`). A vector
+  **And a THIRD door, the easiest to miss** because
+  what comes through it is not malformed at all. A vector
   `:on-error` is dispatched *into the frame the boundary is mounted
   under*, so under no frame there is nothing to dispatch it into: the
   declaration is well-spelled, well-shaped, and still cannot fire. The
@@ -164,18 +164,18 @@
 
   **No frame in scope is not an error here.** The class reads nothing, so
   a boundary mounted outside a frame is legal until something below it
-  writes an intent — at which point the existing loud error fires and
+  writes an intent — at which point the loud error fires and
   names the intent, which is better attribution than a generic
   no-frame-context throw from the boundary. The binding is therefore
   unconditional and simply carries `nil` when there is no provider.
 
   **An `:on-error` VECTOR is one of those intents, and it is the one this
-  lowering cannot reach** (`rf2-wdvlp`). The fallback and the children
+  lowering cannot reach**. The fallback and the children
   pass through the codec, so an intent written at either is caught by the
   binding above and named; `:on-error` is read straight off the props map
-  by `report!` and passes through no lowering at all, so for a long while
-  it was the one intent position a frameless boundary accepted and then
-  dropped. It is refused instead, in this same render — see
+  by `report!` and passes through no lowering at all, so a frameless
+  boundary would accept it and then drop it. It is refused instead, in
+  this same render — see
   `check-props!`, whose third arm is exactly that.
 
   ## What it does NOT catch, stated because a boundary that quietly does
@@ -301,8 +301,8 @@
   **The vector arm needs no frame guard, and must not have one.** The
   same render refused a vector `:on-error` with no frame, so reaching
   here with one means a frame resolved a moment ago; and a guard that
-  merely *skipped* the dispatch is precisely the silent drop `rf2-wdvlp`
-  records — the caught error replaced by a fallback and reported nowhere,
+  merely *skipped* the dispatch is precisely the silent drop that
+  refusal prevents — the caught error replaced by a fallback and reported nowhere,
   looking for all the world like error handling that worked."
   [^js this error]
   (let [on-error (:on-error (props-of this))]
@@ -377,8 +377,8 @@
                 ;; mints is lowered under the same frame as hiccup it was
                 ;; handed. `nil` when no provider is above the boundary: the
                 ;; binding is unconditional so the branch does not exist, and
-                ;; an intent written under a frameless boundary still lands on
-                ;; the existing loud error naming the intent.
+                ;; an intent written under a frameless boundary lands on
+                ;; the loud error naming the intent.
                 (rf.fresco.impl.intent/with-frame frame-kw (when frame-kw (rf.fresco.impl.collector/frame-dispatch frame-kw))
                   (fn []
                     (if (some? error)
