@@ -10,7 +10,7 @@ Here is the whole pitch. A resource is a read; a mutation is a write. Wire one t
 
 > read → write → invalidate → refetch, end to end, with nothing wired by hand.
 
-Here is that loop made concrete. You favourite an article. That is a mutation. The mutation declares `:invalidates` — the set of cached reads it just made stale. One favourite makes `[:article slug]`, the global `[:article-list]`, and `[:feed]` (your private, personalised feed) stale. Every mounted read carrying one of those cache tags refetches itself: the detail page, every list showing that article, your feed. The favourite button never touches `app-db`. It never dispatches a manual "now go refresh these five reads." It does not even know which screens are showing that article. The mutation said what it changed, and the framework did the rest.
+Here is that loop made concrete. You favourite an article. That is a mutation. The mutation declares `:invalidates` — the set of cached reads it just made stale. One favourite makes `[:article slug]`, the viewer-scoped `[:article-list]`, and `[:feed]` (your private, personalised feed) stale. Every mounted read carrying one of those cache tags refetches itself: the detail page, every list showing that article, your feed. The favourite button never touches `app-db`. It never dispatches a manual "now go refresh these five reads." It does not even know which screens are showing that article. The mutation said what it changed, and the framework did the rest.
 
 If you have used TanStack Query, RTK Query, or SWR, this shape is familiar — a keyed cache, staleness, dedupe, invalidation. This is that family, with 3 deliberate differences to watch for:
 
