@@ -18,7 +18,7 @@
 ;; reads so machines-viz's published version equals the framework's
 ;; published version at every release.
 ;;
-;; ## Two source roots: `src` ships, `page` does not (rf2-k7l2o)
+;; ## Two source roots: `src` ships, `page` does not
 ;;
 ;; `src` is library surface — the MachineChart component, the grammar /
 ;; layout / projection pipeline, the exporters, the share codec. `page`
@@ -33,17 +33,8 @@
 ;; `reagent.dom.client` root it owns — and a consumer requiring this jar
 ;; wants the chart, not a page's mount code.
 ;;
-;; When rf2-k7l2o made the split the argument was sharper still: the page
-;; then required `re-frame.adapter.reagent`, so had it stayed in `src` this
-;; jar would have had to declare an adapter to be loadable at all, putting
-;; two `re-frame.adapter.reagent` implementations on a `day8/reagent-slim`
-;; app's classpath with load order deciding the winner (release.yml renames
-;; `reagent_slim.cljs` → `reagent.cljs` at publication, and states
-;; downstream apps depend on EXACTLY ONE of {day8/re-frame2-reagent,
-;; day8/reagent-slim}). rf2-6r9j.115 removed that require — the page never
-;; needed a substrate, only a Reagent root — so the dependency-forcing half
-;; of the argument is discharged rather than pending. NO adapter coordinate
-;; appears anywhere in this file, including its test aliases.
+;; The page needs no substrate, only a Reagent root, so NO adapter
+;; coordinate appears anywhere in this file, including its test aliases.
 {:paths ["src"]
  :deps  {;; Core supplies re-frame.error (grammar/mermaid/scxml/share/export
          ;; diagnostics) and re-frame.trace / re-frame.interop (chart.cljs's
@@ -69,10 +60,8 @@
          ;; (`reagent.core` for component-local Ratom state — chart.cljs,
          ;; the node/edge/overlay components and the React shim), so
          ;; machines-viz declares the stock `reagent/reagent` dep itself.
-         ;; `reagent.dom.client` is the viewer PAGE's, and left the jar
-         ;; with it (rf2-k7l2o); `reagent.core` did not. It previously
-         ;; inherited Reagent transitively from core, but core is now
-         ;; Reagent-free (re-frame.views late-binds via the
+         ;; `reagent.dom.client` is the viewer PAGE's, which is off the
+         ;; jar. Core is Reagent-free (re-frame.views late-binds via the
          ;; `:adapter/current-component` hook), so every artefact that
          ;; requires reagent.* must declare it. This is dev-only: the whole
          ;; machines-viz jar is bundle-isolated, so a consumer's production
@@ -87,17 +76,15 @@
          ;; {day8/re-frame2-reagent, day8/reagent-slim}), so a coordinate here
          ;; would put two implementations of one namespace on a slim app's
          ;; classpath with load order picking the substrate — and in-tree the
-         ;; slim ns is still `reagent_slim`, so the monorepo build cannot see
-         ;; the collision. Nothing in this artefact requires an adapter:
-         ;; rf2-3d5u3 → rf2-k7l2o moved the viewer page off `src`, and
-         ;; rf2-6r9j.115 deleted its `rf/init!` outright.
+         ;; slim ns is `reagent_slim`, so the monorepo build cannot see
+         ;; the collision. Nothing in this artefact requires an adapter: the
+         ;; viewer page is off `src` and calls no `rf/init!`.
 
-         ;; `adapters/uix.cljs` requires `uix.core` for `defui` / `$`
-         ;; (rf2-3d5u3). Undeclared, that namespace dies at LOAD the same way.
+         ;; `adapters/uix.cljs` requires `uix.core` for `defui` / `$`.
+         ;; Undeclared, that namespace dies at LOAD the same way.
          ;;
          ;; This is a HARD dep rather than a `:provided` / optional posture,
-         ;; and the reasoning is the rf2-nucj0 one (see implementation/http/
-         ;; deps.edn): no artefact in this repo uses `:provided`, `provided`
+         ;; for the reason implementation/http/deps.edn gives: no artefact in this repo uses `:provided`, `provided`
          ;; says a CONTAINER supplies the dependency, and a CLJS app has none —
          ;; it would just be asking every UIx host to redeclare a dep the
          ;; artefact's own source requires. `implementation/adapters/uix`
@@ -144,7 +131,7 @@
                        {:local/root "../../implementation/machines"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
-  ;; rf2-odlm3 — the CLJS half of the same test tree, for the artefact's own
+  ;; The CLJS half of the same test tree, for the artefact's own
   ;; `:machines-viz-node-test` shadow-cljs build (see shadow-cljs.edn beside
   ;; this file for why the lane is declared HERE rather than borrowed onto the
   ;; consolidated one).
@@ -166,23 +153,19 @@
   ;; implementation/package.json's `shadow-cljs` entry, like every other pin of
   ;; it in the tree.
   ;;
-  ;; `page` joins `test` on this alias (rf2-k7l2o): `viewer_cljs_test.cljs`
+  ;; `page` joins `test` on this alias: `viewer_cljs_test.cljs`
   ;; :requires the page entry, and the page root is off `:paths` precisely so
   ;; it never ships. A test lane is not a consumer, so putting it on the TEST
   ;; classpath is exactly the right scope — the page keeps its coverage and
   ;; the jar keeps its `src`-only surface.
   :cljs-test
   {:extra-paths ["test" "page"]
-   ;; NOTHING UIx-SHAPED AND NOTHING ADAPTER-SHAPED BELONGS IN THIS MAP
-   ;; (rf2-6r9j.111, rf2-6r9j.115). `uix.core` is a SHIPPED dep in `:deps`
-   ;; above — `adapters/uix.cljs` is library surface — so repeating it on
-   ;; this alias only created a second place to bump the version; the
-   ;; rf2-odlm3 comment that used to sit here explaining the repeat was
-   ;; written while `:deps` still lacked the coordinate, and bcf7d291ac
-   ;; added it days later. `uix.dom` was never required by any namespace in
-   ;; this artefact — src, page or test — so it bought the lane nothing at
-   ;; all. And `day8/re-frame2-reagent` went the same way as the viewer
-   ;; page's `rf/init!`: see the adapter-coordinate note in `:deps` above.
+   ;; NOTHING UIx-SHAPED AND NOTHING ADAPTER-SHAPED BELONGS IN THIS MAP.
+   ;; `uix.core` is a SHIPPED dep in `:deps` above — `adapters/uix.cljs` is
+   ;; library surface — so repeating it on this alias would only create a
+   ;; second place to bump the version. No namespace in this artefact —
+   ;; src, page or test — requires `uix.dom`. For the adapter coordinate,
+   ;; see the note in `:deps` above.
    :extra-deps  {day8/re-frame2-test-quiet
                  {:local/root "../../implementation/test-quiet"}
                  day8/re-frame2-machines
@@ -197,22 +180,19 @@
                         :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
           :main-opts  ["-m" "noahtheduke.clein"]}
 
-  ;; rf2-4u3t1 — `:main` is REQUIRED by the day8 clein fork's
+  ;; `:main` is REQUIRED by the day8 clein fork's
   ;; `:noahtheduke.clein.specs/build-opts` spec. Without it every clein
   ;; invocation in this directory aborts before doing any work:
   ;;
   ;;   Error in the :clein/build map: {…} - failed: (contains? % :main)
   ;;
-  ;; So `day8/re-frame2-machines-viz` was not merely un-deployed (no
-  ;; workflow published it, which release-machines-viz.yml now fixes) —
-  ;; it was un-BUILDABLE. The lockstep gate could not see that: it reads
-  ;; `:version` and the `:local/root` coordinates, never whether clein
-  ;; would accept the map. `chart` is the artefact's primary public
+  ;; The lockstep gate cannot see that: it reads `:version` and the
+  ;; `:local/root` coordinates, never whether clein would accept the map. `chart` is the artefact's primary public
   ;; surface (`spec/API.md` §MachineChart), which is the same
   ;; convention tools/story/deps.edn follows with `:main re-frame.story`
   ;; — for a library jar this only populates the manifest's Main-Class.
   ;;
-  ;; `:src-dirs ["src"]` — `page` is deliberately absent (rf2-k7l2o). It
+  ;; `:src-dirs ["src"]` — `page` is deliberately absent. It
   ;; is the line that keeps the viewer page's `^:export` entry and its own
   ;; mount root out of a library jar; the page ships as the compiled
   ;; `viewer.js` beside `public/viewer.html` instead.
