@@ -229,6 +229,55 @@
                     (is false (str "a run rejected: " e))
                     (done)))))))
 
+;; rf2-iftxj: the stamp follows EVERY author-triggered run, whichever way it
+;; settles, and following it costs no execution. Each prepare runs `:setup`
+;; once, so the boot count is the number of runs; the canvas's own lifecycle
+;; call after a Re-run sees an unchanged run-key and starts nothing.
+
+(def ^:private boots (atom 0))
+
+(deftest reruns-stamp-fail-then-pass-with-one-execution-each
+  (async done
+    (reset! rerun-n 1)
+    (reset! boots 0)
+    (rf/reg-event :iftxj/boot (fn [{:keys [db]} _]
+                                (swap! boots inc)
+                                {:db (assoc db :n @rerun-n)}))
+    (rf.story/reg-variant :story.iftxj/rerun
+      {:setup  [[:iftxj/boot]]
+       :script [[:assert [:rf.assert/path-equals [:n] 1]]]})
+    (let [vid     :story.iftxj/rerun
+          [_ k p] (canvas-run! vid)
+          rerun!  (fn [n]
+                    (reset! rerun-n n)
+                    (let [old-gen (rf.story.runtime/current-generation vid)
+                          rerun   (rf.story.runtime/rerun! vid {:play nil})]
+                      (is (> (rf.story.runtime/current-generation vid) old-gen)
+                          "precondition: the Re-run claimed a fresh generation")
+                      (is (nil? (stamp vid k))
+                          "no stale-generation stamp while the Re-run is in flight")
+                      (is (nil? (run-if-needed! vid k))
+                          "the canvas starts no run of its own: the run-key is unchanged")
+                      rerun))]
+      (-> p
+          (.then (fn [_]
+                   (is (= "pass" (stamp vid k)) "precondition: the canvas's own run")
+                   (is (= 1 @boots))
+                   (rerun! 2)))
+          (.then (fn [result]
+                   (is (= :fail (:status result)))
+                   (is (= "fail" (stamp vid k)) "a Re-run reaching fail is stamped")
+                   (is (= 2 @boots) "one execution for the Re-run")
+                   (rerun! 1)))
+          (.then (fn [result]
+                   (is (= :pass (:status result)))
+                   (is (= "pass" (stamp vid k)) "a Re-run reaching pass is stamped")
+                   (is (= 3 @boots) "one execution for each run, none duplicated")
+                   (done)))
+          (.catch (fn [e]
+                    (is false (str "a run rejected: " e))
+                    (done)))))))
+
 (deftest the-section-carries-the-status-only-for-its-own-run
   (testing "rf2-mc87a / rf2-oovoq: `data-run-status` stamps the settled verdict of the run in view"
     (let [rk      {:variant-id :story.mc87a/declarative :hot-reload-tick 0}

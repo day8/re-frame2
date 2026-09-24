@@ -22,7 +22,10 @@
   4. `tag:nth-of-type(N)` fallback — best-effort positional
      selector when nothing else is available. Brittle; the
      translator's output carries a hint when this branch fires so
-     the user knows to harden the selector by hand.
+     the user knows to harden the selector by hand (`positional?`
+     recognises it; `play-export/render-script-body` writes the
+     hint). The play runner resolves it under the canvas root it was
+     captured in (`re-frame.story.play.dom/query`).
 
   ## Pure / impure split
 
@@ -102,6 +105,14 @@
               (blank? tag) "*"
               :else        (str/lower-case (str tag)))]
       (str t ":nth-of-type(" index-of-type ")"))))
+
+(defn positional?
+  "True iff `selector` is the positional `tag:nth-of-type(N)` fallback
+  `nth-of-type-fallback` builds, rather than an attribute hook. The
+  translator marks such a step for hardening by hand. Pure."
+  [selector]
+  (boolean (and (string? selector)
+                (re-matches #"[^\s\[\]]+:nth-of-type\(\d+\)" selector))))
 
 (defn pick-selector
   "Return the best-effort CSS selector for the DOM element described

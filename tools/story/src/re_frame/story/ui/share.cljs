@@ -67,6 +67,7 @@
   out alongside it."
   (:require [reagent.core :as r]
             [re-frame.story.args :as rf.story.args]
+            [re-frame.story.cell-plan :as rf.story.cell-plan]
             [re-frame.story.config :as rf.story.config]
             [re-frame.story.egress :as rf.story.egress]
             [re-frame.story.malli-schema :as rf.story.malli-schema]
@@ -272,10 +273,17 @@
 (defn current-share-report
   "Build the reproducibility report (`rf.story.egress/classify`) for the cell the
   `shell` state currently describes. Pure-ish: compiles the focused
-  variant's plan (best-effort — a variant whose plan does not compile
+  cell's plan (best-effort — a variant whose plan does not compile
   still shares, its overrides are still classified) and threads the
   share-URL projection + the focused-variant cell-overrides + any
   share-import drift the URL carried.
+
+  The plan is the shared cell's (`rf.story.cell-plan/cell-plan` over the
+  shell's active modes and this variant's overrides — the inputs the Copy
+  EDN snippet reads too), so a variant that leaves an arg to its story or
+  the globals compiles here as it runs, and its plan-derived downgrade
+  reasons reach the report instead of a lost plan reading `:full`
+  (rf2-nlvgc).
 
   Returns nil when no variant is focused (nothing to share an artifact of)
   — the egress dialog then reads the workspace/chrome-only share URL,
@@ -285,7 +293,10 @@
         overrides (when vid (get-in shell [:cell-overrides vid]))
         dropped   (when vid (get-in shell [:rf.story/share-import-hint vid :dropped]))
         plan      (when vid
-                    (try (rf.story.plan/variant-plan vid)
+                    (try (rf.story.cell-plan/cell-plan
+                           vid
+                           {:active-modes   (:active-modes shell)
+                            :cell-overrides overrides})
                          (catch :default _ nil)))]
     (rf.story.egress/classify {:plan           plan
                       :cell-overrides overrides

@@ -16,7 +16,8 @@
             [clojure.test :refer [deftest is testing]]
             [clojure.edn :as edn]
             [re-frame.story.play.runner             :as rf.story.play.runner]
-            [re-frame.story.recorder.play-export    :as rf.story.recorder.play-export]))
+            [re-frame.story.recorder.play-export    :as rf.story.recorder.play-export]
+            [re-frame.story.recorder.selector       :as rf.story.recorder.selector]))
 
 ;; ---- per-event translation -----------------------------------------------
 
@@ -530,3 +531,41 @@
       (is (every? rf.story.play.runner/step-arity-ok? (:script spec)))
       (is (= [] (rf.story.play.runner/validate-script (:script spec))))
       (is (= "round trip" (:name parsed))))))
+
+;; ---- rf2-3x7nj.30.5 — a positional selector carries the harden hint ------
+
+(deftest positional-selector-steps-carry-the-harden-hint
+  (testing "rf2-3x7nj.30.5: a canvas element with no data-test / id /
+            aria-label records the positional `tag:nth-of-type(N)` fallback,
+            and the pasted form says so above the step, as the selector's
+            documented contract promises. The selectors come from the
+            recorder's own picker, not hand-written"
+    (let [input-sel (rf.story.recorder.selector/pick-selector
+                      {:tag "input" :attrs {} :index-of-type 1})
+          button-sel (rf.story.recorder.selector/pick-selector
+                       {:tag "button" :attrs {} :index-of-type 1})
+          hooked-sel (rf.story.recorder.selector/pick-selector
+                       {:tag "button" :attrs {"data-test" "save"} :index-of-type 1})
+          entries   [{:kind :dom/type  :selector input-sel :text "bob" :t 0}
+                     {:kind :dom/click :selector button-sel :t 0}
+                     {:kind :dom/click :selector hooked-sel :t 0}]
+          {:keys [spec snippet]} (rf.story.recorder.play-export/save-dialog-output
+                                   entries {:variant-id :story.x/recorded
+                                            :extends    :story.x/source})
+          lines     (mapv str/trim (str/split-lines snippet))
+          hint-for  (fn [sel] (str ";; TODO harden selector: " (pr-str sel)))
+          above     (fn [step]
+                      (let [s (pr-str step)
+                            i (first (keep-indexed (fn [i l] (when (= s l) i)) lines))]
+                        (when (and i (pos? i)) (nth lines (dec i)))))]
+      (is (= "input:nth-of-type(1)" input-sel) "precondition: the positional fallback")
+      (is (= [[:type input-sel "bob"] [:click button-sel] [:click hooked-sel]]
+             (:script spec)))
+      (is (str/includes? (str (above [:type input-sel "bob"])) (hint-for input-sel))
+          "the positional type step is preceded by its hint")
+      (is (str/includes? (str (above [:click button-sel])) (hint-for button-sel))
+          "the positional click step is preceded by its hint")
+      (is (= 2 (count (filter #(str/includes? % "TODO harden selector") lines)))
+          "control: the data-test step carries no hint")
+      (is (= (:script spec) (:script (:script (nth (edn/read-string snippet) 2))))
+          "the hint is a comment: the form still reads back to the same script"))))

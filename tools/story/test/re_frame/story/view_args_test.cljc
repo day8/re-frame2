@@ -23,6 +23,7 @@
   Pure JVM + CLJS — `view-args.cljc` + `plan.cljc` + both registrars are
   JVM-runnable, so the DEFAULT lookup works under `clojure -M:test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame.story.config    :as rf.story.config]
             [re-frame.story.view-args :as rf.story.view-args]
             [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.registrar       :as rf.registrar]))
@@ -178,6 +179,48 @@
       (is (= button-props
              (rf.story.view-args/compiled-view-args-schema
                :story.ui.unlabelled/danger))))))
+
+(deftest compiled-resolver-resolves-a-variant-whose-steps-read-story-or-global-args
+  (testing "rf2-yfwfa: a valid variant whose :setup / :script substitutes an
+            [:arg k] that only its story or the globals supply resolves its
+            schema — the read compiles with the same ambient arg layers a run
+            of the variant does, so the substitution cannot throw
+            :rf.error/story-missing-arg ahead of the schema"
+    (let [props [:map [:label :string]]]
+      (reg-view-meta! :views/labelled {:rf/props props})
+      (rf.story.registrar/reg-story* :story.yfwfa
+                                     {:component :views/labelled
+                                      :args      {:label "Go"}})
+      (rf.story.registrar/reg-variant* :story.yfwfa/setup
+                                       {:setup [[:dispatch [:app/set-label [:arg :label]]]]})
+      (rf.story.registrar/reg-variant* :story.yfwfa/script
+                                       {:script [[:dispatch [:app/set-label [:arg :label]]]]})
+      (is (= props (rf.story.view-args/compiled-view-args-schema :story.yfwfa/setup))
+          "a story-supplied arg read by :setup")
+      (is (= props (rf.story.view-args/compiled-view-args-schema :story.yfwfa/script))
+          "a story-supplied arg read by :script")
+      (testing "and an arg only the globals supply"
+        (rf.story.registrar/reg-story* :story.yfwfa-global {:component :views/labelled})
+        (rf.story.registrar/reg-variant* :story.yfwfa-global/setup
+                                         {:setup [[:dispatch [:app/set-label [:arg :label]]]]})
+        (try
+          (rf.story.config/set-global-args! {:label "Global"})
+          (is (= props (rf.story.view-args/compiled-view-args-schema
+                         :story.yfwfa-global/setup)))
+          (finally
+            (rf.story.config/set-global-args! {}))))
+      (testing "a change to the global args is a new memo slot, not a stale one"
+        (rf.story.registrar/reg-story* :story.yfwfa-late {:component :views/labelled})
+        (rf.story.registrar/reg-variant* :story.yfwfa-late/setup
+                                         {:setup [[:dispatch [:app/set-label [:arg :label]]]]})
+        (try
+          (is (nil? (rf.story.view-args/compiled-view-args-schema :story.yfwfa-late/setup))
+              "precondition: no layer supplies :label, so the plan cannot compile")
+          (rf.story.config/set-global-args! {:label "Late"})
+          (is (= props (rf.story.view-args/compiled-view-args-schema :story.yfwfa-late/setup))
+              "the globals now supply it; the cached nil is not reused")
+          (finally
+            (rf.story.config/set-global-args! {})))))))
 
 (deftest compiled-resolver-unregistered-variant-is-nil
   (testing "an unregistered variant resolves nil (best-effort tooling read —
