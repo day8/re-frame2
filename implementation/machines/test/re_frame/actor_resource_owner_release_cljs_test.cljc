@@ -5,9 +5,7 @@
   COUNT PIN (Spec 005 §What auto-cancels on destroy). Auto-cancel-on-destroy
   covers exactly THREE framework-managed resource kinds — (1) `:rf.http/managed`
   requests, (2) armed `:after` timers, and (3) the `:rf.resource/*` owner
-  this suite pins. The count is three, not two; the machine × resource seam is
-  the one place the summary historically drifted to \"two built-in kinds ...
-  only\" (a pre-resource-owner line, since corrected).
+  this suite pins. The count is three, not two.
 
   The cross-artefact integration (a real resource entry → released → no
   continued polling) is pinned in the resources artefact
@@ -69,7 +67,7 @@
 ;; ===========================================================================
 
 (deftest explicit-destroy-dispatches-release-for-machine-owner
-  (testing "rf2-xw5t0y — explicit [:rf.machine/destroy <id>] of a singleton
+  (testing "explicit [:rf.machine/destroy <id>] of a singleton
             fires [:rf.resource/release-owner {:owner [:machine <id>]}]"
     (install-release-stub!)
     (rf/reg-machine :rel/reader
@@ -90,7 +88,7 @@
 ;; ===========================================================================
 
 (deftest final-state-auto-destroy-dispatches-release-for-machine-owner
-  (testing "rf2-xw5t0y — a singleton reaching :final? auto-destroys via
+  (testing "a singleton reaching :final? auto-destroys via
             finalize-machine, which appends the release to its :fx; the release
             fires for [:machine <id>] regardless of the (auto) destroy cause"
     (install-release-stub!)
@@ -110,7 +108,7 @@
 ;; ===========================================================================
 
 (deftest destroy-without-resources-is-a-clean-no-op
-  (testing "rf2-xw5t0y — with NO :rf.resource/release-owner handler registered
+  (testing "with NO :rf.resource/release-owner handler registered
             (machines used WITHOUT resources), an actor destroy must not raise
             :rf.error/no-such-handler and must not throw — the release is
             silently skipped (the no-resources guard)"
