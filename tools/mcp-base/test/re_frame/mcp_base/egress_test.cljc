@@ -3,8 +3,8 @@
   mapping. `mcp-tool-profile` is the ONE pure fn that maps an MCP tool
   server's already-permission-gated sensitive-read posture to its named
   boundary profile (EP-0015 §10). Both MCP servers (story-mcp,
-  re-frame2-pair-mcp) previously duplicated this exact two-value `if`;
-  the mapping now lives here once and is pinned here once.
+  re-frame2-pair-mcp) call it rather than each carrying its own `if`,
+  so the mapping lives here once and is pinned here once.
 
   `.cljc` so it runs on BOTH hosts: the JVM `:test` alias
   (cognitect-labs test-runner) exercises the story-mcp runtime, and the
@@ -16,12 +16,10 @@
   `:include-sensitive`) stays an INTEGRATION test in each consumer; only
   the pure posture→profile mapping is owned here.
 
-  rf2-kuky.88 dropped the end-to-end posture→profile→`:rf.egress/*` floor
-  test along with the pure-data mirror it read. mcp-base no longer
-  resolves a profile — every tool-side egress NAMES one and
+  mcp-base does not resolve a profile — every tool-side egress NAMES one and
   `re-frame.core/project-egress` resolves it app-side — so the floors are
   the framework's to pin, and `implementation/core` pins them. What
-  mcp-base still owns, and what stays pinned here, is that the mapping
+  mcp-base owns, and what is pinned here, is that the mapping
   returns a member of the closed enum."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
