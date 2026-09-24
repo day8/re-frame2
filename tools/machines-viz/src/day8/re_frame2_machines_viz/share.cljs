@@ -63,21 +63,15 @@
   the decoder accepts. Bumping the payload schema bumps this; older
   decoders refuse newer payloads with `:unknown-version`.
 
-  v2 (EP-0023): `:frame-id` became OPTIONAL — a machine topology +
+  v2 (EP-0023): `:frame-id` is OPTIONAL — a machine topology +
   active-state configuration is shareable as pure data without naming a
-  live frame. v1 always carried a required `:frame-id`; a v2 payload may
-  omit it, so a v2 share-URL handed to a v1 decoder is correctly refused
-  with `:unknown-version` (the version-bump guard) rather than silently
-  mis-decoding."
+  live frame. A v1 payload always carries `:frame-id`; a v2 payload may
+  omit it, so a v1 decoder refuses a v2 share-URL with `:unknown-version`
+  (the version-bump guard) rather than silently mis-decoding it."
   "2")
 
 ;; THERE IS NO DEFAULT HOST, and that is the contract rather than an
-;; omission (rf2-8m344). This var used to read
-;; `"https://day8.github.io/re-frame2-machines-viz/viewer.html"`, so
-;; `(encode-share-url chart-state)` handed back a link that 404s: no
-;; `day8/re-frame2-machines-viz` repository exists — machines-viz ships out
-;; of the re-frame2 monorepo — and no workflow deploys the page anywhere.
-;; A default that names a host nobody serves is worse than no default,
+;; omission. A default that names a host nobody serves is worse than no default,
 ;; because the resulting URL looks correct and fails only for the person
 ;; you sent it to.
 ;;
@@ -186,7 +180,7 @@
       bare)))
 
 ;; ---------------------------------------------------------------------------
-;; Structural definition sanitisation (rf2-m285a)
+;; Structural definition sanitisation
 ;;
 ;; `strip-meta` drops Clojure METADATA only. But a macro-stamped machine
 ;; spec (Spec 005 §Source-coord stamping) carries debug/source as ordinary
@@ -199,17 +193,17 @@
 ;;   - inline `:guard` / `:action` / `:entry` / `:exit` slots may hold a LIVE
 ;;     fn value.
 ;;
-;; So `strip-meta` left local-FILESYSTEM paths + source snippets in the
-;; payload (a privacy-contract leak — Principles §No session data in shares),
+;; So `strip-meta` alone would leave local-FILESYSTEM paths + source snippets
+;; in the payload (a privacy-contract leak — Principles §No session data in shares),
 ;; and a live `:fn` value can make Transit encoding FAIL outright. We sanitise
 ;; the definition STRUCTURALLY before validation / Transit:
 ;;
 ;;   - recursively DROP `:source-coords` / `:source-code` on every RECORD map
 ;;     (state node, transition candidate, guard/action entry) — never as the
 ;;     KEY of an identifier-indexed map, where either spelling is a valid
-;;     state / event / region / guard / action id (rf2-gwye.49);
+;;     state / event / region / guard / action id;
 ;;   - replace a fn-valued map KEY (Spec 005's function-valued `:after` delay)
-;;     with an inert numbered `[<label> <n>]` vector (rf2-fzbj.13) — the fn is
+;;     with an inert numbered `[<label> <n>]` vector — the fn is
 ;;     never called, and distinct anonymous delays stay distinct transitions;
 ;;   - DROP executable `:fn` values (the `{<id> {:fn …}}` entry collapses to a
 ;;     names-only marker — the topology reference by id survives);
@@ -227,7 +221,7 @@
   #{:source-coords :source-code})
 
 (def ^:private non-topology-keys
-  "rf2-3x7nj.33.6 — definition slots that are not topology: the `:schemas`
+  "Definition slots that are not topology: the `:schemas`
   map, the root event `:schema`, the initial / spawn `:data` and `:meta`.
   The viewer never reads them, Principles §No session data in shares
   allows only topology, and their values are arbitrary host values — a
@@ -237,13 +231,13 @@
   #{:schemas :schema :data :meta})
 
 (def ^:private fn-label-marker
-  "rf2-m285a — opaque marker substituted for a LIVE fn value so the payload
+  "Opaque marker substituted for a LIVE fn value so the payload
   encodes (Transit cannot serialise an arbitrary fn) and the viewer still
   sees the slot is fn-backed. Names-only — no executable body, no source."
   :rf.machines-viz.share/fn)
 
 (defn- fn-name-label
-  "rf2-m285a — a names-only label for a fn ref: its `:name` meta when named,
+  "A names-only label for a fn ref: its `:name` meta when named,
   else the opaque `fn-label-marker`. Never serialises the body."
   [f]
   (or (when-let [n (some-> f meta :name)]
@@ -251,7 +245,7 @@
       fn-label-marker))
 
 (def ^:private identifier-indexed-slots
-  "rf2-gwye.49 — definition slots whose map KEYS are topology IDENTIFIERS
+  "Definition slots whose map KEYS are topology IDENTIFIERS
   (state / region / event / guard / action ids, and `:after` delays) rather
   than record fields. A key in one of these maps is a name the topology
   references, so it survives sanitisation however it is spelled —
@@ -262,7 +256,7 @@
   #{:states :regions :on :after :guards :actions})
 
 (defn- fn-key-label
-  "rf2-fzbj.13 — the inert stand-in for a fn-valued map KEY (Spec 005's
+  "The inert stand-in for a fn-valued map KEY (Spec 005's
   function-valued `:after` delay): a `[<names-only label> <n>]` vector. The
   share grammar accepts it as a subscription-vector-shaped delay, so the
   viewer projects the timed transition without ever holding — or calling —
@@ -272,16 +266,16 @@
   [(fn-name-label f) n])
 
 (defn- sanitise-definition
-  "rf2-m285a — recursively rewrite a (possibly macro-stamped) machine
+  "Recursively rewrite a (possibly macro-stamped) machine
   definition into a viewer-safe topology payload: drop `:source-coords` /
   `:source-code` and the `non-topology-keys` slots, drop executable `:fn`
   values, and replace any live fn slot with an opaque label. Preserves all topology references (state ids,
   targets, guard/action NAMES via their map keys). Pure structural walk.
 
   `identifiers?` is true while walking a map whose keys are topology ids
-  (`identifier-indexed-slots`, rf2-gwye.49): those keys are kept verbatim and
+  (`identifier-indexed-slots`): those keys are kept verbatim and
   only the values are sanitised. A fn-valued KEY in any map becomes a
-  `fn-key-label` (rf2-fzbj.13), numbered in a stable order so the encoded
+  `fn-key-label`, numbered in a stable order so the encoded
   bytes do not depend on map iteration order."
   ([x] (sanitise-definition x false))
   ([x identifiers?]
@@ -295,9 +289,9 @@
                      identifiers?                    [k (sanitise-definition v)]
                      ;; Drop reference-site source/debug fields entirely.
                      (contains? source-debug-keys k) nil
-                     ;; rf2-3x7nj.33.6 — and the non-topology slots.
+                     ;; And the non-topology slots.
                      (contains? non-topology-keys k) nil
-                     ;; rf2-07gg7h — drop the EXECUTABLE fn off a co-located
+                     ;; Drop the EXECUTABLE fn off a co-located
                      ;; `{:fn <fn> …}` entry (the `:guards` / `:actions`
                      ;; slot form): the entry's KEY already
                      ;; carries the name the topology references; the body is
@@ -332,8 +326,8 @@
 ;;
 ;; `:frame-id` (when present) is an EP-0023 frame-target id — the
 ;; process-local id of the live frame the machine was registered against,
-;; captured at share time purely as payload PROVENANCE. It is decoupled
-;; from any (realm, frame) pairing (the pre-EP-0023 model), and the viewer
+;; captured at share time purely as payload PROVENANCE. It is not tied
+;; to any (realm, frame) pairing, and the viewer
 ;; never resolves a frame from it (it hands the chart the `:definition`
 ;; directly). A topology/snapshot is shareable without naming a live frame,
 ;; so `:frame-id` is OPTIONAL (v2): a presentation-only chart that does not
@@ -359,19 +353,15 @@
 ;;
 ;; Encode + decode validate the SAME `valid-chart-state?` (incl. the
 ;; snapshot shape) so the two are SYMMETRIC: the encoder never emits a
-;; payload the decoder would reject (the rf2-9l8h8 bug was an encoder
-;; that accepted compound/parallel snapshots a keyword-only decoder
-;; then refused — an undecodable URL).
+;; payload the decoder would reject (an encoder that accepted a snapshot
+;; the decoder refuses would emit an undecodable URL).
 
 ;; The machine-definition SHAPE gate is the canonical Machines-Viz grammar
-;; predicate (rf2-3fc89f.18) — `grammar/valid-definition?`, the SAME gate the
-;; AI-generate / Mermaid / SCXML emitters + the chart projector share
-;; (rf2-egupfk unified them). The share boundary previously kept a PRIVATE,
-;; WEAKER copy that accepted any truthy flat `:initial` (even a string) and
-;; every non-empty parallel `:regions` map without validating region bodies,
-;; so a forged-but-valid-Transit share URL decoded `:ok` and was handed to
-;; `MachineChart` even though the definition is rejected everywhere else. The
-;; boundary now desugars (`grammar/desugar-grammar`, the SAME lowering the
+;; predicate — `grammar/valid-definition?`, the SAME gate the AI-generate /
+;; Mermaid / SCXML emitters + the chart projector share. A private, weaker
+;; copy here would let a forged-but-valid-Transit share URL decode `:ok`
+;; and reach `MachineChart` with a definition rejected everywhere else. The
+;; boundary desugars (`grammar/desugar-grammar`, the SAME lowering the
 ;; projectors apply — EP-0029 A4/A5) and routes the definition slot through
 ;; `grammar/valid-definition?` in `valid-core-chart-state?` below, so decode
 ;; FAILS CLOSED on a malformed definition. Only the definition SHAPE gate is
@@ -482,7 +472,7 @@
   "Project `chart-state` onto the ChartState allowlist, dropping every
   key outside it — including any runtime `:data` riding on `:snapshot`
   and any `:source-coords` the caller passed. The definition is
-  metadata-stripped AND structurally sanitised here (rf2-m285a): a
+  metadata-stripped AND structurally sanitised here: a
   macro-stamped spec carries `:source-coords` / `:source-code` and
   executable `:fn` values as ordinary DATA inside `:states` / `:guards` /
   `:actions` — `strip-meta` (metadata only) does not
@@ -523,7 +513,7 @@
              | :string | :number | :boolean | :nil | :fn | :scalar
      :count  <int>}    ;; collection / string element count
 
-  **Content-free BY CONSTRUCTION (rf2-m46qv).** Every value this can
+  **Content-free BY CONSTRUCTION.** Every value this can
   carry is either a member of the closed `:type` vocabulary above or an
   integer count, so no expression here is derived from the input's
   CONTENT. The serialized summary is a fixed size whatever arrives —
@@ -531,27 +521,24 @@
   guarantee worth having over an input the header of this namespace
   itself calls forged.
 
-  IT DID NOT HOLD BEFORE, on two legs:
+  So it carries neither of two tempting extras:
 
-  - a map's `:keys` — every top-level key, uncapped and unsanitised.
-    A forged payload's key SET is attacker-chosen in CONTENT (keys carry
-    markup, control characters and secrets as readily as values do) and
-    in SIZE, so the summary grew with the forger's input without limit
-    and then rode into a thrown ex-info that names itself value-free.
-    Removing it also removes the `(sort-by str …)` that ran `str` over
-    caller-supplied keys, where a key whose `toString` THREW replaced
+  - a map's `:keys`. A forged payload's key SET is attacker-chosen in
+    CONTENT (keys carry markup, control characters and secrets as readily
+    as values do) and in SIZE, so reporting it would grow the summary
+    with the forger's input without limit inside a thrown ex-info that
+    names itself value-free. Ordering the keys would also run `str` over
+    caller-supplied keys, where a key whose `toString` THROWS replaces
     the documented failure with its own exception.
-  - a keyword's raw `:value`, justified inline by \"a keyword IS a state
-    name/address, not data\". That justification does not survive its own
-    threat model. This function is never handed a `:snapshot`'s `:state`
-    — its three call sites pass the whole chart-state, envelope or chart
-    — so the keyword leg fires exactly when the payload is NOT the shape
-    it was supposed to be, which is to say when someone forged it; and
-    transit decodes `~:<anything>` into a keyword of any length and any
-    content the forger likes. The guess that a keyword is structural is
-    the same one rf2-210uq rejected in `re-frame.error`.
+  - a keyword's raw `:value`. \"A keyword IS a state name/address, not
+    data\" does not survive the threat model. This function is never
+    handed a `:snapshot`'s `:state` — its call sites pass a whole URL,
+    chart-state, envelope or chart — so a keyword arrives exactly when
+    the payload is NOT the shape it was supposed to be, which is to say
+    when someone forged it; and transit decodes `~:<anything>` into a
+    keyword of any length and any content the forger likes.
 
-  SIZE IS DELIBERATELY KEPT. `:count` is what makes the summary useful
+  SIZE IS DELIBERATELY REPORTED. `:count` is what makes the summary useful
   rather than merely safe — \"a 2000-key map where an envelope was
   expected\" is the diagnosis — and an integer cannot carry a fragment of
   a token. A lazy seq is NOT counted: realising it on the failure path
@@ -560,7 +547,7 @@
   The `:type` vocabulary is deliberately the closed set
   `re-frame.error/diag-value-summary` uses, so a tool reading a thrown
   ex-data from either surface reads ONE diagnostic vocabulary. This
-  remains an INDEPENDENT implementation rather than a mirror — core
+  is an INDEPENDENT implementation rather than a mirror — core
   summarises a caller's argument, machines-viz summarises a forged wire
   payload — but there is no reason for the two to disagree about what to
   call a set."
@@ -585,7 +572,7 @@
 
   The ex-MESSAGE is the human sentence `msg` + the trailing
   `[:rf.machines-viz.share/decode-failed]` token (Spec 009 §The
-  thrown-error shape / rf2-vvixub) — no longer a bare keyword. The
+  thrown-error shape), not a bare keyword. The
   fine-grained `:reason` keyword is the documented machines-viz
   tool-classification slot (API.md §Share-URL decoding) — tools branch on
   it; `:message` carries the same human sentence for the viewer's
@@ -612,11 +599,10 @@
 
   `:host` is REQUIRED — the URL of the viewer page YOU host (see
   `tools/machines-viz/README.md` §Building and hosting the viewer page).
-  There is no default and no Day8-hosted instance; the arity that used to
-  supply one emitted a URL that 404s (rf2-8m344). Calling without a
+  There is no default and no Day8-hosted instance. Calling without a
   non-blank `:host` throws `:reason :no-host` rather than guessing.
 
-  ## What `:host` is checked for, and what it is not (rf2-xld5m)
+  ## What `:host` is checked for, and what it is not
 
   The machine payload IS the URL fragment, so the encoder appends
   `#machine=<payload>` to the string you pass and checks exactly one
@@ -673,9 +659,8 @@
   [chart-state {:keys [host]}]
   (let [host (when (string? host) (str/trim host))]
     (when (str/blank? host)
-      ;; rf2-8m344 — fail loud rather than fabricate. The library cannot
-      ;; know where the caller's viewer page is served from, and the
-      ;; hosted instance this used to default to never existed.
+      ;; Fail loud rather than fabricate. The library cannot know where
+      ;; the caller's viewer page is served from.
       (let [msg (str "cannot encode a share-URL: no :host was supplied, and "
                      "there is no default viewer host. A share-URL must name "
                      "the viewer page you host. Build it with `shadow-cljs "
@@ -688,7 +673,7 @@
                          :recovery    :supply-the-url-of-a-viewer-page-you-host
                          :reason      :no-host
                          :message     msg}))))
-    ;; rf2-xld5m — a `:host` that already carries a fragment is the ONE
+    ;; A `:host` that already carries a fragment is the ONE
     ;; malformed host worth refusing, because it is the only one the caller
     ;; cannot see. A URL has exactly one fragment and the machine payload IS
     ;; that fragment, so appending a second `#` yields
@@ -700,8 +685,8 @@
     ;; viewer sees `docs#machine=…`, finds no `machine=` prefix, and refuses
     ;; the link with `:malformed-fragment`. Nobody eyeballs 400 characters of
     ;; base64 to count `#`s, so the sender ships a dead link and the failure
-    ;; lands on the recipient — the same outcome rf2-8m344 removed the hosted
-    ;; default to stop.
+    ;; lands on the recipient — the same outcome a fabricated default host
+    ;; would produce.
     ;;
     ;; We REFUSE rather than strip the caller's fragment: the fragment they
     ;; passed meant something to them, and silently discarding it is just a
@@ -723,14 +708,13 @@
                          :message     msg
                          ;; The OFFSET, not the host itself: a viewer URL can
                          ;; carry a query string with a token in it, and this
-                         ;; namespace keeps raw caller values out of ex-data
-                         ;; (rf2-8nzxib).
+                         ;; namespace keeps raw caller values out of ex-data.
                          :fragment-index hash-idx}))))
     (let [allowlisted (allowlist-chart-state chart-state)]
       (when-not (valid-chart-state? allowlisted)
-        ;; rf2-vvixub — the ex-message is the human sentence + the
+        ;; The ex-message is the human sentence + the
         ;; [:rf.machines-viz.share/encode-failed] token; the fine `:reason`
-        ;; keyword stays the documented tool-classification slot (API.md).
+        ;; keyword is the documented tool-classification slot (API.md).
         (let [msg (str "cannot encode a share-URL: the chart state does not "
                        "validate against the share schema (a :machine-id or "
                        ":definition is missing/malformed, :frame-id (optional) "
@@ -742,7 +726,7 @@
                            :recovery    :supply-a-valid-chart-state
                            :reason      :invalid-chart-state
                            :message     msg
-                           ;; rf2-8nzxib — value-FREE summary, NOT the raw
+                           ;; Value-FREE summary, NOT the raw
                            ;; chart-state (which can carry runtime :data).
                            :chart-state-summary (value-free-summary chart-state)}))))
       (let [envelope    (canonicalise
@@ -750,10 +734,10 @@
                            :rf.machines-viz.share/chart   allowlisted
                            :rf.machines-viz.share/created (js/Date.now)})
             writer      (transit/writer :json)
-            ;; rf2-3x7nj.33.6 — a value Transit has no write handler for (a
-            ;; JS `RegExp`, a compiled schema, any host object left in an
-            ;; open namespaced slot) threw a raw `Error("Cannot write …")`
-            ;; out of here. Surface it as the documented ex-info instead;
+            ;; A value Transit has no write handler for (a JS `RegExp`, a
+            ;; compiled schema, any host object left in an open namespaced
+            ;; slot) makes Transit throw a raw `Error("Cannot write …")`.
+            ;; Surface it as the documented ex-info instead;
             ;; value-free, like every error in this namespace, so neither the
             ;; host message nor the offending object rides along.
             transit-str (try
@@ -800,7 +784,7 @@
 
   ```clojure
   (decode-share-url url)
-  ;; => {:rf.machines-viz.share/v       \"1\"
+  ;; => {:rf.machines-viz.share/v       \"2\"
   ;;     :rf.machines-viz.share/chart   {:machine-id :auth/login-flow ...}
   ;;     :rf.machines-viz.share/created 1736000000000}
   ```
@@ -825,23 +809,21 @@
     (when-not fragment
       (decode-error :malformed-fragment
                     "URL carries no #machine= share fragment"
-                    ;; rf2-m46qv — the SHAPE of the argument, never the URL.
-                    ;; The encoder above already refuses to put `:host` in
-                    ;; ex-data because "a viewer URL can carry a query string
-                    ;; with a token in it" (rf2-8nzxib, hence its
+                    ;; The SHAPE of the argument, never the URL. The encoder
+                    ;; above keeps `:host` out of ex-data because a viewer URL
+                    ;; can carry a query string with a token in it (hence its
                     ;; `:fragment-index`); the decoder is handed URLs from
-                    ;; elsewhere, so it is the more exposed of the two and was
-                    ;; carrying the whole thing.
+                    ;; elsewhere, so it is the more exposed of the two.
                     {:url-summary (value-free-summary url)}))
-    ;; NEITHER STAGE BELOW REPORTS THE HOST'S OWN ERROR MESSAGE (rf2-m46qv).
+    ;; NEITHER STAGE BELOW REPORTS THE HOST'S OWN ERROR MESSAGE.
     ;; `transit/read` calls `JSON.parse`, and V8 embeds a PREFIX OF ITS INPUT
     ;; in the SyntaxError it throws —
     ;;
     ;;   Unexpected token 'h', "hunter2-sw"... is not valid JSON
     ;;
-    ;; — so a `:cause (.-message e)` republished the forged payload's own
+    ;; — so a `:cause (.-message e)` would republish the forged payload's own
     ;; plaintext under a slot named for the cause: a disclosure nobody wrote,
-    ;; inherited from the host and revisable by the host at will. It replaced
+    ;; inherited from the host and revisable by the host at will. It would add
     ;; nothing, either — `:reason` already discriminates WHICH stage failed and
     ;; `:message` says so in words, which is the whole of the recovery ("this
     ;; is not a share-URL this build can read").
@@ -860,12 +842,12 @@
                      (contains? envelope :rf.machines-viz.share/chart))
         (decode-error :missing-envelope
                       "payload missing :rf.machines-viz.share/v or …/chart"
-                      ;; rf2-8nzxib — a forged payload's :envelope can carry
+                      ;; A forged payload's :envelope can carry
                       ;; raw runtime values; report only its value-free shape.
                       {:envelope-summary (value-free-summary envelope)}))
       (let [v     (:rf.machines-viz.share/v envelope)
             chart (:rf.machines-viz.share/chart envelope)
-            ;; Versions are integer-valued strings ("1" at v1.0).
+            ;; Versions are integer-valued strings (e.g. "2").
             ;; Compare numerically so "10" > "9" holds; fall back to a
             ;; string compare for any non-integer version.
             v-num (js/parseInt v 10)
@@ -876,7 +858,7 @@
         (when newer?
           (decode-error :unknown-version
                         "share-URL was produced by a newer Machines-Viz"
-                        ;; rf2-m46qv — `:v` is forged input: any transit value,
+                        ;; `:v` is forged input: any transit value,
                         ;; of any size, and it reaches here through the string
                         ;; fallback as readily as through the numeric compare.
                         ;; Report the INTEGER the comparison actually used
@@ -891,7 +873,7 @@
         (when-not (valid-chart-state? chart)
           (decode-error :invalid-chart-state
                         "…/chart does not validate against the ChartState schema"
-                        ;; rf2-8nzxib — a forged :chart can smuggle
+                        ;; A forged :chart can smuggle
                         ;; :snapshot {:data …}; report value-free shape only.
                         {:chart-summary (value-free-summary chart)}))
         envelope))))
