@@ -104,8 +104,8 @@
   [[re-frame.fresco.checkpoint-support/at-the-checkpoint]]: the repair
   runs at a microtask, and a fixed timer would be green for a microtask
   and a macrotask alike, so it would be a statement about nothing. The
-  sibling reincarnation suites wait the
-  same way, on the same instrument, for the same reason."
+  sibling reincarnation suites wait the same way, on the same
+  instrument, for the same reason."
   rf.fresco.checkpoint-support/at-the-checkpoint)
 
 ;; ---------------------------------------------------------------------------
