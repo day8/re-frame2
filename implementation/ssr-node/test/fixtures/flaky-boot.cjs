@@ -1,6 +1,6 @@
 'use strict';
 // A MODULE THAT BOOTS, AND THEN STOPS BOOTING — the fixture the REPLACEMENT
-// path needs (rf2-2hmg).
+// path needs.
 //
 // Every other boot-failure fixture here fails on the FIRST boot, which is
 // `Pool.start()`: the service never comes up, and the operator reading the
