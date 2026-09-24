@@ -5,11 +5,11 @@
 //
 // ## What a byte test at THIS layer can and cannot claim
 //
-// The client-side hydration contract is `rf2-hic-046`'s: that a Fresco
+// The client-side hydration contract is a separate one: that a Fresco
 // server render's bytes are adopted by a hydrating client, per surface,
 // with React asked whether it found a mismatch rather than the final DOM
-// merely asserted. That work is landed, it is mandatory, and it does not
-// wait on this service.
+// merely asserted. It is mandatory, and it does not depend on this
+// service.
 //
 // What THIS package owes the client is narrower and is entirely its own:
 // **the bytes the renderer wrote are the bytes the client receives.** A
@@ -32,10 +32,8 @@
 //
 // ## Why Content-Length is a hydration concern and not a nicety
 //
-// This repo has already paid once for `String.prototype.length` standing
-// in for bytes — the SSR bake manifest claimed UTF-16 code units under
-// byte-named columns, and every corpus row's title carries an em dash. At
-// the HTTP layer the same mistake does not produce a wrong number in a
+// `String.prototype.length` counts UTF-16 code units, not bytes. At the
+// HTTP layer standing it in for bytes does not produce a wrong number in a
 // report; it TRUNCATES the response by the width of the error, and what a
 // truncated SSR body costs is the tail of the markup and whatever
 // hydration the client was going to do with it.
@@ -126,13 +124,11 @@ test('the STREAMING mode delivers byte-identical output to the buffered one', as
 });
 
 test('the query is the ONLY streaming selector — the retired header changes nothing', async () => {
-  // `?stream=1` is the whole of the supported contract. The entry point
-  // used to honour an `x-rf-ssr-stream: 1` request header too, with no
-  // consumer, no documentation and no test — a caller could be handed
-  // chunked framing by a header the README never mentioned. It is gone
-  // (rf2-6r9j.72), and "gone" is pinned rather than assumed: a request
-  // carrying it must come back BUFFERED, which `content-length` says and
-  // a streamed response cannot.
+  // `?stream=1` is the whole of the supported contract. No request header
+  // selects streaming — a caller must not be handed chunked framing by a
+  // header the README never mentions — and that is pinned rather than
+  // assumed: a request carrying `x-rf-ssr-stream: 1` must come back
+  // BUFFERED, which `content-length` says and a streamed response cannot.
   await withService('chunked', { isolates: 1 }, async (service) => {
     const http = await serve({ service, port: 0 });
     const body = { protocol: 1, entry: 'app/root', state: { ':bytes': '["<a>","—","<c/>"]' } };
@@ -305,10 +301,9 @@ test('a body that is not JSON is refused before anything else happens', async ()
 test('an oversized body is refused with a STATUS, not with a broken socket', async () => {
   // Over the ceiling but inside the hard cap (16x), so the transport
   // discards the bytes, drains the request, and answers 413. A caller that
-  // is still writing when the socket dies never reads its refusal, which
-  // is the failure this row exists to keep fixed — the first version of
-  // `readBody` destroyed the socket here and the witness came back with
-  // `UND_ERR_SOCKET` in place of a status code.
+  // is still writing when the socket dies never reads its refusal — it
+  // sees `UND_ERR_SOCKET` in place of a status code — which is the failure
+  // this row exists to prevent.
   await withService('reference', { isolates: 1 }, async (service) => {
     const http = await serve({ service, port: 0, maxRequestBytes: 1024 });
     try {
@@ -346,10 +341,10 @@ test('the state ceiling also binds INSIDE the protocol, not only at the socket',
 });
 
 // ---------------------------------------------------------------------------
-// The edge's own failure modes (rf2-gwye.22, rf2-gwye.24, rf2-gwye.25)
+// The edge's own failure modes
 //
-// Three ways the transport used to fail a request the protocol beneath it
-// had no quarrel with. Each is a fact about HTTP rather than about the
+// Three ways a transport can fail a request the protocol beneath it has
+// no quarrel with. Each is a fact about HTTP rather than about the
 // service, which is why the rows live here.
 // ---------------------------------------------------------------------------
 
@@ -378,11 +373,11 @@ function rawGet(port, target) {
 }
 
 test('a target the URL parser refuses is a 400, and the SAME service keeps serving', async () => {
-  // The request listener parsed the target with no catch above it, so a
+  // The request listener parses the target, and with no catch above it a
   // target Node's HTTP parser accepts and the WHATWG URL constructor does
-  // not was an uncaught exception: one caller's bad request line took the
-  // whole sidecar down, and every render in flight with it. Before the fix
-  // this row does not fail — the process does.
+  // not would be an uncaught exception: one caller's bad request line would
+  // take the whole sidecar down, and every render in flight with it.
+  // Without the guard this row does not fail — the process does.
   await withService('chunked', { isolates: 1 }, async (service) => {
     const http = await serve({ service, port: 0 });
     const ok = { protocol: 1, entry: 'app/root', state: { ':bytes': '["<p>ok</p>"]' } };
@@ -405,7 +400,7 @@ test('a target the URL parser refuses is a 400, and the SAME service keeps servi
         assert.strictEqual(render.status, 200, `a render after ${target}`);
         assert.strictEqual(render.text, '<p>ok</p>');
       }
-      // The routes the guard sits in front of are unchanged.
+      // The routes the guard sits in front of answer as usual.
       assert.strictEqual((await rawGet(http.port, '/missing')).split('\r\n')[0], 'HTTP/1.1 404 Not Found');
     } finally {
       await http.close();
@@ -416,8 +411,8 @@ test('a target the URL parser refuses is a 400, and the SAME service keeps servi
 test('a surrogate pair SPLIT across streamed chunks arrives as the bytes the buffered mode sends', async () => {
   // `emit` takes strings and promises no code-point boundary, so a module
   // splitting markup at a code-unit offset can hand the halves of one astral
-  // character to two chunks. Encoding each chunk alone turned each half into
-  // U+FFFD — a 200 whose bytes differed from the buffered response. The
+  // character to two chunks. Encoding each chunk alone would turn each half
+  // into U+FFFD — a 200 whose bytes differ from the buffered response. The
   // reference is the joined string's own UTF-8 rather than either mode, so
   // the two cannot agree on a wrong answer; the unmatched surrogate is the
   // control that the reference is Node's encoding and not a cleaned one.
@@ -450,10 +445,10 @@ test('a surrogate pair SPLIT across streamed chunks arrives as the bytes the buf
 
 test('a requestId no HTTP header can carry is refused as a caller fault, before any render', async () => {
   // HTTP echoes `requestId` in `x-rf-ssr-request`, and Node refuses a header
-  // value outside its character set at `writeHead` — which ran AFTER the
-  // render, so the answer was a `render-threw` 500 blaming a renderer that
-  // had succeeded. Every id below is a valid protocol string, and the first
-  // loop shows the in-process API still takes each one.
+  // value outside its character set at `writeHead` — which runs AFTER the
+  // render, so unchecked, the answer would be a `render-threw` 500 blaming a
+  // renderer that had succeeded. Every id below is a valid protocol string,
+  // and the first loop shows the in-process API takes each one.
   const ids = ['correlation-…', 'correlation-\u{1F600}', 'correlation\r\nx-injected: 1'];
   const body = (requestId) => ({
     protocol: 1,
