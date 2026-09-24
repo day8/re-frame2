@@ -1,27 +1,24 @@
 (ns re-frame.ssr.ring.payload-explicit-frame-test
-  "rf2-f02diw — the NON-streaming Ring hydration payload wrapper
+  "The NON-streaming Ring hydration payload wrapper
   (`re-frame.ssr.ring.payload/build-payload`) must project the runtime-db slice
   under the EXPLICIT carried frame-id, never the ambient `rf/with-frame` scope.
 
-  Before the clean break the wrapper called the one-arity
-  `payload-policy/project-runtime-db`, which resolved the projection frame
+  A wrapper that resolved the projection frame
   AMBIENTLY (`frame/resolve-current-frame`) — while its sibling app-db
-  projection (`project-app-db-egress`) already ran at the explicit target. A
-  build run OUTSIDE a matching `rf/with-frame` (ambient nil) or under a
-  DIFFERENT ambient frame therefore projected the durable route `:current`
+  projection (`project-app-db-egress`) runs at the explicit target — would,
+  for a build run OUTSIDE a matching `rf/with-frame` (ambient nil) or under a
+  DIFFERENT ambient frame, project the durable route `:current`
   slice under no / the wrong frame's policy: `project-routing-egress` fails
-  OPEN with no live frame, so a classified `:query :token` rode the hydration
-  blob RAW. The host structural fix (rf2-p026f5) MASKED this by binding the
-  request frame around the build, but the wrapper itself was unsound —
-  rf2-f02diw threads the explicit frame so correctness no longer depends on a
-  matching ambient binding.
+  OPEN with no live frame, so a classified `:query :token` would ride the
+  hydration blob RAW. A host binding the request frame around the build masks
+  that, so the wrapper threads the explicit frame and its correctness does
+  not depend on a matching ambient binding.
 
   These regressions drive `ring.payload/build-payload` directly with an
   explicit server frame A carrying a classified route slice, once with NO
   ambient scope and once under a MISMATCHED ambient frame B, and prove frame
-  A's route classification redacts the token regardless of ambient scope. They
-  would FAIL on the pre-clean-break one-arity wrapper — the token would ride
-  raw."
+  A's route classification redacts the token regardless of ambient scope. An
+  ambient-resolving wrapper would FAIL them — the token would ride raw."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
@@ -55,12 +52,12 @@
               :pending-navigation {:id "pn-1"}})))
 
 (defn- setup-frames! []
-  (rf/make-frame {:id server-frame :doc      "rf2-f02diw non-streaming ring explicit-frame regression frame A"
+  (rf/make-frame {:id server-frame :doc      "non-streaming ring explicit-frame regression frame A"
                   :platform :server})
   ;; Frame B exists as a real (registered) ambient frame with NO classifications
   ;; — the strongest "wrong frame" case: projecting the route slice under B
   ;; consults B's empty registry and the token would ride verbatim.
-  (rf/make-frame {:id ambient-frame :doc      "rf2-f02diw mismatched ambient frame B (no classifications)"
+  (rf/make-frame {:id ambient-frame :doc      "mismatched ambient frame B (no classifications)"
                   :platform :server})
   (rf.frame/swap-runtime-db! server-frame (constantly (frame-a-runtime-db))))
 
@@ -75,7 +72,7 @@
 
 (defn- assert-frame-a-redacts [payload where]
   (let [current (get-in payload [:rf/runtime-db :rf.runtime/routing :current])]
-    ;; rf2-lm2yzy — the WIRE `:rf/frame-id` is decoupled from the projection
+    ;; The WIRE `:rf/frame-id` is decoupled from the projection
     ;; frame. `build-a` passes no `:client-frame-id`, so the anonymous
     ;; per-request frame is NOT stamped on the wire (it is omitted). The
     ;; projection still runs under the EXPLICIT frame A — proved by the
@@ -84,7 +81,7 @@
         (str where ": anonymous per-request frame omits the wire :rf/frame-id"))
     (is (= :rf/redacted (get-in current [:query :token]))
         (str where ": route-declared sensitive :query :token redacted under frame A"))
-    ;; rf2-hjz4r — the hydration wire applies no size elision, so the
+    ;; The hydration wire applies no size elision, so the
     ;; route-declared large value rides whole; the sensitive token above is the
     ;; proof the walk ran under frame A.
     (is (= "huge-callback-blob-value" (get-in current [:params :payload]))
@@ -97,8 +94,8 @@
 (deftest build-payload-honours-explicit-frame-outside-with-frame
   (testing "ring.payload/build-payload called OUTSIDE any rf/with-frame projects
             the runtime-db under the EXPLICIT frame A — the classified route
-            :query / :params redact/elide, no raw secret rides (rf2-f02diw). On
-            the pre-clean-break one-arity wrapper resolve-current-frame → nil,
+            :query :token redacts, no raw secret rides. Under an
+            ambient-resolving wrapper resolve-current-frame → nil,
             project-routing-egress fails OPEN, and the token would ride raw."
     (setup-frames!)
     (let [payload (binding [rf.frame/*current-frame* nil] (build-a))]
@@ -107,7 +104,7 @@
 (deftest build-payload-explicit-frame-wins-over-ambient
   (testing "with a DIFFERENT frame ambient (B) and frame A passed explicitly,
             frame A's route classification wins — the wrapper THREADS the
-            explicit target rather than borrowing the ambient scope (rf2-f02diw).
+            explicit target rather than borrowing the ambient scope.
             Under B's empty registry the token would otherwise ride raw."
     (setup-frames!)
     (is (= ambient-frame (rf/with-frame ambient-frame (rf.frame/resolve-current-frame)))
@@ -116,7 +113,7 @@
       (assert-frame-a-redacts payload "mismatched ambient B"))))
 
 ;; ===========================================================================
-;; rf2-j538f7.15 — the non-streaming Ring wrapper fails CLOSED on a frame lost
+;; The non-streaming Ring wrapper fails CLOSED on a frame lost
 ;; during teardown, mirroring the streaming builder. A frame whose route slice
 ;; was captured while it was live must not have that slice ride RAW once the
 ;; frame is destroyed between capture and projection — its classification
@@ -124,7 +121,7 @@
 ;; ===========================================================================
 
 (deftest build-payload-fails-closed-on-destroyed-frame
-  (testing "rf2-j538f7.15 (acceptance #3) — ring.payload/build-payload called
+  (testing "ring.payload/build-payload called
             with an EXPLICIT frame that was destroyed after its app-db /
             runtime-db were captured fails closed: app-db redacts whole and the
             classified route :current slice redacts, so no raw :query :token /
@@ -138,7 +135,7 @@
       (let [payload (rf.ssr.ring.payload/build-payload
                       server-frame app-db runtime-db "hash"
                       {:payload :rf.ssr.payload/whole-app-db})]
-        ;; rf2-lm2yzy — wire :rf/frame-id decoupled from the (dead) projection
+        ;; The wire :rf/frame-id is decoupled from the (dead) projection
         ;; frame; no `:client-frame-id` opt ⇒ omitted. The fail-closed redaction
         ;; below still proves the projection targeted the destroyed frame A.
         (is (not (contains? payload :rf/frame-id))
