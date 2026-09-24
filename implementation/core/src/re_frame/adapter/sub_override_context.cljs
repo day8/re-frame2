@@ -1,6 +1,6 @@
 (ns re-frame.adapter.sub-override-context
   "Shared React context carrying a Story render's `:sub-overrides` map into
-  a DESCENDANT view's deferred render (rf2-7pgiz).
+  a DESCENDANT view's deferred render.
 
   ## Why a React context (not a dynamic var)
 
@@ -13,8 +13,7 @@
   Story render-scope component into the view's OWN reaction, several
   component layers deeper. A `binding`-bound dynamic var does NOT survive
   that boundary — the binding unwinds before the descendant's deferred
-  render runs (empirically confirmed under react-dom/server; see
-  rf2-7pgiz). React mutates a context's `_currentValue` as Provider
+  render runs (empirically confirmed under react-dom/server). React mutates a context's `_currentValue` as Provider
   boundaries are entered/exited during render, so a read from inside any
   descendant render sees the closest enclosing Provider's value. This is
   the exact mechanism `re-frame.adapter.context` uses to propagate the
@@ -33,7 +32,7 @@
   ## Production cost
 
   The override map is consulted in `re-frame.subs/subscribe` ONLY inside
-  the existing `(when rf.interop/debug-enabled? ...)` envelope, so the whole
+  the `(when rf.interop/debug-enabled? ...)` envelope, so the whole
   seam DCEs under `:advanced` + `goog.DEBUG=false`.  The Context construction
   is behind that SAME compile-time gate: production initializes this var to
   nil and performs no `React.createContext` call.  That matters because
@@ -44,7 +43,7 @@
 
   The override map carried here feeds ONLY the derefed reaction a view
   sees — it never writes app-db and never reaches `compute-sub`. See
-  rf2-7pgiz and `re-frame.story.sub-overrides`."
+  `re-frame.story.sub-overrides`."
   (:require ["react" :as React]
             [re-frame.interop :as rf.interop]))
 
@@ -55,7 +54,7 @@
   (when rf.interop/debug-enabled?
     (.createContext React nil)))
 
-;; rf2-fa4ly parity: stamp a human-readable `displayName` so React
+;; Stamp a human-readable `displayName` so React
 ;; DevTools' Context inspector labels the entry `rf2-sub-overrides`
 ;; rather than the opaque default. Dev-only — gated under
 ;; `rf.interop/debug-enabled?` so the string literal DCEs in production
