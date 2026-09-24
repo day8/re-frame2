@@ -1,9 +1,9 @@
 'use strict';
 
 /*
- * The bench drivers' ONE navigation, with its ceiling NAMED (rf2-p9fa3).
+ * The bench drivers' ONE navigation, with its ceiling NAMED.
  *
- * THE DEFECT
+ * THE HAZARD
  * ----------
  * `page.goto(url, { waitUntil: 'load' })` with no `timeout:` takes
  * Playwright's 30s default. On a bench driver that default is a SECOND
@@ -22,20 +22,19 @@
  * waiting for the measurement, against the one budget that was never meant
  * to bound it.
  *
- * Demonstrated (rf2-p9fa3), against this exact document shape — a page whose
+ * Demonstrated against this exact document shape — a page whose
  * script burns 35s synchronously during load:
  *
  *     goto{waitUntil:'load'}                      30007ms  THREW (30000ms)
  *     goto{waitUntil:'commit',timeout:60000}+poll 35020ms  RESOLVED
  *
- * WHY THIS FILE EXISTS RATHER THAN FIVE COPIES
- * --------------------------------------------
- * `b10_prod_run.cjs` was ALREADY given `{ waitUntil: 'commit', timeout:
- * 60000 }` by hand while its four siblings kept the defect — one driver hit
- * the ceiling, one driver was patched, and the directory drifted. Per-file
- * drift is the failure mode, so the directory gets one navigation and the
- * per-site judgement stays where it belongs: at the call, in the `budget` it
- * names.
+ * WHY THIS FILE EXISTS RATHER THAN A COPY PER DRIVER
+ * --------------------------------------------------
+ * Patching `{ waitUntil: 'commit', timeout: 60000 }` into each driver by hand
+ * lets the drivers drift — the one that hit the ceiling gets patched and its
+ * siblings keep the defect. Per-file drift is the failure mode, so the
+ * directory gets one navigation and the per-site judgement stays where it
+ * belongs: at the call, in the `budget` it names.
  *
  * WHY `timeoutMs` IS REQUIRED AND NOT DEFAULTED
  * ---------------------------------------------
@@ -53,9 +52,6 @@
  * from. Handing the navigation the bench's own budget would trade a
  * mislabelled failure for a silent one: a driver that never reached its page
  * would sit for twenty minutes looking like a slow benchmark.
- *
- * The number is `b10_prod_run.cjs`'s, kept: it was the one site that had
- * already made this call correctly.
  */
 const NAV_TIMEOUT_MS = 60 * 1000;
 
@@ -65,7 +61,7 @@ const NAV_TIMEOUT_MS = 60 * 1000;
  * @param page        Playwright page.
  * @param url         Where to go.
  * @param timeoutMs   REQUIRED. This navigation's own ceiling.
- * @param waitUntil   REQUIRED. `'commit'` for every bench page today — see above.
+ * @param waitUntil   REQUIRED. `'commit'` for every bench page — see above.
  * @param budget      What this ceiling is NOT, in words, for the failure line.
  */
 async function navigate(page, url, { timeoutMs, waitUntil, budget } = {}) {
@@ -74,14 +70,14 @@ async function navigate(page, url, { timeoutMs, waitUntil, budget } = {}) {
       `navigate: timeoutMs is REQUIRED and must be a positive number (got ` +
         `${JSON.stringify(timeoutMs)}). Omitting it hands the navigation ` +
         "Playwright's 30s default — a ceiling no bench budget can reach, and " +
-        "whose failure line reads like the bench's own timeout (rf2-p9fa3)."
+        "whose failure line reads like the bench's own timeout."
     );
   }
   if (!waitUntil) {
     throw new Error(
       'navigate: waitUntil is REQUIRED. Omitting it takes Playwright\'s ' +
         "'load', which on a bench page cannot fire until the benchmark has " +
-        'yielded (rf2-p9fa3).'
+        'yielded.'
     );
   }
   try {
@@ -92,7 +88,7 @@ async function navigate(page, url, { timeoutMs, waitUntil, budget } = {}) {
         `'${waitUntil}', timeout: ${timeoutMs}ms), NOT ${budget}, which had ` +
         `not yet started. The page at ${url} was never reached, so nothing ` +
         `was measured and there is no figure to distrust. Raising the bench ` +
-        `budget cannot move this (rf2-p9fa3). Underlying: ${err.message}`
+        `budget cannot move this. Underlying: ${err.message}`
     );
   }
 }
