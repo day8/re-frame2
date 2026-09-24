@@ -8,8 +8,8 @@
   Four cohesive concerns live here:
 
   1. `frame-provider` — the user-facing Reagent component for the
-     SCOPE-only provider (rf2-nyea0r split; EP-0024 §Scope, carry, and
-     ownership, amended). `{:frame existing-id}`: provide an
+     SCOPE-only provider (EP-0024 §Scope, carry, and ownership).
+     `{:frame existing-id}`: provide an
      ALREADY-CREATED frame's id to descendants; create / refresh / destroy
      NOTHING; FAIL LOUD when the frame is absent. Reuses the scope-only
      inner provide tier (`build-frame-provider` / `frame-provider-component`),
@@ -23,7 +23,7 @@
      (Reagent / UIx) read the same context.
 
   2. `frame-root` — the user-facing Reagent component for the ENSURE
-     shape (rf2-nyea0r split). `{:id the-id …}`: create the frame if
+     shape. `{:id the-id …}`: create the frame if
      absent, REUSE it WITHOUT re-seeding if present, provide its id to
      descendants; NO destroy-on-unmount. It is a COMMIT-OWNED TWO-PASS
      boundary — the create/seed runs in a client `useLayoutEffect`, NOT
@@ -33,10 +33,8 @@
      `:r>` interop head. Given a `:frame` it FAILS LOUD naming
      `frame-provider` (`:rf.error/frame-root-given-frame`).
 
-     The owned destroy-on-unmount of the pre-split `frame-provider` is
-     RETIRED (it had zero product consumers). True ownership stays
-     expressible as `rf/make-frame` + `rf/destroy-frame!` inside a
-     `create-class`.
+     There is no owned destroy-on-unmount. True ownership is expressible
+     as `rf/make-frame` + `rf/destroy-frame!` inside a `create-class`.
 
   3. Per-render instance-token machinery — `mint-instance-token!`,
      `reagent-component-token`. Tokens disambiguate concurrently-
@@ -106,7 +104,7 @@
   Reagent component that SCOPES a frame keyword to its subtree (no
   create/destroy).
 
-  Zero-arity (rf2-4y60): the returned component takes the frame keyword
+  Zero-arity: the returned component takes the frame keyword
   at render time, and a single built component services every frame, so
   there is nothing to specialise at build time. Substrates whose
   `register-context-provider` slot receives a frame-keyword on call (per
@@ -116,8 +114,8 @@
   frame-provider-component)
 
 (defn frame-provider
-  "User-facing SCOPE-only component (rf2-nyea0r split; EP-0024 §Scope, carry,
-  and ownership, amended). Per Spec 002 §`frame-provider`.
+  "User-facing SCOPE-only component (EP-0024 §Scope, carry, and ownership).
+  Per Spec 002 §`frame-provider`.
 
   `{:frame existing-id}` — SCOPE. Provide an ALREADY-CREATED frame's id to
   descendants via the shared React context. Creates / refreshes / destroys
@@ -126,8 +124,8 @@
   ABSENT (`:rf.error/frame-provider-frame-absent`) — scoping a subtree to a
   frame that does not exist is a configuration error. `:frame` accepts a frame-id
   KEYWORD or the live frame VALUE `make-frame` returns — the same one
-  frame-target grammar `dispatch` / `subscribe` teach (API-shrink #1,
-  rf2-csbbwu); a value normalizes one way to its id before React Context is
+  frame-target grammar `dispatch` / `subscribe` teach; a value normalizes
+  one way to its id before React Context is
   written, so a caller holding a value passes it directly with no accessor. A
   missing / nil `:frame` is `:rf.error/no-frame-context`; a target that is
   NEITHER a keyword nor a live frame value is the distinct
@@ -166,7 +164,7 @@
     (into [(build-frame-provider) frame-kw] children)))
 
 (defn frame-root
-  "User-facing ENSURE component (rf2-nyea0r split). Per Spec 002 §`frame-root`.
+  "User-facing ENSURE component. Per Spec 002 §`frame-root`.
 
   `{:id the-id …}` — ENSURE. CREATE the frame if absent, REUSE it WITHOUT
   re-seeding if present, and provide its id to descendants. There is NO
@@ -180,7 +178,7 @@
        [main-area]
        [footer]]
 
-  COMMIT-OWNED TWO-PASS boundary (rf2-nyea0r): the create/seed runs in a client
+  COMMIT-OWNED TWO-PASS boundary: the create/seed runs in a client
   `useLayoutEffect`, NOT during render. The first render emits no descendant
   subtree; the ENSURE runs after commit; only then do the children render
   against the now-live frame. A Suspense-aborted / concurrent-discarded render
@@ -196,10 +194,9 @@
   Given a `:frame` (the SCOPE key), FAILS LOUD naming `frame-provider`
   (`:rf.error/frame-root-given-frame`) — roots ensure, providers scope.
 
-  The owned destroy-on-unmount of the pre-split `frame-provider` is RETIRED
-  (zero product consumers). True ownership (modals, multi-instance widgets)
-  stays expressible as `rf/make-frame` + `rf/destroy-frame!` inside a
-  `create-class`.
+  There is no owned destroy-on-unmount. True ownership (modals,
+  multi-instance widgets) is expressible as `rf/make-frame` +
+  `rf/destroy-frame!` inside a `create-class`.
 
   The ENSURE lifecycle is realised through the shared React function component
   `rf.views.frame-boundary/frame-root-fc`, embedded here via Reagent's `:r>` interop head:
@@ -237,7 +234,7 @@
   Returns nil when no adapter has registered the hook (JVM / headless
   builds; no-adapter tests)."
   []
-  ;; Sticky hook (rf2-f72pd) — published once per loaded React-shaped
+  ;; Sticky hook — published once per loaded React-shaped
   ;; adapter; called per Reagent render path that consults its
   ;; component identity.
   (when-let [hook (rf.late-bind/get-fn-cached :adapter/current-component)]
@@ -263,22 +260,19 @@
   so `(.-context cmp)` is React's empty default — the no-provider
   sentinel — and coercion returns nil (no scope). A public frame-scoped
   operation reading nil then fails loudly via
-  `rf.frame/require-current-frame!`; the `:rf.warning/plain-fn-under-non-
-  default-frame-once` narrowness contract (which the later EP-0002 view
-  bead sharpens into a no-frame-context path) keys off this same nil.
+  `rf.frame/require-current-frame!`.
 
   The keyword/string coercion via
   `re-frame.adapter.context/coerce-context-value` is defensive cover
   for users who mount a Provider via raw `[:> (.-Provider frame-context)
   {:value :foo}]` hiccup directly. Under the classic Reagent adapter
-  that path still passes through stock Reagent's `convert-prop-value`,
+  that path passes through stock Reagent's `convert-prop-value`,
   which stringifies named values (and drops keyword namespaces — see
   `frame-provider-component`). The canonical user-facing surface
   (`rf/frame-provider`) bypasses `convert-prop-value` via `:r>` so the
   Provider's `:value` reaches React as the original keyword (namespace
-  preserved). The helper survives the slim rewrite because the
-  defensive-cover use case for raw-hiccup mounts is independent of
-  which Reagent build is loaded.
+  preserved). The defensive cover applies whichever Reagent build is
+  loaded, because a raw-hiccup mount is possible under any of them.
 
   `coerce-context-value` returns nil for the no-provider sentinel (a
   namespaced keyword it does not special-case — it coerces only genuine
@@ -330,7 +324,7 @@
     (mint-instance-token!)))
 
 (defn component-lifecycle-reaction
-  "Return the per-component-instance lifecycle reaction (rf2-9hoos),
+  "Return the per-component-instance lifecycle reaction,
   building it once via `(build-fn)` on first call and caching it on the
   Reagent component object as `.-rfLifecycleReaction` so re-renders of
   the same mounted instance reuse it. The reaction's disposal (on
@@ -344,22 +338,22 @@
   (there is no teardown to trace). Likewise returns nil when `build-fn`
   yields nil (the active adapter publishes no reaction primitive).
 
-  THE HOLDER IS CLEARED WHEN THE REACTION IT HOLDS DISPOSES (rf2-ty246).
+  THE HOLDER IS CLEARED WHEN THE REACTION IT HOLDS DISPOSES.
   Caching the reaction on the instance is what guarantees ONE unmount emit per
   instance; it also means the holder can outlive what it holds. React.StrictMode
   puts a SIMULATED unmount between the mount and the remount and reuses the same
-  component instance, so the transient teardown disposes this reaction while the
-  holder goes on pointing at it — after which the remounted instance is holding
-  a corpse, `build-fn` is never re-run, and the instance's GENUINE unmount emits
-  nothing at all. Measured on reagent-slim: one `:rf.view/unmounted` before the
-  real unmount and none within it. Clearing the holder from the reaction's own
-  dispose restores the invariant the cache was there for — one LIVE reaction per
-  mounted instance — and a normal single mount never reaches it, because nothing
-  disposes the reaction until the instance is gone.
+  component instance, so the transient teardown disposes this reaction. A holder
+  left pointing at it would leave the remounted instance holding a corpse:
+  `build-fn` would never re-run, and the instance's GENUINE unmount would emit
+  nothing at all — one `:rf.view/unmounted` before the real unmount and none
+  within it. Clearing the holder from the reaction's own dispose keeps the
+  invariant the cache is there for — one LIVE reaction per mounted instance —
+  and a normal single mount never reaches it, because nothing disposes the
+  reaction until the instance is gone.
 
   The clear is identity-guarded: a rebuild may have already installed a
   successor by the time a late dispose callback runs, and clearing the holder
-  then would strand the remounted instance exactly as the original defect did."
+  then would strand the remounted instance in the same way."
   [build-fn]
   (when-let [cmp (current-component)]
     (or (.-rfLifecycleReaction ^js cmp)
