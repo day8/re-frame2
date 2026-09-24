@@ -1,18 +1,17 @@
 (ns re-frame.tracked-slot-prune-cljs-test
-  "rf2-s2bsmw — the tracked single-`:spawn` exit prunes DEAD slots without
+  "The tracked single-`:spawn` exit prunes DEAD slots without
   double-destroying actors.
 
-  The pre-fix defect: an imperative keyword destroy tears the tracked child
-  down but leaves the parent's `[:spawned p i]` slot naming the now-dead
-  actor (its teardown-args carry no parent/invoke). The later declarative
-  parent exit treated slot PRESENCE as liveness (`destroy-resolved!`'s
-  `slot-live?` override), re-ran the whole teardown pipeline against the
-  dead actor — a second `:exit` cascade, a second `:rf.machine/destroyed`
-  trace, destroyed reasons `[:explicit :explicit]` — violating Spec 005's
-  silent-idempotent destroy law and risking duplicate exit cascades,
-  resource releases, and terminal/diagnostic evidence.
+  An imperative keyword destroy tears the tracked child down but leaves the
+  parent's `[:spawned p i]` slot naming the now-dead actor (its
+  teardown-args carry no parent/invoke). A later declarative parent exit
+  that treated slot PRESENCE as liveness would re-run the whole teardown
+  pipeline against the dead actor — a second `:exit` cascade, a second
+  `:rf.machine/destroyed` trace, destroyed reasons `[:explicit :explicit]` —
+  violating Spec 005's silent-idempotent destroy law and risking duplicate
+  exit cascades, resource releases, and terminal/diagnostic evidence.
 
-  The fix separates stale ownership-slot cleanup from actor lifecycle
+  So the runtime separates stale ownership-slot cleanup from actor lifecycle
   teardown: a slot naming an actor that is dead FOR THAT EXACT INCARNATION
   is pruned (slot + parent `:rf/spawned` mirror only — `prune-tracked-slot!`)
   with no second teardown; a live same-id REPLACEMENT the slot does not own
@@ -84,16 +83,15 @@
   (tracked-slot parent-kw))
 
 ;; ---------------------------------------------------------------------------
-;; the P2 repro — imperative destroy, then declarative parent exit
+;; imperative destroy, then declarative parent exit
 ;; ---------------------------------------------------------------------------
 
 (deftest imperative-destroy-then-parent-exit-tears-down-exactly-once
-  (testing "rf2-s2bsmw — direct keyword destroy followed by the parent's
+  (testing "direct keyword destroy followed by the parent's
             declarative exit yields EXACTLY ONE stopped transition: one
             :rf.machine/destroyed trace, one :exit cascade run; the later
             tracked exit removes the stale slot + parent mirror WITHOUT
-            re-running lifecycle teardown. Pre-fix: reasons
-            [:explicit :explicit] and a second :exit run."
+            re-running lifecycle teardown."
     (let [exit-count (atom 0)
           child-id   (reg-tracked-parent! :tsp/p1 :tsp/p1-child
                                           {:machine-id :tsp/p1-child}
@@ -101,7 +99,7 @@
       (is (keyword? child-id) "tracked child spawned")
       (is (some? (parent-mirror :tsp/p1)) "parent :rf/spawned mirror bound")
       ;; Imperative destroy: full teardown ONCE; the tracked slot survives
-      ;; (its teardown-args carry no parent/invoke) — the bug's precondition.
+      ;; (its teardown-args carry no parent/invoke) — the double-destroy precondition.
       (destroy-imperatively! child-id)
       (is (nil? (rf.machines.test-support/snapshot child-id)) "actor dead after imperative destroy")
       (is (= child-id (tracked-slot :tsp/p1))
@@ -120,7 +118,7 @@
           "NO second :exit cascade for the already-dead incarnation"))))
 
 (deftest repeated-tracked-exit-is-silent-idempotent
-  (testing "rf2-s2bsmw — re-firing the tracked destroy form against the
+  (testing "re-firing the tracked destroy form against the
             already-pruned slot is a silent no-op (no trace, no error)"
     (let [exit-count (atom 0)
           child-id   (reg-tracked-parent! :tsp/p2 :tsp/p2-child
@@ -145,7 +143,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest stale-slot-cannot-destroy-same-id-replacement
-  (testing "rf2-s2bsmw — destroy → same-id replacement (spawned through a
+  (testing "destroy → same-id replacement (spawned through a
             DIFFERENT path, so it carries different ownership stamps) → old
             parent exit: the stale slot is pruned but the live replacement
             is NOT destroyed — exact incarnation identity is respected"
@@ -179,11 +177,11 @@
           "no destroyed trace fired against the replacement"))))
 
 ;; ---------------------------------------------------------------------------
-;; ordinary live tracked exit — unchanged
+;; ordinary live tracked exit — full teardown
 ;; ---------------------------------------------------------------------------
 
 (deftest live-owned-tracked-exit-keeps-full-teardown
-  (testing "rf2-s2bsmw — the ordinary declarative exit of a still-live owned
+  (testing "the ordinary declarative exit of a still-live owned
             child retains the full teardown: one :exit run, one :explicit
             destroyed trace, slot + mirror cleared"
     (let [exit-count (atom 0)
