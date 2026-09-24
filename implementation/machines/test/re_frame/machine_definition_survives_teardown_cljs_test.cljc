@@ -1,14 +1,14 @@
 (ns re-frame.machine-definition-survives-teardown-cljs-test
-  "rf2-xjee — a `reg-machine` DEFINITION survives every actor teardown.
+  "A `reg-machine` DEFINITION survives every actor teardown.
 
   The registration is a load-time PROGRAM that makes an address CREATABLE; the
   snapshot is the INSTANCE. Teardown ends the instance and never the program
   (Spec 005 §Liveness is derived from runtime-db, §Destroy is silent-idempotent,
-  D4 / D5 / D7). `rf/clear` remains the one public spelling for permanent
+  D4 / D5 / D7). `rf/clear` is the one public spelling for permanent
   removal.
 
-  The rule is INSEPARABLE from its amendment: a definition-bearing registrar
-  entry is no longer a liveness signal. Without that, a destroyed singleton
+  The rule is INSEPARABLE from its companion: a definition-bearing registrar
+  entry is not a liveness signal. Without that, a destroyed singleton
   would read live for ever and a second destroy would re-run the whole teardown
   — a phantom `:rf.machine/destroyed` trace plus a re-fired resource release.
   Both halves are pinned here.
@@ -16,10 +16,10 @@
   Why the harm is not confined to the actor destroyed: `reg-machine` writes ONE
   registrar entry playing TWO roles — the singleton actor's ADDRESS and the
   shared TYPE DEFINITION every `[:rf.machine/spawn {:machine-id X}]` resolves
-  through. Under the old behaviour any teardown of that address failed every
-  later spawn of the type with `:rf.error/machine-spawn-unregistered-type`, and
-  it was reachable with NO teardown code written by the author at all (a
-  root-level `:final?` leaf fires the D7 auto-destroy).
+  through. A teardown that cleared the entry would fail every later spawn of
+  the type with `:rf.error/machine-spawn-unregistered-type`, reachable with
+  NO teardown code written by the author at all (a root-level `:final?` leaf
+  fires the D7 auto-destroy).
 
   The file is named `*-cljs-test.cljc` so it is discovered by both
   cognitect.test-runner (JVM) and shadow-cljs (the `cljs-test$` ns-regexp)."
@@ -54,10 +54,10 @@
 ;; ===========================================================================
 ;; (1) The shipped start / stop / start flow
 ;;
-;; The concrete consumer this bead was filed against:
+;; A concrete consumer:
 ;; `examples/capabilities/resources/resources/core.cljs` registers ONE reader
 ;; singleton, starts it, stops it with `[:rf.machine/destroy <id>]`, and offers
-;; "Open in reader" again. The second open had no definition left to resolve.
+;; "Open in reader" again. The second open needs the definition to resolve.
 ;; ===========================================================================
 
 (deftest explicit-destroy-of-a-singleton-leaves-the-address-restartable
@@ -81,7 +81,8 @@
     (is (definition? :xjee/reader)
         "the DEFINITION survives — teardown ended the instance, not the program")
 
-    ;; The second open. Under the old behaviour this dispatch found no handler.
+    ;; The second open. Were the definition cleared, this dispatch would find
+    ;; no handler.
     (rf/dispatch-sync [:xjee/reader [:open]])
     (is (= :reading (:state (snapshot :xjee/reader)))
         "the address re-created and took the event")
@@ -101,12 +102,12 @@
     (rf/dispatch-sync [:xjee/finisher [:fin]])
     (is (nil? (snapshot :xjee/finisher)) "the instance auto-destroyed (D4/D7)")
     (is (definition? :xjee/finisher) "its DEFINITION survives (D7 rider)")
-    ;; An ORDINARY event, not [:rf.machine/start] — the D5 revision covers the
+    ;; An ORDINARY event, not [:rf.machine/start] — D5 covers the
     ;; whole event surface, because an absent snapshot is synthesised for any
     ;; event that arrives.
     (rf/dispatch-sync [:xjee/finisher [:anything]])
     (is (= :running (:state (snapshot :xjee/finisher)))
-        "a fresh instance was born at the initial state (D5, revised)")))
+        "a fresh instance was born at the initial state (D5)")))
 
 ;; ===========================================================================
 ;; (2) The harm is not confined to the actor destroyed — the TYPE keeps
@@ -115,8 +116,8 @@
 
 (deftest a-torn-down-singleton-address-still-spawns-its-type
   (testing "after ANY teardown of the address, [:rf.machine/spawn {:machine-id
-            X}] still resolves — under the old behaviour every later spawn of
-            the type failed :rf.error/machine-spawn-unregistered-type"
+            X}] still resolves — clearing the definition would fail every later
+            spawn of the type with :rf.error/machine-spawn-unregistered-type"
     (let [traces (capture-traces ::spawn-after)]
       (try
         (rf/reg-machine :xjee/type
@@ -144,7 +145,7 @@
         (finally (rf.trace.tooling/unregister-listener! ::spawn-after))))))
 
 (deftest a-spawned-actor-at-its-own-types-address-keeps-the-definition-and-siblings
-  (testing "correction 4 — a definition-bearing address is NOT equivalent to a
+  (testing "a definition-bearing address is NOT equivalent to a
             singleton. A SPAWNED actor may sit at a :fixed-actor-id equal to its
             own registered TYPE; destroying it must keep the definition, and a
             sibling actor of the type must survive and stay addressable"
@@ -180,12 +181,10 @@
             DESTROYS and clears NO definition — the SPAWNED branch reaches the
             same registrar cleanup as the singleton straggler branch, so both
             are covered"
-    ;; The actors MUST live in the frame that is destroyed. An earlier form of
-    ;; this test materialised them in the DEFAULT frame and destroyed an empty
-    ;; unrelated one, so the cascade walked no actors at all and neither
-    ;; teardown branch it names was ever entered — the definitions survived
-    ;; because nothing had run (rf2-xjee audit of PR #9544). The rule is
-    ;; unchanged; the proof is repaired.
+    ;; The actors MUST live in the frame that is destroyed. Materialised in the
+    ;; DEFAULT frame while an empty unrelated frame is destroyed, the cascade
+    ;; would walk no actors at all and neither teardown branch it names would
+    ;; be entered — the definitions would survive because nothing had run.
     (let [exits (atom [])]
       ;; The singleton TYPE — its instance is materialised at its own
       ;; registered address, so frame teardown reaps it down the SINGLETON
@@ -258,9 +257,10 @@
           "the type still spawns after the frame teardown"))))
 
 ;; ===========================================================================
-;; (3) The amendment — a definition-bearing entry is NOT a liveness signal.
-;;     Exactly ONE teardown for a repeated destroy; ZERO for a never-started
-;;     one. This is the silent-idempotence regression the amendment exists for.
+;; (3) The companion rule — a definition-bearing entry is NOT a liveness
+;;     signal. Exactly ONE teardown for a repeated destroy; ZERO for a
+;;     never-started one. This is the silent idempotence the companion rule
+;;     exists for.
 ;; ===========================================================================
 
 (deftest repeated-destroy-of-a-singleton-runs-exactly-one-teardown
@@ -291,8 +291,8 @@
 (deftest destroying-a-never-started-singleton-is-a-genuine-no-op
   (testing "a registered-but-never-started singleton has a DEFINITION and no
             instance, so a destroy tears nothing down and emits NO
-            :rf.machine/destroyed — under the old reading the bare registration
-            answered `live` and a phantom teardown ran"
+            :rf.machine/destroyed — reading the bare registration as `live`
+            would run a phantom teardown"
     (let [exits  (atom 0)
           traces (capture-traces ::never-started)]
       (try
@@ -339,7 +339,7 @@
       frame-id)))
 
 ;; ===========================================================================
-;; (4) `rf/clear` is unchanged and remains the spelling for permanent removal.
+;; (4) `rf/clear` is the spelling for permanent removal.
 ;; ===========================================================================
 
 (deftest rf-clear-still-removes-the-definition
