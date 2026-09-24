@@ -179,7 +179,7 @@
           "no explicit anywhere — parent's :* fires"))))
 
 ;; ---- external (:reenter? true) vs internal self-transitions ---------------
-;; Per Spec 005 §Self-transitions: a self/ancestor `:target` is INTERNAL BY
+;; Per Spec 005 §Self-transitions: a self `:target` is INTERNAL BY
 ;; DEFAULT — the action fires, `:exit`/`:entry` do NOT, the configuration is
 ;; unchanged (XState-v5 semantics). The EXTERNAL self-transition — `:exit`
 ;; then the transition's `:action` then `:entry`, re-descending a compound's
@@ -362,20 +362,18 @@
       (is (= [:exit-idle :renew :enter-active] @log)
           "exit the active child :idle → action at the LCCA (:session) → re-enter :initial (:active); :session itself NOT exited/entered (no :reenter?)"))))
 
-;; ---- external (:reenter? true) transition to a PROPER ANCESTOR -----------
-;; (LCCA ancestor-restart geometry)
+;; ---- transition to a PROPER ANCESTOR (LCCA ancestor-restart geometry) -----
 ;;
 ;; Per Spec 005 §Entry/exit cascading along the LCCA + XState v5 / SCXML
-;; §3.13: a `:reenter? true` transition from a descendant leaf to one of its
-;; PROPER ANCESTORS A restarts A — A's active subtree (including A) exits, the
-;; transition action fires at the LCCA (A's parent), then A re-enters and
-;; re-descends its `:initial` chain. RE-ENTERING THE ANCESTOR ITSELF is
-;; OPT-IN (`:reenter? true`); an ancestor target WITHOUT `:reenter?` does
-;; NOT exit/re-enter the ancestor BUT still RE-RESOLVES its active
-;; descendants (children reset to :initial) — it is not a no-op.
+;; §3.13: a transition from a descendant leaf to one of its PROPER ANCESTORS
+;; A restarts A — A's active subtree (including A) exits, the transition
+;; action fires at the LCCA (A's parent), then A re-enters and re-descends
+;; its `:initial` chain. The restart does not depend on `:reenter?`: the
+;; transition is declared BELOW A, so the LCCA is A's parent either way.
 ;; This ns exercises the LIVE runtime (`reg-machine` / `dispatch-sync`);
 ;; the pure-engine geometry + ordering is pinned in the SCXML conformance
-;; corpus (`scxml-external-transition-to-proper-ancestor-*`).
+;; corpus (`scxml-external-transition-to-proper-ancestor-*`,
+;; `scxml-child-declared-ancestor-target-*`).
 (deftest machine-ancestor-restart-cljs
   (testing ":reenter? true transition to a proper ANCESTOR restarts that
             ancestor — exit subtree (incl. ancestor) → action → re-enter
@@ -448,12 +446,12 @@
       (is (= [:exit-2 :exit-a :enter-a :enter-1] @log)
           "exit :two then :a → re-enter :a → re-init :one")))
 
-  ;; ---- ancestor target WITHOUT :reenter? RE-RESOLVES descendants -----------
-  (testing "DEFAULT ancestor target (NO :reenter?) does NOT re-enter the
-            ancestor itself, but RE-RESOLVES its active descendants — children
-            reset to the ancestor's :initial. XState v5: 'an explicit target
-            re-resolves child states to their initial' (rf2-gt1pu, correcting
-            an earlier rf2-eicq0 over-collapse). Verified against xstate@5.32.0."
+  ;; ---- ancestor target WITHOUT :reenter? restarts the ancestor too ---------
+  (testing "a child-declared ancestor target WITHOUT :reenter? restarts the
+            ancestor exactly as the :reenter? form does — the LCCA of {:two,
+            :a} is :a's parent, so :a exits and re-enters, then re-descends
+            its :initial (:one). This is the SCXML LCCA rule, and XState's
+            `reenter` is a no-op on this shape."
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
@@ -466,13 +464,13 @@
            :states
            {:p {:initial :a
                 :states
-                {:a {:entry :enter-a :exit :exit-a   ;; the target — NOT re-entered
+                {:a {:entry :enter-a :exit :exit-a   ;; the target — exits and re-enters
                      :initial :one
                      :states
                      {:one {:entry :enter-one :exit :exit-one
                             :on {:to-two :two}}
                       :two {:entry :enter-two :exit :exit-two
-                            ;; ancestor target, NO :reenter? — re-resolves :a's descendants
+                            ;; declared on :two, targeting its proper ancestor :a, NO :reenter?
                             :on {:touch {:target [:p :a] :action :touch}}}}}}}}}]
       (rf/reg-machine :ancestor/default-internal machine)
       (rf/dispatch-sync [:ancestor/default-internal [:rf2-eicq0/prime]])
@@ -482,6 +480,6 @@
       (reset! log [])
       (rf/dispatch-sync [:ancestor/default-internal [:touch]])
       (is (= [:p :a :one] (:state (snapshot :ancestor/default-internal)))
-          "ancestor target re-resolves :a's descendants — active child resets to :a's :initial (:one)")
-      (is (= [:exit-2 :touch :enter-1] @log)
-          "exit the active descendant :two → action at the LCCA (:a) → re-enter :a's :initial (:one); :a and :p NOT exited/entered (no :reenter?)"))))
+          "restarting :a re-descends its :initial (:one)")
+      (is (= [:exit-2 :exit-a :touch :enter-a :enter-1] @log)
+          "exit :two then :a → action at the LCCA (:p) → re-enter :a → re-descend :a's :initial (:one)"))))

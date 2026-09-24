@@ -8,16 +8,20 @@
 
    1. **Targetless** — the ONLY internal case: the `:action` fires alone and
       the configuration, active descendants included, survives untouched.
-   2. **Self / proper-ancestor target, no `:reenter?`** — the target NODE
-      survives (its `:exit`/`:entry` do not fire) but its active DESCENDANTS
-      exit and its `:initial` chain re-descends.
+   2. **Self target (the declaring state itself), no `:reenter?`** — the
+      target NODE survives (its `:exit`/`:entry` do not fire) but its active
+      DESCENDANTS exit and its `:initial` chain re-descends. A target that is
+      a proper ANCESTOR of the declaring state is not this geometry: it
+      follows the ordinary LCCA rule, so the ancestor exits and re-enters
+      with or without `:reenter?`.
    3. **Proper-descendant target named by the declaring compound, no
       `:reenter?`** — the targeted descendant RE-ENTERS (its `:exit` AND
       `:entry` fire) while the declaring compound survives. This holds EVEN
       WHEN the target is already active and IS A LEAF, and it takes PRIORITY
       over (2) wherever both descriptions fit.
    4. **`:reenter? true`** — restarts the TARGET for (2), but the DECLARING
-      COMPOUND (then descending to the named target) for (3).
+      COMPOUND (then descending to the named target) for (3). It is a no-op
+      for a proper-ancestor target, which restarts regardless.
 
   The load-bearing pin is the (1)-vs-(3) contrast at the SAME leaf: a
   `:parent`-declared target of the already-active leaf produces
@@ -38,6 +42,7 @@
             ;; Loading the machines facade registers `rf/reg-machine` + the
             ;; reserved machine fxs when this ns runs alone.
             [re-frame.machines]
+            [re-frame.machines.paths :as rf.machines.paths]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
@@ -166,7 +171,8 @@
           "the leaf is exited + re-entered under the external opt-in"))))
 
 ;; ===========================================================================
-;; (2) — proper-ANCESTOR target: node survives, descendants re-resolve.
+;; (2) — COMPOUND self target, declared on the ancestor it names: node
+;;       survives, descendants re-resolve.
 ;; ===========================================================================
 
 (defn- ancestor-target-machine [log]
@@ -213,6 +219,83 @@
              (drive! log :geo/ancestor-reenter (ancestor-target-machine log)
                      [[:next]] [:restart-reenter]))
           ":process exits + re-enters, then re-descends :initial"))))
+
+;; ===========================================================================
+;; CHILD-declared proper-ANCESTOR target: the ancestor exits and re-enters.
+;; ===========================================================================
+;;
+;; The declaring state sits BELOW the target, so the LCCA of {source, target}
+;; is the target's parent and the target is in the exit set — the SCXML /
+;; XState rule, with or without `:reenter?`. The final configuration is the
+;; same as the ancestor-declared control's, so the pins below read what the
+;; ancestor OWNS: its `:exit`/`:entry` and its `:spawn` child's incarnation.
+
+(defn- spawning-ancestor-machine [log]
+  {:initial :process
+   :data    {}
+   :actions {:act           (tag log :act)
+             :enter-process (tag log :enter-process)
+             :exit-process  (tag log :exit-process)
+             :enter-step1   (tag log :enter-step1)
+             :exit-step1    (tag log :exit-step1)
+             :enter-step3   (tag log :enter-step3)
+             :exit-step3    (tag log :exit-step3)}
+   :states
+   {:process
+    {:initial :step1
+     :entry   :enter-process
+     :exit    :exit-process
+     :spawn   {:machine-id :geo/worker}
+     ;; Declared ON :process, targeting :process — the self-target control.
+     :on      {:restart {:target :process :action :act}}
+     :states  {:step1 {:entry :enter-step1 :exit :exit-step1
+                       :on    {:next :step3}}
+               :step3 {:entry :enter-step3 :exit :exit-step3
+                       ;; Declared on :step3, targeting its proper ancestor.
+                       :on    {:restart-from-child {:target [:process] :action :act}}}}}}})
+
+(defn- drive-spawning-ancestor!
+  "Register the spawning-ancestor machine under `id`, advance it to
+  [:process :step3], then dispatch `event`. Returns the event's recorded
+  exit/action/entry identities and `:process`'s spawned child before and
+  after it."
+  [log id event]
+  (rf/reg-machine :geo/worker {:initial :idle :states {:idle {}}})
+  (rf/reg-machine id (spawning-ancestor-machine log))
+  (rf/dispatch-sync [id [::prime]])
+  (rf/dispatch-sync [id [:next]])
+  (let [kid #(get-in (rf.machines.test-support/runtime-db)
+                     (rf.machines.paths/spawned-path id [:process]))
+        before (kid)]
+    (reset! log [])
+    (rf/dispatch-sync [id event])
+    {:steps @log :kid-before before :kid-after (kid)}))
+
+(deftest child-declared-ancestor-target-restarts-the-ancestor-and-its-child
+  (testing "at [:process :step3], :target [:process] declared on :step3 (no
+            :reenter?) exits :step3 AND :process, then re-enters :process and
+            re-descends :step1 — so :process's :spawn child is torn down and
+            respawned"
+    (let [{:keys [steps kid-before kid-after]}
+          (drive-spawning-ancestor! (atom []) :geo/child-ancestor [:restart-from-child])]
+      (is (= [:exit-step3 :exit-process :act :enter-process :enter-step1] steps)
+          ":process exits + re-enters (the LCCA is its parent, the root)")
+      (is (some? kid-before) "control: :process spawned a child on entry")
+      (is (not= kid-before kid-after)
+          ":process's :spawn child is a new incarnation after the restart")
+      (is (= [:process :step1] (rf.machines.test-support/machine-state :geo/child-ancestor))))))
+
+(deftest ancestor-declared-self-target-keeps-the-ancestor-and-its-child
+  (testing "the CONTROL on the same machine: :target :process declared ON
+            :process leaves :process standing, so its :spawn child keeps its
+            incarnation"
+    (let [{:keys [steps kid-before kid-after]}
+          (drive-spawning-ancestor! (atom []) :geo/self-ancestor [:restart])]
+      (is (= [:exit-step3 :act :enter-step1] steps)
+          "only the active descendant re-resolves")
+      (is (some? kid-before) "control: :process spawned a child on entry")
+      (is (= kid-before kid-after)
+          ":process's :spawn child keeps its incarnation"))))
 
 ;; ===========================================================================
 ;; (3) — parent-declared COMPOUND descendant.
