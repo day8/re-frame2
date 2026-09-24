@@ -5,20 +5,16 @@
   diagram that drops or inverts a transition in ONE emitter mis-teaches the
   user relative to the others.
 
-  rf2-mnp93.4 — the canonical asymmetry these tests pin: an INTERNAL
-  (action-only, no-`:target`) `:on` / `:after` / `:always` transition (Spec
-  005 §Transition slots: 'omit for internal'). Pre-fix:
+  The canonical asymmetry these tests pin is an INTERNAL (action-only,
+  no-`:target`) `:on` / `:after` / `:always` transition (Spec 005
+  §Transition slots: 'omit for internal'). An emitter that resolves a
+  target for every candidate silently drops a target-less one — a
+  `resolve-target-path` inside `keep` returns nil for it — so internal
+  `:after` / `:always` could vanish from a chart that still self-anchors
+  internal `:on`, and an arrows-only Mermaid emitter would lose all three:
+  three emitters, three different projections of ONE machine.
 
-  - CHART: charted internal `:on` (self-anchored, `:internal? true`) but
-    SILENTLY DROPPED internal `:after` / `:always` (the `resolve-target-path`
-    inside `keep` returned nil for a target-less candidate) — inconsistent
-    even WITHIN the chart.
-  - MERMAID: dropped EVERY target-less candidate (internal `:on`, `:after`,
-    AND `:always`).
-  - SCXML: kept all of them as target-less `<transition>`s.
-
-  Three emitters, three different projections of ONE machine. These tests
-  assert the post-fix agreement: every emitter SURFACES every internal
+  These tests assert the agreement: every emitter SURFACES every internal
   candidate (chart self-anchors `:internal?`, mermaid renders a note, SCXML
   emits a target-less `<transition>`)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
@@ -30,8 +26,7 @@
             [day8.re-frame2-machines-viz.scxml :as scxml]))
 
 ;; ---------------------------------------------------------------------------
-;; Fixtures — the internal-transition shapes the three emitters used to
-;; disagree on.
+;; Fixtures — the internal-transition shapes an emitter most easily drops.
 
 (def internal-on-machine
   {:initial :a :states {:a {:on {:tick {:action :log}}}}})
@@ -43,8 +38,8 @@
   {:initial :a :states {:a {:always [{:action :poll}]}}})
 
 (def all-three-internal-machine
-  "One state carrying an internal `:on`, `:after`, AND `:always` — the exact
-  bead-mnp93.4 repro fixture."
+  "One state carrying an internal `:on`, `:after`, AND `:always` — every
+  internal kind at once."
   {:initial :a
    :states  {:a {:on     {:tick {:action :log}}
                  :after  {1000 {:action :timeout-log}}
@@ -78,7 +73,7 @@
 ;; G9 — every emitter SURFACES the internal transition.
 
 (deftest internal-on-surfaced-by-all-three-emitters
-  (testing "rf2-mnp93.4 — an internal action `:on` is surfaced by chart
+  (testing "an internal action `:on` is surfaced by chart
             (self-anchored :internal?), mermaid (note), AND SCXML (target-
             less <transition>)"
     ;; CHART
@@ -96,11 +91,11 @@
         "scxml emits the target-less <transition>")))
 
 (deftest internal-after-surfaced-by-all-three-emitters
-  (testing "rf2-mnp93.4 — an internal action `:after` is surfaced by ALL
-            three emitters (pre-fix: dropped by chart AND mermaid)"
+  (testing "an internal action `:after` is surfaced by ALL
+            three emitters (the chart and mermaid included)"
     (let [edges (chart-internal-edges internal-after-machine)
           aft   (first (filter :after edges))]
-      (is (some? aft) "chart surfaces the internal :after (pre-fix dropped)")
+      (is (some? aft) "chart surfaces the internal :after")
       (is (true? (:internal? aft)) "chart flags it :internal?")
       (is (= 1000 (:after aft))))
     (let [out (mermaid-body internal-after-machine)]
@@ -109,11 +104,11 @@
     (is (= 1 (scxml-internal-transition-count internal-after-machine)))))
 
 (deftest internal-always-surfaced-by-all-three-emitters
-  (testing "rf2-mnp93.4 — an internal action `:always` is surfaced by ALL
-            three emitters (pre-fix: dropped by chart AND mermaid)"
+  (testing "an internal action `:always` is surfaced by ALL
+            three emitters (the chart and mermaid included)"
     (let [edges (chart-internal-edges internal-always-machine)
           alw   (first (filter :always? edges))]
-      (is (some? alw) "chart surfaces the internal :always (pre-fix dropped)")
+      (is (some? alw) "chart surfaces the internal :always")
       (is (true? (:internal? alw)) "chart flags it :internal?"))
     (let [out (mermaid-body internal-always-machine)]
       (is (str/includes? out "note right of a"))
@@ -121,10 +116,10 @@
     (is (= 1 (scxml-internal-transition-count internal-always-machine)))))
 
 (deftest all-three-internal-kinds-agree-across-emitters
-  (testing "rf2-mnp93.4 (bead repro) — a state with an internal :on + :after
-            + :always: the chart charts THREE internal edges, mermaid emits
-            THREE note lines, SCXML emits THREE target-less <transition>s.
-            Pre-fix the COUNTS diverged (chart 1, mermaid 0, SCXML 3)."
+  (testing "a state with an internal :on + :after + :always: the
+            chart charts THREE internal edges, mermaid emits THREE note
+            lines, SCXML emits THREE target-less <transition>s — the COUNTS
+            agree."
     (let [chart-count   (count (chart-internal-edges all-three-internal-machine))
           out           (mermaid-body all-three-internal-machine)
           ;; Mermaid note-body lines for the three internal candidates.
@@ -141,7 +136,7 @@
           "ALL THREE emitters agree on the internal-transition count (G9)"))))
 
 (deftest no-emitter-draws-a-phantom-arrow-for-internal-transition
-  (testing "rf2-mnp93.4 — an internal transition must NOT become a visible
+  (testing "an internal transition must NOT become a visible
             state-change arrow in any emitter (it is action-only; the config
             is unchanged). The chart self-anchors (source==target), mermaid
             uses a note, SCXML a target-less transition — none invents a
@@ -164,11 +159,11 @@
 ;; ---------------------------------------------------------------------------
 ;; G9 — SCXML round-trip preserves the internal action transition (so the
 ;; codec agrees with itself + the other emitters on the SEMANTICS, not just
-;; the topology). Ties rf2-mnp93.4 (cross-emitter) to rf2-mnp93.5 (round-trip
-;; validity): a dropped/inverted internal transition would break BOTH.
+;; the topology). Ties cross-emitter agreement to round-trip validity: a
+;; dropped/inverted internal transition would break BOTH.
 
 (deftest internal-action-round-trips-without-semantic-inversion
-  (testing "rf2-mnp93.4/.5 — the internal action transitions the emitters
+  (testing "the internal action transitions the emitters
             surface also SURVIVE the SCXML round-trip as VALID internal
             action transitions (not the `{}` forbidden block)"
     (is (= internal-on-machine
@@ -179,16 +174,14 @@
            (-> internal-always-machine scxml/spec->scxml scxml/scxml->spec)))
     (is (= all-three-internal-machine
            (-> all-three-internal-machine scxml/spec->scxml scxml/scxml->spec))
-        "the combined repro fixture round-trips exactly")))
+        "the combined fixture round-trips exactly")))
 
 ;; ---------------------------------------------------------------------------
-;; G9 — chart + mermaid agree on INJECTIVE node-ids (rf2-mnp93.6). The chart's
-;; `node-id` was already injective (rf2-ee38b.21); mermaid's `sanitise-id` was
-;; not. They must now mint the SAME id for the same path so a tool reading
-;; both addresses every node identically.
+;; G9 — chart + mermaid agree on INJECTIVE node-ids. Both mint the SAME id for
+;; the same path so a tool reading both addresses every node identically.
 
 (deftest chart-and-mermaid-mint-the-same-injective-ids
-  (testing "rf2-mnp93.6 — the mermaid output addresses each state by the SAME
+  (testing "the mermaid output addresses each state by the SAME
             injective hex-escaped id the chart's public `node-id` mints (so a
             tool reading both emitters addresses every node identically). The
             three collision-class forms `:a/b` / `:a-b` / `:a_b` stay distinct."
@@ -209,12 +202,11 @@
       (is (str/includes? out (str "start --> " (layout/node-id [:a_b])  " : three"))))))
 
 ;; ---------------------------------------------------------------------------
-;; G9 — history pseudo-states agree across the three emitters (rf2-m285a).
+;; G9 — history pseudo-states agree across the three emitters.
 ;; A `:type :history` node must surface as a HISTORY pseudo-state in every
 ;; emitter (NOT an ordinary occupiable state): chart → `history-marker` node,
-;; mermaid → labelled `H`/`H*` marker, SCXML → `<history>` element. Pre-fix all
-;; three rendered it as a normal state/edge — three emitters mis-teaching the
-;; same topology.
+;; mermaid → labelled `H`/`H*` marker, SCXML → `<history>` element. Rendered
+;; as a normal state/edge, it would mis-teach the same topology in all three.
 
 (def deep-history-machine
   {:initial :off
@@ -226,7 +218,7 @@
                       :on      {:power-off :off}}}})
 
 (deftest history-pseudo-state-agrees-across-emitters
-  (testing "rf2-m285a — a `:type :history` node surfaces as a history
+  (testing "a `:type :history` node surfaces as a history
             pseudo-state in chart, mermaid, AND SCXML (never an ordinary
             occupiable state)"
     ;; CHART — a `history-marker`-flagged, non-occupiable node.
@@ -256,15 +248,15 @@
           "round-trips back to a :type :history pseudo-state"))))
 
 ;; ---------------------------------------------------------------------------
-;; G9 — the `:reenter?` EXTERNAL-restart axis agrees across the three emitters
-;; (rf2-9dj21r). Spec 005 §Self-transitions / XState v5: a targeted transition
-;; is INTERNAL by default; `:reenter? true` is the external restart opt-in
-;; (re-run :exit/:entry, restart :after/:spawn). Pre-fix NONE of the three
-;; emitters represented the axis, so `{:target :same-state}` and `{:target
-;; :same-state :reenter? true}` — two RUNTIME-DISTINCT machines — produced
-;; IDENTICAL chart topology, Mermaid, SCXML export, AND SCXML import. These
-;; tests pin that the with/without-`:reenter?` forms are now DISTINCT in every
-;; emitter (and that the axis survives the SCXML round-trip).
+;; G9 — the `:reenter?` EXTERNAL-restart axis agrees across the three emitters.
+;; Spec 005 §Self-transitions / XState v5: a targeted transition is INTERNAL
+;; by default; `:reenter? true` is the external restart opt-in (re-run
+;; :exit/:entry, restart :after/:spawn). An emitter that ignored the axis
+;; would give `{:target :same-state}` and `{:target :same-state :reenter?
+;; true}` — two RUNTIME-DISTINCT machines — IDENTICAL chart topology,
+;; Mermaid, SCXML export, AND SCXML import. These tests pin that the
+;; with/without-`:reenter?` forms are DISTINCT in every emitter (and that the
+;; axis survives the SCXML round-trip).
 
 (def reenter-self-machine
   {:initial :a :states {:a {:on {:ping {:target :same-state :reenter? true}}}}})
@@ -273,7 +265,7 @@
   {:initial :a :states {:a {:on {:ping {:target :same-state}}}}})
 
 (deftest reenter-axis-distinct-across-all-three-emitters
-  (testing "rf2-9dj21r — chart edge data, Mermaid, AND SCXML export all
+  (testing "chart edge data, Mermaid, AND SCXML export all
             represent `:reenter? true` DISTINCTLY from the internal default"
     ;; CHART — the parsed edge carries :reenter? true (vs absent), AND the two
     ;; mint DISTINCT edge ids (so xyflow keeps both on a shared chart).
@@ -298,7 +290,7 @@
       (is (not (str/includes? i-xml "type=\"external\"")) "scxml: internal default does not")
       (is (not= r-xml i-xml) "scxml: the two exports DIFFER")))
 
-  (testing "rf2-9dj21r — SCXML IMPORT preserves `:reenter? true` (the round-trip
+  (testing "SCXML IMPORT preserves `:reenter? true` (the round-trip
             keeps the two machines runtime-distinct on re-import)"
     (let [r-back (-> reenter-self-machine scxml/spec->scxml scxml/scxml->spec)
           i-back (-> internal-default-self-machine scxml/spec->scxml scxml/scxml->spec)]
@@ -317,18 +309,16 @@
            the external machine into the internal default)"))))
 
 ;; ---------------------------------------------------------------------------
-;; Parallel-ROOT :on / :after ancestor fallback (rf2-656ivk / rf2-m3otj2)
+;; Parallel-ROOT :on / :after ancestor fallback
 ;;
 ;; The parallel-root `:on` / `:after` ancestor fallbacks (Spec 005 §Root
 ;; parallel :on / §Root-level :after — the viz counterparts to the
-;; machines-core parallel-root fix) must surface across ALL THREE emitters.
-;; Pre-fix: chart projected only the root :on (dropped the root :after);
-;; SCXML dropped both (only :on-done survived); mermaid dropped the
-;; action-only :on (target `when-let`) and the :after entirely.
+;; machines-core parallel-root fallback) must surface across ALL THREE
+;; emitters, target-bearing and action-only alike.
 
 (def root-on-after-machine
   "A parallel root carrying BOTH a target-bearing :on AND a target-bearing
-  :after to region substates — the cross-emitter repro fixture (canonical
+  :after to region substates — the cross-emitter fixture (canonical
   bare-target shorthand, so the SCXML round-trip is exact)."
   {:type    :parallel
    :on      {:go [:a :two]}
@@ -337,7 +327,7 @@
              :b {:initial :one :states {:one {} :two {}}}}})
 
 (deftest parallel-root-on-after-surfaced-by-all-three-emitters
-  (testing "rf2-656ivk / rf2-m3otj2 — a target-bearing root :on AND root
+  (testing "a target-bearing root :on AND root
             :after both surface in chart, mermaid, AND SCXML"
     ;; CHART — both project as MACHINE-ROOT-sourced region-scoped edges.
     (let [edges    (:edges (layout/project-definition root-on-after-machine))
@@ -361,7 +351,7 @@
           "scxml round-trips both root transitions exactly"))))
 
 (deftest parallel-root-action-only-on-after-surfaced-by-all-three
-  (testing "rf2-656ivk / rf2-m3otj2 — an ACTION-ONLY root :on AND root :after
+  (testing "an ACTION-ONLY root :on AND root :after
             surface in all three (chart self-anchors, mermaid notes, SCXML
             target-less transition)"
     (let [m {:type    :parallel
@@ -382,13 +372,13 @@
         (is (= m back) "the action-only root :on + :after round-trip")))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-5uhdaz — the FLAT-machine counterpart to the parallel-root action-only
+;; The FLAT-machine counterpart to the parallel-root action-only
 ;; `:on` agreement above. A TARGETLESS (action-only) MACHINE-LEVEL (top-level)
-;; `:on` fallback runs its action + leaves the state unchanged; pre-fix the
-;; chart AND mermaid dropped it (SCXML already surfaced it).
+;; `:on` fallback runs its action + leaves the state unchanged, and all three
+;; emitters surface it.
 
 (deftest targetless-machine-level-on-surfaced-by-all-three
-  (testing "rf2-5uhdaz — a targetless action-only machine-level :on fallback
+  (testing "a targetless action-only machine-level :on fallback
             surfaces in chart (self-anchored on the machine-root chip),
             mermaid (note on the root-fallback node), AND SCXML (target-less
             <transition>)"
@@ -409,23 +399,20 @@
         (is (str/includes? out "note right of rf_2emachines_2dviz_2emermaid_2froot_2dfallback")
             "mermaid surfaces it as a note on the root-fallback node")
         (is (str/includes? out "ping / log-ping") "mermaid note carries the action"))
-      ;; SCXML — a target-less <transition> (already faithful pre-fix).
+      ;; SCXML — a target-less <transition>.
       (is (= 1 (scxml-internal-transition-count m))
           "scxml emits the target-less machine-level <transition>"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-f8fgz5 — a REGION's OWN top-level `:on-done` (Spec 005 §Parallel
+;; A REGION's OWN top-level `:on-done` (Spec 005 §Parallel
 ;; `:on-done`: "a compound region reaching its own :final? child raises a
 ;; region-local done.state.<region-compound> that the region's :on-done
-;; takes … exactly the compound case, scoped to one region"). Pre-fix,
-;; mermaid's `render-region-block` destructured only `{:keys [initial
-;; states on]}` — never `:on-done` — so this shape vanished from Mermaid
-;; with zero trace while SCXML preserved the `done.state.<region> ->
-;; <sibling-region>` transition. Scoped to mermaid<->SCXML agreement — the
-;; chart projector (`chart/layout.cljc`) has its OWN pre-existing gap for
-;; this shape (`project-flat` never reads a definition's top-level
-;; `:on-done` at all), tracked separately as rf2-2ydc87; it is NOT part of
-;; this fix.
+;; takes … exactly the compound case, scoped to one region"). A Mermaid
+;; region block that read only `:initial` / `:states` / `:on` would lose this
+;; shape without trace while SCXML carries the `done.state.<region> ->
+;; <sibling-region>` transition. These tests pin mermaid<->SCXML agreement;
+;; the chart projects the shape through its own
+;; `collect-region-on-done-edges`, pinned in `layout_cljs_test`.
 
 (def region-on-done-machine
   "A parallel machine whose region :a completes into sibling region :b."
@@ -452,7 +439,7 @@
                            :b2 {:final? true}}}}})
 
 (deftest region-on-done-target-bearing-surfaced-by-mermaid-and-scxml
-  (testing "rf2-f8fgz5 — a region's own top-level :on-done with a keyword
+  (testing "a region's own top-level :on-done with a keyword
             target surfaces as a completion transition in BOTH mermaid AND
             SCXML, resolving to the SIBLING region in both"
     ;; MERMAID
@@ -465,7 +452,7 @@
           "scxml renders the identical done.state.<region> -> <sibling> transition"))))
 
 (deftest region-on-done-action-only-surfaced-by-mermaid-and-scxml
-  (testing "rf2-f8fgz5 — a region's own top-level :on-done that is
+  (testing "a region's own top-level :on-done that is
             ACTION-ONLY (no target) surfaces in BOTH mermaid (a note on the
             region root) AND SCXML (a target-less <transition> with the
             action comment)"
@@ -528,24 +515,23 @@
           "the success terminal carries no :error? bit"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-egupfk — the three emitters agree on DEFINITION-SHAPE VALIDATION.
+;; The three emitters agree on DEFINITION-SHAPE VALIDATION.
 ;;
-;; Pre-fix each emitter hand-rolled its own shallow state-tree / parallel
-;; check and the copies had DRIFTED:
+;; Hand-rolled per-emitter shallow checks drift apart, and two drifts are
+;; pinned here:
 ;;
-;;   - SCXML accepted MALFORMED PARALLEL REGION BODIES (a region with no
-;;     `:initial` / `:states`, or a nil region) that AI + Mermaid rejected —
-;;     it checked only `(and (map? regions) (seq regions))`, never that each
-;;     region was itself a valid state tree.
-;;   - AI required a KEYWORD `:initial` (the machine contract — Spec 005
-;;     §Transition table grammar: state ids are keywords) while Mermaid +
-;;     SCXML accepted ANY TRUTHY `:initial` (a string / number slipped
-;;     through).
+;;   - MALFORMED PARALLEL REGION BODIES (a region with no `:initial` /
+;;     `:states`, or a nil region) pass a check of only
+;;     `(and (map? regions) (seq regions))`, which never asks whether each
+;;     region is itself a valid state tree.
+;;   - A string / number `:initial` passes a check for ANY TRUTHY
+;;     `:initial`, where the machine contract (Spec 005 §Transition table
+;;     grammar: state ids are keywords) requires a KEYWORD.
 ;;
-;; The fix routes all three through the SHARED `grammar/valid-definition?`
-;; (adopting the STRICT reading: keyword `:initial`, well-formed regions), so
-;; a definition is accepted by ALL THREE or rejected by ALL THREE. Each keeps
-;; its surface-specific error id (`:ai-generate/invalid-spec` /
+;; So all three route through the SHARED `grammar/valid-definition?` (the
+;; STRICT reading: keyword `:initial`, well-formed regions), and a definition
+;; is accepted by ALL THREE or rejected by ALL THREE. Each keeps its
+;; surface-specific error id (`:ai-generate/invalid-spec` /
 ;; `:mermaid/invalid-definition` / `:scxml/invalid-spec`).
 
 (defn- ai-rejects?
@@ -567,14 +553,14 @@
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ true)))
 
 (def malformed-parallel-region-body-machine
-  "THE SCXML drift repro: a parallel root whose region :a carries NO
-  `:initial` / `:states` (an empty region body). Pre-fix SCXML emitted it
-  happily; AI + Mermaid rejected it. Now all three reject."
+  "A parallel root whose region :a carries NO `:initial` / `:states` (an
+  empty region body) — the shape a regions-only shallow check accepts. All
+  three emitters reject it."
   {:type :parallel :regions {:a {}}})
 
 (def nil-parallel-region-machine
-  "A parallel root with a nil region body — the more degenerate SCXML-drift
-  shape."
+  "A parallel root with a nil region body — a more degenerate form of the
+  same shape."
   {:type :parallel :regions {:a nil}})
 
 (def region-missing-states-machine
@@ -584,16 +570,15 @@
   {:type :parallel :regions {:a {:initial "x" :states {:x {}}}}})
 
 (def non-keyword-initial-machine
-  "THE AI drift repro: a flat machine whose `:initial` is a STRING, not a
-  keyword. Pre-fix AI rejected it (keyword? guard) while Mermaid + SCXML
-  accepted it (truthy `:initial`). Now all three reject."
+  "A flat machine whose `:initial` is a STRING, not a keyword — the shape a
+  truthy-`:initial` check accepts. All three emitters reject it."
   {:initial "a" :states {:a {}}})
 
 (def numeric-initial-machine
   {:initial 42 :states {:a {}}})
 
 (def invalid-definitions
-  "Definitions EVERY emitter must reject (post-fix agreement)."
+  "Definitions EVERY emitter must reject."
   [nil
    42
    "not-a-machine"
@@ -601,17 +586,17 @@
    {:not-a-machine 42}
    {:initial :a}                                   ;; missing :states
    {:initial :a :states {}}                        ;; empty :states
-   non-keyword-initial-machine                     ;; AI-drift
+   non-keyword-initial-machine                     ;; string :initial
    numeric-initial-machine
    {:type :parallel}                               ;; missing :regions
    {:type :parallel :regions {}}                   ;; empty :regions
-   malformed-parallel-region-body-machine          ;; SCXML-drift
+   malformed-parallel-region-body-machine          ;; empty region body
    nil-parallel-region-machine
    region-missing-states-machine
    region-non-keyword-initial-machine])
 
 (def valid-definitions
-  "Definitions EVERY emitter must accept (post-fix agreement)."
+  "Definitions EVERY emitter must accept."
   [{:initial :a :states {:a {}}}
    {:initial :a :states {:a {:on {:go :b}} :b {:final? true}}}
    {:type :parallel :regions {:a {:initial :x :states {:x {}}}}}
@@ -619,9 +604,8 @@
                               :b {:initial :y :states {:y {}}}}}])
 
 (deftest all-three-emitters-reject-the-same-invalid-definitions
-  (testing "rf2-egupfk — AI, Mermaid, AND SCXML reject every malformed
-            definition identically (the previously-divergent shapes now
-            agree)"
+  (testing "AI, Mermaid, AND SCXML reject every malformed
+            definition identically (the drift shapes included)"
     (doseq [d invalid-definitions]
       (let [a (ai-rejects? d)
             m (mermaid-rejects? d)
@@ -632,7 +616,7 @@
         (is (= a m s) (str "all three must AGREE on rejecting " (pr-str d)))))))
 
 (deftest all-three-emitters-accept-the-same-valid-definitions
-  (testing "rf2-egupfk — AI, Mermaid, AND SCXML accept every well-formed
+  (testing "AI, Mermaid, AND SCXML accept every well-formed
             definition identically"
     (doseq [d valid-definitions]
       (let [a (ai-rejects? d)
@@ -644,28 +628,26 @@
         (is (= a m s) (str "all three must AGREE on accepting " (pr-str d)))))))
 
 (deftest scxml-now-rejects-malformed-parallel-region-bodies
-  (testing "rf2-egupfk — SCXML (the pre-fix LAX emitter) now rejects a
-            parallel region body with no :initial/:states, matching AI +
-            Mermaid (pre-fix SCXML emitted it)"
+  (testing "SCXML rejects a parallel region body with no
+            :initial/:states, matching AI + Mermaid"
     (is (scxml-rejects? malformed-parallel-region-body-machine)
-        "SCXML rejects the empty region body it used to accept")
+        "SCXML rejects the empty region body")
     (is (scxml-rejects? nil-parallel-region-machine))
     (is (scxml-rejects? region-missing-states-machine))
     (is (scxml-rejects? region-non-keyword-initial-machine))
-    ;; Still throws the SCXML-surface id (not the AI/Mermaid ids).
+    ;; It throws the SCXML-surface id (not the AI/Mermaid ids).
     (let [d (try (scxml/spec->scxml malformed-parallel-region-body-machine) nil
                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
       (is (= :scxml/invalid-spec (:rf.error/id d))
           "SCXML keeps its surface-specific error id"))))
 
 (deftest all-three-now-reject-non-keyword-initial
-  (testing "rf2-egupfk — Mermaid + SCXML (the pre-fix LAX emitters) now
-            reject a non-keyword :initial, matching AI (the machine contract:
-            state ids are keywords)"
+  (testing "Mermaid + SCXML reject a non-keyword :initial,
+            matching AI (the machine contract: state ids are keywords)"
     (doseq [d [non-keyword-initial-machine numeric-initial-machine]]
-      (is (mermaid-rejects? d) (str "Mermaid now rejects " (pr-str d)))
-      (is (scxml-rejects? d)   (str "SCXML now rejects "   (pr-str d)))
-      (is (ai-rejects? d)      (str "AI still rejects "    (pr-str d))))
+      (is (mermaid-rejects? d) (str "Mermaid rejects " (pr-str d)))
+      (is (scxml-rejects? d)   (str "SCXML rejects "   (pr-str d)))
+      (is (ai-rejects? d)      (str "AI rejects "      (pr-str d))))
     ;; Each keeps its surface-specific error id.
     (let [md (try (mermaid/emit non-keyword-initial-machine) nil
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))
@@ -675,7 +657,7 @@
       (is (= :scxml/invalid-spec (:rf.error/id sd))))))
 
 (deftest invalid-definition-summaries-stay-value-free-across-emitters
-  (testing "rf2-egupfk — the shared value-free summary excludes the raw
+  (testing "the shared value-free summary excludes the raw
             :data slot in every emitter's thrown error (a malformed
             definition can carry live runtime values under :data)"
     (let [secret "cross-emitter-secret-42"
@@ -697,8 +679,8 @@
       (is (not (leaks? ad)) "ai summary omits the :data secret"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-j538f7.18 — every ingestion / export surface REJECTS a RECURSIVELY-
-;; invalid definition (the pre-fix shallow gate blessed all three). Each surface
+;; Every ingestion / export surface REJECTS a RECURSIVELY-
+;; invalid definition (a shallow gate would bless all three). Each surface
 ;; keeps its own error id AND carries the CANONICAL defect category
 ;; (:rf.error/machine-*) in its value-free summary, so a tool can map one defect
 ;; onto its surface-specific error without re-walking the (possibly value-
@@ -738,7 +720,7 @@
         (is (= :scxml/invalid-spec (:rf.error/id (ex-data ex))))
         (is (= category (get-in (ex-data ex) [:spec-summary :defect :category]))
             (str label ": scxml's summary carries the canonical defect category"))))
-    (testing (str (name label) " — AI generation no longer returns a runtime-rejected spec as 'validated'")
+    (testing (str (name label) " — AI generation refuses a runtime-rejected spec rather than return it as 'validated'")
       (let [resolver (fn [_] (pr-str def))
             ex       (throws-ex #(ai/generate-machine "x" {:resolver resolver}))]
         (is (some? ex) (str label ": ai throws"))
@@ -747,7 +729,7 @@
             (str label ": ai's summary carries the canonical defect category"))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-oztox — the summary is content-free by construction, and the guarantee
+;; The summary is content-free by construction, and the guarantee
 ;; is only worth anything WHERE IT LANDS: the whole thrown `ex-data` of every
 ;; surface that stashes it. `grammar-validation-cljs-test` pins the summary's
 ;; own grammar over a hostile corpus; this pins that no emitter re-introduces
@@ -774,8 +756,9 @@
 (def ^:private forged-definition
   "A forged definition that reaches a defect leg through KEY-position material
   — sentinel state ids, a sentinel-bearing unknown root key, and a live `:data`
-  slot. Pre-fix the thrown ex-data reproduced the root key set verbatim and the
-  embedded defect named the offending keys and their state-id path."
+  slot. An ex-data that reproduced the root key set verbatim, or an embedded
+  defect that named the offending keys and their state-id path, would
+  disclose the sentinel."
   {:initial                                        (keyword disclosure-sentinel)
    (keyword (str disclosure-sentinel "-root-key")) 1
    :data                                           {:token disclosure-sentinel}
@@ -828,24 +811,24 @@
                  small " -> " big))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-3x7nj.33.1 — the `:spawn :on-error` parent transition
+;; The `:spawn :on-error` parent transition
 ;;
 ;; Spec 005 §Spawn-spec keys: `:on-error` is an `:on`-shaped TRANSITION the
 ;; engine takes (`pick-spawn-error-transition`) when the spawned child fails,
 ;; resolved at the spawning state's own level — a keyword target is its
-;; SIBLING. Pre-fix every emitter walked only `:on` / `:after` / `:always` /
-;; `:on-done`, so the documented "child failed, leave the spawning state"
-;; pattern charted `:working` as a dead end and `:failed` as unreachable.
+;; SIBLING. An emitter that walked only `:on` / `:after` / `:always` /
+;; `:on-done` would chart the documented "child failed, leave the spawning
+;; state" pattern with `:working` as a dead end and `:failed` as unreachable.
 
 (def spawn-on-error-machine
-  "The review wave's reproduction."
+  "A spawning state whose only way on is its `:on-error` target."
   {:initial :idle
    :states  {:idle    {:on {:go :working}}
              :working {:spawn {:machine-id :child :on-error :failed}}
              :failed  {:final? true}}})
 
 (deftest spawn-on-error-drawn-by-chart-and-mermaid-dropped-by-scxml
-  (testing "rf2-3x7nj.33.1 — chart and Mermaid draw working -> failed; SCXML
+  (testing "chart and Mermaid draw working -> failed; SCXML
             omits it as documented"
     ;; CHART
     (let [edges (:edges (layout/project-definition spawn-on-error-machine))
@@ -862,7 +845,7 @@
     ;; MERMAID
     (let [out (mermaid-body spawn-on-error-machine)]
       (is (str/includes? out "working --> failed : ✗ error"))
-      (is (str/includes? out "idle --> working : go") "control: the :on edge still renders"))
+      (is (str/includes? out "idle --> working : go") "control: the :on edge renders too"))
     ;; SCXML — the documented drop: `:spawn` does not survive, and nothing
     ;; about it rides a comment either.
     (let [out (scxml/spec->scxml spawn-on-error-machine)]
@@ -874,7 +857,7 @@
                         :failed  {:final? true}}}
              (scxml/scxml->spec out))
           "the export still reads back through our importer, spawn omitted")))
-  (testing "rf2-3x7nj.33.1 — an ACTION-ONLY :on-error self-anchors in the chart
+  (testing "an ACTION-ONLY :on-error self-anchors in the chart
             and surfaces as a note in Mermaid, like every other internal candidate"
     (let [m     {:initial :working
                  :states  {:working {:spawn {:machine-id :child
