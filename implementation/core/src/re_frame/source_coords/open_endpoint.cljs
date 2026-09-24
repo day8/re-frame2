@@ -1,6 +1,5 @@
 (ns re-frame.source-coords.open-endpoint
-  "Client seam for the dev-server 'open in editor' endpoint (Option B,
-  rf2-wn3bh).
+  "Client seam for the dev-server 'open in editor' endpoint.
 
   The JS-ecosystem standard for jump-to-source is a dev-server endpoint
   (Vite `/__open-in-editor`, react-dev-utils, Next). The server side lives
@@ -8,34 +7,34 @@
   handler); THIS namespace is the browser-side client both tool open-seams
   (`day8.re-frame2-xray.open-in-editor` and `re-frame.story.ui.open-in-editor`)
   call to PREFER the endpoint when a dev server is present, and FALL BACK to
-  the historic `editor://` URI navigation when it is not (static export,
+  the standalone `editor://` URI navigation when it is not (static export,
   non-shadow host, production-mode inspection).
 
   ## Why prefer the endpoint
 
   The `editor://` URI path needs an absolute on-disk `:file` so the OS-side
-  handler can stat it. rf2-wvsxg bakes that absolute path at macro-expansion
-  time, which works for the common classpath-`file:` case but leaves a
-  RELATIVE coord for JAR/in-jar/odd-classpath sources (the gap Option B
-  closes) and bakes the builder's home path into the bundle — the RELEASE
-  bundle as much as the dev one, since the production coord-form
+  handler can stat it. The macro layer bakes that absolute path at
+  macro-expansion time, which works for the common classpath-`file:` case
+  but leaves a RELATIVE coord for JAR/in-jar/odd-classpath sources (the gap
+  the endpoint closes) and bakes the builder's home path into the bundle —
+  the RELEASE bundle as much as the dev one, since the production coord-form
   absolutises too (`spec/Privacy.md` §What the production bundle itself
   discloses). The endpoint resolves the relative `:file` against the live
   source-paths on the dev machine at runtime and launches via the
   cross-platform `launch-editor` package — zero-config for everyone.
 
-  ## Additive — the URI fallback stays
+  ## The URI fallback
 
-  This is purely ADDITIVE. `open-coord!` first probes the endpoint; on any
-  failure (no dev server, network error, non-2xx) it invokes the caller's
-  `fallback!` thunk, which navigates the `editor://` URI exactly as before.
-  B never removes the URI path.
+  The endpoint sits in front of the URI path; it never replaces it.
+  `open-coord!` first probes the endpoint; on any failure (no dev server,
+  network error, non-2xx) it invokes the caller's `fallback!` thunk, which
+  navigates the `editor://` URI.
 
   ## Swappable launcher seam (for tests)
 
   The endpoint-launch function is held in an atom (`launcher`, swappable via
   `set-launcher!`) — the same pattern the tool seams use for their
-  `navigator` (rf2-muvs8). Production code never reassigns it; tests swap it
+  `navigator`. Production code never reassigns it; tests swap it
   for a synchronous stub so the URI-fallback path stays deterministic
   without a real `fetch` round-trip. `set-launcher!` returns the previous
   launcher so tests can restore it.
@@ -83,8 +82,8 @@
 
 (defn fetch-launcher!
   "Default launcher: POST to the dev-server endpoint, preferring it over the
-  `editor://` URI when a dev server answers. ADDITIVE — on any failure (no
-  dev server, network error, non-2xx, missing `fetch`) invoke `fallback!`
+  `editor://` URI when a dev server answers. On any failure (no dev
+  server, network error, non-2xx, missing `fetch`) invoke `fallback!`
   (the caller's URI-navigation thunk) exactly once.
 
   `url` is the pre-built endpoint URL (or nil). Never throws — a thrown
@@ -115,7 +114,7 @@
 
 (defonce ^:private launcher
   ;; Held in an atom so tests can swap (`set-launcher!`). Production code
-  ;; never reassigns it. Per the rf2-muvs8 navigator-seam pattern.
+  ;; never reassigns it. The same pattern as the tools' navigator seams.
   (atom fetch-launcher!))
 
 (defn set-launcher!
@@ -129,7 +128,7 @@
 
 (defn open-coord!
   "Open `source-coord` in `editor`, PREFERRING the dev-server endpoint
-  (Option B, rf2-wn3bh) and FALLING BACK to `fallback!` (the caller's
+  and FALLING BACK to `fallback!` (the caller's
   `editor://` URI-navigation thunk) when no dev server is present.
 
   Arguments:
@@ -138,7 +137,7 @@
     `editor`       — the configured editor preference (keyword / `{:custom …}`
                      / nil), projected to the launch-editor command hint.
     `fallback!`    — zero-arg thunk navigating the `editor://` URI (the
-                     historic path). Called on endpoint failure.
+                     standalone path). Called on endpoint failure.
 
   Returns nothing (the launch is fire-and-forget). Delegates to the
   swappable `launcher` seam so tests can make the path synchronous."
