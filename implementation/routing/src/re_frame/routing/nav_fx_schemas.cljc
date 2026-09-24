@@ -70,14 +70,13 @@
   strategy-less scroll has no defensible interpretation. The vocabulary
   is the CLOSED three-keyword enum `:top` / `:restore` / `:preserve`.
 
-  rf2-px26m: the slot previously read `[:or [:enum …] :map]`, admitting
-  any map as a \"host-extensible\" strategy. Nothing interpreted it —
-  `scroll-fx-handler` has no extension seam, so every map fell into its
-  default branch and scrolled nothing. A value the schema ACCEPTS and
-  the runtime then silently ignores is the worst of both worlds: the
-  author's code reads correctly, runs clean, and does nothing. Spec 012
-  no longer offers the map form, and the enum here is what makes that
-  removal enforceable at the `:fx-args` boundary — an unsupported
+  There is no map-shaped \"host-extensible\" strategy. Nothing would
+  interpret one — `scroll-fx-handler` has no extension seam, so a map
+  would fall into its default branch and scroll nothing. A value the
+  schema ACCEPTS and the runtime then silently ignores is the worst of
+  both worlds: the author's code reads correctly, runs clean, and does
+  nothing. Spec 012 offers no map form, and the enum here is what makes
+  that enforceable at the `:fx-args` boundary — an unsupported
   strategy is rejected (fx skipped, `:rf.error/schema-validation-failure
   :where :fx-args`) BEFORE the handler runs. The handler's own default
   branch is the schemas-absent backstop: it emits
@@ -98,7 +97,7 @@
   registration). Both are optional: the initial navigation has no
   `:from`, and `scroll-fx-entry` omits either when nil."
   [:map
-   [:strategy  [:enum :top :restore :preserve]]                         ;; CLOSED vocabulary (rf2-px26m)
+   [:strategy  [:enum :top :restore :preserve]]                         ;; CLOSED vocabulary
    [:from      {:optional true} [:map
                                  [:id     :keyword]
                                  [:params {:optional true} :map]
