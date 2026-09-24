@@ -1,14 +1,13 @@
 (ns re-frame.spawn-all-authority-catalogue-test
-  "The AUTHORITATIVE catalogue/schema proof for `:spawn-all` exact-attempt folding
-  (rf2-p53o47, completed rf2-2ai15g).
+  "The AUTHORITATIVE catalogue/schema proof for `:spawn-all` exact-attempt folding.
 
-  TERMINOLOGY (rf2-wlqfq census) — `authority` in this namespace name means
+  TERMINOLOGY — `authority` in this namespace name means
   CANONICAL DOCUMENT authority (`spec/Spec-Schemas.md` + `spec/009-Instrumentation.md`
   are the authorities these assertions read from), NOT the join coordinate.
-  It therefore keeps the word. Fixtures naming the caller-suppliable join
+  The word is therefore accurate here. Fixtures naming the caller-suppliable join
   coordinate use attempt/fence language instead.
 
-  This pins the normative facts the spec/catalogue reconciliation landed so a
+  This pins the spec/catalogue's normative facts so a
   regression FAILS here rather than drifting the spec silently. Every schema
   assertion validates runtime-produced records against the EXECUTABLE canonical
   schema EXTRACTED from `spec/Spec-Schemas.md` (via
@@ -28,16 +27,16 @@
        `:rf.runtime/machines` runtime-db against the extracted `Machines` form
        during the legal pre-parent-exit interval; a sentinel carrying
        `:children`/coordinate, and a token-less live join, both fail. Key
-       completeness derives from ONE producer/consumer boundary (rf2-64uoa): the
+       completeness derives from ONE producer/consumer boundary: the
        real runtime-produced join's COMPLETE key set equals the extracted schema's
        REQUIRED set (the consumer contract) unioned with an explicit
        open-bookkeeping classification (`:invoke-id`), so a newly seeded-and-
        consumed runtime-owned key FAILS until it is intentionally classified or
-       promoted into the schema — the open map can no longer hide a false-green.
+       promoted into the schema — the open map cannot hide a false-green.
        Each required key is additionally guarded by targeted mutation, and the
        `:cancelled` tombstone is proven end-to-end: an explicitly cancelled child
        leaves a tombstone the schema REQUIRES and the runtime HONOURS, so a late
-       coordinate cannot resurrect it (rf2-y7venl).
+       coordinate cannot resurrect it.
 
     2. CATALOGUE — `:rf.machine.spawn-all/child-completed` emits
        `:rf.reply/correlation` (Spec 009 detailed row + `join.cljc`), carrying
@@ -74,7 +73,7 @@
   rf.machines.test-support/trace-capture-fixture)
 
 ;; The canonical `:spawn-all` runtime-db schema forms, EXTRACTED from
-;; spec/Spec-Schemas.md (rf2-2ai15g) — NOT hand-copied. Removing / renaming a
+;; spec/Spec-Schemas.md — NOT hand-copied. Removing / renaming a
 ;; def, or weakening `:rf/attempt` to `{:optional true}`, or dropping the
 ;; `InvokeAllRejectedState` arm from the markdown is a test-build / assertion
 ;; failure here, so the schema surface and the document cannot drift silently.
@@ -173,7 +172,7 @@
 ;; asserts `produced = required ∪ this-roster`, so a NEW runtime-owned key fails
 ;; until it is intentionally classified here (bookkeeping) OR promoted into the
 ;; authoritative schema (a required consumer input) — no hand-copied mirror of the
-;; required set to drift, and the open map can no longer hide a false-green.
+;; required set to drift, and the open map cannot hide a false-green.
 ;;
 ;; `:invoke-id` is classified bookkeeping, NOT a required consumer input: the seed
 ;; writes it (`transition.cljc` seeds `:invoke-id invoke-id`) REDUNDANT with the
@@ -182,7 +181,7 @@
 ;; fetched join-state value only for `:rf/attempt` / `:children` — never for
 ;; `:invoke-id`. `cancelled-child-tombstone-is-required-and-honoured` proves the
 ;; required keys' consumer contract end-to-end; the completeness proof below proves
-;; `:invoke-id` remains OPTIONAL (dropping it still validates the open schema).
+;; `:invoke-id` is OPTIONAL (dropping it still validates the open schema).
 (def ^:private classified-open-bookkeeping-join-keys
   #{:invoke-id})
 
@@ -201,11 +200,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest live-join-requires-the-attempt-token
-  (testing "rf2-2ai15g — a runtime-produced `:spawn-all` join validates
+  (testing "a runtime-produced `:spawn-all` join validates
             against the EXTRACTED `InvokeAllJoinState` (token REQUIRED per the
             authoritative Spec-Schemas document), and dissociating `:rf/attempt`
             FAILS the schema — the proof a child-bearing join can never be
-            token-less (no optional arm). Guards Spec-009 AC: `:rf/attempt`
+            token-less (no optional arm). `:rf/attempt`
             going `{:optional true}` in the authoritative document turns this
             red, because the extracted schema would then accept the dissoc."
     (let [j (reg-join-parent! :sac/p1 :sac/p1a :sac/p1b
@@ -225,16 +224,15 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest live-join-guards-every-runtime-owned-required-key
-  (testing "rf2-64uoa — the completeness proof derives from ONE producer/consumer
+  (testing "the completeness proof derives from ONE producer/consumer
             boundary: the REAL runtime-produced join's COMPLETE key set equals the
             union of the extracted schema's REQUIRED keys (the consumer contract)
             and the explicit `classified-open-bookkeeping-join-keys` roster. There
-            is no hand-copied mirror of the required set (the pre-rf2-64uoa
-            `expected-runtime-owned-join-keys` compared the schema only to a second
-            hand-written copy AND drove the mutation off that same copy, so a
-            newly-seeded-and-consumed required key omitted from both copies stayed
-            green under the intentionally OPEN map — a dual-authority false-green).
-            Now: a new runtime-owned key must be classified (bookkeeping) or
+            is no hand-copied mirror of the required set (a second hand-written
+            copy that also drove the mutation would let a newly-seeded-and-consumed
+            required key omitted from both copies stay green under the
+            intentionally OPEN map — a dual-authority false-green). So a new
+            runtime-owned key must be classified (bookkeeping) or
             promoted into the schema (a required consumer input) or this FAILS;
             dropping ANY required key FAILS the extracted schema (targeted
             mutation); a classified bookkeeping key is present yet OPTIONAL; and an
@@ -248,7 +246,7 @@
       ;; truth, checked against required ∪ classified-open-bookkeeping. A new
       ;; seeded-and-consumed key that is neither schema-required nor classified
       ;; bookkeeping makes `produced` exceed the union and FAILS here — the gate
-      ;; can no longer be satisfied by two hand-copies agreeing while the open map
+      ;; cannot be satisfied by two hand-copies agreeing while the open map
       ;; silently absorbs an unclassified runtime-owned key.
       (is (= produced (set/union required classified-open-bookkeeping-join-keys))
           (str "the real spawn-all-produced join's COMPLETE key set must equal "
@@ -275,7 +273,7 @@
         (is (m/validate InvokeAllJoinState (dissoc j k))
             (str "dropping the classified bookkeeping key " k " STILL validates — "
                  "it is open bookkeeping, not a required consumer input")))
-      ;; intentional open-map extensibility preserved.
+      ;; the join map stays intentionally open to extension.
       (is (m/validate InvokeAllJoinState (assoc j :rf/future-bookkeeping 1))
           "an extra runtime bookkeeping key still validates — the join stays open"))))
 
@@ -285,7 +283,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest cancelled-child-tombstone-is-required-and-honoured
-  (testing "rf2-y7venl — a membership-verified IN-PROGRESS explicit teardown of a
+  (testing "a membership-verified IN-PROGRESS explicit teardown of a
             spawned child durably records a `:cancelled` tombstone: the live
             tombstoned join validates against the extracted `InvokeAllJoinState`,
             dissociating `:cancelled` FAILS it (the tombstone set is REQUIRED,
@@ -339,7 +337,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest reject-sentinel-is-a-legal-spawned-arm
-  (testing "rf2-2ai15g — an UNREGISTERED child TYPE in a `:spawn-all` set seeds
+  (testing "an UNREGISTERED child TYPE in a `:spawn-all` set seeds
             the childless `InvokeAllRejectedState` sentinel; the COMPLETE
             `:rf.runtime/machines` runtime-db validates against the extracted
             `Machines` form during the legal pre-parent-exit interval, the
@@ -397,7 +395,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest child-completed-trace-emits-reply-correlation
-  (testing "rf2-p53o47 — a NON-DECISIVE fold's
+  (testing "a NON-DECISIVE fold's
             `:rf.machine.spawn-all/child-completed` trace carries the
             emitted `:rf.reply/correlation` with the fold's parent/invoke
             identity, logical child id, and spawned instance address."
@@ -424,7 +422,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest late-completion-op-classifies-by-stale-reason
-  (testing "rf2-p53o47 — a POST-resolution straggler fires
+  (testing "a POST-resolution straggler fires
             `:rf.machine.spawn-all/late-completion` classified by
             `:rf.reply/stale-reason` :rf.machine.spawn-all/join-resolved
             (the op the quick index must list; the classifier key is
@@ -437,8 +435,8 @@
       (is (true? (:resolved? (join-state :sac/p3 [:racing]))) "the :any join resolved")
       (rf.machines.test-support/reset-captured!)
       ;; :a's EXACT-CURRENT completion re-presents AFTER the :resolved? latch
-      ;; flipped — the late-completion path is gated on the exact-attempt fence
-      ;; (rf2-ixjd48), so the carrier presents the current attempt's coordinate.
+      ;; flipped — the late-completion path is gated on the exact-attempt fence,
+      ;; so the carrier presents the current attempt's coordinate.
       (rf/dispatch-sync
         [:sac/p3 (completion [:racing] :a
                              {:parent-id  :sac/p3
@@ -454,7 +452,7 @@
             "classified by :rf.reply/stale-reason (post-resolution)")))))
 
 (deftest stale-completion-op-classifies-by-stale-reason
-  (testing "rf2-p53o47 — a PRE-resolution unstamped carrier fires
+  (testing "a PRE-resolution unstamped carrier fires
             `:rf.machine.spawn-all/stale-completion` classified by
             `:rf.reply/stale-reason` :rf.machine.spawn-all/attempt-unverified
             — the classifier key is `:rf.reply/stale-reason`, guarding
@@ -498,7 +496,7 @@
   (->> (str/split-lines text) (filter #(str/includes? % needle)) first))
 
 (deftest spec-009-catalogue-pins-the-spawn-all-ops
-  (testing "rf2-2ai15g — the authoritative Spec-009 rows carry the exact
+  (testing "the authoritative Spec-009 rows carry the exact
             vocabulary the runtime emits; each fact fails independently."
     (let [text (rf.spawn-all-schema-extract/spec-009-text)
           qidx (quick-index-row text)
