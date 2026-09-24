@@ -1,7 +1,7 @@
 (ns re-frame.epoch-egress-resource-scope-test
   "Coverage for the OFF-BOX egress redaction of a `:rf.resource/scope-resolved`
   trace row's resolver-owned values inside an epoch record's `:trace-events`
-  (rf2-84l82t, EP-0015).
+  (EP-0015).
 
   The `:rf.resource/scope-resolved` trace row carries the resolver's resolved
   `:input-values` (the concrete app-db reads — e.g. `{:username \"jake\"}`) and
@@ -42,8 +42,8 @@
                   {:inputs {:username [:db [:auth :user :username]]}}
                   (fn [{:keys [username]} _]
                     (when username [:rf.scope/session {:username username}])))
-                ;; an explicitly :rf.egress/public resolver (the declassified
-                ;; audit surface — rides verbatim off-box).
+                ;; a resolver declaring :rf.egress/public — off-box egress
+                ;; redacts it all the same (there is no declassification hatch).
                 (rf/reg-resource-scope :rs/public-locale
                   {:inputs {:locale [:db [:i18n :locale]]}
                    :rf.egress/output-sensitivity :rf.egress/public}
@@ -87,7 +87,7 @@
    :effects             []})
 
 (deftest off-box-projection-redacts-sensitive-resolver-values
-  (testing "rf2-84l82t — project-egress redacts a db-reading (:inherit)
+  (testing "project-egress redacts a db-reading (:inherit)
             resolver's :input-values + :scope for the off-box default; the
             structural attribution slots survive and no raw secret egresses"
     (let [record    (record-with
@@ -108,10 +108,10 @@
         (is (not (contains-secret? projected)))))))
 
 (deftest off-box-projection-redacts-formerly-declassified-resolver-values
-  (testing "rf2-71dr8t / EP-0025 — the :rf.egress/public DECLASSIFICATION escape
-            hatch was the removed propagation enum, so a resolver that once
-            declared it now STILL redacts its resolved values off-box (off-box
-            resolved-scope egress is unconditionally fail-closed)"
+  (testing "a resolver declaring :rf.egress/public redacts its resolved values
+            off-box like any other — there is no DECLASSIFICATION escape hatch
+            (off-box resolved-scope egress is unconditionally fail-closed;
+            see EP-0025)"
     (let [record    (record-with
                        [(scope-resolved-event :rs/public-locale
                                               {:locale "en"}
