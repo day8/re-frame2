@@ -1,20 +1,20 @@
 (ns re-frame.subs-tooling-inspected-frame-metadata-cljs-test
-  "rf2-zimh — the two live subscription-cache readers must resolve registration
+  "The two live subscription-cache readers must resolve registration
   METADATA through the frame they were asked about, not through whichever
   registrar generation happens to be ambient.
 
   `sub-cache-snapshot` and `sub-cache-algebra-view` both take a frame-id and read
   THAT frame's cached reactions, then join each entry against
   `rf.registrar/registrations :sub` for `:input-kind`, `:doc`, `:schema`,
-  `:derive` and the source coordinates. That read is generation-routed, and
-  neither reader supplied the target generation — so the values came from frame A
-  while the metadata came from the global pool, or from whatever frame the
+  `:derive` and the source coordinates. That read is generation-routed, so a
+  reader that did not supply the target generation would take the values from
+  frame A and the metadata from the global pool, or from whatever frame the
   INSPECTOR was rendering in.
 
-  The result is internally inconsistent evidence rather than a wrong app value:
-  an image-local sub with declared `:inputs` is reported `:input-kind :db`, and
-  the algebra view attaches a conflicting same-id global's doc and handler to the
-  inspected frame's live node. Correct values cannot vouch for it, because
+  The result would be internally inconsistent evidence rather than a wrong app
+  value: an image-local sub with declared `:inputs` reported `:input-kind :db`,
+  and the algebra view attaching a conflicting same-id global's doc and handler
+  to the inspected frame's live node. Correct values cannot vouch for it, because
   `subscribe` establishes the target generation on its own path.
 
   Xray's derivation-graph contributor and the Pair preload's `sub-cache-info`
@@ -78,15 +78,15 @@
     (register-conflicting-global!)
     (install-frame! :review/frame-a (review-image :review/image-a "IMAGE A" 5))
     (is (= 5 @(rf/subscribe value-q {:frame :review/frame-a}))
-        "precondition — the VALUE already comes from image A; only the metadata
-         beside it was ambient")
+        "precondition — the VALUE comes from image A; the metadata beside it
+         is what is under test")
     (let [entry (snapshot-entry :review/frame-a value-q)]
       (is (some? entry) "the frame's cache carries the subscription")
       (is (= :static (:input-kind entry))
           "the inspected frame's declared-input classification, not the global :db")
       (is (= [base-q] (:realized-inputs entry))
           "the realized edges still come from the cache entry")
-      (is (= 5 (:value entry)) "the value is unchanged by the metadata fix"))))
+      (is (= 5 (:value entry)) "the value is unaffected by the metadata resolution"))))
 
 (deftest snapshot-reports-an-image-only-sub-absent-from-the-global-pool
   (testing "a sub that exists ONLY in the image is classified from the image —
