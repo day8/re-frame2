@@ -17,16 +17,14 @@
       through the frame engine `rf.frame/upsert-frame!` (the seed steps run AT construction, in order,
       draining before the call returns), and returns the frame VALUE. A duplicate `:id` is IDEMPOTENT REPLACEMENT (config +
       generation refresh, durable state preserved — EP-0024 §Duplicate id policy);
-      it does NOT fail loud. Record-config keys are honoured in the same call
-      (option-(a), reversing the rf2-32siq3.45 option-(b) record-only-key redirect).
+      it does NOT fail loud. Record-config keys are honoured in the same call.
     * the generation-resolution seam (`call-with-frame-resolution`) + the
       generation-diff read (`generation-diff`) + source-store reprojection —
       reading / swapping the generation ON the one `frames` record by id.
-    * the dissolved second registry's reads as derived reads over `frames`
+    * the live-frame reads, as derived reads over `frames`
       (`live-frame` / `live-frame-ids` / `image-view-frames`).
 
-  ## Image hot reload (rf2-32siq3.10 — LANDED here; folded into re-construction
-  ## by rf2-lxwpob)
+  ## Image hot reload
 
   This ns owns the EP-0023 HOT-RELOAD surface: re-`make-frame`-ing an
   `:id`-bearing frame with a new `:images` vector, plus the source-store
@@ -34,8 +32,8 @@
   Reload).
 
     * `make-frame` re-construction — the public frame-targeted, composition-
-      REPLACING reload (rf2-lxwpob folded the dedicated `reload-images!` verb
-      into this — one grammar, not two). Calling `make-frame` again with the
+      REPLACING reload (one grammar: there is no separate reload verb).
+      Calling `make-frame` again with the
       SAME `:id` and a NEW `:images` vector re-assembles the new composition
       into a fresh sealed generation and installs it via `upsert-frame!`'s
       surgical-update path WHILE PRESERVING FRAME MEMORY — app-db, runtime-db,
@@ -59,14 +57,14 @@
       changed — EXPLICIT-image frames included, not only default-image frames. A
       frame whose composition re-resolves byte-for-byte is left untouched (no
       spurious swap). It is WIRED to fire AUTOMATICALLY on any `reg-*` via a
-      `rf.registrar/add-registration-hook!` seam (rf2-h4q6cy), coalesced across a
+      `rf.registrar/add-registration-hook!` seam, coalesced across a
       hot-reload `reg-*` burst onto a single `rf.interop/next-tick` flush — see the
       §Auto-reprojection section below. So an ordinary `reg-*` re-eval swaps the
       affected live frame's generation WITHOUT a manual `make-frame` /
       `reproject-live-frames!` call. Each frame reprojects against the pool it
       was ORIGINALLY resolved against — the live store, or the SAME explicit
       descriptor pool for a `make-frame` 2-arity frame (`frame-generation-pool`
-      §Generation PROVENANCE, rf2-rf3zgt) — never against a store its
+      §Generation PROVENANCE) — never against a store its
       composition was never selected from. The deferred (`next-tick`) flush
       runs a RESILIENT variant of the sweep: a per-frame assembly failure is
       diagnosed (trace DIAGNOSTIC channel) and does NOT abort the rest of the
@@ -77,10 +75,9 @@
   frame runs; it does not move `:counter/right` merely because the two frames
   previously shared a sealed generation object (EP-0023 §Image — \"Reload is
   frame-targeted\"). The generation is an immutable value, so the swap is a
-  single `assoc` that preserves frame identity for every other slot; a future
-  state-container slice that adds an app-db ATOM slot is preserved by identity
-  through the same `assoc` (the atom — hence the memory — is carried through
-  untouched).
+  single `assoc` that preserves frame identity for every other slot — the
+  app-db / runtime-db containers included (carried through untouched, hence
+  the memory).
 
   ## Id spaces — the heart of the same-id story (EP-0023 §Id Spaces)
 
@@ -97,18 +94,15 @@
   the caller keeps the returned object and passes it directly (tests/harnesses).
   The absence of `:id` is NOT a default-id path (EP-0023 §Public API).
 
-  ## Relationship to the EP-0013 `re-frame.frame` registry
+  ## Relationship to the `re-frame.frame` registry
 
-  This is the EP-0023 public live-frame registry. It is DELIBERATELY SEPARATE
-  from `re-frame.frame`'s `frames` registry. EP-0023's public model (image ->
-  frame -> event stream) supersedes EP-0013's app/realm surface; the realm
-  threading through the dispatch/subscribe spine was collapsed to the single
-  default realm (rf2-afdlyr). This slice introduces the image-loaded public
-  frame object without disturbing the existing construction /
-  `re-frame.frame/make-anon-frame-record!` callers. The reload slice (.10) wires
-  image replacement on the frame object this slice returns.
+  This ns owns NO registry of its own: there is ONE registry,
+  `re-frame.frame/frames` (EP-0024), and an image-loaded frame is a `frames`
+  record carrying a `:generation`. EP-0023's public model (image -> frame ->
+  event stream) is the public frame model; the dispatch/subscribe spine runs
+  in the single default realm.
 
-  ## Frame-derived live resolution (rf2-32siq3.9 — LANDED here)
+  ## Frame-derived live resolution
 
   This ns also owns the EP-0023 resolution-routing SEAM
   ([[call-with-frame-resolution]]): bind `re-frame.registrar/*generation*` to a
@@ -120,8 +114,7 @@
   EP-0023 frame OBJECT that holds its generation directly. Two frames running
   DIFFERENT images resolve the same
   `[kind id]` to their OWN image's descriptor; absence (a nil target / no
-  generation) falls through to the registrar atom path, byte-identical for every
-  existing caller (absence-is-default).
+  generation) falls through to the registrar atom path (absence-is-default).
 
   ## Production elision
 
@@ -136,12 +129,13 @@
   per-event hot path, not a DEBUG-gated branch): pure re-assembly via
   `image-assembly/assemble` plus one registry `swap!` per swapped frame. An app
   that never hot-reloads never reaches them (Closure DCE removes them). The
-  requires are
-  `re-frame.image-assembly` (the merged assembly entry point),
+  requires are all in the core spine:
+  `re-frame.image-assembly` (the assembly entry point),
   `re-frame.registrar` (the `*generation*` resolution seam + the closed kind
   set + the `add-registration-hook!` reprojection seam), `re-frame.interop`
-  (the `next-tick` coalescing primitive + the `debug-enabled?` production gate),
-  and `re-frame.error` (fail-loud diagnostics) — all already in the core spine."
+  (the `next-tick` coalescing primitive), `re-frame.error` (fail-loud
+  diagnostics), plus `re-frame.source-store`, `re-frame.frame`,
+  `re-frame.late-bind`, `re-frame.subs.cache` and `re-frame.trace`."
   (:require [re-frame.image-assembly :as rf.image-assembly]
             [re-frame.registrar      :as rf.registrar]
             [re-frame.source-store   :as rf.source-store]
@@ -149,7 +143,7 @@
             [re-frame.interop        :as rf.interop]
             [re-frame.error          :as rf.error]
             [re-frame.late-bind      :as rf.late-bind]
-            ;; rf2-4lp1 — the targeted subscription refresh at a generation
+            ;; The targeted subscription refresh at a generation
             ;; change (§Subscription refresh at a generation change, below).
             ;; `re-frame.subs.cache` requires `re-frame.frame`, so the frame ns
             ;; cannot reach the cache; this ns sits ABOVE both. The edge adds NO
@@ -161,23 +155,20 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; rf2-4lp1: `make-frame` fires the generation-change subscription refresh,
+;; `make-frame` fires the generation-change subscription refresh,
 ;; whose definition sits beside `generation-diff` — the fn it is built on —
 ;; several hundred lines below it.
 (declare invalidate-subs-for-generation-change!)
 
 ;; ===========================================================================
-;; The frame VALUE + the ONE registry (EP-0024 §One live frame registry,
-;; rf2-tu2vr7)
+;; The frame VALUE + the ONE registry (EP-0024 §One live frame registry)
 ;; ===========================================================================
 ;;
-;; EP-0024 collapsed the two-registry model: there is ONE registry,
-;; `re-frame.frame/frames`, and the resolved image GENERATION lives ON the
-;; unified frame value's record (the `:generation` slot), not in a second
-;; live-frame registry. So the former `live-frames` index, the fail-loud
-;; `register-live-frame!`, and the `:live-frame/forget!` teardown hook all
-;; DISSOLVE: "is this frame live and image-loaded?" is now "does its `frames`
-;; record carry a `:generation`?", a derived read over the one registry.
+;; There is ONE registry, `re-frame.frame/frames`, and the resolved image
+;; GENERATION lives ON the unified frame value's record (the `:generation`
+;; slot), not in a second live-frame registry. "Is this frame live and
+;; image-loaded?" is "does its `frames` record carry a `:generation`?", a
+;; derived read over the one registry.
 ;;
 ;; The frame VALUE is the lifecycle token `make-frame` returns (EP-0024 Term:
 ;; Frame value). It carries the `:rf.frame/object` marker (the structural
@@ -199,14 +190,12 @@
   (EP-0024 Term: Frame value)."
   rf.frame/frame-value?)
 
-;; Back-compat internal alias: the resolution seam below was written against
-;; `frame-object?`; EP-0024 renames the concept to `frame-value?` (a value, not
-;; an object) but keeps the predicate available under both spellings for the
-;; internal callers (`re-frame.core/resolve-live-frame-object`) until they
-;; migrate.
-(def ^{:doc "Internal alias of `frame-value?` (EP-0024 renamed frame OBJECT →
-  frame VALUE); the dispatch/subscribe resolution-target helpers still spell it
-  `frame-object?`. Pure."}
+;; `frame-object?` is a second spelling of `frame-value?` (EP-0024: a frame is
+;; a value, not an object) for the internal callers that use it
+;; (`re-frame.core/resolve-live-frame-object`).
+(def ^{:doc "Internal alias of `frame-value?` (EP-0024: frame VALUE); the
+  dispatch/subscribe resolution-target helpers spell it `frame-object?`.
+  Pure."}
   frame-object?
   rf.frame/frame-value?)
 
@@ -222,7 +211,7 @@
 
 (defn frame-shadows
   "The cross-image SHADOW REPORT for the image composition a frame target is
-  running (EP-0026 §Shadow Report, rf2-ke7w5j). The flat `[{:registration
+  running (EP-0026 §Shadow Report). The flat `[{:registration
   [kind id] :image <defined-in> :shadowed-by <winner>}]` list a frame's resolved
   generation carries at `:rf.gen/shadows` — one entry per cross-image shadow,
   naming the loser image + the FINAL winner. Accepts a frame VALUE or a frame id
@@ -236,8 +225,7 @@
 (defn live-frame
   "Return the live frame VALUE for a frame id when that frame is currently
   IMAGE-LOADED (its `frames` record carries a resolved generation), or nil
-  otherwise (EP-0024, rf2-tu2vr7). The derived read that replaced the dissolved
-  second registry's lookup: a frame is \"live + image-loaded\" iff its one-registry
+  otherwise (EP-0024). A derived read: a frame is \"live + image-loaded\" iff its one-registry
   record carries a `:generation`. A passed-through frame VALUE is returned
   verbatim (so the resolution seam handles a direct value target). Pure."
   [frame-id]
@@ -250,23 +238,21 @@
 
 (defn live-frame-ids
   "The set of PUBLIC frame ids currently image-loaded — a derived read over the
-  ONE `frames` registry for records carrying a `:generation` (EP-0024,
-  rf2-tu2vr7). Replaces the dissolved second registry's index; the reload /
-  reprojection path enumerates these."
+  ONE `frames` registry for records carrying a `:generation` (EP-0024). The
+  reload / reprojection path enumerates these."
   []
   (rf.frame/image-loaded-frame-ids))
 
 (defn image-view-frames
   "Return `{frame-id frame-view}` for every image-loaded frame — the read
-  inspection tooling (Xray's image/frame view) consumes (EP-0024, rf2-tu2vr7).
-  With the registries collapsed, an image-loaded frame is a `frames` record
+  inspection tooling (Xray's image/frame view) consumes (EP-0024).
+  An image-loaded frame is a `frames` record
   carrying a `:generation`; this projects each into the inert map shape the
   tooling's pure projectors expect — `{:rf.frame/object true :rf.frame/id <id>
   :rf.frame/generation <gen> :rf.frame/adapter <adapter>}` — reading the
-  generation + adapter from the record by id. Replaces the dissolved second
-  registry's `@live-frames` snapshot. INTERNAL — a tooling read seam; pure read
-  of the one registry. (EP-0026, rf2-dlvmpc: the `:rf.frame/capabilities`
-  projection is gone with the image-capability feature.)"
+  generation + adapter from the record by id. INTERNAL — a tooling read seam;
+  pure read of the one registry. (Images declare no host capabilities, so
+  there is no `:rf.frame/capabilities` projection.)"
   []
   (into {}
         (map (fn [id]
@@ -280,10 +266,10 @@
 
 ;; ===========================================================================
 ;; Frame-derived live registration resolution (EP-0023 §Frame-derived live
-;; registration resolution, rf2-32siq3.9)
+;; registration resolution)
 ;; ===========================================================================
 ;;
-;; EP-0023 restates the a15n62 invariant in image/frame terms:
+;; EP-0023 states the resolution invariant in image/frame terms:
 ;;
 ;;     target frame -> resolved image generation -> registration resolution
 ;;
@@ -310,28 +296,26 @@
 ;; ABSENCE-IS-DEFAULT (the load-bearing fall-through): a nil frame object, or a
 ;; frame object carrying no generation, binds NOTHING — `rf.registrar/*generation*`
 ;; stays nil and resolution falls through to the registrar atom path (the
-;; single default), byte-identical for every existing caller.
+;; single default).
 ;;
 ;; DERIVED from the carried frame object, never an ambient binding (EP-0002
 ;; carried-invariant): the generation is read off the frame the caller targets,
 ;; not inferred from process state. A plain fn (not a macro) so CLJS sibling-ns
 ;; callers use it with no `:require-macros` plumbing.
 
-;; RETIRED: `frame-resolution-target` (rf2-8gb3t). It sat between every caller
-;; and [[call-with-frame-resolution]], turning a frame-id KEYWORD into a freshly
-;; minted frame VALUE — which [[frame-resolution-generation]] then normalized
-;; straight back to that same keyword to read the record's `:generation`. Pass
-;; the CARRIED target itself: a frame value, a frame id, or nil are all already
-;; the seam's documented input, and each resolves the same generation by the
-;; same path (`frame-value->id` is identity on a keyword, and on anything that
-;; is not a frame value; an unregistered address reads nil). The wrapper was
-;; therefore a no-op that allocated a throwaway map per subscribe / probe /
-;; dispatch.
+;; There is no id→value conversion step in front of
+;; [[call-with-frame-resolution]]. Pass the CARRIED target itself: a frame
+;; value, a frame id, or nil are all the seam's documented input, and each
+;; resolves the same generation by the same path (`frame-value->id` is
+;; identity on a keyword, and on anything that is not a frame value; an
+;; unregistered address reads nil). Minting a frame VALUE from a keyword only
+;; for [[frame-resolution-generation]] to normalize it straight back would
+;; allocate a throwaway map per subscribe / probe / dispatch.
 
 (defn frame-resolution-generation
   "Return the resolved image generation a `frame-target` resolves registrations
-  through, or nil when the target names no image-loaded frame. EP-0024
-  (rf2-tu2vr7): the generation lives on the record in the ONE registry, so
+  through, or nil when the target names no image-loaded frame. EP-0024:
+  the generation lives on the record in the ONE registry, so
   `frame-target` may be a frame VALUE or a frame id — `frame-generation`
   normalizes either to its id and reads the `:generation` slot. A nil target, a
   non-frame value, or a frame whose record carries no generation yields nil —
@@ -350,35 +334,34 @@
   image generation coherently (ALL-OR-NOTHING — `rf.registrar/lookup` is the single
   chokepoint they all funnel through).
 
-  READ-TIME COALESCED FLUSH (rf2-h1vqa4): when a `reg-*` source-store change
+  READ-TIME COALESCED FLUSH: when a `reg-*` source-store change
   has marked the live-frame projection dirty (`pending-reprojection?`), flush it
   HERE, synchronously, BEFORE reading the target's generation — so a
   registration issued after `make-frame` is deterministically visible to the
   very next dispatch / subscribe in the SAME tick, not only after the deferred
-  `next-tick` flush happens to run. This strengthens the EP-0023 §Default Image
-  Semantics guarantee from \"reprojected at the next macrotask boundary\" to
+  `next-tick` flush happens to run. This is stronger than the EP-0023 §Default
+  Image Semantics guarantee (\"reprojected at the next macrotask boundary\"):
   \"reprojected before the next resolution\" — with `make-frame` as the ONE
   constructor, every frame is image-loaded, and the
   register-then-dispatch-sync sequence (tests, REPL, setup code) must not race
-  the deferred tick. Coalescing is UNCHANGED: a synchronous `reg-*` burst still
+  the deferred tick. Coalescing holds: a synchronous `reg-*` burst
   sets one flag and is flushed ONCE, by whichever comes first — this read or
   the scheduled tick.
 
-  rf2-9c2jf: this flush is NOT gated on `rf.interop/debug-enabled?`. It was, and
-  because `make-frame` seals a generation unconditionally the production gate
-  froze each frame's view of the registration pool at construction time — every
-  handler registered afterwards dispatched as `:rf.error/no-such-handler`. The
+  This flush is NOT gated on `rf.interop/debug-enabled?`: `make-frame` seals a
+  generation unconditionally, so a production gate would freeze each frame's
+  view of the registration pool at construction time — every handler
+  registered afterwards would dispatch as `:rf.error/no-such-handler`. The
   consult is by late-bind KEYWORD and its publisher is rooted from
   `make-frame`, so an app that never constructs a frame still DCEs the whole
   reprojection + assembly graph and pays nothing here.
 
-  EP-0024 (rf2-tu2vr7): `frame-target` may be a frame VALUE (`make-frame`'s
+  EP-0024: `frame-target` may be a frame VALUE (`make-frame`'s
   return token) or a frame id — the generation is read from the record by id, so
   a value target and its id resolve the SAME generation, and a re-`make-frame`
   swap onto the record is observed through either. A nil target, a non-frame
   value, or a frame whose record carries no generation binds nothing and runs
-  `thunk` on the default registrar-atom path — byte-identical to every existing
-  caller. DERIVED from the carried frame target, never an ambient binding
+  `thunk` on the default registrar-atom path. DERIVED from the carried frame target, never an ambient binding
   (EP-0002 carried-invariant). The default (no-generation) path pays one
   normalize + one record read and then runs `thunk` with ZERO dynamic-binding
   cost."
@@ -391,11 +374,11 @@
   ;; so a bundle that never constructs a frame still folds the graph away —
   ;; the keyword consult here roots nothing on its own.
   ;;
-  ;; rf2-9c2jf: NOT gated on `rf.interop/debug-enabled?`. `make-frame` seals a
+  ;; NOT gated on `rf.interop/debug-enabled?`. `make-frame` seals a
   ;; generation unconditionally and this seam binds it for every lookup in the
-  ;; cascade, so skipping the flush in production froze the frame's view of the
-  ;; registration pool at construction time and turned every later-registered
-  ;; handler into `:rf.error/no-such-handler`.
+  ;; cascade, so skipping the flush in production would freeze the frame's
+  ;; view of the registration pool at construction time and turn every
+  ;; later-registered handler into `:rf.error/no-such-handler`.
   (when-let [flush! (rf.late-bind/get-fn-cached :live-frame/flush-projection!)]
     (flush!))
   (if-let [gen (frame-resolution-generation frame-target)]
@@ -420,8 +403,8 @@
   Spec API.md §`make-frame`). A non-map `opts` — `nil`, a keyword, a vector, a string
   — throws `:rf.error/make-frame-bad-opts`, fail-loud, BEFORE any destructuring
   or record-config construction, so a caller typo / plumbing failure cannot
-  silently create a garbage anonymous frame (nil currently registered a runnable
-  default frame) or fail by an obscure host `ClassCastException` (a non-map opts
+  silently create a garbage anonymous frame (nil would otherwise register a
+  runnable default frame) or fail by an obscure host `ClassCastException` (a non-map opts
   reaching `(apply dissoc opts …)`).
 
   `nil` is REJECTED too — `opts` is REQUIRED to be a map. The all-defaults frame
@@ -450,12 +433,10 @@
   image map, a seq) OR an EMPTY `:images []` throws
   `:rf.error/make-frame-bad-images`, fail-loud. Returns the vector unchanged.
 
-  EP-0026 (ruled 2026-06-22) makes the EMPTY vector an ERROR: pass at least one
+  EP-0026 makes the EMPTY vector an ERROR: pass at least one
   image, or OMIT `:images` for the default image. To create a frame with no app
-  registrations, pass a real empty image (`(rf/image {:id :test/empty})`). This
-  reverses the EP-0023/EP-0024 behavior where `:images []` projected the default
-  image — under EP-0026 the default is the OMIT path (`make-frame {}`), not the
-  empty-vector path."
+  registrations, pass a real empty image (`(rf/image {:id :test/empty})`). The
+  default is the OMIT path (`make-frame {}`), not the empty-vector path."
   [images]
   (when-not (and (vector? images) (seq images))
     (rf.error/throw-error!
@@ -479,43 +460,41 @@
 ;; Duplicate-id policy (EP-0024 §Duplicate id policy — idempotent replacement)
 ;; ===========================================================================
 ;;
-;; EP-0024 (rf2-tu2vr7) replaced the old fail-loud-on-every-live-id refusal with
-;; hot-reload-friendly IDEMPOTENT REPLACEMENT: re-`make-frame`-ing the same id
+;; EP-0024 makes a duplicate id hot-reload-friendly IDEMPOTENT REPLACEMENT:
+;; re-`make-frame`-ing the same id
 ;; updates the frame's record-config + resolved generation WITHOUT destroying
 ;; durable state. That is exactly `rf.frame/upsert-frame!`'s surgical-update
 ;; contract (app-db / sub-cache / queue preserved, config replaced), so the
 ;; unified constructor inherits it — no separate fail-loud registry. The
 ;; irreconcilable-conflict fail-loud path is the engine's install-time
-;; validators (classification / schema), which still throw; a benign same-shape
+;; validators (classification / schema), which throw; a benign same-shape
 ;; re-mount just refreshes.
 
 ;; ===========================================================================
 ;; Opt partition (EP-0024 §One constructor — image-selection vs record-config)
 ;; ===========================================================================
 ;;
-;; The unified `make-frame` accepts BOTH opt families in one call (EP-0024
-;; adopts the deferred option-(a), reversing the rf2-32siq3.45 option-(b)
-;; fail-loud redirect). The image-selection opts the constructor consumes
+;; The unified `make-frame` accepts BOTH opt families in one call
+;; (EP-0024). The image-selection opts the constructor consumes
 ;; directly (`:images` → generation; `:id` / `:adapter` → the frame
 ;; value); EVERY OTHER opt is record-config
 ;; passed verbatim to `rf.frame/upsert-frame!` (`:initial-events` / `:fx-overrides` /
 ;; `:platform` / `:ssr` / `:doc` / `:preset` / `:tags` / classification keys /
 ;; …). So `(rf/make-frame {:id … :images [...] :fx-overrides {...}})` works in
-;; one call — no record-only-key fail-loud redirect.
+;; one call.
 
 (def ^:private image-selection-opt-keys
   "The `make-frame` opts the unified constructor consumes directly (EP-0024) —
   resolved into the generation + the frame value, NOT passed to the engine as
   record config. Everything else in the opts map is record-config.
 
-  EP-0027 retired `:initial-db`: it is NO LONGER an image-selection key. A
-  supplied `:initial-db` now flows through to the engine as record-config and is
-  rejected fail-loud there (`:rf.error/initial-db-retired`) — seeding app-db is
-  itself an event (`{:initial-events [[:rf/set-db {…}]]}`).
+  `:initial-db` is not an image-selection key: a supplied `:initial-db` flows
+  through to the engine as record-config and is rejected fail-loud there
+  (`:rf.error/initial-db-retired`, EP-0027) — seeding app-db is itself an
+  event (`{:initial-events [[:rf/set-db {…}]]}`).
 
-  EP-0026 (rf2-dlvmpc) retired `:capabilities`: image-declared host capabilities
-  are removed end-to-end, so `make-frame :capabilities` is no longer a recognized
-  key. A supplied `:capabilities` now flows through to the engine as
+  `:capabilities` is not one either: images declare no host capabilities
+  (EP-0026), so a supplied `:capabilities` flows through to the engine as
   record-config (an ordinary config key)."
   #{:images :id :adapter})
 
@@ -523,7 +502,7 @@
 ;; ns (it closes over the flush/mark fns, which in turn close over the
 ;; reprojection sweep) but is ROOTED from `make-frame` below — see
 ;; `ensure-reprojection-installed!` for why the install hangs off frame
-;; construction rather than namespace load (rf2-9c2jf).
+;; construction rather than namespace load.
 (declare ensure-reprojection-installed!)
 
 ;; Forward reference: the coalescing dirty-mark, likewise defined at the bottom
@@ -532,20 +511,20 @@
 ;; registrar's removal paths use — that key exists to keep `registrar` free of a
 ;; require cycle, which does not apply within this ns) to make, after the record
 ;; is published, the mark the registration hook could not make for an unpublished
-;; frame — see rf2-djkr0 at the call site.
+;; frame — see the construction-window invariant at the call site.
 (declare mark-dirty-and-schedule!)
 
 ;; ===========================================================================
 ;; Generation resolution (shared by make-frame and reproject-live-frame!)
 ;; ===========================================================================
 ;;
-;; `make-frame` (.8/.6, including its re-construction / reload call shape) and
-;; `reproject-live-frame!` (.10) BOTH turn an `:images` vector into ONE sealed
+;; `make-frame` (including its re-construction / reload call shape) and
+;; `reproject-live-frame!` BOTH turn an `:images` vector into ONE sealed
 ;; generation. Factor that out so a re-construction resolves a new generation
 ;; with byte-identical semantics to creation: same `:images`-is-a-vector
 ;; validation, same `image-assembly/assemble` path (live source store OR an
-;; explicit descriptor pool). (EP-0026, rf2-dlvmpc: no frame-boundary
-;; capability check — image capabilities are removed.)
+;; explicit descriptor pool). (There is no frame-boundary capability check:
+;; images declare no host capabilities.)
 
 (defn- resolve-generation!
   "Validate `images` (must be a NON-EMPTY vector — EP-0026 §Default Image,
@@ -556,8 +535,8 @@
   reload resolves with byte-identical semantics to creation. Fail-loud on a
   non-vector / EMPTY `:images` or an assembly error.
 
-  EP-0026 (rf2-dlvmpc) removed image-declared host capabilities end-to-end —
-  there is no frame-boundary capability check.
+  Images declare no host capabilities, so there is no frame-boundary
+  capability check.
 
   Note: this resolves a PRESENT non-empty `:images` composition (make-frame's
   explicit-image path, reload, reprojection). The ABSENT-`:images` default-image
@@ -575,28 +554,28 @@
 
 ;; ===========================================================================
 ;; Generation PROVENANCE — which pool a frame's generation was resolved
-;; against (rf2-rf3zgt)
+;; against
 ;; ===========================================================================
 ;;
 ;; `make-frame`'s 2-arity `(opts descriptors)` resolves against an EXPLICIT
 ;; descriptor pool (tests / harnesses / a pre-snapshotted store) instead of
 ;; the live source store (EP-0023 §Image — mirrors `image-assembly/assemble`'s
 ;; two arities). Reprojection (below) re-resolves a frame's CURRENT
-;; `:rf.gen/images` composition — but against WHICH pool? Before this fix
-;; `reproject-live-frame!` always passed `nil` (⇒ the LIVE store), so an
+;; `:rf.gen/images` composition — but against WHICH pool? If
+;; `reproject-live-frame!` always passed `nil` (⇒ the LIVE store), an
 ;; explicit-pool frame swept up by ANY reprojection (the auto hook fires for
 ;; EVERY `reg-*`, live-store-scoped or not — `mark-dirty-and-schedule!`
 ;; below — and a manual `reproject-live-frames!` sweeps every image-loaded
-;; frame regardless of its pool) got re-resolved against a store its
+;; frame regardless of its pool) would be re-resolved against a store its
 ;; composition was never selected from: a `:select-ns` pattern that matches
 ;; only the explicit pool typically ZERO-MATCHES the live store
 ;; (`:rf.error/image-zero-match`, fail-loud) — or, worse, silently resolves
 ;; against unrelated live registrations that merely happen to share the
 ;; selected namespace.
 ;;
-;; The fix: remember, per frame id, WHICH pool its generation was last
+;; So this ns remembers, per frame id, WHICH pool its generation was last
 ;; resolved against (nil = the live store; a real descriptors value = that
-;; explicit pool), and thread the SAME pool through reprojection.
+;; explicit pool), and threads the SAME pool through reprojection.
 ;; `make-frame` is the ONE place a frame's pool arity is chosen — both first
 ;; construction and every hot-reload re-construction — so it is the ONE place
 ;; that records it; a re-`make-frame` that changes arity (explicit pool ↔
@@ -613,23 +592,20 @@
 ;; below is that release, published as `:live-frame/on-frame-destroyed!` and
 ;; invoked from `rf.frame/destroy-frame!`'s step-6 auxiliary-cleanup pass.
 ;;
-;; rf2-cq0yi — this used to be an ACCEPTED trade-off ("a destroyed, never
-;; reused id leaves a residual entry for the remainder of the process; only
-;; dev-process memory"). The reasoning that made it look harmless was about
-;; CORRECTNESS and still holds — `reproject-live-frame!` is a no-op for an
-;; unregistered id, and a REUSED id's row is overwritten BEFORE the next
-;; `make-frame`'s engine commit (see the WHEN section below), so a stale row is
-;; never read incorrectly. What it got wrong was RETENTION, and "dev-process"
-;; was the wrong frame entirely: the write is unconditional in the PUBLIC
+;; The release is about RETENTION, not correctness. A stale row is never read
+;; incorrectly — `reproject-live-frame!` is a no-op for an unregistered id, and
+;; a REUSED id's row is overwritten BEFORE the next `make-frame`'s engine commit
+;; (see the WHEN section below). But the write is unconditional in the PUBLIC
 ;; constructor, and the documented per-request SSR recipe mints a fresh id,
-;; constructs, renders and destroys in a `finally` — so a long-lived server
-;; retained one row per request served, plus (on the 2-arity) the caller's whole
-;; explicit descriptor pool. Exactly the shape rf2-uejlj fixed one layer up for
-;; the Fresco frame-ops row. The release below needs no incarnation token: a
-;; same-id successor is constructable only after teardown's step-9 registry
-;; dissoc, so every row standing at hook time is a dead incarnation's.
+;; constructs, renders and destroys in a `finally` — so without the release a
+;; long-lived server would retain one row per request served, plus (on the
+;; 2-arity) the caller's whole explicit descriptor pool. The Fresco frame-ops
+;; row one layer up is released the same way. The release needs no
+;; incarnation token: a same-id successor is constructable only after
+;; teardown's step-9 registry dissoc, so every row standing at hook time is a
+;; dead incarnation's.
 ;;
-;; ---- WHEN the row is written, and under WHOSE authority (rf2-rt4jz) -------
+;; ---- WHEN the row is written, and under WHOSE authority -------------------
 ;;
 ;; The row is written BEFORE the `upsert-frame!` engine commit, rolled back
 ;; EXACTLY on failure, and the whole pair runs INSIDE the engine's own exact
@@ -638,46 +614,47 @@
 ;; order decides what the CONSTRUCTING thread's own cascade reads, the
 ;; reservation decides who is allowed to write the row at all.
 ;;
-;; ORDER. The row used to be written after the commit returned, which reads as
-;; the safer order — a failed construction cannot leave residue if it never
-;; writes — but it is not, because the record and the row are two stores and
-;; the frame is REPROJECTABLE the moment the first of them lands.
+;; ORDER. Writing the row after the commit returns reads as the safer order —
+;; a failed construction cannot leave residue if it never writes — but it is
+;; not, because the record and the row are two stores and the frame is
+;; REPROJECTABLE the moment the first of them lands.
 ;;
 ;; `upsert-frame!` publishes the record carrying the new generation and then,
 ;; still inside the call, runs the `:initial-events` setup steps (EP-0027).
 ;; Those steps dispatch, so they pass through `call-with-frame-resolution`,
-;; whose read-time consult flushes any PENDING reprojection (rf2-h1vqa4 /
-;; rf2-9c2jf). Under the old order that flush read a row belonging to some
-;; PREVIOUS incarnation of the id — or to no generation at all — re-resolved
-;; the frame's composition against that wrong pool, and `set-generation!`d the
+;; whose read-time consult flushes any PENDING reprojection. With the row
+;; written after the commit, that flush would read a row belonging to some
+;; PREVIOUS incarnation of the id — or to no generation at all — re-resolve
+;; the frame's composition against that wrong pool, and `set-generation!` the
 ;; result over the generation the constructor had just installed. The
-;; constructor returned having silently lost its own swap, with the row ending
-;; up correct and the GENERATION wrong. Not a race: one synchronous call, both
-;; hosts (`make-frame-generation-pool-window-jvm-test` reproduces it with no
-;; threads and no barrier).
+;; constructor would return having silently lost its own swap, with the row
+;; ending up correct and the GENERATION wrong. Not a race: one synchronous
+;; call, both hosts (`make-frame-generation-pool-window-jvm-test` pins it with
+;; no threads and no barrier).
 ;;
 ;; Writing FIRST makes the setup cascade's flush re-resolve the frame against
 ;; the pool it was actually sealed from, which is a byte-for-byte identical
-;; generation and therefore no swap at all. rf2-ktmto9's no-residue contract —
+;; generation and therefore no swap at all. The no-residue contract —
 ;; a failed creation records nothing, a failed re-construction preserves the
 ;; old row — is then held EXPLICITLY by `restore-frame-generation-pool!`
 ;; rather than implicitly by ordering, which is the stronger statement: it says
 ;; what it means at the site, instead of depending on nothing ever resolving
 ;; between the two writes.
 ;;
-;; ADMISSION. Order alone is a single-threaded property, and it left the row
+;; ADMISSION. Order alone is a single-threaded property, and it leaves the row
 ;; open to attempts the ENGINE REJECTS. `upsert-frame!` admits exactly ONE
 ;; construction per id and fails every other promptly with
 ;; `:rf.error/frame-construction-in-progress` — a loss that writes nothing,
 ;; which is the whole point of failing at admission rather than inside an
-;; adapter or setup callback. A row written AHEAD of that admission broke the
-;; property: a same-id contender published its own pool into this shared table
-;; on its way to being rejected. While the WINNER sat inside its commit and its
-;; `:initial-events` cascade, a reprojection landing in the loser's interval
-;; read the loser's pool, re-resolved the winner's frame against it and swapped
-;; that on — the original defect, reached by a second route. The rollback was
-;; no safer in the other direction: an undo computed from a row read outside
-;; any reservation can restore over a row a NEWER owner has since written.
+;; adapter or setup callback. A row written AHEAD of that admission would break
+;; the property: a same-id contender would publish its own pool into this
+;; shared table on its way to being rejected. While the WINNER sat inside its
+;; commit and its `:initial-events` cascade, a reprojection landing in the
+;; loser's interval would read the loser's pool, re-resolve the winner's frame
+;; against it and swap that on — the ORDER defect, reached by a second route.
+;; The rollback is no safer in the other direction: an undo computed from a
+;; row read outside any reservation can restore over a row a NEWER owner has
+;; since written.
 ;;
 ;; So the write, the commit and the rollback all happen inside ONE exact
 ;; reservation for the id. A losing attempt throws at the claim, before the
@@ -696,8 +673,8 @@
 ;; installs the incoming generation, and a JVM-concurrent flush landing in THAT
 ;; interval re-resolves the OUTGOING composition against the INCOMING pool.
 ;; Transient and self-correcting — the swap that follows overwrites it
-;; unconditionally, so no completed call can observe it — where the window it
-;; replaced corrupted the value the constructor returned. The remaining
+;; unconditionally, so no completed call can observe it, where a write after
+;; the commit would corrupt the value the constructor returns. The remaining
 ;; exposure is at worst one spurious `:rf.warning/reprojection-failed`
 ;; diagnostic on the dev channel.
 
@@ -708,18 +685,18 @@
   (creation + hot-reload re-construction) BEFORE the `upsert-frame!` engine
   commit, so the row is already in step the moment the record can be
   reprojected — in particular for the `:initial-events` cascade that runs
-  INSIDE that commit (rf2-rt4jz) — and rolled back exactly on failure by
-  `restore-frame-generation-pool!`, which is how rf2-ktmto9's contract (a
+  INSIDE that commit — and rolled back exactly on failure by
+  `restore-frame-generation-pool!`, which is how the no-residue contract (a
   failed creation records nothing; a failed re-construction preserves the old
   row) is kept. Both the write and its rollback run inside the engine's exact
   per-id construction reservation, so the only attempt that ever touches an
   id's row is the one the engine ADMITTED: a rejected same-id contender
   publishes nothing, and a rollback cannot land on a successor's row.
-  RELEASED at destroy by `release-frame-generation-pool!` (rf2-cq0yi), so the
+  RELEASED at destroy by `release-frame-generation-pool!`, so the
   table holds rows for LIVE frames only and never outlives the frames it
   describes.
   Reprojection then re-resolves against the SAME provenance
-  (rf2-rf3zgt) instead of silently defaulting to the live store for a frame
+  instead of silently defaulting to the live store for a frame
   that was never resolved against it. See the §Generation PROVENANCE section
   above for the full rationale."}
   frame-generation-pool
@@ -742,8 +719,8 @@
   recorded pool (it means \"the live source store\"), so an absent row cannot be
   spelled by assoc'ing nil.
 
-  This is rf2-ktmto9's no-residue contract, stated (rf2-rt4jz): a failed
-  creation records nothing, and a failed re-construction preserves the old row.
+  This is the no-residue contract, stated: a failed creation records nothing,
+  and a failed re-construction preserves the old row.
 
   Callers MUST still hold the id's construction reservation here. The undo is
   computed from a row read at `record-frame-generation-pool!` time, so it is
@@ -758,12 +735,12 @@
 
 (defn- release-frame-generation-pool!
   "Drop `runnable-id`'s provenance row — the TEARDOWN counterpart of
-  `record-frame-generation-pool!` (rf2-cq0yi). Published as
+  `record-frame-generation-pool!`. Published as
   `:live-frame/on-frame-destroyed!` and invoked from `rf.frame/destroy-frame!`'s
   step-6 auxiliary-cleanup pass, so the row's lifetime is the frame's.
 
   Keyed and UNCONDITIONAL, carrying no incarnation token — the same argument
-  the sibling `:fresco/on-frame-destroyed!` hook makes (rf2-uejlj): destroy
+  the sibling `:fresco/on-frame-destroyed!` hook makes: destroy
   still holds the id's exact construction/destruction reservation here, and a
   same-id successor can only be seated after the step-9 registry dissoc, so
   every row standing at hook time belongs to the incarnation being torn down.
@@ -779,7 +756,7 @@
   nil)
 
 ;; PUBLISHED AT NS LOAD, deliberately NOT from the `make-frame`-rooted
-;; reprojection once-body (rf2-cq0yi audit of PR #8887). `frame.cljc` is BELOW
+;; reprojection once-body. `frame.cljc` is BELOW
 ;; this ns (live-frame requires frame, not the other way round), so
 ;; `destroy-frame!` reaches the release by late-bind keyword like every other
 ;; feature's `<feature>/on-frame-destroyed!` callback — `fx.cljc` publishes
@@ -792,30 +769,28 @@
 ;; that: `reprojection-installed?` is a `defonce`, so in a dev process that has
 ;; already constructed one frame the once-body is skipped on every subsequent
 ;; reload of this ns and the key is never re-published. That is invisible in a
-;; fresh process — where the first `make-frame` installs everything — and bites
-;; only on the UPGRADE path, which is where it was measured: a process running
-;; pre-#8887 code has the flag `true` and the key absent, so reloading this ns
-;; left `destroy-frame!` with no release to call and the rows leaked until
-;; restart. Load time is also strictly EARLIER than the once-body was: this ns
-;; must be loaded before `make-frame` can be called, so the hook is bound before
-;; any row can exist — the timing guarantee the once-body siting was chosen for
-;; is kept, not traded away.
+;; fresh process — where the first `make-frame` installs everything — and
+;; bites only on a process whose flag is already `true` with the key absent:
+;; reloading this ns would leave `destroy-frame!` with no release to call and
+;; the rows would leak until restart. Load time is also strictly EARLIER than
+;; the once-body: this ns must be loaded before `make-frame` can be called, so
+;; the hook is bound before any row can exist.
 ;;
 ;; THIS ROOTS NO REPROJECTION GRAPH. `release-frame-generation-pool!` is one
 ;; `swap!` against the provenance atom and references nothing in the
 ;; reprojection / `image-assembly` graph, so a bundle that never constructs a
 ;; frame still folds `install-reprojection!`, `reproject-live-frame!` and
-;; `resolve-within-image` away exactly as before (the Spec 009 elision probe's
+;; `resolve-within-image` away (the Spec 009 elision probe's
 ;; PROD_ABSENT_WHEN_UNUSED contract). What load time roots is the two-line
 ;; release and its atom, and nothing else.
 ;;
 ;; The registrar registration hook stays in the once-body and MUST: unlike a
 ;; keyed `set-fn!`, `add-registration-hook!` APPENDS, so re-running it on every
 ;; reload would accumulate duplicate hooks. Only the idempotent keyed
-;; publication is safe to re-run, and only it moves.
+;; publication is safe to re-run, so only it is published at load.
 (rf.late-bind/set-fn! :live-frame/on-frame-destroyed! release-frame-generation-pool!)
 
-;; rf2-ifzi — the generation-resolution seam itself, published for the ONE
+;; The generation-resolution seam itself, published for the ONE
 ;; consumer that must resolve a registration in a NAMED frame's universe from a
 ;; namespace that cannot require this one: `re-frame.projection`, whose event
 ;; slot applies the dispatched handler's own registration classification. That
@@ -829,7 +804,7 @@
 (rf.late-bind/set-fn! :live-frame/call-with-frame-resolution call-with-frame-resolution)
 
 ;; ===========================================================================
-;; Construction-window pool mark (rf2-djkr0)
+;; Construction-window pool mark
 ;; ===========================================================================
 
 (defn- registration-pool-mark
@@ -840,13 +815,14 @@
   The three legs are exactly the live-store legs of `image-assembly`'s
   resolved-generation cache key, and for the same reason: the monotonic
   `store-generation` bumps on every source-store mutation, `store-identity`
-  disambiguates two distinct stores sitting at the same generation integer
-  (rf2-1x2zuc), and `standard-generation` bumps on any framework-standard
+  disambiguates two distinct stores sitting at the same generation integer,
+  and `standard-generation` bumps on any framework-standard
   registration. Cheap enough to read twice per construction — two map lookups
   and an atom deref.
 
   `make-frame` reads it either side of the seal→publish window; see the
-  rf2-djkr0 invariant at that call site for what the comparison decides."
+  construction-window invariant at that call site for what the comparison
+  decides."
   []
   [(rf.source-store/store-identity)
    (rf.source-store/store-generation)
@@ -871,7 +847,7 @@
                    image generation via `re-frame.image-assembly/assemble`; a
                    non-vector OR an EMPTY `:images []` fails loud
                    (`:rf.error/make-frame-bad-images`). The THREE-WAY EP-0026
-                   boundary (ruled 2026-06-22):
+                   boundary:
                      * PRESENT non-empty `:images` → the SELECTED generation,
                        failing loud on a cross-namespace same-`[kind id]`
                        collision (`:rf.error/image-duplicate-id`);
@@ -897,9 +873,9 @@
     :adapter       the active-substrate adapter binding/configuration (optional).
                    Carried on the frame value, not the frame-state.
 
-  EP-0026 (rf2-dlvmpc) retired the `:capabilities` image-selection key:
-  image-declared host capabilities are removed end-to-end. A `:capabilities` key
-  is no longer special-cased — it flows through as ordinary record-config.
+  `:capabilities` is not an image-selection key: images declare no host
+  capabilities (EP-0026), so a `:capabilities` key is not special-cased — it
+  flows through as ordinary record-config.
 
   EVERY OTHER key is RECORD-CONFIG passed verbatim to the frame engine
   (`re-frame.frame/upsert-frame!`)
@@ -909,12 +885,10 @@
   `:platform`, `:ssr`, `:doc`, `:preset`, `:tags`, the EP-0015 classification
   keys, etc. So
   `(rf/make-frame {:id :todo/left :images [todo-image] :fx-overrides {...}})`
-  configures the frame in ONE call. EP-0024 adopts this single-constructor shape
-  (the previously-deferred option-(a)) and REVERSES the rf2-32siq3.45 option-(b)
-  fail-loud redirect (`:rf.error/make-frame-record-only-key`): the unified frame
-  value backed by the ONE registry removes the two-constructor split that
-  motivated the redirect, so a record-config key on `make-frame` is honoured, not
-  rejected.
+  configures the frame in ONE call (EP-0024's single-constructor shape): the
+  unified frame value is backed by the ONE registry, so there is no
+  two-constructor split and a record-config key on `make-frame` is honoured,
+  not rejected.
 
   Returns the frame VALUE — the live lifecycle token (its representation is not
   an app-facing data contract; read its id with `rf.frame/frame-value->id`). The
@@ -924,7 +898,7 @@
   routing address is the frame id; the value is accepted by internal
   normalization for tests/tools. Re-calling `make-frame` against the SAME `:id`
   with a new `:images` vector swaps the generation while preserving frame
-  memory (image hot-reload via re-construction, rf2-lxwpob).
+  memory (image hot-reload via re-construction).
 
   The frame's runnable interior — app-db / runtime-db container, projection
   reactions, router queue, drain-lock, sub-cache, lifecycle, AND the resolved
@@ -945,7 +919,7 @@
    ;; argument cannot silently register a garbage default frame or fail by an
    ;; obscure host ClassCastException.
    (validate-opts! opts)
-   ;; rf2-9c2jf: a frame resolves every `(kind, id)` through the SEALED
+   ;; A frame resolves every `(kind, id)` through the SEALED
    ;; generation assembled below, so from this call onward the generation must
    ;; be kept in step with the registration pool. Root the freshener here —
    ;; idempotent, no debug gate — so the invariant holds on both hosts and
@@ -958,7 +932,7 @@
          ;; record), else a process-unique anonymous id so a no-id (direct) value
          ;; is still runnable while bypassing the PUBLIC frame-id space.
          runnable-id (if (some? id) id (rf.frame/anon-frame-id))
-         ;; rf2-djkr0 — the pool as it stands BEFORE the seal. Compared against a
+         ;; The pool as it stands BEFORE the seal. Compared against a
          ;; second reading after the record is published; see the invariant at
          ;; that comparison below. Read here (not after the seal) so the window
          ;; the comparison covers is never SHORTER than the real one: a
@@ -969,7 +943,7 @@
          ;; Resolve the generation FIRST so a bad `:images` fails loud BEFORE any
          ;; record is created — a conflict leaves no half-created frame.
          ;;
-         ;; EP-0026 §Default Image (ruled 2026-06-22) — the THREE-WAY `:images`
+         ;; EP-0026 §Default Image — the THREE-WAY `:images`
          ;; boundary, wired here:
          ;;   * PRESENT non-empty `:images`  → resolve the SELECTED generation
          ;;     (`resolve-generation!`), failing loud on a cross-namespace
@@ -997,21 +971,21 @@
          ;; passed verbatim to the engine (`upsert-frame!`) — `:initial-events` /
          ;; `:fx-overrides` /
          ;; `:platform` / `:ssr` / `:doc` / `:preset` / `:tags` / classification.
-         ;; EP-0024 option-(a): the unified constructor honours these, no
-         ;; fail-loud record-only-key redirect. EP-0027: `:initial-events` is one
-         ;; of these record-config keys — it flows verbatim to the engine, which
-         ;; PREFLIGHT-validates it and runs the setup steps synchronously at
-         ;; construction (and a retired `:initial-db` / `:on-create` likewise flows
-         ;; through to the engine's fail-loud guard). We thread two reserved
-         ;; construction inputs through the config:
-         ;;   :rf.frame/generation   — the resolved generation. ALWAYS present now
+         ;; EP-0024: the unified constructor honours these. EP-0027:
+         ;; `:initial-events` is one of these record-config keys — it flows
+         ;; verbatim to the engine, which PREFLIGHT-validates it and runs the
+         ;; setup steps synchronously at construction (and a retired
+         ;; `:initial-db` / `:on-create` likewise flows through to the engine's
+         ;; fail-loud guard). We thread two reserved construction inputs
+         ;; through the config:
+         ;;   :rf.frame/generation   — the resolved generation. ALWAYS present
          ;;                            (EP-0026 §Default Image): a PRESENT `:images`
          ;;                            resolves the selected generation; an ABSENT
          ;;                            `:images` resolves the DEFAULT image
          ;;                            generation over the active source store. So
          ;;                            every frame carries a generation and resolves
          ;;                            through it — the absence-is-default
-         ;;                            registrar-atom fall-through no longer fires
+         ;;                            registrar-atom fall-through never fires
          ;;                            on the make-frame path. The engine seats it
          ;;                            into the `:generation` slot and strips it
          ;;                            from the stored config. Installed BEFORE the
@@ -1021,8 +995,8 @@
          ;;   :rf.frame/adapter      — the active-substrate adapter binding, KEPT
          ;;                            in the stored config so tooling (Xray's
          ;;                            image/frame view) can read it by id.
-         ;; (EP-0026, rf2-dlvmpc: the `:rf.frame/capabilities` plumbing is gone —
-         ;; image-declared host capabilities are removed end-to-end.)
+         ;; (There is no `:rf.frame/capabilities` input: images declare no host
+         ;; capabilities, EP-0026.)
          record-config (cond-> (apply dissoc opts image-selection-opt-keys)
                          true            (assoc :rf.frame/generation generation)
                          (some? adapter) (assoc :rf.frame/adapter adapter))]
@@ -1031,10 +1005,10 @@
      ;; preserving runtime state — EP-0024 §Duplicate id policy), installs the
      ;; generation BEFORE running the `:initial-events` setup steps, and applies
      ;; the record-config (presets, classification, fx-overrides, …). Default-realm
-     ;; (the collapse supersedes the public realm dimension), so the record is
-     ;; keyed by the bare id.
+     ;; (there is no public realm dimension), so the record is keyed by the
+     ;; bare id.
      ;;
-     ;; rf2-moftbs: pass a `token-box` OUT-channel so the engine hands back the
+     ;; Pass a `token-box` OUT-channel so the engine hands back the
      ;; EXACT installed incarnation token (the record's `:drain-lock`) from
      ;; INSIDE the construction transaction. Embedding it on the returned frame
      ;; VALUE (below) is what gives an owner exact teardown authority — with NO
@@ -1045,50 +1019,50 @@
        ;; writes — see §Generation PROVENANCE above.
        ;;
        ;; The provenance row records which pool this generation was resolved
-       ;; against (rf2-rf3zgt): a later reprojection reads it back so it
+       ;; against: a later reprojection reads it back so it
        ;; re-resolves against the SAME pool (explicit or live) rather than
        ;; falling through to the live store. It is written on every call
        ;; (creation + hot-reload re-construction), so a re-`make-frame` that
        ;; changes arity keeps the row current.
        ;;
-       ;; rf2-rt4jz — the row is written BEFORE the engine commit, and the whole
+       ;; The row is written BEFORE the engine commit, and the whole
        ;; pair is INSIDE the engine's own exact per-id reservation. Both halves
-       ;; are load-bearing and each fixes what the other cannot:
+       ;; are load-bearing and each guards what the other cannot:
        ;;
        ;;   ORDER. The record and the row are two stores, and the frame becomes
        ;;   REPROJECTABLE the moment the FIRST of them lands: `upsert-frame!`
        ;;   publishes the record carrying the new generation and then, still
        ;;   inside the call, runs the `:initial-events` setup steps, whose
        ;;   dispatches flush any pending reprojection through
-       ;;   `call-with-frame-resolution`. Recording afterwards left that flush
-       ;;   reading a PREVIOUS incarnation's row: it re-resolved the frame
-       ;;   against the wrong pool and `set-generation!`d the result over what
-       ;;   had just been installed, so the constructor returned having silently
-       ;;   lost its own swap. One synchronous call, both hosts, no race.
+       ;;   `call-with-frame-resolution`. Recording afterwards would leave that
+       ;;   flush reading a PREVIOUS incarnation's row: it would re-resolve the
+       ;;   frame against the wrong pool and `set-generation!` the result over
+       ;;   what had just been installed, so the constructor would return having
+       ;;   silently lost its own swap. One synchronous call, both hosts, no race.
        ;;
-       ;;   ADMISSION. Ordering alone left the row written by attempts the
-       ;;   ENGINE REJECTS. `rf.frame/upsert-frame!` admits exactly one
+       ;;   ADMISSION. Ordering alone would leave the row written by attempts
+       ;;   the ENGINE REJECTS. `rf.frame/upsert-frame!` admits exactly one
        ;;   construction per id and fails every other promptly with
        ;;   `:rf.error/frame-construction-in-progress` — a loss that writes
-       ;;   NOTHING. Writing the row ahead of that admission broke the
-       ;;   zero-write property: a same-id contender published its own pool into
-       ;;   the shared table on its way to being rejected, and a reprojection
-       ;;   landing in that interval — while the WINNER was inside its commit /
-       ;;   `:initial-events` cascade — resolved the winner's frame against the
-       ;;   LOSER's pool and swapped it on. Its rollback was no safer: an undo
-       ;;   computed from a row it read outside any reservation can restore over
-       ;;   a newer owner's row. Claiming FIRST makes both impossible rather
-       ;;   than unlikely — a loser throws before `f` runs, and the winner's
-       ;;   write, commit and rollback are all serialised against every other
-       ;;   attempt on the id.
+       ;;   NOTHING. Writing the row ahead of that admission would break the
+       ;;   zero-write property: a same-id contender would publish its own pool
+       ;;   into the shared table on its way to being rejected, and a
+       ;;   reprojection landing in that interval — while the WINNER was inside
+       ;;   its commit / `:initial-events` cascade — would resolve the winner's
+       ;;   frame against the LOSER's pool and swap it on. Its rollback would be
+       ;;   no safer: an undo computed from a row read outside any reservation
+       ;;   can restore over a newer owner's row. Claiming FIRST makes both
+       ;;   impossible rather than unlikely — a loser throws before `f` runs,
+       ;;   and the winner's write, commit and rollback are all serialised
+       ;;   against every other attempt on the id.
        ;;
-       ;; rf2-ktmto9's no-residue contract survives the reordering by being
-       ;; STATED instead of implied: the prior row is captured here and restored
-       ;; exactly if the commit throws, so a FAILED creation still records
-       ;; nothing and a FAILED re-construction still preserves the OLD row — and
-       ;; because the restore runs while this attempt still OWNS the id, the row
-       ;; it restores is still the row it displaced.
-       ;; rf2-4lp1 — the generation this call DISPLACES, read INSIDE the per-id
+       ;; The no-residue contract holds by being STATED instead of implied: the
+       ;; prior row is captured here and restored exactly if the commit throws,
+       ;; so a FAILED creation records nothing and a FAILED re-construction
+       ;; preserves the OLD row — and because the restore runs while this
+       ;; attempt still OWNS the id, the row it restores is still the row it
+       ;; displaced.
+       ;; The generation this call DISPLACES, read INSIDE the per-id
        ;; construction claim so it is exactly what `upsert-frame!` is about to
        ;; replace: nil on a first creation (nothing cached yet), the previous
        ;; sealed generation on the same-id re-construction path that IS image
@@ -1119,9 +1093,9 @@
            runnable-id
            @displaced-generation
            (rf.frame/frame-generation runnable-id)))
-       ;; rf2-djkr0 — THE INVARIANT: a PARTIALLY-CONSTRUCTED frame is never
-       ;; observable as live, so a registration that lands while a frame is
-       ;; mid-construction is never lost.
+       ;; THE CONSTRUCTION-WINDOW INVARIANT: a PARTIALLY-CONSTRUCTED frame is
+       ;; never observable as live, so a registration that lands while a frame
+       ;; is mid-construction is never lost.
        ;;
        ;; The generation above was SEALED before `upsert-frame!` published the
        ;; record, and it has to be: a bad `:images` must fail loud BEFORE any
@@ -1129,49 +1103,39 @@
        ;; those two points the frame is not in `frames`, hence not in
        ;; `live-frame-ids` — and a `reg-*` racing that gap fires the registration
        ;; hook against an EMPTY live-frame set. `mark-dirty-and-schedule!`
-       ;; correctly skips there (rf2-h4q6cy: with nothing image-loaded a flush is
-       ;; a guaranteed no-op, and every `reg-event` / `reg-sub` / `reg-fx` fires
-       ;; that hook, so the skip is a real hot-path win). The consequence was
-       ;; that no mark was made for THIS frame either: the record landed carrying
-       ;; a generation predating the registration, with nothing left to flush it.
+       ;; correctly skips there (with nothing image-loaded a flush is a
+       ;; guaranteed no-op, and every `reg-event` / `reg-sub` / `reg-fx` fires
+       ;; that hook, so the skip is a real hot-path win). Left there, no mark
+       ;; would be made for THIS frame either: the record would land carrying a
+       ;; generation predating the registration, with nothing left to flush it.
        ;; Permanently stale — `dispatch` reporting `:rf.error/no-such-handler`
        ;; for a handler `rf.registrar/lookup` was holding at that very moment.
        ;;
        ;; So the CONSTRUCTOR makes the mark the hook could not make on its
        ;; behalf, and makes it HERE, after publication: by now the frame is
-       ;; image-loaded, so the hook's skip is left exactly as it was, and from
+       ;; image-loaded, so the hook's skip is left exactly as it is, and from
        ;; this point on any further `reg-*` sees the frame and marks for itself.
        ;; The window is closed end to end.
        ;;
        ;; CONDITIONAL. Marking only when the pool actually MOVED under us keeps
-       ;; every non-racing construction — which is all of them outside this
-       ;; defect — byte-for-byte as before: no flag, and so no reprojection sweep
-       ;; over every image-loaded frame armed by an ordinary `make-frame`. The
+       ;; every non-racing construction flag-free, and so arms no reprojection
+       ;; sweep over every image-loaded frame on an ordinary `make-frame`. The
        ;; comparison is exact: any `reg-*` / `forget-*` / `clear-*` /
-       ;; `register-standard!` bumps a leg of `registration-pool-mark`.
-       ;;
-       ;; When rf2-djkr0 shipped, the conditionality was ALSO load-bearing for
-       ;; correctness: an unconditional mark leaves the projection dirty after
-       ;; every construction, a flag set here is flushed by some later unrelated
-       ;; resolution, and one of those was the `:initial-events` cascade running
-       ;; inside `upsert-frame!` — which reprojected against a stale provenance
-       ;; row and clobbered the generation a re-construction had just installed.
-       ;; rf2-rt4jz CLOSED that (the row is now written before the engine commit,
-       ;; §Generation PROVENANCE above), and the closure is measured, not
-       ;; assumed: with the row written first, forcing this mark unconditional
-       ;; leaves `live-frame-reload-cljs-test` — the suite that reddened under
-       ;; exactly that configuration — green. So the conditional now stands on
-       ;; the cost argument ALONE, and it stands: it is the cheaper shape, and
-       ;; `make-frame-generation-seal-race-jvm-test` §4 keeps it pinned.
+       ;; `register-standard!` bumps a leg of `registration-pool-mark`. The
+       ;; conditional stands on that cost argument: with the provenance row
+       ;; written before the engine commit (§Generation PROVENANCE above), an
+       ;; unconditional mark would also be correct, but this is the cheaper
+       ;; shape, and `make-frame-generation-seal-race-jvm-test` §4 keeps it
+       ;; pinned.
        ;;
        ;; The armed flush is the RESILIENT sweep — per-frame conditional (a frame
        ;; whose composition re-resolves identically is left untouched, a
        ;; generation-cache hit) and diagnosing rather than throwing — so this
        ;; adds NO failure mode to the construction path.
        ;;
-       ;; JVM-only as a DEFECT (CLJS is single-threaded: no `reg-*` can
-       ;; interleave between the seal and the publish, both inside one
-       ;; synchronous call), but the repair is common `.cljc` code — on CLJS the
+       ;; The window exists only on the JVM (CLJS is single-threaded: no `reg-*`
+       ;; can interleave between the seal and the publish, both inside one
+       ;; synchronous call), but the guard is common `.cljc` code — on CLJS the
        ;; comparison simply never differs.
        (when (not= pool-mark (registration-pool-mark))
          (mark-dirty-and-schedule!))
@@ -1184,7 +1148,7 @@
                                 :token       @token-box})))))
 
 ;; ===========================================================================
-;; Image hot reload (EP-0023 §Hot Reload, rf2-32siq3.10)
+;; Image hot reload (EP-0023 §Hot Reload)
 ;; ===========================================================================
 ;;
 ;; The conceptual event (EP-0023 §Hot Reload):
@@ -1193,28 +1157,25 @@
 ;;     execution context continues
 ;;
 ;; Reload swaps the sealed generation a frame runs WHILE PRESERVING FRAME
-;; MEMORY. Because the generation is an immutable VALUE the frame object carries
-;; under `:rf.frame/generation`, and the .9 resolution seam derives resolution
-;; SOLELY from that slot, swapping the generation is the whole job: a single
-;; `assoc` that replaces `:rf.frame/generation` and PRESERVES every other slot
-;; (id, initial-db, capabilities, adapter — and, once a later slice adds them,
-;; the app-db / runtime-db / cache ATOMS, carried through by identity, hence the
-;; memory).
+;; MEMORY. Because the generation is an immutable VALUE on the frame's record
+;; (the `:generation` slot), and the resolution seam derives resolution SOLELY
+;; from that slot, swapping the generation is the whole job:
+;; `rf.frame/set-generation!` replaces that one slot and PRESERVES every other
+;; one (config, adapter, the app-db / runtime-db / cache containers — carried
+;; through by identity, hence the memory).
 ;;
-;; rf2-lxwpob (API-shrink #5, frame-lifecycle collapse): the dedicated
-;; `reload-images!` verb is RETIRED — `make-frame` re-called against an
-;; EXISTING `:id` with a new `:images` vector already resolves a fresh
-;; generation and installs it via `upsert-frame!`'s surgical-update / idempotent-
-;; replacement path (EP-0024 §Duplicate id policy), PRESERVING frame memory
-;; exactly as reload did. That IS image hot-reload via re-construction, one
-;; grammar instead of two. The AUTOMATIC `reg-*` re-eval reprojection path
-;; below (`reproject-live-frame!` / `reproject-live-frames!`) is UNAFFECTED —
-;; it swaps the generation in place without going through `make-frame` at all
-;; (there is no id-bearing re-construction call to make on an automatic
-;; source-store change). A caller that wants the reload DIFF report
-;; `reload-images!` used to return reads `frame-generation` before and after
-;; the `make-frame` call and diffs them with `generation-diff` (below) — a
-;; pure read over two already-public generation values, not a bespoke verb.
+;; There is no dedicated reload verb: `make-frame` re-called against an
+;; EXISTING `:id` with a new `:images` vector resolves a fresh generation and
+;; installs it via `upsert-frame!`'s surgical-update / idempotent-replacement
+;; path (EP-0024 §Duplicate id policy), PRESERVING frame memory. That IS image
+;; hot-reload via re-construction, one grammar. The AUTOMATIC `reg-*` re-eval
+;; reprojection path below (`reproject-live-frame!` /
+;; `reproject-live-frames!`) swaps the generation in place without going
+;; through `make-frame` at all (there is no id-bearing re-construction call to
+;; make on an automatic source-store change). A caller that wants the reload
+;; DIFF reads `frame-generation` before and after the `make-frame` call and
+;; diffs them with `generation-diff` (below) — a pure read over two
+;; already-public generation values, not a bespoke verb.
 
 ;; ---- the reload diff (EP-0023 §Hot Reload — "a concrete diff") ------------
 
@@ -1246,22 +1207,23 @@
      :changed  changed
      :retained retained}))
 
-;; ---- subscription refresh at a generation change (rf2-4lp1) ---------------
+;; ---- subscription refresh at a generation change --------------------------
 ;;
 ;; EP-0023 §Hot Reload preserves "subscription state that remains valid" and
 ;; explicitly permits TARGETED invalidation for changed registrations; EP-0024
 ;; §Duplicate id policy makes same-id construction refresh configuration and
 ;; generation while durable state — the `:sub-cache` atom among it — survives.
-;; Preserving the cache is right; preserving its CONTENTS wholesale was not.
+;; Preserving the cache is right; preserving its CONTENTS wholesale is not.
 ;;
 ;; A cached reaction closes over the `:handler-fn` and input topology resolved
 ;; from the descriptor that was current WHEN IT WAS BUILT. `subscribe-in-frame`'s
 ;; hit branch bumps the ref-count and hands that reaction back without ever
-;; comparing it against the frame's CURRENT generation, so after a generation
-;; swap an already-materialised query kept running the old body — image
-;; replacement (and Story behaviour replacement) appeared not to take effect
-;; until the caller knew to call `clear-sub-cache!` by hand, which is exactly
-;; the ceremony §Hot Reload says a reload must not require.
+;; comparing it against the frame's CURRENT generation, so without this refresh
+;; an already-materialised query would keep running the old body after a
+;; generation swap — image replacement (and Story behaviour replacement) would
+;; appear not to take effect until the caller knew to call `clear-sub-cache!`
+;; by hand, which is exactly the ceremony §Hot Reload says a reload must not
+;; require.
 ;;
 ;; A generation change fires NO `register!`, so `re-frame.subs.cache`'s
 ;; registrar replacement hook cannot see it. This is the other half of that
@@ -1275,7 +1237,7 @@
 ;;
 ;; `:added` is load-bearing, not defensive. A parent sub declaring an input
 ;; that is not registered yet resolves that input to a nil-yielding reaction
-;; whose MISS is deliberately not cached (rf2-l9u5) — but the PARENT is cached,
+;; whose MISS is deliberately not cached — but the PARENT is cached,
 ;; holding that nil-yielding reaction by closure. First-registering the missing
 ;; input reprojects the frame's generation, and the parent is reached through
 ;; its declared `:inputs` head even though the added id has no slot of its own.
@@ -1323,11 +1285,10 @@
 
 ;; ---- the in-place generation swap (PRESERVES FRAME MEMORY) -----------------
 ;;
-;; Shared by the automatic `reg-*` reprojection path below. The explicit
-;; public reload verb (`reload-images!`) that used to call this too was
-;; RETIRED in rf2-lxwpob — folded into `make-frame` re-construction (an
-;; `:id`-bearing `make-frame` call already installs a fresh generation via
-;; `upsert-frame!`'s surgical-update path, preserving frame memory identically).
+;; Used by the automatic `reg-*` reprojection path below. Explicit reload is
+;; `make-frame` re-construction (an `:id`-bearing `make-frame` call installs a
+;; fresh generation via `upsert-frame!`'s surgical-update path, preserving
+;; frame memory identically), so it does not come through here.
 
 (defn- swap-frame-generation!
   "Swap `new-generation` onto frame `id`'s record IN PLACE via
@@ -1338,7 +1299,7 @@
   on the ONE record, so an `:id`-bearing frame and any holder of its frame value
   observe the swap through the same record. Returns nil.
 
-  rf2-4lp1: the swap is followed by the TARGETED subscription refresh — frame
+  The swap is followed by the TARGETED subscription refresh — frame
   memory continuing across a reload does not mean a cached reaction built
   against the OLD generation's descriptor continues with it. Read the old
   generation off the record here rather than trusting a caller's snapshot, so
@@ -1349,9 +1310,9 @@
     (invalidate-subs-for-generation-change! id old-generation new-generation))
   nil)
 
-;; ---- reload-images! — RETIRED (rf2-lxwpob) ---------------------------------
+;; ---- reload-images! — a throwing stub -------------------------------------
 ;;
-;; The name survives ONLY as a `^:no-doc` throwing stub (the project's
+;; The name exists ONLY as a `^:no-doc` throwing stub (the project's
 ;; actionable-removed-API pattern, like the EP-0018 `reg-event-db` / EP-0022
 ;; `rf/path` stubs, and this ns's sibling `reset-frame!` retirement in
 ;; `re-frame.frame`): a stale `(rf/reload-images! …)` call site resolves to a
@@ -1361,7 +1322,7 @@
 ;; `re-frame.core` facade in core.cljc.
 
 (defn ^:no-doc reload-images!
-  "REMOVED in rf2-lxwpob (no alias). Image hot-reload is folded into
+  "REMOVED (no alias). Image hot-reload is folded into
   re-construction — re-call `make-frame` against the SAME `:id` with a new
   `:images` vector; it swaps the generation while preserving frame memory
   (EP-0023 §Hot Reload). A caller that wants the reload DIFF reads
@@ -1374,7 +1335,7 @@
   (rf.error/throw-error!
     :rf.error/reload-images-removed
     'rf/reload-images!
-    (str "`reload-images!` is REMOVED (no alias, rf2-lxwpob) — image "
+    (str "`reload-images!` is REMOVED (no alias) — image "
          "hot-reload is folded into re-construction: re-call `make-frame` "
          "with the SAME `:id` and a new `:images` vector; it swaps the "
          "generation while preserving frame memory. To read the reload diff, "
@@ -1384,15 +1345,14 @@
      :extra    {:got args}}))
 
 ;; ===========================================================================
-;; Source-store reprojection (EP-0023 §Default Image Semantics / §Hot Reload,
-;; rf2-32siq3.10)
+;; Source-store reprojection (EP-0023 §Default Image Semantics / §Hot Reload)
 ;; ===========================================================================
 ;;
 ;; The dirtying rule is NOT default-image-only (EP-0023 §Default Image
 ;; Semantics): "Any source-store change invalidates resolved generations whose
 ;; image selectors might include the changed source slot: default images,
 ;; explicit `:include-ns` images, and composed images containing them." A
-;; `reg-*` re-eval in a namespace an EXPLICIT `:include-ns` image selects must
+;; `reg-*` re-eval in a namespace an EXPLICIT `:select-ns` image selects must
 ;; reproject and swap THAT frame's generation too — not only default-image
 ;; frames.
 ;;
@@ -1410,7 +1370,7 @@
   image composition (`:rf.gen/images`) against the pool that generation was
   ORIGINALLY resolved against — the CURRENT live source store for an ordinary
   frame, or the SAME explicit descriptor pool for a frame `make-frame`'s
-  2-arity created (`frame-generation-pool`, rf2-rf3zgt §Generation PROVENANCE
+  2-arity created (`frame-generation-pool`, §Generation PROVENANCE
   above) — and swap the freshly-assembled generation onto the frame when it
   CHANGED (EP-0023 §Default Image Semantics — a source-store change
   reprojects affected EXPLICIT-image frames, not only default-image frames).
@@ -1433,13 +1393,13 @@
   `reg-*` hot-reload path — EP-0023 §Default Image Semantics / §Hot Reload). For
   each frame whose `frames` record carries a `:generation`, re-resolve its OWN
   `:rf.gen/images` composition and swap the new generation on when it changed;
-  this reprojects EXPLICIT-image frames (whose `:include-ns` selectors match a
+  this reprojects EXPLICIT-image frames (whose `:select-ns` selectors match a
   changed namespace) as well as default-image frames, not only the latter. A
   frame whose composition re-resolves byte-for-byte is left untouched.
 
   Returns `{frame-id reload-diff}` for every frame that MOVED (empty when none
-  did). EP-0024 (rf2-tu2vr7): with the registries collapsed, an image-loaded
-  frame is simply a `frames` record carrying a generation. Every frame lives in
+  did). EP-0024: an image-loaded frame is simply a `frames` record carrying a
+  generation. Every frame lives in
   the single default realm, so a flat `rf.frame/image-loaded-frame-ids` enumeration
   re-keys the registry correctly with no per-frame realm binding."
   []
@@ -1450,7 +1410,7 @@
           {}
           (rf.frame/image-loaded-frame-ids)))
 
-;; ---- the RESILIENT sweep — used ONLY by the deferred flush (rf2-rf3zgt) ---
+;; ---- the RESILIENT sweep — used ONLY by the deferred flush ----------------
 ;;
 ;; `reproject-live-frames!` above is all-or-nothing: a single frame's assembly
 ;; failure propagates straight out of the `reduce`, discarding whatever the
@@ -1458,20 +1418,20 @@
 ;; (in enumeration order) un-reprojected. That is exactly right for a
 ;; SYNCHRONOUS caller (a REPL session or a test forcing a flush) — an
 ;; immediate, loud failure is the useful signal there, and `flush-pending-
-;; reprojection!` / `reproject-live-frames!` keep that contract unchanged.
+;; reprojection!` / `reproject-live-frames!` keep that contract.
 ;;
 ;; It is exactly WRONG for the deferred (`next-tick`) background flush
 ;; (`deferred-flush!` below): that tick has no caller to report a throw to, so
-;; before this fix it caught the propagated exception and swallowed it with
-;; ZERO emission — and because the underlying sweep had already aborted
-;; mid-reduce, every sibling frame queued after the failing one silently
-;; stayed on its STALE generation too, with no diagnostic anywhere naming what
-;; happened or which frames were affected. One bad hot-reload edit in ONE
-;; frame's namespace silently broke hot-reload for every OTHER live frame in
-;; the same coalesced burst.
+;; an all-or-nothing sweep there could only swallow the propagated exception —
+;; and because the sweep would already have aborted mid-reduce, every sibling
+;; frame queued after the failing one would silently stay on its STALE
+;; generation too, with no diagnostic anywhere naming what happened or which
+;; frames were affected. One bad hot-reload edit in ONE frame's namespace would
+;; silently break hot-reload for every OTHER live frame in the same coalesced
+;; burst.
 ;;
 ;; The resilient sweep isolates each frame's reprojection in its OWN
-;; try/catch: a failure is DIAGNOSED (rf2-rf3zgt's judgment call — see
+;; try/catch: a failure is DIAGNOSED (see
 ;; `deferred-flush!`'s docstring for the emit-vs-swallow rationale) and the
 ;; failed frame is left on its prior generation (indistinguishable from an
 ;; unchanged frame to `reproject-live-frames!`'s callers), but the sweep
@@ -1508,7 +1468,7 @@
 
 ;; ===========================================================================
 ;; Auto-reprojection on `reg-*` source-store change (EP-0023 §Default Image
-;; Semantics / §Hot Reload — the headline guarantee wired, rf2-h4q6cy)
+;; Semantics / §Hot Reload — the headline guarantee)
 ;; ===========================================================================
 ;;
 ;; The EP-0023 headline guarantee (EP-0023:1497, §Default Image Semantics):
@@ -1521,12 +1481,11 @@
 ;;     swaps those generations into affected frames.
 ;;
 ;; `reproject-live-frames!` is that "resolve new generations + swap into
-;; affected frames" operation. Before rf2-h4q6cy NOTHING called it in
-;; production — no hook fired on `reg-*`, so the helper was dead outside tests
-;; and a `reg-*` hot reload in an `:include-ns`-selected namespace left the
-;; running frame on its STALE generation until some external re-`make-frame`
-;; call or manual `reproject-live-frames!` ran. This slice wires the missing
-;; trigger.
+;; affected frames" operation, and the registration hook below is its
+;; trigger. Without a hook firing on `reg-*`, a `reg-*` hot reload in a
+;; `:select-ns`-selected namespace would leave the running frame on its STALE
+;; generation until some external re-`make-frame` call or manual
+;; `reproject-live-frames!` ran.
 ;;
 ;; ## Trigger model — DIRTY-FLAG + `next-tick` COALESCING
 ;;
@@ -1556,18 +1515,18 @@
 ;;
 ;; ## Production elision
 ;;
-;; Reprojection USED to be treated as a DEV hot-reload concern and the whole
-;; wiring was gated on `rf.interop/debug-enabled?`, on the reasoning that "in
-;; production the source registrar stops changing after boot, so there is
-;; nothing to reproject". rf2-9c2jf retired that gate: nothing orders all
-;; registrations before all frame construction, `make-frame` seals a generation
-;; UNCONDITIONALLY (EP-0026 §Default Image), and `rf.registrar/lookup` resolves
-;; through that seal — so under the gate the ordinary
-;; `make-frame` → `reg-*` → `dispatch` sequence resolved nothing and reported
-;; `:rf.error/no-such-handler`. Keeping a frame's generation in step with the
-;; registration pool is a CORRECTNESS invariant, not a diagnostic.
+;; Reprojection is NOT a DEV-only hot-reload concern, and the wiring is NOT
+;; gated on `rf.interop/debug-enabled?`. "In production the source registrar
+;; stops changing after boot, so there is nothing to reproject" does not hold:
+;; nothing orders all registrations before all frame construction,
+;; `make-frame` seals a generation UNCONDITIONALLY (EP-0026 §Default Image),
+;; and `rf.registrar/lookup` resolves through that seal — so under such a gate
+;; the ordinary `make-frame` → `reg-*` → `dispatch` sequence would resolve
+;; nothing and report `:rf.error/no-such-handler`. Keeping a frame's
+;; generation in step with the registration pool is a CORRECTNESS invariant,
+;; not a diagnostic.
 ;;
-;; The elision it bought is preserved differently: the wiring is now installed
+;; The elision comes from reachability instead: the wiring is installed
 ;; by `ensure-reprojection-installed!`, which ONLY `make-frame` reaches. An app
 ;; that never constructs a frame never roots the reprojection + assembly graph,
 ;; so `:advanced` + `goog.DEBUG=false` still trims it (`check-elision.cjs`
@@ -1592,14 +1551,10 @@
   pending-reprojection?
   (atom false))
 
-;; EP-0024 (rf2-tu2vr7): the `reprojecting?` re-entrancy guard DISSOLVED. It
-;; existed only because the EP-0023 two-registry `make-frame` created its backing
-;; record via the then-registrar-backed engine (a `register!`), raising the defensive worry that
-;; a reproject flush might provoke a registration and re-arm itself. Under the
-;; unified model reprojection swaps the generation onto the ONE record via
-;; `rf.frame/set-generation!` — a plain `swap!`, NOT a `register!` — so the flush can
-;; never fire the registration hook and never schedule its own successor. The
-;; guard's purpose is gone with the second registry.
+;; No re-entrancy guard is needed around the flush (EP-0024): reprojection
+;; swaps the generation onto the ONE record via `rf.frame/set-generation!` — a
+;; plain `swap!`, NOT a `register!` — so the flush can never fire the
+;; registration hook and never schedule its own successor.
 
 (defn flush-pending-reprojection!
   "If a `reg-*` source-store change has marked the projection dirty, clear the
@@ -1615,10 +1570,10 @@
   deferred tick. The dirty-flag clear is read-then-reset so a re-entrant
   `reg-*` during reprojection re-arms a fresh flush rather than being lost.
 
-  EP-0024 (rf2-tu2vr7): the reproject swaps generations via
+  EP-0024: the reproject swaps generations via
   `rf.frame/set-generation!` (a plain `swap!`), never `reg-*`, so it cannot fire the
-  registration hook or schedule its own successor — the former `reprojecting?`
-  re-entrancy guard dissolved with the second registry."
+  registration hook or schedule its own successor — no re-entrancy guard is
+  needed."
   []
   (if @pending-reprojection?
     (do (reset! pending-reprojection? false)
@@ -1627,8 +1582,8 @@
 
 #?(:clj
    (defonce ^{:private true
-              :doc "JVM monitor serializing the dirty-flag reprojection flush
-  (rf2-h1vqa4). The read-time consult in `call-with-frame-resolution` (caller
+              :doc "JVM monitor serializing the dirty-flag reprojection flush.
+  The read-time consult in `call-with-frame-resolution` (caller
   thread) and the deferred `next-tick` body (the interop executor thread) both
   funnel through `flush-projection-if-dirty!`; without mutual exclusion the
   consult can observe the flag ALREADY CLAIMED by an executor sweep still
@@ -1644,7 +1599,7 @@
 (defn- flush-projection-if-dirty!
   "The RESILIENT dirty-flag flush shared by the two coalesced-flush consumers —
   the deferred `next-tick` body (`deferred-flush!`) and the read-time consult
-  in `call-with-frame-resolution` (rf2-h1vqa4). If a `reg-*` source-store
+  in `call-with-frame-resolution`. If a `reg-*` source-store
   change has marked the projection dirty, clear the flag and run the RESILIENT
   sweep (`reproject-live-frames-resiliently!` — a per-frame assembly failure is
   DIAGNOSED via `:rf.warning/reprojection-failed`, never thrown, so a broken
@@ -1675,15 +1630,12 @@
   reprojection failure escape as an unhandled rejection that pollutes
   unrelated work.
 
-  rf2-rf3zgt (the judgment call — this ns was previously found to SWALLOW a
-  per-frame assembly failure with ZERO emission AND abort the sweep
-  mid-way, silently leaving every OTHER live frame queued after the failing
-  one on its stale generation): this now runs the RESILIENT sweep
+  This runs the RESILIENT sweep
   (`reproject-live-frames-resiliently!`), which isolates each frame's
   reprojection so one failure does NOT stop the others from reprojecting, and
   DIAGNOSES the failure (`:rf.warning/reprojection-failed`, the trace
   DIAGNOSTIC channel — dev visibility, zero production cost) instead of
-  swallowing it silently. The choice is DIAGNOSE, not RE-THROW: this is still
+  swallowing it silently. The choice is DIAGNOSE, not RE-THROW: this is
   a background tick with no caller to report a hard failure to, and
   ALWAYS-ON-axis promotion is deliberately NOT added here (Spec 009
   §Observability channels — an always-on id is for failures an app must be
@@ -1691,18 +1643,19 @@
 
   The dirty flag is cleared BEFORE reprojecting (read-then-reset), so a
   re-entrant `reg-*` during the flush re-arms a fresh tick rather than being
-  lost — unchanged from before. The outer `try/catch` is now a defensive LAST
+  lost. The outer `try/catch` is a defensive LAST
   RESORT for something outside the per-frame boundary itself throwing (e.g.
   enumerating `image-loaded-frame-ids`, the flag `reset!`) — vanishingly
   unlikely, but diagnosed via `:rf.warning/reprojection-flush-failed` rather
   than silently discarded, belt-and-suspenders. The SYNCHRONOUS
   `flush-pending-reprojection!` and the direct `reproject-live-frames!` keep
-  their all-or-nothing throw-through contract UNCHANGED — a REPL/test caller
+  their all-or-nothing throw-through contract — a REPL/test caller
   wants immediate fail-loud feedback, not a partially-applied sweep; only
   THIS deferred path is resilient + defensive. Returns nil.
 
-  rf2-9c2jf: this consult now runs on the PRODUCTION resolution path too. The
-  JVM `locking` stays UNCONDITIONAL — a fast-path `@pending-reprojection?` read
+  The flush it shares with the read-time consult runs on the PRODUCTION
+  resolution path too. The JVM `locking` is UNCONDITIONAL — a fast-path
+  `@pending-reprojection?` read
   outside the monitor would return immediately while another thread's sweep is
   mid-flight (that sweep has already cleared the flag), which is precisely the
   stale-record race the lock exists to close. The uncontended acquire is the
@@ -1730,13 +1683,13 @@
   is diagnosed rather than thrown — see its docstring).
 
   The NO-IMAGE-LOADED-FRAME skip keeps this off the hot path so an ordinary
-  registration burst with no image-loaded frames costs essentially nothing
-  (rf2-h4q6cy fix): reprojection only ever touches image-loaded frames
+  registration burst with no image-loaded frames costs essentially nothing:
+  reprojection only ever touches image-loaded frames
   (`reproject-live-frames!` enumerates `live-frame-ids` = the `frames` records
   carrying a `:generation`). With none the flush would be a guaranteed no-op, so
   there is nothing to mark dirty or schedule. This is the dominant case: every
   `reg-event` / `reg-sub` / `reg-fx` funnels through `register!` and so fires
-  this hook (frame seating does NOT — rf2-h1vqa4: `rf.frame/upsert-frame!` writes
+  this hook (frame seating does NOT — `rf.frame/upsert-frame!` writes
   no registrar row, so seating a frame is not a registration-pool change), but the
   overwhelming majority run while NO image-loaded frame exists (app boot, every
   handler-only test). Marking + scheduling on each would flood
@@ -1745,24 +1698,24 @@
   image-loaded frame DOES exist (the headline-guarantee case) still marks +
   schedules.
 
-  EP-0024 (rf2-tu2vr7): the former `reprojecting?` re-entrancy skip dissolved —
-  reprojection swaps generations via `rf.frame/set-generation!` (not `reg-*`), so a
-  flush can never fire this hook or schedule its own successor."
+  No re-entrancy skip is needed (EP-0024): reprojection swaps generations via
+  `rf.frame/set-generation!` (not `reg-*`), so a flush can never fire this hook
+  or schedule its own successor."
   []
   (when (seq (live-frame-ids))
     ;; Only the transition false→true schedules — the burst's subsequent calls
     ;; observe the flag already true and add no second tick.
     (when (compare-and-set! pending-reprojection? false true)
-      ;; The deferred tick is CLJS-ONLY (rf2-h1vqa4). In the browser the
+      ;; The deferred tick is CLJS-ONLY. In the browser the
       ;; next-tick macrotask boundary is the dev hot-reload seam: the flush runs
       ;; after the reloaded namespace's synchronous reg-* burst and BEFORE the
       ;; next user interaction, so tools observing generations between events see
       ;; fresh projections without a dispatch. On the JVM there is no such
-      ;; boundary to serve — the executor tick ran a CONCURRENT sweep racing
-      ;; the caller thread's synchronous cascades (observed as
-      ;; nondeterministic rf.trace/epoch bookkeeping contamination under the
-      ;; make-frame migration, where every frame is image-loaded and every
-      ;; reg-* armed a tick) — and the read-time coalesced flush in
+      ;; boundary to serve — an executor tick would run a CONCURRENT sweep
+      ;; racing the caller thread's synchronous cascades (nondeterministic
+      ;; rf.trace/epoch bookkeeping contamination, since every frame is
+      ;; image-loaded and every reg-* would arm a tick) — and the read-time
+      ;; coalesced flush in
       ;; `call-with-frame-resolution` already guarantees a dirty projection
       ;; is flushed before the next resolution, on the resolving thread
       ;; itself. So the JVM marks the flag and lets the NEXT RESOLUTION (or
@@ -1777,7 +1730,7 @@
   `reg-*` (first-time OR re-registration, any kind) is a source-store change, so
   it MARKS the live-frame projection dirty and schedules a coalesced reprojection
   (EP-0023 §Default Image Semantics / §Hot Reload — a `reg-*` re-eval in a
-  namespace an explicit `:include-ns` image selects reprojects + swaps the
+  namespace an explicit `:select-ns` image selects reprojects + swaps the
   affected explicit-image frames, automatically). Reprojection itself is
   per-frame conditional (`reproject-live-frame!` only swaps a frame whose
   composition actually re-resolved differently), so marking dirty on EVERY
@@ -1795,19 +1748,19 @@
   late-bind keys are already in place, and a partially-installed reprojection
   must never be observable as installed. It promises nothing about
   `:live-frame/on-frame-destroyed!`, which is published at ns load and is
-  therefore already bound before this flag can even be read (rf2-cq0yi)."}
+  therefore already bound before this flag can even be read."}
   reprojection-installed?
   (atom false))
 
 #?(:clj
    (defonce ^{:private true
-              :doc "JVM monitor serializing the reprojection once-install
-  (rf2-9c2jf, the merged-PR-#7114 audit). The install has THREE side effects
+              :doc "JVM monitor serializing the reprojection once-install.
+  The install has THREE side effects
   and every one of them is part of what the once-flag promises, so the whole
   body — the flag read, the three effects, and the flag write — must be ONE
   critical section. A `compare-and-set!` on the flag alone is not enough: CAS
   ELECTS an installer but does not make the LOSERS WAIT for it to finish, so a
-  concurrent `make-frame` read `true` mid-install and proceeded. `locking`
+  concurrent `make-frame` could read `true` mid-install and proceed. `locking`
   makes a concurrent caller either do the install or BLOCK until the elected
   installer has finished it.
 
@@ -1829,16 +1782,17 @@
 
   PUBLISH-LAST IS THE INVARIANT, not a style choice: `reprojection-installed?`
   is read by every `make-frame`, and `true` must mean \"all three are in
-  place\". Setting it first (the `compare-and-set!` this replaced) made
-  `true` mean only \"someone has started\", which let a concurrent `make-frame`
-  seal a generation with no registration hook behind it. Publishing last also
+  place\". Setting it first (a `compare-and-set!` up front) would make
+  `true` mean only \"someone has started\", which would let a concurrent
+  `make-frame` seal a generation with no registration hook behind it.
+  Publishing last also
   makes the install FAILURE-ATOMIC: if a side effect throws, the flag stays
   false and the next `make-frame` retries, rather than the wiring being
   permanently missing behind a `true` flag. Returns nil."
   []
   (when-not @reprojection-installed?
     (rf.registrar/add-registration-hook! reproject-on-registration-change!)
-    ;; The REMOVAL twin (rf2-h1vqa4): `unregister!` / `clear-kind!` /
+    ;; The REMOVAL twin: `unregister!` / `clear-kind!` /
     ;; `clear-all!` are source-store changes exactly like a `reg-*` — a
     ;; cleared handler must DISAPPEAR from live default-image frames, not
     ;; linger in a sealed generation the store no longer backs. The registrar
@@ -1846,12 +1800,12 @@
     ;; its removal paths; same dirty-mark + coalescing as the register side.
     (rf.late-bind/set-fn! :live-frame/mark-projection-dirty! mark-dirty-and-schedule!)
     ;; The read-time coalesced flush consult in `call-with-frame-resolution`
-    ;; and `router/process-event!` (rf2-h1vqa4). Both consult by KEYWORD
+    ;; and `router/process-event!`. Both consult by KEYWORD
     ;; through `late-bind`, so the consult sites themselves root nothing —
     ;; only this publication does, and only `make-frame` reaches it.
     (rf.late-bind/set-fn! :live-frame/flush-projection! flush-projection-if-dirty!)
-    ;; NOT the place for `:live-frame/on-frame-destroyed!` (rf2-cq0yi audit of
-    ;; PR #8887): a once-body guarded by a `defonce` flag is skipped on every
+    ;; NOT the place for `:live-frame/on-frame-destroyed!`: a once-body
+    ;; guarded by a `defonce` flag is skipped on every
     ;; hot reload after the first frame, so a publication sited here never
     ;; re-arms. It is published at ns load instead — see the comment above
     ;; `release-frame-generation-pool!`. Nothing is lost by its absence here:
@@ -1871,25 +1825,24 @@
   one.
 
   `:live-frame/on-frame-destroyed!` is NOT installed here — it is published at
-  ns load (rf2-cq0yi), because a `defonce`-guarded once-body cannot re-arm a
+  ns load, because a `defonce`-guarded once-body cannot re-arm a
   hook on hot reload. See the comment above `release-frame-generation-pool!`.
 
   A PARTIALLY-INSTALLED REPROJECTION IS NEVER OBSERVABLE AS INSTALLED. That is
-  the invariant, and it is what makes the once-flag safe to read. This used to
-  be spelled `(when (compare-and-set! reprojection-installed? false true) …
-  side effects …)`, on the reasoning that CAS made the install-decision atomic
-  and therefore made a concurrent `make-frame` burst safe. It does not (rf2-9c2jf,
-  the merged-PR-#7114 audit): CAS ELECTS one installer, it does not make the
+  the invariant, and it is what makes the once-flag safe to read. A spelling
+  `(when (compare-and-set! reprojection-installed? false true) … side effects
+  …)` makes the install-DECISION atomic but does not make a concurrent
+  `make-frame` burst safe: CAS ELECTS one installer, it does not make the
   LOSERS WAIT for that installer's side effects to land. A second `make-frame`
-  read the flag as `true` while the elected installer was still between the CAS
-  and `add-registration-hook!`, concluded the wiring was in place, and SEALED
-  ITS GENERATION — the seal `rf.registrar/lookup` resolves every `(kind, id)`
-  through. A `reg-event` in that window fired no hook because no hook existed,
-  and once the installer finished there was no dirty mark left for anything to
-  flush: that frame was PERMANENTLY STALE, reporting
-  `:rf.error/no-such-handler` for a handler `rf.registrar/lookup` was holding at
-  that very moment. The original release blocker, recreated with no debug gate
-  in sight. Pinned by `reprojection_install_race_jvm_test.clj`.
+  could read the flag as `true` while the elected installer was still between
+  the CAS and `add-registration-hook!`, conclude the wiring was in place, and
+  SEAL ITS GENERATION — the seal `rf.registrar/lookup` resolves every
+  `(kind, id)` through. A `reg-event` in that window would fire no hook
+  because no hook existed, and once the installer finished there would be no
+  dirty mark left for anything to flush: that frame would be PERMANENTLY
+  STALE, reporting `:rf.error/no-such-handler` for a handler
+  `rf.registrar/lookup` was holding at that very moment. Pinned by
+  `reprojection_install_race_jvm_test.clj`.
 
   So the whole once-body — flag read, three side effects, flag write — is ONE
   critical section under `reprojection-install-lock`, and the flag is published
@@ -1900,7 +1853,7 @@
   see `reprojection-install-lock` for the deadlock argument.
 
   ROOTED FROM `make-frame`, NOT FROM NAMESPACE LOAD, and carrying NO
-  `rf.interop/debug-enabled?` gate (rf2-9c2jf). Both properties matter:
+  `rf.interop/debug-enabled?` gate. Both properties matter:
 
   * NO DEBUG GATE, because the invariant it maintains — a frame's sealed
     generation reflects the registration pool at resolution time — is a
@@ -1909,19 +1862,20 @@
     image-loaded, so the absence-is-default registrar-atom fall-through never
     fires on the make-frame path), and `rf.registrar/lookup` resolves through that
     generation for every dispatch / subscribe / fx / cofx inside
-    `call-with-frame-resolution`. Gating only the MAINTAINER left the PRODUCER
-    unconditional: under `-Dre-frame.debug=false` (and `:advanced` +
-    `goog.DEBUG=false`) the generation froze at `make-frame` time and every
-    later `reg-*` became invisible to dispatch — a `rf.registrar/lookup` that
-    succeeded on the atom while the same lookup inside the cascade returned
-    nil and the event failed with `:rf.error/no-such-handler`. The gate's
-    former justification (\"production stops `reg-*`-ing after boot, so there
-    is nothing to reproject\") does not hold: nothing orders all registrations
-    before all frame construction, and the ordinary
-    `make-frame` → `reg-*` → `dispatch` sequence is exactly the broken one.
+    `call-with-frame-resolution`. Gating only the MAINTAINER would leave the
+    PRODUCER unconditional: under `-Dre-frame.debug=false` (and `:advanced` +
+    `goog.DEBUG=false`) the generation would freeze at `make-frame` time and
+    every later `reg-*` would be invisible to dispatch — a
+    `rf.registrar/lookup` succeeding on the atom while the same lookup inside
+    the cascade returns nil and the event fails with
+    `:rf.error/no-such-handler`. \"Production stops `reg-*`-ing after boot, so
+    there is nothing to reproject\" does not hold: nothing orders all
+    registrations before all frame construction, and the ordinary
+    `make-frame` → `reg-*` → `dispatch` sequence is exactly the case a gate
+    would break.
 
-  * ROOTED FROM `make-frame`, because that preserves the reachability-DCE
-    contract the former ns-load `defonce` bought with its debug gate
+  * ROOTED FROM `make-frame`, because that gives the reachability-DCE
+    contract without a debug gate
     (`check-elision.cjs` PROD_ABSENT_WHEN_UNUSED pins
     `image-assembly/resolve-within-image` ABSENT when the probe never calls
     `make-frame`/`assemble`). An app that never constructs a frame never
@@ -1932,8 +1886,8 @@
     which goes stale.
 
   Nothing is lost by deferring the install: `mark-dirty-and-schedule!` skips
-  when no image-loaded frame exists, so the hook was a guaranteed no-op before
-  the first `make-frame` anyway."
+  when no image-loaded frame exists, so the hook would be a guaranteed no-op
+  before the first `make-frame` anyway."
   []
   #?(:clj  (locking reprojection-install-lock
              (install-reprojection!))
