@@ -31,8 +31,7 @@
   ## Theming
 
   Colours resolve through `theme/tokens/css-var` so light + dark both
-  flow through the host's CSS custom-property surface (per the
-  `var(--*)` requirement)."
+  flow through the host's CSS custom-property surface."
   (:require [reagent.core :as r]
             [day8.re-frame2-machines-viz.theme.tokens :as tokens]
             [day8.re-frame2-machines-viz.chart.overlays.overlay-anchor
@@ -103,8 +102,7 @@
         total     (count children)
         done      (count (filter :done? children))
         waiting   (max 0 (- total done))
-        ;; The join grammar is a closed keyword enum (`:all` / `:any` —
-        ;; rf2-w8gxxz cut the `{:n N}` / `{:fn pred}` map forms).
+        ;; The join grammar is a closed keyword enum (`:all` / `:any`).
         join-str  (str join)]
     [:div {:data-testid     (str "rf-mv-chart-spawn-all-join-" node-id)
            :data-node-id     node-id
