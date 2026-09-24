@@ -1,6 +1,6 @@
 (ns re-frame.test-quiet-runner-lifecycle-test
   "Lifecycle pins for `re-frame.test-quiet.runner/-main`'s reporter + shutdown-
-  hook restoration on RETURNING and THROWING invocations (rf2-j538f7.17).
+  hook restoration on RETURNING and THROWING invocations.
 
   `-main` installs an invocation-scoped `clojure.test/report :summary` method
   (the red-run stderr replay), swaps `System.err` to a bounded ring, and
@@ -83,14 +83,14 @@
 
 ;; ----------------------------------------------------------------------
 ;; A returning invocation restores the summary reporter, and a later run
-;; still emits its summary (criteria 1, 2).
+;; still emits its summary.
 ;;
-;; The core defect: `install-summary-replay-hook!` installed a global
-;; `:summary` defmethod closing over this run's ring + original-err and NEVER
-;; restored it.  After a returning `-main` (help/embedded), an unrelated
-;; `clojure.test` summary saw the stale ring and replayed a previous run's
-;; stderr, and the reporter method was permanently the wrapper.  The fix makes
-;; the method invocation-scoped, restored in `-main`'s `finally`.
+;; The core defect: a global `:summary` defmethod closing over this run's
+;; ring + original-err and NEVER restored.  After a returning `-main`
+;; (help/embedded), an unrelated `clojure.test` summary would see the stale
+;; ring and replay a previous run's stderr, and the reporter method would
+;; stay the wrapper for good.  So the method is invocation-scoped, restored
+;; in `-main`'s `finally`.
 
 (def ^:private returning-restores-summary-program
   (str program-preamble
@@ -133,11 +133,11 @@
           (str "expected the LIFECYCLE-OK marker; got:\n" out)))))
 
 ;; ----------------------------------------------------------------------
-;; Two returning invocations do not chain summary methods (criterion 3).
+;; Two returning invocations do not chain summary methods.
 ;;
-;; The pre-fix code wrapped the already-wrapped method on each call, so a
-;; later red summary walked the whole chain and replayed EVERY invocation's
-;; ring (two returning runs -> two replay blocks).  Invocation scoping means
+;; Wrapping the already-wrapped method on each call would make a later red
+;; summary walk the whole chain and replay EVERY invocation's ring (two
+;; returning runs -> two replay blocks).  Invocation scoping means
 ;; each run restores the prior method, so no chain accumulates.
 
 (def ^:private no-chain-program
@@ -170,13 +170,13 @@
       (is (not timed-out?) "the probe must terminate, not hang")
       (is (zero? exit)
           (str "two returning invocations must not chain reporters (RESTORED? true,"
-               " REPLAY-BLOCKS 0); the pre-fix code accumulated one replay block per"
+               " REPLAY-BLOCKS 0); a chained reporter would accumulate one replay block per"
                " invocation.\n--- stdout ---\n" out "\n--- stderr ---\n" err))
       (is (str/includes? out "NO-CHAIN-OK")
           (str "expected the NO-CHAIN-OK marker; got:\n" out)))))
 
 ;; ----------------------------------------------------------------------
-;; A throwing delegate restores state and propagates (criterion 4).
+;; A throwing delegate restores state and propagates.
 ;;
 ;; `-main`'s `finally` fires on the throwing path too: `System.err` and the
 ;; prior `:summary` method are restored, and the original exception propagates
@@ -219,7 +219,7 @@
           (str "expected the THROW-OK marker; got:\n" out)))))
 
 ;; ----------------------------------------------------------------------
-;; A pre-existing custom :summary method is preserved (criterion 5).
+;; A pre-existing custom :summary method is preserved.
 ;;
 ;; A third party may install its own `:summary` reporter before invoking the
 ;; runner.  `-main` must DELEGATE to it during the run (exactly once per
@@ -256,7 +256,7 @@
           (str "expected the CUSTOM-OK marker; got:\n" out)))))
 
 ;; ----------------------------------------------------------------------
-;; Returning invocations do not accumulate shutdown hooks (criterion 6).
+;; Returning invocations do not accumulate shutdown hooks.
 ;;
 ;; `-main` registers a stdout flush-on-exit hook through the
 ;; `*register-flush-hook!*` seam and deregisters it on every returning/throwing
