@@ -249,7 +249,7 @@
   [this]
   (.call (.-componentDidCatch (.-prototype rf.fresco.impl.boundary/boundary))
          this
-         (js/Error. "rf2-q9cf")
+         (js/Error. "a render error the boundary caught")
          #js {"componentStack" ""}))
 
 (deftest the-boundary-report-retains-no-frame-it-re-reads-one-every-time
