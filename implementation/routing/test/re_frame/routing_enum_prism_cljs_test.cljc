@@ -1,24 +1,25 @@
 (ns re-frame.routing-enum-prism-cljs-test
   "Cross-host round-trip tests for the keyword-enum leg of the route PRISM
-  (rf2-dcmkke, EP-0012 §Route Prism Laws). The companion JVM-only example
+  (EP-0012 §Route Prism Laws). The companion JVM-only example
   cases live in `routing_registry_test.clj` (`rf2-dcmkke-*`); THIS file is
   `*-cljs-test.cljc` so the shadow-cljs `:node-test` build (`cljs-test$`)
-  ALSO exercises the keyword-enum round-trip on the CLJS host — the bug was a
-  host-`(str :asc)` -> `%3Aasc` emission, and the cross-host conformance bar
-  (Spec 000 Goal 2) requires the prism leg to hold identically on both hosts.
+  ALSO exercises the keyword-enum round-trip on the CLJS host — a
+  host-`(str :asc)` -> `%3Aasc` emission is host-dependent, and the cross-host
+  conformance bar (Spec 000 Goal 2) requires the prism leg to hold identically
+  on both hosts.
 
-  ## The defect (rf2-dcmkke)
+  ## Why a keyword enum emits its token name
 
-  `route-url` serialized a keyword enum value with host `(str v)`, so a route
-  declaring `:query [:map [:sort [:enum :asc :desc]]]` emitted `:asc` as
+  Serializing a keyword enum value with host `(str v)` would make a route
+  declaring `:query [:map [:sort [:enum :asc :desc]]]` emit `:asc` as
   `%3Aasc`. `match-url`'s enum decoder
   (`[:rf.route/enum-keyword #{\"asc\" \"desc\"}]`) recognises only the declared
-  TOKEN NAMES (`asc`, `desc`), so `%3Aasc` decoded back to the STRING `\":asc\"`
-  — `match-url(route-url(...))` did NOT recover the canonical enum keyword.
-  Spec 012 §924-936 pins `[:enum :asc :desc]` to the wire form `sort=desc`
-  decoded to `{:sort :desc}`. The fix maps a declared keyword-enum value to its
-  schema token name on emission (query AND path), the exact inverse of the
-  decode, so `:asc` emits `asc` and round-trips.
+  TOKEN NAMES (`asc`, `desc`), so `%3Aasc` would decode back to the STRING
+  `\":asc\"` — `match-url(route-url(...))` would NOT recover the canonical enum
+  keyword. Spec 012 §924-936 pins `[:enum :asc :desc]` to the wire form
+  `sort=desc` decoded to `{:sort :desc}`. `route-url` maps a declared
+  keyword-enum value to its schema token name on emission (query AND path),
+  the exact inverse of the decode, so `:asc` emits `asc` and round-trips.
 
   `re-frame.schemas` is required so the late-bind validation hooks are
   published on BOTH hosts (schemas/src is on the node-test classpath), letting
@@ -99,13 +100,13 @@
 ;;
 ;; The deftests above pin the BOUNDED `[:enum …]` keyword prism (interns via
 ;; the allowlist, round-trips). A BARE (unbounded) `:keyword`-typed :params /
-;; :query slot is the un-round-trippable sibling (rf2-qot6ii): `route-url`
+;; :query slot is the un-round-trippable sibling: `route-url`
 ;; host-stringifies the keyword value (`:asc` → `%3Aasc`), but `match-url`
-;; keeps the URL segment a STRING (the rf2-3k3o7 keyword-interning guard),
+;; keeps the URL segment a STRING (the keyword-interning guard),
 ;; which then FAILS the route's own `:keyword` schema — so `route-url` builds
 ;; a URL that fails the SAME route's re-match. Like the `:double` precedent,
 ;; it is rejected fail-loud at reg-route (`reject-keyword-route-schema!`), NOT
-;; silently accepted. `[:enum …]` keyword slots stay supported.
+;; silently accepted. `[:enum …]` keyword slots are supported.
 
 (deftest bare-keyword-route-slot-rejected-at-reg-route-rf2-qot6ii
   (testing "a bare / optioned (unbounded) :keyword :params or :query slot is
