@@ -1,5 +1,5 @@
 'use strict';
-// THE ISOLATE POOL (rf2-hic-056, guarantees 3 and 4).
+// THE ISOLATE POOL (guarantees 3 and 4).
 //
 // One isolate renders one request at a time, so the pool size IS the
 // service's concurrency and there is no second knob pretending otherwise.
@@ -29,19 +29,18 @@ const { Isolate } = require('./isolate.cjs');
  * The third of these, after `worker.cjs`'s `reportRenderException` and
  * `isolate.cjs`'s `reportIsolateFault`, and written for the same reason:
  * closing a refusal's wording without opening the operator's copy trades a
- * leak for a silence. Not a new subsystem and no flag — `bin/serve.cjs`
- * already writes `[rf.ssr-node] …` here, so this is that stream under that
- * prefix, and a diagnostic that can be switched off is off on the day it is
- * wanted.
+ * leak for a silence. No separate subsystem and no flag — `bin/serve.cjs`
+ * writes `[rf.ssr-node] …` here, so this is that stream under that prefix,
+ * and a diagnostic that can be switched off is off on the day it is wanted.
  *
  * UNCONDITIONAL, WHICH THE OTHER TWO ARE NOT. `reportIsolateFault` is
  * guarded on there being a pending render because the unguarded half of
  * that handler is the boot phase, which has its own diagnostic. This path
  * has no second reporter at all: the caller-facing statement is a loop over
- * `waiters`, so a replacement that failed with an EMPTY queue used to reach
- * nobody — the pool shrank by an isolate and the process said nothing. That
- * silence is the more dangerous of the two failures being fixed here,
- * because a leak is at least visible to somebody.
+ * `waiters`, so without this a replacement that failed with an EMPTY queue
+ * would reach nobody — the pool would shrink by an isolate and the process
+ * would say nothing. That silence is more dangerous than a leak, because a
+ * leak is at least visible to somebody.
  *
  * The `Refusal` arriving here carries the real trace in its `detail`
  * (`isolate.cjs`'s boot receiver puts `err.stack` there), so `detail` is
@@ -80,8 +79,7 @@ class Pool {
      * see, and leaves a live worker thread behind holding the event loop
      * open. The symptom is a suite that passes every assertion and then
      * hangs forever, which reads as a broken test rather than a leaked
-     * thread. Measured, not theorised: the timeout witness hit exactly
-     * this the first time it ran.
+     * thread.
      */
     this.startingReplacements = new Set();
     this.closed = false;
@@ -205,12 +203,10 @@ class Pool {
         // Every waiter is refused rather than left holding a promise that
         // will only ever be settled by its own admission timer.
         //
-        // AND EVERY BOOT REFUSAL STOPS HERE, which is the whole of the
-        // change rf2-2hmg made. This arm used to forward `err` untouched
-        // whenever it was already a `Refusal`, and to interpolate
-        // `err.message` when it was not — so both halves of the ternary
-        // published something a waiter had no business seeing, and the
-        // pass-through was the wider of the two. What arrives here is a
+        // AND EVERY BOOT REFUSAL STOPS HERE. Forwarding `err` when it is a
+        // `Refusal`, or interpolating `err.message` when it is not, would
+        // each publish something a waiter has no business seeing, and the
+        // pass-through would be the wider of the two. What arrives here is a
         // BOOT refusal, and `isolate.cjs` builds those for an operator
         // standing at a process that would not start: the module's own
         // message, `err.stack` in the `detail`, the module path, and a
@@ -227,8 +223,8 @@ class Pool {
         // refused capacity would ask next.
         //
         // The real failure goes to stderr FIRST, and unconditionally; see
-        // `reportReplacementFault` for why that is part of the fix rather
-        // than a courtesy.
+        // `reportReplacementFault` for why that is part of the contract
+        // rather than a courtesy.
         (err) => {
           reportReplacementFault(this.modulePath, err);
           for (const waiter of this.waiters.splice(0)) {
