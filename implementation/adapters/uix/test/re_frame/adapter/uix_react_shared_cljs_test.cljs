@@ -1,17 +1,14 @@
 (ns re-frame.adapter.uix-react-shared-cljs-test
   "UIx entry-point for the parameterised React-adapter suite
-  (`re-frame.adapter.react-shared-suite`, rf2-sx77q).
+  (`re-frame.adapter.react-shared-suite`).
 
   UIx wires its entire public surface out of the
   `spine/make-react-spine` factory, so every spine-shared behaviour is
   asserted once in the shared suite and forwarded here with the UIx
-  config. The suite dates from when UIx and Helix were twin spine
-  adapters (Helix removed at S7/W13, rf2-d6epb) and stays parameterised:
-  any future React-hook adapter picks up the whole surface by adding one
-  entry file like this one.
+  config. The suite is parameterised: any other React-hook adapter picks
+  up the whole surface by adding one entry file like this one.
 
-  Per rf2-6hphn the ~50 deftest forwarders (once hand-paired with the
-  Helix twin entry file) are generated from a single `test-specs`
+  The ~50 deftest forwarders are generated from a single `test-specs`
   literal in `re-frame.adapter.react-shared-suite-tests` (a `.clj`
   compile-time macro ns, mirroring the conformance-fixtures pattern).
   The entry file reduces to: an adapter `:require`, a fixture, a `cfg`
@@ -24,27 +21,25 @@
   dispose MUSTs 1–4 + best-effort poison tolerance (G3), source-coord
   DOM stamping incl. the format-shape split (G2), view-id tagging,
   frame-context-corrupted (G4), warn-once fire-once + per-id (G5), the
-  write-after-destroy guard (rf2-sx77q); plus, per rf2-p4736, the rest
-  of the folded twin clusters: render-time parity (hot-reload
+  write-after-destroy guard; plus render-time parity (hot-reload
   re-register, anonymous render-key, wrap-view callable), reg-event
   metadata-interceptor warnings, render-to-string + late-bind chain
   wiring, the late-bind hook publication set + directory cross-check,
   chained clear-warn-once-caches!, the routing pipeline, the headless
   runtime slice, :rf.view/rendered, make-derived-value per-arity +
   watch-baseline, managed-HTTP, the cross-Spec headless subset, and
-  (rf2-6j09b) the public-surface guard: presence/kind/cross-wiring
-  distinctness of the eight re-exported Vars + the adapter-map :kind +
-  contract-fn shape, folded from the former uix_public_surface_cljs_test.cljs.
+  the public-surface guard: presence/kind/cross-wiring distinctness of
+  the nine re-exported Vars + the adapter-map :kind + contract-fn shape.
 
-  The async *current-frame*-across-dispatch contract (rf2-l5q3) is
+  The async *current-frame*-across-dispatch contract is
   forwarded from a dedicated entry pair carrying a map-form fixture —
   `uix_dispatch_frame_capture_cljs_test.cljs` — because async tests
   require a {:before :after} fixture so :after lands after `done`.
 
-  Remaining UIx twins NOT folded here (DOM/browser — they define
-  substrate-specific component vars via `defui`/`$`): `after_render_dom`
-  and `use_sub_dom`. Splitting those into the shared suite needs a
-  node-vs-browser component-element parameterisation; tracked separately.
+  The DOM/browser entry files `after_render_dom` and `use_sub_dom` are
+  separate because they define substrate-specific component vars via
+  `defui`/`$`; they forward to the same suite, handing those components
+  in as elements.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [use-fixtures]]
@@ -60,28 +55,26 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.uix/adapter}))
 
-;; rf2-7kjz8 / rf2-z7hfp / rf2-7kii2 — the frame-provider branch assertions
-;; now target the substrate-agnostic spine core
-;; (`build-frame-provider-element`) directly, so no `:frame-provider` cfg
-;; key is needed here. The native-shell-under-`$` behaviour (including the
-;; idiomatic trailing-children call shape) is pinned by the use-sub
-;; DOM twin + the trailing-children regression test (folded from the prior
-;; per-adapter uix_frame_provider_branches_cljs_test.cljs).
+;; The frame-provider branch assertions target the substrate-agnostic spine
+;; core (`build-frame-provider-element`) directly, so no `:frame-provider`
+;; cfg key is needed here. The native-shell-under-`$` behaviour (including
+;; the idiomatic trailing-children call shape) is pinned by the use-sub DOM
+;; twin's trailing-children test.
 (def ^:private cfg
   {:adapter          rf.adapter.uix/adapter
    :substrate-kw     :uix
    :name             "UIx"
    :producer-ns      're-frame.adapter.uix
-   ;; rf2-kuky.57: the adapter no longer publishes a `wrap-view` Var, so the
-   ;; suite reaches the identical fn through the `:adapter/wrap-view` late-bind
-   ;; hook — the door `views/reg-view*` uses on every registration.
+   ;; The adapter publishes no `wrap-view` Var, so the suite reaches the
+   ;; identical fn through the `:adapter/wrap-view` late-bind hook — the door
+   ;; `views/reg-view*` uses on every registration.
    :wrap-view        rf.adapter.react-test-support/adapter-wrap-view
    :set-emitter!     rf.adapter.uix/set-hiccup-emitter!
    :render-to-string (:render-to-string rf.adapter.uix/adapter)
-   ;; rf2-6j09b / rf2-6r9j.36 — the public Vars the suite's public-surface
-   ;; guard asserts (presence/kind/distinctness). Substrate-specific because
-   ;; each adapter's re-exports are distinct objects the suite cannot name
-   ;; directly; folded from the former uix_public_surface_cljs_test.cljs.
+   ;; The public Vars the suite's public-surface guard asserts
+   ;; (presence/kind/distinctness). Substrate-specific because each
+   ;; adapter's re-exports are distinct objects the suite cannot name
+   ;; directly.
    ;;
    ;; The roster IS `spec/api-manifest.edn`'s `re-frame.adapter.uix` rows
    ;; minus `adapter` — nine supported fns; `adapter` is checked by the
@@ -90,15 +83,11 @@
    ;; reverse) is the drift this roster exists to catch. It deliberately
    ;; does NOT name the spine's warn-once clear thunk — that is internal,
    ;; carries no manifest row, and is reached through the chained
-   ;; `:adapter/clear-warn-once-caches!` hook (rf2-6r9j.36).
+   ;; `:adapter/clear-warn-once-caches!` hook.
    ;;
-   ;; rf2-kuky.57 dropped `use-current-frame` and `wrap-view` (retired as
-   ;; public Vars — the mechanisms stay, respectively inside the ambient
-   ;; `use-sub` body and behind the `:adapter/wrap-view` hook) and renamed
-   ;; `use-subscribe` to `use-sub`. The client-root trio rf2-kuky.56 added
-   ;; joins here in the same pass: it carried manifest rows from the day it
-   ;; landed and this roster had not caught up, which is exactly the drift the
-   ;; paragraph above asks a reader to close.
+   ;; There is no `use-current-frame` or `wrap-view` Var: those mechanisms
+   ;; live inside the ambient `use-sub` body and behind the
+   ;; `:adapter/wrap-view` hook respectively.
    :public-surface-keys [:set-hiccup-emitter! :frame-provider :frame-root
                          :use-sub :use-frame :flush-views!
                          :client-root :render! :unmount!]
