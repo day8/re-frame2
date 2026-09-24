@@ -1,6 +1,6 @@
 (ns re-frame.resources-clear-artefact-missing-cljs-test
   "The documented missing-artefact contract for the RESOURCES arm of
-  `(rf/clear kind id)` (rf2-kuky.80).
+  `(rf/clear kind id)`.
 
   `rf/clear` dispatches each kind to its OWNING lifecycle fn, and for the
   resources trio (`:resource` / `:mutation` / `:resource-scope`) that route
@@ -11,12 +11,11 @@
   re-exported resources surface honours — rather than a nil-hook no-op, a
   NullPointerException, or a silent success.
 
-  That is the property this file pins, and nothing else covered it. The
-  flows and routing artefacts each carry a `re-frame.late-bind-missing-test`
-  making the equivalent assertion for their own hooks; the resources
-  artefact had no sibling. The only `:rf.error/resources-artefact-missing`
-  assertion in the tree before this file was in
-  `re-frame.resources-revalidation-cljs-test`, which exercises the
+  That is the property this file pins. The flows and routing artefacts each
+  carry a `re-frame.late-bind-missing-test` making the equivalent assertion
+  for their own hooks; this file is the resources sibling.
+  `re-frame.resources-revalidation-cljs-test` also asserts
+  `:rf.error/resources-artefact-missing`, but for the
   `:resources/on-frame-registered!` hook from `rf/make-frame` — a different
   hook reached through a different surface, and nothing to do with clearing.
 
