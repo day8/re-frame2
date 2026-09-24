@@ -1,43 +1,42 @@
 (ns re-frame.machine-destroy-tail-incarnation-fence-test
   "The ORDINARY `:rf.machine/destroy` teardown tail is fenced to the exact
-  incarnation that entered it (rf2-i4aj9c). It completes the family started
-  by #5873/rf2-hloj0g (spawn / finalize tails) and #5889/rf2-4ipqe4 (timer /
-  registrar / spawn-write tails): those two fenced the FINAL-STATE auto-destroy
-  path (`finalize-machine`) and the spawn cascade, and this covers the three
-  tails they ran ahead of:
+  incarnation that entered it, like the FINAL-STATE auto-destroy path
+  (`finalize-machine`), the spawn cascade and the timer / registrar /
+  spawn-write tails. Three tails need the fence:
 
     1. ORDINARY `:rf.machine/destroy` — the effect runs inside the destroying
-       event's drain (an exact event-owner binding), but `teardown-live-actor!`
-       ran an UNFENCED pipeline: the `:exit` cascade, the late-bound HTTP-abort
-       hook, the `:rf.machine.timer/cancelled` traces, the bare classification
-       drop, the bare durable teardown projection, the `:rf.machine/destroyed`
+       event's drain (an exact event-owner binding), and `teardown-live-actor!`
+       runs a pipeline: the `:exit` cascade, the late-bound HTTP-abort
+       hook, the `:rf.machine.timer/cancelled` traces, the classification
+       drop, the durable teardown projection, the `:rf.machine/destroyed`
        trace, the spawn-order forget, the `:rf.registry/handler-cleared`
        trace, and the resource-owner release. A
-       callback at ANY of those boundaries could destroy A / publish same-id B,
-       and the whole tail continued against B. FIX: capture A's continuation +
-       raw token ONCE at the effect entry, recheck after every callback-bearing
-       boundary, and route the durable writes through the exact owner token.
+       callback at ANY of those boundaries can destroy A / publish same-id B,
+       and an unfenced tail would continue against B. So A's continuation +
+       raw token are captured ONCE at the effect entry, rechecked after every
+       callback-bearing boundary, and the durable writes route through the
+       exact owner token.
 
-    2. CLASSIFICATION — `lower-at-spawn!` / `drop-at-destroy!` wrote the
-       per-instance `:sensitive` / `:large` declarations through the BARE
-       two-arity elision swap. A container watch that destroyed A mid-write
-       re-rooted the claim onto same-id B's registry. FIX: thread A's
-       `owner-token` through the EXACT elision write (the same exact-write the
-       flow lifecycle ops issue).
+    2. CLASSIFICATION — `lower-at-spawn!` / `drop-at-destroy!` write the
+       per-instance `:sensitive` / `:large` declarations. Through the BARE
+       two-arity elision swap, a container watch that destroyed A mid-write
+       would re-root the claim onto same-id B's registry, so A's
+       `owner-token` is threaded through the EXACT elision write (the same
+       exact-write the flow lifecycle ops issue).
 
     3. SUBSCRIPTION-VECTOR TIMER — `cancel-after-timer-entry!` emits the
        callback-bearing `:rf.machine.timer/cancelled` trace and THEN releases
        the timer entry, whose `rf.subs/unsubscribe frame-id delay-key` decrements
        the subscription cache ref-count keyed by `(frame-id, query-v)`. A
        listener that re-armed the SAME query in same-id B would have A's release
-       dispose B's fresh reaction. FIX: skip ONLY that shared decrement once A
-       is lost (the entry's own host handle / watcher still release).
+       dispose B's fresh reaction, so ONLY that shared decrement is skipped once
+       A is lost (the entry's own host handle / watcher still release).
 
   These fixtures drive the `:rf.machine/destroy` EFFECT (`destroy-machine-fx`)
   DIRECTLY under a bound event owner (A's dequeue-time token) with a destroyer
   that publishes same-id B on the callback's / hook's own stack, and assert B
-  stays byte-identical — the deterministic, single-threaded shape the #5873 /
-  #5889 fence fixtures use. Each loss fixture pairs with a LIVE-OWNER control
+  stays byte-identical — the deterministic, single-threaded shape the other
+  incarnation-fence fixtures use. Each loss fixture pairs with a LIVE-OWNER control
   that must still tear down / release exactly once (the mutation tooth against an
   over-eager fence), plus an EVENTLESS frame-destroy control that retains full
   authority."
@@ -151,7 +150,7 @@
           nil)))
     (try
       (when (= trigger :http-abort)
-        ;; rf2-wjfm — the cascade calls the hook's frame-bearing arity.
+        ;; The cascade calls the hook's frame-bearing arity.
         (rf.late-bind/set-fn! :http/abort-on-actor-destroy
                            (fn [_frame-id _actor-id] (destroy+B!) nil)))
       (let [token-a (rf.frame/frame-incarnation-token frame-a)]
@@ -184,8 +183,7 @@
             exit cascade, so the HTTP-abort / classification drop / timer cancel
             / teardown projection / destroyed trace / spawn-order forget /
             registrar unregister / resource-release tail is
-            all fenced. Mutation tooth: the historically-unfenced tail runs
-            against B."
+            all fenced. Mutation tooth: an unfenced tail runs against B."
     (let [result (run-destroy-tail :rf2-i4aj9c/exit-frame :exit)]
       (is (true? (:fired? result)) "the :exit action ran (fence exercised)")
       (assert-b-inert result))))
@@ -448,7 +446,7 @@
   "Install a plain-atom-backed adapter whose `replace-container!` runs `on-write`
   exactly once, the first time a container write happens while `armed?` holds.
   The physical write always lands FIRST so A's write that linearized before the
-  loss stands in A's captured container. Mirrors the #5889 spawn-write seam."
+  loss stands in A's captured container. Mirrors the spawn-write fence seam."
   [armed? on-write]
   (let [base-replace (:replace-container! rf.substrate.plain-atom/adapter)]
     (rf.substrate.adapter/dispose-adapter!)
