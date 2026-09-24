@@ -1,6 +1,6 @@
 (ns re-frame.story-mcp.tools.dedup-test
   "Consumer-integration + payload-ratio coverage for the structural-dedup
-  wire-boundary transform (rf2-90eft).
+  wire-boundary transform.
 
   Per `tools/story-mcp/spec/Principles.md` §Structural dedup at the wire
   boundary, a dedup-eligible tool's `:structuredContent` payload is
@@ -13,11 +13,10 @@
 
   The CANONICAL dedup behaviour (`empty-payload?`, `dedup-value` wrap /
   passthrough / marker shape, round-trip exactness) is asserted ONCE,
-  cross-host, in `re-frame.mcp-base.dedup-test` (rf2-ywkiss) — story-mcp
-  now requires `re-frame.mcp-base.dedup` DIRECTLY (the `tools.dedup`
-  pass-through facade was removed), so re-asserting the same behaviour
-  here would just duplicate that suite. What stays here is the coverage
-  the base suite CANNOT own:
+  cross-host, in `re-frame.mcp-base.dedup-test` — story-mcp requires
+  `re-frame.mcp-base.dedup` DIRECTLY (there is no story-mcp pass-through
+  facade), so re-asserting the same behaviour here would just duplicate
+  that suite. What lives here is the coverage the base suite CANNOT own:
 
     - the wire-boundary envelope integration
       (`rf.story-mcp.tools.wire-pipeline/apply-dedup` dual-slot rewrite, sibling-slot
@@ -27,13 +26,12 @@
       `run-variant` fixture.
 
   The test-only inverse (`dedup-expand`) lives in
-  `re-frame.story-mcp.test-support` (rf2-ywkiss moved it out of the
-  removed production `tools.dedup` namespace); the MCP server never
-  inverts the transform at runtime.
+  `re-frame.story-mcp.test-support`; the MCP server never inverts the
+  transform at runtime.
 
   `:dedup` MCP-arg normalisation lives on the shared
-  `re-frame.mcp-base.args/parse-boolean` table-driven parser (rf2-c4fmh)
-  — coverage is in `mcp-base`'s args tests."
+  `re-frame.mcp-base.args/parse-boolean` table-driven parser — coverage
+  is in `mcp-base`'s args tests."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
             [re-frame.story-mcp.test-support :as rf.story-mcp.test-support]
@@ -42,11 +40,10 @@
             [re-frame.story-mcp.tools.registry :as rf.story-mcp.tools.registry]))
 
 ;; ---------------------------------------------------------------------------
-;; Reduction-ratio sanity. The bead requires a non-trivial ratio on a
-;; realistic story-mcp fixture; we assert against the current run-
-;; variant shape (`:app-db` + `:effective-args` + `:snapshot` carrying
-;; the same large nested map) since that's the wire surface this work
-;; targets. The deduper is shape-agnostic — it collapses repeated big-db
+;; Reduction-ratio sanity. Dedup must earn a non-trivial ratio on a
+;; realistic story-mcp fixture; we assert against the run-variant
+;; shape (`:app-db` + `:effective-args` + `:snapshot` carrying the same
+;; large nested map) since that's the wire surface dedup targets. The deduper is shape-agnostic — it collapses repeated big-db
 ;; refs regardless of the surrounding verdict keys. This is the
 ;; consumer's payload-ratio coverage (the base suite pins correctness,
 ;; not the wire-size win on a realistic story-mcp shape).
@@ -112,7 +109,7 @@
 (deftest apply-dedup-rewrites-both-slots-consistently
   ;; The load-bearing wire-boundary invariant: BOTH `:structuredContent`
   ;; AND `:content[*].text` get the deduped payload, so the cap step
-  ;; sees the post-dedup size on both slots (rf2-mzndx).
+  ;; sees the post-dedup size on both slots.
   (let [shared  {:big "value" :tags [:a :b :c]}
         payload [{:id 1 :data shared} {:id 2 :data shared} {:id 3 :data shared}]
         result  (rf.story-mcp.tools.result/text-result (rf.story-mcp.tools.result/pr-edn payload) payload)
@@ -129,12 +126,12 @@
 
 (deftest apply-dedup-accepts-sorted-structured-content
   ;; The wire boundary has to READ ordinary persistent app-db state, not
-  ;; fail on it. A sorted index keyed by path vectors used to throw
+  ;; fail on it. A sorted index keyed by path vectors would throw
   ;; `ClassCastException` out of the default-on dedup step the moment one
-  ;; key was pooled and another beside it was not — the placeholder symbol
-  ;; reached the tree comparator. The repair is in the shared walk
-  ;; (`re-frame.mcp-base.dedup`); this is the consumer-side pin that the
-  ;; envelope survives it with both slots consistent. No story-mcp
+  ;; key was pooled and another beside it was not, were the placeholder
+  ;; symbol to reach the tree comparator. The shared walk
+  ;; (`re-frame.mcp-base.dedup`) handles that; this is the consumer-side
+  ;; pin that the envelope survives it with both slots consistent. No story-mcp
   ;; production logic is involved.
   (let [shared  [1 2 3]
         payload {:index (sorted-map shared :old [4 5 6] :new)
