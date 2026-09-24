@@ -6,8 +6,8 @@
   `:large [[:docs :csv]]` alongside `:db` to hydrate
   `[:rf.runtime/elision :declarations]`, and `:sensitive [[…]]` to hydrate
   `[:rf.runtime/elision :sensitive-declarations]` (written by
-  `apply-classification-effects` under `:source :effect`). EP-0025: the
-  durable `:sensitive` / `:large {:app-db …}` *frame annotation* is REMOVED
+  `apply-classification-effects` under `:source :effect`). Per EP-0025 there
+  is no durable `:sensitive` / `:large {:app-db …}` *frame annotation*
   — a frame is not app-db's definition site. The other sources that populate
   these slots are `reg-flow` output declarations (`:source :flow`) and
   subsystem projection-relative declarations (resources / routing); all
@@ -23,8 +23,8 @@
   classification is machine-owned and projection-relative — top-level
   `:sensitive` / `:large` on the `reg-machine` spec
   (`re-frame.machines.classification`), lowered per actor instance INTO this
-  registry under `:source :machine` (Spec 015 §State machines; the root
-  `:data-schema` slot EP-0005 named is retired per EP-0029 A3). There are no
+  registry under `:source :machine` (Spec 015 §State machines; there is no
+  root `:data-schema` slot, per EP-0029 A3). There are no
   imperative large-path APIs.
 
   EP-0001: the elision declaration registry is DURABLE,
@@ -73,27 +73,26 @@
   entries elide). Per API.md §Configure keys (`:elision`) and Spec 009
   §Size elision in traces. Routed from `re-frame.core/configure!`.
 
-  ONE KEY, NOT TWO (rf2-kuky.93). This process-level knob and the per-call
+  ONE KEY, NOT TWO. This process-level knob and the per-call
   egress opt are the SAME keyword read out of two maps — the precedence
   ladder at the top of this namespace is `explicit opt > this config >
   default`, and `configured-threshold-bytes` below reads
   `:rf.egress/threshold-bytes` from `@config` exactly as `elide-against-frame`
-  reads it from `opts`. So it renamed with the rest of the vocabulary rather
-  than being left behind under `:rf.size/*`; API.md §Opts-key naming rule
+  reads it from `opts`. So it shares the `:rf.egress/*` namespace with the
+  rest of the vocabulary; API.md §Opts-key naming rule
   names this key as its worked example of a sub-key that earns a namespace
   precisely BECAUSE it is one contract with more than one reader.
 
   Unlike the egress opts maps, this one is NOT closed — `select-keys` drops
-  an unrecognised key silently, so a caller left on the retired
-  `:rf.size/threshold-bytes` configures nothing rather than throwing: the
+  an unrecognised key silently, so a caller passing a misspelled or
+  unknown key configures nothing rather than throwing: the
   `merge` is a no-op, so whatever threshold is already in effect stays in
   effect. What that costs is a DIAGNOSTIC, never an egress: this number is
   read at exactly one place — the leaf arm that fires
   `:rf.warning/large-value-unschema'd` — and an over-threshold unschema'd
   value ships UNCHANGED at any threshold. Declared `:large` and
   `:sensitive` paths elide and redact without consulting it, 0 included.
-  Closing this map is a separate question about `configure!` generally, not
-  about this rename."
+  Closing this map is a separate question about `configure!` generally."
   [opts]
   (when (map? opts)
     (swap! config merge (select-keys opts [:rf.egress/threshold-bytes])))
@@ -104,7 +103,7 @@
 
   IMPLEMENTATION SEAM, not a public reader — the public door is
   `re-frame.core/current-config`, which reports this map under its
-  `:elision` key (rf2-kuky.73 / rf2-kuky.4 rider A-ii). The facade
+  `:elision` key. The facade
   calls straight through to here rather than via the late-bind table,
   because elision ships in core and is never an optional artefact."
   []
@@ -153,7 +152,7 @@
     :else
     runtime-db))
 
-;; ---- multi-owner claim registry (rf2-wdm1vg) -----------------------------
+;; ---- multi-owner claim registry ------------------------------------------
 ;;
 ;; The per-frame elision registry is a MULTI-OWNER claim registry. Each axis
 ;; slot (`:sensitive-declarations` / `:declarations`) maps a concrete
@@ -168,9 +167,9 @@
 ;;
 ;; Independent owners UNION: a path is redacted / size-marked at egress while
 ;; ANY owner claims it, and it is pruned from the registry only when its LAST
-;; owner drops. This is the privacy-boundary correctness property (rf2-wdm1vg).
-;; Before it, the registry held one owner per path, so a second owner's claim
-;; either overwrote the first (then deleted it on teardown) or was silently
+;; owner drops. This is the privacy-boundary correctness property.
+;; With one owner per path, a second owner's claim would
+;; either overwrite the first (then delete it on teardown) or be silently
 ;; ignored — a route change / actor teardown could un-redact an
 ;; effect-classified path (a fail-open on the AI-egress privacy boundary). The
 ;; egress read needs only PRESENCE (sensitive) or a STABLE provenance derived
@@ -184,7 +183,7 @@
   "The owner identity the EP-0025 commit-plane classification effects claim
   under. A distinguished value: it is the ONLY in-band owner — written WITH
   the `:db` commit as part of the candidate frame transition, so it installs
-  only when the whole transition passes candidate validation (rf2-uhk9ko: a
+  only when the whole transition passes candidate validation (a
   rejected candidate never installs, so no rollback overlay exists)."
   {:source :effect})
 
@@ -270,16 +269,14 @@
   `:source` present (`source-provenance-priority`); for a set carrying only
   unrecognised sources it picks the lexicographically-first source (still
   deterministic); falls back to `:effect` for an empty set (defensive —
-  matches the historical `->marker` default)."
+  matches the `->marker` default)."
   [owners]
   (let [sources (into #{} (keep :source) owners)]
     (or (some sources source-provenance-priority)
         (first (sort sources))
         :effect)))
 
-;; rf2-uhk9ko: the former `restore-elision-slot` (the EP-0025 SOURCE-AWARE
-;; rollback overlay, rf2-5lo1fk / rf2-fwejwc / rf2-o6rsi2) is DELETED. Its
-;; only producer was the router's post-commit schema-rollback arm; under
+;; There is no rollback overlay for the registry: under
 ;; validate-before-install a rejected candidate transition is discarded
 ;; before any container write, so there is no rollback and nothing to
 ;; overlay — the in-band `effect-owner` claims simply never install.
@@ -290,7 +287,7 @@
 
   A framework-authority event may return a `:rf.db/runtime` effect whose
   value WHOLE-VALUE-REPLACES the runtime-db partition (Spec 002 §A runtime
-  effect replaces only runtime-db; router commit decision #5). But the
+  effect replaces only runtime-db; EP-0001 decision #5). But the
   elision declaration registry at `[:rf.runtime/elision]` is a CROSS-CUTTING
   durable subsystem child mutated OUT-OF-BAND by `reg-flow` / the EP-0025
   classification effects / subsystem projection-relative declarations — NOT by
@@ -355,12 +352,12 @@
   runtime-db partition of the one physical frame-state container) — the
   elision registry is durable framework state and lives in runtime-db.
 
-  rf2-vxgfnd.155 — the 3-arity is the EXACT-INCARNATION variant the flow
+  The 3-arity is the EXACT-INCARNATION variant the flow
   lifecycle ops (`clear-flow` / `reg-flow`) issue while an event owns the
   frame: it routes through `rf.frame/swap-runtime-db-exact!` so a synchronous
   container watch that destroys A and publishes same-id B during this durable-
   registry write cannot bump B's commit epoch or write B's runtime-db. The
-  2-arity is the historical bare-id write (EP-0025 classification effects,
+  2-arity is the bare-id write (EP-0025 classification effects,
   machine / routing subsystem claims)."
   ([frame-id f]
    (rf.frame/swap-runtime-db! frame-id #(apply-elision-transform f %))
@@ -491,7 +488,7 @@
   in the axis slot (`:sensitive-declarations` / `:declarations`), UNIONING with
   any foreign owner already on the path (`add-claims`): a SET on a path another
   owner claims (`:source :flow` / `:machine` / `:route` / `:resource`) leaves
-  that owner in place AND records the effect owner alongside it (rf2-wdm1vg),
+  that owner in place AND records the effect owner alongside it,
   so both claims survive independently. Each CLEAR key (`:clear-sensitive` /
   `:clear-large`) removes ONLY the `effect-owner` from its named paths
   (`remove-claims`); a path still claimed by another owner stays redacted (the
@@ -599,19 +596,20 @@
   `:rf.egress/threshold-bytes`, to decide whether a string leaf at an undeclared
   path fires `:rf.warning/large-value-unschema'd`.
 
-  Until rf2-2rtt6.135 the `:cljs` arm was `(count (pr-str v))` — UTF-16 CODE
-  UNITS, since `count` on a CLJS string is `.-length`. The `:clj` arm has always
-  counted bytes, so one figure had two rulers: the same app-db leaf could warn
-  on the JVM and pass silently in the browser, and every marker CLJS published
-  under-reported `:bytes` by up to 3x (4x on astral). Code units agree with
-  UTF-8 bytes only for ASCII, which is what makes the mistake fail OPEN — on an
+  Both arms count UTF-8 bytes. The obvious `:cljs` expression,
+  `(count (pr-str v))`, would count UTF-16 CODE UNITS, since `count` on a
+  CLJS string is `.-length`, so one figure would have two rulers: the same
+  app-db leaf could warn on the JVM and pass silently in the browser, and
+  every marker CLJS published would under-report `:bytes` by up to 3x (4x on
+  astral). Code units agree with
+  UTF-8 bytes only for ASCII, which is what makes that mistake fail OPEN — on an
   ASCII payload the wrong expression prints the right number and a green suite
   never notices, until a value grows an em-dash, an ellipsis or an emoji. An
   ASCII-only test cannot see it, hence the non-ASCII + ASTRAL fixtures in
   `elision_pr_str_bytes_cljs_test.cljc`.
 
-  The correction can only ever TIGHTEN: UTF-8 bytes are never fewer than UTF-16
-  code units, so no leaf that warned before falls silent now. Nothing is dropped
+  Bytes are the TIGHTER ruler: UTF-8 bytes are never fewer than UTF-16
+  code units. Nothing is dropped
   or refused either way — per Privacy.md the threshold is **advisory, not a
   cap**, and 009 records the recovery as `:warned-and-replaced`: the
   over-threshold unschema'd value ships UNCHANGED. Only declared / schema-marked
@@ -623,8 +621,7 @@
   encoding argument a later edit can silently drop — and is present in every
   browser and in Node. The `^js` hints keep `:advanced` from renaming the
   interop call. Same helper shape as `re-frame.ssr.hash`, the fresco lane's
-  `utf8-bytes` (rf2-2rtt6.121) and xray's `format/pr-str-bytes`
-  (rf2-2rtt6.131)."
+  `utf8-bytes` and xray's `format/pr-str-bytes`."
   [v]
   (let [s (pr-str v)]
     #?(:clj  (alength (.getBytes ^String s "UTF-8"))
@@ -649,7 +646,7 @@
   optional `:digest` slot. JVM only: the browser build returns nil (no
   synchronous digest without pulling a crypto library into core), and
   `->marker` then OMITS the slot rather than shipping `:digest nil`, which
-  the normative marker schema rejects (rf2-3x7nj.32.6)."
+  the normative marker schema rejects."
   [v]
   #?(:clj
      (let [bytes (.getBytes ^String (pr-str v) "UTF-8")
@@ -668,9 +665,9 @@
 
   The `:handle` is always the two-element `[:rf.elision/at <path>]`, a
   live-path locator — the only shape Spec-Schemas `:rf/elision-marker` types
-  (rf2-aakv6 retired the `:as-of-epoch` variant, which the schema rejects)."
+  (there is no `:as-of-epoch` variant; the schema rejects one)."
   [v path {:keys [hint include-digests? reason]}]
-  (let [;; rf2-3x7nj.32.6 — `:digest` is associated only when a digest string
+  (let [;; `:digest` is associated only when a digest string
         ;; was actually computed; the browser build computes none, and an
         ;; `:digest nil` both fails the schema and reads as a false "unchanged".
         digest (when include-digests? (sha256-hex v))
@@ -693,7 +690,7 @@
   matched path's retained `large-owners` set and the walk `ctx` (its
   `:include-digests?`). The 3-key option map the path-based
   wire walker (`walk-decider`) passes to `->marker`. A large path may carry
-  several independent owners (rf2-wdm1vg); the marker's `:reason` picks the
+  several independent owners; the marker's `:reason` picks the
   highest-priority source deterministically (`owners->provenance`) and its
   `:hint` rides from that SAME owner (when the declaration carried one), so the
   wire shape is reproducible."
@@ -785,8 +782,8 @@
 ;; descend the SAME node domain — map → reduce-kv, vector|seq → positional
 ;; reduce with an integer index, set → element-wise pass-through — and differ
 ;; ONLY in the per-node DECIDER and how each forks its traversal STATE through
-;; a descent. `walk-tree` is that divergence-free kernel, hoisted here
-;; (classification already requires this ns, so no new coupling): one skeleton,
+;; a descent. `walk-tree` is that divergence-free kernel, living here
+;; (classification requires this ns anyway, so this adds no coupling): one skeleton,
 ;; the two distinct deciders stay at their call sites.
 ;;
 ;; The skeleton is parameterized by an opaque per-walker `state` (the wire
@@ -804,8 +801,8 @@
 ;; nameless collection coordinate — neither the path nor the decl-paths
 ;; advance), so that arm is fixed in the skeleton, not parameterized.
 ;;
-;; Seq is normalised to a persistent vector (via the transient accumulator) —
-;; both prior walkers did this; the skeleton preserves it.
+;; Seq is normalised to a persistent vector (via the transient accumulator)
+;; for both walkers.
 
 (def ^:no-doc walk-recur
   "Distinguished `walk-tree` `:decide` sentinel meaning 'descend structurally'
@@ -827,10 +824,10 @@
       r
       (cond
         ;; A record rebuilds as a plain map: `(empty <record>)` THROWS on the
-        ;; JVM, which made every walk over a value holding one throw — out of
-        ;; the event pipeline's db projection and the error path included
-        ;; (rf2-3x7nj.4.6). CLJS `empty` is nil for a record, so this is what
-        ;; that host already did.
+        ;; JVM, which would make every walk over a value holding one throw —
+        ;; out of the event pipeline's db projection and the error path
+        ;; included. CLJS `empty` is nil for a record, so that host builds a
+        ;; plain map too.
         (map? v)
         (reduce-kv (fn [acc k vv]
                      (assoc acc k (walk-tree vv (map-key state k) decider)))
@@ -1017,7 +1014,7 @@
            (and sensitive? (not include-s?))
            rf.privacy/redacted-sentinel
 
-           ;; NESTED-AXIS SUPPRESSION (rf2-izlr7f): a `:large`-matched node
+           ;; NESTED-AXIS SUPPRESSION: a `:large`-matched node
            ;; whose matched large coordinate shadows a `:sensitive` descendant
            ;; must NOT emit the size marker — sensitive DOMINATES. Fall through
            ;; to `walk-recur` so the walker descends and redacts the sensitive
@@ -1030,8 +1027,8 @@
            ;; redaction is in force (a caller that opted OUT of sensitive
            ;; redaction has waived it; the large axis is then orthogonal). Only
            ;; fires when a sensitive descendant actually exists under a large
-           ;; match, so the ordinary same-path / no-nesting large case is
-           ;; unchanged.
+           ;; match, so the ordinary same-path / no-nesting large case falls
+           ;; to the marker arm below.
            (and large-owners (not include-lg?) (not include-s?)
                 (seq shadow-set)
                 (some #(contains? shadow-set %) decl-paths))
@@ -1108,7 +1105,7 @@
                    ;; Empty when nothing is declared ⇒ the fork
                    ;; prunes to {} immediately and the walker is identity.
                    :decl-prefixes      (decl-prefix-set {:large large :sensitive sensitive})
-                   ;; One vocabulary all the way down (rf2-kuky.6): the walk
+                   ;; One vocabulary all the way down: the walk
                    ;; context carries the SAME `:rf.egress/*` spelling the opts
                    ;; map does, so no reader has to learn a second one.
                    :rf.egress/include-large?     (true? (:rf.egress/include-large? opts))
@@ -1121,10 +1118,10 @@
         prefixes  (:decl-prefixes ctx)]
     ;; `:path` is the ABSOLUTE app-db offset of `v`, so a declaration AT or
     ;; ABOVE the offset governs `v` exactly as it would in a whole-db walk
-    ;; (rf2-3x7nj.4.1). Seeding the candidate set with the bare offset could
+    ;; Seeding the candidate set with the bare offset could
     ;; only ever match declarations EXTENDING it: an `[:auth]`-sensitive frame
-    ;; redacted `[:auth]` whole-db while a direct read of `[:auth :token]`
-    ;; shipped raw, and `[:items 0]` escaped the index-free `[:items :token]`.
+    ;; would redact `[:auth]` whole-db while a direct read of `[:auth :token]`
+    ;; shipped raw, and `[:items 0]` would escape the index-free `[:items :token]`.
     ;; So replay the walker's OWN descent from the root along the offset — the
     ;; same forks, the same per-node decision at every ancestor — and walk `v`
     ;; with the candidate set that descent arrives at. An ancestor matched
@@ -1134,7 +1131,7 @@
     ;; as it does whole-db. The offset carries no container types, so an
     ;; integer segment takes the index fork — the SUPERSET of the map-key fork
     ;; for the same segment, so an integer-keyed map can over-match but never
-    ;; leak. No offset (`[]`) walks from `#{[]}` exactly as before.
+    ;; leak. No offset (`[]`) walks from `#{[]}`, the whole-db seed.
     (loop [i 0 cands #{[]}]
       (if (= i n)
         (walk v seed-path cands ctx)
@@ -1153,17 +1150,17 @@
   (elide-against-registry v opts frame-id (registry-of frame-id)))
 
 ;; ---------------------------------------------------------------------------
-;; The CLOSED egress-opts vocabulary (rf2-kuky.6).
+;; The CLOSED egress-opts vocabulary.
 ;;
-;; One policy vocabulary, spelled the same way at every door. A RECOGNISED
-;; policy key that the reading door does not read used to vanish without a
-;; signal — `:rf.egress/profile` is resolved by `re-frame.projection`, never
-;; here, so `(elide-wire-value v {:rf.egress/profile :rf.egress/off-box-tool})`
-;; walked under the DEFAULT policy while reading as though it had named a
+;; One policy vocabulary, spelled the same way at every door. In an open map a
+;; RECOGNISED policy key that the reading door does not read would vanish
+;; without a signal — `:rf.egress/profile` is resolved by `re-frame.projection`,
+;; never here, so `(elide-wire-value v {:rf.egress/profile :rf.egress/off-box-tool})`
+;; would walk under the DEFAULT policy while reading as though it had named a
 ;; boundary. The map is closed instead: an unknown key is a loud
-;; `:rf.error/bad-egress-opts`, which a closed map can only ever make SAFER
-;; (an unknown key did nothing before, so nothing that used to be redacted
-;; can now escape).
+;; `:rf.error/bad-egress-opts`, which can only ever make egress SAFER (an
+;; unknown key would otherwise do nothing, so the throw never lets through a
+;; value the walk would have redacted).
 ;; ---------------------------------------------------------------------------
 
 (def walker-opt-keys
@@ -1173,13 +1170,13 @@
   `re-frame.projection` concern (`project-egress` resolves one to a
   `:rf.egress/*` opt-set and passes THAT down here). The two shared
   inclusion axes' UNQUALIFIED spellings are absent for the same
-  reason — `:rf.egress/*` is the one vocabulary. So are their retired
-  `:rf.size/*` spellings (rf2-kuky.93 moved the whole opts vocabulary
-  under one namespace); `:rf.size/*` now reserves the wire MARKER
+  reason — `:rf.egress/*` is the one vocabulary. So are `:rf.size/*`
+  spellings: the whole opts vocabulary lives under one namespace, and
+  `:rf.size/*` reserves the wire MARKER
   `:rf.size/large-elided` and nothing else, so a marker and a policy
-  are no longer spelled alike. `:as-of-epoch` is absent too: rf2-aakv6
-  retired it, because its only effect was a four-element marker handle the
-  normative schema rejects, so passing it is now a loud
+  are never spelled alike. `:as-of-epoch` is absent too: its only effect
+  would be a four-element marker handle the
+  normative schema rejects, so passing it is a loud
   `:rf.error/bad-egress-opts`."
   #{:frame
     :path
@@ -1252,12 +1249,12 @@
   Any other key throws `:rf.error/bad-egress-opts` naming the offending
   keys. `:rf.egress/profile` is NOT one of them: a profile names a
   BOUNDARY and is resolved by `rf/project-egress`, which passes the
-  resolved `:rf.egress/*` opt-set down here. Passing one to the walker used
-  to be a silent no-op — the call read as though it had named a boundary
-  while the walk ran under the default policy — and so did the two
-  shared axes' unqualified spellings. Closing the map
-  cannot widen egress: an unknown key did nothing before it, and does
-  nothing but throw after it.
+  resolved `:rf.egress/*` opt-set down here. In an open map, passing one to
+  the walker would be a silent no-op — the call would read as though it had
+  named a boundary while the walk ran under the default policy — and so
+  would the two shared axes' unqualified spellings. Closing the map
+  cannot widen egress: an unknown key would otherwise do nothing, and here
+  it does nothing but throw.
 
   EP-0002 — the wire-egress frame resolves from the CARRIED
   stamp: the explicit `:frame` opt (*override*) wins, else the in-effect
@@ -1273,12 +1270,10 @@
   Only an ABSENT `:frame` key falls through to the carried scope. That
   distinction is the whole point — a caller projecting one frame's value
   from inside another (a tool rendering from its own chrome frame, a
-  frameless record) must be able to SAY \"no frame\" and be believed. When
-  `nil` was read as absence it borrowed the ambient frame, which for such a
+  frameless record) must be able to SAY \"no frame\" and be believed. Were
+  `nil` read as absence it would borrow the ambient frame, which for such a
   caller resolves, is live, and has an empty declaration registry, so the
-  value shipped RAW under no policy. Three consumers each minted a fresh
-  host object as a fake frame id to force this arm; the request is now
-  expressible and those workarounds are gone (rf2-kuky.5).
+  value would ship RAW under no policy.
 
   A resolved frame-id is not enough — it must RESOLVE to a live frame.
   An explicit `:frame` opt (or a stale carried scope) may name a frame that
@@ -1305,16 +1300,16 @@
   value asks for it on purpose."
   ([v] (elide-wire-value v nil))
   ([v opts]
-   ;; CLOSED opts (rf2-kuky.6) — FIRST, before the `:query-v` re-seed below
+   ;; CLOSED opts — FIRST, before the `:query-v` re-seed below
    ;; can synthesise a `:path`, so the keys graded are exactly the caller's.
    (assert-egress-opts! 're-frame.elision/elide-wire-value walker-opt-keys opts)
-   (let [;; rf2-mtzv5m — route-sub egress re-seeding. A direct-read off-box
+   (let [;; Route-sub egress re-seeding. A direct-read off-box
          ;; surface (Pair MCP read-sub / list-subscriptions :include-values /
          ;; snapshot :sub-cache / Xray) walks a route read sub's BARE value but
          ;; the route's classification is re-rooted ABSOLUTE under
          ;; `[:rf.runtime/routing :current …]` in the registry. When the caller
          ;; names the sub via `:query-v`, consult the routing-owned seed table
-         ;; (late-bound — core stays decoupled from routing, rf2-k682) and
+         ;; (late-bound — core stays decoupled from routing) and
          ;; OVERLAY the slice's runtime-db storage position as `:path` so the
          ;; candidate declaration-coordinate set starts where the re-rooted
          ;; decls live (mirroring the SSR `project-routing-egress` offset). A
@@ -1327,11 +1322,11 @@
                         opts)
                       opts)
          ;; PRESENCE, not truthiness: an explicit `:frame` key OWNS the
-         ;; resolution, `nil` included. `(or (:frame opts) …)` made
+         ;; resolution, `nil` included. `(or (:frame opts) …)` would make
          ;; `{:frame nil}` — "this value has no governing frame" —
-         ;; indistinguishable from "no `:frame` key", so it fell through to
-         ;; the ambient scope and shipped RAW under a frame that happened to
-         ;; be live with an empty registry. Saying `nil` is now sayable and
+         ;; indistinguishable from "no `:frame` key", so it would fall through
+         ;; to the ambient scope and ship RAW under a frame that happened to
+         ;; be live with an empty registry. Saying `nil` is sayable and
          ;; fails closed.
          frame-id   (if (contains? opts :frame)
                       (:frame opts)
@@ -1367,8 +1362,8 @@
   classification `effects` applied — exactly what the commit is about to
   write (`apply-classification-effects`). The router's t1 / t2 dev traces stamp
   the pending db BEFORE that commit, so projecting them against the committed
-  registry alone shipped a path classified in the SAME event raw
-  (rf2-3x7nj.4.3), breaking the first-egress promise above.
+  registry alone would ship a path classified in the SAME event raw,
+  breaking the first-egress promise above.
 
   The walk is `elide-wire-value`'s own (map-of key skip, index-free descent,
   owner-aware markers), under the same fail-closed contract: `frame-id` must
@@ -1396,24 +1391,21 @@
   (and (map? v) (contains? v :rf.size/large-elided)))
 
 ;; ---------------------------------------------------------------------------
-;; EP-0025: the derived-tree VALUE-MATCH redaction engine is REMOVED.
+;; EP-0025: there is no derived-tree VALUE-MATCH redaction engine.
 ;;
-;; `collect-sensitive-values` / `sensitive-value-set` / `redact-derived-values`
-;; (+ the large-axis dual `large-value-marker-map` / `redact-derived-large-
-;; values`, the `redact-matching-*` walkers, the non-unique-secret guard, and
-;; the composed `redact-derived-slots`) were the value-based dual of the
-;; path-based `elide-wire-value` above: they collected the live values at a
-;; frame's classified `:sensitive` / `:large` app-db paths and substituted any
-;; EQUAL leaf in a derived tree (rendered hiccup, `:effective-args`, a snapshot
-;; body). EP-0025 §"What is removed" disclaims this as "propagation / taint by
-;; another name" — a universal "same value redacted everywhere" backstop that a
-;; HYGIENE helper does not earn. Classification no longer propagates: you redact
+;; A value-based dual of the path-based `elide-wire-value` above — collecting
+;; the live values at a frame's classified `:sensitive` / `:large` app-db paths
+;; and substituting any EQUAL leaf in a derived tree (rendered hiccup,
+;; `:effective-args`, a snapshot body) — is what EP-0025 §"What is removed"
+;; disclaims as "propagation / taint by another name": a universal "same value
+;; redacted everywhere" backstop that a HYGIENE helper does not earn.
+;; Classification does not propagate: you redact
 ;; exactly the app-db PATHS you classify (`elide-wire-value`), and a sensitive
 ;; value re-keyed into a derived tree ships raw unless its app-db PATH is
 ;; classified. This is INTENDED fail-open — hygiene, not a guarantee.
 ;;
-;; `project-egress`'s `:rf.observe/derived-tree` record kind (B4) no longer
-;; delegates here; it now path-walks the tree slot(s) through `elide-wire-value`
+;; `project-egress`'s `:rf.observe/derived-tree` record kind (B4) path-walks
+;; the tree slot(s) through `elide-wire-value`
 ;; (a no-op for re-keyed values — the documented fail-open posture).
 ;; ---------------------------------------------------------------------------
 
