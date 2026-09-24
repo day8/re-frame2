@@ -30,7 +30,7 @@
   The chapter `docs/core/fresco/05-forms.md` governs the surface and the
   buffered/draft/revision law is D016
   (`docs/design/freehand/decisions/D016-buffered-and-revision-controls.md`).
-  The scope ruling is naming-ledger row 16
+  The scope is naming-ledger row 16
   (`docs/design/fresco/product/naming-ledger.md`); the recipes the module
   is written on, and the validation and submit orchestration it
   deliberately leaves to them, are
