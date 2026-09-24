@@ -24,7 +24,7 @@
 //
 //   `app/rejected`  — the SAME Error, reaching the service by rejecting the
 //                     promise it returned. Awaited, so `handleRender`
-//                     catches it: this is the already-closed door, and it is
+//                     catches it: this is the first door, and it is
 //                     here as the control that says the two paths differ.
 //   `app/uncaught`  — the same Error, thrown from a scheduled callback while
 //                     the returned promise never settles. Nothing awaits it.
@@ -34,8 +34,7 @@
 //                     what CLJS emits for `(throw nil)`. Node hands the
 //                     parent's `'error'` listener `null` itself, not an
 //                     Error, so a listener that reads `err.message` throws
-//                     in the MAIN thread and takes the whole sidecar down
-//                     (rf2-3x7nj.15.1).
+//                     in the MAIN thread and takes the whole sidecar down.
 //
 // The Error carries a `code` that is a real member of the service's closed
 // refusal family, for the same reason `throws-data.cjs` does: a module with
@@ -64,7 +63,7 @@ module.exports = {
     err.code = SPOOFED_CODE;
     err.detail = { echoed: state[':for-uncaught'] };
 
-    // The control: awaited, so the exception door already closed on it.
+    // The control: awaited, so the exception door closes on it.
     if (entry === 'app/rejected') return Promise.reject(err);
 
     if (entry === 'app/uncaught-torn') emit('<p>first</p>');
