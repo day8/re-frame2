@@ -1,5 +1,5 @@
 (ns re-frame.route-link-test
-  "JVM tests for the `:route/link` registered view (rf2-uhv2). The view is
+  "JVM tests for the `:route/link` registered view. The view is
   CLJS-only for the click-interception semantics; this file covers the
   JVM-portable contract:
 
@@ -19,7 +19,7 @@
     the `:rf/route` slice end-to-end. This pins the click→event pipeline
     at the JVM layer; CLJS tests cover the click handler's modifier-key
     branching.
-  - server-frame `:url-strategy` (rf2-skr1c) — a `:platform :server` frame
+  - server-frame `:url-strategy` — a `:platform :server` frame
     declaring `with-base-path` / the hash strategy renders the ENCODED href
     through the registered `:route/link` view and the SSR emitter, while
     the navigation payload stays path-form. The cross-host half (the same
@@ -37,8 +37,8 @@
             [re-frame.ssr :as rf.ssr]
             [re-frame.routing-test-support :as rf.routing-test-support]))
 
-;; rf2-6qclsc: use the shared `reset-runtime` fixture directly rather than a
-;; drifting local copy. The route-link suite has no suite-specific reset
+;; Use the shared `reset-runtime` fixture directly rather than a local copy
+;; that could drift. The route-link suite has no suite-specific reset
 ;; extras, so the shared fixture (which additionally reloads ssr /
 ;; test-support and drops the host-side scroll / nav-counter caches) applies
 ;; verbatim.
@@ -124,14 +124,14 @@
       (is (nil? (:fragment attrs)) ":fragment is consumed")
       (is (= "Home" children) "children pass through"))))
 
-;; ---- server-frame :url-strategy (rf2-skr1c) --------------------------------
+;; ---- server-frame :url-strategy --------------------------------------------
 ;;
 ;; The SSR pipeline pins the per-request frame with `rf/with-frame` around
 ;; its render walk (ssr-ring `build-full-response*`), so the registered
 ;; `:route/link` view renders INSIDE a frame scope on the server exactly as it
-;; does on the client. Both JVM link doors used to hard-code `identity` as the
-;; encoder, so a `/demos`-based server frame rendered `/active` where the
-;; hydrated client rendered `/demos/active` — a link that left the deployment
+;; does on the client. A JVM link door that hard-coded `identity` as the
+;; encoder would render `/active` from a `/demos`-based server frame where the
+;; hydrated client renders `/demos/active` — a link that leaves the deployment
 ;; mount if followed before hydration, and a Spec 011 hydration mismatch.
 
 (defn- server-frame!
@@ -159,7 +159,7 @@
       (is (str/includes? html "href=\"/demos/active\"")
           (str "the emitted <a> carries the base-prefixed href, got: " html))
       (is (not (str/includes? html "href=\"/active\""))
-          "the path-form href no longer reaches the server shell")))
+          "the path-form href does not reach the server shell")))
 
   (testing "the registered :route/link view (what the emitter resolves) yields
             the encoded href for every strategy shape a server frame can declare"
@@ -188,15 +188,15 @@
           "the cascade is path-form throughout; the base never enters the payload"))
     (is (= "/demos#/active" (:href (rf.routing.link/link-model {:to :route/active} :ssr/hash-base)))))
 
-  (testing "a bare call outside any frame scope still renders path-form (the
-            direct-call ergonomics above do not regress)"
+  (testing "a bare call outside any frame scope renders path-form (the
+            direct-call ergonomics above hold)"
     (is (= "/active" (:href (second (rf.routing/route-link-render-ssr {:to :route/active})))))))
 
 ;; ---- missing route ------------------------------------------------------
 
 (deftest route-link-missing-route-raises
   (testing "an unregistered :to id raises :rf.error/no-such-route"
-    ;; Per the existing route-url contract (see routing.cljc — the
+    ;; Per the route-url contract (see routing.cljc — the
     ;; route-url helper throws ex-info ":rf.error/no-such-route" when
     ;; the route-id has no registered :path). The route-link view
     ;; delegates href synthesis to route-url, so the same error
@@ -206,8 +206,8 @@
                    nil
                    (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown) "route-link raises when :to is unregistered")
-      ;; rf2-vvixub — anchor on the canonical :rf.error/id discriminator
-      ;; (the message is now a human sentence + trailing token).
+      ;; Anchor on the canonical :rf.error/id discriminator
+      ;; (the message is a human sentence + trailing token).
       (is (= :rf.error/no-such-route (:rf.error/id (ex-data thrown)))
           "the missing-route error keyword matches route-url's contract")
       (is (= :route/nope (:route-id (ex-data thrown)))
@@ -227,8 +227,8 @@
     (rf/reg-route :route/home    {} "/")
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
 
-    ;; Suppress the :client-only :rf.nav/push-url fx on the JVM (matches
-    ;; the pattern in routing_test.clj).
+    ;; Suppress the :client-only :rf.nav/push-url fx on the JVM (the
+    ;; pattern the other routing JVM suites use).
     (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
