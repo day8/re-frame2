@@ -96,7 +96,7 @@
   (rf.resources.state/scoped-resource-key :rf.scope/global :feed/timeline {:filter :recent}))
 
 ;; The three accumulated pages (N=3, non-terminal — a 4th page exists, "c3"),
-;; built by replaying the pure append transition the wave-3 reply path drives.
+;; built by replaying the pure append transition the reply path drives.
 (def ^:private p0 (page [:a :b] "c1" nil))
 (def ^:private p1 (page [:c :d] "c2"))
 (def ^:private p2 (page [:e :f] "c3"))
@@ -167,7 +167,7 @@
 
 ;; ===========================================================================
 ;; (a) SERVER PROJECTION — the page vector + infinite facts + merged :items
-;;     ride the EXISTING projection, in ONE entry slot, ZERO new runtime code.
+;;     ride the SAME projection as a scalar entry, in ONE entry slot.
 ;; ===========================================================================
 
 (deftest live-feed-entry-is-a-multi-page-loaded-feed
@@ -191,7 +191,7 @@
   (testing "the SSR projection rides the ordered page vector + EVERY infinite
             fact verbatim in the ONE :rf.runtime/resources :entries slot — an
             infinite feed is just a :serialize entry whose :data is a vector
-            (R1; rides the existing project-resources-runtime-db, no new code)"
+            (R1; rides the same project-resources-runtime-db as a scalar entry)"
     (let [rdb  (feed-with-load-more-in-flight :app/main)
           proj (rf.resources.ssr/project-resources-runtime-db rdb)]
       (is (= #{rf.resources.state/resources-key} (set (keys proj)))
@@ -243,14 +243,15 @@
 
 ;; ===========================================================================
 ;; (b) EPOCH RESTORE — the page vector + cursor/terminal? + :fetching-next?
-;;     rehydrate via the EXISTING reconcile-on-restore, ZERO new runtime code.
+;;     rehydrate via the SAME reconcile-on-restore as a scalar entry.
 ;; ===========================================================================
 
 (deftest restore-rehydrates-page-vector-and-cursor-intact
   (reg-feed!)
   (testing "reconcile-on-restore rehydrates the ordered page vector + cursor +
             terminal? + page-params + prev-mirror INTACT (order preserved, no
-            page loss) — the durable feed rides the EXISTING restore reconcile"
+            page loss) — the durable feed rides the SAME restore reconcile as a
+            scalar entry"
     (let [snapshot (feed-with-load-more-in-flight :app/main)
           out      (rf.resources.ssr/reconcile-on-restore snapshot :app/main)
           e        (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id fkey)])]
