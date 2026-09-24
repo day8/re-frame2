@@ -50,7 +50,7 @@
   (:rf/machine (rf/handler-meta {:source :store :kind :event :id machine-id})))
 
 ;; Helper: every registered machine-id — the same generic read filtered on the
-;; `:rf/machine?` discriminator. No per-kind `machines` accessor (rf2-kuky.31).
+;; `:rf/machine?` discriminator. There is no per-kind `machines` accessor.
 (defn- machine-ids []
   (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
               (rf/registrations {:source :store :kind :event}))))
@@ -70,7 +70,7 @@
 
 (deftest reg-machine-stamps-call-site-coords
   (testing "the reg-machine macro stamps :ns / :line / :file / :column on the registry slot
-  so handler-meta carries the call-site coords (rf2-k84s + rf2-8bp3)"
+  so handler-meta carries the call-site coords"
     (rf/reg-machine :rf2-8bp3/call-site-sample
       {:initial :a :states {:a {} :b {}}})
     (let [meta (rf/handler-meta {:source :store :kind :event :id :rf2-8bp3/call-site-sample})]
@@ -142,8 +142,8 @@
 
 (deftest reg-machine-stamps-inline-transition-action-source-code
   (testing "an inline transition `:action` fn carries its `:source-code` on
-  the enclosing transition map — parity with the guard `:source-code` stamp
-  (rf2-se70xj). The guard `:source-code` is the foil that already worked."
+  the enclosing transition map — parity with the guard `:source-code` stamp,
+  which is the foil."
     (rf/reg-machine :rf2-se70xj/inline-action
       {:initial :idle
        :guards  {:ok? (fn [_] true)}
@@ -151,7 +151,7 @@
        {:idle {:on {:submit {:target :done :guard :ok?}
                     :cancel {:target :idle :action (fn [_] {:data {:cancelled? true}})}}}
         :done {}}})
-    ;; The named guard's :source-code (the parity baseline — already worked).
+    ;; The named guard's :source-code (the parity baseline).
     (is (string? (get-in (machine-spec :rf2-se70xj/inline-action)
                          [:guards :ok? :source-code]))
         "named guard carries :source-code (parity baseline)")
@@ -172,7 +172,7 @@
 
 (deftest reg-machine-stamps-inline-entry-exit-source-code
   (testing "inline state `:entry` / `:exit` fns carry their `:source-code` on
-  the enclosing state-node (rf2-se70xj)"
+  the enclosing state-node"
     (rf/reg-machine :rf2-se70xj/inline-ee
       {:initial :a
        :states
@@ -192,7 +192,7 @@
 
 (deftest reg-machine-stamps-inline-guard-source-code
   (testing "an inline transition `:guard` fn carries its `:source-code` on the
-  enclosing transition map (rf2-se70xj)"
+  enclosing transition map"
     (rf/reg-machine :rf2-se70xj/inline-guard
       {:initial :idle
        :states
@@ -204,7 +204,7 @@
 
 (deftest reg-machine-stamps-inline-always-single-map-source-code
   (testing "an inline `:always` `:action` / `:guard` written as a SINGLE MAP
-  carries its `:source-code` at the bare `:always` spec-path (rf2-k7yqod).
+  carries its `:source-code` at the bare `:always` spec-path.
   The runtime + validator both accept the single-map `:always`, so the macro
   must stamp it — parity with the vector `:always [{…}]` form. Works on JVM:
   the source is the `pr-str` of the fn LITERAL (a list the LispReader
@@ -239,7 +239,7 @@
 
 (deftest reg-machine-stamps-inline-always-vector-source-code
   (testing "a VECTOR `:always` co-locates each candidate map's inline
-  `:action` source at its OWN index (rf2-k7yqod) — so the source lookup does
+  `:action` source at its OWN index — so the source lookup does
   not hardcode index 0 onto the wrong candidate."
     (rf/reg-machine :rf2-k7yqod/always-vec-src
       {:initial :a
@@ -266,7 +266,7 @@
 (deftest reg-machine-skips-inline-source-for-keyword-references
   (testing "keyword-reference slots (`:action :clear-hold`) carry NO inline
   :source-code on the enclosing node — their body lives on the named
-  :actions / :guards entry's own :source-code (rf2-se70xj)"
+  :actions / :guards entry's own :source-code"
     (rf/reg-machine :rf2-se70xj/kw-refs
       {:initial :idle
        :guards  {:ok? (fn [_] true)}
@@ -277,7 +277,7 @@
     ;; No inline :source-code for keyword-reference slots on the transition.
     (is (nil? (inline-source :rf2-se70xj/kw-refs [:states :idle :on :submit] :action)))
     (is (nil? (inline-source :rf2-se70xj/kw-refs [:states :idle :on :submit] :guard)))
-    ;; The named entries DO carry their own :source-code (the existing path).
+    ;; The named entries DO carry their own :source-code.
     (is (string? (get-in (machine-spec :rf2-se70xj/kw-refs) [:actions :do :source-code])))
     (is (string? (get-in (machine-spec :rf2-se70xj/kw-refs) [:guards :ok? :source-code])))))
 
@@ -304,14 +304,14 @@
     (is (some? (element-coords :rf2-8bp3/on-refs :actions :do)))))
 
 (deftest reg-machine-co-locates-on-map-nodes-only-not-inline-fn-slots
-  (testing "per rf2-vqja2 ONLY map nodes (state-node / transition map) get a
+  (testing "ONLY map nodes (state-node / transition map) get a
   co-located `:source-coords`; inline-fn slots (`:entry` / `:guard` /
   `:action`) hold a fn VALUE, not a map, so they carry no coord of their
   own. On JVM the enclosing state-node / transition-map literals carry no
   reader meta (LispReader decorates only list forms), so neither the
   state-node nor the inline-fn-slot reference coords are present here — the
   CLJS counterpart exercises the map-node co-location. The inline-fn VALUES
-  themselves still round-trip at their spec paths."
+  themselves round-trip at their spec paths."
     (rf/reg-machine :rf2-8bp3/inline-refs
       {:initial :idle
        :data    {}
@@ -434,7 +434,7 @@
 
 (deftest reg-machine*-plain-fn-surface
   (testing "reg-machine* (the plain-fn surface) registers a machine without
-  any macro walking — equivalent to the legacy reg-machine defn. Used by
+  any macro walking — the plain-fn counterpart of the reg-machine macro. Used by
   code-gen pipelines that already carry a stamped spec."
     (rf.machines/reg-machine* :rf2-8bp3/plain
                      {:initial :a :states {:a {}}})
@@ -482,8 +482,7 @@
   (testing "a plain (def m …) + (reg-machine :id m): the macro sees only the
   symbol, so the :guards / :actions entries are bare fns (no co-located
   :source-coords / :source-code) and the :machine-guard / :machine-action
-  handler-metas are nil — the rf2-gwj8l bug shape (the foil for defmachine
-  below)"
+  handler-metas are nil — the foil for defmachine below"
     (rf/reg-machine :rf2-gwj8l/plain-door plain-door-machine)
     (let [meta (machine-spec :rf2-gwj8l/plain-door)]
       ;; Bare-fn entries — no co-located source-coords / source-code.
@@ -502,7 +501,7 @@
   entry of the def'd value, so source travels into reg-machine and the
   :machine-guard / :machine-action handler-metas carry :rf.handler/source +
   coords — exactly what the Epoch machine-cascade reads (cascade-row-coord /
-  cascade-row-source-form). rf2-gwj8l + rf2-npvsx."
+  cascade-row-source-form)."
     (rf/reg-machine :rf2-gwj8l/value-door value-door-machine)
     (let [meta (machine-spec :rf2-gwj8l/value-door)]
       ;; Co-located entries carry :fn + :source-coords + :source-code.
@@ -533,7 +532,7 @@
 
 (deftest defmachine-accepts-optional-docstring
   (testing "defmachine accepts an optional leading docstring like def, riding
-  it onto the def'd var's metadata, and still stamps source on the value"
+  it onto the def'd var's metadata, and stamps source on the value"
     (rf/defmachine documented-machine
       "A documented machine."
       {:initial :a
