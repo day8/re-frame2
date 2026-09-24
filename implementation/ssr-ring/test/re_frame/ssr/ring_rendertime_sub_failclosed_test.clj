@@ -1,18 +1,17 @@
 (ns re-frame.ssr.ring-rendertime-sub-failclosed-test
-  "Per rf2-c0bq1 — the handler-level tripwire for the RENDER-TIME reactive
+  "The handler-level tripwire for the RENDER-TIME reactive
   sub-exception fail-closed contract through the REAL Ring handler order.
 
-  ## The gap this closes (and the bug it pins)
+  ## What this pins
 
-  rf2-vvwmi made a reactive sub that throws during `render-to-string`
-  route `:rf.error/sub-exception` through the ALWAYS-ON error-emit
+  A reactive sub that throws during `render-to-string`
+  routes `:rf.error/sub-exception` through the ALWAYS-ON error-emit
   substrate so the SSR projection listener BUFFERS a fail-closed 500 onto
   pending-error-traces even under production hardening
-  (`interop/debug-enabled? = false`). That fix is correct at the
-  core/accumulator layer — but it did NOT reach the wire through the
-  reference Ring adapter:
+  (`interop/debug-enabled? = false`). Reaching the wire through the
+  reference Ring adapter takes one more step:
 
-    1. `ssr-handler` reads `(ssr/get-response frame-id)` ONCE,
+    1. `ssr-handler` reads `(ssr/flush-response-result! frame-id)` ONCE,
        BEFORE the render walk. The render has not run,
        so the buffer is empty and `:status` is the default 200.
     2. `build-full-response*` (`pipeline.clj`) runs the render walk inside
@@ -21,40 +20,38 @@
        routes the always-on `dispatch-on-error!` (which BUFFERS the 500)
        and then RETURNS nil — so `render-to-string` does NOT throw, and
        `build-full-response`'s outer try/catch never fires.
-    3. Before rf2-c0bq1, `build-full-response*` materialised the wire
-       response from the STALE pre-render `resp` (the 200 from step 1).
-       The buffered 500 sat in pending-error-traces until frame-destroy
-       dropped it. The wire shipped a SILENT 200 with the recovered-to-nil
-       broken HTML — defeating rf2-vvwmi end-to-end and breaking the
-       Spec 011 §744 / §750 contract (\"fail-closed to a non-200 … never a
+    3. `build-full-response*` therefore re-flushes the response
+       accumulator AFTER the render walk (`ssr/flush-response-result!`),
+       so the post-render-buffered 500 reaches the wire. Materialising the
+       wire response from the STALE pre-render read (the 200 from step 1)
+       would leave the buffered 500 in pending-error-traces until
+       frame-destroy dropped it, and the wire would ship a SILENT 200 with
+       the recovered-to-nil broken HTML — breaking the
+       Spec 011 §View-time exceptions contract (\"fail-closed to a non-200 … never a
        silent 200 with the recovered-to-nil HTML\").
 
-  The rf2-c0bq1 fix re-flushes the response accumulator AFTER the render
-  walk (`ssr/flush-response!` in `build-full-response*`), so the
-  post-render-buffered 500 reaches the wire. This suite is the regression
+  This suite is the regression
   tripwire: it drives a render-time THROWING reactive sub through the real
   `ssr-handler` order and asserts the WIRE `:status` is 500, NOT a silent
   200.
 
-  ## Why the existing tests missed it
+  ## What the neighbouring tests do not cover
 
-    - `ssr_sub_exception_two_frame_attribution_test` (the rf2-vvwmi/vdk33
-      proof) calls `subscribe-once` FIRST (running the sub body, buffering
+    - `ssr_sub_exception_two_frame_attribution_test`
+      calls `subscribe-once` FIRST (running the sub body, buffering
       the 500) and `get-response` AFTER — the INVERSE of the handler order
       (sub-run-then-read vs the handler's read-then-render). It proves the
-      core listener / accumulator / attribution layer, but never the Ring
-      read-before-render wire path, so it gave false end-to-end
-      confidence. (That suite now carries an explicit note pointing here.)
+      core listener / accumulator / attribution layer, but not the Ring
+      read-before-render wire path. (That suite carries an explicit note
+      pointing here.)
     - `ring_test.clj` `handler-render-error-*` covers a root-VIEW that
       THROWS (the throwable propagates → the catch arm → projected 500).
-      That path works. A reactive SUB-throw recovers-to-nil → never
-      reaches the catch — the untested gap.
+      A reactive SUB-throw recovers-to-nil → never
+      reaches that catch.
     - `ring_draintime_error_test` covers drain-time categories that fire
-      BEFORE `get-response`, so the single pre-render read sees them.
+      BEFORE the pre-render read, so that single read sees them.
 
-  TEST + SOURCE: the source fix lives in `pipeline.clj`
-  (`build-full-response*` re-flush); this suite is its acceptance test.
-  Mirrors `ring_draintime_error_test.clj`'s harness: direct in-process
+  The harness mirrors `ring_draintime_error_test.clj`'s: direct in-process
   handler call AND bytes-on-the-wire through Jetty + `java.net.http`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
@@ -69,9 +66,9 @@
 ;; Jetty + java.net.http harness
 ;; ===========================================================================
 ;;
-;; rf2-l1qgjw — the ephemeral Jetty host (`ts/with-jetty`) + `java.net.http`
-;; client / GET now live in `re-frame.ssr.ring.test-support` (aliased `ts`).
-;; The 30s read timeout stays explicit at the call site via `ts/http-get`.
+;; The ephemeral Jetty host (`with-jetty`) + `java.net.http`
+;; client / GET live in `re-frame.ssr.ring.test-support`.
+;; The 30s read timeout is explicit at the call site via `http-get`.
 
 (def ^:private read-timeout-secs 30)
 
@@ -89,7 +86,7 @@
   ;; The sub throws while computing its value. Under
   ;; `interop/debug-enabled? = false` the reactive sub-run catch
   ;; (subs/memo.cljc) routes the always-on `dispatch-on-error!`
-  ;; (buffering the fail-closed 500 per rf2-vvwmi) and RETURNS nil — so
+  ;; (buffering the fail-closed 500) and RETURNS nil — so
   ;; `render-to-string` does NOT throw. This is precisely the
   ;; recover-to-nil case that bypasses build-full-response's render-time
   ;; catch arm.
@@ -108,19 +105,19 @@
 
 ;; ===========================================================================
 ;; Test 1 — render-time sub-throw fails closed to 500 on the wire (the
-;;          tripwire). Without the rf2-c0bq1 re-flush this ships a silent
-;;          200; with it the buffered fail-closed 500 reaches the wire.
+;;          tripwire). Without the post-render re-flush this would ship a
+;;          silent 200; with it the buffered fail-closed 500 reaches the wire.
 ;; ===========================================================================
 
 (deftest rendertime-sub-throw-fails-closed-to-500-on-the-wire
-  (testing "rf2-c0bq1: a reactive subscription that THROWS during the
+  (testing "a reactive subscription that THROWS during the
             render walk under production hardening
             (`interop/debug-enabled? = false`) must fail-closed to a 500
             on the wire — NOT a silent 200 with the recovered-to-nil
-            broken HTML (Spec 011 §744 / §750). Driven through the REAL
-            ssr-handler order (read-get-response-then-render), the order
-            the rf2-vvwmi/vdk33 attribution test inverted. Before the
-            rf2-c0bq1 re-flush this shipped 200 (the buffered 500 was read
+            broken HTML (Spec 011 §View-time exceptions). Driven through the REAL
+            ssr-handler order (read-then-render), the order
+            the two-frame attribution test inverts. Without the
+            post-render re-flush this would ship 200 (the buffered 500 read
             BEFORE the render that buffers it, then dropped at
             frame-destroy)."
     (register-throwing-sub-view!)
@@ -136,18 +133,18 @@
       (with-redefs [rf.interop/debug-enabled? false]
         (testing "direct in-process handler call — render-time sub-throw
                   fails closed to 500 (the buffered fail-closed status,
-                  re-flushed after the render walk per rf2-c0bq1), and
-                  rf2-oytx7j DIVERTS to the projected-error arm rather than
+                  re-flushed after the render walk), and
+                  DIVERTS to the projected-error arm rather than
                   shipping the degraded body under a 500"
           (let [response (handler {:uri "/uses-throwing-sub" :request-method :get})
                 body     (:body response)]
             (is (= 500 (:status response))
                 "render-time sub-throw → buffered fail-closed 500 re-read
-                 AFTER the render walk → ring :status 500. Before the
-                 rf2-c0bq1 re-flush this was a silent 200 (the stale
+                 AFTER the render walk → ring :status 500. Without the
+                 re-flush this would be a silent 200 (the stale
                  pre-render status materialised onto the wire).")
             (is (str/includes? body "Something went wrong")
-                "rf2-oytx7j: the post-render 500 diverts to the projected-error
+                "the post-render 500 diverts to the projected-error
                  arm (locked default template), not the degraded HTML")
             (is (not (str/includes? body "header that renders"))
                 "the degraded recovered-to-nil body is DISCARDED under the 500")
@@ -170,10 +167,10 @@
 ;; ===========================================================================
 
 (deftest happy-path-clean-sub-stays-200-after-reflush
-  (testing "rf2-c0bq1: the post-render re-flush is benign for the happy
+  (testing "the post-render re-flush is benign for the happy
             path — a render walk with NO buffered error leaves the buffer
             empty, the drain is a no-op, and the response keeps its
-            default 200. Confirms the fix is last-write-wins, not a
+            default 200. Confirms the re-flush is last-write-wins, not a
             blanket status rewrite."
     (rf/reg-sub :clean-sub (fn [_db _] :ok))
     (rf/reg-view* :pages/uses-clean-sub
