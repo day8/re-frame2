@@ -1,27 +1,27 @@
 (ns re-frame.epoch-silence-contract-test
-  "rf2-4go8s — the epoch silencing SCHEMA and the state.cljc source authority
+  "The epoch silencing SCHEMA and the state.cljc source authority
   agree with the shipped comparable-ID / opaque-generation / outside-lock design.
 
-  Three teeth, no runtime change:
+  Two deftests:
 
-    * AC1 / AC3 (JVM) — a NON-KEYWORD comparable listener id round-trips through
+    * (JVM) A NON-KEYWORD comparable listener id round-trips through
       registration → the emitted `:cb-id` VERBATIM (raw-ID preservation) → the
       supported receiver decision's self-filter, AND the emitted tags validate
       against the CANONICAL `EpochCbSilencedOnFrameDestroyTags` schema EXTRACTED
-      from `spec/Spec-Schemas.md`. Before this bead the schema narrowed `:cb-id`
-      to keyword|string, so a valid non-keyword id the runtime accepts (and emits
-      raw) FAILED the canonical schema — the drift this proves is closed.
+      from `spec/Spec-Schemas.md`. A schema narrowing `:cb-id` to keyword|string
+      would FAIL a valid non-keyword id the runtime accepts (and emits raw) —
+      the drift this rules out.
 
-    * AC6 — a focused SOURCE-CONTRACT tooth over the exact `epoch/state.cljc`
-      docstrings + module comment that used to carry the stale authority. It
+    * A focused SOURCE-CONTRACT tooth over the exact `epoch/state.cljc`
+      docstrings + module comment that state the silencing authority. It
       catches a regression to EMIT-UNDER-LOCK language (a claim that a ledger lock
       spans the external emit, or that a replacement/drop blocks until publication)
       or to RESERVE-ONLY-EMITS language (describing the reserve-only primitive as
       emitting a signal though it emits nothing). It reads only these named
       surfaces — it is NOT a general comment linter.
 
-  The runtime is UNCHANGED: reservation happens under both ledger locks and the
-  generation-qualified emit runs after they are released (rf2-8b9twg). These teeth
+  The runtime protocol: reservation happens under both ledger locks and the
+  generation-qualified emit runs after they are released. These teeth
   pin the doc/schema surfaces to that shipped protocol."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -39,8 +39,8 @@
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- cb-generation
-  "The live generation token under `cb-id`. Artefact-internal: rf2-uhouu retired
-  the public generation query (the generation alone can only recompose the torn
+  "The live generation token under `cb-id`. Artefact-internal: there is no
+  public generation query (the generation alone can only recompose the torn
   two-read receiver decision). A consumer asks `rf/epoch-silence-current?`
   instead; this test names the generation only to pin the EMITTED qualifier."
   [cb-id]
@@ -62,20 +62,20 @@
   []
   (let [f    (or (some (fn [p] (let [f (io/file p)] (when (.exists f) f)))
                        spec-schemas-candidates)
-                 (throw (ex-info "rf2-4go8s: cannot locate spec/Spec-Schemas.md"
+                 (throw (ex-info "cannot locate spec/Spec-Schemas.md"
                                  {:candidates spec-schemas-candidates})))
         text (slurp f)
         start (str/index-of text "(def EpochCbSilencedOnFrameDestroyTags")
         _    (when (nil? start)
-               (throw (ex-info "rf2-4go8s: EpochCbSilencedOnFrameDestroyTags not found"
+               (throw (ex-info "EpochCbSilencedOnFrameDestroyTags not found"
                                {:file (str f)})))
         form (edn/read-string (subs text start))
         schema (nth form 2 nil)]
     (when-not (and (vector? schema) (= :map (first schema)))
-      (throw (ex-info "rf2-4go8s: schema is not a [:map …] form" {:read schema})))
+      (throw (ex-info "schema is not a [:map …] form" {:read schema})))
     schema))
 
-;; ---- AC1 / AC3 — a non-keyword comparable id round-trips + schema-validates -
+;; ---- a non-keyword comparable id round-trips + schema-validates ------------
 
 (deftest non-keyword-comparable-cb-id-round-trips-and-schema-validates
   (testing "a non-keyword comparable listener id (a vector) registers, answers the
@@ -84,8 +84,8 @@
     (let [cb-id   [:my-app/epoch-log 7]         ; a vector — NOT keyword|string
           schema  (canonical-silencing-schema)
           entries (into {} (map (fn [e] [(first e) (second e)])) (rest schema))]
-      ;; The canonical schema must ACCEPT the non-keyword id (widened from the
-      ;; stale keyword|string narrowing) and treat :observed-gen as opaque.
+      ;; The canonical schema must ACCEPT the non-keyword id (no
+      ;; keyword|string narrowing) and treat :observed-gen as opaque.
       (is (= :any (:cb-id entries))
           "the canonical :cb-id domain is :any (the open comparable-ID domain)")
       (is (= :any (:observed-gen entries))
@@ -123,14 +123,14 @@
                 "the silence names the generation that observed the frame")
 
             ;; SCHEMA VALIDATION — the emitted tags satisfy the CANONICAL schema
-            ;; from the markdown (would FAIL the old keyword|string :cb-id).
+            ;; from the markdown (a keyword|string :cb-id would FAIL here).
             (is (m/validate schema tags)
                 (str "emitted tags must validate against the canonical "
                      "EpochCbSilencedOnFrameDestroyTags schema: "
                      (pr-str (m/explain schema tags))))
 
             ;; GENERATION-QUALIFIED SELF-FILTER on the non-keyword id, through
-            ;; the ONE supported receiver decision (rf2-uhouu).
+            ;; the ONE supported receiver decision.
             (is (true? (rf/epoch-silence-current? tags))
                 "live signal names the current registration — APPLY")
             (rf/register-listener! :epoch cb-id (fn [_] nil)) ; supersede G→H
@@ -140,7 +140,7 @@
         (rf/unregister-listener! :trace ::recorder-nonkw)
         (rf/unregister-listener! :epoch cb-id)))))
 
-;; ---- AC6 — source-contract tooth over the state.cljc silencing authority ----
+;; ---- source-contract tooth over the state.cljc silencing authority ---------
 
 (defn- squish
   "Collapse runs of whitespace to single spaces so a multi-line docstring/comment
@@ -158,9 +158,9 @@
   (squish (slurp (io/resource "re_frame/epoch/state.cljc"))))
 
 (deftest source-authority-states-the-outside-lock-generation-qualified-protocol
-  (testing "AC6 — the state.cljc silencing docstrings + module comment describe the
+  (testing "the state.cljc silencing docstrings + module comment describe the
             shipped protocol (reserve/recheck under both locks, RELEASE, then emit
-            a generation-qualified signal OUTSIDE the locks) and carry NO stale
+            a generation-qualified signal OUTSIDE the locks) and carry NO
             emit-under-lock or reserve-only-emits authority. A regression to that
             language flips these assertions RED."
     (let [src        (state-source)
@@ -179,17 +179,17 @@
       (is (not (str/includes? rec-doc "between its reservation and emit"))
           "record-observation! must NOT exclude a re-arm from the reservation→emit window")
 
-      ;; --- NO reserve-only API at all (rf2-6r9j.78) ---
-      ;; The reserve-only pair was retired: it left a claim→emit window it could
-      ;; not qualify, so its own docstring conceded it was for staged tests and
-      ;; for callers that provably cannot race a registry mutation. Only the
-      ;; integrated generation-qualified operation ships now, and re-introducing
-      ;; a reserve-only seam here flips this RED. (Neither name is a substring of
+      ;; --- NO reserve-only API at all ---
+      ;; A reserve-only claim/rollback pair would leave a claim→emit window it
+      ;; cannot qualify, fit only for staged tests and for callers that
+      ;; provably cannot race a registry mutation. Only the integrated
+      ;; generation-qualified operation ships, and introducing a reserve-only
+      ;; seam here flips this RED. (Neither name is a substring of
       ;; `claim-and-publish-delayed-silence!`, so the correct helper is unaffected.)
       (is (not (str/includes? src "claim-delayed-silence!"))
-          "the retired reserve-only claim helper must not return")
+          "there is no reserve-only claim helper")
       (is (not (str/includes? src "rollback-delayed-silence!"))
-          "the retired reserve-only rollback helper must not return")
+          "there is no reserve-only rollback helper")
 
       ;; --- the CORRECT protocol is stated positively ---
       (is (str/includes? src "runs OUTSIDE both locks")
