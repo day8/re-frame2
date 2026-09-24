@@ -1,5 +1,5 @@
 (ns re-frame.registrar-warnings-test
-  "Per rf2-45kaz / Spec 001 §`:doc` is dev-warned when absent +
+  "Per Spec 001 §`:doc` is dev-warned when absent +
   §Re-registration of a different function — collision warning.
 
   Two warnings the registrar emits on the trace bus:
@@ -12,7 +12,7 @@
        internal helpers that bypass coord capture are out of scope.
 
     2. `:rf.warning/registration-collision` — re-registration with a
-       different `:handler-fn`. Sits alongside the existing
+       different `:handler-fn`. Sits alongside the
        `:rf.registry/handler-replaced` trace (which fires on EVERY
        re-registration with a `:different-fn?` tag); the warning is
        the separate dev-nudge surface that lifts the collision out
@@ -26,14 +26,14 @@
   pin the absence of `rf.warning/missing-doc` and
   `rf.warning/registration-collision` in the production bundle.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   The paragraph above is the whole story for the WARNINGS: both sit inside the
   registrar's `(when rf.interop/debug-enabled? ...)` gate, so under
   `-Dre-frame.debug=false` neither is emitted and every warning assertion here
-  failed under `scripts/test-core-prod-gate.sh`. They are guarded verbatim.
+  would fail under `scripts/test-core-prod-gate.sh`. They are guarded verbatim.
 
-  A WHOLESALE GUARD WOULD HAVE MADE THIS A CLASS-2 FILE — a namespace reported
+  A WHOLESALE GUARD WOULD MAKE THIS A CLASS-2 FILE — a namespace reported
   green having executed nothing — so each case also witnesses the REGISTRATION
   the warning is a commentary on, and that half is production behaviour:
 
@@ -45,20 +45,21 @@
       `:doc` is stripped there, and `merge-coords` is not on this path). That
       is the fact the collision warning exists to draw attention to, and it is
       posture-independent;
-    * the rf2-3az1vn `:route` case additionally asserts the no-`:handler-fn`
-      slot was replaced at all — the shape-dedup that used to HIDE the
-      collision suppresses only the TRACE, never the replacement.
+    * the `:route` case additionally asserts the no-`:handler-fn` slot was
+      replaced at all — the shape-dedup that could HIDE the collision
+      suppresses only the TRACE, never the replacement.
 
-  SEVEN VACUOUS PASSES CAME OFF (rf2-d2841 class 1 — a negative over an empty
-  trace ring). `missing-doc-suppressed-when-doc-present`,
+  The NEGATIVE warning assertions are guarded too — a negative over an empty
+  trace ring is vacuous. `missing-doc-suppressed-when-doc-present`,
   `missing-doc-silent-on-programmatic-path`, `collision-silent-on-same-source-
   re-eval`, `collision-silent-on-programmatic-path`, `collision-still-silent-
   on-same-source-for-no-handler-fn-kind`, `handler-replaced-fires-on-silent-
   hot-reload`'s `(empty? collisions)` and — the one worth naming twice —
   `collision-fires-for-no-handler-fn-kind-despite-shape-dedup`'s
-  `(is (empty? replaced) ...)`, which certified that the dedup gate suppressed
-  the `handler-replaced` trace over a stream that carries no traces at all.
-  Five of those seven deftests were GREEN under the gate on nothing else."
+  `(is (empty? replaced) ...)`, which would certify that the dedup gate
+  suppressed the `handler-replaced` trace over a stream that carries no traces
+  at all. Unguarded, five of those seven deftests would be GREEN under the
+  gate on nothing else."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.interop :as rf.interop]
             [re-frame.frame :as rf.frame]
@@ -96,7 +97,7 @@
            @recorded))
 
 (defn- assert-registered
-  "ALWAYS-ON (rf2-d2841): the registration LANDED. A dev warning is a nudge,
+  "ALWAYS-ON: the registration LANDED. A dev warning is a nudge,
   not a rejection — Spec 001 §No silent swallow requires the cascade to
   continue — and that continuation is the only half of the contract a
   production build can be asked about."
@@ -105,7 +106,7 @@
       (str "the " kind " registration for " id " succeeded in this posture")))
 
 (defn- assert-live-provenance
-  "ALWAYS-ON (rf2-d2841): which registration is LIVE for `[kind id]`, read off
+  "ALWAYS-ON: which registration is LIVE for `[kind id]`, read off
   the stored provenance. `register!` keeps the metadata it was handed verbatim
   (only `:doc` is stripped under the production gate, and `merge-coords` is
   not on this path), so the `:ns` of the winning registration is readable in
@@ -140,7 +141,7 @@
   `reg-event` MACRO because the macro re-captures coords from its own call
   site `(meta &form)` — two macro calls in the test file are always on
   different LINES, so they could never share the same provenance, which is
-  exactly the hot-reload re-eval case the rf2-skxd6x fix must keep SILENT.
+  exactly the hot-reload re-eval case the provenance boundary must keep SILENT.
   A real hot reload lands at `register!` with the SAME `(ns, file, line)`
   but a fresh fn instance; passing the provenance metadata explicitly here
   reproduces that faithfully. A `nil` `provenance` reproduces the
@@ -207,8 +208,8 @@
                            {:doc "a real description"}
                            (fn [{:keys [db]} _] {:db db}))))
       (assert-registered :event :ev/well-doc'd)
-      ;; rf2-d2841 — class-1 vacuous under the gate: the warning stream is
-      ;; empty for EVERY registration there, documented or not.
+      ;; Dev-instrumentation arm — vacuous under the gate: the warning
+      ;; stream is empty for EVERY registration there, documented or not.
       (when rf.interop/debug-enabled?
         (is (empty? (warnings-of recorded :rf.warning/missing-doc)))))))
 
@@ -295,7 +296,7 @@
       (rf.registrar/register! :event :internal/no-coords
                            {:handler-fn (fn [db _] db)})
       (assert-registered :event :internal/no-coords)
-      ;; rf2-d2841 — class-1 vacuous under the gate.
+      ;; Dev-instrumentation arm — vacuous under the gate.
       (when rf.interop/debug-enabled?
         (is (empty? (warnings-of recorded :rf.warning/missing-doc))
             "programmatic / internal-helper path is out of scope (Spec 001 obligation 4)")))))
@@ -309,13 +310,13 @@
 ;; file produces the same `(file, line)` pair and is silent; a different file
 ;; or line reassigning the id surfaces `:rf.warning/registration-collision`."
 ;;
-;; rf2-skxd6x fix: the prior implementation compared `:handler-fn` identity, so
-;; a same-file save-and-re-eval (which yields a FRESH fn instance) false-fired
-;; the warning on every hot reload — exactly the false positive the spec says
-;; MUST be silent. These tests pin the corrected provenance boundary.
+;; Comparing `:handler-fn` identity instead would false-fire the warning on
+;; every hot reload, because a same-file save-and-re-eval yields a FRESH fn
+;; instance — exactly the false positive the spec says MUST be silent. These
+;; tests pin the provenance boundary.
 ;; =============================================================================
 
-;; The CORE regression for rf2-skxd6x: a same-source re-eval (same coords,
+;; The CORE case: a same-source re-eval (same coords,
 ;; different fn instance) is a hot reload and MUST be silent. Driven through
 ;; `rf.registrar/register!` so the provenance can be held CONSTANT across the two
 ;; registrations (the `reg-event` macro re-captures its own call-site coords,
@@ -329,14 +330,14 @@
                     :line 42 :column 3}]
       ;; Two registrations from the IDENTICAL source location, each with a
       ;; freshly-allocated handler-fn (what a save-triggered re-eval produces).
-      ;; The prior fn-identity implementation false-fired here; the provenance
-      ;; boundary keeps it silent (rf2-skxd6x).
+      ;; An fn-identity comparison would false-fire here; the provenance
+      ;; boundary keeps it silent.
       (reg-at :hot/reload coords)
       (reg-at :hot/reload coords)
-      ;; ALWAYS-ON (rf2-d2841): the re-eval REPLACED the slot — that is the
+      ;; ALWAYS-ON: the re-eval REPLACED the slot — that is the
       ;; production behaviour the silent-warning rule is a policy about.
       (assert-live-provenance :event :hot/reload 're-frame.registrar-warnings-test)
-      ;; rf2-d2841 — class-1 vacuous under the gate.
+      ;; Dev-instrumentation arm — vacuous under the gate.
       (when rf.interop/debug-enabled?
         (is (empty? (warnings-of recorded :rf.warning/registration-collision))
             "same-source re-eval (fresh fn, same coords) must NOT warn — it's a hot reload")))))
@@ -347,7 +348,7 @@
       ;; Feature A registers :collide/id; feature B (a different file) clobbers it.
       (reg-at :collide/id {:ns 'feature.a :file "feature/a.cljc" :line 10 :column 1})
       (reg-at :collide/id {:ns 'feature.b :file "feature/b.cljc" :line 20 :column 1})
-      ;; ALWAYS-ON (rf2-d2841): feature B CLOBBERED feature A. The warning is a
+      ;; ALWAYS-ON: feature B CLOBBERED feature A. The warning is a
       ;; dev nudge about a production fact, and the fact is readable in both
       ;; postures off the stored provenance.
       (assert-live-provenance :event :collide/id 'feature.b)
@@ -390,7 +391,7 @@
       (assert-registered :event :prog/id)
       (is (nil? (:ns (rf.registrar/lookup :event :prog/id)))
           "the programmatic path stored no provenance to collide on")
-      ;; rf2-d2841 — class-1 vacuous under the gate.
+      ;; Dev-instrumentation arm — vacuous under the gate.
       (when rf.interop/debug-enabled?
         (is (empty? (warnings-of recorded :rf.warning/registration-collision))
             "programmatic / REPL path has no provenance — no collision to detect")))))
@@ -407,8 +408,8 @@
         (is (= 1 (count (warnings-of recorded :rf.warning/registration-collision)))
             "warn-once: only the first cross-provenance re-registration emits")))))
 
-;; The existing `:rf.registry/handler-replaced` trace must keep firing on
-;; EVERY re-registration (per Spec 001 §Hot-reload trace surface, rf2-6w7zn)
+;; The `:rf.registry/handler-replaced` trace fires on
+;; EVERY re-registration (per Spec 001 §Hot-reload trace surface)
 ;; — the collision warning is a SEPARATE surface, not a replacement. Crucially,
 ;; handler-replaced fires even on the SILENT same-source hot-reload path.
 
@@ -430,12 +431,12 @@
               collisions (warnings-of recorded :rf.warning/registration-collision)]
           (is (= 2 (count replaced))
               "handler-replaced fires on each of the two re-registrations")
-          ;; rf2-d2841 — class-1 vacuous under the gate.
+          ;; Dev-instrumentation arm — vacuous under the gate.
           (is (empty? collisions)
-              "no collision on a same-source hot reload (the rf2-skxd6x fix)"))))))
+              "no collision on a same-source hot reload (the provenance boundary)"))))))
 
 (deftest collision-warning-coexists-with-handler-replaced
-  (testing "handler-replaced still fires unconditionally; collision is the dev-nudge addition"
+  (testing "handler-replaced fires unconditionally; collision is the separate dev nudge"
     (let [recorded (record-traces! ::coexist)]
       ;; Three registrations from three distinct provenances.
       (doseq [[ns line] [['c.a 1] ['c.b 2] ['c.c 3]]]
@@ -455,7 +456,6 @@
 
 ;; =============================================================================
 ;; F3 — collision warning is DECOUPLED from the handler-replaced dedup gate
-;;      (rf2-3az1vn P2)
 ;;
 ;; A kind with NO `:handler-fn` — `:route` / `:head` — replaces its
 ;; slot WITHOUT rotating a handler fn. The B4 hot-reload dedup-by-shape table
@@ -463,25 +463,25 @@
 ;; `:column`) from the shape, so two cross-source registrations of such a kind
 ;; with otherwise-identical metadata hash to the IDENTICAL shape →
 ;; `dedup-allow? :rf.registry/handler-replaced` returns FALSE (an idempotent
-;; hot-reload re-emit). The prior code NESTED `maybe-emit-collision!` inside
-;; that `dedup-allow?` gate, so a GENUINE cross-source clash for these kinds
-;; never warned. The fix calls the collision check independently. The collision
-;; warning keys on PROVENANCE (not shape), so it must still fire.
+;; hot-reload re-emit). A `maybe-emit-collision!` NESTED inside that
+;; `dedup-allow?` gate would never warn on a GENUINE cross-source clash for
+;; these kinds, so the registrar calls the collision check independently. The
+;; collision warning keys on PROVENANCE (not shape), so it must fire.
 ;; =============================================================================
 
 (defn- reg-no-handler-fn!
   "Register a `kind` id carrying NO `:handler-fn` (a `:route` /
   `:head`-shaped slot) with an explicit source-coord `provenance` envelope. The
   residual metadata is identical across calls except for provenance, so the B4
-  shape table sees the SAME shape on re-register — exactly the case the old
-  nested-collision code dedup-suppressed."
+  shape table sees the SAME shape on re-register — exactly the case a
+  nested collision check would dedup-suppress."
   [kind id provenance]
   (rf.registrar/register! kind id (merge (or provenance {}) {:doc "slot"})))
 
 (deftest collision-fires-for-no-handler-fn-kind-despite-shape-dedup
   (testing "a :route-kind cross-source reassignment WARNS even though its shape
             is dedup-identical (no rotating :handler-fn) — collision is decoupled
-            from the handler-replaced dedup gate (rf2-3az1vn P2)"
+            from the handler-replaced dedup gate"
     (let [recorded (record-traces! ::no-fn-collision)]
       ;; Two DIFFERENT authoring sites register the SAME :route id. No handler-fn
       ;; on either, identical residual metadata → identical dedup shape.
@@ -489,9 +489,9 @@
                           {:ns 'feature.a :file "feature/a.cljc" :line 10 :column 1})
       (reg-no-handler-fn! :route :surface/main
                           {:ns 'feature.b :file "feature/b.cljc" :line 20 :column 1})
-      ;; ALWAYS-ON (rf2-d2841): the SHAPE-dedup suppresses only the TRACE. The
-      ;; slot itself was replaced — feature B's route is the live one — which
-      ;; is precisely why the hidden collision mattered.
+      ;; ALWAYS-ON: the SHAPE-dedup suppresses only the TRACE. The
+      ;; slot itself is replaced — feature B's route is the live one — which
+      ;; is precisely why a hidden collision would matter.
       (assert-live-provenance :route :surface/main 'feature.b)
       (when rf.interop/debug-enabled?
         (let [replaced (filterv (fn [ev]
@@ -499,14 +499,14 @@
                                        (= :rf.registry/handler-replaced (:operation ev))))
                                 @recorded)
               collisions (warnings-of recorded :rf.warning/registration-collision)]
-          ;; rf2-d2841 — class-1 vacuous under the gate, and the sharpest example
+          ;; Dev arm — vacuous under the gate, and the sharpest example
           ;; in this file: it certifies that a DEDUP GATE suppressed an emit,
           ;; over a stream that carries no emits at all.
           (is (empty? replaced)
               "handler-replaced is dedup-SUPPRESSED — the shape is identical (no
-               handler-fn rotation); this is the gate that used to hide the collision")
+               handler-fn rotation); a nested collision check would hide behind it")
           (is (= 1 (count collisions))
-              "the collision warning STILL fires — it is decoupled from the dedup gate")
+              "the collision warning fires regardless — it is decoupled from the dedup gate")
           (let [t (:tags (first collisions))]
             (is (= :route (:kind t)))
             (is (= :surface/main (:id t)))
@@ -515,15 +515,15 @@
 
 (deftest collision-still-silent-on-same-source-for-no-handler-fn-kind
   (testing "a same-source re-eval of a no-handler-fn kind stays SILENT — the
-            decoupled collision check still keys on provenance, not shape"
+            decoupled collision check keys on provenance, not shape"
     (let [recorded (record-traces! ::no-fn-same-source)
           coords   {:ns 'feature.a :file "feature/a.cljc" :line 10 :column 1}]
       (reg-no-handler-fn! :route :surface/hot coords)
       (reg-no-handler-fn! :route :surface/hot coords)
       (assert-live-provenance :route :surface/hot 'feature.a)
-      ;; rf2-d2841 — class-1 vacuous under the gate.
+      ;; Dev-instrumentation arm — vacuous under the gate.
       (when rf.interop/debug-enabled?
         (is (empty? (warnings-of recorded :rf.warning/registration-collision))
             "same (ns,file,line) re-eval is a hot reload — no collision even though
-             the collision check now runs unconditionally")))))
+             the collision check runs unconditionally")))))
 
