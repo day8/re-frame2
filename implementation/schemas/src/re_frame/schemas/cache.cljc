@@ -6,10 +6,10 @@
   — share one requirement: a process-lifetime memo that is *clearable* for
   test isolation. `clojure.core/memoize` exposes no clear hook, so a test
   that registers many distinct fresh schemas (the concurrency-stress
-  harness) could never reset the process-lifetime cache; both memos hand-
-  rolled the same atom-backed lookup-or-compute + reset! clear pair.
+  harness) could not reset its process-lifetime cache.
 
-  `clearable-memo` supplies that pair for an arbitrary function.
+  `clearable-memo` supplies an atom-backed lookup-or-compute memo and a
+  `reset!` clear hook for an arbitrary function.
 
   App schemas are registered ONCE at boot, so each memo is bounded by the
   registered-schema cardinality and is intentionally NOT evicted — no
