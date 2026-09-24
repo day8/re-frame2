@@ -1,5 +1,5 @@
 (ns re-frame.adapter.uix-consumer-deps-recipe-test
-  "The clean-consumer guard for the UIx dependency recipe (rf2-5x1xt).
+  "The clean-consumer guard for the UIx dependency recipe.
 
    `day8/re-frame2-uix` ships `com.pitch/uix.core` and deliberately does NOT
    ship `com.pitch/uix.dom` — mounting a React root is the application's call,
@@ -24,27 +24,25 @@
    and what the published recipes name, and both halves move together.
 
    The generator template is the VERSION SOURCE, not a fourth recipe, and it
-   alone does not name `uix.dom` (rf2-j908): the app it emits mounts through
+   alone does not name `uix.dom`: the app it emits mounts through
    `rf.adapter.uix/client-root` + `render!`, so the Root is minted by the
    shared React spine and the DOM half is not a day-one dependency. That
-   absence is asserted here positively rather than merely dropped, because a
-   deleted assertion asserts nothing; `retired-coords` in the template suite
-   is the sibling half, which refuses the coordinate's return anywhere in the
-   emitted `deps.edn`.
+   absence is asserted here positively, because an absence nobody asserts
+   can quietly reverse; `retired-coords` in the template suite is the
+   sibling half, which refuses the coordinate anywhere in the emitted
+   `deps.edn`.
 
-   The three examples used to mint their own Root and so required `uix.dom`
-   too, which is why the recipe pages named it. They now mount through the
-   same `client-root` / `render!` door the template emits (rf2-fn0kx.8), so
-   `uix.dom` is no longer in the derived owner set and the recipe assertions
-   no longer demand it. A page may still name it — `docs/core/testing/views.md`
-   has a component-test recipe that really does drive a Root by hand — and
-   nothing here forbids that; the guard only insists that what the examples
-   DO require is nameable and named.
+   The three examples mount through the same `client-root` / `render!` door
+   the template emits, so `uix.dom` is not in the derived owner set and the
+   recipe assertions do not demand it. A page may still name it —
+   `docs/core/testing/views.md` has a component-test recipe that really does
+   drive a Root by hand — and nothing here forbids that; the guard only
+   insists that what the examples DO require is nameable and named.
 
    What this does NOT do is resolve a real classpath. A genuine clean-consumer
    compile would need its own fixture project, its own Maven resolution and its
-   own build step — a new CI lane, which this bead is not worth. The invariant
-   it can prove cheaply is the one that actually broke: a namespace the copyable
+   own build step — a new CI lane, which this guard is not worth. The invariant
+   it can prove cheaply is the one that matters: a namespace the copyable
    mount requires with no consumer coordinate that owns it."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -133,14 +131,14 @@
   (let [deps (deps-map (repo-root) adapter-deps-path)]
     (testing "the adapter's shipping :deps carry uix.core"
       (is (contains? deps 'com.pitch/uix.core)
-          (str adapter-deps-path " no longer ships com.pitch/uix.core.")))
+          (str adapter-deps-path " does not ship com.pitch/uix.core.")))
     (testing "and deliberately do NOT carry uix.dom"
       ;; If this ever flips, the DOM half became transitive and the recipe
       ;; assertions below stop being load-bearing — so the guard must be
       ;; re-thought rather than left standing as a vacuous pass.
       (is (not (contains? deps 'com.pitch/uix.dom))
-          (str adapter-deps-path " now ships com.pitch/uix.dom. That is a "
-               "deliberate non-goal (rf2-5x1xt); if it was intended, this "
+          (str adapter-deps-path " ships com.pitch/uix.dom. That is a "
+               "deliberate non-goal; if it was intended, this "
                "whole guard needs revisiting.")))))
 
 ;; ---------------------------------------------------------------------------
@@ -154,17 +152,12 @@
           ;; Non-vacuity: a scan that found nothing would satisfy the
           ;; ownership check below in the same voice as a clean file.
           ;;
-          ;; The signal namespace is `uix.core`, and it used to be `uix.dom`
-          ;; (rf2-fn0kx.8). That was never weaker as a control, but it was
-          ;; pinned to the wrong thing: these examples minted their own React
-          ;; Root, so `uix.dom` was in their requires, and asserting it made
-          ;; the control an assertion about the MOUNT IDIOM rather than about
-          ;; the scan. When the examples moved onto the adapter's
-          ;; `client-root` / `render!` — the shape the generator template
-          ;; already emitted — the control went red for a change it was never
-          ;; meant to be sensitive to. `uix.core` is where `$` and `defui`
+          ;; The signal namespace is `uix.core`: it is where `$` and `defui`
           ;; come from, so a file cannot stop requiring it and still be a UIx
           ;; view file. It is the one require the scan can depend on finding.
+          ;; A mount-specific namespace such as `uix.dom` would make the
+          ;; control an assertion about the MOUNT IDIOM rather than about the
+          ;; scan, red for a change it is not meant to be sensitive to.
           (testing "the scan has signal — the file's uix.core require is seen"
             (is (contains? required "uix.core")
                 (str rel " does not appear to require uix.core. Either it "
@@ -184,10 +177,8 @@
 ;; Every published recipe names those owners, at the template's version.
 
 ;; Named for what it checks rather than for a count: the owner set is derived
-;; from the example sources, so it was two coordinates while those examples
-;; minted their own Root and is one now that they mount through the adapter
-;; (rf2-fn0kx.8). A name carrying the count goes stale the moment the mount
-;; does, which is exactly what happened to the non-vacuity pin above.
+;; from the example sources, so its size follows how those examples mount. A
+;; name carrying the count would go stale the moment the mount changed.
 (deftest published-recipes-name-every-required-uix-coordinate-in-lockstep
   (let [root       (repo-root)
         template   (deps-map root template-deps-path)
@@ -200,19 +191,19 @@
                         set)]
     (testing "the template pins uix.core — the one version source"
       (is (some? core-ver) (str template-deps-path " has no com.pitch/uix.core.")))
-    (testing "and deliberately does NOT pin uix.dom (rf2-j908)"
+    (testing "and deliberately does NOT pin uix.dom"
       ;; The absence half, asserted rather than assumed. The emitted app
       ;; mounts through the adapter's `client-root` / `render!`, so uix.dom
       ;; is not on its classpath and there is no second version to keep in
-      ;; lockstep. Restoring the pin would re-teach the superseded
-      ;; `uix-dom/create-root` boot, so this must go red if it comes back.
+      ;; lockstep. A uix.dom pin would teach a hand-rolled
+      ;; `uix-dom/create-root` boot, so this must go red if one appears.
       (is (nil? dom-ver)
           (str template-deps-path " pins com.pitch/uix.dom at "
-               (pr-str dom-ver) ". rf2-j908 retired that coordinate from the "
+               (pr-str dom-ver) ". That coordinate is not part of the "
                "scaffold: the emitted app mounts through "
                "`rf.adapter.uix/client-root` + `render!`, so the React Root "
                "is minted by the shared spine and uix.dom is not a day-one "
-               "dependency. If the pin was restored deliberately, this guard "
+               "dependency. If the pin was added deliberately, this guard "
                "and `retired-coords` in the template suite both need "
                "revisiting rather than relaxing.")))
     (doseq [rel recipe-pages]
@@ -223,8 +214,8 @@
               (is (contains? found nm)
                   (str rel " publishes a UIx dependency recipe that does not "
                        "name com.pitch/" nm ", but the examples require " nm
-                       ". A consumer copying this recipe cannot resolve it "
-                       "(rf2-5x1xt).")))
+                       ". A consumer copying this recipe cannot resolve it"
+                       ".")))
             (testing (str "pins com.pitch/" nm " at the template's version")
               (is (= core-ver (get found nm))
                   (str rel " pins com.pitch/" nm " at " (pr-str (get found nm))
