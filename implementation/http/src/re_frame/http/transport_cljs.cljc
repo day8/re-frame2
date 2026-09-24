@@ -124,7 +124,7 @@
                           ;; `privacy/prepare-emit-tags` so a denylisted query
                           ;; param is scrubbed and `:sensitive?` is stamped),
                           ;; omit the bad pair, and continue with the valid
-                          ;; headers. A stray bad header no longer sinks an
+                          ;; headers. A stray bad header does not sink an
                           ;; otherwise-valid request; the trace is the alarm.
                           ;; Spec 014 §Body encoding + §Request envelope require
                           ;; request-prep failures to stay on the managed path,
