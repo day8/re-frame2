@@ -86,8 +86,8 @@
   lookup — can `__proto__` poison a write, can `toString` be served an
   inherited value — and `Object.create(null)` answers the second
   structurally and demotes the first to the miss path, where
-  `reserved-name?` refuses the write. Measured against the guarded
-  `#js {}` it replaced, and against a type-checked hit that was declined:
+  `reserved-name?` refuses the write. Measured against a guarded
+  `#js {}`, and against a type-checked hit:
   docs/design/fresco/studio/our-walk-against-reagents.md §4(a)."
   []
   (js/Object.create nil))
@@ -436,9 +436,9 @@
 
   One walk and one object per element per render, exactly as the
   measured reagent-slim plumbing does (HD-004 refuses a props-object
-  memo). The prop pipeline is 67.5% of the interpreter walk, and the
-  shorthand merge was most of that until it was folded onto the emitted
-  object instead of the map
+  memo). The prop pipeline is 67.5% of the interpreter walk, and a
+  shorthand merge over the map rather than the emitted object would be
+  most of that
   (docs/design/fresco/studio/the-interpreter-walk-profiled-and-cheapened.md)."
   [props ^ParsedTag parsed]
   (if (nil? props)
@@ -569,7 +569,7 @@
   "Every key a declaration may carry; anything else is refused at the
   declaration, because a door that silently ignored a misspelled
   `:server` would make a policy that was never applied look like a
-  setting. `:ssr` is not aliased: pre-alpha, a rename is a rename."
+  setting. `:ssr` is not an alias for `:server`."
   #{:callbacks :slots :server :fallback})
 
 ;; --- The gate -------------------------------------------------------------
@@ -680,7 +680,7 @@
   and never looks inside a head whose body runs later, so left to the
   walk a declared placeholder could render a different document per
   frame and per write. `:server :render` is the honest recovery for a
-  provider. Ruling and the two measurements behind it:
+  provider. The argument and the two measurements behind it:
   docs/design/fresco/decisions.md HD-011, \"The fallback half\";
   witness `re-frame.fresco.fallback-contents-cljs-test`."
   [host-name path form]
@@ -761,7 +761,7 @@
   (the default when absent) or `:render`, the author's assertion that the
   component is safe to render on the server. Spellings that assert a
   structural property nobody can check — `:children`, `:transparent` —
-  stay refused."
+  are refused."
   [host-name opts]
   (let [policy (get opts :server :client-only)]
     (if (or (keyword-identical? :client-only policy)
@@ -1027,8 +1027,8 @@
 ;; the refusal tier's `:extent-frame` need a LIVE frame, and a codec
 ;; cannot require the collector that mints them (the collector requires
 ;; the codec), so the HEAD binds them around its call: markup below a
-;; boundary acts on the boundary's frame, root or body alike
-;; (rf2-3x7nj.7.2). `frame-provider` calls it on the way past, its frame
+;; boundary acts on the boundary's frame, root or body alike.
+;; `frame-provider` calls it on the way past, its frame
 ;; already live; `frame-root` calls it in core's ready pass, after the
 ;; commit-owned ENSURE has made the frame, so a lowered callback is
 ;; pinned to that incarnation. That is how an ENSURE boundary is spelled
@@ -1316,15 +1316,15 @@
   do at a native prop position.
 
   Run once at the boundary hand-off (`boundary-element`), the one
-  position the eager codec's walk did not reach: a lazy seq that
+  position the eager codec's walk does not otherwise reach: a lazy seq that
   crossed unrealised would be forced inside the child's render,
   attributed to the child, and — because a `LazySeq` caches — frozen
   after the child's first re-render. A lazy seq is structure and may be
   forced; a `delay` is an explicit deferral and may not. Cost: 6% of the
   dogfood row's element build, 89% at a 100-row collection prop and
   still 4.7x cheaper than that collection's `clj->js` at a native prop;
-  walking keys unconditionally added 51–67% to the walk, the `keyword?`
-  short-circuit 0.2–2.8% of the element build
+  walking keys unconditionally would add 51–67% to the walk, the `keyword?`
+  short-circuit adds 0.2–2.8% of the element build
   (docs/design/fresco/studio/the-boundary-crossing-walk-priced.md).
   Argument: docs/design/fresco/studio/arm1-lean-react-dogfood-judgement.md."
   [v]
@@ -1406,7 +1406,7 @@
         props      (if has-props? (nth argv 1) {})
         children   (realize-children argv (if has-props? 2 1))
         ;; THE HAND-OFF: the map crosses as a CLJS value, so this is the
-        ;; one position the eager walk did not reach; `realize-deep`
+        ;; one position the eager walk does not otherwise reach; `realize-deep`
         ;; forces every lazy seq (`:children` included) and refuses an
         ;; unforced `delay`, inside THIS body's render.
         body-props (realize-deep (cond-> (dissoc props :key)
@@ -1421,7 +1421,7 @@
   HTML attribute wherever the component passes it on, so has no
   representation but a string; `data-*` and `aria-*` join them by prefix.
   Named as SLOTS, not keys, so `:class`, `:className` and `\"class\"` are
-  one position. The roster is the one reagent-slim narrowed this seam to
+  one position. The roster is reagent-slim's for this seam
   (implementation/adapters/reagent-slim/IMPL-SPEC.md §7.2)."
   #{"className" "id" "role"})
 
@@ -1448,7 +1448,7 @@
   Stock Reagent's `(name v)` at every host prop is deliberately not
   taken: it hands `:theme/dark` and `:other/dark` to a provider as one
   string, silently, at the crossing where a namespaced identity is most
-  often the point. Ruling: docs/design/fresco/decisions.md HD-011,
+  often the point. See docs/design/fresco/decisions.md HD-011,
   2026-08-30 addendum."
   [slot v]
   (cond
@@ -1729,7 +1729,7 @@
   `ref` and `children` on a fragment — its own words, in its
   `validateFragmentProps` warning — so those two slots are the whole of
   what this reads off the optional attr map, and anything else written
-  there is dropped as it always was.
+  there is dropped.
 
   `:ref` crosses UNTOUCHED: the identity the author wrote, the same
   crossing `convert-entry` and `host-entry` give HD-016's node handle.
@@ -1738,10 +1738,7 @@
   re-wrapped per render would re-run a callback ref, and its cleanup, on
   every commit. What React hands back is a `FragmentInstance` rather than
   a DOM node: a fragment has no element of its own, so the handle
-  addresses the run of children it holds.
-
-  Before React 19.3 a fragment took no ref at all and this dropped one
-  silently."
+  addresses the run of children it holds."
   [argv]
   (let [has-props? (props-map? argv 1)
         props      (if has-props? (nth argv 1) nil)
@@ -1896,7 +1893,7 @@
   branches are mutually exclusive, so order changes only what each
   population pays, and `vector?` is the dear test (`native-satisfies?`
   for anything without the `IVector` marker) — asking `string?` first
-  took the census page's child roster from 22.5 to 8.9 ns/child
+  puts the census page's child roster at 8.9 ns/child, against 22.5 otherwise
   (docs/design/fresco/studio/our-walk-against-reagents.md §4(b))."
   [x]
   (case (child-kind x)
@@ -1919,7 +1916,7 @@
 
   `frame-kw` is nil for a root whose TREE names its own frame, which is
   what `h/frame-root` and `h/frame-provider` are for and what a
-  `h/render!` root does today: the boundary head binds `*frame*` for its
+  `h/render!` root does: the boundary head binds `*frame*` for its
   own children (`lower-children-under`), so the root walk above it names
   nothing. A non-nil `frame-kw` is the impl tier's own witness-driving
   shape (`impl.mount/root!`), where the frame is the root handle's.
