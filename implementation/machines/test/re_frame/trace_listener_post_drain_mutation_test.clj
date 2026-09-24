@@ -1,5 +1,5 @@
 (ns re-frame.trace-listener-post-drain-mutation-test
-  "Trace listeners are OBSERVERS, not participants (rf2-wxy1c).
+  "Trace listeners are OBSERVERS, not participants.
 
   THE CONTRACT THIS PINS. A trace listener's body never runs while the framework
   owns a frame's drain lock. Internal drain-owned emits are delivered at the
@@ -24,7 +24,7 @@
   `:spawn-all` child installation is the probe because it is the most
   timing-sensitive consumer of the registrar in the codebase: `install-spawn!`
   forces `prepared-type-ref` at the last point before the runtime-db write, and
-  the definition-lifetime rule (rf2-rxjy3 / rf2-zo5n9) makes the FORM of the
+  the definition-lifetime rule makes the FORM of the
   stamped reference a pure function of whether the registrar had diverged BY
   THAT INSTANT. If a listener could still act inside the drain, arm 1 would pin
   a definition map and arm 2 would keep a keyword — which is precisely what this
@@ -39,8 +39,8 @@
   it asserts is the cross-platform contract.
 
   RED-BEFORE LEVER. Make `re-frame.trace/call-with-deferred-listener-delivery`
-  the identity on JVM (`#?(:clj (f) :cljs (f))`), restoring the pre-rf2-wxy1c
-  inline fan-out: arm 1 then pins a definition map and reaches `:working` while
+  the identity on JVM (`#?(:clj (f) :cljs (f))`), so listeners fan out
+  inline: arm 1 then pins a definition map and reaches `:working` while
   arm 2 keeps a keyword and strands the child, and the arm-1 ≡ arm-2 assertions
   fail."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -86,7 +86,7 @@
   actor actually reaches after an ordinary later event, and
   `:no-such-handler` counts the resolver failures an inert actor would raise.
 
-  Note the CLJS-safety of this shape (rf2-wxy1c): a stale reference does not
+  Note the CLJS-safety of this shape: a stale reference does not
   THROW on either platform — it strands the actor — so every reading here is an
   outcome, never an exception.
 
@@ -140,7 +140,7 @@
             TYPE produces EXACTLY the observable end state that the same
             unregister performed one line after dispatch-sync produces — the
             listener body runs at the post-drain boundary, so it cannot
-            influence the install it appears to precede (rf2-wxy1c)."
+            influence the install it appears to precede."
     (let [arm-1 (run-arm :pd/a1 :pd/sup-a1
                          {:during #(rf.registrar/unregister! :event :pd/a1)})
           arm-2 (run-arm :pd/a2 :pd/sup-a2
@@ -155,7 +155,7 @@
       (is (false? (:pinned? arm-1))
           "the install saw an INTACT registrar and kept the revertible keyword — the unregister had not happened yet")
       (is (true? (:installed? arm-1))
-          "the admitted child installed regardless (rf2-v4oqd)")
+          "the admitted child installed regardless")
       (is (= :ready (:state arm-1))
           "the child bootstrapped, then the post-drain unregister stranded its later :go — the accepted cost of the revertible keyword")
       (is (pos? (:no-such-handler arm-1))
@@ -186,6 +186,6 @@
       (is (false? (:pinned? arm-1))
           "the install kept the revertible keyword — the registrar was intact at commit")
       (is (= :hot-reloaded (:state arm-1))
-          "the live child followed the re-registered definition — hot-reload semantics preserved")
+          "the live child followed the re-registered definition — hot-reload semantics hold")
       (is (zero? (:no-such-handler arm-1))
           "no resolver failure — the successor definition resolves"))))
