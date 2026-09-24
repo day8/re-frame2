@@ -1,27 +1,26 @@
 (ns re-frame.source-coords-cljs-test
-  "CLJS-side regression test for rf2-mdjp — the `re-frame.core` reg-*
-  macros were reading Clojure's `*file*` at expansion time, but the
-  CLJS analyzer never binds `*file*` during macro expansion (it binds
-  `cljs.analyzer/*cljs-file*` instead). On CLJS that left `*file*` at
-  the JVM compiler's default `\"NO_SOURCE_PATH\"` sentinel, which then
-  got baked into every registration's source-coord `:file` slot —
-  defeating jump-to-source and tooling that reads `(rf/handler-meta {:source :store :kind kind :id id})`.
+  "CLJS-side test that the `re-frame.core` reg-* macros record a real
+  source-coord `:file`. The CLJS analyzer never binds Clojure's `*file*`
+  during macro expansion (it binds `cljs.analyzer/*cljs-file*` instead), so
+  on CLJS `*file*` sits at the JVM compiler's default `\"NO_SOURCE_PATH\"`
+  sentinel. A macro reading `*file*` would bake that sentinel into every
+  registration's source-coord `:file` slot — defeating jump-to-source and
+  tooling that reads `(rf/handler-meta {:source :store :kind kind :id id})`.
 
-  The fix (mirroring rf2-ulxi / Story-side PR #340) prefers
-  `(:file (meta &form))` over `*file*`. tools.reader's
+  The macros prefer `(:file (meta &form))` over `*file*`. tools.reader's
   indexing-push-back-reader stamps `:file` on every collection-form's
   metadata, which survives the macro-expansion handoff to cljs.analyzer
   — so the form-meta path is the portable answer across both
   compilation hosts. The shared helper lives in
-  `re-frame.source-coords/coords-form` and the existing
+  `re-frame.source-coords/coords-form` and
   `re-frame.source-coords-test` covers the JVM path; this test exercises
   the CLJS path end-to-end.
 
-  Failure mode on `main` (pre-fix): every reg-event (and every other
-  reg-* macro) below would carry `:file \"NO_SOURCE_PATH\"` in its
-  registered metadata. After the fix, `:file` either resolves to the
-  real source path (the common shadow-cljs path) or is omitted entirely
-  (when no form-meta `:file` is available and `*file*` is the sentinel)."
+  The failure mode it guards: a reg-event (or any other reg-* macro) below
+  carrying `:file \"NO_SOURCE_PATH\"` in its registered metadata. `:file`
+  either resolves to the real source path (the common shadow-cljs path) or
+  is omitted entirely (when no form-meta `:file` is available and `*file*`
+  is the sentinel)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.context :as rf.adapter.context]
@@ -48,12 +47,12 @@
 ;; `:file` to the form's metadata) OR omits the slot entirely (the
 ;; pathological case where both sources resolved to the sentinel). What
 ;; MUST NOT happen is the slot being present and equal to the
-;; `\"NO_SOURCE_PATH\"` sentinel — that's the bug rf2-mdjp tracks.
+;; `\"NO_SOURCE_PATH\"` sentinel — that is the failure this file guards.
 
 (deftest reg-event-file-is-not-no-source-path
-  (testing "EP-0018 C (rf2-xhfxcs.3): the ONE public `reg-event` macro emits a
-  real :file under CLJS, not NO_SOURCE_PATH — same coord-capture path as the
-  legacy reg-event-* macros (consolidated macro layer)"
+  (testing "EP-0018 C: the ONE public `reg-event` macro emits a real :file
+  under CLJS, not NO_SOURCE_PATH — through the macro layer's shared
+  coord-capture path"
     (rf/reg-event :rf2-mdjp/reg-event-sample
                   (fn [{:keys [db]} _] {:db db}))
     (let [m (rf/handler-meta {:source :store :kind :event :id :rf2-mdjp/reg-event-sample})
@@ -66,7 +65,7 @@
             ":file when present must be a real source path")))))
 
 (deftest reg-event-db-return-file-is-not-no-source-path
-  (testing "rf2-mdjp: reg-event with a {:db ...} return emits a real :file under CLJS, not NO_SOURCE_PATH"
+  (testing "reg-event with a {:db ...} return emits a real :file under CLJS, not NO_SOURCE_PATH"
     (rf/reg-event :rf2-mdjp/reg-event-db-sample
                      (fn [{:keys [db]} _] {:db db}))
     (let [m (rf/handler-meta {:source :store :kind :event :id :rf2-mdjp/reg-event-db-sample})
@@ -79,14 +78,14 @@
             ":file when present must be a real source path")))))
 
 (deftest reg-event-fx-return-file-is-not-no-source-path
-  (testing "rf2-mdjp: reg-event with an effect-map return emits a real :file under CLJS"
+  (testing "reg-event with an effect-map return emits a real :file under CLJS"
     (rf/reg-event :rf2-mdjp/reg-event-fx-sample
                      (fn [_ _] {}))
     (let [f (:file (rf/handler-meta {:source :store :kind :event :id :rf2-mdjp/reg-event-fx-sample}))]
       (is (not= "NO_SOURCE_PATH" f)))))
 
 (deftest reg-event-with-interceptor-file-is-not-no-source-path
-  (testing "rf2-mdjp: reg-event with a full-context interceptor emits a real :file under CLJS"
+  (testing "reg-event with a full-context interceptor emits a real :file under CLJS"
     (rf/reg-interceptor :rf2-mdjp/ctx-probe {:before (fn [ctx] ctx)})
     (rf/reg-event :rf2-mdjp/reg-event-ctx-sample
                   {:interceptors [:rf2-mdjp/ctx-probe]}
@@ -95,20 +94,20 @@
       (is (not= "NO_SOURCE_PATH" f)))))
 
 (deftest reg-sub-file-is-not-no-source-path
-  (testing "rf2-mdjp: reg-sub emits a real :file under CLJS"
+  (testing "reg-sub emits a real :file under CLJS"
     (rf/reg-sub :rf2-mdjp/reg-sub-sample
                 (fn [db _] db))
     (let [f (:file (rf/handler-meta {:source :store :kind :sub :id :rf2-mdjp/reg-sub-sample}))]
       (is (not= "NO_SOURCE_PATH" f)))))
 
 (deftest reg-fx-file-is-not-no-source-path
-  (testing "rf2-mdjp: reg-fx emits a real :file under CLJS"
+  (testing "reg-fx emits a real :file under CLJS"
     (rf/reg-fx :rf2-mdjp/reg-fx-sample (fn [_ _] nil))
     (let [f (:file (rf/handler-meta {:source :store :kind :fx :id :rf2-mdjp/reg-fx-sample}))]
       (is (not= "NO_SOURCE_PATH" f)))))
 
 (deftest reg-cofx-file-is-not-no-source-path
-  (testing "rf2-mdjp: reg-cofx emits a real :file under CLJS"
+  (testing "reg-cofx emits a real :file under CLJS"
     (rf/reg-cofx :rf2-mdjp/reg-cofx-sample (fn [] :sample))
     (let [f (:file (rf/handler-meta {:source :store :kind :cofx :id :rf2-mdjp/reg-cofx-sample}))]
       (is (not= "NO_SOURCE_PATH" f)))))
@@ -118,8 +117,8 @@
 ;; (frame/make-frame allocates substrate state, reg-view delegates to
 ;; the Reagent-aware impl). The JVM test ns covers those macros with
 ;; the plain-atom adapter installed in its fixture; the helper unit
-;; tests below pin the actual rf2-mdjp invariant under CLJS so we
-;; don't need adapter wiring here just to assert :file-resolution.
+;; tests below pin the :file-resolution invariant under CLJS, so this
+;; file needs no adapter wiring.
 
 ;; ---- direct helper tests (mirrors story_source_coords_test.clj) -------------
 ;;
@@ -132,57 +131,57 @@
 ;; must be omitted.
 
 (deftest resolve-file-prefers-form-meta
-  (testing "rf2-mdjp: resolve-file picks form-meta :file when *file* is NO_SOURCE_PATH"
+  (testing "resolve-file picks form-meta :file when *file* is NO_SOURCE_PATH"
     (is (= "src/my/app.cljs"
            (rf.source-coords/resolve-file
              {:file "src/my/app.cljs"}
              "NO_SOURCE_PATH")))))
 
 (deftest resolve-file-falls-back-to-bound-file
-  (testing "rf2-mdjp: resolve-file falls back to *file* when form-meta lacks :file"
+  (testing "resolve-file falls back to *file* when form-meta lacks :file"
     (is (= "src/my/app.clj"
            (rf.source-coords/resolve-file
              {:line 5}
              "src/my/app.clj")))))
 
 (deftest resolve-file-omits-sentinel
-  (testing "rf2-mdjp: resolve-file returns nil when both sources are NO_SOURCE_PATH"
+  (testing "resolve-file returns nil when both sources are NO_SOURCE_PATH"
     (is (nil? (rf.source-coords/resolve-file
                 {:file "NO_SOURCE_PATH"}
                 "NO_SOURCE_PATH")))))
 
 (deftest resolve-file-omits-when-both-nil
-  (testing "rf2-mdjp: resolve-file returns nil when neither source supplies a file"
+  (testing "resolve-file returns nil when neither source supplies a file"
     (is (nil? (rf.source-coords/resolve-file {} nil)))))
 
-;; ---- parse-source-coord (rf2-nr7vf2) ----------------------------------------
+;; ---- parse-source-coord -----------------------------------------------------
 ;;
-;; The canonical inverse of `format-source-coord`, collapsing the parser
-;; that was reimplemented near-byte-for-byte in Story's element_inspector
-;; and the re-frame2-pair preload runtime. These tests pin the four-segment
+;; The canonical inverse of `format-source-coord` — the one parser that
+;; Story's element_inspector and the re-frame2-pair preload runtime share,
+;; rather than each carrying its own. These tests pin the four-segment
 ;; parse contract (Spec 006 §Attribute value format) and the round-trip
 ;; against the REAL `re-frame.adapter.context/format-source-coord` so the
 ;; format + parse pair can never drift apart.
 
 (deftest parse-source-coord-canonical-shape
-  (testing "rf2-nr7vf2: a four-segment value parses to {:ns :handler-id :line :col}"
+  (testing "a four-segment value parses to {:ns :handler-id :line :col}"
     (is (= {:ns "counter.core" :handler-id "counter-buttons" :line 47 :col 11}
            (rf.source-coords/parse-source-coord "counter.core:counter-buttons:47:11")))))
 
 (deftest parse-source-coord-degraded-placeholders
-  (testing "rf2-nr7vf2: `?` placeholders parse the id portion; line/col are nil"
+  (testing "`?` placeholders parse the id portion; line/col are nil"
     (is (= {:ns "rf.x" :handler-id "programmatic" :line nil :col nil}
            (rf.source-coords/parse-source-coord "rf.x:programmatic:?:?")))
     (is (= {:ns "ns.x" :handler-id "view" :line 42 :col nil}
            (rf.source-coords/parse-source-coord "ns.x:view:42:?")))))
 
 (deftest parse-source-coord-dotted-and-hyphenated
-  (testing "rf2-nr7vf2: dotted ns + hyphenated handler-id parse cleanly"
+  (testing "dotted ns + hyphenated handler-id parse cleanly"
     (is (= {:ns "my-app.cart.view" :handler-id "apply-coupon-button" :line 125 :col 4}
            (rf.source-coords/parse-source-coord "my-app.cart.view:apply-coupon-button:125:4")))))
 
 (deftest parse-source-coord-malformed-returns-nil
-  (testing "rf2-nr7vf2: malformed input returns nil and never throws"
+  (testing "malformed input returns nil and never throws"
     (is (nil? (rf.source-coords/parse-source-coord "ns:view:42")))      ; too few
     (is (nil? (rf.source-coords/parse-source-coord "ns:view")))
     (is (nil? (rf.source-coords/parse-source-coord "a:b:1:2:3")))       ; too many
@@ -194,7 +193,7 @@
     (is (nil? (rf.source-coords/parse-source-coord :keyword)))))
 
 (deftest format-then-parse-round-trips
-  (testing "rf2-nr7vf2: (parse-source-coord (format-source-coord id coords)) recovers id + coords"
+  (testing "(parse-source-coord (format-source-coord id coords)) recovers id + coords"
     (let [round-trip (fn [id coords]
                        (rf.source-coords/parse-source-coord
                          (rf.adapter.context/format-source-coord id coords)))]
@@ -209,40 +208,40 @@
              (round-trip :ns.x/view {})))
       ;; namespaceless id -> formatter emits `?` ns, which the parser
       ;; treats as a non-empty segment (the `?` is a literal char, distinct
-      ;; from an empty segment) so the round trip still recovers it
+      ;; from an empty segment) so the round trip recovers it
       (is (= {:ns "?" :handler-id "bare" :line 1 :col 2}
              (round-trip :bare {:line 1 :column 2}))))))
 
-;; ---- parse-view-id (rf2-ztxnm8 / rf2-16znzb) --------------------------------
+;; ---- parse-view-id ----------------------------------------------------------
 ;;
-;; The canonical inverse of `format-view-id`, collapsing the reader that was
-;; reimplemented inline by its consumers — e.g. the re-frame2-pair preload
-;; runtime's `view-entity`. These tests pin the read contract (Spec 006
+;; The canonical inverse of `format-view-id` — the one reader its consumers
+;; share (e.g. the re-frame2-pair preload runtime's `view-entity`) rather
+;; than each reimplementing it inline. These tests pin the read contract (Spec 006
 ;; §View tagging contract §Attribute value format) and the round-trip against
 ;; the REAL `re-frame.adapter.context/format-view-id` so the format + parse pair
 ;; can never drift apart — the data-rf-view analogue of the parse-source-coord
 ;; round-trip above.
 
 (deftest parse-view-id-namespaced-keyword
-  (testing "rf2-ztxnm8: a stringified namespaced keyword parses back to the keyword"
+  (testing "a stringified namespaced keyword parses back to the keyword"
     (is (= :rf.foo/bar (rf.source-coords/parse-view-id ":rf.foo/bar")))))
 
 (deftest parse-view-id-bare-keyword
-  (testing "rf2-ztxnm8: a leading-colon body with no slash → unqualified keyword"
+  (testing "a leading-colon body with no slash → unqualified keyword"
     (is (= :bare (rf.source-coords/parse-view-id ":bare")))))
 
 (deftest parse-view-id-raw-string
-  (testing "rf2-ztxnm8: a non-colon-prefixed value is a non-keyword id, returned verbatim"
+  (testing "a non-colon-prefixed value is a non-keyword id, returned verbatim"
     (is (= "raw-string" (rf.source-coords/parse-view-id "raw-string")))))
 
 (deftest parse-view-id-nil-and-non-string
-  (testing "rf2-ztxnm8: nil / non-string input returns nil and never throws"
+  (testing "nil / non-string input returns nil and never throws"
     (is (nil? (rf.source-coords/parse-view-id nil)))
     (is (nil? (rf.source-coords/parse-view-id 42)))
     (is (nil? (rf.source-coords/parse-view-id :keyword)))))
 
 (deftest format-view-id-then-parse-round-trips
-  (testing "rf2-ztxnm8: (parse-view-id (format-view-id id)) recovers the registry id"
+  (testing "(parse-view-id (format-view-id id)) recovers the registry id"
     (let [round-trip (fn [id]
                        (rf.source-coords/parse-view-id
                          (rf.adapter.context/format-view-id id)))]
