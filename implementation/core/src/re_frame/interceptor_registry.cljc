@@ -162,7 +162,7 @@
                     (:id descriptor))]
      (when (and (some? value-id) (not= value-id id))
        (throw-interceptor-id-mismatch! id descriptor value-id)))
-   ;; rf2-x68lzo — no-silent-swallow on the registration metadata KEYS: a retired
+   ;; No silent swallow on the registration metadata KEYS: a retired
    ;; bare key (`:spec`) hard-errors, an unknown bare key warns, namespaced/known
    ;; keys pass. `reg-interceptor` adds no per-kind keys beyond the base shape.
    (rf.reg-meta/validate-registration-metadata! :interceptor 'rf/reg-interceptor id metadata)
@@ -196,7 +196,7 @@
 ;; through a chain untouched: it is framework machinery (the terminal
 ;; `:before` that invokes the user handler), not an application-authored
 ;; chain entry, so the reference-only grammar does not reject it. The
-;; predicate lives in `re-frame.interceptor` (already required here) and is
+;; predicate lives in `re-frame.interceptor` (required here) and is
 ;; shared with that ns's `invoke-after` ctx-delta-capture gate — one copy,
 ;; not two. Call it as `rf.interceptor/framework-default-interceptor?`.
 
@@ -215,10 +215,10 @@
 ;;
 ;; The reserved slot a resolved chain entry carries so its AUTHORED reference
 ;; survives resolution — `:interceptor-overrides` exact-reference matching
-;; (EP-0022 Slice C) keys on this. A bare-keyword ref stamps the keyword; an
+;; (EP-0022) keys on this. A bare-keyword ref stamps the keyword; an
 ;; `[id arg]` ref stamps the full vector. An entry without an authored ref
-;; (the framework default-wrapper, which is the only inline value a chain
-;; carries since the reference-only flip) matches overrides by `:id` only.
+;; (the framework default-wrapper, the only inline value a chain
+;; carries) matches overrides by `:id` only.
 
 (def authored-ref-key
   "The reserved key under which a resolved chain entry carries its AUTHORED
@@ -277,7 +277,7 @@
   (`rf.interceptor/->interceptor*` §`:source-coord`). Returns nil when the slot
   carries no coords — a programmatic `reg-interceptor*` call, a framework
   standard (`:rf.interceptor/path`), or a production build whose
-  `merge-coords` elided the public coords (rf2-3un2g)."
+  `merge-coords` elided the public coords."
   [meta]
   (not-empty (select-keys meta [:ns :file :line :column])))
 
@@ -296,8 +296,8 @@
   authored the supported way (`reg-interceptor` + a descriptor, EP-0022)
   threads its registration coord onto the error-record → the
   `:rf.error/interceptor-exception` trace's `:source-coord` tag, and the Xray
-  Epoch INTERCEPTOR row renders its jump-to-source chip (rf2-tq26u; the coord
-  used to stop at the registry meta and the chip degraded to plain text)."
+  Epoch INTERCEPTOR row renders its jump-to-source chip rather than plain
+  text."
   [id descriptor coords]
   (if (contains? descriptor :id)
     (cond-> descriptor
@@ -414,7 +414,7 @@
       ;; `:rf.interceptor/path`) for override-by-id matching + tooling, even
       ;; when the built interceptor stamped its own internal id. The factory
       ;; registration's coords ride as the `:source-coord` fallback
-      ;; (rf2-tq26u; the built value's own coord wins).
+      ;; (the built value's own coord wins).
       (interceptor-value? built) (cond-> (assoc built :id id)
                                    (and coords (nil? (:source-coord built)))
                                    (assoc :source-coord coords))
@@ -445,7 +445,7 @@
   framework / production-elided registrations) unless the registered value
   carries its own, so a throwing interceptor's error-record →
   `:rf.error/interceptor-exception` trace names the registration site
-  (rf2-tq26u — the Xray Epoch INTERCEPTOR row's jump-to-source chip)."
+  (the Xray Epoch INTERCEPTOR row's jump-to-source chip)."
   [ref]
   (cond
     (keyword? ref)
@@ -504,7 +504,7 @@
    ;; `continue?` is the router's exact-incarnation fence. Parameterized
    ;; interceptor factories are authored callbacks; if factory N destroys the
    ;; dequeued event's frame, factory N+1 must never run and N's returned
-   ;; interceptor is inert. The legacy arity supplies an always-true predicate.
+   ;; interceptor is inert. The 1-arity supplies an always-true predicate.
    (if-not (seq chain)
      (vec chain)
      (loop [entries (seq chain)
@@ -523,14 +523,14 @@
                          (assoc (resolve-ref entry) authored-ref-key entry)
                          ;; The framework's own appended handler-wrapper.
                          (rf.interceptor/framework-default-interceptor? entry) entry
-                         ;; Inline values remain a hard reference-grammar error.
+                         ;; Inline values are a hard reference-grammar error.
                          (interceptor-value? entry)
                          (throw-inline-interceptor-removed! entry)
                          :else (throw-invalid-ref! entry))
                        (catch #?(:clj Throwable :cljs :default) e
                          ;; A factory may destroy its owner and then throw. Once
                          ;; ownership is gone, even that returned failure is
-                         ;; inert; while live, preserve the existing hard error.
+                         ;; inert; while live, rethrow the hard error.
                          (if (continue?) (throw e) nil)))]
            (if (continue?)
              (recur (next entries) (conj resolved value))
@@ -544,7 +544,7 @@
   framework's appended handler-wrapper (the common all-default shape — an event
   with no authored chain). Reference-only (EP-0022): a
   chain carrying ONLY the framework default needs no resolution; the moment it
-  carries a ref OR a stale inline value, `resolve-chain` must walk it (to
+  carries a ref OR an inline value, `resolve-chain` must walk it (to
   resolve the ref, or to reject the inline value loudly)."
   [chain]
   (boolean (some (fn [entry]
