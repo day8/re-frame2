@@ -1,5 +1,5 @@
 (ns macro-shapes
-  "The macro-shape smoke for Fresco's clj-kondo export (rf2-r3r00).
+  "The macro-shape smoke for Fresco's clj-kondo export.
 
   Every documented declaration shape of `defview`, `event` and `defhost` —
   optional docstrings and destructuring included — written CORRECTLY, so that
