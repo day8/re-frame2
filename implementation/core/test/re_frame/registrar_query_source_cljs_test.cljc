@@ -1,5 +1,5 @@
 (ns re-frame.registrar-query-source-cljs-test
-  "rf2-kuky.30 — the registrar query grammar names its SOURCE explicitly.
+  "The registrar query grammar names its SOURCE explicitly.
 
   `rf/registrations` and `rf/handler-meta` each take exactly one argument, a
   query map carrying EXACTLY ONE source selector:
@@ -9,25 +9,25 @@
     (rf/handler-meta  {:source :store :kind :sub :id id})
     (rf/handler-meta  {:frame f      :kind :sub :id id})
 
-  ## The defect this pins
+  ## Why the source is explicit
 
-  The retired positional arity — `(registrations :sub)` — DOCUMENTED itself as
-  reading the default source store, but delegated to
+  A positional arity — `(registrations :sub)` — documented as reading the
+  default source store would delegate to
   `rf.registrar/registrations` / `lookup`, which consult
   `rf.registrar/*generation*` FIRST. `re-frame.live-frame/call-with-frame-
   resolution` binds that generation around every subscribe build, dispatch, fx
   and view resolution targeting an image-loaded frame — `re-frame.subs`'s
   build path wraps the whole computation in it — and `make-frame` seals a
   generation unconditionally, so EVERY image-loaded frame has one. A \"store\"
-  read issued from inside a sub computation therefore silently read THAT
-  FRAME'S IMAGE.
+  read issued from inside a sub computation would therefore silently read
+  THAT FRAME'S IMAGE.
 
-  That bit an inspector hardest: Xray runs in its own `:rf/xray` image-loaded
-  frame, so its registry panels saw only Xray's own registrations. Xray worked
-  around it by deref'ing the private `re-frame.registrar/kind->id->metadata`
-  atom from a `host_registry.cljs` helper (deleted by this change).
+  That bites an inspector hardest: Xray runs in its own `:rf/xray`
+  image-loaded frame, so a context-sensitive read would show its registry
+  panels only Xray's own registrations, and the only workaround would be to
+  deref the private `re-frame.registrar/kind->id->metadata` atom.
 
-  ## The three-way regression
+  ## The three-way case
 
   `registrar-reads-inside-a-frame-resolution-are-source-discriminated` is the
   load-bearing case: ONE `[kind id]` carrying THREE DIFFERENT descriptors — one
@@ -113,7 +113,7 @@
   (rf/make-frame {:id :inspector/main :images [inspector-img]} inspector-pool))
 
 ;; ===========================================================================
-;; 1. THE THREE-WAY REGRESSION
+;; 1. THE THREE-WAY CASE
 ;; ===========================================================================
 
 (deftest registrar-reads-inside-a-frame-resolution-are-source-discriminated
@@ -126,8 +126,8 @@
         inspector
         (fn []
           (testing "the binding is LIVE — a generation-routed read (the path
-                    every runtime resolution takes, and the path the retired
-                    positional arity took) resolves the INSPECTOR's descriptor"
+                    every runtime resolution takes) resolves the INSPECTOR's
+                    descriptor"
             (is (= ::inspector-value
                    (:handler-fn (rf.registrar/handler-meta :sub shared-id)))
                 "control: without this, a green :source :store assertion below
@@ -165,7 +165,7 @@
 
 (deftest store-reads-answer-the-same-inside-and-outside-a-binding
   (testing "the {:source :store} answer does not depend on the caller's context
-            — that context-independence IS the fix"
+            — that context-independence IS the contract"
     (let [inspector (seat-three-sources!)
           outside-meta  (rf/handler-meta {:source :store :kind :sub :id shared-id})
           outside-regs  (rf/registrations {:source :store :kind :sub})
@@ -184,9 +184,9 @@
 
 (deftest reserved-empty-kinds-are-not-queryable
   (testing ":flow and :frame are RESERVED-BUT-EMPTY registrar slots. Returning
-            {} for them handed the caller an apparently authoritative empty
-            catalogue while the real store sat elsewhere (it bit Xray's flow
-            panel). They now throw, naming the owning read."
+            {} for them would hand the caller an apparently authoritative
+            empty catalogue while the real store sits elsewhere. They throw,
+            naming the owning read."
     (doseq [kind [:flow :frame]]
       (is (= :rf.error/registrar-kind-not-queryable
              (err-id #(rf/registrations {:source :store :kind kind})))
@@ -239,19 +239,19 @@
     (testing "registrations answers {} for them — there is no side-table to
               enumerate (Spec 005 §:machine-guard / :machine-action
               handler-meta surfaces); the documented empty is not the
-              reserved-slot empty this bead refused, because the metadata IS
+              reserved-slot empty refused above, because the metadata IS
               reachable, one id at a time, through handler-meta"
       (is (= {} (rf/registrations {:source :store :kind :machine-guard})))
       (is (= {} (rf/registrations {:source :store :kind :machine-action}))))))
 
 ;; ===========================================================================
-;; 4. THE PRIVATE ATOM NO LONGER NEEDS READING
+;; 4. THE PRIVATE ATOM NEED NOT BE READ
 ;; ===========================================================================
 
 (deftest the-public-store-read-matches-the-private-atom
-  (testing "the {:source :store} read answers exactly what a tool used to reach
-            for the private re-frame.registrar/kind->id->metadata atom to get.
-            This is the assertion that retires Xray's host_registry.cljs."
+  (testing "the {:source :store} read answers exactly what the private
+            re-frame.registrar/kind->id->metadata atom holds, so no tool needs
+            to reach for the atom."
     (let [inspector (seat-three-sources!)]
       (rf.live-frame/call-with-frame-resolution
         inspector
