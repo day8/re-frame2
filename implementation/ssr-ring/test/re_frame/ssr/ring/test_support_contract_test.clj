@@ -9,8 +9,8 @@
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
 
 (deftest with-jetty-round-trips-a-ring-handler
-  (testing "ts/with-jetty stands up an ephemeral-port Jetty,
-            ts/new-http-client + ts/http-get observe the handler's
+  (testing "with-jetty stands up an ephemeral-port Jetty,
+            new-http-client + http-get observe the handler's
             response on the wire (status + body), and the server is torn
             down in the macro's finally"
     (let [handler (fn [_req]
