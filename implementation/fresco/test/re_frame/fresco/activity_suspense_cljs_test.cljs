@@ -47,18 +47,16 @@
   Driving the seam is emphatically not how a witness says React hides
   anything. That claim is the DOM file's, and this file does not make it.
 
-  ## Nor is a Suspense fallback this seam, and section 6 used to say it was
+  ## Nor is a Suspense fallback this seam
 
-  The bead pairs Activity with Suspense because the two look like one
+  Activity and Suspense are easy to pair because the two look like one
   Offscreen mechanism — the primary tree hidden with `display: none`, its
   host nodes retained. React 19.2 does not treat them alike: hiding for a
   **fallback** leaves the primary tree's PASSIVE effects mounted, so the
   `useSyncExternalStore` subscription survives the suspension and the
-  retry's registration is `identical?` to the pre-suspension one. That was
-  measured, on the browser lane, by
-  [[re-frame.fresco.activity-suspense-dom-cljs-test/a-post-commit-suspension-retains-the-subscription-and-the-retry-leaves-exact-ownership]]
-  — on the run that row failed, having been written expecting the release
-  the Activity rows assert.
+  retry's registration is `identical?` to the pre-suspension one. The
+  browser lane pins that, in
+  [[re-frame.fresco.activity-suspense-dom-cljs-test/a-post-commit-suspension-retains-the-subscription-and-the-retry-leaves-exact-ownership]].
 
   So **no row in this file speaks for Suspense**. Section 6 drives the
   detach/reacquire seam four times, and naming that a suspend/retry
@@ -87,12 +85,11 @@
   Two rows perform, by hand, the exact mutations that would make the
   matrix vacuous —
   [[NEGATIVE-CONTROL-skipping-the-release-on-hide-resurrects-the-stale-membership]]
-  is the bead's own named sabotage (*skipping release-on-hide must turn
-  the stale-membership witness red*), and
+  is the named sabotage (*skipping release-on-hide must turn the
+  stale-membership witness red*), and
   [[NEGATIVE-CONTROL-a-reveal-that-reuses-the-pre-hide-read-set-reacquires-the-wrong-key]]
   is the reveal-side twin. Without them every zero above could be a zero
-  the instrument is incapable of making non-zero, which is the failure
-  mode this repo has been bitten by twice.
+  the instrument is incapable of making non-zero.
 
   ## No clock
 
@@ -216,13 +213,13 @@
   "How many registrations read `query-v`.
 
   **Assertions here take the COUNT and never the vector**, and that is a
-  legibility repair measured on this file's own sabotage run rather than
-  a preference. A registration holds the cells it acquired and each of
-  those holds the registration back on its reader list, so the object
-  graph is cyclic: `cljs.test`'s failure printer walks it and dies, and
-  every `(= [] (readers …))` red arrived as
-  `RangeError: Maximum call stack size exceeded`, naming nothing. A
-  witness whose red output is a stack overflow is not a witness.
+  legibility requirement rather than a preference. A registration holds
+  the cells it acquired and each of those holds the registration back on
+  its reader list, so the object graph is cyclic: `cljs.test`'s failure
+  printer walks it and dies, and every `(= [] (readers …))` red would
+  arrive as `RangeError: Maximum call stack size exceeded`, naming
+  nothing. A witness whose red output is a stack overflow is not a
+  witness.
 
   Every positive identity claim below is spelled
   `(is (true? (identical? a b)))` rather than `(is (identical? a b))` for
@@ -396,8 +393,8 @@
 
 (deftest a-hide-landing-inside-a-deferred-notification-window-is-not-notified
   ;; **This row is the only place `unsubscribe`'s notifier clear is
-  ;; load-bearing, and finding that out is what it is for.** Measured:
-  ;; deleting `(set! (.-notify reg) nil)` reds nothing else in this file,
+  ;; load-bearing.** Deleting `(set! (.-notify reg) nil)` reds nothing
+  ;; else in this file,
   ;; and deleting the membership release reds nothing that depends on
   ;; deafness — because on the synchronous path each mechanism alone is
   ;; sufficient. `flush!` reads the reader lists BEFORE the deferral, so
@@ -445,10 +442,8 @@
   (testing "[[writing-body]]'s docstring names the case: the generation
             fence re-runs a body that observed a new commit, and a body
             that writes on EVERY run cannot be fenced. The refusal is the
-            retry loop's own terminal arm, and nothing in the shipped
-            tree had ever driven it — the only exercise was the fenced
-            bench twin's, by message regex, against its own copy of the
-            runtime"
+            retry loop's own terminal arm, driven here against the
+            shipped runtime and asserted by id rather than by message"
     (let [always-writer (fn writer [_]
                           (rf/with-frame frame-id (rf/dispatch-sync [:acs/bump :a]))
                           [:p "writer"])
@@ -576,7 +571,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 4. A conditional read changed while hidden does not resurrect stale
-;;    membership — and the bead's named sabotage for it
+;;    membership — and the named sabotage for it
 ;; ---------------------------------------------------------------------------
 
 (defn- hidden-window-flip!
@@ -661,9 +656,9 @@
                (done))))))
 
 (deftest NEGATIVE-CONTROL-skipping-the-release-on-hide-resurrects-the-stale-membership
-  ;; The bead's own sabotage, run as a row rather than described in a
-  ;; report: *skipping release-on-hide must turn the stale-membership
-  ;; witness red*. It is the same helper with `release-on-hide?` false, so
+  ;; The named sabotage, run as a row rather than described:
+  ;; *skipping release-on-hide must turn the stale-membership witness
+  ;; red*. It is the same helper with `release-on-hide?` false, so
   ;; what changed between green and red is one call and not one scenario.
   (async done
     (seeded!)
@@ -936,7 +931,7 @@
                          fact is React's retention of the fiber, and the
                          only evidence of it available here is the
                          re-subscribe against the same entry object that the
-                         middle section just performed. rf2-hic-023's view
+                         middle section just performed. A lifecycle view
                          has to take its third state from that transition —
                          an entry whose refs go 1 → 0 → 1 was hidden; an
                          entry whose refs go 1 → 0 and is then reaped was
