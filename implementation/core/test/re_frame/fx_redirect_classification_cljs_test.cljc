@@ -1,16 +1,16 @@
 (ns re-frame.fx-redirect-classification-cljs-test
-  "rf2-2siusz — keyword-redirect run-modes: the resolved redirect TARGET's own
+  "Keyword-redirect run-modes: the resolved redirect TARGET's own
   `[:rf.fx/id :rf.fx/args]` trace slots (`:rf.fx/handled`, the always-on fx
-  error traces, `:rf.fx/skipped-on-platform`) carried the RAW args of the
-  ORIGINAL fx. The rf2-32ffq1 (PR #5694) `project-fx-args` chokepoint keys off
-  the trace's `:rf.fx/id` — under an `:fx-overrides` id-redirect that slot
-  carries the STUB id, whose registration declares nothing and matches no
-  dynamic case, so a `:sensitive? true` `:rf.http/managed` request redirected
-  to a canned/test stub rode raw at the stub's handled trace (and ANY
-  classified fx redirected to an unclassified stub leaked its static-declared
-  paths the same way).
+  error traces, `:rf.fx/skipped-on-platform`) carry the args of the ORIGINAL
+  fx. The `project-fx-args` chokepoint keys off the trace's `:rf.fx/id` — under
+  an `:fx-overrides` id-redirect that slot carries the STUB id, whose
+  registration declares nothing and matches no dynamic case, so keyed on the
+  stub alone a `:sensitive? true` `:rf.http/managed` request redirected to a
+  canned/test stub would ride raw at the stub's handled trace (and ANY
+  classified fx redirected to an unclassified stub would leak its
+  static-declared paths the same way).
 
-  THE FIX: `handle-one-fx` stamps the ORIGINAL fx-id as `:rf.fx/from` on the
+  THE GUARD: `handle-one-fx` stamps the ORIGINAL fx-id as `:rf.fx/from` on the
   fx-arg-bearing emits whenever a keyword redirect resolved (the tag
   vocabulary `:rf.fx/override-applied` already uses), and `project-fx-tags`
   composes `project-fx-args` for BOTH ids — the redirect target's own
@@ -26,7 +26,7 @@
   (`npm run test:cljs`) AND the JVM `clojure -M:test` runner both run it
   (http rides core's test-only classpath).
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   Section A drives `project-trace-event` on hand-built shapes and needs no
   trace stream, so all of it — the composition of the original id's static
@@ -34,7 +34,7 @@
   precision rows — runs under `scripts/test-core-prod-gate.sh` unchanged.
 
   Section B's live round-trips read the DEV TRACE stream. Their trace-reading
-  steps sit verbatim inside `(when rf.interop/debug-enabled? …)` arms, sweeps
+  steps sit inside `(when rf.interop/debug-enabled? …)` arms, sweeps
   included: `(is (not (some #(leaks? pw-sentinel %) @traces)))` over an EMPTY
   `@traces` passes for free, and a redirect-redaction suite that certifies
   itself green having emitted nothing is worse than no suite.
@@ -56,7 +56,7 @@
             [re-frame.http.managed]
             ;; …and the test-support sibling so the canned-stub fxs
             ;; (`:rf.http/managed-canned-*`) are registered for the live
-            ;; keyword-redirect round-trip (the exact rf2-2siusz scenario).
+            ;; keyword-redirect round-trip (the scenario this file pins).
             [re-frame.http.test-support]
             [re-frame.privacy :as rf.privacy]
             [re-frame.registrar :as rf.registrar]
@@ -123,7 +123,7 @@
       (is (not (leaks? pw-sentinel t))))))
 
 (deftest redirected-managed-honours-dynamic-sensitive-flag
-  (testing "the rf2-2siusz scenario shape: a :sensitive? true managed args map
+  (testing "the headline scenario shape: a :sensitive? true managed args map
             on a redirected stub's handled slot redacts through the ORIGINAL
             :rf.http/managed id's DYNAMIC classification (the stub id — an
             unregistered :rf.test/* id here — matches no dynamic case, so the
@@ -185,7 +185,7 @@
         (rf/unregister-listener! :trace ::probe)
 
         ;; 1. control flow untouched — the stub received the raw token.
-        ;;    ALWAYS-ON (rf2-d2841): this row alone proves the keyword redirect
+        ;;    ALWAYS-ON: this row alone proves the keyword redirect
         ;;    RESOLVED (`::stub` ran, not `::orig`) and that redaction is
         ;;    egress-only. It is the production half of the whole scenario.
         (is (= pw-sentinel (:token @got))
@@ -193,8 +193,8 @@
         (is (= "plain" (:note @got))
             "and the non-secret sibling too — the body sees the args verbatim")
 
-       ;; rf2-d2841 — steps 2-4 read the dev trace stream; step 4's sweep would
-       ;; certify "no leak" over an empty `@traces`. Kept verbatim in the arm.
+       ;; Steps 2-4 read the dev trace stream; step 4's sweep would
+       ;; certify "no leak" over an empty `@traces`, so they sit in the arm.
        (when rf.interop/debug-enabled?
         ;; 2. the stub's own handled slot stamps provenance + redacts.
         (let [handled (filter #(= ::stub (get-in % [:tags :rf.fx/id])) @traces)]
@@ -209,7 +209,7 @@
                 "the non-secret sibling survives")))
 
         ;; 3. the :rf.event/fx aggregate (stamped under the ORIGINAL id)
-        ;;    redacts as before — the rf2-6h3c02 pin.
+        ;;    redacts under the original's own classification.
         (let [entries (for [ev    @traces
                             :let  [fx-vec (get-in ev [:tags :rf.event/fx])]
                             :when (vector? fx-vec)
@@ -225,7 +225,7 @@
             "no emitted trace event leaks the token sentinel"))))))
 
 (deftest live-canned-stub-redirect-redacts-sensitive-managed-request
-  (testing "rf2-2siusz acceptance: a :sensitive? true :rf.http/managed request
+  (testing "acceptance: a :sensitive? true :rf.http/managed request
             keyword-redirected to the framework canned-success stub — the
             canned reply still lands (control), and the stub's own
             :rf.fx/handled slot redacts the request body through the ORIGINAL
@@ -251,14 +251,14 @@
         (rf/unregister-listener! :trace ::probe)
 
         ;; 1. control — the canned stub actually ran and replied.
-        ;;    ALWAYS-ON (rf2-d2841): the redirect resolved to the framework
+        ;;    ALWAYS-ON: the redirect resolved to the framework
         ;;    canned stub, the stub ran, and its reply completed the cascade —
         ;;    all of it true in the posture that ships.
         (is (= {:status :ok :value {:ok true}} @reply)
             "the canned success reply reached the :on-success target")
 
-       ;; rf2-d2841 — steps 2-4 read the dev trace stream; step 4's sweep would
-       ;; certify "no leak" over an empty `@traces`. Kept verbatim in the arm.
+       ;; Steps 2-4 read the dev trace stream; step 4's sweep would
+       ;; certify "no leak" over an empty `@traces`, so they sit in the arm.
        (when rf.interop/debug-enabled?
         ;; 2. the stub's own handled slot: provenance + dynamic redaction.
         (let [handled (filter #(= :rf.http/managed-canned-success
