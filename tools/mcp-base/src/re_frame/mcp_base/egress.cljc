@@ -19,11 +19,11 @@
     different hosts.
 
   This ns therefore carries the profile NAME SET and the posture→profile
-  mapping — and NOT a resolution table. rf2-kuky.88 deleted the pure-data
-  mirror of the framework's `:rf.egress/*` floor: a server that names a
-  profile has no reason to resolve it, and the mirror was a second place
-  the §10 default-behaviour table could drift. The mcp-conformance
-  wire-vocab gate still pins this NAME SET equal to
+  mapping — and NOT a resolution table: a server that names a profile
+  has no reason to resolve it, and a pure-data mirror of the framework's
+  `:rf.egress/*` floor would be a second place the §10 default-behaviour
+  table could drift. The mcp-conformance wire-vocab gate pins this NAME
+  SET equal to
   `re-frame.projection/profiles`, so a profile added or renamed in the
   framework that does not land here fails the gate.
 
@@ -35,7 +35,7 @@
   distinction a server needs to know when choosing a name:
   `:rf.egress/local-raw` is the trusted-local boundary that opts
   sensitive AND large back in; every other profile, `:rf.egress/off-box-tool`
-  included, fails closed. No profile turns digests on (rf2-3x7nj.32.6).
+  included, fails closed. No profile turns digests on.
 
   | Profile |
   |---|
@@ -74,16 +74,15 @@
   - `false` (the published-build default, or a caller under the gate who
     did not opt in) ⇒ `:rf.egress/off-box-tool` — the MCP/AI tool wire:
     sensitive redacts, large elides, and no digest is attached (no
-    profile turns digests on since rf2-3x7nj.32.6).
+    profile turns digests on).
   - `true` (the trusted-local operator's deliberate raw read) ⇒
     `:rf.egress/local-raw` — sensitive AND large pass through.
 
-  Both servers previously duplicated this exact `if` (story-mcp's
-  `tools.egress/posture->profile`, pair-mcp's
-  `tools.elision/posture->profile`); it lives here once so the two
-  cannot drift. A caller NAMES the returned profile in the opts it hands
+  Both servers call this one `if` (story-mcp's `tools.egress`, pair-mcp's
+  `tools.elision`) rather than each carrying its own, so the two cannot
+  drift. A caller NAMES the returned profile in the opts it hands
   `re-frame.core/project-egress`; the app-side door resolves it to the
-  `:rf.egress/*` floor (rf2-kuky.88 — the server never resolves it itself)."
+  `:rf.egress/*` floor (the server never resolves it itself)."
   [sensitive-reads-allowed?]
   (if sensitive-reads-allowed?
     :rf.egress/local-raw
