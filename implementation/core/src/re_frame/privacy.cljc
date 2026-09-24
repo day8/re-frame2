@@ -11,13 +11,12 @@
   path-scoped handlers. Sensitivity is a property of the data VALUE at a
   path, not of the handler that touched it.
 
-  EP-0025: the durable `:sensitive` / `:large {:app-db …}` *frame
-  annotation* is REMOVED — a frame is not app-db's definition site. The
-  registry reader here is source-agnostic: it reads the union of every
-  source that populates the slot (`:source :effect` commit-plane effects,
-  `:source :flow` flow-output declarations, and subsystem
-  projection-relative declarations), so nothing changed here when the frame
-  annotation went away.
+  EP-0025: there is no durable `:sensitive` / `:large {:app-db …}` *frame
+  annotation* — a frame is not app-db's definition site. The registry
+  reader here is source-agnostic: it reads the union of every source that
+  populates the slot (`:source :effect` commit-plane effects, `:source
+  :flow` flow-output declarations, and subsystem projection-relative
+  declarations).
 
   EP-0015 §8: schemas describe shape, not durable app-db egress policy — a
   `reg-app-schema` `{:sensitive? true}` slot prop is not a route into this
@@ -54,7 +53,7 @@
   `(true? …)` check reads every one of them as NOT sensitive and forwards the
   event, which is fail-OPEN in exactly the case where the producer has already
   proved itself unreliable. `boolean` is therefore the whole implementation:
-  do not \"tighten\" it back to `true?` (rf2-kuky.8).
+  do not \"tighten\" it to `true?`.
 
   Matches the fail-closed posture `re-frame.mcp-base.sensitive/sensitive-stamp?`
   already applies on the MCP wire — that one additionally logs and counts the
@@ -145,7 +144,7 @@
       ;; "cannot assoc onto a String", and so does a VECTOR parent under a
       ;; non-integer or out-of-range segment (payload `{:cards [{…}]}`, path
       ;; `[:cards :number]` — "Key must be integer"), even though a vector is
-      ;; `associative?` (rf2-3x7nj.4.4). The overlap paths come from the DB's
+      ;; `associative?`. The overlap paths come from the DB's
       ;; declarations, not the payload's shape, and the router computes this
       ;; on every dispatch outside the chain's capture, so a throw here
       ;; escapes `dispatch-sync` and the event is lost. Anything that cannot
