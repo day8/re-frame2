@@ -31,7 +31,7 @@
   Apply the route classification at the direct-read egress of the route's read
   surfaces, by re-seeding the egress walk at the route slice's runtime-db
   storage position so the registry's re-rooted absolute declarations match. This
-  is the direct-read sibling of the SSR `project-routing-egress` offset.
+  is the direct-read sibling of the SSR `project-routing-egress` projection.
 
   NARROW: this is NOT generic sub-output propagation. ONLY the framework-owned
   route read surfaces (`:rf/route`, `:rf.route/query`, `:rf.route/params`) are
