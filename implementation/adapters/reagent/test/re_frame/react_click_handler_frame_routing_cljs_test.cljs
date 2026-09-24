@@ -1,10 +1,8 @@
 (ns re-frame.react-click-handler-frame-routing-cljs-test
-  "Regression tests for rf2-tvu99 — React click handlers must route
-  dispatches to the surrounding frame.
+  "React click handlers must route dispatches to the surrounding frame.
 
-  This is the 4th instance of the same root-cause pattern (sibling beads
-  rf2-7sdja popup, rf2-kcaiz zoom, rf2-p56sk subs-toggle). The framework
-  fix nailed down here closes the bug class structurally:
+  The framework contract nailed down here closes the bug class
+  structurally:
 
     1. Pin the contract: a synchronous `(rf/with-frame :id (rf/dispatch
        ...))` from a React-shaped callback (a setTimeout, an
@@ -16,21 +14,15 @@
        already popped by drain time).
     2. Pin the same contract for `{:frame :id}` opts envelope.
     3. Pin the same contract for `(:dispatch (rf/capture-frame))` capture-at-call-time.
-    4. Pin the internal `re-frame.frame/bind-fn` helper (the relocated
-       `frame-bound-fn*` dynamic-rebinding primitive, API-shrink #1
-       rf2-csbbwu removed the public `frame-bound-fn` / `frame-bound-fn*`
-       facade names): a fn that wraps a callback so any synchronous
-       dispatch inside is captured-and-rebound to the call-site's frame.
+    4. Pin the internal `re-frame.frame/bind-fn` helper (the
+       dynamic-rebinding primitive; there are no public `frame-bound-fn` /
+       `frame-bound-fn*` facade names): a fn that wraps a callback so any
+       synchronous dispatch inside is captured-and-rebound to the
+       call-site's frame.
 
   All four patterns dispatch off a setTimeout/addEventListener/rAF
   microtask — same shape as a React onClick / onKeyDown firing AFTER
-  React's render commit has popped the frame-context.
-
-  Per the bead body, the root cause is documented in the PR body — it
-  is NOT 'the dynamic var doesn't survive the microtask' (it doesn't,
-  but the envelope-capture path is supposed to make that irrelevant);
-  it's whatever subtler thing makes the per-call-site patches
-  unreliable in production."
+  React's render commit has popped the frame-context."
   (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -97,10 +89,9 @@
 ;; ---- 1. Envelope-on-call: {:frame :rf/xray} -----------------------------
 
 (deftest envelope-opts-from-set-timeout-routes-to-target-frame
-  (testing "rf2-tvu99 — `(rf/dispatch [...] {:frame :rf/xray})` from
+  (testing "`(rf/dispatch [...] {:frame :rf/xray})` from
             a setTimeout callback (React onClick analogue) routes to
-            :rf/xray, never to :rf/default. This is the first per-
-            call-site pattern the popup landed on (rf2-7sdja)."
+            :rf/xray, never to :rf/default."
     (async done
       (-> (inside-set-timeout
             (fn []
@@ -112,7 +103,7 @@
                        ":rf/xray :mode flips to :all via the envelope opts")
                    (is (nil? (mode-of :rf/default))
                        ":rf/default is NOT polluted by the dispatch")))
-          ;; Reports and releases; it never finishes (rf2-fyba) — `done` runs the
+          ;; Reports and releases; it never finishes — `done` runs the
           ;; whole remainder of the run synchronously, so a `.catch` downstream of
           ;; it would claim a later namespace's throw and fire `done` twice.
           (.catch (fn [e] (is false (str "promise rejected: " (.-message e))) nil))
@@ -121,7 +112,7 @@
 ;; ---- 2. with-frame lexical wrapper --------------------------------------
 
 (deftest with-frame-wrapper-from-set-timeout-routes-to-target-frame
-  (testing "rf2-tvu99 — `(rf/with-frame :rf/xray (rf/dispatch [...]))`
+  (testing "`(rf/with-frame :rf/xray (rf/dispatch [...]))`
             from a setTimeout callback routes to :rf/xray. The binding
             is synchronous around the dispatch call; `build-envelope`
             must read `*current-frame*` synchronously so the envelope's
@@ -148,7 +139,7 @@
 ;; ---- 3. (:dispatch (rf/capture-frame)) capture-at-call-time ----------------------------
 
 (deftest dispatcher-captured-under-with-frame-from-set-timeout-routes
-  (testing "rf2-tvu99 — `(:dispatch (rf/capture-frame))` captured inside a
+  (testing "`(:dispatch (rf/capture-frame))` captured inside a
             `with-frame :rf/xray` block produces a dispatch-fn that
             carries :rf/xray onto every envelope regardless of when it
             is called. The capture closes over the frame VALUE — no
@@ -172,16 +163,16 @@
 
 ;; ---- 4. re-frame.frame/bind-fn — the internal HoF framework helper ------
 ;;
-;; API-shrink #1 (rf2-csbbwu) removed the public `frame-bound-fn` macro /
-;; `frame-bound-fn*` fn from the facade — `capture-frame` (pattern 3, above)
+;; There is no public `frame-bound-fn` macro /
+;; `frame-bound-fn*` fn on the facade — `capture-frame` (pattern 3, above)
 ;; is the ONE public carry primitive. `bind-fn`'s dynamic-rebinding
 ;; semantics are genuinely different (it re-establishes `*current-frame*`
 ;; around an ARBITRARY already-held fn, not a pre-bound op bundle) and
-;; survive internally for the framework's own routing correctness — pinned
+;; serve internally for the framework's own routing correctness — pinned
 ;; here directly against `re-frame.frame/bind-fn`.
 
 (deftest bind-fn-wraps-callback-routes-to-target-frame
-  (testing "rf2-tvu99 / rf2-kkut0 — `(frame/bind-fn frame-id f)` returns a fn
+  (testing "`(frame/bind-fn frame-id f)` returns a fn
             that re-binds `*current-frame*` (to the given frame-id) for the
             duration of every invocation. This is the structural
             framework helper — survives any React boundary, any async
@@ -203,7 +194,7 @@
             (.then (fn [_] (done))))))))
 
 (deftest bind-fn-captured-under-with-frame-routes-to-captured-frame
-  (testing "rf2-tvu99 / rf2-kkut0 — `(frame/bind-fn frame-id f)` built inside
+  (testing "`(frame/bind-fn frame-id f)` built inside
             a `with-frame` block (during render, when *current-frame* is
             bound by the surrounding reg-view / with-frame / frame-provider)
             re-binds on every call, so a setTimeout-deferred invocation
@@ -224,10 +215,10 @@
             (.catch (fn [e] (is false (str "promise rejected: " (.-message e))) nil))
             (.then (fn [_] (done))))))))
 
-;; ---- regression: dispatch-sync from inside the wrap routes too ---------
+;; ---- dispatch-sync from inside the wrap routes too ---------------------
 
 (deftest bind-fn-sync-dispatch-routes-too
-  (testing "rf2-tvu99 — `dispatch-sync` inside the wrapped callback
+  (testing "`dispatch-sync` inside the wrapped callback
             also routes to the captured frame. The binding tier is
             the same; nothing about the sync drain bypasses it."
     (let [wrapped (rf.frame/bind-fn :rf/xray
