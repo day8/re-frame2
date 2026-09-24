@@ -281,11 +281,10 @@
 ;; The server lane makes the claim SHARP. On a browser root the gate's client
 ;; snapshot is `true`, and the door's one hook and the widget's own three
 ;; arrive in a single indistinguishable sequence. A server render separates
-;; them: the gate's server snapshot is
-;; `false`, so under `:client-only` the count isolates the DOOR with the
-;; foreign component provably not rendered, and `:server :render` — the policy
-;; that mints no gate at all — supplies the arm where the widget's hooks DO
-;; run. Two policies, one page shape, and the difference between them is the
+;; them: the gate's server snapshot is `false`, so under `:client-only` the
+;; count isolates the DOOR with the foreign component provably not rendered,
+;; and `:server :render` — the policy that mints no gate at all — supplies the
+;; arm where the widget's hooks DO run. Two policies, one page shape, and the difference between them is the
 ;; whole of what a crossing costs.
 
 (deftest a-gated-crossing-costs-the-door-exactly-one-hook
