@@ -2,7 +2,7 @@
   "JVM tests for `:rf.warning/schema-walker-opaque` — the one-time
   process-lifecycle warning that fires from `reg-app-schema` /
   `reg-app-schemas` when the registered schema is NOT a Malli vector
-  form (rf2-jsokn / rf2-ycqtv finding #12).
+  form.
 
   Background — Spec 010 §The `:schema` value is opaque to re-frame: the
   schemas-walker (`re-frame.schemas.walker`) is pure data and handles
@@ -11,16 +11,16 @@
   opaque value are silently skipped. This warning is the discoverability
   nudge that surfaces this misconfiguration once per process.
 
-  Per rf2-ee38b.6 (correctness P2): keyword schemas do NOT warn. A bare
+  Keyword schemas do NOT warn. A bare
   keyword is non-vector but is a valid Malli schema (primitive `:int` /
   `:string` OR registry ref `:my/user-schema`); a keyword cannot carry
   per-slot props, so the walker provably skips nothing on a primitive —
-  warning on every keyword was a frequent false positive on the common
+  warning on every keyword would be a frequent false positive on the common
   case. The predicate cannot cheaply distinguish primitive from
   registry-ref keywords without a registry consult (forbidden by Spec
   010 §opaque), so the keyword case is suppressed entirely.
 
-  Symmetric with `:rf.warning/schema-validator-unavailable` (rf2-fq7d2)
+  Symmetric with `:rf.warning/schema-validator-unavailable`
   — same emit-site, same warn-once-per-process pattern, same
   test-fixture cache-clear story."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -43,7 +43,7 @@
 ;;
 ;; Only genuinely opaque NON-keyword values (compiled m/schema-like
 ;; maps) warn. Keyword schemas — primitive AND registry-ref — are
-;; suppressed (rf2-ee38b.6 correctness P2); see the negative-path
+;; suppressed; see the negative-path
 ;; section below.
 
 (deftest warning-fires-when-schema-is-compiled-map-object
@@ -80,9 +80,10 @@
                                    :rf.warning/schema-walker-opaque)))))))
 
 (deftest warning-carries-actionable-reason
-  (testing "rf2-k0ew8n — :tags includes a :reason string that names the
+  (testing ":tags includes a :reason string that names the
             ONE supported shape (register the vector form) and does NOT
-            recommend the REMOVED registration-meta `:sensitive?` fallback"
+            recommend the non-existent registration-meta `:sensitive?`
+            fallback"
     (with-trace-recorder! [recorded]
       (rf/reg-app-schema [:user] {:malli/schema :user})
       (let [warns  (warnings-of recorded :rf.warning/schema-walker-opaque)
@@ -91,9 +92,9 @@
         (is (string? reason))
         (is (re-find #"vector form" reason)
             ":reason names the vector-form fix (the supported shape)")
-        ;; The stale guidance MUST be gone: the reason must not steer
+        ;; The reason must not steer
         ;; users to USE handler/cofx/sub registration-meta `:sensitive?`
-        ;; as a workaround — that annotation is removed and the redactor
+        ;; as a workaround — there is no such annotation and the redactor
         ;; deliberately ignores it (sensitivity is path-targeted). It is
         ;; fine (and intended) for the reason to NAME the fallback only to
         ;; say it has been removed.
@@ -104,10 +105,10 @@
             "no positive recommendation to USE the registration-meta fallback")))))
 
 (deftest warning-fires-when-vector-form-schema-nests-an-opaque-child
-  (testing "rf2-hi0tf8 — a VECTOR-FORM schema (introspectable at its root)
+  (testing "a VECTOR-FORM schema (introspectable at its root)
             that embeds a compiled m/schema value as a NESTED child (a
-            :map slot's tail) also emits the warning; the root-only
-            `schema-opaque?` check used to miss this and stay silent"
+            :map slot's tail) also emits the warning; a root-only
+            `schema-opaque?` check would miss this and stay silent"
     (with-trace-recorder! [recorded]
       (rf/reg-app-schema [:token]
                          [:map [:secret {} {:malli/schema :compiled}]])
@@ -117,12 +118,13 @@
         (is (= [:token] (-> warns first :tags :path)))))))
 
 (deftest warning-fires-when-schema-carries-a-local-registry
-  (testing "rf2-amgtr — a VECTOR-FORM schema carrying a Malli LOCAL
+  (testing "a VECTOR-FORM schema carrying a Malli LOCAL
             `{:registry ...}` warns, with :schema-kind :local-registry. The
             form is walkable at its root and its child is a bare keyword the
-            walker treats as a flag-free primitive, so pre-fix the whole shape
-            classified introspectable and stayed SILENT while every
-            `:sensitive?` declared inside the registry was invisible"
+            walker treats as a flag-free primitive, so a root-and-child check
+            alone would call the whole shape introspectable and stay SILENT
+            while every `:sensitive?` declared inside the registry is
+            invisible"
     (with-trace-recorder! [recorded]
       (rf/reg-app-schema [:auth]
                          [:schema {:registry {::user [:map [:pw {:sensitive? true} :string]]}}
@@ -162,7 +164,7 @@
           "vector-form schema -> no warning"))))
 
 (deftest warning-suppressed-on-primitive-keyword-schemas
-  (testing "rf2-ee38b.6 — primitive keyword schemas (`:int` / `:string`
+  (testing "primitive keyword schemas (`:int` / `:string`
             / `:boolean` / `:any`) are valid Malli schemas that cannot
             carry per-slot props; the walker provably skips nothing, so
             registering one does NOT emit the false-positive warning"
@@ -176,12 +178,12 @@
            skipped' nudge"))))
 
 (deftest warning-suppressed-on-registry-ref-keyword-schemas
-  (testing "rf2-ee38b.6 — registry-ref keyword schemas (`:my/user-schema`)
+  (testing "registry-ref keyword schemas (`:my/user-schema`)
             also do NOT warn: they are indistinguishable from primitive
             keywords without a forbidden registry consult, so the
             keyword case is suppressed entirely. The advanced registry-
             ref-hides-per-slot-flags shape is covered by the walker
-            docstring's discoverability caveat (rf2-yaioz)"
+            docstring's discoverability caveat"
     (with-trace-recorder! [recorded]
       (rf/reg-app-schema [:user] :my/user-schema)
       (is (empty? (warnings-of recorded :rf.warning/schema-walker-opaque))
