@@ -16,7 +16,7 @@
 
    A compile-and-run tier that resolves everything from the monorepo, and
    stops at the bundle the fast loop happens to build, is blind in three
-   specific ways — real defects shipped GREEN through the first two. All
+   specific ways, and a real defect can ship GREEN through each. All
    three masks are closed here:
 
      * NODE_MODULES JUNCTION. `link-node-modules!` junctions
@@ -27,7 +27,7 @@
        build's own `manifest.edn` and asserts every npm package the build
        resolved is one `npm install` would have produced from the EMITTED
        `package.json`.
-     * NO PAGE BOOT PROOF. Nothing loaded the emitted `index.html` in
+     * NO PAGE BOOT PROOF. Nothing else loads the emitted `index.html` in
        a browser. Closed by `run-page-boot-proof!` + its
        `test-support/page-boot-proof.cjs` driver, which serves the
        emitted `resources/public`, loads the real page and proves it
@@ -112,8 +112,8 @@
   coordinate, relative to the repo root.
 
   An EXPLICIT map rather than a string convention, because the directory
-  is not derivable from the substrate name and the derivation that looked
-  like it was fails in the dangerous direction (rf2-ps1u). Two of the
+  is not derivable from the substrate name and a derivation that looks
+  plausible fails in the dangerous direction. Two of the
   three substrates the template contemplates live under
   `implementation/adapters/<name>`; `:fresco` does not — Fresco ships
   its own view layer from `implementation/fresco`, so
@@ -158,7 +158,7 @@
   emitted as `:mvn/version`, become `:local/root` paths; so does Story's
   `:dev` alias coordinate when the deps.edn carries one, because it is
   emitted as a `:local/root` into a re-frame2 checkout BESIDE the project,
-  which a temp directory is not (rf2-1bkoc). That is the whole set: both
+  which a temp directory is not. That is the whole set: both
   callers hand this a deps.edn carrying exactly those coordinates (the
   emitted scaffold; the setup skill's derived leaf, which
   `mount-skill-scaffold!` asserts against `reduced-day-one-coords` right
@@ -373,7 +373,7 @@
 ;; The driver exits 2 when Chromium is not launchable. Under CI that is a
 ;; hard FAILURE (every job that turns this tier on also installs a browser);
 ;; locally it is a documented skip under an unmissable banner. A skip that
-;; reads as a pass is exactly how the proof went unexecuted for months.
+;; reads as a pass would leave the proof unexecuted with nobody noticing.
 
 (def ^:private browser-proofs-required?
   "`CI` is the de-facto standard flag; export `CI=1` to opt a local run
@@ -524,9 +524,9 @@
   The release overwrites that file in place, so requiring the length to
   change is the cheap on-disk half of keeping the two boot verdicts apart;
   the driver's `:release` mode is the runtime half. A compile that exits 0
-  is NOT the deliverable here — `resources/public/js/main.js` being
-  non-empty was the whole of the old assertion, and a non-empty optimised
-  bundle can still throw at load or paint nothing."
+  is NOT the deliverable here, and neither is a non-empty
+  `resources/public/js/main.js`: a non-empty optimised bundle can still
+  throw at load or paint nothing."
   [^java.io.File root ^java.io.File proj label env dev-bundle-length]
   (let [bundle    (io/file proj "resources/public/js/main.js")
         released?
@@ -585,11 +585,11 @@
   Every substrate compiles BOTH the `:app` build — the only build that
   pulls its `core.cljs` and views onto the compile classpath — and the
   `:test` build that runs `events_test.cljs`, and every substrate runs the
-  release arm. The release arm was Reagent-only until rf2-eiev, on the
-  rationale that the `:app` module + `^:export init` shape is
-  substrate-invariant; but `deps.edn`, `core.cljs` and `views.cljs` are
-  swapped per substrate and all three are source Closure compiles, so UIx's
-  advertised `npm run release` was never executed by any gate."
+  release arm. The `:app` module + `^:export init` shape is
+  substrate-invariant, but `deps.edn`, `core.cljs` and `views.cljs` are
+  swapped per substrate and all three are source Closure compiles, so a
+  Reagent-only release arm would leave UIx's advertised `npm run release`
+  unexecuted by any gate."
   [substrate {:keys [boot-witness?]}]
   (let [root  (repo-root)
         label (name substrate)
@@ -668,24 +668,24 @@
 
 (deftest substrate-local-roots-test
   (testing "`substrate-local-roots` answers a real directory per substrate and
-            fails LOUD on one it does not hold (rf2-ps1u)"
+            fails LOUD on one it does not hold"
     ;; Ungated on RF2_TEMPLATE_RUN_EMITTED_TESTS: this compiles nothing. It is
-    ;; the fast-tier proof that the `:local/root` rewrite can no longer be
-    ;; handed a path derived from the substrate NAME — the mode that pointed
+    ;; the fast-tier proof that the `:local/root` rewrite cannot be
+    ;; handed a path derived from the substrate NAME — the mode that points
     ;; at an absent directory, or, worse, at a package that is not the one
     ;; under test.
     (let [root (repo-root)]
       (doseq [substrate (keys substrate-local-roots)]
         (is (string? (substrate-local-root root substrate))
             (str substrate " resolves to a directory that exists")))
-      ;; `:fresco` is the value the retired string convention got wrong: it
-      ;; would have produced `implementation/adapters/fresco`, which does not
-      ;; exist, while the package sits at `implementation/fresco`. It has no
-      ;; row yet (the variant itself is rf2-8urba), so the rewrite must refuse
-      ;; it by name rather than fabricate a path.
+      ;; `:fresco` is the value a string convention gets wrong: it would
+      ;; produce `implementation/adapters/fresco`, which does not exist,
+      ;; while the package sits at `implementation/fresco`. It has no row
+      ;; (Fresco is reserved, not emitted), so the rewrite must refuse it by
+      ;; name rather than fabricate a path.
       (is (not (.isDirectory (io/file root "implementation/adapters/fresco")))
           "implementation/adapters/fresco does not exist — the string
-           convention's answer for :fresco was never a real directory")
+           convention's answer for :fresco is not a real directory")
       (is (.isDirectory (io/file root "implementation/fresco"))
           "implementation/fresco does — that is where the package lives")
       (is (thrown? clojure.lang.ExceptionInfo
@@ -740,7 +740,7 @@
 ;; takes the library's 30-second default. Nothing errors and nothing is
 ;; logged: a page that mounts or reacts late simply passes, and the witnesses
 ;; above burn 30 s apiece where they asked for 8. `page.goto` takes its
-;; options correctly, which is what made the variable look partly effective.
+;; options correctly, which makes the variable look partly effective.
 ;;
 ;; The fixtures below are hand-written HTML rather than an emitted scaffold:
 ;; what is under test is the DRIVER, so the page has to be able to fail on
@@ -1131,7 +1131,7 @@
                     (is (re-find #"0 failures, 0 errors" out)
                         (str "expected '0 failures, 0 errors'. Got:\n" out))))))
 
-            ;; --- the proof must bite, on both axes AC5 names --------------------
+            ;; --- the proof must bite, on both axes ------------------------------
             (when (= 0 proof-exit)
               (run-broken-boot-witness! root proj label)
               (run-broken-click-witness! root proj label env)))))
