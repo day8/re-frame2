@@ -16,8 +16,8 @@
      its children's key vectors — `(child-key row :detail)` allocates a
      fresh vector every time — and `React.memo`'s comparator is `=` on the
      props map, so a fresh-but-equal vector must NOT look like a changed
-     prop. If it did, this sugar would re-introduce the 300-of-300
-     cascade the keyed reads exist to prevent, and it would do it through
+     prop. If it did, this sugar would produce the 300-of-300 cascade
+     the keyed reads exist to prevent, and it would do it through
      the very helper that makes nesting work.
   3. **Two instances on one page are independent**, clicked in a real
      browser, read back out of the real DOM.
@@ -150,8 +150,8 @@
                     (finally (rf.fresco.impl.mount/release! handle))))))]
         (is (= [nil nil] (:before result)) "both panels start closed — the default")
         (is (= ["body of Billing" nil] (:after result))
-            "one click opened ONE panel. Before the explicit-key ruling the
-             guide's own pitfall opened both, silently.")
+            "one click opened ONE panel. Without an explicit key the
+             guide's own pitfall opens both, silently.")
         (is (= {:ui {open? {[:panel :billing] true}}} (:db result))
             "one entry, at the documented app-space path, under the composed key")
         (is (= [] @captured)
@@ -190,8 +190,8 @@
                  "not a hook. A third call here is a budget breach (HD-020(b)) "
                  "and would mean this sugar had grown machinery."))
         (is (= (count rf.fresco.test.runtime/shell-hook-ledger) (count names))
-            "and the declared ledger is still the measured one — reg-state
-             added nothing to it")
+            "and the declared ledger is the measured one — reg-state adds
+             nothing to it")
         (is (not-any? #{"useRef" "useState"} names)
             "neither hook is per-instance React state: the value lives in
              app-db, which is the whole point of keying it explicitly")))))
@@ -215,8 +215,8 @@
                 "and NEITHER panel did, although the page rebuilt both their
                  `ikey` vectors from scratch on the way through. `child-key`
                  allocates; `React.memo`'s comparator is `=`; a fresh-but-equal
-                 vector is an EQUAL prop. Had it been compared by identity this
-                 sugar would have re-introduced the cascade rf2-2rtt6.52 killed.")
+                 vector is an EQUAL prop. Compared by identity, it would give
+                 this sugar the cascade the keyed reads exist to prevent.")
             (is (= "chrome moved"
                    (.-textContent (.querySelector (:container handle) "h1.chrome")))
                 "and the write really landed — without this the row above could
