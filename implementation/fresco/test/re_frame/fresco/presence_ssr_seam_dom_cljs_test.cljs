@@ -11,13 +11,13 @@
   hydrates those actual bytes, and what they establish is the divergence,
   its cause, and the exact shape of the repair that closes it.
 
-  **The repair has since landed as a product door**, and §5 is the
-  measurement of it: `re-frame.fresco.server/render` opens a window per
-  request, and through it the tray's bytes say `present`. So
-  the verdict this file returns is now a SPLIT one — closed through the
-  package's server entry, open through a hand-rolled `renderToString` —
-  and neither half is claimed for the other. Nothing here claims presence
-  round-trips on a path §5 did not drive.
+  **That repair is a product door**, and §5 is the measurement of it:
+  `re-frame.fresco.server/render` opens a window per request, and
+  through it the tray's bytes say `present`. So the verdict this file
+  returns is a SPLIT one — closed through the package's server entry,
+  open through a hand-rolled `renderToString` — and neither half is
+  claimed for the other. Nothing here claims presence round-trips on a
+  path §5 does not drive.
 
   ## The surface is dispositioned, and it does not do what its
   disposition says
@@ -41,8 +41,8 @@
 
   That is the finding, and it is why this file records rather than
   upgrades. Which of the two policies presence should take is a product
-  decision above this dispatch's fence; both are reachable from here and
-  §1's control shows exactly what the Render arm costs.
+  decision, not a witness's; both are reachable from here and §1's
+  control shows exactly what the Render arm costs.
 
   ## The census that says so
 
@@ -68,11 +68,9 @@
   later and takes `:present`. Two different phases for the same tree,
   decided on opposite sides of a wire.
 
-  That windowless render is still a path a consumer can spell — a
+  That windowless render is a path a consumer can spell — a
   hand-rolled `renderToString`, which is exactly what [[server-bytes!]]
-  performs — so no row below is wrong and none is deleted here. What was
-  stale was the RECORD: this page read as though the seam had no product
-  answer, and one had landed.
+  performs — so every row below measures a live path.
 
   §1 measures that as a property rather than restating it, and its
   control shows the divergence is caused by the missing provider and by
@@ -86,7 +84,7 @@
   the counter-measurement for the path those notes name — the windowless
   render — and §5 is the measurement for the path that has one.
 
-  ## Why the existing presence witness did not catch this
+  ## Why the roots-frames presence witness cannot catch this
 
   `roots-frames-hydration-dom-cljs-test`'s H5 row obtains its \"server
   bytes\" from `roots-frames-support/settled-server-html!`, which mounts
@@ -99,33 +97,31 @@
   any server path works at all.
 
   §2 is that stated as a measurement: the same tree, through the two
-  producers, gives two different strings. It is the row that would have
-  gone red on the day the fake stood in for the real one, and it stays
-  red-able for as long as they differ.
+  producers, gives two different strings. It is the row that goes red
+  if the fake ever stands in for the real one, and it stays red-able for
+  as long as they differ.
 
-  **The harness helper is not at fault and is not being replaced.** Its
-  own docstring already refuses to open a window by hand, on the grounds
-  that \"giving the harness a private one would be inventing product API
-  for a test\" — which is the correct call and is why the seam is a
-  finding rather than a test bug. What was wrong was reading its output
-  as evidence about a server.
+  **The harness helper is not at fault.** Its own docstring refuses to
+  open a window by hand, on the grounds that \"giving the harness a
+  private one would be inventing product API for a test\" — which is the
+  correct call and is why the seam is a finding rather than a test bug.
+  The mistake would be reading its output as evidence about a server.
 
   ## What closes this file
 
   Either arm of the two-policy matrix, taken deliberately.
 
   **RENDER.** A product server-render door that mints one window per
-  request and scopes it over that request's tree — the fifth item of the
-  adopted per-root repair shape. §1's control is that door in one line.
+  request and scopes it over that request's tree. §1's control is that
+  door in one line.
 
-  **IT EXISTS** — `re-frame.fresco.server/render`, driven by §5. What that
-  does NOT do is close this file, and the distinction is the whole of the
-  triage here: the rows below are about a render with no window, which remains
-  spellable by hand, so they keep measuring what they always measured. What
-  closing the file needs is a decision that the windowless spelling is out of
-  scope — and HS-33's disposition is
+  **IT EXISTS** — `re-frame.fresco.server/render`, driven by §5. It does
+  NOT close this file: the rows below are about a render with no window,
+  which is spellable by hand, so they keep measuring it. Closing the file
+  needs a decision that the windowless spelling is out of scope — and
+  HS-33's disposition is
   `docs/design/fresco/product/dispositions.md`'s, not a witness's. The
-  transitions below stay written down for whoever takes it:
+  transitions below are written down for whoever takes it:
 
     §1  the `\"mounting\"` expectation becomes `\"present\"`, and the
         hand-installed control is deleted because the product does it.
@@ -134,11 +130,11 @@
     §3  inverts wholesale: zero React complaints, zero
         `:rf.ssr/hydration-mismatch`, the server's own nodes kept, and
         the client's first phase `:present` against server bytes that
-        already said `present`. It becomes the parity row hic-046 asks
-        for, on the same construction.
+        already said `present`. It becomes the parity row, on the same
+        construction.
     §4  is unchanged. It is the control, and a repair must not move it.
 
-  **CLIENT-ONLY**, which is what HS-33 says today. The tray refuses at
+  **CLIENT-ONLY**, which is what HS-33 says. The tray refuses at
   source on a server render and emits nothing (or its declared fallback),
   so §1 asserts the ABSENCE the bare arm requires and the refusal's own
   firing, §2 and §3 are deleted — there are no tray bytes left to
@@ -148,21 +144,17 @@
   Do not re-pin any of the four by loosening an assertion. Each names its
   replacement above; a repair rewrites them.
 
-  ## The Render arm was RUN, and it works — measured, not argued
+  ## The Render arm works
 
   ONE sabotage covers all four rows, because all four read the same
   producer: give `server-bytes!` a window (the body of
   [[server-bytes-under-a-hand-held-window!]]) and the Render repair is
-  simulated end to end. Run by hand under `:browser-test` for **PR #7872**,
-  landed on main as commit `b5e03b138f` — named rather than left as \"the
-  PR body\", so the record can be reached from the tree. §1, §2
-  and §3 all red — nine assertions
-  across the three — and **§4 stays green**, which is the control doing
-  its job.
+  simulated end to end. Run by hand under `:browser-test`, §1, §2 and §3
+  all red — nine assertions across the three — and **§4 stays green**,
+  which is the control doing its job.
 
-  What §3 reported under that sabotage is the part worth carrying
-  forward, because it is evidence about the repair rather than about the
-  test:
+  What §3 reports under that sabotage is the part worth carrying, because
+  it is evidence about the repair rather than about the test:
 
       expected: (pos? (count complaints))
         actual: (not (pos? 0))            ; React complained ZERO times
@@ -173,13 +165,13 @@
   `react-dom/server` bytes hydrate **byte-compatibly and silently, with
   the server's own DOM adopted**. The Render arm of HS-33 is reachable,
   it costs one provider per request, and nothing else in the tray needs
-  to change. That is what §1's control is for, and it is now a
-  measurement.
+  to change. That is what §1's control is for, and §5 measures it
+  through the product door.
 
-  The same sabotage also explains the merged witness in one line: once
-  the bytes say `present`, §2's two producers agree and §3 goes quiet —
-  which is exactly the state `settled-server-html!` was already
-  delivering, without a server anywhere in the picture.
+  The same sabotage also explains the roots-frames witness in one line:
+  once the bytes say `present`, §2's two producers agree and §3 goes
+  quiet — which is exactly the state `settled-server-html!` delivers,
+  without a server anywhere in the picture.
 
   ## Lane
 
@@ -313,13 +305,15 @@
   "§1's CONTROL, and the executable shape of the repair.
 
   The same server render with an adoption window scoped over it BY HAND.
-  It is not a product path and must never be mistaken for one — no server
-  door mints a window (see this namespace's census) — but it is what such
-  a door would do, and running it is the only way to show that §1's
-  divergence is caused by the MISSING PROVIDER rather than by
+  It is not a product path and must never be mistaken for one — the
+  product door that mints a window is `re-frame.fresco.server/render`
+  (see this namespace's census) — but it is what that door does, and
+  running it over the bare `renderToString` is the only way to show that
+  §1's divergence is caused by the MISSING PROVIDER rather than by
   `renderToString`, by the tray, or by anything else in the tree.
 
-  When the product grows that door this fn is deleted, not promoted."
+  Closing this file on the Render arm deletes this fn; it is never
+  promoted."
   [hiccup]
   (let [window (rf.fresco.impl.roots/open-adoption-window!)]
     (try
@@ -358,29 +352,28 @@
 ;; here, because a row that leans on the fixture to stop its own watcher is
 ;; measuring the fixture.
 ;;
-;; These rows used to end INSIDE the fulfilment handler:
+;; A row that ended INSIDE the fulfilment handler —
 ;;
 ;;   (-> (sup/adopted! ha)
 ;;       (.then (fn [ok] (close!) (stop!)
 ;;                       (try …assertions…
 ;;                            (finally (mount/release! ha) (done))))))
 ;;
-;; There was no rejection arm anywhere in this file, so on a rejection the
-;; handler was skipped, the `try` was never entered and the `finally` never
-;; fired. Nothing ran: no `close!`, no `stop!`, no `release!`, no `done`.
-;; The row did not fail — it HUNG to `cljs.test`'s async timeout, reporting
-;; the timeout rather than the rejection, and it handed the next row a live
-;; root and a swallowing listener to take its census against.
+;; — has no rejection arm, so on a rejection the handler is skipped, the
+;; `try` is never entered and the `finally` never fires. Nothing runs: no
+;; `close!`, no `stop!`, no `release!`, no `done`. The row does not fail —
+;; it HANGS to `cljs.test`'s async timeout, reporting the timeout rather
+;; than the rejection, and hands the next row a live root and a swallowing
+;; listener to take its census against.
 ;;
 ;; On THIS lane it is worse than a hang, which is worth knowing before
 ;; reading §6's sabotage as merely slow. An unsettled rejection is an
 ;; unhandled one, so it reaches the page as an uncaught error, and the
-;; browser runner treats that as terminal (rf2-u0j8). Measured on the
-;; sibling suite: the run stopped at that namespace with 85 announced, no
-;; summary line at all, and every namespace scheduled after it silently
-;; unrun — `shadow.test` runs the whole lane, and the closing summary,
-;; inside one `cljs.test/run-block` with no try/catch. So the cost of a
-;; rejection here was never one row.
+;; browser runner treats that as terminal: the run stops at that namespace
+;; with no summary line at all, and every namespace scheduled after it
+;; silently unrun — `shadow.test` runs the whole lane, and the closing
+;; summary, inside one `cljs.test/run-block` with no try/catch. So the cost
+;; of a rejection here is never one row.
 ;;
 ;; §2 is on it too, and it is NOT an adoption row: it waits on
 ;; `sup/settled-server-html!`, which can reject on its own account — its
@@ -392,9 +385,9 @@
 ;; The `finally` inside `server-bytes-under-a-hand-held-window!` is an
 ;; ordinary bracket for the same reason.
 ;;
-;; `sup/settle-row!` is the one path all three async rows now end with, and §6
+;; `sup/settle-row!` is the one path all three async rows end with, and §6
 ;; is what says it works — because its rejection arm is on no green path,
-;; and a repair to a branch nothing takes is untested by construction.
+;; and a branch nothing takes is untested by construction.
 
 ;; ---------------------------------------------------------------------------
 ;; §1 — a server render with NO window scoped over it installs no adoption
@@ -405,8 +398,7 @@
 ;; body for real — hooks, context reads and all — so what it emits is what
 ;; `roots/adopting-here?` answered inside a genuine server render.
 ;;
-;; SABOTAGE (run by hand; the namespace header records it, and names the PR
-;; and the landed commit — PR #7872, commit `b5e03b138f`):
+;; SABOTAGE (run by hand; the namespace header records it):
 ;; give `server-bytes!` a window — the body of
 ;; [[server-bytes-under-a-hand-held-window!]] — and this row reds three ways
 ;; at once: `"present"` in the bytes, `:present` off the machine, and the
@@ -448,8 +440,8 @@
               by hand, emits `present` instead. So the phase above is a
               property of the ABSENT PROVIDER and not of the server
               renderer, the tray or the tree — and this is the one-line
-              shape of the door rf2-6tmu deferred here (its repair shape,
-              item 5: give each render/request its own ref and provider)"
+              shape of a server door: give each render/request its own
+              ref and provider"
       (reset! !phases {})
       (let [repaired (server-bytes-under-a-hand-held-window! [tray-screen {:tag :repaired}])]
         (is (= "present" (probe-text repaired))
@@ -466,14 +458,14 @@
 
 ;; THE DISCRIMINATION ROW. `settled-server-html!` and `renderToString` are
 ;; both called "the server's bytes" in prose, and for a tray they are
-;; different strings. Everything the merged presence witness established
-;; about server/client parity rests on that conflation, and this row is the
-;; conflation made countable.
+;; different strings. A server/client parity claim resting on the settled
+;; bytes rests on that conflation, and this row is the conflation made
+;; countable.
 ;;
 ;; It is deliberately a NOT-EQUAL. A row asserting the settled bytes hydrate
 ;; cleanly would pass forever without ever touching a server; a row asserting
-;; the two agree is the row that must be written when the seam closes. Today
-;; they disagree, and recording which way is what makes the disagreement
+;; the two agree is the row that must be written when the seam closes. They
+;; disagree, and recording which way is what makes the disagreement
 ;; findable.
 (deftest the-client-settled-bytes-and-the-real-server-bytes-differ
   (async done
@@ -522,7 +514,7 @@
 ;; §3 — hydrating the REAL server bytes diverges, and the adoption is lost
 ;; ---------------------------------------------------------------------------
 
-;; The closure evidence the audit asked for, and it comes back negative:
+;; The closure evidence, and it comes back negative:
 ;; drive `react-dom/server`, put those exact bytes on the page, hydrate them
 ;; through the product's own door, and read what happens.
 ;;
@@ -718,10 +710,10 @@
 ;; window over it; this measures `re-frame.fresco.server/render`, which opens
 ;; one per request and hands `impl.mount/tree` the hydrating handle shape. The
 ;; two rows differ in exactly one thing, so what separates their bytes is the
-;; window and nothing else — which is §1's control, now taken through a
+;; window and nothing else — which is §1's control, taken through a
 ;; product door instead of by hand.
 ;;
-;; It answers the triage question at source: the presence seam is CLOSED
+;; It answers the question at source: the presence seam is CLOSED
 ;; through this entry. `adopting-here?` reads a real open window on the
 ;; server, `impl.presence-react/presence-body` settles, and the tray's
 ;; children are `present` in the bytes a consumer ships — the phase that
@@ -785,8 +777,8 @@
 ;; and committed at that moment, so there is strictly MORE to release than
 ;; there would be had `sup/adopted!` rejected before the root ever adopted.
 ;;
-;; Under the shape this file carried before, nothing below the injection runs
-;; at all. The rejection skips the fulfilment handler, so the `try` is never
+;; Under a shape that ends inside the fulfilment handler, nothing below the
+;; injection runs at all. The rejection skips that handler, so the `try` is never
 ;; entered and its `finally` never fires: no `close!`, no `stop!`, no
 ;; `release!`, no `done`. The row does not go red — it hangs to `cljs.test`'s
 ;; async timeout, reports the timeout instead of the rejection, and leaves the
