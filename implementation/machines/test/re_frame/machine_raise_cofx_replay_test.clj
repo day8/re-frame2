@@ -77,7 +77,7 @@
              :done {}}})
 
 (deftest live-mints-the-raised-guard-fact-and-trace-is-pre-handler-token
-  (testing "rf2-08br0v / rf2-cheez6.1 — a raise-selected guard fact MINTED
+  (testing "a raise-selected guard fact MINTED
    mid-macrostep under :live drives the machine decision; the run-start TRACE
    carries only the external :rf/time-ms (the pre-handler token), which is WHY
    the epoch-assembly merge reconstructs the minted facts from the mint traces."
@@ -113,15 +113,15 @@
              not stamped onto this trace")))))
 
 (deftest strict-replay-with-the-minted-fact-is-deterministic
-  (testing "rf2-cheez6.1 — the determinism CONTRACT: re-presenting the minted
+  (testing "the determinism CONTRACT: re-presenting the minted
    :replay/gen in the token under :strict (the replay policy) reproduces the
    live decision — the guard reads the recorded value verbatim (no host re-mint)
-   and the machine reaches :done. This is what the captured-token fix makes
-   possible end-to-end."
+   and the machine reaches :done. This is what capturing the minted fact in
+   the token makes possible end-to-end."
     (let [seen (atom ::unset)]
       (rf/reg-cofx :replay/gen {:recordable? true} (fn [] 100))
       (rf/reg-machine :replay/strict (mint-machine seen))
-      ;; The token that the epoch fix captures: the external fact PLUS the
+      ;; The token epoch capture assembles: the external fact PLUS the
       ;; mid-drain minted fact. Under :strict the present-on-token fact is
       ;; delivered verbatim (no mint), so the guard fires and the machine
       ;; reaches :done — the live decision, reproduced.
@@ -135,11 +135,11 @@
           "STRICT replay reproduced the live decision deterministically"))))
 
 (deftest strict-replay-without-the-minted-fact-diverges-control
-  (testing "rf2-cheez6.1 CONTROL — the SAME :strict dispatch with the PRE-FIX
-   token (only :rf/time-ms, no :replay/gen) does NOT advance: strict refuses to
+  (testing "CONTROL — the SAME :strict dispatch with a token lacking the minted
+   fact (only :rf/time-ms, no :replay/gen) does NOT advance: strict refuses to
    mint the absent generator-backed fact → missing-required → the raised
-   macrostep fails atomically. This is the divergence the captured-token fix
-   removes; together with the test above it shows the token fact is necessary
+   macrostep fails atomically. This is the divergence capturing the minted
+   fact prevents; together with the test above it shows the token fact is necessary
    AND sufficient for a deterministic strict replay."
     (let [seen (atom ::unset)]
       (rf/reg-cofx :replay/gen {:recordable? true} (fn [] 100))
@@ -149,4 +149,4 @@
                          :rf.cofx/mint-policy :strict})
       (is (not= :done (rf.machines.test-support/machine-state :replay/strict-nofact))
           "strict refused to mint the absent :replay/gen → the machine did NOT
-           reach :done (the pre-fix replay divergence)"))))
+           reach :done (a token without the minted fact diverges)"))))

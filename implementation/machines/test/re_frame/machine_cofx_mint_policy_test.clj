@@ -40,8 +40,8 @@
 (deftest strict-ensure-refuses-to-mint-guard-fact-throws
   (testing "white-box: the machine ensure step under :strict refuses to mint a
             declared-absent generator-backed GUARD fact and raises
-            :rf.error/missing-required-cofx instead of the old hard-wired :live
-            that silently generated a fresh per-run value. Drives the real
+            :rf.error/missing-required-cofx rather than silently generating a
+            fresh per-run value. Drives the real
             ensure path so the throw surfaces verbatim; dispatch-sync captures
             such throws into its error pipeline, so this white-box path is the
             deterministic throw surface."
@@ -69,7 +69,7 @@
             required failure raised by the dispatch-time ensure step fails the
             macrostep atomically (no snapshot committed), so the machine NEVER
             reaches :done. Proves the policy is threaded into the live handler
-            (vs the old always-:live mint that would advance to :done)"
+            (an always-:live mint would advance to :done)"
     (rf/reg-cofx :mint/roll-strict {:recordable? true} (fn [] 6))
     (let [m {:initial :idle
              :data    {}
@@ -113,8 +113,7 @@
 
 (deftest default-live-still-mints
   (testing "with NO per-call / frame-config policy the router default :live
-            still mints (the no-regression check — the common live runtime
-            keeps minting generator-backed facts)"
+            mints — the common live runtime generates generator-backed facts"
     (rf/reg-cofx :mint/roll3 {:recordable? true} (fn [] 6))
     (let [seen (atom ::unset)
           m {:initial :idle
@@ -179,8 +178,8 @@
   (testing "a same-macrostep RAISED user event whose selected guard requires a
             generator-backed recordable fact has it ENSURED before selection —
             the guard reads the GENERATED value (not nil). The external event's
-            ensure-set never covered the raised event's guard, so before
-            rf2-xsdn5h the raise read nil"
+            ensure-set does not cover the raised event's guard, so without the
+            in-drain ensure the raise would read nil"
     (rf/reg-cofx :raise/roll {:recordable? true} (fn [] 6))
     (let [seen (atom ::unset)
           m {:initial :a
@@ -210,7 +209,7 @@
             by a RAISED event's guard, absent from the in-flight token, raises
             missing-required from the in-engine raised-event ensure step — under
             :strict the raise's required fact is ENFORCED, not silently read as
-            nil (the rf2-xsdn5h hole). Drives `machine-transition` directly with
+            nil. Drives `machine-transition` directly with
             a `:rf/cofx`-carrying machine so the throw surfaces verbatim
             (dispatch-sync captures it into the error pipeline)"
     (let [m (-> (rf.machines.cofx-attach/index-ensure-sets
@@ -235,7 +234,7 @@
 (deftest compound-on-done-raised-signal-ensures-cofx
   (testing "a compound `:on-done` is implemented as `[:raise [:rf.machine/done
             path]]`; an `:on-done` guard requiring a generator-backed fact has
-            it ENSURED for the synthetic raised done signal (the same hole as a
+            it ENSURED for the synthetic raised done signal (the same path as a
             user :raise)"
     (rf/reg-cofx :raise/done-roll {:recordable? true} (fn [] 6))
     (let [seen (atom ::unset)
@@ -267,7 +266,8 @@
   (testing "a PARALLEL region's raise re-enters the parent's internal-event
             queue and is re-broadcast; a region guard the re-broadcast selects,
             requiring a generator-backed fact, has it ENSURED at the parent
-            before the re-broadcast (the parallel arm of the rf2-xsdn5h hole)"
+            before the re-broadcast (the parallel arm of the raised-event
+            ensure)"
     (rf/reg-cofx :raise/par-roll {:recordable? true} (fn [] 6))
     (let [seen (atom ::unset)
           m {:type    :parallel
@@ -324,9 +324,9 @@
                 "the sensitive token does not appear anywhere in the egressed trace")))))))
 
 (deftest update-snapshot-wrote-db-uses-actor-id-and-redacts
-  (testing "the :rf.machine/update-snapshot escape-hatch :db hard-disallow now
-            addresses the actor under :actor-id (aligned with the action-effect
-            path / Spec 009 rf2-yyvtk5) and redacts :offending-value at egress"
+  (testing "the :rf.machine/update-snapshot escape-hatch :db hard-disallow
+            addresses the actor under :actor-id (like the action-effect path /
+            Spec 009) and redacts :offending-value at egress"
     (let [m {:initial :a
              :actions {:patch
                        (fn [_]

@@ -11,20 +11,20 @@
    2. **Macrostep boundary.** After a transition action returns a new
       `:data` that violates the schema, the runtime emits
       `:rf.error/schema-validation-failure :where :machine-data` and
-      rolls back the entire cascade — `app-db` returns to its pre-event
+      rolls back the entire cascade — runtime-db returns to its pre-event
       value (so the violating snapshot never sticks).
 
    3. **Initial-data validation (bootstrap).** A machine whose initial
       `:data` violates the schema emits the same trace on its first
-      dispatch (the bootstrap commits the initial snapshot to app-db,
+      dispatch (the bootstrap commits the initial snapshot to runtime-db,
       so the post-commit walker catches the typo).
 
    4. **Spawn-time validation.** A spawned actor whose initial `:data`
       violates the schema emits the same trace with `:phase :spawn`
       and the install is skipped — the actor never enters the runtime.
 
-   5. **No schema → no validation.** Machines without `[:schemas :data]` are
-      unaffected; the framework's existing behaviour is preserved.
+   5. **No schema → no validation.** Machines without `[:schemas :data]` run
+      no machine-data validation.
 
    6. **Tag payload.** Failures carry `:machine-id`, `:phase`, `:value`,
       `:explain`, `:rollback?`, `:recovery` so the Xray per-step attachment
@@ -99,7 +99,7 @@
         (is (= 1 (count traces))
             "exactly one :where :machine-data trace fired on the violating macrostep")
         (is (= :machine-data (:where tag))
-            "trace's :where tag pins the new boundary")
+            "trace's :where tag pins the boundary")
         (is (= :rf.machine-schema/macrostep (:machine-id tag))
             "tag carries :machine-id identifying the failing machine")
         (is (= :rf.machine-schema/macrostep (:failing-id tag))
@@ -114,9 +114,9 @@
         ;; `:tags` — mirrors the `:where :app-db` projection.
         (is (= :no-recovery (:recovery trace-ev))
             "trace envelope declares :no-recovery (consistent with :where :app-db)")
-        ;; Rollback restores pre-handler app-db.
+        ;; Rollback restores pre-handler runtime-db.
         (is (= db-before (:rf.db/runtime (rf/frame-state-value :rf/default)))
-            "post-rollback app-db equals pre-handler app-db")
+            "post-rollback runtime-db equals pre-handler runtime-db")
         (is (= snap-before
                (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                        [:rf.runtime/machines :snapshots :rf.machine-schema/macrostep]))
@@ -128,7 +128,7 @@
   (testing "a SPAWNED actor (no per-instance handler) whose transition action
             returns schema-violating :data must roll back the macrostep and
             emit :where :machine-data — the schema resolves off the snapshot's
-            :rf/machine-type, not via the registry projection (rf2-2t9xn3)"
+            :rf/machine-type, not via the registry projection"
     (let [ChildSchema [:map [:n pos-int?]]
           ;; The child boots with valid :data {:n 1}; a :tick transition runs
           ;; the :break action returning {:data {:n 0}} (violates pos-int?) via
@@ -215,15 +215,15 @@
         ;; Rollback drops the violating snapshot.
         (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                           [:rf.runtime/machines :snapshots :rf.machine-schema/bootstrap]))
-            "rolled back: the machine snapshot is not installed in app-db")
+            "rolled back: the machine snapshot is not installed in runtime-db")
         (is (= db-before (:rf.db/runtime (rf/frame-state-value :rf/default)))
-            "rolled back: app-db unchanged")))))
+            "rolled back: runtime-db unchanged")))))
 
 ;; ---- (4) spawn-time validation: spawned actor's :data violates ----------
 
 (deftest spawn-violation-emits-and-skips-install
   (testing "a spawned actor whose initial :data violates the schema is rejected
-            at install time; the snapshot never lands in app-db"
+            at install time; the snapshot never lands in runtime-db"
     (let [ChildSchema [:map [:n pos-int?]]
           ;; Child spec violates its own schema at bootstrap.
           child-spec  {:initial :idle
@@ -246,7 +246,7 @@
             tag    (-> traces first :tags)]
         ;; The spawn-time validation emits exactly one :where :machine-data
         ;; trace with :phase :spawn — no macrostep-phase trace fires for the
-        ;; rejected actor because its snapshot never lands in app-db.
+        ;; rejected actor because its snapshot never lands in runtime-db.
         (let [machine-data-traces (filter #(= :machine-data (-> % :tags :where)) traces)]
           (is (= 1 (count machine-data-traces))
               "exactly one :where :machine-data trace fires on spawn rejection"))
@@ -258,16 +258,16 @@
         ;; The spawned actor's snapshot was never installed.
         (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                           [:rf.runtime/machines :snapshots :rf.machine-schema/spawned]))
-            "rejected spawn: snapshot is not in app-db")
+            "rejected spawn: snapshot is not in runtime-db")
         ;; Atomic reject: a schema-rejected spawn registers NOTHING —
         ;; no event handler, no `:rf/machine?` registry entry — the install gate
         ;; and registration are in lockstep.
         (is (nil? (rf.registrar/lookup :event :rf.machine-schema/spawned))
-            "rejected spawn: NO event handler is registered (rf2-f3kp7)")
+            "rejected spawn: NO event handler is registered")
         (is (not (contains? (set (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
                                              (rf/registrations {:source :store :kind :event}))))
                             :rf.machine-schema/spawned))
-            "rejected spawn: the actor does NOT appear under the :rf/machine? filter (rf2-f3kp7)")))))
+            "rejected spawn: the actor does NOT appear under the :rf/machine? filter")))))
 
 ;; ---- (5) no schema → no validation (control) ------------------------------
 
@@ -293,7 +293,7 @@
 
 (deftest tag-payload-carries-downstream-required-keys
   (testing "the failure tag carries every key Xray's per-step attachment
-            consumes (rf2-xgeag) — :machine-id, :phase, :value, :explain,
+            consumes — :machine-id, :phase, :value, :explain,
             :rollback?, :recovery, :reason"
     (let [DataSchema [:map [:n pos-int?]]
           spec       {:initial :idle
@@ -318,14 +318,13 @@
         (is (contains? trace-ev :recovery) ":recovery present on trace envelope")
         (is (string? (:reason tag))       ":reason is a human-readable string")))))
 
-;; ---- (7) rf2-6eh5h — declaration presence is KEY-presence ------------------
+;; ---- (7) declaration presence is KEY-presence -----------------------------
 ;;
 ;; A schema value is OPAQUE to re-frame (Spec 010): an ABSENT [:schemas :data]
 ;; key means "no declaration" (case 5 above), while a PRESENT key must hand
-;; its exact value — nil included — to the registered validator. Before
-;; rf2-6eh5h the machine seams tested the value for truthiness (if-let /
-;; `(and (continue?) schema)`), so `{:schemas {:data nil}}` silently
-;; validated nothing.
+;; its exact value — nil included — to the registered validator. Seams that
+;; tested the value for truthiness (if-let / `(and (continue?) schema)`)
+;; would let `{:schemas {:data nil}}` silently validate nothing.
 
 (deftest present-nil-data-schema-is-delegated-not-skipped
   (testing "a machine registered with {:schemas {:data nil}} delegates the

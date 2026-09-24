@@ -52,7 +52,7 @@
                                  spec {:state :hub :data {}} [:go])]
       (is (= [:go :b :c :d] (:log (:data snap)))
           "FIFO (XState/SCXML): the nested raise D lands behind sibling C —
-           NOT the depth-first [:go :b :d :c] the old prepend produced"))))
+           NOT the depth-first [:go :b :d :c] a prepending drain would produce"))))
 
 ;; ---- 2. plain two-sibling order (no nesting) -----------------------------
 
@@ -116,7 +116,7 @@
           {snap :snapshot} (rf.machines/machine-transition
                                  spec {:state :s0 :data {}} [:e1])]
       (is (= :s3 (:state snap))
-          "linear chain still settles to the terminal state")
+          "linear chain settles to the terminal state")
       (is (= [:a1 :a2 :a3] (:log (:data snap)))
           "linear chain order is identical under FIFO and depth-first"))))
 
@@ -124,7 +124,7 @@
 
 (deftest fifo-depth-bound-counts-total-raises-not-order
   (testing "the :raise-depth-limit trips on the COUNT of raises drained,
-   unaffected by FIFO vs depth-first ordering (rf2-r26e2 boundary preserved)"
+   unaffected by FIFO vs depth-first ordering"
     ;; Six sibling raises in one :fx vector under limit 4. The drain
     ;; processes raises at depths 0..3 then aborts at depth 4 — the >=
     ;; boundary — regardless of queue ordering, because order changes the
@@ -176,7 +176,7 @@
 ;; macrostep is discarded — original snapshot, empty fx.
 
 (deftest depth-bound-rollback-discards-intermediate-mutations-and-fx
-  (testing "(x4s9t.1) a :raise depth-limit abort rolls back the ENTIRE
+  (testing "a :raise depth-limit abort rolls back the ENTIRE
             macrostep — intermediate state/data writes AND accumulated
             non-raise fx are discarded; the result is the ORIGINAL snapshot
             and an EMPTY fx vector"

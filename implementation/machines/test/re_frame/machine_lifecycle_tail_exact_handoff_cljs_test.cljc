@@ -1,13 +1,12 @@
 (ns re-frame.machine-lifecycle-tail-exact-handoff-cljs-test
-  "rf2-rbxdxa — complete the STEPWISE exact-incarnation handoff across the machine
-  lifecycle TAILS the #5913 (rf2-i4aj9c) fences ran ahead of. #5913 fenced the
-  first exact write / broad tail guard of each pipeline, but several ADJACENT
-  stages still shared ONE precheck even though the first stage can run user
+  "The STEPWISE exact-incarnation handoff across the machine lifecycle TAILS.
+  Beyond the first exact write / broad tail guard of each pipeline, ADJACENT
+  stages do not share ONE precheck, because the first stage can run user
   callbacks or exact-container callbacks. Each fixture SEEDS the actual successor
   registrar / spawn-order / timer-subscription / runtime state and drives the
   loss on the callback's own stack, so the mutation tooth bites when the recheck
-  is missing (a false green under #5913's own fixtures, which never seeded the
-  downstream successor-owned state).
+  is missing (a fixture that never seeded the downstream successor-owned state
+  would read green without it).
 
   Runs on BOTH hosts (`clojure -M:test` + `npm run test:cljs`) — the `-cljs-test`
   ns suffix rides the consolidated node-test gate, and the JVM runner scans the
@@ -17,7 +16,7 @@
   only, never over-eager):
 
     1. ORDINARY DESTROY terminal fence — the `:rf.machine/destroyed`
-       trace + `rf.registrar/unregister!` no longer share one precheck: a listener
+       trace + `rf.registrar/unregister!` do not share one precheck: a listener
        that publishes same-id B and registers B's handler survives A's unregister.
     2. SPAWN classification-lowering seam — a container-write loss DURING
        `lower-at-spawn!` fences the bare-id `rf.machines.spawn-order/record!` (A's ghost child
@@ -29,7 +28,7 @@
        teardown actually committed while authority stayed exact, so `:spawn-all`
        never emits a phantom `:rf.machine/destroyed`.
     5. NON-DESTROY timer-cancellation reasons — `:on-exit` (and every sibling
-       reason) now self-fences the shared `rf.subs/unsubscribe` decrement, so a
+       reason) self-fences the shared `rf.subs/unsubscribe` decrement, so a
        cancellation listener re-arming successor B's same query keeps B's fresh
        reaction."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
@@ -97,8 +96,8 @@
             same-id B and registers B's fresh event handler at `actor-id` ON THAT
             TRACE's stack: ownership is rechecked AFTER the trace, so A's
             `rf.registrar/unregister!` cannot clear B's just-registered handler.
-            Mutation tooth: the historically-grouped unregister erases B's
-            handler + its provenance."
+            Mutation tooth: grouping the unregister under the trace's precheck
+            erases B's handler + its provenance."
     (rf.machines.spawn-order/reset-all!)
     (let [frame-a  :rf2-rbxdxa/released-frame
           actor-id (keyword "rf2-rbxdxa" "released#1")
@@ -129,7 +128,7 @@
 (deftest live-owner-destroy-unregisters-exactly-once
   (testing "control: an ordinary destroy whose tail fires no destroyer clears the
             actor's registrar entry EXACTLY once. The terminal fence is scoped to
-            owner-loss only — a live destroy still unregisters."
+            owner-loss only — a live destroy unregisters."
     (rf.machines.spawn-order/reset-all!)
     (let [frame-a  :rf2-rbxdxa/live-unregister-frame
           actor-id (keyword "rf2-rbxdxa" "live-unregister#1")]
@@ -168,14 +167,14 @@
       (rf/make-frame {:id frame-a})
       (try
         ;; Keep the actor-bootstrap dispatch synchronous + inert so no async
-        ;; drain races the assertions (mirrors the #5889 spawn-write fixtures).
+        ;; drain races the assertions.
         (rf.late-bind/set-fn! :router/dispatch! (fn [_ev _opts] nil))
         ;; `with-redefs` restores `lower-at-spawn!` automatically on body exit.
         ;; MULTI-arity stub matching the real `[3]`/`[4]` arities: spawn.cljc calls
         ;; the 4-arity, which CLJS compiles to a DIRECT `arity$4` invoke — a
         ;; single- or variadic-arity replacement would not expose `arity$4` and
-        ;; the CLJS run would `TypeError` (rf2-rbxdxa CI-gap: only a multi-arity
-        ;; CLJS fn emits the `cljs$core$IFn$_invoke$arity$N` methods).
+        ;; the CLJS run would `TypeError` (only a multi-arity CLJS fn emits the
+        ;; `cljs$core$IFn$_invoke$arity$N` methods).
         (with-redefs [rf.machines.classification/lower-at-spawn!
                       (fn ([_frame _actor _spec] nil)
                           ([_frame _actor _spec _token]
@@ -382,7 +381,7 @@
             publishes same-id B (re-arming the SAME query): the 3-arity
             `cancel-after-timer-entry!` self-fences, so A's release does NOT
             decrement the shared `(frame,query-v)` ref-count — B's fresh reaction
-            survives. Mutation tooth: the historically-unfenced non-destroy reason
+            survives. Mutation tooth: an unfenced non-destroy reason
             decrements B's ref."
     (let [frame-a     :rf2-rbxdxa/subvec-exit-frame
           actor-id    (keyword "rf2-rbxdxa" "subvec-exit#1")

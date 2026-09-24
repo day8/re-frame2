@@ -1,10 +1,9 @@
 (ns re-frame.machine-view-unmount-teardown-cljs-test
-  "rf2-jqn5im / rf2-kmdi9 — the FAST HEADLESS shape/channel half of the
+  "The FAST HEADLESS shape/channel half of the
   view-unmount ↔ machine-lifecycle contract proof.
 
-  rf2-gtk57a corrected a stale Cross-Spec Interaction 22 claim: a bare
-  VIEW UNMOUNT does NOT tear a machine down. The prose correction landed
-  in PR #6014; this suite is the headless regression guard on the
+  A bare VIEW UNMOUNT does NOT tear a machine down (Cross-Spec Interaction
+  22); this suite is the headless guard on the
   machines RUNTIME side of that contract.
 
   SCOPE — this file is deliberately NOT a mounted integration proof.
@@ -16,7 +15,7 @@
   and the machine runtime's (non-)reaction to it — and CANNOT catch a
   regression in hook installation, per-instance reaction disposal, React
   cleanup, or a machine effect wired around the REAL host-unmount path.
-  Those are proven by the sibling MOUNTED integration file (rf2-kmdi9):
+  Those are proven by the sibling MOUNTED integration file:
   `machine_view_unmount_teardown_mounted_dom_cljs_test.cljs`, which mounts
   a `reg-view*` view participating in a live machine through a real React
   root and unmounts it via the actual `reagent.dom.client` teardown path,
@@ -45,11 +44,10 @@
     A. `view-unmount-leaves-machine-live` — fire the REAL view-unmount
        teardown signal at a live machine and prove the machine's snapshot
        is UNTOUCHED: no transition, no destroy on EITHER teardown channel.
-       The NEGATIVE (still live) is what makes it a regression guard — if
-       the retracted implicit-teardown coupling is reintroduced (in the
-       emit path, or as a machines-side listener that reaps on
-       `:rf.view/unmounted`), the machine would vanish here and the test
-       reds.
+       The NEGATIVE (still live) is what makes it a guard — an
+       implicit-teardown coupling (in the emit path, or as a machines-side
+       listener that reaps on `:rf.view/unmounted`) would make the machine
+       vanish here and the test red.
 
     B. `explicit-destroy-emits-exactly-one-fx-explicit` (+ its
        `…-releases-owned-after-timer` corollary) — an EXPLICIT
@@ -152,11 +150,10 @@
 ;; ===========================================================================
 
 (deftest view-unmount-leaves-machine-live
-  (testing "rf2-jqn5im / rf2-gtk57a — a bare view unmount emits :rf.view/unmounted
+  (testing "a bare view unmount emits :rf.view/unmounted
             but leaves a live machine's snapshot UNTOUCHED (no transition, no
             destroy on EITHER teardown channel). The NEGATIVE (machine still
-            live) is the regression guard against the retracted Cross-Spec
-            Interaction 22 implicit-teardown prose / behaviour drifting back."
+            live) guards against any implicit view-unmount teardown."
     (rf/reg-machine :vut/session
       {:initial :active
        :data    {:user "alice"}
@@ -205,7 +202,7 @@
 ;; ===========================================================================
 
 (deftest explicit-destroy-emits-exactly-one-fx-explicit
-  (testing "rf2-jqn5im — an EXPLICIT application-cleanup destroy of a live
+  (testing "an EXPLICIT application-cleanup destroy of a live
             singleton emits EXACTLY ONE :rf.machine/destroyed with :reason
             :explicit on the fx channel, ZERO :rf.machine.lifecycle/destroyed on
             the registrar channel, and releases the machine's owned resources."
@@ -244,14 +241,14 @@
         (is (nil? (snapshot :ed/session))
             "snapshot cleared — the machine's state storage is released")
         (is (some? (rf.registrar/lookup :event :ed/session))
-            "rf2-xjee — the DEFINITION is NOT a per-instance resource: the
+            "the DEFINITION is NOT a per-instance resource: the
              explicit destroy releases the instance's storage, timers and
              resource owners and leaves the registration standing")
         (is (= [[:machine :ed/session]] @released)
             "EXACTLY ONE [:machine actor-id] resource owner released on destroy")))))
 
 (deftest explicit-destroy-releases-owned-after-timer
-  (testing "rf2-jqn5im / rf2-kmdi9 — an explicit destroy of a machine holding an
+  (testing "an explicit destroy of a machine holding an
             armed :after timer RELEASES that owned timer: the after-timers
             registry entry keyed to the actor is reaped, and DRIVING the
             released timer's captured host-clock thunk fires NO stale transition
@@ -260,8 +257,8 @@
     ;; control is EXECUTABLE — after destroy we invoke the exact closure the
     ;; real wall-clock would have called on elapse and prove it is a claim-
     ;; suppressed no-op. No real timer is armed (deterministic on JVM + Node).
-    ;; This closes the vacuous "never fired" gap: the old redef discarded the
-    ;; thunk, so "no :after-elapsed" was trivially true — nothing ever drove it.
+    ;; A redef that discarded the thunk would make "no :after-elapsed"
+    ;; trivially true — nothing would ever drive it.
     (let [captured-thunk (atom nil)]
       (with-redefs [rf.interop/schedule-after!
                     (fn [thunk _ms] (reset! captured-thunk thunk) ::handle)]
@@ -294,7 +291,7 @@
                 "the actor's :after timer registry entry was REAPED on destroy —
                  the owned timer is released")
 
-            ;; EXECUTABLE cancellation control (rf2-kmdi9): drive the captured
+            ;; EXECUTABLE cancellation control: drive the captured
             ;; thunk exactly as the real host clock would on elapse, AFTER the
             ;; destroy reaped the entry. `claim-entry!` finds no slot for this
             ;; attempt's token → the dispatch is suppressed → no :after-elapsed,

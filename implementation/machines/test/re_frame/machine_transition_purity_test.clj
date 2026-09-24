@@ -282,7 +282,7 @@
 
 (deftest raise-depth-boundary-matches-always-boundary
   (testing ":raise drain with :raise-depth-limit N aborts at depth N
-   (>= boundary, rf2-r26e2) — parity with the :always loop, not N+1"
+   (>= boundary) — parity with the :always loop, not N+1"
     ;; The `drain-raises` depth counts raises drained from the queue. A
     ;; fanned-out batch of more raises than the limit feeds the loop past
     ;; the bound (same shape as raise-depth-exceeded-tag-carries-frame).
@@ -306,7 +306,7 @@
                   :rf.error/machine-raise-depth-exceeded
                   spec {:state :idle :data {}} [:start])]
       (is (= 4 depth)
-          ":raise aborts at depth == limit (4) — same boundary as :always (was 5 pre-fix)"))))
+          ":raise aborts at depth == limit (4) — same boundary as :always (a > boundary would abort at 5)"))))
 
 ;; ---- transitive self-chaining raise depth ---------------------------------
 ;;
@@ -322,7 +322,7 @@
 
 (deftest self-chaining-raise-bounded-transitively
   (testing "an infinitely self-chaining :raise hits :raise-depth-limit cleanly,
-   not a host StackOverflowError (rf2-b88nm)"
+   not a host StackOverflowError"
     ;; `:loop` has an internal (no-:target) transition on :tick whose
     ;; action re-raises [:tick] — an unbounded self-chain. Each raise
     ;; re-enters machine-transition-single from the same state. With
@@ -343,10 +343,11 @@
                   spec {:state :loop :data {}} [:tick])]
       (is (= 4 depth)
           "self-chaining :raise aborts at depth == limit (4) — the SAME bound
-           the breadth fan-out hits, now reached transitively across nested
-           machine-transition-single calls (was StackOverflowError pre-fix)")))
+           the breadth fan-out hits, reached transitively across nested
+           machine-transition-single calls (an unthreaded depth would overflow
+           the stack)")))
 
-  (testing "a self-chain shorter than the limit still completes normally (rf2-b88nm)"
+  (testing "a self-chain shorter than the limit completes normally"
     ;; Three chained internal raises (s0 → s1 → s2 → s3) under the default
     ;; limit (16) must NOT trip the bound — the transitive counter only
     ;; fires the error when the chain genuinely exceeds the limit.

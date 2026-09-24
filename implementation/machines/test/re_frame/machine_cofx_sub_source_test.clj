@@ -8,8 +8,8 @@
   recorded on the causal token under the mandatory owner-qualified `:as`
   fact-id; strict replay re-presents it verbatim.
 
-  Covers (each hitting the ACTUAL registration / dispatch path, per the
-  project's acceptance discipline — not a routed-around green):
+  Covers (each hitting the real registration / dispatch path, not a
+  routed-around green):
 
     1. PARSE — the machines `allow-sub?` arity accepts the map form and parses
        it to `{:id fact-id :arg ::no-arg :rf.cofx/sub query-v}` (dedup /

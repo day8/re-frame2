@@ -86,7 +86,7 @@
     (let [records (with-always-on-records
                     #(rf/dispatch-sync [:cprm0q/action-throws [:go]]))]
       (is (= 1 (count records))
-          "exactly ONE always-on record for the throwing action (pre-fix: ZERO)")
+          "exactly ONE always-on record for the throwing action")
       (let [r (first records)]
         (is (= :rf.error/machine-action-exception (:error r))
             "the always-on category actually reached the :errors channel")
@@ -119,7 +119,7 @@
     (let [records (with-always-on-records
                     #(rf/dispatch-sync [:cprm0q/guard-throws [:go]]))]
       (is (= 1 (count records))
-          "exactly ONE always-on record for the throwing guard (pre-fix: ZERO)")
+          "exactly ONE always-on record for the throwing guard")
       (let [r (first records)]
         (is (= :rf.error/machine-action-exception (:error r))
             "guard throws converge on the machine-action-exception category")
@@ -159,8 +159,8 @@
 ;; ===========================================================================
 
 (deftest both-error-channels-fire-for-a-machine-action-throw
-  (testing "the fix fans BOTH the always-on record AND the dev trace — the
-            dev-only trace (axis 2, DCE'd in prod) still fires exactly once
+  (testing "a throw fans BOTH the always-on record AND the dev trace — the
+            dev-only trace (axis 2, DCE'd in prod) fires exactly once
             with the :action-id, proving the same real emit site drives both"
     (rf/reg-machine :cprm0q/both-channels
       {:initial :idle
@@ -171,11 +171,11 @@
     (let [dev-evs (dev-traces-of :rf.error/machine-action-exception
                     #(rf/dispatch-sync [:cprm0q/both-channels [:go]]))]
       (is (= 1 (count dev-evs))
-          "the dev trace (axis 2) still fires exactly once")
+          "the dev trace (axis 2) fires exactly once")
       (is (= :boom (get-in (first dev-evs) [:tags :action-id]))
-          "the dev trace carries the :action-id (existing shape preserved)")
+          "the dev trace carries the :action-id")
       (is (= :boom (get-in (first dev-evs) [:tags :failing-id]))
-          "the dev trace's :failing-id is now the action keyword too"))))
+          "the dev trace's :failing-id is the action keyword too"))))
 
 ;; ===========================================================================
 ;; The union-record hook the machines layer reaches error-emit through.

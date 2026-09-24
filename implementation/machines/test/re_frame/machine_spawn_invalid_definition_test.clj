@@ -1,16 +1,15 @@
 (ns re-frame.machine-spawn-invalid-definition-test
-  "An invalid inline `:definition` is rejected AT SPAWN, fail-closed
-  (rf2-3x7nj.9.6).
+  "An invalid inline `:definition` is rejected AT SPAWN, fail-closed.
 
-  Validation of an inline definition used to happen only when the lazy
-  resolver first materialised the actor's handler, inside the router's
-  catch-all: the actor installed as a zombie (snapshot present,
-  `:rf/bootstrap-pending?` forever), its real registration error was
-  discarded, and every event to it — its own bootstrap included — read
-  `:rf.error/no-such-handler`. Under `:spawn-all` such a child could never
-  reach `:final?`, so an `:all` join hung.
+  Validating an inline definition only when the lazy resolver first
+  materialises the actor's handler, inside the router's catch-all, would
+  install the actor as a zombie (snapshot present, `:rf/bootstrap-pending?`
+  forever), discard its real registration error, and make every event to
+  it — its own bootstrap included — read `:rf.error/no-such-handler`. Under
+  `:spawn-all` such a child could never reach `:final?`, so an `:all` join
+  would hang.
 
-  Now the spawn materialises the definition through the same
+  So the spawn materialises the definition through the same
   `handler-meta-for` the resolver uses, before anything installs, and throws
   the validator's typed error for the fx runner to surface. A `:spawn-all`
   invoke carrying one rejects atomically, like an unregistered child TYPE."

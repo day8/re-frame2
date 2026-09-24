@@ -1,5 +1,5 @@
 (ns re-frame.machine-hostile-keys-cljs-test
-  "rf2-dhl4d — `validate-machine!` must REJECT a non-`Named` key, not throw a
+  "`validate-machine!` must REJECT a non-`Named` key, not throw a
   host exception at it.
 
   A machine definition is not always hand-written. It can be merged from
@@ -10,19 +10,19 @@
   promise is only worth something if the validator is TOTAL over the keys it is
   handed.
 
-  It was not. Two operations the key checks perform are PARTIAL on the host:
+  Two operations the key checks perform are PARTIAL on the host:
 
     - `namespace`, which is defined only on `Named` and THROWS otherwise, so
-      `{:initial :a :states {:a {}} \"x\" 1}` raised a bare
-      `ClassCastException` (a `js/Error` on CLJS) out of `validate-machine!`;
+      unguarded it would raise a bare `ClassCastException` (a `js/Error` on
+      CLJS) out of `validate-machine!` for `{:initial :a :states {:a {}} \"x\" 1}`;
     - `pr-str` of the offending keys in the diagnostic MESSAGE, which reaches
       an arbitrary object's `toString` — the same defect one level down, where
-      a key that refuses to print destroys the very failure being described.
+      a key that refuses to print would destroy the very failure being described.
 
-  Either way the caller got a host exception carrying no `:rf.error/id` instead
-  of the documented `:rf.error/machine-unknown-node-key`, so every consumer that
-  pivots on that discriminator (Xray's error widget, the pair-tool overlay,
-  `:on-error` policies) saw nothing it could read.
+  Either way the caller would get a host exception carrying no `:rf.error/id`
+  instead of the documented `:rf.error/machine-unknown-node-key`, so every
+  consumer that pivots on that discriminator (Xray's error widget, the pair-tool
+  overlay, `:on-error` policies) would see nothing it could read.
 
   The suite is deliberately CROSS-PLATFORM (`*_cljs_test.cljc`, discovered by
   both the JVM runner and shadow-cljs). A key's TYPE is exactly the axis that
@@ -185,20 +185,20 @@
       (is (str/includes? msg "<vector>")
           "a collection key renders by shape too — pr-str would descend into it")))
 
-  (testing "an EDN scalar still prints LITERALLY — naming the key IS the
+  (testing "an EDN scalar prints LITERALLY — naming the key IS the
             diagnostic, and reg-machine's caller is holding the definition
             already (the deliberate divergence from machines-viz, whose caller
             is handed a definition decoded from a share URL)"
     (let [msg (reg-message {:initial :a :states {:a {:on-entry :oops}}})]
       (is (str/includes? msg "[:on-entry]")
-          "the ordinary typo diagnostic is unchanged, byte for byte"))
+          "the ordinary typo diagnostic names the offending key literally"))
     (let [msg (reg-message {:initial :a :states {:a {"x" 1}}})]
       (is (str/includes? msg "[\"x\"]")
           "a String key prints as a String — it is legible and it is safe to print"))))
 
 (deftest ex-data-still-names-the-offending-keys
-  (testing "the structured rejection still carries the offending key in ex-data
-            for an ordinary typo — the fix must not gut the diagnostic"
+  (testing "the structured rejection carries the offending key in ex-data
+            for an ordinary typo — totality must not gut the diagnostic"
     (let [d (try (rf/reg-machine :hk/diag {:initial :a :states {:a {:on-entry :oops}}})
                  nil
                  (catch #?(:clj Throwable :cljs :default) t (ex-data t)))]
@@ -206,14 +206,14 @@
       (is (= [:on-entry] (:offending-keys d))))))
 
 ;; ---------------------------------------------------------------------------
-;; (3) The carve-out is UNCHANGED.
+;; (3) The namespaced-key carve-out.
 
 (deftest namespaced-carve-out-unchanged
-  (testing "a namespaced KEYWORD is still the open extension carve-out"
+  (testing "a namespaced KEYWORD is the open extension carve-out"
     (is (nil? (reg-outcome {:initial :a :states {:a {:my.app/note "x"}}}))))
 
-  (testing "a namespaced SYMBOL is still carved out — `namespace` was defined on
-            Named, not on keywords, and the Named-ness test must keep both arms"
+  (testing "a namespaced SYMBOL is carved out too — `namespace` is defined on
+            Named, not only on keywords, and the Named-ness test must keep both arms"
     (is (nil? (reg-outcome {:initial :a :states {:a {'my.app/note "x"}}}))))
 
   (testing "a BARE symbol is not carved out — it is Named but unnamespaced, the
@@ -221,7 +221,7 @@
     (is (= :rf.error/machine-unknown-node-key
            (reg-outcome {:initial :a :states {:a {'note "x"}}}))))
 
-  (testing "an ordinary valid machine still registers cleanly"
+  (testing "an ordinary valid machine registers cleanly"
     (is (nil? (reg-outcome {:initial :idle
                             :states {:idle {:on {:go :done}}
                                      :done {:final? true}}})))))

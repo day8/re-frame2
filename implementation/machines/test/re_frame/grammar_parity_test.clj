@@ -3,7 +3,7 @@
   the machine grammar BY CONSTRUCTION, not by a hand-kept comment that one
   mirrors the other.
 
-  Both layers now consume `re-frame.machines.grammar` (the shared
+  Both layers consume `re-frame.machines.grammar` (the shared
   state-tree descent + transition-value-form recogniser):
 
     - registration (`lifecycle-fx.validation`) resolves a transition
@@ -198,7 +198,7 @@
              (registration-error-id :bad/shape m))
           "registration rejects the malformed :target shape (42) loudly")))
 
-  (testing "an EMPTY vector :target is malformed-shape, not unresolved (rf2-r6fuz2)"
+  (testing "an EMPTY vector :target is malformed-shape, not unresolved"
     ;; Spec 005 §error taxonomy (005:4250) + Spec-Schemas §TransitionTarget
     ;; require a NON-EMPTY vector path. `[]` names no node — it is a caller
     ;; typo/schema error in the same class as `{:target 42}`, NOT an

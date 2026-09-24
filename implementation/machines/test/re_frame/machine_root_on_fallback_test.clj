@@ -116,12 +116,12 @@
           no-ops (ops evs :rf.machine.event/unhandled-no-op)]
       (is (= 1 (count no-ops)) "exactly one benign no-op trace")
       (is (empty? (ops evs :rf.error/machine-unhandled-event))
-          "the retired error advisory is NEVER emitted")
+          "no error advisory is emitted")
       (let [u (first no-ops)]
         (is (= :rf.machine (:op-type u))
             "op-type is the machine-activity family, not a severity")
         (is (= :rem/unhandled (-> u :tags :actor-id))
-            "the live actor INSTANCE addresses the no-op (rf2-yyvtk5)")
+            "the live actor INSTANCE addresses the no-op")
         (is (= [:nope] (-> u :tags :event)))
         (is (= :a (-> u :tags :state)))))))
 

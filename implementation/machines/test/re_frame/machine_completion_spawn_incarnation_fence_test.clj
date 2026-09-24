@@ -1,27 +1,26 @@
 (ns re-frame.machine-completion-spawn-incarnation-fence-test
-  "rf2-3evq0x — terminally fence machine COMPLETION and SPAWN tails after
+  "Machine COMPLETION and SPAWN tails are terminally fenced after
   incarnation loss.
 
-  #5849 fenced the machine SCHEMA-validator callbacks (spawn-data,
-  update-snapshot, completion-output) to the exact frame incarnation, but two
-  callback-bearing tails still crossed the terminal fence after ownership
-  changed:
+  The machine SCHEMA-validator callbacks (spawn-data, update-snapshot,
+  completion-output) are fenced to the exact frame incarnation, and so are
+  the two callback-bearing tails that run after them:
 
     - Completion: `validate-completion-output!` can return
-      `:rf/stale-incarnation`, but `finalize-machine` bound the result to `_`
-      and continued — parent resolution / `:on-done` / done trace / teardown /
-      HTTP+timer cancellation / classification+spawn-order drop / registrar
-      unregister / `:on-error` dispatch / result+fx publication all ran against
-      the successor B. A `:rf.machine/done` trace LISTENER that destroys A +
-      publishes same-id B was likewise unfenced.
-    - Spawn: the accepted spawn cascade checked ownership ONCE (the schema-
-      validator gate), then emitted the callback-bearing `:rf.machine.spawn/
-      spawned` (and `:rf.machine.lifecycle/spawned`)
-      traces before install / classification / spawn-order / dispatch. A trace
-      LISTENER could replace A with B and the old cascade still committed
+      `:rf/stale-incarnation`. A `finalize-machine` that bound the result to
+      `_` and continued would run parent resolution / `:on-done` / done trace /
+      teardown / HTTP+timer cancellation / classification+spawn-order drop /
+      registrar unregister / `:on-error` dispatch / result+fx publication
+      against the successor B. A `:rf.machine/done` trace LISTENER that
+      destroys A + publishes same-id B needs the same fence.
+    - Spawn: the accepted spawn cascade emits the callback-bearing
+      `:rf.machine.spawn/spawned` (and `:rf.machine.lifecycle/spawned`)
+      traces before install / classification / spawn-order / dispatch. A
+      cascade that checked ownership only ONCE (the schema-validator gate)
+      would let a trace LISTENER replace A with B and still commit
       framework-owned actions into B's name.
 
-  The ruled policy: already-entered authored callbacks may unwind, but loss of
+  The policy: already-entered authored callbacks may unwind, but loss of
   exact-incarnation ownership is a TERMINAL fence for every subsequent
   framework-owned action. These fixtures drive the tails DIRECTLY under a bound
   event owner (A's dequeue-time token) with a destroyer that publishes same-id

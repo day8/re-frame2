@@ -18,18 +18,14 @@
   so it is what makes exit-then-destroyed the spec-correct convention.
   This file pins that convention on all three paths.
 
-  SCOPE CORRECTION (rf2-wxy1c). This docstring used to cite 005:2138 —
-  which is the state-tags worked example, not a destroy-ordering rule —
-  and to extend the guarantee into a claim that \"a consumer observing the
-  db between `:exit` and `:rf.machine/destroyed` sees the live snapshot\".
-  That sentence existed only here; the spec never wrote it. It read an
-  action-vs-fx ordering guarantee as a TRACE-INTERLEAVING one, which the
-  governing section does not give. Under rf2-wxy1c internal drain-owned
-  traces deliver at the post-drain boundary, so a multi-child teardown
-  batches its `:destroyed` traces after the whole `:exit` cascade — and
-  that is the order rf2-wxy1c's own \"no partially settled state\"
-  criterion prefers, since the old interleaving let a consumer keyed on
-  child A's `:destroyed` read a db with child B still half-alive.
+  SCOPE. The guarantee is an action-vs-fx ORDERING one, not a
+  TRACE-INTERLEAVING one: the spec does not promise that a consumer
+  observing the db between `:exit` and `:rf.machine/destroyed` sees the
+  live snapshot. Internal drain-owned traces deliver at the post-drain
+  boundary, so a multi-child teardown batches its `:destroyed` traces after
+  the whole `:exit` cascade — the order that leaves no partially settled
+  state, since an interleaving would let a consumer keyed on child A's
+  `:destroyed` read a db with child B still half-alive.
 
   Mechanism: a shared ordered log captures both the `:exit` action's
   fire (the action conjes a marker) and the `:rf.machine/destroyed`
@@ -142,15 +138,14 @@
         ;; Two children torn down inside ONE events-fx walk. The `:exit`
         ;; actions are in-drain and run per-child, sequentially; the
         ;; `:rf.machine/destroyed` traces are internal drain-owned emits,
-        ;; so under rf2-wxy1c they deliver together at the post-drain
+        ;; so they deliver together at the post-drain
         ;; boundary — in EMISSION ORDER, after the whole cascade. Hence
-        ;; the BATCHED [:exit :exit :destroyed :destroyed], not the old
+        ;; the BATCHED [:exit :exit :destroyed :destroyed], not an
         ;; interleaved [:exit :destroyed :exit :destroyed].
         ;;
-        ;; The convention this file exists to pin is intact: every
-        ;; `:exit` still precedes every `:destroyed`. What changed is the
-        ;; INTERLEAVING between two children, which the spec never
-        ;; guaranteed (see the ns docstring's scope correction).
+        ;; The convention this file pins holds: every `:exit` precedes
+        ;; every `:destroyed`. The INTERLEAVING between two children is
+        ;; not a spec guarantee (see the ns docstring's scope note).
         (is (= [:exit :exit :destroyed :destroyed] @log)
             "every :exit precedes every :destroyed — the destroyed traces batch at the post-drain boundary")
         (finally (unreg))))))

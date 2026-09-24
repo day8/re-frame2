@@ -1,34 +1,34 @@
 (ns re-frame.after-dynamic-delay-reresolve-ratom-cljs-test
-  "rf2-wmpte — a machine's `:after [sub-vec]` dynamic delay RE-RESOLVES on the
+  "A machine's `:after [sub-vec]` dynamic delay RE-RESOLVES on the
   ratom family, driven by nothing but the timer's own wiring.
 
-  THE DEFECT THIS PINS. `re-frame.machines.timer` resolved a sub-vec delay by
-  `subs/subscribe` → plain `@reaction` → `add-watch`, on the stated premise
-  that the subscribe \"keeps the reaction live\". On the ratom family that is
-  false, and silently so: a subscription IS a bare `reagent.ratom/Reaction`,
-  built deliberately WITHOUT `:auto-run`, and a Reaction learns its sources
-  only through `deref-capture`. The plain deref runs outside `*ratom-context*`,
-  so it runs the body raw and leaves `watching` nil — the node sits in no
-  source's watcher set, `_handle-change` is never called, `_queued-run`
-  short-circuits on `(some? watching)`, and even `reagent.core/flush` moves
-  nothing. The `add-watch` RECORDED a callback that could not fire.
+  WHY THE NODE MUST BE ACTIVATED. On the ratom family a subscription IS a bare
+  `reagent.ratom/Reaction`, built deliberately WITHOUT `:auto-run`, and a
+  Reaction learns its sources only through `deref-capture`. A plain deref runs
+  outside `*ratom-context*`, so it runs the body raw and leaves `watching`
+  nil — the node sits in no source's watcher set, `_handle-change` is never
+  called, `_queued-run` short-circuits on `(some? watching)`, and even
+  `reagent.core/flush` moves nothing. An `add-watch` on such a node records a
+  callback that cannot fire.
 
-  Observably: the first arming resolved correctly and the delay then never
-  re-resolved for the rest of that arming's life. No trace, no error. Spec 005
-  §Delayed `:after` transitions and `docs/api/re-frame.machines.md` promise the
-  re-resolution unconditionally. The fix is the observation port's
-  (`re-frame.substrate.observation/build-node-handle!`, rf2-8cnxg): ACTIVATE,
-  then watch.
+  So resolving a sub-vec delay by `subs/subscribe` → plain `@reaction` →
+  `add-watch` would resolve the first arming correctly and then never
+  re-resolve for the rest of that arming's life, with no trace and no error.
+  Spec 005 §Delayed `:after` transitions and `docs/api/re-frame.machines.md`
+  promise the re-resolution unconditionally. The observation port
+  (`re-frame.substrate.observation/build-node-handle!`) therefore ACTIVATES,
+  then watches.
 
-  WHY NO SUITE SAW IT — the untested-combination axis. Every CLJS timer suite
-  that drives a dynamic delay installs plain-atom and, KNOWING a plain-atom
-  derived value does not push, `with-redefs`es a plain controllable atom in
-  place of the reaction (`after_fire_reap_cljs_test.cljc` says so in its own
-  header). A plain atom always notifies: the substitution that makes those
-  tests deterministic is the substitution that makes them blind. So this file
-  stubs the HOST CLOCK and nothing else — `subs/subscribe` is the real one and
-  the reaction under the watch is the real cached subscription node, because
-  the stand-in is precisely what hid the bug.
+  WHY ONLY THE CLOCK IS STUBBED — the untested-combination axis. Every other
+  CLJS timer suite that drives a dynamic delay installs plain-atom and, KNOWING
+  a plain-atom derived value does not push, `with-redefs`es a plain
+  controllable atom in place of the reaction (`after_fire_reap_cljs_test.cljc`
+  says so in its own header). A plain atom always notifies: the substitution
+  that makes those tests deterministic is the substitution that makes them
+  blind to this channel. So this file stubs the HOST CLOCK and nothing else —
+  `subs/subscribe` is the real one and the reaction under the watch is the
+  real cached subscription node, because the stand-in would hide exactly the
+  failure this file pins.
 
   CLJS-only (the ratom family is CLJS); the `-cljs-test` ns suffix enrols it in
   the consolidated `:node-test` build. No DOM and no React are needed — the
@@ -73,7 +73,7 @@
                              :expired {}}}))
 
 ;; ===========================================================================
-;; the regression
+;; the re-resolution
 ;; ===========================================================================
 
 (deftest dynamic-after-delay-re-resolves-when-the-delay-sub-moves
@@ -105,17 +105,17 @@
                is the timer's fault and not the host's")
           (is (capturing? rx)
               "the timer ACTIVATED the delay node before watching it: it is
-               subscribed to its sources. Before rf2-wmpte this was nil —
+               subscribed to its sources. Without activation this is nil —
                watchable, watched, and unable to notify"))
 
-        ;; ---- the movement the whole bead is about ------------------------
+        ;; ---- the movement this file is about -----------------------------
         (rf/dispatch-sync [:dyn/set-ms 9000])
         (ratom/flush!)
 
         (is (= [5000 9000] @arms)
-            "THE REGRESSION — the delay sub moved, so the timer cancelled and
-             re-armed at the new duration. Before the fix this stayed [5000]:
-             the watch was recorded on a node that could never fire")
+            "the delay sub moved, so the timer cancelled and re-armed at the
+             new duration. A watch on an unactivated node would leave this at
+             [5000]: that node can never fire")
         (is (= 9000 (:resolved-ms (live-entry)))
             "…and the live registry entry carries the re-resolved duration")
         (is (some #(= :on-resolution (:reason (:tags %)))

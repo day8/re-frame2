@@ -24,9 +24,7 @@
        recordable fact (`:rf/time-ms`) present on the token reads it off the
        `:rf.cofx` record verbatim and folds it into a durable `:data` write.
 
-  These exercise the ACTUAL failing/working paths (per the project's
-  acceptance discipline — the test hits the real dispatch path, not a
-  routed-around green)."
+  These exercise the real dispatch path, not a routed-around green."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
@@ -250,11 +248,11 @@
 
 (deftest multi-hop-always-missing-provided-fact-throws
   (testing "a PROVIDED (non-generator-backed) recordable fact required by a
-            depth>=2 :always guard, absent from the in-flight record, now
+            depth>=2 :always guard, absent from the in-flight record,
             raises :rf.error/missing-required-cofx from the dispatch-time
             ensure step — the depth>=2 diet IS in the ensure-set, so the
             ensure step's missing-required check fires rather than the guard
-            SILENTLY reading nil (the rf2-h9gwkx hole). Drives the real
+            SILENTLY reading nil. Drives the real
             ensure path (`rf.machines.cofx-attach/ensure-cofx`, run by `ensure-ctx-cofx`
             before the macrostep) so the throw surfaces verbatim rather than
             being routed into the dispatch-sync error pipeline."
@@ -421,9 +419,9 @@
           es (rf.machines.cofx-attach/ensure-set-for
                m {:state {:a :one :b :one} :data {}} [:go-all])]
       (is (contains? (set (map :id es)) :test/root-roll)
-          "the ensure-set includes the ROOT :on guard's requires — before
-           rf2-bu106a the parallel branch unioned regions only, so :root-on
-           returned [] and the fact was never ensured"))))
+          "the ensure-set includes the ROOT :on guard's requires — a parallel
+           branch that unioned regions only would return [] for :root-on and
+           never ensure the fact"))))
 
 (deftest ensure-set-for-includes-parallel-root-after
   (testing "white-box: ensure-set-for for the synthetic root :after timer event
@@ -448,7 +446,7 @@
                [:rf.machine.timer/after-elapsed 1000 1 []])]
       (is (contains? (set (map :id es)) :test/root-jitter)
           "the ensure-set for the root :after timer includes the root :after
-           action's requires (rf2-bu106a acceptance #2)"))))
+           action's requires"))))
 
 (deftest parallel-root-on-guard-reads-ensured-generated-fact
   (testing "end-to-end: a parallel ROOT :on guard requiring a generator-backed
@@ -484,8 +482,8 @@
   (testing "a PROVIDED (non-generator-backed) fact required by a parallel ROOT
             :on guard, absent from the in-flight record, raises missing-
             required from the dispatch-time ensure step — the root surface IS
-            in the ensure-set now (before rf2-bu106a it was dropped, so the
-            guard would have silently read nil)"
+            in the ensure-set (dropped from it, the guard would silently read
+            nil)"
     (let [m (rf.machines.cofx-attach/index-ensure-sets
               {:type    :parallel
                :data    {}
@@ -511,7 +509,7 @@
           "the parallel root :on guard's provided requires is in the ensure-set"))))
 
 ;; ===========================================================================
-;; :type :choice candidates in the ensure-set (rf2-4y4bzq)
+;; :type :choice candidates in the ensure-set
 ;; ===========================================================================
 ;;
 ;; A `:type :choice` transient node carries its candidate vector under
@@ -546,8 +544,8 @@
   (testing "white-box: ensure-set-for treats a :type :choice node's :choice
             vector as its :always candidates, so a choice candidate GUARD's
             :rf.cofx/requires is in the ensure-set (reachable through the
-            choice target) — before rf2-4y4bzq always-entries read (:always
-            choice-node)=nil and the fact was dropped"
+            choice target) — reading only (:always choice-node), which is
+            nil, would drop the fact"
     (rf/reg-cofx :test/choice-roll {:recordable? true} (fn [] 6))
     (let [m (rf.machines.cofx-attach/index-ensure-sets
               {:initial :idle
@@ -596,22 +594,21 @@
           "the choice routed to :hit on the ensured value"))))
 
 ;; ===========================================================================
-;; state-level / per-region :after candidates in the ensure-set (rf2-iyrc9t)
+;; state-level / per-region :after candidates in the ensure-set
 ;; ===========================================================================
 ;;
 ;; The synthetic timer event [:rf.machine.timer/after-elapsed delay epoch
 ;; decl-path] routes to the scheduling node's :after-TABLE transition at
 ;; decl-path/delay — a slot SEPARATE from :on, so the :on walk misses it. The
-;; parallel ROOT :after was already handled (parallel-root-diet); the
-;; per-state / per-region :after was the asymmetric gap. A state-level :after
+;; ensure-set covers the per-state / per-region :after alongside the parallel
+;; ROOT :after (parallel-root-diet). A state-level :after
 ;; guard/action declaring :rf.cofx/requires must have its facts ensured when
 ;; the timer fires, else the guard reads nil / replay diverges.
 
 (deftest ensure-set-for-includes-state-after
   (testing "white-box: ensure-set-for for a state-level :after timer event
             ([:rf.machine.timer/after-elapsed delay epoch [state]]) includes the
-            :after candidate's requires — the :after slot the :on walk missed
-            (rf2-iyrc9t)"
+            :after candidate's requires — the :after slot the :on walk misses"
     (rf/reg-cofx :test/token {:recordable? true} (fn [] :T))
     (let [m (rf.machines.cofx-attach/index-ensure-sets
               {:initial :waiting
@@ -628,14 +625,14 @@
                [:rf.machine.timer/after-elapsed 5000 1 [:waiting]])]
       (is (contains? (set (map :id es)) :test/token)
           "the ensure-set for the state :after timer includes the :after guard's
-           requires — before rf2-iyrc9t only the parallel ROOT :after was
-           handled, so a per-state :after read nil"))))
+           requires — handling only the parallel ROOT :after would leave a
+           per-state :after guard reading nil"))))
 
 (deftest ensure-set-for-includes-per-region-after
   (testing "white-box: for a parallel machine, the synthetic region-qualified
             :after timer ([... [<region> <state>]]) resolves within the region
             scope (region head stripped) and adds the region-state :after
-            candidate's requires (rf2-iyrc9t — the region path)"
+            candidate's requires (the region path)"
     (rf/reg-cofx :test/region-token {:recordable? true} (fn [] :RT))
     (let [m (rf.machines.cofx-attach/index-ensure-sets
               {:type    :parallel
@@ -657,25 +654,25 @@
            decl-path region head was stripped to resolve within region-a"))))
 
 ;; ===========================================================================
-;; rf2-ful212: INLINE-LITERAL / defmachine named-cofx entry-maps resolve
+;; INLINE-LITERAL / defmachine named-cofx entry-maps resolve
 ;; ===========================================================================
 ;;
 ;; Every ensure-set test above registers via a `def`/let-bound SYMBOL (`m`),
 ;; which the reg-machine macro's compile-time literal-walk cannot see into — so
 ;; `source-coords/collocate-element-source` never runs and the user's entry-map
-;; reaches the engine verbatim. That path ESCAPES the bug, which is why the
-;; suite was silently green.
+;; reaches the engine verbatim. That path cannot see a defect in the literal
+;; walk.
 ;;
 ;; When the SAME named-cofx `:guards`/`:actions` entry (`{:rf.cofx/requires
 ;; [...] :fn (fn …)}`) is registered as an INLINE LITERAL in `reg-machine` (or
-;; via `defmachine`), the macro's dev arm walked the literal and — pre-fix —
-;; DOUBLE-WRAPPED the entry (the WHOLE entry-map landed under a fresh `:fn`),
-;; nesting `:rf.cofx/requires` one level down. That EMPTIED the cofx-ensure
-;; index (`entry-requires` read nil → no cofx ensured) AND resolved the
-;; guard/action `:fn` to a MAP (not a fn) → the guard silently never fired
-;; (state stayed :idle). The prod arm (`wrap-element-fns`) double-wrapped
-;; identically, and the ensure-index is NOT dev-gated, so the break shipped to
-;; production too. These pin the inline-literal + defmachine paths in BOTH arms.
+;; via `defmachine`), the macro's dev arm walks the literal. A walk that
+;; DOUBLE-WRAPPED the entry (the WHOLE entry-map under a fresh `:fn`) would
+;; nest `:rf.cofx/requires` one level down. That would EMPTY the cofx-ensure
+;; index (`entry-requires` reads nil → no cofx ensured) AND resolve the
+;; guard/action `:fn` to a MAP (not a fn) → the guard would silently never fire
+;; (state stays :idle). The prod arm (`wrap-element-fns`) walks the same entry,
+;; and the ensure-index is NOT dev-gated, so the same break would reach
+;; production. These pin the inline-literal + defmachine paths in BOTH arms.
 
 (rf/defmachine ful212-defmachine
   {:initial :idle
@@ -687,11 +684,12 @@
              :done {}}})
 
 (deftest inline-literal-named-cofx-guard-fires-dev-arm
-  (testing "rf2-ful212 (dev arm): a named-cofx GUARD registered as an INLINE
+  (testing "(dev arm): a named-cofx GUARD registered as an INLINE
             LITERAL in reg-machine (macro dev arm → collocate-element-source)
-            resolves its generator-backed cofx and FIRES. Pre-fix the entry was
-            double-wrapped: the ensure-index was empty and the guard :fn was a
-            map, so the guard silently never fired (seen ::unset, state :idle)."
+            resolves its generator-backed cofx and FIRES. A double-wrapped
+            entry would leave the ensure-index empty and the guard :fn a
+            map, so the guard would silently never fire (seen ::unset, state
+            :idle)."
     (rf/reg-cofx :test/roll {:recordable? true} (fn [] 6))
     (let [seen (atom ::unset)]
       ;; INLINE LITERAL — the reg-machine macro walks this map, so
@@ -716,11 +714,11 @@
            fired the transition"))))
 
 (deftest inline-literal-named-cofx-guard-fires-prod-arm
-  (testing "rf2-ful212 (prod arm): the SAME inline-literal named-cofx guard,
+  (testing "(prod arm): the SAME inline-literal named-cofx guard,
             registered under `rf.interop/debug-enabled? false` (macro prod arm →
             wrap-element-fns), also resolves + fires — wrap-element-fns
             preserves the entry-map verbatim rather than double-wrapping it. The
-            ensure-index is NOT dev-gated, so the fix must hold in prod too."
+            ensure-index is NOT dev-gated, so prod must preserve it too."
     (rf/reg-cofx :test/roll {:recordable? true} (fn [] 6))
     (with-redefs [rf.interop/debug-enabled? false]
       (rf/reg-machine :ful212/inline-prod
@@ -738,11 +736,11 @@
          guard resolves + fires on the ensured generated value")))
 
 (deftest defmachine-named-cofx-guard-fires
-  (testing "rf2-ful212 (defmachine): a value-registered machine defined with
+  (testing "(defmachine): a value-registered machine defined with
             `defmachine` (which walks + stamps the literal at the def site)
             whose :guards entry is a named-cofx form resolves its cofx and FIRES
-            when later passed to reg-machine — the stamped value carried the
-            (previously double-wrapped) entry through registration."
+            when later passed to reg-machine — the stamped value carries the
+            entry through registration without double-wrapping it."
     (rf/reg-cofx :test/roll {:recordable? true} (fn [] 6))
     (rf/reg-machine :ful212/defmachine ful212-defmachine)
     (rf/dispatch-sync [:ful212/defmachine [:go]]
@@ -752,7 +750,7 @@
          the entry-map was collocated without double-wrapping")))
 
 ;; ===========================================================================
-;; rf2-3x7nj.8.4 — every slot the runtime selects from is in the ensure-set
+;; Every slot the runtime selects from is in the ensure-set
 ;; ===========================================================================
 ;;
 ;; The ensure-set must cover each place `transition/pick-transition` can
@@ -760,7 +758,7 @@
 ;; after the active path), a parallel REGION body's own root `:on`, a region
 ;; compound's `:on-done` (whose done-raise carries a region-name head), and a
 ;; single `:spawn`'s `:on-error`. Each row pairs the slot with a control
-;; placing the SAME named guard where the ensure-set already looked.
+;; placing the SAME named guard on a neighbouring slot the ensure-set covers.
 
 (def ^:private rolled-six
   {:rf.cofx/requires [:test/roll8]

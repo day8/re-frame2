@@ -158,7 +158,7 @@
           "no :default-target ⇒ :playing's :initial (:at-start) cascade"))))
 
 (deftest dangling-recorded-path-falls-back
-  (testing "a recorded leaf the (hot-reloaded) definition removed falls back to default (rf2-wgfv0)"
+  (testing "a recorded leaf the (hot-reloaded) definition removed falls back to default"
     ;; Hand-seed a snapshot whose :rf/history references a substate the
     ;; CURRENT definition does not declare (:gone), as if a hot reload
     ;; removed it. Restore must discard it and fall back, never entering the
@@ -246,13 +246,13 @@
         (is (= [:player :playing] (:compound-path tags)) ":compound-path = exited owner's decl path")
         (is (= :deep (:kind tags)) ":kind :deep (not :deep?)")
         (is (= [:player :playing :mid-track] (:recorded-config tags))
-            ":recorded-config = full leaf (renamed from :config)")
+            ":recorded-config = full leaf")
         (is (not (contains? tags :prev-config))
             ":prev-config ABSENT on the first-ever recording")
-        (is (not (contains? tags :history-key)) "old :history-key gone")
-        (is (not (contains? tags :config)) "old :config gone")
-        (is (not (contains? tags :deep?)) "old :deep? gone")
-        (is (not (contains? tags :region)) "old :region gone (folded into path)")))))
+        (is (not (contains? tags :history-key)) "no :history-key tag")
+        (is (not (contains? tags :config)) "no :config tag (the key is :recorded-config)")
+        (is (not (contains? tags :deep?)) "no :deep? tag (the key is :kind)")
+        (is (not (contains? tags :region)) "no :region tag (the region is part of :compound-path)")))))
 
 (deftest recorded-trace-shape-prev-config-on-overwrite
   (testing ":prev-config = the value the slot held before this write"
@@ -292,9 +292,9 @@
             ":resolved-leaf = the concrete leaf entered")
         (is (not (contains? tags :fallback))
             ":fallback ABSENT on the :recorded path")
-        (is (not (contains? tags :history-key)) "old :history-key gone")
-        (is (not (contains? tags :deep?)) "old :deep? gone")
-        (is (not (contains? tags :region)) "old :region gone")))))
+        (is (not (contains? tags :history-key)) "no :history-key tag")
+        (is (not (contains? tags :deep?)) "no :deep? tag")
+        (is (not (contains? tags :region)) "no :region tag")))))
 
 (deftest restored-trace-shape-default-source-with-fallback
   (testing ":rf.machine.history/restored on the :default path names the :fallback"
@@ -376,13 +376,12 @@
       (is (empty? (history-events :rf.machine.history/restored))
           "no restored event for a non-history transition"))))
 
-;; ---- exit-set boundary regression ----------------------------------------
+;; ---- exit-set boundary ----------------------------------------------------
 ;;
 ;; The XState v5 / SCXML exit-set rule: a history-owning compound records
 ;; ONLY when it is itself EXITED. A pure WITHIN-compound sibling move — where
 ;; the history owner SURVIVES as the LCCA — records NOTHING. The strict `<`
-;; gate enforces this boundary. This regression locks it so it never silently
-;; slips.
+;; gate enforces this boundary, and this test pins it.
 
 ;; `:player` itself owns deep history; `:swap` moves between its two children
 ;; (:playing ↔ :stopped). `:player` is the LCA of that move — it SURVIVES (is
@@ -398,7 +397,7 @@
                                                     :mid-track {}}}}}}})
 
 (deftest within-compound-sibling-move-records-nothing
-  (testing "a within-compound sibling move (surviving LCCA — the old <= trigger) records NOTHING"
+  (testing "a within-compound sibling move (surviving LCCA, which a <= gate would record) records NOTHING"
     ;; :swap from [:player :playing :mid-track] → [:player :stopped] keeps
     ;; :player as the surviving LCA. Under strict < (exit-set rule), :player
     ;; is NOT exited, so nothing is recorded.

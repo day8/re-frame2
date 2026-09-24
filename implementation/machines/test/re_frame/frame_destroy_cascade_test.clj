@@ -173,7 +173,7 @@
     (let [aborted (atom [])
           ;; Install the hook explicitly. `re-frame.http.managed`
           ;; isn't loaded in this leaf-artefact's classpath, so we
-          ;; register the hook directly to stand in for it. rf2-wjfm — the
+          ;; register the hook directly to stand in for it. The
           ;; cascade calls the hook's FRAME-BEARING arity, so the stub records
           ;; the pair and the assertion below pins the frame as well as the
           ;; address. `abort-actor-in-flight-http!` swallows any throw from the
@@ -200,7 +200,7 @@
       (is (= #{[:ha/auth :ha/child#1] [:ha/auth :ha/child#2] [:ha/auth :ha/boot]}
              (set @aborted))
           "the abort hook fired once per active actor — spawned plus singleton —
-           and each call carried the DESTROYING FRAME (rf2-wjfm), so the http
+           and each call carried the DESTROYING FRAME, so the http
            registry narrows the sweep to this frame's slot"))))
 
 ;; ---- multiple frames isolated -------------------------------------------
@@ -244,7 +244,7 @@
       (is (= [:iso/child-b#1] (rf.machines.spawn-order/frame-order :iso/frame-b)))
       ;; A spawned actor carries NO per-instance registrar entry; its
       ;; liveness IS its snapshot's presence in the frame's (revertible)
-      ;; app-db. Cross-frame isolation is therefore asserted on the
+      ;; runtime-db. Cross-frame isolation is therefore asserted on the
       ;; snapshots, not the registrar.
       (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :iso/frame-a))
                          [:rf.runtime/machines :snapshots :iso/child-a#1]))
@@ -292,9 +292,8 @@
 ;; never populated at all. `rf.machines.spawn-order/reset-all!` reproduces exactly that —
 ;; an empty cache beside a full runtime-db.
 ;;
-;; It is NOT a model of an IN-PROCESS `restore-epoch!` / `replace-frame-state!`,
-;; and reading it as one is what rf2-1vlyg's first pass got wrong: no
-;; production install path clears the cache (`:machines/on-frame-restored!`
+;; It is NOT a model of an IN-PROCESS `restore-epoch!` / `replace-frame-state!`:
+;; no production install path clears the cache (`:machines/on-frame-restored!`
 ;; cancels `:after` timers and nothing else), so after an in-process install
 ;; the cache is POPULATED and may name actors the installed durable value
 ;; discarded. That harder shape has its own section — §in-process runtime-state
@@ -343,7 +342,7 @@
       ;; the transient spawn-order atom is wiped (it is NOT serialized).
       (rf.machines.spawn-order/reset-all!)
       (is (= [] (rf.machines.spawn-order/frame-order :rs/auth))
-          "spawn-order atom is empty post-restore (the bug's precondition)")
+          "spawn-order atom is empty post-restore (the precondition under test)")
       ;; Destroy the frame.
       (rf/destroy-frame! :rs/auth)
       ;; :exit fired for all three children, NEWEST-FIRST off the durable
@@ -351,9 +350,8 @@
       ;; :exit, if any, is irrelevant to the spawned-ordering contract.)
       ;;
       ;; These three share ONE id-prefix, so this case cannot distinguish the
-      ;; durable order from the per-prefix `#<n>` suffix the pre-rf2-1vlyg
-      ;; fallback parsed — which is exactly why it stays here as the
-      ;; SAME-PREFIX CONTROL, green across the repair, while
+      ;; durable order from ordering by the per-prefix `#<n>` suffix — which
+      ;; is exactly why it is the SAME-PREFIX CONTROL, while
       ;; `restored-mixed-prefix-actors-exit-in-reverse-creation-order` below
       ;; is the discriminator.
       (is (= [:rs/child#3 :rs/child#2 :rs/child#1]
@@ -396,16 +394,16 @@
       (is (some? (rf.registrar/lookup :event :rsg/single))
           "singleton handler stays registered — NOT unregistered by the straggler path"))))
 
-;; ---- durable spawn-order: the frame-global creation sequence (rf2-1vlyg) ----
+;; ---- durable spawn-order: the frame-global creation sequence ----
 ;;
 ;; The tests above restore a frame whose actors all share ONE id-prefix, so the
-;; per-prefix `#<n>` suffix happens to be a valid total order and the defect
-;; below is invisible. These tests use TWO machine types, which the suffix
-;; cannot order: `:probe/a#1`, `:probe/a#2` and `:probe/b#1` were created in
-;; that sequence, but descending-suffix sorting puts `:probe/a#2` (rank 2)
-;; ahead of the NEWEST actor `:probe/b#1` (rank 1). The information the old
-;; fallback tried to reconstruct is simply not in the actor-id — so the frame's
-;; total creation order is now RECORDED, in the durable
+;; per-prefix `#<n>` suffix happens to be a valid total order and ordering by
+;; it cannot be told apart from the durable order. These tests use TWO machine
+;; types, which the suffix cannot order: `:probe/a#1`, `:probe/a#2` and
+;; `:probe/b#1` were created in that sequence, but descending-suffix sorting
+;; puts `:probe/a#2` (rank 2) ahead of the NEWEST actor `:probe/b#1` (rank 1).
+;; The frame-global creation order is simply not in the actor-id — so it is
+;; RECORDED, in the durable
 ;; `[:rf.runtime/machines :spawn-order]` vector that rides the runtime-db value
 ;; through restore / hydration / `replace-runtime-db!`.
 
@@ -454,7 +452,7 @@
                         (runtime-snapshots :probe/auth))))
           "three spawned snapshots are live before the round trip")
       ;; ...and the DURABLE order records the exact sequence they were
-      ;; created in. This is the fact the old code had no way to know.
+      ;; created in. This is the fact no actor-id can carry.
       (is (= [:probe/a#1 :probe/a#2 :probe/b#1]
              (runtime-spawn-order :probe/auth))
           "durable spawn-order carries the frame-global creation sequence, across id-prefixes")
@@ -463,7 +461,7 @@
       ;; survives, the transient process-side atom does not.
       (rf.machines.spawn-order/reset-all!)
       (is (= [] (rf.machines.spawn-order/frame-order :probe/auth))
-          "transient spawn-order atom is empty post-restore (the bug's precondition)")
+          "transient spawn-order atom is empty post-restore (the precondition under test)")
       (is (= [:probe/a#1 :probe/a#2 :probe/b#1]
              (runtime-spawn-order :probe/auth))
           "the durable order is untouched by the loss of the transient atom")
@@ -471,8 +469,8 @@
       (rf/destroy-frame! :probe/auth)
       (is (= [:probe/b#1 :probe/a#2 :probe/a#1]
              (filterv #{:probe/a#1 :probe/a#2 :probe/b#1} @exit-log))
-          (str "exact reverse creation order. Descending-suffix sorting — the pre-rf2-1vlyg "
-               "fallback — yields [:probe/a#2 :probe/a#1 :probe/b#1], exiting :probe/a#2 "
+          (str "exact reverse creation order. Descending-suffix sorting "
+               "would yield [:probe/a#2 :probe/a#1 :probe/b#1], exiting :probe/a#2 "
                "ahead of the newest actor :probe/b#1 and inverting the stack discipline "
                "Spec 005 §Cross-Spec Interactions §1 pins."))
       (is (= 3 (count (filterv #{:probe/a#1 :probe/a#2 :probe/b#1} @exit-log)))
@@ -536,7 +534,7 @@
 ;; dropped it — the cache is not merely EMPTY after a round trip (the
 ;; fresh-process shape above), it is WRONG.
 ;;
-;; The invariant that settles it (rf2-1vlyg): a cache entry is evidence that a
+;; The invariant that settles it: a cache entry is evidence that a
 ;; spawn once COMMITTED IN THIS PROCESS, never evidence that the actor is still
 ;; in the frame's durable state. Both consumers confirm against the live
 ;; runtime-db before believing it — frame destroy takes its whole membership
@@ -619,7 +617,7 @@
         (is (= [:stage/a#1 :stage/b#1] (rf.machines.spawn-order/frame-order :stage/auth))
             (str "the transient cache still names the discarded b#1 — no production "
                  "install path clears it. This is the CONDITION under test, not a "
-                 "defect the fix papers over by clearing it."))
+                 "defect to paper over by clearing it."))
         ;; --- the discriminator ---
         (let [traces (collect-traces! #(rf/destroy-frame! :stage/auth))]
           (is (= [:stage/a#1]
@@ -695,5 +693,5 @@
         (is (= [:probe/b#1 :probe/a#2 :probe/a#1]
                (filterv #{:probe/a#1 :probe/a#2 :probe/b#1} @exit-log))
             (str "exact reverse creation order, read off the reinstalled durable vector. "
-                 "Descending-suffix sorting — the pre-rf2-1vlyg fallback — yields "
+                 "Descending-suffix sorting would yield "
                  "[:probe/a#2 :probe/a#1 :probe/b#1]."))))))

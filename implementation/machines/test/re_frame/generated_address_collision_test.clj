@@ -1,7 +1,6 @@
 (ns re-frame.generated-address-collision-test
   "A spawn whose GENERATED `<type>#<n>` address is already held by a LIVE actor
-  is REJECTED fail-closed with `:rf.error/machine-spawn-all-duplicate-id`
-  (rf2-1sip, option (f)).
+  is REJECTED fail-closed with `:rf.error/machine-spawn-all-duplicate-id`.
 
   WHY THE ADDRESS CAN COLLIDE AT ALL. The declarative allocator's counter lives
   INSIDE THE SPAWNING PARENT'S SNAPSHOT (`:rf/spawn-counter`,
@@ -17,33 +16,33 @@
     - two parents spawning the same child TYPE each mint `<type>#1`, with no
       destroy or re-incarnation anywhere in sight.
 
-  BEFORE THIS BEAD both installed straight over the live occupant through an
-  unguarded `assoc-in`. Because a spawned actor's liveness IS its snapshot's
-  presence (Spec 005 §Liveness is derived from runtime-db), that one write was
-  simultaneously a birth and an unannounced death: no `:exit`, no teardown, no
+  Installing either straight over the live occupant through an unguarded
+  `assoc-in` would be simultaneously a birth and an unannounced death, because
+  a spawned actor's liveness IS its snapshot's presence (Spec 005 §Liveness is
+  derived from runtime-db): no `:exit`, no teardown, no
   `:rf.machine/destroyed`, and two `:rf.machine.spawn/spawned` traces naming one
-  address with no destroy between them. The actor was GONE, not detached.
+  address with no destroy between them. The actor would be GONE, not detached.
 
   WHY REJECT RATHER THAN REPLACE — the distinction this suite exists to pin.
-  rf2-dokz ruled that a spawn arriving at an occupied `:fixed-actor-id` REPLACES
+  A spawn arriving at an occupied `:fixed-actor-id` REPLACES
   the occupant cleanly and raises nothing, because the AUTHOR NAMED that
   address and naming it twice is a request. Nobody names a generated address, so
   that reading is unavailable here: there is no request to honour, and Spec 005's
   *Teardown is explicit in v1* rule reserves destroying the occupant to the
-  author. Rejecting is what is left, and it uses the EXISTING category rather
-  than a new one — `:rf.error/machine-spawn-all-duplicate-id` already names
+  author. Rejecting is what is left, and it uses the category that fits —
+  `:rf.error/machine-spawn-all-duplicate-id` names
   \"two distinct spawns resolve to one actor address and one would silently
   overwrite the other\", including the fixed-versus-generated shape.
 
   NOT ATTEMPTED HERE, deliberately: re-homing the counter so `<type>#<n>` is
-  frame-unique (rf2-1sip option (e)) — that moves `machine-transition`'s
-  purity contract and is a separate ruling. This suite pins the loud failure,
+  frame-unique — that would move `machine-transition`'s
+  purity contract. This suite pins the loud failure,
   not the absence of the collision.
 
   Both directions are pinned, because an error-only suite is half a suite:
   every reject test asserts the OCCUPANT SURVIVED INTACT, and the controls
   assert that ordinary generated spawning, re-entry re-allocation, and
-  `:spawn-all` batches are unchanged."
+  `:spawn-all` batches install without a reject."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines]
@@ -67,7 +66,7 @@
 
 (defn- spawned-ids
   "Every actor address announced by a `:rf.machine.spawn/spawned` trace so far,
-  oldest first. The invariant a colliding install used to break is that no
+  oldest first. The invariant a colliding install would break is that no
   address appears here twice with no `:rf.machine/destroyed` between."
   []
   (mapv (comp :spawned-id :tags)
@@ -181,7 +180,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-second-parent-is-refused-the-address-its-sibling-already-holds
-  (testing "rf2-1sip — the counter is per-snapshot and the address space is
+  (testing "the counter is per-snapshot and the address space is
             per-frame, so two parents of one type at DISTINCT addresses both
             mint <type>#1 with no destroy and no re-incarnation anywhere. The
             second is refused and the first parent's child is untouched."
@@ -211,16 +210,16 @@
         "the reject names B, the parent whose spawn was refused")
     (is (= :FROM-A (:mark (machine-data :gac2/child#1)))
         "A's child is the SAME actor it was — this is the silent data loss the
-         reject replaces")
+         reject prevents")
     (is (= :gac2/child#1 (get-in (machine-data :gac2/a) [:rf/spawned [:working]]))
         "and A still records that address as the child it spawned")))
 
 ;; ---------------------------------------------------------------------------
-;; (3) Controls — ordinary generated spawning is UNCHANGED.
+;; (3) Controls — ordinary generated spawning never meets the guard.
 ;; ---------------------------------------------------------------------------
 
 (deftest an-uncontended-generated-spawn-installs-exactly-as-before
-  (testing "rf2-1sip — the guard costs one runtime-db read and changes nothing
+  (testing "the guard costs one runtime-db read and changes nothing
             when the generated address is free: the child installs, the spawned
             trace fires once, and no reject is emitted"
     (reg-child! :gac3/child)
@@ -231,7 +230,7 @@
     (is (empty? (rejects)) "and no collision reject")))
 
 (deftest re-entry-re-allocates-and-never-collides
-  (testing "rf2-1sip — leaving a :spawn-bearing state destroys the child through
+  (testing "leaving a :spawn-bearing state destroys the child through
             the exit cascade AND the parent's counter advances, so re-entry
             allocates <type>#2 at an empty address. Both defences hold and the
             guard never fires."
@@ -249,8 +248,8 @@
     (is (empty? (rejects)) "no reject on the ordinary re-entry path")))
 
 (deftest an-occupied-fixed-address-still-REPLACES-rather-than-rejecting
-  (testing "rf2-1sip does NOT reopen rf2-dokz: an address the AUTHOR NAMED is
-            still replaced cleanly, with no error, because naming it twice is a
+  (testing "an address the AUTHOR NAMED is
+            replaced cleanly, with no error, because naming it twice is a
             request. Only the generated case rejects."
     (reg-child! :gac5/child)
     (rf/reg-event :gac5/hire
@@ -265,16 +264,16 @@
     (is (= :none (:mark (machine-data :gac5/pinned)))
         "and it IS the replacement — a fresh incarnation at the named address")
     (is (empty? (rejects))
-        "no reject: rf2-dokz's ruling is untouched by rf2-1sip's guard")))
+        "no reject: the generated-address guard does not apply to a named address")))
 
 ;; ---------------------------------------------------------------------------
 ;; (4) `:spawn-all` — the within-batch guard and the admitted-child invariant.
 ;; ---------------------------------------------------------------------------
 
 (deftest an-intra-spawn-all-duplicate-still-rejects-the-whole-invoke
-  (testing "rf2-qlzh9's within-batch resolved-address guard is structurally
-            elsewhere (the invoke preflight) and is UNCHANGED: two children
-            sharing one :fixed-actor-id still reject the whole invoke before
+  (testing "the within-batch resolved-address guard is structurally
+            elsewhere (the invoke preflight): two children
+            sharing one :fixed-actor-id reject the whole invoke before
             anything installs"
     (reg-child! :gac6/child)
     (rf/reg-machine :gac6/parent
@@ -298,7 +297,7 @@
         "nothing installed: the invoke was rejected atomically")))
 
 (deftest an-admitted-spawn-all-child-still-always-installs
-  (testing "rf2-v4oqd — the authoritative preflight is the SOLE verdict for a
+  (testing "the authoritative preflight is the SOLE verdict for a
             :spawn-all child, so the generated-address guard deliberately
             excludes prepared children: a second per-child reject would strand
             a live join naming a child that never appears. A batch of two
@@ -323,7 +322,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-reject-carries-structural-context-only-and-names-a-per-shape-escape
-  (testing "rf2-1sip — the diagnostic is structural-only (Spec 009 privacy: the
+  (testing "the diagnostic is structural-only (Spec 009 privacy: the
             spawn args / :data may hold application PII) and its human reason
             names the author-side escape PER SHAPE, since :recovery is
             :no-recovery and the three shapes do not share one"
@@ -358,14 +357,14 @@
           "and the destroy-the-occupant-first escape")
       (is (re-find #":id-prefix" (:reason ev))
           "and the namespacing escape")
-      ;; rf2-1sip: the three shapes do NOT share a recovery, and the reason
+      ;; The three shapes do NOT share a recovery, and the reason
       ;; must say which is which — see `two-instances-of-one-parent-type-*`
       ;; below, where BOTH static keys fail and the fixed one destroys an actor.
       (is (re-find #"TWO LIVE INSTANCES OF ONE PARENT TYPE" (:reason ev))
           "and it calls out the shape for which NEITHER static key works")
       (is (re-find #"\[:rf\.machine/spawn" (:reason ev))
           "naming the hand-emitted escape that shape actually has")
-      ;; rf2-1sip (merged-PR audit of #9563): that escape is unique only WITHIN
+      ;; That escape is unique only WITHIN
       ;; the hand-emitted allocation stream. See
       ;; `a-BARE-hand-emitted-spawn-does-NOT-escape-an-OCCUPIED-generated-address`
       ;; below, where the bare form is refused at this very address on every
@@ -384,12 +383,12 @@
           "and no slot of the WHOLE emitted event smuggles the payload through"))))
 
 ;; ---------------------------------------------------------------------------
-;; (4) rf2-1sip — WHICH ESCAPE THE REJECT MAY HONESTLY NAME.
+;; (6) WHICH ESCAPE THE REJECT MAY HONESTLY NAME.
 ;;
 ;; The reject's `:recovery` is `:no-recovery`, so its human `reason` is the
 ;; author's only guidance. These pin that the guidance is SHAPE-SPECIFIC: for
 ;; two live instances of ONE parent type neither static key works, and the
-;; `:fixed-actor-id` half — named unconditionally before this — DESTROYS a live
+;; `:fixed-actor-id` half DESTROYS a live
 ;; actor when followed. The escape that shape does have is the hand-emitted
 ;; spawn, whose counter is the FRAME-wide runtime-db slot rather than the
 ;; spawning snapshot's.
@@ -404,7 +403,7 @@
                                                :fixed-actor-id addr}]]})))
 
 (deftest two-instances-of-one-parent-type-are-NOT-separated-by-id-prefix
-  (testing "rf2-1sip — `:id-prefix` is a static literal on the ONE spec both
+  (testing "`:id-prefix` is a static literal on the ONE spec both
             instances share, so both mint the SAME <prefix>#1 and the second is
             refused. The namespacing escape cannot reach this shape."
     (reg-child! :gac9/child)
@@ -431,9 +430,9 @@
         "A's child is untouched")))
 
 (deftest a-shared-fixed-actor-id-makes-the-second-instance-DESTROY-the-firsts-child
-  (testing "rf2-1sip — the `:fixed-actor-id` escape is also static, so both
+  (testing "the `:fixed-actor-id` escape is also static, so both
             instances name ONE address. That routes the second spawn down the
-            occupied-fixed-address path (rf2-dokz), which REPLACES. Following
+            occupied-fixed-address path, which REPLACES. Following
             this advice on this shape costs a live actor — which is why the
             reason must not offer it here."
     (reg-child! :gac10/child)
@@ -457,12 +456,12 @@
         "and A's child is GONE, replaced by B's fresh incarnation")))
 
 (deftest sibling-instances-CAN-each-own-a-child-via-the-hand-emitted-spawn
-  (testing "rf2-1sip — the escape this shape DOES have. A hand-emitted
+  (testing "the escape this shape DOES have. A hand-emitted
             `[:rf.machine/spawn ...]` allocates from the FRAME-wide counter at
             `[:rf.runtime/machines :spawn-counter <id-prefix>]` rather than the
             spawning snapshot's, so two instances of one parent TYPE receive
             #1 and #2 and never collide. This is the control that shows the
-            frame-wide allocator already exists and already behaves correctly."
+            frame-wide allocator exists and behaves correctly."
     (reg-child! :gac11/child)
     (rf/reg-machine :gac11/parent
       {:initial :idle
@@ -483,7 +482,7 @@
         "and they are genuinely distinct actors, not one address twice")))
 
 ;; ---------------------------------------------------------------------------
-;; (5) rf2-1sip — THE HAND-EMITTED ESCAPE IS UNIQUE ONLY WITHIN ITS OWN STREAM.
+;; (7) THE HAND-EMITTED ESCAPE IS UNIQUE ONLY WITHIN ITS OWN STREAM.
 ;;
 ;; The control directly above is the ALL-MANUAL shape: neither instance ever
 ;; spawned declaratively, so the frame-wide counter owns the whole
@@ -503,7 +502,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-BARE-hand-emitted-spawn-does-NOT-escape-an-OCCUPIED-generated-address
-  (testing "rf2-1sip — the frame-wide counter is a SEPARATE stream, not a
+  (testing "the frame-wide counter is a SEPARATE stream, not a
             higher one: a declarative sibling already holding <child>#1 leaves it
             at zero, and it does not skip occupied addresses, so the bare
             hand-emitted recovery is refused at the SAME address the reject
@@ -542,7 +541,7 @@
         "and the occupant is untouched throughout — the reject is fail-closed")))
 
 (deftest a-DISTINCT-id-prefix-on-the-hand-emitted-spawn-IS-the-usable-escape
-  (testing "rf2-1sip — the recovery that works in the live frame. The
+  (testing "the recovery that works in the live frame. The
             hand-emitted spawn carries its own `:id-prefix`, so it allocates in
             an EMPTY namespace on the frame-wide counter: the instance gets
             <prefix>#1 and <prefix>#2, and the declarative occupant survives"

@@ -50,15 +50,15 @@
 ;; x starts 0. Result a=:done, b=:idle, x=1 — b's guard saw x=0 (frozen).
 ;;
 ;; The reader region b is declared AFTER the writer a — the adversarial order.
-;; The SELECT/APPLY split (rf2-lq5yo3) resolves EVERY region's event guard in
-;; a SELECT pass against ONE frozen pre-event view (which now freezes `:data`
+;; The SELECT/APPLY split resolves EVERY region's event guard in
+;; a SELECT pass against ONE frozen pre-event view (which freezes `:data`
 ;; alongside `:all-state` / `:tags`) BEFORE any region's action applies, so b's
 ;; guard reads the pre-event `:x=0` regardless of declaration order. The one
 ;; value that flows (`:data`) accumulates only in the APPLY phase, reaching a
-;; later region's ACTION — never an earlier-selected guard. (Pre-fix, this
-;; fixture leaked: with b declared after a, a's `:bump` had already threaded
-;; `cur-data {:x 1}` into b's guard, so b fired — the declaration-order-
-;; dependent footgun this split closes.)
+;; later region's ACTION — never an earlier-selected guard. (Threading `:data`
+;; through selection would leak here: with b declared after a, a's `:bump`
+;; would thread `cur-data {:x 1}` into b's guard, so b would fire — the
+;; declaration-order-dependent footgun the split closes.)
 
 (deftest data-write-not-visible-to-same-event-guard
   (testing "region b's same-event guard reads the frozen pre-event :data — b
@@ -239,10 +239,11 @@
   "Like `order-machine` but the cross-region read is via shared `:data`, not
   `:all-state`: region :a moves :idle → :done on :go and its `:bump` action
   writes `:data :x`; region :b fires :idle → :fire on :go ONLY if its `:data`
-  GUARD reads `:x` positive. Under the frozen SELECT pass (rf2-lq5yo3) b's
+  GUARD reads `:x` positive. Under the frozen SELECT pass b's
   guard reads the pre-event `:x=0` in BOTH declaration orders, so the selected
   set is order-independent — the `:data`-guard analog of the `:all-state`
-  case. (Pre-fix, the a-then-b order leaked a's `:x=1` write into b's guard.)"
+  case. (Without it, the a-then-b order would leak a's `:x=1` write into b's
+  guard.)"
   [region-order]
   (let [bodies {:a {:initial :idle
                     :states  {:idle {:on {:go {:target :done :action :bump}}}
@@ -291,9 +292,9 @@
 
   (testing ":data-guard selection is ALSO declaration-order-independent — a
             region reading shared :data a SIBLING writes same-event sees the
-            frozen pre-event :data in BOTH orders → same committed state
-            (rf2-lq5yo3). Pre-fix, a-then-b leaked a's :x=1 into b's guard and
-            b fired → the two orders diverged."
+            frozen pre-event :data in BOTH orders → same committed state.
+            An evolving :data view would leak a's :x=1 into b's guard for
+            a-then-b and fire b → the two orders would diverge."
     (let [{snap-ab :snapshot} (rf.machines.parallel/machine-transition
                                     (data-order-machine [:a :b])
                                     {:state {:a :idle :b :idle} :data {:x 0}} [:go])

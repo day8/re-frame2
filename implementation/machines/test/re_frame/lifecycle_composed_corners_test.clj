@@ -1,11 +1,11 @@
 (ns re-frame.lifecycle-composed-corners-test
   "Compose rare machine timer / join / final / replacement interleavings.
 
-  Existing per-edge regression coverage (`timer_frame_scope_test`,
+  Per-edge coverage lives in `timer_frame_scope_test`,
   `after_test`, `spawn_all_test`, `final_state_cljs_test`,
-  `spawn_registry_test`, `frame_destroy_cascade_test`,
-  `destroyed_trace_shape_test`) is strong. This file pins the
-  combinations the audit body called out:
+  `spawn_registry_test`, `frame_destroy_cascade_test` and
+  `destroyed_trace_shape_test`. This file pins their rare
+  combinations:
 
     - stale `:after` firing AFTER the frame was destroyed,
     - stale `:after` firing AFTER the actor was replaced by a fresh
@@ -101,7 +101,7 @@
 ;;
 ;; Spawn actor A. Schedule its :after. Destroy actor A and spawn a fresh
 ;; actor B from the same parent. Fire the stale synthetic :after-elapsed
-;; keyed on A's id. A's handler is gone (unregistered at destroy), so the
+;; keyed on A's id. A's snapshot is gone, so no handler resolves for it: the
 ;; dispatch traces :rf.error/no-such-handler and actor B is NOT
 ;; transitioned.
 ;; ---------------------------------------------------------------------------
@@ -164,7 +164,7 @@
 ;; 3. :spawn-all child completion AFTER parent frame destroy
 ;;
 ;; The parent's :spawn-all join state lives at [:rf.runtime/machines :spawned <parent>
-;; <invoke-id>] in the parent FRAME's app-db. When the frame is
+;; <invoke-id>] in the parent FRAME's runtime-db. When the frame is
 ;; destroyed, the machine teardown cascade runs each spawned actor's
 ;; :exit, but if a child's completion lands AFTER the frame
 ;; is gone, the dispatch routes to a destroyed frame and must be a
@@ -303,7 +303,7 @@
 
 (deftest composed-timer-join-and-actor-cleanup-on-frame-destroy
   (testing "destroy-frame! clears timer table + [:rf.runtime/machines :spawned]
-            + [:rf.runtime/machines :snapshots] + spawn-order in one cascade (spawned actors carry no registrar entry — rf2-a2sn1)"
+            + [:rf.runtime/machines :snapshots] + spawn-order in one cascade (spawned actors carry no registrar entry)"
     (rf/make-frame {:id :corner.leak/scoped :doc "leak-audit"})
 
     ;; --- (a) :after timer --------------------------------------------------
@@ -360,10 +360,10 @@
     (is (pos? (count (rf.machines.spawn-order/frame-order :corner.leak/scoped)))
         "precondition: spawn-order channel has entries")
     ;; A spawned actor carries NO per-instance registrar entry; its
-    ;; liveness is its snapshot's presence in app-db (asserted live above).
+    ;; liveness is its snapshot's presence in runtime-db (asserted live above).
     ;; The registrar precondition is therefore inverted.
     (is (nil? (rf.registrar/lookup :event :corner.leak/child#1))
-        "precondition: spawned actor has no per-instance registrar entry (liveness lives in its app-db snapshot)")
+        "precondition: spawned actor has no per-instance registrar entry (liveness lives in its runtime-db snapshot)")
 
     ;; --- destroy ----------------------------------------------------------
     (rf.frame/destroy-frame! :corner.leak/scoped)
@@ -375,7 +375,7 @@
         "post: frame is dissoc'd from the frames atom")
     (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :corner.leak/scoped))
                       [:rf.runtime/machines :snapshots :corner.leak/child#1]))
-        "post: spawned actor's snapshot is gone — its liveness (snapshot-based) is cleared (rf2-a2sn1)")
+        "post: spawned actor's snapshot is gone — its liveness (snapshot-based) is cleared")
     (is (= [] (rf.machines.spawn-order/frame-order :corner.leak/scoped))
         "post: spawn-order channel is empty for the destroyed frame")
     ;; The singletons (:corner.leak/timer, :corner.leak/boot, :corner.leak/

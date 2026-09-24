@@ -256,10 +256,9 @@
    :states  {:armed {:entry :blow-fuse}}})
 
 (deftest fuse-start-marker-throws-via-initial-entry
-  (testing "rf2-4yrr6 / rf2-gl588 — an eager `[:rf.machine/start]` kick runs
+  (testing "an eager `[:rf.machine/start]` kick runs
             the initial-entry cascade, whose `:armed` `:entry` action throws ON
-            BOOT. (Pre-F‴ this was the start marker re-triggering a throwing
-            `:*` wildcard; F‴ re-vehicles the throw to a real `:entry`.)"
+            BOOT."
     (rf/reg-machine :ga/fuse-start (fuse-machine-spec))
     (let [evs  (record-traces!
                  (fn [] (rf/dispatch-sync [:ga/fuse-start [:rf.machine/start]])))
@@ -270,8 +269,8 @@
           "attributed to the initial `:entry`'s `:blow-fuse` action"))))
 
 (deftest fuse-throws-on-boot-via-lazy-first-event
-  (testing "rf2-4yrr6 / rf2-gl588 — with NO explicit start, the FIRST real
-            event still throws: the machine lazily boots (`needs-bootstrap?`
+  (testing "with NO explicit start, the FIRST real
+            event throws: the machine lazily boots (`needs-bootstrap?`
             fires when no snapshot exists) and the initial `:entry` action
             throws DURING that boot, before the event is processed."
     (rf/reg-machine :ga/fuse-lazy (fuse-machine-spec))
@@ -290,7 +289,7 @@
           "the throw rides the synthetic creation marker (boot-time)"))))
 
 (deftest fuse-clean-initial-entry-does-not-throw
-  (testing "rf2-4yrr6 / rf2-gl588 — a machine whose initial state has no
+  (testing "a machine whose initial state has no
             throwing `:entry` boots cleanly; only the throwing-entry shape
             trips the on-boot exception."
     (rf/reg-machine :ga/fuse-clean

@@ -84,9 +84,9 @@
   "Outer event-vector schema: `:submit` carries Credentials; framework-internal
   sub-events admit :any; the trailing `[:? :any]` admits a managed-HTTP reply.
 
-  NOTE this fixture is intentionally PERMISSIVE: tests (1)+(2) below dispatch
+  NOTE this fixture is intentionally PERMISSIVE: test (1) below dispatches
   ad-hoc inner sub-events (`[:noop]`, `[:auth.login/break]`) to exercise the
-  registration-arity + redaction machinery, so the fixture must admit them. The
+  registration-arity machinery, so the fixture must admit them. The
   login examples' SHIPPED schema is STRICTER (no `[:vector :any]` fallback) —
   that shape and its malformed-submit rejection are pinned separately
   by `login-example-event-schema-rejects-malformed-submit` below."
@@ -126,8 +126,8 @@
 
 (deftest event-schema-arity-makes-data-schema-live
   (testing "a machine registered via (reg-machine* id {:schema ...} machine)
-            carries the :rf/machine? / :rf/machine meta (was inert under the
-            bare direct path) and its [:schemas :data] schema validates"
+            carries the :rf/machine? / :rf/machine meta and its
+            [:schemas :data] schema validates"
     (let [spec {:initial :idle
                 :data    {:attempts 0 :token nil :error nil}
                 :schemas {:data AuthLoginData}
@@ -141,7 +141,7 @@
         (is (= AuthLoginData (get-in meta [:schemas :data]))
             "[:schemas :data] round-trips through the `:rf/machine` projection — it is LIVE"))
       ;; And it actually validates: an action returning a non-int :attempts
-      ;; trips the :where :machine-data boundary (inert before the fix).
+      ;; trips the :where :machine-data boundary.
       (rf/dispatch-sync [flow-id [:noop]]) ;; bootstrap cleanly
       (let [traces (collect-machine-data-traces!
                      #(rf/dispatch-sync [flow-id [:auth.login/break]]))]
@@ -154,7 +154,7 @@
 ;; is frame-owned, and the redaction surface is pinned by
 ;; `re-frame.machine-data-schema-redaction-test` (frame-declared snapshot paths).
 
-;; ---- (3) the event-vector :schema validates the outer vector ---------------
+;; ---- (2) the event-vector :schema validates the outer vector ---------------
 
 (deftest event-schema-arity-validates-outer-vector
   (testing "the :schema opts key validates the dispatched OUTER event vector at
@@ -190,21 +190,21 @@
       (is (= :submitting (rf.machines.test-support/machine-state flow-id))
           "a well-formed event vector passes the :schema boundary and transitions"))))
 
-;; ---- (3b) the login examples' SHIPPED event schema rejects malformed submit -
+;; ---- (2b) the login examples' SHIPPED event schema rejects malformed submit -
 ;;
 ;; Regression gate for the login examples (reagent / uix): the shipped
 ;; `LoginExampleEvent` has no permissive `[:vector :any]` fallback, so a
 ;; `:submit` whose Credentials fail is rejected at the `:where :event` boundary
 ;; and does NOT transition + does NOT drive the login HTTP effect. This pins the
 ;; shape end-to-end: malformed submit is rejected at the boundary; valid submit +
-;; the framework reply sub-events still pass. The examples tree is test-free, so
+;; the framework reply sub-events pass. The examples tree is test-free, so
 ;; this is where the shipped schema's contract is enforced.
 
 (deftest login-example-event-schema-rejects-malformed-submit
   (testing "the login examples' shipped LoginExampleEvent rejects a malformed
             :submit at the :where :event boundary (no machine transition, no
             login HTTP effect), while a valid submit + framework reply events
-            still pass"
+            pass"
     (rf.machines/reg-machine* flow-id
       {:schema LoginExampleEvent}
       {:initial :idle
@@ -240,8 +240,8 @@
       [flow-id [:auth.login/submit {:email "a@b.com" :password "longenough"}]])
     (is (= :submitting (rf.machines.test-support/machine-state flow-id))
         "a well-formed submit passes the boundary and transitions")
-    ;; (d) the framework reply event (success + trailing payload) still passes —
-    ;; the corrected schema must not reject the managed-HTTP reply addressing.
+    ;; (d) the framework reply event (success + trailing payload) passes —
+    ;; the strict schema must not reject the managed-HTTP reply addressing.
     (let [traces (collect-event-traces!
                    #(rf/dispatch-sync
                       [flow-id [:auth.login/success] {:kind :ok :value {:token "t"}}]))]
@@ -250,7 +250,7 @@
       (is (= :authed (rf.machines.test-support/machine-state flow-id))
           "the reply event drove the transition to :authed"))))
 
-;; ---- (4) fail-loud guard on the bare unstamped-with-schema direct path -----
+;; ---- (3) fail-loud guard on the bare unstamped-with-schema direct path -----
 
 (deftest bare-direct-path-with-data-schema-fails-loud
   (testing "the bare (reg-event id meta (make-machine-handler spec)) path on
@@ -271,7 +271,7 @@
 
 (deftest bare-direct-path-without-data-schema-stays-legal
   (testing "a schema-LESS spec on the bare make-machine-handler path is
-            unaffected — nothing inert to leak, so the guard does NOT fire"
+            legal — nothing inert to leak, so the guard does NOT fire"
     (is (fn? (rf.machines/make-machine-handler
                {:initial :idle
                 :data    {:n 0}
@@ -329,8 +329,8 @@
         "an explicit nil opts is the no-opts path (normalised to {}), not rejected")))
 
 (deftest two-arity-reg-machine-still-works
-  (testing "the existing 2-arity (reg-machine* id machine) is unchanged — it
-            stamps the meta so the [:schemas :data] schema is LIVE"
+  (testing "the 2-arity (reg-machine* id machine) stamps the meta so the
+            [:schemas :data] schema is LIVE"
     (rf.machines/reg-machine* :rf.machine-arity/plain
       {:initial :idle
        :data    {:attempts 0 :token nil :error nil}
@@ -340,6 +340,6 @@
                                               :kind   :event
                                               :id     :rf.machine-arity/plain}))]
       (is (some? spec)
-          "2-arity still stamps the :rf/machine registration metadata")
+          "2-arity stamps the :rf/machine registration metadata")
       (is (= AuthLoginData (get-in spec [:schemas :data]))
           "2-arity stamps the [:schemas :data] schema so it round-trips (validation is LIVE)"))))

@@ -46,7 +46,7 @@
     (is (some? (rf.late-bind/get-fn :machines/on-frame-restored!)))))
 
 (deftest cancel-frame-timers-on-restore-releases-the-frames-handles
-  (testing "rf2-u5kmf8 — cancel-frame-timers-on-restore! drops the frame's
+  (testing "cancel-frame-timers-on-restore! drops the frame's
             armed :after host-clock handles (and only that frame's)"
     (rf/reg-machine :rq/m spec)
     (rf/make-frame {:id :rq/restored :doc "the frame being restored"})
@@ -63,7 +63,7 @@
         "a sibling frame's timers are untouched (frame-scoped quiesce)")))
 
 (deftest cancel-frame-timers-on-restore-emits-on-restore-reason
-  (testing "rf2-u5kmf8 — each released timer emits one
+  (testing "each released timer emits one
             :rf.machine.timer/cancelled trace with :reason :on-restore"
     (rf/reg-machine :rq2/m spec)
     (rf/make-frame {:id :rq2/f :doc "restore-reason trace frame"})
@@ -84,11 +84,11 @@
           "the cancelled row names the restored frame"))))
 
 (deftest cancel-frame-timers-on-restore-noop-on-unarmed-frame
-  (testing "rf2-u5kmf8 — quiescing a frame with no armed timers is a no-op"
+  (testing "quiescing a frame with no armed timers is a no-op"
     (is (nil? (rf.machines.timer/cancel-frame-timers-on-restore! :rq/never-armed)))))
 
 (deftest restore-quiesce-hook-clears-the-restored-frames-timers-end-to-end
-  (testing "rf2-u5kmf8 — driving the published :machines/on-frame-restored!
+  (testing "driving the published :machines/on-frame-restored!
             hook (the path the epoch boundary uses) clears the frame's timers"
     (rf/reg-machine :rq3/m spec)
     (rf/make-frame {:id :rq3/f :doc "end-to-end hook frame"})

@@ -30,7 +30,7 @@
 ;; ---- timer cancel (state exit) -----------------------------------------
 
 (deftest timer-cancelled-trace-carries-reply-envelope
-  (testing "rf2-sfunt8 — :rf.machine.timer/cancelled (state exit) carries the
+  (testing ":rf.machine.timer/cancelled (state exit) carries the
             reply-envelope :status :cancelled facts + canonical timer :work/id"
     (let [m {:initial :idle
              :data    {}
@@ -51,7 +51,7 @@
                              (filter #(= :rf.machine.timer/cancelled (:operation %)))
                              first)]
           (is (some? cancelled) ":rf.machine.timer/cancelled trace fired")
-          (is (= :on-exit (:reason (:tags cancelled))) "public reason preserved")
+          (is (= :on-exit (:reason (:tags cancelled))) "public reason carried alongside the envelope")
           (is (= :cancelled (:rf.reply/status (:tags cancelled)))
               "reply-envelope :status :cancelled")
           (is (= :cancelled (:rf.reply/work-status (:tags cancelled))))
@@ -62,22 +62,22 @@
               "canonical timer :work/id closes the cancelled work attempt")
           (is (= :rf.work/timer (first (:rf.reply/work-id (:tags cancelled))))))))))
 
-;; ---- region :after timer work-id correlation (rf2-cttpk4) --------------
+;; ---- region :after timer work-id correlation ---------------------------
 ;;
 ;; An `:after` declared inside a parallel REGION carries a region-PREFIXED
 ;; invoke-id (`prefix-region-invoke-id` prepends the region name). The FIRED /
 ;; STALE timer replies strip that region head (`pick-after-transition`'s
-;; `carried-decl-path`) when building their `:rf.reply/work-id`, but the
-;; CANCELLED reply historically used the raw region-prefixed `:spawn` — so the
-;; SAME logical `:after`'s cancelled row landed under a different
+;; `carried-decl-path`) when building their `:rf.reply/work-id`, and so does
+;; the CANCELLED reply — building it from the raw region-prefixed `:spawn`
+;; would land the SAME logical `:after`'s cancelled row under a different
 ;; `[:rf.work/timer <logical-id> <epoch>]` than its fired / stale rows,
 ;; splitting one timer across the work/reply ledger. This drives ONE region
 ;; `:after` to BOTH fire and (on the firing exit) cancel its still-pending host
 ;; handle in a single dispatch, and asserts the two rows share ONE work-id.
 
 (deftest region-after-fired-and-cancelled-share-one-work-id
-  (testing "rf2-cttpk4 — a region :after's :fired and :cancelled rows carry the
-            SAME region-stripped :rf.reply/work-id (was split by the region head)"
+  (testing "a region :after's :fired and :cancelled rows carry the
+            SAME region-stripped :rf.reply/work-id"
     (rf/reg-machine :cttpk4-tw/timer
       {:type    :parallel
        :data    {}
@@ -118,7 +118,7 @@
           (is (= :rf.work/timer (first cancelled-wid)))
           ;; The cancelled work-id's logical-id is region-STRIPPED: it ends in
           ;; the region-RELATIVE state :working and does NOT carry the region
-          ;; name :loader (which the raw region-prefixed :spawn had put at
+          ;; name :loader (which the raw region-prefixed :spawn would put at
           ;; position 1 of the logical-id, splitting the ledger row).
           (is (= :working (last (second cancelled-wid))))
           (is (not (some #{:loader} (second cancelled-wid)))
@@ -128,18 +128,18 @@
           (is (= fired-wid cancelled-wid)
               "the region :after's :fired and :cancelled rows share one :rf.reply/work-id"))))))
 
-;; ---- parallel-root :after :state consistency (rf2-cttpk4) --------------
+;; ---- parallel-root :after :state consistency ---------------------------
 ;;
 ;; A parallel-ROOT `:after` (decl-path `[]`) is scheduled via
 ;; `schedule-root-after-fx` → `build-after-fx` with an EMPTY prefix, so
 ;; `(last prefix)` is nil. The FIRED / STALE resolvers stamp the root sentinel
-;; `:rf/parallel-root` as the `:state`; the SCHEDULED / CANCELLED traces used to
-;; emit `:state nil`, breaking the `(actor, state, epoch)` pairing
+;; `:rf/parallel-root` as the `:state`; SCHEDULED / CANCELLED traces carrying
+;; `:state nil` would break the `(actor, state, epoch)` pairing
 ;; `emit-cancelled!`'s docstring promises. Both the scheduled and cancelled
 ;; root-timer traces must carry `:rf/parallel-root` too.
 
 (deftest parallel-root-after-scheduled-and-cancelled-state-is-parallel-root
-  (testing "rf2-cttpk4 — a parallel-root :after's :scheduled and :cancelled traces
+  (testing "a parallel-root :after's :scheduled and :cancelled traces
             carry :state :rf/parallel-root (matching :fired / :stale), not nil"
     (rf/reg-machine :cttpk4-root/m
       {:type    :parallel
@@ -157,7 +157,7 @@
                            first)]
         (is (some? scheduled) "the root :after emitted a :scheduled trace at birth")
         (is (= :rf/parallel-root (:state (:tags scheduled)))
-            "the scheduled root-timer :state is the :rf/parallel-root sentinel (was nil)"))
+            "the scheduled root-timer :state is the :rf/parallel-root sentinel"))
       ;; Frame teardown cancels the still-pending root timer with
       ;; :reason :on-frame-destroy → a :cancelled trace.
       (rf/destroy-frame! :cttpk4-root/f)
@@ -167,12 +167,12 @@
                            first)]
         (is (some? cancelled) "frame teardown cancelled the pending root timer")
         (is (= :rf/parallel-root (:state (:tags cancelled)))
-            "the cancelled root-timer :state is the :rf/parallel-root sentinel (was nil)")))))
+            "the cancelled root-timer :state is the :rf/parallel-root sentinel")))))
 
 ;; ---- actor destroy (explicit cancellation) -----------------------------
 
 (deftest explicit-destroy-trace-carries-cancelled-reply
-  (testing "rf2-sfunt8 — an :explicit :rf.machine/destroyed (actor torn down
+  (testing "an :explicit :rf.machine/destroyed (actor torn down
             before :final?) carries the reply-envelope :status :cancelled facts"
     (let [child  {:initial :running
                   :data    {}
@@ -204,7 +204,7 @@
               "canonical machine :work/id closes the cancelled actor attempt"))))))
 
 (deftest finished-destroy-carries-no-cancelled-reply
-  (testing "rf2-sfunt8 — a :rf.machine/finished destroy is NOT a cancellation
+  (testing "a :rf.machine/finished destroy is NOT a cancellation
             (the actor closed through :rf.machine/done) — no cancelled facts"
     (let [child  {:initial :running
                   :data    {}
@@ -245,7 +245,7 @@
     :done   {:final? true :output-key :id}}})
 
 (deftest join-survivor-cancel-trace-carries-cancelled-reply
-  (testing "rf2-sfunt8 — :rf.machine.spawn/cancelled-on-join-resolution carries
+  (testing ":rf.machine.spawn/cancelled-on-join-resolution carries
             the reply-envelope :status :cancelled facts (:rf.reply/cancel-reason
             :on-join-resolution)"
     (let [child  (mk-child)

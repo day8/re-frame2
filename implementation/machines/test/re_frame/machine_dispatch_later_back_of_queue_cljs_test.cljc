@@ -1,10 +1,10 @@
 (ns re-frame.machine-dispatch-later-back-of-queue-cljs-test
-  "rf2-3x7nj.1.2 — a `:dispatch-later` armed by a MACHINE handler is a timer
+  "A `:dispatch-later` armed by a MACHINE handler is a timer
   callback. When it fires, its event joins the BACK of the queue, behind
   external events already waiting (Spec 005 Level 4 lists timer callbacks among
   the back-of-queue origins; Spec 002's `do-fx :dispatch-later` copies no
-  `:rf.machine/internal?`). Before the fix the delayed child inherited the
-  machine's front-of-queue flag and jumped ahead of them.
+  `:rf.machine/internal?`). A delayed child that inherited the machine's
+  front-of-queue flag would jump ahead of them.
 
   Deterministic harness, no sleeps: the host timer (`set-timeout!`) and the
   router's drain scheduling (`next-tick`) are captured instead of run, then

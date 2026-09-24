@@ -46,13 +46,13 @@
 ;; An `:explicit` destroy closes the actor work attempt the reply-envelope
 ;; way (a `:status :cancelled` reply — cancellation as DATA, Managed-Effects
 ;; §Cancellation / EP-0011 §Cancellation). The cancelled reply facts ride
-;; ADDITIVELY on the destroyed trace, so they are part of the contract for
-;; the `:explicit` (cancellation) sites; a `:rf.machine/finished` destroy
-;; carries none of them (the actor already closed through
+;; on the destroyed trace alongside its public shape, so they are part of the
+;; contract for the `:explicit` (cancellation) sites; a `:rf.machine/finished`
+;; destroy carries none of them (the actor already closed through
 ;; `finalize-machine`'s `:rf.machine/done` reply).
-;; rf2-o6c2jr — the bare :work/id duplicate was dropped from the reply-envelope
-;; rows; the work identity rides as :rf.reply/work-id (rf2-l7s7b7 completed the
-;; single-root migration; :work/kind now rides as :rf.reply/work-kind too).
+;; The work identity rides as :rf.reply/work-id and the work kind as
+;; :rf.reply/work-kind; the reply-envelope rows carry no bare :work/id
+;; duplicate.
 (def ^:private reply-envelope-keys
   #{:rf.reply/work-kind :rf.reply/status :rf.reply/work-id
     :rf.reply/work-status :rf.reply/cancelled? :rf.reply/cancel-reason
@@ -112,7 +112,7 @@
       ;; post-completion cleanup, NOT a cancellation, so it carries no
       ;; cancelled reply facts — :rf.machine/finished (the actor closed
       ;; through :rf.machine/done) and :rf.machine/join-reaped (an
-      ;; already-terminal :spawn-all join child, rf2-tj3l6a).
+      ;; already-terminal :spawn-all join child).
       (if (= :explicit (:reason tags))
         (do
           (is (= :cancelled (:rf.reply/status tags))
@@ -123,8 +123,8 @@
               (str label ": ... and the :rf.reply/cancelled? marker"))
           (is (= :explicit (:rf.reply/cancel-reason tags))
               (str label ": ... and :rf.reply/cancel-reason"))
-          ;; rf2-o6c2jr — the canonical work identity rides ONLY as
-          ;; :rf.reply/work-id (the bare :work/id duplicate was dropped).
+          ;; The canonical work identity rides ONLY as
+          ;; :rf.reply/work-id (no bare :work/id duplicate).
           (is (some? (:rf.reply/work-id tags))
               (str label ": ... and the canonical :rf.reply/work-id"))
           (is (not (contains? tags :work/id))
@@ -225,8 +225,8 @@
 ;; ---- Cross-site stability check -------------------------------------------
 
 (deftest no-key-drift-across-sites
-  (testing "every :rf.machine/destroyed across all three paths obeys the canonical key-set"
-    ;; This is a meta-check: drive all three paths against ONE listener
+  (testing "every :rf.machine/destroyed across both paths obeys the canonical key-set"
+    ;; This is a meta-check: drive both paths against ONE listener
     ;; (no per-site recording) and assert the union shape across them.
     (let [[cap unreg] (record!)
           child {:initial :running
@@ -234,7 +234,7 @@
                  :states  {:running {:on {:done :final}}
                            :final   {:final? true}}}]
       (try
-        ;; (a) destroy-single! via explicit fx
+        ;; (a) a singleton reaching :final? (auto-destroy)
         (rf/reg-machine :nd/standalone
                         {:initial :running
                          :data    {}

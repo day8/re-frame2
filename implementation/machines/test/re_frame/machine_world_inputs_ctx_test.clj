@@ -29,8 +29,8 @@
         map is readable verbatim — the token carries arbitrary host facts.
     (f) the absent-token path: a pure `machine-transition` call (no router
         coeffect) surfaces NO `:rf.cofx` ctx key — the key keys
-        off presence, so pure-fn callers (conformance corpus) are
-        unaffected."
+        off presence, so pure-fn callers (conformance corpus) see only the
+        base ctx keys."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as rf.machines]
@@ -196,7 +196,7 @@
 (deftest pure-fn-callback-ctx-has-no-world-inputs-key
   (testing "a pure machine-transition (no router coeffect, the conformance /
             JVM-fixture path) surfaces NO :rf.cofx ctx key — the key
-            is presence-gated, so pure-fn callers are unaffected"
+            is presence-gated, so pure-fn callers see only the base keys"
     (let [captured (atom nil)
           m {:initial :idle
              :data    {}

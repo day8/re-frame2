@@ -68,7 +68,7 @@
 ;; ---- Test 1: explicit destroy after auto-destroy on :final? ---------------
 
 (deftest explicit-destroy-after-auto-destroy-is-silent-no-op
-  (testing "rf2-lbjnz — actor reaches :final?, auto-destroys, then an explicit
+  (testing "actor reaches :final?, auto-destroys, then an explicit
             [:rf.machine/destroy <id>] is a silent no-op (no second :destroyed,
             no error)"
     (let [traces (record-traces! ::silent-after-auto)]
@@ -84,7 +84,7 @@
       (is (nil? (snapshot :rf2-lbjnz/finisher))
           "auto-destroy cleared the snapshot")
       (is (some? (rf.registrar/lookup :event :rf2-lbjnz/finisher))
-          "rf2-xjee — the auto-destroy ended the INSTANCE and left the
+          "the auto-destroy ended the INSTANCE and left the
            `reg-machine` DEFINITION standing (a load-time TYPE outlives every
            instance)")
       (let [dests-after-auto (destroyed-traces traces)
@@ -118,19 +118,19 @@
              (the original auto-destroy)")
         (is (zero? explicit-count-after)
             "NO new :rf.machine/destroyed with :reason :explicit fired —
-             the destroy-on-finished call is silent (rf2-lbjnz)"))
+             the destroy-on-finished call is silent"))
       ;; World is unchanged.
       (is (nil? (snapshot :rf2-lbjnz/finisher))
           "snapshot stays gone after the silent no-op")
       (is (some? (rf.registrar/lookup :event :rf2-lbjnz/finisher))
-          "the DEFINITION still stands after the silent no-op — and, rf2-xjee,
+          "the DEFINITION still stands after the silent no-op — and
            it is NOT a liveness signal, which is what keeps the second destroy
            silent rather than re-running the teardown"))))
 
 ;; ---- Test 2: double-explicit destroy in the same cascade -----------------
 
 (deftest double-explicit-destroy-is-silent-no-op
-  (testing "rf2-lbjnz — two [:rf.machine/destroy <id>] fxs in the same
+  (testing "two [:rf.machine/destroy <id>] fxs in the same
             cascade collapse to ONE observable destroy + ONE trace"
     (let [traces (record-traces! ::double-explicit)]
       ;; A vanilla singleton with no `:final?` — we'll destroy it
@@ -162,7 +162,7 @@
       (let [dests (destroyed-traces traces)]
         (is (= 1 (count dests))
             "exactly ONE :rf.machine/destroyed fired across the two fxs —
-             the second is a silent no-op (rf2-lbjnz)")
+             the second is a silent no-op")
         (is (= :explicit (-> dests first :tags :reason))
             "the single trace is the original explicit destroy, not a doubled-up
              :reason :rf.machine/finished or unknown shape"))
@@ -170,7 +170,7 @@
       (is (nil? (snapshot :rf2-lbjnz/target))
           "snapshot is cleared exactly once")
       (is (some? (rf.registrar/lookup :event :rf2-lbjnz/target))
-          "rf2-xjee — the DEFINITION survives both destroys; teardown ends the
+          "the DEFINITION survives both destroys; teardown ends the
            instance and never the registration"))))
 
 ;; ---- Test 3: spawn-all join-cancelled survivor destroyed exactly once ------
@@ -208,7 +208,7 @@
     :done    {:final? true :output-key :id}}})
 
 (deftest spawn-all-join-cancelled-survivor-destroyed-exactly-once
-  (testing "rf2-ndfjo — a join-cancelled survivor in a :spawn-all exit
+  (testing "a join-cancelled survivor in a :spawn-all exit
             cascade emits :rf.machine/destroyed EXACTLY once (silent-
             idempotent destroy; no phantom double-destroy)"
     (let [traces (record-traces! ::ndfjo-cancel)
@@ -257,7 +257,7 @@
             (is (= 1 (get dest-by-actor spawned-id))
                 (str "actor " spawned-id
                      " emitted exactly one :rf.machine/destroyed (got "
-                     (get dest-by-actor spawned-id) ") — rf2-ndfjo")))
+                     (get dest-by-actor spawned-id) ")")))
           ;; Belt-and-braces: no actor exceeds one destroyed trace.
           (is (every? #(= 1 %) (vals dest-by-actor))
               "no actor double-emits :rf.machine/destroyed"))))))

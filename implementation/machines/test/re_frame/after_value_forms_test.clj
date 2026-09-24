@@ -346,7 +346,7 @@
 (deftest on-and-after-share-candidate-resolution
   (testing "the SAME guarded candidate-vector resolves identically whether it
             sits in an :on clause or an :after delay entry — proving both go
-            through the one shared candidate-walk (rf2-vvbdl)"
+            through the one shared candidate-walk"
     (let [candidates [{:guard :hot? :target :escalated :action :mark}
                       {:target :calm}]
           guards     {:hot? (fn [{:keys [data]}] (:hot? data))}

@@ -9,7 +9,7 @@
       EVERY region's active leaf is final.
 
   The riskiest of the three is the parallel union (`all-regions-final?`,
-  finalize.cljc:69): a partial-final parallel snapshot (some regions
+  defined in parallel.cljc): a partial-final parallel snapshot (some regions
   final, some not) finalising prematurely would surface only as a
   downstream dispatch symptom, not a clean predicate failure. These
   tests pin the predicates at the cheapest-and-most-precise layer — pure
@@ -26,7 +26,7 @@
             [re-frame.machines.transition :as rf.machines.transition]))
 
 ;; ---------------------------------------------------------------------------
-;; final-state-node? — the per-node :final? flag (transition.cljc:914)
+;; final-state-node? — the per-node :final? flag (transition.cljc)
 ;; ---------------------------------------------------------------------------
 
 (deftest final-state-node?-reads-the-first-class-flag
@@ -53,7 +53,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; final-on-leaf? — the active leaf of a snapshot is final
-;; (transition.cljc:922; called from commit-or-finalize, registration.cljc:328)
+;; (transition.cljc)
 ;; ---------------------------------------------------------------------------
 
 (def flat-final-machine
@@ -101,7 +101,7 @@
         "the compound :wrapper ancestor is not itself :final?")))
 
 ;; ---------------------------------------------------------------------------
-;; all-regions-final? — parallel union (finalize.cljc:69)
+;; all-regions-final? — parallel union (parallel.cljc)
 ;;
 ;; THE riskiest predicate: a partial-final parallel
 ;; snapshot must NOT finalise. The fn returns true ONLY when the machine

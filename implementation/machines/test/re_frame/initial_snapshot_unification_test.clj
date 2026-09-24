@@ -61,7 +61,7 @@
                 :states  {:idle {}}}
           snap (rf.machines.parallel/build-initial-snapshot spec {:bootstrap-pending? false})]
       (is (contains? snap :rf/spawn-counter)
-          ":rf/spawn-counter MUST always be present on live snapshots (rf2-gr8q)")
+          ":rf/spawn-counter MUST always be present on live snapshots")
       (is (= {} (:rf/spawn-counter snap))
           "starts empty — the slot exists so allocations go through the contract path")
       (is (= {:schema-version 7} (:meta snap))
@@ -75,12 +75,12 @@
                 :states  {:idle {}}}
           snap (rf.machines.parallel/build-initial-snapshot spec {:bootstrap-pending? true})]
       (is (contains? snap :rf/spawn-counter)
-          "the spawn-path snapshot ALSO carries :rf/spawn-counter — pre-rf2-fgqs4 this slot was missing")
+          "the spawn-path snapshot ALSO carries :rf/spawn-counter")
       (is (= {} (:rf/spawn-counter snap)))
       (is (= {:schema-version 7} (:meta snap))
-          "the spawn-path snapshot ALSO carries :meta — pre-rf2-fgqs4 this slot was missing")
+          "the spawn-path snapshot ALSO carries :meta")
       (is (true? (:rf/bootstrap-pending? snap))
-          "the spawn path stamps the bootstrap marker so the actor's first dispatch fires the :entry cascade (rf2-0z73)")))
+          "the spawn path stamps the bootstrap marker so the actor's first dispatch fires the :entry cascade")))
   (testing ":meta absent from spec → :meta absent from snapshot"
     (let [spec {:initial :idle :data {} :states {:idle {}}}
           snap (rf.machines.parallel/build-initial-snapshot spec {:bootstrap-pending? true})]
@@ -112,7 +112,7 @@
         (is (= :worker/proc#1 spawned-id) "(precondition) spawn happened")
         (is (some? child-snap) "(precondition) snapshot installed")
         (is (= {:schema-version 7 :user-tag :probe} (:meta child-snap))
-            "spawned actor's snapshot carries the spec's :meta (rf2-fgqs4 fix)")))))
+            "spawned actor's snapshot carries the spec's :meta")))))
 
 ;; ---- (3) End-to-end spawn integration: :rf/spawn-counter slot present ------
 ;;
@@ -122,7 +122,7 @@
 ;; present slot) rather than the defensive `(fnil inc 0)` backstop.
 
 (deftest spawned-actor-snapshot-carries-spawn-counter
-  (testing "a spawned actor's snapshot carries :rf/spawn-counter (rf2-gr8q contract)"
+  (testing "a spawned actor's snapshot carries :rf/spawn-counter"
     (let [child  {:initial :running
                   :data    {}
                   :states  {:running {}}}
@@ -137,4 +137,4 @@
             child-snap (snapshot spawned-id)]
         (is (some? child-snap) "(precondition) snapshot installed")
         (is (contains? child-snap :rf/spawn-counter)
-            "spawned actor's snapshot carries :rf/spawn-counter (rf2-fgqs4 fix)")))))
+            "spawned actor's snapshot carries :rf/spawn-counter")))))

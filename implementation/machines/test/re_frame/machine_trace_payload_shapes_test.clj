@@ -7,7 +7,7 @@
        :initial-entry / :destroy-exit`.
     2. `:rf.machine/guard-evaluated` carries `:outcome :threw` with
        `:exception` when the guard fn throws. Per Spec 005
-       §`:rf.machine/guard-evaluated` (XState v5 alignment, rf2-18mox0):
+       §`:rf.machine/guard-evaluated` (XState v5 alignment):
        a throwing guard SURFACES the error and ABORTS the macrostep — the
        candidate walk does NOT continue past it, no transition fires, the
        snapshot rolls back atomically, and a
@@ -149,8 +149,8 @@
 ;; =====================================================================
 
 (deftest guard-evaluated-threw-surfaces-error-and-aborts-selection
-  (testing "XState v5 alignment (rf2-18mox0): a throwing guard emits
-            :outcome :threw + :exception (observability preserved) but
+  (testing "XState v5 alignment: a throwing guard emits
+            :outcome :threw + :exception (so it stays observable) but
             then ABORTS transition selection — the candidate walk does NOT
             continue to the next sibling, and a
             :rf.error/machine-action-exception error trace fires. XState v5
@@ -194,7 +194,7 @@
             "macrostep aborted atomically — neither :A nor :B was entered")))))
 
 (deftest guard-throw-aborts-macrostep-not-demote-to-next-candidate
-  (testing "XState v5 alignment (rf2-18mox0): a throwing guard ABORTS the
+  (testing "XState v5 alignment: a throwing guard ABORTS the
             macrostep — it is NOT walked past to a lower-priority candidate.
             The unguarded fallback candidate does NOT fire; the snapshot
             rolls back atomically (no transition, no action side effect)."
@@ -222,8 +222,8 @@
           ":bump never ran — the macrostep rolled back atomically"))))
 
 (deftest guard-evaluated-pass-fail-outcomes-unchanged
-  (testing "pass / fail outcomes still emit the same shape (no
-            unintended schema drift from the rf2-82a0u change)"
+  (testing "a pass / fail outcome carries no :exception slot — only
+            :threw does"
     (rf/reg-machine :rf2-82a0u/pass-fail
       {:initial :idle
        :data    {:ready? false}

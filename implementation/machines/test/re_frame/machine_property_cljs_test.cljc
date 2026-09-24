@@ -11,8 +11,8 @@
 
   Spec 005 itself flags a 'model-based testing harness' as planned, and
   XState v5 ships `@xstate/test` model-based testing — the analogous
-  reference. This is the additive property tier, NOT a replacement for
-  the example + conformance suites.
+  reference. This property tier sits alongside the example + conformance
+  suites, NOT in place of them.
 
   ## Properties asserted (over deterministic draws)
 
@@ -880,22 +880,22 @@
 ;;
 ;; Invariant 8 holds because its regions are INDEPENDENT by construction (no
 ;; shared-`:data` writes). This focused counterexample pins the OTHER side of
-;; the law the guide now states (`docs/machines/parallel-states.md` — "order
+;; the law the guide states (`docs/machines/parallel-states.md` — "order
 ;; independence is a guarantee about SELECTION WITHIN ONE FROZEN ROUND, not an
 ;; unconditional guarantee about the final outcome"): when two regions' actions
 ;; write the SAME `:data` key with non-commuting values, the apply order — which
 ;; declaration order governs — changes the value a subsequent selection freezes,
 ;; and hence a sibling's chosen target. Reordering therefore CAN change the
 ;; resolved configuration. This is the executable guard that keeps the guide's
-;; qualified claim honest against a regression to "reordering cannot change the
-;; outcome" (rf2-nqovj).
+;; qualified claim honest against the unqualified "reordering cannot change the
+;; outcome".
 
 (deftest non-commuting-region-writes-are-declaration-order-sensitive
   (testing "regions :a and :b both handle one event with ordered, non-commuting
             writes of :x; region :c's `:always` selects its target from the
             frozen :x. Reversing :a/:b changes the value :c freezes and thus
             :c's resolved target — order independence is within-round selection
-            only, not an unconditional outcome guarantee (rf2-nqovj)"
+            only, not an unconditional outcome guarantee"
     (let [base {:type    :parallel
                 :data    {}
                 :guards  {:x-is-1? (fn [{d :data}] (= 1 (:x d)))
@@ -951,10 +951,10 @@
 ;;       writes to shared `:data` feed the next round's freeze and can change a
 ;;       later round's selection.
 ;;
-;; The superseded region-local model — settle each region's `:always` loop
-;; before visiting the next region — satisfies NEITHER. Under it, a region
-;; drained BEFORE the sibling it watches has applied sees no flag and strands;
-;; move that region later in the declaration and it converges. That order
+;; A region-local model — settle each region's `:always` loop before visiting
+;; the next region — would satisfy NEITHER. Under it, a region drained BEFORE
+;; the sibling it watches has applied would see no flag and strand; move that
+;; region later in the declaration and it would converge. That order
 ;; sensitivity is exactly what this property detects (see the pinned
 ;; `parallel-always-round-*` deftests below for the minimal counterexample).
 ;;
@@ -1167,8 +1167,8 @@
           ":rB's :always read :rA's same-macrostep flag write and moved in THIS
            macrostep — one dispatch, no second event")
       (is (true? (:flag-rA (:data (:snapshot r)))))))
-  (testing "and it does so under EITHER declaration order — the region-local
-            drain strands :rB at :s0 when :rB is declared first; parent-owned
+  (testing "and it does so under EITHER declaration order — a region-local
+            drain would strand :rB at :s0 when :rB is declared first; parent-owned
             frozen rounds cannot, because the whole event set applies before
             any :always round selects"
     (let [final (fn [order]
@@ -1178,4 +1178,4 @@
       (is (= {:rA :s1 :rB :s2} (final [:rA :rB])))
       (is (= {:rA :s1 :rB :s2} (final [:rB :rA]))
           "declaring the WATCHER first must not strand it — this is the
-           assertion the superseded region-local drain fails"))))
+           assertion a region-local drain would fail"))))

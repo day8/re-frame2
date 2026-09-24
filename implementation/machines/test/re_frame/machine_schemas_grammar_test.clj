@@ -19,7 +19,7 @@
       `:rf.error/machine-bad-schemas-key` (state input is not adopted, B1).
    4. **Non-map `:schemas` fails loud.** A non-map `:schemas` value raises
       `:rf.error/machine-bad-schemas`.
-   5. **Absent `:schemas` unaffected.** A machine with no `:schemas` key
+   5. **Absent `:schemas` registers.** A machine with no `:schemas` key
       registers cleanly."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -95,7 +95,7 @@
       (is (= :rf.error/machine-bad-schemas (:rf.error/id (ex-data ex)))
           "error category names the bad-schemas contract"))))
 
-;; ---- (5) absent :schemas is unaffected ------------------------------------
+;; ---- (5) absent :schemas registers cleanly --------------------------------
 
 (deftest absent-schemas-registers-cleanly
   (testing "a machine with no :schemas key registers cleanly"

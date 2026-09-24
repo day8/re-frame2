@@ -7,8 +7,8 @@
   The depth-abort returns `{:status :error …}` whose `:kind` names the
   depth-exceeded category; it routes through the SAME failure path a thrown action takes
   (the handler short-circuits to `{}` — no snapshot write reaches
-  runtime-db, so the atomic rollback Spec 005 §Bounded depth requires is
-  preserved). The precise `:rf.error/machine-{always,raise}-depth-exceeded`
+  runtime-db, so the atomic rollback Spec 005 §Bounded depth requires
+  holds). The precise `:rf.error/machine-{always,raise}-depth-exceeded`
   category is emitted once at the abort site (the single trace for the
   trip); the engine does NOT additionally emit the benign
   `:rf.machine.event/unhandled-no-op` — so the runaway is DISTINGUISHABLE

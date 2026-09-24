@@ -1,12 +1,12 @@
 (ns re-frame.machine-exit-cascade-incarnation-fence-cljs-test
-  "rf2-fzbj.1 — the destroy-time `:exit` helper (`run-child-exit!`) keeps its
+  "The destroy-time `:exit` helper (`run-child-exit!`) keeps its
   post-exit snapshot write and its nested `:fx` walk bound to the exact frame
   incarnation that entered teardown.
 
-  The outer destroy tail was already fenced (rf2-i4aj9c,
-  `machine_destroy_tail_incarnation_fence_test.clj`), but that suite's `:exit`
+  The outer destroy tail is fenced too
+  (`machine_destroy_tail_incarnation_fence_test.clj`), but that suite's `:exit`
   returns `(:data ctx)` with no `{:data ...}` rider and no `:fx`, so the helper's
-  own write + effect tail never ran there. Here the `:exit` returns a CHANGED
+  own write + effect tail never runs there. Here the `:exit` returns a CHANGED
   `:data` and two real custom effects, and ownership is lost at each of the
   helper's three boundaries:
 
@@ -192,7 +192,8 @@
 
 (deftest eventless-destroy-keeps-full-exit-authority
   (testing "control: the eventless frame-destroy entry has no owner token, so
-            the exit write and both effects run exactly as before"
+            the exit write and both effects run exactly as in the live-owner
+            control"
     (let [{:keys [snapshot effects]} (run-destroy :rf2-fzbj-1/eventless-frame :eventless)]
       (is (= [{:value 1 :in-b? false :exit-marker :from-a}
               {:value 2 :in-b? false :exit-marker :from-a}]

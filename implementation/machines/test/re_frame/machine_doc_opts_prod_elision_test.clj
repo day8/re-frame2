@@ -36,7 +36,7 @@
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (deftest reg-machine-opts-doc-stripped-under-disabled-debug-gate
-  (testing "Per rf2-tfiutq: a `(reg-machine :id {:doc \"…\"} spec)` literal
+  (testing "a `(reg-machine :id {:doc \"…\"} spec)` literal
             opts-map `:doc` is stripped from the stored registration metadata
             in prod, while a load-bearing opts key (`:schema`, the event-vector
             validator) is retained."
@@ -53,7 +53,7 @@
             ":schema retained in prod (load-bearing event-vector validation)")))))
 
 (deftest reg-machine-opts-doc-retained-under-enabled-debug-gate
-  (testing "Per rf2-tfiutq: the dev posture (default gate on) retains the
+  (testing "the dev posture (default gate on) retains the
             `reg-machine` opts-map `:doc` for tooling / agent inspection."
     (rf/reg-machine :rf2-tfiutq/dev-machine
       {:doc "machine opts doc kept in dev"}

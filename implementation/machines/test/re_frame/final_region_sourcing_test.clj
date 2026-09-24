@@ -2,15 +2,14 @@
   "Per Spec 005 §Final states §`:final?` constraints (Parallel regions and
   `:final?`) + §Root parallel `:on` — the ancestor fallback.
 
-  THE QUESTION (rf2-hu69, from the 2026-09-07 XState v6 parity review).
-  XState `6.0.0-alpha.17` changed conflict resolution so that \"a transition
+  THE QUESTION. XState `6.0.0-alpha.17` changed conflict resolution so that \"a transition
   sourced in a final state now yields to a conflicting transition from a live
   sibling region instead of preempting it\". Asking the same question of
   re-frame2 needs one prior fact settled: can a region whose active leaf is
   `:final?` SOURCE a transition at all? If it cannot, the v6 conflict is
   unreachable here by construction and no resolution rule is needed.
 
-  THE MEASURED ANSWER, and it splits by DEPTH:
+  THE ANSWER splits by DEPTH:
 
     - The `:final?` LEAF itself sources nothing. Registration refuses `:on`,
       `:always`, `:after`, `:spawn` and `:spawn-all` on a `:final?` state with
@@ -24,22 +23,19 @@
       it off its final leaf. All four sourcing routes reach it: `:on`,
       `:always`, `:after`, and a `:raise` re-broadcast.
 
-  CONSEQUENCE — real, measured, and NOT the v6 hazard it was first read as
-  (see the ruling below). Per §Root parallel `:on` the root transition is
+  CONSEQUENCE — real, and NOT the v6 hazard (see (7) below). Per §Root
+  parallel `:on` the root transition is
   suppressed ENTIRELY when any region handles the event. \"Any region\" includes
   a region sitting on a `:final?` leaf — so a completed region can suppress a
   root transition that would have moved a LIVE sibling.
   `root-transition-suppressed-by-final-region` pins that, with
   `root-transition-fires-when-no-region-competes` as its control.
 
-  These fixtures PIN TODAY'S BEHAVIOUR, and that behaviour is now RULED.
-  rf2-hu69 (2026-09-08) RETAINS the atomic ancestor-fallback rule unchanged:
-  the parallel root's `:on` is suppressed entirely when ANY region handles the
-  event, one resting on a `:final?` leaf included. No engine change was made
-  and none is owed. Nor is there a v6 divergence to close —
-  `xstate@6.0.0-alpha.52` produces the IDENTICAL result on the machine in (7).
-  What these fixtures assert is still what the engine does, not what it ought
-  to do; the ruling is recorded in Spec 005 §`:final?` constraints."
+  The contract (Spec 005 §`:final?` constraints) is the atomic
+  ancestor-fallback rule: the parallel root's `:on` is suppressed entirely
+  when ANY region handles the event, one resting on a `:final?` leaf
+  included. There is no v6 divergence —
+  `xstate@6.0.0-alpha.52` produces the IDENTICAL result on the machine in (7)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as rf.machines]
@@ -59,7 +55,7 @@
 ;; ---- (1) the LEAF sources nothing — registration refuses all four ----------
 ;;
 ;; Spec 005 §`:final?` constraints: "No `:on`, `:always`, `:after`, `:spawn`,
-;; `:spawn-all` on a `:final?` state." Measured for the three transition slots
+;; `:spawn-all` on a `:final?` state." Pinned for the three transition slots
 ;; the v6 question names; `:spawn` / `:spawn-all` share the same reject arm in
 ;; `validate-final-state!`.
 
@@ -228,20 +224,18 @@
 ;;
 ;; Spec 005 §Transition broadcast: "If any region handled the event, the
 ;; snapshot commits with that region's transition applied, the root `:on` is
-;; SUPPRESSED." Measured: "any region" includes one sitting on a :final? leaf,
+;; SUPPRESSED." "Any region" includes one sitting on a :final? leaf,
 ;; so a COMPLETED region suppresses a root transition that would have moved a
 ;; LIVE sibling.
 ;;
-;; RULED (rf2-hu69, 2026-09-08) — this behaviour is RETAINED, unchanged, and
-;; the earlier framing of it as \"the re-frame2 shape of the hazard XState v6
-;; alpha.17 addressed from the other direction\" is REFUTED. `xstate@6.0.0-
-;; alpha.52` produces the IDENTICAL result on this machine, so there is no
-;; divergence to close. alpha.17's clause tests the transition's ACTUAL SOURCE
-;; NODE, and the upstream shape it addresses — `on` declared directly on a
-;; final node targeting a sibling region — is rejected here twice over
+;; This is NOT the re-frame2 shape of the hazard XState v6 alpha.17 addresses.
+;; `xstate@6.0.0-alpha.52` produces the IDENTICAL result on this machine, so
+;; there is no divergence. alpha.17's clause tests the transition's ACTUAL
+;; SOURCE NODE, and the upstream shape it addresses — `on` declared directly on
+;; a final node targeting a sibling region — is rejected here twice over
 ;; (registration refuses `:on` on a `:final?` state, and a region-local target
-;; cannot name a sibling region). The mechanism measured below is
-;; ANCESTOR-versus-ROOT; see the control's note on what actually causes it.
+;; cannot name a sibling region). The mechanism below is ANCESTOR-versus-ROOT;
+;; see the control's note on what causes it.
 
 (deftest root-transition-suppressed-by-final-region
   (testing "a :final? region's ancestor :on suppresses the parallel root

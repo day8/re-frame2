@@ -139,7 +139,7 @@
 
 ;; ---- (4) initial :entry cascade error path -------------------------------
 ;;
-;; Per Spec 005 §Errors and machines.cljc:2161/2174 — if an action in
+;; Per Spec 005 §Errors — if an action in
 ;; the bootstrap cascade throws, the runtime:
 ;;   - emits `:rf.error/machine-action-exception` with `:recovery
 ;;     :no-recovery`
@@ -189,7 +189,7 @@
           (is (= :error (:op-type t)))
           (is (= :no-recovery (:recovery t)))
           (is (= :rf2-dd3b/throws (-> t :tags :actor-id))
-              ":actor-id identifies the bootstrapping live actor (rf2-yyvtk5)")
+              ":actor-id identifies the bootstrapping live actor")
           (is (= [:rf.machine/start] (-> t :tags :event))
               ":event tag identifies the synthetic creation marker")
           (is (some? (-> t :tags :exception))
@@ -241,7 +241,7 @@
 (deftest initial-entry-throw-in-compound-cascade
   (testing "with a compound :initial cascade, a throw at the inner :entry
             still halts atomically — neither inner nor outer snapshot commits"
-    ;; Per the bead's Variant 1: a throw on the second cascade level.
+    ;; A throw on the second cascade level.
     ;; The contract is the same as a flat throw: the entire bootstrap is
     ;; atomic; nothing commits when any node in the cascade throws.
     (let [calls  (atom [])

@@ -24,7 +24,7 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
-;; This ns keeps a bespoke reset-runtime fixture (it ALSO clears listeners
+;; This ns uses a bespoke reset-runtime fixture (it ALSO clears listeners
 ;; and reloads the machines ns) rather than reusing the shared
 ;; make-reset-runtime-fixture.
 (defn- reset-runtime [test-fn]
@@ -74,7 +74,7 @@
   (rf/dispatch-sync [:diag/m1 [:flip]])
   (assert (live-snapshot? :diag/m1) "machine must be live before the test body"))
 
-;; ---- the footgun is structurally GONE under the partition ------------------
+;; ---- the footgun is structurally impossible under the partition ------------
 
 (deftest fresh-db-return-cannot-drop-a-live-machine
   (testing "an event returning {:db fresh-map} leaves the live machine ALIVE — machine snapshots are runtime-db, an ordinary :db effect replaces ONLY app-db"
@@ -86,7 +86,7 @@
     (rf/reg-event :diag/reboot (fn [{:keys [db]} _] {:db {:fresh-app-state true}}))
     (let [warnings (with-recorder #(rf/dispatch-sync [:diag/reboot]))]
       (is (empty? warnings)
-          "no runtime-state-dropped warning — the footgun is structurally gone")
+          "no runtime-state-dropped warning — the footgun is structurally impossible")
       (is (live-snapshot? :diag/m1)
           "the machine survives the from-scratch :db replace — its snapshot is runtime-db")
       (is (= {:fresh-app-state true} (rf/app-db-value :rf/default))

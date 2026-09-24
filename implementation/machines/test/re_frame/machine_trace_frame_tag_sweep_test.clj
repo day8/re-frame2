@@ -59,7 +59,7 @@
 
 (deftest guard-evaluated-tag-carries-frame
   (testing ":rf.machine/guard-evaluated carries `:frame` tag so epoch-capture
-   admits it (rf2-ko8jb — `(:rf/frame machine)` resolved in evaluate-guard)"
+   admits it (`(:rf/frame machine)` resolved in evaluate-guard)"
     (rf/reg-machine
       :ko8jb/guard
       {:initial :idle
@@ -77,7 +77,7 @@
 
 (deftest action-ran-success-tag-carries-frame
   (testing ":rf.machine/action-ran (success outcome) carries `:frame` tag
-   (rf2-ko8jb — `(:rf/frame machine)` resolved in run-action)"
+   (`(:rf/frame machine)` resolved in run-action)"
     (rf/reg-machine
       :ko8jb/action
       {:initial :idle
@@ -116,7 +116,7 @@
 
 (deftest timer-scheduled-tag-carries-frame
   (testing ":rf.machine.timer/scheduled (build-after-fx) carries `:frame`
-   tag (rf2-ko8jb — `(:rf/frame machine)` resolved in build-after-fx)"
+   tag (`(:rf/frame machine)` resolved in build-after-fx)"
     (rf/reg-machine
       :ko8jb/sched
       {:initial :idle
@@ -134,7 +134,7 @@
 
 (deftest timer-fired-tag-carries-frame
   (testing ":rf.machine.timer/fired (emit-pick-traces!) carries `:frame`
-   tag (rf2-ko8jb — `(:rf/frame machine)` plumbed into emit-pick-traces!)"
+   tag (`(:rf/frame machine)` plumbed into emit-pick-traces!)"
     (rf/reg-machine
       :ko8jb/fire
       {:initial :idle
@@ -191,7 +191,7 @@
 
 (deftest raise-depth-exceeded-tag-carries-frame
   (testing ":rf.error/machine-raise-depth-exceeded carries `:frame` tag
-   (rf2-ko8jb — `(:rf/frame machine)` resolved in drain-raises)"
+   (`(:rf/frame machine)` resolved in drain-raises)"
     ;; An action that emits a fanned-out batch of :raise fx's — N raises
     ;; in a single :fx vector — feeds the same drain-raises loop N
     ;; iterations. With :raise-depth-limit 3 and 5 raises in one batch
@@ -221,8 +221,8 @@
 
 (deftest always-depth-exceeded-tag-carries-frame
   (testing ":rf.error/machine-always-depth-exceeded carries `:frame` tag
-   (rf2-ko8jb — `(:rf/frame machine)` resolved in machine-transition-single)"
-    ;; Mirrors the rf2-c0nt always-depth conformance shape: an outer
+   (`(:rf/frame machine)` resolved in machine-transition-single)"
+    ;; Mirrors the always-depth conformance shape: an outer
     ;; `:go` transition lands in `:a`; `:a` and `:b` ping-pong via
     ;; always-true `:always` guards until the depth limit trips.
     (rf/reg-machine
@@ -244,7 +244,7 @@
 
 (deftest on-done-throw-tag-carries-frame
   (testing ":rf.error/machine-action-exception (on-done callback threw)
-   carries `:frame` tag (rf2-ko8jb — `frame-id` IS in scope at the throw
+   carries `:frame` tag (`frame-id` IS in scope at the throw
    catch in finalize-machine)"
     (rf/reg-machine
       :ko8jb/child-od
@@ -299,7 +299,7 @@
 
 (deftest invoke-all-all-completed-tag-carries-frame
   (testing ":rf.machine.spawn-all/all-completed carries `:frame` tag
-   (rf2-ko8jb — frame-id plumbed into emit-resolution-traces!)"
+   (frame-id plumbed into emit-resolution-traces!)"
     (let [child  (mk-child-spec)
           parent {:initial :idle
                   :states  {:idle      {:on {:start :hydrating}}
@@ -334,7 +334,7 @@
 
 (deftest invoke-all-bad-child-id-tag-carries-frame
   (testing ":rf.error/machine-spawn-all-bad-child-id carries `:frame` tag
-   (rf2-ko8jb — `(:rf/frame machine)` resolved at interceptor entry)"
+   (`(:rf/frame machine)` resolved at interceptor entry)"
     (let [child  (mk-child-spec)
           parent {:initial :idle
                   :states  {:idle      {:on {:start :hydrating}}
@@ -371,7 +371,7 @@
 
 (deftest timer-no-clock-configured-tag-carries-frame
   (testing ":rf.warning/no-clock-configured (timer fx layer) carries
-   `:frame` tag (rf2-ko8jb — frame-id is the first param of
+   `:frame` tag (frame-id is the first param of
    schedule-after-timer!). Triggered by a delay fn that returns nil
    (no positive ms resolution)."
     (rf/reg-machine

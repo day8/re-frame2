@@ -1,10 +1,10 @@
 (ns re-frame.machine-after-hydration-reconcile-cljs-test
-  "rf2-jqvgp (audit of PR #8915) — hydration RECONCILES the host `:after`
-  timer table; it does not merely add to it.
+  "Hydration RECONCILES the host `:after` timer table; it does not merely
+  add to it.
 
   `machine_after_hydration_rearm_cljs_test` pins the arm half: every live
-  declaration in the installed snapshots gets a client timer. That half was
-  correct and stays. What it cannot see is the other direction, because
+  declaration in the installed snapshots gets a client timer. What it
+  cannot see is the other direction, because
   every case it drives arrives at a frame with an EMPTY timer table, and its
   idempotence case repeats the IDENTICAL snapshot — so the only cancellation
   it can exercise is the same-key `:on-supersede`.
@@ -13,9 +13,9 @@
 
   `:rf/hydrate` replaces runtime-db WHOLESALE. The timer table is not
   runtime-db — it is host state, and it survives that replacement untouched.
-  A frame that already holds timers (from before the hydration, or from an
-  earlier one) therefore keeps a handle for every declaration the
-  replacement DROPS: an actor gone from the new snapshots, an
+  Without a reconcile, a frame that already holds timers (from before the
+  hydration, or from an earlier one) would keep a handle for every
+  declaration the replacement DROPS: an actor gone from the new snapshots, an
   `:after`-bearing state replaced by a no-`:after` one, a shrunken delay
   set. `schedule-after-timer!` supersedes only the ONE
   `{:parent :spawn :delay}` key it is arming, so nothing in the arm phase
@@ -32,7 +32,7 @@
   ## Shape of the controls
 
   Every test here installs runtime-db TWICE into the SAME frame, which is
-  the one thing the existing namespace never does. The two snapshots are
+  the one thing the arm-half namespace never does. The two snapshots are
   both produced by running the machine on a real `:platform :server` frame,
   so neither is a hand-written literal that could drift from what the
   server actually emits.
@@ -149,8 +149,8 @@
 
 (deftest hydration-cancels-a-timer-the-replacement-no-longer-declares
   (testing "hydrating a no-`:after` state over an `:after`-bearing one
-            RELEASES the host handle the replacement dropped — the existing
-            idempotence test repeats the identical snapshot and so can only
+            RELEASES the host handle the replacement dropped — the arm
+            half's idempotence test repeats the identical snapshot and so can only
             ever exercise the same-key supersede"
     (rf/reg-machine :hydrec/changed toggling-machine)
     (let [rt-waiting (server-runtime-db :hydrec/changed toggling-machine [[:go]])
@@ -187,7 +187,7 @@
                    "live handle."))
           (is (= @armed @released)
               (str "and the HOST HANDLE itself was released, not merely "
-                   "forgotten. The epoch gate would have suppressed the stale "
+                   "forgotten. The epoch gate would suppress the stale "
                    "transition; it releases no host work."))
           (let [rows (cancelled-rows :hydrec/changed)]
             (is (= 1 (count rows))

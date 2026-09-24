@@ -2,14 +2,14 @@
   "Adversarial coverage for the machine-identity naming split.
 
   Machine identity is carried as three distinct facts. These tests pin the
-  distinctions so a regression that re-conflates them fails loudly:
+  distinctions so a change that conflates them fails loudly:
 
    1. **TYPE vs live actor INSTANCE**. The live-actor lifecycle
       traces (`:rf.machine/transition`, `:rf.machine/done`, the
       `:rf.machine.timer/*`
       rows, `:rf.machine.lifecycle/destroyed`) carry the INSTANCE address
       under `:actor-id`, NOT `:machine-id`. `:machine-id` is reserved for the
-      registered TYPE / singleton-registration id (it stays on the
+      registered TYPE / singleton-registration id (it is carried on the
       `:rf.machine.spawn/spawned` / `:rf.machine.lifecycle/spawned` /
       `:rf.machine.lifecycle/created` spec-time-type rows). For a SPAWNED
       actor the two are provably different values (`<type>#<n>` ≠ `<type>`).
@@ -40,7 +40,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest spawned-actor-lifecycle-traces-carry-actor-id-not-machine-id
-  (testing "rf2-ws5thu — transition/done/destroyed rows carry :actor-id (the instance), never :machine-id"
+  (testing "transition/done/destroyed rows carry :actor-id (the instance), never :machine-id"
     (let [child {:initial :running
                  :states  {:running {:on {:finish :done}}
                            :done    {:final? true}}}
@@ -84,7 +84,7 @@
               "destroyed carries the reaped actor INSTANCE under :actor-id"))))))
 
 (deftest spawned-trace-keeps-machine-id-for-the-type
-  (testing "rf2-ws5thu — the spawn observation rows keep :machine-id = the registered TYPE alongside :spawned-id = the instance"
+  (testing "the spawn observation rows keep :machine-id = the registered TYPE alongside :spawned-id = the instance"
     (let [child  {:initial :running :states {:running {}}}
           parent {:initial :idle
                   :states  {:idle    {:on {:go :working}}
@@ -111,7 +111,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest fixed-actor-id-and-invoke-id-are-distinct-facts
-  (testing "rf2-0ggtr5 — explicit :fixed-actor-id (address INPUT) ≠ runtime :rf/invoke-id (invocation PATH)"
+  (testing "explicit :fixed-actor-id (address INPUT) ≠ runtime :rf/invoke-id (invocation PATH)"
     (let [child  {:initial :running :states {:running {}}}
           parent {:initial :idle
                   :states
@@ -142,12 +142,12 @@
             "the explicit-address identity and the invocation-path identity are NOT conflated")
         (is (keyword? (:rf/self-id child-data)))
         (is (vector?  (:rf/invoke-id child-data)))
-        ;; The overloaded `:rf/spawn-id` key is not a reserved key.
+        ;; `:rf/spawn-id` is not a reserved key.
         (is (not (contains? child-data :rf/spawn-id))
-            "the retired reserved key :rf/spawn-id is gone (now :rf/invoke-id)")))))
+            "there is no :rf/spawn-id key; the invocation path is :rf/invoke-id")))))
 
 (deftest singleton-transition-carries-actor-id-equal-to-registration-id
-  (testing "rf2-ws5thu — a singleton's transition still carries :actor-id (== its registration id), not :machine-id"
+  (testing "a singleton's transition carries :actor-id (== its registration id), not :machine-id"
     (let [m {:initial :a :states {:a {:on {:go :b}} :b {}}}
           traces (atom [])]
       (rf/reg-machine :idn4/single m)

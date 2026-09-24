@@ -61,9 +61,9 @@
 ;; ---- :start payload on :rf.machine.spawn/spawned -------------------------
 
 (deftest spawned-start-payload-redacted-in-egress
-  (testing "rf2-mxboxi — the :rf.machine.spawn/spawned trace's :start payload is
+  (testing "the :rf.machine.spawn/spawned trace's :start payload is
             summarized at egress (it can hold credentials / large data the way
-            reject-unregistered-spawn! already refuses to carry)"
+            reject-unregistered-spawn! refuses to carry)"
     (let [ev   {:operation :rf.machine.spawn/spawned
                 :tags      {:frame      :rf/default
                             :machine-id :rf.spawn-egress/worker-type
@@ -89,7 +89,7 @@
   [:rf.machine.spawn/error invoke-id error])
 
 (deftest event-received-spawn-error-payload-redacted
-  (testing "rf2-0gdic7/lft14p — :rf.machine/event-received carrying the
+  (testing ":rf.machine/event-received carrying the
             synthetic spawn-error event has its child-owned error payload
             (3rd element) summarized at egress; the reserved id + invoke-id
             survive so the trace is still locatable"
@@ -111,7 +111,7 @@
           "no raw child :exception-data token leaked"))))
 
 (deftest transition-spawn-error-payload-redacted
-  (testing "rf2-0gdic7/lft14p — :rf.machine/transition carrying the synthetic
+  (testing ":rf.machine/transition carrying the synthetic
             spawn-error event under :event summarizes the child error payload"
     (let [err  (raw-child-output)
           ev   {:operation :rf.machine/transition
@@ -128,7 +128,7 @@
           "no raw child :output-key result leaked through the parent transition trace"))))
 
 (deftest guard-evaluated-spawn-error-input-event-redacted
-  (testing "rf2-0gdic7/lft14p — a parent :on-error guard's :rf.machine/
+  (testing "a parent :on-error guard's :rf.machine/
             guard-evaluated carries the synthetic event under :input :event;
             its child error payload is summarized at egress"
     (let [err  (sensitive-error)
@@ -149,7 +149,7 @@
       (is (not (.contains (pr-str out) "secret-child-jwt"))))))
 
 (deftest action-ran-spawn-error-input-event-redacted
-  (testing "rf2-0gdic7/lft14p — a parent :on-error action's :rf.machine/
+  (testing "a parent :on-error action's :rf.machine/
             action-ran carries the synthetic event under :input :event;
             its child error payload is summarized at egress"
     (let [err  (sensitive-error)

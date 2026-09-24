@@ -7,8 +7,8 @@
       `:rf.error/machine-unknown-spawn-key`;
     - a non-set `:tags` slot → `:rf.error/machine-bad-tags`;
     - a NAMESPACED user key passes (the open extension carve-out);
-    - a valid machine still registers cleanly, and a valid set-form `:tags`
-      still round-trips through the runtime tag projection."
+    - a valid machine registers cleanly, and a valid set-form `:tags`
+      round-trips through the runtime tag projection."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Load the machines facade so `rf/reg-machine` routes through its
@@ -34,7 +34,7 @@
 
 (deftest unknown-bare-node-key-rejected
   (testing "an unknown BARE key on an ordinary state node fails loud — the
-            XState :invoke footgun (registration used to succeed silently)"
+            XState :invoke footgun, which would otherwise register silently"
     (is (= :rf.error/machine-unknown-node-key
            (reg-error-id {:initial :idle
                           :states {:idle {:invoke {:machine-id :child}
@@ -73,11 +73,10 @@
       (is (= :idle (:state d)) "names the declaring state"))))
 
 (deftest retired-on-spawn-actions-root-key-rejected
-  (testing "the retired `:on-spawn-actions` root registration slot is now an
-            unknown BARE key — the EXISTING closed-vocabulary diagnostic, no
-            bespoke retired-key nag (rf2-kuky.15 ruled A: the family is
-            deleted, and the reducer binds the spawned id under
-            [:data :rf/spawned <invoke-id>])"
+  (testing "there is no `:on-spawn-actions` root registration slot — it is an
+            unknown BARE key and meets the closed-vocabulary diagnostic, with
+            no bespoke nag; the reducer binds the spawned id under
+            [:data :rf/spawned <invoke-id>]"
     (is (= :rf.error/machine-unknown-node-key
            (reg-error-id {:initial :idle
                           :on-spawn-actions {:record (fn [_] nil)}
@@ -116,10 +115,9 @@
                        :done {}}})))))
 
 (deftest retired-on-spawn-spawn-key-rejected
-  (testing "the retired `:on-spawn` spawn-spec key is now an unknown BARE
-            key — the EXISTING closed-vocabulary diagnostic catches it on
-            both the single `:spawn` and a `:spawn-all` child (rf2-kuky.15
-            ruled A)"
+  (testing "there is no `:on-spawn` spawn-spec key — as an unknown BARE
+            key the closed-vocabulary diagnostic catches it on both the
+            single `:spawn` and a `:spawn-all` child"
     (is (= :rf.error/machine-unknown-spawn-key
            (reg-error-id {:initial :idle
                           :states {:idle {:spawn {:machine-id :child
@@ -139,12 +137,11 @@
         ":on-spawn on a :spawn-all child is rejected")))
 
 (deftest retired-system-id-spawn-key-rejected
-  (testing "the retired `:system-id` spawn-spec key is now an unknown BARE
-            key — the EXISTING closed-vocabulary diagnostic catches it on both
-            the single `:spawn` and a `:spawn-all` child. No new diagnostic id
-            was minted for the retirement (rf2-kuky.15 ruled A, delivered by
-            rf2-kuky.70): the address is the id, and `:fixed-actor-id` is the
-            one stable-name mechanism."
+  (testing "there is no `:system-id` spawn-spec key — as an unknown BARE key
+            the closed-vocabulary diagnostic catches it on both the single
+            `:spawn` and a `:spawn-all` child, with no diagnostic id of its
+            own: the address is the id, and `:fixed-actor-id` is the one
+            stable-name mechanism."
     (is (= :rf.error/machine-unknown-spawn-key
            (reg-error-id {:initial :idle
                           :states {:idle {:spawn {:machine-id :child
@@ -175,8 +172,8 @@
 ;; ---- (3) malformed :tags shape signals ------------------------------------
 
 (deftest vector-tags-rejected
-  (testing "a VECTOR :tags (the shape the runtime USED to silently coerce) now
-            fails loud — mirroring :internal-events' set-form rejection"
+  (testing "a VECTOR :tags fails loud rather than being silently coerced —
+            mirroring :internal-events' set-form rejection"
     (is (= :rf.error/machine-bad-tags
            (reg-error-id {:initial :idle
                           :states {:idle {:tags [:busy]  ;; vector, not #{}
@@ -184,7 +181,7 @@
                                    :done {}}})))))
 
 (deftest single-keyword-tags-rejected
-  (testing "a SINGLE-KEYWORD :tags (also formerly coerced) fails loud"
+  (testing "a SINGLE-KEYWORD :tags fails loud rather than being coerced"
     (is (= :rf.error/machine-bad-tags
            (reg-error-id {:initial :idle
                           :states {:idle {:tags :busy   ;; keyword, not #{}
@@ -212,11 +209,11 @@
       (is (= :idle (:state d)))
       (is (= [:busy] (:tags d)) "names the offending non-set value"))))
 
-;; ---- (4) valid machines still register (no false positives) ---------------
+;; ---- (4) valid machines register (no false positives) ---------------------
 
 (deftest valid-machine-with-set-tags-registers-and-projects
   (testing "a valid machine with a set-form :tags registers cleanly AND the
-            runtime still projects the tag union onto the snapshot"
+            runtime projects the tag union onto the snapshot"
     (is (nil? (reg-error-id {:initial :busy
                              :states {:busy {:tags #{:loading :network}
                                              :on {:done :idle}}

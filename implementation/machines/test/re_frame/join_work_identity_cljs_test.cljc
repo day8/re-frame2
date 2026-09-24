@@ -4,7 +4,7 @@
   A fixed actor address is reusable after teardown, so its name cannot identify
   a join attempt. These tests drive real CLJ/CLJS machine cascades and require
   every reply-bearing path to reuse the runtime-minted `:rf/attempt` token
-  as the fixed actor's existing machine-work-id generation slot. Generated
+  as the fixed actor's machine-work-id generation slot. Generated
   `<type>#<n>` actors keep their actor-name generation, and a normal fixed-id
   single spawn keeps generation 1."
   (:require
@@ -29,7 +29,7 @@
   `:failed`. It names no parent and no completion event — the runtime's finalize
   cascade mints the carrier, reading the exact-attempt coordinate off the
   child's own `:rf/join-child` record. That record IS the provenance this file
-  is about, so it now reaches the fold by the same route the runtime uses."
+  is about, so it reaches the fold by the same route the runtime uses."
   []
   {:initial :running
    :data    {:id nil}
@@ -281,15 +281,12 @@
                            (events-of :rf.machine/destroyed))))
           "exactly one destroyed trace for A, its own finality"))))
 
-;; These two arcs used to be two tests, separated only by HOW a child-authored
-;; completion got held back until after its attempt closed: `:dispatch-later`
-;; through a stubbed host timer, and a same-fx queue behind the child's own
-;; `[:rf.machine/destroy …]`. Neither delivery route survives the child-
-;; completion protocol — the child authors no completion at all, and the carrier
-;; the runtime mints at finality is dispatched from inside finalize — so the two
-;; fixtures collapse into the one arc that is still constructible and is what
-;; both were really pinning: a carrier that was EXACT-CURRENT when it was formed,
-;; delivered after an explicit cancellation closed that attempt.
+;; Under the child-completion protocol the child authors no completion at all,
+;; and the carrier the runtime mints at finality is dispatched from inside
+;; finalize, so nothing can hold a child's own completion back until after its
+;; attempt closes. The arc that stays constructible is the one pinned here: a
+;; carrier that was EXACT-CURRENT when it was formed, delivered after an
+;; explicit cancellation closed that attempt.
 
 (deftest late-carrier-after-explicit-cancellation-cannot-fold
   (testing "an exact-attempt carrier formed while A was live is suppressed once
@@ -423,7 +420,7 @@
                                   :rf.machine.spawn-all/all-completed))))
           "the join fold reuses that same canonical work identity")))
 
-  (testing "generated actor and ordinary single-spawn identities are unchanged"
+  (testing "generated actor and ordinary single-spawn identities keep their own generation"
     (is (= [:rf.work/machine :jwi/generated#7 [:racing] 7]
            (:rf.reply/work-id
              (rf.machines.reply/join-child-reply
@@ -437,4 +434,4 @@
              (rf.machines.reply/success-reply
                {:actor-id :jwi/single-fixed :work-bearing-path [:working]}
                :ok)))
-        "normal fixed-id single spawn remains generation 1")))
+        "normal fixed-id single spawn is generation 1")))

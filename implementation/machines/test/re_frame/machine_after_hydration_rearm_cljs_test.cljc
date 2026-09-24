@@ -1,12 +1,12 @@
 (ns re-frame.machine-after-hydration-rearm-cljs-test
-  "rf2-jqvgp — a machine hydrated in an `:after`-bearing state gets its
+  "A machine hydrated in an `:after`-bearing state gets its
   client timer back.
 
   The server suppresses `:after` wall-clock timers (Spec 005 §SSR mode)
   and a host-clock handle cannot ride the wire, so the hydration payload
   carries a snapshot with the right `:state`, `:data` and
-  `:rf/after-epoch` and NOTHING that schedules. Before this fix the client
-  installed exactly that and stopped: correct durable state, no live
+  `:rf/after-epoch` and NOTHING that schedules. A client that installed
+  exactly that and stopped would have correct durable state, no live
   timer, and a machine that could sit in a timed state forever unless some
   unrelated external event moved it. Spec 011 §`:after` is no-op under SSR
   requires the opposite — \"`:after` timers begin running on the client
@@ -16,10 +16,10 @@
 
   Every positive case here captures the host-clock thunk
   (`with-redefs` on `rf.interop/schedule-after!`, the pattern
-  `after_fire_reap_cljs_test` established) and INVOKES it, then asserts the
+  `after_fire_reap_cljs_test` uses) and INVOKES it, then asserts the
   machine actually transitioned. Asserting that the timer table is
-  non-empty would have passed for the whole life of this defect had the
-  table been populated with anything inert; only the fire proves the
+  non-empty would pass for a table populated with anything inert; only
+  the fire proves the
   reconstructed timer is wired to the epoch, the decl-path and the
   transition.
 
@@ -33,8 +33,8 @@
 
   Both hosts: a `.cljc` named `*-cljs-test`, so it runs under
   `clojure -M:test` from `implementation/machines` (JVM) and under the
-  node runner (`npm run test:cljs`). The defect is a CLIENT host-runtime
-  defect, so the CLJS arm is the load-bearing one."
+  node runner (`npm run test:cljs`). The re-arm is CLIENT host-runtime
+  behaviour, so the CLJS arm is the load-bearing one."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -99,7 +99,7 @@
   scheduled on `rf.interop/next-tick` — a background executor on the JVM and
   a macrotask in CLJS, so a bare call would race every assertion after it.
   Collapsing `next-tick` to an inline call for the duration is the
-  established seam (`core/test/re_frame/drain_test.clj`,
+  shared seam (`core/test/re_frame/drain_test.clj`,
   `cofx_envelope_test.clj`): the whole routing path still runs, including
   the per-decl-path epoch stale-gate that a wrongly-armed timer would
   fail. Nothing here re-implements the timer's own event, which is
@@ -213,8 +213,8 @@
         (fire! (first @thunks))
         (is (= :timeout (rf.machines.test-support/machine-state cfid :hyd/flat))
             (str "the hydrated timer FIRED and performed the declared "
-                 "`:after` transition. This is the whole bug: before the fix "
-                 "no timer existed, so this state was terminal in practice."))))))
+                 "`:after` transition. Without the re-arm no timer would "
+                 "exist, so this state would be terminal in practice."))))))
 
 (deftest hydration-does-not-replay-entry
   (testing "re-arming reconstructs host work only — the server's `:entry`
@@ -228,9 +228,9 @@
                               (fn [_thunk _ms] ::handle)]
                    (hydrate-into! rt))]
         (is (= 1 (:entries (rf.machines.test-support/machine-data cfid :hyd/noreplay)))
-            (str "still 1. Re-running entry would have re-armed the timers "
-                 "AND re-fired every entry effect the server already "
-                 "performed — a different and worse bug than the one fixed."))
+            (str "still 1. Re-running entry would re-arm the timers "
+                 "AND re-fire every entry effect the server already "
+                 "performed — a worse bug than a missing timer."))
         (is (= :waiting (rf.machines.test-support/machine-state cfid :hyd/noreplay))
             "and the durable state is untouched by the re-arm")))))
 
@@ -273,7 +273,7 @@
           (is (= (get-in snap [:data :rf/after-epoch (:spawn k)]) (:epoch entry))
               (str "each node armed at its OWN durable epoch: " (:spawn k))))
 
-        ;; Fire the ANCESTOR's timer — the one an entry-shaped fix misses.
+        ;; Fire the ANCESTOR's timer — the one an entry-shaped re-arm would miss.
         (fire! (get @thunks 9000))
         (is (= :outer-fired (rf.machines.test-support/machine-state cfid :hyd/compound))
             "the hydrated ANCESTOR timer fired and transitioned")))))

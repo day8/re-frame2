@@ -1,16 +1,16 @@
 (ns re-frame.join-resolution-finished-sibling-cljs-test
-  "rf2-3x7nj.9.5 — join resolution cancels only siblings that are still LIVE
+  "Join resolution cancels only siblings that are still LIVE
   members of this attempt, never one that already FINISHED.
 
-  `build-resolution-fx` used to treat every child outside `:done ∪ :failed` as
+  `build-resolution-fx` cannot treat every child outside `:done ∪ :failed` as
   a survivor. Those sets record carriers already FOLDED, not actors already
   FINISHED, so a sibling that reached `:final?` (publishing its own
   `:completed` terminal and auto-destroying with `:rf.machine/finished`) while
-  its carrier was still queued behind the decisive one was ALSO stamped
+  its carrier is still queued behind the decisive one would ALSO be stamped
   `:rf.machine.spawn/cancelled-on-join-resolution` with a `:cancelled` reply,
-  before its carrier landed as `late-completion`. One attempt, three
+  before its carrier lands as `late-completion`. One attempt would carry three
   contradictory terminals, against Spec 005's one terminal authority per child
-  attempt. A genuinely live survivor is still cancelled (the control below).
+  attempt. A genuinely live survivor is cancelled (the control below).
 
   The file is named `*-cljs-test.cljc` so it is discovered by both
   cognitect.test-runner (JVM) and shadow-cljs (the `cljs-test$` ns-regexp)."
@@ -85,7 +85,7 @@
 
 (deftest a-live-survivor-is-still-cancelled
   (testing "control: a sibling that is genuinely still running when the join
-            resolves is cancelled and torn down, exactly as before"
+            resolves is cancelled and torn down"
     (reg-racing-parent! :jrl/parent :jrl/child nil)
     (rf/dispatch-sync [:jrl/parent [:start]])
     (is (nil? (snapshot :jrl/child#1)) "child :a finished and resolved the join")

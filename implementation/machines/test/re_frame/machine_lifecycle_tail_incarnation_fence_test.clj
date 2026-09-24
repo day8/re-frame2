@@ -1,41 +1,40 @@
 (ns re-frame.machine-lifecycle-tail-incarnation-fence-test
-  "rf2-4ipqe4 — fence the TIMER, REGISTRAR, and SPAWN-WRITE callbacks in the
-  machine lifecycle tails after incarnation loss. The sibling of #5873/rf2-hloj0g
-  (which fenced the destroyed / spawned-trace / HTTP-abort tails): #5873 grouped
-  three still-callback-bearing operations under EARLIER ownership checks, so a
-  lost-owner machine could still write / cancel / register against a same-id
-  successor B.
+  "Fence the TIMER, REGISTRAR, and SPAWN-WRITE callbacks in the machine
+  lifecycle tails after incarnation loss (the destroyed / spawned-trace /
+  HTTP-abort tails carry fences of their own). Each of these three operations
+  bears callbacks, so an ownership check made EARLIER does not cover it:
+  without its own fence a lost-owner machine would write / cancel / register
+  against a same-id successor B.
 
   Three seams, one per callback class:
 
     - TIMER: `rf.machines.timer/cancel-actor-timers!` emits a SYNCHRONOUS
-      `:rf.machine.timer/cancelled` per cancellation. A listener replaces A with
-      same-id B after the FIRST cancellation; the stale snapshot loop then reads
-      B's LIVE entry under a later key and cancels B's timer, and the finalize
-      tail continues into classification / spawn-order work
-      against B. FIX: thread the monotonic `owner-gone?` gate into the
-      cancellation loop (short-circuit after the losing cancellation) AND recheck
-      it at the finalize call-site before the classification / spawn-order
-      work.
+      `:rf.machine.timer/cancelled` per cancellation. A listener can replace A
+      with same-id B after the FIRST cancellation; unfenced, the stale snapshot
+      loop would then read B's LIVE entry under a later key and cancel B's
+      timer, and the finalize tail would continue into classification /
+      spawn-order work against B. FENCE: the monotonic `owner-gone?` gate is
+      threaded into the cancellation loop (short-circuit after the losing
+      cancellation) AND rechecked at the finalize call-site before the
+      classification / spawn-order work.
 
     - REGISTRAR: `rf.registrar/unregister!` emits a SYNCHRONOUS
-      `:rf.registry/handler-cleared`. A listener replaces A with B; the stale
-      A-derived `:on-error` (spawn-error) dispatch then routes into B. FIX:
-      recheck `owner-gone?` immediately after the unregister, before the
-      `:on-error` dispatch.
+      `:rf.registry/handler-cleared`. A listener can replace A with B; unfenced,
+      the stale A-derived `:on-error` (spawn-error) dispatch would then route
+      into B. FENCE: `owner-gone?` is rechecked immediately after the
+      unregister, before the `:on-error` dispatch.
 
-    - SPAWN-WRITE: `install-spawn!` used a non-exact `rf.frame/swap-runtime-db!`. A
-      container watch replaces A DURING the physical write; the bare write bumps
-      B's id-keyed commit epoch before
-      the later owner check. FIX: route the install through the exact owner token
-      + `rf.frame/swap-runtime-db-exact!`, which binds the write to A's own
-      container and returns nil on mid-write loss (no epoch bump, no snapshot,
-      no lifecycle tail).
+    - SPAWN-WRITE: a container watch can replace A DURING the physical write of
+      `install-spawn!`; a bare `rf.frame/swap-runtime-db!` would bump B's
+      id-keyed commit epoch before the later owner check. FENCE: the install
+      routes through the exact owner token + `rf.frame/swap-runtime-db-exact!`,
+      which binds the write to A's own container and returns nil on mid-write
+      loss (no epoch bump, no snapshot, no lifecycle tail).
 
   These fixtures drive the tails DIRECTLY under a bound event owner (A's
   dequeue-time token) with a destroyer that publishes same-id B on the callback's
   own stack, and assert B stays byte-identical — the same deterministic,
-  single-threaded shape the #5873 fence fixtures use (the destroyer runs INSIDE
+  single-threaded shape the sibling fence fixtures use (the destroyer runs INSIDE
   the callback / watch, so no latch coordination is needed). Each seam pairs its
   loss fixture with a LIVE-OWNER control that must still tear down / dispatch /
   install exactly once — the mutation tooth against an over-eager fence."
@@ -244,9 +243,9 @@
   and drive `finalize-machine` for the child under A's bound event owner.
   Captures every `:router/dispatch!`.
 
-  rf2-xjee — THE CHILD ADDRESS CARRIES A PLAIN ENTRY, NOT A `reg-machine`
+  THE CHILD ADDRESS CARRIES A PLAIN ENTRY, NOT A `reg-machine`
   DEFINITION, and that is what makes this seam reachable at all. Finalize's
-  registrar cleanup now clears only a PER-INSTANCE entry: a definition-bearing
+  registrar cleanup clears only a PER-INSTANCE entry: a definition-bearing
   address is preserved (a `reg-machine` registration is a shared load-time TYPE
   outliving every instance, per Spec 005 §Liveness is derived from runtime-db),
   and `rf.registrar/unregister!` emits `:rf.registry/handler-cleared` only when
@@ -257,17 +256,16 @@
   `finalize-machine` takes the child's spec as an argument, so nothing else in
   this fixture needs the child registered.
 
-  rf2-xjee (audit residual) — THE PARENT IS GIVEN A LIVE SNAPSHOT, not merely a
-  `reg-machine` DEFINITION. Framework-owned failure delivery is now gated on
+  THE PARENT IS GIVEN A LIVE SNAPSHOT, not merely a
+  `reg-machine` DEFINITION. Framework-owned failure delivery is gated on
   the parent having a live INSTANCE (`spawn-error/parent-instance-live?`): a
   definition alone resolves the `:spawn` map and its `:on-error` but answers
   nobody home, so a definition-only parent makes the `:on-error` dispatch
-  STALE-suppressed before this fence is ever consulted. That would have broken
+  STALE-suppressed before this fence is ever consulted. That would break
   both tests below in opposite directions — the live-owner control asserts the
   dispatch DOES fire, and the loss test's mutation tooth depends on the
   dispatch being one the fence, and only the fence, prevents. Seeding the
-  parent's snapshot restores the subject each fence was written against; the
-  fence assertions themselves are unchanged."
+  parent's snapshot gives each fence its subject."
   [frame-a parent-id child-id on-cleared]
   (rf.machines.spawn-order/reset-all!)
   (let [invoke-id [:waiting]]
@@ -413,7 +411,7 @@
             (reset! b-birth (rf.machines.test-support/runtime-db frame-a))
             (reset! b-commit (rf.frame/frame-commit-epoch frame-a)))))
       (try
-        ;; DETERMINISM FENCE (rf2-kz0bmb) — sibling of the live-owner test's
+        ;; DETERMINISM FENCE — sibling of the live-owner test's
         ;; guard: hold the actor-bootstrap `:start` dispatch on a SYNCHRONOUS
         ;; in-thread no-op so no JVM background-executor drain (`interop/
         ;; next-tick`) races the assertions. The loss path fences the `:start`
@@ -467,7 +465,7 @@
         armed?
         (fn [] (swap! watch-runs inc)))          ; observe only — A stays live
       (try
-        ;; DETERMINISM FENCE (rf2-kz0bmb) — drop the child's actor-bootstrap
+        ;; DETERMINISM FENCE — drop the child's actor-bootstrap
         ;; `:start` dispatch onto a SYNCHRONOUS in-thread no-op. The default
         ;; `:router/dispatch!` hook schedules the bootstrap drain on the JVM
         ;; background executor (`interop/next-tick`); that async drain runs the
@@ -477,8 +475,7 @@
         ;; `restore-plain-adapter!` teardown). The install this test asserts on
         ;; completes BEFORE the `:start` dispatch, so suppressing the async
         ;; bootstrap leaves every assertion's subject unchanged while making the
-        ;; fixture single-threaded and deterministic (was green in isolation /
-        ;; 8/8 reruns, red under CI load).
+        ;; fixture single-threaded and deterministic.
         (rf.late-bind/set-fn! :router/dispatch! (fn [_ev _opts] nil))
         (rf/make-frame {:id frame-a})
         (rf.trace.tooling/register-listener!

@@ -9,7 +9,7 @@
   NOT inherit a parent's `:time-ms`: the timer-fire envelope is a DISTINCT
   causal token, stamped fresh at FIRE time.
 
-  THE IMPL (verified correct, NOT changed by this test). `timer.cljc`'s
+  THE IMPL. `timer.cljc`'s
   `schedule-after-timer!` installs the host-clock callback via
   `rf.interop/schedule-after!`; that callback calls the late-bound
   `:router/dispatch!` with `{:frame ... :source :after-timer}` and
@@ -18,16 +18,16 @@
   timer-driven guard/action reads the FIRE-time token, not the scheduling-
   time parent token.
 
-  THE GAP this test closes. Every case in `machine_world_inputs_ctx_test`
+  WHAT ONLY THIS TEST SEES. Every case in `machine_world_inputs_ctx_test`
   proves a callback reads a SCRIPTED token supplied verbatim on a
   `dispatch-sync`. NONE drive the REAL `:after` timer-fire boundary, where
   the token is router-STAMPED (not supplied). `after_test.clj` drives the
   `:after` semantics by dispatching the synthetic `after-elapsed` event by
   HAND (no `:rf.cofx`), so it never exercises the stamping either. A
-  regression that made the timer callback INHERIT the parent/scheduling
-  token (e.g. by threading the entry dispatch's `:rf.cofx` through to
-  the `after-elapsed` dispatch opts) would pass every existing test. This
-  test fails on exactly that regression.
+  timer callback that INHERITED the parent/scheduling token (e.g. by
+  threading the entry dispatch's `:rf.cofx` through to the `after-elapsed`
+  dispatch opts) would pass every other test. This test fails on exactly
+  that.
 
   THE RECIPE (adversarial clock separation).
     1. Stub `rf.interop/schedule-after!` to CAPTURE the timer-callback thunk
@@ -73,7 +73,7 @@
   (testing "the :after timer's dispatched event carries a FRESH router-
             stamped :rf.cofx :time-ms at FIRE time (not the parent
             scheduling-time token) — driven through the REAL
-            rf.interop/schedule-after! fire boundary (rf2-hg39nf)"
+            rf.interop/schedule-after! fire boundary"
     (let [;; The mutable host clock the router's epoch-now-ms reads. Starts
           ;; at the PARENT value; advanced to CHILD between schedule + fire.
           clock           (atom PARENT-TIME-MS)

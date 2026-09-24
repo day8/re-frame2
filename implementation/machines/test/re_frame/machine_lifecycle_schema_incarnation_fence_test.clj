@@ -1,7 +1,5 @@
 (ns re-frame.machine-lifecycle-schema-incarnation-fence-test
-  "Fence machine lifecycle SCHEMA callbacks to the exact frame incarnation
-  (rf2-vxgfnd.153 — part of the incarnation-fencing family established by the
-  merged destroy contract #5818).
+  "Fence machine lifecycle SCHEMA callbacks to the exact frame incarnation.
 
   A machine schema validator is APPLICATION code (the late-bound
   `:schemas/validate-with-registered-fn` adapter running an app-declared
@@ -268,14 +266,14 @@
 
 (deftest update-snapshot-db-trace-listener-fences-write-to-successor
   (testing "the :rf.machine/update-snapshot escape hatch, :db-TRACE path (the
-            pre-validator callback the validator-callback fence does NOT cover,
-            rf2-vxgfnd.22): a `:db` key in the patch fires the
+            pre-validator callback the validator-callback fence does NOT cover):
+            a `:db` key in the patch fires the
             :rf.error/machine-action-wrote-db hard-disallow trace; a SYNC :trace
             listener on it destroys A + publishes same-id B (with a distinct
             sentinel snapshot). The A-derived patch must NOT merge onto B, and
             B's commit epoch must NOT bump.
 
-            Counterexample (why the existing validator-callback fence misses
+            Counterexample (why the validator-callback fence misses
             this): A is destroyed BEFORE `validate-update-snapshot-data!` runs,
             so `resolve-data-schema`'s branches (`(when (continue?) …)`-guarded)
             go nil — the would-REJECT validator is never even consulted and the

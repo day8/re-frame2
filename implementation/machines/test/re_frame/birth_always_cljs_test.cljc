@@ -28,7 +28,7 @@
      `[:rf.machine/start]` kick (`createActor(m).start()` equivalent) and
      the lazy first-real-event birth.
 
-  Cases (per the bead):
+  Cases:
    (a) transient initial leaf whose `:always` guard holds → eager start
        settles past it (the initial leaf is never externally observed).
    (b) same on lazy first-event birth.
@@ -38,7 +38,7 @@
        PARENT's frozen birth round (not region-locally): uncoupled guards
        land each region where its own seed dictates; a sibling-reading guard
        converges across re-freezes in the ONE birth macrostep.
-   (f) no-`:always` machines unaffected (birth identical to before)."
+   (f) no-`:always` machines boot to the plain initial state."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -100,7 +100,7 @@
 ;; the global layer.
 
 (deftest pure-birth-entry-raise-drains-flat
-  (testing "(bz0ox.1) a flat machine whose initial `:entry` raises `[:go]`
+  (testing "a flat machine whose initial `:entry` raises `[:go]`
             settles to the raised-event target in ONE birth macrostep, and
             the outbound fx carries NO reserved `:raise`"
     (let [m {:initial :a
@@ -115,7 +115,7 @@
           "no reserved `:raise` escaped to the outbound fx layer"))))
 
 (deftest pure-birth-entry-raise-drains-compound
-  (testing "(bz0ox.1) a COMPOUND machine whose deep initial leaf's `:entry`
+  (testing "a COMPOUND machine whose deep initial leaf's `:entry`
             raises settles past it on birth — the raise re-enters the
             macrostep queue, the enclosing `:on` takes the transition"
     (let [m {:initial :outer
@@ -131,7 +131,7 @@
           "no reserved `:raise` escaped to the outbound fx layer"))))
 
 (deftest pure-birth-entry-raise-preserves-nonraise-fx-ordering
-  (testing "(bz0ox.1) the initial-`:entry`'s NON-raise fx survive the drain in
+  (testing "the initial-`:entry`'s NON-raise fx survive the drain in
             order — only the `:raise` is consumed; real effects flow out"
     (let [m {:initial :a
              :data    {}
@@ -147,7 +147,7 @@
           "the entry fx emitted before the `:raise` keep their leading position"))))
 
 (deftest pure-birth-entry-raise-drains-parallel-region
-  (testing "(bz0ox.1) a PARALLEL machine: a region's initial `:entry` `:raise`
+  (testing "a PARALLEL machine: a region's initial `:entry` `:raise`
             is NOT region-local — it re-enters the parent macrostep queue and
             re-broadcasts across EVERY region before birth commit (so a sibling
             region observes it too), with no outbound `:raise`"
@@ -239,8 +239,8 @@
       (is (= 1 (:n data)) "the `:always` action's :data write committed with the target"))))
 
 (deftest pure-birth-no-always-unaffected
-  (testing "(f) a machine with NO `:always` boots identically to before —
-            birth installs the initial state with zero microsteps"
+  (testing "(f) a machine with NO `:always` boots to its plain initial
+            state — birth installs it with zero microsteps"
     (let [m {:initial :idle
              :data    {:seeded? true}
              :states  {:idle {:on {:go :next}} :next {}}}
@@ -253,10 +253,10 @@
             in the PARENT's frozen birth round. With UNCOUPLED guards each
             region lands where its own seed dictates (region L's guard true →
             :l-ready; region R's guard false → stays at its initial leaf) —
-            the outcome the superseded region-local model happens to share,
-            but the mechanism is the parent-owned freeze/select/apply round,
-            not independent regional settling (the coupled case below is what
-            the region-local model cannot satisfy)"
+            an outcome a region-local model would share, but the mechanism
+            is the parent-owned freeze/select/apply round, not independent
+            regional settling (the coupled case below is what a region-local
+            model cannot satisfy)"
     (let [m {:type    :parallel
              :data    {:l? true :r? false}
              :guards  {:l? (fn [{data :data}] (:l? data))
@@ -274,18 +274,17 @@
           "region :right's birth `:always` (guard false) stayed at its initial leaf"))))
 
 (deftest pure-birth-parallel-coupled-always-converges-in-one-parent-round
-  ;; rf2-nqovj — the EXECUTABLE guard for the corrected "parent-owned, not
-  ;; region-local" teaching claim. Region :watcher's birth `:always` reads a
-  ;; `:data` flag that region :writer only sets in :writer's OWN birth
-  ;; `:always` action. `:region-order` puts :watcher FIRST, so the superseded
-  ;; "each region settles independently" model — drain :watcher's `:always`
-  ;; loop to quiescence before visiting :writer — would evaluate :watcher's
-  ;; guard while the flag is still absent and STRAND it at :wa-boot. The real
-  ;; parent-owned loop freezes the whole configuration per round: round 1
-  ;; selects only :writer (which writes the flag), the parent RE-FREEZES, and
-  ;; round 2 selects :watcher against the now-written view. Both converge in
-  ;; the ONE birth macrostep. If this ever reverts to region-local settling,
-  ;; the :watcher assertion goes red — the phrase cannot quietly return.
+  ;; The EXECUTABLE guard for the "parent-owned, not region-local" claim.
+  ;; Region :watcher's birth `:always` reads a `:data` flag that region
+  ;; :writer only sets in :writer's OWN birth `:always` action.
+  ;; `:region-order` puts :watcher FIRST, so an "each region settles
+  ;; independently" model — drain :watcher's `:always` loop to quiescence
+  ;; before visiting :writer — would evaluate :watcher's guard while the flag
+  ;; is still absent and STRAND it at :wa-boot. The parent-owned loop freezes
+  ;; the whole configuration per round: round 1 selects only :writer (which
+  ;; writes the flag), the parent RE-FREEZES, and round 2 selects :watcher
+  ;; against the now-written view. Both converge in the ONE birth macrostep.
+  ;; Region-local settling would turn the :watcher assertion red.
   (testing "(e′) a sibling-reading birth `:always` converges across re-freezes
             in the parent's birth macrostep — the region-local model cannot"
     (let [m {:type         :parallel
@@ -311,7 +310,7 @@
 
 (deftest pure-birth-always-depth-limit-surfaces-as-failed-macrostep
   (testing "a birth `:always` cycle trips `:always-depth-limit` and surfaces
-            as a FAILED macrostep (rf2-y3jv8q — XState v5 throws on such a
+            as a FAILED macrostep (XState v5 throws on such a
             runaway). The `:fail` carries the `::depth-abort?` sentinel and
             threads NO snapshot; atomic rollback is enforced by the failure
             surface (the lifecycle handler short-circuits to `{}`, leaving the
@@ -424,7 +423,7 @@
 
 (deftest live-eager-start-no-always-unaffected
   (testing "(f) eager start on a no-`:always` machine installs the plain
-            initial state — birth identical to before rf2-505ic"
+            initial state"
     (let [m {:initial :idle
              :data    {:seeded? true}
              :states  {:idle {:on {:go :next}} :next {}}}]
