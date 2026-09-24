@@ -33,10 +33,11 @@
   dialog, and an emptiness claim is exactly the shape that passes
   vacuously — an instrument that reported *nothing is focusable* would
   satisfy it perfectly. So the first row is a SEEDED VIOLATION, made
-  permanent rather than run once by hand: the same `<dialog>` element, holding the same controls, opened
-  through `show()` instead of `showModal()`. That is a legal call on the
-  same element which paints the same panel and fires the same events,
-  and the ONE thing it does not do is make the document behind it inert.
+  permanent rather than run once by hand: the same `<dialog>` element,
+  holding the same controls, opened through `show()` instead of
+  `showModal()`. That is a legal call on the same element which paints
+  the same panel and fires the same events, and the ONE thing it does
+  not do is make the document behind it inert.
   The row asserts that the page behind stays reachable under `show()`,
   which is the trap removed, measured.
 
@@ -633,8 +634,9 @@
 ;; two lists differ.
 ;;
 ;; The two rows below are that population: one panel whose sequential
-;; order is SHORTER than its document order (a radio group), one whose sequential order is a PERMUTATION of it (a
-;; positive `tabindex`). Both drive both edges with trusted input, and
+;; order is SHORTER than its document order (a radio group), one whose
+;; sequential order is a PERMUTATION of it (a positive `tabindex`). Both
+;; drive both edges with trusted input, and
 ;; both name `body` explicitly, because `<body>` is where a wrap that did
 ;; not fire puts focus, and reading it as merely "some other control"
 ;; would let that leak pass.
@@ -691,8 +693,8 @@
                            "order, the third landing would be `small`. "
                            "Pressed: " (pr-str forward)))
                   (is (= ["reason" "ok" "large" "reason" "ok"] backward)
-                      (str "THE CYCLE, BACKWARD, and this is the edge a "
-                           "document-order handler breaks. `large` IS the panel's "
+                      (str "THE CYCLE, BACKWARD, the edge a document-order "
+                           "handler breaks. `large` IS the panel's "
                            "first stop, so Shift+Tab off it must land "
                            "directly on `reason`; a handler that took the "
                            "panel's first ELEMENT for its first STOP would find "
@@ -814,8 +816,8 @@
                            "and the third landing would be `body`. Pressed: "
                            (pr-str forward)))
                   (is (= ["cancel" "ok" "reason" "cancel" "ok"] backward)
-                      (str "THE CYCLE, BACKWARD, which a counted `ghost` "
-                           "breaks the other way for the same reason. Shift+Tab off "
+                      (str "THE CYCLE, BACKWARD, which a counted `ghost` breaks "
+                           "the other way for the same reason. Shift+Tab off "
                            "`reason` must land on `cancel`; with `ghost` "
                            "counted, the wrap AIMS at `ghost`, `.focus()` "
                            "declines, `preventDefault` is correctly "
