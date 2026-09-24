@@ -229,13 +229,13 @@
 ;; committed to its host high-water mark. Gaps are harmless because allocator
 ;; ids are monotone and never recycled.
 (def ^:private nav-commit-meta
-  ;; navigate / transitioned / handle-url-change can BLOCK (pending-nav id)
+  ;; navigate / handle-url-change can BLOCK (pending-nav id)
   ;; OR COMMIT (nav-token) — declare both recordable allocations.
   (assoc framework-authority-meta
          :rf.cofx/requires [:rf.route/nav-allocation
                             :rf.route/pending-nav-allocation]))
 (def ^:private url-requested-meta
-  ;; A URL request can block here; its transitioned event owns any eventual
+  ;; A URL request can block here; its synthesised handle-url-change owns any eventual
   ;; nav-token allocation.
   (assoc framework-authority-meta
          :rf.cofx/requires [:rf.route/pending-nav-allocation]))
