@@ -16,48 +16,49 @@
 
          :initial-events [[:app/init]]})
 
-  ## EP-0025 — the durable app-db classification annotation is REMOVED
+  ## EP-0025 — no durable app-db classification annotation on a frame
 
-  Durable app-db data classification is NO LONGER a frame-config annotation.
-  Per [EP-0025 §What is removed], the frame `:sensitive` / `:large {:app-db
-  [[path] …]}` durable annotation is GONE — a frame is not app-db's
-  definition site. The replacement is the B3 commit-plane classification
-  effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`,
+  Durable app-db data classification is NOT a frame-config annotation.
+  Per [EP-0025 §What is removed], there is no frame `:sensitive` / `:large
+  {:app-db [[path] …]}` durable annotation — a frame is not app-db's
+  definition site. Durable classification is the B3 commit-plane
+  classification effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`,
   `re-frame.elision/apply-classification-effects`): a `reg-event` handler
   declares the paths it classifies alongside its `:db` write, applied at the
   same commit boundary, tagged `:source :effect` in the SAME per-frame
   elision registry (`[:rf.runtime/elision :sensitive-declarations]` /
   `[:rf.runtime/elision :declarations]`, Conventions §Reserved runtime-db
   keys). The overlap interceptor (`re-frame.privacy`) and the egress walker
-  (`re-frame.elision`) read that registry unchanged — only the WRITER moved
-  off the frame annotation onto the effect. `reg-flow` output declarations
+  (`re-frame.elision`) read that registry; its WRITER is the effect, not
+  the frame. `reg-flow` output declarations
   (`:source :flow`) and subsystem projection-relative declarations
   (resources / routing) are the other sources; all sources union at lookup.
 
-  ## EP-0025 — the frame `:sensitive {:http …}` HTTP carrier is REMOVED
+  ## EP-0025 — no frame `:sensitive {:http …}` HTTP carrier
 
   HTTP carrier classification (app-specific secret-bearing header /
-  query-param NAMES that union onto the immutable built-in denylists) is NO
-  LONGER a frame-config annotation either. Per [EP-0025 §HTTP carriers] the
+  query-param NAMES that union onto the immutable built-in denylists) is NOT
+  a frame-config annotation either. Per [EP-0025 §HTTP carriers] the
   carrier capability is the TRANSIENT-payload case: it lives on the
   `:rf.http/managed` `reg-fx` registration metadata (the
   `:carriers {:headers […] :query-params …}` block), resolved + unioned onto
   the built-in denylists by the http artefact itself (`re-frame.http.privacy`
   reads `re-frame.registrar/handler-meta :fx :rf.http/managed`). A frame config
-  carrying a `:sensitive` key now FAILS LOUD (clean break) — there is no
-  valid `:sensitive` content left on a frame (the durable `:app-db` block was
-  already removed, and `:http` moved to `:rf.http/managed`). The diagnostic
-  directs the author to the `:rf.http/managed` registration.
+  carrying a `:sensitive` key FAILS LOUD — there is no
+  valid `:sensitive` content on a frame (durable `:app-db` classification is
+  the commit-plane effects, and `:http` carriers live on
+  `:rf.http/managed`). The diagnostic directs the author to the
+  `:rf.http/managed` registration.
 
   ## What this namespace owns
 
   This namespace is the frame metadata **schema + registry** for the one
-  surviving frame-owned classification key (`:observability`). It is the
+  frame-owned classification key (`:observability`). It is the
   validation seam the frame engine calls, atomically as part of frame creation,
   BEFORE `:initial-events` run.
 
   - **`:observability`** (`:handled-events` / `:errors`) is durable frame
-    sink policy, retained verbatim on the frame's `:config`. This slice
+    sink policy, retained verbatim on the frame's `:config`. This namespace
     validates its shape (each entry a map naming a `:sink` keyword);
     ROUTING production records through the declared sinks — the EP-0015 §9
     central claim — lives in `re-frame.observability`: the router fires
@@ -66,7 +67,7 @@
     `:rf.error/*` site, each projecting the record through `project-egress`
     under THIS frame's classification + the entry's `:rf.egress/profile`
     before the declared sink (registered via `register-observability-sink!`)
-    sees it. This slice owns the `:config` shape the router reads.
+    sees it. This namespace owns the `:config` shape the router reads.
 
   ## Fail loud at registration
 
@@ -100,25 +101,25 @@
   through untouched.
 
   EP-0025: durable app-db classification (`:sensitive` / `:large {:app-db
-  …}`) is NO LONGER a frame annotation — it moved to the commit-plane
+  …}`) is not a frame annotation — it is the commit-plane
   classification effects (`re-frame.elision`). HTTP carrier classification
-  (`:sensitive {:http …}`) is NO LONGER a frame annotation either — it moved
-  onto the `:rf.http/managed` `reg-fx` registration (`:carriers` block). So
-  the only surviving frame-owned classification key is `:observability`;
+  (`:sensitive {:http …}`) is not a frame annotation either — it lives
+  on the `:rf.http/managed` `reg-fx` registration (`:carriers` block). So
+  the only frame-owned classification key is `:observability`;
   `:sensitive` and `:large` are both retired frame keys that fail loud."
   #{:observability})
 
 (def ^:const retired-frame-keys
-  "Retired top-level frame-config classification keys that no longer name a
-  frame annotation and FAIL LOUD on sight (EP-0025 clean break). A config
+  "Retired top-level frame-config classification keys: they name no
+  frame annotation and FAIL LOUD on sight (EP-0025). A config
   carrying any of these is rejected before frame registration mutates state.
 
-  - `:large` — durable app-db classification is now the commit-plane effects
+  - `:large` — durable app-db classification is the commit-plane effects
     (`re-frame.elision`), so a frame carrying `:large {:app-db …}` is a
-    removed-annotation footgun, not inert config.
-  - `:sensitive` — the durable `:app-db` block moved to the commit-plane
-    effects AND the `:http` carrier block moved onto the `:rf.http/managed`
-    `reg-fx` registration (`:carriers`). With no valid content left, the
+    footgun, not inert config.
+  - `:sensitive` — durable `:app-db` classification is the commit-plane
+    effects AND HTTP carriers live on the `:rf.http/managed`
+    `reg-fx` registration (`:carriers`). With no valid content, the
     whole `:sensitive` frame key is retired; a frame carrying it must not
     silently register and install nothing — fail it loud, directing the
     author to the `:rf.http/managed` registration."
@@ -133,8 +134,8 @@
   `:bad-carrier`, `:bad-entry`, `:bad-value`).
 
   `where` is the PUBLIC call site the author actually typed. The sink-entry
-  grammar below is now validated from TWO doors — `rf/make-frame`'s frame
-  policy and `rf/configure!`'s process default (rf2-kuky.67) — and the
+  grammar below is validated from TWO doors — `rf/make-frame`'s frame
+  policy and `rf/configure!`'s process default — and the
   thrown-error shape's `:where` is the slot that tells the author WHICH of
   the two rejected their map. One category (`:rf.error/bad-frame-classification`),
   one grammar, two call sites: a second error category for the identical
@@ -152,27 +153,25 @@
 ;; `:observability {:handled-events [<entry>...] :errors [<entry>...]}`.
 ;; Each entry is a CLOSED map naming a `:sink` (a keyword sink id) and
 ;; optionally an `:rf.egress/profile` (a member of the closed EP-0015 §10
-;; profile enum) — and nothing else. This slice validates the SHAPE;
-;; routing records through the sinks is the EP-0015 observability slice.
+;; profile enum) — and nothing else. This namespace validates the SHAPE;
+;; routing records through the sinks is `re-frame.observability`'s job.
 ;; An unknown top-level `:observability` key, and an unknown key on an
 ;; ENTRY, both fail loudly.
 
-;; ---- retired top-level frame key rejection (EP-0025 clean break) ---------
+;; ---- retired top-level frame key rejection (EP-0025) ---------------------
 ;;
 ;; Both `:sensitive` and `:large` are retired frame-config classification keys
-;; (EP-0025 §What is removed). The durable app-db `:sensitive` / `:large
-;; {:app-db …}` annotations were removed (a frame is not app-db's definition
-;; site — durable classification is the commit-plane effects), AND the
-;; `:sensitive {:http …}` HTTP carrier block moved onto the `:rf.http/managed`
-;; `reg-fx` registration (`:carriers`). With no valid content left on either
-;; key, a frame carrying one must NOT silently register and install nothing
-;; (a removed-annotation footgun) — reject it fail-loud with the canonical
+;; (EP-0025 §What is removed). A frame is not app-db's definition site —
+;; durable classification is the commit-plane effects — AND HTTP carrier
+;; names live on the `:rf.http/managed` `reg-fx` registration (`:carriers`).
+;; With no valid content on either key, a frame carrying one must NOT
+;; silently register and install nothing (a footgun) — reject it fail-loud with the canonical
 ;; `:rf.error/bad-frame-classification` shape, directing the author to the
 ;; right home for each.
 
 (defn- retired-frame-key-reason
   "Human-facing diagnostic for a retired frame classification key — directs
-  the author to the surviving home (`k` is `:sensitive` or `:large`)."
+  the author to the right home (`k` is `:sensitive` or `:large`)."
   [k]
   (case k
     :sensitive
@@ -307,27 +306,26 @@
 
 (defn validate!
   "Validate the frame-owned policy keys of a `make-frame` `config` map — the
-  surviving `:observability` sink policy. Throws
+  `:observability` sink policy. Throws
   `:rf.error/bad-frame-classification` (canonical thrown-error shape) on ANY
   defect — a retired `:sensitive` / `:large` frame key, an unknown
   observability key, a malformed observability entry — so the failure fires
   at construction time, before any state mutates and before `:initial-events`
   run.
 
-  EP-0025: there is no durable app-db classification install here anymore —
-  the frame `:sensitive` / `:large {:app-db …}` annotation was removed in
-  favour of the commit-plane classification effects, and the `:sensitive
-  {:http …}` HTTP carrier block moved onto the `:rf.http/managed` `reg-fx`
+  EP-0025: there is no durable app-db classification install here —
+  durable classification is the commit-plane classification effects, and
+  HTTP carriers live on the `:rf.http/managed` `reg-fx`
   registration (`:carriers`). Both retired frame keys (`:sensitive` /
   `:large`) FAIL LOUD here. `:observability` rides the frame's `:config`
-  verbatim for the observability slice to consume — nothing is installed
+  verbatim for `re-frame.observability` to consume — nothing is installed
   into the elision registry from here.
 
   No-op when `config` carries no policy key and no retired frame key (the
   common case)."
   [frame-id config]
   ;; Retired top-level frame keys (`:sensitive` / `:large`) fail loud
-  ;; independently of the surviving-policy trigger — neither is in
+  ;; independently of the policy-key trigger — neither is in
   ;; `classification-keys`, so a config carrying ONLY a retired key would
   ;; otherwise never reach validation.
   (reject-retired-frame-keys! 'rf/make-frame frame-id config)
@@ -338,7 +336,7 @@
 
 (defn validate-observability-policy!
   "Validate a STANDALONE `:observability` sink policy — the process default
-  `(rf/configure! {:observability …})` (rf2-kuky.67) — under the SAME closed
+  `(rf/configure! {:observability …})` — under the SAME closed
   grammar `make-frame` validates a frame's policy against.
 
   ONE grammar, two doors. The process default and a frame's policy are the
@@ -371,11 +369,10 @@
 ;; ns in the load order). `re-frame.core` requires this ns at boot, so the
 ;; hook is always published before any runtime frame registration.
 ;;
-;; EP-0025: there is no `install!` / `install-from-config!` / `validate+extract`
-;; hook anymore — durable app-db classification moved off the frame annotation
-;; onto the commit-plane effects, so frame registration only VALIDATES the
-;; surviving `:observability` policy (it installs nothing into the elision
-;; registry). The `:frame-classification/http-carriers` resolver hook is also
-;; GONE — HTTP carrier classification moved onto the `:rf.http/managed`
-;; `reg-fx` registration, resolved by the http artefact itself.
+;; EP-0025: frame registration only VALIDATES the `:observability` policy
+;; (it installs nothing into the elision registry) — durable app-db
+;; classification is the commit-plane effects. There is no HTTP-carrier
+;; resolver hook here: HTTP carrier classification lives on the
+;; `:rf.http/managed` `reg-fx` registration, resolved by the http artefact
+;; itself.
 (rf.late-bind/set-fn! :frame-classification/validate! validate!)
