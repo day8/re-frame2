@@ -17,7 +17,7 @@
   observation crisp: pre-rereg renders bump the v1 counter; post-rereg
   renders bump the v2 counter.
 
-  Fixture: per rf2-am9d this file uses the shared
+  Fixture: this file uses the shared
   `re-frame.test-support/make-reset-runtime-fixture`, which snapshots the
   registrar before each test and restores it after. Snapshot/restore
   preserves ns-load-time framework / example registrations (notably
@@ -59,7 +59,7 @@
       (rf/reg-view* :rf.hot-reload-test/widget v1-fn)
       (let [render-v1 (rf/view :rf.hot-reload-test/widget)]
         ;; First render uses v1.
-        ;; Per Spec 006 §Source-coord annotation (rf2-z7f7), the
+        ;; Per Spec 006 §Source-coord annotation, the
         ;; reg-view* wrapper splices :data-rf2-source-coord into the
         ;; root attrs map under interop/debug-enabled?. Match the
         ;; first / last slots structurally so the test stays focused
@@ -128,7 +128,7 @@
     ;; CLJS's `:redef-in-file` lane — what matters for the contract is
     ;; the registry slot keyed on `:rf/id`, not the Clojure Var that
     ;; happens to back the form.
-    ;; EP-0002 (rf2-69r7ui): the `reg-view` MACRO injects a render-time
+    ;; EP-0002: the `reg-view` MACRO injects a render-time
     ;; capture-frame that captures `(current-frame-id)`, which REQUIRES an
     ;; established scope (there is no `:rf/default` floor). Invoke the
     ;; rendered body under an explicit `with-frame` so the handle captures a
