@@ -1,19 +1,17 @@
 (ns re-frame.resources-mutation-classification-cljs-test
-  "rf2-825mzj (agb5jk item 3) — a mutation OWNER's projection-relative
+  "A mutation OWNER's projection-relative
   `:sensitive` / `:large` declaration governs the mutation ENVELOPE's egress, so
   a `:sensitive [[:params :password]]` param does NOT ship raw in the durable
   instance's egress projection nor on the completion CONTINUATION echo, while the
   causal write (the `:request` handler) and the success-path `:invalidates` /
   `:patches` still read the RAW value.
 
-  The gap this closes (verified by probe on the pre-fix tree): the mutation
-  registry SUPPORTED the owner declaration, but the mutation projections IGNORED
-  it — the durable instance `:params`, the continuation reply `:params`, and the
-  `elide-wire-value` egress walk over `:rf.runtime/mutations` all rode the raw
-  value. The fix lowers each live instance's declaration into the per-frame
-  elision registry under `:source :mutation` (the resource-entry lowering peer)
-  and redacts the resources-constructed continuation reply from the same owner
-  declaration.
+  Each live instance's declaration is lowered into the per-frame elision
+  registry under `:source :mutation` (the resource-entry lowering peer), and the
+  resources-constructed continuation reply is redacted from the same owner
+  declaration. Without both, the durable instance `:params`, the continuation
+  reply `:params`, and the `elide-wire-value` egress walk over
+  `:rf.runtime/mutations` would all ride the raw value.
 
   CLJC so the JVM run (`clojure -M:test`, the load-bearing gate) exercises it
   and the CLJS node run does too; the schemas artefact is a test-only dep so the
@@ -208,12 +206,11 @@
                     [:rf.runtime/mutations k-id :params :password]))
             "the instance :params :password decl is in the per-frame registry"))
       (testing "the off-box egress walk over the instance REDACTS :password"
-        ;; The walker's opts map is CLOSED (rf2-kuky.6): a `:rf.egress/profile`
+        ;; The walker's opts map is CLOSED: a `:rf.egress/profile`
         ;; names a BOUNDARY and belongs to `project-egress`, which resolves it
         ;; to the `:rf.egress/*` opt-set below before delegating here. Spelt
         ;; directly, this is the `:rf.egress/off-box-tool` floor PLUS the
-        ;; explicit digest override (that profile carries no digest since
-        ;; rf2-3x7nj.32.6).
+        ;; explicit digest override (that profile carries no digest).
         (let [proj (rf.elision/elide-wire-value inst {:frame :rf/default
                                               :path [:rf.runtime/mutations k-id]
                                               :rf.egress/include-digests? true})]
@@ -238,12 +235,13 @@
           (is (not (str/includes? (pr-str (:tags ev)) PW))
               (str (:operation ev) " must not carry the raw sentinel")))))
 
-    (testing "rf2-3ej3xu — the execute event's OWN :rf.event/v trace slot
-              redacts the owner-declared param (the gap: the dispatched-event
-              trace is projected by the CORE event chokepoint, which knew only
-              the event REGISTRATION's static classification — nothing, for
-              :rf.mutation/execute — so the trusted-local :rf.egress/include-event-args?
-              opt-in path rode the raw payload)"
+    (testing "the execute event's OWN :rf.event/v trace slot
+              redacts the owner-declared param (the dispatched-event trace is
+              projected by the CORE event chokepoint, and the event
+              REGISTRATION's static classification is empty for
+              :rf.mutation/execute — without the resources hook the
+              trusted-local :rf.egress/include-event-args? opt-in path would
+              ride the raw payload)"
       (let [vs (->> @traces
                     (keep #(get-in % [:tags :rf.event/v]))
                     (filter #(and (vector? %) (= :rf.mutation/execute (first %)))))]
@@ -278,7 +276,7 @@
           "the cleared instance's declaration is gone from the registry"))))
 
 ;; ===========================================================================
-;; 4. rf2-3ej3xu — the [:rf.mutation/execute …] event-payload projection.
+;; 4. The [:rf.mutation/execute …] event-payload projection.
 ;;    The execute payload names its owner INSIDE the args (:mutation), so the
 ;;    core event-vector chokepoint defers to the resources-published
 ;;    :resources/project-execute-event-args hook — the event peer of
