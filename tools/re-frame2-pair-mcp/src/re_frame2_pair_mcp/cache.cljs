@@ -301,7 +301,7 @@
 
   Forwarded to `registry/cacheable?` — the cacheable-bool is stored on
   each entry in the single-source-of-truth registry, so cache.cljs
-  doesn't redeclare the allowlist. Keeping the name here preserves the
+  doesn't redeclare the allowlist. The name here keeps the
   call-site vocabulary (`cache/cacheable?`) for the tests and for the
   `apply-cache` / `precheck` use sites below."
   registry/cacheable?)
@@ -344,23 +344,23 @@
 
 (defn withhold!
   "Undo the identity [[apply-cache]] just recorded, because the payload it
-  hashed was never delivered to the caller (rf2-gov3).
+  hashed was never delivered to the caller.
 
   A `:rf.mcp/cache-hit` is an instruction: *re-use the response you
   already have*. `apply-cache` runs BEFORE the wire cap, so on a miss it
   stores the full response's hash and `:sent-at` and then the cap can
   replace that response with `:rf.mcp/overflow` — a payload the caller
-  never saw. The next identical read matched the stored hash and was told
-  to re-use bytes that were never sent, and the actionable size-limit
-  diagnosis was erased on every repeat.
+  never saw. Left standing, that entry would match the next identical
+  read and tell it to re-use bytes that were never sent, erasing the
+  actionable size-limit diagnosis on every repeat.
 
-  Dropping the candidate entry is the narrow repair: the fast
-  hit-before-cap path is untouched for genuinely delivered responses (an
-  under-cap payload leaves its entry standing), and no overflow marker is
-  ever cached as if it were the source payload. The whole entry goes,
-  `:precheck-hash` included — that hash short-circuits a future call to
-  the very same cache-hit marker, so retaining it would reopen the same
-  false claim through the pre-eval door.
+  Dropping the candidate entry leaves the fast hit-before-cap path
+  intact for genuinely delivered responses (an under-cap payload leaves
+  its entry standing), and no overflow marker is ever cached as if it
+  were the source payload. The whole entry goes, `:precheck-hash`
+  included — that hash short-circuits a future call to the very same
+  cache-hit marker, so retaining it would make the same false claim
+  through the pre-eval door.
 
   Takes the same `cache-opts` map `apply-cache` does. A no-op when the
   cache is off or the tool is not cacheable, since nothing was stored."
