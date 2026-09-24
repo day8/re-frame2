@@ -21,8 +21,9 @@
      render simply skips.
    - The pure hiccup -> HTML emitter, rf.ssr/render-to-string. No DOM, just data
      in and a string out.
-   - The hydration payload: the server's finished state, packed into the page
-     for the client to adopt verbatim.
+   - The hydration payload: the server's finished state, run through the
+     framework's payload projection and packed into the page for the client
+     to adopt verbatim.
    - Hydration the app never has to write. The client boots through
      `rf.ssr/hydrate!`, which dispatches the reserved `:rf/hydrate` event;
      re-frame2 owns the handler. `:rf/hydrate` *replaces* the client's
@@ -74,10 +75,10 @@
             ;; inside EDN string literals — so the payload still reads back
             ;; byte-for-byte on the client.
             #?(:clj [re-frame.ssr.html-helpers :as rf.ssr.html-helpers])
-            ;; Server-side only: the SSR artefact owns the hydration
-            ;; pattern-protocol version as a compiled-in constant. The payload
-            ;; sources `:rf/version` from it rather than pinning a literal, so a
-            ;; future bump flows through without editing every producer.
+            ;; Server-side only: the payload policy — the allowlist, the
+            ;; egress projections of both partitions, and the payload
+            ;; assembler, which sources `:rf/version` from the SSR artefact's
+            ;; compiled-in constant rather than a pinned literal.
             #?(:clj [re-frame.ssr.payload-policy :as rf.ssr.payload-policy])
             #?(:cljs [re-frame.adapter.reagent :as rf.adapter.reagent])
             ;; The client mount step — the payload-vs-client-only React-root
@@ -205,7 +206,9 @@
 ;; follows the first render.
 ;;
 ;; This example has no machines and doesn't hydrate a route, so its runtime-db
-;; slice is empty here — but the shape is the same one a richer app fills in.
+;; is empty and the payload carries no `:rf/runtime-db` at all. A richer app's
+;; route and machine state reaches the wire only through the framework's
+;; projection in `handle-request`, which redacts what the app classified.
 ;; The client `run` at the bottom drives all of this through `rf.ssr/hydrate!`; the
 ;; CLIENT ENTRY POINT section picks up the thread.
 
@@ -339,7 +342,8 @@
 ;;      up as a finished empty page.
 ;;   5. Render the settled state to a string with the pure hiccup -> HTML
 ;;      emitter.
-;;   6. Serialise that same state and tuck it into the HTML as the payload.
+;;   6. Project that same state through the framework's payload policy,
+;;      serialise it, and tuck it into the HTML as the payload.
 ;;   7. destroy-frame!, in a `finally`. This step isn't optional bookkeeping —
 ;;      on a server that runs for weeks, it's what stops you leaking a frame
 ;;      per request. It drops the frame record and fires
@@ -375,8 +379,8 @@
               :headers {"Content-Type" "text/plain; charset=utf-8"
                         "Cache-Control" "no-store"}
               :body    (str "Articles unavailable (" (name outcome) ").")}
-             (let [final-db      (rf/app-db-value f)        ;; the app-db partition
-                   final-runtime (:rf.db/runtime (rf/frame-state-value f))    ;; the runtime-db partition (serializable)
+             (let [final-db      (rf/app-db-value f)                         ;; the app-db partition
+                   final-runtime (:rf.db/runtime (rf/frame-state-value f))   ;; the RAW runtime-db partition — never shipped as-is
                    hiccup   ((rf/view :app/root))
                    ;; Hash the tree ONCE, then spend that one hash on both
                    ;; channels below. `render-tree-hash` is a full walk of the
@@ -413,11 +417,38 @@
                    ;; is exactly what this output and the static `index.html`
                    ;; both use. A deployment that *does* want to carry one stamps
                    ;; a stable id both sides agree on ahead of time — never a
-                   ;; per-request gensym.
-                   payload  {:rf/version     rf.ssr.payload-policy/pattern-protocol-version  ;; the SSR-owned constant, not a literal
-                             :rf/app-db      final-db        ;; app-db partition
-                             :rf/runtime-db  final-runtime   ;; serializable runtime-db projection
-                             :rf/render-hash render-hash}]
+                   ;; per-request gensym. That is the `nil` handed to
+                   ;; `build-payload` below.
+                   ;;
+                   ;; And the payload is PROJECTED, never the raw partitions —
+                   ;; the same three steps the Ring host (`re-frame.ssr.ring`)
+                   ;; runs, each under this request's frame, which is still live:
+                   ;;   - `apply-policy` is the fail-closed allowlist. The client
+                   ;;     reads `:articles`; `:articles/load-state` is the
+                   ;;     server's own wait signal, so it stays home.
+                   ;;   - `project-app-db-egress` redacts any path the app
+                   ;;     classified `:sensitive` inside what the allowlist let
+                   ;;     through.
+                   ;;   - `project-runtime-db` keeps only the durable route and
+                   ;;     machine slices, redacts their classified values, and
+                   ;;     leaves out the frame's classification registry.
+                   ;;     Shipping the raw partition instead would put a route's
+                   ;;     `:sensitive` query token, and that registry, into
+                   ;;     cacheable HTML.
+                   ;; This page's runtime-db is empty, so the projection is nil
+                   ;; and `build-payload` omits `:rf/runtime-db` — a present
+                   ;; nil would be a malformed slice that `:rf/hydrate` refuses.
+                   ;; `build-payload` also sources `:rf/version` from the
+                   ;; SSR-owned constant, so no producer pins a literal.
+                   policy   {:payload [:articles]}
+                   payload  (rf.ssr.payload-policy/build-payload
+                              nil                                                 ;; no wire :rf/frame-id
+                              (rf.ssr.payload-policy/project-app-db-egress
+                                (rf.ssr.payload-policy/apply-policy final-db policy)
+                                fid)
+                              render-hash
+                              {:runtime-db (rf.ssr.payload-policy/project-runtime-db
+                                             final-runtime fid)})]
                {:status  200
                 :headers {"Content-Type" "text/html"}
                 :body

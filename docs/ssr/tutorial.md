@@ -143,15 +143,17 @@ The HTML alone isn't enough. When the browser's JavaScript boots, it needs the *
 ```clojure
 ;; cf. examples/capabilities/ssr/ssr/core.cljc — the render + payload half
 ;; (two new requires: #?(:clj [re-frame.ssr.html-helpers :as html]) — the escaper —
-;;  and #?(:clj [re-frame.ssr.payload-policy :as payload-policy]) for the version constant)
+;;  and #?(:clj [re-frame.ssr.payload-policy :as payload-policy]) — the payload builder)
 (rf/with-frame fid
   (let [hiccup  ((rf/view :app/root))
         rhash   (ssr/render-tree-hash hiccup)                ;; hash ONCE …
         page    (ssr/render-to-string hiccup {:render-hash rhash})  ;; … stamp it here …
-        payload {:rf/version     payload-policy/pattern-protocol-version  ;; the SSR-owned constant, not a hand-pinned literal
-                 :rf/app-db      (rf/app-db-value fid)       ;; your state
-                 :rf/runtime-db  (:rf.db/runtime (rf/frame-state-value fid))   ;; the framework's (route, machines)
-                 :rf/render-hash rhash}]                     ;; … and again here — Step 5's tripwire
+        payload (payload-policy/build-payload                ;; stamps :rf/version from the SSR-owned constant
+                  nil                                        ;; no :rf/frame-id — the client names its own frame
+                  (rf/app-db-value fid)                      ;; your state (all of it — see below)
+                  rhash                                      ;; … and again here — Step 5's tripwire
+                  {:runtime-db (payload-policy/project-runtime-db    ;; the framework's (route, machines),
+                                 (:rf.db/runtime (rf/frame-state-value fid)) fid)})]  ;; projected, never raw
     {:status  200
      :headers {"Content-Type" "text/html"}
      :body    (str "<!DOCTYPE html><html><head><meta charset='utf-8'/></head><body>"
@@ -180,7 +182,7 @@ Three things to note:
 
 (You may spot `:doctype? true` in the worked example's render call. That opt prefixes `<!DOCTYPE html>` onto the emitted string itself — for when your root view renders the whole `[:html …]` document. This handler wraps a fragment in its own envelope, doctype included, so the render call shouldn't add another.)
 
-This hand-rolled version ships the *whole* app-db, which is fine for a demo and a leak the moment real apps put secrets in state. Step 7's adapter makes you declare an allowlist instead — [Concepts → the fail-closed allowlist](concepts.md#payload--the-fail-closed-allowlist) is the policy in full.
+This hand-rolled version ships the *whole* app-db, which is fine for a demo and a leak the moment real apps put secrets in state. Step 7's adapter makes you declare an allowlist instead — [Concepts → the fail-closed allowlist](concepts.md#payload--the-fail-closed-allowlist) is the policy in full. The runtime-db half is never hand-rolled, even here. `project-runtime-db` keeps only the durable route and machine slices and redacts any value the app classified `:sensitive`, such as a reset token in a query string. It also leaves out the frame's classification registry. The raw partition would ship all of that verbatim. On this page the runtime-db is empty, so the projection is `nil` and `build-payload` leaves `:rf/runtime-db` out. A present `nil` would be a malformed slice that hydration refuses.
 
 ## Step 4 — wake it up: hydrate on the client
 
