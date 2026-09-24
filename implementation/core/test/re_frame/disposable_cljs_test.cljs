@@ -1,16 +1,14 @@
 (ns re-frame.disposable-cljs-test
-  "Direct unit coverage for the re-frame-owned `IDisposable` protocol
-  (rf2-wx79g; follow-on from rf2-q1z1u F5).
+  "Direct unit coverage for the re-frame-owned `IDisposable` protocol.
 
-  Background. Per rf2-jicu2 / rf2-ykqee the `IDisposable` protocol was
-  lifted out of `reagent.ratom` into `re-frame.disposable` so the UIx
-  adapter can satisfy the sub-cache teardown contract
-  without dragging ~9KB of Reagent batching/ratom code into their
-  bundles. The spine reifies this protocol on its derived-value
+  `IDisposable` lives in `re-frame.disposable` rather than
+  `reagent.ratom`, so the UIx adapter can satisfy the sub-cache teardown
+  contract without dragging ~9KB of Reagent batching/ratom code into its
+  bundle. The spine reifies this protocol on its derived-value
   containers; the substrate-spine integration test
   `spine_dispose_cljs_test` exercises it via the cache walk; this
   file pins the protocol contract directly at the function boundary so
-  an external user (or a future internal reify) that satisfies the
+  an external user (or another internal reify) that satisfies the
   protocol gets a clean regression signal if the contract slips.
 
   Contract surface from `re-frame.disposable`:
