@@ -3,7 +3,7 @@
   about.
 
   Layers, each a pure function of the one below, declaring its dependencies
-  under `:inputs` as the two earlier witness applications do.
+  under `:inputs` as the slice and Todo witness applications do.
 
   ## [[::suggestions]] and [[::detail]] are PARAMETRIC, and that is the point
 
@@ -16,7 +16,7 @@
   A committed read of either is, by itself, the whole of what
   demand-driven resource ownership would need: the id says WHICH resource
   and the argument says WHICH ONE, and a boundary that stops rendering the
-  panel stops holding the first. Today nothing connects that fact to the
+  panel stops holding the first. Nothing connects that fact to the
   request, which is what
   [[re-frame.fresco.examples.typeahead.events]]'s census rows are.
 
