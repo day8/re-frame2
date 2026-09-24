@@ -1,8 +1,7 @@
 (ns re-frame.ssr.ring.streaming-robustness-test
   "Robustness coverage for the streaming SSR daemon writer thread —
   `re-frame.ssr.ring.streaming/run-streaming-writer!` and the daemon
-  thread `stream-handler` spawns to invoke it. Follow-on from rf2-toib5
-  test-coverage sweep G2 / rf2-jvpli.
+  thread `stream-handler` spawns to invoke it.
 
   ## Why this lives at the daemon-thread layer
 
@@ -15,14 +14,14 @@
   mode contract is structurally different — no caller frame to bubble
   to, no `:on-error` hook to invoke (the response has already started).
 
-  Per Spec 011 §Failure semantics — exceptions the writer thread STILL
-  owns after rf2-r06pc (a final-payload build throw, a downstream
+  Per Spec 011 §Failure semantics — exceptions the writer thread
+  owns (a final-payload build throw, a downstream
   OutputStream broken-pipe, a continuation drain) close the pipe with
   whatever partial response was flushed and emit a structured
   `:rf.error/ssr-streaming-writer-failed` trace; the writer's `finally`
   closes the OutputStream so the Ring server emits EOF; the daemon
-  thread terminates. (rf2-r06pc moved root-view / head / shell-walk
-  resolution to the REQUEST thread, before the head commits — those
+  thread terminates. (Root-view / head / shell-walk
+  resolution runs on the REQUEST thread, before the head commits — those
   fail closed to a non-200 on the request thread and never reach the
   writer; see test 3.) The load-bearing contracts:
 
@@ -46,7 +45,7 @@
     1. `writer-survives-broken-pipe-on-write` — direct call to
        `run-streaming-writer!` against a PipedOutputStream whose sink
        (`PipedInputStream`) was closed before the writer started, handed
-       a PRE-RENDERED shell (rf2-r06pc — the writer no longer renders
+       a PRE-RENDERED shell (the writer does not render
        the shell). The first chunk write raises `IOException: Pipe
        closed`. The writer's outer `catch Throwable` arm absorbs; no
        exception escapes; the OutputStream is closed in `finally`.
@@ -56,12 +55,12 @@
        flight on the next `.write`, hits a broken-pipe IOException;
        same catch + finally semantics; thread terminates within a
        generous bound; no orphan `rf2-ssr-streaming-*` thread remains.
-    3. `root-view-throw-fails-closed-non-200-bytes-on-wire` (rf2-r06pc) —
+    3. `root-view-throw-fails-closed-non-200-bytes-on-wire` —
        root-view fn throws on resolution (a structural shell failure).
-       The shell now renders on the REQUEST thread before the head
+       The shell renders on the REQUEST thread before the head
        commits, so the throw escalates to `:rf.error/ssr-render-failed`
-       and FAILS CLOSED to a non-200 projected error page — NOT the
-       silent 200 this test previously (incorrectly) blessed. NO daemon
+       and FAILS CLOSED to a non-200 projected error page — never a
+       silent 200. NO daemon
        writer thread is spawned at all. (Spec 011 §744/§748/§954.)
     4. `daemon-thread-name-is-frame-scoped` — sanity check that the
        writer thread is named `rf2-ssr-streaming-<frame-id>` so the
@@ -136,11 +135,11 @@
 
 ;; ---- Jetty + JDK HTTP client + leak detector -----------------------------
 ;;
-;; rf2-l1qgjw — the ephemeral Jetty host, the `java.net.http` client /
+;; The ephemeral Jetty host, the `java.net.http` client /
 ;; request builder, and the `rf2-ssr-streaming-*` daemon-thread leak
-;; detector now live in `re-frame.ssr.ring.test-support` (aliased `ts`),
+;; detector live in `re-frame.ssr.ring.test-support`,
 ;; shared with the other live-host / streaming-thread test namespaces.
-;; The per-test knobs stay explicit at the call sites below: a 10s read
+;; The per-test knobs are explicit at the call sites below: a 10s read
 ;; timeout (`http-get-request`/`http-get` 3rd arg) and a 10ms leak-poll
 ;; cadence (`await-no-streaming-threads!` 2nd arg — the single-request
 ;; tests poll faster than the concurrency burst's 50ms).
@@ -150,7 +149,7 @@
 
 (defn- await-no-streaming-threads!
   "Single-request poll cadence (10ms) over the shared leak detector.
-  rf2-fun38: returns the leaked-thread vec on timeout (does not throw) so
+  Returns the leaked-thread vec on timeout (does not throw) so
   the assertion can name the offenders."
   [timeout-ms]
   (rf.ssr.ring.test-support/await-no-streaming-threads! timeout-ms leak-poll-ms))
@@ -192,22 +191,18 @@
           pipe-out (PipedOutputStream. pipe-in)
           _        (.close pipe-in)
           ;; Direct writer-body invocation. We pass a throw-away
-          ;; frame-id (no frame registered) — the writer will throw on
-          ;; `rf/with-frame` deref before any chunk write, but THAT
-          ;; throw is caught by the SAME outer catch arm we are
-          ;; exercising for the broken-pipe path. The contract under
-          ;; test is `catch Throwable, then finally close out` — the
-          ;; identity of the absorbed throw doesn't matter, only that
+          ;; frame-id (no frame registered) — the identity of the
+          ;; absorbed throw doesn't matter, only that
           ;; the writer returns normally and the OutputStream is left
           ;; in the closed state.
-          ;; rf2-r06pc — the writer no longer resolves/renders the shell
-          ;; (that moved to `render-streaming-shell!` on the request
-          ;; thread). It now receives PRE-RENDERED shell pieces and only
+          ;; The writer does not resolve/render the shell
+          ;; (`render-streaming-shell!` does that on the request
+          ;; thread). It receives PRE-RENDERED shell pieces and only
           ;; drains the chunk stream, so we hand it a minimal valid
           ;; `rendered` map. The very first `write-chunk!` of the shell
           ;; prefix hits the pre-closed pipe → `IOException: Pipe closed`,
           ;; the exact broken-pipe surface the outer `catch Throwable`
-          ;; absorbs. The contract under test is unchanged: `catch
+          ;; absorbs. The contract under test: `catch
           ;; Throwable, then finally close out` — the writer returns
           ;; normally and the OutputStream is left closed.
           rendered {:shell-prefix  "<!DOCTYPE html><html><head></head><body><div id=\"app\">"
@@ -225,10 +220,10 @@
            `catch Throwable`, not `catch IOException`: arbitrary
            OutputStream failures (broken pipe, SSL shutdown mid-stream,
            Jetty internal-buffer errors) and the post-first-chunk
-           render throws the writer still owns (continuation drains —
+           render throws the writer owns (continuation drains —
            inline-fallback — and the final-payload build) MUST all be
-           absorbed. (rf2-r06pc moved root-view / head / shell-walk
-           resolution to the request thread, so those no longer reach
+           absorbed. (Root-view / head / shell-walk
+           resolution runs on the request thread, so those never reach
            the writer at all — they fail closed BEFORE the writer is
            spawned.)")
       ;; The writer's finally closes the OutputStream. Probe by
@@ -300,25 +295,24 @@
                      (mapv (fn [^Thread t] (.getName t)) leaked)))))))))
 
 ;; ===========================================================================
-;; Test 3 (rf2-r06pc) — root-view throw FAILS CLOSED to a non-200 on the
-;;                      request thread; NO writer thread is spawned
+;; Test 3 — root-view throw FAILS CLOSED to a non-200 on the
+;;          request thread; NO writer thread is spawned
 ;; ===========================================================================
 ;;
-;; This test PREVIOUSLY blessed a 200 for a root-view throw — the exact
-;; spec drift rf2-r06pc fixes. The OLD streaming order materialised the
-;; Ring head (status 200) and spawned the daemon writer BEFORE the writer
-;; resolved/rendered the shell, so a root-view / shell-walk throw fired on
-;; the detached daemon thread where it could only emit a trace + close the
-;; pipe — the wire had already committed a silent 200/truncated body.
+;; Materialising the Ring head (status 200) and spawning the daemon writer
+;; BEFORE resolving/rendering the shell would let a root-view / shell-walk
+;; throw fire on the detached daemon thread, where it could only emit a
+;; trace + close the pipe — the wire would already have committed a silent
+;; 200/truncated body.
 ;;
 ;; Spec 011 §744/§748/§954: a shell-walk (or root-view) throw is the
 ;; request's structural foundation failing; it MUST escalate to
 ;; `:rf.error/ssr-render-failed` through the standard error-projection
 ;; path and FAIL CLOSED to a non-200 projected error page — NOT a 200.
 ;;
-;; The fix (rf2-r06pc) renders the shell on the REQUEST thread, before the
-;; head commits, mirroring the non-streaming post-render re-flush
-;; (rf2-c0bq1). A root-view throw now propagates on the request thread and
+;; So the shell renders on the REQUEST thread, before the
+;; head commits, mirroring the non-streaming post-render re-flush.
+;; A root-view throw propagates on the request thread and
 ;; is routed through the projector (`project-render-throw->ring-response`)
 ;; → a non-200 projected error page returned as an ORDINARY (non-chunked)
 ;; Ring response. NO pipe and NO daemon writer thread is ever spawned.
@@ -332,8 +326,8 @@
 ;; `ring_streaming_test/stream-handler-root-view-throw-fails-closed`.
 
 (deftest root-view-throw-fails-closed-non-200-bytes-on-wire
-  (testing "rf2-r06pc: a root-view throw fails closed to a non-200 on the
-            full Jetty round-trip (was incorrectly 200 before the fix) AND
+  (testing "a root-view throw fails closed to a non-200 on the
+            full Jetty round-trip AND
             spawns NO daemon writer thread — the shell renders on the
             request thread before the head commits, so a structural shell
             failure escalates to `:rf.error/ssr-render-failed` and projects
@@ -357,8 +351,8 @@
           (is (= 500 status)
               "root-view throw fails closed to a 500 on the wire (default
                projector maps `:rf.error/ssr-render-failed` → 500) — NOT
-               the silent 200 the OLD daemon-writer-first order shipped
-               (rf2-r06pc / Spec 011 §744/§748/§954)")
+               the silent 200 a daemon-writer-first order would ship
+               (Spec 011 §744/§748/§954)")
           (is (string? body)
               "the wire EOF'd cleanly — `.send` returned a body string,
                no read-side hang")
@@ -434,7 +428,7 @@
               (str "every captured thread name starts with the
                    `rf2-ssr-streaming-` prefix — captured names: "
                    (vec names))))
-        ;; rf2-ekwda: the writer is genuinely a daemon thread, not just
+        ;; The writer is genuinely a daemon thread, not just
         ;; named one — a writer blocked on `.write` to a slow-loris
         ;; client's bounded pipe must NOT pin the JVM open at shutdown.
         ;; Captured live, this is the only place the daemon flag is
@@ -450,8 +444,8 @@
                daemon thread"))))))
 
 ;; ===========================================================================
-;; Test 5 (rf2-z5azc) — head-materialisation throw must not orphan the pipe
-;;                       or leak a writer thread
+;; Test 5 — head-materialisation throw must not orphan the pipe
+;;          or leak a writer thread
 ;; ===========================================================================
 ;;
 ;; `ssr-response->ring-response` folds the response accumulator's
@@ -467,21 +461,20 @@
 ;; :expires with no CR/LF — PASSES the fx gate (no injection char), is
 ;; stored on the accumulator, and THEN throws
 ;; `:rf.error/cookie-invalid-expires` when the host adapter materialises
-;; the head. (Before rf2-kjf3m.1 this test used a CR/LF-bearing
-;; :max-age; that attribute is now CRLF-gated at the fx boundary too, so
-;; it no longer reaches head materialisation — the non-integer :expires
-;; type-contract divergence is the genuine remaining escape path.)
+;; the head. (A CR/LF-bearing :max-age is CRLF-gated at the fx boundary
+;; too, so it never reaches head materialisation — the non-integer :expires
+;; type-contract divergence is the genuine escape path.)
 ;;
-;; The bug (rf2-z5azc): the old streaming branch spawned + started the
-;; daemon writer thread BEFORE materialising the head. When the head
-;; throw fired, the Ring response handed back was the :on-error 500 —
-;; but the writer thread was already pumping the FULL body into a pipe
-;; whose reader (`pipe-in`) was never returned to anyone. With a body
+;; Spawning + starting the daemon writer thread BEFORE materialising the
+;; head would mean that when the head throw fires, the Ring response handed
+;; back is the :on-error 500 — but the writer thread is already pumping the
+;; FULL body into a pipe whose reader (`pipe-in`) is never returned to
+;; anyone. With a body
 ;; larger than the 16 KiB pipe buffer the writer BLOCKS FOREVER on
 ;; `.write` (no consumer) — one live daemon thread leaked per such
 ;; request, a resource-exhaustion vector.
 ;;
-;; The fix: materialise the head FIRST. A head-materialisation throw then
+;; So the head is materialised FIRST. A head-materialisation throw then
 ;; short-circuits to the outer catch BEFORE any pipe or thread exists —
 ;; the handler returns the :on-error 500 and NO `rf2-ssr-streaming-*`
 ;; thread is ever spawned.
@@ -489,12 +482,12 @@
 ;; This test pins BOTH halves of the contract:
 ;;   - the handler returns a contained 500 (not a streamed body), and
 ;;   - no orphan `rf2-ssr-streaming-*` daemon thread is alive afterward.
-;; The body is deliberately sized past the 16 KiB pipe buffer so that on
-;; the OLD ordering the orphaned writer would block forever (a detectable
-;; leak), giving the test genuine before/after discriminating power.
+;; The body is deliberately sized past the 16 KiB pipe buffer so that under
+;; a writer-first ordering the orphaned writer would block forever (a
+;; detectable leak), giving the test genuine discriminating power.
 
 (deftest head-materialisation-throw-does-not-orphan-writer
-  (testing "rf2-z5azc — a cookie that throws at head materialisation
+  (testing "a cookie that throws at head materialisation
             (escaped the fx boundary) short-circuits to :on-error with
             NO writer thread spawned + NO orphaned pipe"
     ;; :initial-events sets a cookie whose :expires is a non-integer string.
@@ -511,10 +504,10 @@
         {:db {}
          :fx [[:rf.server/set-cookie {:name "s" :value "v" :expires "not-an-int"}]]}))
     ;; A root-view emitting a body well past the 16 KiB pipe buffer, so
-    ;; that under the OLD (buggy) ordering the orphaned writer would
+    ;; that under a writer-first ordering the orphaned writer would
     ;; block forever on `.write` — making the leak deterministic. Under
-    ;; the FIXED ordering this view never renders (the head throws first,
-    ;; before the writer is spawned).
+    ;; the head-first ordering the writer never starts (the head throws
+    ;; first, before the writer is spawned).
     (rf/reg-view ^{:rf/id :test/big-root} big-root []
       (into [:div]
             (for [i (range 4000)]
@@ -538,21 +531,21 @@
       (is (= "Internal error" (:body response))
           "locked default-on-error body — the topology-leak contract
            holds; no cookie internals reach the wire")
-      ;; The load-bearing assertion: NO writer thread leaked. Under the
-      ;; OLD ordering the writer was spawned before the head throw and,
+      ;; The load-bearing assertion: NO writer thread leaked. Under a
+      ;; writer-first ordering the writer would be spawned before the head throw and,
       ;; with this oversized body, would block forever on a reader-less
       ;; pipe — `await-no-streaming-threads!` would time out non-empty.
       (let [leaked (await-no-streaming-threads! 5000)]
         (is (empty? leaked)
             (str "no orphan rf2-ssr-streaming-* daemon thread after a
                  head-materialisation throw — the writer must not be
-                 spawned until the head is known materialisable
-                 (rf2-z5azc). Live threads observed: "
+                 spawned until the head is known materialisable.
+                 Live threads observed: "
                  (mapv (fn [^Thread t] (.getName t)) leaked)))))))
 
 ;; ===========================================================================
-;; Test 6 (rf2-r06pc) — production reactive-sub throw during the streaming
-;;                      shell render fails closed to a non-200 ON THE WIRE
+;; Test 6 — production reactive-sub throw during the streaming
+;;          shell render fails closed to a non-200 ON THE WIRE
 ;; ===========================================================================
 ;;
 ;; The streaming counterpart of `ring_rendertime_sub_failclosed_test`
@@ -560,30 +553,28 @@
 ;; throws during the shell render under production hardening
 ;; (`interop/debug-enabled? = false`) recovers to nil (the render does NOT
 ;; throw) but BUFFERS a fail-closed 500 on the always-on error-emit
-;; substrate (rf2-vvwmi). The OLD streaming order committed the Ring head
-;; (status 200) before the daemon writer ran the render, so that buffered
-;; 500 never reached the wire — a silent 200 with the recovered-to-nil
-;; broken HTML, defeating the rf2-vvwmi fix end-to-end (Spec 011 §744 /
+;; substrate. Committing the Ring head
+;; (status 200) before the daemon writer ran the render would mean that
+;; buffered 500 never reaches the wire — a silent 200 with the
+;; recovered-to-nil broken HTML (Spec 011 §744 /
 ;; §750).
 ;;
-;; The fix (rf2-r06pc) renders the shell on the request thread and re-reads
-;; the response accumulator (`ssr/get-response`) AFTER the render — exactly
-;; as the non-streaming `build-full-response*` does (rf2-c0bq1) — so the
-;; buffered 500 is committed onto the chunked head before the writer is
-;; spawned. This test drives the throwing sub through the REAL stream-
+;; So the shell renders on the request thread and the response accumulator
+;; is re-read (`ssr/flush-response-result!`) AFTER the render — exactly
+;; as the non-streaming `build-full-response*` does — so the
+;; buffered 500 diverts to the non-streamed projected-error arm before any
+;; writer is spawned. This test drives the throwing sub through the REAL stream-
 ;; handler order and asserts the WIRE status is 500, bytes-on-wire through
 ;; Jetty.
 
-;; rf2-l1qgjw — the full-body `{:status :body}` GET now uses the shared
-;; `ts/http-get` (the local `http-get-string` was its duplicate).
+;; The full-body `{:status :body}` GET uses the shared
+;; `test-support/http-get`.
 
 (deftest rendertime-sub-throw-fails-closed-non-200-bytes-on-wire
-  (testing "rf2-r06pc / rf2-vvwmi: a production-mode reactive sub that
+  (testing "a production-mode reactive sub that
             throws during the STREAMING shell render fails closed to a
             non-200 on the full Jetty round-trip — NOT a silent 200 with
-            the recovered-to-nil broken HTML (Spec 011 §744/§750). Before
-            rf2-r06pc the streaming handler committed the 200 head before
-            the daemon writer ran the render that buffers the 500."
+            the recovered-to-nil broken HTML (Spec 011 §744/§750)."
     (rf/reg-sub :throwing-sub (fn [_db _] (throw (ex-info "sub-boom" {}))))
     (rf/reg-view ^{:rf/id :test/uses-throwing-sub} uses-throwing-sub []
       (let [v @(rf/subscribe [:throwing-sub])]
@@ -601,34 +592,34 @@
                      :payload :rf.ssr.payload/whole-app-db})]
       ;; Production hardening — the always-on error-emit substrate is the
       ;; status source of truth. NB: the redef is in force on THIS (the
-      ;; request) thread, which is where rf2-r06pc now runs the shell
-      ;; render + the post-shell re-read — so the buffered 500 is observed
-      ;; and committed before the response is returned to Jetty.
+      ;; request) thread, which is where the shell
+      ;; render + the post-shell re-read run — so the buffered 500 is observed
+      ;; before the response is returned to Jetty.
       (with-redefs [rf.interop/debug-enabled? false]
         (rf.ssr.ring.test-support/with-jetty [port handler]
           (let [client (rf.ssr.ring.test-support/new-http-client)
                 {:keys [status]} (rf.ssr.ring.test-support/http-get client port "/" read-timeout-secs)]
             (is (= 500 status)
                 "render-time sub-throw fail-closed 500 rides the full
-                 Jetty round-trip — never a silent 200 (rf2-r06pc)")))))))
+                 Jetty round-trip — never a silent 200")))))))
 
 ;; ===========================================================================
-;; Test 7 (rf2-sgvn6 / rf2-b1v8v) — NESTED suspense boundary drains its
-;;                                  inner chunk on the actual wire (FIFO)
+;; Test 7 — NESTED suspense boundary drains its
+;;          inner chunk on the actual wire (FIFO)
 ;; ===========================================================================
 ;;
-;; The end-to-end bytes-on-wire proof for the nested-streaming fix. An
+;; The end-to-end bytes-on-wire proof for nested streaming. An
 ;; OUTER `:rf/suspense-boundary` whose subtree contains an INNER
 ;; `:rf/suspense-boundary` must stream the inner boundary's resolved
 ;; chunk over the real Jetty transport — the inner registers DURING the
 ;; outer continuation's render and the daemon writer's GROWABLE FIFO
 ;; appends it at the tail (Spec 011 §922-924/§966/§983).
 ;;
-;; Before the fix: the outer continuation rendered its subtree through the
-;; NON-streaming emitter, which threw on the buried `:rf/suspense-boundary`
-;; head (`:rf.error/ssr-suspense-boundary-outside-stream`); the throw was
-;; caught as a FAILED outer continuation that re-emitted its own fallback,
-;; and the inner boundary never registered or resolved — wrong streamed
+;; Rendering the outer continuation's subtree through the
+;; NON-streaming emitter would throw on the buried `:rf/suspense-boundary`
+;; head (`:rf.error/ssr-suspense-boundary-outside-stream`); the throw would be
+;; caught as a FAILED outer continuation that re-emits its own fallback,
+;; and the inner boundary would never register or resolve — wrong streamed
 ;; HTML for nested Suspense UI. This test pins, on the wire:
 ;;   - the outer boundary is NOT marked failed,
 ;;   - the inner boundary's resolved chunk + body stream,
@@ -636,7 +627,7 @@
 ;;   - no orphan daemon thread.
 
 (deftest nested-boundary-inner-chunk-streams-on-wire-FIFO
-  (testing "rf2-sgvn6 / rf2-b1v8v: an outer boundary containing an inner
+  (testing "an outer boundary containing an inner
             boundary streams the inner resolved chunk on the real Jetty
             wire, at the FIFO tail, with the outer resolved cleanly (not
             failed)."
@@ -675,7 +666,7 @@
           (is (some? idx-outer-resolved)
               "outer resolved chunk on the wire (NOT a failed re-emit)")
           (is (not (str/includes? body "data-rf2-suspense-id=\":wire/outer\" data-rf2-suspense-resolved=\"1\" data-rf2-suspense-failed=\"1\""))
-              "outer boundary NOT marked failed on the wire (rf2-sgvn6)")
+              "outer boundary NOT marked failed on the wire")
           (is (some? idx-inner-resolved)
               "inner boundary's resolved chunk streamed on the wire — the
                nested continuation registered + drained at the FIFO tail")
@@ -696,18 +687,18 @@
                  (mapv (fn [^Thread t] (.getName t)) leaked)))))))
 
 ;; ===========================================================================
-;; Test 8 (rf2-3x7nj.14.1) — a body nobody drains cannot pin the writer, the
-;;                          request frame or the request slot for ever
+;; Test 8 — a body nobody drains cannot pin the writer, the
+;;          request frame or the request slot for ever
 ;; ===========================================================================
 ;;
 ;; Middleware that drops the streamed body without reading or closing it —
 ;; Ring core's own `wrap-head`, `(assoc response :body nil)` on every HEAD —
-;; left a page larger than the 16 KiB pipe parked in the JDK's
+;; would leave a page larger than the 16 KiB pipe parked in the JDK's
 ;; `PipedInputStream.awaitSpace` for the life of the JVM: one writer thread,
 ;; one `:rf.frame/*` frame and one request slot per request. A live reader
-;; that drained a few bytes and then abandoned the body unclosed leaked the
-;; same set. The writer now hands the pipe only what fits and aborts through
-;; its existing catch/finally once the consumer has drained nothing for
+;; that drains a few bytes and then abandons the body unclosed would leak the
+;; same set. The writer hands the pipe only what fits and aborts through
+;; its ordinary catch/finally once the consumer has drained nothing for
 ;; `streaming/stall-timeout-ms` (60 s; redefined to `stall-limit-ms` here).
 ;;
 ;; Counts are read in the test body, before the `:each` fixture's reset
@@ -787,7 +778,7 @@
         (rf.error-emit/unregister-error-listener! ::stall-recorder)))))
 
 (deftest wrap-head-dropped-body-is-reclaimed-within-the-stall-limit
-  (testing "rf2-3x7nj.14.1: Ring's wrap-head drops a streamed body larger than
+  (testing "Ring's wrap-head drops a streamed body larger than
             the 16 KiB pipe, unread and unclosed; the writer thread, the
             request frame and the request slot are reclaimed within the stall
             limit, with one always-on writer-failed record"
@@ -807,7 +798,7 @@
                 "the handler did hand out a streamed body")
             (is (= no-leak census)
                 "no writer thread, request frame or request slot outlives the
-                 stall limit (before the fix: 1 / 1 / 1, for the life of the
+                 stall limit (without the limit: 1 / 1 / 1, for the life of the
                  JVM)")
             (is (= 1 (count records))
                 "exactly one always-on writer-failed record — the visible
@@ -818,7 +809,7 @@
         (finally (close-bodies! bodies))))))
 
 (deftest partially-read-then-abandoned-body-is-reclaimed-within-the-stall-limit
-  (testing "rf2-3x7nj.14.1: a live reader drains 255 bytes and then abandons
+  (testing "a live reader drains 255 bytes and then abandons
             the body unclosed, so the JDK's dead-reader check never fires; the
             stall limit reclaims it all the same"
     (register-sized-page! 1000)
@@ -846,14 +837,14 @@
                  dead")
             (is (= no-leak census)
                 "no writer thread, request frame or request slot outlives the
-                 stall limit (before the fix: 1 / 1 / 1, for the life of the
+                 stall limit (without the limit: 1 / 1 / 1, for the life of the
                  JVM)")))
         (finally
           (.countDown release)
           (close-bodies! bodies))))))
 
 (deftest fully-read-body-arrives-whole-without-a-stall-abort
-  (testing "rf2-3x7nj.14.1 control: a consumer that reads the whole body gets
+  (testing "control: a consumer that reads the whole body gets
             all of it, and the stall limit never fires"
     (register-sized-page! 1000)
     (let [bodies  (atom [])
@@ -875,7 +866,7 @@
         (finally (close-bodies! bodies))))))
 
 (deftest steady-slow-reader-gets-the-whole-body-over-longer-than-the-limit
-  (testing "rf2-3x7nj.14.1 control: the limit measures NO PROGRESS, not total
+  (testing "control: the limit measures NO PROGRESS, not total
             time — a reader draining 4 KiB every 150 ms receives the complete
             body over well over the stall limit"
     (register-sized-page! 1000)
@@ -908,7 +899,7 @@
         (finally (close-bodies! bodies))))))
 
 (deftest small-dropped-body-fits-the-pipe-and-ends-without-a-record
-  (testing "rf2-3x7nj.14.1 control: a page that fits the 16 KiB pipe, dropped
+  (testing "control: a page that fits the 16 KiB pipe, dropped
             by wrap-head, ends at once — nothing waits and nothing is recorded"
     (register-sized-page! 10)
     (let [bodies (atom [])
@@ -925,7 +916,7 @@
         (finally (close-bodies! bodies))))))
 
 ;; ===========================================================================
-;; A final payload the refusal stops mid-stream (rf2-qtald)
+;; A final payload the refusal stops mid-stream
 ;; ===========================================================================
 ;;
 ;; `ssr-handler` builds its payload before committing anything, so a payload
@@ -935,8 +926,8 @@
 ;; the same refusal can only truncate.
 
 (deftest payload-number-refusal-truncates-the-stream-and-reclaims-everything
-  (testing "rf2-qtald: a final payload carrying a Long past 2^53 is refused
-            with :rf.error/ssr-hydration-payload-invalid (rf2-3x7nj.13.3)
+  (testing "a final payload carrying a Long past 2^53 is refused
+            with :rf.error/ssr-hydration-payload-invalid
             after the 200 was committed. The body stops before any
             __rf_payload, the writer reports exactly one
             :rf.error/ssr-streaming-writer-failed naming the refusal, and the
