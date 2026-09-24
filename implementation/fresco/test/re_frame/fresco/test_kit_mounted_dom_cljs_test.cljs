@@ -711,7 +711,7 @@
             ;; marks the event handled for the extent of this one rollback and
             ;; nowhere else. The bench lane's hydration witnesses spell the
             ;; same rule as `:swallow-uncaught?`; naming it is a pointer, not
-            ;; a dependency — the freeze gate forbids importing that tree.
+            ;; a dependency — that tree is off this package's classpath.
             reported    (atom [])
             on-error    (fn [^js e]
                           (swap! reported conj (.-message e))
