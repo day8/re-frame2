@@ -1894,7 +1894,8 @@
   - a **keyword** — a registered variant id resolved through the body
     `lookup` (default: the Story side-table);
   - a **map** — an inline plan body (compiled the same way, with an
-    optional `:variant/id`).
+    optional `:variant/id`). A map carrying `:world` is a COMPILED plan,
+    not a body, and is refused (see below).
 
   `opts`:
 
@@ -1942,7 +1943,9 @@
   `:tags`, `:explain` (and `:source` when coords are present).
 
   FAILS with a structured `:rf.error/story-*` ex-info on: an unregistered
-  keyword target, an unregistered `:extends` parent, an `:extends` cycle,
+  keyword target, a compiled plan handed back as the target
+  (`:rf.error/story-compiled-plan-target` — run the variant by its id),
+  an unregistered `:extends` parent, an `:extends` cycle,
   a missing `[:arg key]`, an unregistered/nested `:compose` fragment, a
   silent strict-conflict between composed fragments, `:effective-args`
   that violate the view-args schema (`:rf.error/story-view-args-invalid`),
@@ -1962,6 +1965,21 @@
          (fail! :rf.error/story-unknown-variant
                 (str "re-frame2-story: no registered variant " target)
                 {:variant/id target}))
+
+       ;; A map carrying `:world` is this fn's OUTPUT, not an authoring body
+       ;; (rf2-nt9f1). The map branch below reads authoring keys only, so a
+       ;; recompiled plan silently lost its seed, stubs and loaders and ran
+       ;; `:pass` for a run the variant never makes. Ids and bodies are the
+       ;; inputs; there is deliberately no "run a compiled plan" path.
+       (and (map? target) (contains? target :world))
+       (fail! :rf.error/story-compiled-plan-target
+              (str "re-frame2-story: this is a compiled variant plan, not an "
+                   "authoring body — recompiling it would drop its :world "
+                   "(seed, stubs, loaders). Run the variant by its id"
+                   (when-let [id (:variant/id target)] (str " " id))
+                   " instead.")
+              {:variant/id (:variant/id target)
+               :recovery   :run-by-id})
 
        (map? target)
        (compile-body (:variant/id target) (dissoc target :variant/id)
