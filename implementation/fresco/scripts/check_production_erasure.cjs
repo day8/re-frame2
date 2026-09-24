@@ -1,14 +1,13 @@
 #!/usr/bin/env node
 /*
- * THE PRODUCTION-ERASURE PROOF for implementation/fresco/ (rf2-hic-024).
+ * THE PRODUCTION-ERASURE PROOF for implementation/fresco/.
  *
  * Spec SN §3.6 buys Fresco's dev affordances — coordinates, complaint
  * detail, the evidence projection, the test kit's route back to a body —
  * with an erasure: under `:advanced` + `goog.DEBUG=false` none of them
  * reaches the artefact a consumer ships. This gate is the proof, read off
  * the one build in the repo that compiles the package the way a consumer
- * ships it (`:fresco-release`, entry `re-frame.fresco.consumer-app`,
- * PR #7823).
+ * ships it (`:fresco-release`, entry `re-frame.fresco.consumer-app`).
  *
  * ## Unique sentinels, never a public-name grep
  *
@@ -58,18 +57,16 @@
  *
  * The evidence row below says `re-frame.fresco.evidence` is dev-only BY
  * REACHABILITY rather than by any marker on it, and one rule follows from
- * that which this gate keeps having to teach the hard way (rf2-hic-081,
- * rf2-nkr3). Reachability is a property of NAMESPACES, not of expressions:
+ * that. Reachability is a property of NAMESPACES, not of expressions:
  * a collector tap on the shipped path is reachable from the public door,
- * so everything the tap's namespace `:require`s is reachable too. The
- * capability-receipts spike put a receipt envelope in `impl/receipt` and
- * required `re-frame.fresco.evidence` to build it. Nothing the tap DID
- * was dev surface; the gate went red on what the tap's namespace
- * IMPORTED.
+ * so everything the tap's namespace `:require`s is reachable too. A tap
+ * whose namespace requires `re-frame.fresco.evidence` to build a receipt
+ * envelope reds this gate although nothing the tap DOES is dev surface:
+ * the gate reds on what the tap's namespace IMPORTS.
  *
  * So, for any runtime-tapped evidence: RAW COUNTERS WHERE THE TAP IS,
- * ENVELOPE IN A DEV-ONLY CONSUMER. Split that way the same spike read OK
- * against this gate — 5 sentinels absent, 3 positive controls present.
+ * ENVELOPE IN A DEV-ONLY CONSUMER. Split that way, the tap leaves every
+ * sentinel absent.
  *
  * It is written down because it cannot be seen at the edit site. The diff
  * that breaks it adds no dev surface and touches no dev namespace; it adds
@@ -84,7 +81,7 @@
  *
  * ## What this gate does NOT cover, and why
  *
- * `defview` / `defhost` SOURCE COORDINATES (rf2-hic-007) are not
+ * `defview` / `defhost` SOURCE COORDINATES are not
  * scannable in THIS bundle, and the reason is worth stating rather than
  * leaving to be rediscovered. The coordinate the macro bakes is an
  * absolute file path, so the sentinel would have to be the declaring
@@ -103,8 +100,7 @@
  * bundle (also `:advanced` + `goog.DEBUG=false`) for
  * `coord_sentinel_source.cljs`, a namespace that carries declarations and
  * no registrations, and `re-frame.fresco.error-source-coord-elision-prod-test`
- * asserts the ledger is empty in that build. Both are rf2-hic-007's and
- * both run today.
+ * asserts the ledger is empty in that build.
  */
 
 'use strict';
@@ -129,7 +125,7 @@ const BUNDLE = path.join(IMPL_ROOT, 'out', 'fresco-release', 'main.js');
 
 const SENTINELS = [
   {
-    surface: 'test kit — the dev-only body-retention door (rf2-hic-020, rf2-kjf5)',
+    surface: 'test kit — the dev-only body-retention door',
     sentinel: 'frescoBody',
     source: 'src/re_frame/fresco/impl/codec.cljs',
     premise: '(def ^:private body-slot "frescoBody")',
@@ -143,7 +139,7 @@ const SENTINELS = [
       'must carry no body.',
   },
   {
-    surface: 'evidence — the dev-only view-name stamp on a read-set entry (rf2-6c12m.21)',
+    surface: 'evidence — the dev-only view-name stamp on a read-set entry',
     sentinel: 'frescoViews',
     source: 'src/re_frame/fresco/impl/collector.cljs',
     premise: '(def ^:private views-slot "frescoViews")',
@@ -158,7 +154,7 @@ const SENTINELS = [
       'must carry no view names.',
   },
   {
-    surface: 'Spec 006 annotations — the dev-only attrs stamp on a minted body (rf2-c5w1)',
+    surface: 'Spec 006 annotations — the dev-only attrs stamp on a minted body',
     sentinel: 'frescoViewAttrs',
     source: 'src/re_frame/fresco/impl/collector.cljs',
     premise: '(def ^:private view-attrs-slot',
@@ -173,7 +169,7 @@ const SENTINELS = [
       'and the read in `run-once`; a production body must carry no attrs.',
   },
   {
-    surface: 'Spec 006 §Source-coord annotation — production elision (rf2-c5w1)',
+    surface: 'Spec 006 §Source-coord annotation — production elision',
     sentinel: 'data-rf2-source-coord',
     source: 'src/re_frame/fresco/impl/collector.cljs',
     premise: ':data-rf2-source-coord',
@@ -189,7 +185,7 @@ const SENTINELS = [
       'gate in `mint-view!` — a second, ungated caller would keep it alive.',
   },
   {
-    surface: 'Spec 006 §View tagging contract — production elision (rf2-c5w1)',
+    surface: 'Spec 006 §View tagging contract — production elision',
     sentinel: 'data-rf-view',
     source: 'src/re_frame/fresco/impl/collector.cljs',
     premise: ':data-rf-view',
@@ -204,7 +200,7 @@ const SENTINELS = [
       '`collector/view-annotations`.',
   },
   {
-    surface: 'test kit — the kit itself (rf2-hic-020)',
+    surface: 'test kit — the kit itself',
     sentinel: 'rf.error/fresco-test-',
     source: 'test_kit/src/re_frame/fresco/test.cljs',
     premise: ':rf.error/fresco-test-',
@@ -218,7 +214,7 @@ const SENTINELS = [
       'implementation/fresco/src/ and move it into the test that needs it.',
   },
   {
-    surface: 'evidence projection — the versioned envelope (rf2-hic-023)',
+    surface: 'evidence projection — the versioned envelope',
     sentinel: 're-frame.fresco.evidence',
     source: 'src/re_frame/fresco/evidence.cljs',
     premise: ':re-frame.fresco.evidence/v3',
