@@ -39,11 +39,13 @@
       This is a fail-closed fence against ACCIDENTS (stale / cross-attempt /
       wrong-actor / duplicate completions), NOT authentication: re-frame2 is
       single-trust-domain — we trust the programmer and gate accidents.
-   3. Runs the child's OPTIONAL per-child `:on-done` fold against the
-      PARENT's `:data` (the same `(fn [{:keys [data result]}] new-data)`
-      contract `:spawn :on-done` uses), then adds `<child-id>` to `:done` or
-      `:failed`. A NON-DECISIVE fold (the join does not resolve on it)
-      publishes the child's canonical work terminal at fold time via
+   3. For a SUCCESS (a plain `:final?` leaf) runs the child's OPTIONAL
+      per-child `:on-done` fold against the PARENT's `:data` (the same
+      `(fn [{:keys [data result]}] new-data)` contract `:spawn :on-done`
+      uses); a FAILURE never reaches that fold (rf2-3x7nj.41.1). Then adds
+      `<child-id>` to `:done` or `:failed`. A NON-DECISIVE fold (the join
+      does not resolve on it) publishes the child's canonical work terminal
+      at fold time via
       `:rf.machine.spawn-all/child-completed` (rf2-ir4t5v); the DECISIVE
       fold's terminal rides the resolution trace instead — one terminal
       authority per child.
@@ -588,9 +590,9 @@
   PARENT's `:data`, returning the updated runtime-db.
 
   Same contract as `:spawn :on-done` — `(fn [{:keys [data result]}] new-data)`
-  — run at THIS child's finality, before the join fold, so a fan-out can land
-  each child's result under its own key without an app-db staging slot and
-  without the child knowing the parent exists:
+  — run at THIS child's successful finality, before the join fold, so a fan-out
+  can land each child's result under its own key without an app-db staging
+  slot and without the child knowing the parent exists:
 
       :spawn-all {:children [{:id :s1 :machine-id :work/processor
                               :on-done (fn [{:keys [data result]}]
@@ -601,7 +603,11 @@
   application site the `:spawn` form uses at the parent's handler boundary —
   so a throwing fold is contained identically: the parent's `:data` is left
   untouched and the join still folds, because a bad presentation callback must
-  not be able to hang a join."
+  not be able to hang a join.
+
+  rf2-3x7nj.41.1 — the caller runs it for a `:done` completion ONLY. A failed
+  child reaches the parent through `:on-any-failed` and the join's `:failed`
+  set, never through this success fold (Spec 005 §Child completion protocol)."
   [runtime-db parent-id child-spec result frame-id]
   (if (:on-done child-spec)
     (let [parent-path (rf.machines.paths/snapshot-path parent-id)
@@ -824,18 +830,29 @@
               ;; child's finality, BEFORE the join fold — so an
               ;; `:on-all-complete` handler reads a `:data` every child has
               ;; already contributed to.
-              runtime-db      (apply-child-on-done
-                                runtime-db parent-id
-                                (child-spec-at join-state child-id)
-                                result frame-id)]
+              ;;
+              ;; rf2-3x7nj.41.1 — for a `:done` completion ONLY. The fold is a
+              ;; success route: it is handed `{:data :result}` and nothing
+              ;; that says the child failed, so a failure folded here lands an
+              ;; error map in a success slot (and, under a typed
+              ;; `[:schemas :data]`, the rollback swallows the carrier and
+              ;; hangs the join). A failed child reaches the parent through
+              ;; `:on-any-failed` and the `:failed` set below.
+              runtime-db      (if (= kind :done)
+                                (apply-child-on-done
+                                  runtime-db parent-id
+                                  (child-spec-at join-state child-id)
+                                  result frame-id)
+                                runtime-db)]
           (intercept-fold frame-id parent-id invoke-id (:spec join-state) join-state
                           child-id work-generation kind result
                           completed-at runtime-db))))))
 
 (defn- intercept-fold
   "The verified fold body of `intercept-spawn-done-event` — the completion
-  has passed the live-join / child-ownership / exact-attempt fence and its
-  per-child `:on-done` has already folded the parent's `:data`. Read
+  has passed the live-join / child-ownership / exact-attempt fence and, for a
+  `:done` completion, its per-child `:on-done` has already folded the parent's
+  `:data` (a `:failed` one folds nothing there). Read
   'compute resolution; emit traces; build fx; write back': three named
   acts plus an assoc-in."
   [frame-id parent-id invoke-id spec join-state child-id work-generation kind

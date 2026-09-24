@@ -5,8 +5,11 @@
   Per Spec 005 §Final states §`:on-error`, when a `:spawn`-spawned child
   FAILS, the runtime routes the failure to the spawning parent's
   `:spawn :on-error` TRANSITION (control flow — a declarative parent state
-  change), symmetric with the `:spawn :on-done` teardown hook. Two triggers
-  reach this namespace:
+  change), symmetric with the `:spawn :on-done` teardown hook. The failure
+  event goes to the parent whether or not it declares `:on-error`
+  (rf2-3x7nj.41.1): the parent's engine falls back to an explicit
+  `:on {:rf.machine.spawn/error …}`, else ignores it. A failure therefore
+  never reaches a success route. Two triggers reach this namespace:
 
     1. the child reaches a designated ERROR `:final?` leaf (`:error? true`) —
        fired from `lifecycle-fx.finalize/finalize-machine`;
@@ -31,33 +34,20 @@
   `:on-error` is the declarative invoke-site control-flow form; the escape
   hatch is the lower-level form.
 
-  This namespace is a LEAF over the spawn-resolution helpers it needs
-  (`resolver` + `paths` + `transition`, plus core's `frame` / `fx`), so both
-  `finalize` and `registration` may require it without a load cycle. That is
-  also why it owns `dispatch-carrier!`, the queueing seam BOTH completion
-  carriers share. The `:spawn`-at-invoke-id lookup lives in
-  `rf.machines.lifecycle-fx.resolver/spawn-spec-at`; `transition` is retained
-  only for the reserved `spawn-error-event-id`."
+  This namespace is a LEAF over the helpers it needs (`paths` + `transition`,
+  plus core's `frame` / `fx` / `registrar`), so both `finalize` and
+  `registration` may require it without a load cycle. That is also why it
+  owns `dispatch-carrier!`, the queueing seam BOTH completion carriers share.
+  It resolves no parent spec: whether the parent declares `:on-error` is the
+  parent engine's question, answered when the carrier arrives. `transition`
+  is retained only for the reserved event ids."
   (:require [re-frame.frame :as rf.frame]
             [re-frame.fx :as rf.fx]
-            [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
             [re-frame.machines.paths :as rf.machines.paths]
             [re-frame.machines.transition :as rf.machines.transition]
             [re-frame.registrar :as rf.registrar]))
 
 #?(:clj (set! *warn-on-reflection* true))
-
-(defn- resolve-parent-spec
-  "Resolve the spawning parent's machine spec from `parent-id` against `db`.
-  A singleton parent has a registrar entry; a NESTED spawn whose parent is
-  itself a spawned actor (no per-instance registration) is resolved from its
-  own snapshot's `:rf/machine-type`. Mirrors the resolution
-  `finalize-machine` does for `:on-done`."
-  [db parent-id]
-  (when parent-id
-    (rf.machines.lifecycle-fx.resolver/spec-from-id-or-snapshot
-      parent-id
-      (get-in db (rf.machines.paths/snapshot-path parent-id)))))
 
 (defn parent-instance-live?
   "True iff `parent-id` names a parent with a LIVE INSTANCE in `db` — the ONE
@@ -96,20 +86,6 @@
           (let [reg (rf.registrar/lookup :event parent-id)]
             (and (some? reg) (not (:rf/machine? reg))))))))
 
-(defn parent-declares-on-error?
-  "True iff the child identified by `parent-id` / `invoke-id` was spawned by a
-  parent whose `:spawn` map at `invoke-id` declares `:on-error`. `db` is the
-  frame's runtime-db (used to resolve a nested-spawn parent's spec). Returns false
-  when the actor is a singleton (no `parent-id`), the parent spec doesn't
-  resolve, or the `:spawn` map carries no `:on-error`."
-  [db parent-id invoke-id]
-  (boolean
-    (when (and parent-id invoke-id)
-      (some-> (resolve-parent-spec db parent-id)
-              (rf.machines.lifecycle-fx.resolver/spawn-spec-at invoke-id)
-              :on-error
-              some?))))
-
 (defn dispatch-carrier!
   "Queue a completion carrier `event` into the spawning parent on `frame-id`.
   This is the ONE seam both carriers use: `[:rf.machine.spawn/done …]` from
@@ -142,8 +118,9 @@
   "Dispatch the reserved parent-failure event
   `[<parent-id> [:rf.machine.spawn/error <invoke-id> <error>]]` into the
   spawning parent so its macrostep fires the declarative `:spawn :on-error`
-  transition. `error` is the failure payload that rides on the
-  parent transition's `:event` (the child's `:output-key` slot for the
+  transition, or, with none declared, an explicit
+  `:on {:rf.machine.spawn/error …}`. `error` is the failure payload that rides
+  on the parent transition's `:event` (the child's `:output-key` slot for the
   error-leaf trigger, or the exception envelope for the action-exception
   trigger). Queued through `dispatch-carrier!`, so like `dispatch-spawn-done!`
   it inherits the finishing event's run propagation and keeps

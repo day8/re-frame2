@@ -190,8 +190,10 @@
   `:spawn`.
 
   Shared owner for the spawn-spec-at-invoke-id lookup used by the parent
-  boundary's `:on-done` routing (`lifecycle-fx.registration`) and the
-  spawn-error `:on-error` routing (`spawn-error/parent-declares-on-error?`)."
+  boundary's `:on-done` routing (`lifecycle-fx.registration`). The `:on-error`
+  routing needs no lookup here: the failure carrier is dispatched whatever the
+  parent declares (rf2-3x7nj.41.1), and the parent's engine resolves
+  `:on-error` itself (`transition/pick-spawn-error-transition`)."
   [parent-spec invoke-id]
   (when (and parent-spec (vector? invoke-id) (seq invoke-id))
     (let [[head & tail] invoke-id

@@ -253,9 +253,10 @@
          :states
          {:running {:on {:boom :failed}}
           :failed  {:final? true :error? true}}})
-      ;; parent declares NO :on-error — error leaf behaves like any :final?:
-      ;; the child auto-destroys, the :rf.machine/done trace fires, the parent
-      ;; is unmoved. The explicit dispatch-back escape hatch (if the child
+      ;; parent declares NO :on-error and no explicit failure handler: the
+      ;; child auto-destroys, the :rf.machine/done trace fires, and the failure
+      ;; event reaches the parent, which ignores it — the parent is unmoved
+      ;; (rf2-3x7nj.41.1). The explicit dispatch-back escape hatch (if the child
       ;; chose it) would still work — exercised by the action emitting a
       ;; dispatch; here we assert the framework adds NO transition itself.
       (rf/reg-machine :rf2-5hlsh-e/parent
@@ -499,11 +500,12 @@
                  :failed  {:final?     true
                            :error?     true
                            :output-key :err}}})
-    ;; The synthetic spawn-error event is only DISPATCHED when the spawning
-    ;; parent declares `:spawn :on-error` (finalize / registration gate on its
-    ;; presence). To reach the explicit-`:on` escape-hatch arm we give :loader
-    ;; a `:spawn :on-error` whose GUARD fails (so the headline arm misses and
-    ;; the event falls through to the explicit-`:on` walk). :loader's own
+    ;; The synthetic spawn-error event is dispatched whether or not the
+    ;; spawning parent declares `:spawn :on-error` (rf2-3x7nj.41.1). Here
+    ;; :loader declares one whose GUARD fails, so this also pins the
+    ;; guard-fail fall-through: the headline arm misses and the event falls
+    ;; through to the explicit-`:on` walk. (The no-`:on-error` route to that
+    ;; walk is pinned in `spawn_failure_routing_cljs_test.cljc`.) :loader's own
     ;; explicit `:on {:rf.machine.spawn/error :handled}` then catches it
     ;; in-region; the sibling :other declares a DECOY explicit handler that
     ;; must NEVER fire — the failure belongs to :loader's region, and the
