@@ -9,8 +9,7 @@
   whole between cases — `js/window` here is the SHARED browser page, so a
   listener this suite installs outlives the test that installed it unless
   the fixture removes it by its exact recorded identity. See
-  `unregister-host-listener!` and the census test at the bottom
-  (rf2-6r9j.116)."
+  `unregister-host-listener!` and the census test at the bottom."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [reagent.dom.client :as rdc]
