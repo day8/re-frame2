@@ -9,7 +9,6 @@
   `re-frame.fresco.examples.slice.l0-cljs-test` does exactly that.
 
   ## TWO event shapes, and the seam is not the author's choice
-  (the slice authoring report's first finding)
 
   `spec/Conventions.md` §Canonical event-vector shape asks for
   `[<id> {<k> <v>}]` — one trailing map — and the linter nudges new code
@@ -113,8 +112,8 @@
     ;; A bump here moves nothing: dropping the draft is already three
     ;; changes the editor's body reads, so the body re-runs and the commit
     ;; re-asserts the model over the fields without being told to. See
-    ;; `db`'s namespace docstring for the measurement and for the shape
-    ;; that DOES need a counter.
+    ;; `db`'s namespace docstring for why, and for the shape that DOES
+    ;; need a counter.
     {:db (-> db
              (update :drafts dissoc slug)
              (assoc :save {:status :idle}))}))
