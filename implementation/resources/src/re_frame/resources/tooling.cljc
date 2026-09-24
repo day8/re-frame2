@@ -18,17 +18,19 @@
       alias costs nothing. The whole resources artefact is already
       bundle-isolated from production builds (counter never `:require`s
       `re-frame.resources`), so this sibling can never reach a no-resources
-      app's bundle; the explicit sentinel at the foot of this ns
-      additionally proves no stray `:require` ever pulled the body in.
+      app's bundle; the `resources-tooling` entry in
+      `implementation/scripts/check-bundle-isolation.cjs` additionally proves
+      no stray `:require` ever pulled the body in (see the note at the foot
+      of this ns).
 
   READ-ONLY over the registry + runtime. This ns touches NEITHER the
   resource registrar write-path (`reg-resource` / `clear-resource`,
   `re-frame.resources.registry`) NOR the resource events / mutation
   write-path (`re-frame.resources.events`).
-  The STATIC view reads the `:resource` registry through the existing
+  The STATIC view reads the `:resource` registry through the
   `rf.registrar/lookup` / `rf.registrar/ids` registry seams; the LIVE view reads
   the per-frame `:rf.runtime/resources` entries + `:rf.runtime/work-ledger`
-  records through the existing `rf.frame/frame-runtime-db-value` read seam (the
+  records through the `rf.frame/frame-runtime-db-value` read seam (the
   same seam the SSR drain read uses).
 
   Per [Derivations.md](../../../../../../spec/Derivations.md) §Resources
@@ -41,7 +43,7 @@
             [re-frame.resources.scope-registry :as rf.resources.scope-registry]
             [re-frame.resources.ssr :as rf.resources.ssr]
             [re-frame.resources.state :as rf.resources.state]
-            ;; rf2-dl7bz — the per-slot arm of the key projection lives in the
+            ;; The per-slot arm of the key projection lives in the
             ;; production-reachable trace-egress ns (beside the reply's), and
             ;; this TOOL boundary opts into the same helper so the two off-box
             ;; boundaries cannot answer differently. The edge points from the
@@ -272,11 +274,11 @@
 
 (defn resource-algebra-view
   "Return the STATIC derivation/process algebra view of every registered
-  resource (EP-0014 slice-4; [Derivations.md] §Resources expose process
+  resource (EP-0014; [Derivations.md] §Resources expose process
   nodes, [Spec-Schemas §`:rf/derivation-node`]).
 
   Pure data over the `:resource` registry — read READ-ONLY through the
-  existing `rf.registrar/lookup` / `rf.registrar/ids` registry seams, never
+  `rf.registrar/lookup` / `rf.registrar/ids` registry seams, never
   touching the registrar write-path (`reg-resource` / `clear-resource`) or
   the resource events / mutation write-path. The algebra-view companion to
   `resources`: where `resources` returns `{:resource-ids […] :entries {…}}`,
@@ -330,7 +332,7 @@
   `resource-id`, or `nil` if it is not registered. JVM-runnable — the
   resource registry is partition-agnostic registration metadata.
 
-  Slice-4 ships NO public accessor (EP-0014 issue-1 disposition): this lives
+  There is NO public accessor (EP-0014 issue 1): this lives
   in the bundle-isolated tooling sibling and is consumed by Xray + the
   conformance fixtures; the public name is deferred until a third consumer
   needs it. There is no `re-frame.core/resource-algebra-view` facade export."
@@ -360,7 +362,7 @@
 ;; the live owners, status, in-flight work-ledger links, and host-transient
 ;; in-flight handle address are the live lifecycle state.
 
-;; ---- EP-0015 tool-egress projection (rf2-0t0l3w) -------------------------
+;; ---- EP-0015 tool-egress projection --------------------------------------
 ;;
 ;; `resource-cache-algebra-view` is a TOOL-facing egress boundary (Xray,
 ;; re-frame2-pair-mcp, conformance fixtures). EP-0015 treats resource entries,
@@ -372,18 +374,18 @@
 ;;
 ;; The projection reuses the SAME resource OWNER classification the SSR /
 ;; durable-egress path uses — never a tooling-private elider — through the
-;; shared `rf.resources.ssr/disposition+project-key` pipeline (rf2-366u0g):
+;; shared `rf.resources.ssr/disposition+project-key` pipeline:
 ;;   - `classification/whole-entry-disposition` (inside the shared helper)
-;;     resolves the coarse `:sensitive?` / `:large?` root-prop claim. EP-0025
-;;     (rf2-71dr8t) removed the named-scope-resolver derived-sensitivity
-;;     inheritance arm (no sensitivity propagation);
+;;     resolves the coarse `:sensitive?` / `:large?` root-prop claim. There is
+;;     no named-scope-resolver derived-sensitivity inheritance arm (EP-0025:
+;;     no sensitivity propagation);
 ;;   - `rf.resources.ssr/project-scoped-key` (inside the shared helper) then projects the
 ;;     scoped key per that disposition — `:redact` / `:omit` replace scope +
 ;;     params with opaque content-addressed `{:rf/redacted <digest>}` tokens
 ;;     (distinct values stay distinct, so graph connectivity by projected key
 ;;     is preserved), while `:serialize` rides verbatim (non-sensitive identity
 ;;     is preserved);
-;;   - `rf.resources.trace-egress/redact-key-declarations` (rf2-dl7bz) then applies the
+;;   - `rf.resources.trace-egress/redact-key-declarations` then applies the
 ;;     resource's per-slot `:params` / `:scope` PROJECTION-RELATIVE declarations
 ;;     to a `:serialize` key — the arm the coarse disposition above is blind to,
 ;;     since a spec declaring only paths makes no root-prop claim and classifies
@@ -399,21 +401,20 @@
 
 (defn- project-key-for-egress
   "Project a `scoped-key` for TOOL egress against the resource owner spec +
-  the `frame-id` classification (rf2-0t0l3w). Returns `[projected-key
+  the `frame-id` classification. Returns `[projected-key
   disposition]`. `:redact` / `:omit` replace scope + params with opaque
   tokens; `:serialize` substitutes the owner's per-slot `:params` / `:scope`
   PROJECTION-RELATIVE declarations (a no-op when the spec declares none) — the
   resource-id always survives. Pure. Delegates to the shared
-  `rf.resources.ssr/disposition+project-key` pipeline (rf2-366u0g — the SAME owner
+  `rf.resources.ssr/disposition+project-key` pipeline (the SAME owner
   classification + key projection the SSR durable-egress + off-box trace-egress
   paths use), then to `rf.resources.trace-egress/redact-key-declarations` for the per-slot
-  arm that pipeline defers (rf2-dl7bz), which is the SAME helper the off-box
+  arm that pipeline defers, which is the SAME helper the off-box
   trace projector applies — one declaration, one answer at both boundaries.
 
-  The earlier spelling of this docstring said `:params-schema` marks, which was
-  doubly wrong: nothing was applied at all, and EP-0025 had already removed the
-  schema route into durable classification (Spec 015 §Schemas describe shape,
-  not durable egress policy). The projection-relative declaration on the spec is
+  `:params-schema` marks play no part: a schema is not a route into durable
+  classification (EP-0025; Spec 015 §Schemas describe shape, not durable
+  egress policy). The projection-relative declaration on the spec is
   the single durable classification surface."
   [scoped-key frame-id]
   (let [[projected-key disposition spec] (rf.resources.ssr/disposition+project-key scoped-key frame-id)]
@@ -421,8 +422,8 @@
 
 (defn- project-work-id
   "Project the scoped key embedded in a resource work-id
-  `[:rf.work/resource <scoped-key> <generation>]` for tool egress
-  (rf2-0t0l3w). A work-id of another shape rides unchanged. Pure."
+  `[:rf.work/resource <scoped-key> <generation>]` for tool egress.
+  A work-id of another shape rides unchanged. Pure."
   [work-id frame-id]
   (if (and (vector? work-id) (= :rf.work/resource (first work-id)))
     (assoc work-id 1 (first (project-key-for-egress (nth work-id 1) frame-id)))
@@ -431,7 +432,7 @@
 (defn- live-work-ledger-link
   "Build the in-flight `:work-ledger` + `:host-transient` slots for a live node,
   PROJECTING the work-id's embedded scoped key + the record's `:resource/key`
-  for tool egress (rf2-0t0l3w) so neither leaks the raw scope/params. Returns
+  for tool egress so neither leaks the raw scope/params. Returns
   the node `acc` with both slots assoc'd."
   [acc runtime-db work-id frame-id]
   (let [record  (rf.resources.work-ledger/get-record runtime-db work-id)
@@ -459,7 +460,7 @@
   the host-transient in-flight handle address (Derivations §Output —
   `:host-transient` in-flight work).
 
-  rf2-0t0l3w: the scoped key is PROJECTED for tool egress (`project-key-for-egress`)
+  The scoped key is PROJECTED for tool egress (`project-key-for-egress`)
   before it rides ANY identity position — the `:id`, the realized `[:scope …]`
   / `[:param …]` inputs, the `:output` runtime-path tail, the in-flight
   work-ledger record's `:resource/key`, and the host-transient handle address.
@@ -489,8 +490,8 @@
       ;; serializable summary — the in-flight identity, owners, causes,
       ;; transport, status) AND names the host-transient in-flight handle
       ;; address (the abortable handle lives OUTSIDE durable frame-state, in
-      ;; the `[frame-id work-id]` side table — Derivations §Output). rf2-0t0l3w:
-      ;; both are PROJECTED for tool egress (the record's `:resource/key` + the
+      ;; the `[frame-id work-id]` side table — Derivations §Output).
+      ;; Both are PROJECTED for tool egress (the record's `:resource/key` + the
       ;; work-id's embedded scoped key).
       (some? work-id)
       (live-work-ledger-link runtime-db work-id frame-id)
@@ -503,8 +504,8 @@
 
 (defn resource-cache-algebra-view
   "Return the LIVE derivation/process algebra view of a frame's resource
-  cache — one `:rf/derivation-node` per concrete cache entry (EP-0014
-  slice-4; [Derivations.md] §Static and live graphs).
+  cache — one `:rf/derivation-node` per concrete cache entry (EP-0014;
+  [Derivations.md] §Static and live graphs).
 
   The live counterpart to `resource-algebra-view`: where the static view
   reports the resource id and a generic params input, the live view reports
@@ -552,21 +553,21 @@
   (let [runtime-db (rf.frame/frame-runtime-db-value frame-id)
         entries    (get-in runtime-db (rf.resources.state/entries-path))]
     (reduce-kv
-      ;; rf2-9e0tyq / rf2-ka2nkx — `:entries` is keyed on the opaque byte
+      ;; `:entries` is keyed on the opaque byte
       ;; `key-id`; the live node's `:id` / inputs use the entry's own
       ;; `:resource/key` VECTOR (the canonical fact identity), read from the
       ;; entry, not the map key. The RETURNED map MUST stay keyed on the byte
       ;; `key-id` too: rekeying onto the `=`-colliding scoped-key vector would
       ;; `assoc` one CEDN-distinct entry over the other (a list-params and a
       ;; vector-params entry are Clojure-= as vectors), reporting ONE node for
-      ;; TWO live entries (rf2-ka2nkx).
+      ;; TWO live entries.
       (fn [acc _k-id entry]
         (let [scoped-key  (:resource/key entry)
               resource-id (second scoped-key)
               static-node (resource-algebra-view resource-id)
               node        (live-node-for runtime-db scoped-key frame-id
                                          entry static-node)]
-          ;; rf2-0t0l3w: re-key the returned map on the PROJECTED key's byte
+          ;; Key the returned map on the PROJECTED key's byte
           ;; `key-id` (the node's `:id` is the projected scoped key) so the map
           ;; key, the `:id`, and every other identity position agree and carry
           ;; no raw secret. A non-sensitive resource projects to the SAME key,
@@ -587,14 +588,10 @@
 ;; is interned into the emitted JS as a string constant Closure does not
 ;; rename.
 ;;
-;; A `defonce ^:private bundle-isolation-sentinel` string used to sit here
-;; (rf2-gn9juw). It was inert: private, unconsumed, and therefore dropped by
-;; Closure `:advanced`, so the `do-not-rename` instruction it carried guarded
-;; nothing. `4e43784ec7` (2026-07-15) moved this roster entry onto the live
-;; node kind when these controls became emitted-module greps rather than
-;; source greps; the var was simply left behind, and rf2-6r9j.54 removed it.
-;; `re-frame.derivation.egress` records the identical trap and repair
-;; (rf2-yk2d).
+;; There is deliberately no `defonce ^:private bundle-isolation-sentinel`
+;; string here: private and unconsumed, it would be dropped by Closure
+;; `:advanced`, so any `do-not-rename` instruction it carried would guard
+;; nothing. `re-frame.derivation.egress` records the identical trap.
 ;;
 ;; The rule, and the reason a planted string is the WRONG instinct here: pick
 ;; a literal a LIVE code path emits, and verify the count in the emitted
