@@ -37,9 +37,8 @@
 ;; core; core never depends on this artefact. The cross-references
 ;; from core to ssr (`re-frame.core`'s `reg-error-projector` / `reg-head`
 ;; REGISTRAR re-exports) flow through `re-frame.late-bind` exactly as the
-;; schemas / machines / routing / flows / http hooks already do. The SSR
-;; QUERY surface is NOT re-exported — `re-frame.ssr` is its only door
-;; (rf2-kuky.44).
+;; schemas / machines / routing / flows / http hooks do. The SSR
+;; QUERY surface is NOT re-exported — `re-frame.ssr` is its only door.
 {:paths ["src"]
  :deps  {day8/re-frame2 {:local/root "../core"}}
 
@@ -62,7 +61,7 @@
                        day8/re-frame2-machines   {:local/root "../machines"}
                        ;; Silent-on-success reporter.
                        day8/re-frame2-test-quiet {:local/root "../test-quiet"}
-                       ;; rf2-s7l5 — TEST-ONLY HTML5 parser, and the only
+                       ;; TEST-ONLY HTML5 parser, and the only
                        ;; non-re-frame dependency on this classpath.
                        ;;
                        ;; The leading-LF compensation this artefact emits
@@ -70,12 +69,11 @@
                        ;; discards one LF immediately after a `<pre>` /
                        ;; `<listing>` / `<textarea>` start tag, so
                        ;; `re-frame.ssr-hiccup-newline-test` can only witness
-                       ;; the repair by parsing the emitted markup and reading
-                       ;; the resulting node's `textContent`. A hand-written
-                       ;; MODEL of that rule cannot: it shares the belief it is
-                       ;; supposed to check, so a wrong rule agrees with itself
-                       ;; and the suite stays green (rf2-s7l5's own audit
-                       ;; residual, twice).
+                       ;; the compensation by parsing the emitted markup and
+                       ;; reading the resulting node's `textContent`. A
+                       ;; hand-written MODEL of that rule cannot: it shares the
+                       ;; belief it is supposed to check, so a wrong rule
+                       ;; agrees with itself and the suite stays green.
                        ;;
                        ;; WHY validator.nu AND NOT jsoup. jsoup is the obvious
                        ;; reach and it is WRONG here — MEASURED on 1.22.1:
@@ -111,14 +109,14 @@
          ;; that `-Dre-frame.debug=false` is on this JVM's command line. It
          ;; belongs to the `:prod-gate` lane below and is red anywhere else
          ;; BY DESIGN — a pin softened to "check the property if it is set"
-         ;; would pass vacuously in exactly the case it exists to catch
-         ;; (rf2-hnrwo). So `:test` + `:slow-test` + `:prod-gate` are the
-         ;; three-way partition; every test still runs exactly once across
+         ;; would pass vacuously in exactly the case it exists to catch.
+         ;; So `:test` + `:slow-test` + `:prod-gate` are the
+         ;; three-way partition; every test runs exactly once across
          ;; them.
          :main-opts   ["-m" "re-frame.test-quiet.runner"
                        "-e" ":slow" "-e" ":stress" "-e" ":prod-gate"]}
 
-  ;; rf2-hnrwo — the PRODUCTION-GATE lane, as a MODIFIER composed onto
+  ;; The PRODUCTION-GATE lane, as a MODIFIER composed onto
   ;; `:test`: `clojure -M:test:prod-gate`. `:extra-paths` / `:extra-deps`
   ;; merge in from `:test` (so the classpath cannot drift between the two
   ;; lanes), while `:jvm-opts` and `:main-opts` come from here —
@@ -129,23 +127,22 @@
   ;; documents `-Dre-frame.debug=false` as the JVM/SSR production setting, and
   ;; `re-frame.interop/debug-enabled?` reads it ONCE at namespace-load time.
   ;; SSR is the artefact where that matters most literally — it is the one
-  ;; that RUNS on a JVM in production — and yet nothing in CI had ever set the
-  ;; property here, so the documented server posture was executed by no suite
-  ;; anywhere. That is the hole rf2-9c2jf came through in core: every suite
-  ;; calling itself a "production gate" test rebinds the Var with
-  ;; `with-redefs` AFTER the framework has loaded, and a load-time gate is
-  ;; invisible to that. Putting the property in the alias makes it part of the
+  ;; that RUNS on a JVM in production. A "production gate" test that
+  ;; rebinds the Var with `with-redefs` AFTER the framework has loaded
+  ;; cannot see a load-time gate, so without a lane that sets the property
+  ;; the documented server posture would be executed by no suite anywhere.
+  ;; Putting the property in the alias makes it part of the
   ;; LANE's definition rather than something a job has to remember, and
   ;; `re-frame.ssr-prod-gate-lane-pin-test` fails the run if it ever stops
   ;; arriving.
   ;;
-  ;; WHY SSR SPECIFICALLY. rf2-u2x6w established that sub-classification — a
+  ;; WHY SSR SPECIFICALLY. Sub-classification — a
   ;; PRIVACY invariant — genuinely egresses in production through
   ;; `re-frame.ssr.payload-policy/project-routing-egress`, which decides what
-  ;; leaves the server inside a hydration payload. That egress ran under no
-  ;; gate at all until this lane existed.
+  ;; leaves the server inside a hydration payload. Without this lane that
+  ;; egress would run under no gate at all.
   ;;
-  ;; NOT THE WHOLE SUITE, YET. Under the real gate a documented slice of this
+  ;; NOT THE WHOLE SUITE. Under the real gate a documented slice of this
   ;; artefact's test namespaces is red, essentially all of it asserting dev
   ;; instrumentation (`:rf.ssr/*` traces, the `:errors` sink, source coords,
   ;; `data-rf2-source-coord` attributes) inline with semantics. Those are
@@ -170,7 +167,7 @@
                  day8/re-frame2-routing    {:local/root "../routing"}
                  day8/re-frame2-machines   {:local/root "../machines"}
                  day8/re-frame2-test-quiet {:local/root "../test-quiet"}
-                 ;; rf2-s7l5 — see the `:test` alias for why. This alias does
+                 ;; See the `:test` alias for why. This alias does
                  ;; NOT compose onto `:test` (unlike `:prod-gate`), and the
                  ;; runner LOADS every namespace under `test/` before it
                  ;; filters vars, so a dependency missing here fails the slow
