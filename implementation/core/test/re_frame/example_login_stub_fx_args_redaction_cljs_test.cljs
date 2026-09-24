@@ -1,10 +1,10 @@
 (ns re-frame.example-login-stub-fx-args-redaction-cljs-test
-  "Framework-tree security regression for the login example's DEMO HTTP STUB —
+  "Framework-tree security test for the login example's DEMO HTTP STUB —
    the `:auth.login.demo/managed-stub` reg-fx owned by
-   examples/core/login/model.cljc (rf2-a6zmmu).
+   examples/core/login/model.cljc.
 
    These belong in the framework test tree, NOT under examples/ (examples stay
-   test-free per rf2-8cevm). The ns requires the login model owner
+   test-free). The ns requires the login model owner
    (`login.model`) so its events / subs / machine / schemas / demo-stub register
    at ns-load, then drives a real submit through the stub. Sibling of
    `re-frame.example-login-success-token-cljs-test` (the RETURN-token half) and
@@ -16,26 +16,27 @@
    shared `frame-config` `:fx-overrides`. When the override fires, `handle-one-fx`
    stamps the always-emitted `:rf.fx/handled` trace with the RESOLVED stub id and
    the RAW fx args — and the classification projector redacts `:rf.fx/args` off
-   the RESOLVED fx's OWN registration `:sensitive` (post-rf2-6h3c02). The real
+   the RESOLVED fx's OWN registration `:sensitive`. The real
    `:rf.http/managed` handler's `:sensitive? true` request-body scrub is
-   BYPASSED by the override, so unless the stub declares its own `:sensitive`,
-   the plaintext password in the request body rides RAW in the stub's
+   BYPASSED by the override, so unless the stub declared its own `:sensitive`,
+   the plaintext password in the request body would ride RAW in the stub's
    `:rf.fx/handled` trace — a credential leaking onto the one wire every tool
-   reads. The fix is the stub reg-fx declaring `:sensitive [[:request :body
-   :password]]`, so the projector redacts it there too.
+   reads. The stub reg-fx declares `:sensitive [[:request :body :password]]`,
+   so the projector redacts it there too.
 
-   Distinct from rf2-j538f7.30 (the reply/effect token leak) and rf2-6h3c02 (the
-   projector walking every fx-arg slot): this is the demo stub missing its OWN
-   `:sensitive` declaration — the registration the projector consumes.
+   Distinct from the reply/effect token leak
+   (`re-frame.example-login-success-token-cljs-test`) and from the projector
+   walking every fx-arg slot: this is the demo stub's OWN `:sensitive`
+   declaration — the registration the projector consumes.
 
-   POST-rf2-2siusz the framework closes the same class GENERALLY: a keyword
-   redirect stamps the ORIGINAL id as `:rf.fx/from` on the handled trace and
-   the projector composes the ORIGINAL `:rf.http/managed` id's DYNAMIC
+   The framework also closes the same class GENERALLY: a keyword redirect
+   stamps the ORIGINAL id as `:rf.fx/from` on the handled trace and the
+   projector composes the ORIGINAL `:rf.http/managed` id's DYNAMIC
    classification (the per-call `:sensitive? true` whole-body scrub) over the
-   stub's own static path — so the stub's handled slot now shows the SAME
+   stub's own static path — so the stub's handled slot shows the SAME
    whole-body redaction the real-backend run-mode's dedicated composers
    apply (run-mode parity), not just the stub-declared password path. The
-   stub's own declaration remains load-bearing for UNFLAGGED requests."
+   stub's own declaration is load-bearing for UNFLAGGED requests."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
             [re-frame.classification :as rf.classification]
@@ -109,7 +110,7 @@
 (deftest stub-fx-handled-trace-redacts-request-body-password
   (testing "on a real submit routed through the demo stub, the plaintext password
             in the request body is NOT raw in the stub's :rf.fx/handled trace —
-            post-rf2-2siusz the redirect stamps :rf.fx/from :rf.http/managed and
+            the redirect stamps :rf.fx/from :rf.http/managed and
             the projector composes the ORIGINAL id's dynamic :sensitive? true
             classification, so the WHOLE body reads :rf/redacted (run-mode
             parity with the real managed handler's composers)"
