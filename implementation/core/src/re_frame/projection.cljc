@@ -1,9 +1,9 @@
 (ns re-frame.projection
-  "Record-level egress projection — `project-egress` + the six ruled
+  "Record-level egress projection — `project-egress` + the six
   `:rf.egress/*` profiles, layered over `re-frame.elision/elide-wire-value`.
 
-  EP-0015 §10 (Projection Profiles) + §11 (`elide-wire-value` stays the
-  value primitive). Graduated normatively into
+  EP-0015 §10 (Projection Profiles) + §11 (`elide-wire-value` is the
+  value primitive). Normative in
   [`spec/015-Data-Classification.md` §Projection]
   (../../../../../spec/015-Data-Classification.md).
 
@@ -22,22 +22,21 @@
   frame-owned classification (`re-frame.frame-classification`), and
   DELEGATES to `elide-wire-value` for every tree-shaped slot where frame
   policy applies. The per-record-kind projectors are PRIVATE (EP-0015
-  issue 2, ruled: `project-egress` names the BOUNDARY, not a record kind;
-  per-record-kind projectors stay private). There is no public
-  `project-record`.
+  issue 2: `project-egress` names the BOUNDARY, not a record kind). There
+  is no public `project-record`.
 
-  ## Profiles (EP-0015 §10, ruled six-member CLOSED enum)
+  ## Profiles (EP-0015 §10, a six-member CLOSED enum)
 
   The normal public choice at a boundary is *\"which boundary is this?\"* —
   a named egress profile under `:rf.egress/profile` — not *\"which
   combination of booleans did I remember?\"* The boolean `:rf.egress/*` flags
-  (`elide-wire-value`'s opt layer) remain the ADVANCED override beneath the
+  (`elide-wire-value`'s opt layer) are the ADVANCED override beneath the
   profiles. A profile resolves to a `:rf.egress/*` opt-set; an explicit
   `:rf.egress/*` opt the caller also passes COMPOSES on top (the explicit
   override WINS — `profile-opts` is the floor, the caller's opts the
   overlay).
 
-  The six ruled profiles (EP-0015 issue 3):
+  The six profiles (EP-0015 issue 3):
 
   | Profile | Default behaviour |
   |---|---|
@@ -80,7 +79,7 @@
 #?(:clj (set! *warn-on-reflection* true))
 
 ;; ---------------------------------------------------------------------------
-;; The six ruled `:rf.egress/*` profiles (EP-0015 §10, issue 3).
+;; The six `:rf.egress/*` profiles (EP-0015 §10, issue 3).
 ;;
 ;; Each profile resolves to a `:rf.egress/*` opt-set — the boolean override
 ;; layer `elide-wire-value` already consumes. The set is a CLOSED enum;
@@ -102,9 +101,9 @@
   outside the closed `profiles` enum. ONE source of truth for BOTH closed-
   enum guards — the in-file `resolve-elision-opts` guard and the epoch
   boundary guard (`re-frame.epoch.tool-pair/resolve-egress-profile`), both
-  of which now name `:where 'rf/project-egress` — so the human sentence + the
+  of which name `:where 'rf/project-egress` — so the human sentence + the
   `[:rf.error/unknown-egress-profile]` token never drift between the two
-  sites (rf2-krrv87). Each caller passes its own `where-sym`; the bad
+  sites. Each caller passes its own `where-sym`; the bad
   `profile` value + the valid `profiles` enum land in ex-data. Routes
   through `rf.error/thrown-ex-info`, so the message LEADS with the human
   sentence and TRAILS with the greppability token. Returns the `ex-info`;
@@ -128,17 +127,17 @@
   that opts sensitive AND large back in.
 
   `:rf.egress/ssr-hydration` is the one other boundary that keeps large
-  values (`include-large?` true, rf2-hjz4r). Size elision protects tool
+  values (`include-large?` true). Size elision protects tool
   token budgets and hosted monitors; the hydration payload is installed as
-  the browser's LIVE state by `:rf/hydrate`, so an elided value arrived as
-  a `:rf.size/large-elided` marker map where the page needed its data.
+  the browser's LIVE state by `:rf/hydrate`, so an elided value would arrive
+  as a `:rf.size/large-elided` marker map where the page needs its data.
   Sensitive still redacts there.
 
   `:rf.egress/off-box-tool` shares `:rf.egress/off-box-observability`'s
   size floor; what differs is the boundary it NAMES. Its §10 \"structural
   indicators\" are the marker's own `:path` / `:bytes` / `:type` /
-  `:handle` and the tools' elided counts, not a digest (rf2-3x7nj.32.6:
-  the browser host computes no digest, and nothing reads one). A caller
+  `:handle` and the tools' elided counts, not a digest (the browser host
+  computes no digest, and nothing reads one). A caller
   that wants a content digest passes the explicit
   `:rf.egress/include-digests? true` override."
   {:rf.egress/off-box-observability
@@ -190,16 +189,15 @@
 (def epoch-only-opt-keys
   "The three per-axis overrides that govern keyspaces only an
   `:rf/epoch-record` HAS — effect `:args`, the `:rf.db/runtime` frame-state
-  partition, and trigger / trace event args. They are NOT app-db axes — which
-  is why they were spelled BARE until rf2-kuky.93 gave all six axes one
-  namespace. Being a different keyspace is a reason not to say `size`; it was
-  never a reason to say nothing, and a door whose opts map needed two
-  namespaces plus a bare tier could not be described by one schema.
+  partition, and trigger / trace event args. They are NOT app-db axes, yet
+  they share the `:rf.egress/*` namespace with the other three: being a
+  different keyspace is a reason not to say `size`, not a reason to say
+  nothing, and a door whose opts map needed two namespaces plus a bare tier
+  could not be described by one schema.
 
-  They live on the DOOR because rf2-bv1p retired `projected-record`, the
-  standalone epoch door that used to own them. A door that retires must not
-  take a capability with it, and the rf2-kuky.9 option-A target opts map
-  names all six axes on this one door.
+  They live on the DOOR because `project-egress` is the one projection door
+  for an epoch record — there is no standalone epoch door — so its opts map
+  names all six axes.
 
   They are STRIPPED before `resolve-elision-opts` (see `project-egress`):
   the walker's map is closed and knows nothing about effects or event args,
@@ -209,11 +207,10 @@
     :rf.egress/include-event-args?})
 
 (def project-egress-opt-keys
-  "The CLOSED key set `project-egress` accepts (rf2-kuky.6): the walker's
+  "The CLOSED key set `project-egress` accepts: the walker's
   own closed set, the ONE key this layer owns — `:rf.egress/profile`,
   which resolves here and never reaches the walker — and the three
-  `epoch-only-opt-keys` the retired `projected-record` door handed over
-  (rf2-bv1p).
+  `epoch-only-opt-keys`.
 
   Derived from `re-frame.elision/walker-opt-keys` rather than re-spelled,
   so the two doors cannot drift into disagreeing about the vocabulary."
@@ -290,15 +287,15 @@
   FRAME-policy `walk-slot`: event args are registration-owned (the handler's
   `:sensitive`), not app-db-owned (the frame's classification).
 
-  rf2-ifzi: the hook resolves the event's marks through
+  The hook resolves the event's marks through
   `registrar/handler-meta`, which reads the AMBIENT generation. Run it inside
   the RECORD OWNER's resolution scope whenever the projection resolved one
   (`:frame` in `elision-opts` — the same owner the leaf walker is seeded with),
   so an image-local event declaration answers for its own record. Without it a
   DEFERRED projection — a recorder that retained an error record and projects
   it once dispatch has returned, or any direct caller naming an explicit target
-  — resolved the declaration in whatever universe happened to be bound and
-  shipped a declared-sensitive payload RAW.
+  — would resolve the declaration in whatever universe happened to be bound
+  and ship a declared-sensitive payload RAW.
 
   An explicit `nil` owner binds nothing: the ambient resolution is unchanged
   and the subsequent frame-policy `walk-slot` still fails closed on the whole
@@ -327,7 +324,7 @@
 
 ;; ---- handled-event record (`:rf.observe/handled-event`) ------------------
 ;;
-;; EP-0015 issue 4 (ruled, sharpened): the off-box default record omits the
+;; EP-0015 issue 4: the off-box default record omits the
 ;; `:event` ARGS slot entirely. It carries only summary fields — frame,
 ;; event id, status, elapsed, effect keys, work/correlation ids. Tools may
 ;; opt into a richer PROJECTED payload (never raw): a `:rf.egress/local-raw`
@@ -370,12 +367,12 @@
 ;; through). Summary slots pass through.
 
 ;; The COMPONENT-ATTRIBUTION slots (`:failing-id` / `:flow-id` / `:where` /
-;; `:source-coord`) are summary slots too (rf2-kuky.65): they are the tight
-;; structural identifiers `error-emit/dispatch-on-error!` already stamps on the
-;; production-surviving corpus record, and `observability/route-error!` now
+;; `:source-coord`) are summary slots too: they are the tight
+;; structural identifiers `error-emit/dispatch-on-error!` stamps on the
+;; production-surviving corpus record, and `observability/route-error!`
 ;; carries the same set onto the frame-owned sink route. They pass through
 ;; UNCHANGED, which is what makes the flow-eval attribution survive
-;; `:rf.egress/public-error` (rf2-z1332c) on this route as well. `:reason` is
+;; `:rf.egress/public-error` on this route as well. `:reason` is
 ;; deliberately NOT here — it is prose that interpolates app values, so both
 ;; error routes ride it on the `:tags` tree slot below.
 (def ^:private error-summary-keys
@@ -391,7 +388,7 @@
 
 (defn- project-error-record
   [record opts elision-opts]
-  (let [;; #6441 / rf2-zwgqe: a subscription QUERY VECTOR rides `:event` as raw
+  (let [;; A subscription QUERY VECTOR rides `:event` as raw
         ;; IDENTITY — it egresses VERBATIM, never app-db-elided (a concrete
         ;; integer path coincidentally matching a query-vector coordinate would
         ;; mutate identity). `error-emit/dispatch-on-error!` (the caller) marks
@@ -442,19 +439,19 @@
 ;; `[:auth :token]` into rendered hiccup at `[1 :value]`, a resolved
 ;; `:effective-args` map, a snapshot body, a rendered DOM node.
 ;;
-;; EP-0025 §"What is removed": the value-match (taint-by-equality) redaction of
-;; such re-keyed copies is REMOVED — it is propagation/taint by another name,
-;; which a HYGIENE helper does not earn. So `:rf.observe/derived-tree` is now a
+;; EP-0025 §"What is removed": there is no value-match (taint-by-equality)
+;; redaction of such re-keyed copies — it is propagation/taint by another name,
+;; which a HYGIENE helper does not earn. So `:rf.observe/derived-tree` is a
 ;; PATH-BASED projection: each tree slot is walked through `elide-wire-value`
 ;; against the frame's classification registry (frame- / EP-0025-effect- /
 ;; flow-sourced declarations, unioned). A value re-keyed off its app-db path —
 ;; UNDER A LIVE GOVERNING FRAME — is NOT covered and ships RAW: INTENDED
 ;; FAIL-OPEN (the hygiene bargain). The off-box tool consumers (Story-MCP,
-;; re-frame2-pair) keep PROJECTING the record (it stays the one boundary they
+;; re-frame2-pair) PROJECT the record (it is the one boundary they
 ;; name); the projection does not guarantee a re-keyed value is redacted under a
 ;; live frame — a consumer that needs that must classify the app-db PATH.
 ;;
-;; The four-case rule (rf2-vl0jur, ruled by Mike 2026-06-23):
+;; The four-case rule:
 ;;   1. live frame + declared path             -> redact/elide by path.
 ;;   2. live frame + re-keyed/undeclared pos    -> raw (the EP-0025 fail-open).
 ;;   3. NO live frame (nil/unknown/destroyed)
@@ -463,19 +460,18 @@
 ;;      (:rf.egress/local-raw /
 ;;       :rf.egress/include-sensitive? true)      -> raw.
 ;;
-;; Case 3 is the rf2-vl0jur reconciliation: an earlier carve-out shipped the
-;; WHOLE derived tree RAW when the frame was unresolvable / not live, on the
-;; reasoning that fail-closed would turn the tree into the `:rf/redacted`
-;; sentinel. But that contradicted the low-level walker (`elide-wire-value`
-;; FAILS CLOSED on no live frame — elision.cljc §Frameless / unresolvable-frame
-;; egress FAILS CLOSED), Spec 015 §Direct reads (a frameless projection must
-;; fail closed, never synthesise `:rf/default`), and the generic project-egress
-;; no-frame fixture. Off-box, a missing governing frame meaning "ship raw" is
-;; exactly the silent leak fail-closed exists to prevent. EP-0025 fail-open is
-;; about a re-keyed VALUE under a KNOWN frame (case 2), NOT about an
-;; unresolvable frame. So the no-live-frame path now DELEGATES to the shared
-;; `elide-wire-value` fail-closed path; the trusted-local opt-out (case 4) is
-;; the one deliberate way to ship a frameless tree raw.
+;; Case 3 fails closed even though that turns the whole tree into the
+;; `:rf/redacted` sentinel. Shipping the WHOLE derived tree RAW when the frame
+;; is unresolvable / not live would contradict the low-level walker
+;; (`elide-wire-value` FAILS CLOSED on no live frame — elision.cljc §Frameless /
+;; unresolvable-frame egress FAILS CLOSED), Spec 015 §Direct reads (a frameless
+;; projection must fail closed, never synthesise `:rf/default`), and the
+;; generic project-egress no-frame fixture. Off-box, a missing governing frame
+;; meaning "ship raw" is exactly the silent leak fail-closed exists to prevent.
+;; EP-0025 fail-open is about a re-keyed VALUE under a KNOWN frame (case 2),
+;; NOT about an unresolvable frame. So the no-live-frame path DELEGATES to the
+;; shared `elide-wire-value` fail-closed path; the trusted-local opt-out
+;; (case 4) is the one deliberate way to ship a frameless tree raw.
 ;;
 ;; The record carries:
 ;;   :tree       the derived value (the SINGLE-TREE form), OR a map whose
@@ -484,12 +480,12 @@
 ;;               map and each present key's value is walked.
 
 (defn- project-derived-tree
-  "Project a `:rf.observe/derived-tree` record (EP-0025 B4, rf2-ojp8pi). The
+  "Project a `:rf.observe/derived-tree` record (EP-0025 B4). The
   ONE public boundary a derived tree (rendered hiccup / DOM, `:effective-args`,
   a snapshot body, a plan-resolved value slot) projects through before off-box
   egress. `frame-id` is the already-seeded owning frame.
 
-  EP-0025: the value-match (taint-by-equality) engine is REMOVED. A derived tree
+  EP-0025: there is no value-match (taint-by-equality) engine. A derived tree
   re-surfaces a frame's app-db-sensitive value at a NON-app-db position the
   PATH-based walker cannot reach (a token copied out of `[:auth :token]` into
   rendered hiccup at `[1 :value]`). EP-0025 §\"What is removed\" disclaims
@@ -497,7 +493,7 @@
   PATH-BASED: each tree slot is walked through `elide-wire-value` against the
   frame's classification.
 
-  Four-case rule (rf2-vl0jur, ruled 2026-06-23):
+  Four-case rule:
 
     1. live frame + declared path  -> redact / elide by path.
     2. live frame + a re-keyed / undeclared position -> the path walk is a
@@ -507,8 +503,7 @@
        FAIL CLOSED: the value is redacted whole to `:rf/redacted`. This
        DELEGATES to the same `elide-wire-value` fail-closed path the generic
        app-db / direct-read egress uses — a missing governing frame off-box is a
-       silent-leak risk, not a hygiene case. (Earlier this shipped the raw tree;
-       rf2-vl0jur reconciled it with Spec 015 §Direct reads.)
+       silent-leak risk, not a hygiene case (Spec 015 §Direct reads).
     4. explicit trusted-local raw opt-in (`:rf.egress/local-raw` /
        `:rf.egress/include-sensitive? true`) -> the tree passes through verbatim
        (the deliberate operator raw read; this is the ONE way to ship a
@@ -553,7 +548,7 @@
   namespace (bundle isolation), so the epoch arm of `project-egress`
   resolves its projector through late-bind and reports an absent artefact
   with the SAME canonical `:rf.error/epoch-artefact-missing` shape every
-  other epoch surface reports (rf2-kuky.92 guard G1)."
+  other epoch surface reports (guard G1)."
   {:error-keyword :rf.error/epoch-artefact-missing
    :maven         "day8/re-frame2-epoch"
    :require-ns    "re-frame.epoch"})
@@ -563,10 +558,10 @@
   frame-bearing RECORD. The `case` in `project-record-by-kind` below
   dispatches exactly these; this set is the same vocabulary as a value, so
   the frame-seeding guard can ask \"is this input a recognised record?\"
-  without a loose shape test (rf2-kuky.5 — recognition by `:kind`, never by
+  without a loose shape test (recognition by `:kind`, never by
   \"it is a map that happens to carry a `:frame` key\").
 
-  TWO NAMESPACES, one vocabulary (rf2-kuky.92). The three `:rf.observe/*`
+  TWO NAMESPACES, one vocabulary. The three `:rf.observe/*`
   kinds are things observed WITHIN a frame — a handled event, an error, a
   derived tree — and their projectors live in THIS namespace.
   `:rf/epoch-record` is a committed unit of causal history, owned by the
@@ -590,8 +585,8 @@
 (defn ^:no-doc recognises-record-kind?
   "Does THIS core's `project-egress` dispatch `kind` as a record kind?
 
-  The one CROSS-ARTEFACT capability probe on this door (rf2-kuky.92 guard
-  G2). An optional artefact that OWNS a record kind — `day8/re-frame2-epoch`
+  The one CROSS-ARTEFACT capability probe on this door (guard G2). An
+  optional artefact that OWNS a record kind — `day8/re-frame2-epoch`
   and `:rf/epoch-record` — publishes its per-kind projector through
   late-bind against whatever core it finds on the classpath, and
   `late-bind/set-fns!` validates no key at runtime. So a NEW artefact can
@@ -622,7 +617,7 @@
   The dispatched kinds are `record-kinds` — one vocabulary, two shapes.
   The three `:rf.observe/*` projectors are private to this namespace;
   `:rf/epoch-record`'s is LATE-BOUND, because the epoch artefact is
-  optional and core may not require it (rf2-kuky.92)."
+  optional and core may not require it."
   [record opts elision-opts]
   (case (and (map? record) (:kind record))
     :rf.observe/handled-event
@@ -634,7 +629,7 @@
     :rf.observe/derived-tree
     (project-derived-tree record (:frame opts) elision-opts)
 
-    ;; GUARD G1 (rf2-kuky.92) — a RECOGNISED kind whose projector is
+    ;; GUARD G1 — a RECOGNISED kind whose projector is
     ;; ABSENT throws; it NEVER falls through to the kindless walk below.
     ;; That fall-through is the fail-open vector this arm exists to close:
     ;; a bare walk of an epoch record starts at `:path []`, so a frame's
@@ -673,8 +668,7 @@
   For every tree-shaped slot it DELEGATES to `elide-wire-value` against the
   frame's classification — it does NOT reimplement the walker (EP-0015 §11).
 
-  The recognised kinds (`record-kinds`) span TWO namespaces, deliberately
-  (rf2-kuky.92):
+  The recognised kinds (`record-kinds`) span TWO namespaces, deliberately:
 
     - `:rf.observe/handled-event`, `:rf.observe/error`,
       `:rf.observe/derived-tree` — things observed WITHIN a frame; their
@@ -693,17 +687,17 @@
   So `:kind` is a roster of record KINDS, not of one namespace's kinds; a
   name outside `:rf.observe/*` is admitted on that basis, not by accident.
 
-  A `:rf.observe/derived-tree` record (EP-0025 B4, rf2-ojp8pi) carries `:tree`
+  A `:rf.observe/derived-tree` record (EP-0025 B4) carries `:tree`
   (the derived value, or a map when `:slot-keys` names which map slots to walk)
   and is PATH-walked through `elide-wire-value` against the frame's
   classification registry (frame- / EP-0025-commit-plane-effect- / flow-sourced
-  declarations, unioned at lookup). EP-0025 §\"What is removed\" removed the
-  VALUE-match (taint) redaction of values re-keyed off their app-db path: under
+  declarations, unioned at lookup). There is no VALUE-match (taint) redaction
+  of values re-keyed off their app-db path (EP-0025 §\"What is removed\"): under
   a LIVE governing frame such a re-keyed copy is NOT covered and ships RAW
   (intended FAIL-OPEN — hygiene, not a guarantee; classify the app-db PATH to
   cover a re-keyed value). With NO live frame (nil / unknown / destroyed) and no
   raw opt-out the derived tree FAILS CLOSED to `:rf/redacted` — the same
-  fail-closed posture every direct-read / app-db egress uses (rf2-vl0jur; the
+  fail-closed posture every direct-read / app-db egress uses (the
   fail-open is about a re-keyed VALUE under a known frame, not an unresolvable
   frame). Under `:rf.egress/local-raw` (or explicit
   `:rf.egress/include-sensitive? true`) the tree passes through verbatim — the one
@@ -736,8 +730,7 @@
   `:rf.error/unknown-egress-profile` — the enum is closed. An unrecognised
   OPTS KEY throws `:rf.error/bad-egress-opts` naming it — the vocabulary is
   closed too, so an unqualified inclusion axis or any other misspelling
-  is a loud error rather than a policy that silently did not apply
-  (rf2-kuky.6).
+  is a loud error rather than a policy that silently did not apply.
 
   Frame resolution (EP-0015) — three steps, each decided by KEY PRESENCE
   rather than truthiness:
@@ -760,7 +753,7 @@
 
   A record is recognised by its `:kind` (`record-kinds`), never by a loose
   shape test: a bare app-db value that happens to carry a `:frame` key is a
-  VALUE, and contributes no frame context (rf2-kuky.5).
+  VALUE, and contributes no frame context.
 
   Fail-closed (EP-0002 / Spec 015 §Direct reads): a tree-shaped slot is
   projected only when the frame is KNOWN. With no frame from ANY of the
@@ -772,19 +765,19 @@
   Per [Spec 015 §`project-egress`](../../../../../spec/015-Data-Classification.md#project-egress--the-record-level-boundary-primitive)."
   ([record-or-value] (project-egress record-or-value nil))
   ([record-or-value opts]
-   ;; CLOSED opts (rf2-kuky.6). Graded HERE rather than left to the walker
+   ;; CLOSED opts. Graded HERE rather than left to the walker
    ;; downstream: a record kind whose slots are all event-shaped or
    ;; summary-only never reaches `elide-wire-value`, so a stray key on such
    ;; a call would slip through unread. One guard at the door means every
    ;; `:rf.observe/*` kind and the kindless value path answer identically.
    (rf.elision/assert-egress-opts! 'rf/project-egress project-egress-opt-keys opts)
-   ;; Frame ownership, by KEY PRESENCE at every step (rf2-kuky.5):
+   ;; Frame ownership, by KEY PRESENCE at every step:
    ;;   1. an explicit `:frame` key in `opts` wins, `nil` INCLUDED;
    ;;   2. else a RECOGNISED record's own `:frame` slot, `nil` included —
    ;;      an explicitly frameless record seeds `nil` and fails closed;
    ;;   3. else no seed at all, and the walker falls to the carried scope.
-   ;; Truthiness at either step made `{:frame nil}` unsayable: it read as
-   ;; absence and borrowed the ambient frame. Recognition is by `:kind`, so
+   ;; Truthiness at either step would make `{:frame nil}` unsayable: it would
+   ;; read as absence and borrow the ambient frame. Recognition is by `:kind`, so
    ;; a bare app-db value that happens to carry a `:frame` key is a VALUE,
    ;; not a record, and never contributes hidden frame context.
    (let [opts         (cond
@@ -801,7 +794,7 @@
          ;; is CLOSED over app-db axes, and effect args / the runtime-db
          ;; partition / event args are different keyspaces entirely. The
          ;; epoch arm reads them off the UNSTRIPPED `opts` below; every
-         ;; other arm walks a tree that has no such slots (rf2-bv1p).
+         ;; other arm walks a tree that has no such slots.
          elision-opts (resolve-elision-opts
                         (apply dissoc opts epoch-only-opt-keys))]
      (project-record-by-kind record-or-value opts elision-opts))))
