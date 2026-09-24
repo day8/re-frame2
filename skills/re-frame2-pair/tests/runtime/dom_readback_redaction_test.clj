@@ -8,22 +8,21 @@
 ;;;; (rendered DOM text / attrs / a focus descriptor) is PATH-projected against
 ;;;; the frame's classification before off-box egress via
 ;;;; `re-frame.core/project-egress` (the `:rf.observe/derived-tree` boundary).
-;;;; The value-match (taint-by-equality) engine was REMOVED, so a secret
+;;;; Projection is by PATH, with no value-match (taint-by-equality), so a secret
 ;;;; RE-KEYED into a non-app-db DOM position ships RAW (fail-open); only a value
 ;;;; still occupying a CLASSIFIED path within the tree redacts.
 ;;;;
-;;;; WHY THIS IS AST-ONLY NOW (rf2-etsj8p). The redaction SEMANTICS are
+;;;; WHY THIS IS AST-ONLY. The redaction SEMANTICS are
 ;;;; framework-owned — they live in `re-frame.core/project-egress` and are
 ;;;; covered by core's own tests. The pair runtime's contribution is the
 ;;;; WIRING: `maybe-redact-derived` delegates to `project-egress`, and every
 ;;;; derived-output arm (`dom-read` / `ui-read` / the `:dom` / `:focus` sample
 ;;;; arms / the recorder + watch paths) routes through it AND fails closed on
 ;;;; an ambiguous frame under the off-box gate. This file pins that wiring so a
-;;;; regression (someone drops the `maybe-redact-derived` call, or
-;;;; re-introduces value-match) trips RED. The prior Babashka MIRROR of the
-;;;; path-walk (which re-derived `project-egress`'s framework algorithm and was
-;;;; a copied-implementation drift risk) was retired; framework redaction
-;;;; behaviour is core's to test.
+;;;; regression (someone drops the `maybe-redact-derived` call, or adds a
+;;;; value-match) trips RED. It does not mirror the path-walk in Babashka: a
+;;;; copy of `project-egress`'s framework algorithm would be a drift risk, and
+;;;; framework redaction behaviour is core's to test.
 ;;;;
 ;;;; Run: bb tests/runtime/dom_readback_redaction_test.clj
 ;;;; Exit: 0 = pass, non-zero = fail.
@@ -48,11 +47,11 @@
 (deftest runtime-defines-the-derived-redaction-helper
   (let [f (defn-form 'maybe-redact-derived)]
     (is (some? f) "runtime must define maybe-redact-derived")
-    ;; EP-0025 B4 (rf2-ojp8pi): the SINGLE public boundary a derived tree
+    ;; EP-0025 B4: the SINGLE public boundary a derived tree
     ;; projects through is re-frame.core/project-egress — the
     ;; :rf.observe/derived-tree record kind. project-egress reads the frame's
     ;; live app-db itself (the derived-tree record's default :source-db), so
-    ;; the helper no longer hand-reads app-db-value.
+    ;; the helper does not hand-read app-db-value.
     (is (mentions? f 'rf/project-egress)
         "maybe-redact-derived must delegate to re-frame.core/project-egress")
     (is (mentions? f :rf.observe/derived-tree)
@@ -74,10 +73,10 @@
         "ui-read must PATH-project the whole :content (not just :text)")
     ;; A path-based projection over JUST the :text string is the wrong
     ;; shape. Assert it is absent — ui-read must not project only :text.
-    ;; rf2-kuky.88 moved the door's name; the INTENT is unchanged, so
-    ;; both the retired and the current spelling are refused here.
+    ;; The door's retired `elide-wire-value` spelling is refused here as
+    ;; well as the current one.
     (is (not (str/includes? s "(rf/project-egress (:text base)"))
-        "ui-read must NOT path-project only :text (the rf2-p9scds shape)")
+        "ui-read must NOT path-project only :text")
     (is (not (str/includes? s "(rf/elide-wire-value (:text base)"))
         "and not through the retired walker spelling either")
     (is (mentions? f 'ambiguous-frame-error)
