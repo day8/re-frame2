@@ -14,8 +14,8 @@
   Exercised through `reg-machine` / `dispatch-sync` — the same runtime
   surface real apps use. The WITHIN-entry candidate-vector fallthrough
   (one explicit key whose guarded candidate-vector has a blocked first +
-  enabled later entry) is already covered by other suites and asserted
-  here only as a regression guard."
+  enabled later entry) is covered by other suites and pinned here beside
+  the cross-key rule."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -47,7 +47,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest guard-blocked-explicit-falls-through-to-same-level-wildcard
-  (testing "a guard-blocked explicit :foo falls through to the same-level :* (rf2-icj9t)"
+  (testing "a guard-blocked explicit :foo falls through to the same-level :*"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
@@ -75,7 +75,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest guard-blocked-explicit-falls-through-to-parent-wildcard
-  (testing "blocked explicit + no enabled leaf :* → parent :* catches it (rf2-icj9t)"
+  (testing "blocked explicit + no enabled leaf :* → parent :* catches it"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
@@ -102,7 +102,7 @@
       (is (not (some #{:leaf-explicit} @log))
           "the guard-blocked leaf explicit action must NOT fire")))
 
-  (testing "blocked leaf explicit + guard-blocked leaf :* → still walks to parent :* (rf2-icj9t)"
+  (testing "blocked leaf explicit + guard-blocked leaf :* → walks to parent :*"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
@@ -133,7 +133,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest nothing-enabled-anywhere-is-a-genuine-noop
-  (testing "guard-blocked everywhere ⇒ no transition fires, snapshot unchanged (rf2-icj9t)"
+  (testing "guard-blocked everywhere ⇒ no transition fires, snapshot unchanged"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
@@ -169,11 +169,11 @@
             "snapshot :state unchanged — genuine no-op")))))
 
 ;; ---------------------------------------------------------------------------
-;; (d) enabled explicit still wins over same-level :* (priority preserved)
+;; (d) an enabled explicit wins over the same-level :* (priority)
 ;; ---------------------------------------------------------------------------
 
 (deftest enabled-explicit-beats-same-level-wildcard
-  (testing "an ENABLED explicit :foo wins over the same-level :* (priority preserved, rf2-icj9t)"
+  (testing "an ENABLED explicit :foo wins over the same-level :* (priority)"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
@@ -195,12 +195,12 @@
           "the same-level :* must NOT fire when an explicit candidate is enabled"))))
 
 ;; ---------------------------------------------------------------------------
-;; within-entry candidate-vector fallthrough — regression guard (already
-;; worked pre-icj9t; pinned here so the engine change doesn't regress it)
+;; within-entry candidate-vector fallthrough — pinned here so the cross-key
+;; rule cannot break it
 ;; ---------------------------------------------------------------------------
 
 (deftest within-entry-candidate-vector-fallthrough-still-works
-  (testing "one explicit key, guarded candidate-vector: blocked first + enabled later still fires (regression)"
+  (testing "one explicit key, guarded candidate-vector: blocked first + enabled later fires"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
@@ -230,7 +230,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest compound-explicit-blocked-prefers-leaf-wildcard-over-parent
-  (testing "compound: blocked leaf explicit falls through to LEAF :* before the parent (rf2-icj9t)"
+  (testing "compound: blocked leaf explicit falls through to LEAF :* before the parent"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
@@ -255,7 +255,7 @@
       ;; is shadowed.
       (rf/dispatch-sync [:icj9t/compound [:foo]])
       (is (= [:leaf-wildcard] @log)
-          "leaf :* fired before any parent walk — same-level priority preserved")
+          "leaf :* fired before any parent walk — same-level priority")
       (is (not (some #{:leaf-explicit :parent-wildcard} @log))
           "neither the blocked leaf explicit nor the parent :* fired"))))
 
@@ -265,7 +265,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest parallel-region-explicit-blocked-falls-through-to-region-wildcard
-  (testing "parallel: each region's blocked explicit falls through to that region's :* (rf2-icj9t)"
+  (testing "parallel: each region's blocked explicit falls through to that region's :*"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
