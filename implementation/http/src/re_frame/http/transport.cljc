@@ -1753,22 +1753,22 @@
         {:keys [request timeout-ms request-id actor-id abort-signal]} ctx
         method   (or (:method request) :get)
         url      (rf.http.encoding/merge-params (:url request) (:params request))
-        ;; rf2-065xo — body realization + encoding are DEFERRED past handle
+        ;; Body realization + encoding are DEFERRED past handle
         ;; registration and run inside `prepare-body!` as a managed
         ;; request-preparation PHASE (see below). Realizing a `:body` thunk
-        ;; or encoding the body here, in the binding `let`, ran them BEFORE
+        ;; or encoding the body here, in the binding `let`, would run them BEFORE
         ;; `record-in-flight!` and the platform transport try/catch — a
-        ;; throwing thunk or `encode-body` failure escaped `run-attempt!`
-        ;; entirely and surfaced as a generic `:rf.error/fx-handler-exception`
+        ;; throwing thunk or `encode-body` failure would escape `run-attempt!`
+        ;; entirely and surface as a generic `:rf.error/fx-handler-exception`
         ;; (the fx walk's catch-all in `fx.cljc`), stranding the caller with
-        ;; no `:on-failure` reply and skipping retry/abort semantics. Moving
-        ;; the work below the handle means a prep throw is caught, classified
+        ;; no `:on-failure` reply and skipping retry/abort semantics. With
+        ;; the work below the handle, a prep throw is caught, classified
         ;; as `:rf.http/transport` (the spec category for an error "before the
         ;; HTTP transaction completed" — closed set, no new category), and
         ;; routed through the normal `maybe-retry!` path so `:on-failure`,
         ;; retry policy, trace metadata, abort precedence, and sensitivity
         ;; redaction all stay consistent.
-        ;; rf2-3fc89f.9 — the external `:abort-signal` binding is a REQUEST-
+        ;; The external `:abort-signal` binding is a REQUEST-
         ;; lifecycle object, created ONCE (attempt 1) and carried forward on
         ;; ctx across retries/backoff so each phase rebinds the SAME signal
         ;; onto the current handle. `make-external-abort` returns nil for no
@@ -1780,14 +1780,14 @@
                           :clj  nil)
         ctx-no-handle (cond-> (assoc ctx :url url)
                         external-abort (assoc :external-abort external-abort))
-        ;; CLJS: per rf2-1jcpm always own an internal AbortController so
+        ;; CLJS: always own an internal AbortController so
         ;; the per-attempt timeout fires even when the caller supplied
         ;; `:abort-signal`. `cljs-fetch` forwards the caller's signal into
         ;; this controller via `addEventListener "abort"`. JVM: no per-
         ;; attempt controller — abort signalling is host-specific and
         ;; lives outside the sendAsync future.
         #?@(:cljs [internal-controller (js/AbortController.)])
-        ;; rf2-on7sj — once-only reply guard. The abort path AND the
+        ;; Once-only reply guard. The abort path AND the
         ;; subsequent natural-completion path (Fetch .catch on CLJS,
         ;; CompletableFuture .whenComplete on JVM) both fan into
         ;; finalise-*; without this CAS each slow-server abort would
@@ -1800,7 +1800,7 @@
         ;; abort reply itself. JVM additionally cancels the underlying
         ;; CompletableFuture so the work actually stops (not just the
         ;; reply path).
-        ;; rf2-6nczv9 — on the retry handoff REUSE the shared once-only reply
+        ;; On the retry handoff REUSE the shared once-only reply
         ;; guard so the predecessor (backoff) handle and this successor act as
         ;; ONE reply-guarded unit: an abort that resolved the predecessor and
         ;; delivered the terminal reply has already won this cell, so no second
@@ -1815,7 +1815,7 @@
         ;; canonical reply shape (and the `:actor-id` slot, when
         ;; actor-destroy was the source) is reconstructable inside
         ;; finalise-failure! without re-deriving from `failure`.
-        ;; rf2-6nczv9 — on the retry handoff REUSE the shared abort-precedence
+        ;; On the retry handoff REUSE the shared abort-precedence
         ;; cell so an abort landing anywhere in the timer-fire→attempt-N+1
         ;; window is consulted END-TO-END at the post-registration re-check
         ;; below (never a stale sample against a disconnected fresh cell).
@@ -1826,7 +1826,7 @@
         ;; one-cell atom that the JVM body fills after construction; the
         ;; abort-fn reads it lazily through `@cf-holder`.
         #?@(:clj  [cf-holder (atom nil)])
-        ;; rf2-rsv2n — the ISSUANCE REGION's mutex (JVM only; CLJS is single-
+        ;; The ISSUANCE REGION's mutex (JVM only; CLJS is single-
         ;; threaded and has no region to guard). Two short critical sections
         ;; take it: the host-entry region below — commit CAS, `jvm-fetch`
         ;; (`HttpClient.sendAsync`), publication of the returned future — and
@@ -1841,7 +1841,7 @@
         ;; a `reset!`, and `.whenComplete` / `clear-in-flight!` /
         ;; `dispatch-aborted!` are all outside.
         #?@(:clj  [issue-lock (Object.)])
-        ;; rf2-rsv2n — one-cell issuance-phase CAS closing the request-
+        ;; One-cell issuance-phase CAS closing the request-
         ;; preparation → host-transport window. `nil` until one side commits:
         ;; the host-entry region below CASes it to `:issued` as its first act
         ;; inside the region, and the abort closure CASes it to `:aborted`
@@ -1851,16 +1851,17 @@
         ;; really was issued. An abort that lands while `prepare-body!` is
         ;; blocked inside a body thunk wins this cell, so the attempt NEVER
         ;; calls `cljs-fetch` / `jvm-fetch` after the canonical cancelled reply
-        ;; went out — previously `@finalised?` was sampled only BEFORE prep, and
-        ;; on the JVM `cf-holder` was still nil during prep so the abort had no
-        ;; future to cancel: `HttpClient.sendAsync` issued a side-effecting
-        ;; request AFTER the framework told the app it was cancelled. When
+        ;; went out. A `@finalised?` sample taken only BEFORE prep would not
+        ;; suffice: on the JVM `cf-holder` is still nil during prep, so the
+        ;; abort would have no future to cancel and `HttpClient.sendAsync` would
+        ;; issue a side-effecting request AFTER the framework told the app it
+        ;; was cancelled. When
         ;; issuance wins the cell instead, the JVM abort path cancels via
         ;; `cf-holder`, which `issue-lock` guarantees is published by the time
         ;; that abort can read it. Per-attempt like `cf-holder`, never
         ;; threaded through the retry handoff — each attempt owns its own
         ;; issuance; the handoff window itself is covered by the shared-cell
-        ;; re-check further down (rf2-6nczv9).
+        ;; re-check further down.
         issue-phase (atom nil)
         ;; Forward-reference cell for the stamped handle.
         ;; The abort-fn's registry cleanup must pass the handle to the
@@ -1907,7 +1908,7 @@
                                 ;; succession against the same handle)
                                 ;; is a no-op past the first call.
                                 (when (compare-and-set! finalised? false true)
-                                  ;; rf2-rsv2n — claim the issuance phase.
+                                  ;; Claim the issuance phase.
                                   ;; Winning (nil → `:aborted`) means the host
                                   ;; call has not been made yet: the host-entry
                                   ;; region's own CAS will now fail, so no
@@ -1933,12 +1934,12 @@
                                      ;; the same :finalised? flag and
                                      ;; bails before re-emitting.
                                      ;; `true` = may-interrupt-if-running.
-                                     ;; rf2-rsv2n — under `issue-lock`: when
+                                     ;; Under `issue-lock`: when
                                      ;; issuance won the cell we may be racing
                                      ;; the host call itself, and taking the
                                      ;; monitor is what makes this read see a
-                                     ;; PUBLISHED future instead of the nil it
-                                     ;; used to find. It also holds the rest of
+                                     ;; PUBLISHED future rather than nil.
+                                     ;; It also holds the rest of
                                      ;; this cascade — registry clear and the
                                      ;; cancelled reply — behind the in-flight
                                      ;; host call, so the abort can never
@@ -1973,7 +1974,7 @@
                                   ;; any future trigger that does not
                                   ;; pre-clear.
                                   ;;
-                                  ;; rf2-o8ek audit — pass the frame too. On
+                                  ;; Pass the frame too. On
                                   ;; the JVM another thread can fire this
                                   ;; just-published abort-fn while
                                   ;; `@handle-holder` is still nil, and a nil
@@ -2017,7 +2018,7 @@
                     :origin-event (:origin-event ctx)
                     :issuance     (:issuance ctx)
                     :attempt      (:attempt ctx)}
-                   ;; rf2-3x7nj.16.3 — on the retry handoff take the request-id
+                   ;; On the retry handoff take the request-id
                    ;; slot only from the predecessor backoff handle: a same-id
                    ;; successor that registered after the timer won `fired?`
                    ;; keeps it, and the re-check below finishes this request.
@@ -2029,18 +2030,18 @@
         ;; happens synchronously here, before any fetch is issued, so the
         ;; cell is always populated by the time any abort can fire.
         _        (reset! handle-holder handle)
-        ;; rf2-6nczv9 — CONTINUOUS REGISTRATION on the retry handoff: the
+        ;; CONTINUOUS REGISTRATION on the retry handoff: the
         ;; successor live-fetch handle now owns the request-id slot
         ;; (`record-in-flight!` overwrote it above), so the request is never
         ;; absent from the registry across the timer-fire→attempt-N+1 handoff.
         ;; Drop the predecessor backoff handle only NOW — after the successor is
-        ;; registered. The 2-arg clear is identity-conditional (rf2-ous9e5): the
+        ;; registered. The 2-arg clear is identity-conditional: the
         ;; request-id slot holds the successor, so it no-ops there and only
         ;; removes the predecessor from the actor index (no stale accumulation
-        ;; across retries, rf2-wvkn). No-op on the first attempt (no handoff).
+        ;; across retries). No-op on the first attempt (no handoff).
         _        (when-let [prev (:prev-handle handoff)]
                    (rf.http.registry/clear-in-flight! request-id prev))
-        ;; rf2-3fc89f.9 — bind the external `:abort-signal` to THIS live-fetch
+        ;; Bind the external `:abort-signal` to THIS live-fetch
         ;; handle's canonical abort-fn (`:reason :user`), detaching the prior
         ;; phase's listener (ownership transfer). An ALREADY-aborted signal
         ;; fires the abort-fn synchronously HERE — it wins the once-only CAS,
@@ -2055,7 +2056,7 @@
                    external-abort
                    (fn [] ((:abort-fn handle) :user)))])
         ctx'     (assoc ctx-no-handle :handle handle)]
-    ;; rf2-6nczv9 — CANCELLATION-SAFE RE-CHECK at the timer-fire→attempt-N+1
+    ;; CANCELLATION-SAFE RE-CHECK at the timer-fire→attempt-N+1
     ;; handoff. If an abort flipped the SHARED cell during the handoff, a
     ;; request the caller cancelled MUST NOT issue a fresh attempt (Spec 014
     ;; §486-492). Drop the successor handle we just registered (idempotent if an
@@ -2072,19 +2073,20 @@
       (rf.http.registry/clear-in-flight! request-id handle)
       (when (compare-and-set! finalised? false true)
         (dispatch-aborted! ctx-no-handle (:reason @aborted?))))
-    ;; rf2-6nczv9 / rf2-fyt5i — HONEST `:retried` (retry handoff only): the
+    ;; HONEST `:retried` (retry handoff only): the
     ;; successor is registered and the shared abort cell is still clear, so
     ;; attempt N+1 is genuinely about to issue. Emitting here — never at the
     ;; earlier decision point in `maybe-retry!` — means an in-window
     ;; cancellation emits NO phantom `:retried` for a retry that never happened
     ;; (Spec 009 recovery law). `:emit-ctx` is the just-failed attempt's ctx so
-    ;; the trace's `:attempt` / `:next-backoff-ms` are unchanged from fyt5i.
+    ;; the trace's `:attempt` names that attempt and `:next-backoff-ms` the
+    ;; backoff that governed this one.
     (when (and (some? handoff)
                (not (some? @aborted?))
                (not @finalised?)
                rf.interop/debug-enabled?)
       (emit-retry-attempt! (:emit-ctx handoff) (:failure handoff) (:delay-ms handoff) :retried))
-    ;; rf2-3fc89f.9 — short-circuit when an already-aborted external signal
+    ;; Short-circuit when an already-aborted external signal
     ;; won the CAS synchronously during the bind above: the request is already
     ;; terminal (reply dispatched, registry cleared, listener detached), so
     ;; running the body thunk / prep or issuing the transport would violate
@@ -2106,7 +2108,7 @@
         ;; precedence, and the `:on-failure` reply shape all stay consistent.
         (maybe-retry! ctx' prep-error)
         (let [{:keys [enc-body headers]} (:ok prep)]
-        ;; rf2-rsv2n — POST-PREPARATION cancellation gate. A body thunk may
+        ;; POST-PREPARATION cancellation gate. A body thunk may
         ;; block inside `prepare-body!` for arbitrarily long, and the
         ;; `@finalised?` sample above ran BEFORE prep — so an abort that won
         ;; while preparation was in progress has already delivered the
@@ -2145,7 +2147,7 @@
                             :referrer            (:referrer request)
                             :integrity           (:integrity request)
                             :timeout-ms          timeout-ms
-                            ;; rf2-3fc89f.9 — the external `:abort-signal` is
+                            ;; The external `:abort-signal` is
                             ;; NOT forwarded into the attempt-local Fetch:
                             ;; cancellation is lifecycle-owned (bound to the
                             ;; handle's abort-fn above), which aborts THIS
@@ -2165,7 +2167,7 @@
                             ;; JVM branch threads into `jvm-fetch` below.
                             :sensitive?          (true? (:sensitive? ctx))
                             :frame               (:frame ctx)})
-               ;; rf2-1eng8 — the completion fence. Without it a throw anywhere
+               ;; The completion fence. Without it a throw anywhere
                ;; in the response cascade rejects this promise, and the `.catch`
                ;; below reclassifies it as `:rf.http/transport` → `maybe-retry!`
                ;; → a RE-SEND of a request whose 2xx already landed. The fence
@@ -2196,7 +2198,7 @@
            (let [started-ns (System/nanoTime)
                  elapsed-ms #(quot (- (System/nanoTime) started-ns) 1000000)]
              (try
-               ;; rf2-rsv2n — THE ISSUANCE REGION. Commit, issue and publish
+               ;; THE ISSUANCE REGION. Commit, issue and publish
                ;; hold `issue-lock` together, so the abort closure's cancel
                ;; step cannot land between them. An abort that reaches the
                ;; monitor first wins the cell, this CAS fails, and `sendAsync`
@@ -2255,7 +2257,7 @@
                  ;; user. An abort that cancelled cf between the region
                  ;; ending and this line lands the same way — registering on
                  ;; an already-cancelled future fires the callback at once.
-                 ;; rf2-1eng8 — the completion fence. This BiConsumer's returned
+                 ;; The completion fence. This BiConsumer's returned
                  ;; stage is discarded, so without the fence a throw in the
                  ;; response cascade completes that unheld future exceptionally
                  ;; and vanishes: no reply, registry never cleared, caller hangs
