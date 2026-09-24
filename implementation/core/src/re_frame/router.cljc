@@ -130,7 +130,7 @@
 ;;     durable timestamp folded from it would be incomparable with `js/Date`-
 ;;     based freshness checks: resource `:stale-at`, invalidation, etc.).
 ;;
-;; Unlike `:dispatch-id` / the retired `:dispatched-at`, this is NOT dev-gated:
+;; Unlike `:dispatch-id`, this is NOT dev-gated:
 ;; recordable coeffects are DURABLE causal data, not a diagnostic, so
 ;; `:rf/time-ms` must be present in production too. The cost is one
 ;; `epoch-now-ms` read + a small map on the dispatch path — the price of a
@@ -289,8 +289,8 @@
          _                  (when (rf.trace/continuation-live?)
                               (when-let [unknown (rf.router.diagnostics/unknown-dispatch-opts opts)]
                                 (rf.router.diagnostics/emit-unknown-dispatch-opts-warning! unknown event)))
-        ;; Per rf2-70h9wn (Conventions §Event payloads SHOULD be
-        ;; serialisable data): a dev-only advisory walk of the dispatched
+        ;; Per Conventions §Event payloads SHOULD be
+        ;; serialisable data: a dev-only advisory walk of the dispatched
         ;; event's payload for a host handle (fn / Promise / AbortController
         ;; / DOM node / Date / RegExp) — the same closed set the reply-map /
         ;; reply-target data-only invariant polices. WARNING, not a throw:
@@ -331,9 +331,9 @@
         ;; KEYWORD or a live frame OBJECT (`rf/make-frame`'s return value —
         ;; `(rf/dispatch-sync [...] {:frame frame})`). Normalize an object to its
         ;; runnable-id ADDRESS via `rf.frame/frame-target->id` so the envelope
-        ;; carries a keyword `:frame` and every bare-`frame-id`-keyed cascade
+        ;; carries a keyword `:frame` for every bare-`frame-id`-keyed cascade
         ;; operation downstream (the router queue/drain, `frame-state-value`,
-        ;; the commit path, the sub-cache) stays byte-identical. The
+        ;; the commit path, the sub-cache). The
         ;; generation-resolution seam reads the sealed generation off the record
         ;; by this id, so an object target and a child dispatch carrying the same
         ;; id BOTH route the frame's image. A keyword target (and the scope/hold-resolved frame) passes
@@ -357,7 +357,7 @@
         ;; emitting handler is a machine (see `child-dispatch-opts` in
         ;; re-frame.fx, which copies the flag off the machine-tagged
         ;; parent envelope). A `:dispatch-later` child does not keep it:
-        ;; it is a timer callback and goes to the back (rf2-3x7nj.1.2).
+        ;; it is a timer callback and goes to the back.
         ;; `dispatch!` reads it to insert the envelope
         ;; at the FRONT of the queue so the macrostep settles to
         ;; quiescence before the next EXTERNAL event. This is a runtime
@@ -373,7 +373,7 @@
         ;; A runtime ordering guarantee like `:rf.machine/internal?`, so carried
         ;; on the same terms: unconditionally, never gated on debug-enabled?.
         flow-settle?       (true? (:rf.flow/settle? opts))
-        ;; EP-0017 §6 / slice-B.8: the per-call cofx MINT POLICY
+        ;; EP-0017 §6: the per-call cofx MINT POLICY
         ;; — the most-specific binding point. A Tool-Pair replay supplies
         ;; `:strict` (so an incomplete record fails loudly rather than minting
         ;; a fresh value); a nondeterminism-declaring test supplies
@@ -384,13 +384,13 @@
         ;; when supplied, so the override-free hot path keeps the envelope lean
         ;; and `assemble-initial-ctx` reads `nil` for the common case.
         mint-policy        (:rf.cofx/mint-policy opts)
-        ;; rf2-8j4h7i: the `:initial-events` setup runner (frame.cljc
+        ;; The `:initial-events` setup runner (frame.cljc
         ;; `run-setup-events!`) stamps `:step-index` into each setup-step's
         ;; dispatch opts as the second half of the EP-0027 §Provenance contract
         ;; (the `:source :frame-init` half is read just below). Without reading
-        ;; it here the value was silently discarded at the envelope boundary and
-        ;; never reached the `:rf.event/dispatched` trace, so tools could not
-        ;; navigate per setup step. Carried onto the envelope ONLY when present
+        ;; it here the value would be silently discarded at the envelope
+        ;; boundary and never reach the `:rf.event/dispatched` trace, so tools
+        ;; could not navigate per setup step. Carried onto the envelope ONLY when present
         ;; (the override-free hot path keeps the envelope lean), and stamped on
         ;; the dispatched trace under `:rf.frame/init-step-index`
         ;; (`emit-dispatched-trace`). It is a debug/trace provenance lever, not a
@@ -456,17 +456,17 @@
       ;; Spec 013 §Sequencing: carry the flow-settle ordering flag onto the
       ;; envelope so `insert-envelope` can head-insert it.
       flow-settle?       (assoc :rf.flow/settle? true)
-      ;; EP-0017 §6 / slice-B.8: carry the per-call cofx mint
+      ;; EP-0017 §6: carry the per-call cofx mint
       ;; policy onto the envelope only when supplied, so `assemble-initial-ctx`
       ;; reads it (per-call wins over the frame config). Absent ⇒ the key is
       ;; omitted and the frame-config / `:live` fallback applies.
       mint-policy        (assoc :rf.cofx/mint-policy mint-policy)
-      ;; rf2-8j4h7i: carry the `:initial-events` setup-step index onto the
+      ;; Carry the `:initial-events` setup-step index onto the
       ;; envelope only when present (frame-init dispatches), so
       ;; `emit-dispatched-trace` can stamp it on the dispatched trace as the
       ;; second half of the EP-0027 §Provenance contract.
       step-index         (assoc :step-index step-index)
-      ;; rf2-dlld6: carry the captured incarnation token onto the envelope only
+      ;; Carry the captured incarnation token onto the envelope only
       ;; when a `capture-frame` op supplied it, so `dispatch!` / `dispatch-sync!`
       ;; can fence the enqueue to the EXACT incarnation the resolve returns.
       expected-incarnation (assoc :rf.frame/expected-incarnation expected-incarnation))))))
@@ -504,8 +504,8 @@
 
   Per Spec 013 §Sequencing the framework is itself a registrant here, ahead of
   the late-bound one: `framework-private-handler-metas` holds the handler-metas
-  for framework-OWNED event ids that are deliberately never registered. Today
-  that is `:rf/settle-flows`, the flow-settle event the `:fx` walk enqueues
+  for framework-OWNED event ids that are deliberately never registered. That
+  is `:rf/settle-flows`, the flow-settle event the `:fx` walk enqueues
   after it registered or cleared a flow. Resolving it HERE rather than seeding
   it into the registrar is what keeps it off `rf.registrar/registrations :event` —
   so the framework's own follow-up drain adds no row to an app's event
@@ -645,7 +645,7 @@
         (keys overrides)))
 
 (defn- apply-icpt-overrides
-  "Per Spec 002 §`:interceptor-overrides` (EP-0022 Slice C — exact-reference
+  "Per Spec 002 §`:interceptor-overrides` (EP-0022 — exact-reference
   matching): walk `chain` and substitute / remove interceptors against
   `overrides`. Matching is by **canonical interceptor reference**
   (`rf.interceptor-registry/override-key-matches?`), not merely by `:id`:
@@ -699,7 +699,7 @@
                (recur (next entries) (cond-> out (some? value) (conj value)))
                nil))))))))
 
-;; ---- rf2-yigokd: envelope override capture for strict replay ---------------
+;; ---- envelope override capture for strict replay --------------------------
 ;;
 ;; Per Spec-Schemas §`:rf/epoch-record` + Tool-Pair §Replay: the epoch record
 ;; carries the envelope's SERIALIZABLE `:fx-overrides` / `:interceptor-
@@ -728,10 +728,10 @@
   the epoch record / trace stream. Keyword-id and `nil` entries (both already
   EDN — id-valued redirect / explicit no-override) pass through unchanged.
   Marker-izes AT THE EMISSION SITE (the run-start trace tag construction
-  below), per rf2-yigokd's ruling — the sharp update-phase class
+  below) — the sharp update-phase class
   (`:interceptor-overrides`, which edits the pre-commit chain) is EDN by
-  construction (EP-0022 retired value-valued replacements), so only
-  `:fx-overrides` needs this walk.
+  construction (EP-0022: a replacement is a reference or `nil`, never a
+  value), so only `:fx-overrides` needs this walk.
 
   Returns nil for an empty/nil map so callers can omit the slot entirely
   (matching the `:rf.event/cofx` `(some? …)`-conditional shape below)."
@@ -751,7 +751,7 @@
   removed/replaced) against the override keys.
 
   Returns `nil` when `overrides` is empty (the hot no-override path — the tag
-  is then omitted entirely, keeping the override-free run-start byte-identical).
+  is then omitted entirely).
   Otherwise returns:
 
     {:matched  [<authored-ref-id> …]   ;; keys that matched a chain entry
@@ -801,7 +801,7 @@
   skipped. Defaults to true when the schemas namespace hasn't been
   loaded.
 
-  TWO ARMS, one site (rf2-kuky.40). The DEV arm is gated on
+  TWO ARMS, one site. The DEV arm is gated on
   `rf.spec/dev-mode?` — a single read of `rf.interop/debug-enabled?` behind an
   indirection tests can rebind. Spec 010 validate-*! is a dev-only validator
   surface: per `re-frame.schemas.validate` §Production builds every dev-time
@@ -877,7 +877,7 @@
   effect-commit site reads this flag to decide whether a returned
   `:rf.db/runtime` effect is in-bounds or should fire the
   `:rf.warning/app-handler-runtime-effect` dev diagnostic (reserved BY
-  CONVENTION, not a security boundary — Mike ruling #4). It is NOT a
+  CONVENTION, not a security boundary). It is NOT a
   capability gate: the effect is applied either way."
   [envelope frame frame-record handler-meta fx-overrides continue?]
   (let [event       (:event envelope)
@@ -893,7 +893,7 @@
         ;; `rf.events/register-event!`). nil / empty for the overwhelming majority
         ;; of handlers (no declarations) — the delivery step is then a no-op.
         requires    (:rf.cofx/requires-parsed handler-meta)
-        ;; EP-0017 §6 / slice-B.8: the EFFECTIVE cofx
+        ;; EP-0017 §6: the EFFECTIVE cofx
         ;; mint policy for this dispatch, resolved ONCE here (per-call envelope
         ;; opt ▸ frame config ▸ `:live`). The event path consumes it inline at
         ;; the `(seq requires)` branch below; it is ALSO stamped onto `base-cofx`
@@ -932,8 +932,8 @@
     ;; EP-0017 §5 step 4: deliver EXACTLY the declared facts, flat. Recordable
     ;; facts come from the token's `:rf.cofx` (validated against `:schema`);
     ;; ambient facts run their suppliers now; a declared-absent GENERATOR-BACKED
-    ;; recordable fact is GENERATED at processing-start (slice B.7) UNDER THE
-    ;; RESOLVED MINT POLICY (slice B.8 — per-call opt ▸ frame config
+    ;; recordable fact is GENERATED at processing-start UNDER THE
+    ;; RESOLVED MINT POLICY (per-call opt ▸ frame config
     ;; ▸ `:live`; `:strict` does NOT generate and surfaces missing-required) and
     ;; written back into the record; a
     ;; declared-absent PROVIDED fact is `:rf.error/missing-required-cofx`; an
@@ -950,7 +950,7 @@
     ;; EP-0017 §4). With no generators on the path the record is unchanged.
     (let [{:keys [coeffects rf/skip-handler?] :as delivered}
           (if (and (continue?) (seq requires))
-            ;; EP-0017 §6 / slice-B.8: the effective cofx MINT
+            ;; EP-0017 §6: the effective cofx MINT
             ;; POLICY for this dispatch (most-specific-wins — per-call opt ▸
             ;; frame config ▸ `:live`) was resolved ONCE above as `mint-policy`
             ;; and is reused here. The policy gates ONLY the declared-absent
@@ -978,16 +978,15 @@
 
 (def ^:private handler-wrapping-interceptor-ids
   "The `:id`(s) the event registrar stamps on the handler-wrapping
-  interceptor (the terminal `:before` that invokes the user handler). Since
-  EP-0018 collapsed the event family to one form, this is the single
-  `:rf/event-handler` id (per `re-frame.events/event-handler-interceptor-id`;
-  the former per-kind `:rf/db-handler` / `:rf/fx-handler` / `:rf/ctx-handler`
-  ids are gone). A captured `:rf/interceptor-error` whose `:id` is in this set
+  interceptor (the terminal `:before` that invokes the user handler). The
+  event family has one form (EP-0018), so this is the single
+  `:rf/event-handler` id (per `re-frame.events/event-handler-interceptor-id`).
+  A captured `:rf/interceptor-error` whose `:id` is in this set
   is the EVENT HANDLER itself throwing (vs. a coeffect injector or a user
   interceptor); it keeps the `:rf.error/handler-exception` category attributed
   to the event. Held here (not imported from `events`) to keep the router's
   classification cycle-free; the id is a stable framework-owned contract.
-  Kept as a set so the `contains?` membership check is unchanged."
+  A set, so the check is a `contains?` membership test."
   #{:rf/event-handler})
 
 (defn- classify-pipeline-exception
@@ -1056,24 +1055,26 @@
 
   The category + `:failing-id` are derived from the
   captured component identity via `classify-pipeline-exception` — a
-  coeffect-injection throw emits `:rf.error/coeffect-exception` attributed
-  to the cofx id, a user-interceptor throw emits
+  user-interceptor throw emits
   `:rf.error/interceptor-exception` attributed to the interceptor id (with
   `:phase` discriminating `:before`/`:after`), and only the event handler
-  itself keeps `:rf.error/handler-exception` attributed to the event id.
-  The `:handler-id` tag is retained ONLY for the genuine handler case so
-  consumers that read it (production-observability shippers) are not
-  mis-fed the event id for a coeffect / interceptor failure.
+  itself keeps `:rf.error/handler-exception` attributed to the event id
+  (a coeffect-supplier throw never reaches here — see
+  `classify-pipeline-exception`). The `:handler-id` tag is stamped ONLY for
+  the genuine handler case so consumers that read it
+  (production-observability shippers) are not mis-fed the event id for an
+  interceptor failure.
 
   Schema-derived redaction is reflected in the `:tags :event` slot:
   when the handler's path-scoped db slice overlaps a sensitive schema
   slot, the router-installed redaction interceptor stores the scrubbed
   event form under `:rf/redacted-event`; this helper surfaces it.
 
-  A corpus-wide listener registry runs for off-box
-  observability shippers (Sentry / Honeybadger / Rollbar) and MUST fire
-  even when the trace surface is compile-time elided in CLJS production
-  builds. We build the tight error-record up-front, hand it to
+  The always-on corpus-wide listener registry — and, through it, the
+  frame-owned `:observability :errors` sinks that off-box shippers (Sentry /
+  Honeybadger / Rollbar) consume — MUST fire even when the trace surface is
+  compile-time elided in CLJS production builds. We build the tight
+  error-record up-front, hand it to
   `rf.error-emit/dispatch-on-error!` (always-on; survives `goog.DEBUG=
   false`), then forward to the dev-only `rf.trace/emit-error!` for trace
   listeners and the retain-N buffer. The trace path enriches the emitted
@@ -1094,7 +1095,7 @@
         handler-throw? (= operation :rf.error/handler-exception)
         ;; The throwing user interceptor's definition-site
         ;; coord (its `:source-coord` — the registration coord stamped at
-        ;; chain resolution (rf2-tq26u) or one handed to `->interceptor*` —
+        ;; chain resolution or one handed to `->interceptor*` —
         ;; carried on the interceptor map → error-record). Threaded onto the
         ;; `:rf.error/interceptor-exception` trace so the Xray Epoch
         ;; INTERCEPTOR row renders a jump-to-source chip (parity with
@@ -1112,7 +1113,7 @@
                             :reason            reason
                             :recovery          :no-recovery}
                      ;; `:handler-id` is only meaningful when the EVENT
-                     ;; handler itself threw — a coeffect / interceptor
+                     ;; handler itself threw — an interceptor
                      ;; failure has no handler-id to carry (the handler
                      ;; never ran), so stamping the event-id regardless
                      ;; would mis-feed consumers.
@@ -1120,7 +1121,7 @@
                      icpt-coord     (assoc :source-coord icpt-coord))]
     ;; Fan out along BOTH channels (shared helper). Axis 1 — the
     ;; always-on corpus-wide listener: every fn registered through
-    ;; `rf/register-error-listener!` receives the tight error-record so
+    ;; `re-frame.error-emit/register-error-listener!` receives the tight error-record so
     ;; production builds with the trace surface elided still observe the error.
     ;; Trigger-handler / dispatch-id enrichment is dev-only and rides the trace
     ;; path (`tags`). Axis 2 — the dev-only `rf.trace/emit-error!` (DCE'd in prod).
@@ -1128,8 +1129,8 @@
       operation emit-event event-id frame exception elapsed-ms end-ms tags)))
 
 (defn- run-candidate-validation!
-  "Per Spec 010 §Per-step recovery row 4 (rf2-uhk9ko, Mike-ruled Option
-  B): validate the COMPLETE CANDIDATE frame transition BEFORE it is
+  "Per Spec 010 §Per-step recovery row 4: validate the COMPLETE CANDIDATE
+  frame transition BEFORE it is
   installed. `db-after` / `runtime-db-after` are the candidate partition
   values `commit-frame-effects!` computed — the container has NOT been
   written when this runs. Returns the validators' boolean conjunction —
@@ -1171,8 +1172,8 @@
   boundary, and an app-only commit never pays for a machine-data walk
   over a runtime-db it does not touch.
 
-  Fail CLOSED on a validator-machinery throw (rf2-uhk9ko — the retired
-  treat-as-pass arm was a fail-OPEN bypass): a host-thrown validator
+  Fail CLOSED on a validator-machinery throw (treating it as a pass would
+  be a fail-OPEN bypass): a host-thrown validator
   (e.g. a buggy user-supplied `set-schema-fns!` `:validate` fn, or the
   late-bind machinery failing wholesale) is caught, surfaced as a
   `:rf.error/malformed-schema` trace with `:rollback? true`, and the
@@ -1190,16 +1191,15 @@
         ;; Surface a validator-machinery throw AND reject (fail closed).
         ;; DCE-gated inside `rf.trace/emit-error!`.
         ;;
-        ;; rf2-vkn8: ALSO fan one structural-only record onto the always-on
+        ;; ALSO fan one structural-only record onto the always-on
         ;; `:errors` stream, BEFORE the trace (`emit-error-both!`'s
         ;; axis-1-then-axis-2 ordering, so the JVM SSR listener's
         ;; last-write-wins buffer keeps the richer trace as its final input).
-        ;; This is the third `:rollback? true` producer the rf2-xpd8 ruling
-        ;; covers: a wholesale validator-machinery throw rejects the WHOLE
-        ;; candidate transition, and until now said so on the dev trace only —
-        ;; so an app whose registered validator was itself broken stopped
-        ;; committing with nothing on the stream it registered to hear about
-        ;; its own errors.
+        ;; This is the third always-on `:rollback? true` producer: a
+        ;; wholesale validator-machinery throw rejects the WHOLE candidate
+        ;; transition, and on the dev trace alone an app whose registered
+        ;; validator was itself broken would stop committing with nothing on
+        ;; the stream it registered to hear about its own errors.
         ;;
         ;; The `rf.interop/debug-enabled?` gate is EXPLICIT here where the
         ;; other two arms inherit one, and it is deliberate rather than
@@ -1216,10 +1216,9 @@
         ;; The `:reason` is a CONSTANT sentence naming only the boundary, NOT
         ;; the throwing validator's message. That message is unbounded and
         ;; author-controlled — a user-supplied `set-schema-fns!` validator may
-        ;; say anything, including the value it choked on — and an unbounded
-        ;; reason on a bounded record is exactly the defect this campaign
-        ;; exists to avoid. It stays on the DCE'd dev trace below, which is
-        ;; byte-identical to before.
+        ;; say anything, including the value it choked on — and a bounded
+        ;; record must not carry an unbounded reason. The message rides the
+        ;; DCE'd dev trace below instead.
         (fn [where ex]
           (when rf.interop/debug-enabled?
             (rf.error-emit/dispatch-error-record!
@@ -1279,8 +1278,8 @@
               true)
               true)))
         ;; App-db schema validation runs only when a `:db` effect produced a
-        ;; candidate app-db (app schemas validate app-db only — Mike ruling
-        ;; #11). Sticky hook — fires per-dispatch.
+        ;; candidate app-db (app schemas validate app-db only). Sticky hook —
+        ;; fires per-dispatch.
         app-ok?
         (run-partition-validator! app-effect? :schemas/validate-app-schema!
                                   db-after :app-db)]
@@ -1316,8 +1315,8 @@
   `#{:app-db :runtime-db}`. Fires only when at least one partition
   changed. Dev-only — `rf.trace/emit!` is internally gated on
   `rf.interop/debug-enabled?`. Phase-less: this fires only for the single
-  forward commit (rf2-uhk9ko removed the `:phase :rollback` re-emit —
-  a rejected candidate never commits, so there is nothing to re-emit)."
+  forward commit (there is no `:phase :rollback` re-emit — a rejected
+  candidate never commits, so there is nothing to re-emit)."
   [event-id emit-event frame changed]
   (when (seq changed)
     (let [tags (cond-> #{}
@@ -1335,8 +1334,8 @@
   (`:rf.trace/event-id` / `:rf.event/v` / `:frame`). Sibling of
   `emit-frame-state-changed!` for the app-db-scoped change traces, holding
   the shared tag map in one place. Phase-less: these fire only for the
-  single forward commit (rf2-uhk9ko removed the `:phase :rollback`
-  re-emit — a rejected candidate never commits). Dev-only —
+  single forward commit (there is no `:phase :rollback` re-emit — a
+  rejected candidate never commits). Dev-only —
   `rf.trace/emit!` is internally gated on `rf.interop/debug-enabled?`."
   [op event-id emit-event frame]
   (rf.trace/emit! :rf.event op
@@ -1348,7 +1347,7 @@
   "Roll the flow dirty-check (`last-inputs`) rows and the in-drain
   abandoned-output-path queue BACK to the pre-transform snapshots the
   outermost flows `:after` stashed on `ctx`, for an event that is NOT going to
-  commit (rf2-1b8yxb). The flow transform advances a recomputed flow's row and
+  commit. The flow transform advances a recomputed flow's row and
   read-and-clears the queued vacations EAGERLY, folding the result into the
   pending `:db`; whether that `:db` lands is decided AFTER the chain, so every
   NON-COMMIT outcome must undo those eager side effects in lock-step with the
@@ -1356,7 +1355,7 @@
   (`last-inputs` stuck advanced past a write that never landed, Spec 013
   §Failure semantics rule 2) and a queued vacation is lost (§clear-flow
   cleanup). Shared by every in-band non-commit arm in `commit-and-flow!` —
-  the schema-validation candidate REJECTION (rf2-uhk9ko: the only state the
+  the schema-validation candidate REJECTION (the only state the
   rejection restores is this transient flow bookkeeping; the container was
   never written) and the pre-commit aborts (legacy-runtime-root /
   classification-effect-shape) — the boundaries `run-flows-on-db`'s own
@@ -1397,7 +1396,7 @@
   single physical frame-state container — there is never a window where one
   partition is committed and the other is not (Spec 006 §Commit boundary).
 
-  PREPARE → VALIDATE → INSTALL (rf2-uhk9ko, Mike-ruled Option B). The fn
+  PREPARE → VALIDATE → INSTALL. The fn
   first BUILDS the complete candidate transition — the nil-coerced
   flow-augmented app-db, the reconciled `:rf.db/runtime` value with any
   commit-plane classification effects applied — WITHOUT mutating the
@@ -1421,13 +1420,13 @@
   substrate epoch drains, `useSyncExternalStore` subscribers — can never
   observe the invalid candidate: it never reaches the container. App-db
   schema validation is APP-DB-ONLY (app schemas validate the app
-  partition, Mike ruling #11); a rejection discards the WHOLE candidate
+  partition); a rejection discards the WHOLE candidate
   (both partitions, including any classification-effect registry write) so
   the frame stays coherently at its pre-handler state.
 
   Change traces on the SUCCESS path (per Spec 009 §Canonical per-event
   trace sequence):
-    - `:rf.event/db-changed` — APP-DB-ONLY (Mike ruling #6): fires only when
+    - `:rf.event/db-changed` — APP-DB-ONLY: fires only when
       the app-db partition changed; NEVER for a runtime-only commit;
     - `:rf.event/db-noop` — APP-DB-ONLY: fires when a `:db`
       effect was present but app-db did NOT change (the handler returned an
@@ -1527,11 +1526,10 @@
             ;;
             ;; Privacy fail-open: reconcile against the LIVE
             ;; runtime-db read AT COMMIT, NOT the chain-start `runtime-before`
-            ;; snapshot. Under the post-EP-0025 model flows install their output
+            ;; snapshot. Flows install their output
             ;; declarations at `reg-flow` REGISTRATION time, not during the
-            ;; `:after` drain (the drain-time `refresh-flow-output-declarations!`
-            ;; propagation engine the old rationale cited was REMOVED by
-            ;; EP-0025 — there is no input→output sensitivity propagation). But
+            ;; `:after` drain (EP-0025: there is no input→output sensitivity
+            ;; propagation). But
             ;; an out-of-band subsystem write to `[:rf.runtime/elision]` can
             ;; STILL land DURING this cascade, AFTER `runtime-before` was
             ;; captured by reference in `assemble-initial-ctx`: a handler (or an
@@ -1549,10 +1547,9 @@
             ;; effect that carries `:rf.runtime/elision` is still honoured
             ;; verbatim.) Read the LIVE runtime-db whenever a runtime-db
             ;; OR a classification effect commits — both need the freshest
-            ;; out-of-band registry as their base. (rf2-uhk9ko: there is no
-            ;; rollback restore any more — a rejected candidate is simply
-            ;; discarded before any write, so no pre-cascade elision
-            ;; overlay is needed.)
+            ;; out-of-band registry as their base. (There is no rollback
+            ;; restore — a rejected candidate is discarded before any write,
+            ;; so no pre-cascade elision overlay is needed.)
             live-runtime-result
             (when (or rt-effect? class-effect?)
               (call-while-exact-owner
@@ -1602,11 +1599,11 @@
             partitions (cond-> {}
                          app-effect?   (assoc rf.frame/app-partition-key     new-db)
                          rt-partition? (assoc rf.frame/runtime-partition-key new-runtime-db))]
-        ;; VALIDATE the complete candidate BEFORE install (rf2-uhk9ko,
-        ;; Spec 010 §Per-step recovery row 4). Per-partition (EP-0001):
+        ;; VALIDATE the complete candidate BEFORE install (Spec 010
+        ;; §Per-step recovery row 4). Per-partition (EP-0001):
         ;; app-db schema validation on the candidate app-db (only when a
-        ;; `:db` effect rides — app schemas validate app-db only, Mike
-        ;; ruling #11) AND the machine-data `:where :machine-data` boundary
+        ;; `:db` effect rides — app schemas validate app-db only) AND the
+        ;; machine-data `:where :machine-data` boundary
         ;; on the candidate runtime-db (only when a `:rf.db/runtime` effect
         ;; rides — machine snapshots are durable runtime-db state). A
         ;; `false` from either REJECTS the whole candidate: nothing is
@@ -1746,7 +1743,7 @@
     :rf/default? true
     :after
     (fn [ctx]
-      ;; Chain-error short-circuit (rf2-1b8yxb): `execute-chain` runs the
+      ;; Chain-error short-circuit: `execute-chain` runs the
       ;; FULL `:after` pass for teardown even after a `:before` / handler /
       ;; cofx / user-`:after` throw was captured into `:rf/interceptor-error`
       ;; (interceptor.cljc). This framework-OUTERMOST flows `:after` is the
@@ -1785,7 +1782,7 @@
             ;; runtime-db so a flow reading a `[:rf.db/runtime …]`-qualified
             ;; input recomputes — the dual-partition TRIGGER (§542-544) keys on
             ;; BOTH partitions, NOT on app-db publication alone. Missing this
-            ;; is a SILENT regression: a route/machine-reading flow would just
+            ;; would fail SILENTLY: a route/machine-reading flow would just
             ;; stop updating. Note `has-runtime-effect?` (not `has-db?`):
             ;; the runtime-db is resolved independently of whether the handler
             ;; touched app-db.
@@ -1820,7 +1817,7 @@
             ;; scrubbed value the rest of the family does.
             emit-event  (when has-db? (rf.privacy/redacted-event-from-ctx ctx))
             event-id    (when has-db? (some-> emit-event first))
-            ;; rf2-3x7nj.4.3 — t1 / t2 stamp the pending db BEFORE the commit
+            ;; t1 / t2 stamp the pending db BEFORE the commit
             ;; folds this event's EP-0025 classification effects into the
             ;; registry. Carry those effects to the emit-time projection under
             ;; a PRIVATE tag that `re-frame.classification/project-db-tags`
@@ -1855,7 +1852,7 @@
                   ;; the moment it recomputes, folding the output into the
                   ;; pending `:db`. But whether that pending `:db` becomes
                   ;; DURABLE is decided AFTER the chain: candidate schema /
-                  ;; machine-data validation (rf2-uhk9ko) can REJECT the
+                  ;; machine-data validation can REJECT the
                   ;; transition pre-install. `run-flows-on-db`'s own
                   ;; throw-path snapshot/restore cannot cover that — the
                   ;; rejection lands outside it. Without restoring here, the
@@ -1978,13 +1975,13 @@
   Per Spec 009 §Error event catalogue + Spec 013 §Trace stream ordering the
   always-on record MUST carry `:where :flow-eval` and the failing `:flow-id` —
   the prod-surviving attribution. Both ride the `record-attrs` (axis-1) map so
-  they survive an egress profile that drops `:exception` (rf2-z1332c);
-  previously the failing flow id lived ONLY inside the thrown ex-data
-  (`:rf.flow/failed-id`), unreachable once `:exception` is stripped. The id is
-  read back off that ex-data (nil-safe: absent for a non-per-flow throw, in
-  which case only `:where` is stamped).
+  they survive an egress profile that drops `:exception`: inside the thrown
+  ex-data alone (`:rf.flow/failed-id`) the failing flow id would be
+  unreachable once `:exception` is stripped. The id is read back off that
+  ex-data (nil-safe: absent for a non-per-flow throw, in which case only
+  `:where` is stamped).
 
-  The record also carries the failing `:phase` (rf2-gpj9r) — `:derive` when the
+  The record also carries the failing `:phase` — `:derive` when the
   application's callback threw, `:output-write` when it RETURNED and the
   framework's install of that value at the flow's declared `:output-path`
   threw. `evaluate-flow!` discriminates the two structurally (separate `try`
@@ -2062,17 +2059,17 @@
   `defect` is the `re-frame.elision/classification-effect-defect` map
   (`{:offending-key … :value … :reason …}`).
 
-  ## Which key, not merely that one was malformed (rf2-eg61l)
+  ## Which key, not merely that one was malformed
 
   `:offending-key` is lifted onto the ALWAYS-ON record through
   `emit-error-both!`'s trailing `record-attrs` map — the seam the flow-eval
-  category already uses for `{:flow-id … :where :flow-eval}`, so no other
+  category also uses for `{:flow-id … :where :flow-eval}`, so no other
   category's record widens and the shared `:failing-id` lift rule is untouched.
-  Without it a production build heard only that SOME classification payload
-  aborted an event: the four axes are independently malformable and
-  `:offending-key` is the ONLY discriminator between them (rf2-mz582u added it
-  for exactly that), and it rode the DCE'd dev trace alone. An off-box shipper
-  (Sentry / Datadog) had an error with no route to the cause.
+  Without it a production build would hear only that SOME classification
+  payload aborted an event: the four axes are independently malformable and
+  `:offending-key` is the ONLY discriminator between them, so on the DCE'd dev
+  trace alone an off-box shipper (Sentry / Datadog) would have an error with
+  no route to the cause.
 
   ## Why the KEY egresses and the VALUE does not
 
@@ -2116,7 +2113,7 @@
       {:offending-key offending-key})))
 
 (defn- emit-effect-map-shape!
-  "Surface `:rf.error/effect-map-shape` (rf2-04tx) through BOTH the always-on
+  "Surface `:rf.error/effect-map-shape` through BOTH the always-on
   error-emit substrate AND the dev-only trace surface — the FINAL-effects
   boundary REFUSAL of a malformed effect-map ENVELOPE: a foreign top-level key
   (case a) or a non-sequential `:fx` value (case b).
@@ -2135,10 +2132,10 @@
   ## Why this refuses rather than dropping the key
 
   The runtime RECOGNISES the key and declines to honour it, which
-  Conventions §No silent swallow makes a MUST-signal. Dropping it committed
-  the `:db` write while the effect never ran — the partial-success disguise
-  that hid a dead `:dispatch-later` timer behind three green engines and an
-  eleven-week-dead persist fx inside Xray. Uniform in every build and not
+  Conventions §No silent swallow makes a MUST-signal. Dropping it would
+  commit the `:db` write while the effect never ran — a partial-success
+  disguise that can hide a dead effect (a `:dispatch-later` timer, a persist
+  fx) behind green tests indefinitely. Uniform in every build and not
   configurable: erasing the abort in production would make dev abort what
   production commits.
 
@@ -2150,12 +2147,12 @@
   key is APP-AUTHORED, but it is still PROGRAM STRUCTURE (a keyword the
   programmer typed in their own source), not a runtime value; the precedent is
   `:rf.error/override-fallthrough`, which egresses app-authored fx-ids. Without
-  it a production build heard only that SOME effect key aborted an event, with
-  no route to which one. The rejected `:value` — the payload the handler built —
+  it a production build would hear only that SOME effect key aborted an event,
+  with no route to which one. The rejected `:value` — the payload the handler built —
   and the `:reason` that interpolates the offending key into prose stay on the
   DCE'd dev trace. `:failing-id` rides the trace tags and is EQUAL to
   `:event-id` here, so `emit-error-both!`'s lift does not fire and cannot drag
-  `:reason` onto the record (rf2-eg61l). The closed key set of the record that
+  `:reason` onto the record. The closed key set of the record that
   egresses is pinned by `re-frame.effect-map-shape-record-cljs-test`."
   [defect event event-id frame start-ms]
   ;; Build the discriminator ONCE, before either axis sees it — the two axes
@@ -2191,28 +2188,26 @@
   `:interceptor-overrides`, `:trace-id`, `:origin`, `:source`) onto
   child dispatches. User fxs see it at `(:envelope m)`.
 
-  Per rf2-twt7m Change 2: the full effects map is also threaded to
+  The full effects map is also threaded to
   `do-fx` (the `:effects` opt) so the terminating `:rf.fx/do-fx` trace
   marker can stamp `:fx` (the returned vector) and `:db-present?`
   (whether the handler returned a `:db` slot). The value of `:db`
   is NOT stamped — App-db diff traces already carry slice changes.
 
-  Per rf2-9dk9y: the user-injected coeffects projection moved OFF the
-  `:rf.fx/do-fx` marker and ONTO `:rf.event/run-end` (see
-  `emit-pipeline-trailers!`). The prior placement silently dropped the
-  COEFFECTS row whenever a handler returned only `:db` (no `:fx`) — the
-  fx walk was short-circuited so the marker never emitted. Pinning the
-  cofx stamp to the always-fires run-end emit makes the COEFFECTS
-  section render uniformly across event flavours.
+  The user-injected coeffects projection rides `:rf.event/run-end` (see
+  `emit-pipeline-trailers!`), not the `:rf.fx/do-fx` marker: a handler that
+  returns only `:db` (no `:fx`) short-circuits the fx walk, so the marker
+  never emits and a COEFFECTS row placed there would be silently dropped.
+  Pinning the cofx stamp to the always-fires run-end emit makes the
+  COEFFECTS section render uniformly across event flavours.
 
-  Per rf2-ee38b.1: the former positional do-fx arity ladder collapsed
-  into a single `opts` map — this is the sole caller threading the full
-  set of optionals."
+  `do-fx` takes its optionals in a single `opts` map — this is the sole
+  caller threading the full set of them."
   [effects frame frame-record owner-token fx-overrides envelope]
   (if-let [fx-vec (:fx effects)]
     (let [active-platform (rf.fx/platform-for-frame-record frame-record)
           event           (:event envelope)
-          ;; Production prod-strip (rf2-snsup5): in a production build the
+          ;; Production prod-strip: in a production build the
           ;; dev-path per-call reject in `handle-one-fx` DCEs along with the
           ;; trace surface, so strip the reject-tier reserved-fx overrides
           ;; from the EFFECTIVE merged map (per-frame ⋈ per-call) up front,
@@ -2245,7 +2240,7 @@
 
 ;; ---- process-event* phases ------------------------------------------------
 ;;
-;; `process-event*` decomposes into named phases per audit RT1 (rf2-mccjv).
+;; `process-event*` decomposes into named phases.
 ;; Each phase owns one piece of the per-event pipeline run; the outer
 ;; `process-event*` is a thin driver that sequences them.
 ;;
@@ -2253,10 +2248,9 @@
 ;;                               when the frame record is gone (frame disposed
 ;;                               between enqueue and dispatch)
 ;;   rf.router.diagnostics/handle-no-handler!     early-exit: emit :rf.error/no-such-handler
-;;                               (the EP-0002-retired fallthrough warning
-;;                               no longer fires here). Lives in
-;;                               re-frame.router.diagnostics per rf2-0ytl4
-;;                               seam R-B.
+;;                               (there is no default-frame fallthrough
+;;                               warning, EP-0002). Lives in
+;;                               re-frame.router.diagnostics.
 ;;   prepare-handler-ctx         build the full interceptor chain (incl. the
 ;;                               outermost flows-after-interceptor) + initial
 ;;                               context and the effective fx-overrides map;
@@ -2266,7 +2260,7 @@
 ;;                               performance marks; skipped when event-payload
 ;;                               validation fails (per Spec 010 §Per-step
 ;;                               recovery step 1). Flows run HERE, inside the
-;;                               chain, as the outermost :after (rf2-u0zz5).
+;;                               chain, as the outermost :after.
 ;;   commit-and-flow!            handler-exception emit (if any), flow-eval
 ;;                               error emit (if any), :db commit (of the
 ;;                               flow-augmented db), then walk :fx in source
@@ -2280,8 +2274,8 @@
 (defn- emit-frame-destroyed!
   "Surface `:rf.error/frame-destroyed` through BOTH the always-on
   error-emit listener (surface #4 — survives `goog.DEBUG=false`) AND the
-  dev-only trace surface. Per the rf2-2hvga ruling (= B + recover-but-
-  emit): a dispatch / subscribe to a destroyed or unknown frame RECOVERS
+  dev-only trace surface. Recover-but-emit: a dispatch / subscribe to a
+  destroyed or unknown frame RECOVERS
   (the caller no-ops / returns nil) but the diagnostic must reach
   production observability — the runtime cannot distinguish a benign
   teardown / hot-reload race from a real use-after-destroy bug, so it
@@ -2289,7 +2283,7 @@
   stays observable).
 
   `:frame`-stampable: the record carries the target `frame-id` and the
-  attempted `event` so the 7d30s `:frame`-stamp audit + off-box
+  attempted `event` so `:frame`-keyed tooling and off-box
   shippers can attribute the failure. The reactive / drain paths have
   no triggering event-id beyond the event vector's head, which the
   record's elided `:event` carries.
@@ -2299,27 +2293,24 @@
   router already static-requires `error-emit`, but routing all the
   non-recovery sites through one helper keeps the gating uniform.
 
-  `op` (rf2-7xlvt) is the ALREADY-KNOWN operation realm of the failing op
+  `op` is the ALREADY-KNOWN operation realm of the failing op
   — `:dispatch` / `:dispatch-sync` / `:subscribe`. It rides the always-on
   record's `:op` attribution slot so `rf.error-emit/error-source-coord` resolves
   the source-coord under the EXACT realm (`[:event id]` for a dispatch /
   dispatch-sync, `[:sub id]` for a subscribe) rather than the realm-ambiguous
-  `[:sub]`-then-`[:event]` fallback. `:op` is RATIFIED PUBLIC on the record
-  wherever the realm is known (rf2-a2x2w — resolving the rf2-1kph4/#6194
-  record-shape contradiction: `:op` is a small closed-enum realm attribution,
-  useful to an off-box shipper and, at the time of that ruling, consistent with
-  the ui throwing `(frame)` surface which carried it too — that surface has
-  since been retired (rf2-0yp7w); see Spec 009 §Error contract, the
+  `[:sub]`-then-`[:event]` fallback. `:op` is PUBLIC on the record wherever
+  the realm is known (a small closed-enum realm attribution, useful to an
+  off-box shipper; see Spec 009 §Error contract, the
   `:rf.error/frame-destroyed` row); it is NOT a hidden slot. The bare router
   drain / no-such-frame emitters carry NO realm (the 3-arity → nil `op`), so
-  they keep the fallback and the tight record shape — unchanged. Callers that
+  they keep the fallback and the tight record shape. Callers that
   KNOW the realm and pass it: the `capture-frame` stale-op PRE-CHECK seam
-  (`emit-captured-frame-superseded!`), AND — rf2-a2x2w — the router's LATE
+  (`emit-captured-frame-superseded!`), AND the router's LATE
   captured-op fences (the A→B incarnation mismatch + the post-token-match /
   pre-enqueue / pre-drain-acquire window in `dispatch!` / `dispatch-sync!`).
 
-  A present `op` ALSO suppresses the EP-0015 frame-owned sink route (rf2-qjfrw,
-  the capture-realm extension of the rf2-bf0io UI seam): every op-bearing caller
+  A present `op` ALSO suppresses the EP-0015 frame-owned sink route: every
+  op-bearing caller
   is a KNOWN-DEAD captured incarnation whose bare `frame-id` may now name a live
   same-id SUCCESSOR, so routing to it would leak a dead incarnation's failure
   into the successor's own sink. The corpus fan-out + dev trace still fire; only
@@ -2327,18 +2318,17 @@
   ([event-id event frame-id]
    (emit-frame-destroyed! event-id event frame-id nil))
   ([event-id event frame-id op]
-   ;; Fan out along BOTH channels (rf2-c4oycd shared helper). Axis 1 — the
+   ;; Fan out along BOTH channels (shared helper). Axis 1 — the
    ;; always-on listener (survives prod elision); axis 2 — the dev trace (DCE'd
    ;; under `:advanced` + `goog.DEBUG=false`). No exception — invalid op, not a
    ;; throw; `elapsed-ms 0` (not a timed path). When `op` is present it rides
    ;; BOTH the dev-trace tags (axis 2) and the always-on record-attrs (axis 1
    ;; — the ratified-public `:op` realm attribution, which also steers source-
-   ;; coord); nil `op` leaves the record shape exactly as the bare-drain
-   ;; callers have always emitted it (no `:op` key).
+   ;; coord); nil `op` leaves the record without an `:op` key (the
+   ;; bare-drain callers' shape).
    ;;
-   ;; rf2-qjfrw: `route-frame?` false SUPPRESSES ONLY the EP-0015 frame-owned
-   ;; sink route (the rf2-bf0io seam, extended from the UI `(frame)` bundle to
-   ;; the core `capture-frame` primitive) whenever `op` is present. A present
+   ;; `route-frame?` false SUPPRESSES ONLY the EP-0015 frame-owned
+   ;; sink route whenever `op` is present. A present
    ;; `op` marks a CAPTURED-op rejection — the pre-check seam
    ;; (`emit-captured-frame-superseded!`) and the router's late captured-op
    ;; fences (the A→B incarnation mismatch + the post-token-match windows in
@@ -2364,63 +2354,61 @@
 (defn- handle-frame-destroyed!
   "Per Spec 002 §Run-to-completion: a frame disposed between enqueue and
   dispatch surfaces as `:rf.error/frame-destroyed`; the drain continues
-  with the next envelope. Per rf2-2hvga the emit is production-survivable
+  with the next envelope. The emit is production-survivable
   (see [[emit-frame-destroyed!]])."
   [event frame]
   (emit-frame-destroyed! (first event) event frame))
 
 (defn ^:no-doc emit-captured-frame-superseded!
-  "rf2-9pyles — the recover-but-emit seam for a `capture-frame` op whose CAPTURED
+  "The recover-but-emit seam for a `capture-frame` op whose CAPTURED
   frame incarnation has been SUPERSEDED. A frame api built by
   `re-frame.capture-frame/make-capture-frame` pins the EXACT incarnation live at capture
   (its `:drain-lock`); if that incarnation is later destroyed — whether the id is
   now unclaimed OR a same-id successor incarnation B has reseated under it — the
   captured op must NOT leak into B. It RECOVERS (the event is never enqueued into
   the successor) and emits the production-survivable `:rf.error/frame-destroyed`,
-  exactly like a dispatch into a destroyed frame (the rf2-2hvga = recover-but-emit
-  ruling): the runtime cannot distinguish a benign teardown/hot-reload race from a
+  exactly like a dispatch into a destroyed frame (recover-but-emit): the
+  runtime cannot distinguish a benign teardown/hot-reload race from a
   real use-after-destroy bug, so it recovers AND stays observable.
 
   `opts` carries the dev-only `:rf.trace/call-site` (the capture's dispatch coord),
   bound around the emit so the trace attributes the drop to the dispatch site.
   Called UNIFORMLY from `make-capture-frame`'s incarnation-fenced `:dispatch`,
-  `:dispatch-sync` (rf2-9pyles) AND `:subscribe` (rf2-tdjv7p, #6084) ops when the
+  `:dispatch-sync` AND `:subscribe` ops when the
   synchronous `capture-target-superseded?` pre-check already sees the pin gone;
   a superseded `:subscribe` additionally returns nil rather than a reaction.
 
-  `op` (rf2-7xlvt) is the ALREADY-KNOWN operation realm of the failing captured
+  `op` is the ALREADY-KNOWN operation realm of the failing captured
   op — `:dispatch` / `:dispatch-sync` (from `capture-dispatch!`) or `:subscribe`
   (from `capture-subscribe!`). It is carried through `emit-frame-destroyed!` onto
-  the always-on record's `:op` realm attribution slot (rf2-a2x2w: ratified
-  public, and also steers) so `rf.error-emit/error-source-coord` resolves the
+  the always-on record's `:op` realm attribution slot (public, and also
+  steers) so `rf.error-emit/error-source-coord` resolves the
   source-coord under the EXACT realm — `[:event id]` for a dispatch, `[:sub id]`
   for a subscribe — never the realm-ambiguous
-  `[:sub]`-then-`[:event]` fallback that (before rf2-7xlvt) misattributed a stale
+  `[:sub]`-then-`[:event]` fallback, which would misattribute a stale
   captured dispatch to a same-keyword subscription's coord and a stale captured
   subscribe to an unrelated event's coord instead of OMITTING it. This seam KNOWS
   the realm; the bare router drain emitters (which genuinely do not) keep the
   fallback.
 
-  rf2-dlld6 closes the concurrent-JVM window BETWEEN that pre-check and the
-  ordinary bare-id target consumption: `capture-dispatch!` / the `:subscribe`
+  The concurrent-JVM window BETWEEN that pre-check and the
+  ordinary bare-id target consumption is closed too: `capture-dispatch!` / the `:subscribe`
   thunk carry the pinned incarnation through as `:rf.frame/expected-incarnation`,
   so `dispatch!` / `dispatch-sync!` (and `subscribe-in-frame`) validate it
   against the SAME record they resolve for enqueue/read and emit the SAME
   production-survivable `:rf.error/frame-destroyed` exactly once — never a
   liveness-check-to-bare-id-use window, never a leak into a same-id successor.
-  The bare-id `frame-destroyed` emit `dispatch!` / `dispatch-sync!` already raise
-  for a fully-unclaimed id is unchanged (an unpinned 1-arity capture stays
-  address-directed)."
+  `dispatch!` / `dispatch-sync!` raise the bare-id `frame-destroyed` emit for a
+  fully-unclaimed id (an unpinned 1-arity capture stays address-directed)."
   [event frame-id op opts]
   (rf.trace/with-call-site (when rf.interop/debug-enabled? (:rf.trace/call-site opts))
     (emit-frame-destroyed! (first event) event frame-id op))
   nil)
 
-;; EP-0015 §8 (rf2-d2r3um): the former per-dispatch
-;; `refresh-elision-from-schemas!` is removed — schemas no longer feed the
-;; app-db egress registry. Durable app-db classification is frame-owned and
-;; installed once at construction time (`re-frame.frame-classification`), so
-;; there is nothing to refresh per dispatch.
+;; EP-0015 §8: schemas do not feed the app-db egress registry. Durable app-db
+;; classification rides the EP-0025 commit-plane classification effects,
+;; applied at commit (`commit-frame-effects!`), so there is nothing to refresh
+;; per dispatch.
 
 (defn- prepare-handler-ctx
   "Build the effective interceptor chain and initial context for a
