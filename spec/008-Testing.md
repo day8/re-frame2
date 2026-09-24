@@ -954,7 +954,7 @@ Testing and stories share infrastructure (frames, overrides, drain, dispatch-syn
 
 ## Open questions
 
-> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all three items are **post-v1, untracked notes** — design directions beyond v1 with no tracking bead filed yet (so none qualifies as `:post-v1 tracked`, which requires a `rf2-<id>`). "Snapshot / fixture serialization" — foundation exists; a packaged helper is user-space. "Property-based testing integration" — a pattern doc, no framework change. "Model-based testing harness over `machine-transition`" — library territory, not framework (the pure `machine-transition` contract is sufficient for path exploration from a caller-supplied settled starting snapshot; rf2-2n6uv.1.5 is the decision record holding it to its reconsideration trigger, not a tracking bead). A tracking bead is filed for each only when its reconsideration trigger below fires.
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all three items are **post-v1, untracked notes** — design directions beyond v1 with no tracking bead filed yet (so none qualifies as `:post-v1 tracked`, which requires a `rf2-<id>`). "Snapshot / fixture serialization" — foundation exists; a packaged helper is user-space. "Property-based testing integration" — a pattern doc, no framework change. "Model-based testing harness over `machine-transition`" — library territory, not framework (the pure `machine-transition` contract is sufficient for path exploration from a caller-supplied settled starting snapshot). A tracking bead is filed for each only when its reconsideration trigger below fires.
 
 ### Snapshot / fixture serialization (post-v1)
 
