@@ -39,7 +39,7 @@
   (:rf/machine (rf/handler-meta {:source :store :kind :event :id machine-id})))
 
 ;; Every registered machine-id — the same generic read filtered on the
-;; `:rf/machine?` discriminator. No per-kind `machines` accessor (rf2-kuky.31).
+;; `:rf/machine?` discriminator. There is no per-kind `machines` accessor.
 (defn- machine-ids []
   (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
               (rf/registrations {:source :store :kind :event}))))
@@ -181,7 +181,7 @@
 (deftest reg-machine-stamps-inline-action-source-code-cljs
   (testing "inline transition `:action` / state `:entry` / `:exit` / inline
   `:guard` fns carry their `:source-code` on the enclosing `:states`-tree map
-  node — parity with the named-guard `:source-code` stamp (rf2-se70xj). The
+  node — parity with the named-guard `:source-code` stamp. The
   inline slot value itself stays a bare fn (the runtime resolves it via fn?)."
     (rf/reg-machine :rf2-se70xj/inline
       {:initial :idle
@@ -208,7 +208,7 @@
 (deftest reg-machine-stamps-inline-always-single-map-source-code-cljs
   (testing "an inline `:always` `:action` written as a SINGLE MAP (not a
   vector of candidates) carries its `:source-code` at the bare `:always`
-  spec-path — parity with the vector `:always [{…}]` form (rf2-k7yqod). The
+  spec-path — parity with the vector `:always [{…}]` form. The
   runtime + validator both accept the single-map `:always` (wrapping it into
   a one-candidate vector), so the macro must stamp it too — otherwise the
   Epoch panel renders `#object[Function]` for it."
@@ -242,7 +242,7 @@
 
 (deftest reg-machine-stamps-inline-always-vector-source-code-cljs
   (testing "a VECTOR `:always` co-locates each candidate map's inline
-  `:action` source at its index (rf2-k7yqod). The vector form keys per
+  `:action` source at its index. The vector form keys per
   index; a multi-candidate vector stamps each candidate independently so the
   Epoch source lookup does NOT hardcode index 0 onto the wrong candidate."
     (rf/reg-machine :rf2-k7yqod/always-vector
@@ -270,7 +270,7 @@
 
 (deftest reg-machine-skips-inline-source-for-keyword-references-cljs
   (testing "keyword-reference slots carry NO inline :source-code — their body
-  lives on the named :actions / :guards entry's own :source-code (rf2-se70xj)"
+  lives on the named :actions / :guards entry's own :source-code"
     (rf/reg-machine :rf2-se70xj/kw
       {:initial :idle
        :guards  {:ok? (fn [_] true)}
@@ -288,8 +288,8 @@
   (testing "a machine with MORE than 8 stampable map-nodes co-locates coords on
   EVERY node, not just the first 8. The walkers accumulate into a transient; a
   transient array-map promotes to a hash-map on its 9th distinct key and returns
-  a NEW object, so the accumulator is threaded through a volatile. Before that
-  fix the 9th+ stamps were silently dropped."
+  a NEW object, so the accumulator is threaded through a volatile; discarding
+  that return would silently drop the 9th+ stamps."
     ;; 12 state-node maps (reference-site family, walk-states-tree) AND 12 inline
     ;; :entry fns (inline-source family, walk-states-inline-source) — both exceed
     ;; the 8-entry array-map cap.
@@ -331,8 +331,8 @@
 ;; ---- reg-machine* plain-fn surface ---------------------------------------
 
 (deftest reg-machine*-plain-fn-surface-cljs
-  (testing "reg-machine* registers without macro walking — equivalent to
-  the legacy reg-machine defn"
+  (testing "reg-machine* registers without macro walking — the plain-fn
+  counterpart of the reg-machine macro"
     (rf.machines/reg-machine* :rf2-8bp3/plain
                      {:initial :a :states {:a {}}})
     (is (some? (some #{:rf2-8bp3/plain} (machine-ids)))
