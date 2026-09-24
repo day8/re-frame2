@@ -1,19 +1,17 @@
 (ns re-frame.schemas.digest-parity-test
   "JVM side of the app-schemas-digest cross-runtime byte-identity
-  parity smoke (rf2-xssfv).
+  parity smoke.
 
   Spec 010 §Digest algorithm pins the digest as byte-identical between
   CLJS and JVM runtimes: `'cross-runtime reproducible — a CLJS server
   and a CLJS client running the same schema set produce the same
-  digest, byte-for-byte'`. Before this file the only digest vector
-  pinned to a literal was the empty-set case (`sha256:e3b0c44298fc1c14`,
-  rf2-0z1z); a multi-schema regression that flipped the JVM digest by
-  one byte while leaving the empty-set untouched (e.g. a sort-order
-  bug in `canonicalise-schema-form`) would have shipped silently. The
-  audit at rf2-x8x4p (TE6 / S7) called this out and rf2-xssfv pins the
-  vectors.
+  digest, byte-for-byte'`. Pinning only the empty-set case
+  (`sha256:e3b0c44298fc1c14`) would let a multi-schema regression that
+  flips the JVM digest by one byte while leaving the empty set untouched
+  (e.g. a sort-order bug in `canonicalise-schema-form`) ship silently, so
+  the corpus pins multi-schema vectors too.
 
-  Pattern mirrors `re-frame.source-coord-parity-test` (rf2-1q9de) —
+  Pattern mirrors `re-frame.source-coord-parity-test` —
   both runtimes consume the SAME fixture map (loaded from a shared
   `.cljc` fixtures namespace) and pin the SAME canonical literal. The
   literal IS the cross-host byte-comparison point. The companion CLJS
@@ -88,14 +86,14 @@
           (str "Fixture literals must be pairwise distinct — got "
                (pr-str literals))))))
 
-;; ---- UTF-8 byte-order line sort (rf2-ee38b.6, Spec 010 step 4) ------------
+;; ---- UTF-8 byte-order line sort (Spec 010 step 4) ------------------------
 ;;
 ;; Spec 010 §Digest algorithm step 4 mandates the lines be sorted
 ;; "lexicographically as byte sequences (UTF-8) … identical across
 ;; hosts." Host-native string compare (JVM String.compareTo / JS string
 ;; compare) is UTF-16 code-unit order, which diverges from UTF-8 byte
 ;; order for supplementary-plane (> U+FFFF) characters. For ASCII the
-;; two coincide (so every pinned fixture above is unaffected). These
+;; two coincide (so every pinned fixture above sorts the same either way). These
 ;; pins lock the comparator to the normative UTF-8 byte order so a
 ;; non-CLJS/JVM port that byte-sorts agrees with the reference.
 
@@ -103,7 +101,7 @@
   #'re-frame.schemas.digest/compare-utf8-bytes)
 
 (deftest utf8-byte-sort-diverges-from-utf16-on-supplementary-plane
-  (testing "rf2-ee38b.6 — the comparator orders by UTF-8 bytes, not
+  (testing "the comparator orders by UTF-8 bytes, not
             UTF-16 code units. U+1F600 (UTF-8 F0 9F 98 80; UTF-16
             surrogate D83D DE00) vs U+FFFD (replacement, UTF-8 EF BF BD;
             UTF-16 FFFD): UTF-16 order says U+1F600 < U+FFFD (D83D <
@@ -118,19 +116,19 @@
       ;; Sanity: host-native compare gives the OPPOSITE (UTF-16) answer,
       ;; confirming the comparator is genuinely doing byte-order work.
       (is (neg? (compare astral bmp))
-          "host-native String.compareTo is UTF-16 order (the bug we fixed)"))))
+          "host-native String.compareTo is UTF-16 order (the order the comparator must not use)"))))
 
 (deftest utf8-byte-sort-agrees-with-string-compare-on-ascii
-  (testing "rf2-ee38b.6 — for ASCII the UTF-8 byte order and native
+  (testing "for ASCII the UTF-8 byte order and native
             string order coincide, so the pinned ASCII fixtures above
-            are byte-for-byte unaffected by the comparator switch."
+            sort identically under either comparator."
     (doseq [[a b] [["[:a]" "[:b]"] ["[:auth]" "[:user]"]
                    ["abc" "abd"] ["[:n]" "[:n]"]]]
       (is (= (Integer/signum (compare-utf8-bytes a b))
              (Integer/signum (compare a b)))
           (str "ASCII order coincides for " (pr-str [a b]))))))
 
-;; ---- host-divergent printer cases (rf2-k0hqk) -----------------------------
+;; ---- host-divergent printer cases -----------------------------------------
 ;;
 ;; The `whole-number-double` fixture rides in `all-fixtures` above, so
 ;; its cross-host literal is already asserted by
@@ -139,7 +137,7 @@
 ;; and this is the side that can tell, so the precondition lives here.
 
 (deftest jvm-whole-number-double-fixture-really-carries-a-double
-  (testing "rf2-k0hqk precondition — the `whole-number-double` fixture's
+  (testing "precondition — the `whole-number-double` fixture's
             `:min` prop is genuinely a floating-point value on this host.
             Without this, editing the fixture's `1.0` to `1` would leave
             `jvm-digest-matches-canonical-literal` green while exercising
@@ -155,11 +153,11 @@
           "and must still denote the whole number the pinned literal was taken over"))))
 
 (deftest jvm-whole-number-double-agrees-with-its-integer-spelling
-  (testing "rf2-k0hqk — `{:min 1.0}` and `{:min 1}` are indistinguishable
+  (testing "`{:min 1.0}` and `{:min 1}` are indistinguishable
             on CLJS, so the only cross-runtime-reproducible digest is one
             that treats them as the same schema. Pinning the equality on
             the JVM is what pins the normalisation direction: normalising
-            towards the JVM's `1.0` spelling instead would have kept the
+            towards the JVM's `1.0` spelling instead would keep the
             hosts divergent, because CLJS cannot print a `.0` suffix for a
             value it does not distinguish from an integer."
     (is (= (rf.schemas.digest-parity-fixtures/compute-digest {[:n] [:int {:min 1.0 :max 10.0}]})
@@ -167,11 +165,11 @@
         "whole-number double and integer spellings must digest identically")))
 
 (deftest jvm-fn-bearing-schema-digest-is-process-stable
-  (testing "rf2-k0hqk — a schema carrying a bare predicate must serialise
+  (testing "a schema carrying a bare predicate must serialise
             to a NAME-derived token, not to the host's `#object[… 0x… ]`
             print. That address is `System/identityHashCode`, fresh in
-            every process, so before this fix a JVM server and a client
-            disagreed on every hydrate and the SSR handshake reported
+            every process, so printed raw a JVM server and a client
+            would disagree on every hydrate and the SSR handshake would report
             `:rf.ssr/schema-digest-mismatch` — 'Deploy drift' — against
             byte-identical code."
     (is (rf.schemas.digest-parity-fixtures/fn-bearing-carries-fn?)
@@ -192,20 +190,20 @@
                (pr-str bytes) " vs " (pr-str other-predicate-bytes))))))
 
 (deftest jvm-fn-token-is-the-class-name
-  (testing "rf2-k0hqk — the JVM token is the function's class name, which
+  (testing "the JVM token is the function's class name, which
             is fixed by the compiled artefact rather than by the process.
             Pinning the exact bytes here is the strongest available
             statement that no address survives; the CLJS side cannot pin
             its counterpart, because `:advanced` munges the name, and that
-            asymmetry IS the finding recorded in Spec 010 §Digest
+            asymmetry is recorded in Spec 010 §Digest
             algorithm."
     (is (= "[:map [:n \"#fn[clojure.core$pos_int_QMARK_]\"]]"
            (rf.schemas.validator/run-printer rf.schemas.digest-parity-fixtures/fn-bearing-schema)))))
 
-;; ---- ambient printer limits (rf2-gwye.14) ---------------------------------
+;; ---- ambient printer limits -----------------------------------------------
 
 (deftest jvm-printer-limits-never-reach-digest-bytes
-  (testing "rf2-gwye.14 — a bounded *print-length* / *print-level* in the
+  (testing "a bounded *print-length* / *print-level* in the
             calling context changes neither the bytes and digests computed
             under it nor what the memo serves once the binding ends"
     (let [{:keys [baseline results]} (rf.schemas.digest-parity-fixtures/printer-limit-observations)]
