@@ -1,6 +1,6 @@
 (ns re-frame.security.gen
   "Tiny deterministic generator substrate for the adversarial-property
-  security tier (rf2-3cfvt).
+  security tier.
 
   ## Why hand-rolled, not test.check
 
@@ -8,8 +8,8 @@
   on `tools/story`'s JVM `:test` alias), and the security tier MUST run
   under the always-on `npm run test:cljs` node gate AND a dedicated
   `npm run test:security` build. Pulling test.check onto the shadow
-  classpath risks the bundle-isolation contract and is a hot-zone-adjacent
-  dep change. So this ns supplies a small, dependency-free, seeded PRNG
+  classpath risks the bundle-isolation contract. So this ns supplies a
+  small, dependency-free, seeded PRNG
   plus combinator generators - enough to draw HUNDREDS of inputs per
   property without a new dependency, fully cross-runtime (CLJC), and
   byte-deterministic (a failing draw reproduces from its seed).
@@ -32,7 +32,7 @@
 ;; Seeded PRNG - a 32-bit LCG (numerical-recipes constants). Deterministic
 ;; and IDENTICAL across JVM + JS.
 ;;
-;; ## Why the multiply needs host-specific care (rf2-h2yvs finding 2)
+;; ## Why the multiply needs host-specific care
 ;;
 ;; The LCG step is `s' = (s * 1103515245 + 12345) mod 2^32`. The constant
 ;; `1103515245` is ~2^30, so for a 32-bit state `s` the product `s *
@@ -42,8 +42,8 @@
 ;; `unchecked-multiply` compiles to JS `*` on a double, which only has 53 bits
 ;; of mantissa - a ~2^62 product loses its low bits, so `(s * 1103515245) &
 ;; 0xFFFFFFFF` does NOT equal the true 32-bit product and the JS sequence
-;; diverges from the JVM sequence after the first step (verified: seed 1 /
-;; bound 100 gave JVM `54 24 56 95 …` vs the double path `54 25 12 28 …`).
+;; diverges from the JVM sequence after the first step (seed 1 / bound 100
+;; gives JVM `54 24 56 95 …` vs the double path `54 25 12 28 …`).
 ;;
 ;; The portable primitive is `js/Math.imul`, which returns the low 32 bits of
 ;; the integer product (signed) exactly. We then coerce to an UNSIGNED 32-bit
@@ -52,7 +52,8 @@
 ;; mask32` already yields (`mask32` is a long, so the JVM result is unsigned).
 ;; The `next-int` hi-bit extraction (`(bit-shift-right s' 8) & 0x7FFFFF`) is
 ;; sign-agnostic because the `& 0x7FFFFF` (23-bit) mask discards exactly the
-;; bits a signed vs unsigned shift would differ in, so it needs no change.
+;; bits a signed vs unsigned shift would differ in, so it needs no
+;; host-specific handling.
 ;; State is an unsigned 32-bit integer on both hosts.
 ;; ---------------------------------------------------------------------------
 
@@ -73,7 +74,7 @@
   "Advance the LCG one step. Uses a portable 32-bit multiply: the JVM holds
   the full ~2^62 product in a `long` then truncates; CLJS uses `Math.imul`
   (exact low-32-bit product) then coerces to unsigned 32-bit. Both yield the
-  identical unsigned-32 state sequence (rf2-h2yvs finding 2)."
+  identical unsigned-32 state sequence."
   [current-state]
   #?(:clj  (bit-and (unchecked-add (unchecked-multiply (long current-state) lcg-mult) lcg-inc)
                     mask32)
@@ -172,11 +173,10 @@
       nil)))
 
 ;; ---------------------------------------------------------------------------
-;; Shared egress-scan helpers - lifted from the per-surface security test
-;; namespaces, which each hand-copied a structurally identical deep
-;; `contains-sentinel?` plus the `redacted?` / `large-marker?` one-liners
-;; (rf2-n5bkm7). Consolidating them here removes the maintenance-only risk of
-;; one copy gaining a leak-class fix the siblings silently miss.
+;; Shared egress-scan helpers. Every per-surface security test namespace
+;; needs the same deep sentinel scan plus the `redacted?` / `large-marker?`
+;; one-liners; keeping one copy here means a leak-class fix reaches every
+;; surface, where per-surface copies could silently drift apart.
 ;;
 ;; Each surface keeps its OWN per-file sentinel string local and calls
 ;; `(contains-string? x sentinel)`. Every surface matches the sentinel as a
@@ -193,7 +193,7 @@
   `pr-str` fallback runs the same regex search over the rendered value, so
   `needle` surviving inside a non-string leaf (e.g. a keyword/symbol form built
   from it) is also caught. `needle` MUST therefore be a regex-safe literal (no
-  unescaped regex metacharacters); the current sentinels are."
+  unescaped regex metacharacters); the sentinels in use are."
   [x needle]
   (let [hit (volatile! false)]
     (walk/postwalk
@@ -218,23 +218,21 @@
   (and (map? v) (contains? v :rf.size/large-elided)))
 
 ;; ---------------------------------------------------------------------------
-;; Nested-sensitive schema generator (rf2-iu6fqv) - lifted verbatim from the
-;; two redaction-security suites (schema-redaction + validation-invariant),
-;; which each hand-copied a structurally identical recursive generator: it
-;; wraps a `:sensitive?` sentinel-bearing LEAF slot in a random tower of
-;; collection/map combinators and plants a TYPE MISMATCH at the leaf, forcing a
-;; validation failure that carries the sentinel. Every framework redaction
-;; boundary must then scrub the sentinel from the emitted trace. Consolidating
-;; here removes the maintenance-only risk of one copy gaining an arm (a new
-;; leak class) its sibling silently misses.
+;; Nested-sensitive schema generator, shared by the two redaction-security
+;; suites (schema-redaction + validation-invariant). It wraps a `:sensitive?`
+;; sentinel-bearing LEAF slot in a random tower of collection/map combinators
+;; and plants a TYPE MISMATCH at the leaf, forcing a validation failure that
+;; carries the sentinel. Every framework redaction boundary must then scrub
+;; the sentinel from the emitted trace. One shared generator means a new arm
+;; (a new leak class) reaches both suites.
 ;;
-;; The two callers differed ONLY in (1) the sentinel string, (2) the maximum
+;; The two callers differ ONLY in (1) the sentinel string, (2) the maximum
 ;; nesting depth, and (3) the ORDER of two arms (`:tuple` / `:map-of-key`) in
-;; the wrapper vector - a harmless historical drift: the SET of eleven arms,
-;; each arm's built shape, and the leak-free property are identical; only the
-;; seed->shape draw mapping differs. So the generator takes `sentinel`, the
-;; `arms` vector, and `max-depth` as parameters and each caller passes its own,
-;; keeping each suite's generated shapes byte-identical (a failing draw still
+;; the wrapper vector: the SET of eleven arms, each arm's built shape, and the
+;; leak-free property are identical; only the seed->shape draw mapping
+;; differs. So the generator takes `sentinel`, the `arms` vector, and
+;; `max-depth` as parameters and each caller passes its own, keeping each
+;; suite's generated shapes fixed by its own parameters (a failing draw
 ;; reproduces from its recorded seed).
 ;;
 ;; The eleven wrapper arms and WHY each exists (which egress leak class it pins):
@@ -242,21 +240,21 @@
 ;;   :vector       - element schema (value is a 1-element vector)
 ;;   :sequential   - as :vector, over a sequential coll
 ;;   :map-of       - string-keyed; the sensitive slot is the VALUE
-;;   :map-of-key   - rf2-gocef0 / rf2-6ijdgh: the sentinel is planted AS the key
+;;   :map-of-key   - the sentinel is planted AS the key
 ;;                   under a `:sensitive?` key schema. Malli reports the failing
 ;;                   key VALUE verbatim as the :in segment, so the walker's
 ;;                   :map-of key-scrub branch must scrub it from :path / :reason.
 ;;                   inner-val ALSO carries the sentinel at the leaf, so BOTH the
 ;;                   key AND the value must redact.
 ;;   :tuple        - sensitive slot at element 1 (an int filler sits at 0)
-;;   :set          - rf2-ss06u.1: a :set wraps a navigable MAP carrying the
+;;   :set          - a :set wraps a navigable MAP carrying the
 ;;                   sensitive slot; Malli reports the element VALUE as the :in
 ;;                   segment, so the failing element would ride verbatim in :path
 ;;                   absent the sanitiser.
-;;   :and :or :multi :orn - rf2-ss06u.2: transparent single-child wrappers
+;;   :and :or :multi :orn - transparent single-child wrappers
 ;;                   align-in-path cannot resolve. The sensitivity sits on a
 ;;                   CONSUMED ANCESTOR (the named :map slot); the failing leaf
-;;                   lives under the wrapper. Absent the prefix-carry fix the
+;;                   lives under the wrapper. Absent the prefix carry, the
 ;;                   leftover subtree shows no sensitivity and the value leaks.
 ;; The leaf is a `:sensitive? :string` slot whose value is the sentinel wrapped
 ;; in a vector (WRONG type), so `:string` fails and the redaction path fires.
@@ -346,7 +344,7 @@
 
   Parameterized (not hard-coded) so the two redaction-security suites share one
   implementation while each keeps its own sentinel, wrapper-arm order, and depth
-  range - see the block comment above for the historical arm-order drift."
+  range - see the block comment above for how the callers differ."
   [sentinel arms max-depth]
   (fn [rng]
     (let [[depth after-depth-rng] (next-int rng max-depth)]
