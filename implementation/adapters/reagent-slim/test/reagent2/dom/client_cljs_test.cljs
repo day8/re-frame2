@@ -1,5 +1,5 @@
 (ns reagent2.dom.client-cljs-test
-  "Tests for reagent2.dom.client (Stage 4-B, rf2-6hyy).
+  "Tests for reagent2.dom.client.
 
   Per IMPL-SPEC §4.6 + §12.1 + §12.5 R-005. Covers:
 
@@ -7,11 +7,11 @@
       caller the post-render state synchronously.
     - flush-views! React-act composition: pending React work is
       drained inside act.
-    - Suspense composition (rf2-w6ef): a child throws a Promise
+    - Suspense composition: a child throws a Promise
       during render; flush-views! waits for the resolution + a
       tail recompute settles before the test asserts.
 
-  The Suspense test pins the chosen ordering for rf2-w6ef:
+  The Suspense test pins the chosen ordering:
 
       microtask -> act(flush!) -> microtask
 
@@ -26,11 +26,11 @@
             [reagent2.dom.client :as dom-client]))
 
 ;; ---------------------------------------------------------------------------
-;; The React-19 act floor (rf2-6r9j.35).
+;; The React-19 act floor.
 ;;
 ;; `reagent2.dom.client/resolve-act` probes `(.-act react)` and NOTHING else —
 ;; the pre-18.3 `react-dom/test-utils` location is below the repository's React
-;; floor (react / react-dom 19.2.0, pinned in implementation/package.json and
+;; floor (react / react-dom 19.3.0, pinned in implementation/package.json and
 ;; its lock, and for generated consumers in tools/template's hooks.clj).
 ;;
 ;; This is the non-vacuous proof that the ONE lookup is the live path: swap a
@@ -153,7 +153,7 @@
                      (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-w6ef: Suspense ordering — microtask -> act -> microtask
+;; Suspense ordering — microtask -> act -> microtask
 ;;
 ;; Scenario: a Reaction's recompute schedules a microtask drain. Inside
 ;; that drain, an after-render callback simulates a Suspense-resolved
@@ -161,7 +161,7 @@
 ;; and notifies its watchers). The chosen ordering guarantees the
 ;; tail-recompute is observed by the time flush-views! returns.
 ;;
-;; This is the determinism contract that pins rf2-w6ef. The test
+;; This is the determinism contract for Suspense composition. The test
 ;; mimics the Suspense pattern at the scheduler level — we assert
 ;; the OBSERVABLE effect of the ordering choice, not the literal
 ;; React-internal Suspense plumbing (which requires a real DOM and
@@ -272,15 +272,15 @@
     (is (fn? dom-client/hydrate-root))))
 
 (deftest render-callable-stage-4d
-  ;; Stage 4-D landed: render no longer throws — it walks hiccup via
-  ;; reagent2.impl.template/as-element and pushes the result into the
-  ;; root. The full mount-against-real-React path is exercised in
-  ;; render_cljs_test (Stage 4-D); this assertion is the cheap smoke
-  ;; check that the symbol is bound and not the old throw-shim.
-  (testing "render is bound and is not the Stage 4-B throw-shim"
+  ;; render walks hiccup via reagent2.impl.template/as-element and
+  ;; pushes the result into the root. The mount-against-real-React path
+  ;; is exercised by the `-dom-cljs-test` suites in the browser-test
+  ;; target; this assertion is the cheap smoke check that the symbol is
+  ;; bound and is not a throwing stub.
+  (testing "render is bound and is not a throwing stub"
     (is (fn? dom-client/render))
     ;; Calling render with non-root/non-hiccup inputs should not
-    ;; raise the old :rf.error/not-implemented; React's own
+    ;; raise :rf.error/not-implemented; React's own
     ;; .render method may surface a different error for a bogus
     ;; root, which is fine.
     (let [thrown (try (dom-client/render :not-a-root :el)
@@ -289,11 +289,10 @@
       (is (not= :rf.error/not-implemented (:type thrown))))))
 
 (deftest hydrate-root-callable-stage-4d
-  ;; Stage 4-D landed: hydrate-root no longer throws — it walks hiccup
-  ;; via reagent2.impl.template/as-element and calls
-  ;; react-dom-client/hydrateRoot. The real-DOM hydration path lives
-  ;; in the browser-test target.
-  (testing "hydrate-root is bound and is not the Stage 4-B throw-shim"
+  ;; hydrate-root walks hiccup via reagent2.impl.template/as-element and
+  ;; calls react-dom-client/hydrateRoot. The real-DOM hydration path
+  ;; lives in the browser-test target.
+  (testing "hydrate-root is bound"
     (is (fn? dom-client/hydrate-root))))
 
 (deftest unmount-handles-nil-gracefully
@@ -301,7 +300,7 @@
     (is (nil? (dom-client/unmount nil)))))
 
 ;; ---------------------------------------------------------------------------
-;; Stage 4-D: render-path integration (fake-root)
+;; Render-path integration (fake-root)
 ;;
 ;; Real React DOM rendering requires jsdom; node-test runs without one.
 ;; We verify the call path uses a stub root (with .render captured) so
@@ -335,15 +334,15 @@
       (is (= "foo" (-> ^js @captured .-props .-className))))))
 
 ;; ---------------------------------------------------------------------------
-;; Stage 4-D: deref-capture wiring
+;; Deref-capture wiring
 ;;
 ;; Per IMPL-SPEC §4.4 path 1: a class component's render runs inside a
 ;; per-instance Reaction so deref'd RAtoms register as deps. On dep
 ;; change the Reaction's auto-run callback queues a forceUpdate via
 ;; batching/queue-render!.
 ;;
-;; Without this wiring (Stage 4-A handoff note), views render once and
-;; never update. We exercise the wiring via a fake forceUpdate spy.
+;; Without this wiring, views would render once and never update. We
+;; exercise the wiring via a fake forceUpdate spy.
 ;; ---------------------------------------------------------------------------
 
 (deftest render-deref-capture-queues-rerender-on-dep-change
@@ -383,22 +382,21 @@
                      (done))))))))
 
 (deftest render-second-render-recomputes-reaction-rf2-u5p5
-  (testing "rf2-u5p5: second render after dep change recomputes the Reaction, not returns cached state"
-    ;; Regression for rf2-u5p5: the render path used to do a plain
-    ;; `@cljsRenderRea` on every render. After a dep change, the
-    ;; Reaction's `_handle-change` calls the auto-run callback
-    ;; (queue-render!) but does NOT mark `dirty?` (matching stock
-    ;; Reagent's kernel — only the nil-auto-run path enqueues).
-    ;; So a follow-up `-deref` with `dirty? = false` returns the cached
-    ;; prior state rather than recomputing, and the user-visible count
-    ;; never updates.
+  (testing "second render after dep change recomputes the Reaction, not returns cached state"
+    ;; After a dep change, the Reaction's `_handle-change` calls the
+    ;; auto-run callback (queue-render!) but does NOT mark `dirty?`
+    ;; (matching stock Reagent's kernel — only the nil-auto-run path
+    ;; enqueues). So a render path doing a plain `@cljsRenderRea` on
+    ;; every render would get a follow-up `-deref` with `dirty? = false`,
+    ;; return the cached prior state rather than recomputing, and never
+    ;; update the user-visible count.
     ;;
-    ;; The fix: on subsequent render entries, call `._run rea false`
-    ;; directly so deref-capture re-runs the user fn with the latest
-    ;; subscribed state. This test would FAIL against the pre-fix
-    ;; render path even though the deref-capture-queues-rerender test
-    ;; passed (that test only verified forceUpdate fired, not that the
-    ;; subsequent render produced updated output).
+    ;; So on subsequent render entries the render path calls
+    ;; `._run rea false` directly, and deref-capture re-runs the user fn
+    ;; with the latest subscribed state. The deref-capture-queues-rerender
+    ;; test above cannot catch a cached render: it verifies only that
+    ;; forceUpdate fired, not that the subsequent render produced
+    ;; updated output.
     (let [a            (ratom/atom 0)
           ;; Capture the hiccup produced on each render via a side-
           ;; channel; the render method returns a React element after
@@ -418,8 +416,8 @@
       (is (= 0 @last-seen) "first render saw a=0")
       ;; Mutate the dep.
       (swap! a inc)
-      ;; Simulate React's re-entry: call render() again. Pre-fix this
-      ;; returned cached hiccup (a=0); post-fix it recomputes (a=1).
+      ;; Simulate React's re-entry: call render() again. It must
+      ;; recompute (a=1), not return the cached hiccup (a=0).
       (.call (.. klass -prototype -render) inst)
       (is (= 1 @last-seen)
           "second render after dep change saw a=1 (recompute, not cache)")
