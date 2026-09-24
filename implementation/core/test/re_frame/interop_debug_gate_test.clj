@@ -1,5 +1,5 @@
 (ns re-frame.interop-debug-gate-test
-  "rf2-f7qj4 — READ THIS FIRST. Despite the namespace's name, this suite is
+  "READ THIS FIRST. Despite the namespace's name, this suite is
   NOT THE LOAD-TIME GATE. It pins the gate's INPUT VOCABULARY — which strings
   `read-debug-flag` treats as false — by invoking the private reader directly
   with `System/setProperty`. The reader is called here at TEST time; the gate
@@ -15,17 +15,17 @@
     * `re-frame.prod-gate-dispatch-jvm-test` — the child-JVM pattern for a
       defect that only reproduces at load time.
 
-  rf2-9c2jf was a TOTAL `dispatch-sync` failure under the documented gate that
-  stayed green for as long as it existed. Vocabulary coverage is not posture
+  A defect can make `dispatch-sync` fail TOTALLY under the documented gate
+  while this suite stays green. Vocabulary coverage is not posture
   coverage, and this suite must never be counted as the latter.
 
   ## What this suite pins
 
-  Per rf2-vnjfg / rf2-0la4f (security audit): the JVM-side
+  The JVM-side
   `re-frame.interop/debug-enabled?` gate is the SSR-mode production
   switch — the counterpart to CLJS `goog.DEBUG=false`. This suite
-  pins the gate's vocabulary semantics and its default, so future
-  contributors don't accidentally change a case-sensitivity or
+  pins the gate's vocabulary semantics and its default, so a
+  contributor cannot change a case-sensitivity or
   vocabulary contract without breaking a test.
 
   The integration story (trace buffer / epoch surfaces respecting a REBOUND
@@ -55,10 +55,9 @@
           (System/setProperty "re-frame.debug" prior))))))
 
 (deftest default-is-debug-on
-  (testing "Per rf2-vnjfg: absent property and absent env var leaves
-            the flag at its default `true` — dev parity with the
-            historical behaviour. Local dev / tests do not need to
-            opt in."
+  (testing "Absent property and absent env var leaves
+            the flag at its default `true`, so local dev / tests do not
+            need to opt in."
     (with-prop nil
       (fn []
         ;; The env var may be set in CI but is not expected to be in
@@ -68,7 +67,7 @@
               "absent property + absent env var -> dev default true"))))))
 
 (deftest explicit-false-disables-the-gate
-  (testing "Per rf2-vnjfg: the conventional false-y vocabulary
+  (testing "The conventional false-y vocabulary
             (`false`, `0`, `no`, `off`, empty string), case-
             insensitive, switches the flag off."
     (doseq [v ["false" "FALSE" "False"
@@ -97,7 +96,7 @@
               (str "property value " (pr-str v) " leaves debug on")))))))
 
 (deftest whitespace-around-falsey-value-still-disables
-  (testing "Per rf2-vnjfg: the reader trims whitespace so a
+  (testing "The reader trims whitespace so a
             `-Dre-frame.debug=' false '` invocation still resolves
             to the disable-gate semantics."
     (with-prop "  false  "
