@@ -3,8 +3,9 @@
 // occurrences of the clear are STRING text — once single-quoted, once inside a
 // template — which is what a refactor leaves when it demotes the call to
 // something the driver merely says about itself. Blanking comments does not
-// touch either one, so both stood in for the call and all four checks passed on
-// a file with nothing executable to pass. Read as TEXT and never executed.
+// touch either one, so without string blanking both would stand in for the
+// call and all four checks would pass on a file with nothing executable to
+// pass. Read as TEXT and never executed.
 //
 // LIKE ITS COMMENT-ONLY SIBLING it requires `lane_cache.cjs` and binds nothing:
 // a clear-less driver that keeps the binding is already reported by
