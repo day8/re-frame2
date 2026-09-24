@@ -1,17 +1,17 @@
 (ns re-frame.trace-listener-deferred-batch-fifo-cljs-test
-  "rf2-t6vs3 — a DEFERRED trace batch must stay AHEAD of any later
+  "A DEFERRED trace batch must stay AHEAD of any later
   listener-authored trace, on EVERY host.
 
-  ## The defect this pins (rf2-t6vs3)
+  ## The hazard this pins
 
-  PR #6452's post-drain flush (`re-frame.trace.tooling/drain-deferred-batch!`)
-  preserved FIFO only among the deferred items it had ALREADY inserted into a
-  fan-out schedule. It took the captured `pending` batch but appended and drove
-  one item at a time — both when integrating into an active `*fanout-ctx*` and
-  when opening fresh outermost fan-outs. While driving the FIRST deferred event,
-  a listener could synchronously `rf.trace/emit!`; that later trace was appended to
-  the current schedule and delivered BEFORE the flush loop had inserted the older
-  deferred events still sitting in the batch.
+  The post-drain flush (`re-frame.trace.tooling/drain-deferred-batch!`) queues
+  the WHOLE captured `pending` batch before driving any of it — both when
+  integrating into an active `*fanout-ctx*` and when opening a fresh outermost
+  fan-out. A flush that appended and drove one item at a time would preserve
+  FIFO only among the deferred items it had ALREADY inserted: while driving the
+  FIRST deferred event, a listener could synchronously `rf.trace/emit!`, and that
+  later trace would be appended to the current schedule and delivered BEFORE the
+  flush loop had inserted the older deferred events still sitting in the batch.
 
   ## The probe (identical on both hosts)
 
@@ -23,21 +23,20 @@
   listener records the `:id` (the authoritative emission order) of every event in
   DELIVERY order:
 
-    - correct (post-fix): the whole batch is queued before any callback runs, so
+    - correct: the whole batch is queued before any callback runs, so
       the authored trace lands behind `run-end`. Delivery IDs stay monotonically
       increasing and the observer sees run-start, run-end, THEN the nested trace.
-    - overtake (the defect): the flush drives `run-start` before `run-end` is even
+    - overtake (the hazard): the flush drives `run-start` before `run-end` is even
       inserted, so the nested trace (higher id) overtakes the still-pending
       `run-end`. Delivery IDs REGRESS — the observer sees run-start, the nested
       trace, then run-end.
 
   The assertion is an OBSERVABLE OUTCOME — the delivery-ID order — never an
-  exception; this class does not throw, it silently misorders. Ring/ID emission
+  exception; this hazard does not throw, it silently misorders. Ring/ID emission
   order stays correct throughout, so a stateful tool folding the delivered stream
-  now receives a different order from the authoritative IDs — the exact drift the
-  bead reports.
+  would receive a different order from the authoritative IDs.
 
-  Two levers pin the two seams the flush must keep FIFO (bead acceptance):
+  Two levers pin the two seams the flush must keep FIFO:
 
     - `deferred-batch-outranks-listener-authored-trace-at-top-level` — the
       OUTERMOST flush (a top-level `dispatch-sync`; `*fanout-ctx*` unbound), which
@@ -73,11 +72,11 @@
 (defn- index-of [xs x]
   (first (keep-indexed (fn [i y] (when (= x y) i)) xs)))
 
-;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
+;; ---- Posture: dev-only, declared by `^:requires-debug` ---------------------
 ;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
 ;; no-op, so there is no semantic residue to run under that posture, and a
-;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
-;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
+;; `(when interop/debug-enabled? ...)` split would leave EMPTY deftests
+;; reporting green.  Every deftest
 ;; below is therefore TAGGED, and the production-gate lane skips the tag rather
 ;; than the file: the namespace is still LOADED there, so a load-time failure
 ;; under the gate still reddens the job, and an untagged new deftest joins that
@@ -112,12 +111,13 @@
             "the run-start listener never authored its nested trace")
         (is (some #{nested-op} ops)
             "the observer never received the listener-authored trace")
-        ;; PRIMARY lever: delivery IDs must not regress. Under the defect the
-        ;; nested trace (higher id) is delivered before run-end (lower id).
+        ;; PRIMARY lever: delivery IDs must not regress. Driven item by item,
+        ;; the nested trace (higher id) would be delivered before run-end
+        ;; (lower id).
         (is (monotonic? ids)
             (str "delivery IDs regressed — a listener-authored trace overtook an "
                  "older still-pending deferred item. Stream: " (pr-str stream)))
-        ;; The bead's exact observation: run-start, run-end, THEN the nested trace
+        ;; The exact order: run-start, run-end, THEN the nested trace
         ;; — never run-start, nested, run-end.
         (let [ro (index-of ops :rf.event/run-end)
               no (index-of ops nested-op)]
