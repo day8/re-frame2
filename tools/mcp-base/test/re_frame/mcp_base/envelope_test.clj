@@ -141,17 +141,17 @@
                    (pr-str {rf.mcp-base.vocab/cache-hit-key {:tool "x"}})))))))
 
 (deftest marker-text?-requires-closed-single-key-wrapper-not-just-first-key
-  ;; rf2-j538f7.20. The leading-token match proves only the FIRST key. The
+  ;; The leading-token match proves only the FIRST key. The
   ;; invariant the fast-path skip relies on — "a marker is sub-cap BY
   ;; CONSTRUCTION" — holds only for a COMPLETE, CLOSED, single-key marker
   ;; map. A mixed wrapper whose FIRST key is a real marker key but which
   ;; carries an unexpected top-level SIBLING (or a trailing form / tagged
   ;; literal / non-map body) is NOT a marker: it must fall through to cap
-  ;; measurement, never inherit the exemption. The pre-fix prefix-only
-  ;; recogniser returned true for every case below (the cap-bypass hole).
-  (testing "RED-then-GREEN: over-budget mixed wrapper with a top-level sibling ⇒ NOT a marker"
+  ;; measurement, never inherit the exemption. A prefix-only recogniser
+  ;; would return true for every case below (the cap-bypass hole).
+  (testing "over-budget mixed wrapper with a top-level sibling ⇒ NOT a marker"
     (let [big (apply str (repeat 8000 "x"))]
-      ;; The exact reproduction from the bead: reserved key FIRST, huge sibling.
+      ;; The cap-bypass shape: reserved key FIRST, huge sibling.
       (is (false? (rf.mcp-base.envelope/marker-text?
                     (pr-str (array-map rf.mcp-base.vocab/overflow-key {:limit :reached}
                                        :unexpected big))))
@@ -191,20 +191,20 @@
     (is (true? (rf.mcp-base.envelope/marker-text? "{:rf.mcp/overflow {:limit :reached :extra :ok}}")))))
 
 (deftest marker-text?-bounds-body-size-not-just-closure
-  ;; rf2-vd1uyn. Closure alone does NOT bound the marker BODY size. A
+  ;; Closure alone does NOT bound the marker BODY size. A
   ;; COMPLETE, CLOSED, single-key {:rf.mcp/overflow {…huge…}} passes the
   ;; leading-token + closed-wrapper gates yet its rendered text is
-  ;; arbitrarily large — over-budget by construction. The pre-fix recogniser
-  ;; returned true and let the fast-path skip egress it un-capped (100 KB ≈
-  ;; 25k tokens ≫ the 5k default cap). The size gate makes "a marker is
+  ;; arbitrarily large — over-budget by construction. A closure-only
+  ;; recogniser would return true and let the fast-path skip egress it
+  ;; un-capped (100 KB ≈ 25k tokens ≫ the 5k default cap). The size gate makes "a marker is
   ;; sub-cap BY CONSTRUCTION" TRUE for the recogniser: an over-default-cap
   ;; single-key marker is NOT skip-eligible and continues through cap
   ;; enforcement. This is the BODY-SIZE dimension of the same threat the
-  ;; sibling-key test (rf2-j538f7.20) covers for the extra-sibling dimension.
+  ;; sibling-key test above covers for the extra-sibling dimension.
   (let [over-budget (apply str (repeat (* 8 rf.mcp-base.overflow/default-max-tokens) "x"))] ;; ~2× the default cap
     (testing "the injected body really is over the default cap (non-vacuous)"
       (is (> (rf.mcp-base.overflow/token-estimate over-budget) rf.mcp-base.overflow/default-max-tokens)))
-    (testing "RED-then-GREEN: an over-budget-BODY single-key overflow marker is NOT a marker"
+    (testing "an over-budget-BODY single-key overflow marker is NOT a marker"
       (is (false? (rf.mcp-base.envelope/marker-text?
                     (pr-str (array-map rf.mcp-base.vocab/overflow-key {:limit :reached :blob over-budget}))))
           "an over-default-cap overflow BODY must be capped, not skipped")
