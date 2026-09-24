@@ -1,40 +1,34 @@
 (ns re-frame.sub-cache-concurrency-test
-  "JVM-only concurrency tests for the sub-cache disposal path (rf2-3mww7).
+  "JVM-only concurrency tests for the sub-cache disposal path.
 
-  The audit (rf2-spr6q, findings SU2 / SU6) identified a swap-fn
-  side-effect race in `rf.subs/dispose-entry-now!`,
-  `rf.subs/invalidate-sub-on-replace!`, and the `unsubscribe` 1→0
-  transition. Each placed side-effecting operations (collecting
-  reactions for disposal, resetting a `dropped-to-zero?` flag) **inside**
-  the swap-fn body. `clojure.core/swap!` is allowed to retry on CAS
-  contention; under JVM concurrency a retried swap-fn would replay those
-  side-effects, leading to double-dispose (and a potential NPE when the
-  second `dispose!` closed over a reaction already torn down).
+  `re-frame.subs.cache/dispose-entry-now!`, `invalidate-sub-on-replace!`,
+  and the `unsubscribe` 1→0 transition all evict under CAS contention.
+  `clojure.core/swap!` is allowed to retry on CAS contention, so a swap-fn
+  body carrying side-effecting operations (collecting reactions for
+  disposal, resetting a `dropped-to-zero?` flag) would replay them under
+  JVM concurrency, leading to double-dispose (and a potential NPE when the
+  second `dispose!` closes over a reaction already torn down).
 
   CLJS is single-threaded so the race is invisible there. These tests
   live in `.clj` (not `.cljc`) and target the JVM only.
 
-  The fix (in subs.cache.cljc): the swap-fn body is pure — it returns
-  only the new cache map. Side-effects (disposal) run AFTER the CAS
-  commits, computed from the diff between the pre/post snapshots
-  returned by `swap-vals!`.
+  The swap-fn bodies (in subs.cache.cljc) are pure — each returns only the
+  new cache map. Side-effects (disposal) run AFTER the CAS commits,
+  computed from the diff between the pre/post snapshots returned by
+  `swap-vals!`.
 
-  Each test stresses contention by driving thousands of iterations of
-  the contended path; failures accumulate into a counter and the test
-  asserts zero. The deterministic single-thread tests in
-  `sub_cache_test.clj` continue to pin the happy-path contract; this
-  namespace pins the contention contract.
+  Each test stresses contention by racing many threads over the contended
+  path; failures accumulate into a counter and the test asserts zero. The
+  deterministic single-thread tests in `sub_cache_test.clj` pin the
+  happy-path contract; this namespace pins the contention contract.
 
-  Per rf2-cmfln: the deferred-grace mechanism has been retired (sync
-  dispose only). Tests that exercised the grace-timer-cancel race no
-  longer have a code path to drive; the remaining contention tests
-  (CAS race on `invalidate-sub-on-replace!`, `dispose-entry-now!`, and
-  `unsubscribe` 1 → 0) cover the surface that still exists.
+  Disposal is synchronous — there is no deferred-grace timer to race — so
+  the contention tests cover the CAS races on `invalidate-sub-on-replace!`,
+  `dispose-entry-now!`, `unsubscribe` 1 → 0, and the cache-miss install.
 
   Pattern follows `router_drain_race_test.clj` /
-  `concurrency_stress_test.clj`: per-scenario iteration count
-  (env-overridable), fixture as elsewhere, latched start so threads
-  race from the same gun."
+  `concurrency_stress_test.clj`: fixture as elsewhere, latched start so
+  threads race from the same gun."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.subs :as rf.subs]
@@ -53,7 +47,7 @@
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
   (rf/init! rf.substrate.plain-atom/adapter)
-  ;; EP-0002 (rf2-jue6sp): `init!` no longer synthesises `:rf/default`;
+  ;; EP-0002: `init!` does not synthesise `:rf/default`;
   ;; register it explicitly so these single-app-frame cache tests have a
   ;; conventional frame to read. NB the cross-thread subscribe/unsubscribe
   ;; calls below pass `:rf/default` EXPLICITLY (2-arity) — a `with-frame`
@@ -85,10 +79,10 @@
 
 ;; The race: N threads concurrently fire the replacement hook for the
 ;; SAME sub id (representing N near-simultaneous re-registrations during
-;; hot-reload). Pre-fix, the swap-fn body's `(swap! evictions conj r)`
+;; hot-reload). A `(swap! evictions conj r)` inside the swap-fn body
 ;; could fire on a retried, discarded CAS attempt; the post-swap
 ;; `dispose!` loop would then call `dispose!` twice on the same
-;; reaction. Post-fix, side-effects are derived from the diff between
+;; reaction. Side-effects are instead derived from the diff between
 ;; pre/post swap snapshots — only the CAS winner sees the slot
 ;; transition from present to absent, so dispose fires exactly once.
 ;;
@@ -157,13 +151,13 @@
 ;; ---- 2. Concurrent dispose-entry-now! does not double-dispose -------------
 
 ;; The race: M threads invoke `dispose-entry-now!` for the same set of
-;; keys. Each call attempts to evict and dispose. Pre-fix, the swap-fn
-;; body's `(reset! reaction-to-dispose ...)` could fire on a retried-and-
-;; discarded CAS attempt, after which the post-swap `dispose!` would
-;; call dispose on a reaction the WINNING swap had already cleared.
-;; Post-fix, we read the reaction-to-dispose from the pre-swap snapshot
-;; and only act when the slot transitioned from present to absent — i.e.
-;; when our CAS actually won.
+;; keys. Each call attempts to evict and dispose. A
+;; `(reset! reaction-to-dispose ...)` inside the swap-fn body could fire on
+;; a retried-and-discarded CAS attempt, after which the post-swap `dispose!`
+;; would call dispose on a reaction the WINNING swap had already cleared.
+;; Instead the reaction-to-dispose is read from the pre-swap snapshot, and
+;; disposal happens only when the slot transitioned from present to absent
+;; — i.e. when that CAS actually won.
 (deftest dispose-entry-now-no-double-dispose-under-contention
   (testing "concurrent dispose-entry-now! calls dispose each reaction exactly once"
     (let [n-keys          50
@@ -185,7 +179,7 @@
                                 :inputs     []
                                 :ref-count  0})))
 
-      ;; The fn lives in re-frame.subs.cache (post rf2-0ytl4 seam S-A).
+      ;; The fn lives in re-frame.subs.cache.
       (let [dispose-fn rf.subs.cache/dispose-entry-now!]
         (with-redefs [rf.interop/dispose!
                       (fn [r]
@@ -223,14 +217,14 @@
 ;; The race: a single subscriber refs a sub, and N threads all call
 ;; `unsubscribe` concurrently. Exactly one CAS winner drives the 1 → 0
 ;; transition and disposes the slot (sync path); the losers (who see
-;; ref-count already 0) must NOT dispose a second time. Pre-fix, the
-;; swap-fn body's `(reset! dropped-to-zero? true)` could fire on a
+;; ref-count already 0) must NOT dispose a second time. A
+;; `(reset! dropped-to-zero? true)` inside the swap-fn body could fire on a
 ;; discarded retry attempt, causing a second `dispose-entry-now!` to be
 ;; invoked against an already-evicted slot — observable as a double
 ;; dispose! call against the same reaction.
 ;;
-;; This scenario is correctness-equivalent to the existing idempotent-
-;; unsubscribe contract pinned in sub_cache_test.clj, but here we
+;; This scenario is correctness-equivalent to the idempotent-unsubscribe
+;; contract pinned in sub_cache_test.clj, but here we
 ;; assert it under CAS contention rather than serialised calls.
 (deftest unsubscribe-drop-to-zero-no-spurious-fire-under-contention
   (testing "concurrent unsubscribe calls dispose exactly once per slot under contention"
@@ -254,7 +248,7 @@
           (with-redefs [rf.interop/dispose! dispose-proxy]
             ;; Explicit `:rf/default` (2-arity) — the dynamic-var scope
             ;; does not convey into the worker threads, so the frame stamp
-            ;; rides as a value across the boundary (rf2-jue6sp / EP-0002).
+            ;; rides as a value across the boundary (EP-0002).
             (rf/subscribe [:n] {:frame :rf/default})  ;; ref-count 1
             (let [latch (CountDownLatch. 1)
                   threads (mapv (fn [_]
@@ -286,20 +280,20 @@
 
 ;; ---- 4. Concurrent cache-MISS install resolves to ONE reaction ------------
 
-;; Per rf2-x76af2.23. The HIT path was already CAS-after-snapshot hardened;
-;; the MISS path installed with an unconditional plain `(swap! cache assoc
-;; k …)`. Two threads that both observe a miss for the SAME query-v both call
-;; `compute-and-cache!`, both build a reaction, and the second assoc STOMPS the
-;; first: reaction1 is orphaned (its on-dispose never fires → its layer-2 input
-;; ref-count bumps leak), and `:ref-count` is reset to 1 while TWO callers hold
-;; references — so a phantom holder's unsubscribe drives the CACHED reaction
-;; 1→0 and disposes it while the other caller still uses it.
+;; The HIT path is CAS-after-snapshot and the MISS path installs if absent.
+;; An unconditional plain `(swap! cache assoc k …)` install on a MISS would let
+;; two threads that both observe a miss for the SAME query-v both call
+;; `compute-and-cache!`, both build a reaction, and have the second assoc STOMP
+;; the first: reaction1 orphaned (its on-dispose never fires → its layer-2
+;; input ref-count bumps leak), and `:ref-count` reset to 1 while TWO callers
+;; hold references — so a phantom holder's unsubscribe would drive the CACHED
+;; reaction 1→0 and dispose it while the other caller still uses it.
 ;;
-;; The defect IS the unconditional overwrite, so two direct `compute-and-cache!`
-;; calls model two racing misses deterministically (interleaving-injection, not
-;; wall-clock): each call unconditionally rebuilds+installs pre-fix, so the
-;; second call reproduces the exact double-build the CAS-less install could not
-;; prevent. Post-fix, install-if-absent makes the second call adopt the winner.
+;; The hazard IS the unconditional overwrite, so two direct
+;; `compute-and-cache!` calls model two racing misses deterministically
+;; (interleaving-injection, not wall-clock): under an unconditional install the
+;; second call would reproduce the exact double-build. Install-if-absent makes
+;; the second call adopt the winner.
 (deftest concurrent-miss-install-resolves-to-one-reaction
   (testing "two racing cache-miss builds for the same query-v resolve to ONE cached reaction"
     (rf/reg-event :seed (fn [_ _] {:db {:a 1 :b 2}}))
@@ -324,7 +318,7 @@
 
       (testing ":ref-count == subscriber count (2), not reset to 1"
         (is (= 2 (get-in @cache [[:sum] :ref-count]))
-            "both callers are counted (pre-fix the second overwrite reset it to 1)"))
+            "both callers are counted (an overwriting install would reset it to 1)"))
 
       (testing "no input-ref leak: each layer-1 input held once by the ONE cached reaction"
         ;; The loser's build bumped :a / :b then released them on dispose, so
