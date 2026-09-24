@@ -1,20 +1,20 @@
 (ns re-frame.on-destroy-handler-exception-always-on-cljs-test
-  "EP-0008 / rf2-7b9r4l — `:rf.error/on-destroy-handler-exception` promoted
-  onto the ALWAYS-ON axis.
+  "EP-0008 — `:rf.error/on-destroy-handler-exception` on the ALWAYS-ON
+  axis.
 
   `rf.frame/fire-on-destroy-event!` runs the user `:on-destroy` event during
   `destroy-frame!`. A throw MUST NOT abort teardown (Spec 002 §`:on-destroy`
-  handler throw semantics, rf2-r1ciy decision b). The dedicated
+  handler throw semantics). The dedicated
   `:rf.error/on-destroy-handler-exception` category is the DISCRIMINABLE
   teardown signal — the router ALSO surfaces the throw as a generic
   `:rf.error/handler-exception` (the production source of record for the
-  handler throw), but the discriminator (it happened during destroy) rode
-  only the DCE'd dev trace before this promotion. EP-0008 routes the
+  handler throw), but the discriminator (it happened during destroy) would
+  otherwise ride only the DCE'd dev trace. EP-0008 routes the
   dedicated category through the always-on error-emit axis so an operator on
   a `goog.DEBUG=false` host can tell a teardown failure (a resource-leakage
   class) from a generic handler throw.
 
-  Pins the promotion's two acceptance legs (per EP §Conformance — every
+  Pins the two acceptance legs (per EP §Conformance — every
   always-on category is exercised through `register-error-listener!`,
   proving production survival):
 
@@ -25,11 +25,11 @@
         through the corpus-wide `register-error-listener!` substrate — the
         always-on axis, NOT gated by `interop/debug-enabled?`.
 
-    (b) the rf2-bxud9v defence-in-depth re-throw branch: if the private teardown
+    (b) the defence-in-depth re-throw branch: if the private teardown
         cascade faults (not the user handler — a fault inside the dispatch
         infrastructure), the dedicated category still fans out on the
-        always-on axis. This branch never produced a router
-        `:rf.error/handler-exception`, so before EP-0008 it had ZERO
+        always-on axis. This branch produces no router
+        `:rf.error/handler-exception`, so the always-on record is its ONLY
         production observability.
 
   Both records carry `:recovery :ignored` (teardown continues best-effort).
@@ -63,7 +63,7 @@
 ;; ===========================================================================
 
 (deftest throwing-on-destroy-fans-out-on-always-on-axis
-  (testing "Per rf2-7b9r4l / Spec 009 §Error event catalogue: a throwing
+  (testing "Per Spec 009 §Error event catalogue: a throwing
             `:on-destroy` handler produces a
             `:rf.error/on-destroy-handler-exception` record on the always-on
             `register-error-listener!` substrate — the discriminable
@@ -96,7 +96,7 @@
               ":exception carries the thrown object")
           (is (number? (:time r)) ":time is a wall-clock millis number")))))
 
-  (testing "Per rf2-7b9r4l: the teardown still completes end-to-end despite
+  (testing "The teardown still completes end-to-end despite
             the throw — the frame is fully removed from the registry."
     (let [seen (atom [])]
       (rf.error-emit/register-error-listener! :test/recorder
@@ -111,7 +111,7 @@
           "the always-on record still fired"))))
 
 (deftest clean-on-destroy-emits-no-record
-  (testing "Per rf2-7b9r4l: a non-throwing `:on-destroy` emits NO
+  (testing "A non-throwing `:on-destroy` emits NO
             `:rf.error/on-destroy-handler-exception` record."
     (let [seen (atom [])]
       (rf.error-emit/register-error-listener! :test/recorder
@@ -123,18 +123,18 @@
           "no record when :on-destroy completes cleanly"))))
 
 ;; ===========================================================================
-;; (b) The rf2-bxud9v defence-in-depth re-throw branch — the internal teardown
-;; cascade ITSELF faults. This branch never produced a router handler-exception, so
+;; (b) The defence-in-depth re-throw branch — the internal teardown
+;; cascade ITSELF faults. This branch produces no router handler-exception, so
 ;; the always-on emission here is its ONLY production observability.
 ;; ===========================================================================
 
 (deftest teardown-cascade-infra-fault-fans-out-on-always-on-axis
-  (testing "Per rf2-7b9r4l / rf2-bxud9v: if the teardown cascade itself throws
+  (testing "If the teardown cascade itself throws
             (a fault inside the dispatch infrastructure, NOT the user
             handler), `fire-on-destroy-event!`'s defence-in-depth catch arm
             still fans a `:rf.error/on-destroy-handler-exception` record out
             on the always-on axis — the ONLY production coverage for this
-            branch (it never produced a router :rf.error/handler-exception)."
+            branch (it produces no router :rf.error/handler-exception)."
     (let [seen     (atom [])
           original (rf.late-bind/get-fn :router/run-frame-destroy-event!)]
       (rf.error-emit/register-error-listener! :test/recorder
@@ -161,30 +161,29 @@
 
 ;; ===========================================================================
 ;; (c) Nested / overlapping destroy — the transient capture listener uses a
-;; UNIQUE per-destroy key (rf2-ntv9i9.1 #2), so a nested destroy cannot clobber
+;; UNIQUE per-destroy key, so a nested destroy cannot clobber
 ;; the outer destroy's listener and drop its dedicated record.
 ;; ---------------------------------------------------------------------------
 ;; `fire-on-destroy-event!` installs a transient listener on the always-on
-;; error-emit registry for the duration of the `:on-destroy` dispatch. Before
-;; rf2-ntv9i9.1 the listener key was the CONSTANT `::on-destroy-throw-watch`.
-;; Spec 002 (rf2-r1ciy) supports a nested `destroy-frame!` for a DIFFERENT id
-;; from inside an `:on-destroy` handler. With a constant key the inner destroy
-;; RE-REGISTERED under the same key (replacing the outer's listener) and then
-;; DROPPED it on the inner's finally — so when the OUTER frame's own throwing
-;; `:on-destroy` later fired its `:rf.error/handler-exception`, no listener was
-;; watching and the dedicated `:rf.error/on-destroy-handler-exception` was
-;; SILENTLY DROPPED. The unique per-destroy key gives each extent its own
-;; listener: both records survive.
+;; error-emit registry for the duration of the `:on-destroy` dispatch.
+;; Spec 002 supports a nested `destroy-frame!` for a DIFFERENT id from inside
+;; an `:on-destroy` handler. With a CONSTANT listener key the inner destroy
+;; would RE-REGISTER under the same key (replacing the outer's listener) and
+;; then DROP it on the inner's finally — so when the OUTER frame's own throwing
+;; `:on-destroy` later fired its `:rf.error/handler-exception`, no listener
+;; would be watching and the dedicated `:rf.error/on-destroy-handler-exception`
+;; would be SILENTLY DROPPED. The unique per-destroy key gives each extent its
+;; own listener: both records survive.
 ;; ===========================================================================
 
 (deftest nested-destroy-does-not-clobber-outer-on-destroy-capture
-  (testing "rf2-ntv9i9.1 #2 — an outer frame A whose throwing `:on-destroy`
+  (testing "an outer frame A whose throwing `:on-destroy`
             ALSO triggers a nested `destroy-frame!` of a DIFFERENT frame B
             (whose `:on-destroy` ALSO throws) yields TWO independent
             `:rf.error/on-destroy-handler-exception` records — one per frame.
-            With the former constant listener key the inner (B) destroy
-            clobbered A's transient capture listener, so A's dedicated record
-            was dropped. The unique per-destroy key keeps both."
+            With a constant listener key the inner (B) destroy would clobber
+            A's transient capture listener, dropping A's dedicated record.
+            The unique per-destroy key keeps both."
     (let [seen (atom [])]
       (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
@@ -209,7 +208,7 @@
             "TWO dedicated records — one for A, one for B (no clobber)")
         (is (contains? by-frame :ondestroy/outer-A)
             "the OUTER (A) record survived — the unique key was not clobbered
-             by the nested B destroy (the regression: this was dropped)")
+             by the nested B destroy (a constant key would drop it)")
         (is (contains? by-frame :ondestroy/inner-B)
             "the INNER (B) record fired too")))))
 
@@ -218,7 +217,7 @@
 ;; ===========================================================================
 
 (deftest dispatch-on-error-late-bind-hook-is-published
-  (testing "Per rf2-7b9r4l: frame.cljc reaches `dispatch-on-error!` via the
+  (testing "frame.cljc reaches `dispatch-on-error!` via the
             `:error-emit/dispatch-on-error` late-bind hook (a static require
             would close the error-emit -> elision -> frame load cycle); the
             hook is published at error-emit ns-load, so the lookup never
