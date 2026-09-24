@@ -603,6 +603,14 @@
                                :after 1500
                                :guard :timeout?})))))
 
+(deftest event-segment-after-iso-duration-renders-milliseconds
+  (testing "an ISO-8601 `:after` delay key renders its milliseconds, not the
+            ISO spelling with an `ms` suffix glued on"
+    (is (= "⌚ 1000ms" (layout/event-segment {:after "PT1S"})))
+    (is (= "⌚ 500ms" (layout/event-segment {:after "PT0.5S"}))))
+  (testing "an integer-millisecond delay keeps its label"
+    (is (= "⌚ 1500ms" (layout/event-segment {:after 1500})))))
+
 (deftest event-line-always-renders-infinity-glyph
   (testing "`:always` event-segment renders as ∞"
     (is (= "∞ [ready?]"

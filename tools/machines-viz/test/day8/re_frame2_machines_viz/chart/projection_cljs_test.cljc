@@ -1062,6 +1062,18 @@
       (is (= "after" (:variant (:data after-node)))
           "the variant attribute identifies the `:after` event-node kind"))))
 
+(deftest xyflow-graph-event-node-resolves-an-iso-after-delay-to-ms
+  (testing "an ISO-8601 `:after` key reaches the event-node as milliseconds,
+            so the header glyph and `:eventLabel` both read `⌚ 1000ms`"
+    (let [parsed     (layout/project-definition {:initial :a
+                                                 :states  {:a {:after {"PT1S" :b}} :b {}}})
+          graph      (projection/xyflow-graph parsed {} {})
+          after-edge (first (filter :after (:edges parsed)))
+          after-node (event-node-for graph (:id after-edge))]
+      (is (some? after-node) "projector emitted the :after event-node")
+      (is (= 1000 (:afterMs (:data after-node))))
+      (is (= "⌚ 1000ms" (:eventLabel (:data after-node)))))))
+
 (deftest xyflow-graph-event-node-eventLabel-is-event-segment
   (testing "the event-node's `:eventLabel` is the raw
             event-segment text from chart.layout/event-segment (e.g.

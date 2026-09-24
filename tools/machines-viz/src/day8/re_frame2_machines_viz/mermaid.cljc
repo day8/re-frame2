@@ -984,7 +984,9 @@
   when `grammar/valid-definition?` rejects the definition — e.g. a
   flat/compound definition missing a keyword `:initial` or a non-empty
   `:states`, or a parallel definition missing non-empty `:regions` whose
-  region bodies each carry `:initial` and `:states`."
+  region bodies each carry `:initial` and `:states`. Any other defect (a
+  malformed `:timeout`, a dangling target, …) is named in the message by
+  its canonical category and depth (`grammar/grammar-defect-phrase`)."
   ([definition] (emit definition {}))
   ([definition
     {:keys [fenced? header-comment?]
@@ -998,19 +1000,26 @@
    (let [definition (g/desugar-grammar definition)
          parallel?  (g/parallel-definition? definition)]
      (when-not (g/valid-definition? definition)
-       (rf.error/throw-error!
-         :mermaid/invalid-definition
-         'machines-viz.mermaid/emit
-         (if parallel?
-           (str "Mermaid export: a parallel definition must carry a non-empty "
-                ":regions map, and each region must carry a keyword :initial + "
-                "a non-empty :states map. Provide those.")
-           (str "Mermaid export: a definition must carry a keyword :initial + "
-                "a non-empty :states map. Provide those."))
-         {:recovery :supply-a-valid-definition
-          ;; Value-FREE; never the raw definition (its
-          ;; :data slot can hold live runtime values).
-          :extra    {:definition-summary (g/definition-summary definition)}}))
+       (let [summary (g/definition-summary definition)
+             defect  (g/grammar-defect-phrase summary)]
+         (rf.error/throw-error!
+           :mermaid/invalid-definition
+           'machines-viz.mermaid/emit
+           (cond
+             defect
+             (str "Mermaid export: the definition breaks the machine grammar "
+                  "with " defect "; fix that defect.")
+             parallel?
+             (str "Mermaid export: a parallel definition must carry a non-empty "
+                  ":regions map, and each region must carry a keyword :initial + "
+                  "a non-empty :states map. Provide those.")
+             :else
+             (str "Mermaid export: a definition must carry a keyword :initial + "
+                  "a non-empty :states map. Provide those."))
+           {:recovery :supply-a-valid-definition
+            ;; Value-FREE; never the raw definition (its
+            ;; :data slot can hold live runtime values).
+            :extra    {:definition-summary summary}})))
      (let [body (if parallel?
                   (render-parallel-body definition header-comment?)
                   (render-flat-or-compound-body definition header-comment?))]
