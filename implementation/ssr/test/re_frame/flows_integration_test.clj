@@ -1,20 +1,17 @@
 (ns re-frame.flows-integration-test
-  "Integration coverage for flows COMPOSED with other optional subsystems
-  (rf2-vug0k, from the integration audit rf2-ytqzi).
+  "Integration coverage for flows COMPOSED with other optional subsystems.
 
   The flows artefact's own JVM tests pin flows × core thoroughly
   (`flows_test.clj`, `flows_trace_test.clj`, `flows_schema_validation_test.clj`).
-  This namespace pins the cross-subsystem compositions the audit probed —
-  behaviour the audit found SOUND but that lacked permanent regression
-  tests. These document existing correct behaviour; there is NO src change.
+  This namespace pins the cross-subsystem compositions, which no single
+  artefact's suite reaches.
 
   Why this lives in the ssr artefact's test dir: its `:test` classpath is
   the only single artefact that pulls core + flows + schemas + routing +
   machines + ssr all at once (see `ssr/deps.edn`), so the four
   cross-subsystem scenarios can share one classpath and one fixture.
 
-  ## The contract these tests pin (`bd remember event-pipeline-atomicity`,
-  Mike CONFIRMED 2026-05-24)
+  ## The contract these tests pin (`bd recall event-pipeline-atomicity`)
 
   Flows run at the OUTERMOST `:after` — they transform the handler's
   PENDING `:db` effect (which has already absorbed any machine snapshot
@@ -26,13 +23,13 @@
       first, then the flow sees the final machine-driven db — no double /
       missed eval).
     - A flow OUTPUT that fails app-db schema validation REJECTS the whole
-      candidate BEFORE install (rf2-uhk9ko, Option B): NO `db-changed` at
+      candidate BEFORE install: NO `db-changed` at
       all — the trace signature is the lone `:rf.error/schema-validation-
       failure` (`:rollback? true` = transaction rejected), and app-db
       (including the flow's write) never changes. This one bullet is a
-      DEV-POSTURE contract, and knowingly so: rf2-bkvu5 RULED (a) on
-      2026-07-27 that `reg-app-schema` candidate validation is a
-      DEVELOPMENT-ONLY assertion as designed — production trusts the
+      DEV-POSTURE contract, and knowingly so: `reg-app-schema` candidate
+      validation is a DEVELOPMENT-ONLY assertion as designed — production
+      trusts the
       programmer, and a violating candidate installs. Both postures are
       executed, in the two arms of
       `flow-output-schema-failure-rejects-candidate-before-install`.
@@ -48,21 +45,18 @@
       OWN independent flow eval, not the parent's.
     - A flow whose `:inputs` opt into runtime-db via the partition-
       qualified form `[:rf.db/runtime :rf.runtime/routing :current …]`
-      reads the POST-transition route (EP-0001 §535-551, rf2-4eisfr —
-      Mike RULED (b) 2026-06-09: flows read runtime-db via EXPLICIT
-      partition-qualified inputs; the route slice rewrite is the handler's
+      reads the POST-transition route (EP-0001 §535-551: flows read
+      runtime-db via EXPLICIT partition-qualified inputs; the route slice rewrite is the handler's
       pending `:rf.db/runtime` effect; the flow at the outermost `:after`
       transforms against that pending runtime-db before install — there is
       no pre-transition window the flow could observe). The dual-partition
       TRIGGER (§542-544): a runtime-only `:rf.route/handle-url-change` event
-      (no `:db` effect) still recomputes the route-reading flow, because
+      (no `:db` effect) recomputes the route-reading flow, because
       the dirty-check keys on BOTH partitions — a runtime-db change cannot
       be hidden merely because app-db was value-identical. The dual
       atomicity assertion: a flow throw on a `:rf.route/handle-url-change`
       dispatch aborts the WHOLE event (BOTH partitions) — slice stays on
-      the previous route, `:on-match` `:dispatch` fxs are NOT walked. Pin
-      (rf2-qm8m3): regression coverage for the routing × flows composition
-      the rf2-hm4gi delta audit flagged."
+      the previous route, `:on-match` `:dispatch` fxs are NOT walked."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -71,8 +65,8 @@
             [re-frame.schemas :as rf.schemas]
             ;; Loading the Malli adapter publishes the
             ;; `:schemas/malli-validate` late-bind hook the default
-            ;; validator routes through (Spec 010 §Recommended soft-pass /
-            ;; rf2-t0hq); without it `reg-app-schema` validation soft-passes.
+            ;; validator routes through (Spec 010 §Recommended soft-pass);
+            ;; without it `reg-app-schema` validation soft-passes.
             [re-frame.schemas.malli]
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
@@ -80,7 +74,7 @@
 
 ;; ---- per-test reset / trace recorder -------------------------------------
 ;;
-;; rf2-kufxxe — COMPOSE from the canonical `re-frame.ssr.test-fixture/
+;; COMPOSE from the canonical `re-frame.ssr.test-fixture/
 ;; reset-runtime` (registrar wipe + every per-frame SSR side-channel atom +
 ;; the ns-load-time reloads of routing / ssr / ssr.head / machines + the
 ;; ambient `:rf/default` frame) rather than duplicate it. This suite adds
@@ -92,10 +86,10 @@
 ;;      next (the canonical fixture clears per-frame schemas but not the
 ;;      global validator fn).
 ;;   2. error-emitter listener cleanup — the error-emit registry is a
-;;      `defonce` atom that survives test re-runs (rf2-bacs4); clear it so a
+;;      `defonce` atom that survives test re-runs; clear it so a
 ;;      listener registered by one test does not leak into the next.
 ;;   3. a fixture-wide all-trace recorder — bracketed by the canonical
-;;      `with-trace-recorder!` (rf2-64iuw) and bound to `*captured*` so the
+;;      `with-trace-recorder!` and bound to `*captured*` so the
 ;;      `ops` / `by-op` helpers below read the full captured event stream.
 
 (def ^:dynamic ^:private *captured* nil)
@@ -126,30 +120,28 @@
   [op]
   (filterv #(= op (:operation %)) @*captured*))
 
-;; rf2-lwtlk — POSTURE SPLIT.  `ops` and `by-op` read the DEV trace bus, and
+;; POSTURE SPLIT.  `ops` and `by-op` read the DEV trace bus, and
 ;; every emit site behind them is gated on `interop/debug-enabled?`, read once
 ;; at namespace-load time.  Under `-Dre-frame.debug=false` the capture atom is
 ;; empty for every input, so a `by-op` assertion FAILS and — more dangerously
 ;; — an `(is (not-any? … (ops)))` assertion PASSES without distinguishing the
 ;; case it exists to distinguish.
 ;;
-;; Both kinds are kept verbatim, wrapped in `(when interop/debug-enabled? …)`
-;; arms marked with this bead id.  Every interaction this suite pins has a
+;; Both kinds are asserted verbatim, wrapped in `(when interop/debug-enabled? …)`
+;; arms marked "dev-instrumentation arm".  Every interaction this suite pins has a
 ;; posture-independent witness OUTSIDE the arm — the flow-eval log, the
 ;; flow-input log, the installed app-db value, the untouched route slice, the
-;; :on-match fx counter — and those are what now run in
+;; :on-match fx counter — and those are what run in
 ;; `scripts/test-ssr-prod-gate.sh`.  The trace assertions are the
-;; trace-LEVEL restatement each deftest's own comments already call
+;; trace-LEVEL restatement each deftest's own comments call
 ;; trace-level confirmation and trace signature.
 ;;
-;; ONE arm in this file is NOT about the trace bus, and it is why this
-;; namespace was the last entry but one on the
-;; `scripts/test-ssr-prod-gate.sh` roster:
+;; ONE arm in this file is NOT about the trace bus:
 ;; `flow-output-schema-failure-rejects-candidate-before-install`'s REJECTION
-;; genuinely does not happen under the gate.  rf2-bkvu5 RULED (a) that this is
-;; by design — `reg-app-schema` is a development-only assertion; production
+;; genuinely does not happen under the gate.  That is by design —
+;; `reg-app-schema` is a development-only assertion; production
 ;; trusts the programmer — so that deftest splits into a dev arm holding the
-;; rejection VERBATIM and a `when-not` arm that executes the ruled production
+;; rejection VERBATIM and a `when-not` arm that executes the production
 ;; behaviour.  Read its comments there before touching either arm: neither is
 ;; a workaround for a red.
 
@@ -171,11 +163,10 @@
 ;; exactly once for the dispatch (no eval-per-microstep, no missed eval).
 ;; ===========================================================================
 
-;; EP-0001 §535-551 (rf2-4eisfr) — RE-ENABLED. Mike RULED (b) 2026-06-09:
-;; flows read runtime-db via EXPLICIT partition-qualified inputs. Machine
-;; snapshots live in the runtime-db partition (EP-0001 rf2-vzld77), so this
-;; flow's `:inputs` opt into runtime-db via the qualified form
-;; `[:rf.db/runtime :rf.runtime/machines :snapshots …]` (bare paths still
+;; EP-0001 §535-551: flows read runtime-db via EXPLICIT partition-qualified
+;; inputs. Machine snapshots live in the runtime-db partition (EP-0001), so
+;; this flow's `:inputs` opt into runtime-db via the qualified form
+;; `[:rf.db/runtime :rf.runtime/machines :snapshots …]` (bare paths
 ;; read app-db; binary syntax — no `[:rf.db/app …]` form). The flow transform
 ;; resolves the qualified input against the pending runtime-db partition.
 (deftest machine-multi-microstep-macrostep-then-single-flow-eval
@@ -243,7 +234,7 @@
           "the flow output (derived from the settled machine snapshot)
            landed in app-db")
       ;; Trace-level confirmation: a single :rf.flow/computed for the event.
-      ;; rf2-lwtlk — dev-instrumentation arm. The eval COUNT it restates is
+      ;; Dev-instrumentation arm. The eval COUNT it restates is
       ;; pinned posture-independently by `(= 1 (count @flow-evals))` above.
       (when rf.interop/debug-enabled?
         (is (= 1 (count (by-op :rf.flow/computed)))
@@ -252,7 +243,7 @@
 
 ;; ===========================================================================
 ;; 2. flow-write × schema-rejection — the subtlest interaction. Two
-;;    similar-looking recovery paths, pinned distinctly (rf2-uhk9ko):
+;;    similar-looking recovery paths, pinned distinctly:
 ;;
 ;;    (a) a flow OUTPUT that fails APP-DB schema validation → the candidate
 ;;        transition is REJECTED before install. The flow's write rides the
@@ -275,11 +266,11 @@
 
 (deftest flow-output-schema-failure-rejects-candidate-before-install
   (testing "(a) a flow output that violates the app-db schema REJECTS the
-            whole candidate before install (rf2-uhk9ko): ONE schema-
+            whole candidate before install: ONE schema-
             validation-failure, ZERO db-changed, and the WHOLE db (handler
             write AND flow write) keeps the pre-handler value — the
             container is never touched.  That rejection is a DEV-POSTURE
-            contract (rf2-bkvu5 RULED (a)); under -Dre-frame.debug=false
+            contract; under -Dre-frame.debug=false
             there is no validator and the violating candidate installs
             whole, which the `when-not` arm executes"
     ;; Malli app-db schema: [:derived :doubled] must be a NON-NEGATIVE int.
@@ -290,10 +281,10 @@
     ;; The handler writes :n; the flow reads :n and writes a value that the
     ;; app-db schema will REJECT (negative when :n is negative).
     (rf/reg-event :set-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-    ;; rf2-lwtlk — record what the flow COMPUTED, so that the flow having run
+    ;; Record what the flow COMPUTED, so that the flow having run
     ;; and its VALUE having been rejected has a witness off the trace bus.
-    ;; That is this deftest's discriminator against path (b) below, and it
-    ;; previously existed only as a `:rf.flow/computed` trace tag.
+    ;; That is this deftest's discriminator against path (b) below, and the
+    ;; `:rf.flow/computed` trace tag carries it in dev posture only.
     (let [flow-outputs (atom [])]
       (rf/reg-flow :doubler {:inputs [[:n]] :output-path [:derived :doubled]}
                    (fn [n] (let [out (* 2 n)] (swap! flow-outputs conj out) out)))
@@ -308,9 +299,9 @@
         (reset! flow-outputs [])
         (rf/dispatch-sync [:set-n -3])
 
-        ;; ---- POSTURE SPLIT (rf2-lwtlk), on the rf2-bkvu5 ruling ----------
+        ;; ---- POSTURE SPLIT ----------------------------------------------
         ;;
-        ;; rf2-bkvu5 RULED (a) on 2026-07-27: `reg-app-schema` candidate
+        ;; `reg-app-schema` candidate
         ;; validation is a DEVELOPMENT-ONLY assertion, AS DESIGNED —
         ;; production trusts the programmer. `router.cljc`'s `validate-event!`
         ;; and `schemas/validate.cljc` each wrap the whole validator body in
@@ -323,7 +314,7 @@
         ;; worth stating: the always-on error axis carries no
         ;; `:rf.error/schema-validation-failure` here NOT because the emit is
         ;; dev-only, but because the VALIDATION never runs to emit anything.
-        ;; The subject itself is absent. So the rejection assertions are kept
+        ;; The subject itself is absent. So the rejection assertions run
         ;; VERBATIM in a dev arm, and the posture that ships gets its own arm
         ;; below rather than silence.
         (when rf.interop/debug-enabled?
@@ -336,14 +327,14 @@
               ":n stayed at the pre-handler value (1) — the handler's own write
                was rejected too (atomic candidate boundary)"))
 
-        ;; THE RULED PRODUCTION POSTURE, EXECUTED (rf2-lwtlk / rf2-bkvu5 (a)).
+        ;; THE PRODUCTION POSTURE, EXECUTED.
         ;; Without this arm the deftest would fall silent under the gate on
         ;; the very outcome it exists to pin, and this namespace's most
         ;; consequential claim would go unasserted in the posture that ships.
-        ;; It is also the standing regression guard on the ruling: shapes (b)
-        ;; and (c) — validation surviving the gate, with or without rollback —
-        ;; were both REJECTED, so a change that quietly made `reg-app-schema`
-        ;; always-on reddens here and sends the reader to the bead.
+        ;; It is also the standing regression guard on that design:
+        ;; validation surviving the gate, with or without rollback, is not
+        ;; the contract, so a change that quietly made `reg-app-schema`
+        ;; always-on reddens here.
         (when-not rf.interop/debug-enabled?
           (is (= {:n -3 :derived {:doubled -6}} (rf/app-db-value :rf/default))
               "with no validator to reject it, the SCHEMA-VIOLATING candidate
@@ -351,15 +342,15 @@
                together, so the atomic candidate boundary is intact and it is
                the VALIDATION that is absent, not the all-or-nothing commit")
           (is (= -6 (get-in (rf/app-db-value :rf/default) [:derived :doubled]))
-              "the named consequence of rf2-bkvu5 (a), read through the
-               ordinary app-db surface: a value the registered schema declares
+              "the named consequence of dev-only schema validation, read
+               through the ordinary app-db surface: a value the registered schema declares
                impossible ([:int {:min 0}]) is live on a production server"))
 
-        ;; SEMANTIC, posture-independent (rf2-lwtlk): the flow COMPUTED (its
+        ;; SEMANTIC, posture-independent: the flow COMPUTED (its
         ;; bad output is what tripped the validator) even though nothing
         ;; installed. That is the whole discriminator between path (a) — a
         ;; candidate-validation reject of a computed VALUE — and path (b), a
-        ;; flow-eval throw, and outside the trace it had no witness at all.
+        ;; flow-eval throw, and this log is its only witness outside the trace.
         (is (= [-6] @flow-outputs)
             "the flow ran and produced its (bad) -6 output — the rejection is
              a candidate reject of a computed value, not a flow-eval skip")
@@ -368,7 +359,7 @@
         ;; and no :rf.trace/phase :rollback anywhere (the phase has no
         ;; producer under validate-before-install).
         ;;
-        ;; rf2-lwtlk — dev-instrumentation arm. Note the `not-any?` and the
+        ;; Dev-instrumentation arm. Note the `not-any?` and the
         ;; zero-db-changed half of `sig`: both are negatives over the trace
         ;; ring and would pass vacuously under the gate.
         (when rf.interop/debug-enabled?
@@ -398,8 +389,8 @@
 (deftest flow-throw-aborts-event-no-db-changed-no-partial-commit
   (testing "(b) a flow THROW aborts the event PRE-install: the pending :db
             is discarded, NO :rf.event/db-changed fires, the handler's own
-            :db does NOT land — distinct from the schema-rollback signature
-            (no commit at all, vs commit-then-unwind)"
+            :db does NOT land — distinct from the schema-rejection signature
+            (a flow-eval error, vs a schema-validation-failure)"
     (rf/reg-event :seed (fn [_coeffects _event] {:db {:n 0}}))
     ;; The handler writes :n; the flow reads :n and THROWS.
     (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
@@ -409,7 +400,7 @@
     (rf/dispatch-sync [:seed])
     (is (= {:n 0} (rf/app-db-value :rf/default))
         "baseline seeded before the throwing flow is registered")
-    ;; rf2-lwtlk — count the eval ATTEMPTS so that the flow having run and
+    ;; Count the eval ATTEMPTS so that the flow having run and
     ;; thrown has a witness off the trace bus. The contrast this deftest
     ;; draws against path (a) is about WHICH stage failed, and an abort is
     ;; otherwise indistinguishable from the flow never having been reached.
@@ -426,7 +417,7 @@
           ":n did NOT increment — a flow throw is a pre-install throw; the
            pending :db (handler write + flow write) was discarded wholesale")
 
-      ;; SEMANTIC, posture-independent (rf2-lwtlk): the flow really was
+      ;; SEMANTIC, posture-independent: the flow really was
       ;; EVALUATED and really did throw. Without this the abort is
       ;; indistinguishable from the flow never having run — and the
       ;; contrast with path (a), which this deftest exists to draw, is
@@ -435,7 +426,7 @@
           "the flow eval was attempted exactly once and threw — the abort is
            a pre-install THROW, not a skipped eval")
 
-      ;; rf2-lwtlk — dev-instrumentation arm. Both `not-any?` halves are
+      ;; Dev-instrumentation arm. Both `not-any?` halves are
       ;; negatives over the trace ring; under the gate they hold whatever the
       ;; drain did.
       (when rf.interop/debug-enabled?
@@ -537,7 +528,7 @@
            (10 * 2), not the parent's (10 * 1)")
       ;; Trace-level confirmation: two :rf.flow/computed events (one per
       ;; event), each carrying its own input value.
-      ;; rf2-lwtlk — dev-instrumentation arm. Both assertions restate
+      ;; Dev-instrumentation arm. Both assertions restate
       ;; `(= [1 2] @flow-inputs)` above, which is posture-independent and is
       ;; the same claim read off the flow itself rather than off the bus.
       (when rf.interop/debug-enabled?
@@ -550,7 +541,7 @@
                child saw [2] — independent evals, not a shared one"))))))
 
 ;; ===========================================================================
-;; 5. flow × routing (rf2-qm8m3) — a flow over the [:rf.runtime/routing
+;; 5. flow × routing — a flow over the [:rf.runtime/routing
 ;;    :current] slice reads the POST-transition route, and a flow throw on
 ;;    a transition aborts the WHOLE event (slice unchanged, :on-match
 ;;    :dispatch fxs skipped).
@@ -573,8 +564,8 @@
 ;; stage that the flow-throw path skips wholesale).
 ;; ===========================================================================
 
-;; EP-0001 §535-551 (rf2-4eisfr) — RE-ENABLED. The route slice lives in the
-;; runtime-db partition (EP-0001 rf2-vzld77), so this flow's `:inputs` opt
+;; EP-0001 §535-551: the route slice lives in the
+;; runtime-db partition, so this flow's `:inputs` opt
 ;; into runtime-db via the qualified form
 ;; `[:rf.db/runtime :rf.runtime/routing :current :route-id]`. The flow transform
 ;; resolves the qualified input against the pending runtime-db (the
@@ -631,7 +622,7 @@
 
       ;; Trace signature: exactly one :rf.flow/computed for the dispatched
       ;; transition, with the post-transition route id as input.
-      ;; rf2-lwtlk — dev-instrumentation arm. Both restate
+      ;; Dev-instrumentation arm. Both restate
       ;; `(= [:route/article] @flow-inputs)` above, which is
       ;; posture-independent.
       (when rf.interop/debug-enabled?
@@ -644,10 +635,10 @@
               "the :rf.flow/computed trace's :input-values carries the
                post-transition route id"))))))
 
-;; EP-0001 §535-551 (rf2-4eisfr) — RE-ENABLED. The throwing flow reads the
+;; EP-0001 §535-551: the throwing flow reads the
 ;; route slice via the qualified runtime-db input
-;; `[:rf.db/runtime :rf.runtime/routing :current :route-id]`. Step 3 of the ruling:
-;; a flow throw aborts BOTH partitions — `:db` AND `:rf.db/runtime` (the slice
+;; `[:rf.db/runtime :rf.runtime/routing :current :route-id]`.
+;; A flow throw aborts BOTH partitions — `:db` AND `:rf.db/runtime` (the slice
 ;; rewrite) AND `:fx` are all skipped, consistent with the atomic
 ;; cross-partition commit (`commit-and-flow!` short-circuits on `:rf/flow-error`
 ;; before `commit-frame-effects!`, so neither partition installs).
@@ -704,7 +695,7 @@
             ":route/load-article was NOT invoked — the :on-match :dispatch
              sat in the handler's :fx; a flow throw skips :fx entirely")
 
-        ;; rf2-lwtlk — dev-instrumentation arm. The atomicity contract this
+        ;; Dev-instrumentation arm. The atomicity contract this
         ;; deftest pins — neither partition installed, `:fx` skipped
         ;; wholesale — is fully covered outside the arm by the unchanged
         ;; app-db, the unchanged route slice and the zero `:on-match`
@@ -721,11 +712,11 @@
                emit one :rf.event/db-changed for the slice rewrite)"))))))
 
 ;; ===========================================================================
-;; 6. dual-partition TRIGGER (EP-0001 §542-544, rf2-4eisfr) — a RUNTIME-ONLY
+;; 6. dual-partition TRIGGER (EP-0001 §542-544) — a RUNTIME-ONLY
 ;;    event recomputes a runtime-db-reading flow even though app-db is
 ;;    value-identical.
 ;;
-;; This is the SILENT-regression guard the ruling calls out: the flow
+;; This is a SILENT-regression guard: the flow
 ;; dirty-check must key on BOTH partitions, NOT on app-db publication. A pure
 ;; `:rf.route/handle-url-change` returns `{:rf.db/runtime …}` and NO `:db` effect —
 ;; app-db never changes across the transition. A flow whose ONLY changing
@@ -785,7 +776,7 @@
              derived from the runtime-only route change"))
 
       ;; A re-dispatch to the SAME route changes neither partition's route
-      ;; slice value — the dirty-check still SKIPS (the trigger widened to
+      ;; slice value — the dirty-check still SKIPS (the trigger covers
       ;; runtime-db without losing the value-equal skip).
       (reset! flow-evals [])
       (reset! *captured* [])
@@ -794,7 +785,7 @@
           "a transition to the SAME route does NOT recompute the flow — the
            runtime-db route id is value-equal, so the dirty-check skips
            (widening the trigger to runtime-db preserves the skip)")
-      ;; rf2-lwtlk — dev-instrumentation arm. The SKIP itself is pinned
+      ;; Dev-instrumentation arm. The SKIP itself is pinned
       ;; posture-independently by `(= [] @flow-evals)` above — the flow body
       ;; did not run — which is the observation the trace announces.
       (when rf.interop/debug-enabled?
@@ -802,7 +793,7 @@
             ":rf.flow/skip fired for the value-equal re-transition")))))
 
 ;; ===========================================================================
-;; 7. binary-syntax mixed inputs (EP-0001 §535-538, rf2-4eisfr) — ONE flow
+;; 7. binary-syntax mixed inputs (EP-0001 §535-538) — ONE flow
 ;;    reading BOTH a bare app-db input AND a qualified [:rf.db/runtime …]
 ;;    input resolves each against the correct partition.
 ;;
