@@ -32,7 +32,7 @@
             ;; Plain-data schemas attached to the seven server effects.
             [re-frame.ssr.server-fx-schemas :as rf.ssr.server-fx-schemas]
             [re-frame.ssr.substrate :as rf.ssr.substrate]
-            ;; The S5 structural-tree -> HTML serialiser (rf2-3omxp).
+            ;; The S5 structural-tree -> HTML serialiser.
             [re-frame.ssr.ui-tree :as rf.ssr.ui-tree]
             ;; Publishes streaming server hooks at namespace load.
             re-frame.ssr.streaming
@@ -50,16 +50,14 @@
 ;; The S5 tree->HTML seam: an already-rendered version-1 structural tree
 ;; (from the JVM emitter) -> HTML string. Distinct from `render-to-string`,
 ;; which consumes hiccup and renders it (calls views, resolves subs).
-;; Per Spec 004B §The SSR consumption boundary (rf2-3omxp).
+;; Per Spec 004B §The SSR consumption boundary.
 (def emit-ui-tree                    rf.ssr.ui-tree/emit-ui-tree)
-;; rf2-8vi4q — `format-view-source-coord` (and its emitter-side companion
-;; `inject-coord-on-root-hiccup`) are deleted: dev-mode view annotation
-;; now lives at the reg-view registration boundary
+;; There is no emitter-side view annotation: dev-mode view annotation
+;; lives at the reg-view registration boundary
 ;; (`re-frame.views.jvm-source-coord-annotation`), not in the emitter.
 (def render-tree-hash                rf.ssr.hash/render-tree-hash)
 ;; The two halves of the head contract's READ side, re-exported here so
-;; they sit on the same door as `render-to-string` (rf2-kuky.87 /
-;; rf2-kuky.89): `head-model` resolves a frame's `:rf/head-model`,
+;; they sit on the same door as `render-to-string`: `head-model` resolves a frame's `:rf/head-model`,
 ;; `head-model->html` serialises one. The REGISTRAR `reg-head` stays at
 ;; home on `re-frame.ssr.head` (and is reachable through `re-frame.core`
 ;; via the `:ssr/reg-head` late-bind hook).
@@ -96,7 +94,7 @@
 (def get-response                    rf.ssr.error-listener/get-response)
 ;; `peek-response` is a pure read (no projector drain);
 ;; `flush-response!` drains pending error projections then reads.
-;; `get-response` is kept as the drain-then-read host-adapter alias.
+;; `get-response` is the drain-then-read host-adapter alias.
 ;; `flush-response-result!` is the drain-then-read variant that ALSO returns
 ;; the projected `:public-error` so host adapters classify drain-time
 ;; outcomes (4xx app arm vs 5xx error arm) without re-inferring from status.
@@ -106,7 +104,7 @@
 ;; framework-private at the public surface — Spec 011 §Per-request
 ;; frame teardown. Tests reach the var via `(resolve ...)`.
 (def ^:private pending-error-traces  rf.ssr.error-listener/pending-error-traces)
-;; The error-view containment peek + one-shot clear (rf2-oytx7j) — a host
+;; The error-view containment peek + one-shot clear — a host
 ;; adapter detects a reactive sub that recovered-to-nil inside the error view
 ;; and falls back to the locked template without re-projecting.
 (def pending-error-trace?            rf.ssr.error-listener/pending-error-trace?)
@@ -388,8 +386,8 @@ explicitly."
 ;; (reactive sub-run) and `:rf.error/no-such-handler` `:kind :event`
 ;; (router.diagnostics) — plus the NON-EVENT union records fanned through
 ;; `dispatch-error-record!`: `:rf.error/no-such-handler` `:kind :route`
-;; (rf2-ov56u — routing's URL-driven miss, the one this projector maps to
-;; 404), `:rf.error/drain-depth-exceeded` (rf2-fcbrjo) and the promoted SSR
+;; (routing's URL-driven miss, the one this projector maps to
+;; 404), `:rf.error/drain-depth-exceeded` and the promoted SSR
 ;; categories. A sub that throws mid-render projects a fail-closed 5xx under
 ;; production hardening instead of recovering to nil and producing an HTTP
 ;; 200; an unroutable URL projects 404 instead of a soft-404 200.
@@ -422,7 +420,7 @@ explicitly."
 ;;
 ;; The QUERY surface publishes no hook: `re-frame.ssr` is the only door for
 ;; `render-to-string` / `render-tree-hash` / `project-error`, so there is
-;; nothing on the façade to late-bind (rf2-kuky.44 / rf2-kuky.87).
+;; nothing on the façade to late-bind.
 
 (rf.late-bind/set-fn! :ssr/reg-error-projector reg-error-projector)
 ;; Frame teardown looks up this hook and clears the SSR side-channel atoms
