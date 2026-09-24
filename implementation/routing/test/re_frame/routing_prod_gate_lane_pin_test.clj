@@ -1,5 +1,5 @@
 (ns re-frame.routing-prod-gate-lane-pin-test
-  "rf2-hnrwo — the posture pin for the routing production-gate JVM lane.
+  "The posture pin for the routing production-gate JVM lane.
 
   ## What this exists to prevent
 
@@ -16,15 +16,15 @@
   lane that silently runs the wrong posture is worse than no lane: it reports
   coverage nobody has.
 
-  That is not a hypothetical. rf2-9c2jf was a total `dispatch-sync` failure
-  under the documented production gate that stayed green for as long as it
-  existed, because every suite calling itself a \"production gate\" test
+  No other suite stands in for this lane. Even a total `dispatch-sync` failure under the
+  documented production gate would stay green in every suite calling itself a
+  \"production gate\" test, because such a suite
   rebinds `rf.interop/debug-enabled?` with `with-redefs` AFTER the framework has
   loaded — and the flag is read ONCE, at namespace-load time, so `with-redefs`
   cannot reach what the gate decided at load. `-Dre-frame.debug=false` on the
   command line is the only thing that can.
 
-  What this lane carries that no other does: rf2-u2x6w established that
+  What this lane carries that no other does:
   sub-classification, a PRIVACY invariant, genuinely egresses in production
   through routing's `:routing/route-sub-egress-path`. Its always-on witness
   (`re-frame.routing-sub-egress-production-test`) is in this lane's roster,
@@ -46,7 +46,7 @@
             [re-frame.interop :as rf.interop]))
 
 (deftest ^:prod-gate the-property-really-reached-this-jvm
-  (testing "rf2-hnrwo — `-Dre-frame.debug=false` is on THIS JVM's command line.
+  (testing "`-Dre-frame.debug=false` is on THIS JVM's command line.
             Red here means the lane's `:jvm-opts` never arrived, so every other
             assertion in the lane was made in dev posture."
     (is (= "false" (System/getProperty "re-frame.debug"))
@@ -56,9 +56,9 @@
              " `sh scripts/test-routing-prod-gate.sh`"))))
 
 (deftest ^:prod-gate the-framework-really-read-the-gate
-  (testing "rf2-hnrwo — the load-time gate resolved to OFF. Red here with the
+  (testing "The load-time gate resolved to OFF. Red here with the
             assertion above green means the property arrived but
-            `re-frame.interop` did not honour it, which is the load-order defect
-            class rf2-9c2jf belonged to."
+            `re-frame.interop` did not honour it, which is a load-order
+            defect."
     (is (false? rf.interop/debug-enabled?)
         "re-frame.interop/debug-enabled? must be false under the production gate")))
