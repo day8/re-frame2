@@ -1,17 +1,17 @@
 (ns re-frame.story-mcp.wire-encodability-test
-  "Every relayed `ex-data` must survive the JSON encoder (rf2-2z9u3).
+  "Every relayed `ex-data` must survive the JSON encoder.
 
   These tests drive the REAL JSON-RPC boundary — `rf.story-mcp.server/run-loop!` over
   in-memory reader/writer, real frames in, raw JSON lines out — and read
   the encoded response, not the handler's return value. That distinction
-  is the whole point of the bead: the defect lived BETWEEN the handler
-  and the wire. `register-variant` built a perfectly good
-  `isError: true` result, then `protocol/write-frame!` hit the live
-  `malli.core/Schema` objects riding the registrar's `:explain` slot,
-  threw `Cannot JSON encode object of class:
-  malli.core$_and_schema$reify$…`, and `rf.story-mcp.server/handle-frame!` turned that
-  into a protocol-level `-32603`. A unit test on the handler would have
-  passed the whole time.
+  is the whole point: the failure mode lives BETWEEN the handler and the
+  wire. `register-variant` can build a perfectly good `isError: true`
+  result; if `protocol/write-frame!` then hits the live
+  `malli.core/Schema` objects riding the registrar's `:explain` slot, it
+  throws `Cannot JSON encode object of class:
+  malli.core$_and_schema$reify$…`, and `rf.story-mcp.server/handle-frame!` turns that
+  into a protocol-level `-32603`. A unit test on the handler would pass
+  the whole time.
 
   Two relay sites carry the same `ex-data`-onto-`:structuredContent`
   pattern and are covered here:
@@ -21,43 +21,39 @@
       which relays a whole `ex-data` under `:data` and so fails for ANY
       handler whose throw carries a non-encodable slot.
 
-  The generic arm is the one that has to be TOTAL (rf2-ia904). Naming
-  `:explain` closed the reachable producer and left `{:opaque (Object.)}`
-  reaching Cheshire under any other key, so `wire-safe-ex-data` now
-  projects by SHAPE rather than by slot. Its tests plant opaque values
-  where no slot roster would look — under a non-`:explain` key, three
-  levels down, and in KEY position, which does not even throw: Cheshire
-  `str`s an opaque key and leaks its address into a JSON member name.
+  The generic arm is the one that has to be TOTAL. Naming `:explain`
+  alone would cover the reachable producer and leave `{:opaque (Object.)}`
+  reaching Cheshire under any other key, so `wire-safe-ex-data` projects
+  by SHAPE rather than by slot. Its tests plant opaque values where no
+  slot roster would look — under a non-`:explain` key, three levels down,
+  and in KEY position, which does not even throw: Cheshire `str`s an
+  opaque key and leaks its address into a JSON member name.
 
-  Only the first is reachable through the shipped tool surface today: the
+  Only the first is reachable through the shipped tool surface: the
   generic arm catches throws the handlers already handle. Its tests seam
   the one producer that path trusts — `rf.story/variant->edn` — so the
   throw, the relay, the encoder and `handle-frame!` are all the real
   thing while the trigger is forced.
 
-  (A third relay lived in `tools/recorder.cljc` `write-back!`, seamed
-  through `rf.story/recording->script-body`. It left with `record-as-variant`
-  under rf2-5saz7; the leaf is deleted, so the roster above is two.)
-
   ## The second contract on this boundary: the message a consumer AI READS
 
-  Encodability is necessary but not sufficient. rf2-jquiy established
-  that the SAME relays ship `(ex-message e)` verbatim to an MCP client —
-  an AI agent acting on the text — so the message itself is a consumer
-  contract, not tool-internal prose. A bare `(str error-kw)` shipped that
-  agent `:rf.error/variant-id-shape` and discarded the human sentence
-  sitting in `:reason`. Every throw reachable here must therefore carry
-  the canonical Spec 009 shape: a human sentence PLUS a trailing
+  Encodability is necessary but not sufficient. The SAME relays ship
+  `(ex-message e)` verbatim to an MCP client — an AI agent acting on the
+  text — so the message itself is a consumer contract, not tool-internal
+  prose. A bare `(str error-kw)` would ship that agent
+  `:rf.error/variant-id-shape` and discard the human sentence sitting in
+  `:reason`. Every throw reachable here must therefore carry the
+  canonical Spec 009 shape: a human sentence PLUS a trailing
   `[:rf.error/<id>]` greppability token.
 
-  That contract is what the token assertions below pin. It was previously
-  proven only for the two REGISTRAR families (`variant-shape` via
-  `register-variant`, `unknown-tag` via the tag-membership check), which
-  left the other consumer-reachable producer — `re-frame.story.plan/fail!`,
-  seventeen call sites reached through `explain-variant` — with no
-  regression at all: reverting any of its messages to a bare `(str id)`
-  was a green change. The plan-failure table at the foot of this ns closes
-  that gap. `tools/` is bundle-isolated and MUST NOT `:require
+  That contract is what the token assertions below pin, for the two
+  REGISTRAR families (`variant-shape` via `register-variant`,
+  `unknown-tag` via the tag-membership check) and for the other
+  consumer-reachable producer — `re-frame.story.plan/fail!`, whose call
+  sites are reached through `explain-variant`. Without the plan-failure
+  table at the foot of this ns, reverting any of its messages to a bare
+  `(str id)` would be a green change. `tools/` is bundle-isolated and
+  MUST NOT `:require
   re-frame.error`, so these messages are hand-rolled at each throw and a
   shared builder cannot enforce them — only a boundary assertion can."
   (:require [cheshire.core :as cheshire]
@@ -164,7 +160,7 @@
         (is (nil? (:explain (structured frame)))
             "the raw, un-encodable :explain slot must not be relayed"))
 
-      (testing "the machine-readable error id crosses the wire (rf2-2nbck)"
+      (testing "the machine-readable error id crosses the wire"
         (is (= "rf.error/variant-shape" (:rf.error (structured frame)))
             "the registrar's :rf.error/id populates the wire's :rf.error slot"))
 
@@ -173,8 +169,8 @@
 
 (deftest register-variant-mutual-exclusion-violation-crosses-the-wire
   (testing "an `:and`-clause failure (not just an extra key) also encodes"
-    ;; The class in the original fault was the `:and` schema's reify, so
-    ;; the mutual-exclusion arm is the one that produced it.
+    ;; The un-encodable class is the `:and` schema's reify, so the
+    ;; mutual-exclusion arm is the one that produces it.
     (let [[line frame] (call-tool "register-variant"
                                   (str "{\"variant-id\":\"story.button/xor\","
                                        "\"body\":\"{:script [] :plays []}\"}"))]
@@ -184,8 +180,8 @@
           "the humanized projection carries the schema's own :error/message prose"))))
 
 (deftest register-variant-valid-body-still-registers
-  ;; The two-sided control. A fix to the error path that quietly broke the
-  ;; happy path would otherwise look identical.
+  ;; The two-sided control. A change to the error path that quietly broke
+  ;; the happy path would otherwise look identical.
   (testing "a valid body is unaffected by the ex-data projection"
     (let [[_ frame] (call-tool "register-variant"
                                (str "{\"variant-id\":\"story.button/ok\","
@@ -200,8 +196,8 @@
 
 (deftest register-variant-non-explain-failure-is-unchanged
   ;; The sibling failure path carries no `:explain`, so the projection must
-  ;; be a no-op on it. This is also the path rf2-jquiy fixed — its message
-  ;; improvement was invisible to a client until this bead landed.
+  ;; be a no-op on it. Its consumer-readable message reaches a client only
+  ;; through this relay.
   (testing "an unregistered-tag rejection relays its message untouched"
     (let [[_ frame] (call-tool "register-variant"
                                (str "{\"variant-id\":\"story.button/tagfail\","
@@ -211,7 +207,7 @@
       (is (str/includes? (result-text frame) "[:rf.error/unknown-tag]"))
       (is (nil? (:explain-humanized (structured frame)))
           "no :explain in the ex-data ⇒ no :explain-humanized on the wire")
-      ;; rf2-2nbck: the discriminator must ALSO ride the structured slot,
+      ;; The discriminator must ALSO ride the structured slot,
       ;; not only the message. A keyword value JSON-encodes to a plain
       ;; string, so this is the wire spelling, not the EDN one.
       (is (= "rf.error/unknown-tag" (:rf.error (structured frame)))
@@ -244,12 +240,12 @@
 
 ;; ---- wire-pipeline: ARBITRARY ex-data, not just the named slot -------------
 ;;
-;; rf2-ia904. Naming `:explain` fixed the reachable producer and left the
+;; Naming `:explain` alone would cover the reachable producer and leave the
 ;; generic promise unmet: `invoke-tool`'s catch relays a WHOLE `ex-data`, so
-;; the next opaque value simply arrived under a different key. The rule is now
-;; the value's SHAPE — anything outside the EDN value space becomes a bounded
-;; marker naming its class — so these tests plant opaque values where no slot
-;; roster would have looked: a non-`:explain` key, a nested one, and a KEY.
+;; the next opaque value would simply arrive under a different key. The rule
+;; is the value's SHAPE — anything outside the EDN value space becomes a
+;; bounded marker naming its class — so these tests plant opaque values where
+;; no slot roster would look: a non-`:explain` key, a nested one, and a KEY.
 
 (def ^:private address-in-line
   "A `java.lang.Object@2c6aed22`-style identity hash. Cheshire does NOT
@@ -267,8 +263,8 @@
 
 (deftest handler-throw-with-opaque-ex-data-outside-explain-is-a-tool-error
   (testing "an opaque value under a NON-:explain key still returns isError"
-    ;; The bead's headline repro, verbatim: before the shape rule this line
-    ;; was {"error":{"code":-32603,"message":"Server fault: Cannot JSON
+    ;; Without the shape rule this line would read
+    ;; {"error":{"code":-32603,"message":"Server fault: Cannot JSON
     ;; encode object of class: class java.lang.Object …"}}.
     (let [[line frame] (throwing-get-variant
                          (ex-info "opaque throw" {:opaque (Object.)}))]
@@ -328,8 +324,9 @@
 
 (deftest wire-safe-ex-data-output-always-encodes
   ;; The fast guard under the three boundary tests. It cannot replace them —
-  ;; the defect lived between the handler and the wire, and only `run-loop!`
-  ;; covers that — but it fails in milliseconds when the rule regresses, and
+  ;; the failure mode lives between the handler and the wire, and only
+  ;; `run-loop!` covers that — but it fails in milliseconds when the rule
+  ;; regresses, and
   ;; it can enumerate more shapes than it is worth driving a server for.
   (testing "no ex-data shape survives the projection un-encodable"
     (doseq [[label d] [["opaque"      {:opaque (Object.)}]
@@ -341,8 +338,7 @@
                        ["atom"        {:a (atom 1)}]
                        ["tagged EDN"  {:u (java.util.UUID/randomUUID)
                                        :d (java.util.Date. 0)}]
-                       ;; `inst?` is true of it, but Cheshire cannot write it
-                       ;; (rf2-3x7nj.34.1).
+                       ;; `inst?` is true of it, but Cheshire cannot write it.
                        ["java.time.Instant" {:at (java.time.Instant/ofEpochMilli 0)}]
                        ["nil"         nil]]]
       (is (string? (cheshire/generate-string
@@ -351,9 +347,9 @@
 
 ;; ---- plan failures: the message contract, driven end to end ---------------
 ;;
-;; rf2-jquiy. `re-frame.story.plan/fail!` is the second consumer-reachable
-;; throw producer on this surface, and until now the ONLY thing standing
-;; behind its messages was a docstring. These rows drive `explain-variant`
+;; `re-frame.story.plan/fail!` is the second consumer-reachable throw
+;; producer on this surface, and without these rows the ONLY thing standing
+;; behind its messages would be a docstring. These rows drive `explain-variant`
 ;; through the real `run-loop!` — no `with-redefs`, no seam: the trigger is
 ;; an ordinary variant registration whose `:extends` cannot resolve, which
 ;; is exactly what a consumer AI does by hand when it mistypes a parent id.
@@ -362,7 +358,7 @@
 ;; nothing (the plan compiler is the single merge authority — spec/017
 ;; §8.4), so registration SUCCEEDS and the failure surfaces later, at
 ;; explain time, through the wire-pipeline's generic catch. That split is
-;; why a registration-time test could never have covered this.
+;; why a registration-time test cannot cover this.
 
 (defn- explain-frame
   "Register `bodies` (a map of variant-id → body), then drive the real
@@ -374,11 +370,10 @@
                      (str "{\"variant-id\":\"" (subs (str target) 1) "\"}"))))
 
 (deftest plan-failure-messages-are-consumer-readable-at-the-wire
-  ;; ONE table, three families, three assertions each — the shape the
-  ;; rf2-jquiy audit asked for. A mutation of any of these messages back to
-  ;; a bare `(str id)` reds the `human` row; dropping the trailing token
-  ;; reds the `token` row; a regression that turns the tool error back into
-  ;; a protocol fault reds `tool-error?` on every row at once.
+  ;; ONE table, three families, three assertions each. A mutation of any of
+  ;; these messages to a bare `(str id)` reds the `human` row; dropping the
+  ;; trailing token reds the `token` row; a regression that turns the tool
+  ;; error into a protocol fault reds `tool-error?` on every row at once.
   (doseq [{:keys [label bodies target human token]}
           [{:label  "an :extends naming an unregistered parent"
             :bodies {:story.button/orphan {:doc "child" :extends :story.button/ghost}}
@@ -458,13 +453,13 @@
 
 ;; ---- success payloads: a callable is a marker, not a server fault ----------
 ;;
-;; rf2-gwye.58. Everything above guards the ERROR path. `[:assert-db path
+;; Everything above guards the ERROR path. `[:assert-db path
 ;; :pred fn-or-sym]` is a SUPPORTED Story authoring form
 ;; (tools/story/spec/001-Authoring.md), so a live fn legitimately sits in
 ;; ordinary SUCCESS data: the registered body, its explain plan, and the run's
-;; assertion evidence. Before the success projection all four tools below
-;; answered `-32603 Server fault: Cannot JSON encode object of class: class
-;; clojure.core$pos_QMARK_` — the run-variant one over a verdict of `:pass`.
+;; assertion evidence. Without the success projection all four tools below
+;; would answer `-32603 Server fault: Cannot JSON encode object of class:
+;; class clojure.core$pos_QMARK_` — the run-variant one over a verdict of `:pass`.
 
 (def ^:private predicate-body
   {:doc     "predicate assertion"
@@ -506,9 +501,10 @@
             "and no identity hash")))))
 
 (deftest instant-in-a-success-payload-crosses-as-a-marker
-  ;; rf2-3x7nj.34.1. `inst?` is true of a `java.time.Instant`, so the
-  ;; success projection let one through and Cheshire then threw inside
-  ;; `write-frame!`: `run-variant` answered `-32603` over a PASSING run. A
+  ;; `inst?` is true of a `java.time.Instant`, so a success projection that
+  ;; trusted `inst?` would let one through and Cheshire would then throw
+  ;; inside `write-frame!`: `run-variant` would answer `-32603` over a
+  ;; PASSING run. A
   ;; `java.util.Date` in the same slot is the control — an instant the
   ;; encoder can write, which must still cross as itself.
   (rf/reg-event :probe/stamp-instant
@@ -570,13 +566,14 @@
   (is (= "pass" (:status (structured (second (call-success-tool "run-variant" "story.button/equality" false)))))
       "and the equality-only run still crosses with its verdict"))
 
-;; ---- success payloads: a record's respelled extension key (rf2-8m1i) -------
+;; ---- success payloads: a record's respelled extension key -----------------
 ;;
 ;; `clojure.walk` rebuilds a record by conj-ing the walked entries back into
-;; the ORIGINAL record. So an extension key the projection respells gained its
-;; marker while the raw callable key stayed beside it, and Cheshire wrote that
-;; key as a JSON member name carrying its identity hash. The `:v` field was
-;; projected correctly all along; only the extension key leaked.
+;; the ORIGINAL record. So under a plain walk an extension key the projection
+;; respells would gain its marker while the raw callable key stayed beside it,
+;; and Cheshire would write that key as a JSON member name carrying its
+;; identity hash. The `:v` field would be projected correctly; only the
+;; extension key would leak.
 
 (defrecord Sample [v])
 
@@ -589,7 +586,7 @@
    :shapes {:list '(1 2 3) :set #{:a :b} :vec [1 [2 3]]}})
 
 (deftest record-extension-key-crosses-get-variant-as-a-marker
-  ;; The bead's reproducer, registered through Story's public surface.
+  ;; The reproducer, registered through Story's public surface.
   (rf.story/reg-story :story.audit {})
   (rf.story/reg-variant* :story.audit/record {:args record-args})
   (doseq [dedup? [true false]]
@@ -605,7 +602,7 @@
         (is (not (str/includes? text "#object"))
             "nor in the text slot")
         (is (not (str/includes? line "pos_QMARK_@"))
-            "no callable identity string, which is how the surviving key encoded")
+            "no callable identity string, which is how a surviving key would encode")
         (is (nil? (re-find address-in-line line))
             "and no identity hash of any kind")
 
