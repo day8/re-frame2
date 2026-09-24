@@ -2003,7 +2003,7 @@ tag). The header verb reads `<machine-id> started in {state}`; the initial
 delta uses, rendered PLAIN — a birth has no prior state to diff against).
 
 The row also carries a **CAUSE tag** (`format/start-cause-label`) off the
-started trace's `:cause` enum — `explicit` / `lazy` / `spawned` — that tells
+started trace's `:cause` enum — `explicit` / `lazy` / `spawned` / `reset` — that tells
 the operator HOW the machine came to life:
 
 - `explicit` — a deliberate eager kick (xstate's `createActor(m).start()`).
@@ -2014,6 +2014,10 @@ the operator HOW the machine came to life:
   muted neutral tone (a clean, expected birth).
 - `spawned` — the spawn fx pre-seeded the snapshot; init ran on the actor's
   first dispatch.
+- `reset` — the runtime replaced a snapshot its definition cannot run
+  (out-of-definition `:state` or `:rf/snapshot-version` mismatch) with a
+  fresh initial; the `:rf.error/*` row beside it names which. It rides the
+  muted neutral tone.
 
 Because its trace op-type is `:rf.machine` (benign birth, not a severity),
 the L2 pink-wash / issues-ribbon `issue-event?` predicate does not match it —
@@ -2129,9 +2133,9 @@ rather than collapsing to a plain `reg-event` handler.
   state-change **TRANSITION ROW** (kind = `:transition`), which keeps its
   own single `[TRANSITION]` pill — both can appear in one cascade.
 - **Cause tag** (`:start` rows only — rf2-it4vt) — `explicit` / `lazy` /
-  `spawned`, off the `:rf.machine/started` trace's `:cause`. The `lazy`
-  cause is the ordering-smell flag (warning tone); `explicit` / `spawned`
-  ride the muted neutral tone.
+  `spawned` / `reset`, off the `:rf.machine/started` trace's `:cause`. The
+  `lazy` cause is the ordering-smell flag (warning tone); `explicit` /
+  `spawned` / `reset` ride the muted neutral tone.
 - **`for <state>` clause** (`:action` AND `:guard` rows — rf2-2hj0h item 6
   + rf2-h710p item B) — after the kind pill / merged action badge the header
   reads ` for <state> ` then the verb (the action-id / guard-id), e.g.
