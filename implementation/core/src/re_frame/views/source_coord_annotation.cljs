@@ -95,9 +95,9 @@
       `prototype.reagentRender`.
 
   Matching both markers keeps this dev-only Hiccup walk neutral without a
-  second adapter hook. reagent-slim is a first-class supported adapter
-  (rf2-ukq8qt / PR #6087 — NOT scheduled for deletion), so a slim Form-3 class
-  MUST be recognised here: otherwise it falls to the Form-2 `fn?` branch below,
+  second adapter hook. reagent-slim is a first-class supported adapter, so a
+  slim Form-3 class MUST be recognised here: otherwise it falls to the Form-2
+  `fn?` branch below,
   is returned as a wrapper, and is later invoked as an ordinary function rather
   than mounted as a class — losing its React lifecycle. (`re-frame.test-helpers`
   carries its own slim-aware detection where the test surface needs one.)"
@@ -117,7 +117,7 @@
   `:f>` (function component) are exempt from annotation per Spec 006. The
   interop heads carry the component at position 1, the slot the DOM-root
   branch splices an attrs map into, so annotating one displaces the
-  component (rf2-3x7nj.3.2)."
+  component."
   [head]
   (and (keyword? head)
        (not= :<> head)
@@ -127,8 +127,8 @@
 
 (defn inject-source-coord-attr
   "Walk the user's render-fn output and merge `:data-rf2-source-coord`
-  (Spec 006 §Source-coord annotation, rf2-z7f7) and `:data-rf-view`
-  (Spec 006 §View tagging contract, rf2-01il5) into the root element's
+  (Spec 006 §Source-coord annotation) and `:data-rf-view`
+  (Spec 006 §View tagging contract) into the root element's
   attrs map. Called from inside the wrapper (gated on
   `interop/debug-enabled?`). Returns the (possibly rewritten) hiccup.
   Non-DOM roots are returned unchanged after a one-shot warning per
