@@ -1,5 +1,5 @@
 (ns re-frame.fresco.test.mounted
-  "`hm` — FRESCO'S MOUNTED TEST FACADE, L3 (rf2-hic-027).
+  "`hm` — FRESCO'S MOUNTED TEST FACADE, L3.
 
   The rung above `re-frame.fresco.test`. That namespace runs ONE body and
   reads the hiccup it returned; this one puts a real React root on a real
@@ -142,34 +142,32 @@
   A malformed form, a bad handle or a hiccup shape the substrate rejects
   is already refused BY THE RUNTIME, with the runtime's own id, reason and
   recovery — which is the whole discipline `re-frame.fresco.test`
-  established (§Children, and the runtime-parity suite). A guard here
+  holds to (§Children, and the runtime-parity suite). A guard here
   would paraphrase a refusal that already exists.
 
   What this facade owes that refusal is DELIVERY. [[mount!]] re-throws it
   and [[hydrate!]] rejects with it, each having put the page back first,
   so a refusal raised inside React's render reaches the caller as data
   instead of as an uncaught page error beside a handle for a root that
-  rendered nothing. That was PR #7822's audit finding and it is the one
-  thing this section used to overstate: the runtime refused all along;
-  the facade swallowed it.
+  rendered nothing.
 
   And a residue finding is not a refusal at all: it is a TEST FAILURE, so
   [[assert-clean!]] reports it through `cljs.test/do-report` rather than
   throwing. That distinction is the useful one — the kit REFUSES misuse of
   the instrument and REPORTS a fact about the code under test — and it is
   also what keeps this file free of new `:rf.error/*` ids.
-  (`:rf.error/fresco-test-residue-after-quiescence` was reserved for a
-  raising variant of that report and is now a TOMBSTONE in the complaint
-  register: residue is settled as a reported test failure, so the
-  spelling is retired and will never be raised.)
+  (`:rf.error/fresco-test-residue-after-quiescence` is a TOMBSTONE in
+  the complaint register, the spelling of a raising variant of that
+  report: residue is a reported test failure, so that id is never
+  raised.)
 
   [[shadow!]] does not weaken that. Its OPTIONS are its own surface and
   nothing else refuses them, so it does refuse a malformed one — but it
-  reuses the kit's existing `:rf.error/fresco-test-bad-option`, whose
+  reuses the kit's `:rf.error/fresco-test-bad-option`, whose
   meaning is *the kit was given options outside their closed contract*
-  and whose two recoveries are already the two arms this door needs. An
+  and whose two recoveries are the two arms this door needs. An
   id names the refusal rather than the door (complaints.md, *Rulings this
-  catalogue owns*), so no id is minted here and the register is unmoved.
+  catalogue owns*), so no id is minted here.
   Everything shadow! learns about the CODE, in contrast, is returned as a
   verdict rather than thrown — see that door on why a script step that
   cannot run is a red and not a raise.
@@ -181,7 +179,7 @@
   [[bodies-run]] read runtime tables — but a reading is only worth what
   built the page it describes, so both belong beside a mount all the same.
   Like `re-frame.fresco.test` it lives in the kit's own source root
-  (`fresco/test_kit/src`), outside the artefact's published `:paths`, so
+  (`fresco/test_kit/src`), outside the artefact's `:paths`, so
   nothing in a production bundle can reach it."
   (:require [clojure.string :as str]
             [clojure.walk :as walk]
@@ -220,7 +218,7 @@
 ;; waiting to be read makes that mount's eventual reading vacuous — a
 ;; census taken after a reset answers zero whether the teardown released
 ;; anything or not, which is the shape of gate that cannot go red
-;; (`impl.mount/unmount!`, rf2-2rtt6.48). Unmounted is NOT the same
+;; (`impl.mount/unmount!`). Unmounted is NOT the same
 ;; question: two mounts can both be down and only one of them read.
 ;;
 ;; A mount that never gets a verdict leaves the counter above zero and
@@ -278,7 +276,7 @@
   an id belongs to purely by looking it up, so a virtual timer numbered
   1 answers to the `clearTimeout` of a real timer numbered 1 that was
   armed before the install — the real one lives on and the virtual one
-  dies in its place (rf2-w2e6)."
+  dies in its place."
   [repeat? f delay args]
   (let [d (if (and (number? delay) (pos? delay)) delay 0)]
     (- (:seq (swap! !clock
@@ -363,10 +361,10 @@
   and that one-shot arms the platform's own repeat at the original
   period. A `setInterval` for the full period here would hand a timer
   with 1 ms to run a whole fresh 1000 and shift its phase for the rest of
-  the page's life (rf2-w2e6). The cadence is armed whether or not that
+  the page's life. The cadence is armed whether or not that
   first tick THROWS, which is what a real repeating timer does — the
   exception is reported and the timer reinitialised — and the exception
-  still escapes to be reported (rf2-w2e6).
+  still escapes to be reported.
 
   What that does not preserve is the ids: from here on they are the
   platform's, so a `clearTimeout` held across the boundary no longer
@@ -494,9 +492,10 @@
   The two are not interchangeable and the difference is the whole reason
   this door exists. A keystroke that ran one body and a keystroke that ran
   a hundred leave the SAME census — residue is what survived, not what
-  happened — so a budget stated in bodies (product specification §6,
-  *narrow-update body work scales with changed rows rather than all
-  mounted rows*) could be asserted by nothing this facade offered.
+  happened — so without this door a budget stated in bodies (product
+  specification §6, *narrow-update body work scales with changed rows
+  rather than all mounted rows*) could be asserted by nothing this facade
+  offers.
 
   It is a DELTA, taken by zeroing the runtime's counter and reading it
   back, because the counter is monotone. `f` is run for its effect and
@@ -552,15 +551,15 @@
 
   ## Why the kit owns it
 
-  The counter is `impl.collector`'s and is always-on by an explicit
-  ruling (rf2-2rtt6.84 (6)) — the arm's builds are `:advanced` with
+  The counter is `impl.collector`'s and is always-on deliberately — the
+  arm's builds are `:advanced` with
   `goog.DEBUG false`, where a debug-gated instrument is not an instrument
   but dead code. Every consumer of it is a test, so the door belongs at
   the tier its consumers run on rather than on the public door, and this
   namespace is where the thing being measured was mounted. It costs a
   production bundle nothing: the kit sits in `fresco/test_kit/src`,
-  outside the artefact's published `:paths`, so a consumer that never
-  writes a test never carries it (rf2-5mxe).
+  outside the artefact's `:paths`, so a consumer that never
+  writes a test never carries it.
 
   Spec 009's `rf:render:<view-name>` measures are a different instrument
   and not a substitute. They are compiled out unless
@@ -672,24 +671,25 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; A mount allocates three things before it can be a mount — a frame, a
-;; container, a React root — and until PR #7822's merged-PR audit the failure
-;; of the third left the first two standing.
+;; container, a React root — and the failure of the third must not leave the
+;; first two standing.
 ;;
-;; The audit drove it. A valid registered view whose body holds a plain
-;; function child head is a genuine `:rf.error/fresco-bad-head`; React 19
-;; does not re-throw a failed render out of `flushSync`, it hands the error
-;; to the root's `onUncaughtError`, whose default reports it globally and
-;; returns. So `mount!` answered a handle for a root that had rendered
-;; nothing, the page carried an uncaught error a browser runner treats as
-;; fatal, and the programmer had neither the refusal's data nor a teardown
-;; that would have found the leftovers.
+;; That failure is quiet by default. A valid registered view whose body
+;; holds a plain function child head is a genuine `:rf.error/fresco-bad-head`;
+;; React 19 does not re-throw a failed render out of `flushSync`, it hands
+;; the error to the root's `onUncaughtError`, whose default reports it
+;; globally and returns. Left to that default, `mount!` would answer a
+;; handle for a root that had rendered nothing, the page would carry an
+;; uncaught error a browser runner treats as fatal, and the programmer
+;; would have neither the refusal's data nor a teardown that finds the
+;; leftovers.
 ;;
-;; `hydrate!` had the same shape twice over: a refusal raised on
-;; `hydrate-root!`'s own stack escaped a promise-returning door
-;; SYNCHRONOUSLY, past every `.catch` a caller could attach, and its timeout
-;; branch rejected without taking the half-adopted root down.
+;; `hydrate!` has the same shape twice over: a refusal raised on
+;; `hydrate-root!`'s own stack would escape a promise-returning door
+;; SYNCHRONOUSLY, past every `.catch` a caller could attach, and a timeout
+;; branch that only rejected would leave the half-adopted root standing.
 ;;
-;; So both doors now either complete or leave nothing. [[abandon!]] is the
+;; So both doors either complete or leave nothing. [[abandon!]] is the
 ;; allocation order run backwards, and it is the whole of the machinery:
 ;; there is no lifecycle here and nothing tracks a resource. Each door knows
 ;; what it allocated because it allocated it three lines earlier.
@@ -736,7 +736,7 @@
   A container the CALLER supplied is left exactly where it was, with
   whatever it held. That is [[unmount!]]'s rule and it is the same rule
   for the same reason: a teardown may not delete a node it did not
-  create (rf2-31xm).
+  create.
 
   Neither counter is here, and that is deliberate rather than an omission
   — see [[handle-for]].
@@ -745,7 +745,7 @@
   right to.** An update to a root mid-hydration IS a switch to client
   rendering, so React queues a hydration error, which reaches the
   reporter `impl.mount/hydrate-root!` installs and — that reporter always
-  delegating to React's default (rf2-mwx08) — the window. Leaving the
+  delegating to React's default — the window. Leaving the
   root standing instead would be worse: the hydration is still scheduled,
   and it would commit into a detached container after this call returned.
   So the rollback takes it down and the complaint is the honest residue
@@ -820,14 +820,14 @@
   root or a handle exists. So the hold belongs to the CALL until
   [[handle-for]] hands it to the mount, and the `try` below is that
   lifetime — one release, on every escaping path, of exactly the one hold
-  this call took (rf2-4mvd). A clocked peer mount therefore keeps the
+  this call took. A clocked peer mount therefore keeps the
   clock it is standing on: the release is a decrement, and the failed
   call gives back only its own.
 
   React 19 is why this needs saying: a body that throws does not re-throw
-  out of `flushSync`, so before PR #7822's audit this door answered a
-  handle for a root that had rendered nothing and reported the error at
-  the window instead. See [[catching-root!]]."
+  out of `flushSync`, so without [[catching-root!]] this door would answer
+  a handle for a root that had rendered nothing and report the error at
+  the window instead."
   ([form] (mount! form {}))
   ([form {:keys [initial-events container clock]}]
    ;; The clock is the FIRST allocation and the last release, because the
@@ -918,11 +918,11 @@
    ;; THE REJECTION BOUNDARY ENCLOSES THE SYNCHRONOUS CONSTRUCTION TOO,
    ;; which is what makes the promise above the WHOLE error channel rather
    ;; than most of it. `mint-frame!` runs core's strict setup, so a seeding
-   ;; step whose handler throws left this door on the caller's own stack —
-   ;; before the `try` below, before the `js/Promise.` at the bottom, and
+   ;; step whose handler throws would otherwise leave this door on the
+   ;; caller's own stack — before the `js/Promise.` at the bottom, and
    ;; therefore past every `.catch` the caller wrote. The asynchronous test
-   ;; that resulted did not fail, it TIMED OUT, hiding the real setup
-   ;; failure behind a budget (rf2-gwye.2, witnessed in
+   ;; would then not fail but TIME OUT, hiding the real setup failure
+   ;; behind a budget (witnessed in
    ;; `re-frame.fresco.test-kit-mounted-dom-cljs-test`).
    ;;
    ;; Nothing is rolled back here and nothing needs to be: core destroys
@@ -962,7 +962,7 @@
                            ;; a clock installed before them would freeze the
                            ;; wait it is inside, and the caller would hold a
                            ;; promise that can never resolve. Nothing is lost:
-                           ;; an adopted tray is born settled (rf2-2rtt6.84),
+                           ;; an adopted tray is born settled,
                            ;; so the timers a hydrated page arms are armed
                            ;; after this line.
                            (js/setTimeout
@@ -1065,7 +1065,7 @@
   `:label` that names the assertion site. Nothing here retries,
   schedules or times anything; the core `poll-until` suite is the
   authority for all three, and this door COMPOSES it rather than
-  copying it (`88b20f1d22` deleted exactly such a duplicate).
+  copying it.
 
   ## Why the trailing flush is a correctness step and not sugar
 
@@ -1073,8 +1073,7 @@
   handlers run — but React's commit for the store notification may still
   be pending at the instant the poll answers, so a DOM read on the next
   line flakes without a flush. Poll-then-flush is the pairing this door
-  packages, exactly as [[settle!]] packages one `flushSync`. Five test
-  suites had spelled it locally before it lived here.
+  packages, exactly as [[settle!]] packages one `flushSync`.
 
   ## Condition and deadline — which is why it is not `drained`
 
@@ -1087,7 +1086,7 @@
   says the true thing and composes with [[settle!]]'s vocabulary
   (naming ledger, row 42).
 
-  ## It answers a promise, and that is the facade's existing line
+  ## It answers a promise, on the facade's promise side
 
   The drain rides `interop/next-tick`, a MACROTASK, so no synchronous
   door could reach it and a `.then` alone cannot either — a microtask
@@ -1143,8 +1142,8 @@
     is what says so.)
   - **Microtasks, and therefore promises.** A microtask queue cannot be
     drained from inside a task by anything in userland, so no control
-    could honestly claim it. A `.then` still lands where it always did —
-    after this door returns, not inside it.
+    could honestly claim it. A `.then` lands where it would without the
+    clock — after this door returns, not inside it.
   - **`performance.now`.** React's scheduler reads it to decide whether
     it has time left in the frame; a clock that jumped it forward would
     be telling React it is out of budget on every advance.
@@ -1205,12 +1204,12 @@
   them — a teardown that reset the tables first would answer clean whether
   the unmount released anything or not.
 
-  **The container stays in the document, emptied** (rf2-31xm). It used to
-  be detached, which is harmless for the `<div>` [[mount!]] appends and
-  wrong for the one a caller supplies as `:container` — a test's own node,
-  deleted out from under it by a teardown that did not create it. React's
+  **The container stays in the document, emptied.** Detaching it would be
+  harmless for the `<div>` [[mount!]] appends and wrong for the one a
+  caller supplies as `:container` — a test's own node, deleted out from
+  under it by a teardown that did not create it. React's
   `root.unmount()` empties a container and leaves it where it is, and
-  `impl.mount/unmount!` now does no more than that.
+  `impl.mount/unmount!` does no more than that.
 
   **A `:clock` mount's clock is released here**, after React's teardown
   and not before it: a component's cleanup clears the timers it armed,
@@ -1366,7 +1365,7 @@
            report)))
 
 ;; ---------------------------------------------------------------------------
-;; Shadow comparison — the dual-render DOM / intent diff (rf2-kyum)
+;; Shadow comparison — the dual-render DOM / intent diff
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Every other door in this file is about ONE mount. This one is about the
@@ -1412,8 +1411,8 @@
 (def ^:private shadow-options
   "[[shadow!]]'s closed option roster. Closed for `tree`'s reason: an
   option quietly ignored is a setting its author believes is in force,
-  and `:seed` — this surface's own earlier spelling for `:initial-events`
-  — would otherwise mount two UNSEEDED views and compare them happily."
+  and a stray `:seed` — a natural guess at `:initial-events` — would
+  otherwise mount two UNSEEDED views and compare them happily."
   #{:reference :candidate :initial-events :script})
 
 (def ^:private step-verbs
@@ -1511,7 +1510,7 @@
 ;; It then compares one thing more, which a serialiser structurally cannot:
 ;; the LIVE CONTROL STATE below. So the two instruments can disagree after
 ;; all, in exactly one direction — this walk reddens pairs `canonical-dom`
-;; calls equal, never the reverse — and that direction is the repair rather
+;; calls equal, never the reverse — and that direction is deliberate rather
 ;; than a drift.
 
 (def ^:private absent
@@ -1551,12 +1550,12 @@
 ;; directly, so `HTMLSelectElement.value` moves `option.selected` while
 ;; `outerHTML` stays byte-identical.
 ;;
-;; Which made this door green for a pair a user could tell apart at a glance:
-;; a reference `<select>` showing "Two" beside a candidate showing "One", the
-;; same three `<option>`s under each, `{:status :green :checkpoints 1}`. PR
-;; #8007's merged-PR audit found it and it is the reason this walk reads
-;; properties as well as attributes — a port can select the wrong option with
-;; every byte of markup and every intent agreeing.
+;; Comparing markup alone would call this door green for a pair a user could
+;; tell apart at a glance: a reference `<select>` showing "Two" beside a
+;; candidate showing "One", the same three `<option>`s under each. That is
+;; the reason this walk reads properties as well as attributes — a port can
+;; select the wrong option with every byte of markup and every intent
+;; agreeing.
 
 (def ^:private live-properties
   "The live control state each element kind carries in a PROPERTY, by tag.
@@ -1582,7 +1581,7 @@
   (`currentTime`, `paused`) moves on the wall clock, so comparing it would
   make a verdict depend on when it was taken.
 
-  Everything the door already declined stays declined: focus, caret, IME,
+  What the door declines elsewhere it declines here too: focus, caret, IME,
   layout and paint are not here and are not properties of this kind — see
   [[shadow!]] §What it does not claim."
   {"input"    ["value" "checked" "indeterminate"]
@@ -2013,7 +2012,7 @@
   the intent stream and in DOM text and attribute values alike. That is a
   narrower claim than raw equality and it is stated rather than assumed;
   `docs/design/fresco/product/capsule-replay-verdict.md` is where the
-  general result was found, and it names this door while stating it. Only
+  general result is stated, and it names this door while stating it. Only
   a mount's OWN keyword normalises, so a genuine cross-frame address still
   reddens.
 
@@ -2074,15 +2073,15 @@
   Canonical DOM, the live control state named in [[live-properties]],
   and intents. Not focus, caret, IME, layout or paint — those are L4 and
   the browser levels own them. Not residue either: no reading is taken,
-  so no reset is performed, and `assert-clean!` remains the door for that
+  so no reset is performed, and `assert-clean!` is the door for that
   claim.
 
   The control state is inside the claim rather than beside it because
   markup cannot carry it and a user can see it: an `<option>`'s
   selectedness, a dirty `value` or `checked`, an `indeterminate`
-  checkbox. Comparing attributes alone made this door green for a
-  candidate visibly showing the wrong option (PR #8007's merged-PR
-  audit), which is the one thing it exists not to do.
+  checkbox. Comparing attributes alone would call this door green for a
+  candidate visibly showing the wrong option, which is the one thing it
+  exists not to do.
 
   Synchronous. A step's effects are settled through `flushSync` before
   the checkpoint after it, so anything landing in a later turn — a
@@ -2100,9 +2099,9 @@
                       " and nothing else; it was given "
                       (pr-str (vec (sort-by str unknown)))
                       ". An option that is quietly ignored is a setting its "
-                      "author believes is in force — `:seed` was this surface's "
-                      "own earlier spelling for `:initial-events`, and accepting "
-                      "it in silence would compare two UNSEEDED views.")
+                      "author believes is in force — a stray `:seed`, a natural "
+                      "guess at `:initial-events`, accepted in silence would "
+                      "compare two UNSEEDED views.")
                  {:unknown (vec (sort-by str unknown))}))
   (let [{:keys [reference candidate initial-events script]} opts
         scripted? (contains? opts :script)
