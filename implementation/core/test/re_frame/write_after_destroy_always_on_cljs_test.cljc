@@ -1,18 +1,16 @@
 (ns re-frame.write-after-destroy-always-on-cljs-test
-  "EP-0008 / rf2-500ech — `:rf.warning/write-after-destroy` promoted to
-  `:rf.error/write-after-destroy` on the ALWAYS-ON axis.
+  "EP-0008 — `:rf.error/write-after-destroy` on the ALWAYS-ON axis.
 
   The `substrate/adapter.cljc` `replace-container!` choke point is the
   single place every frame `:db` write flows through (router `:db` commit,
   drain rollback, flows, epoch restore, SSR write paths). When a scheduled
   drain races frame destruction the container goes nil and the write is
-  silently dropped. Previously that surfaced only as a DCE'd
-  `:rf.warning/write-after-destroy` dev trace — invisible in production —
-  even though the SAME destroy-race surfaces production-survivably as
-  `:rf.error/frame-destroyed` on the dispatch / subscribe paths (the calls
-  disagreed).
+  dropped. A dev-only trace would leave that invisible in production, while
+  the SAME destroy-race surfaces production-survivably as
+  `:rf.error/frame-destroyed` on the dispatch / subscribe paths — so the
+  dropped write rides the always-on axis too.
 
-  This test pins the promotion's acceptance leg (per EP §Conformance —
+  This test pins the always-on leg (per EP-0008 §Conformance —
   every always-on category is exercised through `register-error-listener!`,
   proving production survival):
 
@@ -21,9 +19,10 @@
         `register-error-listener!` substrate — the ALWAYS-ON axis, NOT
         gated by `rf.interop/debug-enabled?`, so it survives `:advanced` +
         `goog.DEBUG=false`.
-    (b) the record carries `:recovery :ignored` (the write is dropped, the
-        frame is gone — mirroring `:rf.error/frame-destroyed`'s posture)
-        and a structured-only `:reason` (no raw values).
+    (b) the companion dev error trace carries `:recovery :ignored` (the
+        write is dropped, the frame is gone — mirroring
+        `:rf.error/frame-destroyed`'s posture) and a structured-only
+        `:reason` (no raw values).
     (c) the underlying adapter `replace-container!` is NOT invoked (the
         write is dropped, not forwarded).
 
@@ -31,17 +30,17 @@
   build AND the JVM `clojure -M:test` runner both pick it up. The choke
   point is plain CLJC; no DOM dependency.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
-  Legs (a) and (c) are the promotion's whole point and are ALREADY posture-
-  independent — they read the corpus-wide `:errors` registry and an adapter
-  tripwire, neither of which is gated. They run under
-  `scripts/test-core-prod-gate.sh` unchanged.
+  Legs (a) and (c) are the point of the always-on axis and are posture-
+  independent — they read the corpus-wide `error-emit` registry and an
+  adapter tripwire, neither of which is gated. They run under
+  `scripts/test-core-prod-gate.sh` as written.
 
-  Leg (b) is the DEV COMPANION by construction: the ns docstring above calls
-  it \"DCE'd in prod\". Its assertions are kept verbatim inside a
-  `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`, with an always-on
-  witness for the same call kept outside — this file's thesis is precisely
+  Leg (b) is the DEV COMPANION by construction: the dev trace DCEs in prod.
+  Its assertions sit inside a `(when rf.interop/debug-enabled? …)`
+  dev-instrumentation arm, with an always-on witness for the same call kept
+  outside — this file's thesis is precisely
   that the dev trace and the always-on record fire TOGETHER off one choke
   point, so a deftest that had nothing to say in production posture would be
   the wrong shape for it."
@@ -68,12 +67,12 @@
                 (rf.error-emit/clear-error-listeners!))}))
 
 ;; ===========================================================================
-;; (a) + (b) The dropped write rides the ALWAYS-ON axis with the promoted
-;; category, recovery, and structured-only payload.
+;; (a) The dropped write rides the ALWAYS-ON axis with the error category
+;; and no event, frame or exception on the record.
 ;; ===========================================================================
 
 (deftest nil-container-write-fans-out-on-always-on-axis
-  (testing "Per rf2-500ech / Spec 009 §Error event catalogue: a
+  (testing "Per Spec 009 §Error event catalogue: a
             `replace-container!` against a nil container (the scheduled-
             drain-vs-frame-destruction race) fans ONE
             `:rf.error/write-after-destroy` record out through the
@@ -90,7 +89,7 @@
             "exactly ONE always-on record for the dropped write")
         (let [r (first reports)]
           (is (= :rf.error/write-after-destroy (:error r))
-              "the promoted error category — not the retired warning")
+              "the error category — not a warning")
           (is (nil? (:event r))
               "no event vector — a dropped write, not a throw on a dispatch")
           (is (nil? (:frame r))
@@ -106,8 +105,8 @@
 ;; ===========================================================================
 
 (deftest nil-container-write-keeps-structured-dev-trace
-  (testing "Per rf2-500ech: the dev error trace stays at the choke point
-            (in-process tooling surface, DCE'd in prod) carrying the promoted
+  (testing "The dev error trace stays at the choke point
+            (in-process tooling surface, DCE'd in prod) carrying the error
             category, `:recovery :ignored`, and a structured-only `:reason`
             (no raw values)."
     (let [traces (atom [])
@@ -119,14 +118,14 @@
         (finally
           (rf/unregister-listener! :trace  ::rec)
           (rf.error-emit/unregister-error-listener! ::rec-errors)))
-      ;; ALWAYS-ON WITNESS (rf2-d2841). This deftest's thesis is that the dev
+      ;; ALWAYS-ON WITNESS. This deftest's thesis is that the dev
       ;; trace is the COMPANION of the always-on record off ONE choke point,
       ;; so the companion claim needs the always-on half present in the same
       ;; body. Under the production gate this is all that remains, and it is
       ;; the half that matters: one record, one call.
       (is (= 1 (count (filter #(= :rf.error/write-after-destroy (:error %)) @always)))
           "the same choke-point call fans exactly one always-on record")
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+      ;; Dev-instrumentation arm (see ns docstring §Posture split).
       ;; The trace surface is live in dev (this runner); under :advanced +
       ;; goog.DEBUG=false — and under -Dre-frame.debug=false — it DCEs.
       (when rf.interop/debug-enabled?
@@ -147,11 +146,10 @@
 ;; ===========================================================================
 
 (deftest nil-container-write-does-not-forward-to-adapter
-  (testing "Per rf2-500ech / 006 §replace-container!: the nil guard runs
+  (testing "Per 006 §replace-container!: the nil guard runs
             BEFORE the adapter lookup, so the underlying adapter's
             `replace-container!` is never invoked (a nil-container write
-            would otherwise NPE on a background thread — the rf2-ft2b
-            reproducer)."
+            would otherwise NPE on a background thread)."
     (let [forwarded   (atom false)
           ;; A tripwire adapter: its replace-container! flips the flag if it
           ;; is ever reached. The nil guard runs BEFORE the adapter lookup,
@@ -172,7 +170,7 @@
 ;; ===========================================================================
 
 (deftest dispatch-on-error-late-bind-hook-is-published
-  (testing "Per rf2-500ech: the substrate cannot static-require
+  (testing "The substrate cannot static-require
             `re-frame.error-emit` (load order), so it reaches
             `dispatch-on-error!` via the `:error-emit/dispatch-on-error`
             late-bind hook — which error-emit publishes at ns-load, so the
