@@ -52,11 +52,10 @@
   AFTER the `initialize` response to confirm the handshake. We do NOT
   gate the tool surface on receiving it: the session flips to
   `:initialized? true` the moment the `initialize` response is built.
-  This matches the reference SDK posture (the MCP Python SDK aligned to
-  the TypeScript SDK precisely to mark the server initialized on the
-  `initialize` RESPONSE rather than waiting for the notification —
-  otherwise a client that pipelines `initialize` + `tools/list` races a
-  warning/refusal). The notification is still accepted as a no-op so a
+  This matches the reference SDK posture (the MCP Python and TypeScript
+  SDKs both mark the server initialized on the `initialize` RESPONSE
+  rather than waiting for the notification — otherwise a client that
+  pipelines `initialize` + `tools/list` races a warning/refusal). The notification is still accepted as a no-op so a
   well-behaved client sees no error. This relaxation is pinned by
   `dispatch-allows-tools-immediately-after-initialize` +
   `run-loop-rejects-pre-initialize-tool-calls` in `tools_test.clj`.
@@ -232,7 +231,7 @@
     any notification) are accepted, everything else returns
     `-32600 invalid-request`.
 
-  - `(dispatch message)` — backward-compatible convenience that runs
+  - `(dispatch message)` — a convenience that runs
     the message against a FRESH, ALREADY-INITIALIZED session. Method-
     semantics tests use this form: they exercise what a handler returns
     GIVEN a completed handshake, not the lifecycle gate (which the
@@ -288,14 +287,14 @@
   Public for tests."
   [state ^java.io.Writer writer message]
   (try
-    ;; APPLICATION OUTPUT IS NOT PROTOCOL TRAFFIC (rf2-gwye.57).
+    ;; APPLICATION OUTPUT IS NOT PROTOCOL TRAFFIC.
     ;;
     ;; stdout carries one JSON frame per line (spec/001-Wire-Protocol.md
     ;; §Transport). But a tool call runs the USER's code — a Story variant's
     ;; event handlers — and an ordinary `println` in a handler writes to
     ;; `*out*`, which in the CLI is stdout. One such line is not a frame, so
-    ;; the client's line parser rejects it and the session breaks, over a run
-    ;; that SUCCEEDED. Requiring every event handler to know it might be
+    ;; the client's line parser would reject it and the session would break,
+    ;; over a run that SUCCEEDED. Requiring every event handler to know it might be
     ;; running under MCP is the wrong contract.
     ;;
     ;; So at this boundary — the server's own dispatch, the one place that
@@ -308,9 +307,9 @@
     ;;
     ;; Scoped to dispatch, never process-wide: no `System/setOut`, nothing an
     ;; embedding caller of `run-loop!` keeps after the call returns. The
-    ;; separate LOAD-TIME caveat stands as documented (README §Loading your
-    ;; project's stories) — code `clojure.main` ran before `-main` printed
-    ;; before this boundary existed to redirect it.
+    ;; separate LOAD-TIME caveat is documented in README §Loading your
+    ;; project's stories — code `clojure.main` runs before `-main` prints
+    ;; before this boundary exists to redirect it.
     (when-let [resp (binding [*out* *err*] (dispatch state message))]
       (rf.story-mcp.protocol/write-frame! writer resp))
     (catch Throwable e
@@ -366,8 +365,8 @@
 ;; ---- -main ----------------------------------------------------------------
 
 (defn- parse-args
-  "Parse CLI args. Minimal — no third-party CLI lib required at Stage
-  7. Supported flags:
+  "Parse CLI args. Minimal — no third-party CLI lib required.
+  Supported flags:
 
   - `--allow-writes` — presence opens the write surface. There is no
     `=true` / `=false` variant; a flag is either present or absent. A
@@ -435,16 +434,17 @@
   closes. The agent host launches this as a subprocess and terminates it
   by closing stdin (or sending SIGTERM after a timeout).
 
-  ## Releasing the executor at EOF (rf2-gwye.59)
+  ## Releasing the executor at EOF
 
   `-main` OWNS this process, so it releases what the process acquired.
   `tools.lifecycle/run-variant-blocking` runs every variant on a `future`,
   which is Clojure's cached send-off pool: NON-DAEMON threads with a
   60-second keep-alive. So after a session that actually ran a story, the
-  read loop returns at EOF, `-main` returns, and the JVM then sits there for
-  the rest of that minute with nothing to do — measured at 60,021 ms
-  stdin-to-exit against 71 ms for a session that ran nothing. A host
-  restarting its MCP servers collects a pile of idle JVMs.
+  read loop returns at EOF and `-main` returns — and without the release
+  the JVM would sit there for the rest of that minute with nothing to do
+  (about 60 s from stdin close to exit, against about 70 ms for a session
+  that ran nothing). A host restarting its MCP servers would collect a
+  pile of idle JVMs.
 
   `shutdown-agents` is in a `finally` so an abnormal exit releases it too.
   It is HERE and not in `run-loop!` deliberately: `run-loop!` is the
