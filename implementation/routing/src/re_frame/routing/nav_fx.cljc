@@ -42,7 +42,7 @@
 ;; not recoverable from it. A separate claim-order vector is required; sorting
 ;; frame ids would allow a later duplicate to displace the incumbent.
 ;;
-;; The fix records claim ORDER in this process-global vector. The url-bound
+;; This process-global vector records claim ORDER. The url-bound
 ;; exclusivity check (`re-frame.routing.url-bound`, run from the
 ;; `:routing/on-frame-registered!` lifecycle hook on every frame
 ;; (re-)registration) calls `record-url-claim!` / `drop-
@@ -140,7 +140,7 @@
   claim order fails closed to nil rather than id-sorting.
 
   Frame config is read from the frames store (`rf.frame/frame-meta` — nil for a
-  destroyed / absent frame, so a dead claim reads as not-bound; rf2-h1vqa4:
+  destroyed / absent frame, so a dead claim reads as not-bound;
   frames have no registrar rows).
 
   Public (rather than `defn-`) so the ownership-resolution contract is
@@ -269,9 +269,9 @@
 
 (def push-url-meta
   "Metadata for the `:rf.nav/push-url` fx registration. Spec 012
-  §Multi-frame routing (rf2-w50qm).
+  §Multi-frame routing.
 
-  EP-0015 note (rf2-1wmni6 / rf2-pbbo68): the arg is a full app URL string.
+  EP-0015 note: the arg is a full app URL string.
   We deliberately DO NOT mark it `:sensitive` — unlike the scroll fx (whose
   `:from`/`:to` descriptors are purely DIAGNOSTIC carriers the handler
   ignores), the pushed URL IS the navigation's behavioural identity: the
@@ -283,32 +283,32 @@
   a carrier) AND break that behavioural surface. The carrier-bearing URL
   classes EP-0015 actually targets — the route-MISS / malformed / blocked
   URLs — are scrubbed at their diagnostic emit sites via
-  `re-frame.privacy.url/redact-url-carriers` (rf2-n1f4rh / rf2-jfaucw).
+  `re-frame.privacy.url/redact-url-carriers`.
 
-  rf2-sqams: carries the `:rf.fx.nav/push-url-args` `:schema` per
+  Carries the `:rf.fx.nav/push-url-args` `:schema` per
   [Spec-Schemas §Standard fx args schemas] ('the standard fx ship with
   `:schema` set to the corresponding schema above'). A non-string arg is
-  now rejected at the Spec 010 §step-5 `:fx-args` boundary — the fx is
-  skipped BEFORE `window.history` is touched — instead of reaching
+  rejected at the Spec 010 §step-5 `:fx-args` boundary — the fx is
+  skipped BEFORE `window.history` is touched — rather than reaching
   `pushState`."
   {:platforms #{:client}
    :schema    rf.routing.nav-fx-schemas/push-url-args
    :doc       "Push the URL to the browser history (HTML5 pushState).
 Honours the calling frame's `:url-bound?` metadata: non-URL-bound frames
 no-op the fx so they don't race with the URL-owning frame (per Spec 012
-§Multi-frame routing — rf2-w50qm)."})
+§Multi-frame routing)."})
 
 (defn push-url-handler
   "`:rf.nav/push-url` fx handler. Registered by the façade so a `:reload`
   re-wires it on a fresh registrar.
 
-  rf2-cylse.4 (defence-in-depth): the `.pushState` call runs through the
-  shared `run-history-mutation!` try/catch (factored in
-  `history-mutation-handler`, rf2-u8qe7y finding 2). A browser throws
+  Defence-in-depth: the `.pushState` call runs through the
+  shared `run-history-mutation!` try/catch (in
+  `history-mutation-handler`). A browser throws
   `SecurityError` when asked to push an absolute cross-origin URL — left
   uncaught that crashes the fx drain (a DoS, worse than the redirect it
   would otherwise be). The `url/external-url?` gate at the nav-event sinks
-  (rf2-cylse.4) already fails such URLs closed before they reach this fx,
+  already fails such URLs closed before they reach this fx,
   so this catch is a second line of defence: any residual throw is
   downgraded to a `:rf.fx/push-url-failed` trace, keeping the drain
   alive."
@@ -318,37 +318,37 @@ no-op the fx so they don't race with the URL-owning frame (per Spec 012
 
 (def replace-url-meta
   "Metadata for the `:rf.nav/replace-url` fx registration. Spec 012
-  §Multi-frame routing (rf2-w50qm).
+  §Multi-frame routing.
 
-  EP-0015 note (rf2-1wmni6 / rf2-pbbo68): same behavioural-identity URL arg
+  EP-0015 note: same behavioural-identity URL arg
   as `:rf.nav/push-url` — deliberately NOT marked `:sensitive` for the same
   reason (the `:effects-routed` contract asserts the real routed URL, the
   open-redirect gate already cleared it, and a blanket redaction over-reaches
   bare paths). Carrier-bearing route-miss / blocked URLs are scrubbed at
   their diagnostic emit sites (`url-egress/redact-url-carriers`).
 
-  rf2-sqams: carries the `:rf.fx.nav/replace-url-args` `:schema`, the
-  same `:string` gate its `:rf.nav/push-url` sibling now carries — the
+  Carries the `:rf.fx.nav/replace-url-args` `:schema`, the
+  same `:string` gate its `:rf.nav/push-url` sibling carries — the
   two history fxs must not have asymmetric args-validation any more than
-  they have asymmetric drain-survival (rf2-u8qe7y finding 2)."
+  asymmetric drain-survival."
   {:platforms #{:client}
    :schema    rf.routing.nav-fx-schemas/replace-url-args
    :doc       "Replace the URL in the browser history (HTML5 replaceState).
 Honours the calling frame's `:url-bound?` metadata: non-URL-bound frames
 no-op the fx so they don't race with the URL-owning frame (per Spec 012
-§Multi-frame routing — rf2-w50qm)."})
+§Multi-frame routing)."})
 
 (defn replace-url-handler
   "`:rf.nav/replace-url` fx handler. Registered by the façade so a
   `:reload` re-wires it on a fresh registrar.
 
-  rf2-u8qe7y finding 2 (defence-in-depth): the `.replaceState` call runs
+  Defence-in-depth: the `.replaceState` call runs
   through the SAME shared `run-history-mutation!` try/catch as
   `:rf.nav/push-url`, so a browser throw (`SecurityError` on a residual
   cross-origin URL, jsdom/stub mismatch, invalid-URL restriction) fails
   closed to a `:rf.fx/replace-url-failed` trace instead of escaping the fx
-  drain. Previously replace ran the history method bare while push had the
-  catch — the two sibling history fxs had asymmetric drain-survival
+  drain. Running the history method bare here while push has the catch
+  would give the two sibling history fxs asymmetric drain-survival
   behaviour under the same failure class."
   [{:keys [frame]} url]
   (history-mutation-handler
