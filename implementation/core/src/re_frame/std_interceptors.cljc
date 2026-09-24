@@ -268,10 +268,12 @@
 ;; `:rf.interceptor/path` standard is coupled to (Spec 002 §Standard
 ;; `:rf.interceptor/path` rule 4): an unchanged focused slice
 ;; widens back to the ORIGINAL full app-db OBJECT so the frame-commit
-;; `identical?` no-op is preserved. The invariant-coupled lock keeps the
-;; standard non-replaceable until a conformance profile proves a replacement
-;; preserves it (`rf.image-assembly/standard-replaceable?`); see EP-0023 §Image
-;; Patching And Overrides and `image_assembly.cljc`'s `:rf.standard/*` keys.
+;; `identical?` no-op is preserved. Coupling the standard to this invariant
+;; makes `rf.image-assembly/standard-replaceable?` answer false for it — the
+;; policy the EP-0023 conformance suite pins. The protection itself is
+;; `check-standard-collision!`, which refuses any app image that shadows a
+;; standard. See EP-0023 §Image Patching And Overrides and
+;; `image_assembly.cljc`'s `:rf.standard/*` keys.
 (def ^:private path-conformance-invariant
   :rf.interceptor.path/commit-identical-no-op)
 
@@ -307,9 +309,10 @@
   MUST NOT shadow it — a collision FAILS LOUD
   (`:rf.error/image-standard-replacement-forbidden`). EP-0026 §Framework Standard
   Registrations: standards are protected, and there is NO public
-  `:replace-standard` opt-in; the standard owner's internal define/revise path
-  reads `rf.image-assembly/standard-replaceable?` and a conformance profile would
-  lift the invariant-coupled lock."
+  `:replace-standard` opt-in. The invariant-coupled mark is policy:
+  `rf.image-assembly/standard-replaceable?` reads it and answers false, which
+  the EP-0023 conformance suite pins, while the collision refusal is
+  `check-standard-collision!` and applies whatever the mark says."
   []
   (rf.interceptor-registry/reg-interceptor*
     :rf.interceptor/path
