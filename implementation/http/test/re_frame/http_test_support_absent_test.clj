@@ -1,11 +1,11 @@
 (ns re-frame.http-test-support-absent-test
-  "Negative-assertion test for rf2-cdmle: with
+  "Negative-assertion test: with
   `re-frame.http.test-support` ABSENT from the require closure, the two
   canonical canned-stub fxs (`:rf.http/managed-canned-success`,
   `:rf.http/managed-canned-failure`) MUST NOT be registered. The stub
   family itself (`with-request-stubs` and the raw install/uninstall pair)
   is not a `re-frame.core` façade export and publishes no late-bind hook
-  at all (rf2-ntwwyt, rf2-kuky.13), so the fx registrations are the whole
+  at all, so the fx registrations are the whole
   of what this gate can observe.
 
   This is the JVM/SSR companion to the CLJS production-bundle elision
@@ -44,7 +44,7 @@
             [re-frame.registrar :as rf.registrar]))
 
 (deftest canned-stub-fxs-absent-without-test-support-require
-  (testing "rf2-cdmle — with re-frame.http.test-support ABSENT from the
+  (testing "with re-frame.http.test-support ABSENT from the
             require closure, neither canned-stub fx id is registered.
             The production-eligible :rf.http/managed and
             :rf.http/managed-abort fxs ARE registered (they live in
@@ -70,7 +70,7 @@
     ;; Production code paths reaching `:fx-overrides
     ;; {:rf.http/managed :rf.http/managed-canned-success}` would fail
     ;; with the framework's no-such-fx error, which is the intended
-    ;; production posture per rf2-zk08x's audit decision.
+    ;; production posture.
     (is (nil? (rf.registrar/lookup :fx :rf.http/managed-canned-success))
         ":rf.http/managed-canned-success MUST NOT register without re-frame.http.test-support require")
     (is (nil? (rf.registrar/lookup :fx :rf.http/managed-canned-failure))
