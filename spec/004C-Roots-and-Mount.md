@@ -232,35 +232,6 @@ it are untouched — failure scoping is precise: **a bad frame payload affects e
 roots referencing it.** There is no first-wins silent merge and no last-wins
 overwrite; an **equal** digest is the idempotent no-op of §6.
 
-## Compatible shell versus clean remount
-
-A redefinition is **compatible** when it does not move the boundary's *hook
-skeleton* — the ordered set of host hooks the emitter's shell owns for that
-declaration. Reusing a boundary across a moved skeleton is not conservative,
-it is wrong: the host's hook state is positional, so the new shell would read
-the old occurrence's slots.
-
-In the interpreted mode the skeleton is not a function of the body at all. An
-interpreted body is unrestricted Clojure that produces markup and calls no
-host hooks; every hook an interpreted boundary owns belongs to its atomic shell,
-in a fixed order. **So every interpreted body edit is compatible, however
-large.** What moves the skeleton is a change of *lowering* — the compiled tier
-renders through its own shell, and its capability-elision verdict omits the
-ViewCell, and with it every hook above, for a view with no reactive site.
-Promotion between modes (adding `{:compiled true}` and reloading) is therefore
-the incompatible edit, and it earns exactly **one** clean remount: a new
-boundary, the old occurrence disconnected, no attempt to carry state that the
-new shell has nowhere to put. What is never permitted is the third outcome —
-serving the promoted declaration the stale interpreted boundary, which would
-render the pre-promotion body indefinitely with nothing to say so.
-
-The publication seam carries a **body revision**, and it advances when a new
-body is published — not when an unchanged tree is walked again. A render that
-began against the previous body and reaches its commit afterwards is stale at
-that revision and publishes nothing: no dependencies, no event sites, no
-evidence (see [006 §The atomic shell](006-ReactiveSubstrate.md#the-atomic-shell)). The
-host simply renders again at the new body.
-
 ## 10. Stage placement
 
 | Surface | Stage |
