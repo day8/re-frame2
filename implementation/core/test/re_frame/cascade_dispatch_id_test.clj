@@ -1,5 +1,5 @@
 (ns re-frame.cascade-dispatch-id-test
-  "Per rf2-g6ih4 — `:rf.trace/dispatch-id` is cascade-wide on every trace event.
+  "`:rf.trace/dispatch-id` is cascade-wide on every trace event.
 
   Spec 009 §Dispatch correlation locks `:rf.trace/dispatch-id` as a cascade-wide
   correlation key: it rides on **every** trace event emitted inside a
@@ -24,31 +24,30 @@
 
   JVM-only — the dynamic-var binding mechanism is platform-agnostic.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
-  `:rf.trace/dispatch-id` is a TRACE-CORRELATION key and there is no production
-  channel that carries it — checked, not assumed: the always-on error record
+  `:rf.trace/dispatch-id` is a TRACE-CORRELATION key and no production
+  channel carries it: the always-on error record
   (`error-emit/dispatch-on-error!`) is the tight `{:error :event :event-id
   :frame :time :exception :elapsed-ms :source-coord}` shape plus the optional
   `:failing-id` / `:reason` lift, and carries no correlation id. So every
   correlation claim here is guarded.
 
-  What keeps this off the class-2 list is that each case drives a REAL CASCADE
-  and the cascade is production behaviour. Every deftest now witnesses the work
-  the correlation key was correlating: the fx fired, the child event committed,
-  the thrown handler reached the always-on `:errors` stream, two sequential
-  dispatches each committed. Under the gate those run for the first time here.
+  Each case still drives a REAL CASCADE, and the cascade is production
+  behaviour, so every deftest also witnesses — in both postures — the work the
+  correlation key correlates: the fx fired, the child event committed, the
+  thrown handler reached the always-on `:errors` stream, two sequential
+  dispatches each committed.
 
-  THREE VACUOUS PASSES CAME OFF, in two classes.
-  `frame-lifecycle-emits-stay-uncorrelated-under-a-cascade-scope` carried two
-  class-1 negatives — `(is (nil? (dispatch-id (by-op :rf.frame/re-registered))))`
-  over an empty ring, where `by-op` returns nil and `dispatch-id` of nil is nil.
-  `parent-dispatch-id-only-on-event-dispatched` is the sharper one and a shape
-  worth recognising on sight: its whole body is a `doseq` over the captured
-  events, so under the gate it iterates ZERO times, runs NO assertions at all,
-  and clojure.test reports the deftest as passing. A green deftest that
-  executed no assertion is the same false green as one that executed a vacuous
-  assertion, and it is harder to see."
+  That witness is what stops a guarded claim passing vacuously, and two
+  shapes need it. A negative over an empty ring —
+  `(is (nil? (dispatch-id (by-op :rf.frame/re-registered))))`, where `by-op`
+  returns nil and `dispatch-id` of nil is nil — passes for free. And a body
+  that is a `doseq` over the captured events
+  (`parent-dispatch-id-only-on-event-dispatched`) iterates ZERO times under the
+  gate, runs NO assertions at all, and clojure.test reports the deftest as
+  passing. A green deftest that executed no assertion is the same false green
+  as one that executed a vacuous assertion, and it is harder to see."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
@@ -95,7 +94,7 @@
 (defn- dispatch-id [ev] (get-in ev [:tags :rf.trace/dispatch-id]))
 
 (defn- record-errors
-  "ALWAYS-ON (rf2-d2841): run `body-fn` with an `:errors`-stream listener
+  "ALWAYS-ON: run `body-fn` with an `:errors`-stream listener
   attached and return the tight records the corpus-wide `error-emit` registry
   fanned. Not gated on `rf.interop/debug-enabled?`."
   [body-fn]
@@ -125,7 +124,7 @@
                               (filter #(contains? #{:event :rf.event/db-changed
                                                     :rf.fx/do-fx :rf.fx/handled}
                                                   (:operation %))))]
-        ;; ALWAYS-ON (rf2-d2841): the cascade the correlation key correlates
+        ;; ALWAYS-ON: the cascade the correlation key correlates
         ;; actually ran — handler committed, fx fired exactly once.
         (is (= 1 @fx-fired) "fx ran")
         (is (= 1 (:n (rf/app-db-value :test/main)))
@@ -153,7 +152,7 @@
           dispatched (first (events-of evs #(= :rf.event/dispatched (:operation %))))
           cascade-id (dispatch-id dispatched)
           err        (first (events-of evs #(= :rf.error/handler-exception (:operation %))))]
-      ;; ALWAYS-ON (rf2-d2841): the failure this deftest correlates reaches the
+      ;; ALWAYS-ON: the failure this deftest correlates reaches the
       ;; production error stream. The correlation id does not ride that record
       ;; — the tight shape carries none — but the failure itself is not lost.
       (is (some? (first (filterv #(= :rf.error/handler-exception (:error %)) @recs)))
@@ -176,7 +175,7 @@
           dispatches (vec (events-of evs #(= :rf.event/dispatched (:operation %))))
           parent     (first (filter #(= [:parent] (get-in % [:tags :rf.event/v])) dispatches))
           child      (first (filter #(= [:child]  (get-in % [:tags :rf.event/v])) dispatches))]
-      ;; ALWAYS-ON (rf2-d2841): the child dispatch the ids are about really was
+      ;; ALWAYS-ON: the child dispatch the ids are about really was
       ;; issued from inside the parent's fx and really committed.
       (is (true? (:got-child (rf/app-db-value :test/main)))
           "the child dispatch committed in this posture")
@@ -198,7 +197,7 @@
     (rf/reg-event :inner (fn [{:keys [db]} _] {:db (assoc db :v 1)}))
     (let [evs (record-traces
                 (fn [] (rf/dispatch-sync [:outer] {:frame :test/main})))]
-      ;; ALWAYS-ON (rf2-d2841): the nested dispatch ran. Without this the
+      ;; ALWAYS-ON: the nested dispatch ran. Without this the
       ;; deftest asserts NOTHING under the gate — the `doseq` below iterates
       ;; zero times over an empty ring and clojure.test still reports a pass.
       (is (= 1 (:v (rf/app-db-value :test/main)))
@@ -223,7 +222,7 @@
         ;; reg-event / reg-fx emit :rf.registry/handler-registered traces
         ;; via the registrar; these fire OUTSIDE any drain.
         (rf/reg-event :foo (fn [{:keys [db]} _] {:db db}))
-        ;; ALWAYS-ON (rf2-d2841): the out-of-band WORK is production behaviour —
+        ;; ALWAYS-ON: the out-of-band WORK is production behaviour —
         ;; only its trace is not. The frame exists and the handler is registered.
         (is (some? (rf/frame-meta :test/outside)) "the frame was created")
         (is (some? (rf/handler-meta {:source :store :kind :event :id :foo})) "the handler was registered")
@@ -249,7 +248,7 @@
                  (fn [] (rf/dispatch-sync [:bump] {:frame :test/main})))
           ids1 (set (keep dispatch-id evs1))
           ids2 (set (keep dispatch-id evs2))]
-      ;; ALWAYS-ON (rf2-d2841): both cascades ran to completion — the counter
+      ;; ALWAYS-ON: both cascades ran to completion — the counter
       ;; reached 2 — so "two cascades" is a fact and not an assumption.
       (is (= 2 (:n (rf/app-db-value :test/main)))
           "both sequential dispatches committed in this posture")
@@ -264,7 +263,7 @@
 ;; ---- frame-lifecycle emits stay uncorrelated ------------------------------
 
 (deftest frame-lifecycle-emits-stay-uncorrelated-under-a-cascade-scope
-  (testing "rf2-7eel71 — a frame-lifecycle emit (op-type :rf.frame) fired while a
+  (testing "a frame-lifecycle emit (op-type :rf.frame) fired while a
             cascade's *handler-scope* is bound (e.g. make-frame re-registering a
             SIBLING frame from inside a handler / fx) must NOT inherit the
             cascade's :rf.trace/dispatch-id. Stamping a foreign id there makes the
@@ -281,12 +280,12 @@
                       (rf.trace/emit! :rf.sub   :rf.sub/run              {:frame :test/sibling
                                                                        :rf.sub/id :x}))))
           by-op (fn [op] (some #(when (= op (:operation %)) %) evs))]
-      ;; rf2-d2841 — GUARDED WHOLESALE, and honestly so: this case drives
+      ;; GUARDED WHOLESALE, and honestly so: this case drives
       ;; `rf.trace/emit!` directly, which is a no-op under `-Dre-frame.debug=false`,
-      ;; so there is no production work here to witness. Its two negatives were
-      ;; class-1 vacuous under the gate — `by-op` returns nil over the empty
-      ;; ring and `dispatch-id` of nil is nil — while the CONTROL beside them
-      ;; (the one assertion that would have caught it) went red.
+      ;; so there is no production work here to witness. Unguarded, its two
+      ;; negatives would pass vacuously under the gate — `by-op` returns nil over
+      ;; the empty ring and `dispatch-id` of nil is nil — while the CONTROL beside
+      ;; them would go red.
       (when rf.interop/debug-enabled?
         (is (nil? (dispatch-id (by-op :rf.frame/re-registered)))
             ":rf.frame/re-registered stays uncorrelated — no cascade dispatch-id")
