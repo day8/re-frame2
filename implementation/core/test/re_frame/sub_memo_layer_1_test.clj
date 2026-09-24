@@ -1,14 +1,13 @@
 (ns re-frame.sub-memo-layer-1-test
-  "Regression tests for the layer-1 sub memoisation contract — Spec 006
-  §No-op via value equality (rf2-719e), with the layer-1 specialisation
-  per rf2-sxacg.
+  "Tests for the layer-1 sub memoisation contract — Spec 006 §No-op via
+  value equality, and its layer-1 specialisation.
 
   The layer-1 path is specialised to a fixed-arity-1 wrapper that
   compares the db value directly (no varargs-seq alloc, no seq-vs-seq
   `=` walk). These tests pin the result-equivalence contract: the
   specialised wrapper must short-circuit on `=` inputs exactly like the
   generic wrapper, must recompute on `not=` inputs, and must hand the
-  body fn the same `(db, query-v)` shape it always received.
+  body fn the same `(db, query-v)` shape as the generic wrapper does.
 
   Microbench note: the alloc-per-recompute saving is one ArraySeq/Cons
   per layer-1 recompute (the varargs collection vec/seq the
@@ -31,8 +30,8 @@
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
   (rf/init! rf.substrate.plain-atom/adapter)
-  ;; EP-0002 (rf2-jue6sp): `init!` no longer synthesises `:rf/default`,
-  ;; and ambient subscribe / dispatch now require a carried frame stamp.
+  ;; EP-0002: `init!` does not synthesise `:rf/default`, and ambient
+  ;; subscribe / dispatch require a carried frame stamp.
   ;; These memoization tests run against a single conventional app frame,
   ;; so register `:rf/default` explicitly and pin it as the established
   ;; scope for the whole body via `with-frame`.
@@ -82,12 +81,12 @@
         (is (= 3 @runs))))))
 
 (deftest layer-1-memo-value-equal-but-not-identical-skips
-  (testing "two `=`-but-not-`identical?` db values still short-circuit
+  (testing "two `=`-but-not-`identical?` db values short-circuit too
             — the contract is value equality, not identity"
     (let [runs (atom 0)]
       ;; Two events that produce structurally-equal but non-identical maps.
       ;; `(assoc db :touched true)` would change the value; instead replace
-      ;; with a fresh map that equals the old one.
+      ;; with a fresh map that equals the prior one.
       (rf/reg-event :seed   (fn [{:keys [db]} _] {:db {:n 42 :other :a}}))
       (rf/reg-event :reseed (fn [{:keys [db]} _] {:db {:n 42 :other :a}}))  ;; new map, =
       (rf/reg-sub :n (fn [db _] (swap! runs inc) (:n db)))
@@ -102,8 +101,8 @@
             "value-equal db short-circuits the memo (no body re-run)")))))
 
 (deftest layer-1-body-receives-db-and-query-v
-  (testing "the body fn still receives the canonical (db, query-v) shape
-            under the specialised wrapper — no shape regression"
+  (testing "the body fn receives the canonical (db, query-v) shape
+            under the specialised wrapper, as under the generic one"
     (let [captured (atom nil)]
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 99}}))
       (rf/reg-sub :n (fn [db query-v]
@@ -121,15 +120,14 @@
             ::unset sentinel — the body runs once for each, memo skips on
             repeat.
 
-            NOTE (rf2-ekq28v): a `{:db nil}` return is now COERCED to
-            `{:db {}}` at the commit boundary (app-db is always a map,
-            never nil — the v1 nil-footgun is removed structurally), so a
-            handler can no longer drive app-db to nil. The nil-vs-::unset
-            sentinel concern is still exercised by the `false` value (a
-            falsey, non-map db that the memo wrapper must distinguish from
-            ::unset) and by the empty-map `{}` (a falsey-adjacent value the
-            coercion produces). The `{:db nil}` coercion itself is pinned
-            in `re-frame.db-noop-commit-test`."
+            NOTE: a `{:db nil}` return is COERCED to `{:db {}}` at the
+            commit boundary (app-db is never nil, so the v1 nil-footgun
+            cannot arise), and a handler cannot drive app-db to nil. The
+            nil-vs-::unset sentinel concern is exercised by the `false`
+            value (a falsey, non-map db that the memo wrapper must
+            distinguish from ::unset) and by the empty-map `{}` (a
+            falsey-adjacent value the coercion produces). The `{:db nil}`
+            coercion itself is pinned in `re-frame.db-noop-commit-test`."
     (let [runs (atom 0)]
       (rf/reg-event :seed-false (fn [{:keys [db]} _] {:db false}))
       (rf/reg-event :seed-empty (fn [{:keys [db]} _] {:db {}}))
