@@ -19,6 +19,9 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; Loaded for its late-bind hooks: `:rf.assert/dispatched?` reads
+            ;; the epoch tape, which is empty without the epoch artefact.
+            [re-frame.epoch]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -31,6 +34,7 @@
             [re-frame.story.recorder.play-export-events :as rf.story.recorder.play-export-events]
             [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.save-variant :as rf.story.save-variant]
+            [re-frame.story.ui.author-expectations :as rf.story.ui.author-expectations]
             [re-frame.story.ui.promotion :as rf.story.ui.promotion]
             [re-frame.story.ui.schema-form :as rf.story.ui.schema-form]
             [re-frame.story.ui.view-state :as rf.story.ui.view-state]))
@@ -179,6 +183,48 @@
       (paste! snippet)
       (is (= 1 (get-in (run-result :story.paste/recorded-flow) [:app-db :submits]))
           "the recorded dispatch executed"))))
+
+;; ---- rf2-3x7nj.29.1 — an expectation added to a SCRIPTED story replays it --
+
+(defn- add-expectations-snippet
+  "What the add-expectations dialog emits for `source-id` with one authored
+  `:dispatched` expectation on `event` — built by the dialog's own
+  `build-snippet`, which reads the source's registered body."
+  [source-id new-id event]
+  (rf.story.ui.author-expectations/build-snippet
+    {:source-id source-id
+     :draft     (-> (rf.story.ui.author-expectations/initial-draft)
+                    (rf.story.ui.author-expectations/set-variant-id new-id)
+                    (rf.story.ui.author-expectations/add-row :dispatched)
+                    (rf.story.ui.author-expectations/set-operand 0 :event (pr-str event)))}))
+
+(deftest add-expectations-to-a-scripted-story-replays-its-script
+  (testing "rf2-3x7nj.29.1: :script and :plays are child-only through
+            :extends, so the regression test the dialog emits re-declares
+            the source's own — pasted as-is it replays the story and its
+            expectations pass on a correct app"
+    (rf.story/reg-variant :story.paste/scripted
+      {:extends    :story.paste/source
+       :script     [[:dispatch [:paste/submit]]]
+       :assertions [[:rf.assert/path-equals [:submits] 1]]})
+    (rf.story/reg-variant :story.paste/played
+      {:extends    :story.paste/source
+       :plays      [{:name "submit twice"
+                     :script [[:dispatch [:paste/submit]]
+                              [:dispatch [:paste/submit]]]}]
+       :assertions [[:rf.assert/path-equals [:submits] 2]]})
+    (testing "CONTROL: each source passes on its own"
+      (is (= :pass (:status (run-result :story.paste/scripted))))
+      (is (= :pass (:status (run-result :story.paste/played)))))
+    (doseq [[source-id new-id submits]
+            [[:story.paste/scripted :story.paste/scripted-expects 1]
+             [:story.paste/played   :story.paste/played-expects   2]]]
+      (paste! (add-expectations-snippet source-id new-id :paste/submit))
+      (let [result (run-result new-id)]
+        (is (= :pass (:status result))
+            (str new-id " — the source's assertion and the authored one both hold"))
+        (is (= submits (get-in result [:app-db :submits]))
+            (str new-id " — the source's interaction ran"))))))
 
 ;; ---- rf2-0ae7o.13 — pasted UNFILLED, the upgrade scaffold does not pass ----
 

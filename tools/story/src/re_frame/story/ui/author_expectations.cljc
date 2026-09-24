@@ -31,17 +31,17 @@
   builders / cost projection / snippet live in the pure `.cljc` substrate;
   the dialog ratom, the keystroke transitions, and the Reagent render are
   `#?(:cljs …)`. Production builds short-circuit on `rf.story.config/enabled?`."
-  (:require [re-frame.story.author-expectations :as rf.story.author-expectations]
-            ;; `clojure.string` + `review-dialog` are consumed ONLY by the
-            ;; `:cljs` dialog surface below (the pure draft transitions in
-            ;; this ns need neither), so they ride the `:cljs` require — a
+  (:require [clojure.string :as str]
+            [re-frame.story.author-expectations :as rf.story.author-expectations]
+            [re-frame.story.registrar :as rf.story.registrar]
+            ;; `review-dialog` is consumed ONLY by the `:cljs` dialog
+            ;; surface below, so it rides the `:cljs` require — a
             ;; `:clj`-mode lint sees no dead require. `review-dialog` is
             ;; `.cljc`; its pure transitions are JVM-available, but this ns
-            ;; only calls them from `:cljs` code.
-            #?@(:cljs [[clojure.string :as str]
-                       [reagent.core :as r]
+            ;; only calls them from `:cljs` code. `build-snippet` is common
+            ;; code so the JVM can paste and RUN what the dialog emits.
+            #?@(:cljs [[reagent.core :as r]
                        [re-frame.story.config :as rf.story.config]
-                       [re-frame.story.registrar :as rf.story.registrar]
                        [re-frame.story.review-dialog :as rf.story.review-dialog]
                        [re-frame.story.ui.state :as rf.story.ui.state]
                        [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack sans-stack]]
@@ -139,17 +139,14 @@
      dialog-atom
      (r/atom initial-dialog-state)))
 
-#?(:cljs
-   (defn- existing-assertions
-     "The source variant body's already-declared `:assertions` (or
-      `:expect :assertions`), so the snippet merges authored atoms onto them
-      additively (the round-trip). Reads the resolved body via the Story
-      registrar; nil → empty."
-     [source-id]
-     (let [body (rf.story.registrar/handler-meta :variant source-id)]
-       (or (:assertions body)
-           (get-in body [:expect :assertions])
-           []))))
+(defn- existing-assertions
+  "The source variant body's already-declared `:assertions` (or
+  `:expect :assertions`), so the snippet merges authored atoms onto them
+  additively (the round-trip). nil body → empty."
+  [body]
+  (or (:assertions body)
+      (get-in body [:expect :assertions])
+      []))
 
 #?(:cljs
    (defn open!
@@ -465,20 +462,23 @@
 ;; CLJS-ONLY: the dialog
 ;; ===========================================================================
 
-#?(:cljs
-   (defn build-snippet
-     "Build the `(reg-variant …)` snippet for the current dialog state. Pure
-      over the deref'd dialog map — the authored expectations become explicit
-      `:assertions` variant DATA, merged with the source variant's declared
-      assertions (the additive round-trip)."
-     [{:keys [source-id draft] :as _dialog}]
-     (rf.story.author-expectations/gen-expectations-snippet
-       {:variant-id (or (:variant-id draft) :story.expectations/example)
-        :extends    source-id
-        :existing   (existing-assertions source-id)
-        :authored   (draft-atoms draft)
-        :doc        (when (and (string? (:doc draft)) (seq (str/trim (:doc draft))))
-                      (str/trim (:doc draft)))})))
+(defn build-snippet
+  "Build the `(reg-variant …)` snippet for the current dialog state, reading
+  the source variant's registered body. The authored expectations become
+  explicit `:assertions` variant DATA, merged with the source variant's
+  declared assertions (the additive round-trip). The source's own `:script`
+  / `:plays` ride along, since `:extends` does not inherit them."
+  [{:keys [source-id draft] :as _dialog}]
+  (let [source (rf.story.registrar/handler-meta :variant source-id)]
+    (rf.story.author-expectations/gen-expectations-snippet
+      {:variant-id (or (:variant-id draft) :story.expectations/example)
+       :extends    source-id
+       :existing   (existing-assertions source)
+       :script     (:script source)
+       :plays      (:plays source)
+       :authored   (draft-atoms draft)
+       :doc        (when (and (string? (:doc draft)) (seq (str/trim (:doc draft))))
+                     (str/trim (:doc draft)))})))
 
 #?(:cljs
    (defn author-dialog
