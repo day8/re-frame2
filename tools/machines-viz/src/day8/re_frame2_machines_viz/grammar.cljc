@@ -76,9 +76,9 @@
 ;; duration resolver + desugar are re-stated here rather than required from
 ;; `re-frame.machines.timeout`. The SEMANTICS mirror that namespace exactly
 ;; (integer-ms OR ISO-8601 only — the XState "5s"/"10ms" shorthand is NOT a
-;; valid duration); the runtime's `validate-timeouts!` already rejected a
-;; bad duration at registration, so by the time a spec reaches an emitter
-;; the duration resolves.
+;; valid duration). `desugar-grammar` lowers a definition only once
+;; `timeout-defect` has found every pair well-formed, so by the time a spec
+;; reaches an emitter every duration resolves.
 
 (def ^:private iso-duration-re
   #"(?i)^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$")
@@ -111,7 +111,9 @@
 (defn- desugar-node-timeouts
   "Desugar one state-node's state-level AND spawn-level `:timeout` /
   `:on-timeout` into `:after` entries on the node, dropping the timeout
-  keys. A node with neither is returned unchanged."
+  keys. A node with neither is returned unchanged. A `:timeout` whose duration
+  does not resolve is dropped, as the engine's desugar drops it;
+  `desugar-grammar` never hands this one."
   [node]
   (if-not (map? node)
     node
@@ -225,14 +227,22 @@
                                                    (update :states walk-states-choice))))
                                         {} regions))))))
 
+(declare timeout-defect)
+
 (defn desugar-grammar
   "Apply every named-intent grammar desugar an emitter must lower before
   walking a machine definition (EP-0029): `:timeout` / `:on-timeout` →
   `:after` (A4) and `:type :choice` / `:choice` → `:always` (A5). The
   single ingestion-boundary seam the three emitters share so a future
-  desugar is added once, not three times. Pure; idempotent; nil-safe."
+  desugar is added once, not three times. Pure; idempotent; nil-safe.
+
+  Timeouts are lowered only when `timeout-defect` finds none. Lowering an
+  unpaired, unresolvable or colliding `:timeout` would drop it, and every
+  boundary validates the lowered definition, so it keeps its `:timeout` keys
+  for `definition-defect` to refuse as the engine does."
   [definition]
-  (-> definition desugar-timeouts desugar-choices))
+  (-> (cond-> definition (nil? (timeout-defect definition)) desugar-timeouts)
+      desugar-choices))
 
 ;; ---------------------------------------------------------------------------
 ;; Definition-shape validation — the SINGLE shape gate all three emitters share
@@ -305,7 +315,7 @@
   definition is forged — which is exactly the case `definition-summary` exists
   to describe. This projection keeps the diagnosis and drops the material:
 
-    {:category  <:rf.error/machine-*>   ;; closed — the literals in this file
+    {:category  <:rf.error/*>           ;; closed — the literals in this file
      :slot      :on | :after | :always | :on-done   ;; closed, when present
      :depth     <int>      ;; how deep the defect sits, not WHERE
      :key-count <int>}     ;; how many keys offended, not WHICH
@@ -370,7 +380,7 @@
   failure path is its own hazard.
 
   A rejected definition also carries `:defect`, whose
-  `:category` is the engine's canonical `:rf.error/machine-*` id, so every
+  `:category` is the engine's canonical `:rf.error/*` id, so every
   surface that stashes this summary reports the CANONICAL defect while keeping
   its own surface-specific error id. See `defect-summary` for why it is a
   projection of `definition-defect` rather than the defect itself."
@@ -499,7 +509,7 @@
 ;;   - transition `:target` shape + resolution for `:on` / `:after` /
 ;;     `:always` / `:on-done` / `:spawn :on-error`
 ;;     (`machine-bad-target` / `machine-unresolved-target`);
-;;   - unknown BARE node / spawn keys — NAMESPACED keys pass
+;;   - unknown BARE node / transition-map / spawn keys — NAMESPACED keys pass
 ;;     (`machine-unknown-node-key` / `machine-unknown-spawn-key`);
 ;;   - `:final?` shape (`machine-final-state-compound` / `-has-transitions` /
 ;;     `machine-output-key-without-final` / `machine-error-flag-without-final`);
@@ -508,15 +518,19 @@
 ;;     `:definition`'s address — `:id-prefix` or `:fixed-actor-id`
 ;;     (`machine-spawn-bad-shape`);
 ;;   - `:after` delay-key shape (`machine-bad-after-delay`);
+;;   - no `:timeout-ms` on `:spawn` / `:spawn-all` (`spawn-timeout-ms-removed`);
+;;   - `:timeout` / `:on-timeout` pairing, duration and `:after` collision
+;;     (`machine-timeout-without-on-timeout` / `-on-timeout-without-timeout` /
+;;     `machine-bad-timeout-duration` / `machine-timeout-after-collision`);
 ;;   - history pseudo-state placement / closed key-set /
 ;;     at-most-one-per-compound / `:default-target` resolution
 ;;     (`machine-history-*`);
 ;;   - mutually exclusive `:type :parallel` shape + non-nested regions
 ;;     (`machine-parallel-bad-shape` / `-nested-not-supported`).
 ;;
-;; The `:category` on each returned defect IS the engine's `:rf.error/machine-*`
-;; id, so a surface can carry the CANONICAL defect category while keeping its
-;; own surface-specific error id.
+;; The `:category` on each returned defect IS the engine's `:rf.error/*` id, so
+;; a surface can carry the CANONICAL defect category while keeping its own
+;; surface-specific error id.
 ;;
 ;; DOCUMENTED viz-vs-engine divergences (out of scope — either runtime-WIRING
 ;; not projectable topology, viz-STRICTER by necessity, or bounded complexity;
@@ -539,9 +553,8 @@
   of the engine's `validation/known-state-node-keys`. Namespaced keys are the
   open extension carve-out. `:type :history` / `:type :choice` pseudo-states
   carry their own key-sets and are skipped by the node-key check."
-  #{:type :deep? :default-target :regions :region-order
-    :initial :states :data :schemas :internal-events
-    :guards :actions
+  #{:type :deep? :default-target :regions
+    :initial :states
     :entry :exit
     :spawn :spawn-all
     :always :after :choice :timeout :on-timeout :on :on-done
@@ -550,17 +563,27 @@
 
 (def ^:private known-machine-root-extra-keys
   "Keys legal ONLY on the machine ROOT beyond `known-state-node-keys` — mirror
-  of the engine's `validation/known-machine-root-extra-keys`."
-  #{:doc :sensitive :large :schema :raise-depth-limit :always-depth-limit})
+  of the engine's `validation/known-machine-root-extra-keys`. The runtime reads
+  them off the root alone, so a nested state or a parallel region body that
+  declares one is refused."
+  #{:data :schemas :internal-events :guards :actions :region-order
+    :doc :sensitive :large :schema :raise-depth-limit :always-depth-limit})
 
 (def ^:private known-spawn-spec-keys
   "Closed BARE key vocabulary a single `:spawn` spec may declare — mirror of the
   engine's `validation/known-spawn-spec-keys` (the unsupported `:timeout-ms`
-  slot is excluded from the unknown-key scan so it never surfaces as an unknown
-  key)."
+  slot is excluded from the unknown-key scan so its own
+  `:rf.error/spawn-timeout-ms-removed` refusal wins)."
   #{:machine-id :definition :data :id-prefix :on-done :on-error
     :start :fixed-actor-id :timeout :on-timeout
     :id :source-coords :source-code})
+
+(def ^:private known-transition-keys
+  "Closed BARE key vocabulary a transition map may declare — mirror of the
+  engine's `validation/known-transition-keys`, including the `:source-coords` /
+  `:source-code` the `reg-machine` macro stamps on every transition map.
+  Namespaced keys are the open extension carve-out."
+  #{:target :reenter? :guard :action :meta :source-coords :source-code})
 
 (def ^:private history-pseudo-keys
   "Closed key-set a `:type :history` pseudo-state may carry."
@@ -717,12 +740,26 @@
           (and has-def? (not (or (:id-prefix spec) (:fixed-actor-id spec))))
           {:category :rf.error/machine-spawn-bad-shape :path (vec path)})))))
 
+(defn- spawn-timeout-ms-defect
+  "`:timeout-ms` is not a key of `:spawn` or `:spawn-all`: a spawn deadline is
+  the spawn-level `:timeout` / `:on-timeout`. Mirror of the engine's
+  `validation/validate-no-spawn-timeout-ms!`, which refuses a non-nil value
+  with its own id rather than the generic unknown-spawn-key one."
+  [path node]
+  (when (some (fn [spec] (and (map? spec) (some? (:timeout-ms spec))))
+              [(:spawn node) (:spawn-all node)])
+    {:category :rf.error/spawn-timeout-ms-removed :path (vec path)}))
+
 (defn- valid-after-delay-key?
   "A static `:after` map KEY is well-formed iff a positive integer (literal ms),
-  a non-empty vector (subscription vector), or a fn — mirror of the engine's
-  `validation/valid-after-delay-key?`."
+  an ISO-8601 duration string (the `:timeout` duration grammar, so `\"PT1S\"`
+  passes and the `\"5s\"` shorthand does not), a non-empty vector (subscription
+  vector), or a fn — mirror of the engine's `validation/valid-after-delay-key?`."
   [k]
-  (boolean (or (and (integer? k) (pos? k)) (and (vector? k) (seq k)) (fn? k))))
+  (boolean (or (and (integer? k) (pos? k))
+               (and (string? k) (some? (resolve-timeout-ms k)))
+               (and (vector? k) (seq k))
+               (fn? k))))
 
 (defn- after-delay-defect [path node]
   (some (fn [[k _]]
@@ -788,6 +825,31 @@
           (when (contains? node :on-done) (check :on-done (:on-done node)))
           (when-let [oe (get-in node [:spawn :on-error])] (check :spawn/on-error oe))))))
 
+(defn- transition-keys-defect
+  "First transition map in `node`'s transition slots that carries an unknown
+  BARE key — mirror of the engine's `validation/validate-node-transition-keys!`,
+  so a misspelt `{:targt :b}` or XState's `:cond` is refused rather than
+  projected as a targetless or unguarded edge. It runs on the LOWERED node, so
+  a `:choice` candidate reports under `:always` and an `:on-timeout` spec under
+  `:after`. History pseudo-states are skipped: they carry no transition slot,
+  and their own key-set check refuses one. A non-map `:on` / `:after` is left
+  to `transition-slot-shape-defect`."
+  [path node]
+  (when-not (history-node? node)
+    (let [check (fn [slot v]
+                  (some (fn [t]
+                          (let [offending (unknown-bare-keys t known-transition-keys)]
+                            (when (seq offending)
+                              {:category :rf.error/machine-unknown-node-key :path (vec path)
+                               :slot slot :keys offending})))
+                        (or (candidate-maps v) [])))
+          spawn (:spawn node)]
+      (or (when (map? (:on node)) (some (fn [[_ v]] (check :on v)) (:on node)))
+          (when (map? (:after node)) (some (fn [[_ v]] (check :after v)) (:after node)))
+          (check :always (:always node))
+          (check :on-done (:on-done node))
+          (when (map? spawn) (check :spawn/on-error (:on-error spawn)))))))
+
 (defn- node-defect
   "First defect on one MAP state-node at `path` within `scope` (its region /
   flat `:states`). History pseudo-states contribute no defect here (their own
@@ -795,13 +857,15 @@
   node-key check already skips them)."
   [scope path node]
   ;; Check ORDER mirrors the engine's `validate-machine!` intra-node precedence
-  ;; (keys / tags / spawn shape earliest; `:final?` shape BEFORE compound-
-  ;; `:initial`; targets; delay keys), so when a single node carries more than
-  ;; one defect the viz reports the SAME `:rf.error/machine-*` category the
-  ;; runtime would.
+  ;; (keys / tags / spawn shape / transition keys earliest; `:timeout-ms` and
+  ;; `:final?` shape BEFORE compound-`:initial`; targets; delay keys), so when a
+  ;; single node carries more than one defect the viz reports the SAME
+  ;; `:rf.error/*` category the runtime would.
   (or (node-keys-defect path node false)
       (tags-defect path node)
       (spawn-defect path node)
+      (transition-keys-defect path node)
+      (spawn-timeout-ms-defect path node)
       (final-state-defect path node)
       (compound-initial-defect path node)
       (transition-target-defect scope path node)
@@ -820,6 +884,55 @@
                                 (walk (conj path k) (:states n))))))
                     nodes))]
     (when (map? states) (walk [] states))))
+
+;; ---- `:timeout` / `:on-timeout` grammar (mirror timeout/validate-timeouts!) -
+
+(defn- node-timeout-defect
+  "The `:timeout` grammar defect of one node — its state-level pair, then its
+  spawn-level pair, then an `:after` collision — mirror of the engine's
+  `timeout/validate-node-timeouts!`. A pair is both keys or neither, and its
+  duration resolves; a resolved duration must not equal an explicit `:after`
+  delay key on the node, or equal the other pair's, because lowering either
+  onto `:after` would drop one of the two."
+  [path node]
+  (when (map? node)
+    (let [spawn     (when (map? (:spawn node)) (:spawn node))
+          pair      (fn [m]
+                      (let [t? (contains? m :timeout) o? (contains? m :on-timeout)]
+                        (cond
+                          (and t? (not o?))
+                          {:category :rf.error/machine-timeout-without-on-timeout :path (vec path)}
+                          (and o? (not t?))
+                          {:category :rf.error/machine-on-timeout-without-timeout :path (vec path)}
+                          (and t? (nil? (resolve-timeout-ms (:timeout m))))
+                          {:category :rf.error/machine-bad-timeout-duration :path (vec path)})))
+          st-ms     (when (contains? node :timeout) (resolve-timeout-ms (:timeout node)))
+          sp-ms     (when (contains? spawn :timeout) (resolve-timeout-ms (:timeout spawn)))
+          delays    (if (map? (:after node)) (set (keys (:after node))) #{})
+          collision {:category :rf.error/machine-timeout-after-collision :path (vec path)}]
+      (or (pair node)
+          (pair spawn)
+          (when (and st-ms (contains? delays st-ms)) collision)
+          (when (and sp-ms (contains? delays sp-ms)) collision)
+          (when (and st-ms (= st-ms sp-ms)) collision)))))
+
+(defn- timeout-defect
+  "The first `:timeout` grammar defect anywhere in `definition` — the root, each
+  parallel region body, then every state node — mirror of the engine's
+  `timeout/validate-timeouts!`, which refuses these at registration before
+  anything is lowered. `desugar-grammar` lowers a definition's timeouts only
+  when this returns nil, so an unlowerable `:timeout` stays on the definition
+  for `definition-defect` to refuse. Total over malformed input."
+  [definition]
+  (when (map? definition)
+    (let [regions (when (map? (:regions definition)) (:regions definition))]
+      (or (node-timeout-defect [] definition)
+          (some (fn [[rn body]] (node-timeout-defect [rn] body)) regions)
+          (some (fn [[path node]] (node-timeout-defect path node))
+                (if (seq regions)
+                  (mapcat (fn [[_ body]] (when (map? body) (walk-scope-nodes (:states body))))
+                          regions)
+                  (walk-scope-nodes (:states definition))))))))
 
 ;; ---- history-scope defects (mirror validation/validate-history-scope!) -----
 
@@ -898,6 +1011,7 @@
           ;; `machine-bad-on-clause` defect instead of throwing an ISeq
           ;; exception out of `valid-definition?` / the emit paths.
           (transition-slot-shape-defect [] d)
+          (transition-keys-defect [] d)
           (some (fn [[path node]] (node-defect scope path node)) (walk-scope-nodes scope))
           (history-scope-defect scope)
           (root-on-target-defect scope d)))))
@@ -921,6 +1035,7 @@
           ;; The region ROOT's own `:on` / `:after` ancestor
           ;; fallback slot gets the same shape guard as every other scope.
           (transition-slot-shape-defect [region-name] body)
+          (transition-keys-defect [region-name] body)
           (some (fn [[path node]]
                   (or (when (= :parallel (:type node))
                         {:category :rf.error/machine-parallel-nested-not-supported :path (vec path)})
@@ -940,14 +1055,17 @@
           ;; The parallel ROOT's own `:on` / `:after` ancestor
           ;; fallback slot gets the same shape guard as every other scope.
           (transition-slot-shape-defect [] d)
+          (transition-keys-defect [] d)
           (some (fn [[region-name body]] (region-defect region-name body)) regions)))))
 
 (defn definition-defect
   "Return the FIRST structural projectability defect of `definition` as a
-  value-FREE map `{:category <:rf.error/machine-*> :path <state-id vector> …}`
+  value-FREE map `{:category <:rf.error/*> :path <state-id vector> …}`
   (key/target defects add `:keys` / `:slot`), or nil when the definition is
   projectable. Desugars (`desugar-grammar` — EP-0029 A4/A5) FIRST so a
-  `:timeout` / `:choice` authoring form is validated on its lowered shape, then
+  `:timeout` / `:choice` authoring form is validated on its lowered shape; a
+  `:timeout` the desugar cannot lower is refused before anything else, as the
+  engine's `validate-timeouts!` refuses it first. It then
   recursively mirrors the runtime machine contract's projectable invariants —
   see the section comment above for the full enforced list + the documented
   viz-vs-engine divergences.
@@ -959,6 +1077,7 @@
   (let [d (desugar-grammar definition)]
     (cond
       (not (map? d))           {:category :rf.error/machine-bad-definition :path []}
+      (timeout-defect d)       (timeout-defect d)
       (parallel-definition? d) (parallel-defect d)
       :else                    (flat-defect d))))
 

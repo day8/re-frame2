@@ -472,6 +472,24 @@
                                                :on {:go :b}} :b {}}}
    :valid-namespaced {:initial :a :states {:a {:my.app/note "x"}}}
    :valid-tags       {:initial :a :states {:a {:tags #{:busy}}}}
+   ;; A transition map may carry the closed transition keys, a namespaced
+   ;; extension, and the source metadata the `reg-machine` macro stamps.
+   :valid-transition-keys        {:initial :a :states {:a {:on {:go {:target :b :reenter? true :meta {:note "x"}}}} :b {}}}
+   :valid-transition-namespaced  {:initial :a :states {:a {:on {:go {:target :b :my.app/note "x"}}} :b {}}}
+   :valid-transition-source-meta {:initial :a :states {:a {:on {:go {:target :b :source-coords {:line 1 :column 1}
+                                                                     :source-code "(reg-machine …)"}}}
+                                                       :b {}}}
+   ;; The machine's own blocks are legal on the root, flat or parallel.
+   :valid-root-only-keys          {:initial :a :data {:n 0} :guards {} :actions {} :internal-events #{:tick}
+                                   :states {:a {:on {:tick :a}}}}
+   :valid-parallel-root-only-keys {:type :parallel :region-order [:r] :data {:n 0}
+                                   :regions {:r {:initial :a :states {:a {}}}}}
+   ;; An `:after` delay key may be an ISO-8601 duration, as a `:timeout` may.
+   :valid-after-iso      {:initial :a :states {:a {:after {"PT1S" :b}} :b {}}}
+   :valid-after-iso-frac {:initial :a :states {:a {:after {"PT0.5S" :b}} :b {}}}
+   ;; A spawn deadline is the spawn-level `:timeout` / `:on-timeout`.
+   :valid-spawn-timeout  {:initial :a :states {:a {:spawn {:machine-id :m :timeout 500 :on-timeout :b}} :b {}}}
+   :valid-timeout-iso    {:initial :a :states {:a {:timeout "PT2S" :on-timeout :b} :b {}}}
    ;; ---- invalid (both reject) ----
    :nested-no-init   {:initial :outer :states {:outer {:states {:inner {}}}}}
    :unresolved-kw    {:initial :idle :states {:idle {:on {:go :missing}}}}
@@ -489,6 +507,9 @@
    :error-no-final   {:initial :a :states {:a {:error? true}}}
    :bad-tags         {:initial :a :states {:a {:tags [:x]}}}
    :bad-after-delay  {:initial :a :states {:a {:after {0 :b}} :b {}}}
+   ;; The XState shorthand and a zero-length ISO duration are not delays.
+   :after-shorthand  {:initial :a :states {:a {:after {"5s" :b}} :b {}}}
+   :after-iso-zero   {:initial :a :states {:a {:after {"PT0S" :b}} :b {}}}
    :spawn-neither    {:initial :a :states {:a {:spawn {}}}}
    :spawn-both       {:initial :a :states {:a {:spawn {:machine-id :m :definition {:initial :x :states {:x {}}}}}}}
    :spawn-unknown    {:initial :a :states {:a {:spawn {:machine-id :m :bogus 1}}}}
@@ -499,6 +520,30 @@
    :par-no-init      {:type :parallel :regions {:r {:states {:a {}}}}}
    :par-mutex        {:type :parallel :initial :a :regions {:r {:initial :a :states {:a {}}}}}
    :par-empty        {:type :parallel :regions {}}
+   ;; ---- unknown BARE transition-map keys, in every slot and scope ----
+   :transition-unknown-key         {:initial :a :states {:a {:on {:go {:target :b :targt :c}}} :b {} :c {}}}
+   :transition-xstate-cond         {:initial :a :states {:a {:on {:go {:target :b :cond :ok?}}} :b {}}}
+   :transition-unknown-always      {:initial :a :states {:a {:always [{:target :b :bogus 1}]} :b {}}}
+   :transition-unknown-on-timeout  {:initial :a :states {:a {:timeout 1000 :on-timeout {:target :b :bogus 1}} :b {}}}
+   :transition-unknown-root-on     {:initial :a :on {:x {:target :a :bogus 1}} :states {:a {}}}
+   :transition-unknown-region-root {:type :parallel :regions {:r {:initial :a :on {:x {:target :a :bogus 1}} :states {:a {}}}}}
+   ;; ---- root-only keys below the root ----
+   :nested-root-only-data         {:initial :a :states {:a {:data {:n 0}}}}
+   :nested-root-only-guards       {:initial :o :states {:o {:initial :i :states {:i {:guards {}}}}}}
+   :nested-root-only-region-order {:initial :a :states {:a {:region-order [:x]}}}
+   :region-root-only-data         {:type :parallel :regions {:r {:initial :a :data {:n 0} :states {:a {}}}}}
+   ;; ---- `:timeout-ms` is not a spawn key ----
+   :spawn-timeout-ms     {:initial :a :states {:a {:spawn {:machine-id :m :timeout-ms 500}}}}
+   :spawn-all-timeout-ms {:initial :a :states {:a {:spawn-all {:children [{:id :c1 :machine-id :m}]
+                                                               :on-all-complete [:done]
+                                                               :timeout-ms 500}}}}
+   ;; ---- a `:timeout` the desugar cannot lower without dropping it ----
+   :timeout-shorthand          {:initial :a :states {:a {:timeout "5s" :on-timeout :b} :b {}}}
+   :spawn-timeout-shorthand    {:initial :a :states {:a {:spawn {:machine-id :m :timeout "5s" :on-timeout :b}} :b {}}}
+   :region-timeout-shorthand   {:type :parallel :regions {:r {:initial :a :timeout "5s" :on-timeout :a :states {:a {}}}}}
+   :timeout-without-on-timeout {:initial :a :states {:a {:timeout 1000} :b {}}}
+   :on-timeout-without-timeout {:initial :a :states {:a {:on-timeout :b} :b {}}}
+   :timeout-after-collision    {:initial :a :states {:a {:after {2000 :b} :timeout "PT2S" :on-timeout :b} :b {}}}
    ;; ---- non-Named KEYS (rf2-dhl4d / rf2-oztox) ----
    ;;
    ;; Every entry above spells its keys as keywords, so until now the corpus
@@ -538,6 +583,22 @@
       (is (not= :host-throw (viz-answer m))
           (str label ": the VIZ threw a host exception where a returned defect "
                "was the contract")))))
+
+;; Every ingestion boundary — the share decoder, Mermaid, SCXML, AI generation
+;; and the chart projector — runs `desugar-grammar` BEFORE it validates, so the
+;; answer those boundaries give is the answer on the LOWERED definition. A
+;; desugar that dropped what it could not lower would turn a refusal into an
+;; acceptance there, while `definition-validation-parity` above, which validates
+;; the raw definition, stayed green.
+
+(deftest definition-validation-survives-the-boundary-desugar
+  (testing "the viz gives the engine's answer on the desugared definition every
+            boundary validates"
+    (doseq [[label m] validation-parity-corpus]
+      (is (= (engine-answer m) (viz-answer (g/desugar-grammar m)))
+          (str label ": the desugar changed the viz answer (engine "
+               (engine-answer m) ", viz after desugar "
+               (viz-answer (g/desugar-grammar m)) ")")))))
 
 (deftest definition-validation-documented-divergences
   (testing "guard / action keyword REF resolution is a DIVERGENCE — the engine
