@@ -25,7 +25,7 @@
   Dual-target (`.cljc`): the JVM runner selects it on `.*-test$`, Shadow's
   `:node-test` build on `cljs-test$`. The `-cljs-test` suffix is therefore
   load-bearing — a `.cljc` test whose ns ends in a plain `-test` compiles
-  nowhere but the JVM and reads as covered (rf2-dn6v7, rf2-lgozq)."
+  nowhere but the JVM and reads as covered."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines.test-support :as rf.machines.test-support]
@@ -33,10 +33,9 @@
   ;; `rf.machines.test-support/with-trace-capture` is a `#?(:clj (defmacro …))` in a `.cljc`
   ;; support ns, so the CLJS analyzer needs it required as a MACRO ns under
   ;; the same alias; a plain `:require` leaves the call compiling to a
-  ;; function call on an undefined var. This is the JVM-only assumption the
-  ;; rf2-lgozq rename exposed — all seven tests here errored on the CLJS lane
-  ;; with `No protocol method IDeref.-deref defined for type undefined` until
-  ;; this line existed.
+  ;; function call on an undefined var. Without this line every test here
+  ;; errors on the CLJS lane with `No protocol method IDeref.-deref defined
+  ;; for type undefined`.
   #?(:cljs (:require-macros [re-frame.machines.test-support :as rf.machines.test-support])))
 
 (use-fixtures :each
@@ -150,8 +149,8 @@
           trail   (trail-of)]
       ;; RED guard: the field exists and is a non-empty structured vector.
       (is (some? tr) "a :rf.machine/transition trace fired")
-      (is (vector? cascade) ":cascade is a vector (RED: was absent)")
-      (is (seq cascade) ":cascade is non-empty (RED: only before/after+count)")
+      (is (vector? cascade) ":cascade is a vector")
+      (is (seq cascade) ":cascade is non-empty")
 
       ;; The trail oracle for power-cycle from rest (climate region first,
       ;; then fan region — declaration order).
@@ -300,11 +299,11 @@
 
 ;; ---- raised (internal) events appear as their own cascade boundary --------
 ;;
-;; rf2-nb8nj — a same-macrostep raised event selects a REAL transition whose
+;; A same-macrostep raised event selects a REAL transition whose
 ;; exit/action/entry geometry belongs to THAT event, not to the dispatched
-;; one. Before this fix the flat/compound drain discarded those rows outright
-;; (the loop recurred with the cascade unchanged) and the parallel parent
-;; queue flattened them in with no boundary, so the cascade could say
+;; one. A flat/compound drain that recurred with the cascade unchanged would
+;; discard those rows outright, and a parallel parent queue that flattened
+;; them in with no boundary would lose their event, so the cascade could say
 ;; `:idle -> :done` while explaining only `:idle -> :working`.
 ;;
 ;; The record is one nested `:kind :raised-transition` wrapper per HANDLED
@@ -317,7 +316,7 @@
   (filterv #(= :raised-transition (:kind %)) cascade))
 
 (defn- reg-settle! []
-  ;; The item's own reproduction: external `:go` moves :idle -> :working and
+  ;; External `:go` moves :idle -> :working and
   ;; its action raises [:settle]; :working handles :settle with :target :done
   ;; plus entry/exit actions.
   (rf/reg-machine :casc/settle
@@ -336,8 +335,8 @@
 
 (deftest raised-event-transition-is-recorded-as-its-own-cascade-boundary
   (testing "external :go raises [:settle], which moves :working -> :done in the
-   SAME macrostep. The committed snapshot is :done (raise FIFO semantics
-   already worked), and the single :rf.machine/transition cascade explains the
+   SAME macrostep. The committed snapshot is :done (raise FIFO semantics),
+   and the single :rf.machine/transition cascade explains the
    WHOLE walk: the :go geometry, then one :raised-transition wrapper carrying
    the raised event and its own ordered exit/action/entry steps"
     (reg-settle!)
@@ -347,7 +346,7 @@
           tr      (the-transition evs)
           cascade (cascade-of evs)
           raised  (raised-steps cascade)]
-      ;; Premise: the FOLD is already correct — only the record was lossy.
+      ;; Premise: the FOLD lands on :done; the cascade record is what is under test.
       (is (= :done (:state (rf.machines.test-support/snapshot :casc/settle)))
           "the committed snapshot is :done — FIFO raise semantics")
       (is (= :idle (get-in tr [:tags :before :state])))
@@ -363,8 +362,8 @@
 
       ;; The raised event's rows are neither discarded nor flattened.
       (is (= 1 (count raised))
-          "exactly one :raised-transition wrapper (RED before rf2-nb8nj: the
-           flat drain recurred with the cascade unchanged, so this was 0)")
+          "exactly one :raised-transition wrapper (a flat drain that recurred
+           with the cascade unchanged would give 0)")
       (let [w (first raised)]
         (is (= [:settle] (:event w)) "the wrapper names the internal event")
         (is (= :working (:from w)) "from-state is where the raise was dequeued")
@@ -533,10 +532,10 @@
 
 (deftest parallel-raised-rebroadcast-is-grouped-under-its-internal-event
   (testing "a raised event re-broadcast across a parallel root's regions
-   contributes its rows INSIDE one :raised-transition wrapper, so they are no
-   longer indistinguishable from the external event's rows. Before rf2-nb8nj
-   the parallel parent queue flattened them straight into the accumulator,
-   which made Xray read them as evidence that :b's region handled :go."
+   contributes its rows INSIDE one :raised-transition wrapper, so they are
+   distinguishable from the external event's rows. Flattened straight into
+   the accumulator, they would read to Xray as evidence that :right handled
+   :go."
     (rf/reg-machine :casc/par
       {:type :parallel
        :data {:trail []}
@@ -560,13 +559,13 @@
       (is (= {:left :l1 :right :r1} (:state (rf.machines.test-support/snapshot :casc/par)))
           "both regions moved — :go in :left, the raised :settle in :right")
       (is (= 1 (count raised))
-          "the rebroadcast contributes ONE boundary (RED before rf2-nb8nj:
-           its rows were flattened into the accumulator with no boundary)")
+          "the rebroadcast contributes ONE boundary, not rows flattened into
+           the accumulator with no boundary")
       (is (= [:settle] (:event w)))
       (is (some #(= :right-settle (:action %)) (:steps w))
           ":right's raised-transition rows ride inside the wrapper")
 
-      ;; The misattribution the item names: the top-level (non-wrapper,
+      ;; The misattribution to rule out: the top-level (non-wrapper,
       ;; non-microstep) rows must name ONLY the region that handled :go.
       (let [outer-regions (into #{}
                                 (comp (remove #(#{:microstep :raised-transition} (:kind %)))
@@ -574,7 +573,7 @@
                                 cascade)]
         (is (= #{:left} outer-regions)
             ":right must NOT appear at top level — it declined :go and moved
-             only on the raised :settle (RED before rf2-nb8nj: #{:left :right})")))))
+             only on the raised :settle (flattened rows would read #{:left :right})")))))
 
 (deftest parallel-raise-then-enabled-always-round-appends-in-execution-order
   (testing "root-parallel: :go takes :main :r0 -> :r1 and raises [:settle];
