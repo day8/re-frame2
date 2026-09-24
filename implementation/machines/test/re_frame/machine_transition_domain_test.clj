@@ -6,10 +6,10 @@
   PROPER DESCENDANT of D: EVERY active state below D exits (deepest-first), D
   survives, and D's path down to T (then T's `:initial` chain) enters. The
   boundary depends only on WHERE the transition is written, never on which of
-  D's children happens to be active (rf2-3x7nj.8.1). The root's own `:on`, its
+  D's children happens to be active. The root's own `:on`, its
   done / spawn-error fallbacks and a parallel root's per-region targets follow
   the same rule; only the birth cascade — which runs from `:state []` and so
-  has nothing to exit — stays outside it (rf2-3x7nj.8.3).
+  has nothing to exit — stays outside it.
 
   Each row pins the callback log, the emitted lifecycle fx (projected to
   `[fx-id invoke-id]`) and the per-path `:after` epoch, because a geometry
@@ -84,7 +84,7 @@
   {:state state :data {:log [] :rf/after-epoch {[:p :q] 1 [:p :r] 1}}})
 
 ;; ===========================================================================
-;; rf2-3x7nj.8.1 — a transition declared on a compound.
+;; A transition declared on a compound.
 ;; ===========================================================================
 
 (def ^:private q-out-r-in
@@ -175,7 +175,7 @@
            (step deep (at [:p :q]) [:edit])))))
 
 ;; ===========================================================================
-;; rf2-3x7nj.8.3 — the machine root is a declaring node.
+;; The machine root is a declaring node.
 ;; ===========================================================================
 
 (def ^:private flat
@@ -214,7 +214,7 @@
             :epoch  {[:idle] 2}}
            (step flat (flat-at :busy) [:reset]))))
   (testing "control: :reenter? true on the root gives the same result as the
-            default now does"
+            default"
     (is (= {:status :ok
             :state  :idle
             :log    [:exit-idle :enter-idle]
@@ -259,10 +259,10 @@
            (step deep (at [:p :q]) [:root-to-z])))))
 
 (deftest root-same-state-re-descends-the-machine-initial
-  ;; rf2-gdne8: a root `:same-state` is the SELF row with the root as the
+  ;; A root `:same-state` is the SELF row with the root as the
   ;; declaring node — the root survives, every active state below it exits,
-  ;; and the machine's own `:initial` chain re-descends. It used to exit the
-  ;; active path and enter nothing, leaving the machine at `:state []`.
+  ;; and the machine's own `:initial` chain re-descends. Exiting the active
+  ;; path and entering nothing would leave the machine at `:state []`.
   (testing "flat root :same-state from :busy lands on the machine's :initial"
     (is (= {:status :ok
             :state  :idle
