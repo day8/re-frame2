@@ -3,12 +3,10 @@
 
   Owns:
     - `emit-activation-traces!` — the `:rf.route/activated` /
-      `:rf.route/deactivated` lifecycle pair (Spec 012 §Trace events,
-      rf2-dn26r);
+      `:rf.route/deactivated` lifecycle pair (Spec 012 §Trace events);
     - `merge-route-slice` — the slice-publish merge over
       `[:rf.runtime/routing :current]` (encodes the slice-shape
-      contract once for both the programmatic-nav and URL-driven paths,
-      rf2-g8tzb);
+      contract once for both the programmatic-nav and URL-driven paths);
     - `commit-navigation` — the shared successful-commit assembler
       (nav-token alloc + allocated/activation traces + slice publish +
       fire-and-forget `:on-match` dispatch + resource-derived readiness
@@ -21,8 +19,7 @@
   route resource lands `:idle` / `:error` through the Resources reply
   handlers' reconciliation (Spec 016 §Route integration).
 
-  Internal namespace; the public facade is `re-frame.routing`. Per the
-  rf2-2yabr cohesion split: SHARED-EVENT-HELPERS seam."
+  Internal namespace; the public facade is `re-frame.routing`."
   (:require [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
             [re-frame.routing.classification :as rf.routing.classification]
@@ -39,23 +36,23 @@
 ;; recycled value could collide with a token still carried by a slow
 ;; in-flight continuation, silently re-validating a stale result.
 ;;
-;; rf2-oosjmh: the two ALLOCATORS (the monotone high-water counters) are
+;; The two ALLOCATORS (the monotone high-water counters) are
 ;; HOST-SIDE TRANSIENT state, not runtime-db — they live in
 ;; `re-frame.routing.nav-counters`'s host cache so an epoch restore (which
 ;; replaces the runtime-db partition WHOLESALE) cannot rewind them and
-;; recycle a token (the invariant above is the whole point of the move).
+;; recycle a token (the invariant above is why they live there).
 ;;
-;; rf2-vcop6y: the minted nav-token / pending-nav-id are RECORDABLE. The
-;; handlers stay PURE: they take delivery of a recordable, generator-backed
+;; The minted nav-token / pending-nav-id are RECORDABLE. The
+;; handlers are PURE: they take delivery of a recordable, generator-backed
 ;; allocation cofx — `:rf.route/nav-allocation {:token :counter}` (commit)
 ;; or `:rf.route/pending-nav-allocation {:id :counter}` (block) — whose
 ;; generator mints from the host snapshot at processing-start and whose value
 ;; the cofx machinery RECORDS onto the causal token (so replay re-presents the
-;; SAME id, the replay-determinism fix). The handler writes only the id into
+;; SAME id). The handler writes only the id into
 ;; runtime-db and emits a `:rf.route/commit-nav-counter` fx carrying the
 ;; allocation's `:counter` (WRITE — host high-water `max` bump).
 ;; `commit-navigation` below takes the recordable `:nav-allocation` and
-;; assembles the bump fx — the same write-via-fx shape rf2-1hncp2's scroll
+;; assembles the bump fx — the same write-via-fx shape the scroll
 ;; cache uses.
 
 (defn emit-activation-traces!
@@ -92,7 +89,7 @@
 ;; published slice carries exactly `{:route-id :params :query :fragment
 ;; :transition :error :nav-token}` under `[:rf.runtime/routing
 ;; :current]`. (`:route-id` is the self-describing slice key; the
-;; consumer-facing sub-id stays `:rf.route/id`, rf2-3a5nk7.) Both nav entry points (programmatic
+;; consumer-facing sub-id is `:rf.route/id`.) Both nav entry points (programmatic
 ;; `:rf.route/navigate` and URL-driven `:rf.route/handle-url-change`)
 ;; write the same merge shape after
 ;; allocating a nav-token. This helper encodes the slice-shape contract
@@ -158,16 +155,15 @@
 
 ;; Per Spec 012 §Navigation is an event / §URL changes are events: a
 ;; successful navigation commit is identical across the two entry points
-;; (programmatic `:rf.route/navigate` and URL-driven `:rf.route/
-;; transitioned` / `:rf.route/handle-url-change`) once the target slice
+;; (programmatic `:rf.route/navigate` and URL-driven
+;; `:rf.route/handle-url-change`) once the target slice
 ;; fields have been resolved. Both:
 ;;   1. allocate a fresh per-frame nav-token (the cascade-begin marker)
 ;;      from the injected host-side counter snapshot — PURE: read the
-;;      next id, publish it, and emit the high-water bump as an fx
-;;      (rf2-oosjmh);
+;;      next id, publish it, and emit the high-water bump as an fx;
 ;;   2. emit `:rf.route.nav-token/allocated`, then `emit-activation-
 ;;      traces!` — IN THAT ORDER so trace consumers see
-;;      {allocated → deactivated? → activated?} (rf2-dn26r);
+;;      {allocated → deactivated? → activated?};
 ;;   3. publish the seven-key slice via `merge-route-slice`;
 ;;   4. assemble the fx vector: the nav-counter bump (`:rf.route/commit-
 ;;      nav-counter`) → capture-scroll (the leaving route's position) →
@@ -192,7 +188,7 @@
   optional history-mutation fx entry (nil on the URL-driven path).
   `nav-allocation` is the RECORDABLE allocation `{:token \"nav-N\"
   :counter N}` delivered by the generator-backed `:rf.route/nav-allocation`
-  cofx (rf2-vcop6y) — the nav-token is published from `:token` (recorded so
+  cofx — the nav-token is published from `:token` (recorded so
   replay re-presents the same token) and the host high-water bump
   (`:counter`) rides a `:rf.route/commit-nav-counter` fx.
 
@@ -201,20 +197,20 @@
   against the same causal app-db value before resource work is planned;
   routing itself does not inspect app-db.
 
-  rf2-dbmj6x — `frame` is the in-flight cascade's carried frame stamp (the
+  `frame` is the in-flight cascade's carried frame stamp (the
   nav handler's `:rf.frame/id` cofx; both nav entry points already
   validate it via `frame/require-frame-stamp!` and thread it in). It is
   stamped onto the `:rf.route.nav-token/allocated` trace and passed to
   `emit-activation-traces!` so the lifecycle pair carries `:frame` too.
-  Without it those frame-known traces miss epoch capture (which buffers
+  Without it those frame-known traces would miss epoch capture (which buffers
   only frame-tagged events) and bypass the frame-level trace-disable gate.
 
-  rf2-cqyq2 — `branch-contributors` / `branch-error` are the route plan's
+  `branch-contributors` / `branch-error` are the route plan's
   already-resolved `:parent` walk (`resolve-branch`, called ONCE per navigation
   in `re-frame.routing.resolve/route-plan`), threaded in by the door. Both doors
-  build the plan immediately before calling this, so the value is in hand; this
-  hop used to re-walk the chain itself, which is how the plan came to REPORT one
-  branch (the display walk) and EXECUTE another (this one). Reading it off the
+  build the plan immediately before calling this, so the value is in hand; a
+  second walk here could let the plan REPORT one branch and EXECUTE another.
+  Reading it off the
   plan makes the reported branch and the composed branch the same value by
   construction, and costs one walk fewer per navigation.
 
@@ -222,7 +218,7 @@
   [rdb {:keys [route-id params query fragment transition]} on-match-vec
    {:keys [prev-id prev-nav-token capture-fx scroll-fx push-fx nav-allocation app-db frame
            branch-contributors branch-error]}]
-  (let [;; rf2-vcop6y: the nav-token rides the RECORDABLE `:rf.route/nav-allocation`
+  (let [;; The nav-token rides the RECORDABLE `:rf.route/nav-allocation`
         ;; cofx — `:token` is published into the slice (recorded + replay-stable),
         ;; `:counter` advances the host high-water via the bump fx below.
         {token :token counter :counter} nav-allocation
@@ -249,7 +245,7 @@
         ;; plan diff's previous membership (`[:rf.runtime/routing :resource-plan
         ;; <token>]`, a resources-written sibling of `:resource-blocking`; both
         ;; are `{<key-id> <scoped-key>}` maps, byte-exact so a vector-params and
-        ;; a list-params identity cannot collapse into one — rf2-btdl1).
+        ;; a list-params identity cannot collapse into one).
         ;; Routing owns the `:parent` walk (`resolve-branch`, run once in
         ;; `route-plan` and threaded in as `branch-contributors` /
         ;; `branch-error`); the Resources plan composes + diffs.
@@ -282,7 +278,7 @@
                                 ;; interpret it; it only threads it.
                                 :runtime-db      rdb}))
         ;; EP-0037 R1: route readiness is the PURE resource projection over
-        ;; the (leaf-only, until R2) plan — NEVER driven by `:on-match`. Seed
+        ;; the parent-to-leaf branch plan — NEVER driven by `:on-match`. Seed
         ;; `:transition` / `:error` from the freshly-built plan through the one
         ;; projector (`rf.routing.readiness/project-at-commit`): a planning failure →
         ;; `:error`, a pending blocking first load → `:loading`, otherwise
@@ -316,18 +312,18 @@
         ;; projections at egress for as long as the route is active;
         ;; frame teardown drops the whole runtime-db elision slot with the frame.
         committed (rf.routing.classification/lower-for-route committed route-id route-meta)]
-    ;; rf2-dbmj6x — stamp the carried `:frame` so the nav-token-allocated
+    ;; Stamp the carried `:frame` so the nav-token-allocated
     ;; trace enters epoch capture + obeys the frame trace-disable gate
     ;; (the lifecycle pair below carries it via `emit-activation-traces!`).
     (rf.trace/emit! :rf.event :rf.route.nav-token/allocated
                  (cond-> {:route-id route-id :nav-token token}
                    frame (assoc :frame frame)))
     (emit-activation-traces! frame prev-id route-id)
-    ;; EP-0001 (rf2-vzld77): the route slice is durable framework runtime-db
+    ;; EP-0001: the route slice is durable framework runtime-db
     ;; state, so `rdb` here is the RUNTIME-DB value and the commit returns
     ;; `:rf.db/runtime`, not `:db`.
     {:rf.db/runtime committed
-     :fx (vec (concat ;; rf2-oosjmh: persist the nav-token high-water mark
+     :fx (vec (concat ;; Persist the nav-token high-water mark
                       ;; into the host-side counter cache (WRITE half of the
                       ;; pure seam). FIRST so the bump lands before any
                       ;; on-match continuation reads the snapshot.
@@ -343,7 +339,7 @@
                       ;; is no settle event.
                       (when-not (:plan-error plan)
                         (mapv (fn [ev] [:dispatch ev]) on-match-vec))
-                      ;; rf2-vdyrls: the resource ensure dispatches + prior-
+                      ;; The resource ensure dispatches + prior-
                       ;; owner release (Spec 016 §Route integration). Route
                       ;; readiness reconciles to :idle / :error through the
                       ;; Resources reply handlers as blocking resources settle
