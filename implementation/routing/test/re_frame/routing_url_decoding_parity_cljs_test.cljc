@@ -1,39 +1,38 @@
 (ns re-frame.routing-url-decoding-parity-cljs-test
-  "Per rf2-k2d2t — component URL decoding is `decodeURIComponent` on BOTH
+  "Component URL decoding is `decodeURIComponent` on BOTH
   hosts, INCLUDING its UTF-8 validity check.
 
-  `url-decode`'s JVM arm emulates `decodeURIComponent` on top of
-  `java.net.URLDecoder`. It used to repair only ONE of the two
-  differences — the form-urlencoded `+`-for-space (rf2-9a9ix) — and left
-  the second standing: `URLDecoder` decodes bytes with the REPLACE
-  malformed-input action, so an INVALID UTF-8 sequence was silently
-  rewritten to U+FFFD and a string came back, where
+  `url-decode`'s JVM arm emulates `decodeURIComponent`, which differs
+  from `java.net.URLDecoder` in two ways: the form-urlencoded
+  `+`-for-space, and the malformed-input action. `URLDecoder` decodes
+  bytes with REPLACE, so an INVALID UTF-8 sequence would be silently
+  rewritten to U+FFFD and a string would come back, where
   `decodeURIComponent` throws `URIError`.
 
-  So for `%C0%80`, `%ED%A0%80`, `%FF` or `%E0%80%80` the JVM returned a
-  value and CLJS returned the nil sentinel, and the public predicate
-  read `(malformed-url? \"/p/%FF\")` => FALSE on JVM, TRUE on CLJS.
+  So for `%C0%80`, `%ED%A0%80`, `%FF` or `%E0%80%80` such a JVM arm would
+  return a value where CLJS returns the nil sentinel, and the public
+  predicate would read `(malformed-url? \"/p/%FF\")` => FALSE on JVM, TRUE
+  on CLJS.
 
-  The consequence was worse than the attribute-level divergence
-  rf2-j3tud fixed, and the SERVER was the permissive side: a hostile URL
-  failed closed to a route-miss in the browser but MATCHED under SSR
-  with replacement characters standing in for the bytes, so the two
-  hosts disagreed about whether the request was routable at all — a
+  That would be worse than an encoder's attribute-level divergence, and
+  the SERVER would be the permissive side: a hostile URL would fail
+  closed to a route-miss in the browser but MATCH under SSR with
+  replacement characters standing in for the bytes, so the two hosts
+  would disagree about whether the request is routable at all — a
   whole-tree Spec 011 hydration mismatch on the sink whose own docstring
   names \"hostile URLs, partner integrations with broken escaping\" as
   its motivation.
 
   CLJS is normative: it IS `decodeURIComponent`, the de-facto browser
-  reference Spec 012 §`+` is a literal names, and §Route-miss ¶5 already
+  reference Spec 012 §`+` is a literal names, and §Route-miss ¶5
   requires malformed percent-encoding to fail the whole match closed.
-  The JVM moved to match — the same direction rf2-9a9ix took for `+` and
-  rf2-j3tud took for the encoder.
+  The JVM matches it, as it does for `+` and in the encoder.
 
   THE NEAR-MISS CONTROL IS THE POINT OF THIS SUITE. `%EF%BF%BD` is the
-  valid three-byte encoding of a REAL U+FFFD and MUST still decode. A
+  valid three-byte encoding of a REAL U+FFFD and MUST decode. A
   naive \"does the decoded output contain U+FFFD?\" check would reject
-  it, trading this bug for a fresh one — and could not do better, since
-  the substituted and the legitimate character are identical. The fix
+  it, trading one divergence for another — and could not do better, since
+  the substituted and the legitimate character are identical. The decoder
   discriminates at the BYTE level instead, under the UTF-8 decoder's own
   validity rules, which is why that row can pass alongside the four
   invalid ones.
@@ -46,34 +45,34 @@
   A decoder that changed on one host only cannot also rewrite what it is
   compared against.
 
-  Reverting the JVM arm to `URLDecoder` under UTF-8 turns the JVM half
+  Building the JVM arm on `URLDecoder` under UTF-8 turns the JVM half
   of this namespace red on the invalid-UTF-8 table, on the
   `malformed-url?` positions and on the production `match-url` prism,
   while every valid-input control — `%EF%BF%BD` included — stays green,
   proving those controls are not what carries the suite.
 
-  THE SECOND HALF: LITERAL UTF-16 CODE UNITS. The first strict-decoder
-  fix reached the byte level by percent-escaping every literal non-ASCII
-  character with `String.getBytes(UTF_8)`, which silently REPLACES an
-  unpaired surrogate code unit with the byte `0x3F` — a literal `?`.
+  THE SECOND HALF: LITERAL UTF-16 CODE UNITS. Reaching the byte level by
+  percent-escaping every literal non-ASCII character with
+  `String.getBytes(UTF_8)` would silently REPLACE an unpaired surrogate
+  code unit with the byte `0x3F` — a literal `?`.
   Java strings, like JavaScript strings, can legally hold one, and
   `decodeURIComponent` copies a literal to its output untouched rather
-  than encoding it, so a lone U+D800 decoded to `?` on the JVM and to
+  than encoding it, so a lone U+D800 would decode to `?` on the JVM and to
   the raw code unit in the browser: the same host divergence again, and
-  aliased onto a legitimate character. The JVM arm now segments the
+  aliased onto a legitimate character. The JVM arm therefore segments the
   input, strict-decoding only the bytes the percent escapes contribute.
 
   THOSE TWO ROWS PULL IN OPPOSITE DIRECTIONS AND BOTH ARE ASSERTED HERE.
   A LITERAL lone surrogate must SURVIVE; a PERCENT-ENCODED one
-  (`%ED%A0%80`) must still be nil, because UTF-8 has no encoding for a
-  surrogate. A fix that merely passed everything through would satisfy
+  (`%ED%A0%80`) must be nil, because UTF-8 has no encoding for a
+  surrogate. A decoder that merely passed everything through would satisfy
   the first and break the second, so the valid surrogate PAIR and the
   escaped-lone-surrogate rows are what keep the seam honest in both
   directions.
 
   EVERY SURROGATE CASE IS BUILT FROM NUMERIC CODE UNITS AND ASSERTED AS
   A VECTOR OF CODE UNITS. An unpaired surrogate cannot be written as a
-  source literal at all (it has no UTF-8 encoding, which is the bug),
+  source literal at all (it has no UTF-8 encoding, the very property under test),
   and on output a lone surrogate, a `?` and a U+FFFD are all mojibake in
   a terminal and indistinguishable by eye. Comparing rendered strings
   would answer \"no divergence\" in the same confident voice as a real
@@ -142,7 +141,7 @@
     "CESU-8: U+1F600's two surrogate halves escaped INDIVIDUALLY rather than as the astral code point. Each half is a surrogate, so each is refused — a pair is only a pair in UTF-16"]])
 
 (def ^:private valid-decodes
-  "Inputs that MUST still decode, with their literal expected output.
+  "Inputs that MUST decode, with their literal expected output.
   These are the controls: the table above cannot be satisfied by
   weakening `url-decode` towards `(constantly nil)`, because every one of
   these would go nil if it were."
@@ -151,14 +150,14 @@
    ["%E6%97%A5" "日"       "valid three-byte sequence"]
    ["%F0%9F%92%A9" "💩" "valid four-byte sequence — an astral code point"]
    ["%20"       " "       "space"]
-   ["a+b"       "a+b"     "`+` stays a literal on both hosts (rf2-9a9ix)"]
+   ["a+b"       "a+b"     "`+` stays a literal on both hosts"]
    ["%2B"       "+"       "an escaped `+` decodes to `+`"]
    ["caf%C3%A9" "café"    "escapes mixed with ASCII"]])
 
 (def ^:private structurally-malformed
-  "The pre-existing structural failures. Both hosts ALREADY agreed here;
-  the rows are present so a regression in the structural half — which the
-  fix re-routes through ISO-8859-1 — cannot pass unnoticed."
+  "The structural failures. Both hosts agree here independently of UTF-8
+  validity; the rows are present so a regression in the structural half —
+  the JVM arm's own escape reader — cannot pass unnoticed."
   [["%"   "a bare `%` with nothing after it"]
    ["%a"  "a `%` with one hex digit"]
    ["%zz" "a `%` with two non-hex characters"]
@@ -166,11 +165,11 @@
 
 (deftest safe-url-decode-fails-closed-on-invalid-utf8-on-both-hosts
   (testing "invalid UTF-8 yields the nil sentinel on JVM and CLJS alike —
-            the JVM used to return a U+FFFD-bearing string here (rf2-k2d2t)"
+            a REPLACE-action decoder would return a U+FFFD-bearing string here"
     (doseq [[in why] invalid-utf8]
       (is (nil? (rf.routing.url/safe-url-decode in)) why)))
-  (testing "structurally malformed escapes stay nil on both hosts, as they
-            already did — the fix must not disturb this half"
+  (testing "structurally malformed escapes are nil on both hosts too —
+            the UTF-8 check must not disturb this half"
     (doseq [[in why] structurally-malformed]
       (is (nil? (rf.routing.url/safe-url-decode in)) why))))
 
@@ -181,7 +180,7 @@
       (is (= expected (rf.routing.url/safe-url-decode in)) why)))
   (testing "a legitimately-encoded U+FFFD survives, stated on its own
             because conflating it with a SUBSTITUTED one is the specific
-            fresh bug a naive fix introduces"
+            defect an output-inspecting check introduces"
     (is (= "�" (rf.routing.url/safe-url-decode "%EF%BF%BD"))
         "the valid encoding of U+FFFD decodes to U+FFFD")
     (is (= 1 (count (rf.routing.url/safe-url-decode "%EF%BF%BD")))
@@ -193,7 +192,7 @@
 
 (deftest url-decode-leaves-literal-non-ascii-alone-on-both-hosts
   (testing "an unescaped non-ASCII character is legal input and passes
-            through unchanged on both hosts — the JVM fix routes bytes
+            through unchanged on both hosts — the JVM arm routes bytes
             through a STRICT decoder, and must not fail closed on this"
     (doseq [[in why] [["café"    "literal é in a bare string"]
                       ["/p/café" "literal é in a path segment"]
@@ -223,13 +222,13 @@
   decoder that changed on one host only must not be able to rewrite what
   it is compared against."
   [[[0xD800]                 [55296]
-    "LONE HIGH surrogate — no UTF-8 encoding exists, so the previous JVM arm's String.getBytes(UTF_8) substituted 0x3F and it decoded to `?`"]
+    "LONE HIGH surrogate — no UTF-8 encoding exists, so a String.getBytes(UTF_8) round trip would substitute 0x3F and decode it to `?`"]
    [[0xDFFF]                 [57343]
     "LONE LOW surrogate — the other half of the range, same substitution"]
    [[97 0xD800 98]           [97 55296 98]
-    "EMBEDDED lone surrogate — `a`, U+D800, `b`; the JVM returned [97 63 98]"]
+    "EMBEDDED lone surrogate — `a`, U+D800, `b`; a byte round trip would return [97 63 98]"]
    [[0xD83D 0xDE00]          [55357 56832]
-    "THE PAIR CONTROL: a WELL-FORMED surrogate pair (U+1F600) must survive as its two code units. This is what stops the fix from being `pass everything through` — it was already correct, and must stay correct"]
+    "THE PAIR CONTROL: a WELL-FORMED surrogate pair (U+1F600) must survive as its two code units. This is what stops the decoder from being `pass everything through` — the pair must stay correct"]
    [[0xDFFF 0xD800]          [57343 55296]
     "a low unit followed by a high unit — adjacent but REVERSED, so still two unpaired halves rather than a pair"]])
 
@@ -237,8 +236,8 @@
   (testing "a literal code unit is COPIED to the output, never encoded.
             `decodeURIComponent` only ever decodes the bytes percent
             escapes contribute; routing a literal through a UTF-8 encoder
-            to reach the strict decoder replaced an unpaired surrogate
-            with `?` on the JVM (rf2-k2d2t)"
+            to reach the strict decoder would replace an unpaired surrogate
+            with `?` on the JVM"
     (doseq [[in-units expected-units why] literal-code-unit-passthrough]
       (is (= expected-units
              (code-units (rf.routing.url/safe-url-decode (apply from-code-units in-units))))
@@ -258,7 +257,7 @@
 
   (testing "THE COUNTERWEIGHT. A PERCENT-ENCODED lone surrogate must
             still fail closed: UTF-8 has no encoding for a surrogate, so
-            those bytes are malformed however they arrived. A fix that
+            those bytes are malformed however they arrived. A decoder that
             preserved literals by weakening the escaped-byte check would
             red here"
     (is (nil? (rf.routing.url/safe-url-decode "%ED%A0%80"))
@@ -292,9 +291,10 @@
 (deftest malformed-url?-agrees-across-hosts-in-every-url-position
   (testing "an invalid-UTF-8 escape flips the predicate wherever it sits.
             `malformed-url?` discriminates the fail-closed route-miss
-            ({:url url :reason :malformed-url}) from a bare miss, and it
-            read FALSE on JVM / TRUE on CLJS for every one of these"
-    (doseq [[u why] [["/p/%FF"          "path segment — the finding's own reproduction"]
+            ({:url url :reason :malformed-url}) from a bare miss, and a
+            REPLACE-action JVM decoder would read FALSE on JVM / TRUE on
+            CLJS for every one of these"
+    (doseq [[u why] [["/p/%FF"          "path segment — the minimal reproduction"]
                      ["/p/%C0%80"       "path segment, overlong NUL"]
                      ["/p/x?%FF=1"      "query KEY"]
                      ["/p/x?q=%FF"      "query VALUE"]
@@ -313,7 +313,7 @@
                      ["/search?q=clojure&page=2" "an ordinary URL"]
                      ["/p/café"         "a literal non-ASCII path segment"]]]
       (is (false? (rf.routing/malformed-url? u)) why)))
-  (testing "the structural case still flips it, unchanged (rf2-4ic0f)"
+  (testing "the structural case flips it too"
     (is (true? (rf.routing/malformed-url? "/p/%")))))
 
 ;; ---- production prism: the SSR/browser disagreement itself ---------------
@@ -321,9 +321,10 @@
 (deftest hostile-url-is-a-route-miss-on-both-hosts
   (testing "the whole-tree divergence, through production `match-url`: a
             registered route whose path param carries an invalid-UTF-8
-            escape must NOT match on either host. The JVM used to match
-            it, binding the param to replacement characters, so the SSR
-            tree and the hydrating client tree rendered different routes"
+            escape must NOT match on either host. A REPLACE-action JVM
+            decoder would match it, binding the param to replacement
+            characters, so the SSR tree and the hydrating client tree
+            would render different routes"
     (rf/reg-route :decode-parity/probe {:params [:map [:slug :string]]} "/p/:slug")
     (doseq [[u why] [["/p/%FF"       "invalid lead byte in the capture"]
                      ["/p/%C0%80"    "overlong NUL in the capture"]
@@ -344,7 +345,7 @@
           "decoded byte-exactly"))))
 
 (deftest route-url-round-trips-through-match-url-after-the-decoder-moved
-  (testing "the encode/decode pair is still an inverse — including over a
+  (testing "the encode/decode pair is an inverse — including over a
             value containing a REAL U+FFFD, which `url-encode` emits as
             %EF%BF%BD and the strict decoder must read back"
     (rf/reg-route :decode-parity/round {:params [:map [:slug :string]]} "/r/:slug")
