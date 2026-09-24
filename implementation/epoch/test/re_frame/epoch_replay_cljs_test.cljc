@@ -1,12 +1,10 @@
 (ns re-frame.epoch-replay-cljs-test
-  "rf2-ov144 — `replay-epoch!`: strict replay from a retained epoch id, in
+  "`replay-epoch!`: strict replay from a retained epoch id, in
   ONE call (Tool-Pair §Replay).
 
-  Before this surface every proof of replay hand-extracted a record off
-  `rf/epoch-history` and re-dispatched its four slots by hand
-  (`epoch_test.clj`, `machine_minted_cofx_replay_token_test.clj`,
-  `epoch_override_capture_test.clj`, `join_strict_mint_epoch_replay_test.clj`).
-  None proved that a programmer — or an off-box tool, which only ever sees
+  Hand-extracting a record off `rf/epoch-history` and re-dispatching its
+  four slots by hand does not prove that a programmer — or an off-box tool,
+  which only ever sees
   the `:trigger-event` args as `:rf/redacted` — can name one retained epoch
   and replay it faithfully in one supported call. This suite pins that:
 
@@ -27,20 +25,20 @@
        dispatches.
     5. Composition with `restore-epoch!`: a mid-run machine-minted fact
        replays deterministically after rewinding, with the generator idle.
-    6. rf2-xlr0 — INCOMPLETE EVIDENCE is refused before dispatch. A recorded
+    6. INCOMPLETE EVIDENCE is refused before dispatch. A recorded
        replay input carrying a capture-loss marker (`:rf/redacted`, or the
        `:rf.size/large-elided` size marker) cannot be re-presented, so the
        replay is refused rather than dispatched with substituted data.
-    7. rf2-e0g2 — the reported `:epoch-id` is the replayed dispatch's OWN
+    7. The reported `:epoch-id` is the replayed dispatch's OWN
        epoch, or nil when the ring could not retain it — never a queued
        child's record that happened to survive the parent's eviction.
-    8. rf2-k0nr (JVM only) — another thread's same-frame dispatch landing
+    8. (JVM only) Another thread's same-frame dispatch landing
        between replay's observation arming and its dispatch never becomes
        the reported epoch.
-    9. rf2-c74lr — a replay that commits no epoch of its own (its handler now
+    9. A replay that commits no epoch of its own (its handler
        opts out of tracing) reports nil, never a record another dispatch
        committed: another thread's, or the replay's own queued child.
-   10. rf2-1mudg — nor its queued GRANDCHILD's: a traced descendant's
+   10. Nor its queued GRANDCHILD's: a traced descendant's
        dispatch is never adopted as the quiet replay's own identity.
 
   `.cljc` under a `-cljs-test` name so the consolidated `:node-test` build
@@ -79,7 +77,7 @@
          (:rf.error/id (ex-data e)))))
 
 ;; ---------------------------------------------------------------------------
-;; The faithful replay — AC1 / AC2 / AC5 / AC6
+;; The faithful replay
 ;; ---------------------------------------------------------------------------
 
 (deftest replay-by-id-re-presents-recorded-facts-args-and-overrides
@@ -125,7 +123,7 @@
             "the record's :rf.cofx is the post-generation token")
         (is (= {:replay/real-fx :replay/stub-fx} (:fx-overrides r)))
         (is (= {::audit nil} (:interceptor-overrides r)))
-        ;; AC2 / AC6 — the arg an off-box consumer would have to copy by hand
+        ;; The arg an off-box consumer would have to copy by hand
         ;; is exactly the one the projection never exposes.
         (let [projected (:trigger-event (rf/project-egress r))]
           (is (= :replay/add (first projected))
@@ -155,7 +153,7 @@
           (is (= [1 0 0] [@stub-fired @real-fired @audited])
               "the recorded :fx-overrides / :interceptor-overrides were re-supplied —
                the stub fired, the real fx did not, the audit stayed removed")
-          ;; AC5 — no implicit restore: the replay ran on the CURRENT state, so
+          ;; No implicit restore: the replay ran on the CURRENT state, so
           ;; the item list grew from one to two, and the second entry carries
           ;; the raw arg + the RECORDED fact + the RECORDED time.
           (is (= [{:text "buy milk" :token "gen-1" :at 1781078400123}
@@ -205,7 +203,7 @@
             ":origin — a slot replay does not own — rode through to the dispatch")))))
 
 ;; ---------------------------------------------------------------------------
-;; The canonical strict failure — AC4, second sentence
+;; The canonical strict failure
 ;; ---------------------------------------------------------------------------
 
 (deftest replay-strict-refuses-to-mint-a-fact-absent-from-the-record
@@ -241,7 +239,7 @@
         (is (= 0 @ran) "the handler did not run")))))
 
 ;; ---------------------------------------------------------------------------
-;; Refusals before dispatch — AC4, first sentence
+;; Refusals before dispatch
 ;; ---------------------------------------------------------------------------
 
 (deftest replay-refuses-before-dispatch-on-non-replayable-input
@@ -400,7 +398,7 @@
       (is (= :rf.epoch/replay-unknown-epoch (:reason res-facade))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-xlr0 — incomplete evidence is refused BEFORE dispatch
+;; Incomplete evidence is refused BEFORE dispatch
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Tool-Pair §Replay is faithful-or-fail-loud: a replay re-presents the
@@ -515,7 +513,7 @@
             "the handler saw the raw arg and the raw fact, both times")))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-e0g2 — the reported epoch is the REPLAYED dispatch's own
+;; The reported epoch is the REPLAYED dispatch's own
 ;; ---------------------------------------------------------------------------
 
 (def ^:private evict-frame-id :epoch-replay/eviction)
@@ -579,23 +577,23 @@
           "…and it is the NEW record, not the source"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-fzbj.19 — a trace listener's own dispatch cannot steal replay's result
+;; A trace listener's own dispatch cannot steal replay's result
 ;;
-;; The sibling counterexample to rf2-e0g2 above, and the one it left open. That
+;; The sibling of the eviction case above. That
 ;; one is about a cascade committing AFTER the replayed event; this is about one
 ;; committing BEFORE it, while the replayed event has not run at all.
 ;;
 ;; The router emits `:rf.event/dispatched` before it starts the drain, and a
 ;; public trace listener may `dispatch-sync` from there — `trace/tooling`
 ;; documents that reentrancy explicitly. The nested cascade then runs to
-;; completion and COMMITS inside replay's armed window. Under the first-commit
-;; observation the response named the CALLBACK's epoch while still reporting
+;; completion and COMMITS inside replay's armed window. A first-commit
+;; observation would name the CALLBACK's epoch while still reporting
 ;; `:event-id` as the replayed event's: a consumer that resolves the returned id
 ;; against `epoch-history` — which is precisely what the one-call gesture exists
-;; to let it do — gets another operation's state, effects and trace.
+;; to let it do — would get another operation's state, effects and trace.
 ;;
-;; Both events execute correctly either way. What was wrong was the returned
-;; EVIDENCE, which is why this is P3 and why every assertion below is about
+;; Both events execute correctly either way. What is at stake is the returned
+;; EVIDENCE, which is why every assertion below is about
 ;; correlation rather than about state.
 ;; ---------------------------------------------------------------------------
 
@@ -645,9 +643,9 @@
       (is (true? (:ok? res)) (str "the replay itself succeeded: " (pr-str res)))
       (is (= [:review/add :review/other :review/add] (mapv :event-id after))
           "the callback's event committed BEFORE the replayed event — this is
-           the ordering the first-commit observation could not survive")
+           the ordering a first-commit observation cannot survive")
       (is (= {:n 2 :other true} (rf/app-db-value interleave-frame-id))
-          "both events executed correctly; only the returned evidence was wrong")
+          "both events executed correctly; only the returned evidence is at stake")
       ;; THE TOOTH.
       (is (= (:epoch-id (last after)) (:epoch-id res))
           "the reported epoch is the replayed dispatch's OWN new record")
@@ -655,7 +653,8 @@
           (str "…and it resolves to the replayed trigger, not the callback's; "
                "resolved " (pr-str (:trigger-event named))))
       (is (= :review/other (:event-id (nth after 1)))
-          "sanity — the callback's record is the one the old code returned"))))
+          "sanity — the callback's record is the one a first-commit observation
+           would return"))))
 
 (deftest replay-result-is-not-rescued-by-matching-the-event-id
   (testing "the SAME handler with DIFFERENT arguments: filtering the history by
@@ -707,14 +706,14 @@
       (is (= {:n 2} (rf/app-db-value interleave-frame-id))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-k0nr — another JVM thread's dispatch cannot steal replay's result
+;; Another JVM thread's dispatch cannot steal replay's result
 ;;
 ;; The concurrent sibling of the listener case above. There the stranger's
 ;; dispatch starts on the replay's OWN thread, after the replay's
 ;; `:rf.event/dispatched`; here it starts on ANOTHER thread, in the gap between
 ;; the replay arming its observation and entering `dispatch-sync!`. Its
-;; `:rf.event/dispatched` arrived first, the frame-wide observation adopted its
-;; id, and the response named its epoch — measured before the fix as source
+;; `:rf.event/dispatched` arrives first, so a frame-wide observation would adopt
+;; its id and the response would name its epoch — source
 ;; epoch 1, the other thread's epoch 2, the replay's own epoch 3, and a result
 ;; saying `:epoch-id 2`.
 ;;
@@ -725,8 +724,8 @@
 ;;
 ;; The first deftest is the tooth. The eviction companion is not: the other
 ;; thread's record is OLDER than the replay's, so the ring always evicts it
-;; first and the old code answered nil there too. It pins that the documented
-;; nil survives the interleave.
+;; first and a frame-wide observation answers nil there too. It pins that the
+;; documented nil survives the interleave.
 ;; ---------------------------------------------------------------------------
 
 #?(:clj
@@ -781,7 +780,7 @@
              "the other thread's dispatch committed INSIDE replay's armed window,
               before the replayed event ran")
          (is (= {:n 102} (rf/app-db-value interleave-frame-id))
-             "both dispatches executed; only the returned evidence was at stake")
+             "both dispatches executed; only the returned evidence is at stake")
          ;; THE TOOTH.
          (is (= (:epoch-id (last after)) (:epoch-id res))
              "the reported epoch is the replay's OWN new record")
@@ -813,23 +812,23 @@
              "the other thread's event, the replayed parent and its child all ran")))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-c74lr — a replay that commits no epoch of its own reports nil
+;; A replay that commits no epoch of its own reports nil
 ;;
-;; The residual rf2-k0nr named. A handler registered with
+;; A handler registered with
 ;; `:rf.trace/no-emit? true` emits no trace, so its dispatch commits no epoch
 ;; and epoch capture never hears its `:rf.event/dispatched`. Replay runs
 ;; against CURRENT code (Tool-Pair §Replay), so re-registering a recorded
 ;; handler with that opt-out and then replaying it is ordinary use. The
-;; observation then had no dispatch id to correlate on, fell back to the first
-;; commit the frame saw from anywhere, and reported a stranger's record as the
-;; replay's own — measured on the bead as source epoch 1, another thread's
+;; observation then has no dispatch id to correlate on; falling back to the
+;; first commit the frame saw from anywhere would report a stranger's record
+;; as the replay's own — source epoch 1, another thread's
 ;; epoch 2, no replay epoch at all, and a result saying `:epoch-id 2`.
 ;;
 ;; Without the replay's own dispatch id no commit is evidence of the replay,
-;; so the answer is nil. The first deftest is the bead's witness, where the
-;; stranger is another JVM thread. The second is the same defect on ONE
+;; so the answer is nil. The first deftest is the witness where the
+;; stranger is another JVM thread. The second is the same shape on ONE
 ;; thread — the quiet parent's own queued child — which is why confining the
-;; fallback to the arming thread could not have closed it. The third is the
+;; fallback to the arming thread cannot close it. The third is the
 ;; green control.
 ;; ---------------------------------------------------------------------------
 
@@ -864,7 +863,7 @@
              "the other thread's dispatch committed; the quiet replay added no
               record of its own")
          (is (= {:n 2 :other true} (rf/app-db-value interleave-frame-id))
-             "both dispatches executed; only the returned evidence was at stake")
+             "both dispatches executed; only the returned evidence is at stake")
          ;; THE TOOTH.
          (is (nil? (:epoch-id res))
              (str "no epoch of the replay's was committed, so none is reported; "
@@ -872,7 +871,7 @@
                   (pr-str (resolves-to res after))))))))
 
 (deftest quiet-replay-reports-nil-not-its-queued-childs-epoch
-  (testing "the same defect on one thread: the quiet replayed parent enqueues
+  (testing "the same shape on one thread: the quiet replayed parent enqueues
             a traced child, the child commits, and nil rides back rather than
             the child's record"
     (rf/configure! {:epoch-history {:depth 10}})
@@ -913,17 +912,16 @@
           "the replayed handler ran"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-1mudg — a quiet replay never adopts a traced DESCENDANT's identity
+;; A quiet replay never adopts a traced DESCENDANT's identity
 ;;
-;; What rf2-c74lr left open, one generation further down. The quiet parent's
+;; The quiet-replay case one generation further down. The quiet parent's
 ;; own `:rf.event/dispatched` is suppressed, and so is its child's enqueue emit
 ;; (it happens inside the parent's no-emit handler scope). The child itself
 ;; runs traced, so when IT queues a grandchild, that enqueue emit arrives —
-;; the first `:rf.event/dispatched` the arming thread reports. The observation
-;; took it for the replay's own dispatch and the commit funnel then correlated
-;; the grandchild's commit to it exactly. Measured on the bead: source epoch 1,
-;; no replay-parent epoch, and a result saying `:epoch-id 3`, resolving to
-;; `[:audit/grandchild]`.
+;; the first `:rf.event/dispatched` the arming thread reports. Taking it for
+;; the replay's own dispatch would let the commit funnel correlate the
+;; grandchild's commit to it exactly: source epoch 1, no replay-parent epoch,
+;; and a result saying `:epoch-id 3`, resolving to the grandchild.
 ;;
 ;; The first deftest is the tooth. The second is the traced control over the
 ;; same three generations: the replay reports its own new parent record.
