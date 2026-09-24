@@ -467,7 +467,7 @@
   the source variant's registered body. The authored expectations become
   explicit `:assertions` variant DATA, merged with the source variant's
   declared assertions (the additive round-trip). The source's own `:script`
-  / `:plays` ride along, since `:extends` does not inherit them."
+  / `:plays` / `:compose` ride along, since `:extends` does not inherit them."
   [{:keys [source-id draft] :as _dialog}]
   (let [source (rf.story.registrar/handler-meta :variant source-id)]
     (rf.story.author-expectations/gen-expectations-snippet
@@ -476,6 +476,7 @@
        :existing   (existing-assertions source)
        :script     (:script source)
        :plays      (:plays source)
+       :compose    (:compose source)
        :authored   (draft-atoms draft)
        :doc        (when (and (string? (:doc draft)) (seq (str/trim (:doc draft))))
                      (str/trim (:doc draft)))})))

@@ -226,6 +226,33 @@
         (is (= submits (get-in result [:app-db :submits]))
             (str new-id " — the source's interaction ran"))))))
 
+(deftest add-expectations-to-a-composing-story-carries-its-compose
+  (testing "rf2-379k7: :compose is child-only through :extends (spec/017
+            §`:compose`), so the regression test the dialog emits re-declares
+            the source's own — pasted as-is it composes the same setup
+            fragment and its expectations pass on a correct app"
+    (rf.story/reg-fragment :fragment.paste/submitted
+      {:setup [[:dispatch [:paste/submit]]]})
+    (rf.story/reg-variant :story.paste/composed
+      {:extends    :story.paste/source
+       :compose    [:fragment.paste/submitted]
+       :assertions [[:rf.assert/path-equals [:submits] 1]]})
+    (testing "CONTROL: the source passes on its own"
+      (let [result (run-result :story.paste/composed)]
+        (is (= :pass (:status result)))
+        (is (= 1 (get-in result [:app-db :submits])))))
+    (paste! (add-expectations-snippet :story.paste/composed
+                                      :story.paste/composed-expects
+                                      :paste/submit))
+    (is (= [:fragment.paste/submitted]
+           (:compose (registered :story.paste/composed-expects)))
+        "the pasted variant composes the source's fragment")
+    (let [result (run-result :story.paste/composed-expects)]
+      (is (= :pass (:status result))
+          "the source's assertion and the authored one both hold")
+      (is (= 1 (get-in result [:app-db :submits]))
+          "the composed fragment's setup ran"))))
+
 ;; ---- rf2-0ae7o.13 — pasted UNFILLED, the upgrade scaffold does not pass ----
 
 (defn- no-such-handler-record [result]
