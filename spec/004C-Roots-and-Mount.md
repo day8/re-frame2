@@ -201,18 +201,22 @@ positional locators — an id is stable under fragment reordering, which is the 
 All ids below follow the one-catalogue `:rf.error/*` scheme; each carries a data map
 naming both parties.
 
-**Layer 2 — server render time (S5).** Page assembly registers each root (manifest
-*and* `render-static` root — static roots hold identity too, so a static and a live
-root can never claim one id) in a per-response registry. A second registration with an
-equal root-id fails the render: `:rf.error/duplicate-root-id` (server tier, projected
-per Spec 011). This is the layer that catches **independently rendered page
-fragments** composed into one response — the case Layer 1 cannot see. The same
-registry asserts **identifier-prefix uniqueness** across the page's roots
-(`:rf.error/root-manifest-invalid`, data `{:conflict :identifier-prefix}`) — two roots
-sharing a prefix would collide `use-id` output. The **default** prefix
-`"rf2-" + root-id-slug + "-"` is already collision-free for distinct root-ids because the
-slug is injective (§1); this check therefore backstops **authored** `:identifier-prefix`
-opts, which can still collide.
+**Layer 2 — server render time (S5).**
+
+> **Status: specified, not yet implemented.** No shipped code keeps this registry or
+> raises its two conflicts. `re-frame.ssr.manifest` supplies the manifest shape, wire
+> and finder the registry will use.
+
+Page assembly registers each root's manifest in a per-response registry. A second
+registration with an equal root-id fails the render: `:rf.error/duplicate-root-id`
+(server tier, projected per Spec 011). The registry is what catches **independently
+rendered page fragments** composed into one response, whose roots no single render
+sees together. The same registry asserts **identifier-prefix uniqueness** across the
+page's roots (`:rf.error/root-manifest-invalid`, data `{:conflict :identifier-prefix}`)
+— two roots sharing a prefix would collide `useId` output. Uniqueness is over each
+root's effective prefix: its authored `:identifier-prefix`, or React's empty prefix `""`
+where none is authored (§3). Two roots that both omit it therefore conflict exactly as
+two equal authored prefixes do.
 
 | Id | When |
 |---|---|
