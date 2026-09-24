@@ -1,17 +1,15 @@
 #!/usr/bin/env node
 //
-// rf2-r9kf — GENERATOR for `boolean_attr_classes.edn`, the INDEPENDENT
+// GENERATOR for `boolean_attr_classes.edn`, the INDEPENDENT
 // external anchor for the SSR boolean attribute-value rosters.
 //
 // WHY THIS EXISTS. `re-frame.ssr.html-helpers` carries three rosters and
 // `boolean-attr-class` reads them; BOTH SSR serialisers (the hiccup emitter
 // and the structural-tree serialiser `re-frame.ssr.ui-tree`) consult that one
-// classifier. Consolidating them was right — one roster, no drift — but it
-// collapsed two independent checks into one: a parity test BETWEEN two
-// consumers of a shared table cannot validate the table. Both sides agree on
-// the same wrong answer, which is exactly how the rf2-r9kf audit found four
-// presence names and four stringifying names missing while every in-repo test
-// stayed green.
+// classifier. One roster means no drift, but it also means one check where
+// there could be two: a parity test BETWEEN two consumers of a shared table
+// cannot validate the table. Both sides agree on the same wrong answer, so a
+// name missing from the roster leaves every in-repo test green.
 //
 // So the roster is pinned against something OUTSIDE it: react-dom itself,
 // the installed copy, measured rather than restated.
@@ -39,7 +37,7 @@
 //      a `<div>`). Where two elements disagree about the class, the generator
 //      ABORTS rather than picking one.
 //   4. The same element's markup for FOUR NON-BOOLEAN values as well —
-//      `"yes"`, `""`, `0` and `"0"` (rf2-u82a). Two things need them, and
+//      `"yes"`, `""`, `0` and `"0"`. Two things need them, and
 //      neither is reachable from the boolean pair alone.
 //
 //      FIRST, `:presence` and `:overloaded` are INDISTINGUISHABLE for a
