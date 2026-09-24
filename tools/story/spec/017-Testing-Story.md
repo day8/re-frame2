@@ -3280,7 +3280,7 @@ records no registered source is promoted as captured.
 
 **The capture boundary.** What a promotion can carry depends on what the
 capture handed it. A run artifact carries a program, its `:fx-decisions` and
-its `:network`, never the source's world: its decorators (a
+its `:network`, but not the rest of the source's world: its decorators (a
 `:rf.story/force-fx-stub` among them), `:db-seed`, frame-setup and loaders.
 So the setup and world of a registered source reach the promoted variant
 through `:extends`, exactly once, on both routes. The API route, an artifact
