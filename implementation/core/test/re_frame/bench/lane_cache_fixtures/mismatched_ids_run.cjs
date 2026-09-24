@@ -1,5 +1,5 @@
 'use strict';
-// FIXTURE — the hole rf2-t4j7c reopened for. The clear and the release name
+// FIXTURE — the mismatched-id hole. The clear and the release name
 // TWO DIFFERENT build ids, so this driver empties a cache nobody builds into
 // and builds into a cache nobody cleared. It satisfies rider discovery, the
 // require, clear-before-spawn and the no-literal check; only the build-id
