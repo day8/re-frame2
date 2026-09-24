@@ -1,6 +1,6 @@
 (ns re-frame.app-ns-fixture-cljs-test
   "Contract for `make-reset-runtime-fixture`'s `:app-ns` option — BUNDLE
-  CO-LOAD HYGIENE (rf2-kuky.27), per Spec 008 §Test-support.
+  CO-LOAD HYGIENE, per Spec 008 §Test-support.
 
   THE CONDITION. A CLJS node runner loads EVERY test namespace into ONE bundle
   before any test runs, so two co-loaded example apps that register the same
@@ -22,10 +22,10 @@
   `:require` of that already-loaded app registers nothing and B would capture an
   empty set. The captures are therefore unioned per prefix and read back AT TEST
   TIME, which is what makes repeated suites for one app work in either order and
-  what lets a late-loading part of an app reach a fixture built before it. The
-  predecessor of this option kept a first-capture-WINS memo and had exactly that
-  defect measured against it: a capture taken before an app finished loading
-  pinned an incomplete set for every later suite.
+  what lets a late-loading part of an app reach a fixture built before it. A
+  first-capture-WINS memo would have exactly that defect: a capture taken
+  before an app finished loading would pin an incomplete set for every later
+  suite.
 
   WHAT THESE ROWS DRIVE. Every case builds real fixtures and DRIVES them, in the
   load order the bundle would produce, over synthetic app namespaces — so the
@@ -45,8 +45,7 @@
   only then building either fixture is a sequence the bundle does not produce,
   and it is not what these rows claim.
 
-  §§6-8 are the provenance-safety guards the singular predecessor carried
-  (rf2-22vzb), folded onto the option that replaced it: an absent row is a TRUE
+  §§6-8 are the provenance-safety guards: an absent row is a TRUE
   NO-OP, and a sibling namespace's live registration is never clobbered — the
   registrar's single `(kind, id)` slot is the LAST writer's, which for a shared
   id may be the sibling's.
@@ -149,7 +148,7 @@
   (reg! :sub   (keyword (str "kuky27." tag) "own") (str prefix "subs") tag))
 
 ;; ===========================================================================
-;; 1. Two suites for ONE app — the codex objection, in both orders
+;; 1. Two suites for ONE app, in both orders
 ;; ===========================================================================
 
 (deftest second-suite-for-one-app-still-sees-the-whole-app
@@ -183,8 +182,8 @@
   (testing "a part of an app that registers AFTER a suite built its fixture is
             captured by whichever fixture builds next, and the earlier suite sees
             it too — because reinstatement reads the union at TEST time rather
-            than closing over the build-time capture. This is the trap the
-            first-capture-wins memo this option replaced could not escape"
+            than closing over the build-time capture. This is the trap a
+            first-capture-wins memo cannot escape"
     (register-app! "kuky27b." "b")
     (let [early (app-fixture "kuky27b.")]
       ;; A later-loading part of the same app.
@@ -344,7 +343,7 @@
           "and default-image assembly still succeeds afterwards"))))
 
 ;; ===========================================================================
-;; 6. Guard — a sibling's live registrar slot is never clobbered (rf2-22vzb)
+;; 6. Guard — a sibling's live registrar slot is never clobbered
 ;; ===========================================================================
 
 (deftest sibling-live-registration-is-not-clobbered
