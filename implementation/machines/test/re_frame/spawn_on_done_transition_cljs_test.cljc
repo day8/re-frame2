@@ -169,12 +169,12 @@
                            "guest")]
       (is (= :fallback (:state snap))))))
 
-;; ---- the fold, unchanged ----------------------------------------------------
+;; ---- the fold ---------------------------------------------------------------
 
 (defn- fold-token [{:keys [data result]}]
   (assoc data :token result))
 
-(deftest fn-on-done-is-still-a-fold
+(deftest fn-on-done-is-a-fold
   (testing "control: a fn :on-done folds :data and moves nothing"
     (let [snap (run-login! :sodt-fold/login :sodt-fold/auth
                            (login-parent :sodt-fold/auth fold-token)
