@@ -1,26 +1,26 @@
 (ns re-frame.spawn-all-schema-atomic-reject-test
   "ATOMIC `:spawn-all` reject when any child fails spawn-time
-  `[:schemas :data]` validation (rf2-7u8gen).
+  `[:schemas :data]` validation.
 
-  Spawn-time schema validation used to run ONLY inside each per-child
-  `:rf.machine/spawn` fx — downstream of `spawn-all-init-fx`, which had
-  already published a LIVE join naming every child. A mixed
-  valid/schema-invalid invoke therefore:
+  Were spawn-time schema validation to run ONLY inside each per-child
+  `:rf.machine/spawn` fx — downstream of `spawn-all-init-fx`, which has
+  already published a LIVE join naming every child — a mixed
+  valid/schema-invalid invoke would:
 
-   - published a live join slot containing the invalid child's id,
-   - installed the VALID siblings as real live actors,
-   - never installed the invalid child (correctly — it has no snapshot),
+   - publish a live join slot containing the invalid child's id,
+   - install the VALID siblings as real live actors,
+   - never install the invalid child (correctly — it has no snapshot),
 
   leaving an IMPOSSIBLE join: `join.cljc` requires every declared child for
   `:join :all`, but a child with no snapshot can never emit completion. The
-  parent waits in the join state forever while its valid siblings stay live,
-  owned by a join that can never resolve. That is precisely the
-  dead-join/orphan class the unregistered-type sentinel (rf2-qb1j5z) exists to
+  parent would wait in the join state forever while its valid siblings stay
+  live, owned by a join that can never resolve. That is precisely the
+  dead-join/orphan class the unregistered-type sentinel exists to
   remove, and it violates Spec 005's promise that a parent never observes a
   half-installed child.
 
-  The repair makes the FIRST invoke-level decision (`spawn-all-init-fx`'s
-  preflight) authoritative for EVERY fail-closed child-admission condition —
+  So the FIRST invoke-level decision (`spawn-all-init-fx`'s
+  preflight) is authoritative for EVERY fail-closed child-admission condition —
   unregistered TYPE *and* spawn-time schema validity — by preflighting the
   PREPARED per-child spawn args the transition reducer threads onto the init
   fx as `:child-args`. Any rejection seeds one childless reject sentinel and
@@ -36,7 +36,7 @@
    4. Parent exit clears the sentinel; no valid sibling is left orphaned.
    5. No false reject: an all-valid `:spawn-all` keeps the fast path.
 
-  Moving schema validation back into only the later per-child effect makes
+  Moving schema validation into only the later per-child effect makes
   (1)–(4) fail: the live join publishes, the valid sibling installs, and the
   invalid child is stranded inside it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -256,11 +256,11 @@
         "no valid sibling was left live or orphaned")))
 
 ;; ===========================================================================
-;; (5) No false reject — the all-valid fast path is untouched.
+;; (5) No false reject — the all-valid fast path.
 ;; ===========================================================================
 
 (deftest all-valid-spawn-all-still-installs-a-live-join
-  (testing "an all-valid :spawn-all keeps the existing fast path: a LIVE
+  (testing "an all-valid :spawn-all keeps the fast path: a LIVE
             child-bearing join is seeded and every child installs. The
             preflight must not reject what the per-child install would accept
             — it validates the same stamped value the install builds"
