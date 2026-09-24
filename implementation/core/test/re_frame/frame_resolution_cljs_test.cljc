@@ -1,5 +1,5 @@
 (ns re-frame.frame-resolution-cljs-test
-  "EP-0023 §Frame-derived live registration resolution (rf2-32siq3.9): live
+  "EP-0023 §Frame-derived live registration resolution: live
   registration lookup — dispatch (event), subscribe (sub), fx, cofx,
   view/resource lookup — derives from the TARGET frame's resolved image
   generation, not the global/default registrar.
@@ -9,7 +9,7 @@
   This is the prerequisite that makes the same-id / different-image use cases
   work: two frames running different images resolve the same `[kind id]` to
   their OWN image's descriptor. The default fall-through (absence-is-default)
-  leaves every existing caller unaffected.
+  keeps every caller without a frame generation on the registrar path.
 
   The HEADLINE case: two frame objects each carrying a DIFFERENT image both
   registering `[:event :boot/init]` (and friends) resolve that id to their OWN
@@ -44,18 +44,18 @@
 ;; registrations (`:app/boot`, `:global/only`, …) while leaving framework state
 ;; intact, run-order-independently.
 ;;
-;; EP-0024 (rf2-tu2vr7): `make-frame` returns a RUNNABLE image-loaded frame VALUE
+;; EP-0024: `make-frame` returns a RUNNABLE image-loaded frame VALUE
 ;; — it creates its backing runnable record (app-db / queue / sub-cache) via
 ;; `make-frame`, which needs a substrate adapter — so the plain-atom adapter is
 ;; installed. The resolved generation lives ON that record (the `:generation`
-;; slot), read by id; the two-registry model collapsed to ONE, so the runtime
+;; slot), read by id; there is ONE registry, so the runtime
 ;; fixture's `(reset! frames {})` clears every record AND its generation — no
-;; separate live-frame index to clear (rf2-ji3tvy). These cases exercise pure
+;; separate live-frame index to clear. These cases exercise pure
 ;; `(kind, id)`
 ;; resolution through the `call-with-frame-resolution` seam (they do not run a
-;; cascade), but constructing the frame now allocates a state container.
+;; cascade), but constructing the frame allocates a state container.
 ;;
-;; The framework-standard registry is this wave's OWN process-state defonce atom
+;; The framework-standard registry is `re-frame.image-assembly`'s OWN process-state defonce atom
 ;; (not framework ns-load state a sibling depends on), so a direct
 ;; `clear-standards!` is safe and keeps generation-routing tested against a known
 ;; baseline.
