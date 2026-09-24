@@ -31,15 +31,14 @@
   - a vector path of keywords — an absolute target path;
   - a map — `{:target ... :action ... :guard ...}` (no `:target` =
     internal / action-only);
-  - `nil` — a FORBIDDEN transition (rf2-oy49f1). Spec 005 §Forbidden
+  - `nil` — a FORBIDDEN transition. Spec 005 §Forbidden
     transitions (`spec/005-StateMachines.md` §Forbidden transitions)
     declares `{:on {:logout {}}}` and `{:on {:logout nil}}`
     RUNTIME-EQUIVALENT — both block parent-fallthrough for that event.
     `nil` normalises to the SAME single empty-map candidate `{}` as the
     empty-map spelling (`map? {}` already yields `[{}]` → `internal?`
-    true → a blocking chip); pre-fix `nil` matched no cond arm and fell
-    to `:else []` (ZERO candidates), silently dropping the block instead
-    of rendering it.
+    true → a blocking chip); falling through to `:else []` (ZERO
+    candidates) would silently drop the block instead of rendering it.
   - a vector of specs — multiple candidates (first-match wins at runtime;
     every target-bearing branch surfaces);
   - anything else (e.g. an inline fn) — dropped (cannot statically
@@ -48,9 +47,9 @@
   The SINGLE shared walker the chart + mermaid + the per-state SCXML
   emitters all use. NOTE the root-parallel SCXML emitter uses its OWN
   `scxml/root-transition-candidates` instead — a vector-of-vectors there
-  is one multi-region target, not a candidate fork (that walker already
-  special-cases `(nil? spec) [{}]` per the same equivalence — this fix
-  brings the SHARED walker into alignment with it)."
+  is one multi-region target, not a candidate fork (that walker
+  special-cases `(nil? spec) [{}]` per the same equivalence, so the two
+  walkers agree on it)."
   [spec]
   (cond
     (keyword? spec)     [{:target spec}]
@@ -239,15 +238,14 @@
 ;; Definition-shape validation — the SINGLE shape gate all three emitters share
 ;; ---------------------------------------------------------------------------
 ;;
-;; rf2-egupfk — the AI-generate, Mermaid, and SCXML emitters each project a
-;; machine definition onto a different surface, but they must agree on which
-;; definitions are well-formed enough to project AT ALL. Pre-fix each emitter
-;; hand-rolled its own shallow state-tree / parallel check and the copies had
-;; DRIFTED: SCXML accepted malformed parallel region bodies (regions with no
-;; `:initial` / `:states`) that AI + Mermaid rejected, and AI required a
-;; KEYWORD `:initial` per the machine contract (Spec 005 §Transition table
-;; grammar — state ids are keywords) while Mermaid + SCXML accepted any truthy
-;; `:initial`. Three copies = three chances to drift; a drift here means one
+;; The AI-generate, Mermaid, and SCXML emitters each project a machine
+;; definition onto a different surface, but they must agree on which
+;; definitions are well-formed enough to project AT ALL. A shape check
+;; hand-rolled per emitter would drift — one copy accepting malformed parallel
+;; region bodies (regions with no `:initial` / `:states`) that another
+;; rejects, or accepting any truthy `:initial` where the machine contract
+;; (Spec 005 §Transition table grammar — state ids are keywords) wants a
+;; KEYWORD. Three copies = three chances to drift; a drift here means one
 ;; emitter renders a spec the others reject (or vice-versa), and the three
 ;; diagrams disagree on what the same input even IS.
 ;;
@@ -255,12 +253,12 @@
 ;; then routes its shape check + value-free error summary through here, keeping
 ;; only its surface-specific error id / message. The STRICT reading wins — the
 ;; machine contract wants a keyword `:initial` and well-formed parallel regions
-;; — so unifying tightens the lax emitters (SCXML) rather than loosening the
-;; strict one (AI).
+;; — so every emitter applies the strict check.
 ;;
 ;; Kept LOCAL to machines-viz (bundle-isolated tooling): these do NOT depend on
-;; the runtime `machines` grammar (`re-frame.machines.validate`), they re-state
-;; the minimum projectable shape the emitters need.
+;; the runtime `machines` validator
+;; (`re-frame.machines.lifecycle-fx.validation`), they re-state the projectable
+;; shape the emitters need.
 
 (defn parallel-definition?
   "True when `definition` is a `:type :parallel` root (Spec 005 §Parallel
@@ -273,34 +271,32 @@
 
 (defn valid-definition?
   "True when `definition` is a machine shape every emitter can project —
-  RECURSIVELY (rf2-j538f7.18). Delegates to `definition-defect`: a definition
-  is valid iff it carries no structural projectability defect.
+  RECURSIVELY. Delegates to `definition-defect`: a definition is valid iff it
+  carries no structural projectability defect.
 
-  This is NO LONGER a shallow minimum-shape check. Pre-fix it validated only
-  the ROOT (or parallel-region roots) as a shallow minimum-shape state tree
-  (a keyword `:initial` + a non-empty `:states` map), so it blessed
-  structurally-invalid-but-shallowly-ok definitions — a nested compound
-  missing `:initial`, a dangling transition target, an unknown bare node key —
-  and every boundary that delegates here (share encode/decode, AI generation,
-  Mermaid, SCXML, the chart projector) inherited the same false positive. It
-  now walks root, parallel regions and every compound descendant, mirroring the
+  It walks root, parallel regions and every compound descendant, mirroring the
   runtime `re-frame.machines.lifecycle-fx.validation/validate-machine!` for the
-  projectable structural invariants. See `definition-defect` for the full
-  contract + the documented viz-vs-engine divergences."
+  projectable structural invariants. A check of only the ROOT (or
+  parallel-region roots) — a keyword `:initial` + a non-empty `:states` map —
+  would bless structurally-invalid-but-shallowly-ok definitions — a nested
+  compound missing `:initial`, a dangling transition target, an unknown bare
+  node key — and every boundary that delegates here (share encode/decode, AI
+  generation, Mermaid, SCXML, the chart projector) would inherit the same false
+  positive. See `definition-defect` for the full contract + the documented
+  viz-vs-engine divergences."
   [definition]
   (nil? (definition-defect definition)))
 
 (def summary-type-vocabulary
   "The CLOSED `:type` vocabulary `definition-summary` may emit — deliberately
   the set `re-frame.error/diag-value-summary` and
-  `machines-viz.share/value-free-summary` already share (rf2-210uq /
-  rf2-m46qv), so a tool reading a thrown `ex-data` from any of the three reads
+  `machines-viz.share/value-free-summary` already share, so a tool reading a thrown `ex-data` from any of the three reads
   ONE diagnostic vocabulary."
   #{:map :vector :seq :set :keyword :symbol :string :number :boolean :nil
     :fn :scalar})
 
 (defn- defect-summary
-  "The value-free projection of a `definition-defect` (rf2-oztox).
+  "The value-free projection of a `definition-defect`.
 
   `definition-defect` is the diagnostic for a caller that ALREADY HOLDS the
   definition, so it names the offending material directly: a `:path` of state
@@ -328,7 +324,7 @@
       (seq offending) (assoc :key-count (count offending)))))
 
 (defn definition-summary
-  "EP-0015 / Spec 015 §exception-path residual (rf2-8nzxib) — a value-FREE
+  "EP-0015 / Spec 015 §exception-path residual — a value-FREE
   structural diagnostic for a rejected `definition`. The single summary the
   three emitters, the share boundary and the chart projector share so their
   rejection diagnostics agree (each stashes it under its own surface-specific
@@ -343,7 +339,7 @@
      :region-count <int>   ;; map with a map `:regions`
      :defect       <`defect-summary`>}  ;; when the definition is rejected
 
-  **Content-free BY CONSTRUCTION (rf2-oztox).** Every value this can carry is
+  **Content-free BY CONSTRUCTION.** Every value this can carry is
   a member of a closed vocabulary, an integer, or a boolean, so no expression
   in the output is derived from the input's CONTENT and the serialized summary
   is a fixed size whatever arrives. That is a structural guarantee rather than
@@ -353,29 +349,27 @@
   `:definition` through `valid-definition?`), from an LLM response
   (`ai_generate`), and from SCXML / Mermaid input.
 
-  IT DID NOT HOLD BEFORE, on the two legs rf2-210uq removed from
-  `re-frame.error/diag-value-summary` and rf2-m46qv removed from
-  `share/value-free-summary`, reproduced here a third time:
+  So it carries neither of the two legs `re-frame.error/diag-value-summary`
+  and `share/value-free-summary` also leave out:
 
-  - `:keys` — every top-level key of the rejected definition, uncapped and
-    unsanitised, riding into an ex-info that names itself value-free. A
-    forged definition's key set is attacker-chosen in content (keys carry
-    markup, control characters and secrets as readily as values do) and in
-    size, so the summary grew with the forger's input without limit. Removing
-    it also removes the `(sort-by str (keys definition))` that ran `str` over
-    caller-supplied keys, where a key whose `toString` THREW replaced the
-    documented failure with its own exception.
-  - the `:else {:type :value}` tag, outside the closed vocabulary the other
-    two summarisers now share.
+  - `:keys` — every top-level key of the rejected definition. A forged
+    definition's key set is attacker-chosen in content (keys carry markup,
+    control characters and secrets as readily as values do) and in size, so
+    reporting it would grow the summary with the forger's input without limit
+    inside an ex-info that names itself value-free. Ordering the keys would
+    also run `str` over caller-supplied keys, where a key whose `toString`
+    THROWS replaces the documented failure with its own exception.
+  - an `:else {:type :value}` tag, outside the closed vocabulary the three
+    summarisers share.
 
-  SIZE AND SHAPE ARE DELIBERATELY KEPT. `:count` / `:state-count` /
+  SIZE AND SHAPE ARE DELIBERATELY REPORTED. `:count` / `:state-count` /
   `:region-count` / `:parallel` are what make the summary useful rather than
   merely safe — \"a 2000-key map where a machine definition was expected\", \"a
   parallel root with 3 regions\" is the diagnosis — and none of them can carry
   a fragment of a token. A lazy seq is NOT counted: realising it on the
   failure path is its own hazard.
 
-  rf2-j538f7.18 — a rejected definition also carries `:defect`, whose
+  A rejected definition also carries `:defect`, whose
   `:category` is the engine's canonical `:rf.error/machine-*` id, so every
   surface that stashes this summary reports the CANONICAL defect while keeping
   its own surface-specific error id. See `defect-summary` for why it is a
@@ -414,7 +408,7 @@
     []))
 
 (defn history-node?
-  "rf2-m285a — true when a node under a compound's `:states` is a
+  "True when a node under a compound's `:states` is a
   `:type :history` PSEUDO-STATE (Spec 005 §History states), not an
   ordinary occupiable substate. A history pseudo-state is NEVER active: a
   transition *to* it resolves to the compound's recorded / default leaf
@@ -449,7 +443,7 @@
        (true? (:reenter? candidate))))
 
 (defn normalise-root-targets
-  "rf2-3v3gv1 / rf2-656ivk / rf2-m3otj2 — normalise a PARALLEL-ROOT `:on` /
+  "Normalise a PARALLEL-ROOT `:on` /
   `:after` candidate's `:target` into a vector of region-qualified absolute
   targets `[[<region> & <in-region-path>] …]`, mirroring the runtime resolver
   (`re-frame.machines.parallel/normalise-root-targets`) so the projected /
@@ -479,17 +473,17 @@
     :else                                []))
 
 ;; ---------------------------------------------------------------------------
-;; RECURSIVE projectability validation — rf2-j538f7.18
+;; RECURSIVE projectability validation
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `valid-definition?` / `definition-defect` recursively enforce the
 ;; runtime-relevant STRUCTURAL PROJECTABILITY contract, so every ingestion /
 ;; export boundary that delegates here (share encode/decode, AI generation,
 ;; Mermaid, SCXML, and the chart projector) gives the SAME accept/reject answer
-;; the runtime machine contract would — no longer the pre-fix SHALLOW
-;; minimum-shape check that blessed structurally-invalid-but-shallowly-ok
-;; definitions (nested compounds missing `:initial`, dangling transition
-;; targets, unknown bare node keys, …).
+;; the runtime machine contract would — where a SHALLOW minimum-shape check
+;; would bless structurally-invalid-but-shallowly-ok definitions (nested
+;; compounds missing `:initial`, dangling transition targets, unknown bare node
+;; keys, …).
 ;;
 ;; The walker MIRRORS
 ;; `re-frame.machines.lifecycle-fx.validation/validate-machine!` for the
@@ -561,8 +555,9 @@
 
 (def ^:private known-spawn-spec-keys
   "Closed BARE key vocabulary a single `:spawn` spec may declare — mirror of the
-  engine's `validation/known-spawn-spec-keys` (the retired `:timeout-ms` slot is
-  excluded from the unknown-key scan so it never surfaces as an unknown key)."
+  engine's `validation/known-spawn-spec-keys` (the unsupported `:timeout-ms`
+  slot is excluded from the unknown-key scan so it never surfaces as an unknown
+  key)."
   #{:machine-id :definition :data :id-prefix :on-done :on-error
     :start :fixed-actor-id :timeout :on-timeout
     :id :source-coords :source-code})
@@ -648,14 +643,13 @@
   "The BARE keys of `m` not in `known` (a namespaced key is the open extension
   carve-out and never flagged).
 
-  TOTAL over any key a forged definition can carry (rf2-oztox). The carve-out
-  used to be a bare `(remove #(namespace %))`, and `namespace` THROWS on a key
-  that is not `Named` — so `{:initial :a :states {:a {}} \"x\" 1}`, which a
-  transit-decoded share payload carries as readily as a keyword-keyed one, threw
-  a host `ClassCastException` out of `definition-defect`, and therefore out of
+  TOTAL over any key a forged definition can carry. `namespace` THROWS on a key
+  that is not `Named`, so a bare `(remove #(namespace %))` carve-out would
+  throw a host `ClassCastException` on `{:initial :a :states {:a {}} \"x\" 1}`
+  — which a transit-decoded share payload carries as readily as a
+  keyword-keyed one — out of `definition-defect`, and therefore out of
   `valid-definition?`, in place of the documented `:invalid-chart-state` /
-  `:invalid-definition` rejection every boundary here promises. That is the
-  rf2-210uq path-5 shape one level below the one the bead named: a hostile key
+  `:invalid-definition` rejection every boundary here promises: a hostile key
   destroying the failure it was supposed to produce.
 
   Testing `Named`-ness first also makes the answer the RIGHT one rather than
@@ -715,9 +709,9 @@
           {:category :rf.error/machine-spawn-bad-shape :path (vec path)}
           (seq offending)
           {:category :rf.error/machine-unknown-spawn-key :path (vec path) :keys offending}
-          ;; rf2-0oy7d — an inline `:definition` needs an ADDRESS: `:id-prefix`
+          ;; An inline `:definition` needs an ADDRESS: `:id-prefix`
           ;; or `:fixed-actor-id`. Mirror of the engine's
-          ;; `validation/inline-spawn-address-error` (rf2-j1ykz): only a
+          ;; `validation/inline-spawn-address-error`: only a
           ;; `:machine-id` spawn defaults its prefix, so an unaddressed inline
           ;; spawn is refused at registration, after the unknown-key scan.
           (and has-def? (not (or (:id-prefix spec) (:fixed-actor-id spec))))
@@ -762,8 +756,8 @@
     {:category :rf.error/machine-bad-target :path (vec path) :slot slot}))
 
 (defn- transition-slot-shape-defect
-  "The SHARED transition-SLOT shape rule (rf2-qgtcvy node scope / rf2-bj3sxo
-  root scopes). A fallback-transition `:on` / `:after` slot present on `node`
+  "The SHARED transition-SLOT shape rule, for the node scope and the root
+  scopes. A fallback-transition `:on` / `:after` slot present on `node`
   at `path` must be a MAP of clause → spec. A non-map (e.g. `{:on :retry}`
   from an LLM) would throw an uncaught ISeq exception the moment it is
   iterated, instead of the clean `:invalid-definition` the emit paths promise.
@@ -773,8 +767,8 @@
   Deliberately shared by EVERY scope that consumes the `:on` / `:after`
   fallback grammar — compound state node (`transition-target-defect`), flat
   root, region root, and parallel root (`flat-defect` / `region-defect` /
-  `parallel-defect`) — so the four scopes cannot drift and one path cannot
-  reintroduce an unchecked iteration (rf2-bj3sxo)."
+  `parallel-defect`) — so the four scopes cannot drift and no path iterates an
+  unchecked slot."
   [path node]
   (or (when (and (contains? node :on) (not (map? (:on node))))
         {:category :rf.error/machine-bad-on-clause :path (vec path)})
@@ -879,8 +873,7 @@
   `[]`) target resolution — mirror of the engine's root `:on` branch in
   `validate-transition-targets!`. Assumes `:on` is a MAP: its shape is
   guarded upstream in `flat-defect` by `transition-slot-shape-defect`, so a
-  malformed non-map root `:on` is rejected cleanly BEFORE this iterates it
-  (rf2-bj3sxo)."
+  malformed non-map root `:on` is rejected cleanly BEFORE this iterates it."
   [scope d]
   (some (fn [[_ v]]
           (some (fn [{:keys [present? target]}]
@@ -898,10 +891,10 @@
     (let [scope (:states d)]
       (or (node-keys-defect [] d true)
           (tags-defect [] d)
-          ;; rf2-bj3sxo — the flat ROOT's own `:on` / `:after` fallback slot
+          ;; The flat ROOT's own `:on` / `:after` fallback slot
           ;; is validated for shape with the SAME rule as a state node's,
           ;; BEFORE `root-on-target-defect` iterates it. A malformed root
-          ;; `:on` (`{… :on :retry}`) now returns the clean
+          ;; `:on` (`{… :on :retry}`) returns the clean
           ;; `machine-bad-on-clause` defect instead of throwing an ISeq
           ;; exception out of `valid-definition?` / the emit paths.
           (transition-slot-shape-defect [] d)
@@ -925,7 +918,7 @@
     (let [scope (:states body)]
       (or (node-keys-defect [region-name] body false)
           (tags-defect [region-name] body)
-          ;; rf2-bj3sxo — the region ROOT's own `:on` / `:after` ancestor
+          ;; The region ROOT's own `:on` / `:after` ancestor
           ;; fallback slot gets the same shape guard as every other scope.
           (transition-slot-shape-defect [region-name] body)
           (some (fn [[path node]]
@@ -944,7 +937,7 @@
       {:category :rf.error/machine-parallel-bad-shape :path []}
       :else
       (or (node-keys-defect [] d true)
-          ;; rf2-bj3sxo — the parallel ROOT's own `:on` / `:after` ancestor
+          ;; The parallel ROOT's own `:on` / `:after` ancestor
           ;; fallback slot gets the same shape guard as every other scope.
           (transition-slot-shape-defect [] d)
           (some (fn [[region-name body]] (region-defect region-name body)) regions)))))
@@ -1002,7 +995,7 @@
   inputs always yield distinct outputs.
 
   The naive `str/replace #\"[^a-zA-Z0-9_]\" \"_\"` collapses `:a/b`,
-  `:a-b`, `:a_b` all to `\"a_b\"` (rf2-ee38b.21 P2 / rf2-mnp93.1/.6): a
+  `:a-b`, `:a_b` all to `\"a_b\"`: a
   collision drops one node + makes every edge addressing either ambiguous.
   Hyphens are pervasive in re-frame keywords (`:logged-in`,
   `:rate-limited`), so the collision is reachable.
@@ -1014,9 +1007,9 @@
     - `> U+00FF`  → `_u<4-hex>` (CJK, emoji surrogate halves, …)
 
   Both forms are fixed-width, so the codec is REVERSIBLE across the whole
-  code-unit range and no two distinct inputs share an encoding (rf2-qgtcvy:
-  the pre-fix `_<var-hex>` was neither self-delimiting nor reversible above
-  0xFF — `:开始` mis-decoded and `đ` collided with `\\u0011`+`\"1\"`). The `u`
+  code-unit range and no two distinct inputs share an encoding (a
+  variable-width `_<var-hex>` would be neither self-delimiting nor reversible
+  above 0xFF — `:开始` would mis-decode and `đ` would collide with `\\u0011`+`\"1\"`). The `u`
   sentinel (not a hex digit) keeps the two widths unambiguous: `_2f` is
   always a 2-hex escape, `_u5f00` always a 4-hex one, so `_2f00` reads as
   `/`+`00`, never as one wide escape.
