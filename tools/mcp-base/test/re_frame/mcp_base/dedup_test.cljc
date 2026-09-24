@@ -1,8 +1,8 @@
 (ns re-frame.mcp-base.dedup-test
   "Canonical cross-host tests for the shared wire-boundary dedup encode
   step. This is the ONE suite that pins dedup behaviour — both MCP
-  servers now require `re-frame.mcp-base.dedup` DIRECTLY (no pass-through
-  facade), so the behaviour is asserted here once rather than duplicated
+  servers require `re-frame.mcp-base.dedup` DIRECTLY (there is no
+  pass-through facade), so the behaviour is asserted here once rather than duplicated
   in each consumer's suite.
 
   `.cljc` so it runs on BOTH hosts: the JVM `:test` alias
@@ -16,8 +16,8 @@
   short-circuit, the `no-substitutions?` cache-shape guard, the
   cross-MCP wrap shape, the opt-out — and round-trip exactness via
   `rf.mcp-base.dedup/expand`, the inverse an agent-side Clojure consumer calls. The
-  codec itself was vendored from `day8/de-dupe` v0.3.0 under rf2-2ii52;
-  this is the canonical suite that pins it."
+  codec itself is vendored from `day8/de-dupe` v0.3.0; this is the
+  canonical suite that pins it."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
             [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
@@ -130,18 +130,17 @@
         "equality-shared subtrees round-trip through the wrap")))
 
 ;; ---------------------------------------------------------------------------
-;; The vendored codec's own contract (rf2-2ii52). Before the absorb these
-;; lived upstream in day8/de-dupe; the wire shape and the cache-id allocation
-;; are re-frame2's to pin now that the code is.
+;; The vendored codec's own contract. The wire shape and the cache-id
+;; allocation are re-frame2's to pin, because the code is.
 ;; ---------------------------------------------------------------------------
 
 (deftest cache-keys-are-de-dupe-cache-namespaced-symbols
   ;; A WIRE pin, not an implementation detail. The Node conformance decoder
   ;; (tools/mcp-conformance/lib/dedup-envelope.cjs) hard-codes
   ;; `de-dupe.cache/cache-0` as the root it starts reconstruction from, and
-  ;; the wire-vocab DedupTable schema rejects a cache without it. Absorbing
-  ;; the codec deliberately did NOT rename the namespace; this is the test
-  ;; that makes renaming it a red build rather than a silent wire break.
+  ;; the wire-vocab DedupTable schema rejects a cache without it. The
+  ;; namespace is deliberately upstream's; this is the test that makes
+  ;; renaming it a red build rather than a silent wire break.
   (is (= "de-dupe.cache" rf.mcp-base.dedup/cache-element-ns))
   (is (= 'de-dupe.cache/cache-0 (rf.mcp-base.dedup/make-cache-element 0)))
   (let [shared {:big [:repeated :subtree]}
@@ -153,12 +152,12 @@
         "every slot is keyed by a de-dupe.cache/cache-N SYMBOL")))
 
 (deftest cache-ids-are-allocated-per-call-not-globally
-  ;; The defect the absorb fixed. Upstream the id counter was a
-  ;; namespace-global atom that each call `reset!` to 1, so two encodes in
-  ;; flight at once could interleave one call's reset with the other's
-  ;; allocation and hand out the same `cache-N` twice inside one cache. The
-  ;; counter is now call-local: the same input must produce the same slot
-  ;; ids no matter what else has been encoded.
+  ;; Upstream's id counter is a namespace-global atom that each call
+  ;; `reset!`s to 1, so two encodes in flight at once can interleave one
+  ;; call's reset with the other's allocation and hand out the same
+  ;; `cache-N` twice inside one cache. Here the counter is call-local: the
+  ;; same input must produce the same slot ids no matter what else has
+  ;; been encoded.
   (let [shared {:big [:repeated :subtree]}
         v      [shared shared]
         first-cache (rf.mcp-base.dedup/de-dupe-eq v)]
@@ -184,12 +183,12 @@
            "32 concurrent encodes each round-trip to their own payload"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-kjv05 — a payload value that OCCUPIES the reference namespace is data.
+;; A payload value that OCCUPIES the reference namespace is data.
 ;;
-;; The decoder used to classify every symbol namespaced `de-dupe.cache` as a
-;; reference to a cache slot, so an ordinary payload symbol was aliased to
+;; A decoder that classified every symbol namespaced `de-dupe.cache` as a
+;; reference to a cache slot would alias an ordinary payload symbol to
 ;; whatever that slot held: nil when the slot was absent, somebody else's
-;; subtree when it was not. `expand` therefore was not the exact inverse the
+;; subtree when it was not. `expand` would then not be the exact inverse the
 ;; codec promises, for payloads a re-frame app can legitimately hold. Every
 ;; test below is forced through a REAL wrap by an unrelated repeated subtree —
 ;; the collision is not itself a dedup opportunity, so without that control
@@ -277,18 +276,18 @@
     (is (= "de-dupe.cache/not-a-ref" (:plain back)))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-kjv05, second cut — the KEYWORD arm.
+;; The KEYWORD arm.
 ;;
-;; The first cut escaped symbols and strings, and stopped there. That left the
-;; Clojure round-trip exact and the JSON projection still corrupt, which is the
-;; hardest version of this bug to see: a keyword is not a symbol, so
-;; `cache-element?` never aliased it and every JVM/CLJS assertion passed — but
-;; Cheshire renders `:de-dupe.cache/cache-1` as the string
-;; "de-dupe.cache/cache-1", the identical spelling a real reference arrives
-;; under, so the Node decoder read the payload keyword as a slot reference and
-;; handed the agent the cached subtree instead. A keyword is the ORDINARY
-;; spelling of both a value and a map key in re-frame app-db data, so this was
-;; the likeliest of the three collisions to be hit in practice.
+;; Escaping symbols and strings alone would leave the Clojure round-trip exact
+;; and the JSON projection corrupt, which is the hardest version of this bug to
+;; see: a keyword is not a symbol, so `cache-element?` never aliases it and
+;; every JVM/CLJS assertion passes — but Cheshire renders
+;; `:de-dupe.cache/cache-1` as the string "de-dupe.cache/cache-1", the
+;; identical spelling a real reference arrives under, so the Node decoder
+;; would read an unescaped payload keyword as a slot reference and hand the
+;; agent the cached subtree instead. A keyword is the ORDINARY spelling of both
+;; a value and a map key in re-frame app-db data, so this is the likeliest of
+;; the three collisions to be hit in practice.
 ;;
 ;; These tests pin the wire spelling, because that is the seam: the JVM/CLJS
 ;; round-trip alone cannot see the defect. Their Node counterparts consume the
@@ -318,8 +317,8 @@
 (deftest colliding-payload-keywords-are-escaped-on-the-wire
   ;; The spelling the JSON projection depends on. Pinned as its own assertion
   ;; rather than inferred from the round-trip above, because the round-trip
-  ;; passed for keywords BEFORE this was fixed — the Clojure decoder never
-  ;; aliased a keyword. Only the wire spelling distinguishes the two states.
+  ;; passes for UNESCAPED keywords too — the Clojure decoder never aliases a
+  ;; keyword. Only the wire spelling distinguishes the two states.
   (let [shared  {:big [:repeat :me]}
         payload {:look-alike :de-dupe.cache/cache-1
                  :literal    :de-dupe.cache/not-a-ref
@@ -337,8 +336,8 @@
 (deftest colliding-payload-keywords-are-escaped-in-map-KEY-position-too
   ;; A keyword's commonest position in re-frame data is as a map key, and both
   ;; decoders route keys through the same value walk — so an unescaped
-  ;; look-alike KEY resolved to a cached subtree and the entry became
-  ;; unreachable under its own name.
+  ;; look-alike KEY would resolve to a cached subtree and the entry would
+  ;; become unreachable under its own name.
   (let [shared  {:big [:repeat :me]}
         payload {:de-dupe.cache/cache-1 "keyed"
                  :a                     shared
@@ -423,12 +422,12 @@
         "no repeats ⇒ verbatim passthrough, escaping and all")))
 
 (deftest expand-round-trips-every-collection-kind
-  ;; The codec's structure-preserving guarantee, now ours to keep: lists,
+  ;; The codec's structure-preserving guarantee: lists,
   ;; seqs, sets, nested maps and map entries all rebuild as themselves.
   ;; The name says EVERY kind, so the sorted pair rides along — they are
   ;; the two core collections the walk cannot rebuild as themselves (see
   ;; `sorted-map-with-a-pooled-key-…` below), and a suite that named them
-  ;; and then skipped them is how this class stayed unseen.
+  ;; and then skipped them would leave this class unseen.
   (let [shared {:s #{:a :b} :v [1 2 3]}
         v      {:list   (list shared shared)
                 :seq    (map identity [shared shared])
@@ -442,7 +441,7 @@
     (is (set? (:set out))   "a set rebuilds as a set")
     ;; Sortedness is DELIBERATELY not carried: the cache is EDN/JSON, where
     ;; a sorted map reads back unsorted anyway, and holding the comparator
-    ;; is what made a pooled key throw. Clojure equality is exact either way.
+    ;; would make a pooled key throw. Clojure equality is exact either way.
     (is (and (map? (:sorted out)) (not (sorted? (:sorted out))))
         "a sorted map rebuilds as an unsorted map")
     (is (and (set? (:s-set out)) (not (sorted? (:s-set out))))
@@ -454,7 +453,7 @@
 ;; `de-dupe.cache/cache-N` SYMBOL. Rebuild a sorted collection through its
 ;; own comparator and that symbol is handed to a comparator chosen for the
 ;; data — `compare` on a Symbol and an IPersistentVector throws. Dedup is
-;; DEFAULT-ON, so this turned ordinary persistent app-db state into a
+;; DEFAULT-ON, so that would turn ordinary persistent app-db state into a
 ;; boundary failure rather than a read.
 
 (deftest sorted-map-with-a-pooled-key-beside-an-unpooled-one-round-trips
@@ -494,12 +493,12 @@
     (is (= payload (rf.mcp-base.dedup/expand cache))
         "expand is equal to the input")))
 
-;; ---- Caller metadata is not encoder bookkeeping (rf2-gwye.30) ---------------
+;; ---- Caller metadata is not encoder bookkeeping -----------------------------
 ;;
-;; The encoder used to tell a first-sighted pooled subtree apart by tagging it
-;; with `:cache-id` METADATA — and then trusted that key on ANY subtree, so a
-;; unique map carrying the caller's own `:cache-id` was replaced by the
-;; caller's value, and that value became a slot key outside the allocator's
+;; An encoder that told a first-sighted pooled subtree apart by tagging it
+;; with `:cache-id` METADATA — and then trusted that key on ANY subtree —
+;; would replace a unique map carrying the caller's own `:cache-id` by the
+;; caller's value, and make that value a slot key outside the allocator's
 ;; grammar. Metadata is not wire data; it must not move the output at all.
 
 (defn- allocator-keys?
@@ -533,12 +532,13 @@
         "every slot key is the allocator's — no caller metadata value became one")
     (is (= payload (rf.mcp-base.dedup/expand cache)))))
 
-;; ---- Record extension keys are REPLACED, not added beside (rf2-gwye.31) ----
+;; ---- Record extension keys are REPLACED, not added beside ------------------
 ;;
-;; Both walks rebuilt a record by conj-ing each transformed entry back into the
-;; ORIGINAL record. A fixed field's key never changes, but an extension key can
-;; — escaped on the way out, unescaped on the way back, or replaced by a slot
-;; reference — and conj kept the old spelling beside the new one.
+;; A record has no `empty`, so both walks write its rebuilt entries back into
+;; the ORIGINAL record. A fixed field's key never changes, but an extension key
+;; can — escaped on the way out, unescaped on the way back, or replaced by a
+;; slot reference — and a plain conj would keep the old spelling beside the
+;; new one.
 
 (defrecord KeyedRecord [x])
 
@@ -583,11 +583,11 @@
             "the same entries in an ordinary map round-trip"))
       (is (identical? payload (rf.mcp-base.dedup/dedup-value payload false))))))
 
-;; ---- Lists and vectors are different EDN (rf2-gwye.32) ----------------------
+;; ---- Lists and vectors are different EDN ------------------------------------
 ;;
-;; `(= '(1 2 3) [1 2 3])` and their hashes agree, so pooling by `=` alone put
-;; a list and a vector in ONE slot and both came back as whichever was seen
-;; first. The wire prints them differently, so pooling must not merge them —
+;; `(= '(1 2 3) [1 2 3])` and their hashes agree, so pooling by `=` alone
+;; would put a list and a vector in ONE slot and both would come back as
+;; whichever was seen first. The wire prints them differently, so pooling must not merge them —
 ;; at any depth, including inside containers that are otherwise equal.
 
 (deftest equal-lists-and-vectors-keep-their-kind
