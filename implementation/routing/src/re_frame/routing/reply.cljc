@@ -12,7 +12,7 @@
   nav-token}`, validated against the live `[:rf.runtime/routing :current
   :nav-token]` before the app reply target runs. The PUBLIC routing API
   (the `:rf.route/nav-token` cofx, `:rf.route/with-nav-token`, `:on-match` /
-  loaders) is unchanged; this is internal lowering only.
+  loaders) does not expose it; this is internal lowering only.
 
   Two concerns, both consuming the shared `re-frame.reply` substrate:
 
@@ -106,10 +106,10 @@
   so its app reply MUST be suppressed. Delegates to the shared
   `re-frame.reply/stale?` over the `:route/nav-token` gate — the route
   family does NOT re-implement the comparison; this is identity-equal to
-  the original `(= carried current)` check, just expressed as the shared
+  a plain `(= carried current)` check, expressed as the shared
   gate. A nil captured token under a live navigation is suppressed (the
-  present gate `{:route/nav-token nil}` never equals the active token —
-  the regression guard for the pre-fix nil-cofx bug); a nil captured
+  gate `{:route/nav-token nil}` never equals the active token, so a
+  completion that captured no token cannot deliver into it); a nil captured
   token against a nil current (no live navigation) matches."
   [carried-nav-token current-nav-token]
   (rf.reply/stale? (gate carried-nav-token) (current-gate current-nav-token)))
@@ -173,11 +173,11 @@
   build the `:status :ok` reply map (`live-reply`) and append it to the
   target's event via the shared `re-frame.reply/complete` — the pure functor
   the EP-0011 mapping law (`complete (map-completed-event f t) == f (complete t)`) is
-  states. Returns the dispatchable completed event vector (the target
+  stated over. Returns the dispatchable completed event vector (the target
   event with the reply map appended, then the target's `::post` transform
   applied), or nil when `target` is nil (no continuation).
 
-  This is the production lowering the route wrapper drives on the live branch
+  This is the production lowering the route wrapper drives on the live branch.
   The route surface normalizes and completes a `:rf/reply-to`
   target through the shared substrate, rather than running an ad-hoc `:do` fx
   entry that never touches the reply envelope."
@@ -212,7 +212,7 @@
                    to :rf.reply/work-id>}
 
   The trace facts are joined to `:rf.reply/work-id` per the Route-Loader-Completion
-  contract; the caller maps them onto the existing `:rf.route.nav-token/
+  contract; the caller maps them onto the `:rf.route.nav-token/
   stale-suppressed` trace operation (carried-token / current-token /
   event-id ride alongside `:rf.reply/work-id`)."
   ([ctx current] (suppress ctx current nil))
