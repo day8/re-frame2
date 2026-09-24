@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The Fresco lint export's smoke: a consumer's copied config analyses the three macro shapes.
 
-WHY THIS EXISTS (rf2-hic-022, reduced under rf2-r3r00).  The export's whole
+WHY THIS EXISTS.  The export's whole
 job is macro-shape analysis: `defview`, `event` and `defhost` are rewritten to
 their `defn` / `fn` / `def` shapes so kondo's ordinary analysis applies.  The
 failure mode of a packaged config is SILENCE — an export off the classpath, or
@@ -18,23 +18,22 @@ row.  Pure silence would also be the output of linting nothing at all; the
 sentinel is the proof that kondo's analysis actually ran over the rewritten
 forms.
 
-NO SECOND ANALYZER.  The six custom `:re-frame.fresco/*` behavioral findings
-this gate once witnessed were retired (rf2-r3r00): behavior is the runtime's
-law, refused loudly at its execution boundary.  The gate now also asserts the
-export STAYS macro-shape-only — no `:re-frame.fresco/*` linter in config.edn,
-no `reg-finding!` in the hook — so the analyzer cannot ride back in
-unwitnessed.
+NO SECOND ANALYZER.  The export registers no behavioral `:re-frame.fresco/*`
+findings: behavior is the runtime's law, refused loudly at its execution
+boundary.  The gate also asserts the export STAYS macro-shape-only — no
+`:re-frame.fresco/*` linter in config.edn, no `reg-finding!` in the hook — so
+an analyzer cannot ride in unwitnessed.
 
 WHY A CHECKER AND NOT A `deftest` SUITE.  A JVM lane exists only via the
 artefact rosters in `scripts/test-jvm-implementation.sh`
-(`check_test_lane_bijection.py`, rf2-4hc9p), and a roster entry is only legal
-with a matching `test.yml` job (`check_jvm_lane_rosters.py`, rf2-as6bg).
+(`check_test_lane_bijection.py`), and a roster entry is only legal
+with a matching `test.yml` job (`check_jvm_lane_rosters.py`).
 `.github/workflows/` is hot-zone, so that pair is a scheduling decision, and
 the two rules are circular for anything shaped like a deftest.  A checker is
-this artefact's own idiom — `check_freeze.py` beside this file is the same
-shape, a gate over the package with a `--self-test` that proves its own red.
+this artefact's own idiom — `check_guide_samples.py` beside this file is the
+same shape, a gate over the package with a `--self-test` that proves its own red.
 
-AT THE VERSION CI PINS -- WHEN IT CAN GET IT (rf2-x1mz).  The binary is
+AT THE VERSION CI PINS -- WHEN IT CAN GET IT.  The binary is
 resolved through `scripts/lint_kondo.py`, which reads the pin off `lint.yml`
 and provisions it -- the npm distribution stops at 2025.10.23, so there is no
 other way to get it.  Where that fails (no network, an unpublished platform)
@@ -94,7 +93,7 @@ def _pinned_kondo():
     if proc.returncode != 0:
         print("NOTE: clj-kondo at lint.yml's pin is unavailable here, so this "
               "smoke runs at whatever version is on PATH. Versions disagree "
-              "about findings (rf2-x1mz), so a green below is weaker than CI's.")
+              "about findings, so a green below is weaker than CI's.")
         for line in (proc.stderr or "").splitlines():
             print("      " + line)
         return None
@@ -106,8 +105,8 @@ def _kondo_command():
 
     The binary is what `.github/workflows/lint.yml` installs, at the pin this
     gate asserts against, and it needs no JDK — which is what lets the smoke
-    run as a step of the existing `clj-kondo` job rather than waiting for a
-    JVM lane that does not exist. The artefact's `:clj-kondo` alias is the
+    run as a step of the `clj-kondo` job with no JVM lane behind it. The
+    artefact's `:clj-kondo` alias is the
     last fallback, so a developer with neither still gets the gate.
     """
     # Memoised: the self-test calls `check()` once per mutation, so resolving
@@ -132,9 +131,9 @@ def _kondo_command():
             return list(cmd)
     raise SystemExit(
         "FAIL: neither `clj-kondo` nor `clojure` is on PATH, so the Fresco "
-        "lint export gate cannot run. This is a HARD failure on purpose: it "
-        "used to SKIP green, which is a gate reporting success over a case it "
-        "never exercised -- the exact defect class it exists to catch.")
+        "lint export gate cannot run. This is a HARD failure on purpose: a "
+        "green SKIP would be a gate reporting success over a case it never "
+        "exercised -- the exact defect class it exists to catch.")
 
 
 def _kondo(paths, config_dir=EXPORT_DIR):
@@ -184,13 +183,13 @@ def check(export_dir=EXPORT_DIR):
         deps = fh.read()
     # The `:paths` VECTOR, not merely the word somewhere in the file: this
     # artefact's header comment discusses `:aliases` and `:clein/build` in
-    # prose, and a looser test read the comment instead of the form.
+    # prose, and a looser test would read the comment instead of the form.
     paths = re.search(r":paths\s*\[([^\]]*)\]", deps)
     if not paths or '"resources"' not in paths.group(1):
         failures.append("deps.edn must put \"resources\" on :paths, or the "
                         "export is not on a consumer's classpath")
 
-    # --- the export stays macro-shape-only (rf2-r3r00) --------------------
+    # --- the export stays macro-shape-only --------------------------------
     with open(os.path.join(export_dir, "config.edn"), encoding="utf-8") as fh:
         config = fh.read()
     for line in config.splitlines():
@@ -199,7 +198,7 @@ def check(export_dir=EXPORT_DIR):
             failures.append(
                 "config.edn declares a behavioral :re-frame.fresco/* linter; "
                 "the export is macro-shape analysis only, and a custom "
-                "analyzer must not ride back in unwitnessed (rf2-r3r00): %s"
+                "analyzer must not ride in unwitnessed: %s"
                 % line.strip())
     with open(os.path.join(export_dir, "hooks", "re_frame", "fresco.clj"),
               encoding="utf-8") as fh:
@@ -207,8 +206,8 @@ def check(export_dir=EXPORT_DIR):
     if "reg-finding!" in hook:
         failures.append(
             "the hook calls reg-finding!; the export is macro-shape analysis "
-            "only, and a behavioral finding must not ride back in unwitnessed "
-            "(rf2-r3r00)")
+            "only, and a behavioral finding must not ride in "
+            "unwitnessed")
 
     # --- the smoke: correct declarations, and exactly the sentinel --------
     findings = _kondo([FIXTURE], config_dir=export_dir)
@@ -241,11 +240,11 @@ def self_test():
     """Break the export one way at a time and prove the gate reds on each.
 
     A gate that has only ever been observed green is a gate nobody has tested.
-    The first three cases are the acceptance's negative control (rf2-r3r00):
-    each of the three rewrites made unavailable in turn must red the smoke.
+    The first three cases are the negative control: each of the three
+    rewrites made unavailable in turn must red the smoke.
     """
     # AND A GATE NOBODY HAS TESTED IS ALSO WHAT THIS BECOMES UNDER `python -O`
-    # (rf2-uyhh) — or `PYTHONOPTIMIZE` in the environment, which needs no flag
+    # — or `PYTHONOPTIMIZE` in the environment, which needs no flag
     # at the call site. Either strips every `assert`, leaving a function that
     # runs to its success line having verified nothing: a control failing
     # GREEN, the one direction that never announces itself. The check is
@@ -281,7 +280,7 @@ def self_test():
         ("a silent fixture reds", FIXTURE,
          "[:p shown])", "[:p shown unread])",
          "sentinel"),
-        # The floor: a behavioral linter riding back into the shipped config
+        # The floor: a behavioral linter riding into the shipped config
         # reds without needing a fixture to witness it.
         ("a behavioral linter riding back in reds", CONFIG_FILE,
          "{;; `re-frame.fresco.native`",
