@@ -95,7 +95,7 @@
   (let [patches [[[:a :b :c :d :e :leaf1] :assoc 1]
                  [[:a :B :C :D :E :leaf2] :assoc 2]]]
     (is (= 1 (count (rf.mcp-base.section-grouping/group-patches-into-sections patches {:max-coalesce-depth 10})))
-        "raising the budget admits the previously-rejected coalescence")))
+        "raising the budget admits the coalescence the default budget rejects")))
 
 ;; ---------------------------------------------------------------------------
 ;; Worked examples — the three Xray cluster cases recast over patches.
@@ -278,13 +278,13 @@
   ;; out of the documented ascending order. This test asserts the
   ;; FINAL output is always ascending by `(pr-str :section-path)` —
   ;; the §Ordering contract in `spec/section-grouping.md` — not merely
-  ;; stable across input-order permutations (the older test above).
-  (testing "bead repro: [:cart] (narrowed ancestor) vs [:cart-summary] (untouched sibling)"
+  ;; stable across input-order permutations (the order-stability test above).
+  (testing "[:cart] (narrowed ancestor) vs [:cart-summary] (untouched sibling)"
     ;; {:cart {:qty 1} :cart-summary old} -> {:cart {:qty 5} :cart-summary new}.
     ;; [:cart :qty] promotes (singleton, depth > 1) to the [:cart]
     ;; ancestor; [:cart-summary] is an untouched top-level singleton.
     ;; Sorted by full path pre-coalescing, [:cart ...] < [:cart-summary]
-    ;; (matching keyword order) — the walk-order-only bug preserved
+    ;; (matching keyword order) — a walk-order-only sort would preserve
     ;; that ordering into the output. But post-promotion the KEYS
     ;; being compared are [:cart] vs [:cart-summary], and
     ;; `(pr-str [:cart])` = "[:cart]" > `(pr-str [:cart-summary])` =
