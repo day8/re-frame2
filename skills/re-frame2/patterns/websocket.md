@@ -22,7 +22,7 @@ SSE (`EventSource`) and WebRTC peer connections share the same lifecycle shape �
 | `:spawn` (declarative spawn) | `:active` invokes a `:websocket/socket` child owning the JS `WebSocket`. Exiting `:active` destroys it; re-entering spawns a fresh one. |
 | `:after` (fn-form delay) | Exponential backoff timer in `:reconnecting`, computed at entry from `:retries` and `:base-ms`. |
 | `:always` | Max-retries guard on `:reconnecting` entry; queue-flush guard on `:connected` entry. |
-| Parent-level `:on` | `:ws/closed`, `:ws/fatal`, `:ws/disconnect`, `:ws/send`, `:ws/rotate-cred` declared once on `:active`, inherited by every leaf. The first three are the doors *out*: each destroys the socket actor, so each settles `:in-flight` on the way out. |
+| Parent-level `:on` | `:ws/closed`, `:ws/fatal`, `:ws/disconnect`, `:ws/send`, `:ws/subscribe`, `:ws/rotate-cred` declared once on `:active`, inherited by every leaf. The first three are the doors *out*: each destroys the socket actor, so each settles `:in-flight` on the way out. `:reconnecting` and `:failed` are siblings of `:active`, not leaves, so they inherit none of it and carry their own. |
 | Connection-epoch staleness check | Live socket-actor's `:rf/self-id` is the epoch. Replies carry `:source-socket-id`; `:current-socket?` guard rejects events from a torn-down prior socket. |
 
 ## Credential discipline (load-bearing — read before the snippet)
@@ -103,8 +103,12 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
            (valid-inbound-frame? body)))}
 
    :actions
-   {:record-connection-opts (fn [{data :data [_ {:keys [url cred-ref]}] :event}]
-                              {:data (assoc data :url url :cred-ref cred-ref)})
+   {;; EVERY manual :ws/connect runs this, out of :disconnected too: a clean
+    ;; :ws/disconnect mid-reconnect leaves :retries spent, so the connect is
+    ;; what hands the user a full budget again.
+    :record-and-reset (fn [{data :data [_ {:keys [url cred-ref]}] :event}]
+                        {:data (assoc data :url url :cred-ref cred-ref :retries 0)})
+    :reset-retries   (fn [{data :data}] {:data (assoc data :retries 0)})
     :rotate-cred     (fn [{data :data [_ new-cred-ref] :event}]
                        {:data (assoc data :cred-ref new-cred-ref)})
     ;; Three doors out of :active, one shared in-flight settlement. The drop
@@ -126,6 +130,12 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
                                :fx (mapv (fn [m] [:dispatch [(socket-id data) [:send m]]])
                                          (:queue data))})
     :enqueue-message (fn [{data :data [_ m] :event}] {:data (update data :queue conj m)})
+    ;; A subscribe is RECORDED everywhere, and sent too only on :connected;
+    ;; :on-connected re-issues every recorded topic on the next connect.
+    :record-subscription   (fn [{data :data [_ t] :event}] {:data (update data :subscriptions conj t)})
+    :register-subscription (fn [{data :data [_ t] :event}]
+                             {:data (update data :subscriptions conj t)
+                              :fx   [[:dispatch [(socket-id data) [:send {:type :subscribe :topic t}]]]]})
     ;; Handshake on :authenticating entry. NO token in the payload — the actor
     ;; resolved the bearer from :cred-ref host-side and puts it on the wire itself.
     :send-auth (fn [{data :data}] {:fx [[:dispatch [(socket-id data) [:send {:type :auth}]]]]})
@@ -149,9 +159,15 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
     :refuse-frame (fn [{[_ {:keys [body]}] :event}] {:fx [[:dispatch [:ws/handle-message body]]]})}
 
    :states
-   {:disconnected
-    {:on {:ws/connect {:target [:active] :action :record-connection-opts}
-          :ws/send    {:action :enqueue-message}}}
+   {;; :disconnected, :reconnecting and :failed each carry their own :ws/send
+    ;; enqueue, record-only :ws/subscribe and retry-zeroing :ws/connect (plus
+    ;; :ws/disconnect off the two failure states) — none inherits :active's.
+    ;; Omitted for brevity: :ws/request (register on :connected, enqueue
+    ;; everywhere else) — see the worked example.
+    :disconnected
+    {:on {:ws/connect   {:target [:active] :action :record-and-reset}
+          :ws/send      {:action :enqueue-message}
+          :ws/subscribe {:action :record-subscription}}}
 
     :active
     {;; Socket actor anchored on the PARENT — lifetime spans all three leaves.
@@ -173,6 +189,7 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
                :ws/fatal       {:target :failed        :action :on-fatal-error}
                :ws/disconnect  {:target :disconnected  :action :fail-in-flight}
                :ws/send        {:action :enqueue-message}
+               :ws/subscribe   {:action :record-subscription}
                :ws/rotate-cred {:action :rotate-cred}}
      :initial :connecting
      :states
@@ -190,7 +207,8 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
                                 ;; downstream owns the rejection record.
                                 :ws/received [{:guard :trusted-frame?  :action :receive-message}
                                               {:guard :current-socket? :action :refuse-frame}]
-                                :ws/send     {:action :send-now}}}}}
+                                :ws/send      {:action :send-now}
+                                :ws/subscribe {:action :register-subscription}}}}}
 
     :reconnecting
     {:always [{:guard :max-retries-exceeded? :target :failed}]
@@ -200,13 +218,18 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
                 (let [{:keys [retries base-ms max-backoff-ms]} (:data snapshot)]
                   (min (* base-ms (Math/pow 2 retries)) max-backoff-ms)))
               {:target [:active]}}
-     :on     {:ws/connect     {:target [:active] :action :record-connection-opts}
+     :on     {:ws/connect     {:target [:active] :action :record-and-reset}
               :ws/rotate-cred {:action :rotate-cred}
-              :ws/send        {:action :enqueue-message}}}
+              :ws/send        {:action :enqueue-message}
+              :ws/subscribe   {:action :record-subscription}
+              :ws/disconnect  {:target :disconnected :action :reset-retries}}}
 
     :failed
-    {:on {:ws/connect     {:target [:active] :action :record-connection-opts}
-          :ws/rotate-cred {:action :rotate-cred}}}}})
+    {:on {:ws/connect     {:target [:active] :action :record-and-reset}
+          :ws/rotate-cred {:action :rotate-cred}
+          :ws/send        {:action :enqueue-message}
+          :ws/subscribe   {:action :record-subscription}
+          :ws/disconnect  {:target :disconnected :action :reset-retries}}}}})
 ```
 
 Caller: `(rf/dispatch [:ws/connection [:ws/connect {:url "wss://api.example.com/ws" :cred-ref (current-session-cred-ref)}]])` — `current-session-cred-ref` returns an opaque pointer into the host-side credential vault, which the actor's app-side `:auth.cred/fetch` cofx (your prefix) resolves at the auth write.
