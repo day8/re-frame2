@@ -1,5 +1,5 @@
 (ns re-frame.http-issued-trace-test
-  "rf2-x8oz5 — the `:rf.http/issued` trace row and per-(frame, event-id)
+  "The `:rf.http/issued` trace row and per-(frame, event-id)
   numbering of ANONYMOUS issuances (Managed-Effects §Tracing: a managed async
   family MUST emit an issuance/start row carrying `:work/id`, frame and target
   summary).
@@ -15,18 +15,17 @@
        predecessor). Its `:rf.reply/work-id` is the ATTEMPT-1 work-id; a
        completion row carries the attempt that completed, so a tool pairs an
        issuance with its completion on the three-element issuance PREFIX
-       `[:rf.work/http logical-id issuance]`, never on full equality
-       (rf2-ojn0y).
+       `[:rf.work/http logical-id issuance]`, never on full equality.
     2. ANONYMOUS NUMBERING — a request with no `:request-id` takes its
        issuance number from a per-(frame, originating event-id) counter that
        is NEVER evicted, so two anonymous requests of one event in one frame
        carry distinct work-ids (`[:rf.work/http [:rf.http/anonymous ev] 1 1]`,
        `[:rf.work/http [:rf.http/anonymous ev] 2 1]`) however their completions
-       interleave. The anonymous logical-id is TAGGED (rf2-5g0bt) so it can
+       interleave. The anonymous logical-id is TAGGED so it can
        never equal a named request's `:request-id` — the two counters are
        independent, so untagged they would collide at the same number.
-       Named requests are unchanged: the per-(frame, request-id) counter with its conditional
-       eviction (rf2-k47b3d)."
+       Named requests use the per-(frame, request-id) counter with its conditional
+       eviction."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed]
@@ -92,7 +91,7 @@
   (.await l 30 TimeUnit/SECONDS))
 
 ;; ===========================================================================
-;; G1 — a named request: one issued row in the issuing bundle, joinable to
+;; A named request: one issued row in the issuing bundle, joinable to
 ;; its completion row by work-id.
 ;; ===========================================================================
 
@@ -139,7 +138,7 @@
       (finally (stop-server! srv)))))
 
 ;; ===========================================================================
-;; G2 — a named request superseded and re-issued.
+;; A named request superseded and re-issued.
 ;; ===========================================================================
 
 (deftest superseded-named-request-emits-an-issued-row-per-issuance
@@ -179,7 +178,7 @@
         (stop-server! srv)))))
 
 ;; ===========================================================================
-;; G3 — two OVERLAPPING anonymous requests of one event-id from two runs,
+;; Two OVERLAPPING anonymous requests of one event-id from two runs,
 ;; completing in REVERSE order.
 ;; ===========================================================================
 
@@ -228,7 +227,7 @@
         (stop-server! srv)))))
 
 (deftest named-requests-under-distinct-ids-carry-distinct-work-ids
-  (testing "control for the anonymous case above: distinct request-ids were always distinct"
+  (testing "control for the anonymous case above: distinct request-ids are always distinct"
     (let [done    (CountDownLatch. 2)
           replies (atom #{})
           srv     (start-server! (constantly nil))]
@@ -248,7 +247,7 @@
         (finally (stop-server! srv))))))
 
 ;; ===========================================================================
-;; G4 — two anonymous requests issued by ONE run: issued(k) precedes
+;; Two anonymous requests issued by ONE run: issued(k) precedes
 ;; handled(k), and the pairs are ordered.
 ;; ===========================================================================
 
@@ -276,7 +275,7 @@
       (finally (stop-server! srv)))))
 
 ;; ===========================================================================
-;; G10 — rf2-5g0bt: a NAMED request whose `:request-id` equals an ANONYMOUS
+;; A NAMED request whose `:request-id` equals an ANONYMOUS
 ;; request's originating event-id, the two overlapping and completing in
 ;; REVERSE order. The named `[frame request-id]` and anonymous `[frame
 ;; event-id]` counters are independent, so both issuances are number 1; the
@@ -336,7 +335,7 @@
         (stop-server! srv)))))
 
 ;; ===========================================================================
-;; G11 — rf2-ojn0y: a retried request. The issued row carries the ATTEMPT-1
+;; A retried request. The issued row carries the ATTEMPT-1
 ;; work-id; the completion carries its own attempt. They join on the
 ;; three-element issuance PREFIX, never on full work-id equality.
 ;; ===========================================================================
@@ -385,7 +384,7 @@
       (finally (.stop server 0)))))
 
 ;; ===========================================================================
-;; G7 — a synchronous body-prep failure: the issued row precedes it.
+;; A synchronous body-prep failure: the issued row precedes it.
 ;; ===========================================================================
 
 (deftest issued-row-precedes-a-synchronous-body-prep-failure
@@ -432,14 +431,14 @@
             "the query value is scrubbed from the url")))))
 
 ;; ===========================================================================
-;; Registry altitude — G5, G6, G8, and the frame-destroy drop.
+;; Registry altitude — eviction, scoping, bounding, and the frame-destroy drop.
 ;; ===========================================================================
 
 (deftest anonymous-counter-is-never-evicted
-  (testing "G5 — anonymous a=1, b=2; b completes (evict called exactly as the
+  (testing "anonymous a=1, b=2; b completes (evict called exactly as the
   transport calls it, with a nil request-id); the next anonymous issuance
-  reads 3, not 1 — a compare-and-drop eviction would have reissued 1 while a
-  was still live"
+  reads 3, not 1 — a compare-and-drop eviction would reissue 1 while a
+  is still live"
     (rf.http.registry/reset-issuance-counters-for-test!)
     (let [a (rf.http.registry/next-issuance! :frame/f nil [:ev/go])
           b (rf.http.registry/next-issuance! :frame/f nil [:ev/go])]
@@ -448,7 +447,7 @@
       (is (= 3 (rf.http.registry/next-issuance! :frame/f nil [:ev/go]))))))
 
 (deftest anonymous-counter-is-per-frame-and-per-event
-  (testing "G6 — sibling frames each start at 1 for the same event-id"
+  (testing "sibling frames each start at 1 for the same event-id"
     (rf.http.registry/reset-issuance-counters-for-test!)
     (is (= 1 (rf.http.registry/next-issuance! :frame/a nil [:ev/go])))
     (is (= 1 (rf.http.registry/next-issuance! :frame/b nil [:ev/go {:arg 1}])))
@@ -457,13 +456,13 @@
         "a different event-id in the same frame runs its own sequence")))
 
 (deftest anonymous-counter-is-bounded-by-frame-x-event
-  (testing "G8 — N anonymous issuances of one event hold ONE entry, and never touch the named map"
+  (testing "N anonymous issuances of one event hold ONE entry, and never touch the named map"
     (rf.http.registry/reset-issuance-counters-for-test!)
     (dotimes [_ 50] (rf.http.registry/next-issuance! :frame/f nil [:ev/go]))
     (is (= 1 (rf.http.registry/anonymous-issuance-counter-count))
         "one entry per (frame, event-id), not one per request")
     (is (zero? (rf.http.registry/issuance-counter-count))
-        "the rf2-k47b3d named-counter leak instrument keeps its meaning")))
+        "the named-counter leak instrument counts named requests only")))
 
 (deftest frame-destroy-drops-that-frames-anonymous-counters
   (rf.http.registry/reset-issuance-counters-for-test!)
