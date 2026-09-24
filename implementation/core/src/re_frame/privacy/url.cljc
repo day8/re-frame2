@@ -27,9 +27,9 @@
 
   Two artefacts need this policy on egress boundaries that must fail closed,
   and they are siblings rather than dependents: `re-frame.routing` (the
-  route-miss `:url` and the blocked-navigation `:requested-url`, rf2-ov56u)
-  and `re-frame.ssr` (the rejected `:rf.server/safe-redirect` `:location`,
-  rf2-6jqa8). Neither may reach the other:
+  route-miss `:url` and the blocked-navigation `:requested-url`) and
+  `re-frame.ssr` (the rejected `:rf.server/safe-redirect` `:location`).
+  Neither may reach the other:
 
     - `implementation/ssr` depends on `core` ALONE (Spec 006 §Adapter shipping
       convention). A production `:require` on routing would drag the whole
@@ -43,8 +43,7 @@
   Core is the one artefact both already depend on, so a shared implementation
   needs neither a new dependency edge nor a late-bind. That is the whole point
   of this home: the scrub is UNCONDITIONAL, not contingent on which optional
-  artefacts an app happens to load. (rf2-6l2nc consolidated the two copies
-  that stood here before.)
+  artefacts an app happens to load.
 
   ## What this policy is NOT
 
