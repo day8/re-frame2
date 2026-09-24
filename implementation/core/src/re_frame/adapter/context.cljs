@@ -5,9 +5,8 @@
   propagated through the React tree via a single React Context. Both the
   Reagent and UIx adapters read this same context object so a tree
   containing components from multiple substrates resolves frames
-  consistently — and so a future mixed-substrate app (rf2-3yij Decision
-  2) sees one shared frame-provider chain rather than per-adapter
-  silos.
+  consistently — and so a mixed-substrate app sees one shared
+  frame-provider chain rather than per-adapter silos.
 
   The context lives in core (CLJS-only) because:
 
@@ -22,7 +21,7 @@
        Provider/Consumer pairs do not interact. Putting the createContext
        call in a single shared ns guarantees identity.
 
-  Factored out of re-frame.views so every React-shaped adapter (UIx)
+  Separate from re-frame.views so every React-shaped adapter (UIx)
   reads the same context object."
   (:require ["react" :as React]
             [re-frame.frame :as rf.frame]
@@ -53,7 +52,7 @@
   ;; carried invariant.
   (.createContext React no-provider-sentinel))
 
-;; rf2-fa4ly: stamp a human-readable `displayName` on the React Context
+;; Stamp a human-readable `displayName` on the React Context
 ;; object so React DevTools' Context inspector shows the entry as
 ;; `rf2-frame.Provider` / `rf2-frame.Consumer` rather than the opaque
 ;; default ("Context.Provider"). Dev-only — gated under
@@ -82,7 +81,7 @@
 
 (defn normalize-children
   "Collapse a substrate element-macro's trailing-`$`-children value into a
-  flat positional arg list (rf2-7kii2). The native trailing-children idiom
+  flat positional arg list. The native trailing-children idiom
   hands a provider core whatever shape each substrate's element macro
   stashes on `:children` — a JS ARRAY for multiple trailing children
   (UIx's `(cljs.core/array …)`), a SINGLE element
@@ -115,12 +114,12 @@
 ;; React-element-clone walk in `re-frame.substrate.spine`, and the JVM
 ;; registration-boundary annotation in
 ;; `re-frame.views.jvm-source-coord-annotation` all emit the SAME attribute
-;; string for the same view). rf2-5q0jv moved the single implementation into
-;; the neutral `.cljc` contract owner `re-frame.source-coords`, co-located
-;; with its inverse parsers, so a JVM copy and a CLJS copy can no longer
-;; drift. These two vars are CLJS-side aliases preserving the historical
+;; string for the same view). The single implementation lives in the
+;; neutral `.cljc` contract owner `re-frame.source-coords`, co-located
+;; with its inverse parsers, so a JVM copy and a CLJS copy cannot
+;; drift. These two vars are CLJS-side aliases under the
 ;; `re-frame.adapter.context` names the injection walks (and the
-;; `re-frame.views` / `re-frame.substrate.spine` re-exports) already call.
+;; `re-frame.views` / `re-frame.substrate.spine` re-exports) call.
 ;; The injection WALKS stay split (hiccup vs React-element are genuinely
 ;; different); only these pure formatters are shared.
 
@@ -128,16 +127,16 @@
   "Render the registry slot's captured coords as the `data-rf2-source-coord`
   attribute value `<ns>:<sym>:<line>:<col>` (Spec 006 §Source-coord
   annotation). CLJS-side alias of the neutral cross-host owner
-  [[re-frame.source-coords/format-source-coord]] (rf2-5q0jv) — kept under this
-  name so the Reagent hiccup walk, the React-element-clone walk, and the
-  `re-frame.views` re-export are unchanged."
+  [[re-frame.source-coords/format-source-coord]] — under this name so the
+  Reagent hiccup walk, the React-element-clone walk, and the
+  `re-frame.views` re-export reach it here."
   rf.source-coords/format-source-coord)
 
 (def format-view-id
   "Render the registry id keyword as the `:data-rf-view` attribute value
   `(str id)`, so `:rf.foo/bar` → `\":rf.foo/bar\"` (Spec 006 §View tagging
-  contract, rf2-01il5). CLJS-side alias of the neutral cross-host owner
-  [[re-frame.source-coords/format-view-id]] (rf2-5q0jv)."
+  contract). CLJS-side alias of the neutral cross-host owner
+  [[re-frame.source-coords/format-view-id]]."
   rf.source-coords/format-view-id)
 
 (defn non-dom-root-warning
@@ -202,7 +201,7 @@
 (defn- value-type-tag
   "Return a short keyword tag describing v's runtime type, for
   `:rf.error/frame-context-corrupted` diagnostic payloads. Names
-  shapes the bead enumerates (nil, false, number, empty-string, JS
+  the corrupted-context shapes (nil, false, number, empty-string, JS
   object, …) directly so dashboards can branch without reflecting on
   pr-str output."
   [v]
@@ -242,7 +241,7 @@
                       :recovery :no-frame-context
                       :reason   "React-context `_currentValue` is not a frame keyword and not the no-provider sentinel; check the closest frame boundary above this subtree — a `frame-provider` (SCOPE) or a `frame-root` (ENSURE) — or whether the subtree was rendered through an unwrapped portal."}))
 
-;; ---- function-component current-frame (UIx; rf2-d4sf) ------------
+;; ---- function-component current-frame (UIx) ------------
 ;;
 ;; UIx renders function components — they have no class-
 ;; component-specific `(.-context cmp)` slot. The substrate-portable
@@ -251,7 +250,7 @@
 ;; boundaries are entered and exited during render, so reads from
 ;; inside a render see the closest enclosing Provider's value.
 ;;
-;; WHICH SLOT, THOUGH (rf2-5rqn). `createContext` initialises TWO value
+;; WHICH SLOT, THOUGH. `createContext` initialises TWO value
 ;; slots to the default — `_currentValue` and `_currentValue2` — and a
 ;; renderer claims one of them (React 19.2:
 ;; packages/react/src/ReactContext.js). The DOM client renderer pushes
@@ -269,9 +268,9 @@
 ;; This is pinned evidence for the React version this repo pins, not a
 ;; claim about future React: if an upgrade removes or repurposes the
 ;; private slots, thread the public `useContext` return through the hook
-;; surfaces instead (the documented escape hatch, rf2-5rqn's ruling).
+;; surfaces instead (the documented escape hatch).
 ;;
-;; WHERE THE FALLBACK STOPS (measured, rf2-5rqn). Fizz pops the secondary
+;; WHERE THE FALLBACK STOPS. Fizz pops the secondary
 ;; slot when a render EXITS normally, and does not when a render THROWS —
 ;; but the next render pops the abandoned snapshot before running any
 ;; component, so no render ever observes another render's frame. The
@@ -280,8 +279,7 @@
 ;; ambient tier promises on either renderer: ambient resolution is a
 ;; render-time notion, and code running outside a render carries a frame
 ;; explicitly or binds one with `with-frame` — tier 1, which outranks both
-;; slots. A stale-slot guard here was ruled out by name as
-;; over-engineering. The behaviour is pinned by part 5 of
+;; slots. A stale-slot guard here would be over-engineering. The behaviour is pinned by part 5 of
 ;; `assert-use-sub-ambient-under-ssr`.
 ;;
 ;; Per Spec 006 §Frame-provider via React context, this fn is the
@@ -292,8 +290,7 @@
 ;; cannot read the surrounding Provider's frame, so under EP-0002 (no
 ;; `:rf/default` floor) its ambient `subscribe`/`dispatch` resolves nil
 ;; and raises the always-on `:rf.error/no-frame-context` rather than
-;; silently routing to a default. (This superseded the retired
-;; `:rf.warning/plain-fn-under-non-default-frame-once` warning.)
+;; silently routing to a default.
 
 (defn context-value->current-frame
   "Classify a raw frame-context value `v` into the scope frame keyword, or
@@ -304,7 +301,7 @@
 
     - the public `useContext` RETURN and the class-component `.-context`
       read — the renderer-agnostic paths Fresco's boundary, overlay and
-      presence seams take (rf2-2rzx0); and
+      presence seams take; and
     - a direct `_currentValue` slot read — the substrate-portable reader path
       ([[function-component-current-frame]] below).
 
@@ -317,7 +314,7 @@
     - a frame keyword (or Reagent's prop-stringified-keyword shape, via
       `coerce-context-value`) names the enclosing Provider's frame;
     - anything else (false, a number, an empty string, a JS object) means the
-      React-context boundary was disturbed (rf2-8q66) — a portal rendering
+      React-context boundary was disturbed — a portal rendering
       outside its Provider, a library mutating the slot, or a Provider authored
       with a non-keyword value. The runtime emits
       `:rf.error/frame-context-corrupted` and returns nil (recovery
@@ -357,7 +354,7 @@
   `rf.frame/require-current-frame!`; low-level readers / tooling model 'no
   context' with the nil directly.
 
-  NOTE (rf2-2rzx0, repaired rf2-5rqn): React carries TWO value slots per
+  NOTE: React carries TWO value slots per
   context — `_currentValue` (primary; the client renderer) and
   `_currentValue2` (secondary; React 19.2's `react-dom/server` writes and
   reads THIS one). So tier 2 reads the primary slot and falls back to the
