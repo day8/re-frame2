@@ -12,10 +12,10 @@
   spawned-actor finishing on a `:final?` leaf, and a fired-or-stale
   `:after` timer — into the ONE canonical reply-envelope shape every
   managed async family produces. **This is INTERNAL LOWERING ONLY: the
-  PUBLIC statechart API is preserved exactly.** `:on-done` still receives
-  `{:data … :result …}` and returns the new `:data`; `:on-error` is still
-  a declarative parent transition; `:after`'s epoch-gated stale-drop is
-  unchanged; actor-destroy semantics are unchanged. What this ns adds is
+  PUBLIC statechart API does not see it.** `:on-done` receives
+  `{:data … :result …}` and returns the new `:data`; `:on-error` is
+  a declarative parent transition; `:after`'s epoch-gated stale-drop and
+  actor-destroy semantics are defined by their own paths. What this ns supplies is
   the *uniform vocabulary*: the `:rf.work/machine` work-id, the closed
   `:status`, and reply-envelope-shaped trace facts — so machines, HTTP,
   resources, and routing classify completion the same way and tools read
@@ -39,17 +39,17 @@
       `:on-error` routing) MUST NOT run.
 
    2. **`:after` timer staleness** (`after-suppression-gate` /
-      `after-stale-trace`). The machine `:after` timer is THE existing
+      `after-stale-trace`). The machine `:after` timer is THE
       specialized stale-gated instance of the reply pattern
       (EP-0011 §Timer Reply, Managed-Effects §Stale suppression): the
       synthetic timer-elapsed event carries the scheduling node's
       declaring path + per-path `:rf/after-epoch`, validated against the
-      live snapshot on receipt. This ns expresses that existing drop as
+      live snapshot on receipt. This ns expresses that drop as
       the envelope's stale-suppression *vocabulary* — the **declaring
       path + epoch are the data-only suppression gate** — and shapes the
       `:rf.machine.timer/stale-after` trace's carried/current correlation
-      the reply-envelope way. The epoch-mismatch behaviour is unchanged;
-      only the vocabulary is shared.
+      the reply-envelope way. The epoch-mismatch behaviour belongs to the
+      timer path; only the vocabulary is shared.
 
   Pure — no atoms, no dispatch, no I/O. Timestamps (`:completed-at`) are
   supplied by the caller (the host clock is read once at completion and
@@ -151,8 +151,7 @@
   `:spawn-all` child's private membership: the allocator counter for a known
   generated actor, or the join attempt for an explicitly fixed actor.
   Consequently the join path never decides provenance by parsing the actor
-  keyword. Ordinary `:spawn` keeps using the 2-arity and its established
-  actor-id convention.
+  keyword. Ordinary `:spawn` uses the 2-arity and its actor-id convention.
   `=`-comparable and EDN-serializable."
   ([actor-id work-bearing-path]
    [:rf.work/machine actor-id (vec work-bearing-path)
@@ -362,7 +361,7 @@
   post-resolution late-completion (`:rf.reply/stale-reason
   :rf.machine.spawn-all/join-resolved` — the join is latched `:resolved?`);
   the 3-arity threads an explicit `stale-reason` for the other suppression
-  classes (rf2-nvxehu): `:rf.machine.spawn-all/attempt-unverified` (a
+  classes: `:rf.machine.spawn-all/attempt-unverified` (a
   completion carrier with no runtime-stamped attempt coordinate),
   `:rf.machine.spawn-all/attempt-superseded` (a carrier bound to a PRIOR
   child attempt / wrong actor after respawn or re-entry), and
@@ -395,7 +394,7 @@
      (some? completed-at) (assoc :completed-at completed-at))))
 
 ;; ---------------------------------------------------------------------------
-;; `:after` timer — the existing specialized stale-gated reply instance
+;; `:after` timer — the specialized stale-gated reply instance
 ;; (EP-0011 §Timer Reply; Managed-Effects §Stale suppression). The declaring
 ;; path + per-path `:rf/after-epoch` ARE the data-only suppression gate.
 ;; ---------------------------------------------------------------------------
@@ -444,7 +443,7 @@
   "Build the `:status :stale` reply for a stale `:after` timer (the
   declaring node was exited, or its per-path epoch advanced on re-entry).
   Per Managed-Effects §Stale suppression the timer's transition MUST NOT
-  fire — this is the existing epoch-gated drop expressed in the shared
+  fire — this is the timer path's epoch-gated drop expressed in the shared
   reply vocabulary. Carries NO `:value` (no app mutation),
   `:rf.reply/work-kind :timer` (the timer family work-kind; the machine `:after` is
   a specialized timer instance per EP-0011 §Timer Reply),
