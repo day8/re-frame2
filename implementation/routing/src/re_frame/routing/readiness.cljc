@@ -27,7 +27,7 @@
   TEST-ONLY dep and the routing integration is late-bound, so resources cannot
   `:require` this namespace, and publishing a `:routing/project-readiness`
   late-bind hook for a three-line `cond` would cost more than the duplication
-  removes. The two agree today — error beats loading beats idle in both — and
+  removes. The two agree — error beats loading beats idle in both — and
   a shared conformance assertion keeps them agreeing:
   `re-frame.readiness-projector-conformance-cljs-test` drives every Spec 012
   input class through BOTH halves, each in its own vocabulary, and fails on a
@@ -35,17 +35,17 @@
   the only tree that can require both namespaces; it pins agreement and does
   NOT imply the two should be unified.
 
-  R1 applies this over R0's behaviour-preserving leaf-only plan; R2 swaps the
-  plan input for the parent-to-leaf branch plan without changing the table.")
+  The plan it projects over is the effective parent-to-leaf branch plan
+  (EP-0037 R2).")
 
 (defn project-at-commit
   "Seed the readiness projection at activation-commit time from a freshly
-  built (leaf-only, until R2) resource plan.
+  built parent-to-leaf branch resource plan.
 
   `plan` is the `:routing/on-route-entry` hook result
   `{:blocking {<key-id> <scoped-key>} :plan-error <err-or-nil> …}` (nil when no
   Resources artefact is loaded or the route declares no `:resources`; the
-  blocking carrier is byte-keyed with no order promise — rf2-btdl1, and this
+  blocking carrier is byte-keyed with no order promise, and this
   projection reads only its emptiness). At
   commit the blocking requirements have only just been ensured, so a non-empty
   blocking map is a pending first load → `:loading`; a planning failure →
