@@ -1,12 +1,12 @@
 (ns re-frame.unknown-dispatch-opts-warn-test
-  "Per rf2-jbzhj — emit `:rf.warning/unknown-dispatch-opt` when a
+  "Emit `:rf.warning/unknown-dispatch-opt` when a
   `dispatch` / `dispatch-sync` opts map carries a key outside the
   recognised set (`re-frame.router.diagnostics/known-dispatch-opts`).
 
   The runtime reads only the known opts keys in `build-envelope`; any
-  other key is silently swallowed, so a typo (`:fram` for `:frame`,
-  `:src` for `:source`) changes nothing and gives no signal — the
-  no-silent-swallow principle (rf2-3nbl5.1) forbids that quietness.
+  other key is ignored, so a typo (`:fram` for `:frame`, `:src` for
+  `:source`) changes nothing — and without this warning would give no
+  signal, a quietness the no-silent-swallow principle forbids.
 
   The warning is observational: the dispatch proceeds unchanged
   (`:recovery :no-recovery`). It is dev-only — gated on
@@ -14,7 +14,7 @@
   `goog.DEBUG=false`) DCEs the whole surface (the elision probe verifies
   that separately).
 
-  EP-0002 (rf2-9wa0lf): the unknown-opt warning is emitted in
+  EP-0002: the unknown-opt warning is emitted in
   `build-envelope` BEFORE frame resolution, so a `:fram`-for-`:frame`
   typo still surfaces its specific diagnostic even though the dispatch
   then fails for want of a frame. The fixture establishes a `:rf/default`
@@ -22,20 +22,20 @@
   the ambient `dispatch-sync` calls below complete after the warning
   fires; the typo key carries no frame, but the scope does.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   The warning surface is dev-only BY DESIGN (see the paragraph above), so
-  every assertion ABOUT the warning — positive and negative alike — is kept
-  verbatim inside a `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`.
+  every assertion ABOUT the warning — positive and negative alike — sits
+  inside a `(when rf.interop/debug-enabled? …)` dev-instrumentation arm.
   The negatives move with the positives and that is the point, not tidiness:
   `(is (empty? (unknown-opt-warnings recorded)))` over an empty trace stream
   passes under `-Dre-frame.debug=false` whatever the opts map contained, so
   outside the arm `no-warning-for-known-opts` would certify `:frame` as
   recognised while in fact nothing was emitted for ANY key, recognised or not.
 
-  What survives the gate here is the sentence the docstring already makes and
-  the file never checked: THE WARNING IS OBSERVATIONAL — the dispatch proceeds
-  unchanged. Each deftest now lands a marker in app-db and asserts it arrived,
+  What survives the gate here is the sentence the docstring makes above:
+  THE WARNING IS OBSERVATIONAL — the dispatch proceeds unchanged. Each
+  deftest lands a marker in app-db and asserts it arrived,
   so the production lane proves that an unrecognised opts key neither aborts
   the dispatch nor perturbs the recognised ones. `known-set-matches-build-
   envelope-reads` is pure data and needs no posture at all."
@@ -79,7 +79,7 @@
 
 (defn- reg-marker-event!
   "Register `id` as a handler that stamps `[:landed id]` into the target
-  frame's app-db (rf2-d2841). The ALWAYS-ON witness for this file: the
+  frame's app-db. The ALWAYS-ON witness for this file: the
   unknown-opt warning is observational, so whatever the opts map carried the
   dispatch must still reach the handler. Readable straight off `app-db-value`
   in either posture — no trace surface involved."
@@ -100,16 +100,16 @@
     (reg-marker-event! :app/noop)
     (let [recorded (record-traces! ::unknown)]
       ;; `:fram` is the classic typo for `:frame` — silently swallowed
-      ;; before this fix.
+      ;; without this warning.
       (rf/dispatch-sync [:app/noop] {:fram :rf/default})
 
-      ;; ALWAYS-ON WITNESS (rf2-d2841): `:recovery :no-recovery` means the
+      ;; ALWAYS-ON WITNESS: `:recovery :no-recovery` means the
       ;; dispatch is untouched by the diagnostic. Asserted off app-db so it
       ;; holds under the production gate, where the warning itself is gone.
       (is (landed? :rf/default :app/noop)
           "the unknown opt is OBSERVATIONAL — the dispatch still reached the handler")
 
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+      ;; Dev-instrumentation arm (see ns docstring §Posture split).
       (when rf.interop/debug-enabled?
         (let [warns (unknown-opt-warnings recorded)]
           (is (= 1 (count warns))
@@ -136,11 +136,11 @@
     (let [recorded (record-traces! ::multi)]
       (rf/dispatch-sync [:app/noop] {:fram :rf/default :srce :ui :origin :app})
 
-      ;; ALWAYS-ON WITNESS (rf2-d2841).
+      ;; ALWAYS-ON WITNESS.
       (is (landed? :rf/default :app/noop)
           "two unknown opts alongside a legitimate :origin still dispatch")
 
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+      ;; Dev-instrumentation arm (see ns docstring §Posture split).
       (when rf.interop/debug-enabled?
         (let [warns (unknown-opt-warnings recorded)]
           (is (= 1 (count warns)) "one warning for the whole call, not one per bad key")
@@ -154,14 +154,14 @@
     (reg-marker-event! :game/tick {:frame :game})
     (let [recorded (record-traces! ::known)]
       (rf/dispatch-sync [:game/tick] {:frame :game})
-      ;; ALWAYS-ON WITNESS (rf2-d2841): `:frame` is not merely unflagged, it is
+      ;; ALWAYS-ON WITNESS: `:frame` is not merely unflagged, it is
       ;; HONOURED — the marker lands in :game, not in the ambient :rf/default
       ;; scope. That is the production-visible half of "recognised opt".
       (is (landed? :game :game/tick)
           ":frame routed the dispatch to the named frame")
       (is (nil? (:landed (rf/app-db-value :rf/default)))
           "and NOT to the ambient scope frame")
-      ;; rf2-d2841 — dev-instrumentation arm. A NEGATIVE over the trace
+      ;; Dev-instrumentation arm. A NEGATIVE over the trace
       ;; stream: under the gate it is empty for every opts map, so outside the
       ;; arm this would certify :frame as recognised for free.
       (when rf.interop/debug-enabled?
@@ -176,11 +176,11 @@
                         {:source :ui :origin :app :trace-id "t1"
                          :fx-overrides {} :interceptor-overrides {}
                          :source-detail {:ms 100}})
-      ;; ALWAYS-ON WITNESS (rf2-d2841): the full known set is accepted by
+      ;; ALWAYS-ON WITNESS: the full known set is accepted by
       ;; `build-envelope` without derailing the dispatch.
       (is (landed? :rf/default :app/noop)
           "a dispatch carrying every known opt still reaches the handler")
-      ;; rf2-d2841 — dev-instrumentation arm. Same wholesale-empty-stream
+      ;; Dev-instrumentation arm. Same wholesale-empty-stream
       ;; false-green shape as `no-warning-for-known-opts`.
       (when rf.interop/debug-enabled?
         (is (empty? (unknown-opt-warnings recorded))
@@ -191,10 +191,10 @@
     (reg-marker-event! :app/noop)
     (let [recorded (record-traces! ::empty)]
       (rf/dispatch-sync [:app/noop])
-      ;; ALWAYS-ON WITNESS (rf2-d2841).
+      ;; ALWAYS-ON WITNESS.
       (is (landed? :rf/default :app/noop)
           "the no-opts dispatch path reaches the handler")
-      ;; rf2-d2841 — dev-instrumentation arm. Same false-green shape as above.
+      ;; Dev-instrumentation arm. Same false-green shape as above.
       (when rf.interop/debug-enabled?
         (is (empty? (unknown-opt-warnings recorded))
             "empty opts map has no unknown keys")))))
@@ -207,7 +207,7 @@
       ;; router, but `build-envelope` (where the check lives) runs at
       ;; enqueue time regardless.
       (rf/dispatch [:app/noop] {:fram :rf/default})
-      ;; ALWAYS-ON WITNESS (rf2-d2841): the queued path is observational too —
+      ;; ALWAYS-ON WITNESS: the queued path is observational too —
       ;; the unknown key does not stop the enqueued event from draining. The
       ;; ENQUEUE is synchronous (build-envelope, where the check lives, runs on
       ;; the caller's thread); the DRAIN is not — `rf.interop/next-tick` submits
@@ -216,7 +216,7 @@
       (is (rf.test-support/poll-until #(landed? :rf/default :app/noop)
                          {:label "queued dispatch drains despite the unknown opt"})
           "the queued dispatch drained despite the unknown opt")
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+      ;; Dev-instrumentation arm (see ns docstring §Posture split).
       (when rf.interop/debug-enabled?
         (is (= 1 (count (unknown-opt-warnings recorded)))
             "build-envelope is the single chokepoint — both dispatch paths funnel through it")))))
@@ -230,14 +230,14 @@
       ;; dispatch opts. `build-envelope` READS `:step-index` (carrying it onto
       ;; the dispatched trace as `:rf.frame/init-step-index`), so the key belongs
       ;; in `known-dispatch-opts` and must NOT trip the unknown-dispatch-opt
-      ;; warning. Before the fix, each of the two setup steps emitted one false
-      ;; `:silently ignored` warning.
+      ;; warning. Were it missing from that set, each of the two setup steps
+      ;; would emit one false `:silently ignored` warning.
       (rf/make-frame {:id :seeded/frame :initial-events [[:seed/set 1] [:seed/set 2]]})
-      ;; ALWAYS-ON WITNESS (rf2-d2841): both setup steps ran, in order — the
+      ;; ALWAYS-ON WITNESS: both setup steps ran, in order — the
       ;; production-visible half of ":step-index is honoured, not unknown".
       (is (= 2 (:seed (rf/app-db-value :seeded/frame)))
           "both :initial-events setup steps dispatched and landed, last-wins")
-      ;; rf2-d2841 — dev-instrumentation arm. Same false-green shape as the
+      ;; Dev-instrumentation arm. Same false-green shape as the
       ;; other negatives in this file.
       (when rf.interop/debug-enabled?
         (is (empty? (unknown-opt-warnings recorded))
@@ -248,17 +248,16 @@
     ;; A guard against drift: if build-envelope grows/drops an opt the
     ;; set must move with it. This is the canonical enumeration callers
     ;; (and the warning message) rely on. `:rf.cofx/mint-policy` is the
-    ;; EP-0017 §6 / slice-B.8 per-call cofx mint policy (rf2-5spzo7) —
-    ;; build-envelope reads it and threads it through to the satisfaction
-    ;; step's mint-policy resolution, so it belongs in the honoured set.
-    ;; (The `:realm` opt was removed under the realm-substrate collapse —
-    ;; rf2-9w37t2 / rf2-afdlyr — every dispatch is the single default realm,
-    ;; so build-envelope no longer reads a realm dimension.)
-    ;; `:rf.frame/expected-incarnation` (rf2-dlld6) is the INTERNAL captured-
+    ;; EP-0017 §6 per-call cofx mint policy — build-envelope reads it and
+    ;; threads it through to the satisfaction step's mint-policy resolution,
+    ;; so it belongs in the honoured set. (There is no `:realm` opt: every
+    ;; dispatch is the single default realm, so build-envelope reads no realm
+    ;; dimension.)
+    ;; `:rf.frame/expected-incarnation` is the INTERNAL captured-
     ;; incarnation token a `capture-frame` op threads through; build-envelope
     ;; reads it and carries it onto the envelope so `dispatch!` / `dispatch-sync!`
     ;; fence the enqueue to the exact captured incarnation.
-    ;; `:rf.flow/settle?` (rf2-kh73v) is the INTERNAL flag on the ONE
+    ;; `:rf.flow/settle?` is the INTERNAL flag on the ONE
     ;; `[:rf/settle-flows]` child a completed `:fx` walk dispatches after it
     ;; registered or cleared a flow; build-envelope reads it and carries it onto
     ;; the envelope so `insert-envelope` head-inserts the settle ahead of the
