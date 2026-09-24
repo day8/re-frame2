@@ -1,15 +1,15 @@
 (ns re-frame.reg-interceptor-cljs-test
   "EP-0022 — the `:interceptor` registrar + reg-interceptor + by-reference chain
-  resolution. REFERENCE-ONLY since the flip (rf2-0adhqs.9).
+  resolution. Chains are REFERENCE-ONLY.
 
-  Adversarial coverage per the bead:
+  Adversarial coverage:
     1. reg-interceptor registers EACH descriptor form (:before / :after /
        :before+:after / :factory; one-arg factory).
     2. A chain with a BARE-KEYWORD ref AND an `[id arg]` ref resolves + runs
        in declaration order (with the standard `:rf.interceptor/path` factory).
     3. An INLINE interceptor value in a chain is REJECTED
-       (`:rf.error/inline-interceptor-removed`) — the additive window is closed;
-       the migration path is register + reference by id.
+       (`:rf.error/inline-interceptor-removed`); the supported path is
+       register + reference by id.
     4. Realm + reg-event interplay — refs resolve through the active
        (realm-bound) registrar; an unknown ref is rejected at registration.
 
@@ -75,10 +75,10 @@
                           #":rf.error/invalid-interceptor"
                           (rf/reg-interceptor :t/bad2 :not-a-map))))
 
-  ;; rf2-pot53n — a descriptor carrying BOTH :factory AND a static slot
+  ;; A descriptor carrying BOTH :factory AND a static slot
   ;; (:before / :after) is AMBIGUOUS and rejected. valid-descriptor?'s
   ;; factory-descriptor? branch returns (not (static-descriptor? descriptor)),
-  ;; so the :factory+:before mix fails validation. The existing "malformed
+  ;; so the :factory+:before mix fails validation. The "malformed
   ;; descriptor" coverage above only hits the no-executable-slot ({:doc …}) and
   ;; non-map legs; this pins the ambiguity-mix rejection arm.
   (testing "ambiguous :factory + :before descriptor is :rf.error/invalid-interceptor"
@@ -160,8 +160,8 @@
         "the path factory ref focused the handler on [:counter] and spliced back")))
 
 ;; ---------------------------------------------------------------------------
-;; 3. inline interceptor values in a chain are REJECTED (reference-only flip,
-;;    rf2-0adhqs.9) — the additive window is closed
+;; 3. inline interceptor values in a chain are REJECTED (chains are
+;;    reference-only)
 ;; ---------------------------------------------------------------------------
 
 (deftest inline-value-in-chain-rejected
@@ -194,7 +194,7 @@
           "the registered ref is legal but the inline value is rejected — chains are reference-only"))))
 
 (deftest registered-then-referenced-runs
-  (testing "the EP-0022 path: register the formerly-inline interceptor, then reference it by id — both run"
+  (testing "the EP-0022 path: register the interceptor, then reference it by id — both run"
     (let [log (atom [])]
       (rf/reg-interceptor :was-inline/log
         {:before (fn [ctx] (swap! log conj [:inline :before]) ctx)
@@ -316,7 +316,7 @@
           "the event + interceptor are seated in the realm registrar"))))
 
 ;; ---------------------------------------------------------------------------
-;; 5. registration coords ride resolution onto the exception trace (rf2-tq26u)
+;; 5. registration coords ride resolution onto the exception trace
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The `reg-interceptor` MACRO (the ONE supported authoring form, EP-0022)
@@ -325,13 +325,13 @@
 ;; interceptor value as `:source-coord` — so a throwing descriptor-authored
 ;; interceptor's error-record → `:rf.error/interceptor-exception` trace
 ;; carries the coord tag the Xray Epoch INTERCEPTOR row's jump-to-source chip
-;; reads (Xray spec 021 §INTERCEPTOR step). Before rf2-tq26u the coords
-;; stopped at the registry meta — the built value carried none, so the chip
-;; degraded to plain text for the supported authoring form and only a
-;; migration-boundary VALUE carrying its own `:source-coord` got the chip.
+;; reads (Xray spec 021 §INTERCEPTOR step). Were the coords to stop at the
+;; registry meta, the built value would carry none, so the chip would degrade
+;; to plain text for the supported authoring form and only a
+;; migration-boundary VALUE carrying its own `:source-coord` would get the chip.
 ;;
-;; Posture split (rf2-d2841): the trace stream is dev-only, and the PUBLIC
-;; registry coords are production-elided (`merge-coords`, rf2-3un2g) — so the
+;; Posture split: the trace stream is dev-only, and the PUBLIC
+;; registry coords are production-elided (`merge-coords`) — so the
 ;; coord assertions sit inside `(when rf.interop/debug-enabled? …)` arms. The
 ;; no-coord degradations (programmatic registration, framework standard) hold
 ;; in both postures and stand outside the gate.
