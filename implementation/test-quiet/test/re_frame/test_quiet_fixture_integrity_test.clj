@@ -1,6 +1,6 @@
 (ns re-frame.test-quiet-fixture-integrity-test
   "The rule `re-frame.test-quiet.runner/uncallable-fixtures` states, and the
-  defect it exists to make impossible (rf2-4yw1).
+  defect it exists to make impossible.
 
   `cljs.test` accepts a MAP fixture — `(use-fixtures :each {:before f
   :after g})` — and this repo's `*_cljs_test.cljs` files use it throughout.
@@ -10,7 +10,7 @@
   are `IFn`, so nothing throws; the namespace contributes zero tests and the
   lane exits 0.
 
-  THE RULE IS ABOUT CALLING, NOT ABOUT `fn?` (rf2-4yw1).  `clojure.test`'s
+  THE RULE IS ABOUT CALLING, NOT ABOUT `fn?`.  `clojure.test`'s
   requirement is behavioural — the entry is applied to the thunk and must
   INVOKE it — and both cheap approximations of that are wrong in a different
   direction.  `ifn?` is too permissive: maps, sets, keywords and symbols are
@@ -18,16 +18,16 @@
   restrictive: a Var, a multimethod and a `reify`d `IFn` each invoke the
   thunk correctly while carrying no `clojure.lang.Fn` marker, so
   `(use-fixtures :each #'lifecycle)` — ordinary, idiomatic, and working —
-  was refused with the false claim that the namespace ran nothing.  Both
+  would be refused with the false claim that the namespace ran nothing.  Both
   directions are pinned below, and each is pinned against
   `clojure.test/join-fixtures` FIRST.
 
-  WHY THE CALLABLE ROWS ARE NOT A LIST, AND MUST NOT BECOME ONE.  Two
-  earlier rounds repaired this rule by ADDING an accepted type — `fn?`, then
-  `fn?` or `MultiFn` or a Var resolving to one — and each list was refuted
-  by the next valid callable somebody wrote.  The population of things that
-  apply their argument is open; the population Clojure invokes as a LOOKUP
-  is closed, so the rule now subtracts the second from `ifn?`.  The
+  WHY THE CALLABLE ROWS ARE NOT A LIST, AND MUST NOT BECOME ONE.  A rule
+  that ADDS accepted types — `fn?`, then `fn?` or `MultiFn` or a Var
+  resolving to one — is refuted by the next valid callable somebody
+  writes.  The population of things that apply their argument is open; the
+  population Clojure invokes as a LOOKUP is closed, so the rule subtracts
+  the second from `ifn?`.  The
   `reify` row below is therefore not a fourth entry on a list: it is the
   witness that no list is being kept.
 
@@ -57,7 +57,7 @@
 
 (defn- lifecycle
   "An ordinary fixture function, referred to below as `#'lifecycle` — the
-  idiomatic Var form the guard used to refuse (rf2-4yw1)."
+  idiomatic Var form a `fn?` guard would refuse."
   [t]
   (t))
 
@@ -70,8 +70,8 @@
 
 (def ^:private reified-lifecycle
   "A fixture that is nothing but the `IFn` contract — no `clojure.lang.Fn`
-  marker, no `MultiFn`, no Var.  It is the shape that refuted the round-two
-  repair (rf2-4yw1): a positive list of implementation classes cannot name
+  marker, no `MultiFn`, no Var.  It is the shape that refutes any list of
+  accepted types: a positive list of implementation classes cannot name
   it, because any `reify`, `deftype` or `proxy` produces a fresh class."
   (reify clojure.lang.IFn
     (invoke [_ t] (t))))
@@ -157,10 +157,10 @@
     (is (= [] (rf.test-quiet.runner/uncallable-fixtures [])))))
 
 ;; ----------------------------------------------------------------------
-;; The other direction: callable entries `fn?` does not recognise (rf2-4yw1).
+;; The other direction: callable entries `fn?` does not recognise.
 
 (deftest callable-fixtures-that-are-not-fn-are-not-offenders
-  (testing "THE DEFECT THIS TIME IS THE GUARD'S: a Var, a `defmulti` and a
+  (testing "THE DEFECT HERE IS THE GUARD'S: a Var, a `defmulti` and a
             bare `reify`d `IFn` all RUN the test, and `fn?` says false of
             every one of them, so `fn?` cannot be the contract — nor can any
             longer list of classes, which is what the last row proves"
@@ -172,7 +172,7 @@
                              ["a Var referring to a custom IFn"
                               #'reified-lifecycle]]]
       (is (false? (fn? fixture))
-          (str label " is not `fn?` — which is why the guard refused it"))
+          (str label " is not `fn?` — which is why a `fn?` guard would refuse it"))
       (is (true? (calls-thunk? fixture))
           (str label " nevertheless invokes the test thunk, so"
                " `clojure.test` runs the namespace's tests normally"))
@@ -214,7 +214,7 @@
   (testing "THE TRAP that makes bare `ifn?` the wrong repair, and the reason
             the rule subtracts a CLOSED set from it rather than widening to
             it: each of these five is `IFn`, each is invoked as a LOOKUP, and
-            each must stay refused (rf2-4yw1)"
+            each must stay refused"
     (doseq [[label fixture] [["a map"     {:before (fn []) :after (fn [])}]
                              ["a set"     #{:before :after}]
                              ["a vector"  [(fn [t] (t))]]
