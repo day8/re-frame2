@@ -8,8 +8,8 @@
   >
   > — `docs/design/fresco/architecture.md`, Arm 1
 
-  A hard architectural line, and the package has never had a witness for
-  it. [[re-frame.fresco.test.runtime/shell-hook-ledger]] is a
+  A hard architectural line, and this file is its witness.
+  [[re-frame.fresco.test.runtime/shell-hook-ledger]] is a
   DECLARATION — a vector of two keywords the shell says it calls — and a
   budget a runtime reports about itself is not evidence. This file counts
   the calls React actually received, through
@@ -41,8 +41,7 @@
   4. and a `defhost` crossing costs the DOOR one hook under a gated
      `:server` policy and none under `:server :render`, while the hosted component's
      own hooks stay its own affair and the shell's ledger does not move
-     (§5, re-authored from `arm1/host_hatch_dom_cljs_test` — the one row
-     of that suite that needed this probe).
+     (§5).
 
   ## Why a server render is the right lane for this
 
@@ -145,8 +144,7 @@
   (react/createElement "p" nil "control"))
 
 ;; ---------------------------------------------------------------------------
-;; The host crossing under the probe (from
-;; `arm1/host_hatch_dom_cljs_test`'s hook-budget row)
+;; The host crossing under the probe
 ;; ---------------------------------------------------------------------------
 
 (def ^:private theme-context (react/createContext "unthemed"))
@@ -163,7 +161,7 @@
   (react/createElement "p" #js {:className "hosted"} (.-label props)))
 
 (rf.fresco/defhost gated-host
-  "The RULED DEFAULT policy, `:client-only`, which mints a gate."
+  "The DEFAULT policy, `:client-only`, which mints a gate."
   hosted-widget)
 
 (rf.fresco/defhost render-host
@@ -280,18 +278,10 @@
 ;; 5. The host crossing — the door's own cost, and whose the rest are
 ;; ---------------------------------------------------------------------------
 ;;
-;; `arm1/host_hatch_dom_cljs_test`'s hook-budget row, re-authored package-side.
-;; It is the ONE row in that 1300-line suite that needs the dispatcher probe,
-;; which is why it is the row the port waited on; everything
-;; else there is contract coverage this package already owns
-;; (`intent_cljs_test`, `callback_form_dom_cljs_test`, `host_ssr_dom_cljs_test`,
-;; the residue witnesses).
-;;
-;; It is re-authored rather than copied because the lane changed, and the lane
-;; change makes the claim SHARPER rather than weaker. The prototype mounted a
-;; browser root, where the gate's client snapshot is `true` and the door's one
-;; hook and the widget's own three arrive in a single indistinguishable
-;; sequence. A server render separates them: the gate's server snapshot is
+;; The server lane makes the claim SHARP. On a browser root the gate's client
+;; snapshot is `true`, and the door's one hook and the widget's own three
+;; arrive in a single indistinguishable sequence. A server render separates
+;; them: the gate's server snapshot is
 ;; `false`, so under `:client-only` the count isolates the DOOR with the
 ;; foreign component provably not rendered, and `:server :render` — the policy
 ;; that mints no gate at all — supplies the arm where the widget's hooks DO
