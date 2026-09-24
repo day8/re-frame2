@@ -536,6 +536,15 @@
    "yChannelSelector" "yChannelSelector"
    "zoomAndPan" "zoomAndPan"})
 
+(defn- prop-token
+  "The camelCase prop token for hiccup key `k` — the name react-dom's
+  rules are keyed on (`:form-action` → \"formAction\")."
+  [k]
+  (cond
+    (keyword? k) (template/cached-prop-name k)
+    (symbol? k)  (name k)
+    :else        (str k)))
+
 (defn- attribute-name
   "Hiccup keyword/string → HTML attribute name string. Honours React
   aliases (`:class` → \"class\", `:for` → \"for\"). For camelCase
@@ -545,10 +554,7 @@
   (`tabIndex` → `tabindex`). Kebab-case `data-*` / `aria-*` pass through
   verbatim. Per rf2-ygknv finding 3."
   [k]
-  (let [n (cond
-            (keyword? k) (template/cached-prop-name k)
-            (symbol? k)  (name k)
-            :else        (str k))]
+  (let [n (prop-token k)]
     (case n
       "className" "class"
       "htmlFor"   "for"
@@ -943,6 +949,54 @@
 
       nil)))
 
+;; ---------------------------------------------------------------------------
+;; javascript: URLs (rf2-w1hd8)
+;;
+;; react-dom swaps a `javascript:` URL for a URL that throws (`sanitizeURL`)
+;; in five props on any element it does not treat as custom (`href`, `src`,
+;; `action`, `formAction`, `xlinkHref`), and in `data` on an `<object>`. This
+;; serializer wrote the value unchanged, so the URL shipped live where
+;; react-dom/server blocks it and a hydrating react-dom client paints the
+;; blocked URL. The regex, the substituted URL, the prop set and the
+;; custom-element test below are react-dom 19.3.0's, copied by intent (bundle
+;; isolation forbids requiring anything). `parity_cljs_test.cljs` and
+;; `boolean_attr_react_parity_cljs_test.cljs` pin them against the installed
+;; react-dom.
+;; ---------------------------------------------------------------------------
+
+(def ^:private javascript-url-re
+  "react-dom 19.3.0's `isJavaScriptProtocol`, verbatim. It ignores case, skips
+  leading C0 controls and spaces, and allows a tab, LF or CR between letters."
+  #"(?i)^[\u0000-\u001F ]*j[\r\n\t]*a[\r\n\t]*v[\r\n\t]*a[\r\n\t]*s[\r\n\t]*c[\r\n\t]*r[\r\n\t]*i[\r\n\t]*p[\r\n\t]*t[\r\n\t]*:")
+
+(def ^:private blocked-javascript-url
+  "What react-dom 19.3.0 writes in place of a blocked `javascript:` URL."
+  "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')")
+
+(def ^:private javascript-url-props
+  "The React props react-dom blocks a `javascript:` URL in, on any element it
+  does not treat as custom. `data` joins them on an `<object>` only."
+  #{"href" "src" "action" "formAction" "xlinkHref"})
+
+(def ^:private react-non-custom-hyphenated-tags
+  "The hyphenated tags react-dom does NOT treat as custom elements."
+  #{"annotation-xml" "color-profile" "font-face" "font-face-src"
+    "font-face-uri" "font-face-format" "font-face-name" "missing-glyph"})
+
+(defn- block-javascript-url
+  "`s`, the string value of prop `k` on element `tag`, as react-dom writes it:
+  a `javascript:` URL in one of react-dom's URL props becomes the URL
+  react-dom substitutes; anything else is returned unchanged."
+  [tag k s]
+  (let [prop (prop-token k)]
+    (if (and (or (not (str/includes? tag "-"))
+                 (contains? react-non-custom-hyphenated-tags tag))
+             (or (contains? javascript-url-props prop)
+                 (and (= "data" prop) (= "object" tag)))
+             (re-find javascript-url-re s))
+      blocked-javascript-url
+      s)))
+
 (defn- emit-attribute
   "Emit one [k v] attribute pair to the StringBuilder. Skips nil
   values; routes boolean values through `emit-boolean-attribute`.
@@ -954,8 +1008,11 @@
       `onclick=\"...\"` would be an XSS surface and diverges from
       `react-dom/server.renderToStaticMarkup`.
     - Fn-valued props of any name — `(str f)` leaks `function () {…}`
-      source into the attribute. React-DOM-server elides these too."
-  [^StringBuffer sb k v]
+      source into the attribute. React-DOM-server elides these too.
+
+  `tag` is the element's tag, which decides where a `javascript:` URL is
+  blocked (`block-javascript-url`, rf2-w1hd8)."
+  [^StringBuffer sb tag k v]
   (cond
     (nil? v)   nil
 
@@ -1014,15 +1071,17 @@
         (do (.append sb " ")
             (.append sb n)
             (.append sb "=\"")
-            (.append sb (escape-attribute (attribute-value-string v)))
+            (.append sb (escape-attribute
+                         (block-javascript-url tag k (attribute-value-string v))))
             (.append sb "\""))))))
 
 (defn- emit-attributes
-  "Emit a hiccup attribute map. Iteration order = insertion order."
-  [^StringBuffer sb attrs]
+  "Emit a hiccup attribute map for element `tag`. Iteration order =
+  insertion order."
+  [^StringBuffer sb tag attrs]
   (when (seq attrs)
     (doseq [[k v] attrs]
-      (emit-attribute sb k v))))
+      (emit-attribute sb tag k v))))
 
 ;; ---------------------------------------------------------------------------
 ;; Tag-shorthand merging — :div.foo#bar
@@ -1167,7 +1226,7 @@
     (check-tag-name! tag-str head)
     (.append sb "<")
     (.append sb tag-str)
-    (emit-attributes sb attrs)
+    (emit-attributes sb tag-str attrs)
     (cond
       void?
       ;; HTML5 void elements: bare `<br>`, no closing tag, no children.
