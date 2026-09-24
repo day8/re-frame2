@@ -15,8 +15,8 @@ module.exports = {
   entries: {
     'app/root': { stateAllowlist: [':todos'], runtimeAllowlist: [] },
     'app/quick': { stateAllowlist: [], runtimeAllowlist: [] },
-    // rf2-kirm — the TORN arm: chunks are already on their way when the
-    // deadline fires, so the refusal has to name how many. `app/root` is
+    // The TORN arm: chunks are already on their way when the deadline
+    // fires, so the refusal has to name how many. `app/root` is
     // the clean counterpart (nothing emitted, `afterChunks` 0), and the
     // pair is what makes the count a measurement rather than a constant.
     'app/torn': { stateAllowlist: [], runtimeAllowlist: [] },
