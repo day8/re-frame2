@@ -16,10 +16,10 @@
 ;;;;   (rf/registrations {:frame f :kind k})
 ;;;;   (rf/frame-generation f)
 ;;;;
-;;;; This pin asserts the four preload fns exist and route through the
-;;;; `:frame`-arity facade reads / `frame-generation` — NOT the internal
-;;;; live-frame / image-assembly namespaces. A regression that reached into
-;;;; the internals (or dropped the per-frame fns) turns this red.
+;;;; This pin asserts the frame-derived preload fns exist and route through
+;;;; the `:frame`-arity facade reads / `frame-generation` — NOT the internal
+;;;; live-frame / image-assembly namespaces. A regression that reaches into
+;;;; the internals (or drops the per-frame fns) turns this red.
 ;;;;
 ;;;; Run: bb tests/runtime/frame_registrar_test.clj
 ;;;; Exit: 0 = pass, non-zero = fail.
@@ -40,7 +40,7 @@
   (form-contains? (fn [node] (and (seq? node) (= sym (first node)))) form))
 
 ;; ---------------------------------------------------------------------------
-;; The four new preload fns are present.
+;; The frame-derived preload fns are present.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private fn-syms
@@ -52,7 +52,7 @@
   (doseq [sym fn-syms]
     (is (some? (defn-form sym))
         (str "preload/re_frame2_pair/runtime.cljs must define `" sym
-             "` (the EP-0023 forward-direction frame-derived read; rf2-srobm0)."))))
+             "` (the EP-0023 forward-direction frame-derived read)."))))
 
 ;; ---------------------------------------------------------------------------
 ;; They route through the PUBLIC facade `:frame` reads, not the internals.
@@ -61,14 +61,14 @@
 (deftest frame-registrar-describe-uses-facade-frame-read
   (let [f (defn-form 'frame-registrar-describe)]
     (is (calls? f 'rf/handler-meta)
-        "frame-registrar-describe MUST route through (rf/handler-meta {:frame …}) — the public facade read (rf2-wkw8na).")
+        "frame-registrar-describe MUST route through (rf/handler-meta {:frame …}) — the public facade read.")
     (is (form-contains? (fn [n] (= :frame n)) f)
         "frame-registrar-describe MUST pass a :frame-keyed query map (the frame-targeted arity).")))
 
 (deftest frame-registrar-list-uses-facade-frame-read
   (let [f (defn-form 'frame-registrar-list)]
     (is (calls? f 'rf/registrations)
-        "frame-registrar-list MUST route through (rf/registrations {:frame …}) — the public facade read (rf2-i4hk4b removed the rf/handler-ids projection it used to call).")))
+        "frame-registrar-list MUST route through (rf/registrations {:frame …}) — the public facade read.")))
 
 (deftest frame-registrar-registrations-uses-facade-frame-read
   (let [f (defn-form 'frame-registrar-registrations)]
@@ -78,13 +78,13 @@
 (deftest describe-image-uses-public-frame-generation
   (let [f (defn-form 'describe-image)]
     (is (calls? f 'rf/frame-generation)
-        "describe-image MUST route through (rf/frame-generation frame) — the public facade read (rf2-wkw8na), NOT re-frame.image-assembly internals.")
+        "describe-image MUST route through (rf/frame-generation frame) — the public facade read, NOT re-frame.image-assembly internals.")
     (is (form-contains? (fn [n] (= :rf.gen/resolver n)) f)
         "describe-image reads the sealed generation's :rf.gen/resolver for the per-kind counts / registrations.")
-    ;; EP-0026 (rf2-dlvmpc): the image-capability surface is removed end-to-end,
-    ;; so describe-image no longer surfaces :rf.gen/requires.
+    ;; There is no image-capability surface, so describe-image does not
+    ;; surface :rf.gen/requires.
     (is (not (form-contains? (fn [n] (= :rf.gen/requires n)) f))
-        "describe-image MUST NOT read :rf.gen/requires — the image-capability surface was retired (EP-0026).")))
+        "describe-image MUST NOT read :rf.gen/requires — there is no image-capability surface.")))
 
 ;; ---------------------------------------------------------------------------
 ;; describe-image guards the no-generation fail-loud.
@@ -132,7 +132,7 @@
       (is (not leaks?)
           (str sym " MUST NOT reach into re-frame.live-frame / "
                "re-frame.image-assembly internals — EP-0023 routes tools "
-               "through the public facade reads only (rf2-srobm0).")))))
+               "through the public facade reads only.")))))
 
 ;; ---------------------------------------------------------------------------
 ;; orient re-bases its registry on the operating frame's generation.
@@ -142,13 +142,13 @@
   (let [orient (defn-form 'orient)
         view   (defn-form 'frame-registry-view)]
     (is (some? view)
-        "preload must define `frame-registry-view` — the operating-frame registry projection (rf2-srobm0).")
+        "preload must define `frame-registry-view` — the operating-frame registry projection.")
     (is (calls? view 'rf/frame-generation)
         "frame-registry-view MUST resolve through the public rf/frame-generation read.")
     (is (calls? orient 'frame-registry-view)
         "orient MUST re-base its :registry on the operating-frame generation (frame-registry-view), falling back to the process view.")
     (is (calls? orient 'process-registry-view)
-        "orient MUST keep the process-wide registry view as the fallback (ambiguous multi-frame / pre-EP-0023 core).")))
+        "orient MUST keep the process-wide registry view as the fallback (ambiguous multi-frame / an operating frame with no sealed image generation).")))
 
 (let [{:keys [fail error]} (run-tests 'frame-registrar-test)]
   (System/exit (if (zero? (+ (or fail 0) (or error 0))) 0 1)))
