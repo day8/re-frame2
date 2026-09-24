@@ -2,10 +2,10 @@
   "JVM `:main` entry point that installs the quiet reporter then
   delegates to `cognitect.test-runner`.
 
-  Replaces `:main-opts [\"-m\" \"cognitect.test-runner\"]` in each
-  per-artefact `:test` alias.  Forwarded args are passed verbatim to
-  cognitect-test-runner so existing flags (`-i`, `-e`, `--dir`, etc.)
-  keep working.
+  Each per-artefact `:test` alias names this namespace as its `-m` entry
+  point in place of `cognitect.test-runner`.  Forwarded args are passed
+  verbatim to cognitect-test-runner, so its own flags (`-i`, `-e`,
+  `--dir`, etc.) work here too.
 
   Requiring `re-frame.test-quiet` at the top of this namespace is the
   install — the `defmethod`s for `clojure.test/report` install at
@@ -78,9 +78,9 @@
      `RF2_MIN_TESTS` tests executed (default 1) is red, however clean the
      tally.  `run-tests` over an empty namespace set reports `Ran 0 tests
      containing 0 assertions. / 0 failures, 0 errors.` and cognitect exits
-     0 from that, so a discovery set that silently collapsed to nothing —
-     a `-r`/`-n` selector matching no namespace, a `:test` alias that lost
-     its `:extra-paths [\"test\"]`, a renamed test file — was
+     0 from that, so a discovery set that silently collapses to nothing —
+     a `-r`/`-n` selector matching no namespace, a `:test` alias missing
+     its `:extra-paths [\"test\"]`, a renamed test file — would otherwise be
      indistinguishable from a green suite.  See `parse-min-tests`.
    - a PROBE lane claims only that its deps and classpath RESOLVE, so zero
      tests is its correct outcome and the coverage floor must not apply.
@@ -108,7 +108,7 @@
   whichever the classpath resolves while the other never loads, running a
   suite twice under a tally that goes UP rather than down.
   `discovery-defects` is the third rule and it fires BEFORE any test does;
-  see its own docstring, and rf2-vruo9.
+  see its own docstring.
 
   ## What the lane's FIXTURES will do
 
@@ -121,7 +121,7 @@
   and the rule refuses a closed set rather than admitting a list.
   `uncallable-fixtures` is the fourth rule; it fires from `:summary`, the
   first hook that holds control after every namespace this lane runs has
-  loaded.  See its own docstring, and rf2-4yw1."
+  loaded.  See its own docstring."
   (:require
     [re-frame.test-quiet]
     [clojure.java.io :as io]
@@ -290,9 +290,9 @@
         ;; before any test runs (`cognitect.test-runner/test`), so it is the
         ;; first — and only — blank-led `Running tests in #{...}` line on the
         ;; stream.  Once we have dropped it, every later banner-shaped line is
-        ;; genuine test/fixture stdout and must pass through: a test that
-        ;; prints a blank line then banner-shaped text was otherwise
-        ;; over-dropped, violating the pass-through contract.
+        ;; genuine test/fixture stdout and must pass through: without this
+        ;; latch, a test that prints a blank line then banner-shaped text
+        ;; would be over-dropped, violating the pass-through contract.
         banner-dropped? (volatile! false)
         ;; `pending-blank?` holds back a single empty line that MIGHT be
         ;; the banner's leading newline (`\nRunning tests in #{...}`). It
@@ -475,8 +475,7 @@
 ;; clojure.test routes its assertion / FAIL / ERROR / summary output
 ;; through `clojure.test/*test-out*` (bound to the real `*out*`), NOT
 ;; through `*err*`, so buffering stderr never hides failure diagnostics —
-;; the red FAIL/ERROR blocks reach stdout via the `*out*` filter exactly
-;; as before.
+;; the red FAIL/ERROR blocks reach stdout via the `*out*` filter.
 
 (def ^:private stderr-buffer-cap
   "Bounded stderr ring capacity (characters).  Caps memory + replay
@@ -536,11 +535,10 @@
       (close []))))
 
 ;; ----------------------------------------------------------------------
-;; What a lane claims, and what it must therefore prove (rf2-qqzmf) — the
-;; coverage floor for a suite lane, `probe-flag` for a resolution lane.
+;; What a lane claims, and what it must therefore prove — the coverage
+;; floor for a suite lane, `probe-flag` for a resolution lane.
 ;;
-;; The project already holds this standard in two places and had not
-;; generalised it:
+;; The project holds this standard in two other places:
 ;;   - `re-frame.test-quiet.shadow-node/execute-cli` rejects a `--test=`
 ;;     SELECTOR that matches no var, "precisely because run-test-vars over
 ;;     an empty set reports a 0-test success";
@@ -548,17 +546,17 @@
 ;;     conformance CENSUS.
 ;; Both are places that claim COVERAGE, and both say the same thing: a run
 ;; that executed nothing is a configuration error, not a pass.  Neither is a
-;; resolution probe — the existing standard was already scoped this way, and
-;; the floor below generalises it to the whole-suite path every per-artefact
-;; `:test` alias takes rather than widening it to lanes that claim something
-;; else (see the ns docstring, and `probe-flag`).
+;; resolution probe — the standard is scoped this way, and the floor below
+;; applies it to the whole-suite path every per-artefact `:test` alias takes
+;; rather than widening it to lanes that claim something else (see the ns
+;; docstring, and `probe-flag`).
 ;;
 ;; The DEFAULT floor is 1 rather than a per-artefact calibrated number.
 ;; That is deliberate: 1 is the bound that can never go stale (no SUITE lane
 ;; will ever legitimately ship zero tests), while ~20 hand-maintained
 ;; per-artefact numbers would have to be re-ratcheted on ordinary churn and
-;; buy detection only for a PARTIAL collapse — which no observed instance of
-;; this failure class has been.  `RF2_MIN_TESTS` is there for a caller that
+;; buy detection only for a PARTIAL collapse, which this failure class does
+;; not produce in practice.  `RF2_MIN_TESTS` is there for a caller that
 ;; does want a calibrated bound on a specific lane.
 
 (def ^:private min-tests-env-var
@@ -629,8 +627,8 @@
       parsed)))
 
 ;; ----------------------------------------------------------------------
-;; What the lane will DISCOVER (rf2-vruo9) — a file the runner cannot see
-;; is not a file that passed.
+;; What the lane will DISCOVER — a file the runner cannot see is not a
+;; file that passed.
 ;;
 ;; `cognitect.test-runner/test` builds its namespace set by READING each
 ;; source file's `(ns ...)` form:
@@ -644,21 +642,19 @@
 ;; file that was never written.  One unescaped `"` inside the ns docstring
 ;; is enough.
 ;;
-;; MEASURED on this repo, 2026-07-29.  A single stray quote in the ns
-;; docstring of `implementation/core/test/re_frame/late_bind_drift_test.clj`
-;; took `clojure -M:test` in `implementation/core` from 2190 tests / 11245
-;; assertions to 2182 / 10571 — exactly that file's eight deftests — and it
-;; printed `0 failures, 0 errors.` and exited 0.  Exit code zero, honestly
-;; earned, over a suite missing a whole file.
+;; A single stray quote in one test file's ns docstring drops exactly that
+;; file's deftests from `clojure -M:test`, and the run still prints
+;; `0 failures, 0 errors.` and exits 0.  Exit code zero, honestly earned,
+;; over a suite missing a whole file.
 ;;
 ;; NOTHING ELSE SEES IT, and that is not for want of guards.  `RF2_MIN_TESTS`
-;; above is a COLLAPSE detector: eight tests out of 2190 sit far inside the
-;; headroom any growing lane must leave itself.  `verify_roster` in
+;; above is a COLLAPSE detector: one file's handful of tests sits far inside
+;; the headroom any growing lane must leave itself.  `verify_roster` in
 ;; `scripts/test-core-prod-gate.sh` compares the file count against the
 ;; namespace count but SCRAPES the `(ns ` line with `sed`, and
 ;; `scripts/check_test_lane_bijection.py` matches it with a regex — both
 ;; therefore match the APPEARANCE of a declaration rather than the
-;; declaration, and both were measured green over the broken file above.
+;; declaration, and both stay green over such a broken file.
 ;; Reading the form is the whole point, so the check lives HERE, in the one
 ;; process that already has the lane's classpath and the discovery library
 ;; on it, rather than in a script that would have to imitate a reader.
@@ -675,7 +671,7 @@
 ;;     differ — so the shadowing pair, where one file's tests run twice and
 ;;     the other's never run at all, is caught by the same comparison.
 ;;
-;; "The discovered count equals the file count" was the other candidate and
+;; "The discovered count equals the file count" is the other candidate and
 ;; it is strictly weaker: a count is satisfiable by coincidence (a file lost
 ;; while another gains a second declaration nets zero), it cannot NAME the
 ;; file it is missing, and it is implied anyway — a total, injective map
@@ -802,7 +798,7 @@
   `clojure.lang.RT/load` asks the WHOLE classpath for `<base>.clj`, and only
   when nothing anywhere answers does it ask for `<base>.cljc` — so a `.clj`
   in ANY root beats a `.cljc` in EVERY root, whatever the root order.
-  Measured on Clojure 1.12.0 (rf2-hq1o5): with a `.cljc` in the first root
+  Measured on Clojure 1.12.0: with a `.cljc` in the first root
   and a `.clj` of the same namespace in the second, `require` loads the
   `.clj`; swap the roots and it still loads the `.clj`; drop the `.clj` and
   it loads the `.cljc`. (`RT/load` also takes a compiled `__init.class` over
@@ -842,17 +838,17 @@
       VERY FILE.
 
   The second arm is strictly weaker than the first, so it can only ever
-  clear a file the older path-string comparison reddened.
+  clear a file the path-string comparison alone would redden.
 
-  NEITHER ANSWER SAYS THE FILE IS WHAT `require` LOADS (rf2-hq1o5).  Both
-  look the namespace up under the extension the discovered file carries,
-  while `require` asks the whole classpath for the `.clj` first (see
+  NEITHER ANSWER SAYS THE FILE IS WHAT `require` LOADS.  Both look the
+  namespace up under the extension the discovered file carries, while
+  `require` asks the whole classpath for the `.clj` first (see
   `load-extensions`).  So a selected failing `.cljc` in one root and an
-  unselected passing `.clj` of the same namespace in another satisfied both,
-  and `-main` ran the `.clj` and exited 0 without the selected failure ever
-  executing.  A file that spells its own path is therefore STILL a defect
-  when its namespace's `load-winner` is a source outside `discovered` — the
-  canonical paths of every file this run walked.  A winner INSIDE it is a
+  unselected passing `.clj` of the same namespace in another would satisfy
+  both, and `-main` would run the `.clj` and exit 0 without the selected
+  failure ever executing.  A file that spells its own path is therefore
+  STILL a defect when its namespace's `load-winner` is a source outside
+  `discovered` — the canonical paths of every file this run walked.  A winner INSIDE it is a
   discovered sibling declaring the same namespace, which `collision-defects`
   names together with this file."
   [discovered {:keys [canonical rel ext declared complaint]}]
@@ -900,7 +896,7 @@
   already loaded, and `run-tests` is then handed the same symbol twice:
   one file runs twice while the other never runs at all.  The tally goes
   UP, not down, so neither the summary nor the `RF2_MIN_TESTS` floor can
-  see the substitution (rf2-vruo9)."
+  see the substitution."
   [files]
   (for [[declared group] (group-by :declared files)
         :when            (next group)
@@ -939,7 +935,7 @@
 
 (defn- verify-discovery!
   "Refuse the run when any file in this lane's discovery directories will
-  not reach the runner as its own namespace (rf2-vruo9).
+  not reach the runner as its own namespace.
 
   Called before `-main` rebinds anything, so the diagnostic goes straight
   to the real stderr rather than into the red-replay ring, and exits 1
@@ -964,9 +960,9 @@
                       " (clojure.tools.namespace.find/find-ns-decls-in-dir\n"
                       "    is a `keep` over `ignore-reader-exception`), so it"
                       " contributes no namespace and its\n"
-                      "    tests simply do not run. Measured: one stray quote in"
-                      " an ns docstring took\n"
-                      "    implementation/core from 2190 tests to 2182, green.\n"
+                      "    tests simply do not run. One stray quote in an ns"
+                      " docstring is enough to drop\n"
+                      "    a whole file from a green run.\n"
                       "  - two files declaring ONE namespace yield that name"
                       " TWICE. `require` loads whichever\n"
                       "    the classpath resolves and skips the rest as already"
@@ -977,13 +973,13 @@
                       " see the substitution.\n\n"
                       "Either way the suite still prints `0 failures, 0 errors.`"
                       " and exits 0. Fix the file, or\n"
-                      "move it out of the discovery directory (rf2-vruo9).\n"))
+                      "move it out of the discovery directory.\n"))
         (flush))
       (System/exit 1))))
 
 ;; ----------------------------------------------------------------------
-;; What the lane's FIXTURES will do (rf2-4yw1) — a fixture the runner
-;; cannot CALL is a namespace that ran nothing.
+;; What the lane's FIXTURES will do — a fixture the runner cannot CALL is
+;; a namespace that ran nothing.
 ;;
 ;; `cljs.test` accepts a MAP fixture — `(use-fixtures :each {:before f
 ;; :after g})` — and this repo's `*_cljs_test.cljs` files use it throughout.
@@ -993,30 +989,27 @@
 ;; runs.  Maps are `IFn`, so nothing throws.  cljs.test asserts on this
 ;; ("Fixtures may not be of mixed types"); the JVM half is the unguarded one.
 ;;
-;; WHAT THE RULE MAY NOT DO IS REFUSE HONEST CODE, and this is where two
-;; earlier rounds of it went wrong (rf2-4yw1).  The requirement is that the
-;; entry APPLY the thunk, not that it be `fn?`: a var referring to a fixture
-;; function, a multimethod and a `reify`d `IFn` all invoke the thunk while
-;; failing `fn?`, and each was refused in turn by a rule that listed the
-;; types it would accept.  That list can never be finished, because anyone
-;; may write a new `IFn`.  The set of values Clojure invokes as a LOOKUP
+;; WHAT THE RULE MAY NOT DO IS REFUSE HONEST CODE.  The requirement is that
+;; the entry APPLY the thunk, not that it be `fn?`: a var referring to a
+;; fixture function, a multimethod and a `reify`d `IFn` all invoke the thunk
+;; while failing `fn?`, and a rule that listed the types it would accept
+;; would refuse each of them in turn.  That list can never be finished,
+;; because anyone may write a new `IFn`.  The set of values Clojure invokes as a LOOKUP
 ;; can be, so `callable-fixture?` subtracts that closed set from `ifn?`
 ;; instead — see its docstring for the direction the residual error runs in.
 ;;
 ;; MEASURED: a two-line namespace whose single `deftest` asserts `(= 1 2)`
 ;; reports `Ran 0 tests containing 0 assertions. / 0 failures, 0 errors.`
-;; and exits 0 under the map form.  Two `.cljc` namespaces under
-;; `implementation/resources` were zeroed exactly this way while the lane
-;; reported 839 tests / 7584 assertions, green (rf2-4yw1).
+;; and exits 0 under the map form.
 ;;
 ;; WHY THIS IS A RUNTIME RULE AND NOT A SCAN.  A scan sees text, and
 ;; `(use-fixtures :each fixture)` where `fixture` is a symbol bound to a map
 ;; is spelled exactly like the legitimate fn form.  `use-fixtures` writes
 ;; the args it was handed into the namespace's metadata, so reading that
-;; metadata back sees the VALUE either way.  The tree already holds a static
-;; half — `tools/story/test/re_frame/story/meta_fixtures_test.cljc` — and it
-;; is scoped to that one artefact's `test/` tree, which is how the two
-;; measured files escaped it.
+;; metadata back sees the VALUE either way.  The tree holds a static half —
+;; `tools/story/test/re_frame/story/meta_fixtures_test.cljc` — and it is
+;; scoped to that one artefact's `test/` tree, so it cannot see any other
+;; artefact's files.
 
 (def ^:private fixture-meta-keys
   "The namespace-metadata keys `clojure.test/use-fixtures` writes.  Each
@@ -1047,23 +1040,22 @@
   from a value.  This predicate does not pretend to decide it.  It decides the
   one thing that is decidable, and it is written as a SUBTRACTION from `ifn?`
   rather than as a list of accepted types, because the two populations of
-  `IFn` are not symmetrical (MEASURED on Clojure 1.12, rf2-4yw1):
+  `IFn` are not symmetrical (MEASURED on Clojure 1.12):
 
     - The APPLYING population is OPEN.  A fn, a multimethod, a `reify` or
       `deftype` implementing `IFn`, a proxy, a Var forwarding to any of them:
       all apply their argument, and no enumeration of them stays complete,
-      because the next one has not been written yet.  Two earlier rounds of
-      this rule enumerated anyway — first `fn?`, then `fn?` or `MultiFn` or a
-      Var resolving to one — and each list refused honest, working code while
-      announcing that the namespace had run nothing.  `fn?` alone rejects
-      `(use-fixtures :each #'lifecycle)`; the widened list still rejected
+      because the next one has not been written yet.  Any enumeration
+      refuses honest, working code while announcing that the namespace ran
+      nothing: `fn?` alone rejects `(use-fixtures :each #'lifecycle)`, and
+      `fn?` or `MultiFn` or a Var resolving to one rejects
       `(reify clojure.lang.IFn (invoke [_ t] (t)))`.
     - The LOOKUP population is CLOSED — see `lookup-invocation?`.
 
   So the rule is `ifn?` MINUS the closed set, and everything else is accepted.
   Read the direction of the residual error deliberately: an exotic `IFn` that
   ignores its argument is accepted and its namespace stays silently zeroed,
-  which is the original defect surviving in a corner.  That is the right trade
+  which is the defect this rule catches, surviving in a corner.  That is the right trade
   against a guard that reds idiomatic code, and it is the whole reason this is
   a subtraction — a guard that refuses valid code is worse than the defect it
   catches.
@@ -1117,7 +1109,7 @@
        "A fixture must APPLY its argument -- a fn, a multimethod, a var"
        " referring to one, or any IFn that calls the thunk. The"
        " {:before f :after g} map is cljs.test-only --"
-       " (use-fixtures :each (fn [t] (before) (t) (after))) (rf2-4yw1).\n"))
+       " (use-fixtures :each (fn [t] (before) (t) (after))).\n"))
 
 (defn- install-summary-method!
   "Install `f` as `clojure.test/report`'s `:summary` method, or — when `f`
@@ -1196,8 +1188,7 @@
         ;; than a mutation half-applied by a still-live background writer.
         ;; Copy out under the lock, then do the (unbounded) original-err replay
         ;; I/O OUTSIDE it so a writer is never blocked on the replay. An
-        ;; empty ring yields `nil` and replays nothing, exactly as the prior
-        ;; `(pos? (.length stderr-ring))` guard did.
+        ;; empty ring yields `nil` and replays nothing.
         (let [captured-stderr (locking stderr-ring
                                 (when (pos? (.length stderr-ring))
                                   (.toString stderr-ring)))]
@@ -1213,7 +1204,7 @@
     ;; "Ran N tests…/K failures, J errors." line still prints.
     (when prior-summary-method
       (prior-summary-method summary))
-    ;; Then this lane's own claim (rf2-qqzmf). A suite lane claims coverage
+    ;; Then this lane's own claim. A suite lane claims coverage
     ;; and must prove it RAN; a probe lane claims resolution and must prove
     ;; it resolved WITHOUT running. Diagnostics are ASCII only: they go
     ;; through the platform-default stderr encoding, where an em dash renders
@@ -1227,8 +1218,8 @@
           uncallable (uncallable-fixtures (all-ns))]
       (cond
         ;; An uncallable fixture zeroes its whole namespace, so it is read
-        ;; BEFORE the coverage floor: a lane zeroed this way is otherwise
-        ;; reported as the discovery problem it does not have (rf2-4yw1).
+        ;; BEFORE the coverage floor: a lane zeroed this way would otherwise
+        ;; be reported as the discovery problem it does not have.
         (seq uncallable)
         (fail-run! (uncallable-fixture-complaint uncallable))
 
@@ -1243,7 +1234,7 @@
                       "A lane with tests claims COVERAGE, not resolution:"
                       " drop " probe-flag " from its `:test` alias"
                       " `:main-opts`\n"
-                      "so the test-count floor applies to it (rf2-qqzmf).\n")))
+                      "so the test-count floor applies to it.\n")))
 
         (< test-count min-tests)
         (fail-run!
@@ -1255,7 +1246,7 @@
                     " nothing, a `:test` alias\n"
                     "missing its `:extra-paths [\"test\"]`, a renamed test"
                     " file. It is not a pass. Failing the run"
-                    " (rf2-qqzmf).\n"
+                    ".\n"
                     "If this lane claims only that its classpath RESOLVES,"
                     " declare that with " probe-flag " instead.\n"))))))
 
@@ -1317,12 +1308,12 @@
   ;; `make-summary-replay-method`).
   (let [;; This lane's claim, resolved BEFORE anything is rebound so a
         ;; malformed floor is a plain stderr diagnostic + exit 2, not a
-        ;; buffered one (rf2-qqzmf). `--probe` is ours and is stripped from
+        ;; buffered one. `--probe` is ours and is stripped from
         ;; what cognitect sees.
         [{:keys [probe?]} forwarded-args] (split-runner-args args)
         lane-claim {:probe? probe? :min-tests (resolve-min-tests!)}
         ;; And what this lane will DISCOVER, resolved from the same args
-        ;; cognitect is about to parse (rf2-vruo9). Also before anything is
+        ;; cognitect is about to parse. Also before anything is
         ;; rebound, and before a single test runs: a file the reader cannot
         ;; read is invisible to discovery, so no later hook — not the floor,
         ;; not the summary — has anything left to notice.
