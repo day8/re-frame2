@@ -25,15 +25,14 @@
 (def ^:private wall-clock-floor 1e12)
 
 (deftest committed-at-unscripted-dispatch-is-wall-clock-epoch-cljs
-  (testing "rf2-1t30y7 — an UNSCRIPTED dispatch (no :rf.cofx) flows
+  (testing "an UNSCRIPTED dispatch (no :rf.cofx) flows
             through the live router, which stamps the causal :time-ms from
             the host clock; the resulting epoch record :committed-at MUST be
             a wall-clock epoch ms (close to js/Date.now), NOT a perf-clock
             origin-relative number. A regression swapping
             interop/epoch-now-ms -> interop/now-ms at the causal boundary is
             JVM-benign but would land :committed-at ~12 orders of magnitude
-            low here and fail this band — the blind spot rf2-2elcw3 exposed
-            for resources, now closed for the durable :committed-at field."
+            low here and fail this band."
     (rf/reg-event :clk/init (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :clk/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
@@ -72,7 +71,7 @@
              perf-relative read")))))
 
 (deftest committed-at-clock-class-discriminator-sanity-cljs
-  (testing "rf2-1t30y7 — corroborate the discriminator the regression
+  (testing "corroborate the discriminator the regression
             assertion leans on: on the CLJS runtime epoch-now-ms is a
             wall-clock epoch ms (> 1e12) while now-ms (performance.now) is an
             origin-relative elapsed value BELOW the wall-clock floor. Pins
