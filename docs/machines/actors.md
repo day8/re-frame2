@@ -322,6 +322,8 @@ Destroy is silently idempotent. Destroying an already-gone actor is a no-op.
 A spawned actor is destroyed when:
 
 - the parent exits the spawn-bearing state;
+- its parent is destroyed, when a `:spawn` or `:spawn-all` spawned it (an actor
+  an action hand-emitted outlives its spawner);
 - a timeout or `:after` transition exits that state;
 - a `:spawn-all` join cancels surviving siblings;
 - you emit `[:rf.machine/destroy actor-id]`;
