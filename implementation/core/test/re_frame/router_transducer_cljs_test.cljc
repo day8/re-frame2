@@ -1,6 +1,6 @@
 (ns re-frame.router-transducer-cljs-test
-  "Unit coverage for the v1.1 transducer-router Phase-1 scaffold
-  (rf2-cl8me). Non-normative — these tests pin the scaffold's pure-fn
+  "Unit coverage for the v1.1 transducer-router Phase-1 scaffold.
+  Non-normative — these tests pin the scaffold's pure-fn
   surface so the design at spec/Design-TransducerRouter.md is exercisable.
 
   The scaffold does not touch the live runtime; these tests construct
@@ -10,7 +10,7 @@
   Dual-target (`.cljc`): the JVM runner selects it on `.*-test$`, Shadow's
   `:node-test` build on `cljs-test$`. The `-cljs-test` suffix is therefore
   load-bearing — a `.cljc` test whose ns ends in a plain `-test` compiles
-  nowhere but the JVM and reads as covered (rf2-dn6v7, rf2-lgozq)."
+  nowhere but the JVM and reads as covered."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.router-transducer :as rf.router-transducer]))
 
