@@ -159,7 +159,7 @@
                                      :on {:go {:target :b :guard :g :action :a2}
                                           :up {:target :b :guard g :action f}}})))))))
 
-;; ---- five registration holes ---------------------------------------------------
+;; ---- :spawn, :internal-events, :tags and :on-done shapes -----------------------
 
 (deftest spawn-must-be-one-spec-map
   (testing "a vector :spawn is refused — N children is :spawn-all"
