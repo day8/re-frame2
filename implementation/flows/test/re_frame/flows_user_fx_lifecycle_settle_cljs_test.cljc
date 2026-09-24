@@ -5,18 +5,18 @@
   The `:fx` walk runs AFTER the event's flow pass. Two things can happen
   during it that the pass never saw:
 
-    1. rf2-3x7nj.18.3 — a user fx calls `(rf/clear :flow id)`, or a
+    1. A user fx calls `(rf/clear :flow id)`, or a
        `reg-flow` that moves an existing flow's `:output-path`. Both run
        in-drain, so both QUEUE their output-path vacation for a pending flow
-       pass — but the pass has already run. Only the reserved
-       `:rf.fx/reg-flow` / `:rf.fx/clear-flow` bodies used to request a settle,
-       so the cleared flow's row was gone while its own leaf, and every
+       pass — but the pass has already run. The lifecycle op therefore
+       requests the settle itself; were only the reserved
+       `:rf.fx/reg-flow` / `:rf.fx/clear-flow` bodies to request one, the
+       cleared flow's row would be gone while its own leaf, and every
        dependent derived from it, stayed in app-db until some unrelated drain.
-       The lifecycle op now requests the settle itself; outside a walk the
-       request is a no-op, so a clear from a handler body still settles via
-       that event's own pending pass.
+       Outside a walk the request is a no-op, so a clear from a handler body
+       settles via that event's own pending pass.
 
-    2. rf2-3x7nj.9.7 — a user fx writes frame state directly. The walk now
+    2. A user fx writes frame state directly. The walk
        requests a settle whenever it leaves the frame's state container
        changed and the frame holds a flow. (The machine lifecycle writers are
        pinned in core, whose test classpath carries machines.)
@@ -53,7 +53,7 @@
   (rf/dispatch-sync [:seed]))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-3x7nj.18.3 — lifecycle calls from a user fx
+;; Lifecycle calls from a user fx
 ;; ---------------------------------------------------------------------------
 
 (deftest a-clear-from-a-user-fx-settles-in-one-dispatch
@@ -67,7 +67,7 @@
     (rf/dispatch-sync [:go])
     (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) :p3/a))
         "the registry row is gone")
-    ;; Red before the fix: {:x 2 :a 2 :b 2} — the row gone, its value and
+    ;; Without the settle: {:x 2 :a 2 :b 2} — the row gone, its value and
     ;; the value derived from it still present.
     (is (= {:x 2 :b nil} (db))
         "the leaf is vacated and the dependent derived from its absence")
@@ -85,12 +85,12 @@
     (rf/reg-event :go (fn [_ _] {:fx [[:p3/move-a nil]]}))
 
     (rf/dispatch-sync [:go])
-    ;; Red before the fix: the old [:a] leaf, and :b derived from it, linger.
+    ;; Without the settle: the old [:a] leaf, and :b derived from it, would linger.
     (is (= {:x 2 :a2 2 :b nil} (db))
         "the old leaf is vacated, the moved flow materialised, the dependent settled")))
 
 (deftest a-clear-from-a-handler-body-is-unchanged
-  (testing "CONTROL — a clear from the handler BODY still settles through that
+  (testing "CONTROL — a clear from the handler BODY settles through that
             event's own pending flow pass; the request is a no-op there"
     (reg-chain-and-seed!)
     (rf/reg-event :go (fn [{:keys [db]} _]
@@ -100,7 +100,7 @@
     (is (= {:x 2 :b nil} (db)))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-3x7nj.9.7 — the generic write trigger, independent of machines
+;; The generic write trigger, independent of machines
 ;; ---------------------------------------------------------------------------
 
 (deftest a-user-fx-writing-frame-state-settles-in-one-dispatch
@@ -110,7 +110,7 @@
       (fn [{:keys [frame]} _] (rf.frame/swap-runtime-db! frame update :probe/n (fnil inc 0))))
     (rf/reg-event :go (fn [_ _] {:fx [[:p/bump-runtime nil]]}))
     (rf/dispatch-sync [:go])
-    ;; Red before the fix: nil — the pass ran before the write.
+    ;; Without the settle: nil — the pass runs before the write.
     (is (= 1 (:rt-n (db))) "fresh after the ONE dispatch"))
 
   (testing "a user fx that writes app-db directly refreshes a flow reading it"
