@@ -35,7 +35,7 @@
 ;; from core to routing (e.g. `re-frame.core`'s `reg-route` /
 ;; `match-url` / `route-url` re-exports, the `:rf/route` reg-sub) flow
 ;; through `re-frame.late-bind` exactly as the schemas / machines hooks
-;; already do.
+;; do.
 {:paths ["src"]
  :deps  {day8/re-frame2 {:local/root "../core"}}
 
@@ -57,7 +57,7 @@
                        day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
          ;; The default PR/local gate excludes the heavy
          ;; `^:stress` tests in `routing_concurrency_stress_test`
-         ;; (5000-iter × 8-thread cross-frame nav). These were tagged
+         ;; (5000-iter × 8-thread cross-frame nav). These are tagged
          ;; `^:stress`; the runner passes `-e` through to
          ;; cognitect-test-runner verbatim. Coverage is NOT lost: the
          ;; `:slow-test` alias below runs them, invoked by the nightly
@@ -70,13 +70,13 @@
          ;; command line. It belongs to the `:prod-gate` lane below and is
          ;; red anywhere else BY DESIGN — a pin softened to "check the
          ;; property if it is set" would pass vacuously in exactly the case
-         ;; it exists to catch (rf2-hnrwo). So `:test` + `:slow-test` +
-         ;; `:prod-gate` are the three-way partition; every test still runs
+         ;; it exists to catch. So `:test` + `:slow-test` +
+         ;; `:prod-gate` are the three-way partition; every test runs
          ;; exactly once across them.
          :main-opts   ["-m" "re-frame.test-quiet.runner"
                        "-e" ":slow" "-e" ":stress" "-e" ":prod-gate"]}
 
-  ;; rf2-hnrwo — the PRODUCTION-GATE lane, as a MODIFIER composed onto
+  ;; The PRODUCTION-GATE lane, as a MODIFIER composed onto
   ;; `:test`: `clojure -M:test:prod-gate`. `:extra-paths` / `:extra-deps`
   ;; merge in from `:test` (so the classpath cannot drift between the two
   ;; lanes), while `:jvm-opts` and `:main-opts` come from here —
@@ -86,22 +86,20 @@
   ;; WHY THE FLAG LIVES IN `:jvm-opts` AND NOT ON A COMMAND LINE. SECURITY.md
   ;; documents `-Dre-frame.debug=false` as the JVM/SSR production setting, and
   ;; `re-frame.interop/debug-enabled?` reads it ONCE at namespace-load time.
-  ;; Nothing in CI ever set it for this artefact, so routing's production
-  ;; posture was executed by no suite anywhere — the same hole that let
-  ;; rf2-9c2jf (dispatch-sync a total no-op under the gate) stay green in
-  ;; core. Every suite that calls itself a "production gate" test rebinds the
-  ;; Var with `with-redefs` AFTER the framework has loaded, and a load-time
-  ;; gate is invisible to that. Putting the property in the alias makes it
+  ;; A "production gate" test that rebinds the Var with `with-redefs` AFTER
+  ;; the framework has loaded cannot see a load-time gate, so without the
+  ;; property on a lane no suite would execute routing's production posture.
+  ;; Putting the property in the alias makes it
   ;; part of the LANE's definition rather than something a job has to
   ;; remember, and `re-frame.routing-prod-gate-lane-pin-test` fails the run if
   ;; it ever stops arriving.
   ;;
-  ;; WHY ROUTING SPECIFICALLY. rf2-u2x6w established that sub-classification —
-  ;; a PRIVACY invariant — genuinely egresses in production from routing's
-  ;; `:routing/route-sub-egress-path`. That egress ran under no gate at all
-  ;; until this lane existed.
+  ;; WHY ROUTING SPECIFICALLY. Sub-classification — a PRIVACY invariant —
+  ;; genuinely egresses in production from routing's
+  ;; `:routing/route-sub-egress-path`, and this lane is the gate that egress
+  ;; runs under.
   ;;
-  ;; NOT THE WHOLE SUITE, YET. Under the real gate a documented slice of this
+  ;; NOT THE WHOLE SUITE. Under the real gate a documented slice of this
   ;; artefact's test namespaces is red, essentially all of it asserting dev
   ;; instrumentation (`:rf.route/*` traces, the `:errors` sink, source coords)
   ;; inline with semantics. Those are legitimate dev-posture tests, not
@@ -114,8 +112,8 @@
    :main-opts ["-m" "re-frame.test-quiet.runner" "-e" ":slow" "-e" ":stress"]}
 
   ;; Nightly/rigorous gate. Includes only the
-  ;; `^:slow` / `^:stress` tests, so `:test` + `:slow-test` together cover
-  ;; every test once.
+  ;; `^:slow` / `^:stress` tests, so `:test` + `:slow-test` + `:prod-gate`
+  ;; together cover every test once.
   :slow-test
   {:extra-paths ["test"]
    :extra-deps  {day8/re-frame2-schemas    {:local/root "../schemas"}
