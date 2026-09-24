@@ -1,17 +1,16 @@
 'use strict';
-// THE ONE VALUE THE EGRESS DOOR USED TO ADMIT.
+// THE ONE VALUE AN EGRESS DOOR IS LIKELIEST TO ADMIT BY MISTAKE.
 //
-// It emits perfectly good body markup and then returns `null` — and for
-// one commit that passed as a clean success, because the door read
-// `out !== undefined && out !== null` and `null` fell through the gap
-// between the two clauses.
+// It emits perfectly good body markup and then returns `null` — which a
+// door reading `out !== undefined && out !== null` would pass as a clean
+// success, `null` falling through the gap between the two clauses.
 //
 // The gap matters more than its width. A function that falls off its end
 // returns `undefined`, so `undefined` is what ABSENCE looks like here;
 // `null` is a value someone typed, and `return null` is the spelling a
 // render module reaches for to mean "nothing to say" — the most likely
 // deliberate return this contract will ever be handed, not an exotic one.
-// The single exception was sitting on the most probable path.
+// Such an exception would sit on the most probable path.
 //
 // It carries no payload at all, and that is deliberate. `leaky.cjs`
 // already proves the door refuses a module that hands over application
