@@ -1,5 +1,5 @@
 (ns re-frame.routing-scroll-after-commit-uix-dom-cljs-test
-  "rf2-3x7nj.12.3 — the cross-route fragment row of
+  "The cross-route fragment row of
   `re-frame.routing-scroll-after-commit-reagent-dom-cljs-test`, under the UIx
   adapter's NATIVE mount (a raw `createRoot` + `.render`, the documented boot
   idiom). The starting navigation asks for no scroll, so the fragment
