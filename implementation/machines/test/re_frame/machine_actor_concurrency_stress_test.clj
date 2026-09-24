@@ -93,8 +93,8 @@
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; Per-thread iteration count. Kept at the standard 5000 so CI stays under
-;; ~60s wall-clock with the default thread count.
+;; Per-thread iteration count. The standard 5000 keeps CI under ~60s
+;; wall-clock with the default thread count.
 ;; Operators dial up via the env override; CI dials down by lowering it
 ;; (e.g. `RF2_1GPX8_STRESS_ITERS=500` for a smoke-test pass).
 (def ^:private stress-iters
@@ -194,14 +194,14 @@
                           ;; Per-thread cycle: spawn → dispatch → destroy.
                           ;; `dispatch-sync` settles the cascade before
                           ;; returning so the spawned actor's snapshot
-                          ;; is in app-db by the time :go's drain ends.
+                          ;; is in runtime-db by the time :go's drain ends.
                           (dotimes [_ stress-iters]
                             (rf/dispatch-sync [driver-mid [:go]]
                                               {:frame frame-id})
                             ;; Resolve the spawned actor id from the
                             ;; runtime-owned registry (the framework writes
                             ;; the slot on every declarative-:spawn spawn).
-                            ;; Reading the frame's app-db is safe: frame
+                            ;; Reading the frame's runtime-db is safe: frame
                             ;; state is independent (Spec 002 §Rules
                             ;; rule 1) and this thread holds the only
                             ;; writer for this frame.
@@ -262,7 +262,7 @@
                 ;; The driver itself is a singleton machine reg'd on
                 ;; the GLOBAL registrar (singleton-registration path);
                 ;; its snapshot lives at [:rf.runtime/machines :snapshots <driver-mid>]
-                ;; on the frame's app-db. After every iter the driver
+                ;; on the frame's runtime-db. After every iter the driver
                 ;; is back in :idle — its snapshot is still present
                 ;; (it's a singleton, not a spawned actor). The
                 ;; spawned worker IS torn down each iter; assert NO
