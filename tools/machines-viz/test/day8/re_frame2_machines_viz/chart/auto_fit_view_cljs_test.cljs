@@ -1,35 +1,33 @@
 (ns day8.re-frame2-machines-viz.chart.auto-fit-view-cljs-test
-  "rf2-set3x — pins for the chart's auto-fit lifecycle.
+  "Pins for the chart's auto-fit lifecycle.
 
   ## What this guards
 
-  Before rf2-set3x, `chart.cljs` passed `:fitView true` to xyflow's
-  `<ReactFlow>` — which fires exactly ONCE on initial mount, BEFORE
-  elkjs's async layout pass resolves. Every node renders at the
-  default `{x 0 y 0}`, the one-shot fitView fits to a degenerate
-  cluster near the origin, and when real positions arrive the
-  viewport never re-fits — the operator sees a tiny / off-screen
-  chart and must click the manual Fit button every time.
+  xyflow's `<ReactFlow>` `:fitView true` fires exactly ONCE on initial
+  mount, BEFORE elkjs's async layout pass resolves. Every node renders
+  at the default `{x 0 y 0}`, so that one-shot fitView would fit to a
+  degenerate cluster near the origin, and when real positions arrive
+  the viewport would never re-fit — the operator would see a tiny /
+  off-screen chart and have to click the manual Fit button every time.
 
-  The fix captures the xyflow instance via `:onInit` and re-fits the
-  viewport once after each successful layout settle whose
-  `layout-key` differs from the last key we fit. Manual zoom/pan
+  So the chart captures the xyflow instance via `:onInit` and re-fits
+  the viewport once after each successful layout settle whose
+  `layout-key` differs from the last key it fit. Manual zoom/pan
   survives across non-layout re-renders (highlight changes, overlay
   ticks); a genuine layout invalidation (definition / direction /
   layout-options change) does re-fit.
 
   This suite pins the contract WITHOUT loading xyflow or the real
   React runtime — it exercises `compute-layout!`'s callback path
-  directly with the same `set!`-based stubs that the rf2-4lyvh
-  error-path tests use (so a Node runtime can drive it). The DOM-
-  side end-to-end pin (the actual `<ReactFlow>` instance receiving
-  `.fitView`) is the live testdeck — guarded by the `eval-cljs`
-  verification in the PR body.
+  directly with the same `set!`-based stubs that the
+  `compute-layout-error` tests use (so a Node runtime can drive it).
+  The DOM-side end-to-end behaviour (the actual `<ReactFlow>` instance
+  receiving `.fitView`) is outside this suite's reach.
 
   ## What is pinned here
 
     1. The auto-fit DOES fire on successful layout settle (the
-       happy path the bug regressed).
+       happy path).
     2. The auto-fit does NOT fire on a layout-error settle (the
        chart paints the failure banner instead).
     3. The auto-fit gates on `layout-key` change (re-running
@@ -105,13 +103,12 @@
 ;; ---- 1. happy path — settle DOES fit ----------------------------------
 
 (deftest auto-fit-fires-after-successful-layout-settle
-  (testing "rf2-set3x — the post-settle predicate that drives the
+  (testing "the post-settle predicate that drives the
             auto-fit calls `invoke-fit-view!` with the captured
             instance + the canonical 0.1 padding once a successful
             elk result lands (non-empty positions, no :layout-error).
-            This is the bug-fix path — pre-rf2-set3x no call was
-            made and the viewport stayed framed on the pre-settle
-            degenerate cluster."
+            Without this call the viewport would stay framed on the
+            pre-settle degenerate cluster."
     (async done
       (with-fit-spy done
         (fn [spy finish]
@@ -152,18 +149,18 @@
 ;; ---- 2. error settle does NOT fit -------------------------------------
 
 (deftest auto-fit-does-not-fire-on-layout-error-settle
-  (testing "rf2-set3x — when elk fails (the rf2-4lyvh error path), the
+  (testing "when elk fails (the layout-error path), the
             callback receives a result-map with empty :positions + a
             :layout-error slot. The chart paints the in-panel banner
             and MUST NOT call .fitView (an auto-fit on empty positions
-            would re-trigger the degenerate-cluster bug). This pins
+            would frame the degenerate origin cluster). This pins
             the failure-branch gate.
 
             `silence-console!` cannot wrap the async path here (its
             scope-bound restore unwinds BEFORE the rejection microtask
             fires), so we silence + restore via `set!` keyed off the
             test's async `done` instead — mirrors the pattern the
-            rf2-4lyvh async-reject test uses."
+            `compute-layout-error` async-reject test uses."
     (async done
       (with-fit-spy done
         (fn [spy finish]
@@ -201,7 +198,7 @@
 ;; ---- 3. key-gating semantics ------------------------------------------
 
 (deftest auto-fit-gate-keys-on-layout-key
-  (testing "rf2-set3x — the chart's `fit-state` gates on `:fit-key`
+  (testing "the chart's `fit-state` gates on `:fit-key`
             inequality so a manual operator zoom/pan SURVIVES non-
             layout re-renders. This pins the key-gate logic directly:
 
@@ -236,7 +233,7 @@
 ;; ---- 4. no instance yet → gate defers --------------------------------
 
 (deftest auto-fit-defers-when-instance-not-yet-captured
-  (testing "rf2-set3x — if compute-layout! settles BEFORE xyflow's
+  (testing "if compute-layout! settles BEFORE xyflow's
             `:onInit` fires (extremely fast layout / cached settle),
             `:instance` is still nil and the gate must NOT fire — the
             onInit callback itself will pick up the already-arrived
@@ -260,10 +257,10 @@
       (is (= [:K1] @spy)
           "fit fires once the instance arrives (single fit per key)"))))
 
-;; ---- 5. focused-machine change (rf2-s5kyp) ---------------------------
+;; ---- 5. focused-machine change ---------------------------------------
 
 (deftest auto-fit-fires-on-focused-machine-change
-  (testing "rf2-s5kyp — when the Xray Machine panel swaps the focused
+  (testing "when the Xray Machine panel swaps the focused
             machine (the parent passes a NEW `:definition` for a NEW
             `:machine-id`), the chart's `layout-key` (`[definition
             direction layout-options]`) changes, `compute-layout!` runs
@@ -273,8 +270,7 @@
 
             This pins that the layout-key gate distinguishes between
             two different definitions (the focused-machine-change path)
-            so each focused machine triggers exactly one auto-fit, the
-            acceptance contract for rf2-s5kyp."
+            so each focused machine triggers exactly one auto-fit."
     (let [fit-state (atom {:instance fake-instance :fit-key nil})
           spy       (atom [])
           maybe-fit! (fn [this-key]
@@ -302,10 +298,10 @@
       (maybe-fit! machine-a-key)
       (is (= 3 (count @spy)) "switching back to machine-a re-fits"))))
 
-;; ---- 6. schedule-fit! defers via two animation frames (rf2-s5kyp) ----
+;; ---- 6. schedule-fit! defers via two animation frames ----------------
 
 (deftest schedule-fit-deferral-uses-double-raf
-  (testing "rf2-s5kyp — the chart's `schedule-fit!` helper defers its
+  (testing "the chart's `schedule-fit!` helper defers its
             `.fitView` call through TWO nested `requestAnimationFrame`
             tasks (not one). A single rAF races xyflow's internal node-
             measurement on the focused-machine-change path: React
@@ -318,8 +314,8 @@
             Two rAFs guarantee the fit runs in the frame AFTER React's
             commit + xyflow's measurement pass — the same trick xyflow's
             own examples use for post-load fit calls. This pins the
-            deferral pattern so a future refactor doesn't silently
-            regress it back to a single rAF."
+            deferral pattern so a refactor cannot silently collapse it
+            to a single rAF."
     (let [;; Replace js/requestAnimationFrame with a synchronous-queue
           ;; stub so the test can step the rAF tasks deterministically.
           orig-raf   (.-requestAnimationFrame js/globalThis)
@@ -360,26 +356,26 @@
                 (reset! queue [])
                 (second-cb 0))
               (is (= 1 (count @spy))
-                  "fit fires after BOTH rAFs — single-rAF would have
-                   raced xyflow's measurement on focused-machine swap"))
+                  "fit fires after BOTH rAFs — single-rAF would race
+                   xyflow's measurement on focused-machine swap"))
             (finally
               (set! chart/invoke-fit-view! orig-fit))))
         (finally
           (set! (.-requestAnimationFrame js/globalThis) orig-raf))))))
 
-;; ---- 7. measure-then-relayout (rf2-d9ro2) -----------------------------
+;; ---- 7. measure-then-relayout -----------------------------------------
 ;;
-;; The bug: ELK was fed CONSTANT floor dims, so a node whose content
-;; exceeded the floor overlapped its neighbours. The fix is the canonical
-;; React Flow + ELK two-pass: mount at content size → xyflow measures
+;; Fed CONSTANT floor dims, ELK would lay a node whose content exceeds the
+;; floor over its neighbours. So the chart runs the canonical React Flow +
+;; ELK two-pass: mount at content size → xyflow measures
 ;; (`node.measured`) → re-run ELK with the measured box. These pins guard
 ;; the read seam + the loop-free gate at the Node layer (the live xyflow
-;; render is browser-pinned / eval-cljs in the PR body), mirroring why the
-;; auto-fit lifecycle above is a -cljs-test and not a DOM test.
+;; render needs a browser), mirroring why the auto-fit lifecycle above is a
+;; -cljs-test and not a DOM test.
 
 (defn- fake-instance-with-measured
-  "A stand-in ReactFlowInstance modelling xyflow v12's measured-box shape
-  (rf2-6v4ci5): `.getNodes()` returns the user-facing nodes WITHOUT
+  "A stand-in ReactFlowInstance modelling xyflow v12's measured-box shape:
+  `.getNodes()` returns the user-facing nodes WITHOUT
   `.measured` (this non-interactive chart never applies dimension changes
   back into its controlled `:nodes`, so xyflow leaves the user nodes
   unmeasured), while `.getInternalNode(id)` returns the INTERNAL node the
@@ -404,7 +400,7 @@
          (fn [id] (get internal-by-id id))}))
 
 (deftest read-measured-dims-keeps-only-fully-measured-nodes
-  (testing "rf2-d9ro2 / rf2-6v4ci5 — `read-measured-dims` lifts xyflow's
+  (testing "`read-measured-dims` lifts xyflow's
             measured box (read off the INTERNAL node via `getInternalNode`,
             NOT the user-facing `getNodes()` objects) into
             `{id {:width :height}}`, KEEPING only nodes with a positive
@@ -423,7 +419,7 @@
           "only fully + positively measured nodes survive"))))
 
 (deftest measure-then-relayout-fires-once-and-does-not-loop
-  (testing "rf2-d9ro2 — the relayout gate fires the second ELK pass once
+  (testing "the relayout gate fires the second ELK pass once
             (when the whole topology is measured + the boxes differ from
             what ELK was last fed) and NEVER loops: a relayout moves
             positions only, so the next measurement reports the SAME
@@ -476,7 +472,7 @@
           "stable measurement does NOT re-fire — the loop is closed"))))
 
 (deftest measure-then-relayout-new-topology-resets-signature
-  (testing "rf2-d9ro2 — a NEW layout-key (focused-machine swap / new
+  (testing "a NEW layout-key (focused-machine swap / new
             definition) clears the stored measured signature so the new
             machine gets its own single relayout, even if its measured
             boxes coincidentally equal the prior machine's."
@@ -503,22 +499,21 @@
       (is (= [:K1 :K2] @relayouts)
           "a new layout-key gets its own relayout despite identical boxes"))))
 
-;; ---- 8. fit-on-entry signal (rf2-6tw7t) -------------------------------
+;; ---- 8. fit-on-entry signal -------------------------------------------
 ;;
-;; The layout-key auto-fit (rf2-set3x, tests 1-6 above) deliberately
-;; PRESERVES the operator's manual zoom/pan across non-layout re-renders.
-;; That leaves a chart RE-ENTERED from a panel/tab switch at its prior
-;; viewport — the bug rf2-6tw7t fixes. The orthogonal `:fit-signal` prop
-;; (an opaque nonce the host bumps on panel-entry / tab-activation) forces
-;; a re-fit when its value CHANGES, independent of the layout-key gate.
+;; The layout-key auto-fit (tests 1-6 above) deliberately PRESERVES the
+;; operator's manual zoom/pan across non-layout re-renders. On its own that
+;; would leave a chart RE-ENTERED from a panel/tab switch at its prior
+;; viewport. The orthogonal `:fit-signal` prop (an opaque nonce the host
+;; bumps on panel-entry / tab-activation) forces a re-fit when its value
+;; CHANGES, independent of the layout-key gate.
 ;;
 ;; This pins the `maybe-fit-on-signal!` gate the chart wires onto every
-;; render verbatim (the live xyflow `.fitView` is browser-pinned /
-;; eval-cljs in the PR body — same reason tests 1-6 are Node-layer pins
-;; of the predicate, not DOM tests).
+;; render verbatim (the live xyflow `.fitView` needs a browser — the same
+;; reason tests 1-6 are Node-layer pins of the predicate, not DOM tests).
 
 (deftest fit-on-entry-fits-once-per-signal-change
-  (testing "rf2-6tw7t — the fit-on-entry gate fires exactly once each time
+  (testing "the fit-on-entry gate fires exactly once each time
             the host `:fit-signal` CHANGES (panel re-entry), and is a
             no-op while the signal is steady (ordinary re-renders, so
             manual zoom/pan survives). It requires a captured instance +
@@ -562,7 +557,7 @@
       (is (= 3 (:fit-sig @fit-state)) "fit-state records the last signal fit"))))
 
 (deftest fit-on-entry-defers-until-instance-and-positions-ready
-  (testing "rf2-6tw7t — an entry signal that arrives BEFORE the instance
+  (testing "an entry signal that arrives BEFORE the instance
             is captured (or before the first layout settles) must NOT
             record the signal as fit — it stays pending so the onInit /
             next-render re-check honours it once the preconditions hold.
@@ -601,10 +596,10 @@
       (is (= [1] @spy) "the pending entry signal fits once preconditions hold"))))
 
 (deftest fit-on-entry-skips-layout-error-settle
-  (testing "rf2-6tw7t — a fit-signal bump on a chart whose layout FAILED
-            (the rf2-4lyvh error path: empty positions + :layout-error)
-            must NOT fit — an auto-fit on empty positions re-triggers the
-            degenerate-cluster bug. The chart paints the error banner
+  (testing "a fit-signal bump on a chart whose layout FAILED
+            (the layout-error path: empty positions + :layout-error)
+            must NOT fit — an auto-fit on empty positions would frame the
+            degenerate origin cluster. The chart paints the error banner
             instead. Pins the :layout-error guard on the entry path
             (mirrors test 2's gate for the settle path)."
     (let [fit-state (atom {:instance fake-instance
@@ -627,7 +622,7 @@
       (is (= ::chart-unfit (:fit-sig @fit-state))
           "signal unrecorded — banner paints, not a degenerate fit"))))
 
-;; ---- 9. layout-key folds in the adaptive post-ELK mode (rf2-9qbn0g) ---
+;; ---- 9. layout-key folds in the adaptive post-ELK mode ----------------
 ;;
 ;; The chart keys its ELK layout pass by the RESOLVED `elk-direction`, but the
 ;; post-ELK transform (parallel transpose + back-edge reroute) is gated by the
@@ -637,14 +632,15 @@
 ;; and `:direction :auto`, so without the opt-in flag in the key a
 ;; `:tb → :auto → :tb` flip would NOT invalidate the cached layout: the
 ;; back-edge reroute / parallel transpose would never apply on opt-IN and
-;; would stale-stay on opt-OUT. `chart/layout-key` folds the `adaptive?` mode
-;; flag in to fix this.
+;; would stale-stay on opt-OUT. So `chart/compute-layout-key` folds the
+;; `adaptive?` mode flag in.
 
 (def ^:private door-cyclic-definition
   "The door shape: a forward spine with a back-edge whose `:auto` aspect-
   heuristic resolves to `:tb` (a chain with a 2-way fan, under the landscape
   threshold) — so its resolved `elk-direction` is `:tb` whether the host
-  forces `:tb` or opts in with `:auto`. The collision case rf2-9qbn0g fixes."
+  forces `:tb` or opts in with `:auto` — the collision case the mode flag in
+  the layout key exists for."
   {:initial :locked
    :states  {:locked   {:on {:insert-coin :closed}}
              :closed   {:on {:push :open}}
@@ -665,8 +661,8 @@
           auto-key      (chart/compute-layout-key door-cyclic-definition :tb nil :comfortable 0 true)]
       (testing "the forced-:tb and resolved-to-:tb-:auto keys DIFFER (mode is in the key)"
         (is (not= forced-tb-key auto-key)
-            "without adaptive? in the key these collide — the post-ELK pass
-             never applies on opt-in and stale-stays on opt-out"))
+            "without adaptive? in the key these would collide — the post-ELK
+             pass would never apply on opt-in and would stale-stay on opt-out"))
 
       (testing "a :tb → :auto → :tb flip re-invalidates each way (the gate fires)"
         ;; model the auto-fit/relayout gate: a fit (and a relayout) fires only
