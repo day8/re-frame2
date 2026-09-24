@@ -1,6 +1,6 @@
 (ns re-frame.adapter.use-frame
   "Shared React-hook hold helper for the React-hook adapters (UIx):
-  `use-frame` — `capture-frame` in hook position (rf2-y6dz8t).
+  `use-frame` — `capture-frame` in hook position.
 
   capture-frame is THE hold primitive; `reg-view` injection (Reagent) and
   `use-frame` (UIx) are its two ergonomic spellings. One primitive,
@@ -36,7 +36,7 @@
   `:rf.error/no-frame-context` with no `:rf/default` floor, exactly as the
   no-arg `capture-frame` does.
 
-  WHY THE HOOK AND THE IMPERATIVE READ DIVERGE HERE (rf2-kuky.61 / .62).
+  WHY THE HOOK AND THE IMPERATIVE READ DIVERGE HERE.
   The two faces of `capture-frame` run at different instants. The
   imperative call runs INSIDE the extent that scoped it; this hook runs
   when React renders, by which time a body's extent has unwound — so the
@@ -56,17 +56,16 @@
   The returned ops map is REFERENCE-STABLE across re-renders for the same
   resolved frame INCARNATION (safe in `useEffect` deps / memoized child
   props): a render-phase `useRef` memo-by-value keyed on the resolved
-  frame by CLJS `=` (the rf2-mwft2 discipline — CLJS keywords are not
+  frame by CLJS `=` (the memo-by-value discipline — CLJS keywords are not
   `Object.is`-stable, so a raw deps-array memo would rebuild per render)
   AND on that frame's incarnation token by `identical?`. A provider swap
   re-renders the caller and returns a fresh map locked to the new frame.
 
-  The incarnation half is load-bearing (rf2-40kv). A frame keyword is an
+  The incarnation half is load-bearing. A frame keyword is an
   ADDRESS, not an identity: destroy `:watchlist` and create another under
   the same id and the two are `=`, while `capture-frame` PINS the exact
-  incarnation live when it ran (rf2-9pyles / rf2-tdjv7p — every op on the
-  bundle refuses a superseded target rather than leaking into its
-  successor). A memo keyed on the keyword alone therefore passes every
+  incarnation live when it ran (every op on the bundle refuses a
+  superseded target rather than leaking into its successor). A memo keyed on the keyword alone therefore passes every
   stability test and fails exactly this one: it keeps handing out the DEAD
   incarnation's bundle for the rest of the mount, and every dispatch and
   subscribe through it recover-but-emits `:rf.error/frame-destroyed`
@@ -114,7 +113,7 @@
   hook position, nothing more. For an explicit frame there is no hook tax:
   call `(rf/capture-frame frame-id)` directly (no scope required)."
   []
-  ;; ONE TIER (rf2-kuky.62). The `useContext` read does both jobs at once:
+  ;; ONE TIER. The `useContext` read does both jobs at once:
   ;; it subscribes the caller to provider-value changes (so a
   ;; `frame-provider` swap re-renders it) AND it is the resolution itself.
   ;; The renderer-agnostic `useContext` return is the right value to
@@ -131,11 +130,11 @@
         ;; `:rf.error/frame-context-corrupted` diagnostic and nil.
         ;; `require-frame-stamp!` then emits + throws the same
         ;; `:rf.error/no-frame-context` payload `require-current-frame!`
-        ;; used to emit here, so nothing about error reporting moved.
+        ;; emits.
         frame (rf.frame/require-frame-stamp!
                 (rf.adapter.context/context-value->current-frame ctx-value)
                 :use-frame {:where 're-frame.adapter.use-frame/use-frame})
-        ;; The identity half of the key (rf2-40kv). `capture-frame` pins the
+        ;; The identity half of the key. `capture-frame` pins the
         ;; incarnation live when IT runs; read the same identity here so the
         ;; memo's notion of "same frame" is the bundle's. nil — the id is not
         ;; live at render — is a legitimate key: the bundle it pairs with is
@@ -143,7 +142,7 @@
         ;; later moves the token off nil and correctly misses.
         token (rf.frame/frame-incarnation-token frame)
         prev  (.-current ref)]
-    ;; Render-phase memo-by-value (rf2-mwft2 pattern): rebuild the ops map
+    ;; Render-phase memo-by-value: rebuild the ops map
     ;; ONLY when the resolved frame changes by `=` OR its incarnation changes
     ;; by `identical?`. The ref write during render is sanctioned for exactly
     ;; this pattern — idempotent given identical inputs, never mutated after
