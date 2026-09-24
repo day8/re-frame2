@@ -39,25 +39,25 @@
 
 ;; ---- fixtures --------------------------------------------------------------
 ;;
-;; rf2-yw1w1u — canonical capture/restore fixture. Snapshots the
+;; The canonical capture/restore fixture. Snapshots the
 ;; registrar at ns-load + restores around each test, and fires the
 ;; reset-hook table: epoch (history / listeners / config-to-default).
 ;; EP-0025: classification is derived from the registrar + the per-frame
 ;; elision registry (reset by frame teardown), so there is no separate
 ;; classification table to clear between tests. The
 ;; `:init-fn` re-applies the suite's non-default `:trace-events-keep 5`
-;; (NOT the shipped 50 = :depth; Mike pair-debug 2026-05-27) through the
+;; (NOT the shipped 50 = :depth) through the
 ;; public `configure!` boundary — no test ns reaches into the private
 ;; `state/config` var.
 ;;
-;; EP-0002 (rf2-9o48ih / rf2-nn0jqa): `init!` no longer synthesises
+;; EP-0002: `init!` does not synthesise
 ;; `:rf/default`. The canonical fixture, when handed an `:adapter`, ALSO
 ;; ensures the conventional `:rf/default` frame and binds it as the body's
 ;; ambient scope — the carried-invariant equivalent of wrapping every test
 ;; in `(with-frame :rf/default …)`. The bare framework-operation surfaces
 ;; this suite drives therefore resolve a carried frame stamp without a
 ;; hand-rolled `make-frame` + `with-frame` here. Explicit `{:frame …}` opts
-;; in the bodies still win.
+;; in the bodies win.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter
@@ -112,7 +112,7 @@
 
 (defn- contains-leaf?
   "Walk an arbitrary EDN value looking for `secret` as a leaf string (exact
-  equality or substring). Used by the rf2-nm611o trigger-event redaction
+  equality or substring). Used by the trigger-event redaction
   tests as the 'no raw secret bytes anywhere in the projected slot' check."
   [x secret]
   (cond
@@ -138,18 +138,18 @@
            special case"))))
 
 (deftest rollup-false-from-handler-meta-sensitive-removed
-  (testing "Handler-meta `:sensitive?` annotation has been removed —
-            it no longer stamps trace events, so the rollup reads
-            false for a cascade whose only sensitive signal was the
-            (now-ignored) handler annotation."
+  (testing "A handler-meta `:sensitive?` annotation does not stamp
+            trace events, so the rollup reads
+            false for a cascade whose only sensitive signal is the
+            (ignored) handler annotation."
     (rf/make-frame {:id :test/main})
     (rf/reg-event :secret-write
-                     {:sensitive? true}   ;; stored, no longer consulted
+                     {:sensitive? true}   ;; stored, never consulted
                      (fn [{:keys [db]} _] {:db (assoc db :token "shh")}))
     (rf/dispatch-sync [:secret-write] {:frame :test/main})
     (let [r (last-record :test/main)]
       (is (false? (:rf.epoch/sensitive? r))
-          "rollup reads false — handler-meta annotation no longer drives the stamp"))))
+          "rollup reads false — a handler-meta annotation does not drive the stamp"))))
 
 (deftest rollup-true-from-frame-declared-non-nil-leaf
   (testing "a frame-declared sensitive path that resolves to a non-nil
@@ -201,19 +201,18 @@
 
 (deftest rollup-strict-boolean-on-halted-destroy
   (testing "halted-destroy records carry REAL :db-before / :db-after
-            snapshots (rf2-9neiq — the pre-cascade + destroy-time state,
+            snapshots (the pre-cascade + destroy-time state,
             per Spec-Schemas §:rf/epoch-record §Outcomes); the rollup
-            must still produce a strict boolean over those real dbs.
+            must produce a strict boolean over those real dbs.
 
-            Per the rf2-ee38b correctness review: this drives a REAL
+            This drives a REAL
             mid-drain `destroy-frame!` and asserts UNCONDITIONALLY that
-            exactly one :halted-destroy record reached the listener. The
-            prior `(when-let [halted ...] ...)` guard silently no-op'd if
+            exactly one :halted-destroy record reached the listener. A
+            `(when-let [halted ...] ...)` guard would silently no-op if
             the live wiring stopped firing the partial record, passing
             green with zero executed assertions.
 
-            rf2-9neiq corrected the FALSE-GREEN nil-db assertions: the
-            record now carries the real app-db state, not nil/nil. Here
+            The record carries the real app-db state, not nil/nil. Here
             no `[:auth :password]` value was ever written (only the
             schema declaration lives in app-db), so the sensitive-leaf
             walk finds no non-nil sensitive leaf and the rollup is a
@@ -232,7 +231,7 @@
                          {}))
       ;; The destroy fires inside the drain — on-frame-destroyed!
       ;; emits a :halted-destroy partial record carrying the REAL
-      ;; pre-cascade + destroy-time db snapshots (rf2-9neiq).
+      ;; pre-cascade + destroy-time db snapshots.
       (try (rf/dispatch-sync [:destroy-self] {:frame :test/main})
            (catch Throwable _ nil))
       (let [halted-records (filterv (fn [r] (= :halted-destroy (:outcome r)))
@@ -249,14 +248,14 @@
           (is (false? (:rf.epoch/sensitive? halted))
               "rollup is strict false on the halted-destroy path — the
                declared-sensitive [:auth :password] path holds no value")
-          ;; rf2-9neiq: the record carries the REAL pre-cascade /
+          ;; The record carries the REAL pre-cascade /
           ;; destroy-time state, NOT nil. The schema-install populates the
           ;; elision declarations in runtime-db ([:rf.runtime/elision ...]); no
           ;; password write means the sensitive leaf is absent.
           (is (some? (:db-before halted))
-              "halted-destroy carries a real (non-nil) :db-before (rf2-9neiq)")
+              "halted-destroy carries a real (non-nil) :db-before")
           (is (some? (:db-after halted))
-              "halted-destroy carries a real (non-nil) :db-after (rf2-9neiq)")
+              "halted-destroy carries a real (non-nil) :db-after")
           (is (nil? (get-in halted [:db-before :auth :password]))
               "no sensitive [:auth :password] leaf was written, so the
                rollup correctly reads false")
@@ -272,14 +271,12 @@
 ;; projected record is a no-op at the substitution points) — that
 ;; invariant has its authoritative pins in
 ;; `epoch_mcp_egress_conformance_test`
-;; (`forwarder-project-egress-is-sensitive-idempotent` :255 +
-;; `forwarder-project-egress-is-large-idempotent` :305).
-;; Keep idempotency assertions there; do not duplicate them here (rf2-zymix).
-;; (The former `epoch_redact_fn_projection_test` carried the redact×project
-;; composition cases; the `:redact-fn` hook was retired outright on
-;; 2026-09-08 under rf2-kuky.7, so there is no such composition left to pin.
-;; Its RETAINED half — the redacted-modified-paths counter — moved here, to
-;; section 4 at the bottom of this file.)
+;; (`forwarder-project-egress-is-sensitive-idempotent` +
+;; `forwarder-project-egress-is-large-idempotent`).
+;; Keep idempotency assertions there; do not duplicate them here.
+;; (There is no `:redact-fn` hook, so there is no redact×project
+;; composition to pin; the redacted-modified-paths counter is section 4 at
+;; the bottom of this file.)
 
 (deftest project-egress-redacts-sensitive-in-db-after
   (testing "frame-declared sensitive path in :db-after lands as
@@ -341,7 +338,7 @@
           "projected record substitutes a :rf.size/large-elided marker"))))
 
 (deftest project-egress-elides-large-sub-output
-  (testing "rf2-at60h — a whole-output `:large?`-marked subscription's
+  (testing "a whole-output `:large?`-marked subscription's
             computed value rides the structured `:sub-runs` row as
             `:value` / `:prev-value`. The raw on-box record keeps the
             exact value (Xray diff / restore-epoch! need it), but the
@@ -349,7 +346,7 @@
             boundary MUST substitute a `:rf.size/large-elided` marker for
             those value slots under the `:rf.egress/include-large? false` default —
             otherwise a bulky derived value escapes the projection
-            contract (the pre-fix leak). The non-value row metadata
+            contract. The non-value row metadata
             (`:sub-id`, `:query-v`, `:value-changed?`, `:cascade?`) is
             preserved, and the now-spent `:large?` row flag is stripped."
     (rf/make-frame {:id :test/main})
@@ -415,11 +412,11 @@
         (is (rf.elision/marker? (:value hist-row))
             "the whole-ring composition also elides the large :sub-runs value"))
 
-      ;; rf2-irwsq — THE TRACE-TAG TWIN. The same value also rides the
+      ;; THE TRACE-TAG TWIN. The same value also rides the
       ;; `:rf.sub/run` trace tag at `[:trace-events <i> :tags :rf.sub/value]`.
-      ;; This arm probed only the structured row, so the tag's raw copy egressed
+      ;; Probing only the structured row would let the tag's raw copy egress
       ;; unseen: a TOKEN-BUDGET leak on every off-box consumer that reads
-      ;; `:trace-events`. Both slots now go through the one shared rule
+      ;; `:trace-events`. Both slots go through the one shared rule
       ;; (`tool-pair/elide-whole-output-large-slots`), so they cannot drift.
       (let [tags-of   (fn [rec]
                         (->> (:trace-events rec)
@@ -469,7 +466,7 @@
 (deftest project-egress-renders-and-subruns-pass-through-when-value-free
   (testing ":renders carries no app-db material (render-keys, timing,
             cause), so it passes through the projection unchanged. `:sub-runs`
-            rows carry value-bearing `:prev-value` / `:value` (rf2-at60h) so
+            rows carry value-bearing `:prev-value` / `:value` so
             they are NOT value-free in general — but a row that is neither
             whole-output sensitive (already redacted at the marks emit site)
             nor whole-output large (no `:large?` flag → nothing to substitute)
@@ -477,8 +474,8 @@
             SENSITIVE schema path and reads no large-marked sub, so its
             `:sub-runs` rows still pass through identically; the large-value
             egress case is pinned by `project-egress-elides-large-sub-output`.
-            (`:effects` is NOT pass-through any more — its `:args` fail closed,
-            pinned by the rf2-rlt3sv tests below.)"
+            (`:effects` is NOT pass-through — its `:args` fail closed,
+            pinned by the tests below.)"
     (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (rf/reg-event :login
@@ -490,7 +487,7 @@
       (is (= (:sub-runs raw) (:sub-runs projected)))
       (is (= (:renders  raw) (:renders  projected))))))
 
-;; ---- rf2-rlt3sv — :effects :args fail closed off-box ----------------------
+;; ---- :effects :args fail closed off-box -----------------------------------
 ;;
 ;; The structured :effects rows carry :args — the RAW fx-handler argument
 ;; captured verbatim from the :rf.fx/args trace tag. These are payload-bearing
@@ -622,7 +619,7 @@
           "double-projection is idempotent at the :args slot"))))
 
 (deftest project-egress-trigger-event-positional-arg-redacted
-  (testing "rf2-nm611o: a sensitive value carried POSITIONALLY in the
+  (testing "a sensitive value carried POSITIONALLY in the
             dispatched event vector (e.g. a password as a bare positional
             arg, [:login \"topsecret\"]) does NOT leak via the off-box
             projection. The event ARGS are registration-owned transient
@@ -656,7 +653,7 @@
           "the event-id summary slot is unaffected (head keyword preserved)"))))
 
 (deftest project-egress-trigger-event-map-arg-redacted
-  (testing "rf2-nm611o: a sensitive value nested in a MAP arg of the
+  (testing "a sensitive value nested in a MAP arg of the
             dispatched event vector ([:auth/login {:password p}]) also
             fails closed off-box. Map args are registration-owned
             transient payloads too — an unmarked map arg cannot be proven
@@ -681,7 +678,7 @@
           "the secret is absent anywhere in the projected trigger-event"))))
 
 (deftest project-egress-trigger-event-marked-event-arg-redacted
-  (testing "rf2-nm611o: even an event whose registration DECLARES a
+  (testing "even an event whose registration DECLARES a
             sensitive arg path ({:sensitive [[:password]]}) fails closed
             at the trigger-event slot off-box. The marks-projection
             chokepoint does not run over the verbatim :rf.event/v trace
@@ -707,7 +704,7 @@
           "the marked secret is absent from the projected trigger-event"))))
 
 (deftest project-egress-trigger-event-trusted-local-opt-in
-  (testing "rf2-nm611o: the trusted-local :rf.egress/include-event-args? true opt-in
+  (testing "the trusted-local :rf.egress/include-event-args? true opt-in
             keeps the RAW event args off-box (a developer's own Xray panel
             inspecting their own running app). It is ORTHOGONAL to the
             app-db :rf.egress/include-sensitive? / :rf.egress/include-large? opt-ins — those do
@@ -732,7 +729,7 @@
           ":rf.egress/include-large? does NOT lift the trigger-event-args redaction"))))
 
 (deftest project-egress-trigger-event-redaction-idempotent
-  (testing "rf2-nm611o: re-projecting an already-projected record leaves
+  (testing "re-projecting an already-projected record leaves
             the trigger-event args as the :rf/redacted sentinel (no drift,
             no re-leak under double-projection — a forwarder pipeline may
             project the same record twice)."
@@ -751,18 +748,17 @@
 (def ^:private halt-secret "halt-secret-do-not-leak")
 
 (deftest halted-depth-record-carries-no-raw-event-args
-  (testing "rf2-3x7nj.17.1 — a depth halt's `:halt-reason` names the last
+  (testing "a depth halt's `:halt-reason` names the last
             SETTLED event by id only (`:last-event-id`), and the halting event
             (which never ran) is registration-classified before it becomes the
-            record's `:trigger-event`. Before the fix the descriptor carried the
-            last-settled event's args RAW under `:last-event`, and that slot
-            reached `project-egress` (declared bookkeeping, passed through), the
+            record's `:trigger-event`. A descriptor carrying the last-settled
+            event's args RAW under `:last-event` would reach `project-egress`
+            (declared bookkeeping, passed through), the
             `replay-epoch!` refusal envelope and the
             `:rf.epoch/restore-non-ok-record` trace; the dev
-            `:rf.error/drain-depth-exceeded` trace carried the same vector
-            unprojected; and the halt record's `:trigger-event` held the halting
-            event's declared-sensitive arg raw ON-BOX, while every `:ok` record
-            holds it classified.
+            `:rf.error/drain-depth-exceeded` trace and the halt record's
+            `:trigger-event` hold the args classified ON-BOX, as every `:ok`
+            record does.
 
             DISTINCT events: A (`:halt/settled`) settles and dispatches B
             (`:halt/pending`), which the depth limit refuses. A self-dispatching
@@ -818,7 +814,7 @@
                            halt {:rf.egress/profile :rf.egress/off-box-tool})))
             ":rf.egress/off-box-tool carries no secret")
 
-        ;; The dev trace keeps its vector, now classified like any `:event`.
+        ;; The dev trace keeps its vector, classified like any `:event`.
         (is (= [:halt/settled {:token :rf/redacted :visible "settled"}]
                (get-in depth-ev [:tags :last-event]))
             "the dev trace's `:last-event` is A's vector, registration-classified")
@@ -881,11 +877,10 @@
           "sensitive wins — projected slot is :rf/redacted, not a marker"))))
 
 (deftest project-egress-non-record-input-fails-closed-without-throwing
-  (testing "a missing-epoch lookup must not throw. rf2-bv1p changed WHAT it
-            returns, in the fail-closed direction: the retired
-            `projected-record` short-circuited non-map input to `nil`, while
-            `project-egress` treats a kindless input as a VALUE and walks
-            it. Under a resolvable frame that walk is governed by the
+  (testing "a missing-epoch lookup must not throw. `project-egress` does
+            not short-circuit non-map input to `nil`: it treats a kindless
+            input as a VALUE and walks it, in the fail-closed direction.
+            Under a resolvable frame that walk is governed by the
             frame's own classification, so an undeclared bare value passes
             through; with no frame at all it fails closed to
             `:rf/redacted`. Neither answer can carry epoch payload — a real
@@ -924,13 +919,13 @@
           "nil :db-after stays nil")
       (is (= :halted-destroy (:outcome projected))))))
 
-;; ---- 2b. EP-0015 named egress profile (rf2-1afn7q) ------------------------
+;; ---- 2b. EP-0015 named egress profile ------------------------------------
 ;;
 ;; `project-egress` lets an MCP / AI / tool epoch
 ;; consumer SELECT the `:rf.egress/off-box-tool` boundary via the named
 ;; `:rf.egress/profile` opt, while `:rf.egress/off-box-observability` stays
 ;; the hosted-monitoring DEFAULT. The tool profile keeps the same
-;; redact-sensitive / elide-large defaults and, since rf2-3x7nj.32.6, the
+;; redact-sensitive / elide-large defaults and the
 ;; same no-digest floor: a large frame-owned app-db slot egresses as a
 ;; `:rf.size/large-elided` marker whose `:path` / `:bytes` / `:type` /
 ;; `:handle` are the structural indicators, and a `:digest` appears only
@@ -946,10 +941,10 @@
       (:rf.size/large-elided slot))))
 
 (deftest project-egress-tool-profile-includes-structural-digest
-  (testing "rf2-1afn7q: an MCP/AI/tool epoch consumer selects
+  (testing "an MCP/AI/tool epoch consumer selects
             :rf.egress/off-box-tool — the elided large slot's marker
             equals the :rf.egress/off-box-observability default's, with no
-            :digest (rf2-3x7nj.32.6); the explicit include-digests? override
+            :digest; the explicit include-digests? override
             adds one. Both still elide the large value (no raw bytes
             egress)."
     (rf/make-frame {:id :test/main})
@@ -976,13 +971,13 @@
       ;; The DEFAULT (no profile) == the observability profile.
       (is (= obs-body obs-body2)
           "the bare 1-arity default == :rf.egress/off-box-observability")
-      ;; Neither off-box profile carries a digest by default (rf2-3x7nj.32.6);
+      ;; Neither off-box profile carries a digest by default;
       ;; the shared metadata (path / bytes / type / handle) IS the structural
       ;; indicator set, so the two markers are equal.
       (is (not (contains? obs-body :digest))
           ":rf.egress/off-box-observability omits :digest")
       (is (not (contains? tool-body :digest))
-          ":rf.egress/off-box-tool omits :digest by default (rf2-3x7nj.32.6)")
+          ":rf.egress/off-box-tool omits :digest by default")
       (is (= tool-body obs-body)
           "tool profile marker == observability marker")
       (let [digest-body (large-marker-body
@@ -993,7 +988,7 @@
             "the explicit digest override is a content hash on the JVM, not a value")))))
 
 (deftest project-egress-tool-profile-still-redacts-sensitive
-  (testing "rf2-1afn7q: selecting the tool profile does NOT lift the
+  (testing "selecting the tool profile does NOT lift the
             sensitive redaction default — a frame-declared sensitive slot
             still lands as :rf/redacted under :rf.egress/off-box-tool (the
             tool profile only adds structural indicators for elided large
@@ -1011,7 +1006,7 @@
           "tool profile still redacts the sensitive slot"))))
 
 (deftest project-egress-unknown-profile-rejected
-  (testing "rf2-1afn7q: an unknown :rf.egress/profile is rejected against
+  (testing "an unknown :rf.egress/profile is rejected against
             the shared closed enum — a typo is a loud error, never a
             silent fall-through to a permissive walk."
     (rf/make-frame {:id :test/main})
@@ -1029,10 +1024,10 @@
           "the error carries the closed-enum rejection id"))))
 
 (deftest whole-ring-composition-threads-tool-profile
-  (testing "rf2-1afn7q: the whole-ring composition threads the named
+  (testing "the whole-ring composition threads the named
             :rf.egress/off-box-tool profile to every record — each elided
             large slot rides off the whole-ring egress path as a marker with
-            no :digest (rf2-3x7nj.32.6), and the explicit digest override
+            no :digest, and the explicit digest override
             threads through the composition too."
     (rf/make-frame {:id :test/main})
     (install-large-schema! :test/main)
@@ -1047,7 +1042,7 @@
           last-body (large-marker-body (last tool-hist))]
       (is (some? last-body) "the whole-ring tool egress elides the large slot")
       (is (not (contains? last-body :digest))
-          "the tool profile carries no digest by default (rf2-3x7nj.32.6)")
+          "the tool profile carries no digest by default")
       (is (string? (:digest (large-marker-body
                               (last (mapv #(rf/project-egress
                                              % {:rf.egress/profile          :rf.egress/off-box-tool
@@ -1057,7 +1052,7 @@
 
 ;; ---- 3. whole-ring projection by composition -------------------------------
 ;;
-;; rf2-kuky.7 retired the `projected-history` convenience door: the supported
+;; There is no `projected-history` convenience door: the supported
 ;; whole-ring spelling is `(mapv #(project-egress % opts) (epoch-history
 ;; frame-id))`. These pin that the composition carries the projection.
 
@@ -1137,11 +1132,11 @@
 ;; ---- 5. trace-events retention cap ----------------------------------------
 
 (deftest retention-cap-fixture-override-five
-  (testing "rf2-wmki8 — the TEST FIXTURE forces :trace-events-keep 5 (a
+  (testing "the TEST FIXTURE forces :trace-events-keep 5 (a
             keep<depth OVERRIDE, NOT the shipped default of 50) so the
             elision path is reachable cheaply — drive >5 cascades, the
             oldest records lose :trace-events but keep the structured
-            projections (per rf2-mrsck)"
+            projections"
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
@@ -1202,7 +1197,7 @@
 ;; ---- 6. JVM debug-disabled false-path coverage ----------------------------
 
 (deftest project-egress-handles-empty-history-under-disabled-gate
-  (testing "Per rf2-0la4f and the Security.md §Production gates: when
+  (testing "Per Security.md §Production gates: when
             the JVM debug gate reads false, no records land in the
             ring (per epoch_jvm_prod_gate_test). The whole-ring
             composition over an empty ring is the empty vector —
@@ -1265,13 +1260,6 @@
 ;; `:rf/redacted` sentinel — which is the whole point: a post-projection
 ;; structural diff sees `:rf/redacted` = `:rf/redacted` and emits no row, and
 ;; this counter is the only surviving signal that something classified moved.
-;;
-;; PROVENANCE (rf2-kuky.7): these six tests were written under rf2-dl3gx and
-;; lived in `epoch_redact_fn_projection_test`, whose OTHER half pinned the
-;; `:redact-fn` hook. That hook was retired outright on 2026-09-08 and the file
-;; went with it — but none of the six installs the hook, and the counter is
-;; explicitly RETAINED, so they move here rather than disappearing. Names are
-;; preserved (G1..G7) so the rf2-dl3gx coverage matrix still reads across.
 ;;
 ;;   G1. No sensitive paths declared                       -> 0.
 ;;   G2. Sensitive path declared but value unchanged       -> 0.
@@ -1397,7 +1385,7 @@
 
 (deftest G7-counter-handles-nil-db-edge
   (testing "halted-destroy records may carry nil :db-before or nil
-            :db-after (rf2-v0jwt). The producer handles the nil edge:
+            :db-after. The producer handles the nil edge:
             nil/non-nil at a declared path IS a change, nil/nil is not."
     (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
@@ -1415,10 +1403,10 @@
                {:auth {:password "x"}}))
         "value-equal across the cascade: 0 changes")))
 
-;; ---- the retired :redact-fn sub-key is inert -------------------------------
+;; ---- a :redact-fn sub-key is inert -----------------------------------------
 ;;
-;; rf2-kuky.7 deleted the `(rf/configure! {:epoch-history {:redact-fn f}})`
-;; hook outright — no shim, no deprecation warning. `:redact-fn` is now an
+;; There is no `(rf/configure! {:epoch-history {:redact-fn f}})`
+;; hook — no shim, no deprecation warning. `:redact-fn` is an
 ;; UNKNOWN sub-key of `:epoch-history`, and `configure!`'s dev-gated
 ;; `:rf.warning/unknown-configure-key` diagnostic fires on TOP-LEVEL keys
 ;; only, so an unknown sub-key is silently dropped like any other. This pins
@@ -1426,7 +1414,7 @@
 ;; installs nor invokes.
 
 (deftest retired-redact-fn-sub-key-installs-and-invokes-nothing
-  (testing "submitting the retired :redact-fn sub-key is a silent drop:
+  (testing "submitting a :redact-fn sub-key is a silent drop:
             configure! does not throw, no :redact-fn slot appears in the
             live config, and the submitted fn is never called at any point
             in record assembly or projection."
@@ -1436,7 +1424,7 @@
     (is (= #{:depth :trace-events-keep}
            (set (keys (:epoch-history (rf/current-config)))))
         "RESET BASELINE — the fixture-reset config carries exactly the two
-         retained knobs; no :redact-fn slot survives the retirement")
+         knobs; no :redact-fn slot")
 
     (let [calls (atom 0)
           scrub (fn [record] (swap! calls inc) (assoc record :db-after :rf/redacted))]
@@ -1449,7 +1437,7 @@
            of :redact-fn and not a no-op over the whole map")
       (is (= #{:depth :trace-events-keep}
              (set (keys (:epoch-history (rf/current-config)))))
-          "the retired key installed nothing — no :redact-fn slot appears")
+          "the :redact-fn key installed nothing — no :redact-fn slot appears")
 
       (rf/reg-event :login
                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
@@ -1460,7 +1448,7 @@
         (is (some? raw)
             "CONTROL — a record was actually assembled")
         (is (= {:auth {:password "topsecret"}} (:db-after raw))
-            "CONTROL — storage stayed RAW; the retirement is projection-side")
+            "CONTROL — storage stayed RAW; redaction is projection-side")
         (is (= :rf/redacted (get-in projected [:db-after :auth :password]))
             "CONTROL — the projection really ran over a NONEMPTY record, so
              the zero call-count below cannot be satisfied vacuously by an
@@ -1470,5 +1458,5 @@
              still a walked map, not the scalar sentinel it would have
              returned")
         (is (zero? @calls)
-            "the submitted fn was never invoked — there is no hook left to
+            "the submitted fn was never invoked — there is no hook to
              call it from")))))
