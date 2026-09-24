@@ -72,8 +72,8 @@
   yields an actionable item-level patch (`[[:items 0 :qty] :assoc 2]`)
   rather than a whole-vector replacement — preserving the token-budget
   premise for the dominant in-place-update app-db shapes. Integer index
-  keys ride through the existing `assoc-in` replay and the path-generic
-  section-grouping unchanged; no decoder change is required.
+  keys ride through the `assoc-in` replay and the path-generic
+  section-grouping as they are.
 
   A vector LENGTH change (an insert / delete) is emitted as a single
   whole-vector `[path :assoc <new-vector>]` replacement. Element-level
@@ -104,9 +104,9 @@
 
   The schema is published as a public def for downstream Malli-based
   decoders and for the cross-MCP wire-vocab conformance test
-  (`tools/mcp-conformance/wire-vocab`). Both today re-state the grammar
-  in their own source; pinning it here gives them a canonical home to
-  refer to once they switch to consume the schema directly.
+  (`tools/mcp-conformance/wire-vocab`). Both re-state the grammar in
+  their own source; the def here is the canonical home they can consume
+  directly.
 
   Validation is soft-pass when Malli is not resolvable on the runtime
   classpath: mcp-base does not pull Malli into its own deps (consumers
@@ -291,12 +291,12 @@
 
   The message is the human `reason` sentence + the tripped boundary +
   a trailing `[:rf.error/<id>]` greppability token, with `:rf.error/id`
-  the sole machine discriminator. It is relayed off-box (rf2-jquiy):
+  the sole machine discriminator. It is relayed off-box:
   the encode side of this gate is reached from `diff-encode-epochs`,
   which pair-mcp runs inside a tool handler, and `server.cljs`'s
   `invoke-and-guard` puts `(.-message err)` — and NOT the ex-data —
   into the `:handler-threw` envelope the agent receives. A bare
-  `(str error-id)` therefore shipped the agent the stringified
+  `(str error-id)` would therefore ship the agent the stringified
   discriminator with every actionable slot stranded in ex-data.
   `reason` and `where` are both static, value-free strings supplied by
   the calling boundary, so promoting them into the message cannot leak
@@ -379,17 +379,16 @@
                   ;; Detect a NEW key by KEY PRESENCE, not by a sentinel
                   ;; VALUE. `find` returns the `[k v]` entry when `k` is
                   ;; present (even if its value is `nil`) and `nil` only
-                  ;; when `k` is genuinely absent from `a`. The former
-                  ;; `(get a k ::absent)` conflated "key missing" with "key
-                  ;; present and its value equals `::absent`": an app-db leaf
-                  ;; is any runtime value, so a legal key holding the literal
-                  ;; `:re-frame.mcp-base.diff-encode/absent` (or, before this,
-                  ;; any value chosen to equal the marker) was mis-read as
-                  ;; added — emitting a spurious `[p :assoc bv]` for an
-                  ;; UNCHANGED leaf. Replay still reconstructs the value, but
-                  ;; the wire diff falsely reports a change and misleads the
-                  ;; agent. `find` has no in-band sentinel, so no user value
-                  ;; can collide.
+                  ;; when `k` is genuinely absent from `a`. A sentinel
+                  ;; lookup `(get a k ::absent)` would conflate "key missing"
+                  ;; with "key present and its value equals `::absent`": an
+                  ;; app-db leaf is any runtime value, so a legal key holding
+                  ;; the literal `:re-frame.mcp-base.diff-encode/absent`
+                  ;; would be mis-read as added — emitting a spurious
+                  ;; `[p :assoc bv]` for an UNCHANGED leaf. Replay would
+                  ;; still reconstruct the value, but the wire diff would
+                  ;; falsely report a change and mislead the agent. `find`
+                  ;; has no in-band sentinel, so no user value can collide.
                   e (find a k)]
               (cond
                 ;; Key added — genuinely absent from `a`.
@@ -399,7 +398,7 @@
                 ;; vector key respelled as a list). `assoc` would keep the
                 ;; OLD key, so drop it and re-add under `b`'s own key. Both
                 ;; patches share path `p`, so the stable section sort keeps
-                ;; the `:dissoc` first (rf2-3x7nj.35.1).
+                ;; the `:dissoc` first.
                 (not (rf.mcp-base.dedup/wire= (key e) k))
                 (conj acc [p :dissoc] [p :assoc bv])
                 ;; A changed EXISTING key: delegate to `collect-patches-into`
@@ -434,7 +433,7 @@
   Only EQUAL-LENGTH vectors are structurally diffed here. A length change
   (insert / delete) is emitted by the caller as a single whole-vector
   `[path :assoc b]` replacement. Element-level vector insert/delete
-  semantics are deliberately NOT designed yet: the patch grammar's
+  semantics are deliberately NOT designed: the patch grammar's
   numeric `:assoc` reaches an index via `assoc-in` (which both grows a
   vector by one at the tail and overwrites in place) but has no shift
   primitive, and `[<index-path> :dissoc]` is a documented no-op against a
@@ -443,9 +442,9 @@
   a length delta falls back to the unambiguous whole-vector replacement
   rather than risk a half-designed shift/splice encoding.
 
-  Integer index keys ride through the existing replay
+  Integer index keys ride through the replay
   (`assoc-in` accepts integer vector indices) and section-grouping
-  (path-generic) unchanged — no decoder change is needed."
+  (path-generic) as they are."
   [acc a b path]
   (let [n (count a)]
     (loop [i   0
@@ -482,8 +481,8 @@
   \"Unchanged\" is `wire=` (`=` refined by collection kind), not bare `=`:
   `(= [1 2] '(1 2))`, so an event that turns a vector into a seq without
   changing its elements (`sort-by`, `filter`, `map` …) would otherwise
-  emit no patch and the decoder would rebuild the OLD kind
-  (rf2-3x7nj.35.1). An `=` pair of different kinds falls through to the
+  emit no patch and the decoder would rebuild the OLD kind.
+  An `=` pair of different kinds falls through to the
   arms below, so the patch lands on the slot whose kind changed."
   [acc a b path]
   (cond
@@ -642,7 +641,7 @@
             ;; vector for this check when `seg` is an integer, since
             ;; that's the container `vivify-assoc-in` is about to
             ;; manufacture for it. A `nil` node met by a non-integer
-            ;; segment auto-vivifies a map unconditionally, as before.
+            ;; segment auto-vivifies a map unconditionally.
             ok?  (or (map? node)
                      (and (vector? node) (integer? seg)
                           (<= 0 seg (count node)))
