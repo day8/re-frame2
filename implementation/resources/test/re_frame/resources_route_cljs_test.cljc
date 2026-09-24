@@ -1,6 +1,6 @@
 (ns re-frame.resources-route-cljs-test
-  "Route ↔ resource integration (rf2-vdyrls, Spec 016 §Route integration —
-  EP-0003 slice 7). Cross-host (JVM + CLJS), so the routing/resources seam
+  "Route ↔ resource integration (Spec 016 §Route integration). Cross-host
+  (JVM + CLJS), so the routing/resources seam
   behaves identically server- and client-side.
 
   Exercises the cross-feature seam with BOTH artefacts loaded:
@@ -60,12 +60,12 @@
   push-url fx so ensure + navigation are deterministic without a fetch /
   browser.
 
-  rf2-784223: the resources host-side caches (state / work-ledger / timers /
+  The resources host-side caches (state / work-ledger / timers /
   revalidate-listeners) are cleared by the shared `make-reset-runtime-
   fixture`'s `:resources/reset-resources!` post-dispose hook, which runs
   BEFORE this `:init-fn` — so no `rf.resources.state/reset-cache!` is repeated here. The
-  routing counter reset + late-bound integration re-publication stay (they
-  are routing-suite setup, not resource cache hygiene)."
+  routing counter reset + late-bound integration re-publication belong here
+  (they are routing-suite setup, not resource cache hygiene)."
   []
   (rf/make-frame {:id :rf/default :url-bound? true
                   :doc "Route-resource suite default app frame."})
@@ -99,8 +99,8 @@
 
 (defn- blocking-slot
   "The live blocking slot for `nav-token`, projected to the SET of its scoped
-  keys. The slot itself is the byte-keyed `{<key-id> <scoped-key>}` carrier
-  (rf2-btdl1); these assertions ask a membership question that the projection
+  keys. The slot itself is the byte-keyed `{<key-id> <scoped-key>}` carrier;
+  these assertions ask a membership question that the projection
   answers, and the byte-exactness of the carrier is pinned directly off
   `rf.resources.route/blocking-path` by `r2-a-plan-holding-both-byte-distinct-twins-*`."
   [nav-token]
@@ -109,7 +109,7 @@
 
 (defn- blocking-map
   "The byte-keyed blocking / plan-identity carrier `{<key-id> <scoped-key>}`
-  over `ks` — the shape both routing slots hold (rf2-btdl1)."
+  over `ks` — the shape both routing slots hold."
   [& ks]
   (into {} (map (juxt rf.resources.state/key-id identity)) ks))
 
@@ -142,9 +142,9 @@
 (defn- record-error-traces!
   "Run `body-fn` with a trace listener installed; return the vector of every
   `:op-type :error` trace event emitted during it (capture order). The
-  listener is unregistered in a `finally`. Used by the rf2-u5aj91 +
-  rf2-ac71vm / rf2-xeb4l1 planning-error assertions (the structured error
-  must reach the trace/error stream, not only route state)."
+  listener is unregistered in a `finally`. Used by the blocking-failure and
+  planning-error assertions (the structured error must reach the
+  trace/error stream, not only route state)."
   [body-fn]
   (let [seen (atom [])
         k    ::route-error-recorder]
@@ -160,7 +160,7 @@
   "Run `body-fn` with a trace listener installed; return the vector of every
   trace event whose `:operation` is `op` (capture order). The sibling of
   `record-error-traces!` for an ordinary `:rf.event` row — used by the
-  rf2-dlkou `:rf.resource/route-plan` plan-diff assertions."
+  `:rf.resource/route-plan` plan-diff assertions."
   [op body-fn]
   (let [seen (atom [])
         k    ::route-op-recorder]
@@ -246,7 +246,7 @@
           "the non-blocking resource is still ensured (background fetch)"))))
 
 (deftest blocking-resource-already-fresh-settles-route-immediately
-  ;; rf2-hsa0sv: a fresh ensure no longer fetches (fresh-skip / cache-hit).
+  ;; A fresh ensure does not fetch (fresh-skip / cache-hit).
   ;; A route blocked on an already-FRESH resource MUST settle the nav
   ;; IMMEDIATELY on the cache-hit (no fetch, no reply will ever drain the
   ;; blocking slot) — otherwise the route hangs forever.
@@ -321,7 +321,7 @@
                           [:route :route/article token-1]))
           "the prior route owner was released on leave"))))
 
-;; ---- rf2-v4ygg5: route A→B (same scoped key) does not join abort-requested -
+;; ---- route A→B (same scoped key) does not join abort-requested ------------
 ;; A route leave releases the prior nav-token owner, which marks an in-flight
 ;; attempt :abort-requested while the entry still points at it. An immediate
 ;; re-entry of the SAME scoped key must NOT join that doomed work — it starts
@@ -352,7 +352,7 @@
           "the superseded route's in-flight work is abort-requested")
       ;; re-enter the SAME route + same slug → re-ensure the same scoped key
       (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
-      (testing "rf2-v4ygg5 — the re-entry started a FRESH attempt, not a join
+      (testing "the re-entry started a FRESH attempt, not a join
                 onto the abort-requested work"
         (let [e (entry scoped-key)]
           (is (= (inc gen1) (:generation e)) "fresh generation on re-entry")
@@ -377,7 +377,7 @@
       ;; re-enter the blocking route on the SAME key
       (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
       (let [token-2 (:nav-token (slice))]
-        (testing "rf2-v4ygg5 — the blocking re-entry holds :loading on a FRESH
+        (testing "the blocking re-entry holds :loading on a FRESH
                   attempt (it did not join the abort-requested work)"
           (is (= :loading (:transition (slice))) "blocking transition is loading on a fresh attempt")
           (is (not= wid1 (:current-work (entry scoped-key))) "fresh work id, not the aborted one")
@@ -450,8 +450,8 @@
     (is (= :rf.error/resource-route-plan
            (:rf.error/id (:error (slice))))
         ":rf.route/error carries the planning error, not a silent cache miss")
-    ;; rf2-9g3qzi: the route-slice error map (built by plan-error) carries NO
-    ;; :operation slot duplicating :rf.error/id — that dead-weight slot is gone.
+    ;; The route-slice error map (built by plan-error) carries NO :operation
+    ;; slot duplicating :rf.error/id.
     (is (not (contains? (:error (slice)) :operation))
         "the slice error map has no :operation slot shadowing :rf.error/id")
     (is (string? (:reason (:error (slice)))) "a human :reason sentence is present")
@@ -491,7 +491,7 @@
       (is (empty? (:tags (entry k2))) "the new entry borrows none of the prior key's tags"))))
 
 ;; ===========================================================================
-;; 10. rf2-u5aj91 — a blocking first-load failure ALSO emits an error trace
+;; 10. A blocking first-load failure ALSO emits an error trace
 ;; ===========================================================================
 
 (deftest blocking-first-load-failure-emits-error-trace
@@ -528,15 +528,16 @@
       (is (= :rf.error/resource-route-blocking (:rf.error/id (:error (slice))))))))
 
 ;; ===========================================================================
-;; 11. rf2-l2gofj — superseded route-resource blocking slots are cleared
+;; 11. Superseded route-resource blocking slots are cleared
 ;; ===========================================================================
 
 (deftest superseded-blocking-slot-is-cleared-on-route-leave
   ;; A BLOCKING route resource that NEVER settles (no reply — e.g. aborted /
-  ;; orphaned in-flight on supersession) used to leave its old-nav-token
-  ;; blocking entry forever, because reply-driven drain only fires on a
-  ;; settle that still names the old owner. Leaving the route releases the
-  ;; prior owner, which MUST now deterministically clear the stale slot.
+  ;; orphaned in-flight on supersession) would leave its old-nav-token
+  ;; blocking entry forever if only the reply-driven drain cleared it, since
+  ;; that drain fires only on a settle that still names the old owner. Leaving
+  ;; the route releases the prior owner, which MUST deterministically clear
+  ;; the stale slot.
   (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
   (rf/reg-route :route/article
                 {:params    [:map [:slug :string]]
@@ -584,11 +585,11 @@
             "re-projecting is a structural no-op for the live token")))))
 
 ;; ===========================================================================
-;; 12. rf2-ac71vm — fail-closed ctx + nil planning inputs
+;; 12. Fail-closed ctx + nil planning inputs
 ;; ===========================================================================
 
 (deftest concrete-route-scope-overrides-the-registration-policy
-  ;; rf2-kuky.83 — a route entry's `:scope` may be a CONCRETE value, and it is
+  ;; A route entry's `:scope` may be a CONCRETE value, and it is
   ;; the route tier of the precedence ladder. The registration policy here is a
   ;; {:from-db …} reference over an UNWRITTEN db slot, so it resolves nil and
   ;; would fail closed on its own: a clean plan is positive evidence that the
@@ -612,7 +613,7 @@
 
 (deftest absent-route-scope-inherits-the-registration-policy
   ;; The absent-vs-present test is (contains? entry :scope) — an entry that
-  ;; declares no :scope at all inherits, exactly as before.
+  ;; declares no :scope at all inherits.
   (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)  ;; :rf.scope/global
   (let [plan (rf.resources.route/route-resource-plan
                {:id :route/article :params {:slug "x"}
@@ -638,11 +639,11 @@
                    {:id :route/secret :resources []}
                    nil
                    {:nav-token 1}))))
-  ;; rf2-9g3qzi: the thrown planning-error routes through rf.error/thrown-ex-info,
+  ;; The thrown planning-error routes through rf.error/thrown-ex-info,
   ;; so its message LEADS with a human sentence and TRAILS with the
   ;; [:rf.error/resource-route-plan] greppability token, and the ex-data carries
   ;; the canonical :where / :recovery slots (the conformant shape its sibling
-  ;; registry/registration-error already follows).
+  ;; registry/registration-error follows).
   (testing "the thrown planning-error carries the canonical thrown-error shape"
     (let [thrown (try (rf.resources.route/route-resource-plan
                         {:id :route/secret :resources []} nil {:nav-token 1})
@@ -694,7 +695,7 @@
       (is (empty? (entries)) "no entry was ensured for the unplannable resource"))))
 
 (deftest retired-fn-route-scope-is-a-planning-error
-  ;; rf2-kuky.83 — the anonymous (fn [route ctx] …) route-scope resolver tier
+  ;; The anonymous (fn [route ctx] …) route-scope resolver tier
   ;; is RETIRED. It must be REFUSED LOUD, never silently inherit the spec
   ;; policy: the scope is the tenant / user / leak boundary, so a :scope the
   ;; author meant something by and got wrong reads no cache partition at all.
@@ -770,7 +771,7 @@
     (is (empty? (entries)) "no entry was ensured")))
 
 ;; ===========================================================================
-;; 13. rf2-xeb4l1 — :after is dispatch-order, fail-closed on missing/cyclic
+;; 13. :after is dispatch-order, fail-closed on missing/cyclic
 ;; ===========================================================================
 
 (deftest after-missing-target-is-a-planning-error
@@ -807,7 +808,7 @@
     (is (empty? (entries)) "no entry ensured")))
 
 (deftest after-orders-multiple-deps-by-local-id
-  ;; The kept dispatch-order semantics: a dependent's ensure is dispatched
+  ;; The dispatch-order semantics: a dependent's ensure is dispatched
   ;; AFTER every id it names (a 3-node chain, declared out of order).
   (let [order (atom [])]
     (rf/reg-resource :a/res (article-spec {}) (fn [_ _] (swap! order conj :a)
@@ -916,7 +917,7 @@
   ;; re-ensure — the partial-revalidation law); the new leaf is ADDED (ensure);
   ;; the prior owner release is dispatched LAST (attach-before-release).
   ;;
-  ;; rf2-kqxe6.6 — "kept" is prior-plan membership AND a genuinely reusable
+  ;; "Kept" is prior-plan membership AND a genuinely reusable
   ;; entry, so this threads the AT-COMMIT `:runtime-db` carrying the loaded
   ;; parent identity (routing always threads it; membership alone would adopt
   ;; into a void). `r2-retained-identity-is-adopted-only-when-genuinely-reusable`
@@ -957,11 +958,11 @@
       (is (= [:route :route/p.a 1] (:owner (second (last ds)))) "releases the superseded owner"))))
 
 (deftest r2-plan-diff-trace-carries-the-identity-partition
-  ;; rf2-dlkou (the rf2-9sluz ruling) — the SAME sibling-leaf navigation as the
+  ;; The SAME sibling-leaf navigation as the
   ;; test above, read off the `:rf.resource/route-plan` TRACE rather than the
   ;; returned fx: one row must answer "which identity was ensured / kept /
   ;; removed on this navigation" without diffing two consecutive rows. The
-  ;; counts stay as the compact headline and keep their existing values.
+  ;; counts are the compact headline beside the identity vectors.
   (rf/reg-resource :sh/v (article-spec {}) article-spec-request)
   (rf/reg-resource :lf/a (article-spec {}) article-spec-request)
   (rf/reg-resource :lf/b (article-spec {}) article-spec-request)
@@ -987,13 +988,13 @@
                           {:nav-token 2 :prev-id :route/p.a :prev-nav-token 1
                            :prev-identities (:identities plan1) :branch branch2
                            :runtime-db rdb})))]
-    ;; rf2-o5dbf — `trace/emit!` sits behind `rf.interop/debug-enabled?`, so the
+    ;; `trace/emit!` sits behind `rf.interop/debug-enabled?`, so the
     ;; row exists only in the dev posture. Under `-Dre-frame.debug=false` there
     ;; is no row to read and the plan-diff assertions are vacuous by design.
     (when rf.interop/debug-enabled?
       (let [tags (:tags (first traces))]
         (is (some? tags) "the activation emits one :rf.resource/route-plan row")
-        (testing "the counts are unchanged — the compact headline still reads
+        (testing "the compact headline counts read
                   1 ensured / 1 kept / 1 removed"
           (is (= 1 (:ensured tags)))
           (is (= 1 (:kept tags)))
@@ -1014,7 +1015,7 @@
           (is (= [shared-key b-key] (:identities tags))))))))
 
 (deftest r2-removed-identities-is-membership-not-caller-order
-  ;; rf2-dlkou (merged-PR audit) — the test above removes exactly ONE identity,
+  ;; The test above removes exactly ONE identity,
   ;; and a one-element vector is ordered under every implementation, so it
   ;; cannot tell one apart from another. THREE removals can.
   ;;
@@ -1023,15 +1024,15 @@
   ;; ordered operation (the whole prior owner goes in ONE release effect), and
   ;; no prior-plan order is available to report anyway — the live routing
   ;; handoff records `(:identities plan)` as an UNORDERED MAP under
-  ;; `[:rf.runtime/routing :resource-plan <token>]` (rf2-btdl1) and hands that
+  ;; `[:rf.runtime/routing :resource-plan <token>]` and hands that
   ;; same map back as the next activation's `:prev-identities`. Filtering the
   ;; caller's collection in place would republish carrier-iteration order while
   ;; CLAIMING the prior plan's.
   ;;
-  ;; Dropping to that carrier is necessary but not sufficient, which is exactly
-  ;; what this test caught: a small CLJS set/map is backed by an ARRAY map and
-  ;; iterates in INSERTION order, so the caller's sequence walked straight back
-  ;; out under CLJS while the JVM's hash iteration order hid the leak. The row is
+  ;; Dropping to that carrier is necessary but not sufficient: a small CLJS
+  ;; set/map is backed by an ARRAY map and iterates in INSERTION order, so the
+  ;; caller's sequence would walk straight back out under CLJS while the JVM's
+  ;; hash iteration order would hide the leak. The row is
   ;; sorted by the CEDN-1 `key-id`, which is what makes it a pure function of the
   ;; removal membership on BOTH hosts. Per Spec 009 §Where trace emission lives.
   (rf/reg-resource :rm/v (article-spec {}) article-spec-request)
@@ -1072,7 +1073,7 @@
         backward    (tags-for [c-key b-key a-key v-key])
         as-set      (tags-for #{v-key a-key b-key c-key})
         duplicated  (tags-for [a-key a-key v-key b-key b-key c-key c-key])]
-    ;; rf2-o5dbf — `trace/emit!` sits behind `rf.interop/debug-enabled?`, so the
+    ;; `trace/emit!` sits behind `rf.interop/debug-enabled?`, so the
     ;; row exists only in the dev posture. Under `-Dre-frame.debug=false` there
     ;; is no row to read and these assertions are vacuous by design.
     (when rf.interop/debug-enabled?
@@ -1101,30 +1102,30 @@
         (is (= (:removed-identities forward) (:removed-identities duplicated))
             (str "a duplicate in :prev-identities can neither duplicate an "
                  ":removed-identities entry nor put :removed out of step with it")))
-      (testing "the ORDERED vectors are untouched — they still ride the
+      (testing "the ORDERED vectors ride the
                 planner's grouped plan order"
         (is (= [v-key n-key] (:identities forward)))
         (is (= [n-key] (:ensured-identities forward)))
         (is (= [v-key] (:kept-identities forward)))))))
 
 (deftest r2-identity-membership-is-byte-exact-not-clojure-equal
-  ;; rf2-dlkou (merged-PR audit of #7228) — the identity partition is keyed on
+  ;; The identity partition is keyed on
   ;; the CEDN-1 BYTE key-id, not on Clojure `=`.
   ;;
-  ;; Resource identity is `rf.resources.state/key-id`, and it is collection-KIND sensitive
-  ;; (rf2-wgutc2): `{:slug "s" :tags ["a"]}` and `{:slug "s" :tags '("a")}` live
+  ;; Resource identity is `rf.resources.state/key-id`, and it is collection-KIND sensitive:
+  ;; `{:slug "s" :tags ["a"]}` and `{:slug "s" :tags '("a")}` live
   ;; at two `rf.resources.state/entry-path`s, and yet the two scoped keys are `=` to Clojure
   ;; AND hash alike. Every `=`-keyed carrier therefore collapses the pair, and
   ;; the row's canonical `key-id` ordering runs AFTER the loss rather than
   ;; before it — so sorting could not save it.
   ;;
-  ;; The defect this pins: a navigation whose prior plan held the LIST-bearing
-  ;; identity and whose next plan holds the VECTOR-bearing one reported
-  ;; `:removed 0` with an EMPTY `:removed-identities`, because the prior identity
-  ;; tested as still-present against a set that only knows `=`. The removal was
-  ;; real — the entry sits at its own byte path and the prior owner's release did
-  ;; let it go — so the row contradicted the runtime, which is exactly what this
-  ;; bead's acceptance forbids.
+  ;; The property this pins: a navigation whose prior plan held the LIST-bearing
+  ;; identity and whose next plan holds the VECTOR-bearing one reports the
+  ;; removal. Testing the prior identity against a set that only knows `=` would
+  ;; read it as still present and report `:removed 0` with an EMPTY
+  ;; `:removed-identities`. The removal is real — the entry sits at its own byte
+  ;; path and the prior owner's release lets it go — so that row would
+  ;; contradict the runtime.
   ;;
   ;; The pair is `=` under `clojure.core/=`, so an assertion written with `=`
   ;; would pass on the WRONG key. Every claim below is therefore made on
@@ -1171,12 +1172,12 @@
               identities to the cache"
       (is (= vec-key list-key)
           "clojure.core/= cannot tell them apart, which is why every =-keyed
-           carrier collapsed them")
+           carrier collapses them")
       (is (= 1 (count (set [vec-key list-key])))
           "…and neither can a set: the collapse is in the carrier, not in a
            comparison this code could have written differently")
       (is (not= (rf.resources.state/key-id vec-key) (rf.resources.state/key-id list-key))
-          "premise: while the CEDN-1 byte identities differ (rf2-wgutc2)")
+          "premise: while the CEDN-1 byte identities differ")
       (is (not= (rf.resources.state/entry-path vec-key) (rf.resources.state/entry-path list-key))
           "premise: so the cache holds two entries, and dropping one IS a
            removal"))
@@ -1185,14 +1186,13 @@
                 the next plan holds only its VECTOR-bearing twin"
         (let [tags (tags-for branch+p rdb [v-key list-key])]
           (is (= 1 (:removed tags))
-              "one prior identity was dropped, and the row says so — it read
-               `:removed 0` before this repair")
+              "one prior identity was dropped, and the row says so")
           (is (= (ids [list-key]) (ids (:removed-identities tags)))
               "…and names the LIST-bearing key, asserted on its byte identity
                because `=` would accept the vector-bearing one here")
           (is (= (ids [n-key vec-key]) (ids (:ensured-identities tags)))
               "the VECTOR-bearing identity is ENSURED — it has no entry of its
-               own, and membership no longer matches its twin")
+               own, and byte-exact membership does not match its twin")
           (is (= (ids [v-key]) (ids (:kept-identities tags)))
               "…while the genuinely adoptable ancestor is still kept")))
       (testing "ADOPTION does not cross the pair either: a LIST-bearing prior
@@ -1215,8 +1215,8 @@
       (testing "both members are dropped together when NEITHER is planned"
         (let [gone (tags-for branch-p rdb [list-key vec-key])]
           (is (= 2 (:removed gone))
-              "both byte identities are removed — a set-backed carrier reported
-               ONE, having already thrown the other away")
+              "both byte identities are removed — a set-backed carrier would
+               report ONE, having already thrown the other away")
           (is (= (sort (ids [list-key vec-key])) (sort (ids (:removed-identities gone))))
               "…and both are named")
           (is (= (:removed-identities gone)
@@ -1228,7 +1228,7 @@
                drift from the membership it summarizes"))))))
 
 (deftest r2-navigating-between-byte-distinct-twins-reports-the-removal
-  ;; rf2-dlkou (merged-PR audit of #7228) — the same defect END TO END, through
+  ;; The same property END TO END, through
   ;; the real `:rf.route/navigate` path and the real routing handoff, rather
   ;; than a direct planner call.
   ;;
@@ -1236,11 +1236,11 @@
   ;; params that differ only in the KIND of one collection: `{:tags ["a"]}` vs
   ;; `{:tags '("a")}`. Those are two cache entries at two `rf.resources.state/entry-path`s
   ;; and one value to Clojure `=`. Navigating between them therefore removes one
-  ;; identity and ensures the other — and the row said `:removed 0`.
+  ;; identity and ensures the other, and the row must report that removal.
   ;;
   ;; Each plan here holds ONE member of the pair. The case where a SINGLE plan
-  ;; holds BOTH — which the old set-shaped `[:rf.runtime/routing :resource-plan]`
-  ;; slot could not carry at all — is rf2-btdl1's twin regression below.
+  ;; holds BOTH — which a set-shaped `[:rf.runtime/routing :resource-plan]`
+  ;; slot could not carry at all — is the twin test below.
   (rf/reg-resource :tw/feed (article-spec {}) article-spec-request)
   (rf/reg-route :route/tw-vec
                 {:resources [{:resource :tw/feed :params (fn [_] {:slug "f" :tags ["a"]})}]}
@@ -1270,9 +1270,9 @@
       (when rf.interop/debug-enabled?
         (testing "…and the row reports the removal it performed"
           (is (= 1 (:removed tags))
-              "the LIST-bearing identity left the plan — the row read
-               `:removed 0` before this repair, because the prior identity
-               tested as still-present against an `=`-keyed set")
+              "the LIST-bearing identity left the plan — testing the prior
+               identity against an `=`-keyed set would read it as still
+               present and report `:removed 0`")
           (is (= [(rf.resources.state/key-id list-key)] (mapv rf.resources.state/key-id (:removed-identities tags)))
               "…and it is named, asserted on the byte identity because `=`
                would have accepted the vector-bearing key here")
@@ -1282,17 +1282,18 @@
               "and nothing was kept — the two are not one identity"))))))
 
 (deftest r2-a-plan-holding-both-byte-distinct-twins-plans-blocks-and-drains-both
-  ;; rf2-btdl1 — THE twin regression. One plan requires BOTH members of an
+  ;; THE twin test. One plan requires BOTH members of an
   ;; `=`-equal but byte-DISTINCT pair, through the real `:rf.route/navigate`
   ;; path and the real routing handoff.
   ;;
-  ;; Before this repair the pair could not survive the round trip at all, and
-  ;; it failed twice over: `collapse-and-order` grouped occurrences by scoped
-  ;; key under Clojure `=`, so two route entries requiring the two identities
-  ;; produced ONE dedup-req — one ensure dispatched, the second byte identity
-  ;; never fetched (a DISPATCH defect); and the `[:rf.runtime/routing
-  ;; :resource-plan]` / `:resource-blocking` slots were SETS, which cannot hold
-  ;; both members however carefully the planner counted.
+  ;; The pair survives the round trip only if it is byte-keyed at two points:
+  ;; `collapse-and-order` groups occurrences by byte `key-id`, since grouping
+  ;; by scoped key under Clojure `=` would turn two route entries requiring
+  ;; the two identities into ONE dedup-req — one ensure dispatched, the second
+  ;; byte identity never fetched (a DISPATCH defect); and the
+  ;; `[:rf.runtime/routing :resource-plan]` / `:resource-blocking` slots are
+  ;; `{key-id scoped-key}` maps, since a SET cannot hold both members however
+  ;; carefully the planner counts.
   ;;
   ;; Every claim below is asserted on `rf.resources.state/key-id`, never on `=`: the two
   ;; scoped keys are `=` and hash alike, so an `=`-written assertion would pass
@@ -1334,7 +1335,7 @@
       (testing "the handoff slot carries BOTH identities, byte-keyed"
         (is (= (blocking-map vec-key list-key) (get-in (rdb) (rf.resources.route/plan-path token)))
             "[:rf.runtime/routing :resource-plan <token>] is {key-id scoped-key}
-             and holds the pair — a set held exactly one of them"))
+             and holds the pair — a set would hold exactly one of them"))
       (testing "…and so does the blocking slot: two independent wait points"
         (is (= (blocking-map vec-key list-key) blocking0))
         (is (= :loading (:transition (slice)))
@@ -1369,11 +1370,11 @@
           (is (= (ids [vec-key list-key]) (ids (:blocking tags)))))))))
 
 (deftest r2-a-transition-keeping-one-twin-and-removing-the-other-reports-both
-  ;; rf2-btdl1 — the other half of the twin regression: a navigation AWAY from
+  ;; The other half of the twin test: a navigation AWAY from
   ;; the both-twins plan to one that keeps the VECTOR-bearing identity and
-  ;; drops its LIST-bearing twin. The prior plan's handoff slot now carries
-  ;; both, so the diff has both to reason about — under the old set-shaped slot
-  ;; the prior plan arrived holding ONE identity and the removal was invisible.
+  ;; drops its LIST-bearing twin. The prior plan's handoff slot carries
+  ;; both, so the diff has both to reason about — a set-shaped slot would
+  ;; deliver the prior plan holding ONE identity and hide the removal.
   (rf/reg-resource :tw3/feed (article-spec {}) article-spec-request)
   (rf/reg-route :route/tw3-both
                 {:resources [{:id :vec-entry  :resource :tw3/feed
@@ -1409,7 +1410,7 @@
           (is (= 0 (:ensured tags)))
           (is (= 1 (:removed tags))
               "the list-bearing twin left the plan — a set-shaped prior slot
-               reported :removed 0 here, having never carried it")
+               would report :removed 0 here, never having carried it")
           (is (= (ids [vec-key]) (ids (:kept-identities tags)))
               "asserted on the byte identity: `=` would accept the twin")
           (is (= (ids [list-key]) (ids (:removed-identities tags))))
@@ -1418,7 +1419,7 @@
           (is (= (:removed tags) (count (:removed-identities tags)))))))))
 
 (deftest r2-plan-order-is-witnessed-not-merely-membership
-  ;; rf2-dlkou — `:identities` / `:ensured-identities` / `:kept-identities` carry
+  ;; `:identities` / `:ensured-identities` / `:kept-identities` carry
   ;; the planner's GROUPED PLAN ORDER, and order is the whole claim: a test that
   ;; checked set membership would pass on a shuffled vector. So the branch is
   ;; built so that plan order is NOT the order any other structure would produce
@@ -1535,7 +1536,7 @@
         (is (= :idle (:transition (slice))))))))
 
 ;; ===========================================================================
-;; 15. rf2-kqxe6.17 — EP-0037 R1 completion: the ONE readiness projector
+;; 15. EP-0037 R1: the ONE readiness projector
 ;;
 ;;     Route readiness is a PURE projection over the active plan's blocking
 ;;     requirements (Spec 012 §Route readiness is a resource projection). These
@@ -1637,7 +1638,7 @@
                           :error      {:rf.error/id :rf.error/resource-route-plan}}}}]
       (is (identical? rdb (rf.resources.route/reconcile-readiness rdb))))))
 
-;; ---- the error trace is EDGE-triggered (rf2-kqxe6.17) ----------------------
+;; ---- the error trace is EDGE-triggered -------------------------------------
 
 (def ^:private pending-req
   {:resource/id :article/by-slug :status :loading :data nil :attempt 1})
@@ -1652,7 +1653,7 @@
   (errors-of traces :rf.error/resource-route-blocking))
 
 (deftest reconcile-readiness-emits-the-blocking-error-once-per-edge-into-error
-  ;; rf2-kqxe6.17 — `reconcile-readiness` re-picks the deterministic first
+  ;; `reconcile-readiness` re-picks the deterministic first
   ;; failure over the CURRENT outstanding set on EVERY settle. When a second
   ;; blocking requirement fails LATER but sorts canonically EARLIER, that pick
   ;; legitimately moves — but the route never left `:error`, so there is no new
@@ -1739,7 +1740,7 @@
 
 (deftest a-cold-blocking-resource-still-commits-loading
   ;; The contrast guard for the test above: with no usable data at commit the
-  ;; requirement IS recorded and the route commits :loading, exactly as before.
+  ;; requirement IS recorded and the route commits :loading.
   (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
   (rf/reg-route :route/article
                 {:params    [:map [:slug :string]]
@@ -1849,7 +1850,7 @@
     (is (empty? (get-in rdb (rf.resources.route/blocking-path "nav-1"))))))
 
 ;; ===========================================================================
-;; 16. rf2-kqxe6.6 — EP-0037 R2 follow-through
+;; 16. EP-0037 R2: retained-entry adoption and contributor attribution
 ;;
 ;;     (a) RETAINED-ENTRY LOSS. Prior-plan MEMBERSHIP alone does not make an
 ;;         identity adoptable. `:rf.resource.internal/adopt-owner` issues no fetch, so
@@ -1950,15 +1951,15 @@
         (is (= [:sh/v] (mapv #(:resource (second %)) (of-event ds :rf.resource.internal/adopt-owner))))
         (is (contains? (:blocking plan) (rf.resources.state/key-id shared-key)) "still outstanding")))
     (testing "a MISSING retained identity takes the ordinary ensure path"
-      ;; The bead's repro: prior-plan membership alone dispatched adopt-owner,
-      ;; which is a NO-OP on an absent entry — the committed blocking slot then
-      ;; had nothing that could ever drain it.
+      ;; Prior-plan membership alone must not dispatch adopt-owner: it is a
+      ;; NO-OP on an absent entry, so the committed blocking slot would have
+      ;; nothing that could ever drain it.
       (let [plan (plan-for (rdb-with-entries {}))
             ds   (plan-dispatches plan)]
         (is (empty? (of-event ds :rf.resource.internal/adopt-owner)))
         (is (= [:sh/v :lf/b] (mapv #(:resource (second %)) (of-event ds :rf.resource/ensure))))
         (is (contains? (:blocking plan) (rf.resources.state/key-id shared-key))
-            "recorded blocking — and an ensure now exists to drain it")))
+            "recorded blocking — and an ensure exists to drain it")))
     (testing "an UNUSABLE retained identity (settled, no data, no work) is ensured"
       (let [plan (plan-for (rdb-with-entries {shared-key {:resource/id :sh/v :status :idle
                                                           :data nil :attempt 1}}))
@@ -1990,7 +1991,7 @@
   an `:rf.http/aborted` envelope — the cancellation branch of
   `failed-handler`, which is the only settle path a managed-HTTP abort takes.
   The first load settles to a non-error `:idle` with `:current-work` cleared
-  — the `idle / no data / no work` retained entry the bead names."
+  — the `idle / no data / no work` retained entry."
   [scoped-key]
   (let [e (entry scoped-key)]
     (rf/dispatch-sync [:rf.resource.internal/failed
@@ -2019,10 +2020,9 @@
   ;; LIVENESS. The shared parent banner is removed out from under the plan diff
   ;; (a public `:rf.resource/remove` — GC / clear-scope / reconciliation have
   ;; the same shape). The sibling navigation still sees it in the previous
-  ;; plan's identity set. Before this fix it dispatched a no-op adopt-owner
-  ;; against an absent entry while committing a blocking slot for it, so the
-  ;; route stayed :loading with no entry, no work and no reply that could ever
-  ;; drain it.
+  ;; plan's identity set. Dispatching a no-op adopt-owner against the absent
+  ;; entry while committing a blocking slot for it would leave the route
+  ;; :loading with no entry, no work and no reply that could ever drain it.
   (reg-shell-branch!)
   (let [banner-key (rf.resources.state/scoped-resource-key* :rf.scope/global :prof/banner {:slug "b"})
         tab1-key   (rf.resources.state/scoped-resource-key* :rf.scope/global :prof/tab-one {:slug "one"})]
@@ -2081,7 +2081,7 @@
         (is (rf.resources.state/has-data? (entry banner-key)))))))
 
 (deftest r2-adoption-of-in-flight-work-neither-revalidates-nor-aborts
-  ;; The counterweight to the two liveness regressions: a genuinely reusable
+  ;; The counterweight to the two liveness tests: a genuinely reusable
   ;; retained identity is still adopted WITHOUT revalidation, and releasing the
   ;; prior owner cannot abort work the next plan still needs.
   (reg-shell-branch!)
@@ -2137,7 +2137,7 @@
                                             :params (fn [_] nil)}))
           err (:plan-error plan)]
       (is (= :rf.error/resource-route-plan (:rf.error/id err)))
-      (testing "the LEAF target and the resource are named (unchanged)"
+      (testing "the LEAF target and the resource are named"
         (is (= :route/leaf (:route-id err)))
         (is (= :audit/ancestor (:resource-id err))))
       (testing "and so is the CONTRIBUTING route + local declaration"
@@ -2168,8 +2168,8 @@
       (is (= {:route-id :route/ancestor :local-id :anc} (:contributor (:plan-error plan))))))
   (testing "an ancestor :after naming an id no contributor declares"
     ;; The local `:after` validation runs over the contributor's WHOLE declared
-    ;; vector before `:when` filters it, so the contributor route is the only
-    ;; thing the leaf-shaped error was missing.
+    ;; vector before `:when` filters it, so the contributor route is what
+    ;; attribution adds to the leaf-shaped error.
     (let [[plan _] (ancestor-plan-error
                      (ancestor-branch {:resource :audit/ancestor :id :anc
                                        :params (fn [_] {:slug "a"})
@@ -2187,10 +2187,10 @@
                                                  :params (fn [_] nil)}]}}])]
       (is (= {:route-id :route/leaf :local-id :lf} (:contributor (:plan-error plan))))))
   (testing "a resolver throwing its OWN :contributor cannot publish a FALSE one"
-    ;; rf2-kqxe6.6 — `:contributor` is the PLANNER's key. A `:when` / `:params`
+    ;; `:contributor` is the PLANNER's key. A `:when` / `:params`
     ;; / `:scope` resolver is arbitrary programmer code and may throw any
     ;; `ex-info`, including one carrying an unnamespaced `:contributor` of its
-    ;; own. Treating that as authoritative published a fabricated attribution
+    ;; own. Treating that as authoritative would publish a fabricated attribution
     ;; on BOTH the route slice and the error trace, defeating the whole point
     ;; of Spec 016 §Effective parent-chain resource plans rule 3. The planner
     ;; knows the actual contributor and always wins.
