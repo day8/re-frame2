@@ -1,8 +1,7 @@
 (ns re-frame.error-projection-owner-scope-cljs-test
-  "rf2-ifzi — the REGISTRATION-owned half of `rf/project-egress` must resolve
-  the event's `:sensitive` / `:large` marks in the record OWNER's registration
-  universe, not in whatever generation happens to be ambient at projection
-  time.
+  "The REGISTRATION-owned half of `rf/project-egress` resolves the event's
+  `:sensitive` / `:large` marks in the record OWNER's registration universe,
+  not in whatever generation happens to be ambient at projection time.
 
   `project-egress` seeds the owner (an explicit `opts :frame`, else a
   recognised record's own `:frame`) into the leaf walker's opts — that governs
@@ -11,10 +10,11 @@
   (`:classification/redact-event-by-registration`), which resolves through
   `registrar/handler-meta` and therefore reads the AMBIENT generation. An
   image-local event declaration is invisible from outside its frame's
-  resolution scope, so a DEFERRED projection — a recorder that retained an
-  error record and projects it after `dispatch` returned, or any direct
-  `project-egress` caller naming an explicit target — shipped a
-  declared-sensitive password RAW under the off-box profile.
+  resolution scope, so resolving it ambiently would let a DEFERRED
+  projection — a recorder that retained an error record and projects it
+  after `dispatch` returned, or any direct `project-egress` caller naming an
+  explicit target — ship a declared-sensitive password RAW under the off-box
+  profile.
 
   These tests exercise the PUBLIC boundary (`rf/project-egress`) with the
   owning generation NOT bound; the passing control is the same projection run
@@ -66,19 +66,19 @@
            [:event 1])))
 
 (deftest deferred-error-projection-uses-the-owners-registration-scope
-  (testing "rf2-ifzi: an image-local event's :sensitive declaration redacts a
-            DEFERRED projection — the owner comes from the record's own :frame
-            and the owning generation is NOT ambient"
+  (testing "an image-local event's :sensitive declaration redacts a DEFERRED
+            projection — the owner comes from the record's own :frame and the
+            owning generation is NOT ambient"
     (install-image-frame! :ifzi/owner (login-image :ifzi/image {:sensitive [[:password]]}))
-    ;; Control: inside the owner's resolution scope the declaration has always
-    ;; been visible. This is the arm that already passed.
+    ;; Control: inside the owner's resolution scope the declaration is
+    ;; visible whichever generation the pass reads.
     (is (= rf.privacy/redacted-sentinel
            (rf.live-frame/call-with-frame-resolution
              :ifzi/owner
              #(:password (projected (error-record :ifzi/owner)))))
         "control: the declaration redacts inside the owner's resolution scope")
-    ;; The defect: the same record, projected after the dispatch that produced
-    ;; it returned — no owning generation bound.
+    ;; The deferred case: the same record, projected after the dispatch that
+    ;; produced it returned — no owning generation bound.
     (let [payload (projected (error-record :ifzi/owner))]
       (is (= rf.privacy/redacted-sentinel (:password payload))
           "the record's own :frame governs the REGISTRATION pass, so the
@@ -87,7 +87,7 @@
           "an unclassified sibling in the same payload still rides raw"))))
 
 (deftest explicit-target-frame-overrides-a-different-ambient-generation
-  (testing "rf2-ifzi: an explicit `opts :frame` names the registration universe
+  (testing "an explicit `opts :frame` names the registration universe
             — a CONFLICTING same-id declaration in the ambient frame cannot
             answer for the target's"
     ;; Two frames, same event id, different declarations.
@@ -113,9 +113,9 @@
          though the AMBIENT frame declares it sensitive")))
 
 (deftest global-registration-still-answers-for-a-frameless-projection
-  (testing "rf2-ifzi: with no owner at all the registration pass is unchanged —
-            a global declaration still redacts, and the frame-policy walk's
-            fail-closed behaviour is untouched"
+  (testing "with only a global registration to find, the registration pass
+            resolves it — a global declaration redacts, and the frame-policy
+            walk keeps its fail-closed behaviour"
     (rf/reg-event :ifzi/global {:sensitive [[:password]]} (fn [_ _] {}))
     (let [payload (get-in (rf/project-egress
                             {:kind  :rf.observe/error
@@ -124,5 +124,5 @@
                             {:rf.egress/profile :rf.egress/off-box-observability})
                           [:event 1])]
       (is (= rf.privacy/redacted-sentinel (:password payload))
-          "a globally-registered declaration redacts as before")
+          "a globally-registered declaration redacts")
       (is (= "ann" (:user payload))))))
