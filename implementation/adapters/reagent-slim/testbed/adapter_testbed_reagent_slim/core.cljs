@@ -1,6 +1,6 @@
 (ns adapter-testbed-reagent-slim.core
   "Tiny standalone counter app — the reagent-slim adapter's CLIENT-RUNTIME
-   smoke fixture (rf2-xsgu8a).
+   smoke fixture.
 
    Per TESTING.md §Test surface ownership: examples/ are for humans;
    per-adapter smoke lives with the adapter. This testbed proves the
@@ -10,10 +10,9 @@
    without depending on the `examples/substrates/reagent_slim/counter`
    teaching example.
 
-   It closes the gap the rf2-xsgu8a review found: the slim example's only
-   browser-level coverage was compile (check-examples-compile.cjs) +
-   release-bundle sentinel grep (check-reagent-slim-bundle-isolation.cjs).
-   A client-runtime regression in the mount / inject / click path could
+   Compile (check-examples-compile.cjs) and the release-bundle sentinel
+   grep (check-reagent-slim-bundle-isolation.cjs) do not exercise the
+   client runtime: a regression in the mount / inject / click path could
    slip through both. This fixture exercises that exact path.
 
    Idiomatic re-frame2: app-db + events + subs (no raw atoms through
@@ -48,7 +47,7 @@
 
 ;; -- View -------------------------------------------------------------------
 
-;; EP-0002 (rf2-9o48ih): `root` is a `reg-view` so it carries the
+;; EP-0002: `root` is a `reg-view` so it carries the
 ;; `:contextType` wiring the slim substrate needs to read the enclosing
 ;; frame-provider's frame from React context; the frame-bound `dispatch`
 ;; is captured at RENDER time via `(rf/capture-frame)` so the click
@@ -70,13 +69,13 @@
 
 ;; -- Mount ------------------------------------------------------------------
 
-;; The adapter-owned client root (rf2-k5r9t) — the same trio the stock
+;; The adapter-owned client root — the same trio the stock
 ;; Reagent adapter publishes, from the same shared spine, so the slim smoke
 ;; mounts exactly the way the stock one does.
 (defonce app-root (rf.adapter.reagent-slim/client-root))
 
 (defn ^:export init []
-  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
+  ;; EP-0002: the runtime never synthesises a frame from
   ;; absence — `:rf/default` is this testbed's app frame, registered
   ;; explicitly here (init! installs only the slim adapter). The boot
   ;; dispatch runs under the frame scope and the render is wrapped in a
