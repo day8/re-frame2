@@ -1,5 +1,5 @@
 (ns re-frame.cofx-envelope-test
-  "EP-0017 `:rf.cofx` recordable-coeffect envelope core slice (rf2-s9ss0t).
+  "EP-0017 `:rf.cofx` recordable-coeffect envelope core.
 
   Pins the `:rf.cofx` envelope + coeffect contract that makes the
   frame fold deterministic with respect to prior frame-state plus the
@@ -17,11 +17,12 @@
       (Spec 002 §Event Context And Coeffects);
     - it is FILTERED out of the user-cofx trace projection exactly like the
       other framework defaults (`rf.fx/framework-coeffect-keys`);
-    - `:dispatched-at` is RETIRED in the same change (rider b) — its
-      diagnostic dispatch-time need is the trace event `:time` stamp.
+    - there is no `:dispatched-at` (EP-0010 rider b) — its diagnostic
+      dispatch-time need is the trace event `:time` stamp.
 
-  EP-0017 renamed the EP-0010 envelope field `:rf.world/inputs` to the flat
-  `:rf.cofx` map (no alias); this namespace pins the live `:rf.cofx` contract.
+  The envelope field is the flat `:rf.cofx` map (EP-0017), with no alias for
+  the EP-0010 draft name `:rf.world/inputs`; this namespace pins the live
+  `:rf.cofx` contract.
   Both `:rf.world/inputs` and `:dispatched-at` only ever named a fact in the
   spec's own DRAFTS, so under the shipped-names-only tombstone rule
   (Conventions §The tombstone rule) they earn NO dedicated retired-name error
@@ -33,9 +34,9 @@
   JVM-only — the stamping path is platform-agnostic (`rf.interop/now-ms`
   realises on both hosts); no CLJS host dependency under test.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
-  Only two of this file's twenty-two cases needed anything, and both for the
+  Only two of this file's twenty-two cases need anything, and both for the
   same reason: they read a DEV-ONLY channel to observe a DURABLE fact.
 
   `dispatched-at-supplied-is-a-generic-unknown-opt-with-did-you-mean` asserts
@@ -45,18 +46,18 @@
   handler commits, unrecognised opt and all.
 
   `ambient-diagnostic-time-differs-while-durable-committed-at-holds` is the
-  more interesting one, and it is the same false-green shape rf2-d2841's fourth
-  pass found in `core-epoch-egress-profile-test`: it read the DURABLE side of
-  the causal/diagnostic split off `rf/epoch-history`, and the epoch ring is fed
-  by `epoch.capture/observe-trace-event!` from the DEV TRACE. Empty ring → nil
-  record → `(is (= committed-1 committed-2))` comparing `nil` to `nil`: a class-3
-  vacuous pass certifying that two absent timestamps agree, on the one assertion
-  in the deftest that is about the invariant itself. The durable causal fact
-  does not need the epoch ring to be observed — the handler can read
-  `(:rf/time-ms (:rf.cofx cofx))` and fold it into app-db, which is what a
-  replay log would durably record anyway — so the equal-across-ambient-clocks
-  claim now runs in both postures against app-db, with the epoch-ring
-  projection kept as the guarded dev-side detail."
+  more interesting one, with the same false-green shape
+  `core-epoch-egress-profile-test` documents: read off `rf/epoch-history`
+  alone, the DURABLE side of the causal/diagnostic split would come from an
+  epoch ring fed by `epoch.capture/observe-trace-event!` from the DEV TRACE.
+  Empty ring → nil record → `(is (= committed-1 committed-2))` comparing
+  `nil` to `nil`: a class-3 vacuous pass certifying that two absent
+  timestamps agree, on the one assertion in the deftest that is about the
+  invariant itself. The durable causal fact does not need the epoch ring to
+  be observed — the handler reads `(:rf/time-ms (:rf.cofx cofx))` and folds
+  it into app-db, which is what a replay log would durably record anyway —
+  so the equal-across-ambient-clocks claim runs in both postures against
+  app-db, with the epoch-ring projection as the guarded dev-side detail."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
@@ -67,17 +68,17 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.router :as rf.router]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            ;; rf2-zq5zj2 / rf2-qwm0a — load the tooling sibling so the
-            ;; late-bind hooks behind the listener API resolve (the
-            ;; diagnostic-differs test registers a trace listener).
+            ;; Load the tooling sibling so the late-bind hooks behind the
+            ;; listener API resolve (the diagnostic-differs test registers
+            ;; a trace listener).
             [re-frame.trace.tooling :as rf.trace.tooling]
-            ;; rf2-zq5zj2 — side-effect require: `re-frame.epoch` publishes
+            ;; Side-effect require: `re-frame.epoch` publishes
             ;; the `:epoch/settle!` + `:epoch/epoch-history` +
             ;; `:epoch/clear-history!` late-bind hooks at ns-load, so each
             ;; drain-settle commits a `:rf/epoch-record` whose durable
             ;; `:committed-at` the diagnostic-differs test reads via
             ;; `rf/epoch-history`. Available on the core test classpath as the
-            ;; epoch test-only dep (core/deps.edn :test alias, rf2-lt4e).
+            ;; epoch test-only dep (core/deps.edn :test alias).
             [re-frame.epoch]))
 
 ;; ---- fixtures -------------------------------------------------------------
@@ -87,7 +88,7 @@
   (reset! rf.frame/frames {})
   (when-let [clear-schemas! (rf.late-bind/get-fn :schemas/clear-by-frame!)]
     (clear-schemas!))
-  ;; rf2-zq5zj2 — clear the per-frame epoch rings so the diagnostic-differs
+  ;; Clear the per-frame epoch rings so the diagnostic-differs
   ;; test reads only its own freshly-committed records (the `:epoch/settle!`
   ;; hook is published once `re-frame.epoch` is loaded, above).
   (when-let [clear-history! (rf.late-bind/get-fn :epoch/clear-history!)]
@@ -158,14 +159,14 @@
           "the framework-required :rf/time-ms is filled in alongside the supplied facts"))))
 
 ;; ===========================================================================
-;; rf2-47lgee / rf2-nftz2s: PUBLIC-boundary validation of a caller-supplied
+;; PUBLIC-boundary validation of a caller-supplied
 ;; :rf.cofx. A malformed causal token folds into durable writes (the
 ;; epoch record's :committed-at, resource :settled-at) and breaks the
 ;; deterministic fold, so build-envelope rejects it with a structured
 ;; :rf.error/invalid-cofx BEFORE stamping — always-on, prod-survivable,
 ;; and BEFORE the clock read (a dispatch that cannot proceed never reads the
-;; clock). The pair-tool validated this on its own wire; this pins the central
-;; core boundary that protects ordinary public dispatch.
+;; clock). This pins the central core boundary that protects ordinary public
+;; dispatch.
 ;; ===========================================================================
 
 (deftest non-map-cofx-is-a-hard-error
@@ -247,15 +248,15 @@
         (is (number? (:rf/time-ms cofx)) "the missing :rf/time-ms is filled")))))
 
 ;; ===========================================================================
-;; Structural-EDN-always recordable cofx-value validation (rf2-rmroo4 slice A)
+;; Structural-EDN-always recordable cofx-value validation (supplied values)
 ;; ===========================================================================
 ;;
 ;; EP-0017:386 — a recordable coeffect value rides the durable causal record
 ;; (epoch ledger, replay, SSR payload, Xray) and MUST be ordinary EDN data. A
 ;; host handle (DOM node, Promise, function, atom, Date, JS / Java object)
-;; supplied as a recordable coeffect breaks that contract silently. Slice A
-;; closes the supplied-value gap at the dispatch boundary, AFTER the map-shape
-;; check and BEFORE the per-supplier `:schema` validation. Reuses
+;; supplied as a recordable coeffect breaks that contract silently. The
+;; supplied-value check runs at the dispatch boundary, AFTER the map-shape
+;; check and BEFORE the per-supplier `:schema` validation, and raises
 ;; `:rf.error/cofx-value-invalid` with reason `:non-edn-recordable-value`.
 
 (deftest recordable-predicate-accepts-edn-rejects-host-handles
@@ -302,8 +303,8 @@
         "no preview for a non-recordable value (never the raw host object)")))
 
 (deftest jvm-instant-is-not-recordable-only-date-is
-  ;; rf2-3az1vn P2: a `java.util.Date` round-trips through pr-str / read-string
-  ;; (the EDN reader's default `#inst` reader returns a Date), so it stays
+  ;; A `java.util.Date` round-trips through pr-str / read-string
+  ;; (the EDN reader's default `#inst` reader returns a Date), so it is
   ;; recordable. A `java.time.Instant` does NOT round-trip — Clojure prints it
   ;; with the `#inst` tag but `read-string` of that form throws
   ;; `No reader function for tag inst` (no data-reader bound), and even with the
@@ -355,7 +356,7 @@
       (is (= :rf.error/cofx-value-invalid (:rf.error/id data))
           "reuses the EP-0017 cofx error id (not :rf.error/invalid-cofx)")
       (is (= :non-edn-recordable-value (:rf.cofx/value-error data))
-          "the structural sub-kind rides :rf.cofx/value-error (:reason is now the human sentence)")
+          "the structural sub-kind rides :rf.cofx/value-error (:reason is the human sentence)")
       (is (= :app/handle (:rf.cofx/id data))
           "names the failing recordable fact id")
       (is (= [:app/handle] (:path data))
@@ -393,13 +394,13 @@
       (is (inst? (:session/at cofx)) "an #inst fact rides through"))))
 
 (deftest structural-edn-check-is-production-hard
-  ;; rf2-q34j26 (EP-0017 Open Issue 9 — structural EDN ALWAYS, hard error in
+  ;; EP-0017 Open Issue 9 (structural EDN ALWAYS, hard error in
   ;; production as well as dev): a supplied recordable value that is a host
   ;; handle folds a non-EDN value into the durable causal record (epoch ledger,
   ;; replay, SSR payload, Xray) — corrupt durable state, not a dev nicety. The
   ;; per-value walk is therefore ALWAYS-ON, NOT gated on `rf.interop/debug-enabled?`
-  ;; — the same `:dispatched-at` causal-token precedent the map-shape /
-  ;; `:rf/time-ms` checks already enforce in production.
+  ;; — the same causal-token contract the map-shape /
+  ;; `:rf/time-ms` checks enforce in production.
   (testing "with the dev gate OFF a non-EDN supplied value IS structurally rejected"
     (rf/make-frame {:id :wi/edn-prod :doc "ctx"})
     (with-redefs [rf.interop/debug-enabled? false]
@@ -419,17 +420,16 @@
             "the structural sub-kind is named on its own slot")
         (is (= [:app/handle] (:path data))
             "the path is rooted at the failing fact key"))))
-  (testing "the MAP-SHAPE check stays always-on even with the dev gate OFF"
+  (testing "the MAP-SHAPE check is always-on even with the dev gate OFF"
     (rf/make-frame {:id :wi/edn-prod2 :doc "ctx"})
     (with-redefs [rf.interop/debug-enabled? false]
       (is (thrown? clojure.lang.ExceptionInfo
                    (build-envelope [:noop] {:frame :wi/edn-prod2
                                             :rf.cofx "not-a-map"}))
-          "both the map-shape guard and the structural slice-A guard are always-on"))))
+          "both the map-shape guard and the structural supplied-value guard are always-on"))))
 
 (deftest invalid-cofx-rejected-before-clock-read
-  ;; Mirrors retired-dispatched-at-rejected-before-causal-clock-read: the
-  ;; validation runs BEFORE the causal-token clock stamp, so an invalid token
+  ;; The validation runs BEFORE the causal-token clock stamp, so an invalid token
   ;; fails fast WITHOUT triggering the always-on epoch-now-ms read for a
   ;; dispatch that cannot proceed. Redefine epoch-now-ms to throw a distinct
   ;; marker; if the clock is read before validation, that marker surfaces.
@@ -498,15 +498,15 @@
             "child did NOT inherit the parent's :rf/time-ms — distinct causal token (EP-0010)")))))
 
 ;; ===========================================================================
-;; rf2-irbjjq: a :dispatch-later child gets a FRESH :rf.cofx map stamped at
+;; A :dispatch-later child gets a FRESH :rf.cofx map stamped at
 ;; FIRE time (the causal boundary is when the deferred dispatch RUNS, not when
 ;; it was enqueued) — :rf/time-ms is NOT the parent's, NOT the enqueue-time clock,
 ;; while the inherited envelope fields (:frame / :trace-id / :origin) still
 ;; propagate from the parent.
 ;;
 ;; EP-0010 §Dispatch Envelope Stamping names BOTH :dispatch and :dispatch-later
-;; as child causal-token producers. The existing child-dispatch-gets-fresh-
-;; time-ms (above) covers the IMMEDIATE :dispatch child; the deferred path is
+;; as child causal-token producers. child-dispatch-gets-fresh-time-ms
+;; (above) covers the IMMEDIATE :dispatch child; the deferred path is
 ;; distinct because `:dispatch-later` wraps the router `dispatch!` in
 ;; `rf.interop/set-timeout!` (re-frame.fx §reserved-fx-handlers), so the child's
 ;; `build-envelope` — and thus its `:rf.cofx` stamp — happens inside
@@ -514,15 +514,15 @@
 ;; settled. `:rf.cofx` is deliberately ABSENT from
 ;; `re-frame.fx/inheritable-envelope-keys`, so the deferred child is stamped
 ;; a fresh `:rf/time-ms` at fire from `rf.interop/epoch-now-ms` rather than copying
-;; the parent's — the mechanism the existing :rf.cofx tests pin only for
+;; the parent's — the mechanism the other :rf.cofx tests pin only for
 ;; the synchronous case.
 ;;
 ;; We make the wall clock ADVANCE between enqueue and fire (a mutable clock
 ;; redef) and capture the timer thunk via a `set-timeout!` redef so we fire it
 ;; AFTER advancing — adversarially separating the three candidate stamp times
-;; (parent token / enqueue clock / fire clock). A regression that inherited
-;; the parent's :rf/time-ms, or that stamped at enqueue time, or that added
-;; :rf.cofx to the inheritable set, fails loudly here.
+;; (parent token / enqueue clock / fire clock). An implementation that
+;; inherited the parent's :rf/time-ms, stamped at enqueue time, or added
+;; :rf.cofx to the inheritable set would fail loudly here.
 ;; ===========================================================================
 
 (deftest dispatch-later-child-gets-fresh-cofx-stamped-at-fire-time
@@ -601,7 +601,7 @@
         (is (= :ui (:origin child-env))
             ":origin is inherited onto the deferred child")
         ;; The deferred child's :source reflects its OWN immediate trigger
-        ;; (the :dispatch-later fx), NOT inherited (rf2-ejtpd) — a foil that
+        ;; (the :dispatch-later fx), NOT inherited — a foil that
         ;; confirms the inheritance set is exactly the trace-context keys, not
         ;; "everything", so :rf.cofx being excluded is the same shape.
         (is (= :fx-dispatch-later (:source child-env))
@@ -633,13 +633,13 @@
           ":rf.cofx does NOT appear in the user-cofx trace projection"))))
 
 ;; ===========================================================================
-;; :dispatched-at is retired
+;; There is no :dispatched-at
 ;; ===========================================================================
 
 (deftest dispatched-at-is-gone
-  (testing "EP-0010 rider b: :dispatched-at is retired from the envelope (no coexistence)"
+  (testing "EP-0010 rider b: there is no :dispatched-at on the envelope (no coexistence)"
     (rf/make-frame {:id :wi/no-dispatched-at :doc "ctx"})
-    (testing "absent even with the dev gate ON (it is not merely prod-elided — it is gone)"
+    (testing "absent even with the dev gate ON (it is not merely prod-elided — it does not exist)"
       (with-redefs [rf.interop/debug-enabled? true]
         (is (not (contains? (build-envelope [:noop] {:frame :wi/no-dispatched-at})
                             :dispatched-at))
@@ -650,7 +650,7 @@
             ":rf/time-ms is the replacement for the retired :dispatched-at")))))
 
 (deftest dispatched-at-supplied-is-a-generic-unknown-opt-with-did-you-mean
-  ;; rf2-8rtuiq (Mike ruled OPTION A): `:dispatched-at` only ever named a fact
+  ;; `:dispatched-at` only ever named a fact
   ;; in the spec's own DRAFTS — it never shipped in a released artefact — so
   ;; under the shipped-names-only tombstone rule (Conventions §The tombstone
   ;; rule) it earns NO dedicated retired-name error id. Supplying it is caught
@@ -676,10 +676,9 @@
         (binding [rf.frame/*current-frame* :wi/retired-supply]
           (rf/dispatch-sync [:wi/retired-noop] {:dispatched-at 123}))
         (rf/unregister-listener! :trace ::dispatched-at)
-        ;; ALWAYS-ON (rf2-d2841): `:recovery :no-recovery` means the dispatch
+        ;; ALWAYS-ON: `:recovery :no-recovery` means the dispatch
         ;; PROCEEDS — the warning is observational. In production, where no
-        ;; warning exists, proceeding is the entire observable contract, and
-        ;; nothing had asserted it there.
+        ;; warning exists, proceeding is the entire observable contract.
         (is (true? (:wi/handler-ran? (rf/app-db-value :wi/retired-supply)))
             "the dispatch proceeded and committed despite the unrecognised opt")
         (when rf.interop/debug-enabled?
@@ -700,7 +699,7 @@
                   "observational — the dispatch proceeds unchanged"))))))))
 
 ;; ===========================================================================
-;; rf2-sppf0m / rf2-alc1lf: a handler READS owner-qualified facts from the
+;; A handler READS owner-qualified facts from the
 ;; flat :rf.cofx coeffect and WRITES the supplied values into a durable app-db
 ;; entity.
 ;;
@@ -786,7 +785,7 @@
              durable write must NOT depend on; reading the token avoids it")))))
 
 ;; ===========================================================================
-;; rf2-zq5zj2: ambient DIAGNOSTIC timestamps may differ without changing
+;; Ambient DIAGNOSTIC timestamps may differ without changing
 ;; durable state.
 ;;
 ;; This is the positive half of the EP-0008 / EP-0010 causal-vs-diagnostic
@@ -804,17 +803,17 @@
 ;;       supplied token time, never the ambient clock), AND
 ;;   (b) a diagnostic trace `:time` (captured via a trace listener) DIFFERS
 ;;       across the two runs (it legitimately reads the ambient clock).
-;; That EXECUTES the invariant instead of documenting it (the prose at the
-;; top of this ns + the inverse-only `:committed-at` clock tests in
-;; epoch_test.clj are the prior coverage). `rf/epoch-history` is available on
-;; the core test classpath as the epoch test-only dep.
+;; That EXECUTES the invariant rather than documenting it; the
+;; `:committed-at` clock tests in epoch_test.clj cover only its inverse.
+;; `rf/epoch-history` is available on the core test classpath as the epoch
+;; test-only dep.
 ;; ===========================================================================
 
 (deftest ambient-diagnostic-time-differs-while-durable-committed-at-holds
   (testing "same causal token under two different ambient clocks → durable
             :committed-at EQUAL while the diagnostic trace :time DIFFERS"
     (rf/make-frame {:id :wi/split :doc "ctx"})
-    ;; rf2-d2841 — the handler folds the SUPPLIED causal token time into app-db.
+    ;; The handler folds the SUPPLIED causal token time into app-db.
     ;; That is what makes the durable half of the split observable without the
     ;; epoch ring, which is dev-fed and empty under the production gate.
     (rf/reg-event :wi/note
@@ -859,14 +858,14 @@
                            (:committed-at (last (rf/epoch-history :wi/split)))))
           committed-1  (run! 1000)
           committed-2  (run! 9999999)]
-      ;; (a) DURABLE side — ALWAYS-ON (rf2-d2841). Two dispatches ran under two
+      ;; (a) DURABLE side — ALWAYS-ON. Two dispatches ran under two
       ;; different ambient clocks and the durable app-db state folded the
       ;; SUPPLIED token time both times. This is the invariant itself, off a
       ;; channel production carries: `rf/epoch-history` is fed by
       ;; `epoch.capture/observe-trace-event!` from the dev trace, so the
-      ;; `:committed-at` projection below is empty under the gate — which made
-      ;; `(= committed-1 committed-2)` a class-3 vacuous `nil = nil`, on the one
-      ;; assertion in this deftest that is about the invariant.
+      ;; `:committed-at` projection below is empty under the gate — which would
+      ;; make `(= committed-1 committed-2)` a class-3 vacuous `nil = nil` there,
+      ;; on the one assertion in this deftest that is about the invariant.
       (is (= 2 (:n (rf/app-db-value :wi/split)))
           "both runs committed")
       (is (= token-time (:wi/durable-token (rf/app-db-value :wi/split)))
