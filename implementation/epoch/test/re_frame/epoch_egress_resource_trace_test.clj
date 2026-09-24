@@ -759,7 +759,7 @@
    :identities  identities})
 
 (deftest off-box-redacts-route-plan-blocking-and-identities
-  (testing "rf2-wd9im — a :rf.resource/route-plan row's :blocking / :identities
+  (testing "a :rf.resource/route-plan row's :blocking / :identities
             plan-membership slots are VECTORS OF SCOPED KEYS under no NAMED slot;
             a :sensitive? owner's scope + params must tokenize PER KEY, not
             egress raw"
@@ -776,11 +776,10 @@
         (is (redacted-component? bscope) "the scope is tokenized")
         (is (redacted-component? bparams) "the canonical params are tokenized"))
       (testing ":identities tokenizes per key. Per-key DISTINCTNESS is NOT
-                preserved for a sensitive owner (rf2-hzcv8): the digest that
-                preserved it was recoverable by enumeration over a low-entropy
-                auth token, so it is gone. The vector's CARDINALITY and each
-                member's resource-id still ride, which is what makes the row a
-                partition a tool can read"
+                preserved for a sensitive owner: a digest that preserved it
+                would be recoverable by enumeration over a low-entropy auth
+                token. The vector's CARDINALITY and each member's resource-id
+                ride, which is what makes the row a partition a tool can read"
         (is (= 2 (count (:identities tags)))
             "both members still ride — the count is the partition fact")
         (is (every? #(= :secret/article (second %)) (:identities tags)))
@@ -801,10 +800,10 @@
         (is (not (contains-secret? projected)))))))
 
 (deftest off-box-redacts-route-plan-identity-partition
-  (testing "rf2-dlkou — the activation row's IDENTITY PARTITION
+  (testing "the activation row's IDENTITY PARTITION
             (:ensured-identities / :kept-identities / :removed-identities) is
             three more vectors of scoped keys under no NAMED slot. The safety
-            closes by SHAPE, so they were covered the moment they were emitted;
+            closes by SHAPE, so they are covered without a slot of their own;
             this pins it, because the partition is the one place a route's
             path parameters ride the trace three times over"
     (let [ensured   (sk :rf.scope/global :secret/article {:auth-token secret})
@@ -838,8 +837,8 @@
           (is (redacted-component? (first (first ks))) "the scope is tokenized")
           (is (redacted-component? (nth (first ks) 2))
               "the canonical params — a route's path parameters — are tokenized")))
-      (testing "the three identities no longer keep three distinct digests
-                (rf2-hzcv8 — a sensitive owner's token is content-free), but the
+      (testing "the three identities do not keep three distinct digests
+                (a sensitive owner's token is content-free), but the
                 partition a tool reads off one row survives on the STRUCTURE:
                 each slot is its own vector, each of a known size, each member
                 keeping its resource-id"
@@ -857,9 +856,9 @@
         (is (not (contains-secret? projected)))))))
 
 (deftest off-box-keeps-plain-owner-identity-partition-verbatim
-  (testing "rf2-dlkou guard — a PLAIN owner's identity partition rides VERBATIM.
-            The partition is a debugging aid, so closing the leak must cost no
-            over-redaction on the ordinary route plan"
+  (testing "over-redaction guard — a PLAIN owner's identity partition rides
+            VERBATIM. The partition is a debugging aid, so redacting it must
+            cost no over-redaction on the ordinary route plan"
     (let [k1        (sk :rf.scope/global :plain/article {:slug plain-slug})
           k2        (sk :rf.scope/global :plain/article {:slug "other"})
           record    (record-with
@@ -876,7 +875,7 @@
       (is (not (:sensitive? tags)) "a plain row is NOT stamped sensitive"))))
 
 (deftest unnamed-slot-projects-identically-to-named-slot
-  (testing "rf2-wd9im anti-drift — the SAME scoped keys under a NAMED slot
+  (testing "anti-drift — the SAME scoped keys under a NAMED slot
             (:matched) and under UNNAMED slots (:blocking / :identities) must
             project IDENTICALLY. This is the property that makes the shape-driven
             default a replacement for growing the slot roster rather than a
@@ -891,7 +890,7 @@
                                :matched            ks   ; NAMED  → roster arm
                                :blocking           ks   ; UNNAMED → shape arm
                                :identities         ks   ; UNNAMED → shape arm
-                               ;; rf2-dlkou — the identity partition, three more
+                               ;; The identity partition, three more
                                ;; UNNAMED slots on the same row.
                                :ensured-identities ks
                                :kept-identities    ks
@@ -910,10 +909,10 @@
       (is (not (contains-secret? projected))))))
 
 (deftest off-box-keeps-plain-owner-plan-membership-verbatim
-  (testing "rf2-wd9im guard — a PLAIN owner's :blocking / :identities ride
-            VERBATIM. The shape-driven default projects through the OWNER
-            classification, exactly as the named slots do, so closing the leak
-            costs no over-redaction on the ordinary route plan."
+  (testing "over-redaction guard — a PLAIN owner's :blocking / :identities
+            ride VERBATIM. The shape-driven default projects through the OWNER
+            classification, exactly as the named slots do, so it costs no
+            over-redaction on the ordinary route plan."
     (let [k1        (sk :rf.scope/global :plain/article {:slug "welcome"})
           record    (record-with
                       [(event :rf.resource/route-plan (route-plan-tags [k1] [k1]))])
@@ -924,13 +923,14 @@
       (is (not (:sensitive? tags)) "a plain row is NOT stamped sensitive"))))
 
 (deftest off-box-redacts-scoped-key-embedded-in-resource-work-id
-  (testing "rf2-wd9im — a RESOURCE work-id is
+  (testing "a RESOURCE work-id is
             `[:rf.work/resource <scoped-key> <generation>]`, so the scoped key
             (and with it a sensitive owner's scope + params) is EMBEDDED one
             level down in the :work/id tag on the majority of rows in the family
             — :work-started / :fetch-started / :deduped / :succeeded / … . No
-            slot roster names :work/id, and the value is a vector, so it rode the
-            verbatim :else. The shape-driven default reaches it by DEPTH."
+            slot roster names :work/id, and the value is a vector, so a verbatim
+            :else would ship it raw. The shape-driven default reaches it by
+            DEPTH."
     (let [scoped-key (sk :rf.scope/global :secret/article {:auth-token secret})
           work-id    (rf.resources.work-ledger/resource-work-id scoped-key 3)
           record     (record-with
@@ -956,11 +956,11 @@
         (is (not (contains-secret? projected)))))))
 
 (deftest off-box-keeps-scalar-only-work-id-and-set-tags-verbatim
-  (testing "rf2-wd9im guard — the shape default must not over-redact the
+  (testing "over-redaction guard — the shape default must not over-redact the
             scalar-only collections the family relies on: a MUTATION work-id
             `[:rf.work/mutation <id> <instance>]` carries no scoped key, and
             `:tags` rides as a SET whose egress KIND tools read (scoped-key
-            identity is kind-sensitive, rf2-wgutc2, so the walk must not collapse
+            identity is kind-sensitive, so the walk must not collapse
             a set / seq to a vector)"
     (let [record    (record-with
                       [(event :rf.mutation/succeeded
@@ -980,7 +980,7 @@
           "a row with no key-bearing slot is NOT stamped sensitive"))))
 
 (deftest trusted-local-include-sensitive-keeps-raw-plan-membership
-  (testing "rf2-wd9im — the trusted-local :rf.egress/include-sensitive? opt-in keeps the
+  (testing "the trusted-local :rf.egress/include-sensitive? opt-in keeps the
             raw plan membership + the raw embedded work-id key (the local-raw
             boundary — the shape-driven redaction is the off-box DEFAULT, not an
             unconditional strip)"
@@ -997,36 +997,34 @@
       (is (= work-id (:work/id (:tags work))) "raw embedded work-id key rides"))))
 
 ;; ===========================================================================
-;; (8) THE WIRING IS REACHED — driven from a REAL cascade (rf2-hbmeb)
+;; (8) THE WIRING IS REACHED — driven from a REAL cascade
 ;; ===========================================================================
 ;;
 ;; Every arm above builds its record with `record-with`. That proves the
 ;; PROJECTOR and it proves the epoch tool-pair's routing, but it cannot prove
-;; the projector is ever REACHED from a producer — and for the whole life of
-;; this suite it was not. `epoch.capture/capture-event!` buffers only
-;; frame-resolvable events; the `:rf.resource/*` / `:rf.mutation/*` family
-;; stamps its frame as the EVIDENCE key `:rf.frame/id` (Spec 016 / EP-0002,
-;; beside `:resource/key` and `:generation`) and never stamped the canonical
-;; `[:tags :frame]` routing tag Spec 009 §Frame identity on the raw event
-;; designates. So a real `ensure` / `release-owner` cascade put 7 family rows
-;; on the bus and 0 into the 3 epoch records it settled, and every
-;; `record-with` arm above ran green over input the runtime never produced.
+;; the projector is ever REACHED from a producer. `epoch.capture/capture-event!`
+;; buffers only frame-resolvable events; the `:rf.resource/*` / `:rf.mutation/*`
+;; family stamps its frame as the EVIDENCE key `:rf.frame/id` (Spec 016 /
+;; EP-0002, beside `:resource/key` and `:generation`), and its rows reach a
+;; record because `build-event` supplies the canonical `[:tags :frame]` routing
+;; tag Spec 009 §Frame identity on the raw event designates for emit sites that
+;; stamp none. Without that tag a real `ensure` / `release-owner` cascade would
+;; put its family rows on the bus and none into the epoch records it settles,
+;; and every `record-with` arm above would run green over input the runtime
+;; never produces.
 ;;
-;; That is the defect these two deftests exist to make impossible to
-;; reintroduce, and they are deliberately different in kind:
+;; These two deftests guard that, and they are deliberately different in kind:
 ;;
 ;;   - `real-cascade-lands-family-rows-...` is the SPECIFIC control. It reds if
-;;     the family stops reaching the record for any reason, and it is the arm
-;;     that satisfies rf2-hbmeb's acceptance criterion — a real record, a real
-;;     `project-egress`, a `:sensitive?` owner redacted beside a plain one
+;;     the family stops reaching the record for any reason — a real record, a
+;;     real `project-egress`, a `:sensitive?` owner redacted beside a plain one
 ;;     verbatim.
-;;   - `real-cascade-emits-no-frameless-correlated-row` is the GENERAL one, and
-;;     it is the assertion whose absence was the actual defect. It fixes no
-;;     vocabulary and names no family: it says every row a cascade emits INTO a
-;;     run carries the one frame path every reader resolves on. A future family
-;;     that spells its frame some third way reds here on the day it lands,
-;;     rather than being discovered a release later by someone measuring the
-;;     bus against the record by hand.
+;;   - `real-cascade-emits-no-frameless-correlated-row` is the GENERAL one. It
+;;     fixes no vocabulary and names no family: it says every row a cascade
+;;     emits INTO a run carries the one frame path every reader resolves on. A
+;;     family that spells its frame some third way reds here on the day it
+;;     lands, rather than being discovered a release later by someone
+;;     measuring the bus against the record by hand.
 
 (defn- family-row?
   "Whether `ev` is a resource/mutation-family trace row — the same namespace
@@ -1076,13 +1074,12 @@
   (filterv family-row? (mapcat :trace-events (rf/epoch-history frame-id))))
 
 (deftest real-cascade-lands-family-rows-in-the-settled-epoch-record
-  (testing "rf2-hbmeb — the rows a REAL `ensure` / `release-owner` cascade emits
+  (testing "the rows a REAL `ensure` / `release-owner` cascade emits
             reach the settling epoch record's `:trace-events`, and
             `project-egress` over THAT record (not a hand-built one) redacts a
             `:sensitive?` owner's scope + params while a plain owner's ride
-            verbatim. Before the capture-seam fix the bus carried 7 family rows
-            and the 3 settled records carried 0, so every `record-with` arm in
-            this file proved a projector nothing reached."
+            verbatim. Were the rows dropped at capture, every `record-with` arm
+            in this file would prove a projector nothing reaches."
     (let [bus-rows    (drive-real-cascade!)
           bus-family  (filterv family-row? bus-rows)
           rec-family  (settled-family-rows :test/rt)]
@@ -1099,7 +1096,7 @@
                 on the way to the record"
         (is (= (count bus-family) (count rec-family))
             "every family row on the bus reached a settled record's
-             :trace-events — this is the count that read 7 vs 0")
+             :trace-events")
         (is (= (frequencies (map :operation bus-family))
                (frequencies (map :operation rec-family)))
             "and row-for-row by operation, so a partial arrival cannot pass"))
@@ -1148,18 +1145,16 @@
             (is (not (contains-secret? proj-rows)))))))))
 
 (deftest real-cascade-emits-no-frameless-correlated-row
-  (testing "rf2-hbmeb, the general form — EVERY trace row emitted inside a run
+  (testing "the general form — EVERY trace row emitted inside a run
             (one carrying a `:rf.trace/dispatch-id`) carries frame identity at
             `[:tags :frame]`, the single canonical raw-event frame path of Spec
             009 §Frame identity on the raw event.
 
-            This is the assertion whose absence WAS the defect. Three
-            independent consumers resolve a row's frame — the per-frame trace
-            ring, the frame trace-disable policy gate, and epoch capture — and
-            a row that reaches none of them consistently is silently absent
-            from whichever one lacks a fallback. It named no family on purpose:
-            the resource family is simply the one that was wrong, and the next
-            one to spell its frame a third way reds here."
+            Three independent consumers resolve a row's frame — the per-frame
+            trace ring, the frame trace-disable policy gate, and epoch capture —
+            and a row that reaches none of them consistently is silently absent
+            from whichever one lacks a fallback. It names no family on purpose:
+            any family that spells its frame a third way reds here."
     (let [rows        (drive-real-cascade!)
           correlated  (filterv #(some? (:rf.trace/dispatch-id (:tags %))) rows)
           frameless   (remove #(some? (:frame (:tags %))) correlated)]
