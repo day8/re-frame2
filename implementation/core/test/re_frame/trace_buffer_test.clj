@@ -1,14 +1,13 @@
 (ns re-frame.trace-buffer-test
-  "Per-frame event-keyed trace ring tests (rf2-g1b2m spec + rf2-8uwce
-  impl).
+  "Per-frame event-keyed trace ring tests.
 
   Three deliverables in one suite:
     1. Per-frame ring: event-bundle reads, `:flat` opt, eviction by
        event bundle, filter vocab, configure knob, clear, elision.
     2. `:rf.trace/dispatch-id` allocation + parent-dispatch-id linkage.
-    3. `:origin` / `:source` opts ride trace events. Per rf2-1ve9h
-       the prior parallel `:rf/dispatch-origin` axis was collapsed
-       into `:source` — see `dispatch-source-*` deftests below.
+    3. `:origin` / `:source` opts ride trace events. `:source` is the
+       one functional-origin axis (there is no parallel
+       `:rf/dispatch-origin`) — see `dispatch-source-*` deftests below.
 
   Per Spec 009 §Per-frame trace rings (event-keyed, dev-only) and
   §Dispatch correlation. JVM-only by intent — the trace + router
@@ -38,7 +37,7 @@
   (rf/configure! {:trace-buffer {:events-retained 50}})
   (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
-  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
+  ;; EP-0002: `init!` does not synthesise `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
@@ -65,11 +64,11 @@
 
 ;; ---- 1. Per-frame ring -----------------------------------------------------
 
-;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
+;; ---- Posture: dev-only, declared by `^:requires-debug` ---------------------
 ;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
 ;; no-op, so there is no semantic residue to run under that posture, and a
-;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
-;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
+;; `(when interop/debug-enabled? ...)` split would leave EMPTY deftests
+;; reporting green.  Every deftest
 ;; below is therefore TAGGED, and the production-gate lane skips the tag rather
 ;; than the file: the namespace is still LOADED there, so a load-time failure
 ;; under the gate still reddens the job, and an untagged new deftest joins that
@@ -111,11 +110,11 @@
       (is (= 3 (count bundles))
           (str "ring caps at 3 event-bundle slots; got " (count bundles))))))
 
-;; rf2-3x7nj.4.7 — the `:run-order` SPINE is bounded by the cap too, not just
-;; its visible count. A `subvec` counts only its window but keeps the whole
-;; vector it views reachable, and `conj` onto one appends to that vector — so
-;; an eviction that left a `subvec` behind grew the spine by one dispatch-id
-;; per run for the life of the ring.
+;; The `:run-order` SPINE is bounded by the cap too, not just its visible
+;; count. A `subvec` counts only its window but keeps the whole vector it
+;; views reachable, and `conj` onto one appends to that vector — so an
+;; eviction that left a `subvec` behind would grow the spine by one
+;; dispatch-id per run for the life of the ring.
 
 (defn- ring-spine-size
   "How many dispatch-ids `frame-id`'s `:run-order` keeps REACHABLE: the size
@@ -198,15 +197,12 @@
           ":rf/default's ring stays within its slot cap"))))
 
 (deftest ^:requires-debug frame-isolation-trace-events-carry-only-their-own-frame
-  ;; Re-homed from the arbitrary-stream event-bundle projection retired by
-  ;; rf2-kuky.53. That fn existed so a consumer holding an ARBITRARY
-  ;; event stream could group by `[frame dispatch-id]` rather than by
-  ;; `:rf.trace/dispatch-id` alone — dispatch ids are unique only WITHIN
-  ;; a frame, so the weaker key merges two frames' runs and attaches each
-  ;; the UNION of both frames' raw events (rf2-1we9fa defect 1). The
-  ;; per-frame ring reaches the same guarantee STRUCTURALLY: each frame
-  ;; owns its own ring, so a bundle read from frame f can only ever hold
-  ;; f's events. This pins that guarantee at the surviving door.
+  ;; Dispatch ids are unique only WITHIN a frame, so grouping an event
+  ;; stream by `:rf.trace/dispatch-id` alone would merge two frames' runs
+  ;; and attach each the UNION of both frames' raw events. The per-frame
+  ;; ring holds the guarantee STRUCTURALLY: each frame owns its own ring,
+  ;; so a bundle read from frame f can only ever hold f's events. This
+  ;; pins that guarantee.
   (testing "each frame's trace-buffer bundles carry ONLY that frame's raw
             :trace-events — no foreign-frame event leaks in"
     (rf/make-frame {:id :iso/a :doc "isolation probe A"})
@@ -291,15 +287,15 @@
           "live stream continues firing under events-retained 0"))))
 
 ;; ---- 1e-bis. Re-configuring the process default retunes inherited rings ---
-;; (rf2-va65k finding 1)
 
 (deftest ^:requires-debug configure-lowers-already-used-inherited-frame
   (testing "lowering the process default trims an ALREADY-USED inherited ring"
     ;; The frame's ring is allocated (it emitted cascades) and inherits
     ;; the process default — no per-frame override. Lowering the default
-    ;; afterwards must retune + trim it. The pre-fix bug: every allocated
-    ;; ring stores :events-retained, so the inherited/override guard was
-    ;; always true and configure! silently skipped this ring.
+    ;; afterwards must retune + trim it. Every allocated ring stores
+    ;; :events-retained, so a guard keyed on that slot would always read
+    ;; "override" and configure! would silently skip this ring; the ring's
+    ;; :override? flag is what tells the two apart.
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
     (dotimes [_ 10] (rf/dispatch-sync [:ping]))
     (is (= 10 (count (rf/trace-buffer :rf/default)))
@@ -346,14 +342,16 @@
         "override frame keeps its retained cascades")))
 
 ;; ---- 1e-ter. Per-frame override registered BEFORE first emit -------------
-;; (rf2-va65k finding 2)
 
 (deftest ^:requires-debug per-frame-override-before-first-emit-does-not-crash
   (testing "make-frame with a low cap BEFORE first dispatch survives a cap-exceeding burst"
-    ;; Pre-fix: set-frame-events-retained! wrote a partial
-    ;; {:events-retained N} map (no :run-order). push-to-ring!
-    ;; started :run-order from nil → conj built a PersistentList →
-    ;; subvec threw ClassCastException once the cap was exceeded.
+    ;; make-frame publishes the cap through
+    ;; apply-frame-events-retained-policy!, which writes a COMPLETE ring
+    ;; (:run-order []) before the first emit, and push-to-ring! coerces a
+    ;; missing :run-order to [] as well — so a burst past the cap evicts
+    ;; through subvec on a vector. A :run-order started from nil would
+    ;; conj into a PersistentList, and subvec would throw
+    ;; ClassCastException once the cap was exceeded.
     (rf/make-frame {:id :tb/early :rf.trace/events-retained 3
                     :doc "cap registered before first emit"})
     (rf/reg-event :tb/ev (fn [{:keys [db]} _] {:db db}))
@@ -395,11 +393,11 @@
     (is (seq (rf/trace-buffer :app/b)) ":app/b's ring is intact")))
 
 ;; ---- 1f-bis. The 0-arity data clear vs the fixture reset ----------------
-;; (rf2-kuky.54) Two clears, two policies. `clear-trace-buffer!` clears
-;; DATA; `clear-trace-rings!` additionally resets POLICY. Xray's
-;; user-facing "Clear buffer now" was wired to the fixture one, silently
-;; reverting the user's own `:events-retained` setting. The difference is
-;; pinned here as a test rather than left to a docstring.
+;; Two clears, two policies. `clear-trace-buffer!` clears DATA;
+;; `clear-trace-rings!` additionally resets POLICY. A user-facing "Clear
+;; buffer now" wired to the fixture one would silently revert the user's
+;; own `:events-retained` setting, so the difference is pinned here as a
+;; test rather than left to a docstring.
 
 (deftest ^:requires-debug clear-trace-buffer-0-arity-clears-every-ring-preserving-policy
   (testing "the 0-arity empties every ring and leaves retention policy in force"
@@ -680,13 +678,12 @@
     (is ev)
     (is (= :pair (get-in ev [:tags :rf.event/origin])))))
 
-;; ---- 4. :source opt (post-rf2-1ve9h — collapsed from :rf/dispatch-origin)
+;; ---- 4. :source opt -------------------------------------------------------
 
 (deftest ^:requires-debug dispatch-source-defaults-to-unknown
-  ;; Per rf2-hxj0d the default `:source` is `:unknown` (the un-stamped
-  ;; dispatch site). Per rf2-1ve9h the prior parallel
-  ;; `:rf/dispatch-origin :user` default was collapsed — the single
-  ;; closed-enum functional-origin axis is now `:source`.
+  ;; The default `:source` is `:unknown` (the un-stamped dispatch site).
+  ;; `:source` is the single closed-enum functional-origin axis; there is
+  ;; no parallel `:rf/dispatch-origin` tag.
   ;;
   ;; `:source` is hoisted as a top-level slot on every trace event
   ;; (see `re-frame.trace/build-event` — Spec 009 §Core fields hoist
@@ -701,7 +698,7 @@
     (is ev)
     (is (= :unknown (:source ev)))
     (is (nil? (get-in ev [:tags :rf/dispatch-origin]))
-        ":rf/dispatch-origin retired per rf2-1ve9h")))
+        "there is no :rf/dispatch-origin tag")))
 
 (deftest ^:requires-debug dispatch-source-opt-overrides-default
   (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
@@ -715,10 +712,9 @@
 
 (deftest ^:requires-debug dispatch-source-fx-cascade-stamps-fx-dispatch
   (testing "child dispatches emitted by :dispatch fx are tagged :fx-dispatch"
-    ;; Per rf2-c3990: a `:dispatch` fx from a non-machine parent stamps
+    ;; A `:dispatch` fx from a non-machine parent stamps
     ;; `:source :fx-dispatch` on the child envelope (the actor-message
-    ;; path stamps `:machine-action` instead). Per rf2-1ve9h these are
-    ;; the surviving axes after the `:rf/dispatch-origin` collapse.
+    ;; path stamps `:machine-action` instead).
     (rf/reg-event :parent (fn [_ _] {:fx [[:dispatch [:child]]]}))
     (rf/reg-event :child (fn [{:keys [db]} _] {:db db}))
     (rf/dispatch-sync [:parent] {:source :ui})
@@ -735,7 +731,7 @@
       (is (= :ui          (:source parent-ev)))
       (is (= :fx-dispatch (:source child-ev))))))
 
-;; ---- 5. Frame-level trace-emission gate (rf2-2qaqh) ----------------------
+;; ---- 5. Frame-level trace-emission gate ----------------------------------
 
 (deftest ^:requires-debug tool-frame-emits-no-trace
   (testing "a frame registered :rf.trace/frame-no-emit? true grows the ring by 0"
@@ -761,12 +757,13 @@
         "tool-frame's ring stays empty")))
 
 (deftest ^:requires-debug destroy-clears-trace-disabled-flag
-  ;; rf2-zcl055: `make-frame` adds a `:rf.trace/frame-no-emit? true` frame to
-  ;; the process-global trace-disabled set; `destroy-frame!` must remove it
+  ;; `make-frame` adds a `:rf.trace/frame-no-emit? true` frame to the
+  ;; process-global trace-disabled set; `destroy-frame!` must remove it
   ;; (the teardown counterpart to `set-frame-no-emit!`, symmetric with the
-  ;; per-frame trace-ring release). Without the fix the destroyed frame's id
-  ;; lingers permanently in `rf.trace/trace-disabled-frames` — a process-global
-  ;; id leak (one keyword per destroyed-and-never-re-registered tool frame).
+  ;; per-frame trace-ring release). Were it not removed, the destroyed
+  ;; frame's id would linger permanently in `rf.trace/trace-disabled-frames`
+  ;; — a process-global id leak (one keyword per destroyed-and-never-
+  ;; re-registered tool frame).
   (testing "a destroyed trace-disabled frame leaves no entry in the trace-disabled set"
     (rf/make-frame {:id :tool/inspector :rf.trace/frame-no-emit? true})
     (is (rf.trace/frame-trace-disabled? :tool/inspector)
@@ -783,16 +780,14 @@
     (is (rf.trace/frame-trace-disabled? :tool/b)
         "the surviving tool frame's flag is untouched")))
 
-;; rf2-yl4c0s: `tagged-frame-trace-disabled?` read ONLY `[:tags :frame]` —
-;; but `push-to-ring!` resolves the destination frame THREE ways (`:frame`
-;; under `tags`, a top-level `:frame` on the built envelope, and the
-;; late-bound `:frame/current-frame-id` hook reading the ambient
-;; `*current-frame*`). An emit whose caller doesn't stamp a `:frame` tag —
-;; relying instead on the ambient `with-frame` / `*current-frame*` scope
-;; (the sub-recompute / view-render shape `push-to-ring!`'s docstring
-;; names) — ESCAPED suppression under a disabled tool frame. These two
-;; tests call `rf.trace/emit!` directly with tags that carry NO `:frame` key,
-;; so only the current-frame-hook resolution path is exercised.
+;; An emit whose caller doesn't stamp a `:frame` tag relies instead on the
+;; ambient `with-frame` / `*current-frame*` scope (the sub-recompute /
+;; view-render shape). `tagged-frame-trace-disabled?` falls back to that
+;; ambient frame (the late-bound `:frame/current-frame-id` hook) when the tag
+;; is absent; were it to read ONLY `[:tags :frame]`, such an emit would ESCAPE
+;; suppression under a disabled tool frame. These two tests call
+;; `rf.trace/emit!` directly with tags that carry NO `:frame` key, so only the
+;; current-frame-hook resolution path is exercised.
 
 (deftest ^:requires-debug untagged-emit-suppressed-when-current-frame-is-tool-disabled
   (testing "an un-tagged emit (no :frame key in tags), resolved via the
