@@ -30,13 +30,17 @@
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   [clojure.string :as str]
    [re-frame.core :as rf]
+   [re-frame.derivation.egress :as rf.derivation.egress]
+   [re-frame.derivation.graph :as rf.derivation.graph]
    [re-frame.elision :as rf.elision]
    [re-frame.frame :as rf.frame]
    ;; load-bearing side-effecting require: the façade registers the
    ;; :rf.resource/* events + subs + the :resource registrar kind.
    [re-frame.resources]
    [re-frame.resources.registry :as rf.resources.registry]
+   [re-frame.resources.ssr :as rf.resources.ssr]
    [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.tooling :as rf.resources.tooling]
    [re-frame.resources.work-ledger :as rf.resources.work-ledger]
@@ -418,6 +422,104 @@
           (testing "the owner-:sensitive? key redacts the secret"
             (is (not (contains-secret? view))
                 "the owner coarse claim redacts the scope+params in the wire key")))))))
+
+;; ---- entries whose projected keys collide -------------------------------
+;;
+;; A `:sensitive?` resource's scope + params project to CONTENT-FREE shape
+;; tokens, so two live entries whose scope + params merely share a shape
+;; project to one key. The view reports one node per live entry all the
+;; same, and so does the graph composed from it.
+
+(defn- contains-any?
+  "Deep-walk `v`; true iff any string in `needles` equals a leaf or occurs
+  inside a string leaf or map key."
+  [needles v]
+  (boolean
+    (cond
+      (string? v) (some #(str/includes? v %) needles)
+      (map? v)    (some #(contains-any? needles %) (concat (keys v) (vals v)))
+      (coll? v)   (some #(contains-any? needles %) v)
+      :else       false)))
+
+(def ^:private resources-contributor
+  {:resources {:static-fn  rf.resources.tooling/resource-algebra-view
+               :live-fn    rf.resources.tooling/resource-cache-algebra-view
+               :live-shape :map}})
+
+(defn- resource-node-ids [graph]
+  (filter #(and (vector? %) (= :resource (first %))) (keys (:nodes graph))))
+
+(deftest live-view-keeps-same-shaped-sensitive-entries-distinct
+  (testing "two live entries of one :sensitive? resource, scope + params of
+            one shape, project to EQUAL content-free keys; the view keeps
+            BOTH nodes with their own status and owners, and no raw value or
+            content digest egresses"
+    (rf/reg-resource :app/profile
+                     (article-spec {:sensitive?    true
+                                    :params-schema [:map [:account :string]]})
+                     article-spec-request)
+    (let [scope-a  {:tenant "tenant-alpha-SECRET"}
+          scope-b  {:tenant "tenant-beta-SECRET"}
+          params-a {:account "acct-alpha-SECRET"}
+          params-b {:account "acct-beta-SECRET"}
+          _        (install-live-entry! :rf/default :app/profile scope-a params-a
+                                        {:status :loaded :owner [:app :alpha 1]})
+          _        (install-live-entry! :rf/default :app/profile scope-b params-b
+                                        {:owner [:app :beta 2] :in-flight? true})
+          raw      ["tenant-alpha-SECRET" "tenant-beta-SECRET"
+                    "acct-alpha-SECRET" "acct-beta-SECRET"]
+          digests  (map (fn [v] (:rf/redacted (rf.resources.ssr/redact-value v :omit)))
+                        [scope-a scope-b params-a params-b])
+          view     (rf.resources.tooling/resource-cache-algebra-view :rf/default)
+          nodes    (vals view)]
+      (is (= 4 (count (set digests))) "sanity: the four content digests are distinct")
+      (is (= 2 (count view)) "one node per live entry")
+      (is (= 2 (count (set (map :id nodes)))) "the two nodes carry distinct ids")
+      (is (= #{:loaded :fetching} (set (map :status nodes)))
+          "each node keeps its own entry's status")
+      (is (= #{#{[:app :alpha 1]} #{[:app :beta 2]}}
+             (set (map #(get-in % [:lifecycle :owners]) nodes)))
+          "each node keeps its own entry's owners")
+      (is (every? #(= :app/profile (nth (:id %) 1)) nodes)
+          "the resource-id survives in every node id")
+      (is (= #{0 1} (set (map #(get-in % [:id 2 :rf.resource/collision]) nodes)))
+          "the ids differ only by an ordinal within the collision group")
+      (testing "the in-flight node's work-ledger positions carry its own id"
+        (let [in-flight (first (filter :work-ledger nodes))]
+          (is (= (:id in-flight) (get-in in-flight [:work-ledger :record :resource/key])))
+          (is (= (:id in-flight) (nth (get-in in-flight [:work-ledger :work/id]) 1)))
+          (is (= [[:rf.http/in-flight (get-in in-flight [:work-ledger :work/id])]]
+                 (:host-transient in-flight)))))
+      (testing "no raw value and no content digest egresses"
+        (is (not (contains-any? raw view)))
+        (is (not (contains-any? digests view))))
+      (testing "the live derivation graph keeps both resource nodes"
+        (let [graph (rf.derivation.graph/live-derivation-graph :rf/default resources-contributor)]
+          (is (= 2 (count (resource-node-ids graph))))
+          (is (= #{:loaded :fetching}
+                 (set (map #(get-in graph [:nodes % :status]) (resource-node-ids graph)))))
+          (testing "and so does the graph a tool ships off-box"
+            (let [shipped (rf.derivation.egress/project-graph graph :rf/default)]
+              (is (= 2 (count (resource-node-ids shipped))))
+              (is (not (contains-any? raw shipped)))
+              (is (not (contains-any? digests shipped))))))))))
+
+(deftest live-view-keeps-distinct-plain-entries-verbatim
+  (testing "control: two entries of a NON-sensitive resource keep their
+            verbatim scoped keys as node ids, in the view and in the graph"
+    (rf/reg-resource :plain/profile
+                     (article-spec {:params-schema [:map [:account :string]]})
+                     article-spec-request)
+    (let [ka    (install-live-entry! :rf/default :plain/profile {:tenant "a"} {:account "x"}
+                                     {:status :loaded :owner [:app :a 1]})
+          kb    (install-live-entry! :rf/default :plain/profile {:tenant "b"} {:account "y"}
+                                     {:status :error :owner [:app :b 2]})
+          view  (rf.resources.tooling/resource-cache-algebra-view :rf/default)
+          graph (rf.derivation.graph/live-derivation-graph :rf/default resources-contributor)]
+      (is (= #{(rf.resources.state/key-id ka) (rf.resources.state/key-id kb)} (set (keys view))))
+      (is (= ka (:id (get view (rf.resources.state/key-id ka)))))
+      (is (= kb (:id (get view (rf.resources.state/key-id kb)))))
+      (is (= #{[:resource ka] [:resource kb]} (set (resource-node-ids graph)))))))
 
 ;; ---- registry semantics --------------------------------------------------
 
