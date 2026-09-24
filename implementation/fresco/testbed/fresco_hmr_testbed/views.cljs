@@ -1,7 +1,6 @@
 (ns fresco-hmr-testbed.views
   "THE RELOADED NAMESPACE — the source file a real `shadow-cljs watch`
-  really recompiles, and the only file the HMR gate edits on disk
-  (rf2-vsgq, closing the browser half of rf2-hic-015).
+  really recompiles, and the only file the HMR gate edits on disk.
 
   Everything the HMR matrix needs a committing renderer for is declared
   here, through the ordinary authoring surface: a controlled field, a
@@ -21,7 +20,7 @@
   in its canonical state — so a crashed previous run is a loud red rather
   than a fixture silently baked into the tree.
 
-  Editing a tracked file was chosen over generating one into a gitignored
+  A tracked file is edited rather than one generated into a gitignored
   path for a single reason: this is the most important file in the gate to
   READ, and a `defview` that lives in a JavaScript template string inside
   the runner is a `defview` nobody reviews. The compile path is the real
@@ -42,8 +41,8 @@
   | [[field]] | the focused controlled input — caret, selection and composition across a save |
   | [[hook-child]] / [[hook-host]] | a child's `useState` inside a host crossing |
   | [[imperative-note]] / [[note-host]] | the active imperative host: a live instance, held through a callback `:ref`, with a side effect React does not know about |
-  | [[island-body]] | the island — a raw React function component, and the one component every wrapper is carried across (rf2-iq0a) |
-  | [[host-head]] / [[escape-head]] | that island behind a raw `react/lazy`, so the `React.lazy` bridge meets a real recompile (rf2-y5x6j) |
+  | [[island-body]] | the island — a raw React function component, and the one component every wrapper is carried across |
+  | [[host-head]] / [[escape-head]] | that island behind a raw `react/lazy`, so the `React.lazy` bridge meets a real recompile |
   | [[app]] | the head whose re-mint is the whole cause, rendered once per frame so frame routing is readable per root |
 
   The foreign components — the hook child, the imperative host and the
@@ -169,9 +168,9 @@
 ;; The island, and the `React.lazy` bridge it arrives through
 ;; ---------------------------------------------------------------------------
 ;;
-;; ONE component, carried across every wrapper React has (rf2-iq0a), and
+;; ONE component, carried across every wrapper React has, and
 ;; reached through a real `react/lazy` payload so the code-splitting bridge
-;; meets a real recompile (rf2-y5x6j). The chain is
+;; meets a real recompile. The chain is
 ;;
 ;;   island-body   defn             a raw React function component over
 ;;                                  react/createElement, no Fresco in it
@@ -202,13 +201,13 @@
 ;; other, so a subscribing island here would make every census comparison
 ;; in this suite a race against React's scheduler rather than a statement
 ;; about the runtime. Contributing zero to the census is what keeps this
-;; fixture additive; the ownership claim is then made on the WHOLE census,
+;; fixture out of it; the ownership claim is then made on the WHOLE census,
 ;; which the rest of the app populates, and it says the lazy re-load and
 ;; the remount leak nothing into it.
 
 (defonce ^:private !island-loads
-  ;; `defonce`, so the count spans the reload it is measuring. The whole of
-  ;; rf2-y5x6j's "which of the two is it" turns on this integer: a head
+  ;; `defonce`, so the count spans the reload it is measuring. Whether a
+  ;; save re-loads the boundary or keeps the module turns on this integer: a head
   ;; re-minted by the save gets a fresh payload and the chunk is fetched
   ;; AGAIN, so the boundary re-loads rather than the loaded module
   ;; surviving.
@@ -275,7 +274,7 @@
 
 ;; --- the sabotage: a head that survived the reload -------------------------
 ;;
-;; The fault rf2-y5x6j asks for: a bridge that caches a head BY NAME. That
+;; The fault under test: a bridge that caches a head BY NAME. That
 ;; would preserve identity across a reload and quietly contradict React's
 ;; remount rule — a `def` the save re-evaluates is a new object, and React
 ;; replaces the subtree at that position. This is that runtime, toggled at
@@ -356,7 +355,7 @@
 
 (rf.fresco/defview digits-field
   "The refusing field the composition row is driven on — the case
-  `hmr_registry`'s browser sibling could not reach, and the one where a
+  `hmr_registry`'s browser sibling cannot reach, and the one where a
   held draft is provably the model's refusal rather than its agreement."
   [_]
   [:input {:data-testid "digits"
