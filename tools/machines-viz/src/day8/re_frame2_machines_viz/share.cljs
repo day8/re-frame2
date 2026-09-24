@@ -226,6 +226,16 @@
   they are valid topology ids."
   #{:source-coords :source-code})
 
+(def ^:private non-topology-keys
+  "rf2-3x7nj.33.6 — definition slots that are not topology: the `:schemas`
+  map, the root event `:schema`, the initial / spawn `:data` and `:meta`.
+  The viewer never reads them, Principles §No session data in shares
+  allows only topology, and their values are arbitrary host values — a
+  Malli `[:re #\"…\"]` is a JS `RegExp` Transit has no write handler for.
+  Dropped from every RECORD map, exactly as `source-debug-keys` are, so a
+  state / region / event named `:data` (an identifier) survives."
+  #{:schemas :schema :data :meta})
+
 (def ^:private fn-label-marker
   "rf2-m285a — opaque marker substituted for a LIVE fn value so the payload
   encodes (Transit cannot serialise an arbitrary fn) and the viewer still
@@ -264,8 +274,8 @@
 (defn- sanitise-definition
   "rf2-m285a — recursively rewrite a (possibly macro-stamped) machine
   definition into a viewer-safe topology payload: drop `:source-coords` /
-  `:source-code`, drop executable `:fn` values, and replace any live fn slot
-  with an opaque label. Preserves all topology references (state ids,
+  `:source-code` and the `non-topology-keys` slots, drop executable `:fn`
+  values, and replace any live fn slot with an opaque label. Preserves all topology references (state ids,
   targets, guard/action NAMES via their map keys). Pure structural walk.
 
   `identifiers?` is true while walking a map whose keys are topology ids
@@ -285,6 +295,8 @@
                      identifiers?                    [k (sanitise-definition v)]
                      ;; Drop reference-site source/debug fields entirely.
                      (contains? source-debug-keys k) nil
+                     ;; rf2-3x7nj.33.6 — and the non-topology slots.
+                     (contains? non-topology-keys k) nil
                      ;; rf2-07gg7h — drop the EXECUTABLE fn off a co-located
                      ;; `{:fn <fn> …}` entry (the `:guards` / `:actions`
                      ;; slot form): the entry's KEY already
@@ -656,7 +668,8 @@
   |---|---|
   | `:no-host`                | No non-blank `:host` was supplied. |
   | `:host-carries-fragment`  | `:host` already contains a `#`. The machine payload rides in the fragment, and a URL has only one — see below. |
-  | `:invalid-chart-state`    | The chart state does not validate — including a `:snapshot` `:state` that is none of the three allowed configuration arms (a malformed `:state` would yield an undecodable URL, so it is rejected at encode). |"
+  | `:invalid-chart-state`    | The chart state does not validate — including a `:snapshot` `:state` that is none of the three allowed configuration arms (a malformed `:state` would yield an undecodable URL, so it is rejected at encode). |
+  | `:unencodable-definition` | The sanitised definition still carries a value Transit cannot write (a regex or other host object in an open slot). |"
   [chart-state {:keys [host]}]
   (let [host (when (string? host) (str/trim host))]
     (when (str/blank? host)
@@ -737,7 +750,28 @@
                            :rf.machines-viz.share/chart   allowlisted
                            :rf.machines-viz.share/created (js/Date.now)})
             writer      (transit/writer :json)
-            transit-str (transit/write writer envelope)
+            ;; rf2-3x7nj.33.6 — a value Transit has no write handler for (a
+            ;; JS `RegExp`, a compiled schema, any host object left in an
+            ;; open namespaced slot) threw a raw `Error("Cannot write …")`
+            ;; out of here. Surface it as the documented ex-info instead;
+            ;; value-free, like every error in this namespace, so neither the
+            ;; host message nor the offending object rides along.
+            transit-str (try
+                          (transit/write writer envelope)
+                          (catch :default _
+                            (let [msg (str "cannot encode a share-URL: the machine "
+                                           "definition carries a value that is not "
+                                           "EDN data (a regex, a compiled schema, or "
+                                           "another host object), so Transit cannot "
+                                           "write it. Keep such values out of the "
+                                           "definition's topology slots.")]
+                              (throw (ex-info (rf.error/human-message :rf.machines-viz.share/encode-failed msg)
+                                              {:rf.error/id :rf.machines-viz.share/encode-failed
+                                               :where       'machines-viz.share/encode-share-url
+                                               :recovery    :remove-non-edn-values-from-the-definition
+                                               :reason      :unencodable-definition
+                                               :message     msg
+                                               :chart-state-summary (value-free-summary chart-state)})))))
             fragment    (bytes->base64url transit-str)]
         (str host "#" fragment-key "=" fragment)))))
 

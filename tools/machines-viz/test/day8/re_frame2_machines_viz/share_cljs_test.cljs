@@ -411,6 +411,81 @@
       (is (not (str/includes? url "proj")) "the file path never reaches the bytes"))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-3x7nj.33.6 — the non-topology slots (`:schemas`, the root event
+;; `:schema`, `:data`, `:meta`) are not share payload. Their values are
+;; arbitrary host values: the ordinary Malli `[:re #"…"]` form is a JS
+;; `RegExp`, which Transit has no write handler for, so `encode-share-url`
+;; used to throw a raw `Error("Cannot write RegExp")` for any machine whose
+;; schema carried a regex. And a value Transit cannot write that still
+;; reaches the writer (an open namespaced slot) surfaces as the documented
+;; `encode-failed` ex-info, not a raw host error.
+
+(def regex-schema-definition
+  "The bead's reproduction, widened to every non-topology slot: a
+  `[:schemas :data]` regex, a root event `:schema`, the initial `:data`,
+  `:meta`, a nested state's `:meta` and a `:spawn`'s `:data`."
+  {:initial :a
+   :schemas {:data [:map [:email [:re #".+@.+"]]]}
+   :schema  [:tuple [:enum :go] [:re #"^x"]]
+   :data    {:email "a@b.c" :pattern #"secret-pattern"}
+   :meta    {:doc "d" :check #"meta-re"}
+   :states  {:a {:on    {:go :b}
+                 :meta  {:hint #"node-re"}
+                 :spawn {:machine-id :child :data {:seed #"spawn-re"}}}
+             :b {}}})
+
+(deftest regex-bearing-non-topology-slots-encode
+  (testing "rf2-3x7nj.33.6 — a definition whose :schemas carries a regex
+            encodes, and the non-topology slots do not ride the payload"
+    (let [cs   (assoc chart-state :definition regex-schema-definition)
+          url  (encode cs)
+          dfn  (:definition (:rf.machines-viz.share/chart (share/decode-share-url url)))]
+      (is (string? url) "encoding succeeds")
+      (is (not-any? #(contains? dfn %) [:schemas :schema :data :meta])
+          "the root non-topology slots are dropped")
+      (is (not (contains? (get-in dfn [:states :a]) :meta)) "a state's :meta is dropped")
+      (is (not (contains? (get-in dfn [:states :a :spawn]) :data)) "a spawn's :data is dropped")
+      ;; Topology survives.
+      (is (= :a (:initial dfn)))
+      (is (= :b (get-in dfn [:states :a :on :go])))
+      (is (= :child (get-in dfn [:states :a :spawn :machine-id])))
+      (is (= {} (get-in dfn [:states :b]))))))
+
+(deftest identifiers-named-like-non-topology-slots-survive
+  (testing "rf2-3x7nj.33.6 — the drop applies to RECORD fields only: a state,
+            event or region whose id is :data / :meta / :schemas survives"
+    (let [flat {:initial :data
+                :states  {:data    {:on {:meta :schemas}}
+                          :schemas {}}}
+          back (fn [d] (:definition (:rf.machines-viz.share/chart
+                                      (share/decode-share-url
+                                        (encode (-> chart-state
+                                                    (assoc :definition d)
+                                                    (dissoc :snapshot)))))))]
+      (is (= flat (back flat)))
+      (is (= (:definition parallel-state)
+             (:definition (:rf.machines-viz.share/chart
+                            (share/decode-share-url (encode parallel-state)))))
+          "the region named :data survives"))))
+
+(deftest unencodable-value-surfaces-as-encode-failed
+  (testing "rf2-3x7nj.33.6 — a value Transit cannot write, left in an open
+            namespaced slot, throws the documented encode-failed ex-info,
+            value-free, instead of a raw `Cannot write` error"
+    (let [dfn {:initial :a :states {:a {:my.app/pattern #"leaky-pattern"}}}
+          _   (is (grammar/valid-definition? dfn)
+                  "precondition: a namespaced slot passes the grammar gate")
+          r   (try {:url (encode (assoc chart-state :definition dfn))}
+                   (catch :default e {:data (ex-data e)}))
+          d   (:data r)]
+      (is (nil? (:url r)) "no URL is produced")
+      (is (= :rf.machines-viz.share/encode-failed (:rf.error/id d)))
+      (is (= :unencodable-definition (:reason d)))
+      (is (= :remove-non-edn-values-from-the-definition (:recovery d)))
+      (is (not (str/includes? (pr-str d) "leaky-pattern"))
+          "neither the value nor the host message rides ex-data"))))
+
+;; ---------------------------------------------------------------------------
 ;; rf2-m285a — macro-stamped DATA (not metadata) sanitisation. A reg-machine
 ;; macro co-locates `:source-coords` / `:source-code` + executable `:fn`
 ;; values as ordinary DATA inside `:states` / `:guards` / `:actions`

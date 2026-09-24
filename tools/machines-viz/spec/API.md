@@ -1816,7 +1816,11 @@ encoder:
    value, so it becomes an inert `[<label> <n>]` vector key: a delay shape
    the viewer projects but never runs, numbered so that two anonymous delay
    functions keep two transitions. The delay function is never called
-   (rf2-fzbj.13).
+   (rf2-fzbj.13). The same record-map drop removes the slots that are not
+   topology — `:schemas`, the root event `:schema`, `:data` and `:meta`,
+   on the root, a state, a region or a `:spawn` spec — which the viewer
+   never reads and whose values are arbitrary host values (a Malli
+   `[:re …]` is a JS `RegExp`; rf2-3x7nj.33.6).
 3. Canonicalises map / set ordering (per
    [Principles §Reproducible from the registry alone](./Principles.md)).
 4. Wraps in the versioned envelope.
@@ -1830,6 +1834,7 @@ Failure modes:
 | `:no-host` | No non-blank `:host` was supplied. There is no default viewer host — see [§Hosting](#hosting). |
 | `:host-carries-fragment` | `:host` already contains a `#`. The machine payload rides in the fragment and a URL has only one, so a second `#` yields a link the viewer cannot read (rf2-xld5m). `ex-data` carries `:fragment-index` — the offset of the offending `#`, not the host itself, which may carry a query token. |
 | `:invalid-chart-state` | The allowlisted chart state fails the same `valid-chart-state?` predicate the decoder applies (a missing/malformed `:machine-id` or `:definition`, a non-keyword `:frame-id`, or a `:snapshot` `:state` that is none of the three configuration arms). Rejected at encode rather than emitted as an undecodable URL. |
+| `:unencodable-definition` | The sanitised definition still carries a value Transit cannot write — a regex or other host object left in an open (namespaced) slot. Raised in place of Transit's own `Cannot write …` error; `ex-data` carries `:chart-state-summary`, never the value (rf2-3x7nj.33.6). |
 
 ### Decoder
 
