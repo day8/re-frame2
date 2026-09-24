@@ -52,10 +52,10 @@
   `panel` / `row-list` / the theme provider below are a vendor family in
   miniature — a provider, two members, two named ReactNode slots and a
   render prop — because that is the shape where each mechanism meets the
-  others. `react/Suspense` is here
-  as itself: it is a REAL React compound whose ONE interesting prop is a
-  ReactNode, and the recipe the guide teaches for it —
-  `{:slots #{:fallback}}` — either mints and renders or it does not.
+  others. `react/Suspense` is here as itself: it is a REAL React compound
+  whose ONE interesting prop is a ReactNode, and the recipe the guide
+  teaches for it — `{:slots #{:fallback}}` — either mints and renders or
+  it does not.
 
   ## The declaration's OTHER roster is refused here too
 
