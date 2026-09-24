@@ -125,7 +125,7 @@ Exiting `:working` fires one `:rf.machine/destroy` fx carrying `:rf/spawn-all tr
  :cancelled     {:on {:reset :idle}}}
 ```
 
-`:after {1 :processing}` schedules the next chunk after one browser tick — long enough to yield the JS thread, short enough to feel instant. **Do not use `:after {0 …}` for a machine timer:** a non-positive `:after` delay never schedules (the runtime emits `:rf.warning/no-clock-configured` and skips), so a zero-delay chunk loop silently stalls. Use the smallest positive delay (`1`) for the browser yield. `:cancel` need only be declared on `:yielding` — the user can't click while the JS thread is in `:processing`.
+`:after {1 :processing}` schedules the next chunk after one browser tick — long enough to yield the JS thread, short enough to feel instant. **Do not use `:after {0 …}` for a machine timer:** a zero or negative `:after` key is refused at registration (`:rf.error/machine-bad-after-delay`). Use the smallest positive delay (`1`) for the browser yield. `:cancel` need only be declared on `:yielding` — the user can't click while the JS thread is in `:processing`.
 
 **Worker offload.** Genuinely heavy work belongs in a Web Worker via Pattern-AsyncEffect; cancellation stays epoch-based (Pattern-StaleDetection). The chunked-main-thread pattern is the fallback when worker offload isn't feasible (DOM access required, awkward-to-serialise data).
 
@@ -148,7 +148,7 @@ Singletons supporting `:reset` back to `:idle` must NOT use `:final?` (auto-dest
 - **Multiple `assoc`s expecting interleaved renders.** Everything a drain settles renders together, once — no intermediate state ever reaches the screen. Chunking, so the host gets a yield between writes, is the only way to get intermediate renders.
 - **Manual chunk-state with `setTimeout`.** Re-derives what `:after` already provides; loses tracing and automatic teardown.
 - **Forgetting cancellation.** The exit cascade makes it trivial; omitting `:cancel` on `:working` leaves a runaway loop.
-- **`:always` cycles without a yielding `:after` between batches.** Hits `:rf.error/machine-always-depth-exceeded` (default 16). A `:yielding` state with a small positive `:after` delay (e.g. `:after {1 …}` — **not** `:after {0 …}`, which never schedules) resets depth between batches.
+- **`:always` cycles without a yielding `:after` between batches.** Hits `:rf.error/machine-always-depth-exceeded` (default 16). A `:yielding` state with a small positive `:after` delay (e.g. `:after {1 …}` — **not** `:after {0 …}`, which registration refuses) resets depth between batches.
 - **Per-child bookkeeping in the parent's `:data`.** The runtime owns join-state at `[:rf.runtime/machines :spawned ...]`; re-implementing re-derives.
 - **A child that hand-dispatches its own completion to the parent.** Completion is finality — the child reaches a `:final?` leaf and the runtime does the rest. A hand-rolled done-event forces the child to know its parent's vocabulary, so the same machine no longer composes under a plain `:spawn`. The `:spawn-all` block keys that used to name those child events are retired and now fail registration (`:rf.error/machine-spawn-all-bad-shape`). `:meta {:terminal? true}` on a `:final?` leaf is likewise redundant — drop it.
 

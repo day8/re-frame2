@@ -24,7 +24,7 @@ The right choice depends on whether the work can be serialised across the thread
 
 ## The chunked state-machine pattern
 
-A state machine that processes one batch per state transition, yields to the browser between batches via `:after 0`, and reports progress via the machine's extended state (`:data`).
+A state machine that processes one batch per state transition, yields to the browser between batches via `:after 1`, and reports progress via the machine's extended state (`:data`).
 
 ### Canonical states
 
@@ -33,7 +33,7 @@ A state machine that processes one batch per state transition, yields to the bro
 | `:idle` | Not running. Initial state. |
 | `:processing` | Actively computing one chunk. Entry action processes the chunk and updates `:data`. |
 | `:checking-done` | Eventless transition decides: complete, yield, or cancel. |
-| `:yielding` | `:after 0` schedules the next chunk; the browser gets a render tick. |
+| `:yielding` | `:after 1` schedules the next chunk; the browser gets a render tick. |
 | `:complete` | Terminal — work finished. |
 | `:cancelled` | Terminal — user requested cancel. |
 
@@ -84,7 +84,7 @@ A state machine that processes one batch per state transition, yields to the bro
               {:guard :more-work? :target :yielding}]}
 
     :yielding
-    {:after {0 :processing}                 ;; one browser tick, then next chunk
+    {:after {1 :processing}                 ;; one browser tick, then next chunk
      :on    {:cancel :cancelled}}           ;; cancel only meaningful while yielding
 
     :complete   {:on {:reset :idle}}
@@ -97,7 +97,7 @@ Walk-through for a 1000-item job with chunk-size 100:
 2. Machine transitions `:idle → :processing` via `:start` action; `:data` initialised with `total=1000`, `chunk-size=100` (or the supplied override), `processed=0`.
 3. `:processing` entry processes chunk 1 (items 0..99); `:data.processed` becomes 100. `:always` advances to `:checking-done`.
 4. `:checking-done` evaluates: `done?` false, `more-work?` true → `:yielding`.
-5. `:yielding`'s `:after 0` schedules a return to `:processing` after one browser tick. Browser renders the progress bar.
+5. `:yielding`'s `:after 1` schedules a return to `:processing` after one browser tick. Browser renders the progress bar.
 6. Loop repeats for chunks 2..10.
 7. After chunk 10, `done?` true → `:complete`.
 
@@ -164,7 +164,7 @@ The `:dispatch-later {:ms 0}` schedules through the host clock primitive (via `r
 - **Multiple `assoc`s in one handler expecting interleaved renders.** A drain cannot be split across render batches, so it renders once regardless of how many `:db` updates it makes — and a drain that finishes before the same host checkpoint as another may not even get a render of its own. Splitting into chunks via the state-machine pattern, which yields to the host between chunks, is the only way to get intermediate renders.
 - **Manual chunk-state in app-db.** A state machine fits the chunked-progression structure more cleanly: explicit states, named transitions, encapsulated `:data`. App-db flags work but are harder to reason about.
 - **Forgetting cancellation.** Long jobs need a cancel path. The state-machine pattern makes this trivial; ad-hoc loops make it painful.
-- **`:always` cycles without `:after 0` between batches.** A pure `:always` chain hits the `:rf.error/machine-always-depth-exceeded` cap (default 16). The `:yielding` state's `:after 0` resets the depth and yields to the browser.
+- **`:always` cycles without `:after 1` between batches.** A pure `:always` chain hits the `:rf.error/machine-always-depth-exceeded` cap (default 16). The `:yielding` state's `:after 1` resets the depth and yields to the browser.
 - **Trying to make subscriptions "incremental"** instead of computing in events. Subs are read-only projections; chunked work is a write operation that should produce data the subs then read.
 - **Input changing mid-process.** The machine's `:data` holds the input the start-action snapshotted. If the source data changes while the job runs, the machine keeps processing the original snapshot — which is usually what you want. If it isn't, send `:reset` and restart.
 
@@ -185,7 +185,7 @@ The chunked pattern is for cases where worker offload isn't feasible (DOM access
 - **[Pattern-WebSocket](Pattern-WebSocket.md)** — long-lived computational worker.
 - **[Pattern-StaleDetection](Pattern-StaleDetection.md)** — cancellation when in-flight timers may fire after the user cancels.
 - **State machines (005)** — the substrate this pattern uses.
-- **`:after` delayed transitions** — yielding via `:after 0`.
+- **`:after` delayed transitions** — yielding via `:after 1`.
 - **`:always` eventless transitions** — batch progression.
 
 ## Migration from v1
