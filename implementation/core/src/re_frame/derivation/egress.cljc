@@ -1,21 +1,17 @@
 (ns re-frame.derivation.egress
   "The OFF-BOX EGRESS REDACTION algebra for a `DerivationGraph` — the single
   owner of the projection a consuming tool applies at the wire boundary where
-  it ships the graph OFF the developer's box (rf2-mm3y49; EP-0014 tail-2
-  redaction ruling, rf2-yjarv6; [spec/Derivations.md] §Redaction metadata +
-  §Conformance 'Tool redaction').
+  it ships the graph OFF the developer's box (EP-0014; [spec/Derivations.md]
+  §Redaction metadata + §Conformance 'Tool redaction').
 
   ## Why this lives in `implementation/core`, gated as TOOLING
 
-  The redaction algorithm previously existed as TWO independent copies that
-  drifted: the named first-consumer Xray call site
-  (`day8.re-frame2-xray.panels.derivation-graph-helpers/redact-graph-for-egress`)
-  and the derivation-conformance suite's in-tree mirror
-  (`egress-project-graph`). A fix (canonical work-id / host-transient
-  projection, rf2-tmyfkn/rf2-qo1l8w) had to land in both, and Xray lagged.
-  This namespace is the ONE owner both delegate to: Xray's
-  `redact-graph-for-egress` is now a thin alias, and the conformance suite
-  tests THIS namespace directly.
+  This namespace is the ONE owner of the redaction algorithm, and both of
+  its consumers delegate to it: the named first-consumer Xray call site
+  (`day8.re-frame2-xray.panels.derivation-graph-helpers/redact-graph-for-egress`,
+  a thin alias) and the derivation-conformance suite, which tests THIS
+  namespace directly. Two independent copies would drift: a fix (say, the
+  canonical work-id / host-transient projection) would have to land in both.
 
   It sits in core/src beside the graph COMPOSER (`re-frame.derivation.graph`)
   because it is built ENTIRELY from `implementation/`-resident primitives —
@@ -53,8 +49,7 @@
       is stamped as the `:frame` opt whatever it is, and `elide-wire-value`
       reads that opt by KEY PRESENCE, so a nil / destroyed id takes its
       unresolvable-frame branch (whole value ⇒ `:rf/redacted`) rather than
-      borrowing an ambient dynamically-bound frame and shipping raw
-      (rf2-udkj69, rf2-kuky.5);
+      borrowing an ambient dynamically-bound frame and shipping raw;
     - **identity-embedded scoped keys** — the positions the value-path walk
       is structurally blind to (node KEY, `:id`, `:output`, realized
       `:inputs`, `:work-ledger` work-id + `:resource/key`, `:host-transient`
@@ -91,7 +86,7 @@
   [:value :params :query :state])
 
 ;; ---------------------------------------------------------------------------
-;; LIVE RESOURCE IDENTITY redaction (rf2-k0meap.1, extended rf2-qo1l8w).
+;; LIVE RESOURCE IDENTITY redaction.
 ;;
 ;; The `elide-wire-value` value-field walk redacts a sensitive VALUE sitting
 ;; at a node's `:value` / `:params` / `:query` / `:state` summary — it matches
@@ -113,7 +108,7 @@
 ;; an edge), but the raw scope/params never cross the wire. We mint the handle
 ;; as a keyed digest of the core CEDN-1 identity token
 ;; (`rf.identity/canonical-bytes`) so it is deterministic for a given value
-;; within that runtime (rf2-3x7nj.3.4); a value outside the CEDN-1 domain (or any
+;; within that runtime; a value outside the CEDN-1 domain (or any
 ;; error) FAILS CLOSED to the `:rf/redacted` sentinel rather than risk
 ;; shipping a host-stringified secret. The middle `resource-id` (a
 ;; registration keyword, never sensitive) is PRESERVED so a tool still sees
@@ -154,11 +149,11 @@
            (= 2 (count v))
            (= :rf.resource/opaque (nth v 0)))))
 
-;; The handle digest (rf2-3x7nj.3.4): HMAC-SHA-256 over the UTF-8 bytes of the
+;; The handle digest: HMAC-SHA-256 over the UTF-8 bytes of the
 ;; value's CEDN-1 token, under a private random key minted once per runtime,
 ;; rendered as the full 64-char lowercase hex digest. A 32-bit `hash` of the
-;; token (the previous minting) collided — `{:q "Aa"}` and `{:q "BB"}` merged
-;; into one node — and gave up a low-entropy param to enumeration. The UTF-8 /
+;; token would collide — `{:q "Aa"}` and `{:q "BB"}` would merge into one
+;; node — and would give up a low-entropy param to enumeration. The UTF-8 /
 ;; hex idiom is `re-frame.schemas.digest`'s, copied rather than required so
 ;; core takes no dependency on the schemas artefact.
 
@@ -273,7 +268,7 @@
   sensitive identity). Other input shapes ride through untouched. Idempotent:
   the payload runs through `opaque-handle`, which returns an already-projected
   handle / `:rf/redacted` UNCHANGED, so re-projecting an already-projected
-  inputs vector is the identity (rf2-g197ep — this is the one input position
+  inputs vector is the identity (this is the one input position
   projected unconditionally rather than gated by the scoped-key shape, so its
   idempotence MUST come from the handle minter)."
   [inputs]
@@ -289,8 +284,8 @@
 (defn- project-work-id
   "Project the scoped key embedded in a resource work-id
   `[:rf.work/resource <scoped-key> <generation>]` — a work-id of another
-  shape (e.g. a non-resource family's work-id, or the historical bare
-  scalar) rides through unchanged (rf2-qo1l8w/rf2-tmyfkn). Idempotent by
+  shape (e.g. a non-resource family's work-id, or a bare scalar) rides
+  through unchanged. Idempotent by
   delegation: `project-scoped-key` already returns an already-projected
   handle unchanged, regardless of whether the embedded key still LOOKS like
   a raw `scoped-resource-key?` shape (an opaqued key's tail is a vector, not
@@ -302,7 +297,7 @@
 
 (defn- project-host-transient
   "Project the work-id embedded in a `:host-transient`
-  `[[:rf.http/in-flight <work-id>]]` in-flight handle address (rf2-qo1l8w)
+  `[[:rf.http/in-flight <work-id>]]` in-flight handle address
   — the abortable-handle address names the SAME work-id the work-ledger
   link carries, so it must not leak the raw scoped key either. Other
   shapes ride through untouched."
@@ -321,7 +316,7 @@
   path), the realized `:inputs` `[:scope …]` / `[:param …]` payloads,
   `:work-ledger :record :resource/key` (the scoped key on the work-ledger
   summary), the resource work-id embedded in BOTH `:work-ledger :work/id`
-  and `:work-ledger :record :work/id` (rf2-qo1l8w — a THIRD identity
+  and `:work-ledger :record :work/id` (a THIRD identity
   position, independent of `:resource/key`), and the `:host-transient`
   in-flight handle address (which names that SAME work-id). Structure /
   classification fields are untouched."
@@ -364,7 +359,7 @@
   `project-resource-node-key` reads, so every node whose key it remaps has its
   fields projected too. Any other family's node is left alone: a live
   subscription's `:id` and `:output` carry its query vector, which can have
-  the scoped-key shape without being one (rf2-3x7nj.3.5)."
+  the scoped-key shape without being one."
   [node-key]
   (and (vector? node-key)
        (= :resource (first node-key))))
@@ -391,11 +386,11 @@
 
 (defn project-graph
   "Project a `DerivationGraph` through the FRAME's egress policy for the wire
-  boundary where a tool ships the graph OFF-BOX (rf2-mm3y49; rf2-yjarv6;
-  [spec/Derivations.md] §Redaction metadata; EP-0014 issue-1 disposition).
+  boundary where a tool ships the graph OFF-BOX ([spec/Derivations.md]
+  §Redaction metadata; EP-0014 issue-1).
 
-  This is the egress redaction CALL SITE the tail-2 ruling locates in the
-  consuming tool — NOT in the registrar-derived composer (which composes
+  This is the egress redaction CALL SITE, which lives in the consuming
+  tool — NOT in the registrar-derived composer (which composes
   nodes verbatim, raw-on-box by design). Each node's value-bearing summary
   field (`:value` / `:params` / `:query` / `:state` —
   `value-bearing-node-keys`) is walked through the single shared
@@ -418,7 +413,7 @@
   classifications, `:source-form`, and `:refinement` are structure, not
   values, and are never touched.
 
-  LIVE RESOURCE IDENTITY redaction (rf2-k0meap.1, extended rf2-qo1l8w). A
+  LIVE RESOURCE IDENTITY redaction. A
   live resource node carries its sensitive scope/params NOT in a
   value-bearing field but in its IDENTITY — the concrete scoped key
   `[cache-scope resource-id canonical-params]` that is the node KEY
@@ -440,7 +435,7 @@
   the edges naming it still connect (connectivity survives, the raw
   scope/params never cross the wire). The identity walk runs over RESOURCE
   nodes only (`resource-node?`): a subscription's query vector can have the
-  scoped-key shape without being one (rf2-3x7nj.3.5).
+  scoped-key shape without being one.
 
   `frame-id` is the frame whose elision policy governs egress (the observed
   app's frame — typically the graph's `:frame` for a live graph). `opts`
@@ -457,20 +452,18 @@
   `:rf/redacted`, rather than falling through to the AMBIENT
   dynamically-bound frame and shipping value-bearing fields RAW under that
   borrowed frame's (possibly empty) policy. Egress must NOT borrow an
-  ambient frame. This is the silent leak the contract abolishes — a graph
+  ambient frame. This is the silent leak the contract rules out — a graph
   egressing under no reachable policy redacts, never ships raw, even when
-  an ambient frame is dynamically bound (rf2-udkj69).
+  an ambient frame is dynamically bound.
 
-  This used to require a local liveness probe plus a minted DEAD-FRAME
-  SENTINEL — a fresh host object stamped as `:frame` because a nil one was
-  read as absence. The walker now believes an explicit nil, so the probe
-  and the sentinel are both gone (rf2-kuky.5).
+  The walker believes an explicit nil, so no local liveness probe and no
+  minted dead-frame sentinel is needed.
 
   Returns the graph with redacted node value fields + projected live
   resource identities; `:mode` / `:frame` unchanged. IDEMPOTENT — a value may
   egress more than once (re-egress on re-render / re-subscribe / a forwarder
   event-bundle), and re-projecting an already-projected graph is the IDENTITY:
-  `project-graph` ∘ `project-graph` == `project-graph` (rf2-g197ep).
+  `project-graph` ∘ `project-graph` == `project-graph`.
   `elide-wire-value` is a no-op over an already-`:rf/redacted` value (the
   sentinel is a non-matchable scalar), and the opaque resource handle is
   idempotent at the source: `opaque-handle` returns an already-
@@ -485,9 +478,9 @@
    ;; `elide-wire-value`'s unresolvable-frame FAIL-CLOSED branch (whole value
    ;; ⇒ `:rf/redacted`) instead of falling through to the AMBIENT
    ;; dynamically-bound frame and shipping value-bearing fields RAW under
-   ;; that frame's policy — the ambient-borrow leak this contract abolishes
-   ;; (rf2-udkj69). The walker validates liveness itself, so there is no
-   ;; local reachability probe and no sentinel frame id to mint (rf2-kuky.5).
+   ;; that frame's policy — the ambient-borrow leak this contract rules out.
+   ;; The walker validates liveness itself, so there is no
+   ;; local reachability probe and no sentinel frame id to mint.
    (let [walk-opts  (assoc opts :frame frame-id)
          redact-node
          (fn [node-key node]
@@ -498,12 +491,12 @@
                         n))
                     node
                     value-bearing-node-keys)
-             ;; the live resource scoped-key identity walk (rf2-k0meap.1) —
+             ;; the live resource scoped-key identity walk —
              ;; the secrets the value-path walk above cannot reach. Resource
-             ;; nodes only (rf2-3x7nj.3.5).
+             ;; nodes only.
              (resource-node? node-key) project-resource-node-identity))]
      (-> graph
-         ;; remap node KEYS so a live resource scoped key no longer carries
+         ;; remap node KEYS so a live resource scoped key carries no
          ;; raw scope/params in the node id (and the edge endpoints below
          ;; stay consistent with the remapped keys).
          (update :nodes (fn [nodes]
@@ -523,20 +516,17 @@
 ;; source, and the literal it greps for `derivation-egress` is
 ;; `rf.resource/opaque` — the opaque resource-handle marker this namespace
 ;; MINTS on a live path (`opaque-handle` emits `[:rf.resource/opaque
-;; <digest>]`; `opaque-handle?` reads the same keyword back), so a CLJS
+;; <digest>]`; `already-projected?` reads the same keyword back), so a CLJS
 ;; keyword's fully-qualified name is interned into the emitted JS as a string
 ;; constant Closure does not rename.
 ;;
-;; A `defonce ^:private bundle-isolation-sentinel` string used to sit here
-;; (rf2-mm3y49). It was inert: private, unconsumed, and therefore dropped by
-;; Closure `:advanced` — ZERO occurrences in the emitted module — so the
-;; `do-not-rename` instruction it carried guarded nothing. `4e43784ec7`
-;; (2026-07-15) moved this roster entry and its `derivation-graph` sibling off
-;; the planted strings when these controls became emitted-module greps; the
-;; var was simply left behind, and rf2-yk2d removed it.
+;; A planted `defonce ^:private bundle-isolation-sentinel` string here would
+;; be inert: private and unconsumed, it is dropped by Closure `:advanced` —
+;; ZERO occurrences in the emitted module — so a `do-not-rename` instruction
+;; on it would guard nothing.
 ;;
 ;; The rule, and the reason a planted string is the WRONG instinct here: pick
 ;; a literal a LIVE code path emits, and verify the count in the emitted
 ;; module, never in the `.cljc`. The roster comment in check-bundle-
 ;; isolation.cjs beside the `derivation-egress` entry is the full account,
-;; including the two literals that were tried and failed.
+;; including two literals that do not work.
