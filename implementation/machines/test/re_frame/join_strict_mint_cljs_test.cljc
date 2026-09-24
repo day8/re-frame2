@@ -1,31 +1,30 @@
 (ns re-frame.join-strict-mint-cljs-test
-  "rf2-xfk6fn — CAUSAL proof that a `:spawn-all` join completion honours the
+  "CAUSAL proof that a `:spawn-all` join completion honours the
   EFFECTIVE cofx mint policy end-to-end, rather than merely carrying the policy
   keyword alongside it.
 
-  Earlier suites proved a join completion's recordable facts ride `:rf.cofx` and
-  survive an EDN round-trip. But every join completion TARGET in those suites
-  declared NO generator-backed coeffect requirement, so `:strict` and `:live`
-  were OBSERVATIONALLY IDENTICAL there — the `:strict` assertion only ever saw
-  the policy KEYWORD in the router options, and a path that silently fell back to
-  `:live` minting would have passed exact-head CI unchanged.
+  A join completion's recordable facts ride `:rf.cofx` and survive an EDN
+  round-trip. But for a join completion TARGET that declares NO
+  generator-backed coeffect requirement, `:strict` and `:live` are
+  OBSERVATIONALLY IDENTICAL — a `:strict` assertion only ever sees the policy
+  KEYWORD in the router options, and a path that silently fell back to `:live`
+  minting would pass CI unchanged.
 
-  These tests add ONE real generator-backed recordable coeffect to a join
+  These tests put ONE real generator-backed recordable coeffect on a join
   completion target and compare `:strict` against `:live` through the SAME
   record/replay machinery — no join-specific replay format, coeffect, or test
   framework. The load-bearing promise: a completion under `:strict` does NOT
   consult the host — it replays from recorded causal facts, and an absent fact is
   the canonical `:rf.error/missing-required-cofx`, never a silent live-mint no-op.
 
-  WHERE THE SEAM MOVED. Completion is finality (Spec 005 §Child completion
+  WHERE THE SEAM IS. Completion is finality (Spec 005 §Child completion
   protocol), so there is no child-authored completion event and no
   `:rf.machine/join-dispatch` transport to inherit a policy THROUGH — the child
   reaches a `:final?` leaf and the runtime mints the carrier from that
   transition's result. The policy-gated action therefore sits on the transition
-  INTO `:final?`, which is a strictly better place for this proof: it is the
+  INTO `:final?`, which is the right place for this proof: it is the
   child's own recorded event that a replay re-drives, so the strict/live
-  distinction is measured on the real completion path rather than on a transport
-  that no longer exists.
+  distinction is measured on the real completion path.
 
   Named `*-cljs-test.cljc` so BOTH the JVM run and the shadow-cljs node run
   discover it — the shared envelope / consumer-attachment path is exercised on
@@ -88,10 +87,10 @@
   reads the recorded fact or fails missing-required.
 
   Completion is finality (Spec 005 §Child completion protocol), so the child
-  names no parent and dispatches nothing. That MOVES the seam this suite probes
-  rather than removing it: the policy-gated action now sits on the transition
-  into `:final?`, and the completion the parent folds is the carrier the runtime
-  mints from that transition's result."
+  names no parent and dispatches nothing. That puts the seam this suite probes
+  on the transition into `:final?`: the policy-gated action sits there, and
+  the completion the parent folds is the carrier the runtime mints from that
+  transition's result."
   []
   {:initial :running
    :data    {:id nil}
@@ -170,7 +169,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest strict-omitted-generator-fact-blocks-completion-and-parent-fold
-  (testing "rf2-xfk6fn — under a per-call `:rf.cofx/mint-policy :strict` the
+  (testing "under a per-call `:rf.cofx/mint-policy :strict` the
             completion target's generator-backed `:strictmint/roll` is NEITHER
             recorded NOR minted, so its completion action's ensure fails
             `:rf.error/missing-required-cofx`, the child never leaves `:running`,
@@ -205,11 +204,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest live-foil-invokes-generator-and-folds
-  (testing "rf2-xfk6fn — the SAME completion target under `:live` (the runtime
+  (testing "the SAME completion target under `:live` (the runtime
             default) DOES mint `:strictmint/roll`: the generator runs once, the
             completion action forwards the minted value, and the parent folds `:a`.
-            This proves the fixture can OBSERVE the strict/live distinction (vs the
-            keyword-only checks)."
+            This proves the fixture can OBSERVE the strict/live distinction (which
+            a keyword-only check cannot)."
     (let [calls (atom 0)]
       (reg-roll! calls 6)
       (rf/reg-machine :sm2/ta (mk-completing-child))
@@ -238,7 +237,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest recorded-completion-strict-replays-without-host-generation
-  (testing "rf2-xfk6fn — record a GENUINE completion (drive the target through its
+  (testing "record a GENUINE completion (drive the target through its
             boundary under :live, capturing the minted roll off the wire), restore
             the pre-event runtime-db, then STRICT-replay the completing event with
             its recorded `:strictmint/roll`: the parent fold, the join authority
@@ -313,24 +312,15 @@
 ;; (5) the completion carrier inherits the FINISHING event's per-call mint
 ;;     policy into the parent's join resolution.
 ;;
-;; HISTORY. The original (5), `transport-propagates-strict-to-inherited-
-;; resolution-dispatch`, pinned the retired `:rf.machine/join-dispatch`
-;; transport. When that transport went, the runtime began minting the carrier
-;; inside finalize with `{:frame … :source :machine-spawn}` and NO policy. The
-;; test was deleted, and this comment recorded the gap as deliberate:
-;; reinstating the inheritance "would mean threading the router's effective mint
-;; policy through finalize, which is new machinery no bead has asked for".
-;;
-;; rf2-ix8fd OVERTURNS that. A bead now asks for exactly that machinery, and for
-;; more than the policy. Core exposes the in-flight envelope to a handler body,
-;; and both carriers queue through `rf.fx/child-dispatch!`, the SAME seam as
-;; `:dispatch`, so the per-call policy rides with no key list of its own. EP-0017
-;; §6 is why it must: a `:strict` replay or test intends the no-host-read
-;; discipline for the whole cascade, and the spawn edge (rf2-gbzv9) already
-;; carries it INTO the child. Letting the completion drop back to `:live` on the
-;; way OUT is the silent fallback §6 forbids. The epoch-replay proof
-;; (`re-frame.join-strict-mint-epoch-replay-test`) is unchanged: there every
-;; event is replayed from its own record anyway.
+;; Core exposes the in-flight envelope to a handler body, and both carriers
+;; queue through `rf.fx/child-dispatch!`, the SAME seam as `:dispatch`, so the
+;; per-call policy rides with no key list of its own. EP-0017 §6 is why it
+;; must: a `:strict` replay or test intends the no-host-read discipline for the
+;; whole cascade, and the spawn edge carries it INTO the child. Letting the
+;; completion drop back to `:live` on the way OUT would be the silent fallback
+;; §6 forbids. The epoch-replay proof (`re-frame.join-strict-mint-epoch-replay-test`)
+;; does not depend on this: there every event is replayed from its own record
+;; anyway.
 ;; ---------------------------------------------------------------------------
 
 (defn- reg-resolution-parent!
@@ -354,7 +344,7 @@
                       {:data (assoc data :roll (:strictmint/roll cofx))})}}}))
 
 (deftest completion-carrier-inherits-strict-into-the-join-resolution
-  (testing "rf2-ix8fd — under a per-call `:strict` on the event that FINISHES
+  (testing "under a per-call `:strict` on the event that FINISHES
             the child, the completion carrier inherits `:strict`, so the parent's
             resolution action does NOT mint its generator-backed fact
             (missing-required) and the parent never reaches `:ready`. The `:live`
