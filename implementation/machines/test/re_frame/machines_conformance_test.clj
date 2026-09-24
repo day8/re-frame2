@@ -47,16 +47,16 @@
   "The conformance corpus lives at `spec/conformance/fixtures/` at the
   repo root.
 
-  Anchored to a CLASSPATH RESOURCE, not the working directory (rf2-ywrwkl,
-  the same fix rf2-55j4s3 applied to 3 sibling core tests). The earlier
-  `(io/file \"../../spec/conformance/fixtures\")` form assumed the JVM cwd
-  was `implementation/machines/` so that `../../` reached the repo root.
-  That holds for the canonical per-artefact gate (`clojure -M:test` run
+  Anchored to a CLASSPATH RESOURCE, not the working directory. A
+  cwd-relative `(io/file \"../../spec/conformance/fixtures\")` would assume
+  the JVM cwd is `implementation/machines/`, so that `../../` reaches the repo
+  root. That holds for the canonical per-artefact gate (`clojure -M:test` run
   from `implementation/machines/`, which is what CI runs) but SILENTLY
   MIS-SCOPES under the combined `implementation/deps.edn :test` alias: run
   from `implementation/`, `../../` resolves ABOVE the repo root, `file-seq`
-  returns nothing, and the corpus discovers zero fixtures (the rf2-3hamsq
-  floor turns that mis-discovery RED instead of silent-green).
+  returns nothing, and the corpus discovers zero fixtures (the non-empty
+  floor in `run-machines-conformance-corpus` turns that mis-discovery RED
+  instead of silent-green).
 
   This test namespace's own source file is on the test classpath (the
   artefact's `:test {:extra-paths [\"test\"]}`), so resolving it via
@@ -82,17 +82,17 @@
 (defn- read-one-form
   "Read `text` as EXACTLY ONE top-level EDN form, or throw. `read-string`
   returns only the FIRST and silently discards the rest, so a fixture whose
-  expectation block closes early passes having verified less than it claims
-  (rf2-5mr6). Throws rather than returning `:fixture/load-error`, which
+  expectation block closes early passes having verified less than it claims.
+  Throws rather than returning `:fixture/load-error`, which
   `all-machine-transition-fixtures` below FILTERS OUT — quieter still than
   the skip the core runner would give it. Full rationale on
-  `re-frame.conformance-test/read-one-form` (rf2-98ni)."
+  `re-frame.conformance-test/read-one-form`."
   [text fixture-name]
   (let [eof  (Object.)
         rdr  (java.io.PushbackReader. (java.io.StringReader. text))
         fail (fn [why data]
                (throw (ex-info (str "conformance fixture " fixture-name " " why
-                                    " (rf2-98ni, rf2-5mr6)")
+                                    ".")
                                (assoc data :fixture/file fixture-name))))
         rd   (fn []
                (try (edn/read {:eof eof} rdr)
@@ -109,11 +109,10 @@
     form))
 
 (defn- load-fixture [file]
-  ;; A handful of fixtures use `::name` (auto-resolved keyword) which
-  ;; pure `clojure.edn` cannot read without a *reader-resolver*. Match
-  ;; the core runner's translation so the fixture loads as bare data:
-  ;; rewrite `::name` → `:rf.machine.timer/name` (the only use in the
-  ;; corpus today, for synthetic timer events).
+  ;; Pure `clojure.edn` cannot read an auto-resolved `::name` keyword
+  ;; without a *reader-resolver*. Match the core runner's translation so
+  ;; such a fixture loads as bare data: rewrite `::name` →
+  ;; `:rf.machine.timer/name`, the namespace of synthetic timer events.
   (let [raw   (slurp file)
         fixed (str/replace raw #"::([a-zA-Z][a-zA-Z0-9_-]*)"
                            ":rf.machine.timer/$1")]
@@ -412,15 +411,15 @@
           passed  (filter :passed? run)
           failed  (remove :passed? run)
           skipped (filter :skipped? all)]
-      ;; rf2-3hamsq — non-empty floor. The lone (zero? (count failed))
-      ;; below passes GREEN over an empty / fully-skipped / orphaned
-      ;; corpus (wrong cwd, fixtures-dir rename, or a capability-vocab
-      ;; rename that orphans every Mode B fixture) — verifying NOTHING.
+      ;; Non-empty floor. The (zero? (count failed)) below, alone, passes
+      ;; GREEN over an empty / fully-skipped / orphaned corpus (wrong cwd,
+      ;; fixtures-dir rename, or a capability-vocab rename that orphans
+      ;; every Mode B fixture) — verifying NOTHING.
       ;; Assert that fixtures actually executed:
       ;;   - (pos? (count run)) catches the fully-empty case;
       ;;   - the expected-minimum (>= 40) catches partial mass-orphaning
-      ;;     without pinning an exact count (today's runnable count is 61
-      ;;     :machine-transition / :reg-machine fixtures; the set grows).
+      ;;     without pinning an exact count, since the set of runnable
+      ;;     :machine-transition / :reg-machine fixtures grows.
       (is (pos? (count run))
           "at least one Mode B :machine-transition fixture must have executed")
       (is (>= (count run) 40)
