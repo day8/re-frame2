@@ -1,9 +1,9 @@
 (ns re-frame.replay-determinism-e2e-cljs-test
-  "rf2-b7w7i0 (EP-0010 §Validation/Conformance + §Replay Fixture) — the
-  UNIFIED end-to-end replay-determinism fixture. The EP's STRONGEST stated
-  property, proven end-to-end rather than component-by-component.
+  "EP-0010 §Validation/Conformance + §Replay Fixture — the UNIFIED end-to-end
+  replay-determinism fixture. The EP's STRONGEST stated property, proven
+  end-to-end rather than component-by-component.
 
-  ## What the EP promises (and what was missing)
+  ## What the EP promises
 
   EP-0010's headline guarantee: a recorded epoch — a token log with
   `:rf.cofx` (`:time-ms` / `:uuid` / `:random`) on each token —
@@ -12,7 +12,7 @@
   causal-time / id fact folds the TOKEN's world inputs, never an ambient
   host read inside a handler / reducer / reply path.
 
-  Before this fixture, that property was proven only COMPONENT-by-COMPONENT:
+  The component tests prove that property piece by piece:
     - epoch `:committed-at` — `committed-at-replay-stable-across-wall-clock-
       drift` (epoch_test.clj): single durable field, app-db-epoch partition,
       JVM-only.
@@ -20,12 +20,11 @@
       `invalidate-tags-invalidated-at-…`: each scripts ONE token's `:time-ms`
       and asserts the durable value equals it (token-sourced ⇒ implicitly
       replay-stable). Most do ONE dispatch.
-  No test took a MULTI-EVENT log spanning app-db AND runtime-db, ran the
-  WHOLE log through the live router TWICE under two DIFFERENT ambient
-  clocks / RNGs, and asserted the two `{:rf.db/app :rf.db/runtime}`
-  projections EQUAL. A component test passes even if the fold leaks an
-  ambient read in a path none exercises TOGETHER (e.g. the freshness-
-  decision branch flagged by rf2-95b0lc).
+  A component test passes even if the fold leaks an ambient read in a path
+  none exercises TOGETHER (e.g. the freshness-decision branch). This fixture
+  takes a MULTI-EVENT log spanning app-db AND runtime-db, runs the WHOLE log
+  through the live router TWICE under two DIFFERENT ambient clocks / RNGs,
+  and asserts the two `{:rf.db/app :rf.db/runtime}` projections EQUAL.
 
   ## The fixture
 
@@ -51,9 +50,8 @@
        RECORDED log; a real recorded-epoch replay would carry the refetch's
        own token. Releasing the owner keeps this fixture a pure recorded-log
        replay: every durable write folds a SCRIPTED token, nothing is live-
-       stamped. This very divergence — an active-owner invalidation spawning
-       an ambient-stamped refetch — is what the fixture SURFACED on first
-       authoring, exactly the cross-path leak rf2-95b0lc predicts.)
+       stamped. With an active owner, the invalidation would spawn an
+       ambient-stamped refetch and the two runs would diverge.)
     5. TAG invalidation — `:rf.resource/invalidate-tags` writes the durable
        `:invalidated-at` from the invalidation token's `:time-ms` (runtime-
        db), driving the freshness-DECISION branch (`entry-stale?`). With no
@@ -73,10 +71,9 @@
   compare, the tools/story determinism-harness shape). If ANY durable write
   in the whole log folded an ambient read instead of the token, the two
   projections diverge and this fails — the end-to-end guarantee the component
-  tests could not give.
+  tests cannot give.
 
-  Cross-ref rf2-95b0lc (it predicts this fixture surfaces a fresh-skip-branch
-  ambient-read divergence). CLJS-runnable (the `.cljs` runtime is where the
+  CLJS-runnable (the `.cljs` runtime is where the
   clock CLASSES diverge — `now-ms`=performance.now vs
   `epoch-now-ms`=js/Date.now); `.cljc` so the JVM core test build also runs
   it (the threading is platform-agnostic)."
@@ -212,7 +209,7 @@
   (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :repl 1]}]
                     {:frame frame-id :rf.cofx {:rf/time-ms (:release-time log)}})
   ;; (5) TAG invalidation — durable :invalidated-at from the invalidation
-  ;; token's :time-ms (the freshness-DECISION branch, rf2-95b0lc). Ownerless
+  ;; token's :time-ms (the freshness-DECISION branch). Ownerless
   ;; ⇒ left stale, no refetch (Spec 016 §Invalidation 4).
   (rf/dispatch-sync [:rf.resource/invalidate-tags
                      {:scope :rf.scope/global :tags #{[:article "w"]}}]
@@ -250,7 +247,7 @@
 ;; ---- the unified end-to-end replay-determinism test -----------------------
 
 (deftest token-log-replays-deterministically-under-differing-clock-and-rng
-  (testing "rf2-b7w7i0 — the SAME multi-event token log, replayed twice under
+  (testing "the SAME multi-event token log, replayed twice under
             WILDLY different ambient clocks AND RNG, yields EQUAL durable
             {:rf.db/app :rf.db/runtime} projections. Every durable causal-time
             / id fact folds the token's :rf.cofx, so ambient drift
@@ -258,12 +255,12 @@
             state. Spans app-db (entity create + mutation) AND runtime-db
             (resource loaded-at/stale-at, work-ledger started-at, tag
             invalidated-at) — the end-to-end guarantee the per-component tests
-            could not give."
+            cannot give."
     ;; RUN A — ambient clock + RNG sentinel A. The redefs pin BOTH host clock
     ;; surfaces and the host random generators to values NOTHING durable should
-    ;; fold (the tokens supply every durable fact). A regression that re-read
-    ;; ANY ambient surface in a durable write stamps a sentinel and diverges
-    ;; from run B.
+    ;; fold (the tokens supply every durable fact). A handler that re-read
+    ;; ANY ambient surface in a durable write would stamp a sentinel and
+    ;; diverge from run B.
     (let [run-a (with-redefs [rf.interop/now-ms       (constantly 111)
                               rf.interop/epoch-now-ms (constantly 111)
                               rand        (fn ([] 0.111) ([n] (* n 0.111)))
@@ -329,7 +326,7 @@
              (is (= (:invalidate-time log) (:invalidated-at entry))
                  "the durable :invalidated-at is the invalidation token's
                   :time-ms — the freshness-DECISION branch reads the token,
-                  not an ambient clock (rf2-95b0lc)")
+                  not an ambient clock")
              ;; the freshness DECISION itself is replay-stable: against ANY
              ;; clock the entry is stale (it was explicitly invalidated), a
              ;; durable fact, not an ambient-clock-dependent computation.
