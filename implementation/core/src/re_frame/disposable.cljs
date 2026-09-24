@@ -3,22 +3,22 @@
   that have no native reactive-atom primitive (UIx and any
   future minimal-React-wrapper substrate).
 
-  Background. Before rf2-jicu2 the substrate spine's `make-derived-value`
-  reified `reagent.ratom/IDisposable` to satisfy the sub-cache's
+  Why core owns it. The substrate spine's `make-derived-value` needs a
+  disposal protocol to satisfy the sub-cache's
   cross-substrate teardown contract (`re-frame.interop/add-on-dispose!`
   on the cached reaction at slot construction; `re-frame.interop/
-  dispose!` at slot evict). That single require dragged ~9KB of
-  `reagent.ratom` + `reagent.impl.batching` into every UIx-only and
-  Helix-only bundle — code paths neither substrate ever executes —
-  because the protocol's defining ns sat inside Reagent. The protocol
+  dispose!` at slot evict). Were that protocol `reagent.ratom/IDisposable`,
+  the single require would drag ~9KB of
+  `reagent.ratom` + `reagent.impl.batching` into every UIx-only
+  bundle — code paths that substrate never executes. The protocol
   shape itself is one defprotocol with two method slots; there is no
   Reagent-implementation surface a non-Reagent substrate needs.
 
-  Resolution (rf2-ykqee Verdict B). Move the protocol home to core,
-  re-frame-owned. The spine reifies this protocol on its derived value
-  containers; UIx and Helix adapters wire `:adapter/add-on-dispose!`
-  and `:adapter/dispose!` straight to the protocol fns; the
-  `reagent.ratom` require is dropped from UIx and Helix entirely. The
+  So the protocol lives in core, re-frame-owned. The spine reifies this
+  protocol on its derived value
+  containers; the spine-based UIx adapter routes `:adapter/add-on-dispose!`
+  and `:adapter/dispose!` straight to the protocol fns and requires no
+  `reagent.ratom`. The
   Reagent and reagent-slim adapters keep their substrate's IDisposable
   protocol on Reagent reactions but their adapter dispatchers route
   via a fall-through that checks BOTH this protocol AND Reagent's —
@@ -39,7 +39,7 @@
   primitive (UIx) satisfy this protocol on their derived-value
   reifies. Substrates with their own IDisposable (Reagent,
   reagent-slim) leave their reaction objects alone and route through
-  their existing protocol — see each adapter's `:adapter/add-on-dispose!`
+  their own protocol — see each adapter's `:adapter/add-on-dispose!`
   routing."
   (-add-on-dispose [this on-dispose-fn]
     "Register a 0-arg `on-dispose-fn` to fire when `this` is disposed.
@@ -47,7 +47,7 @@
      `-dispose` time.")
   (-dispose [this]
     "Tear down `this` synchronously: unwire any source watches and fire
-     every registered on-dispose callback. Idempotent AND re-entrant safe
-     (rf2-1bzlai) — a second `-dispose`, or a `-dispose` re-entered from
+     every registered on-dispose callback. Idempotent AND re-entrant
+     safe — a second `-dispose`, or a `-dispose` re-entered from
      inside an on-dispose callback, is a no-op: the callback set fires
      exactly once in registration order and source watches release once."))
