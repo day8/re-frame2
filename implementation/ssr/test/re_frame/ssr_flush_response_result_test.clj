@@ -1,5 +1,5 @@
 (ns re-frame.ssr-flush-response-result-test
-  "rf2-oytx7j — runtime-side acceptance for the projected-error pre-commit
+  "Runtime-side acceptance for the projected-error pre-commit
   contract's two runtime pieces:
 
     1. `ssr/flush-response-result!` — the one-drain read that returns BOTH
@@ -11,8 +11,8 @@
        return their OWN public-error with no bleed; redirect precedence
        suppresses the status stamp but still returns the map.
 
-    2. `:rf/public-error` validation tightening — `public-error-shape?` (via
-       the public `ssr/project-error`) now enforces a CLOSED four-key set and
+    2. `:rf/public-error` validation — `public-error-shape?` (via
+       the public `ssr/project-error`) enforces a CLOSED four-key set and
        an HTTP error status in 400..599, so a projector that returns an extra
        key (incl. a caller-supplied `:details`) or an out-of-range status
        takes the locked generic-500 fallback. Only the runtime appends
@@ -29,14 +29,13 @@
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
             [re-frame.trace :as rf.trace]))
 
-;; rf2-lwtlk — ORDER MATTERS. The wholesale `clear-error-listeners!` used to
-;; run INSIDE `reset-runtime`'s body, i.e. AFTER it. `reset-runtime` re-installs
+;; ORDER MATTERS. `reset-runtime` re-installs
 ;; the `re-frame.ssr` façade's own ALWAYS-ON `::error-projection` listener (via
 ;; `(require 're-frame.ssr :reload)`), and that listener IS the production
-;; status-projection path — clearing it afterwards left the always-on axis
-;; unarmed for every test here, so the namespace could only ever observe the
-;; dev bus. Clear FIRST (drop whatever a prior namespace left), then let the
-;; reset arm the projector.
+;; status-projection path — a wholesale `clear-error-listeners!` AFTER the
+;; reset would leave the always-on axis unarmed for every test here, so the
+;; namespace could only ever observe the dev bus. Clear FIRST (drop whatever
+;; a prior namespace left), then let the reset arm the projector.
 (use-fixtures :each
   (fn [t]
     (rf.error-emit/clear-error-listeners!)
@@ -56,30 +55,28 @@
   error would. The settle-point drain in `flush-response-result!` then
   projects it.
 
-  BOTH AXES, deliberately (rf2-lwtlk). This helper used to fire
-  `trace/emit-error!` alone — the DEV bus, whose emit sites sit inside the
-  load-time `interop/debug-enabled?` gate. Under `-Dre-frame.debug=false`
-  nothing was ever buffered, so twelve assertions below observed a clean
-  200 / a nil public-error and this namespace was rostered known-red: the
-  drain-classification contract had never executed in the posture that
-  ships. It is not a dev contract. `flush-response-result!` is the surface
-  a HOST ADAPTER calls on a production JVM to decide the 4xx app arm from
-  the 5xx error arm.
+  BOTH AXES, deliberately. `trace/emit-error!` alone is the DEV bus, whose
+  emit sites sit inside the load-time `interop/debug-enabled?` gate: under
+  `-Dre-frame.debug=false` it would buffer nothing, and the assertions
+  below would observe a clean 200 / a nil public-error. The
+  drain-classification contract is not a dev contract.
+  `flush-response-result!` is the surface a HOST ADAPTER calls on a
+  production JVM to decide the 4xx app arm from the 5xx error arm.
 
   Both categories used here are on the ALWAYS-ON error axis in production —
   `:rf.error/handler-exception` through `dispatch-on-error!`, and
   `:rf.error/no-such-handler {:kind :route}` through
-  `dispatch-error-record!` since rf2-ov56u. So the honest fix is a
-  production-reachable channel, not a `(when interop/debug-enabled? …)`
-  guard: emit on both, the way a real always-on-catalogued site does
-  (`emit-error-both!`), and the whole namespace becomes
-  posture-independent. In dev both listeners buffer and last-write-wins
+  `dispatch-error-record!`. So the helper uses a production-reachable
+  channel, not a `(when interop/debug-enabled? …)` guard: it emits on
+  both, the way a real always-on-catalogued site does
+  (`emit-error-both!`), and the whole namespace is posture-independent.
+  In dev both listeners buffer and last-write-wins
   makes the duplicate benign — the same benign duplication
   `error-projection-listener`'s own docstring records.
 
   `extra-tags` carries any discriminator the default projector's arm is
-  GATED on — for `:rf.error/no-such-handler` that is `:kind :route`
-  (rf2-ov56u): the 404 arm fires only for the URL-driven miss, so a
+  GATED on — for `:rf.error/no-such-handler` that is `:kind :route`:
+  the 404 arm fires only for the URL-driven miss, so a
   kind-less synthetic trace projects the locked 500 and would silently
   turn a 404 assertion into a false negative. It rides `:tags` on the dev
   trace and a flat slot on the always-on record; the always-on projection
@@ -176,7 +173,7 @@
              redirect, but the datum is available)")))))
 
 ;; ===========================================================================
-;; :rf/public-error validation tightening — closed key-set + 400..599 range
+;; :rf/public-error validation — closed key-set + 400..599 range
 ;; ===========================================================================
 
 (defn- project-with
