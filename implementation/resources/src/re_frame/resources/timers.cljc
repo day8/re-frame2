@@ -1,11 +1,11 @@
 (ns re-frame.resources.timers
-  "The resource STALE / GC / POLL timer side-table substrate (rf2-nbjewi,
-  EP-0003 slice 6; the `:poll` kind via rf2-byl7bk.2 / EP-0020). Per Spec 016
+  "The resource STALE / GC / POLL timer side-table substrate (EP-0003; the
+  `:poll` kind per EP-0020). Per Spec 016
   §Stale and GC scheduling / §Polling.
 
   `:stale-after-ms` and `:gc-after-ms` are v1 features, so their scheduling
-  is v1. EP-0020 adds a third member of the freshness-timer family — the
-  `:poll` kind, armed from a resource's `:poll-interval-ms` policy — that
+  is v1. The third member of the freshness-timer family — the `:poll` kind
+  (EP-0020), armed from a resource's `:poll-interval-ms` policy —
   rides the SAME substrate (cancel-then-arm reschedule, `:server?` no-op,
   the advisory re-check-on-fire discipline). The scheduling discipline (Spec
   016 §Stale and GC scheduling / §Polling, MUST):
@@ -33,14 +33,14 @@
   - **frame destroy cancels all resource timers for that frame** — wired
     into the SINGLE `:resources/on-frame-destroyed!` teardown hook the façade
     publishes (composed with the work-ledger + generation host-cache release;
-    one hook, no second teardown path — rf2-afpdkn established it);
+    one hook, no second teardown path);
   - **a hidden tab can delay timers without corrupting correctness** — the
     timer is advisory; the re-check against durable timestamps makes a late /
     coalesced / never-fired timer harmless. The focus/reconnect active-stale
-    scan (rf2-vtblcq, `re-frame.resources.revalidate-listeners` +
+    scan (`re-frame.resources.revalidate-listeners` +
     `re-frame.resources.events/window-focused-handler` /
     `network-reconnected-handler`) is the public-beta belt-and-braces — a
-    separate slice composed off the SAME `:resources/on-frame-destroyed!`
+    separate mechanism composed off the SAME `:resources/on-frame-destroyed!`
     teardown hook this timer side table uses.
 
   ## Two halves (mirrors the work-ledger split)
@@ -49,7 +49,7 @@
     `:invalidated-at` / `:active-owners` / `:generation`) in runtime-db —
     serializable, on the SSR / hydration / epoch wire.
   - **Host timer handles** live HERE, keyed by `[frame-id resource-key kind]`
-    (`kind` ∈ `#{:stale :gc}`) → an opaque host handle from
+    (`kind` ∈ `#{:stale :gc :poll}`) → an opaque host handle from
     `re-frame.interop/schedule-after!`. NOT runtime-db, NOT serialized.
 
   ## Scheduling is host-side, so it rides an fx (mirrors commit-generation)
@@ -100,7 +100,7 @@
   still has an active owner and is not paused, coalescing with any live
   in-flight work, then re-arms the next interval. Per Spec 016 §Polling. The
   interval IS the cadence — a poll tick does NOT first check `:stale?`
-  (EP-0020 Q3 ruling (a): the consumer who declared a poll interval asked for
+  (EP-0020 R3 (a): the consumer who declared a poll interval asked for
   \"re-read every N ms\"; `:stale-after-ms` stays the orthogonal focus/route
   knob)."
   :poll)
@@ -138,7 +138,7 @@
    keyed by `[frame-id resource-key kind]` (`kind` ∈ `#{:stale :gc :poll}`) →
    `{:token <int> :handle <host-handle-or-nil>}`, where the handle is an opaque
    value from `re-frame.interop/schedule-after!` and `:handle nil` is a two-phase
-   ARMING sentinel (rf2-j538f7.10). Transient host state (NOT runtime-db),
+   ARMING sentinel. Transient host state (NOT runtime-db),
    so an epoch restore cannot rewind / recycle it, and it never rides the SSR
    / hydration / epoch wire — freshness is re-derived from the durable entry
    timestamps, and a timer is only an advisory nudge whose handler re-checks
@@ -149,7 +149,7 @@
   (atom {}))
 
 ;; Each slot value is a small map `{:token <int> :handle <host-handle-or-nil>}`
-;; rather than a bare handle (rf2-j538f7.10). The `:token` is a unique per-arm
+;; rather than a bare handle. The `:token` is a unique per-arm
 ;; ownership stamp (below); `:handle nil` marks an ARMING sentinel — the slot is
 ;; reserved but the host clock has not yet returned a handle. Two-phase arming
 ;; (reserve → publish) plus token-scoped cancellation make arm / cancel /
@@ -157,7 +157,7 @@
 
 (defonce ^:private timer-attempt-counter
   ;; Monotonic per-arm attempt-token source (mirrors core's
-  ;; `dispatch-later-counter`, rf2-j538f7.2, and the machines
+  ;; `dispatch-later-counter` and the machines
   ;; `after-attempt-counter`). Every `schedule!` arm stamps its slot with a
   ;; unique token, so a trailing cancellation of an OLD attempt can never claim
   ;; a re-armed SUCCESSOR occupying the same reused `[frame rkey kind]` slot,
@@ -169,10 +169,10 @@
   (swap! timer-attempt-counter inc))
 
 (defn- timer-key
-  "The side-table key for `[frame-id resource-key kind]`. rf2-9e0tyq: the
+  "The side-table key for `[frame-id resource-key kind]`. The
   `resource-key` is reduced to its CEDN-1 byte identity (`canonical-bytes`)
-  so a list- and a vector-params resource never share a timer slot (the
-  Clojure-`=` map-key collapse the cache-key re-keying closes). The dispatched
+  so a list- and a vector-params resource never share a timer slot (the same
+  Clojure-`=` map-key collapse the cache's byte `key-id` closes). The dispatched
   recheck event still carries the kind-preserving scoped-key VECTOR; only the
   host side-table key is byte-reduced."
   [frame-id resource-key kind]
@@ -190,7 +190,7 @@
   (`swap-vals!`). If a concurrent re-arm published a SUCCESSOR under the same
   key between the read and the claim, this cancellation leaves the successor
   untouched (its own arrival already released the observed attempt), so an old
-  cancellation never erases a successor it did not cancel (rf2-j538f7.10). An
+  cancellation never erases a successor it did not cancel. An
   ARMING sentinel (`:handle nil`) is dropped without a host cancel — the arming
   thread's publish phase then finds its token gone and cancels the returned
   handle. The host `cancel-scheduled!` rides the CAS-derived old snapshot,
@@ -270,7 +270,7 @@
 (def ^:private scheduled-trace-id
   "The per-kind `…-scheduled` trace op a fresh arm emits (gc-class — the Xray
   lifecycle timeline pairs it with the kind's `…-fired` / `…-skipped` op). The
-  arm operation OWNS its trace (centralised in `schedule!`, rf2-3fc89f.10) so a
+  arm operation OWNS its trace (centralised in `schedule!`) so a
   kind never mis-attributes a sibling's schedule."
   {stale-kind :rf.resource/stale-scheduled
    gc-kind    :rf.resource/gc-scheduled
@@ -293,9 +293,9 @@
   ;; cancel any prior timer for this [key kind] (reschedule / disarm, not accumulate)
   (cancel! frame-id resource-key kind)
   ;; A non-positive / nil delay arms nothing, leaving the kind cancelled (the
-  ;; explicit disarm — the shared positive-delay rule, rf2-7x2lky). Otherwise
-  ;; TWO-PHASE, TOKEN-OWNED arming (rf2-j538f7.10; mirrors core `:dispatch-later`,
-  ;; rf2-j538f7.2): reserve the slot BEFORE arming the host clock, then publish
+  ;; explicit disarm — the shared positive-delay rule). Otherwise
+  ;; TWO-PHASE, TOKEN-OWNED arming (mirroring core `:dispatch-later`):
+  ;; reserve the slot BEFORE arming the host clock, then publish
   ;; the handle only if this attempt still owns the slot, so a cleanup racing the
   ;; arm can never be outrun by a late-returning handle.
   (when (rf.managed-timer/positive-delay? delay-ms)
@@ -305,7 +305,7 @@
       ;; cleanup can atomically claim this attempt.
       (swap! timer-table assoc k {:token token :handle nil})
       (let [handle
-            ;; Shared positive-delay-guarded arm (rf2-7x2lky) — a no-op guard
+            ;; Shared positive-delay-guarded arm — a no-op guard
             ;; pass-through here (already known positive).
             (rf.managed-timer/arm!
               (fn []
@@ -367,7 +367,7 @@
   nil)
 
 (defn reset-cache!
-  "Cancel + drop EVERY frame's stale / GC timers (test isolation). Published
+  "Cancel + drop EVERY frame's stale / GC / poll timers (test isolation). Published
   via the resources test-support reset hook so the shared CLJS
   `make-reset-runtime-fixture` clears it per test (host-side transient state,
   NOT cleared by the runtime / frames reset). Returns nil."
@@ -393,7 +393,7 @@
 
 (def schedule-timers-meta
   "Metadata for the `:rf.resource/schedule-timers` fx registration. The
-  WRITE half of the host-side stale / GC timer side table — arms the
+  WRITE half of the host-side stale / GC / poll timer side table — arms the
   advisory timers for `[frame-id resource-key]` from the durable load
   timestamp + policy. SKIPPED under SSR via the carried `:server?` flag
   (mirrors the machine `:after` skip-on-server), so the timer table never
@@ -413,8 +413,8 @@ mutation settle) names ALL declared kinds — the stale / GC delays derived from
 the durable `:loaded-at` + `:stale-after-ms` / `:gc-after-ms`, the poll delay
 the `:poll-interval-ms` supplied only for an actively-owned entry (EP-0020) —
 so it also cancels a policy removed by hot reload. A PARTIAL re-arm (a poll
-tick / a GC skip) names ONLY its own kind, preserving its siblings
-(rf2-3fc89f.10). `:server?` is read from the cascade frame's platform. No-op
+tick / a GC skip) names ONLY its own kind, preserving its siblings.
+`:server?` is read from the cascade frame's platform. No-op
 under `:server? true` (SSR uses the blocking-drain wait point + lazy client
 revalidation, never wall-clock background timers). The fired timer dispatches a
 re-checking internal event; the handler re-checks the durable entry before
@@ -429,7 +429,7 @@ writing (the timer is advisory). Per Spec 016 §Stale and GC scheduling /
   a nil / non-positive delay CANCELS — an explicit disarm); a kind ABSENT from
   the map is PRESERVED — left exactly as it was armed.
 
-  This makes the two scheduling operations unambiguous (rf2-3fc89f.10): a
+  This makes the two scheduling operations unambiguous: a
   FULL-settlement reconcile (a successful load / mutation settle) names ALL the
   kinds it owns — arming the policied ones and CANCELLING a kind whose policy
   was dropped by hot reload — while a PARTIAL re-arm (a poll tick names only
@@ -452,7 +452,7 @@ writing (the timer is advisory). Per Spec 016 §Stale and GC scheduling /
 
 (def cancel-timers-meta
   "Metadata for the `:rf.resource/cancel-timers` fx registration. Cancels
-  the host-side stale + GC timers for one or more removed resource entries
+  the host-side stale + GC + poll timers for one or more removed resource entries
   (their durable facts are gone, so an advisory nudge would no-op anyway —
   but the host handles must be released so they don't leak)."
   {:doc "Cancel the host-side stale / GC timers for removed resource entries,
@@ -514,8 +514,8 @@ poll timer is armed). Per Spec 016 §Polling."})
   teardown body. `destroy-frame!` invokes the single composed hook by key
   with the destroyed `frame-id`; the façade composes THIS with the
   work-ledger host-handle release + the generation host-cache release (one
-  hook, no second teardown path). Cancels every stale / GC timer for the
-  frame (`release-frame!`). Per Spec 016 §Stale and GC scheduling / [Runtime-
+  hook, no second teardown path). Cancels every stale / GC / poll timer for
+  the frame (`release-frame!`). Per Spec 016 §Stale and GC scheduling / [Runtime-
   Subsystems] clause 5. Returns nil."
   [frame-id]
   (release-frame! frame-id)
