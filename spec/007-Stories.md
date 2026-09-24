@@ -114,7 +114,7 @@ Concretely, the keys allowed in a `story/reg-variant` body:
 | `:args->events` | map | Per-arg event-id mapping `{<arg-key> <event-id>}`; the registered handler at `<event-id>` receives the new value as its payload. Data only — see [§Args mapping to state](#args-mapping-to-state). |
 | `:platforms` | set | Subset of `#{:server :client}`; controls where the variant runs. |
 
-**No fn-valued slots** in variant bodies. Where today's prior art (Storybook decorators, Histoire `setup`) takes a function, re-frame2 takes a registered id (`story/reg-decorator :centered-layout {...}`); the function lives at the registration site, not at the variant call site.
+**No fn-valued slots** in variant bodies. Where prior art (Storybook decorators, Histoire `setup`) takes a function, re-frame2 takes a registered id (`story/reg-decorator :centered-layout {...}`); the function lives at the registration site, not at the variant call site.
 
 #### Composed variants — reference parent by id, override by data
 
@@ -140,7 +140,7 @@ Two registration forms are canonical, and authors choose by ergonomics:
 
 **Form A (separate, hot-reload-friendly):** `(story/reg-story :id metadata)` + N `(story/reg-variant :story-id/variant-id metadata)` calls. Each variant is a top-level form — saving the file invalidates only the changed variant; hot-reload is precise.
 
-**Form B (combined):** `(story/reg-story :id metadata)` with a `:variants` map in the metadata. The story library *desugars* this at macro-expansion time into Form A — the registrar receives N independent `story/reg-variant` calls, so hot-reload-by-variant still works the same way. Form B is sugar for one-form-per-story authoring.
+**Form B (combined):** `(story/reg-story :id metadata)` with a `:variants` map in the metadata. The story library *desugars* this at macro-expansion time into Form A — the registrar receives N independent `story/reg-variant` calls, so hot-reload-by-variant works the same way. Form B is sugar for one-form-per-story authoring.
 
 ```clojure
 ;; Form B: combined; the macro emits N story/reg-variant calls at expansion.
@@ -292,7 +292,7 @@ A decorator's *frame setup* mode generalises into "things that should be true of
 
 <a id="setup-script-and-assertions--the-canonical-vocabulary"></a>
 
-> **Canonical vocabulary (NewTestStory EPIC).** The P1 public
+> **Canonical vocabulary.** The public
 > authoring vocabulary is `:setup` (preconditions) and `:script`
 > (post-render behaviour under test) — there are no other authoring
 > slots (no `:events`, no `:play-script`, no bare `:play` event-vector
@@ -301,8 +301,8 @@ A decorator's *frame setup* mode generalises into "things that should be true of
 > execution verbs, `:cannot-run`, composition, the schema floor, and the
 > epoch-tape evidence projection — lives in
 > [`tools/story/spec/017-Testing-Story.md`](../tools/story/spec/017-Testing-Story.md).
-> The section heading retains its historical "Play functions" name for
-> stable cross-references; the slot it documents is `:script`.
+> The section heading's "Play functions" name is a stable
+> cross-reference; the slot it documents is `:script`.
 
 `:script` is a **sequence of steps run after the variant has rendered**, distinct from `:setup` (which runs before render to establish preconditions).
 
@@ -435,13 +435,13 @@ Use cases:
 
 The same data drives every consumer. No artefact duplication.
 
-> **Live-watching a variant.** `(story/watch-variant variant-id)` re-runs the variant whenever any of its dependencies (events, subs, view, schema) re-register. The framework already ships hot-reload notifications; `watch-variant` is a thin library composition over them. Cycle-prevention via registry-version diffing — only re-run when a dependency's registration metadata actually changed.
+> **Live-watching a variant.** `(story/watch-variant variant-id)` re-runs the variant whenever any of its dependencies (events, subs, view, schema) re-register. The framework ships hot-reload notifications; `watch-variant` is a thin library composition over them. Cycle-prevention via registry-version diffing — only re-run when a dependency's registration metadata actually changed.
 
 ## Variant snapshot identity
 
 Every variant has a stable **snapshot identity** comprising its `:variant-id` plus a content hash of its serialised body. The hash includes:
 
-- `:setup` preconditions and the `:script` (plus any named scripts from `:plays`) behaviour surfaces (in order) — the legacy bare `:play` slot was removed (see [§Play functions](#play-functions) — the canonical vocabulary),
+- `:setup` preconditions and the `:script` (plus any named scripts from `:plays`) behaviour surfaces (in order) — there is no bare `:play` slot (see [§Play functions](#play-functions) — the canonical vocabulary),
 - the resolved (post-`:extends`-merge) args, decorators, and tags,
 - the variant's `:viewport` / `:background` visual chrome (they land in the screenshot),
 - the parent story's component id (`:component`) and decorators,
@@ -465,7 +465,7 @@ The stories library's tool surface is **extensible by registering panels**. A pa
 
 Panels are registered against the story-tool's own registry; the tool reads `(story/registrations :story-panel)` and lays them out. Same shape as everything else in re-frame2 — registry + metadata.
 
-Story maintains its kind-shaped registrations in a tool-owned side-table at `tools.story.registry/*`. This is internal to the `tools/story/` artefact and stays out of production bundles. The bridge fn `story/registrations` exposes the §Public-query-surfaces parity (e.g. `(story/registrations :story)` enumerates the side-table). The framework registrar's closed-kinds discipline ([001-Registration.md](001-Registration.md)) is preserved — Story does not register with `re-frame.registrar`.
+Story maintains its kind-shaped registrations in a tool-owned side-table at `tools.story.registry/*`. This is internal to the `tools/story/` artefact and stays out of production bundles. The bridge fn `story/registrations` exposes the §Public-query-surfaces parity (e.g. `(story/registrations :story)` enumerates the side-table). The framework registrar's closed-kinds discipline ([001-Registration.md](001-Registration.md)) holds — Story does not register with `re-frame.registrar`.
 
 ### Third-party egress in story tooling
 
@@ -486,7 +486,7 @@ The 007-Stories contract has a deliberate two-tier shape — what a conformant p
 
 Pattern-level surfaces every conformant 007-Stories implementation MUST ship:
 
-- **Framework hooks** (already in 002, listed here for completeness): `make-frame` / `destroy-frame!` (a full reset composes `destroy-frame!` + re-`make-frame`, not a dedicated verb); per-frame `:fx-overrides` / `:interceptor-overrides` / `:interceptors`; run-to-completion drain; the public registrar query API (`registrations` / `frame-meta` / `frame-ids` / `app-db-value` / `frame-state-value` / `sub-topology`); hot-reload notifications. These are 002's contract and 007 inherits them; a port that ships 002 ships them.
+- **Framework hooks** (002's, listed here for completeness): `make-frame` / `destroy-frame!` (a full reset composes `destroy-frame!` + re-`make-frame`, not a dedicated verb); per-frame `:fx-overrides` / `:interceptor-overrides` / `:interceptors`; run-to-completion drain; the public registrar query API (`registrations` / `frame-meta` / `frame-ids` / `app-db-value` / `frame-state-value` / `sub-topology`); hot-reload notifications. These are 002's contract and 007 inherits them; a port that ships 002 ships them.
 - **Story registry kinds.** The kinds `:story`, `:variant`, `:workspace`, `:story.decorator`, `:story.tag`, `:story.mode`, `:story-panel` (per [§Canonical id grammar](#canonical-id-grammar)) — registration shape, metadata grammar, the four-phase setup ordering (loaders → setup → render → script), and the `:variant *is* a frame` identity (per [§Relationship with frames](#relationship-with-frames)).
 - **Lifecycle event surface.** The trace events fired by variant setup, render, and play execution — the `:rf.story.lifecycle/*` family (the four-phase lifecycle machine) plus the `:rf.assert/*` play-phase family — are pattern contract so cross-tool consumers (Xray, snapshot harnesses, headless test runners) can attach uniformly. This bullet is the *pattern-contract requirement*, not the id roster: the canonical home for the `:rf.story.lifecycle/*` member set is the Story tool spec — the four-phase lifecycle machine in [`tools/story/spec/002-Runtime.md`](../tools/story/spec/002-Runtime.md#four-phase-lifecycle-with-loaders-complete-when) and the reserved-namespace carve-out in [`tools/story/spec/Conventions.md`](../tools/story/spec/Conventions.md#the-rfstory-framework-carve-out). [009-Instrumentation.md](009-Instrumentation.md) names `:rf.story.lifecycle/*` only as a reserved-`:rf/*` machine-no-op exemption, not as the enumerating SSOT. The `:rf.assert/*` roster is pinned at §Assertion vocabulary is registered and enumerable above.
 - **Programmatic execution + assertion surface.** `story/run-variant`, `story/reset-variant`, `story/variants-with-tags`, `story/snapshot-identity` — these are the API the [Story-as-test duality](#story-as-test-duality) leans on, and a port that omits them breaks the round-trip with `008-Testing`.
@@ -535,15 +535,15 @@ Workspaces are *not* frames (or not necessarily — they may be ordinary frames 
 
 ## Open questions
 
-> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Workspaces — generic or specialised?" classifies as **`:resolved`** (the inline `:layout`-field framing IS the answer — migrated to `## Resolved decisions` below); "Story composition across libraries" classifies as **`:resolved`** (the inline "story tool reads all registered `:story.*` ids" framing IS the answer — migrated to `## Resolved decisions` below); "Devcards / Workspaces interop" classifies as a **post-v1, untracked note** — an adapter-shim direction beyond v1 with no tracking bead filed yet (so not `:post-v1 tracked`, which requires a `rf2-<id>`); a tracking bead is filed only when the reconsideration trigger below fires.
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Devcards / Workspaces interop" classifies as a **post-v1, untracked note** — an adapter-shim direction beyond v1 with no tracking bead (so not `:post-v1 tracked`, which requires a `rf2-<id>`); a tracking bead is filed only when the reconsideration trigger below fires.
 
 ### Devcards / Workspaces interop (post-v1)
 
-Existing CLJS projects using devcards or other workspace tools should be able to consume re-frame2 stories with adapter shims. Deferred to a post-v1 cycle (untracked note — no bead filed yet).
+Existing CLJS projects using devcards or other workspace tools should be able to consume re-frame2 stories with adapter shims. Deferred to a post-v1 cycle (an untracked note).
 
 #### Post-v1 Tracking
 
-- **Foundation in v1.** The variant id surface (`:story.<ns>/<variant>`) is stable; the registry is readable via `rf/variants` (per the story registry shape); rendered hiccup is a plain value.
+- **Foundation in v1.** The variant id surface (`:story.<ns>/<variant>`) is stable; the registry is readable via `(story/registrations :variant)` (per the story registry shape); rendered hiccup is a plain value.
 - **Scope deferred.** A thin adapter shim per host tool — devcards (`defcard` wrapping a `story/run-variant` call) and nubank/workspaces (workspace card from variant id) are the obvious first targets. No story-side change required.
 - **Reconsideration trigger.** A downstream project migrating from devcards/workspaces asks for the shim, or the story tool's own UI needs an embeddable card form.
 - **Out of scope for this note.** Reverse direction (rendering a devcard inside a story workspace) — devcards' macro-time registration model doesn't compose cleanly with story's variant registry.
@@ -552,7 +552,7 @@ Existing CLJS projects using devcards or other workspace tools should be able to
 
 ### Should `story/reg-story` and `story/reg-variant` be separate, or unified?
 
-**Both forms, with the combined form desugaring to separate registrations.** `(story/reg-story :id metadata)` + N `(story/reg-variant :story-id/variant-id metadata)` is the canonical pair. The combined `:variants {...}` map on `story/reg-story` is sugar that desugars at macro-expansion time to N independent `story/reg-variant` calls — hot-reload-by-variant still works. See [§Combined `story/reg-story` form](#combined-storyreg-story-form--a-sugar-that-desugars).
+**Both forms, with the combined form desugaring to separate registrations.** `(story/reg-story :id metadata)` + N `(story/reg-variant :story-id/variant-id metadata)` is the canonical pair. The combined `:variants {...}` map on `story/reg-story` is sugar that desugars at macro-expansion time to N independent `story/reg-variant` calls — hot-reload-by-variant works. See [§Combined `story/reg-story` form](#combined-storyreg-story-form--a-sugar-that-desugars).
 
 ### Args mapping — view-direct or via app-db?
 
@@ -578,7 +578,7 @@ Multiple `:story.*` namespaces can come from different libraries. The story tool
 
 - [`tools/story/`](https://github.com/day8/re-frame2/tree/main/tools/story) — the reference implementation of this spec (`day8/re-frame2-story`).
 - [`tools/story/spec/`](https://github.com/day8/re-frame2/tree/main/tools/story/spec) — the implementation contract (decisions, runtime shape, elision, MCP boundary).
-- [`tools/story/spec/017-Testing-Story.md`](../tools/story/spec/017-Testing-Story.md) — the normative P1 Story-as-test contract: variant plans, the `:setup` / `:script` / `:world` / `:expect` / `:evidence` vocabulary, the three execution verbs, `:cannot-run`, composition, the schema floor, the runner-capability model, and the epoch-tape evidence projection.
+- [`tools/story/spec/017-Testing-Story.md`](../tools/story/spec/017-Testing-Story.md) — the normative Story-as-test contract: variant plans, the `:setup` / `:script` / `:world` / `:expect` / `:evidence` vocabulary, the three execution verbs, `:cannot-run`, composition, the schema floor, the runner-capability model, and the epoch-tape evidence projection.
 - [`tools/story-mcp/`](https://github.com/day8/re-frame2/tree/main/tools/story-mcp) — the agent-facing MCP server (`day8/re-frame2-story-mcp`).
 - [Story tutorial](../docs/story/index.md) — the narrative walkthrough of this spec.
-- [`tools/story/testbeds/counter_with_stories/`](https://github.com/day8/re-frame2/tree/main/tools/story/testbeds/counter_with_stories) — the worked example pivoting on the counter from guide chapters 03–10 (relocated from `examples/reagent/` as the tool's testbed).
+- [`tools/story/testbeds/counter_with_stories/`](https://github.com/day8/re-frame2/tree/main/tools/story/testbeds/counter_with_stories) — the worked example pivoting on the counter from guide chapters 03–10.
