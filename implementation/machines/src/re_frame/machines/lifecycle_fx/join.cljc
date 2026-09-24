@@ -29,8 +29,8 @@
       unknown ids are rejected with the
       `:rf.error/machine-spawn-all-bad-child-id` error trace and a no-op fx
       (the join state is NOT mutated).
-   2b. Fences the completion to the EXACT join attempt (rf2-nvxehu /
-      rf2-cpbjfp). The carrier bears an exact-attempt COORDINATE — a
+   2b. Fences the completion to the EXACT join attempt.
+      The carrier bears an exact-attempt COORDINATE — a
       recordable, serialisable, inspectable, replayable correlation record,
       NOT a secret / capability / signature — copied from the membership
       record the runtime stamped at spawn: parent/invoke identity, logical
@@ -42,11 +42,11 @@
    3. For a SUCCESS (a plain `:final?` leaf) runs the child's OPTIONAL
       per-child `:on-done` fold against the PARENT's `:data` (the same
       `(fn [{:keys [data result]}] new-data)` contract `:spawn :on-done`
-      uses); a FAILURE never reaches that fold (rf2-3x7nj.41.1). Then adds
+      uses); a FAILURE never reaches that fold. Then adds
       `<child-id>` to `:done` or `:failed`. A NON-DECISIVE fold (the join
       does not resolve on it) publishes the child's canonical work terminal
       at fold time via
-      `:rf.machine.spawn-all/child-completed` (rf2-ir4t5v); the DECISIVE
+      `:rf.machine.spawn-all/child-completed`; the DECISIVE
       fold's terminal rides the resolution trace instead — one terminal
       authority per child.
    4. If `:resolved?` is already true, this is a post-resolution
@@ -85,7 +85,7 @@
 (declare intercept-fold)
 
 ;; ---------------------------------------------------------------------------
-;; Exact-attempt fence (rf2-nvxehu / rf2-cpbjfp).
+;; Exact-attempt fence.
 ;;
 ;; A join child's completion has to be attributable to the exact ATTEMPT it
 ;; belongs to: after a parent re-enters its `:spawn-all` state the children are
@@ -108,14 +108,13 @@
 ;; real correctness hazards — not to defend the app author against their own
 ;; process.
 ;;
-;; Recording and strict replay need no special channel any more. The carrier is
+;; Recording and strict replay need no special channel. The carrier is
 ;; an ORDINARY event the runtime mints from durable state, so an epoch replay
 ;; that re-drives the child to its `:final?` state re-mints an identical
-;; carrier and the fold happens exactly once, with no host generation. That is
-;; what retired the `:rf.machine/join-dispatch` transport fx and its recordable
-;; `:rf.machine/join-attempt` cofx fact: they existed only because the carrier
-;; used to be a PUBLIC application event the child authored, which could not
-;; carry framework identity through an EDN round-trip or a `:dispatch-later`.
+;; carrier and the fold happens exactly once, with no host generation. A
+;; PUBLIC application event authored by the child could not carry framework
+;; identity through an EDN round-trip or a `:dispatch-later`, which is why the
+;; runtime mints the carrier.
 ;;
 ;; The fold gate then requires the coordinate to equal runtime-owned join state
 ;; EXACTLY — parent/invoke identity, logical child id, exact current actor id,
@@ -145,7 +144,7 @@
                              :attempt :work-generation])))
 
 (defn- join-attempt-current?
-  "True iff the carrier's `:rf/join-attempt` stamp matches the CURRENT join
+  "True iff the carrier's exact-attempt coordinate matches the CURRENT join
   attempt exactly: same parent/invoke identity, same logical child id, the
   stamped actor is the actor CURRENTLY mapped to that child, and the
   stamped attempt token equals the live join state's `:rf/attempt`. Every
@@ -174,8 +173,8 @@
       (rf.machines.reply/actor-generation spawned-id))))
 
 (defn- suppress-stale-completion!
-  "Fail-closed suppression of a completion carrier that may NOT fold
-  (rf2-nvxehu): emit one `:rf.machine.spawn-all/stale-completion` trace
+  "Fail-closed suppression of a completion carrier that may NOT fold:
+  emit one `:rf.machine.spawn-all/stale-completion` trace
   carrying the `:status :stale` / `:rf.reply/work-status :suppressed`
   reply facts with the precise `stale-reason`
   (`:rf.machine.spawn-all/attempt-unverified` — no runtime stamp;
@@ -186,12 +185,12 @@
   resolution, no reap. The exact-current post-resolution carrier keeps its
   own `:rf.machine.spawn-all/late-completion` trace — this op covers the
   ownership / exact-attempt suppression classes on BOTH the pre- and
-  post-resolution paths (rf2-ixjd48).
+  post-resolution paths.
 
   `spawned-id` is the completion's OWN spawned-instance address: the
   CARRIER's stamped id (`(:spawned-id attempt)`) for an `:attempt-superseded`
   straggler — NOT the current join's `[:children child-id]` — so the stale
-  evidence never borrows the current attempt's work identity (rf2-ixjd48).
+  evidence never borrows the current attempt's work identity.
   For `:attempt-unverified` there is no carried coordinate to read, so the
   caller passes the live child mapping (the slot the carrier claimed); for
   `:duplicate-completion` the carrier is exact-current, so the two coincide.
@@ -239,7 +238,7 @@
   `:any` (Promise.all / Promise.any precedent). Quorum (`{:n N}`) and
   predicate (`{:fn pred}`) joins are expressed with the data-only `:after`
   + `:done-guard` idiom (Spec 005 §Composition with hierarchy and
-  `:after`); re-adding `{:n}` later is a compatible widening."
+  `:after`); adding `{:n}` later is a compatible widening."
   [spec join-state]
   (let [join     (:join spec :all)
         children (:children spec)
@@ -335,7 +334,7 @@
   uniform vocabulary the single-`:spawn` `:rf.machine/done` reply carries.
   Returns a tag-map fragment `{:rf.reply/work-id … :rf.reply/status … …}`.
 
-  ONE AUTHORITY PER CHILD (rf2-ir4t5v): these facts ride EXACTLY ONE trace
+  ONE AUTHORITY PER CHILD: these facts ride EXACTLY ONE trace
   per accepted fold — the `:rf.machine.spawn-all/child-completed` fold
   trace for a NON-DECISIVE fold (the join did not resolve), or ADDITIVELY
   on the resolution trace for the DECISIVE fold (the join resolved). The
@@ -370,13 +369,13 @@
 
 (defn- emit-child-fold-terminal!
   "Fire the `:rf.machine.spawn-all/child-completed` trace for a
-  NON-DECISIVE accepted fold (rf2-ir4t5v) — the canonical `:completed` /
+  NON-DECISIVE accepted fold — the canonical `:completed` /
   `:failed` work terminal for a child whose first valid completion folded
   into a join that did NOT resolve on it. Without this, a non-decisive
-  child's work attempt ended with NO terminal status at all: the join
-  machinery published terminals only through the final resolution trace,
-  so in an `:all` join every child but the decisive one was folded
-  silently, then reaped without cancellation — stranding
+  child's work attempt would end with NO terminal status at all: the
+  resolution trace carries only the decisive child's terminal,
+  so in an `:all` join every other child would be folded
+  silently — stranding
   work-ledger/Xray projections on an open attempt.
 
   The DECISIVE fold's terminal rides the resolution trace instead
@@ -417,9 +416,8 @@
   (`:rf.reply/work-id`, `:rf.reply/status`, `:rf.reply/work-status`, the causal
   `:completed-at`) ride ADDITIVELY on the resolution trace, so the
   join-resolving child completion classifies the same way the
-  single-`:spawn` path does. The public resolution-trace shape
-  (`:actor-id` / `:invoke-id` / `:done` / `:failed` / `:reason`) is
-  preserved."
+  single-`:spawn` path does, beside the public resolution-trace slots
+  (`:actor-id` / `:invoke-id` / `:done` / `:failed` / `:reason`)."
   [frame-id parent-id invoke-id spec join-state'' child-id work-generation
    result completed-at {:keys [fail-fired? success-fired?]}]
   (when fail-fired?
@@ -461,7 +459,7 @@
   logical child id, its own address, and the attempt token (the same test
   `destroy/authenticated-join-child` applies before a teardown).
 
-  rf2-3x7nj.9.5 — `:done ∪ :failed` record carriers already FOLDED, not actors
+  `:done ∪ :failed` record carriers already FOLDED, not actors
   already FINISHED. A sibling that reached `:final?` while its carrier is still
   queued behind the decisive one has already published its own terminal and
   torn itself down; it is no survivor, and cancelling it would give one attempt
@@ -497,8 +495,7 @@
   :rf.machine/finished`, publishing its own closed work terminal on the way
   out. By the time the join resolves, every child in `:done` / `:failed` is
   already gone, so there is nothing left to reap and no second, contradictory
-  `:cancelled` terminal to suppress — which is what retired the verified-reap
-  destroy form and its `:rf.machine/join-reaped` reason.
+  `:cancelled` terminal to suppress.
 
   The `:frame` tag is REQUIRED for epoch-capture admission
   (`re-frame.epoch.capture/capture-event!` silently drops events whose tags
@@ -509,7 +506,7 @@
   A SURVIVOR is also a LIVE member of this attempt (`live-attempt-member?`,
   read off `runtime-db`): a sibling that already FINISHED while its carrier is
   still queued is neither cancelled nor destroyed here — its queued carrier
-  lands as a `late-completion` (rf2-3x7nj.9.5)."
+  lands as a `late-completion`."
   [runtime-db frame-id parent-id invoke-id join-state'' child-id result
    {:keys [resolved? resolution-event join-event-kw]}]
   (let [destroy-fx
@@ -605,7 +602,7 @@
   untouched and the join still folds, because a bad presentation callback must
   not be able to hang a join.
 
-  rf2-3x7nj.41.1 — the caller runs it for a `:done` completion ONLY. A failed
+  The caller runs it for a `:done` completion ONLY. A failed
   child reaches the parent through `:on-any-failed` and the join's `:failed`
   set, never through this success fold (Spec 005 §Child completion protocol)."
   [runtime-db parent-id child-spec result frame-id]
@@ -677,18 +674,18 @@
         ;; where the slot was never seeded (the runtime tracks join state
         ;; via the fx handlers, not the pure machine-transition), AND a
         ;; childless `spawn-all-reject-sentinel` from an atomically-rejected
-        ;; `:spawn-all` (rf2-qb1j5z) — physically present but child-less, so
+        ;; `:spawn-all` — physically present but child-less, so
         ;; a stray / forged completion against it is a harmless no-op.
         (or (not (map? join-state))
             (not (contains? join-state :children)))
         {:rf.db/runtime runtime-db :fx []}
 
         ;; Validate OWNERSHIP + EXACT-ATTEMPT COORDINATE *before* the
-        ;; resolved-vs-unresolved classification (rf2-ixjd48). Pre-fix the
-        ;; `:resolved?` branch ran FIRST and attributed ANY matching event
-        ;; shape to the CURRENT attempt: it built a `:late-completion` record
+        ;; resolved-vs-unresolved classification. Run FIRST, the
+        ;; `:resolved?` branch would attribute ANY matching event
+        ;; shape to the CURRENT attempt: it builds its `:late-completion` record
         ;; from the current join's `[:children child-id]`, so an old-attempt
-        ;; straggler, an unstamped carrier, or an unknown child all forged
+        ;; straggler, an unstamped carrier, or an unknown child would all forge
         ;; evidence carrying the current attempt's spawned/work identity.
         ;; Ordering the ownership + exact-attempt gates ahead of `:resolved?`
         ;; means ONLY an exact-current carrier may enter the post-resolution
@@ -703,7 +700,7 @@
         ;; silently fold into `:done` / `:failed`, collapsing the join early.
         ;; Gate it: emit a structured error trace and short-circuit with a
         ;; no-op fx (do NOT mutate the join state). Per Spec 005
-        ;; §Spawn-and-join and the machines security-audit finding F1.
+        ;; §Spawn-and-join.
         (not (contains? (:children join-state) child-id))
         (do (rf.trace/emit-error! :rf.error/machine-spawn-all-bad-child-id
                                {:actor-id parent-id
@@ -715,7 +712,7 @@
                                 :recovery   :event-dropped})
             {:rf.db/runtime runtime-db :fx []})
 
-        ;; Exact-attempt fence (rf2-nvxehu). The carrier's coordinate must
+        ;; Exact-attempt fence. The carrier's coordinate must
         ;; equal THIS join attempt: the coordinate `finalize` copied off the
         ;; child's `:rf/join-child` membership record must equal the current
         ;; join's parent/invoke identity, logical child id, exact current actor
@@ -733,7 +730,7 @@
         ;; from, so its evidence carries the live child mapping (the slot it
         ;; CLAIMED); the superseded carrier carries the CARRIER's OWN stamped
         ;; `:spawned-id`, so the evidence never borrows the current attempt's
-        ;; work identity (rf2-ixjd48).
+        ;; work identity.
         (nil? attempt)
         (suppress-stale-completion!
           frame-id parent-id invoke-id child-id
@@ -766,8 +763,8 @@
         ;; Surviving siblings are unconditionally destroyed at resolution, so a
         ;; late completion is always a genuinely stale straggler with no live
         ;; join to fold into — the record is left frozen at resolution. The
-        ;; public trace shape (`:actor-id` / `:invoke-id` / `:child-id` /
-        ;; `:kind`) is preserved; no `:done` / `:failed` fold, no re-resolution.
+        ;; trace carries the public `:actor-id` / `:invoke-id` / `:child-id` /
+        ;; `:kind` slots; no `:done` / `:failed` fold, no re-resolution.
         (:resolved? join-state)
         (let [spawned-id  (get-in join-state [:children child-id])
               work-generation (join-work-generation
@@ -831,7 +828,7 @@
               ;; `:on-all-complete` handler reads a `:data` every child has
               ;; already contributed to.
               ;;
-              ;; rf2-3x7nj.41.1 — for a `:done` completion ONLY. The fold is a
+              ;; For a `:done` completion ONLY. The fold is a
               ;; success route: it is handed `{:data :result}` and nothing
               ;; that says the child failed, so a failure folded here lands an
               ;; error map in a success slot (and, under a typed
@@ -891,7 +888,7 @@
                                     "and no :on-any-failed transition is declared, "
                                     "so the join will hang forever. Declare "
                                     ":on-any-failed to handle child failures.")}))
-    ;; ONE terminal authority per child (rf2-ir4t5v): a DECISIVE fold's
+    ;; ONE terminal authority per child: a DECISIVE fold's
     ;; terminal rides the resolution trace; a NON-DECISIVE fold publishes
     ;; its canonical terminal HERE, at first valid fold — never both.
     (if (:resolved? resolution)

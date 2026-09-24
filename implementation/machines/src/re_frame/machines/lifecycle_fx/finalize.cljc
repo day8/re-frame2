@@ -19,12 +19,12 @@
        emit `:rf.machine/destroyed` with `:reason :rf.machine/finished`
        (D6 enrichment), abort in-flight HTTP, and clear any PER-INSTANCE
        registrar entry — never a `reg-machine` DEFINITION, which is a
-       load-time TYPE outliving every instance (rf2-xjee).
+       load-time TYPE outliving every instance.
     5. Mint the completion carrier into the parent — the reserved event
        `[<parent-id> [:rf.machine.spawn/done <invoke-id> <completion>]]`
        (`dispatch-spawn-done!`), or, for the ERROR leaf of a single-`:spawn`
        child, the reserved failure event instead — whether or not the parent
-       declares `:on-error` (rf2-3x7nj.41.1). The parent's handler boundary
+       declares `:on-error`. The parent's handler boundary
        routes the completion to its `:spawn :on-done` fold or to the
        `:spawn-all` join fold; because it is an EVENT, the parent may also
        ADVANCE on it (`:always`, or an explicit `:on` clause) rather than only
@@ -44,7 +44,7 @@
   the abort contract every destroy trigger shares: the finalize cascade,
   the spawn-destroy teardowns (`lifecycle-fx.destroy`), and the
   frame-destroy singleton-straggler pass (`lifecycle-fx.frame-destroy`).
-  It takes the DESTROYING FRAME as well as the actor address (rf2-wjfm);
+  It takes the DESTROYING FRAME as well as the actor address;
   all three call sites already hold one.
 
   The actor-teardown runtime-db projection lives in
@@ -83,7 +83,7 @@
 ;; statically `:require` re-frame.http.managed; the destroy path
 ;; looks up this fn at call time.
 ;;
-;; rf2-wjfm — the abort is FRAME-EXACT. A spawned actor's address is
+;; The abort is FRAME-EXACT. A spawned actor's address is
 ;; frame-LOCAL (Spec 014 §Abort on actor destroy §Frame scope), so two
 ;; isolated frames running the same application code spawn actors under the
 ;; same address. The hook's frame-bearing arity narrows the sweep to the
@@ -91,7 +91,7 @@
 ;; ANY-FRAME arity and reach a sibling frame's live request. This helper
 ;; therefore REQUIRES the frame rather than defaulting it — every destroy
 ;; trigger in this artefact already has one in scope, so there is no
-;; frame-less call left to make, and the correct call is the only one that
+;; frame-less call to make, and the correct call is the only one that
 ;; compiles.
 
 (defn abort-actor-in-flight-http!
@@ -100,7 +100,7 @@
   sibling frame is untouched. Idempotent and safe to call when the http
   artefact is absent (returns nil).
 
-  Both ids are required (rf2-wjfm). The hook call is wrapped in a
+  Both ids are required. The hook call is wrapped in a
   catch-all, so an arity or contract mismatch here fails SILENTLY — which is
   precisely why the frame is a positional parameter and not an option."
   [frame-id actor-id]
@@ -139,7 +139,7 @@
   `:attempt` / `:work-generation`), which is what lets the parent's join fold
   reject a straggler from a superseded attempt.
 
-  rf2-3x7nj.41.1 — `:error?` is true only for a JOIN child: the join counts
+  `:error?` is true only for a JOIN child: the join counts
   failures itself, into `:failed` and `:on-any-failed`. A single-`:spawn`
   child's failure rides `dispatch-spawn-error!` instead, so what this carrier
   hands a single-`:spawn` parent — at its `:on-done` fold and at any
@@ -150,11 +150,11 @@
   into a newborn child. It queues through the shared carrier seam
   `spawn-error/dispatch-carrier!`, so it is a child of the event that FINISHED
   the child actor and inherits that envelope's run propagation (Spec 002 §Run
-  propagation, rf2-ix8fd). It keeps `:source :machine-spawn` so the Epoch panel
+  propagation). It keeps `:source :machine-spawn` so the Epoch panel
   attributes it to the spawn lifecycle. No-op when the `:router/dispatch!` hook
   is absent (pure-fn / conformance callers).
 
-  rf2-3x7nj.9.3 — `attempt` is a single-`:spawn` child's `:rf/invoke-attempt`.
+  `attempt` is a single-`:spawn` child's `:rf/invoke-attempt`.
   When present it rides as a FOURTH element, leaving `<completion>` unchanged,
   so the parent's boundary folds `:on-done` only for the CURRENT attempt."
   ([frame-id parent-id invoke-id completion]
@@ -307,9 +307,8 @@
                         ;; shared via `rf.machines.lifecycle-fx.traces/emit-destroy-exit-failure!`.
                         (rf.machines.lifecycle-fx.traces/emit-destroy-exit-failure!
                           machine-id frame-id (rf.machines.result/info exit-result)))]
-  (let [;; A's exact-frame-incarnation continuation predicate (rf2-3evq0x —
-        ;; the completion-tail half of the incarnation-fencing family
-        ;; established by #5849). The completion-output validator, the
+  (let [;; A's exact-frame-incarnation continuation predicate. The
+        ;; completion-output validator, the
         ;; `:rf.machine/done` trace fan-out, and the parent `:on-done` callback
         ;; are all APPLICATION / listener code that can synchronously destroy
         ;; the frame incarnation A that owns the in-flight event and publish a
@@ -321,12 +320,12 @@
         ;; `(constantly true)` for a non-router pure-fn / conformance caller
         ;; (no event owner), so that path stays unaffected.
         continue?  (rf.machines.data-validation/owner-continuation frame-id)
-        ;; rf2-i4aj9c — the RAW exact owner token (`continue?` closes over it),
+        ;; The RAW exact owner token (`continue?` closes over it),
         ;; threaded into the teardown classification drop so it rides the EXACT
         ;; elision write: a container watch that destroys A / publishes same-id B
         ;; DURING the drop cannot re-root the removal onto B's registry or bump
         ;; B's commit epoch. nil for a non-router pure-fn / conformance caller
-        ;; (no event owner) — the drop falls back to the historical bare write.
+        ;; (no event owner) — the drop falls back to the bare write.
         owner-token (rf.frame/current-event-owner-token)
         child-data (:data next-snapshot)
         parallel?  (rf.machines.parallel/parallel? machine)
@@ -370,10 +369,10 @@
         ;; cascade, so the `[:schemas :output]` schema resolves off it without
         ;; a registrar / snapshot lookup. Production-elided
         ;; (`rf.interop/debug-enabled?`-gated inside the validator).
-        ;; The completion-output validator is APPLICATION code (rf2-3evq0x): a
+        ;; The completion-output validator is APPLICATION code: a
         ;; validator that destroys A / publishes same-id B returns
-        ;; `:rf/stale-incarnation` (NOT a schema verdict). Capture it — the
-        ;; original `_` binding dropped the verdict and let the whole finalize
+        ;; `:rf/stale-incarnation` (NOT a schema verdict). Capture it —
+        ;; discarding the verdict would let the whole finalize
         ;; tail run against B. A stale return terminally fences every
         ;; subsequent framework-owned action below (the `owner-gone?` gate).
         output-validation (rf.machines.data-validation/validate-completion-output! machine-id machine result)
@@ -390,7 +389,7 @@
         ;; the FAILURE event, resolved by the parent's `:spawn :on-error` or an
         ;; explicit `:on {:rf.machine.spawn/error …}` (control flow, not just
         ;; observability), and never to the `:data`-only `:on-done` callback.
-        ;; A plain `:final?` leaf keeps firing `:on-done`. `error-leaf?` is
+        ;; A plain `:final?` leaf fires `:on-done`. `error-leaf?` is
         ;; computed above (cross-region scan for parallel).
         ;; A `:spawn-all` child's private membership is the canonical REPLY
         ;; source of its parent/invoke coordinates (per-child spawn args use the
@@ -416,12 +415,12 @@
         ;; generation]`, one closed `:status` — `:ok` for a plain final
         ;; leaf, `:error` for an `:error?` error terminal — the child's
         ;; `:output-key` result under `:value`, frame + correlation). The
-        ;; PUBLIC `:on-done` / `:on-error` semantics are PRESERVED: the
-        ;; `:on-done` `:data` callback is still driven with the child's
-        ;; result (now derived as `(:value reply)`), and `:on-error` still
+        ;; PUBLIC `:on-done` / `:on-error` semantics do not depend on it: the
+        ;; `:on-done` `:data` callback is driven with the child's
+        ;; result (derived as `(:value reply)`), and `:on-error`
         ;; routes the raw failure payload to the parent transition. This is
         ;; internal lowering only — the reply map is what the trace stream,
-        ;; ledger, and future work-correlation read uniformly (m-reply).
+        ;; ledger, and future work-correlation read uniformly.
         ;; Thread the CAUSAL completion timestamp into the
         ;; reply so `:completed-at` carries the one host-clock read the
         ;; router captured for the finishing event — NOT an ambient
@@ -445,16 +444,16 @@
                       (some? completed-at) (assoc :completed-at completed-at))
         ;; (1) Choose the carrier. The ERROR leaf of a single-`:spawn` child
         ;; (it carries `:rf/invoke-id`) rides the FAILURE carrier whatever the
-        ;; parent declared (rf2-3x7nj.41.1). The parent's engine resolves it
+        ;; parent declared. The parent's engine resolves it
         ;; natively (`pick-spawn-error-transition`): its `:spawn :on-error`,
         ;; else an explicit `:on {:rf.machine.spawn/error …}` walked leaf to
         ;; root and then the root `:on`, else nothing. So the done carrier
         ;; only ever carries a success, and the `:on-done` fold and any
         ;; `:on {:rf.machine.spawn/done …}` need no failure guard.
         ;;
-        ;; This gate used to ask whether the parent's `:spawn` map declared
-        ;; `:on-error`, and a failure without one rode the DONE carrier into
-        ;; the success fold and the success transitions. A `:spawn-all` join
+        ;; The gate does not ask whether the parent's `:spawn` map declares
+        ;; `:on-error`: a failure without one would then ride the DONE carrier
+        ;; into the success fold and the success transitions. A `:spawn-all` join
         ;; child carries no `:rf/invoke-id`, so its error leaf stays on the
         ;; done carrier with `:error? true`, which the join counts itself.
         failure-carrier? (and error-leaf? parent-id invoke-id)
@@ -473,19 +472,15 @@
         ;; declaratively-spawned child (it carries both `:rf/parent-id` and
         ;; `:rf/invoke-id`) whose parent is NO LONGER LIVE. It gates BOTH
         ;; carriers — the `:on-done` completion event AND the `:on-error`
-        ;; failure event. `:on-error` used to be carved out of `stale-spawn?`
-        ;; on the reasoning that a stale error leaf "dispatches into the void,
-        ;; harmlessly", and that WAS true only while a destroyed singleton's
-        ;; registrar entry died with it: the dispatch found no handler and fell
-        ;; away. Once the DEFINITION survives teardown (rf2-xjee, below), the
-        ;; same dispatch RESOLVES at the dead parent's address and D5 lazy
-        ;; re-creation synthesises a fresh initial snapshot — so the carve-out
-        ;; made the runtime RESURRECT a destroyed parent to fold a dead child's
-        ;; failure into it. There is no void left to dispatch into, and Spec 005
+        ;; failure event. A stale error leaf has no void to dispatch into:
+        ;; because the DEFINITION survives teardown (below), the dispatch
+        ;; would RESOLVE at the dead parent's address and D5 lazy re-creation
+        ;; would synthesise a fresh initial snapshot, RESURRECTING a destroyed
+        ;; parent to fold a dead child's failure into it. Spec 005
         ;; §Async completions §Stale suppression names `:on-error` routing
         ;; explicitly among the app targets a stale completion MUST NOT run.
         ;;
-        ;; rf2-xjee — A DEFINITION-BEARING REGISTRAR ENTRY IS NOT LIVENESS, and
+        ;; A DEFINITION-BEARING REGISTRAR ENTRY IS NOT LIVENESS, and
         ;; that is load-bearing here rather than a tidy-up. A destroyed
         ;; SINGLETON parent keeps its `reg-machine` DEFINITION (the registration
         ;; is the load-time PROGRAM; the snapshot was the INSTANCE), so reading
@@ -494,28 +489,25 @@
         ;; address — where the surviving definition would synthesise a fresh
         ;; initial snapshot and RESURRECT the parent to fold a dead child's
         ;; result into it. Spec 005 §Destroy is silent-idempotent forbids
-        ;; exactly this reading; the same amendment stands at `destroy/
+        ;; exactly this reading; the same rule stands at `destroy/
         ;; actor-live?`. Resolving the parent's `:spawn` spec is what the
         ;; DEFINITION is FOR, and the parent's own engine does that when the
         ;; carrier arrives; only the liveness question is asked here. A
-        ;; non-machine entry squatting at the parent address still counts,
-        ;; exactly as before.
+        ;; non-machine entry squatting at the parent address counts.
         ;;
         ;; The predicate is SHARED with the action-exception producer
         ;; (`registration`'s child-action-failure projection), which asks the
-        ;; identical question about the identical address. TWO spellings of
-        ;; "is the parent live?" are what let the on-error resurrection through
-        ;; in the first place — a ruling that enumerated liveness sites by
-        ;; inspection missed one — so both failure routes now read ONE
-        ;; predicate, and `parent-instance-live?` reads exactly the two signals
-        ;; named above.
+        ;; identical question about the identical address. Two spellings of
+        ;; "is the parent live?" could disagree, so both failure routes read
+        ;; ONE predicate, and `parent-instance-live?` reads exactly the two
+        ;; signals named above.
         ;;
-        ;; rf2-3x7nj.9.1 — the gate reads the REPLY coordinates, which fall
+        ;; The gate reads the REPLY coordinates, which fall
         ;; back to the `:rf/join-child` membership record. A `:spawn-all` join
         ;; child never carries a public `:rf/invoke-id`, so a gate keyed on
-        ;; `invoke-id` was always false for it: a join child finishing after
-        ;; its parent's explicit destroy dispatched its carrier at the dead
-        ;; address, and the surviving definition RESURRECTED the parent.
+        ;; `invoke-id` would always be false for it: a join child finishing after
+        ;; its parent's explicit destroy would dispatch its carrier at the dead
+        ;; address, and the surviving definition would RESURRECT the parent.
         parent-live?  (rf.machines.lifecycle-fx.spawn-error/parent-instance-live?
                         runtime-db reply-parent-id)
         stale-spawn?  (and reply-parent-id reply-invoke-id (not parent-live?))
@@ -548,7 +540,7 @@
         ;; `:rf.reply/work-id`, `:rf.reply/work-status`) ride ADDITIVELY so
         ;; the trace stream classifies the completion the same way HTTP /
         ;; resources do; the public `:output` / `:parent-id` / `:error?`
-        ;; shape is preserved. Wire-bearing slots (`:value` / `:error` /
+        ;; slots ride beside them. Wire-bearing slots (`:value` / `:error` /
         ;; `:correlation`) route through the shared elision walker via
         ;; `rf.machines.reply/trace-reply`.
         ;;
@@ -563,8 +555,8 @@
         done-summary (if stale-spawn?
                        (rf.machines.reply/stale-spawn-trace reply {:frame frame-id})
                        (rf.machines.reply/trace-reply reply {:frame frame-id}))
-        ;; The `:rf.machine/done` trace fan-out is callback-bearing
-        ;; (rf2-3evq0x): a listener can destroy A / publish same-id B. Skip it
+        ;; The `:rf.machine/done` trace fan-out is callback-bearing:
+        ;; a listener can destroy A / publish same-id B. Skip it
         ;; when A is already gone (a stale completion-output validator), and
         ;; re-check liveness after it before any framework-owned action below.
         _ (when-not (owner-gone?)
@@ -601,7 +593,7 @@
                          ;; to `:rf.reply/work-id` via the shared `:rf.reply/*` facts.
                          stale-spawn? (assoc :rf.reply/stale-reason (:rf.reply/stale-reason done-summary)
                                              :rf.reply/correlation  (:correlation done-summary)))))
-        ;; (3) The completion carrier. `:on-done` is NO LONGER applied here.
+        ;; (3) The completion carrier. `:on-done` is NOT applied here.
         ;; Completion is delivered to the parent as ONE reserved runtime-minted
         ;; event (Spec 005 §Child completion protocol) — the same carrier for
         ;; both spawn forms — and the parent's own handler boundary routes it:
@@ -611,14 +603,14 @@
         ;;     parent's ORDINARY macrostep, so the parent may ADVANCE on it
         ;;     through `:always` (a guard over the folded `:data`) or an
         ;;     explicit `:on` clause. That advancement is the whole reason the
-        ;;     carrier is an event rather than the direct parent-snapshot write
-        ;;     this cascade used to perform: a parent could fold a child's
-        ;;     result but could not react to it, so every sequencing parent had
-        ;;     to make its child hand-dispatch — which is exactly the parent
-        ;;     vocabulary in the child that this protocol removes;
+        ;;     carrier is an event rather than a direct parent-snapshot write:
+        ;;     with a direct write a parent could fold a child's
+        ;;     result but could not react to it, so every sequencing parent would
+        ;;     have to make its child hand-dispatch — which is exactly the parent
+        ;;     vocabulary in the child that this protocol keeps out;
         ;;   - a `:spawn-all` join child's completion runs its per-child
         ;;     `:on-done` fold for a `:done` completion only (a failed child
-        ;;     skips it, rf2-3x7nj.41.1) and then folds into the join
+        ;;     skips it) and then folds into the join
         ;;     (`lifecycle-fx.join/intercept-spawn-done-event`).
         ;;
         ;; The carrier is minted AFTER the teardown below, so the parent never
@@ -630,9 +622,8 @@
         ;; (`stale-spawn?` — no live parent INSTANCE), the completion is STALE:
         ;; per Managed-Effects §Stale suppression the app target MUST NOT run,
         ;; so NEITHER carrier is minted — not the completion event below, and
-        ;; not the `:on-error` failure event beside it (rf2-xjee; the failure
-        ;; carrier was outside this rule until the surviving definition gave it
-        ;; a live address to re-create). The suppression is a positive fact —
+        ;; not the `:on-error` failure event beside it. The suppression is a
+        ;; positive fact —
         ;; the canonical `:status :stale` reply was emitted on the done trace
         ;; above, and `runtime-db` rides through untouched.
         ;;
@@ -648,13 +639,13 @@
         ;; IS the pre-wrapping error payload for an error leaf — so both arms
         ;; carry the same fact the reply does.
         ;;
-        ;; Reading `:value` unconditionally silently delivered nil for EVERY
-        ;; error leaf, which under a `:spawn-all` parent dropped the decisive
+        ;; Reading `:value` unconditionally would silently deliver nil for EVERY
+        ;; error leaf, which under a `:spawn-all` parent would drop the decisive
         ;; child's `:on-any-failed` payload on the floor: Spec 005
         ;; §Spawn-and-join says the resolution carries "the decisive child's
         ;; `:output-key` value — its error payload on `:on-any-failed`".
         completion-value (if error-leaf? result (:value reply))]
-    ;; rf2-3evq0x — terminal incarnation fence for the completion tail. If a
+    ;; Terminal incarnation fence for the completion tail. If a
     ;; completion-output validator, a `:rf.machine/done` trace listener, or the
     ;; parent `:on-done` callback destroyed A / published same-id B, EVERY action
     ;; below is A-derived framework-owned tail that would erase or mutate B: the
@@ -686,59 +677,57 @@
                                  :parent-id parent-id
                                  :invoke-id invoke-id
                                  :reason    :rf.machine/finished})
-        ;; rf2-hloj0g — the teardown tail's callback-bearing hooks — the
+        ;; The teardown tail's callback-bearing hooks — the
         ;; `:rf.machine/destroyed` trace above and the late-bound HTTP abort
         ;; hook — can EACH destroy A /
-        ;; publish same-id B on their own stack. #5856 fenced the earlier
-        ;; completion callbacks (validator / done trace / `:on-done`) with the
-        ;; top-level `owner-gone?` gate, but NOTHING rechecked ownership between
+        ;; publish same-id B on their own stack. The top-level `owner-gone?`
+        ;; gate fences only the earlier completion callbacks (validator / done
+        ;; trace / `:on-done`); without a recheck between
         ;; these LATER teardown callbacks and the framework-owned actions that
-        ;; follow — so the HTTP/timer cancellation, rf.machines.classification/spawn-order
+        ;; follow, the HTTP/timer cancellation, classification/spawn-order
         ;; drop, registrar unregister, and `:on-error` dispatch could all run
         ;; against B (a bare frame-id / machine-id resolves to the CURRENT
         ;; incarnation). Recheck `owner-gone?` before each next framework action;
         ;; it is MONOTONIC (once A→B it stays gone), so a per-action guard
-        ;; short-circuits the whole tail. Already-delivered rf.machines.lifecycle-fx.traces/hooks stand —
-        ;; the ruled unwind posture, no rollback.
+        ;; short-circuits the whole tail. Already-delivered traces/hooks stand —
+        ;; the unwind posture, no rollback.
         (when-not (owner-gone?)
           ;; (6) Abort in-flight HTTP (late-bound hook — callback-bearing).
-          ;; rf2-wjfm — frame-exact: `frame-id` is this cascade's own frame, so
+          ;; Frame-exact: `frame-id` is this cascade's own frame, so
           ;; a same-named actor in a sibling frame keeps its in-flight work.
           (abort-actor-in-flight-http! frame-id machine-id))
         (when-not (owner-gone?)
-          ;; Cancel armed `:after` timers (`:reason :on-destroy`). rf2-4ipqe4 —
-          ;; each cancellation emits a callback-bearing `:rf.machine.timer/
+          ;; Cancel armed `:after` timers (`:reason :on-destroy`).
+          ;; Each cancellation emits a callback-bearing `:rf.machine.timer/
           ;; cancelled` trace; a listener can destroy A / publish same-id B on
           ;; the FIRST cancellation's stack, after which the loop would cancel B's
           ;; timer under a later snapshotted key. Thread `owner-gone?` so the
           ;; cancellation loop short-circuits the instant A is lost (it is
           ;; MONOTONIC), leaving B's re-armed timers untouched.
           (rf.machines.timer/cancel-actor-timers! frame-id machine-id owner-gone?))
-        ;; rf2-4ipqe4 — RECHECK after the timer-cancellation callbacks before the
-        ;; classification / spawn-order work. #5856/#5873
-        ;; grouped these under the timer cancel with NO recheck, so a
-        ;; `:rf.machine.timer/cancelled` listener that published same-id B let the
+        ;; RECHECK after the timer-cancellation callbacks before the
+        ;; classification / spawn-order work: without it a
+        ;; `:rf.machine.timer/cancelled` listener that published same-id B would let the
         ;; A-derived classification drop and spawn-order forget resolve their
-        ;; bare rf.frame/actor ids to the CURRENT incarnation B.
+        ;; bare frame/actor ids to the CURRENT incarnation B.
         (when-not (owner-gone?)
           ;; Drop this actor's per-instance classification declarations from the
           ;; per-frame elision registry — the teardown half of
           ;; `rf.machines.classification/lower-at-spawn!` on the final-state AUTO-DESTROY path
           ;; (which does NOT route through `destroy/teardown-live-actor!`). A spec
           ;; that declared no classification is a clean no-op, so the registry
-          ;; entry added at spawn dies with the instance (no leak). rf2-i4aj9c —
-          ;; thread `owner-token` so the drop rides the EXACT elision write (a
+          ;; entry added at spawn dies with the instance (no leak). Thread
+          ;; `owner-token` so the drop rides the EXACT elision write (a
           ;; mid-write watch cannot re-root the removal onto same-id B).
           (rf.machines.classification/drop-at-destroy! frame-id machine-id machine owner-token))
-        ;; rf2-rbxdxa — `drop-at-destroy!` writes through the EXACT elision swap, a
+        ;; `drop-at-destroy!` writes through the EXACT elision swap, a
         ;; container-write boundary: a synchronous watch can destroy A / publish
         ;; same-id B DURING the drop. Recheck ownership AFTER it before the
-        ;; spawn-order forget — grouping them under the SAME
-        ;; precheck let a mid-drop successor B see the bare-id `rf.machines.spawn-order/forget!`
+        ;; spawn-order forget — under one shared
+        ;; precheck a mid-drop successor B would see the bare-id `rf.machines.spawn-order/forget!`
         ;; erase B's freshly-recorded entry (the finalize sibling of the
         ;; ordinary-destroy drop seam). The
-        ;; drop write is already exact; this fences the forget the grouped
-        ;; precheck ran ahead of.
+        ;; drop write is itself exact; this fences the forget that follows it.
         (when-not (owner-gone?)
           ;; Forget the finished actor from the per-frame spawn-order channel — the
           ;; ONE synchronous teardown side-effect the `:final?`-auto-destroy path
@@ -753,7 +742,7 @@
           ;; `rf.registrar/unregister!` emits a synchronous callback-bearing
           ;; `:rf.registry/handler-cleared` trace.
           ;;
-          ;; rf2-xjee — EXCEPT when the address carries a machine DEFINITION.
+          ;; EXCEPT when the address carries a machine DEFINITION.
           ;; The D7 `:final?` singleton auto-destroy is reachable with NO
           ;; teardown code written by the author (a root-level `:final?` leaf is
           ;; enough), and the entry it would clear is the shared load-time TYPE
@@ -766,11 +755,10 @@
           ;; non-machine entry squatting here still gets cleared.
           (when (nil? (rf.machines.lifecycle-fx.resolver/spec-from-registry machine-id))
             (rf.registrar/unregister! :event machine-id)))
-        ;; rf2-4ipqe4 — RECHECK after the registrar unregister before the
-        ;; completion dispatch. #5856/#5873 grouped the unregister with the
-        ;; dispatch under ONE check, so a `:rf.registry/handler-cleared` listener
-        ;; that published same-id B let the stale A-derived dispatch route into
-        ;; B. The unregister is an already-delivered callback (it stands); the
+        ;; RECHECK after the registrar unregister before the
+        ;; completion dispatch: under one shared check a
+        ;; `:rf.registry/handler-cleared` listener that published same-id B
+        ;; would let the stale A-derived dispatch route into B. The unregister is an already-delivered callback (it stands); the
         ;; dispatch it enables must be fenced.
         (when-not (owner-gone?)
           ;; (7) ROUTE THE COMPLETION TO THE PARENT. The child is fully torn
@@ -808,19 +796,14 @@
           ;; target must not run. A SINGLETON (no parent at all) mints neither
           ;; either — its finality is its own.
           ;;
-          ;; rf2-xjee — that "NEITHER" is now enforced ONCE, around the whole
-          ;; choice, rather than on the completion arm alone. The failure arm
-          ;; used to sit OUTSIDE the stale guard (`stale-spawn?` itself carried
-          ;; a `(not on-error?)` conjunct — the gate this arm then keyed on — so
-          ;; an on-error finish could never be classified stale), which is
-          ;; precisely how a dead parent came to be
-          ;; re-created from its initial snapshot to receive its child's
-          ;; failure. Deleting that conjunct is not sufficient on its own while
-          ;; the arm bypasses the guard, and guarding the arm is not sufficient
-          ;; on its own while the classification still calls the finish
-          ;; `:error` rather than `:stale` — both halves are the one fix.
+          ;; That "NEITHER" is enforced ONCE, around the whole
+          ;; choice, rather than on the completion arm alone: a failure arm
+          ;; outside the stale guard would re-create a dead parent from its
+          ;; initial snapshot to receive its child's failure. It takes both
+          ;; halves — the guard around both arms, and a classification that
+          ;; calls such a finish `:stale` rather than `:error`.
           ;;
-          ;; rf2-3x7nj.9.3 / .8.2 — a single-`:spawn` child also hands back its
+          ;; A single-`:spawn` child also hands back its
           ;; `:rf/invoke-attempt` on EITHER carrier, so the parent delivers it
           ;; only while that spawn attempt is still current.
           (when-not stale-spawn?
@@ -842,7 +825,7 @@
                                                     :work-generation])))
                   (:rf/invoke-attempt child-data))))))
         ;; Publish the teardown runtime-db + fx ONLY if the exact owner survived
-        ;; the WHOLE tail (rf2-hloj0g). If any post-`emit-destroyed!` callback
+        ;; the WHOLE tail. If any post-`emit-destroyed!` callback
         ;; published same-id B, return the inert outcome — the A-derived
         ;; `db-after-destroy` is DROPPED rather than committed onto B (the
         ;; router's candidate fence would drop it too; returning inert is the
