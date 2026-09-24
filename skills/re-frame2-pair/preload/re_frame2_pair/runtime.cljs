@@ -61,7 +61,7 @@
             ;; assembler. The stateful/DOM wrappers below thread the live gates
             ;; (raw-state posture, operating frame, frame-ids)
             ;; into these pure fns, so the SHIPPED decision logic is exactly the
-            ;; code the `:node-test` build exercises directly (rf2-etsj8p).
+            ;; code the `:node-test` build exercises directly.
             [re-frame2-pair.pure :as pure]
             ;; sub-cache-snapshot lives in re-frame.subs.tooling
             ;; (production-DCE split). re-frame2-pair is dev-tier — loading the
@@ -89,7 +89,7 @@
             ;; preload routes through this one canonical impl in core.
             ;; Dev-tier preload, so the direct require is bundle-isolation-safe.
             [re-frame.source-coords :as rf.source-coords]
-            ;; `re-frame.fx/*effect-sink*` (rf2-j538f7.39) is the framework's
+            ;; `re-frame.fx/*effect-sink*` is the framework's
             ;; dry-run EFFECT SINK — an internal, in-process dev-tool seam.
             ;; `dispatch-dry-run` binds it around a `dispatch-sync` so the
             ;; framework RECORDS + SKIPS every effect at the single universal
@@ -377,8 +377,7 @@
 ;; All app-db access is via the public Tool-Pair surfaces:
 ;;   (rf/app-db-value frame-id)                    — current value
 ;;   (get-in (rf/app-db-value frame-id) path)      — path-scoped read
-;;                                                    (rf2-t3lftq — API-shrink
-;;                                                    #3 retired the dedicated
+;;                                                    (there is no dedicated
 ;;                                                    `rf/snapshot-of`
 ;;                                                    convenience)
 
@@ -459,12 +458,12 @@
   emitting state over MCP, applied here BEFORE any registered tap
   consumer sees the payload.
 
-  Named boundary (rf2-kuky.88): `:rf.egress/local-redacted`. A tap
+  Named boundary: `:rf.egress/local-redacted`. A tap
   consumer is IN-PROCESS, so this is the on-box redacted boundary rather
   than an off-box one, and its `:rf.egress/*` floor — sensitive redact,
-  large elide, no digests — is exactly the all-false floor the bare
-  no-profile walk resolved to before, so the projection is
-  output-identical. The gate-ON arm still short-circuits rather than
+  large elide, no digests — is exactly the all-false floor a bare
+  no-profile walk resolves to, so the projection is output-identical
+  to one. The gate-ON arm short-circuits rather than
   naming `:rf.egress/local-raw`: with the operator's raw opt-in there is
   no boundary to cross at all, and passing the value through untouched is
   both cheaper and strictly narrower than routing it through the door.
@@ -490,7 +489,7 @@
   SAME per-frame registry the `:app-db` path walker reads: frame- /
   EP-0025-commit-plane-effect- / flow-sourced declarations, unioned).
 
-  EP-0025 FAIL-OPEN: the value-match (taint-by-equality) engine is REMOVED — a
+  EP-0025 FAIL-OPEN: there is NO value-match (taint-by-equality) engine — a
   secret copied from a declared-sensitive app-db slot into a non-app-db DOM
   position ships off-box RAW. This is INTENDED (hygiene, not a guarantee); to
   keep a value out of rendered content, classify its app-db PATH so it is
@@ -529,8 +528,7 @@
 
    Delegates to the canonical Tool-Pair write surface
    `(rf/replace-frame-state! frame-id {:rf.db/app v})` (Tool-Pair
-   §Pair-tool writes; rf2-t3lftq — API-shrink #3 consolidated the former
-   `rf/replace-app-db!` into this app-only partial-map form). That
+   §Pair-tool writes), in its app-only partial-map form. That
    surface bypasses the event pipeline (no event, no pipeline run) but DOES
    record a synthetic `:rf/epoch-record` with `:event-id
    :rf.epoch/db-replaced` so that `restore-epoch` can rewind past the
@@ -597,7 +595,7 @@
   "All registered app-schemas for the operating frame.
    Map of `path → schema` — the MCP WIRE contract, which is the tool's and
    not the library's. `(rf.schemas/app-schemas {:frame f})` answers
-   `path → registration-metadata` since rf2-kuky.84, so the preload
+   `path → registration-metadata`, so the preload
    projects `:schema` here rather than widening the wire."
   ([] (schemas (current-frame)))
   ([frame-id]
@@ -649,20 +647,20 @@
    candidate set, so a suggestion is always an id the caller can
    actually use here.
 
-   ## Why the frame, and not the process store (rf2-fzbj.15)
+   ## Why the frame, and not the process store
 
    This is the CALL-TIME check in front of `read-sub!` / `dispatch-
    consequence!`, and those two execute against a FRAME. A frame runs its
    own sealed image generation, so an `:reg-sub` / `:reg-event` defined
    INLINE IN AN IMAGE is registered for that frame and absent from the
    process store — an ordinary supported definition the skill explicitly
-   teaches. Reading `{:source :store}` here rejected exactly those ids
+   teaches. Reading `{:source :store}` here would reject exactly those ids
    with `:reason :unknown-id :known-count 0`, telling the operator
    'nothing is registered' about an app that dispatches and subscribes
    perfectly well, and pushing them to raw `eval-cljs` for a gesture the
    typed tools support. The mismatch runs the other way too: an id in the
-   store but EXCLUDED from the chosen frame's image is now correctly
-   refused rather than validated and then dispatched into a frame that
+   store but EXCLUDED from the chosen frame's image is refused here
+   rather than validated and then dispatched into a frame that
    cannot serve it.
 
    Process-wide DISCOVERY (`registrar-list`, the orient/registry counts)
@@ -672,8 +670,8 @@
 
    FAILS LOUD up the eval boundary when `frame-id` does not resolve to a
    live frame generation (the framework's `:rf.error/frame-no-generation`),
-   exactly as `frame-registrar-list` does. That beats the former
-   catch-all: swallowing it here would report an unresolvable frame as
+   exactly as `frame-registrar-list` does. Swallowing it here would
+   report an unresolvable frame as
    'nothing is registered under :sub', which is a statement about the
    registrar rather than about the frame that was wrong."
   [kind id frame-id]
@@ -688,7 +686,7 @@
 
    `frame-id` is the OPERATING frame the caller is about to dispatch
    into — the validated frame and the dispatched frame are the same one
-   by construction (rf2-fzbj.15)."
+   by construction."
   [event-v frame-id]
   (let [id (when (sequential? event-v) (first event-v))
         r  (validate-registered :event id frame-id)]
@@ -706,7 +704,7 @@
    matches instead of silently subscribing to a non-existent sub and
    handing back nil/garbage (the typo-silent-nil mistake class a raw
    `eval-cljs` read invites). `frame-id` is the frame the read will
-   actually subscribe in (rf2-fzbj.15)."
+   actually subscribe in."
   [query-v frame-id]
   (let [id (when (sequential? query-v) (first query-v))
         r  (validate-registered :sub id frame-id)]
@@ -882,8 +880,7 @@
   "Enumerate the ids registered under `kind` resolved through frame
    `frame-id`'s OWN image generation — only the ids that frame's image
    carries (NOT the process-global registrar). Routes through the PUBLIC facade
-   read `(rf/registrations {:frame f :kind k})`, projecting its keys (the
-   removed `rf/handler-ids` was exactly this projection — rf2-i4hk4b). Returns
+   read `(rf/registrations {:frame f :kind k})`, projecting its keys. Returns
    the sorted id vector. FAILS LOUD up the eval boundary on an unresolvable
    frame."
   [frame-id kind]
@@ -1126,11 +1123,11 @@
         subscribing — never a silent nil. The result echoes `:query-v`.
 
         Frame BEFORE validation, and the frame's image rather than the
-        process store (rf2-fzbj.15): a sub defined inline in the frame's
-        image is registered for the frame and absent from the store, so
-        store-validation refused an id this very fn was about to
+        process store: a sub defined inline in the frame's image is
+        registered for the frame and absent from the store, so
+        store-validation would refuse an id this very fn is about to
         subscribe successfully. The two steps are in this order because
-        the frame is now an INPUT to the validation, not merely the
+        the frame is an INPUT to the validation, not merely the
         target of the read that follows it.
      3. Subscribe + deref ONCE through `rf/subscribe` (the standard cache
         lifecycle), inside a `try`. A deref/computation throw returns
@@ -1157,7 +1154,7 @@
       :hint   "a subscription read needs a non-empty query vector, e.g. [:current-user] or [:cart/total]."}
 
      ;; Frame first: it is the registration universe the validation below
-     ;; reads, so it cannot be resolved after the check (rf2-fzbj.15).
+     ;; reads, so it cannot be resolved after the check.
      (nil? frame-id)
      (ambiguous-frame-error :read-sub {:query query-v :query-v query-v})
 
@@ -1191,7 +1188,7 @@
 (defn- registered-machine-ids
   "Every registered machine-id — the `:rf/machine?` filter over the generic
    registrar read (Spec 005 §Querying machines). There is no per-kind
-   `machines` accessor on `re-frame.machines` (retired, rf2-kuky.31); this
+   `machines` accessor on `re-frame.machines`; this
    filter IS the documented contract."
   []
   (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
@@ -1210,7 +1207,7 @@
 
 (defn machine-describe
   "The registered spec map for one machine — the `:rf/machine` projection of
-  its `:event` registration (no `machine-meta` accessor; rf2-kuky.31) — or
+  its `:event` registration (there is no `machine-meta` accessor) — or
    `{:ok? false :reason :not-a-machine}`.
 
    `strip-fns` for the reason `registrar-describe` runs it: a machine spec
@@ -1232,8 +1229,8 @@
    machine snapshots live at `[:rf.runtime/machines :snapshots machine-id]`
    in the durable RUNTIME-DB partition — read via
    `(:rf.db/runtime (rf/frame-state-value frame-id))`, NOT
-   `(rf/app-db-value frame-id)` (rf2-t3lftq — API-shrink #3 retired the
-   dedicated `rf/runtime-db-value` / `rf/snapshot-of` readers)."
+   `(rf/app-db-value frame-id)` (there is no dedicated
+   `rf/runtime-db-value` / `rf/snapshot-of` reader)."
   ([machine-id] (machine-state machine-id (current-frame)))
   ([machine-id frame-id]
    (get-in (:rf.db/runtime (rf/frame-state-value frame-id))
@@ -1300,7 +1297,7 @@
 ;; from `(rf/app-db-value frame-id)` and stash it.
 ;;
 ;; `app-db-hash` is the only accessor; callers needing a path-scoped
-;; hash hash the slice themselves until a sub-tree accessor is filed.
+;; hash hash the slice themselves.
 
 (defonce ^:private frame-db-hashes
   ;; frame-id -> cached `(hash app-db)` integer
@@ -1431,7 +1428,7 @@
      ;; TRANSITION predicate: the value holds AFTER and did NOT hold
      ;; BEFORE. Testing `:db-after` alone would match the newest epoch
      ;; that merely CARRIES the bad value, which on an active UI is some
-     ;; later unrelated event, not the cause (rf2-fzbj.15).
+     ;; later unrelated event, not the cause.
      (find-where
        (fn [e] (and (= :expired (get-in (:db-after e) [:auth-state]))
                     (not= :expired (get-in (:db-before e) [:auth-state])))))
@@ -1741,9 +1738,9 @@
   rooted at the frame's app-db, so the app-db-path classification walker
   cannot prove ANY of them safe. A secret carried IN the event vector
   therefore rides off-box verbatim regardless of whether the epoch is
-  declared `:rf.epoch/sensitive?`: the old guard keyed redaction to the
-  `:rf.epoch/sensitive?` rollup ALONE, so a NON-declared trigger-event
-  (`[:login \"topsecret\"]` with no declared-sensitive db slot) leaked
+  declared `:rf.epoch/sensitive?`: a guard keying redaction to the
+  `:rf.epoch/sensitive?` rollup ALONE would let a NON-declared trigger-event
+  (`[:login \"topsecret\"]` with no declared-sensitive db slot) leak
   the password off-box. `cascade-summary` is the ONE place
   the trigger-event leaves the runtime, and the consuming MCP tools
   (`restore-epoch` passes the runtime map through verbatim;
@@ -1977,10 +1974,10 @@
   ([event-v] (dispatch-consequence! event-v {}))
   ([event-v opts]
    ;; Resolve the operating frame BEFORE validating, and validate against
-   ;; THAT frame's image (rf2-fzbj.15). An event defined inline in the
-   ;; frame's image is registered for the frame and absent from the
-   ;; process store, so store-validation refused ids this fn then
-   ;; dispatched perfectly well. The resolved frame is threaded into
+   ;; THAT frame's image. An event defined inline in the frame's image is
+   ;; registered for the frame and absent from the process store, so
+   ;; store-validation would refuse ids this fn dispatches perfectly
+   ;; well. The resolved frame is threaded into
    ;; `pair-dispatch-sync!` as the explicit override, so the frame that
    ;; was validated IS the frame that dispatches. A nil frame is left to
    ;; `pair-dispatch-sync!`, which raises the enriched ambiguous-frame
@@ -2114,8 +2111,8 @@
    successful restore implies the id is in the ring, but the read may
    race against a ring rotation in a heavy concurrent setting).
 
-   Additionally returns the `:unreplayable-effects` slot per the bead
-   spec: every fx that the ORIGINAL cascade fired and that the restore
+   Additionally returns the `:unreplayable-effects` slot: every fx that
+   the ORIGINAL cascade fired and that the restore
    cannot undo (http requests already sent, navigation already pushed,
    storage already written). Programmers reading 'I just rewound' need
    to know which side-effects already escaped the framework."
@@ -2157,7 +2154,7 @@
 
 (defn replay-epoch
   "(rf/replay-epoch! frame-id epoch-id {:origin :pair}) — the ONE-CALL strict
-   replay of a retained epoch (rf2-ov144; Tool-Pair §Time-travel, the
+   replay of a retained epoch (Tool-Pair §Time-travel, the
    `replay-epoch` and `replay-mint-policy` anchors). The framework
    resolves the raw record in-process and re-drives its `:trigger-event`
    with the recorded post-generation `:rf.cofx` under
@@ -2481,7 +2478,7 @@
 ;; gesture/selector → source-coord + registration meta. It does NOT answer
 ;; the most common UI-pairing question: "what does the thing I'm looking
 ;; at actually SHOW, and which re-frame2 entity produced it?" Answering
-;; that meant hand-rolling an eval-cljs `querySelectorAll` + `textContent`
+;; that by hand means an eval-cljs `querySelectorAll` + `textContent`
 ;; slice with GUESSED selectors, then a SECOND round-trip to map the node
 ;; back to a view-id. `ui-read` first-classes the whole gesture.
 ;;
@@ -2690,7 +2687,7 @@
    (`re-frame.core/project-egress`, the :rf.observe/derived-tree boundary)
    against the operating frame's classification, so a value at a classified
    path lands as `:rf/redacted` before crossing the off-box wire. EP-0025
-   FAIL-OPEN: value-match (taint-by-equality) is REMOVED, so a secret copied
+   FAIL-OPEN: there is NO value-match (taint-by-equality), so a secret copied
    out of a declared-sensitive app-db slot INTO a non-app-db DOM position
    ships RAW — the path walker reaches only values at a classified path. To
    keep a value out of rendered content, classify its app-db PATH so it is
@@ -2736,8 +2733,8 @@
 
        ;; Fail CLOSED: off-box posture needs a frame to source the
        ;; classification for the PATH projection; an ambiguous frame can't
-       ;; pick one, so refuse rather than ship raw DOM (acceptance: never
-       ;; synthesise :rf/default).
+       ;; pick one, so refuse rather than ship raw DOM (never synthesise
+       ;; :rf/default).
        (and (not gate-on?) (nil? frame-id))
        (ambiguous-frame-error :read-dom {:selector selector})
 
@@ -2856,7 +2853,7 @@
    `maybe-redact-derived` (`re-frame.core/project-egress`, the
    :rf.observe/derived-tree boundary) against the frame's classification, so a
    value at a classified path lands as `:rf/redacted`. EP-0025 FAIL-OPEN:
-   value-match (taint-by-equality) is REMOVED, so a secret copied out of a
+   there is NO value-match (taint-by-equality), so a secret copied out of a
    declared-sensitive app-db slot INTO a non-app-db DOM position ships RAW —
    the path walker reaches only values at a classified path. To keep a value
    out of rendered content, classify its app-db PATH so it is redacted at the
@@ -2897,8 +2894,8 @@
 
        ;; Fail CLOSED: off-box posture needs a frame to source the PATH-based
        ;; classification; an ambiguous frame can't pick one, so refuse rather
-       ;; than ship content with no frame to project against (acceptance:
-       ;; never synthesise :rf/default). NB EP-0025: the projection is
+       ;; than ship content with no frame to project against (never
+       ;; synthesise :rf/default). NB EP-0025: the projection is
        ;; path-based — a re-keyed DOM secret ships raw even with a frame.
        (and (not gate-on?) (nil? frame-id))
        (ambiguous-frame-error :read-ui)
@@ -2939,7 +2936,7 @@
                    ;; `project-egress` (:rf.observe/derived-tree) walks the
                    ;; tree through the path-based `project-egress`: a value
                    ;; AT a classified app-db path redacts. EP-0025 FAIL-OPEN —
-                   ;; value-match is removed, so a secret re-keyed INTO a
+                   ;; there is no value-match, so a secret re-keyed INTO a
                    ;; non-app-db DOM position ships raw. Off-box default
                    ;; projects; gate ON passes verbatim (trusted-local).
                    content   (maybe-redact-derived base frame-id)]
@@ -3035,16 +3032,16 @@
      fail-closed defaults so a bare REPL caller is never less safe than
      the MCP path.
 
-   Named boundary (rf2-kuky.88). The MCP caller (`record` /
+   Named boundary. The MCP caller (`record` /
    `watch-until`) renders its own `:rf.egress/profile` into `elide-opts`,
    so the profile it names wins. A bare REPL caller passing no profile
-   falls to `:rf.egress/off-box-observability` — the all-false floor the
-   no-profile walk resolved to before, so both paths are
+   falls to `:rf.egress/off-box-observability` — the all-false floor a
+   no-profile walk resolves to, so both paths are
    output-identical. It is deliberately NOT `:rf.egress/off-box-tool`
    here: a bare REPL caller is not the tool boundary, so it is not named
-   as one (the two floors are equal today, since rf2-3x7nj.32.6 turned
-   off-box-tool's digests off, but the name is the claim). The MCP path
-   still reaches off-box-tool, because that is the profile it names.
+   as one (the two floors are currently equal, off-box-tool carrying no
+   digests, but the name is the claim). The MCP path reaches
+   off-box-tool, because that is the profile it names.
 
    `frame-id` is supplied so the projection resolves the right per-frame
    elision registry."
@@ -3091,10 +3088,10 @@
    textContent / attribute / focus descriptor can carry a secret copied out
    of a declared-sensitive app-db slot into a NON-app-db position. They are
    PATH-projected via `maybe-redact-derived` (`re-frame.core/project-egress`,
-   the :rf.observe/derived-tree boundary). EP-0025 FAIL-OPEN: value-match is
-   removed, so a RE-KEYED secret in a `:dom` / `:focus` sample ships RAW —
+   the :rf.observe/derived-tree boundary). EP-0025 FAIL-OPEN: there is no
+   value-match, so a RE-KEYED secret in a `:dom` / `:focus` sample ships RAW —
    classify its app-db PATH to redact it at the source. `start-recording!` /
-   `watch-until` still refuse a `:dom` / `:focus` signal under the off-box
+   `watch-until` refuse a `:dom` / `:focus` signal under the off-box
    gate when no frame resolves (no frame to project against), so `frame-id` is
    non-nil here whenever the projection runs."
   ([signal frame-id] (sample-one-signal signal frame-id nil))
@@ -3543,7 +3540,7 @@
 ;; `:epoch/record-unmount!`). We then re-read the epoch by id — it now
 ;; carries the renders in `:renders` and the unmounts in `:trace-events`.
 ;;
-;; SCOPE (per the bead): "settle" = the SYNCHRONOUS cascade + render
+;; SCOPE: "settle" = the SYNCHRONOUS cascade + render
 ;; flush. Async fx (http / `:dispatch-later` / timers) stay observed via
 ;; `watch-epochs` — `flush-render!` does NOT and cannot settle those.
 
@@ -3663,8 +3660,8 @@
     ;; snapshots at [:rf.runtime/machines :snapshots machine-id] in the
     ;; durable RUNTIME-DB partition (read via
     ;; `(:rf.db/runtime (rf/frame-state-value frame-id))`, NOT
-    ;; `rf/app-db-value` — rf2-t3lftq API-shrink #3 retired the dedicated
-    ;; `rf/runtime-db-value` reader), so the per-frame
+    ;; `rf/app-db-value`; there is no dedicated `rf/runtime-db-value`
+    ;; reader), so the per-frame
     ;; slice returns {:ids [...] :state {machine-id snapshot}}.
     :machines   (let [ids (vec (registered-machine-ids))
                       state (or (get-in (:rf.db/runtime (rf/frame-state-value frame-id))
@@ -3796,8 +3793,8 @@
      ;; `current-config` is the facade's own read twin of `configure!`, and
      ;; it handles the optional-artefact branch itself: a build without
      ;; `day8/re-frame2-epoch` reports no `:epoch-history` key at all, so
-     ;; this reads nil rather than a fabricated depth. That is what retired
-     ;; the symbol-resolve this line used to carry (rf2-kuky.76).
+     ;; this reads nil rather than a fabricated depth, with no
+     ;; symbol-resolve of its own.
      :epoch-history-depth       (get-in (rf/current-config) [:epoch-history :depth])
      :epoch-counts              (into {} (map (fn [fid]
                                                 [fid (count (rf/epoch-history fid))])
