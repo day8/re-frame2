@@ -1,5 +1,5 @@
 (ns re-frame.resources-classification-lowering-cljs-test
-  "EP-0025 §subsystems (rf2-v8x9n8) — resources LOWER their projection-relative
+  "EP-0025 §subsystems — resources LOWER their projection-relative
   classification into the per-frame elision registry under `:source :resource`,
   PER INSTANCE, mirroring the machines / routing standard model. Per Spec 015
   §Subsystem projection-relative classification / Spec 016 §Runtime-subsystem
@@ -8,7 +8,7 @@
   THE CONTRACT under test: a registry-reading consumer (Xray 'what is
   classified', an MCP registry view, the SSR registry-projection defence-in-
   depth) SEES resource classification at the entry's absolute runtime-db path —
-  it is no longer applied ONLY at the family-private project-data / project-params
+  it is not applied ONLY at the family-private project-data / project-params
   projectors. The reconciliation is PURE over the runtime-db value, idempotent,
   value-independent, and self-dropping (an evicted entry's declarations vanish).
 
@@ -71,7 +71,7 @@
   (testing "an entry's resource :sensitive / :large declarations are LOWERED
             into the per-frame elision registry under :source :resource, rooted
             at the entry's absolute runtime-db path (a generic registry reader
-            now SEES them)"
+            SEES them)"
     (let [k       (rf.resources.state/scoped-resource-key :rf.scope/global :profile/card
                                              {:account-id "a-1" :slug "x"})
           k-id    (rf.resources.state/key-id k)
@@ -158,11 +158,11 @@
       (rf.frame/swap-runtime-db! :reg/frame (constantly lowered))
       ;; …then a GENERIC registry reader (elide-wire-value over the frame's
       ;; registry) redacts the declared :data :ssn path of the entry value.
-      ;; The walker's opts map is CLOSED (rf2-kuky.6): a `:rf.egress/profile`
+      ;; The walker's opts map is CLOSED: a `:rf.egress/profile`
       ;; names a BOUNDARY and belongs to `project-egress`, which resolves it to
       ;; the `:rf.egress/*` opt-set below before delegating here. Spelt directly,
       ;; this is the `:rf.egress/off-box-tool` floor PLUS the explicit digest
-      ;; override (that profile carries no digest since rf2-3x7nj.32.6).
+      ;; override (that profile carries no digest).
       (let [entry-data (get-in lowered [rf.resources.state/resources-key :entries k-id :data])
             projected  (rf.elision/elide-wire-value
                          entry-data
@@ -179,13 +179,13 @@
                       [:rf.runtime/resources :entries k-id :data :ssn]))))))))
 
 ;; ===========================================================================
-;; (rf2-wdm1vg) MULTI-OWNER union — a resource's lowered :data claim and an app
+;; MULTI-OWNER union — a resource's lowered :data claim and an app
 ;; effect claim on the SAME absolute entry path survive INDEPENDENTLY.
 ;; ===========================================================================
 
 (deftest resource-and-effect-claims-union-and-remove-independently
   (reg! :acct/card {:sensitive [[:data :ssn]]})
-  (testing "rf2-wdm1vg — a resource's lowered :data claim and an app effect claim
+  (testing "a resource's lowered :data claim and an app effect claim
             on the SAME absolute entry path UNION through reconcile, and each
             removes INDEPENDENTLY: eviction drops the resource claim while the
             effect survives; removing the effect owner leaves the resource claim."
