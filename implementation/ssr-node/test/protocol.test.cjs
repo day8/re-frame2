@@ -287,7 +287,7 @@ test('a deadline over the service ceiling is clamped rather than refused', () =>
 });
 
 // ---------------------------------------------------------------------------
-// THE NORMALIZED REQUEST IS A SNAPSHOT (rf2-ey07)
+// THE NORMALIZED REQUEST IS A SNAPSHOT
 //
 // Everything above asks whether a bad request is refused. This asks the
 // question one step later, and it is a different question: of the request
@@ -303,11 +303,11 @@ test('a deadline over the service ceiling is clamped rather than refused', () =>
 // about that unchecked second read rather than about the request.
 //
 // THE READ COUNT IS THE DISCRIMINATOR, and it is deliberately a fact about
-// the tree rather than about the fix: a witness that merely passes a bad
-// value proves nothing about a time-of-check/time-of-use gap, because a
-// value that is bad on BOTH reads is refused by the ordinary type checks
-// thirty lines up. Only a value that CHANGES between reads separates the
-// two, and only a read count can see it change.
+// the tree rather than about one implementation: a witness that merely
+// passes a bad value proves nothing about a time-of-check/time-of-use
+// gap, because a value that is bad on BOTH reads is refused by the
+// ordinary type checks thirty lines up. Only a value that CHANGES between
+// reads separates the two, and only a read count can see it change.
 // ---------------------------------------------------------------------------
 
 /**
@@ -356,11 +356,11 @@ test('a partition value is CAPTURED, so the request carries what was validated',
 });
 
 test('`args` is captured too — the partition is the shape, not the whole of it', () => {
-  // Same defect, a field away. `args` was read by its `!== undefined` test,
-  // read again by its `typeof` test, and read a THIRD time to build the
-  // returned request — so a caller could satisfy both checks and still put
-  // something else on the wire. A fix that closed the partition and left
-  // this open would have moved the defect rather than closed it.
+  // The same gap, a field away. Reading `args` once for its `!== undefined`
+  // test, again for its `typeof` test, and a THIRD time to build the
+  // returned request would let a caller satisfy both checks and still put
+  // something else on the wire. Capturing the partition while leaving this
+  // open would move the gap rather than close it.
   const req = { protocol: 1, entry: 'app/root', state: { ':todos': '[]' } };
   const reads = twoFaced(req, 'args', '[1 2 3]', 2);
   const out = validateRequest(req, TABLES);
