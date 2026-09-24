@@ -57,8 +57,8 @@
   `:rf.cofx/requires` (the declared-coeffect key), `:rf.interceptor/path`
   (the standard path interceptor, a registered factory referenced as
   `[:rf.interceptor/path <path-vector>]`). An interceptor IS the public
-  `context -> context` primitive — full-context work that a
-  `reg-event-ctx` handler once expressed lives here (EP-0018)."
+  `context -> context` primitive — there is no context-taking event
+  handler, so full-context work lives here (EP-0018)."
   [& {:keys [id before after source-coord] :as opts}]
   (cond-> (assoc opts :id (or id :unnamed))
     before       (assoc :before before)
@@ -244,7 +244,7 @@
       the dev-only `:rf.event/after-deltas` diff.
     - `re-frame.interceptor-registry/resolve-chain` lets this ONE inline
       value pass through a chain untouched (chains are reference-only and
-      reject every other inline value). `interceptor-registry` already
+      reject every other inline value). `interceptor-registry`
       `:require`s this ns, so it calls here rather than keeping a second
       copy.
 
@@ -286,7 +286,7 @@
   unaffected. Its one consumer is
   `re-frame.classification/project-after-deltas-tags`, which walks each
   value at its side's focus and STRIPS the metadata unconditionally, so the
-  carrier reaches no trace listener, ring, epoch record or egress (rf2-fc84b)."
+  carrier reaches no trace listener, ring, epoch record or egress."
   [context interceptor]
   (if-let [f (:after interceptor)]
     (let [;; Dev-only ctx-delta capture. The snapshot rides the same
@@ -345,7 +345,7 @@
   ([interceptors initial-context]
    (execute-chain interceptors initial-context nil))
   ([interceptors initial-context {:keys [continue-before?]}]
-   ;; The ordinary path preserves the historical full-chain unwind after a
+   ;; The ordinary path runs the full-chain unwind after a
    ;; captured exception.  The exact-incarnation path additionally stops
    ;; BEFORE entering another authored callback once ownership is lost, then
    ;; unwinds only the interceptors already entered (including the callback
