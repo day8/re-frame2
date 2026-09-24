@@ -1,7 +1,7 @@
 (ns re-frame.substrate.custom-nonatom-container-cljs-test
   "Spec 006 §`make-derived-value` — a CUSTOM adapter whose legitimate base
   container is NOT atom-shaped must have its base-container writes delegated,
-  not rejected as derived (rf2-oitw37).
+  not rejected as derived.
 
   The adapter contract states the container is OPAQUE to the core (Spec 006
   §`make-state-container`) and custom adapters are the canonical way to
@@ -10,15 +10,15 @@
   instance, a signal/store object, or a host record — none of which satisfy
   the host `IAtom` marker protocol.
 
-  Before rf2-oitw37 the core's `replace-container!` choke point classified
-  any non-`IAtom` container as DERIVED via an unconditional atom-marker
-  fall-back (`(not IAtom)`) that OVERRODE even a published
+  A `replace-container!` choke point that classified any non-`IAtom`
+  container as DERIVED via an unconditional atom-marker fall-back
+  (`(not IAtom)`) would OVERRIDE even a published
   `:adapter/derived-container?` hook's `false` (\"this is a base
-  container\") answer. So a write to such a custom base container threw
-  `:rf.error/derived-container-replaced` before the adapter's own
+  container\") answer, so a write to such a custom base container would
+  throw `:rf.error/derived-container-replaced` before the adapter's own
   `:replace-container!` could run.
 
-  The fix makes the installed adapter's `:adapter/derived-container?` hook
+  The installed adapter's `:adapter/derived-container?` hook is therefore
   authoritative whenever it has an opinion (truthy = derived → reject;
   `false` = base → delegate); the atom-marker heuristic is consulted only
   when the installed adapter returns the
@@ -29,9 +29,7 @@
        succeeds (not misclassified / rejected).
     2. `replace-container!` on its derived value is STILL rejected with the
        canonical `:rf.error/derived-container-replaced` throw — the guard
-       against genuinely-derived writes is not weakened.
-
-  Per bead rf2-oitw37."
+       against genuinely-derived writes is not weakened."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.late-bind :as rf.late-bind]
@@ -106,7 +104,7 @@
 ;; ---- tests ----------------------------------------------------------------
 
 (deftest custom-nonatom-base-container-is-accepted
-  (testing "replace-container! DELEGATES to a custom adapter whose base container is not IAtom (rf2-oitw37)"
+  (testing "replace-container! DELEGATES to a custom adapter whose base container is not IAtom"
     (install-custom-adapter!)
     (let [c (rf.substrate.adapter/make-state-container {:n 0})]
       (is (false? #?(:clj  (instance? clojure.lang.IAtom c)
@@ -119,7 +117,7 @@
           "the adapter's own replace-container! ran: the base container holds the new value"))))
 
 (deftest custom-derived-container-is-still-rejected
-  (testing "replace-container! on the custom adapter's DERIVED value still throws (guard not weakened, rf2-oitw37)"
+  (testing "replace-container! on the custom adapter's DERIVED value still throws (guard not weakened)"
     (install-custom-adapter!)
     (let [src     (rf.substrate.adapter/make-state-container {:n 7})
           derived (rf.substrate.adapter/make-derived-value [src] (fn [v] (:n v)))]
@@ -142,12 +140,12 @@
           "writing to the source recomputes the derived value normally"))))
 
 (deftest no-opinion-falls-back-to-atom-marker-heuristic
-  (testing "when the installed adapter returns the container-class-unknown sentinel, the choke point uses the atom-marker heuristic (rf2-oitw37)"
+  (testing "when the installed adapter returns the container-class-unknown sentinel, the choke point uses the atom-marker heuristic"
     ;; Install the custom adapter but DON'T publish a real container-class
     ;; hook — route only the sentinel fallback. An IAtom base then classifies
     ;; as base (delegated); a non-IAtom value classifies as derived (rejected)
-    ;; via the heuristic. This pins the fallback arm so the fix's three-way
-    ;; branch is fully covered.
+    ;; via the heuristic. This pins the fallback arm so the choke point's
+    ;; three-way branch is fully covered.
     (rf.substrate.adapter/dispose-adapter!)
     (let [atom-adapter {:kind                 :custom
                         :make-state-container (fn [v] (atom v))
@@ -174,7 +172,7 @@
             "a non-IAtom derived value is rejected by the atom-marker heuristic")))))
 
 (deftest sentinel-distinct-from-false
-  (testing "the container-class-unknown sentinel is NOT false (the bug-root distinction, rf2-oitw37)"
+  (testing "the container-class-unknown sentinel is NOT false (the no-opinion vs base distinction)"
     (is (not= false rf.substrate.adapter/container-class-unknown)
         "the sentinel must be distinguishable from a genuine `false` (base) verdict")
     (is (keyword? rf.substrate.adapter/container-class-unknown)
