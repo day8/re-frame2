@@ -17,9 +17,9 @@
 // tally something in-process computed about itself.
 //
 // The root is printed first, deliberately. A gate that does not say which
-// checkout it ran in can be believed about the wrong tree — this repo has
-// had a backgrounded gate adopt a sibling worker's worktree and report a
-// complete, internally consistent verdict about somebody else's work.
+// checkout it ran in can be believed about the wrong tree — a backgrounded
+// gate can adopt a sibling worktree and report a complete, internally
+// consistent verdict about somebody else's work.
 
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
