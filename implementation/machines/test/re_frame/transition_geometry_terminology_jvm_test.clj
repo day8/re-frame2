@@ -1,24 +1,22 @@
 (ns re-frame.transition-geometry-terminology-jvm-test
-  "Terminology guard for the targetless-vs-explicit-target transition geometry
-  (rf2-cczlc).
+  "Terminology guard for the targetless-vs-explicit-target transition geometry.
 
-  PR #6010 made the executable `internal?` flag EXACTLY the targetless /
-  no-cascade case (`compute-transition-geometry` in
-  `re-frame.machines.transition`), and the four active-path geometries are
-  pinned behaviourally by `machine_active_path_geometry_test.clj` plus the
+  The executable `internal?` flag is EXACTLY the targetless / no-cascade case
+  (`compute-transition-geometry` in `re-frame.machines.transition`), and the
+  four active-path geometries are pinned behaviourally by
+  `machine_active_path_geometry_test.clj` plus the
   `machine_property_cljs_test.cljc` invariants. What those tiers cannot see is
-  the PROSE drifting back to the mixed vocabulary rf2-cczlc repaired: Spec 005
-  §Self-transitions, `docs/machines/concepts.md`, and the transition-runtime
-  docstrings once called a targeted self / ancestor transition `internal`,
-  conflating XState's non-reentering LABEL with re-frame2's structural runtime
-  `internal?` flag — which is targetless-only. The same drift licensed the
-  overclaim that ONLY targetless transitions are observable no-ops, although a
-  leaf self-target without `:reenter?` has no descendants to resolve and is
-  action-only too.
+  the PROSE drifting into a mixed vocabulary: Spec 005 §Self-transitions,
+  `docs/machines/concepts.md`, or the transition-runtime docstrings calling a
+  targeted self / ancestor transition `internal` would conflate XState's
+  non-reentering LABEL with re-frame2's structural runtime `internal?` flag —
+  which is targetless-only. The same drift licenses the overclaim that ONLY
+  targetless transitions are observable no-ops, although a leaf self-target
+  without `:reenter?` has no descendants to resolve and is action-only too.
 
   So this namespace guards the disambiguated vocabulary in two directions,
-  precisely (the corrected prose legitimately uses the very words the drift
-  used — `internal?` for the targetless case, XState's `internal` as an
+  precisely (the prose legitimately uses the very words the drift
+  uses — `internal?` for the targetless case, XState's `internal` as an
   explicitly-labelled parity term):
 
   - the two conflated meanings + the leaf no-op overclaim stay ABSENT, and
@@ -47,7 +45,7 @@
 (defn- section-slice
   "Substring of `text` from the first line matching `start-re` up to (but not
   including) the next line matching `boundary-re`, or EOF. Lets the guard scan
-  exactly the §Self-transitions surface rf2-cczlc owns, so the careful
+  exactly the §Self-transitions surface this guard owns, so the careful
   `internal by default` uses in OTHER sections (the drain-semantics /
   pitfalls / lessons summaries that reserve `internal no-op` for targetless and
   attribute the label to XState) are out of scope for this guard."
@@ -119,7 +117,7 @@
     #"(?i)targeted\s+leaf\s+(?:is|equals|==)\s+(?:a\s+|the\s+)?targetless"]])
 
 ;; ---------------------------------------------------------------------------
-;; REQUIRED — the disambiguation the rewrite installed. Absence = the prose
+;; REQUIRED — the disambiguation itself. Absence = the prose
 ;; lost the distinction, which is the revert this guard exists to catch.
 
 (def ^:private required-terms
@@ -135,22 +133,15 @@
 
    ;; docs/machines/concepts.md
    ;;
-   ;; rf2-s41i re-points this surface's two pins. They were anchored on the
-   ;; parenthetical that carried the XState-parity disambiguation — "XState
-   ;; calls that non-reentering shape `internal`; re-frame2's runtime
-   ;; `internal?` flag is narrower — it's the **targetless** no-op alone".
-   ;; The rf2-9d0d guide rewrite deleted that parenthetical and now teaches
-   ;; the three self-transition shapes as a table that never says `internal`
-   ;; at all. That is not the drift this guard exists to catch — the
-   ;; conflation is impossible in prose that does not use the word, and the
-   ;; FORBIDDEN half still scans this same slice, so re-introducing it fails.
-   ;; Re-injecting the deleted parenthetical would revert an operator-authored
-   ;; rewrite, so the pins follow the guide instead: they now hold the SAME
-   ;; distinction the parenthetical carried — targetless is the action-only
-   ;; geometry, and a targeted self on a COMPOUND is not a no-op because it
-   ;; re-resolves descendants. The normative statement of the disambiguation
-   ;; is unaffected: Spec 005 §Self-transitions still carries all four of its
-   ;; pins below, including the `internal?`/XState-parity labels.
+   ;; The guide teaches the three self-transition shapes as a table that
+   ;; never says `internal` at all, so the conflation cannot arise in its
+   ;; prose, and the FORBIDDEN half still scans this same slice, so
+   ;; introducing it fails. Its two pins hold the distinction itself —
+   ;; targetless is the action-only geometry, and a targeted self on a
+   ;; COMPOUND is not a no-op because it re-resolves descendants. The
+   ;; normative statement of the disambiguation is Spec 005
+   ;; §Self-transitions, which carries all four of its pins below, including
+   ;; the `internal?`/XState-parity labels.
    ["concepts: targetless is the action-only shape"
     concepts-self #"(?is)\(targetless\).{0,60}?action only"]
    ["concepts: a targeted self on a compound re-resolves descendants"
@@ -170,7 +161,7 @@
        (mapv first)))
 
 (defn- missing-terms
-  "Every required term whose source no longer carries it."
+  "Every required term its source does not carry."
   []
   (->> required-terms
        (remove (fn [[_ src pattern]] (re-find pattern @src)))
@@ -194,7 +185,7 @@
   (testing "the load-bearing disambiguation stays present"
     (is (= [] (missing-terms))
         (str "a transition-geometry surface lost terminology that carries the "
-             "targetless-vs-explicit-target distinction (rf2-cczlc)."))))
+             "targetless-vs-explicit-target distinction."))))
 
 (deftest guard-has-teeth
   (testing "every reverted claim is caught"
@@ -214,7 +205,7 @@
       (is (= [claim] (forbidden-hits sentence))
           (str "the guard failed to catch a reverted claim: " claim))))
 
-  (testing "the corrected prose's legitimate uses of the same words are not caught"
+  (testing "the shipped prose's legitimate uses of the same words are not caught"
     (doseq [sentence
             [;; targetless legitimately IS the internal? no-op
              "Targetless — the runtime `internal?` no-op. This is the only geometry the runtime flags `internal?`."
