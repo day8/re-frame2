@@ -1,17 +1,16 @@
 (ns re-frame.trace-listener-post-drain-settled-state-cljs-test
-  "rf2-uoy6m — the post-drain settled-state contract must hold on EVERY host,
+  "The post-drain settled-state contract must hold on EVERY host,
   CLJS included.
 
-  ## The defect this pins (rf2-uoy6m)
+  ## The hazard this pins
 
-  PR #6365 made Spec 009's listener timing a cross-platform contract: an
-  internal, drain-owned trace emit is delivered at the post-drain boundary, so a
-  listener never observes a partially settled state. The JVM path defers; the
-  shipped CLJS path did the opposite — `re-frame.trace/call-with-deferred-listener-
-  delivery` was `:cljs (f)`, so `deliver-to-tooling!` fanned a drain-owned emit
-  out INLINE while the frame's drain was still active. A CLJS listener therefore
-  observed the db BEFORE the in-flight event committed — a different temporal API
-  from JVM, contradicting the PR's own cross-platform claim.
+  Spec 009's listener timing is a cross-platform contract: an internal,
+  drain-owned trace emit is delivered at the post-drain boundary, so a listener
+  never observes a partially settled state. Were the CLJS path to fan a
+  drain-owned emit out INLINE while the frame's drain was still active —
+  `re-frame.trace/call-with-deferred-listener-delivery` reduced to `:cljs (f)` —
+  a CLJS listener would observe the db BEFORE the in-flight event committed: a
+  different temporal API from JVM.
 
   ## The probe (identical on both hosts)
 
@@ -22,13 +21,13 @@
     - post-drain delivery (the contract): the callback runs after the whole drain
       unwinds, so the db is already SETTLED — the `:uoy6m/settled?` marker the
       handler wrote is present.
-    - inline delivery (the CLJS defect): the callback runs mid-drain, before the
+    - inline delivery (the hazard): the callback runs mid-drain, before the
       commit, so the marker is ABSENT.
 
   The assertion is an OBSERVABLE OUTCOME — was the settled marker visible? — not
-  an exception. On CLJS this class never throws: an inline read simply returns the
-  un-settled db. The same deftest runs on JVM (already deferred → true) and CLJS
-  (the fix makes it true), so a single cross-host lever pins uniformity.
+  an exception. This hazard never throws: an inline read simply returns the
+  un-settled db. The same deftest runs on JVM and CLJS and must read true on
+  both, so a single cross-host lever pins uniformity.
 
   Runs on both hosts: `-cljs-test` matches the shadow `:node-test` ns-regexp and
   cognitect-test-runner's `*-test` discovery."
@@ -43,11 +42,11 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
+;; ---- Posture: dev-only, declared by `^:requires-debug` ---------------------
 ;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
 ;; no-op, so there is no semantic residue to run under that posture, and a
-;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
-;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
+;; `(when interop/debug-enabled? ...)` split would leave EMPTY deftests
+;; reporting green.  Every deftest
 ;; below is therefore TAGGED, and the production-gate lane skips the tag rather
 ;; than the file: the namespace is still LOADED there, so a load-time failure
 ;; under the gate still reddens the job, and an untagged new deftest joins that
@@ -55,7 +54,7 @@
 
 (deftest ^:requires-debug run-start-listener-observes-settled-db-uniformly
   ;; A drain-owned run-start listener must see the event's SETTLED db on every
-  ;; host. Pre-fix CLJS delivered inline and the listener saw the un-settled db.
+  ;; host. Inline delivery would let the listener see the un-settled db.
   (let [seen-at-run-start (atom :not-recorded)]
     (rf/reg-event :uoy6m/settle
       (fn [{:keys [db]} _] {:db (assoc db :uoy6m/settled? true)}))
