@@ -5,7 +5,7 @@
   `reg-view` injects, Spec 005 §Source-coord stamping, Spec 002
   §with-frame / §`:fx-overrides`.
 
-  Carved out of `re-frame.core` so the public namespace stays a thin
+  Separate from `re-frame.core` so the public namespace stays a thin
   facade focused on user-visible Var resolution rather than macro
   expansion bulk; this ns owns the cohesive responsibility of
   view-registration and frame-scope lexical expansion. The user-facing
@@ -59,9 +59,9 @@
 #?(:clj
    (defn- reagent-slim-form-tag
      "Classify body shape (Form-1 / Form-2) at compile time when reagent-
-     slim is on the classpath. Returns a keyword form-tag or nil. Per
-     rf2-yfbx — the compile-time fold sits in the canonical `reg-view`
-     macro (no separate `defview`); the runtime detection in `reagent2.
+     slim is on the classpath. Returns a keyword form-tag or nil. The
+     compile-time fold sits in the canonical `reg-view`
+     macro (there is no separate `defview`); the runtime detection in `reagent2.
      impl.component/wrap-render` is the load-bearing correctness path,
      this tag is an additive perf hint. `requiring-resolve` keeps core
      free of a static reagent-slim dep — UIx builds resolve nil."
@@ -94,14 +94,14 @@
            ;; metadata (matches Clojure's defn idiom: ^{:doc "..."} sym) —
            ;; EXCEPT the reader's source-position keys.
            ;;
-           ;; Per rf2-quir9: the CLJS analyzer's indexing reader stamps
+           ;; The CLJS analyzer's indexing reader stamps
            ;; `:file` / `:line` / `:column` (+ `:source` / `:end-*`) onto
            ;; the view SYMBOL, and that `:file` is CLASSPATH-RELATIVE
            ;; (`"standard_epochs/core.cljs"`). If we let those ride into the
            ;; registry slot they become `user-meta` in
            ;; `rf.source-coords/merge-coords`, where user keys WIN over the
            ;; pending coords — so the relative reader `:file` clobbers the
-           ;; rf2-wvsxg-absolutised value bound into `*pending-coords*` (see
+           ;; absolutised value bound into `*pending-coords*` (see
            ;; `coord-form` below), shipping a relative `:file` into
            ;; `(rf/handler-meta {:source :store :kind :view :id id})` and breaking Xray / IDE
            ;; open-in-editor for views. The `reg-event-*` path never hits
@@ -136,7 +136,7 @@
              full-slot-meta (cond-> slot-meta
                               docstring (assoc :doc docstring)
                               form-tag  (assoc :reagent2/form form-tag))
-             ;; Per rf2-cry25 §Production elision: the view's dev source-
+             ;; Production elision: the view's dev source-
              ;; coord literal (WITH `:column`, via `coords-form`), reused
              ;; for the `*pending-coords*` binding in the `do` form below.
              ;; The injected capture-frame-bundle’s `:dispatch-opts` /
@@ -166,11 +166,10 @@
              ;; reaching it via `(rf/view :id)` see the tag without a
              ;; registry-slot round-trip.
              ;;
-             ;; Per rf2-kkut0 (frame-affordance redesign) + rf2-cry25
-             ;; (Option A, Mike-ruled): the reg-view injection is now SUGAR
+             ;; The reg-view injection is SUGAR
              ;; over a single `re-frame.capture-frame/make-capture-frame` (the
-             ;; owned constructor behind `capture-frame`, off the facade per
-             ;; rf2-93sxp) — the frame api captures the
+             ;; owned constructor behind `capture-frame`, off the
+             ;; facade) — the frame api captures the
              ;; render-time frame ONCE, and the injected `dispatch` /
              ;; `subscribe` NOUNS are its `:dispatch` / `:subscribe` ops.
              ;; They shadow the coord-capturing `dispatch` / `subscribe`
@@ -183,7 +182,7 @@
              ;; same call-site on its synchronous error path. The body
              ;; stays spliced VERBATIM (`~@body`) — no code-walking, no
              ;; rewriting of user view code; the blast radius is the
-             ;; frame api's opts only. Render-time frame capture is preserved
+             ;; frame api's opts only. The frame is captured at render time
              ;; (`make-capture-frame` captures `(current-frame-id)` once).
              fn-body  `(fn ~sym ~args
                          (let [handle#    (re-frame.capture-frame/make-capture-frame
@@ -195,11 +194,11 @@
                            ~@body))
              fn-form  (cond-> fn-body
                         form-tag (with-meta {:reagent2/form form-tag}))]
-         ;; Per Conventions §`reg-*` return-value (rf2-hzos): every reg-*
+         ;; Per Conventions §`reg-*` return-value: every reg-*
          ;; macro returns its primary id. The trailing `~id` is load-
          ;; bearing — without it the `def` would be the last form and the
          ;; macro would return the Var, breaking the contract.
-         ;; Per rf2-3un2g §Production elision: the binding-value rides
+         ;; Production elision: the binding-value rides
          ;; an outer `interop/debug-enabled?` gate so Closure DCEs the
          ;; dev coords (with `:column`) under `:advanced + goog.DEBUG=false`.
          ;; The bound coords are still captured at runtime via the
