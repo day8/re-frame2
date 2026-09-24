@@ -13,7 +13,8 @@
   documented production gate — handler run ZERO times — while a suite that
   calls itself a \"production gate\" test through `with-redefs` stays
   green. The roster of such suites can look full, and a reviewer reading the
-  file list has no way to see whether any of them runs under the gate. The names are the camouflage.
+  file list has no way to see whether any of them runs under the gate. The
+  names are the camouflage.
 
   A docstring decays; this test is what stops a misleading name being written.
 
