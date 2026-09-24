@@ -15,11 +15,11 @@
   allocated `#1` and the deeper node's child `#2` — a deterministic, declaration-
   order allocation. `:spawn-all` allocates its children in declared-order too.
 
-  The pre-existing spawn suite covered counter allocation through SEPARATE
-  state entries (each entered on its own event) and reverse-creation DISPOSAL
-  order (frame_destroy_cascade_test). This file locks the remaining ordering
-  fact the EP A7 wording asserts and that no single test pinned: deterministic
-  allocation order when MULTIPLE spawns fire in ONE entry cascade.
+  Other spawn tests cover counter allocation through SEPARATE state entries
+  (each entered on its own event) and reverse-creation DISPOSAL order
+  (frame_destroy_cascade_test). This file locks the remaining ordering fact
+  the EP A7 wording asserts: deterministic allocation order when MULTIPLE
+  spawns fire in ONE entry cascade.
 
   Runs under both cognitect.test-runner (JVM, plain-atom) and shadow-cljs
   (CLJS, Reagent) — the `.cljc` shape matching machines_on_error_cljs_test.cljc.
