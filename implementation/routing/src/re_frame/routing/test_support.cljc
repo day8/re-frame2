@@ -63,20 +63,20 @@
   (same trace shape as production, so a single conformance assertion
   covers both paths).
 
-  rf2-azcmd3 — the payload's optional `:carried-route-id` is the route id
+  The payload's optional `:carried-route-id` is the route id
   CAPTURED at request time (mirrors the production `:route-id` arg). It is
   used for the suppressed attempt's work-id rather than the live slice id at
   stale-arrival, so a cross-route stale completion attributes its work-id to
   the route-loader attempt, not whatever route is live when it arrives.
 
-  rf2-ux8sgg — the payload's optional `:carried-completed-at` is the reply
+  The payload's optional `:carried-completed-at` is the reply
   completion time the loader captured (the recordable `:rf/time-ms` fact on
   the reply token, EP-0017). It mirrors the production
   `:rf.route/with-nav-token` `:completed-at` arg: when supplied, a stale
   (superseded) completion's reply / trace carries it, so the test path
   exercises the same completion-time-preservation contract as production."
   [{frame :rf.frame/id rdb :rf.db/runtime} [_ {:keys [on-success-event carried-nav-token carried-route-id carried-completed-at]}]]
-  ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
+  ;; EP-0001: the route slice is durable routing runtime-db state.
   (let [slice   (get-in (or rdb {}) [:rf.runtime/routing :current])
         current (:nav-token slice)]
     (if-not (rf.routing.reply/suppress? carried-nav-token current)
@@ -84,7 +84,7 @@
       {:fx [[:dispatch on-success-event]]}
 
       ;; Stale — suppress through the shared reply-envelope correctness
-      ;; boundary. rf2-7d30s — frame-attribute the suppression (matches
+      ;; boundary. Frame-attribute the suppression (matches
       ;; the production `with-nav-token-handler` path) so it lands in the
       ;; emitting frame's epoch / Xray.
       (let [event-id (when (vector? on-success-event) (first on-success-event))]
@@ -93,14 +93,14 @@
            :current-token current
            :event-id      event-id
            :frame-id      frame
-           ;; rf2-azcmd3 — use the CAPTURED route id (carried with the
+           ;; Use the CAPTURED route id (carried with the
            ;; nav-token at request time), NOT `(:route-id slice)` (the route live
            ;; at stale-arrival). Mirrors the production `with-nav-token-
-           ;; handler` fix so a cross-route stale completion attributes its
+           ;; handler` so a cross-route stale completion attributes its
            ;; work-id to the route-loader attempt, not the current route id.
            :route-id      carried-route-id
            :loader-id     event-id
-           ;; rf2-ux8sgg — mirror the production `:completed-at` lane so the
+           ;; Mirror the production `:completed-at` lane so the
            ;; stale reply / trace carries the captured reply completion time.
            :completed-at  carried-completed-at})
         {}))))
