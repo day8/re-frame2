@@ -2,8 +2,8 @@
   "Read-only tooling projections over the flow registry.
 
   Kept separate from `re-frame.flows` so CLJS applications that attach no tool
-  can eliminate this namespace. JVM consumers receive a facade alias; CLJS
-  tools require this sibling directly."
+  can eliminate this namespace. The facade carries no alias for it; tools
+  require this sibling directly on both runtimes."
   (:require [re-frame.derivation.node :as rf.derivation.node]
             [re-frame.flows.registry :as rf.flows.registry]))
 
