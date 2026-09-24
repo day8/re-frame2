@@ -1002,7 +1002,7 @@
 ;; through a `<template>` first), so an element always arrives complete. The
 ;; HTML parser does not work that way: it INSERTS a `<script>` or `<template>`
 ;; at its start tag and fills it as bytes arrive, and an observer batch can
-;; fall between two network reads. The two tests below drive the browser's
+;; fall between two network reads. The tests below drive the browser's
 ;; own parser one read at a time — `document.open` + `document.write` into a
 ;; same-origin iframe, whose document stays `readyState "loading"` until
 ;; `document.close` — so an element is observed half-parsed exactly as on a
@@ -1166,3 +1166,86 @@
                             (stop!)
                             (remove-root! iframe)
                             (done))))))))))))
+
+(deftest split-fallback-is-painted-whole-through-failure-and-finalisation
+  (testing "rf2-5yj03 — two initial fallback `<template>`s each reach the
+            renderer across two network reads. A half-parsed fallback is
+            painted at once from its prefix but NOT consumed: consumed, the
+            parser would go on writing its tail into the removed original
+            and the mount would keep the prefix for good. Once the parser has
+            closed it, the mount is repainted WHOLE — including a fallback
+            that is the last child of its `<section>`, which is closed once a
+            node follows an element it sits inside. Both stay whole through a
+            failed boundary (`:card.flaky`), an unresolved one (`:card.slow`)
+            and finalisation."
+    (if-not (browser?)
+      (is true ":node-test: no DOM")
+      (async
+        done
+        (let [fid            (make-client-frame!)
+              fallback-html  #(str "<div class=\"card skeleton\">" (name %) " skeleton complete</div>")
+              whole          #(str (name %) " skeleton complete")
+              flaky          (rf.ssr/streaming-fallback-template :card.flaky (fallback-html :card.flaky))
+              slow           (rf.ssr/streaming-fallback-template :card.slow (fallback-html :card.slow))
+              flaky-cut      (str/index-of flaky "complete")
+              slow-cut       (str/index-of slow "complete")
+              ;; Read 1: the shell up to the middle of :card.flaky's fallback.
+              [iframe doc]   (open-streaming-document!
+                               (str "<!DOCTYPE html><html><head></head><body><div id=\"app\">"
+                                    "<main class=\"dashboard\"><section class=\"cards\">"
+                                    (subs flaky 0 flaky-cut)))
+              ready          (atom [])
+              stop!          (rf.ssr.streaming.client/install!
+                               {:frame fid :root doc :on-ready #(swap! ready conj %)})
+              mount-text     #(some-> (mount-for doc %) .-textContent)
+              fallbacks-in-dom
+              #(count (array-seq
+                        (.querySelectorAll
+                          doc (str "[" rf.ssr.streaming.constants/attr-suspense-fallback "]"))))]
+          (is (some? (mount-for doc :card.flaky))
+              "the half-parsed fallback is painted at once: the skeleton is the first paint")
+          (is (= 1 (fallbacks-in-dom))
+              "but its template is not consumed while the parser is still writing it")
+          (after-observer!
+            (fn []
+              ;; Read 2: the rest of :card.flaky's fallback, then
+              ;; :card.slow's cut inside its content.
+              (.write doc (str (subs flaky flaky-cut) (subs slow 0 slow-cut)))
+              (after-observer!
+                (fn []
+                  (is (= (whole :card.flaky) (mount-text :card.flaky))
+                      "once the parser has closed it, the split fallback is repainted WHOLE")
+                  (is (= 1 (fallbacks-in-dom))
+                      "and consumed, while :card.slow's, still being written, is not")
+                  ;; Read 3: the rest of :card.slow's fallback, the LAST child
+                  ;; of its section, the end of the shell, then :card.flaky's
+                  ;; failed chunk — the first node after `#app`.
+                  (.write doc (str (subs slow slow-cut) "</section></main></div>"
+                                   (failed-chunk-html :card.flaky (fallback-html :card.flaky))))
+                  (after-observer!
+                    (fn []
+                      (is (= (whole :card.slow) (mount-text :card.slow))
+                          "a last-child fallback is repainted WHOLE once a node follows its section")
+                      (is (zero? (fallbacks-in-dom))
+                          "and consumed then, before the document has finished parsing")
+                      ;; Read 4: the payload and the end of the document.
+                      ;; :card.slow never resolves.
+                      (.write doc (str "<script id=\"" rf.ssr.constants/payload-script-id
+                                       "\" type=\"application/edn\">{:rf/version 1}</script>"
+                                       "</body></html>"))
+                      (.close doc)
+                      (await! #(seq @ready) 2000
+                              (fn [finalised?]
+                                (is finalised? "finalised once the document has been parsed")
+                                (is (= [{:resolved #{} :failed #{:card.flaky}}] @ready)
+                                    "one failed boundary, one never resolved")
+                                (is (= [(whole :card.flaky) (whole :card.slow)]
+                                       (mapv #(.-textContent %)
+                                             (array-seq (.querySelectorAll doc ".cards .skeleton"))))
+                                    "both fallbacks are painted WHOLE in the finalised DOM")
+                                (is (nil? (.querySelector
+                                            doc (str "[" rf.ssr.streaming.constants/attr-suspense-mount "]")))
+                                    "and every mount was unwrapped")
+                                (stop!)
+                                (remove-root! iframe)
+                                (done))))))))))))))
