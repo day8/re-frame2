@@ -4506,7 +4506,7 @@
         (try
           ;; Fail the PRE-dissoc snapshot for this id (delegate every other id):
           ;; destroy-frame! converts the throw to nil terminal-evidence and threads
-          ;; it to on-frame-destroyed! (#5939). Teardown is best-effort — it does
+          ;; it to on-frame-destroyed!. Teardown is best-effort — it does
           ;; NOT abort — so destroy-frame! returns normally.
           (rf.late-bind/set-fn! :epoch/snapshot-frame-destroyed
             (fn [& args]
@@ -4518,7 +4518,7 @@
           ;; (1) EXACT-OWNER STORE CLEANUP ran despite the nil bundle. Each of the
           ;;     FIVE id-keyed stores the cleanup-fn drops is asserted directly, so
           ;;     re-nesting cleanup under the evidence guard — or removing ANY single
-          ;;     drop call — fails exactly the matching assertion (rf2-oh1y8).
+          ;;     drop call — fails exactly the matching assertion.
           (is (empty? (rf.epoch.state/cbs-observing-frame id))
               "observation stamps dropped (drop-frame-observation!)")
           (is (= [] (rf.epoch.state/history-for id))
@@ -4538,7 +4538,7 @@
           (is (nil? (rf.frame/frame-incarnation-token id))
               "A is fully destroyed — no live incarnation owns the id")
 
-          ;; (2) #5939 NON-FABRICATION still holds: the nil bundle publishes nothing.
+          ;; (2) NON-FABRICATION still holds: the nil bundle publishes nothing.
           (is (empty? (filterv #(= :halted-destroy (:outcome %)) @records))
               "no :halted-destroy record is fabricated from the nil bundle")
           (is (empty? (filterv #(= :rf.epoch.cb/silenced-on-frame-destroy
@@ -4617,7 +4617,7 @@
           "no :rf.epoch/db-replaced trace leaked into the cascade's
            harvested trace-events"))))
 
-;; ---- rf2-zzper: on-frame-destroyed! drops in-flight capture-buffer --------
+;; ---- on-frame-destroyed! drops in-flight capture-buffer -------------------
 ;;
 ;; The per-event halt and abort paths each clear their own buffer at the
 ;; settle / harvest seam. But a destroy that
@@ -4660,7 +4660,7 @@
       (is (some? (get @buffers-atom :test/main))
           "sanity: the synthetic capture-buffer entry is present pre-destroy")
 
-      ;; rf2-9neiq / rf2-bh56rc: on-frame-destroyed! takes (frame-id
+      ;; on-frame-destroyed! takes (frame-id
       ;; owner-token db-before db-after committed-at) — exact ownership plus
       ;; the two snapshots destroy-frame!
       ;; threads plus the destroying event's causal :time-ms. This test
@@ -4676,28 +4676,27 @@
            pre-destroy event can leak into a same-keyed frame's next
            cascade"))))
 
-;; ---- rf2-ee38b + rf2-9neiq: live :halted-destroy partial-record commit ----
+;; ---- live :halted-destroy partial-record commit ----------------------------
 ;;
-;; Per the correctness review (ai/findings/review/correctness--
-;; implementation-epoch.md): the live `:halted-destroy` partial-record
-;; commit — the most intricate live destroy behaviour in the artefact —
-;; was only exercised by tests whose assertions were conditionally
-;; skipped (`(when @halted ...)` / `(when-let [halted ...] ...)`), so a
+;; The live `:halted-destroy` partial-record
+;; commit is the most intricate live destroy behaviour in the artefact.
+;; Assertions that are conditionally
+;; skipped (`(when @halted ...)` / `(when-let [halted ...] ...)`) would let a
 ;; regression in the live wiring (capture buffer empty / lacking a
-;; run-start by destroy time, or the `in-cascade?` gate regressing) would
-;; pass green with zero executed assertions. This test drives a REAL
+;; run-start by destroy time, or the `in-cascade?` gate regressing)
+;; pass green with zero executed assertions, so this test drives a REAL
 ;; mid-drain `destroy-frame!` and asserts the full contract
 ;; UNCONDITIONALLY: exactly one :halted-destroy record reaches a
 ;; registered epoch listener, with :outcome :halted-destroy, a populated
 ;; :event-id, REAL :db-before / :db-after snapshots, the halt-reason
-;; descriptor, and — per the rf2-d656 read-empty contract — that the
+;; descriptor, and — per the read-empty contract — that the
 ;; partial record was NOT appended to the ring (epoch-history returns []
 ;; for a destroyed frame; devtools receive the record via the listener
 ;; fan-out, the documented introspection channel for the destroy halt).
 ;;
 ;; Per Spec-Schemas §:rf/epoch-record §Outcomes, :halted-destroy carries the
 ;; PRE-CASCADE snapshot as :db-before and the DESTROY-TIME state as :db-after
-;; (rf2-9neiq) — NOT nil/nil. `destroy-frame!` threads both snapshots
+;; — NOT nil/nil. `destroy-frame!` threads both snapshots
 ;; (pre-cascade via frame/*cascade-db-before*, destroy-time via the container
 ;; read at the top of destroy-frame!) into the destroy hook before the
 ;; container is dissoc'd, so the record carries the real app-db state.
@@ -4706,7 +4705,7 @@
   (testing "a mid-drain destroy-frame! fires exactly one :halted-destroy
             partial record to listeners (NOT to the ring), carrying the
             cascade's :event-id, halt-reason, and the REAL pre-cascade
-            :db-before / destroy-time :db-after snapshots (rf2-9neiq) —
+            :db-before / destroy-time :db-after snapshots —
             the live capture-buffer → in-cascade? gate →
             destroy-frame!-threaded-snapshots → notify-listeners! chain"
     (rf/make-frame {:id :test/main})
@@ -4730,8 +4729,8 @@
                                     @records)]
         ;; UNCONDITIONAL: exactly one :halted-destroy record reached the
         ;; live listener fan-out via the capture-buffer → in-cascade?
-        ;; gate. If the wiring stops firing, this fails loudly (the
-        ;; old guarded form passed green with zero assertions).
+        ;; gate. If the wiring stops firing, this fails loudly (a
+        ;; guarded form would pass green with zero assertions).
         (is (= 1 (count halted-records))
             "exactly one :halted-destroy record reaches a registered
              epoch listener from the live mid-drain destroy")
@@ -4740,12 +4739,12 @@
           (is (= :destroy-self (:event-id halted))
               "the cascade's :event-id is pinned on the partial record
                (the buffered :destroy-self run-start drove the commit)")
-          ;; rf2-9neiq: the partial record carries the REAL pre-cascade
+          ;; The partial record carries the REAL pre-cascade
           ;; snapshot as :db-before, NOT nil. The :destroy-self cascade's
           ;; pre-cascade db is the {:n 7 :live true} the :seed settled.
           (is (= {:n 7 :live true} (:db-before halted))
               "halted-destroy carries the real pre-cascade :db-before
-               snapshot (rf2-9neiq) — the frame's app-db before the
+               snapshot — the frame's app-db before the
                in-flight cascade began, NOT nil")
           ;; The destroy-time :db-after: the live container value read at
           ;; the top of destroy-frame!, before teardown. The :destroy-self
@@ -4753,7 +4752,7 @@
           ;; pre-cascade value here — REAL state, NOT nil.
           (is (= {:n 7 :live true} (:db-after halted))
               "halted-destroy carries the real destroy-time :db-after
-               state (rf2-9neiq) — the partial cascade's writes survive in
+               state — the partial cascade's writes survive in
                the recorded value; NOT nil")
           (is (= {:operation :rf.frame/destroyed-mid-drain}
                  (:halt-reason halted))
@@ -4761,15 +4760,14 @@
         ;; The partial record is NOT appended to the ring — devtools
         ;; receive it via the listener fan-out only, and the ring is
         ;; dropped on destroy (epoch-history returns [] for the destroyed
-        ;; frame per the rf2-d656 read-empty contract). This part of the
-        ;; contract is UNCHANGED by rf2-9neiq.
+        ;; frame per the read-empty contract).
         (is (empty? (filter (fn [r] (= :halted-destroy (:outcome r)))
                             (rf.epoch/epoch-history :test/main)))
             "the :halted-destroy record never lands in the ring buffer
              (it is delivered to listeners only; epoch-history is
-             read-empty post-destroy per rf2-d656)")))))
+             read-empty post-destroy)")))))
 
-;; rf2-9neiq — :db-before and :db-after DIVERGE when the in-flight cascade
+;; :db-before and :db-after DIVERGE when the in-flight cascade
 ;; committed an app-db write before destroying. A parent event writes the
 ;; db and `:fx`-dispatches a child; the child is the event whose handler
 ;; calls destroy-frame!. The child's pre-cascade :db-before is the
@@ -4781,7 +4779,7 @@
 (deftest live-halted-destroy-db-before-reflects-committed-cascade-writes
   (testing "the :halted-destroy record's :db-before is the destroying
             (child) event's pre-cascade snapshot — which reflects the
-            parent event's already-committed write (rf2-9neiq)"
+            parent event's already-committed write"
     (rf/make-frame {:id :test/main})
     (let [records (atom [])]
       (rf/register-listener! :epoch ::watch (fn [r] (swap! records conj r)))
@@ -4810,7 +4808,7 @@
         ;; The child's pre-cascade :db-before reflects the parent's
         ;; already-committed write — proving :db-before is the genuine
         ;; per-event pre-cascade snapshot, not nil and not the frame's
-        ;; initial {} (rf2-9neiq).
+        ;; initial {}.
         (is (= {:phase :parent-done :marker 42} (:db-before halted))
             ":db-before is the destroying event's pre-cascade snapshot —
              the parent's committed {:phase :parent-done :marker 42}")
@@ -4818,10 +4816,10 @@
             ":db-after is the destroy-time state (the child committed no
              further write before destroying)")))))
 
-;; ---- rf2-kl5p1: build-record omits :event-id / :trigger-event when
+;; ---- build-record omits :event-id / :trigger-event when
 ;; ---- find-trigger-event yields nothing -----------------------------------
 ;;
-;; Per audit r3 §F1: `:rf/epoch-record` declares `[:event-id :keyword]`
+;; `:rf/epoch-record` declares `[:event-id :keyword]`
 ;; (required, non-maybe per Spec-Schemas §`:rf/epoch-record`). The live
 ;; router halt paths short-circuit `build-record` on an empty buffer via
 ;; `(when (seq events) ...)` in `settle!`, but `on-frame-destroyed!`'s
@@ -4834,8 +4832,7 @@
 ;; the assembled record carries NEITHER slot (the schema admits the
 ;; absent slot, rejects nil values). `build-record` is exercised
 ;; directly because driving a real router path with this exact degenerate
-;; buffer requires cooperation with internals the audit-time fix does
-;; not change.
+;; buffer would need cooperation from router internals.
 
 (deftest build-record-omits-event-id-and-trigger-event-on-tag-less-buffer
   (testing "build-record on a buffer whose only `:event/run-start` trace
@@ -4847,7 +4844,7 @@
     ;; Synthetic `:event/run-start` with empty tags — the `in-cascade?`
     ;; gate at on-frame-destroyed! fires on phase :run-start, but the
     ;; tags carry no :event-id / :event, so find-trigger-event resolves
-    ;; nothing. This mirrors the degenerate path the audit identified
+    ;; nothing. This mirrors the degenerate path
     ;; on the :halted-destroy commit.
     (let [tag-less-events [{:op-type   :rf.event
                             :operation :rf.event/run-start
@@ -4855,7 +4852,7 @@
                                         :rf.trace/phase :run-start}}]
           record          (#'rf.epoch.assembly/build-record
                             :test/main nil nil tag-less-events
-                            1700000000000  ; rf2-bh56rc: committed-at (token :time-ms)
+                            1700000000000  ; committed-at (token :time-ms)
                             :halted-destroy
                             {:operation :rf.frame/destroyed-mid-drain})]
       (is (not (contains? record :event-id))
@@ -4875,8 +4872,7 @@
 
 (deftest build-record-emits-event-id-and-trigger-event-when-trigger-resolves
   (testing "the conditional cond-> slots are emitted when find-trigger-event
-            resolves both — the rf2-kl5p1 fix must not regress the
-            happy-path record shape"
+            resolves both — the happy-path record shape"
     (rf/make-frame {:id :test/main})
     (let [events [{:op-type   :rf.event
                    :operation :rf.event/run-start
@@ -4889,18 +4885,18 @@
           ":event-id is the resolved event keyword")
       (is (= [:seed 1 2 3] (:trigger-event record))
           ":trigger-event is the full event vector — payload preserved")
-      ;; rf2-bh56rc: :committed-at is the supplied causal time verbatim —
+      ;; :committed-at is the supplied causal time verbatim —
       ;; build-record performs NO clock read of its own.
       (is (= 1700000000000 (:committed-at record))
           ":committed-at is the supplied committed-at (token :time-ms),
            not an ambient now-ms read"))))
 
-;; ---- rf2-7kxxx: find-trigger-event must not synthesise [eid] when
+;; ---- find-trigger-event must not synthesise [eid] when
 ;; ---- :event tag is absent on the fallback arm ----------------------------
 ;;
-;; Per audit r3 §F2: the fallback arm of `find-trigger-event` returns
+;; The fallback arm of `find-trigger-event` returns
 ;; `:event nil` when the buffered event carries an `:event-id` tag but no
-;; `:event` tag, and (per rf2-kl5p1) `build-record` then omits the
+;; `:event` tag, and `build-record` then omits the
 ;; `:trigger-event` slot entirely. Synthesising `[eid]` as `:event` would
 ;; misrepresent an event that carried payload (e.g. `[:foo "bar" 42]`) as a
 ;; payload-less event, so there is no such fabrication; consumers rendering
@@ -4924,7 +4920,7 @@
            :trigger-event"))
 
     ;; Build-record consumes the fallback's nil :event via its conditional
-    ;; cond-> (rf2-kl5p1) and emits no :trigger-event slot.
+    ;; cond-> and emits no :trigger-event slot.
     (rf/make-frame {:id :test/main})
     (let [tag-less-events [{:op-type   :rf.event
                             :operation :rf.event
@@ -4932,7 +4928,7 @@
                                         :rf.trace/event-id :foo}}]
           record          (#'rf.epoch.assembly/build-record
                             :test/main nil nil tag-less-events
-                            1700000000000  ; rf2-bh56rc: committed-at (token :time-ms)
+                            1700000000000  ; committed-at (token :time-ms)
                             :halted-destroy
                             {:operation :rf.frame/destroyed-mid-drain})]
       (is (= :foo (:event-id record))
@@ -4944,7 +4940,7 @@
 (deftest find-trigger-event-fallback-preserves-payload-when-event-tag-present
   (testing "find-trigger-event's fallback arm preserves the full event
             vector when the buffered event DOES carry an :event tag —
-            the rf2-7kxxx fix must not strip payload from the
+            payload is never stripped on the
             non-degenerate fallback path"
     (let [events  [{:op-type   :rf.event
                     :operation :rf.event
@@ -4956,10 +4952,9 @@
       (is (= [:foo "bar" 42] (:event trigger))
           "the full event vector survives — payload is preserved"))))
 
-;; ---- rf2-ee38b: find-trigger-event fallback arm does not pin :dispatch-id --
+;; ---- find-trigger-event fallback arm does not pin :dispatch-id -------------
 ;;
-;; Per the correctness review (ai/findings/review/correctness--
-;; implementation-epoch.md): the run-start arm (rf2-rly4a) reads
+;; The run-start arm reads
 ;; :dispatch-id from the canonical `:event/run-start` trace, which is
 ;; correct. Surfacing the :dispatch-id of an arbitrary non-run-start trace
 ;; (e.g. an error trace from a rejected dispatch) on the fallback arm would
@@ -4972,7 +4967,7 @@
   (testing "find-trigger-event's fallback arm (no :event/run-start
             buffered) does NOT surface :dispatch-id — even when the
             fallback trace carries one — matching the spec's 'absent for
-            a no-run-start cascade' shape (rf2-ee38b)"
+            a no-run-start cascade' shape"
     (let [fallback-with-did [{:op-type   :rf.event
                               :operation :rf.event
                               :tags      {:frame                :test/main
@@ -4994,7 +4989,7 @@
                                :rf.trace/dispatch-id 99}}]
           record (#'rf.epoch.assembly/build-record
                   :test/main nil nil events
-                  1700000000000  ; rf2-bh56rc: committed-at (token :time-ms)
+                  1700000000000  ; committed-at (token :time-ms)
                   :halted-destroy
                   {:operation :rf.frame/destroyed-mid-drain})]
       (is (not (contains? record :dispatch-id))
@@ -5002,9 +4997,8 @@
            resolved the trigger — no incidental id leaks onto the slot"))))
 
 (deftest find-trigger-event-run-start-arm-still-pins-dispatch-id
-  (testing "the run-start arm remains the canonical :dispatch-id source
-            (rf2-rly4a) — the rf2-ee38b fallback change must not regress
-            it"
+  (testing "the run-start arm is the canonical :dispatch-id source —
+            the fallback arm's omission does not reach it"
     (let [events  [{:op-type   :rf.event
                     :operation :rf.event/run-start
                     :tags      {:frame                :test/main
@@ -5017,7 +5011,7 @@
           "the run-start arm pins :dispatch-id from the canonical
            :event/run-start trace"))))
 
-;; ---- rf2-eo4pr: record-observation! guards its swap -----------------------
+;; ---- record-observation! guards its swap ----------------------------------
 ;;
 ;; `notify-listeners!` invokes `record-observation!` once per listener per
 ;; event settle. For the steady state — a long-lived listener observing the
