@@ -85,7 +85,7 @@
 ;; continuation, exactly the role Elm's `Cmd.map` plays. Identity target
 ;; carries no `::post` (treated as identity); composition composes them.
 ;;
-;; STALE OUTCOMES NEVER APP-DELIVER (rf2-j538f7.14). A superseded async
+;; STALE OUTCOMES NEVER APP-DELIVER. A superseded async
 ;; completion's app reply target is NEVER dispatched — `suppress` is
 ;; UNIVERSALLY non-delivering (`:deliver? false`), full stop. There is no
 ;; per-target "stale delivery authority", no per-target opt-in flag, and no
@@ -156,14 +156,13 @@
   category is absent from this table, is a contract bug, not a deferred
   follow-up). Keep the two in lockstep.
 
-  Replaces the former dynamic `(keyword \"rf.error\" (str \"reply-\" (name
-  category)))` constructor: that minted the same ids but they were
-  grep-INVISIBLE in source (the docstring cited greppability the construction
-  itself defeated) AND the mintable set was open (any `:rf.reply/*` category
-  produced an id with no catalogue row). A map is callable, so the single
-  call site reads unchanged; the fail-closed guard in `reply-error` turns an
-  unregistered category into a loud framework error rather than a silently
-  uncatalogued `:rf.error/id`.
+  A literal table rather than a dynamic `(keyword \"rf.error\" (str \"reply-\"
+  (name category)))` constructor: that would mint the same ids but leave them
+  grep-INVISIBLE in source AND leave the mintable set open (any `:rf.reply/*`
+  category would produce an id with no catalogue row). A map is callable, so
+  the single call site is a plain lookup; the fail-closed guard in
+  `reply-error` turns an unregistered category into a loud framework error
+  rather than a silently uncatalogued `:rf.error/id`.
 
   NOTE `:rf.reply/correlation-mismatch` is NOT a member — it is a
   `:rf.reply/stale-reason` VALUE on a (non-throwing) stale reply, never an
@@ -368,9 +367,8 @@
   / hydration / epoch snapshots / replay) safely — a durable timestamp is an
   epoch-millisecond long under EP-0010, never a host `Date`. Plain EDN data —
   maps, vectors, sets, keywords, strings, numbers, booleans, nil, symbols,
-  instants represented as longs — passes. (This detector and its documented
-  contract are now ALIGNED — the predicate enforces exactly the set the
-  docstring names, on both runtimes.)"
+  instants represented as longs — passes. The predicate enforces exactly the
+  set named here, on both runtimes."
   [v]
   (or (fn? v)
       #?(:cljs (or (and (exists? js/Promise) (instance? js/Promise v))
@@ -404,15 +402,15 @@
   `max-nodes` nodes and returns nil (no handle reported) rather than
   continuing an unbounded traversal.
 
-  Per rf2-70h9wn (Conventions §Event payloads SHOULD be serialisable data):
+  Per Conventions §Event payloads SHOULD be serialisable data:
   the dev-only event-payload lint reuses this walker to bound a pathological
   deeply-nested or huge payload so the lint itself cannot become a
   performance footgun on the hot dispatch path. A budget-exhausted walk is a
   false NEGATIVE (give up, report clean) rather than a false positive — the
   correct fail-safe direction for an ADVISORY surface.
 
-  `durable-target` / `validate-reply` keep the unbounded `walk-find-host-
-  handle` unchanged: their contract is a hard MUST (a durable reply target /
+  `durable-target` / `validate-reply` use the unbounded `walk-find-host-
+  handle`: their contract is a hard MUST (a durable reply target /
   reply map must never smuggle a host handle past a budget cutoff), so they
   do not use this bounded sibling."
   [v max-nodes]
@@ -659,20 +657,20 @@
   ([reply] (trace-summary reply nil))
   ([reply opts]
    (let [force-redact? (true? (:rf.privacy/force-redact-wire? opts))
-         ;; PRESENCE, not truthiness (rf2-gwye.64). The carried stamp seeds
-         ;; `:frame` only when the caller OMITTED the key. `(nil? (:frame
-         ;; opts))` made `{:frame nil}` — "no frame governs this summary" —
-         ;; indistinguishable from "no `:frame` key", so the carried stamp
-         ;; overrode the caller's explicit nil and the wire slots shipped
-         ;; under a policy the caller had just declined. The walker below
-         ;; already reads `:frame` by key presence and fails closed on an
-         ;; explicit nil; this seed is what hid that from reply callers.
+         ;; PRESENCE, not truthiness. The carried stamp seeds
+         ;; `:frame` only when the caller OMITTED the key. A `(nil? (:frame
+         ;; opts))` test would make `{:frame nil}` — "no frame governs this
+         ;; summary" — indistinguishable from "no `:frame` key", so the carried
+         ;; stamp would override the caller's explicit nil and the wire slots
+         ;; would ship under a policy the caller had just declined. The walker
+         ;; below reads `:frame` by key presence and fails closed on an
+         ;; explicit nil; this seed keeps that visible to reply callers.
          opts (cond-> opts
                 (and (not (contains? opts :frame)) (contains? reply :rf.frame/id))
                 (assoc :frame (:rf.frame/id reply)))
          ;; `:rf.privacy/force-redact-wire?` is THIS layer's own option — it
          ;; is consumed above and is not part of the walker's CLOSED egress
-         ;; vocabulary (rf2-kuky.6), so it is dropped before forwarding
+         ;; vocabulary, so it is dropped before forwarding
          ;; rather than left to trip the closed-map guard.
          opts (dissoc opts :rf.privacy/force-redact-wire?)]
      (reduce (fn [m slot]
@@ -717,7 +715,7 @@
   concrete: the returned `:reply` is `:status :stale` (no `:value`, no app
   mutation), and `:deliver?` is ALWAYS `false`.
 
-  A STALE OUTCOME NEVER APP-DELIVERS (rf2-j538f7.14). A superseded async
+  A STALE OUTCOME NEVER APP-DELIVERS. A superseded async
   result must not mutate app state for a newer navigation / request /
   generation, so the app reply target is never dispatched — there is no
   per-target \"stale delivery authority\" and no per-target opt-in flag. A
@@ -775,7 +773,7 @@
          ;; `:meta` — ride verbatim), then FORCE the stale invariants on top
          ;; and STRIP `:value`. A caller that accidentally threads a natural
          ;; success/error reply as `extra` (`{:status :ok :value … :work/
-         ;; status :completed}`) can no longer produce an invalid non-stale
+         ;; status :completed}`) cannot produce an invalid non-stale
          ;; reply — the forced fields override and `:value` (which a stale
          ;; reply MUST NOT carry — see `validate-reply`) is dissoc'd.
          carry    (dissoc extra :rf.reply/stale-reason :value)
