@@ -70,7 +70,7 @@
         (is (= 6 (get-in s [:data :correct-count]))
             "action ran; data updated; state unchanged"))))
 
-  (testing ":always cycle hits depth limit — macrostep fails atomically (rf2-y3jv8q)"
+  (testing ":always cycle hits depth limit — macrostep fails atomically"
     ;; Two states ping-pong via :always with always-true guards. The microstep
     ;; loop trips the depth limit; per Spec 005 §Bounded depth the macrostep
     ;; FAILS atomically — XState v5 throws on such a runaway. The
@@ -113,8 +113,8 @@
           "a runaway cycle is NOT a benign no-op — no unhandled-no-op fires"))))
 
 (deftest machine-always-bare-keyword-shorthand-cljs
-  (testing "a bare-keyword :always (the :on / :after keyword-target shorthand,
-            rf2-0k0f3x) registers cleanly and desugars to {:target <kw>} — no
+  (testing "a bare-keyword :always (the :on / :after keyword-target shorthand)
+            registers cleanly and desugars to {:target <kw>} — no
             raw platform throw (assoc on a keyword) at the first macrostep,
             and the eventless transition fires unconditionally on entry"
     (let [machine
