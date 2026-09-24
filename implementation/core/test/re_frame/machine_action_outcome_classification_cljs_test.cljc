@@ -1,45 +1,44 @@
 (ns re-frame.machine-action-outcome-classification-cljs-test
-  "rf2-orcd31 — `:rf.machine/action-ran`'s `:outcome` tag (the action's RAW
-  returned effect map, `{:data :fx}` per Spec 005 §Action effect map) carried
-  NO classification pass in `re-frame.classification/project-machine-tags`:
-  the cond-> handled `:before` / `:after` / `:snapshot` / bare `:data` /
-  `:input` / `:cascade` / `:event` but not `:outcome`, so an action returning
-  updated `:data` containing a classified path (the NORMAL shape of a
-  state-mutating action) leaked it raw on EVERY transition.
+  "`:rf.machine/action-ran`'s `:outcome` tag (the action's RAW returned effect
+  map, `{:data :fx}` per Spec 005 §Action effect map) gets a classification
+  pass in `re-frame.classification/project-machine-tags`, beside `:before` /
+  `:after` / `:snapshot` / bare `:data` / `:input` / `:cascade` / `:event`.
+  Without it, an action returning updated `:data` containing a classified path
+  (the NORMAL shape of a state-mutating action) would leak it raw on EVERY
+  transition.
 
-  The fix projects `:outcome` in two halves:
+  `:outcome` is projected in two halves:
 
     - `:data` — under the machine's class gate, with the SAME `:data`-rooted
       path set the bare `:data` / `[:input :data]` clauses use.
     - `:fx` + the hard-disallowed `:db` — UNCONDITIONALLY
       (`project-action-outcome-shell`): the `:fx` entries walk the same
       per-entry registration/dynamic classification as the `:rf.event/fx`
-      aggregate (rf2-32ffq1's `project-fx-args`), and a disallowed `:db` echo
+      aggregate (`project-fx-args`), and a disallowed `:db` echo
       summarizes to `:rf/redacted` (matching `:rf.error/machine-action-wrote-db`'s
       unconditional `:offending-value` posture).
 
-  Mirrors rf2-ghgbqi's regression style
-  (machine_routed_event_classification_cljs_test): deterministic projector
-  teeth on hand-built trace shapes + a live round-trip proving the action
-  itself still reads and persists the raw value (egress-only).
+  Mirrors the style of machine_routed_event_classification_cljs_test:
+  deterministic projector teeth on hand-built trace shapes + a live round-trip
+  proving the action itself reads and persists the raw value (egress-only).
 
   Dual-runtime `*_cljs_test.cljc`: the shadow `:node-test` build
   (`npm run test:cljs`, `cljs-test$` ns-regexp) AND the JVM `clojure -M:test`
   runner both run it.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   The DETERMINISTIC PROJECTOR TEETH — `rf.classification/project-machine-tags`
   called directly on hand-built trace shapes — are pure functions and run
-  under `scripts/test-core-prod-gate.sh` unchanged. So does the live
+  under `scripts/test-core-prod-gate.sh` as written. So does the live
   round-trip's EGRESS-ONLY claim: the action reads the raw value, the durable
   snapshot holds it, and a second action reads it back. Those are the
   assertions that prove redaction did not corrupt control flow, and they are
   the ones worth having in the production lane.
 
   The LIVE TRACE assertions are dev-only, because the trace stream they police
-  does not exist under `-Dre-frame.debug=false`. They are kept verbatim inside
-  a `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841` — the no-leak
+  does not exist under `-Dre-frame.debug=false`. They sit inside
+  a `(when rf.interop/debug-enabled? …)` arm — the no-leak
   NEGATIVE emphatically included. `(not (some #(leaks? sentinel %) @seen))`
   over an empty `@seen` is true because nothing was emitted, and a redaction
   suite reporting green on that basis is the worst false green in this
@@ -96,7 +95,7 @@
       (is (= 2 (get-in t [:outcome :data :count]))
           "the non-secret :count survives (path-precise)")
       (is (= rf.privacy/redacted-sentinel (get-in t [:input :data :secret]))
-          "[:input :data] still redacts (unchanged pre-existing behaviour)")
+          "[:input :data] redacts too")
       (is (not (leaks? data-sentinel t))
           "the data sentinel appears NOWHERE in the projected action-ran trace"))))
 
@@ -116,7 +115,7 @@
   (testing "an action's returned :fx entries walk the SAME per-entry
             classification as the :rf.event/fx aggregate — including on a
             machine with NO classification of its own (registration-driven)"
-    ;; A classified TARGET event — the nested-dispatch inheritance (rf2-32ffq1).
+    ;; A classified TARGET event — the nested-dispatch inheritance.
     (rf.registrar/register! :event ::classified-target {:sensitive [[:secret]]})
     (let [t (project {:operation :rf.machine/action-ran
                       :tags {:actor-id :rf.orcd31/unclassified-machine
@@ -152,7 +151,7 @@
 ;; =====================================================================
 
 (deftest live-action-outcome-redacts-while-action-reads-raw
-  (testing "rf2-orcd31 acceptance: a machine action returning updated :data
+  (testing "a machine action returning updated :data
             containing a classified path — the action computes with (and the
             snapshot durably holds) the RAW value, while :rf.machine/action-ran's
             :outcome (and every other emitted slot) ships it redacted"
@@ -160,9 +159,9 @@
           read  (atom ::none)
           seen  (atom [])]
       ;; OPTS metadata `:sensitive`: `[1 :value]` classifies the routed inner
-      ;; event's arg-map slot (so the echo slots redact — rf2-ghgbqi);
-      ;; `[:data :secret]` classifies the durable snapshot slot (and, post-fix,
-      ;; the action-return echo at :outcome).
+      ;; event's arg-map slot (so the echo slots redact);
+      ;; `[:data :secret]` classifies the durable snapshot slot (and the
+      ;; action-return echo at :outcome).
       (rf/reg-machine mid
         {:sensitive [[1 :value] [:data :secret]]}
         {:initial :idle
@@ -185,7 +184,8 @@
       (is (= data-sentinel @wrote)
           "the action computed with the RAW value (egress-only redaction)")
 
-      ;; rf2-d2841 — dev-instrumentation arm. The trace stream IS the surface
+      ;; Dev-instrumentation arm (see ns docstring §Posture split). The trace
+      ;; stream IS the surface
       ;; this projector protects, and it does not exist under
       ;; `-Dre-frame.debug=false`. Both assertions go inside, the
       ;; no-leak NEGATIVE especially: over an empty `@seen` "no emitted trace
