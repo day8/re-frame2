@@ -1,7 +1,7 @@
 (ns re-frame.routing.replan
   "`:rf.route/replan-resources` event for re-frame2 routing — Spec 012
   §Replanning the active route's resources / Spec 016 §Route-plan replan —
-  same-token reconciliation (rf2-y8jjk).
+  same-token reconciliation.
 
   Rerun the ACTIVE route's effective parent-to-leaf resource plan against the
   CURRENT app-db WITHOUT navigating. The one causal door for an app-db-derived
@@ -10,7 +10,7 @@
   re-keys reactively when its resolver inputs change, but re-keying is PASSIVE
   — the newly selected scoped key sits `:idle` until some cause ensures it, and
   identical navigation is deliberately a no-op (Spec 012 §Navigation is an
-  event rule 3), so before this command nothing public could rerun the standing
+  event rule 3), so this command is the one public way to rerun the standing
   plan. Replan:
 
     - carries ONE closed payload map, `{:cause <edn>}` — `:cause` is REQUIRED
@@ -66,7 +66,7 @@
       absent (hook unbound) — the event ships with routing, the semantics with
       Resources, exactly like `:rf.route/prefetch`.
 
-  Evidence needs no new trace operation: the existing `:rf.resource/route-plan`
+  Replan has no trace operation of its own: the `:rf.resource/route-plan`
   row carries `:plan-cause :replan` plus the caller cause under `:replan-cause`,
   the ensure / adopt dispatches carry the caller cause as their ordinary
   `:cause`, and the `:rf.route/replan-resources` event itself is the ledger
@@ -199,7 +199,7 @@
             ;; committed failed replan.
             {:keys [branch branch-error]} (rf.routing.events/resolve-branch route-id)
             ;; The token's recorded plan identities are the diff's PREVIOUS
-            ;; membership (byte-keyed, rf2-btdl1). Absent after a committed
+            ;; membership (byte-keyed). Absent after a committed
             ;; failed activation — then everything is `added`, which is the
             ;; repair.
             prev-identities (get-in rdb [:rf.runtime/routing :resource-plan nav-token])
