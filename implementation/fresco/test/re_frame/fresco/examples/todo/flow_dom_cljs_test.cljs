@@ -3,19 +3,19 @@
 
   One pass through the application on a real React root: adding through
   a real form submission, a real checkbox, edit-in-place under real
-  keystrokes, a real click on a real filter link, and — the bead's own
-  acceptance — **keyed identity across a filter flip, asserted by DOM
-  NODE IDENTITY**. Every row ends at `hm/assert-clean!`.
+  keystrokes, a real click on a real filter link, and — the central
+  claim — **keyed identity across a filter flip, asserted by DOM NODE
+  IDENTITY**. Every row ends at `hm/assert-clean!`.
 
   ## This file reaches no internal namespace either
 
-  The bead's acceptance fences the APPLICATION and a test is allowed
+  The `:require` fence is on the APPLICATION and a test is allowed
   more; this one takes none of that allowance. The three helpers below —
   `browser?`, `skip!` and the act flag inside the fixture — are one line
   each, and writing them here keeps the whole witness, application and
   suite, readable as something a consumer could have written.
 
-  ## TWO CLICKS, TWO SETTLING RULES (the slice report's finding 6, confirmed)
+  ## TWO CLICKS, TWO SETTLING RULES
 
   A Fresco intent dispatches through the runtime's own SYNCHRONOUS
   frame-locked door, so after a real click on `.destroy` or
@@ -31,14 +31,13 @@
 
   So `hm/settle-until!` waits on the CONDITION — the facade's own door
   for the enqueued kind, a bounded `re-frame.test-support/poll-until`
-  with the flush this file used to pair by hand, and it composes with
-  `cljs.test/async` the same way. There is no virtual clock here
-  and there cannot be: `{:clock true}` replaces the global `setTimeout`
-  that the poll's own interval uses, and firing a timer would not drain
-  a router task anyway. That is finding 7, met from a second
-  application, and this one meets it on a plain filter link rather than
-  on an async mutation — so the trap is not a property of applications
-  that talk to servers.
+  paired with a flush, and it composes with `cljs.test/async` the same
+  way. There is no virtual clock here and there cannot be:
+  `{:clock true}` replaces the global `setTimeout` that the poll's own
+  interval uses, and firing a timer would not drain a router task
+  anyway. This application meets that on a plain filter link rather
+  than on an async mutation — so the trap is not a property of
+  applications that talk to servers.
 
   ## What this tier states rather than proves
 
@@ -334,7 +333,7 @@
                   (is (= ["Write the witness" "Merge the PR"] (titles m))
                       "the completed row left the list")
 
-                  ;; THE ACCEPTANCE. React reconciles by key, so a row that
+                  ;; THE CLAIM. React reconciles by key, so a row that
                   ;; survived the flip is the SAME DOM NODE — not an equal
                   ;; one. An index-keyed list would have renumbered the
                   ;; survivors and handed this node's identity, its caret
