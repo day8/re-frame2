@@ -1,5 +1,5 @@
 (ns re-frame.region-order-lifecycle-test
-  "End-to-end registration + dispatch coverage for rf2-3fc89f.8 — a >8-region
+  "End-to-end registration + dispatch coverage for region order — a >8-region
   parallel machine registered via `reg-machine` (the real registration path,
   which normalises region order through `install-region-cache`) preserves
   authored declaration order across a live event dispatch, and rejects a >8
