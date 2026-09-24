@@ -1,5 +1,5 @@
 (ns re-frame.destroyed-reason-channel-conformance-test
-  "rf2-hh1jhc / rf2-9q1zn2 — the destroyed-reason CHANNEL/REASON MATRIX pin.
+  "The destroyed-reason CHANNEL/REASON MATRIX pin.
 
   The runtime emits machine-destroy traces on two parallel channels
   (Spec 009 §Two-channel teardown):
@@ -24,8 +24,8 @@
          3. Spec 005 §Final states D6 — the fx-channel enrichment vocab.
          4. Cross-Spec-Interactions §route-change teardown — the positive
             (fx-channel, `:explicit`) pair a view-unmount/route swap emits,
-            AND that the retired `:parent-unmount-cascade` reason is never
-            reintroduced there.
+            AND that no `:parent-unmount-cascade` reason appears there (the
+            matrix has no such reason).
 
     B. Emit sites (STRUCTURAL, fails closed) — every destroy emitter is
        enumerated by READING the source forms (not a text regex), so the
@@ -61,7 +61,7 @@
   (:import [java.io PushbackReader]))
 
 ;; ---------------------------------------------------------------------------
-;; The ruling (rf2-hh1jhc) — the two channel vocabularies
+;; The two channel vocabularies
 ;; ---------------------------------------------------------------------------
 
 (def ^:private lifecycle-channel :rf.machine.lifecycle/destroyed)
@@ -73,7 +73,7 @@
   #{:parent-frame-destroyed})
 
 (def ^:private expected-fx-reasons
-  "The fx channel's complete `:reason` vocabulary (005 D6) — now closed over
+  "The fx channel's complete `:reason` vocabulary (005 D6) — closed over
   observable behaviour: every documented reason has an emit site and every
   emit site stamps a documented reason (the doc-vocabulary == emit-census
   equality below is the standing drift guard). Adding a reason means updating
@@ -94,7 +94,7 @@
 
 (defn- resolve-repo-file
   "Resolve `rel` (repo-root-relative) from the machines-artefact test CWD,
-  with a fallback for a transitional REPL run from `implementation/`.
+  with a fallback for a REPL run from `implementation/`.
   Mirrors `re-frame.error-catalogue-channel-conformance-test`."
   [rel]
   (let [nested (io/file (str "../../" rel))
@@ -111,7 +111,7 @@
   artefact (fx channel + the frame-destroy orchestrator) and core (the
   no-machines lifecycle fallback in `frame.cljc`)."
   (->> [(io/file "src") (io/file "../core/src")
-        ;; transitional REPL-from-`implementation/` fallbacks
+        ;; REPL-from-`implementation/` fallbacks
         (io/file "machines/src") (io/file "core/src")]
        (filter #(.isDirectory %))
        vec))
@@ -176,12 +176,12 @@
 
 (defn- lifecycle-row-violation
   "Structural verdict for the Spec-Schemas `:rf.machine.lifecycle/destroyed`
-  row (rf2-j9ojw shape-3). Returns a violation string when the row does NOT
+  row. Returns a violation string when the row does NOT
   pin the SOLE reason `:parent-frame-destroyed`, or nil when it is exact.
 
   ANCHORED captures — NOT substrings — so an appended alternative fails
-  closed. The old substring form let ``… `:parent-frame-destroyed` or
-  `:bogus` …`` pass (the required prefix stayed a substring and `:bogus` was
+  closed. A substring form would let ``… `:parent-frame-destroyed` or
+  `:bogus` …`` pass (the required prefix stays a substring and `:bogus` is
   not a KNOWN competing reason). Here the `:tags` reason slot is captured as
   the map's FINAL entry, and the sole-reason sentence must name EXACTLY ONE
   backticked keyword between `is always` and its em-dash clause — a second
@@ -256,9 +256,9 @@
 (deftest matrix-carries-the-ruled-channel-vocabularies
   (let [rows (parse-009-matrix)
         by-channel (fn [ch] (->> rows (filter #(= ch (:channel %))) (map :reason) set))]
-    (testing "lifecycle channel = frame-exit only (rf2-hh1jhc ruling)"
+    (testing "lifecycle channel = frame-exit only"
       (is (= expected-lifecycle-reasons (by-channel lifecycle-channel))))
-    (testing "fx channel = the three non-frame-exit reasons (005 D6)"
+    (testing "fx channel = the two non-frame-exit reasons (005 D6)"
       (is (= expected-fx-reasons (by-channel fx-channel))))))
 
 (deftest spec-schemas-fx-row-matches-the-matrix
@@ -295,12 +295,11 @@
         (str "Cross-Spec's route-change teardown sentence must document the "
              "exact pair [" fx-channel " :explicit]; parsed: "
              (pr-str (cross-spec-route-teardown-tuple)))))
-  (testing "the retired `:parent-unmount-cascade` reason is never reintroduced
-            on the lifecycle channel here (the rf2-hh1jhc contradiction) —
+  (testing "Cross-Spec-Interactions names no `:parent-unmount-cascade` reason —
             teardown-on-route-change is the fx channel's `:explicit`, not a
             lifecycle `:parent-unmount-cascade`"
     (is (not (str/includes? (slurp cross-spec-file) ":parent-unmount-cascade"))
-        "reintroducing the retired reason into Cross-Spec-Interactions
+        "naming a `:parent-unmount-cascade` reason in Cross-Spec-Interactions
          requires the 009 matrix (and this test) to change first")))
 
 ;; ---------------------------------------------------------------------------
@@ -332,10 +331,11 @@
 (defn- expand-reader-conditionals
   "Recursively replace every PRESERVED `ReaderConditional` in `form` with a
   plain list of ALL its branch bodies, so a single structural walk inspects
-  BOTH the `:clj` and `:cljs` views (rf2-j9ojw shape-2 fail-closed). Reading
-  with `:read-cond :allow` collapses to the JVM `:clj` branch only, so a
-  destroy reason under a `#?(:cljs …)` branch was invisible; expanding both
-  branches into siblings makes any branch's emit site reachable."
+  BOTH the `:clj` and `:cljs` views (fail-closed). Reading
+  with `:read-cond :allow` collapses to the JVM `:clj` branch only, which
+  would leave a destroy reason under a `#?(:cljs …)` branch invisible;
+  expanding both branches into siblings makes any branch's emit site
+  reachable."
   [form]
   (cond
     (reader-conditional? form)
@@ -411,7 +411,7 @@
 
 (defn- resolve-reason-arg
   "Structurally resolve the reason-bearing ARGUMENT form of a destroy emit
-  call — the choke point rf2-j9ojw closes to fail CLOSED. Returns
+  call — the choke point that fails CLOSED. Returns
   `{:proven? bool :reasons [values…]}`:
 
     - a MAP LITERAL is fully enumerable — its `:reason` value (or, when the
@@ -620,7 +620,7 @@
       (testing "the fx channel has its terminal emit"
         (is (seq fx-channel-emits) "the fx-channel `emit-destroyed!` terminal was found"))
       (testing "the emitted fx reasons EXACTLY equal the documented fx
-                vocabulary — the standing drift guard now that the channel is
+                vocabulary — the standing drift guard, since the channel is
                 closed over observable behaviour (documented == emit census)"
         (is (= expected-fx-reasons fx-origination)
             (str "fx reasons originated at emit sites must be exactly "
@@ -629,9 +629,9 @@
 (deftest no-matrix-row-is-reserved
   (testing "the fx-channel `:reason` vocabulary is closed over observable
             behaviour — NO 009 matrix row may be marked *reserved* (a
-            reserved-but-never-emitted member is the phantom this matrix once
-            carried as `:parent-unmount-cascade`; reintroducing one forces an
-            emitter + fixtures in the same change, not a speculative slot)"
+            reserved-but-never-emitted member is a phantom; adding a reason
+            means adding its emitter + fixtures in the same change, not a
+            speculative slot)"
     (let [reserved (->> (parse-009-matrix)
                         (filter #(str/includes? (:emitted-by %) "reserved"))
                         (map :reason)
@@ -641,13 +641,13 @@
                (pr-str reserved))))))
 
 ;; ---------------------------------------------------------------------------
-;; B′. Mutation proofs — each previously-false-green shape now reds the gate
+;; B′. Mutation proofs — each would-be false-green shape reds the gate
 ;; ---------------------------------------------------------------------------
 ;; These feed MUTATED inputs to the SAME pure verdict functions the gate above
 ;; uses (`resolve-reason-arg`, `emit-site-violations`, `enumerate-forms`,
 ;; `read-conditional-forms`, `lifecycle-row-violation`). Each asserts the
 ;; mutation trips a violation while the genuine shape stays clean — proving the
-;; three false-green shapes rf2-j9ojw names now FAIL CLOSED.
+;; three false-green shapes FAIL CLOSED.
 
 (deftest mutation-shape1-census-fails-closed-on-unprovable-reason-arg
   (testing "an (assoc … :reason :bogus) reason arg is NOT structurally provable"
@@ -679,8 +679,8 @@
 
 (deftest mutation-shape2-census-reads-both-host-views
   (testing "a destroy emit under a #?(:cljs …) branch IS inspected — a CLJS-only
-            undocumented fx reason reds the census (it was invisible to the
-            single JVM `:clj` read)"
+            undocumented fx reason reds the census (a single JVM `:clj` read
+            would not see it)"
     (let [forms    (read-conditional-forms
                      (str "(ns mut)\n"
                           "#?(:cljs (re-frame.trace/emit! :rf.machine :rf.machine/destroyed "
@@ -706,7 +706,7 @@
     (testing "the genuine row passes the anchored structural verdict"
       (is (nil? (lifecycle-row-violation genuine)) (lifecycle-row-violation genuine)))
     (testing "an appended `or `:bogus`` on the sole-reason sentence fails closed
-              (the old substring check admitted it)"
+              (a substring check would admit it)"
       (is (some? (lifecycle-row-violation mutated))))))
 
 ;; ---------------------------------------------------------------------------
@@ -760,8 +760,7 @@
             (:rf.machine/destroyed, :rf.machine/finished) — at its OWN finality,
             not at join resolution. Completion is finality, so a folded child
             closes its own attempt; there is no separate reap and no
-            cancellation-suppressing reason (the retired
-            :rf.machine/join-reaped)."
+            cancellation-suppressing reason (no :rf.machine/join-reaped)."
     (let [mk-child (fn []
                      {:initial :running
                       :data    {:id nil}
