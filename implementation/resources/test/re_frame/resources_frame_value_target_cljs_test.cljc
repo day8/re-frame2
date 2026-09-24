@@ -1,13 +1,14 @@
 (ns re-frame.resources-frame-value-target-cljs-test
   "The resources introspection doors accept a live frame VALUE as their
-  `:frame` target, exactly as they accept its ID (rf2-ym12).
+  `:frame` target, exactly as they accept its ID.
 
   Spec 002's opening principles: a public operation accepts the frame-id
   keyword OR the live frame value `make-frame` returns, and normalizes the
-  value to its id. `rf/resource-state` and `rf/mutation-state` once forwarded
-  the raw target into id-keyed frame readers, so a value read a live row as a
-  silent nil — indistinguishable from a genuinely absent row, which is the
-  very ambiguity their fail-closed nil-`:frame` guard exists to prevent.
+  value to its id. Forwarding the raw target into id-keyed frame readers
+  would read a live row addressed by value as a silent nil —
+  indistinguishable from a genuinely absent row, which is the very ambiguity
+  the fail-closed nil-`:frame` guard of `rf/resource-state` and
+  `rf/mutation-state` exists to prevent.
 
   Every read below is paired: the value read must EQUAL the id read of the
   same frame, and the id read is what proves the row is present. The controls
