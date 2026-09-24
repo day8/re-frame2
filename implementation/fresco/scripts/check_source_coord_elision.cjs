@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * THE SOURCE-COORDINATE SENTINEL for implementation/fresco/ (rf2-hic-007).
+ * THE SOURCE-COORDINATE SENTINEL for implementation/fresco/.
  *
  * `defview` and `defhost` bake an absolute on-disk file path into every
  * declaration in a dev build, so that a refusal can name the line the author
@@ -30,18 +30,16 @@
  *      pass the absence check trivially.
  *
  * Removing the `when debug-enabled?` gate from either macro's coordinate
- * emission makes this gate red. That was verified by doing it (rf2-hic-007),
- * and the verification is quoted in the PR that landed this file.
+ * emission makes this gate red.
  *
- * rf2-hic-024 owns the general, multi-sentinel production-erasure proof; this
- * is the one sentinel rf2-hic-007's own acceptance clause requires.
+ * `check_production_erasure.cjs` owns the general, multi-sentinel
+ * production-erasure proof; this is the one source-coordinate sentinel.
  *
- * THE SENTINEL IS NOT THE SUITE'S OWN FILE, and that is a correction rather
- * than a preference. `cljs.test` stamps `:file` into the report map of every
- * `deftest` and every `is`, so the first draft — which declared the sentinel
- * view inside the elision suite — found its own file name in the bundle 38
- * times and went red on a build whose erasure was correct. The declarations
- * moved to `re-frame.fresco.coord-sentinel-source`, which carries no
+ * THE SENTINEL IS NOT THE SUITE'S OWN FILE. `cljs.test` stamps `:file` into
+ * the report map of every `deftest` and every `is`, so a sentinel view
+ * declared inside the elision suite would find its own file name in the
+ * bundle and go red on a build whose erasure is correct. The declarations
+ * live in `re-frame.fresco.coord-sentinel-source`, which carries no
  * `deftest`, so nothing but a surviving coordinate can name it.
  */
 
