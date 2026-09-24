@@ -100,7 +100,7 @@
   supersede time (the `:epoch-restored` / `:frame-destroyed` siblings are
   emitted by `http-registry/abort-in-flight-for-frame!` /
   `abort-in-flight-on-frame-destroyed!`). `dispatch-aborted!` here fires only
-  the `:rf.http/aborted` error trace and then suppresses the reply for these
+  the `:rf.http/aborted` `:info` trace and then suppresses the reply for these
   reasons."
   #{:request-id-superseded :epoch-restored :frame-destroyed})
 
@@ -725,6 +725,21 @@
       (first value)
       (first (:origin-event ctx)))))
 
+(defn- emit-failure-trace!
+  "Emit the trace row for a classified `:rf.http/*` failure of `kind`. The
+  failure KIND picks the `:op-type`, never the `:reason` (rf2-s8kcj). An abort
+  (`:rf.http/aborted`, whatever its reason) is `:info`. Every abort reason names
+  a deliberate act: a cancel, a supersession, an actor or frame teardown, an
+  epoch restore, or a resource refetch. The reply protocol already delivers an
+  abort as `:status :cancelled`, not `:status :error`. Every other kind is a real
+  failure and keeps `emit-error!`. `redacted` is the privacy-prepared failure
+  map. Its `:recovery` still rides the `:info` row, because `build-event` hoists
+  a supplied `:recovery` on either branch. Callers gate on `debug-enabled?`."
+  [kind redacted]
+  (if (= :rf.http/aborted kind)
+    (rf.trace/emit! :info :rf.http/aborted redacted)
+    (rf.trace/emit-error! kind redacted)))
+
 (defn- dispatch-aborted!
   "Emit the `:rf.http/aborted` trace + dispatch the abort reply for a
   cancelled request, honouring supersession and obsolete actor-target
@@ -741,8 +756,10 @@
   clear the registry, then land here so an aborted request looks
   identical to consumers regardless of which lifecycle phase it was in.
   `reason` is `:user` / `:actor-destroyed` / `:request-id-superseded` /
-  `:epoch-restored` — the genuine cancellation reasons that flip the
-  handle's `:aborted?` cell and reach this path. A `:timeout` is NOT an
+  `:epoch-restored` / `:frame-destroyed` / `:resource-superseded` — the
+  genuine cancellation reasons that flip the handle's `:aborted?` cell and
+  reach this path. Every one emits its trace row at `:info`
+  (`emit-failure-trace!`, rf2-s8kcj). A `:timeout` is NOT an
   abort: it classifies to `:rf.http/timeout` (a failure kind) and routes
   through `maybe-retry!` → `finalise-failure!`, never here. `ctx` must
   carry `:request-id`, `:actor-id`, `:url`, `:sensitive?`.
@@ -772,7 +789,7 @@
                                 :url      (:url ctx)
                                 :recovery :no-recovery)
                          sensitive?)]
-        (rf.trace/emit-error! :rf.http/aborted redacted)))
+        (emit-failure-trace! :rf.http/aborted redacted)))
     ;; An abort is terminal for this request-id (this is the
     ;; direct abort-fn choke: user / actor-destroy / supersede / epoch-restore
     ;; all land here). Evict the issuance counter so an unbounded distinct-id
@@ -916,7 +933,10 @@
                        (or (contains? failure :body)
                            (contains? failure :body-text))
                        (assoc :rf.http/off-box-body :omit))]
-      (rf.trace/emit-error! (:kind failure) redacted)))
+      ;; rf2-s8kcj — the same kind-chosen severity as `dispatch-aborted!`, so
+      ;; an abort that wins a completion race (reclassified here) emits the
+      ;; same `:info` row as a direct abort.
+      (emit-failure-trace! (:kind failure) redacted)))
   (cond
     ;; rf2-lxd3 / rf2-u5kmf8 — supersede / epoch-restore reasons suppress the
     ;; reply outright; the canonical stale trace for those is emitted at
@@ -935,7 +955,7 @@
     ;; `:aborted?` then loses the once-only CAS to the whenComplete thread, which
     ;; reclassifies via `aborted-snapshot`). It lowers to the canonical
     ;; `:status :stale` / `:rf.reply/work-status :suppressed` outcome, matching
-    ;; `dispatch-aborted!`. The `:rf.http/aborted` error trace already fired
+    ;; `dispatch-aborted!`. The `:rf.http/aborted` `:info` trace already fired
     ;; above; only the app delivery is replaced by the stale-suppressed trace.
     ;; `(:actor-id failure)` is the destroyed actor's id carried from the abort
     ;; snapshot (`aborted-failure`), falling back to the ctx's actor-id.

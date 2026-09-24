@@ -131,21 +131,21 @@
   Derived from the producer, not by hand: `re-frame.http.transport`'s
   `dispatch-aborted!` builds the failure through `self-identify` (`:request`
   / `:request-id` / `:attempt` / `:work/id`), adds `:url` and `:recovery`,
-  redacts it, and emits `(rf.trace/emit-error! :rf.http/aborted redacted)`.
-  So the OPERATION is `:rf.http/aborted`, `emit-error!` stamps
-  `:op-type :error` and merges `:category`, `:recovery` is hoisted out of
-  `:tags` to the top level by `build-event`, and the `reason` the abort-fn
-  was called with rides in the tags — which is the only thing that tells a
-  superseded attempt's abort from this attempt's own."
+  redacts it, and emits `(rf.trace/emit! :info :rf.http/aborted redacted)`
+  through `emit-failure-trace!` — every abort reason is `:info` (rf2-s8kcj).
+  So the OPERATION is `:rf.http/aborted`, the `:op-type` is `:info` with no
+  merged `:category` (only the `:error` branch merges one), `:recovery` is
+  hoisted out of `:tags` to the top level by `build-event`, and the `reason`
+  the abort-fn was called with rides in the tags — which is the only thing
+  that tells a superseded attempt's abort from this attempt's own."
   ([request-id reason] (http-aborted-ev request-id reason 1000))
   ([request-id reason t]
    {:operation :rf.http/aborted
-    :op-type   :error
+    :op-type   :info
     :id        (rand-int 1000000)
     :time      t
     :recovery  :no-recovery
-    :tags      {:category   :rf.http/aborted
-                :kind       :rf.http/aborted
+    :tags      {:kind       :rf.http/aborted
                 :reason     reason
                 :actor-id   nil
                 :request    {:method :get :url "/api/search"}

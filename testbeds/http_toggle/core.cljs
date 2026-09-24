@@ -86,18 +86,19 @@
 ;; failure reply via the same late-bind dispatch path the live transport
 ;; uses, but it does NOT call `rf.trace/emit-error!`. The live failure path
 ;; (`re-frame.http.transport/finalise-failure!`) emits a single
-;; `:rf.http/<kind>` error-trace event before dispatching the reply; the
+;; `:rf.http/<kind>` trace event before dispatching the reply; the
 ;; canned stub skips it. The testbed README documents an ordered
 ;; `:rf.http/<kind>` stream per click — so this per-testbed wrapper fx
-;; replays the live path's `rf.trace/emit-error!` before delegating to the
+;; replays the live path's emit before delegating to the
 ;; canned stub. Consumers (Xray, Story, cross-cutting specs) can now
 ;; assert on the `:operation :rf.http/<kind>` trace directly rather than
 ;; falling back to the `:rf.fx/handled` proxy.
 
 (rf/reg-fx :http-toggle/canned-failure-with-trace
   {:doc       "Testbed-only wrapper around :rf.http/managed-canned-failure.
-               Emits the category-attributed :rf.http/<kind> error trace
-               (matching the live failure path's finalise-failure! emit)
+               Emits the category-attributed :rf.http/<kind> trace (an
+               error row, or an :info row for :rf.http/aborted), matching
+               the live failure path's finalise-failure! emit,
                and then delegates to the framework canned stub for the
                actual reply synthesis. See rf2-3g16l."
    :platforms #{:client}}
@@ -108,13 +109,17 @@
       ;; Match finalise-failure!'s emit shape: operation is the failure
       ;; :kind, tags carry the category-specific slots plus :request-id,
       ;; :url, and :recovery (canned failures are :no-recovery — they
-      ;; classify identically to a terminal live failure).
-      (rf.trace/emit-error! kind
-                         (assoc tags
-                                :kind       kind
-                                :request-id (:request-id args-map)
-                                :url        url
-                                :recovery   :no-recovery))
+      ;; classify identically to a terminal live failure). Like the live
+      ;; producer, an abort is an :info row and every other kind is an
+      ;; error row (rf2-s8kcj).
+      (let [trace-tags (assoc tags
+                              :kind       kind
+                              :request-id (:request-id args-map)
+                              :url        url
+                              :recovery   :no-recovery)]
+        (if (= :rf.http/aborted kind)
+          (rf.trace/emit! :info kind trace-tags)
+          (rf.trace/emit-error! kind trace-tags)))
       ((rf.registrar/handler :fx :rf.http/managed-canned-failure)
        frame-ctx args-map))))
 
