@@ -599,7 +599,7 @@
   FAILURE-TRACE (the schema's own egress product, per Spec 015 §Schemas
   describe shape) — NOT a durable
   classification route. Empty maps when the schema is nil / unschematic / the
-  walker hooks are unbound. Pure (modulo the memoised walker)."
+  walker hooks are unbound. Pure: the hooks walk unmemoised (rf2-3x7nj.19.4)."
   [schema]
   (let [extract (fn [hook]
                   (if-let [f (and schema (rf.late-bind/get-fn-cached hook))]
@@ -628,8 +628,8 @@
   This is the schema's OWN VALIDATION-FAILURE-TRACE egress product (Spec 015
   §Schemas describe shape), distinct from DURABLE wire/SSR/tool egress, which
   `project-entry-params` governs through the frame registry. `error` may be nil (no
-  explainer registered); the `:error` key is then nil. Pure (modulo the memoised walker + the late-bound redaction
-  hook)."
+  explainer registered); the `:error` key is then nil. Pure (modulo the late-bound
+  redaction hook)."
   [params error spec]
   (let [schema     (:params-schema spec)
         redact-fn  (rf.late-bind/get-fn-cached :schemas/redact-validation-tags)
