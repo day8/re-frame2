@@ -1944,8 +1944,8 @@
 ;; an MCP error must leave NO keyword in the JVM keyword table.
 ;;
 ;; Interning an invalid id before rejecting it would let a
-;; hostile/malfunctioning client grow the never-shrinking JVM keyword
-;; table unboundedly through failed write attempts (a slow-burn DoS), and
+;; hostile/malfunctioning client make the server intern a JVM keyword for
+;; every failed write attempt, and
 ;; a wide object-form body could intern many arbitrary keys before the
 ;; registrar normalised them. So the write paths validate the id grammar
 ;; on the STRING shape (`fresh-keyword-checked` + `variant-id-shape?`)
@@ -4568,7 +4568,7 @@
 ;;
 ;; Caller-supplied keyword ids on the read surface MUST resolve through
 ;; `args/safe-keyword` against a bounded set, NOT through the legacy
-;; `args/parse-keyword` which interns into the never-shrinking JVM
+;; `args/parse-keyword` which interns into the JVM's process-global
 ;; keyword table. The tests below assert the no-intern property by
 ;; calling each read-side tool with a fresh random-shaped id and
 ;; verifying that the underlying `find-keyword` returns nil after the
@@ -4719,9 +4719,9 @@
 ;; The pre-fix `protocol/parse-json` called `(json/parse-string s true)`,
 ;; recursively keywordising EVERY object key in the frame — including
 ;; arbitrary keys under `params.arguments`, `cell-overrides`, and write
-;; bodies — and interning them into the never-shrinking JVM keyword table
-;; BEFORE `tools.args/safe-keyword` could reject them. That both grows the
-;; keyword table without bound (a slow-burn DoS) and can let an unknown
+;; bodies — and interning them into the JVM's process-global keyword table
+;; BEFORE `tools.args/safe-keyword` could reject them. That both costs an
+;; intern per unique key the caller chooses and can let an unknown
 ;; string key intern into a keyword a downstream allowlist then resolves.
 ;;
 ;; The fix parses the frame string-keyed and keywordises ONLY the finite

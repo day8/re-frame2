@@ -38,11 +38,17 @@
 
 ## No-intern argument ingress (rf2-3luf3)
 
-JVM keywords are interned in a global table that **never shrinks**. The
-stdio server is a long-running JVM process, so any code path that mints a
-fresh keyword from an attacker-/AI-supplied string is a slow-burn DoS:
-a hostile or careless agent that streams unique JSON object keys
-permanently burns one keyword-table slot per unique key. This is the
+Any code path that mints a fresh keyword from an attacker-/AI-supplied
+string lets the caller choose what the JVM interns: each unique string
+costs an allocation and an insert into the process-global keyword table,
+and the keyword then lives as long as anything references it, which for
+an id the server registers is the life of the registration. On the
+pinned Clojure (1.12.4) the table holds keywords by reference and
+reclaims those nothing references any more, so this is churn and
+retention bounded by what the server keeps, not a permanent leak. The
+stdio server is a long-running JVM process, so a hostile or careless
+agent that streams unique JSON object keys pays that cost on every
+call. This is the
 same threat model the framework's `:rf.http/max-decoded-keys` cap
 defends (see [`../../../spec/014-HTTPRequests.md` §Keyword-interning
 cap](../../../spec/014-HTTPRequests.md)) and the cross-MCP rule in
@@ -155,7 +161,8 @@ before the bounded allowlists run.** Concretely:
     earlier `fresh-keyword` interned first and let the registrar's
     downstream `assert-id!` reject on grammar — but that reject ran AFTER
     the intern, so an invalid id (which correctly returned an MCP error)
-    still permanently grew the keyword table. The pre-intern shape check
+    still cost an intern for input the server was about to refuse. The
+    pre-intern shape check
     fails closed with no intern: a rejected id leaves the keyword table
     unchanged.
 

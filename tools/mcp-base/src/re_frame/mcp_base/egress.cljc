@@ -33,9 +33,9 @@
   framework (`re-frame.projection`'s §10 default-behaviour table) and is
   applied by `re-frame.core/project-egress` at the app-side door. The one
   distinction a server needs to know when choosing a name:
-  `:rf.egress/off-box-tool` is the boundary that carries structural
-  digests; `:rf.egress/local-raw` is the trusted-local boundary that opts
-  sensitive AND large back in.
+  `:rf.egress/local-raw` is the trusted-local boundary that opts
+  sensitive AND large back in; every other profile, `:rf.egress/off-box-tool`
+  included, fails closed. No profile turns digests on (rf2-3x7nj.32.6).
 
   | Profile |
   |---|
@@ -73,7 +73,8 @@
 
   - `false` (the published-build default, or a caller under the gate who
     did not opt in) ⇒ `:rf.egress/off-box-tool` — the MCP/AI tool wire:
-    sensitive redacts, large elides, structural digests on.
+    sensitive redacts, large elides, and no digest is attached (no
+    profile turns digests on since rf2-3x7nj.32.6).
   - `true` (the trusted-local operator's deliberate raw read) ⇒
     `:rf.egress/local-raw` — sensitive AND large pass through.
 

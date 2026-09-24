@@ -38,7 +38,7 @@ The rejection posture (default-suppress vs default-allow) is named at the call-s
 
 ## Keyword-interning safety
 
-The same threat model that drives `:rf.http/max-decoded-keys` ([`../../../spec/014-HTTPRequests.md` §Keyword-interning cap](../../../spec/014-HTTPRequests.md)) applies to MCP argument parsing. An MCP server is a long-running process; every `(keyword raw-agent-string)` call against unbounded user input grows the host's interned-symbol table for the life of the process. A compromised agent submitting N-unique-string arguments-per-call would permanently burn N slots in the keyword table.
+The same threat model that drives `:rf.http/max-decoded-keys` ([`../../../spec/014-HTTPRequests.md` §Keyword-interning cap](../../../spec/014-HTTPRequests.md)) applies to MCP argument parsing. Every `(keyword raw-agent-string)` call against unbounded user input lets the caller choose what the host interns: a compromised agent submitting N unique strings per call costs N interns (an allocation and an insert into the JVM's process-global keyword table each), and every keyword the server then keeps, in a registry, a cache or a stored body, lives as long as it is kept. On the pinned Clojure (1.12.4) the table holds keywords by reference and reclaims those nothing references any more, so the cost is churn and retention bounded by what the server keeps, not a permanent leak; CLJS keeps no global keyword table at all. An MCP server is a long-running process, so it sees the most such input.
 
 The cross-MCP rule:
 
@@ -82,7 +82,7 @@ All six parsers are pure `.cljc`. They use:
 - A reader-conditional finite/range guard: `Double/isNaN`/`isInfinite` + the safe-integer window (JVM), `js/isFinite`/`isNaN` + `Number.isSafeInteger` (CLJS). The numeric string arm parses via `bigint` (JVM) / `js/parseInt` (CLJS) and clamps to the same window so the two hosts agree.
 - Standard collection ops; no host-specific machinery.
 
-On the JVM, `safe-keyword` uses `find-keyword`, so a rejected string is never interned. CLJS constructs a keyword for membership testing but has no JVM-style permanent keyword table; both hosts return the same allowed value or `nil`.
+On the JVM, `safe-keyword` uses `find-keyword`, so a rejected string is never interned. CLJS constructs a keyword for membership testing but keeps no global keyword table; both hosts return the same allowed value or `nil`.
 
 ## Conformance posture
 
