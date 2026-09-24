@@ -39,7 +39,7 @@
   Without it, two malformed shapes would escape the request gate: a THIRD
   event element (a positional opts map, as in a
   `[:rf.route/navigate target opts]` call) would be silently DROPPED
-  while the navigation proceeded, and a NON-MAP payload would reach the request
+  while the navigation proceeds, and a NON-MAP payload would reach the request
   gate's `dissoc` and throw a RAW host exception. Both reject LOUD
   through `:rf.error/navigate-bad-request` (`:reason :bad-event-arity` /
   `:request-not-a-map`), slice unchanged, no push."
