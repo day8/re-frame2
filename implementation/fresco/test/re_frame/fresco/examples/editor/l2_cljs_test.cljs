@@ -82,7 +82,7 @@
          is what reaches the handler, lands in app-db and renders as text.
          The failure is silent at every layer. This application therefore
          writes the positional
-         shape at all five of its marker-carrying intents, and says so at
+         shape at every marker-carrying intent, and says so at
          `examples.editor.events`")
     (is (not= "typed" (get-in dispatched [1 :value]))
         "stated in the other direction, because this is the assertion a
