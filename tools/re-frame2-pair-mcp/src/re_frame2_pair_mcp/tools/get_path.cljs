@@ -16,7 +16,7 @@
   before it touches app-db — see `with-resolved-frame`. With two-plus
   app frames and no pin the resolve yields nil and the tool REFUSES
   with `:ambiguous-frame`; it does not read frame nil and report the
-  resulting blank as a missing path (rf2-q17a).
+  resulting blank as a missing path.
 
   ## Batch read — the plural `paths` arg
 
@@ -30,7 +30,7 @@
   wire-pipeline `:scalar-value` arm (the whole `:results` map is the
   scalar). Folding the batch into this tool (rather than minting a
   separate `get-paths`) keeps the catalogue, the skill allow-list, and
-  the wire-vocab surface unchanged — the agent that knows `get-path`
+  the wire-vocab surface to one tool — the agent that knows `get-path`
   knows the batch form for free.
 
   Post-eval shrink pipeline lives in
@@ -56,21 +56,19 @@
   let-bound name or an EDN literal); `frame-edn` / `egress-opts` are the
   merged egress opts, the latter naming the `:rf.egress/*` profile.
 
-  rf2-kuky.88 — the door is called UNCONDITIONALLY. The former
-  `walk-required?` short-circuit skipped it under the deliberate full-raw
-  local opt-in; under `:rf.egress/local-raw` the projection is the
-  identity, so the only thing that short-circuit bought was one traversal,
-  and always calling the boundary is the safer shape on a privacy
-  surface."
+  The door is called UNCONDITIONALLY, even under the deliberate full-raw
+  local opt-in: under `:rf.egress/local-raw` the projection is the
+  identity, so skipping it would save only one traversal, and always
+  calling the boundary is the safer shape on a privacy surface."
   [value-sym path-src frame-edn egress-opts]
   (str "(re-frame.core/project-egress " value-sym
        "  (merge {:path " path-src " :frame " frame-edn "}"
        "         " egress-opts "))"))
 
-;; The resolve-once-then-refuse wrapper this tool introduced (rf2-q17a)
-;; now lives in `re-frame2-pair-mcp.tools.frame-resolve`, shared with
-;; `trace-window` and `watch-epochs`, which had the same defect through
-;; the epoch ring rather than app-db (rf2-yo4s). Both eval forms here
+;; The resolve-once-then-refuse wrapper lives in
+;; `re-frame2-pair-mcp.tools.frame-resolve`, shared with `trace-window`
+;; and `watch-epochs`, which face the same hazard through the epoch ring
+;; rather than app-db. Both eval forms here
 ;; read app-db through the id it binds AND hand that same id to the
 ;; walker, so the value read and the elision handle describe the same
 ;; frame by construction.
@@ -87,7 +85,7 @@
   still answers correctly. Elision + server-side marker count ride on
   the `:value` / `:elided-count` slots.
 
-  rf2-kuky.88 — the door fires UNCONDITIONALLY; the profile named in
+  The door fires UNCONDITIONALLY; the profile named in
   `egress-opts` decides what it does. Under `:rf.egress/local-raw` (the
   deliberate full-raw opt-in) the projection is the identity, so the
   marker count is naturally zero."
@@ -97,7 +95,7 @@
                         "               (tree-seq coll? seq elided-v)))")]
     (ef/emit
       (ef/rt-let
-        ;; rf2-fzbj.6 — the caller's path is EXTERNAL EDN, so it binds as
+        ;; The caller's path is EXTERNAL EDN, so it binds as
         ;; QUOTED literal data. Printed unquoted, a list segment is a call
         ;; and a symbol a name lookup, so `get-in` would read a DIFFERENT
         ;; key from the one requested and answer `:ok? true` about it.
@@ -134,7 +132,7 @@
   drill-down via singular `get-path` lands on the right slot.
 
   See `single-path-form`: the door fires unconditionally and the named
-  profile decides the floor (rf2-kuky.88)."
+  profile decides the floor."
   [snapshot-call paths frame-edn egress-opts]
   (let [elide-call (project-call-src "raw-v" "p" frame-edn egress-opts)]
     (ef/emit
@@ -148,7 +146,7 @@
                          "      (if (identical? raw-v missing)"
                          "        (assoc acc p {:exists? false :value nil})"
                          "        (assoc acc p {:exists? true :value " elide-call "}))))"
-                         ;; rf2-fzbj.6 — the caller's paths collection is
+                         ;; The caller's paths collection is
                          ;; EXTERNAL EDN and rides as QUOTED literal data,
                          ;; exactly as the singular `path` binding does.
                          "  {} " (ef/emit (ef/rt-quote (vec paths))) ")"))]
@@ -166,7 +164,7 @@
         ;; below). nil when the read is allowed.
         refused   (guard/get-path-refusal frame path paths)
         ;; `:elision` is the SIZE override and is honoured on every
-        ;; launch (rf2-ealv5 / rf2-3x7nj.32.4): `:elision false` renders
+        ;; launch: `:elision false` renders
         ;; an `:rf.egress/include-large? true` overlay on the off-box-tool
         ;; floor, which cannot reveal a declared-sensitive slot, so the
         ;; `--allow-sensitive-reads` gate governs `:include-sensitive`
@@ -188,8 +186,8 @@
         ;; `egress-opts-edn` takes walker-aligned `include-large?`
         ;; polarity directly. MCP `elision` true = emit markers =
         ;; `:rf.egress/include-large?` false; hence `(not elision?)`.
-        ;; Fail-CLOSED: the rendered form always calls the door
-        ;; (rf2-kuky.88). A bare `:elision false` overlays
+        ;; Fail-CLOSED: the rendered form always calls the door.
+        ;; A bare `:elision false` overlays
         ;; `:rf.egress/include-large? true` on the off-box-tool floor so
         ;; large passes, while include-sensitive? stays at the profile's
         ;; false so a frame-declared-sensitive slot still redacts to
@@ -201,9 +199,9 @@
         egress-opts   (elision/egress-opts-edn (not elision?) incl?)
         ;; ONE resolution, one truth: both forms read app-db through
         ;; the frame id `with-resolved-frame` binds, and hand that same
-        ;; id to the walker. The former pair — `(snapshot)` for the read
-        ;; and a SECOND, independent `(current-frame)` call for the
-        ;; walker — could disagree, and neither refused (rf2-q17a).
+        ;; id to the walker. Two independent resolutions — `(snapshot)`
+        ;; for the read and a SECOND `(current-frame)` call for the
+        ;; walker — could disagree, and neither would refuse.
         snapshot-call (ef/rt-call 'snapshot (ef/rt-raw resolved-frame-sym))
         frame-edn     resolved-frame-sym
         run-eval
@@ -216,7 +214,7 @@
           (probe/eval-after-runtime-signalled!
             conn build-id form :get-path-failed
             (fn [envelope]
-              ;; rf2-acckgr: a nil / non-map `envelope` (a dead runtime
+              ;; A nil / non-map `envelope` (a dead runtime
               ;; after a page reload, answering blank) must NOT fall
               ;; through to the `:ok? false` check below — `(:ok?
               ;; nil)` is `nil`, not `false`, so `(false? (:ok?
