@@ -1,15 +1,15 @@
 (ns re-frame.resources-from-db-scope-cljs-test
   "Named-resolver scope integration — `{:from-db <id>}` references at the
-  route-entry / event-ensure / subscription-read sites (rf2-qiv160, EP-0016
-  D3 slice 3, Spec 016 §Resolver references — `{:from-db <id>}` / §Route
-  integration / §Subscription-side scope resolution).
+  route-entry / event-ensure / subscription-read sites (EP-0016 D3, Spec 016
+  §Resolver references — `{:from-db <id>}` / §Route integration /
+  §Subscription-side scope resolution).
 
   Dual-target (`.cljc` + `_cljs_test`): the JVM runner picks it up via the
   `.*-test$` ns regex; Shadow's `:node-test` build via the `cljs-test$`
   regex. Cross-host so the db-derived scope resolution behaves identically
   server- and client-side.
 
-  What's under test (the slice's validation-plan items 9 + 10 + rf2-616xa6):
+  What's under test:
 
     1. a `{:from-db <id>}` resource-spec `:scope` resolves against app-db on
        EVENT ensure → the SAME scoped key a route entry or sub resolves;
@@ -22,7 +22,7 @@
        nil; an event raises `:rf.error/resource-scope-unresolved-reference`,
        a route surfaces a planning error, a sub raises
        `:rf.error/resource-sub-unresolved-scope` — never a silent global;
-    5. rf2-616xa6 — a `{:from-db}` sub RE-KEYS reactively when the
+    5. a `{:from-db}` sub RE-KEYS reactively when the
        resolver's app-db inputs change mid-session (account switch): the
        sub re-points to the new scoped entry, and the view observes the new
        key's loading/idle state, not the stale entry."
@@ -92,9 +92,9 @@
 ;; ---- helpers --------------------------------------------------------------
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
-;; rf2-9e0tyq — `:entries` is keyed on the byte `key-id`; return a vector-keyed
+;; `:entries` is keyed on the byte `key-id`; return a vector-keyed
 ;; VIEW (re-keyed from each entry's `:resource/key`) so the assertions speak
-;; scoped-key vectors. Semantics unchanged.
+;; scoped-key vectors.
 (defn- entries []
   (into {} (map (fn [[_k-id e]] [(:resource/key e) e]))
         (get-in (runtime-db) (rf.resources.state/entries-path))))
@@ -235,7 +235,7 @@
           (rf.resources.subs/resolve-scoped-key {:resource :t/feed :params {:page 1}} {})))))
 
 ;; ===========================================================================
-;; 4. rf2-616xa6 — mid-session input change RE-KEYS the live sub
+;; 4. mid-session input change RE-KEYS the live sub
 ;; ===========================================================================
 
 (deftest sub-re-keys-on-mid-session-account-switch
@@ -253,7 +253,7 @@
               re-keys the SAME sub to the new scope — it no longer reads
               jake's entry; the new key has no entry yet (idle empty-state),
               so the view sees the new principal's loading/idle, NOT the
-              stale data (rf2-616xa6)"
+              stale data"
       (rf/dispatch-sync [:t/login "abel"])
       (is (= :idle (:status @sub)) "re-pointed to abel's (un-ensured) key")
       (is (nil? (:data @sub)) "abel's key has no data — never jake's stale data")
@@ -267,17 +267,16 @@
       (is (= {:for "abel"} (:data @sub)) "the sub now reads abel's data"))))
 
 ;; ===========================================================================
-;; 5. rf2-kuky.79 — clear-scope takes a CONCRETE scope only. A `{:from-db …}`
+;; 5. clear-scope takes a CONCRETE scope only. A `{:from-db …}`
 ;;    map on a clear-scope payload is REFUSED LOUD at the concrete-scope
 ;;    boundary (`:rf.error/resource-invalid-scope`), before any cache state
 ;;    changes. Spec 016 §clear-scope takes a concrete scope.
 ;;
-;;    This is the FAIL-OPEN trap the reduction had to close, not an incidental
-;;    validation: a map is a perfectly valid LITERAL scope value, so once the
-;;    reference arm is deleted a `{:from-db :t/session}` payload would
-;;    canonicalize as a literal map scope, key nothing, and clear nothing —
-;;    silently. The refusal lives in the SHARED concrete-scope guard
-;;    (`state/canonicalize-scope`), so every concrete-scope boundary inherits
+;;    This closes a FAIL-OPEN trap, not an incidental validation: a map is a
+;;    perfectly valid LITERAL scope value, so without the refusal a
+;;    `{:from-db :t/session}` payload would canonicalize as a literal map
+;;    scope, key nothing, and clear nothing — silently. The refusal lives in
+;;    the SHARED concrete-scope guard (`state/canonicalize-scope`), so every concrete-scope boundary inherits
 ;;    it, not clear-scope alone.
 ;; ===========================================================================
 
@@ -289,8 +288,8 @@
   (settle-loaded! (session-key "jake" 1) {:for "jake"})
   (is (some? (entry (session-key "jake" 1))) "jake's entry loaded")
   (testing "a {:from-db …} clear-scope payload is REFUSED with
-            :rf.error/resource-invalid-scope — the reference form no longer
-            exists, and a map that merely LOOKS like one must not be accepted
+            :rf.error/resource-invalid-scope — clear-scope has no reference
+            form, and a map that merely LOOKS like one must not be accepted
             as a literal map scope (which would key nothing and clear nothing,
             silently)"
     (is (thrown-with-msg?
@@ -322,7 +321,7 @@
     (is (empty? (entries)) "no entry survives the concrete-scope clear")))
 
 ;; ===========================================================================
-;; rf2-fi6tda.4 finding 2 — pin the runtime :rf.resource/scope-resolved trace
+;; the runtime :rf.resource/scope-resolved trace
 ;; ===========================================================================
 
 (defn- record-scope-resolved!
@@ -337,7 +336,7 @@
     @seen))
 
 (deftest scope-resolved-trace-emitted-on-event-ensure-with-full-shape
-  ;; rf2-fi6tda.4 finding 2: a {:from-db :t/session} resolution on event ensure
+  ;; A {:from-db :t/session} resolution on event ensure
   ;; emits a :rf.resource/scope-resolved row carrying :resource-id, :kind, the
   ;; declared :inputs, the resolved :input-values, :whole-db?, the resolved
   ;; :scope, and :resolved-nil? — pinned against the RUNTIME, not a synthetic
@@ -383,8 +382,8 @@
       (is (nil? (:scope row))))))
 
 ;; ===========================================================================
-;; rf2-ru73k6 F3 — passive reads advertised as pure emit NO scope-resolved
-;; trace, while causal boundaries still do
+;; passive reads advertised as pure emit NO scope-resolved trace, while
+;; causal boundaries do
 ;; ===========================================================================
 
 (deftest pure-resolve-resource-scope-emits-no-trace
@@ -425,7 +424,7 @@
 (deftest causal-boundary-resolution-still-emits-trace
   ;; The other half of the split: the CAUSAL boundaries keep their inspectable
   ;; evidence. An event ensure with a {:from-db} scope DOES emit a
-  ;; scope-resolved row (so the split is surgical, not a blanket removal).
+  ;; scope-resolved row.
   (rf/dispatch-sync [:t/login "jake"])
   (let [rows (record-scope-resolved!
                (fn []
@@ -436,7 +435,7 @@
           "the traced causal boundary kept its evidence"))))
 
 ;; ===========================================================================
-;; rf2-84l82t (EP-0015) — OFF-BOX egress projection of the
+;; EP-0015 — OFF-BOX egress projection of the
 ;; :rf.resource/scope-resolved trace row's resolver-owned values.
 ;; ===========================================================================
 
@@ -473,16 +472,16 @@
           (is (not (secret? proj))))))))
 
 (deftest scope-resolved-off-box-egress-no-declassify-escape-hatch
-  ;; EP-0025 (rf2-71dr8t): the :rf.egress/public DECLASSIFICATION escape hatch
-  ;; was the removed propagation enum — off-box scope-resolved egress is now
-  ;; UNCONDITIONALLY fail-closed. A resolver that once carried :rf.egress/public
-  ;; now still redacts its resolved values (the key is silently ignored).
+  ;; EP-0025: there is no :rf.egress/public DECLASSIFICATION escape hatch —
+  ;; off-box scope-resolved egress is UNCONDITIONALLY fail-closed. A resolver
+  ;; carrying :rf.egress/public still redacts its resolved values (the key is
+  ;; silently ignored).
   (rf/reg-resource-scope :t/public-locale
     {:inputs {:locale [:db [:i18n :locale]]}
-     :rf.egress/output-sensitivity :rf.egress/public}   ;; silently ignored now
+     :rf.egress/output-sensitivity :rf.egress/public}   ;; silently ignored
     (fn [{:keys [locale]} _] (when locale [:rf.scope/locale {:locale locale}])))
   (testing "a resolver's resolved values are REDACTED off-box regardless of the
-            (now-ignored) :rf.egress/output-sensitivity key"
+            (ignored) :rf.egress/output-sensitivity key"
     (let [tags {:resource-id  :t/public-locale
                 :kind         :resource-scope
                 :inputs       [:locale]
@@ -496,12 +495,12 @@
       (is (= [:locale] (:inputs proj)) "the structural input NAMES ride verbatim"))))
 
 ;; ===========================================================================
-;; rf2-oo8cv7 — the DIRECT :rf.resource/invalidate-tags event resolves a
-;; `{:from-db <id>}` :scope SYMMETRICALLY with ensure / clear-scope (Spec 016
-;; §Resolver references — the single use-time rule, uniform across every site).
-;; Previously invalidate-tags canonicalized a {:from-db …} scope LITERALLY (a
-;; silent zero-match); it now resolves the reference against the handler's
-;; app-db coeffect exactly like ensure, and fails closed on a nil resolution.
+;; the DIRECT :rf.resource/invalidate-tags event resolves a
+;; `{:from-db <id>}` :scope SYMMETRICALLY with ensure (Spec 016
+;; §Resolver references — the single use-time rule): it resolves the
+;; reference against the handler's app-db coeffect exactly like ensure, and
+;; fails closed on a nil resolution. Canonicalizing a {:from-db …} scope
+;; LITERALLY would be a silent zero-match.
 ;; ===========================================================================
 
 (deftest invalidate-tags-from-db-resolves-identically-to-ensure
@@ -517,7 +516,7 @@
   (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :j 1]}])
   (testing "invalidate-tags {:from-db :t/session} marks stale the SAME scoped
             key ensure resolved {:from-db :t/session} to — symmetric use-time
-            resolution against the app-db coeffect (rf2-oo8cv7)"
+            resolution against the app-db coeffect"
     (rf/dispatch-sync [:rf.resource/invalidate-tags
                        {:scope {:from-db :t/session} :tags #{[:feed]}}])
     (is (some? (:invalidated-at (entry (session-key "jake" 1))))
@@ -528,7 +527,7 @@
   ;; two principals with the SAME tag in DIFFERENT session scopes; a
   ;; {:from-db} invalidate resolves the CURRENT principal's scope and marks
   ;; ONLY that entry stale — the other principal's equal-tag entry is untouched
-  ;; (the scope isolation the literal-canonicalize path could not provide).
+  ;; (the scope isolation a literal canonicalization cannot provide).
   (rf/dispatch-sync [:t/login "jake"])
   (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
                                           :owner [:app :j 1]}])
@@ -579,7 +578,7 @@
 (deftest invalidate-tags-from-db-nil-fails-closed-like-ensure
   ;; a {:from-db} invalidate :scope resolving nil is FAIL-CLOSED with a THROW
   ;; (:rf.error/resource-scope-unresolved-reference) — invalidate is
-  ;; scope-requiring like ensure, NOT clear-scope's warn/no-op. The
+  ;; scope-requiring like ensure. The
   ;; :rf.resource/scope-resolved (:resolved-nil? true) causal row fires FIRST.
   (testing "the resolution throws the canonical unresolved-reference error
             (asserted at the fn boundary — the event loop otherwise surfaces a
@@ -630,16 +629,14 @@
              {:scope {:from-db :t/nope} :tags #{[:feed]}}])))))
 
 ;; ===========================================================================
-;; rf2-l11670 — :rf.mutation/execute resolves a `{:from-db <id>}` :scope
-;; SYMMETRICALLY with ensure / clear-scope / invalidate-tags (Spec 016
-;; §Resolver references — the single use-time rule; `resolve-scope-input`'s
-;; third consumer). Previously the execute payload :scope canonicalized a
-;; {:from-db …} reference LITERALLY under the fail-open global default — the
-;; literal map keyed nothing, so every downstream tag match was a silent
-;; zero-match. Execute now resolves the reference against the handler's app-db
-;; coeffect; a supplied reference resolving nil THROWS (scope-requiring, like
-;; ensure / invalidate-tags — NOT the fail-open global default); the ABSENT
-;; :scope global default is unchanged.
+;; :rf.mutation/execute resolves a `{:from-db <id>}` :scope
+;; SYMMETRICALLY with ensure / invalidate-tags (Spec 016 §Resolver
+;; references — the single use-time rule, via `resolve-scope-input`). Execute
+;; resolves the reference against the handler's app-db coeffect; a literal
+;; canonicalization would key nothing, making every downstream tag match a
+;; silent zero-match. A supplied reference resolving nil THROWS
+;; (scope-requiring, like ensure / invalidate-tags — NOT the fail-open global
+;; default); an ABSENT :scope takes the global default.
 ;; ===========================================================================
 
 (defn- minstance
@@ -677,7 +674,7 @@
                                            :instance :save-1
                                            :scope {:from-db :t/session}}])
   (testing "the instance row records the RESOLVED concrete scope — never the
-            {:from-db} reference map (no reference in egress, rf2-l11670)"
+            {:from-db} reference map (no reference in egress)"
     (is (= [:rf.scope/session {:username "jake"}] (:scope (minstance :save-1))))
     (is (not= {:from-db :t/session} (:scope (minstance :save-1)))))
   (testing "the mutation-level default drove the tag match in the RESOLVED
@@ -717,7 +714,7 @@
   ;; a {:from-db} execute :scope resolving nil is FAIL-CLOSED with a THROW
   ;; (:rf.error/resource-scope-unresolved-reference) — execute is
   ;; scope-requiring for a SUPPLIED reference, like ensure / invalidate-tags,
-  ;; NOT the fail-open global default and NOT clear-scope's warn/no-op.
+  ;; NOT the fail-open global default.
   (reg-save-mutation! {})
   (testing "the handler boundary throws the canonical unresolved-reference
             error BEFORE any mutation start (asserted at the fn boundary — the
@@ -773,12 +770,12 @@
                                    :scope {:from-db :t/nope}}])))))
 
 (deftest execute-absent-and-concrete-scopes-unchanged
-  ;; The rf2-l11670 ruling governs only a SUPPLIED reference that fails to
-  ;; resolve: the ABSENT-:scope fail-open global default and the concrete
-  ;; pass-through are byte-for-byte unchanged.
+  ;; The throw governs only a SUPPLIED reference that fails to resolve: an
+  ;; ABSENT :scope takes the fail-open global default, and a concrete scope
+  ;; passes through byte-for-byte.
   (reg-save-mutation! {})
-  (testing "an ABSENT :scope keeps the documented fail-open :rf.scope/global
-            default (unchanged)"
+  (testing "an ABSENT :scope takes the documented fail-open :rf.scope/global
+            default"
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :t/save :params {}
                                              :instance :save-abs}])
     (is (= :rf.scope/global (:scope (minstance :save-abs)))))
