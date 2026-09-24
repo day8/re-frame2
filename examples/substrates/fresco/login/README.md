@@ -277,11 +277,18 @@ printed. `LOGIN_FRESCO_CLIENT_DIR` is where the client bundle landed:
 asset request takes the 404 branch — the page renders and then comes up
 without its JavaScript.
 
+Each of those aliases also carries `:main-opts` that run a test suite, and
+the Clojure CLI runs an alias's `:main-opts` even under `-A`, so
+`clojure -A:test` runs `ssr-ring`'s tests and exits without opening a REPL.
+The command below takes the classpath from `:test` and adds a one-line
+`:repl` alias. When several aliases carry `:main-opts`, the last one wins, so
+this opens a REPL:
+
 ```bash
 # From implementation/ssr-ring/ — a REPL with the host on the classpath.
 LOGIN_FRESCO_SSR_NODE=http://127.0.0.1:PORT \
 LOGIN_FRESCO_CLIENT_DIR=../out/examples/login-fresco \
-  clojure -A:test
+  clojure -Sdeps '{:aliases {:repl {:main-opts ["-r"]}}}' -M:test:repl
 ```
 
 ```clojure
