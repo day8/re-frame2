@@ -57,10 +57,10 @@
   arms of exactly that, and
   [[real-sequential-navigation-agrees-with-the-instrument]] presses Tab
   along the ledger and finds the same sequence [[keyboard-order]]
-  derives. The instrument is unchanged and still the one every other row
-  uses: it costs no round trip, it can range over the whole
-  forty-eight-entry order, and it is now VERIFIED against the thing it
-  stands in for rather than merely argued for. The presses come through
+  derives. The instrument is the one every other row uses: it costs no
+  round trip, it can range over the whole forty-eight-entry order, and it
+  is VERIFIED against the thing it stands in for rather than merely
+  argued for. The presses come through
   the browser gate's trusted-input bridge
   (`re-frame.fresco.trusted-input-support`, whose other half is
   `scripts/run-browser-tests.cjs`).
@@ -122,14 +122,12 @@
 ;; The fixture snapshots the registrar when THIS form is evaluated, so it
 ;; sits below every view above.
 ;;
-;; `:async? true` — the MAP shape — because this file now has async rows.
+;; `:async? true` — the MAP shape — because this file has async rows.
 ;; A positional fixture makes cljs.test throw a bare string the moment a
 ;; test body returns an async object, and nothing catches it: the whole
-;; lane unwinds, closing summary included. An earlier draft of
-;; this comment claimed the map shape was already in force here. It was
-;; not: `make-reset-runtime-fixture` returns the POSITIONAL fn by default
-;; and `:async? true` is the opt-in, so the file was one async row away
-;; from the trap it believed it had avoided.
+;; lane unwinds, closing summary included. `make-reset-runtime-fixture`
+;; returns the POSITIONAL fn by default and `:async? true` is the opt-in,
+;; so the map shape is in force only because it is asked for here.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
@@ -431,7 +429,7 @@
   ;; THE PROXY, VERIFIED. Every other row in this file reads
   ;; [[keyboard-order]] — the engine's focusability answer over a
   ;; candidate set in document order — and asserts it IS what Tab
-  ;; consumes. That was an argument. Here it is a measurement: press Tab
+  ;; consumes. Elsewhere that is an argument. Here it is a measurement: press Tab
   ;; along the ledger and compare the landings with what the instrument
   ;; derived for the same page.
   ;;
