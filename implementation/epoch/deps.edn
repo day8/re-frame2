@@ -66,7 +66,7 @@
   ;; WHAT `with-redefs` CAN AND CANNOT REACH — the precise gap, because the
   ;; imprecise version of this sentence is itself a hazard. Epoch reads the gate
   ;; only as `(when interop/debug-enabled? …)` INSIDE fn bodies, and that is a
-  ;; runtime Var deref, so `epoch_jvm_prod_gate_test.clj`'s twelve `with-redefs`
+  ;; runtime Var deref, so `epoch_jvm_prod_gate_test.clj`'s `with-redefs`
   ;; deftests do genuinely exercise epoch's own gated branches. What a rebind
   ;; cannot reach is everything decided while the framework LOADED — top-level
   ;; registrations, `defonce` initialisation, and any interceptor composed once
