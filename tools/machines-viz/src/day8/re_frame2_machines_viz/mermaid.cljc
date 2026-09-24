@@ -12,7 +12,7 @@
   generated header calls out the relevant omissions."
   (:require [clojure.string :as str]
             [re-frame.error :as rf.error]
-            ;; rf2-b2ygd2 — the SHARED grammar walker + injective id codec
+            ;; The SHARED grammar walker + injective id codec
             ;; the three emitters route through, so they address every node
             ;; identically (one escape codec, one source of truth).
             [day8.re-frame2-machines-viz.grammar :as g]))
@@ -30,22 +30,22 @@
 (def ^:private root-fallback-segment :rf.machines-viz.mermaid/root-fallback)
 (def ^:private parallel-root-path [:rf.machines-viz.mermaid/parallel-root])
 
-;; rf2-b2ygd2 — `keyword-label` is the SHARED fn-tolerant `grammar/name-of`
+;; `keyword-label` is the SHARED fn-tolerant `grammar/name-of`
 ;; (identical for keywords: `ns/name` or `name`, no leading colon). `label-
 ;; value` keeps its Mermaid-edge dispatch (string verbatim, else `pr-str`).
 (def ^{:arglists '([id])
-       :doc "rf2-b2ygd2 — re-export of `grammar/name-of`: a human-readable
+       :doc "Re-export of `grammar/name-of`: a human-readable
   keyword label without the leading colon."}
   keyword-label g/name-of)
 
 (defn- label-value
   "Return a label string for values that appear on Mermaid edges.
 
-  rf2-qgtcvy — an INLINE-FN guard/action renders via the SHARED fn-tolerant
+  An INLINE-FN guard/action renders via the SHARED fn-tolerant
   `grammar/name-of` (its `:name` meta or a stable `\"fn\"`), the SAME way the
-  chart `name-of` + SCXML `ref->label` render it. The pre-fix `pr-str` arm
-  leaked the host object string (`#object[Function]` / `#object[...]`),
-  diverging from the other two emitters for the very same fn ref."
+  chart `name-of` + SCXML `ref->label` render it. A `pr-str` arm would leak
+  the host object string (`#object[Function]` / `#object[...]`), diverging
+  from the other two emitters for the very same fn ref."
   [v]
   (cond
     (keyword? v) (keyword-label v)
@@ -53,10 +53,9 @@
     (fn? v)      (g/name-of v)
     :else        (pr-str v)))
 
-;; rf2-b2ygd2 — grammar walker + injective id codec aliased from the SHARED
+;; Grammar walker + injective id codec aliased from the SHARED
 ;; `grammar` ns (the same `escape-id-segment` the chart `node-id` + the SCXML
-;; codec mint, so all three emitters address every node identically —
-;; rf2-mnp93.6).
+;; codec mint, so all three emitters address every node identically).
 (def ^:private target-path? g/target-path?)
 (def ^:private history-node? g/history-node?)
 (def ^:private escape-id-segment g/escape-id-segment)
@@ -68,7 +67,7 @@
   and joined with `_2f` (the hex escape of `/`, the boundary marker the
   escaper itself uses for a namespaced keyword — so a namespaced keyword
   `:auth/login` reads `auth_2flogin` and can never collide with a state
-  literally named `:auth-login` → `auth_2dlogin` (rf2-mnp93.6)."
+  literally named `:auth-login` → `auth_2dlogin`)."
   [segment]
   (cond
     (keyword? segment) (if-let [ns (namespace segment)]
@@ -90,16 +89,16 @@
   separators: `[:authenticated :cart :browsing]` →
   `authenticated__cart__browsing`.
 
-  rf2-mnp93.6 — the id is INJECTIVE (the same hex-escape discipline the
-  SCXML codec + the chart's xyflow `node-id` follow). The pre-fix naive
-  `[^a-zA-Z0-9_]`-collapse merged `:a/b`, `:a-b`, `:a_b` into one node;
+  The id is INJECTIVE (the same hex-escape discipline the
+  SCXML codec + the chart's xyflow `node-id` follow). A naive
+  `[^a-zA-Z0-9_]`-collapse would merge `:a/b`, `:a-b`, `:a_b` into one node;
   the hex escape keeps them distinct (`a_2fb`, `a_2db`, `a_5fb`). Mermaid
   node-ids are internal — the visible label comes from
   `render-state-alias` — so an injective encoding costs no legibility.
-  The id need not start with a letter (Mermaid accepts a leading `_`);
-  every escaped non-alphanumeric leader is a `_`, so the prior
-  leading-digit `s_` guard is unnecessary (a digit-leading name like
-  `:5x` escapes to `_35x` already)."
+  The id need not start with a letter (Mermaid accepts a leading `_`, and
+  every escaped non-alphanumeric leader is a `_`). A digit is not escaped,
+  so a digit-leading name like `:5x` mints `5x`; there is no leading-digit
+  guard."
   [id]
   (when id
     (let [segments (if (vector? id) id [id])]
@@ -127,7 +126,7 @@
       (str/replace #"[\r\n]+" " ")
       (str/replace "\"" "'")))
 
-;; rf2-b2ygd2 — the transition-spec walker is the SHARED
+;; The transition-spec walker is the SHARED
 ;; `grammar/transition-candidates` (chart + per-state SCXML emitters share
 ;; it). NOTE the parallel-ROOT mermaid path uses its own region-aware
 ;; exploder (`root-region-qualified-candidates`), mirroring the SCXML
@@ -156,15 +155,15 @@
   (when-let [guard (:guard candidate)]
     (str " [" (sanitise-label guard) "]")))
 
-;; rf2-b2ygd2 — the external-restart predicate is the SHARED
-;; `grammar/reenter?` (Spec 005 §Self-transitions / XState v5: a TARGETED
-;; transition is INTERNAL by default; only `:reenter? true` makes it
-;; external). Without this distinction a `{:target :same-state}` transition
-;; charts IDENTICALLY whether or not `:reenter? true` is set.
+;; The external-restart predicate is the SHARED `grammar/reenter?` (Spec 005
+;; §Self-transitions): `:reenter? true` restarts the DECLARING state, which a
+;; self or proper-descendant target otherwise leaves standing. Without this
+;; distinction a `{:target :same-state}` transition charts IDENTICALLY
+;; whether or not `:reenter? true` is set.
 (def ^:private reenter? g/reenter?)
 
 (defn- reenter-suffix
-  "rf2-9dj21r — a trailing `↻` marker on the Mermaid edge label for a
+  "A trailing `↻` marker on the Mermaid edge label for a
   `:reenter? true` (external restart) transition, so it reads DISTINCTLY
   from its internal-default counterpart (otherwise the two produce
   byte-identical Mermaid)."
@@ -217,21 +216,19 @@
                 :label (edge-label "always" candidate)}]))
           (transition-candidates always)))
 
-;; --- internal (action-only) transition notes (rf2-mnp93.4) ---------------
+;; --- internal (action-only) transition notes ------------------------------
 ;;
 ;; An INTERNAL transition candidate (a map that OMITS `:target` — Spec 005
 ;; §Transition slots: "omit for internal"; §Self-transitions: the internal
 ;; default runs only the `:action`, the config is unchanged) has NO arrow to
-;; draw in Mermaid (there is no destination state). Pre-fix, the `:on` /
-;; `:after` / `:always` collectors all silently DROPPED every target-less
-;; candidate, while the chart + SCXML emitters surfaced it — breaking the G9
-;; 'faithful across all three emitters' parity claim
-;; (001-Topology-Parity.md §3.1). We close the asymmetry exactly the way the
-;; action-only `:on-done` was closed (rf2-ay42f): render the internal
-;; transition as a `note right of <state>` so the action it runs is visible.
+;; draw in Mermaid (there is no destination state). The chart + SCXML
+;; emitters surface it, so dropping it here would break the G9 'faithful
+;; across all three emitters' parity claim (001-Topology-Parity.md §3.1).
+;; Exactly as for the action-only `:on-done`, the internal transition renders
+;; as a `note right of <state>` so the action it runs is visible.
 
 (defn- internal-candidate?
-  "rf2-mnp93.4 — true when a transition candidate is INTERNAL: a map that
+  "True when a transition candidate is INTERNAL: a map that
   omits `:target` (the action-only / no-config-change shape). A keyword /
   vector-path candidate always carries a target, so only a map can be
   internal."
@@ -240,7 +237,7 @@
        (not (contains? candidate :target))))
 
 (defn- internal-note-line
-  "rf2-mnp93.4 — the note body for one internal (target-less) candidate.
+  "The note body for one internal (target-less) candidate.
   Reads `<descriptor> [guard] / <action>` (the same `event [guard] /
   action` order edges use), so an internal `:on :tick {:action :log}`
   surfaces as `on tick / log`, an `:after 1000 {:action :timeout}` as
@@ -253,11 +250,11 @@
     (str "    " (sanitise-label descriptor) guard action)))
 
 (defn- internal-candidate-lines
-  "rf2-mnp93.4 — note-body lines for every INTERNAL candidate declared on
+  "Note-body lines for every INTERNAL candidate declared on
   one state's `:on` / `:after` / `:always` / `:spawn :on-error`. `:on`
   candidates carry their event id as the descriptor; `:after` candidates
   `after(<delay>)`; `:always` candidates `always`; `:on-error` candidates
-  `✗ error` (rf2-3x7nj.33.1)."
+  `✗ error`."
   [state-node]
   (concat
     (mapcat (fn [[event-id spec]]
@@ -270,7 +267,7 @@
                    (filter internal-candidate?)
                    (map #(internal-note-line (str "after(" (label-value delay) ")") %))))
             (:after state-node))
-    ;; rf2-oy49f1 — gated on `(:always state-node)` being present. `:always`
+    ;; Gated on `(:always state-node)` being present. `:always`
     ;; is a SINGULAR top-level slot (unlike the per-event `:on`/`:after` maps
     ;; above, where `mapcat` only ever visits a key that EXISTS) — an absent
     ;; `:always` and an explicit nil value are indistinguishable, so
@@ -281,7 +278,7 @@
       (->> (transition-candidates (:always state-node))
            (filter internal-candidate?)
            (map #(internal-note-line "always" %))))
-    ;; rf2-3x7nj.33.1 — an action-only `:spawn` `:on-error` (the child failed;
+    ;; An action-only `:spawn` `:on-error` (the child failed;
     ;; run the action, stay put). Gated on presence for the same reason as
     ;; `:always` above.
     (when-let [oe (get-in state-node [:spawn :on-error])]
@@ -290,13 +287,13 @@
            (map #(internal-note-line "✗ error" %))))))
 
 (defn- collect-internal-transition-notes
-  "rf2-mnp93.4 — emit a `note right of <state>` for every state with one or
-  more INTERNAL (action-only, target-less) `:on` / `:after` / `:always`
-  candidates. Walks the state tree the same way `collect-edges` does so a
-  nested state's internal transitions are covered too. Returns a flat seq
-  of note lines. Pre-fix these candidates were silently dropped while the
-  chart self-anchored them (`:internal? true`) and SCXML emitted them as
-  target-less `<transition>`s — this restores three-emitter agreement."
+  "Emit a `note right of <state>` for every state with one or
+  more INTERNAL (action-only, target-less) `:on` / `:after` / `:always` /
+  `:spawn :on-error` candidates. Walks the state tree the same way
+  `collect-edges` does so a nested state's internal transitions are covered
+  too. Returns a flat seq of note lines. The chart self-anchors these
+  candidates (`:internal? true`) and SCXML emits them as target-less
+  `<transition>`s, so the three emitters agree."
   [root-path states]
   (mapcat
     (fn [[state-id state-node]]
@@ -313,7 +310,7 @@
     states))
 
 (defn- collect-on-done-edges
-  "rf2-41goo — emit the compound / region-compound `:on-done` completion
+  "Emit the compound / region-compound `:on-done` completion
   edge (XState `onDone`). When a compound reaches its `:final?` child the
   engine raises `done.state.<compound>`; the enclosing `:on-done`
   transitions the outer flow. `:on-done` is resolved relative to the
@@ -335,13 +332,13 @@
         (transition-candidates on-done)))
 
 (defn- on-done-action-only?
-  "rf2-ay42f — true when an `:on-done` spec is ACTION-ONLY: it has at
+  "True when an `:on-done` spec is ACTION-ONLY: it has at
   least one candidate, and EVERY candidate is target-less (the engine just
   runs an action when the sub-flow completes; the machine stays in the
   all-final config). A target-bearing candidate routes a `✓ done` edge
   (`collect-on-done-edges`); a target-less one has no arrow to draw.
 
-  rf2-oy49f1 — gated on `on-done` being present. `:on-done` is a SINGULAR
+  Gated on `on-done` being present. `:on-done` is a SINGULAR
   top-level slot (unlike a per-event `:on`/`:after` MAP entry) — an absent
   `:on-done` and an explicit `nil` value are indistinguishable once
   destructured off the state/region node, so `transition-candidates`'
@@ -357,7 +354,7 @@
               (every? #(nil? (resolve-target-path [] [] (:target %))) cands)))))
 
 (defn- on-done-action-label
-  "rf2-ay42f — the `on-done: ✓ done / <action>` note body for an
+  "The `on-done: ✓ done / <action>` note body for an
   action-only `:on-done` (the same caption `render-parallel-on-done-note`
   paints for the parallel-root form). The first candidate's `:action`
   surfaces when present."
@@ -367,7 +364,7 @@
       action (str " / " (label-value action)))))
 
 (defn- collect-compound-on-done-notes
-  "rf2-ay42f — emit a `note right of <compound>` for every COMPOUND state
+  "Emit a `note right of <compound>` for every COMPOUND state
   whose `:on-done` is ACTION-ONLY (target-less). Mermaid has no
   transitionable completion glyph for an action-only done (there is no
   sibling state to arrow to — the engine just runs the action; the machine
@@ -375,13 +372,13 @@
   action-only `:on-done` is rendered (`render-parallel-on-done-note`) — we
   render a note carrying `on-done: ✓ done / <action>`.
 
-  Pre-fix, `collect-on-done-edges` kept ONLY target-bearing candidates, so
-  a compound action-only `:on-done` (a documented Spec 005 shape — see
-  `on-done-edges`' docstring in `chart/layout.cljc`) was SILENTLY DROPPED
-  in mermaid while the chart + SCXML emitters surfaced it — breaking the
-  G9 'faithful across all three emitters' parity claim. This closes the
-  asymmetry: a target-bearing compound `:on-done` routes a `✓ done` edge,
-  an action-only one carries a note, so the completion is always visible.
+  `collect-on-done-edges` keeps ONLY target-bearing candidates, so without
+  this note a compound action-only `:on-done` (a documented Spec 005 shape —
+  see `on-done-edges`' docstring in `chart/layout.cljc`) would be SILENTLY
+  DROPPED in mermaid while the chart + SCXML emitters surface it — breaking
+  the G9 'faithful across all three emitters' parity claim. A target-bearing
+  compound `:on-done` routes a `✓ done` edge, an action-only one carries a
+  note, so the completion is always visible.
 
   Walks the state tree the same way `collect-edges` does (compound
   substates recurse), so a deeply-nested compound's action-only completion
@@ -416,17 +413,16 @@
             on-map)))
 
 (defn- root-region-qualified-candidates
-  "rf2-656ivk / rf2-m3otj2 — explode a parallel-ROOT `:on` / `:after`
+  "Explode a parallel-ROOT `:on` / `:after`
   candidate carrying a MULTI-region target `{:target [[:a :x] [:b :y]] …}` into
   ONE candidate per region-qualified target (`{:target [:a :x] …}` /
   `{:target [:b :y] …}`), preserving the guard / action / reenter? on each.
   The runtime's root grammar (`re-frame.machines.parallel/normalise-root-
   targets`) treats a vector-of-vectors `:target` as MULTIPLE region targets;
   `resolve-target-path` only resolves a flat keyword-vector path, so without
-  this explosion a map-form multi-region root target was SILENTLY DROPPED (the
-  pre-fix latent bug in the root `:on` path; rf2-m3otj2 needs it for `:after`
-  too). A single-region (`[:a :x]`) or targetless candidate passes through
-  unchanged."
+  this explosion a map-form multi-region root `:on` / `:after` target would be
+  SILENTLY DROPPED. A single-region (`[:a :x]`) or targetless candidate passes
+  through unchanged."
   [candidate]
   (let [tgt (:target candidate)]
     (if (and (vector? tgt) (seq tgt) (every? vector? tgt))
@@ -434,7 +430,7 @@
       [candidate])))
 
 (defn- collect-root-parallel-fallback-edges
-  "rf2-656ivk / rf2-m3otj2 — TARGET-BEARING parallel-ROOT `:on` / `:after`
+  "TARGET-BEARING parallel-ROOT `:on` / `:after`
   edges (the ancestor fallback, Spec 005 §Root parallel `:on` / §Root-level
   `:after`). Unlike the REGION-level `collect-root-fallback-edges`, the ROOT's
   targets are REGION-QUALIFIED (`[:a :x]`) — a multi-region candidate
@@ -456,7 +452,7 @@
                   :label (edge-label base-label candidate " (root fallback)")})))))
 
 (defn- collect-root-fallback-on-edges
-  "rf2-656ivk — the parallel-ROOT's own `:on` ancestor-fallback edges,
+  "The parallel-ROOT's own `:on` ancestor-fallback edges,
   region-qualified-target-aware (multi-region map-form targets included)."
   [root-path on-map]
   (let [source-path (conj (vec root-path) root-fallback-segment)]
@@ -465,7 +461,7 @@
             on-map)))
 
 (defn- collect-root-fallback-after-edges
-  "rf2-m3otj2 — the parallel-ROOT's own `:after` ancestor-fallback edges
+  "The parallel-ROOT's own `:after` ancestor-fallback edges
   (the timer-driven analog), labelled `after(<delay>) … (root fallback)`."
   [root-path after-map]
   (let [source-path (conj (vec root-path) root-fallback-segment)]
@@ -477,12 +473,13 @@
             after-map)))
 
 (defn- root-fallback-internal-notes
-  "rf2-656ivk / rf2-m3otj2 — an ACTION-ONLY (target-less) parallel-ROOT `:on` /
+  "An ACTION-ONLY (target-less) parallel-ROOT `:on` /
   `:after` candidate runs its action and moves NO region (Spec 005 §Root
   parallel `:on` targetless form / §Root-level `:after` action-only form). It
-  has no arrow to draw, so — exactly as F2/F5 surface an action-only
-  `:on-done` / internal transition — render it as a `note right of <parallel
-  root>` so the affordance is not silently dropped (the chart self-anchors it
+  has no arrow to draw, so — exactly as `collect-compound-on-done-notes` /
+  `collect-internal-transition-notes` surface an action-only `:on-done` /
+  internal transition — render it as a `note right of <parallel root>` so the
+  affordance is not silently dropped (the chart self-anchors it
   `:internal?`; SCXML emits a target-less `<transition>`). Returns a flat seq
   of note lines (empty when there is nothing internal to surface)."
   [on-map after-map]
@@ -517,11 +514,11 @@
          (collect-on-edges root-path state-path (:on state-node))
          (collect-after-edges root-path state-path (:after state-node))
          (collect-always-edges root-path state-path (:always state-node))
-         ;; rf2-41goo — the compound `:on-done` completion edge (sibling
+         ;; The compound `:on-done` completion edge (sibling
          ;; target). A parallel-root `:on-done` (action/fx-only) is
          ;; rendered separately in `render-parallel-body`.
          (collect-on-done-edges root-path state-path (:on-done state-node))
-         ;; rf2-3x7nj.33.1 — the `:spawn` `:on-error` parent transition the
+         ;; The `:spawn` `:on-error` parent transition the
          ;; engine takes when the spawned child fails (sibling target,
          ;; resolved at the spawning state's own level). An action-only
          ;; candidate has no arrow; `internal-candidate-lines` notes it.
@@ -600,7 +597,7 @@
          (sanitise-id state-path))))
 
 (defn- render-history-marker
-  "rf2-m285a — declare a `:type :history` pseudo-state inside its owning
+  "Declare a `:type :history` pseudo-state inside its owning
   compound block (Spec 005 §History states). Mermaid `stateDiagram-v2`
   has no portable native history glyph (the `[H]` form is spottily
   rendered across Mermaid versions / consumers), so — same lossy-static
@@ -626,13 +623,13 @@
   "Render a compound state's `state \"<name>\" as X { ... }` block (Mermaid
   nesting). Returns a sequence of lines (indented at `depth`).
 
-  rf2-3x7nj.33.2 — the block carries the state's NAME as its label, and
+  The block carries the state's NAME as its label, and
   declares EVERY child inside it (`render-state-declarations`), leaves
   included. Mermaid scopes a state to the block it is first mentioned in,
   so a child left to its first edge line — which goes out at root scope,
-  after every block — was drawn OUTSIDE its compound.
+  after every block — would be drawn OUTSIDE its compound.
 
-  rf2-m285a — a `:type :history` child is declared as a labelled history
+  A `:type :history` child is declared as a labelled history
   marker (`render-history-marker`) so an incoming `:target :hist` edge
   lands on a node that reads as a history pseudo-state."
   [state-path state-node depth]
@@ -649,7 +646,7 @@
        [(str indent "}")]))))
 
 (defn- render-state-declarations
-  "rf2-3x7nj.33.2 — declare every state in a `:states` map at `depth`: a
+  "Declare every state in a `:states` map at `depth`: a
   compound as its nested block, a history pseudo-state as its marker, and a
   leaf as `state \"<name>\" as <id>`. The label is the state's own name
   (`ns/name` for a namespaced id); the id stays the injective escape, which
@@ -666,7 +663,7 @@
 
 (defn- render-root-fallback-alias
   "Declare the `root fallback` alias state — the source node every root /
-  region top-level fallback edge hangs off. rf2-m3otj2 — also declared when a
+  region top-level fallback edge hangs off. Also declared when a
   parallel-root `:after` (the timer-driven fallback) is present, so its
   `after(<delay>)` edge sources from the SAME labelled node, not an
   auto-created bare one. `after-map` is optional (region-level fallbacks pass
@@ -679,7 +676,7 @@
                           depth)])))
 
 (defn- flat-root-fallback-internal-notes
-  "rf2-5uhdaz — an ACTION-ONLY (target-less) machine-level (top-level) `:on`
+  "An ACTION-ONLY (target-less) machine-level (top-level) `:on`
   fallback runs its action and leaves the state unchanged (Spec 005 — the
   root `:on` is consulted last by `re-frame.machines.transition/pick-
   transition`; XState v5 targetless-transition semantics). It has no arrow to
@@ -701,7 +698,7 @@
               ["  end note"]))))
 
 (defn- region-fallback-internal-notes
-  "rf2-pdvtxt — an ACTION-ONLY (target-less) REGION-level top-level `:on`
+  "An ACTION-ONLY (target-less) REGION-level top-level `:on`
   fallback (`:on {:abort {:action :log}}` on a region map) runs its action and
   moves no state. Like the flat machine's `flat-root-fallback-internal-notes`
   and the parallel-root's `root-fallback-internal-notes`, it has no arrow to
@@ -709,14 +706,15 @@
   region's own `root fallback` alias node (`render-region-block` already
   declares it whenever the region carries a top-level `:on`).
 
-  Pre-fix this candidate was silently dropped from EVERY collector in
-  `render-parallel-body`: `collect-root-fallback-edges` emits only when a
-  target resolves (so a targetless region `:on` produced no edge); the
-  per-region `region-internal-notes` walk only descends the region's STATES,
-  not the region's OWN top-level `:on`; and `root-internal-notes` handles the
+  No other collector in `render-parallel-body` reaches this candidate:
+  `collect-root-fallback-edges` emits only when a target resolves (so a
+  targetless region `:on` produces no edge); the per-region
+  `region-internal-notes` walk only descends the region's STATES, not the
+  region's OWN top-level `:on`; and `root-internal-notes` handles the
   parallel-ROOT's `:on`/`:after`, not each region's. The chart self-anchors
   this fallback `:internal?` on the region container and SCXML emits a
-  target-less `<transition>`, so dropping it broke three-emitter agreement.
+  target-less `<transition>`, so dropping it would break three-emitter
+  agreement.
   Returns a flat seq of note lines (empty when no region has a targetless
   top-level fallback)."
   [regions]
@@ -746,19 +744,19 @@
         ;; so their `:status :error` / parent `:on-error` routing is not
         ;; silently collapsed into a plain success terminal.
         error-final-notes (render-error-final-notes root-path states)
-        ;; rf2-3x7nj.33.2 — every state declared, labelled, in scope.
+        ;; Every state declared, labelled, in scope.
         compound-lines (render-state-declarations root-path states 1)
-        ;; rf2-ay42f — a COMPOUND whose `:on-done` is action-only
+        ;; A COMPOUND whose `:on-done` is action-only
         ;; (target-less) has no sibling arrow to draw; render its
         ;; completion as a note so it is not silently dropped (the
         ;; chart + SCXML emitters both surface it).
         on-done-notes  (collect-compound-on-done-notes root-path states)
-        ;; rf2-mnp93.4 — an INTERNAL (action-only, target-less) `:on` /
+        ;; An INTERNAL (action-only, target-less) `:on` /
         ;; `:after` / `:always` candidate has no arrow to draw; render it
         ;; as a note so it is not silently dropped (the chart self-anchors
         ;; it `:internal? true`, SCXML emits a target-less <transition>).
         internal-notes (collect-internal-transition-notes root-path states)
-        ;; rf2-5uhdaz — a targetless machine-level (top-level) `:on` fallback
+        ;; A targetless machine-level (top-level) `:on` fallback
         ;; is likewise action-only; surface it as a note on the `root fallback`
         ;; alias (the chart self-anchors it on the machine-root chip).
         root-fallback-notes (flat-root-fallback-internal-notes on)]
@@ -789,7 +787,7 @@
            (sanitise-id region-path) " {")
       (region-initial-line region-path initial 3)]
      (render-root-fallback-alias region-path on 3)
-     ;; rf2-3x7nj.33.2 — every region state declared inside its region.
+     ;; Every region state declared inside its region.
      (render-state-declarations region-path states 3)
      ["    }"])))
 
@@ -800,7 +798,7 @@
                      (map render-region-block regions))))
 
 (defn- render-parallel-on-done-note
-  "rf2-41goo — the PARALLEL-ROOT `:on-done` (XState `onDone` on a parallel
+  "The PARALLEL-ROOT `:on-done` (XState `onDone` on a parallel
   state). When EVERY region settles `:final?`, the parallel root's
   `:on-done` runs its `:action` + `:fx` (a `:type :parallel` machine is
   root-only — registration rejects a `:target`, so there is no sibling
@@ -811,7 +809,7 @@
   inventing a phantom target arrow."
   [on-done]
   (when on-done
-    ;; rf2-ay42f — share the `on-done: ✓ done / <action>` caption with the
+    ;; Share the `on-done: ✓ done / <action>` caption with the
     ;; COMPOUND action-only note (`on-done-action-label`) so the two
     ;; action-only completion forms read identically.
     [(str "  note right of " (sanitise-id parallel-root-path))
@@ -819,7 +817,7 @@
      "  end note"]))
 
 (defn- region-root-on-done-edges
-  "rf2-f8fgz5 — a REGION's OWN top-level `:on-done` (Spec 005 §Parallel
+  "A REGION's OWN top-level `:on-done` (Spec 005 §Parallel
   `:on-done`: 'A **compound region** reaching its own `:final?` child
   raises a region-local `done.state.<region-compound>` that the region's
   `:on-done` takes … exactly the compound case, scoped to one region').
@@ -828,19 +826,19 @@
   `root-path` and `source-path` (the done-source). A KEYWORD target is
   therefore a SIBLING OF THE REGION (another key in `:regions`), exactly
   as a nested compound's keyword `:on-done` target is a sibling of the
-  compound — empirically verified against `scxml.cljc`'s `emit-state`
-  (which reads `:on-done` off ANY state node, a region included, via the
-  same sibling-resolution rule: a 2-region probe with `:on-done :b` on
-  region `:a` emits `<transition event=\"done.state.a\" target=\"b\"/>`,
-  `b` being the SIBLING region's own qualified id). A vector-path target
+  compound — the same rule `scxml.cljc`'s `emit-state` applies (it reads
+  `:on-done` off ANY state node, a region included, via the same
+  sibling-resolution rule: `:on-done :b` on region `:a` of a 2-region
+  machine emits `<transition event=\"done.state.a\" target=\"b\"/>`, `b`
+  being the SIBLING region's own qualified id). A vector-path target
   resolves IN-REGION (prefixed with the region id via `root-path`),
   matching every other region-level collector in this namespace
   (`collect-root-fallback-edges` et al).
 
-  Pre-fix `render-region-block` destructured only `{:keys [initial states
-  on]}` — never `:on-done` — so a target-bearing region `:on-done`
-  vanished from Mermaid with zero trace while SCXML preserved the
-  `done.state.<region> -> <sibling-region>` transition, breaking the G9
+  `render-region-block` destructures only `{:keys [initial states on]}` —
+  never `:on-done` — so without this collector a target-bearing region
+  `:on-done` would vanish from Mermaid with zero trace while SCXML preserves
+  the `done.state.<region> -> <sibling-region>` transition, breaking the G9
   cross-emitter parity invariant (001-Topology-Parity.md)."
   [regions]
   (mapcat (fn [[region-id {:keys [on-done]}]]
@@ -849,7 +847,7 @@
           regions))
 
 (defn- region-root-on-done-notes
-  "rf2-f8fgz5 — the ACTION-ONLY counterpart of `region-root-on-done-
+  "The ACTION-ONLY counterpart of `region-root-on-done-
   edges`: a region's own top-level `:on-done` with no resolvable target
   has no sibling-region arrow to draw, so — exactly as
   `collect-compound-on-done-notes` renders a nested compound's
@@ -873,23 +871,21 @@
                                   (collect-state-map-edges region-path states)
                                   (collect-root-fallback-edges region-path on))))
                              regions)
-                     ;; rf2-656ivk — the parallel-ROOT's own `:on` uses the
-                     ;; region-qualified-target-aware collector (a multi-region
-                     ;; map-form target `{:target [[:a :x] [:b :y]]}` was
-                     ;; SILENTLY DROPPED by the region-level collector's
-                     ;; flat-path-only `resolve-target-path`).
+                     ;; The parallel-ROOT's own `:on` uses the
+                     ;; region-qualified-target-aware collector (the
+                     ;; region-level collector's flat-path-only
+                     ;; `resolve-target-path` would SILENTLY DROP a
+                     ;; multi-region map-form target
+                     ;; `{:target [[:a :x] [:b :y]]}`).
                      (collect-root-fallback-on-edges [] on)
-                     ;; rf2-m3otj2 — the parallel-ROOT's own `:after` (the
+                     ;; The parallel-ROOT's own `:after` (the
                      ;; timer-driven ancestor fallback) renders as a root-
-                     ;; fallback edge labelled `after(<delay>)`. Pre-fix the
-                     ;; root `:after` was DROPPED entirely (destructured only
-                     ;; `regions on on-done`).
+                     ;; fallback edge labelled `after(<delay>)`.
                      (collect-root-fallback-after-edges [] after)
-                     ;; rf2-f8fgz5 — a REGION's OWN top-level `:on-done`
+                     ;; A REGION's OWN top-level `:on-done`
                      ;; (target-bearing form): a `✓ done` edge to the
-                     ;; SIBLING region. Pre-fix `render-region-block`
-                     ;; destructured only `{:keys [initial states on]}`, so
-                     ;; this vanished from Mermaid while SCXML preserved it.
+                     ;; SIBLING region (`render-region-block` does not read
+                     ;; `:on-done`).
                      (region-root-on-done-edges regions))
         edge-lines  (map render-edge edges)
         final-lines (mapcat (fn [[region-id {:keys [states]}]]
@@ -903,37 +899,36 @@
         (mapcat (fn [[region-id {:keys [states]}]]
                   (render-error-final-notes [region-id] states))
                 regions)
-        ;; rf2-ay42f — a COMPOUND inside a region whose `:on-done` is
+        ;; A COMPOUND inside a region whose `:on-done` is
         ;; action-only renders the same completion note the flat/compound
         ;; emitter and the parallel-root use (no sibling arrow to draw).
         region-on-done-notes
         (mapcat (fn [[region-id {:keys [states]}]]
                   (collect-compound-on-done-notes [region-id] states))
                 regions)
-        ;; rf2-f8fgz5 — a REGION's OWN top-level `:on-done` (action-only
+        ;; A REGION's OWN top-level `:on-done` (action-only
         ;; form): no sibling-region arrow to draw, so it surfaces as a
         ;; note on the region's own container (the region root).
         region-root-on-done-note-lines (region-root-on-done-notes regions)
-        ;; rf2-mnp93.4 — an INTERNAL (action-only) `:on` / `:after` /
+        ;; An INTERNAL (action-only) `:on` / `:after` /
         ;; `:always` candidate on a state inside a region renders as a note
         ;; too (no arrow to draw), matching the flat/compound emitter.
         region-internal-notes
         (mapcat (fn [[region-id {:keys [states]}]]
                   (collect-internal-transition-notes [region-id] states))
                 regions)
-        ;; rf2-656ivk / rf2-m3otj2 — an ACTION-ONLY parallel-root `:on` /
+        ;; An ACTION-ONLY parallel-root `:on` /
         ;; `:after` candidate (runs an action, moves no region) has no arrow
         ;; to draw; surface it as a note on the parallel root so it is not
-        ;; silently dropped (pre-fix the action-only root `:on` was dropped by
-        ;; `collect-root-fallback-edges`' target `when-let`; the root `:after`
-        ;; was never collected at all).
+        ;; silently dropped (the edge collectors keep only target-bearing
+        ;; candidates).
         root-internal-notes (root-fallback-internal-notes on after)
-        ;; rf2-pdvtxt — an ACTION-ONLY REGION-level top-level `:on` fallback
+        ;; An ACTION-ONLY REGION-level top-level `:on` fallback
         ;; (`:on {:abort {:action :log}}` on a region) is likewise target-less;
-        ;; surface it as a note on that region's `root fallback` alias. Pre-fix
-        ;; it fell through every collector above (the targetless region `:on`
-        ;; produced no edge, and neither the per-region state walk nor the
-        ;; parallel-root note helper covered the region's OWN top-level `:on`).
+        ;; surface it as a note on that region's `root fallback` alias. No
+        ;; collector above covers it (the targetless region `:on` produces no
+        ;; edge, and neither the per-region state walk nor the parallel-root
+        ;; note helper covers the region's OWN top-level `:on`).
         region-fallback-notes (region-fallback-internal-notes regions)]
     (str/join "\n"
               (concat
@@ -941,7 +936,7 @@
                ["stateDiagram-v2"
                 (str "  [*] --> " (sanitise-id parallel-root-path))]
                (render-root-fallback-alias [] on after 1)
-               ;; rf2-3x7nj.33.2 — the synthetic root reads as what it is,
+               ;; The synthetic root reads as what it is,
                ;; like the `root fallback` alias, not as its escaped id.
                [(str "  state \"parallel root\" as " (sanitise-id parallel-root-path) " {")]
                (render-parallel-region-blocks regions)
@@ -954,11 +949,11 @@
                region-internal-notes
                region-fallback-notes
                root-internal-notes
-               ;; rf2-41goo — the parallel-root completion note (action/fx-
+               ;; The parallel-root completion note (action/fx-
                ;; only; no sibling target).
                (render-parallel-on-done-note on-done)))))
 
-;; rf2-egupfk — the definition-shape validators + value-free summary are the
+;; The definition-shape validators + value-free summary are the
 ;; SHARED grammar helpers (`grammar/valid-definition?` / `parallel-definition?`
 ;; / `definition-summary`), so all three emitters agree on which definitions
 ;; are projectable (keyword `:initial`, well-formed parallel regions) and on
@@ -984,9 +979,11 @@
     deliberate; a Markdown reader without the caveat may not realise
     `:after` rings are missing.
 
-  Validation: throws `ex-info` with `:reason :invalid-definition`
-  if a flat/compound definition is missing `:initial` or `:states`,
-  or a parallel definition is missing non-empty `:regions` whose
+  Validation: throws `ex-info` with `:rf.error/id
+  :mermaid/invalid-definition` (and a value-free `:definition-summary`)
+  when `grammar/valid-definition?` rejects the definition — e.g. a
+  flat/compound definition missing a keyword `:initial` or a non-empty
+  `:states`, or a parallel definition missing non-empty `:regions` whose
   region bodies each carry `:initial` and `:states`."
   ([definition] (emit definition {}))
   ([definition
@@ -1011,7 +1008,7 @@
            (str "Mermaid export: a definition must carry a keyword :initial + "
                 "a non-empty :states map. Provide those."))
          {:recovery :supply-a-valid-definition
-          ;; rf2-8nzxib — value-FREE; never the raw definition (its
+          ;; Value-FREE; never the raw definition (its
           ;; :data slot can hold live runtime values).
           :extra    {:definition-summary (g/definition-summary definition)}}))
      (let [body (if parallel?
