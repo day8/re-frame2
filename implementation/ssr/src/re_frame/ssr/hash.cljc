@@ -17,21 +17,21 @@
   `{:class (when selected? \"on\")}` shape must not manufacture a
   mismatch. See `canonical-edn`.
 
-  ## `data-hash` — the hydration-payload install ledger (rf2-tax2)
+  ## `data-hash` — the hydration-payload install ledger
 
   A DIFFERENT question, and the nil rule inverts with it. The multi-root
   install ledger (`re-frame.ssr.install`) asks \"is the payload arriving
   under this id the SAME DATA as the one already installed?\", and for
   ordinary app data nil is content: `{:x nil}` is not `{}`, `[nil 7]` is
   not `[7]`, `#{nil 1}` is not `#{1}`. Hashing a payload through the
-  render-tree rules made all three pairs collide DETERMINISTICALLY — not
-  by hash accident, by canonicalisation — so a second root carrying a
-  genuinely different server slice was waved through as
-  `:already-installed` and hydrated index-based content against the wrong
+  render-tree rules would make all three pairs collide DETERMINISTICALLY —
+  not by hash accident, by canonicalisation — so a second root carrying a
+  genuinely different server slice would be waved through as
+  `:already-installed` and hydrate index-based content against the wrong
   data, silently, where the ledger exists to fail loud.
 
   `data-hash` therefore canonicalises data as DATA: nil preserved
-  everywhere, map insertion order still irrelevant, set order still
+  everywhere, map insertion order irrelevant, set order
   irrelevant, sequence position significant. It is NOT a replacement for
   the render-tree rules and does not touch them — the two canonicalisers
   answer different questions and both are right for their own.
@@ -57,12 +57,11 @@
 ;; Single-pass mutually-recursive walker (`canonical-edn-into`): each
 ;; canonical fragment appends into a per-call `StringBuilder` on JVM /
 ;; mutable JS string accumulator on CLJS; the accumulated string is then
-;; byte-hashed once. The output (the parity-pinned canonical literal at
-;; every fixture in `re-frame.ssr.hash-parity-fixtures`) is byte-
-;; identical to the prior nested-`(str ...)` shape that materialised the
-;; whole form before hashing — only the allocation profile changes.
+;; byte-hashed once, so no intermediate string is materialised per node.
+;; The output is the parity-pinned canonical literal at every fixture in
+;; `re-frame.ssr.hash-parity-fixtures`.
 ;;
-;; `canonical-edn` (string-returning) is retained as the public surface
+;; `canonical-edn` (string-returning) is the public surface
 ;; for tests + the JVM↔CLJS parity fixtures that pin the canonical-EDN
 ;; literal directly; it delegates to the same builder-driven walker.
 
@@ -77,7 +76,7 @@
   ClojureScript has only IEEE doubles: it unifies a whole-valued double to
   an integer (`1.0` IS the JS number 1, printing `\"1\"`) and has no ratio
   type. The JVM prints `\"1.0\"` for that same `Double` and `\"1/2\"` for a
-  `Ratio`, so a render tree carrying either hashed AND rendered divergently
+  `Ratio`, so a render tree carrying either would hash AND render divergently
   across runtimes — a spurious hydration mismatch that CRASHES under
   `:ssr {:on-mismatch :hard-error}`. Canonicalise to the CLJS form:
 
@@ -174,23 +173,23 @@
            (.push accumulator "}")))))
 
 (defn- key-canonical
-  "The canonical-EDN string of a map KEY, used as the map's sort key
-  (rf2-mff1ht). `(comp str key)` is NOT a total order — a keyword `:a`
+  "The canonical-EDN string of a map KEY, used as the map's sort key.
+  `(comp str key)` is NOT a total order — a keyword `:a`
   and a string `\":a\"` both `str` to `\":a\"`, so `sort-by` falls back
   to source iteration/insertion order and logically-equal maps can
   canonicalise to different strings (and hash differently). The canonical
   EDN of a key distinguishes those shapes (`:a` vs the quoted `\":a\"`)
-  while leaving keyword-only ordering byte-identical to the old `str`
-  order (a keyword's canonical form equals its `str` form), so the
-  parity-pinned fixtures stay green. A nil key (not pruned — only nil
-  VALUES are) canonicalises to the empty string, mirroring the prior
-  `(str nil)` => `\"\"` sort position."
+  while ordering keyword-only maps exactly as `str`
+  would (a keyword's canonical form equals its `str` form), which the
+  parity-pinned fixtures pin. A nil key (not pruned — only nil
+  VALUES are) canonicalises to the empty string, the same
+  sort position `(str nil)` => `\"\"` gives."
   [map-key]
   (or (member-canonical map-key) ""))
 
 (defn- append-map!
   "Maps: emit `{` + sorted key-value pairs (`key value`, comma-joined) + `}`.
-  Entries sorted by the canonical-EDN form of the key (rf2-mff1ht) — a
+  Entries sorted by the canonical-EDN form of the key — a
   total, cross-runtime-stable order, unlike `(comp str key)` which
   collides string-form-equal keys of different types. Nil-valued entries
   pruned per Spec 011 §Hydration-mismatch detection."
@@ -215,7 +214,7 @@
        :cljs (.push accumulator "}"))))
 
 (defn canonical-edn-into
-  "Streaming canonical-EDN walker (rf2-8otin). Appends the canonical
+  "Streaming canonical-EDN walker. Appends the canonical
   serialisation of `value` into the `accumulator` — a `StringBuilder`
   on JVM, a JS array on CLJS. Returns the accumulator. Nil scalars are pruned at
   the parent (this fn no-ops on nil; callers walking a collection use
@@ -223,9 +222,9 @@
 
   A foreign JS value — a plain object or a JS array — is NOT descended
   into: it appends one fixed token (`#js{}` / `#js[]`). See the branch
-  comment below (rf2-56iys) for why those two predicates and no others.
+  comment below for why those two predicates and no others.
 
-  Output is byte-identical to (the now-thin) `canonical-edn`; the
+  Output is byte-identical to `canonical-edn`, which delegates here; the
   parity-pinned literals at `re-frame.ssr.hash-parity-fixtures` are
   the cross-runtime contract."
   [accumulator value]
@@ -260,10 +259,10 @@
     ;; fn, not a Var). `(.toString fn)` is NOT cross-runtime stable: JVM =
     ;; class-name + identity-hashcode, CLJS = the JS source — never equal.
     ;; The server hashes the raw render tree and the client re-hashes the
-    ;; SAME raw tree, so a fn `.toString` in the canonical EDN made byte-
+    ;; SAME raw tree, so a fn `.toString` in the canonical EDN would make byte-
     ;; identical HTML hash differently → a spurious
     ;; `:rf.ssr/hydration-mismatch` that CRASHES under
-    ;; `:ssr {:on-mismatch :hard-error}` (rf2-jsa2ml). No cross-runtime-
+    ;; `:ssr {:on-mismatch :hard-error}`. No cross-runtime-
     ;; stable fn identity exists, so drop it: every raw fn head serialises
     ;; to one fixed token. The fn's props (the rest of the child vector)
     ;; still hash, and a Var head stays identity-stable — a Var is NOT `fn?`
@@ -275,7 +274,7 @@
 
     (number? value)
     ;; Canonicalise the numeric print form so the JVM `1.0`/`1/2` and the
-    ;; CLJS `1`/`0.5` agree (rf2-0ypnnk) — see `canonical-number`. The
+    ;; CLJS `1`/`0.5` agree — see `canonical-number`. The
     ;; emitter (`re-frame.ssr.emit`) applies the SAME normalisation to the
     ;; HTML so the structural hash and the rendered markup stay byte-
     ;; consistent for the same logical tree.
@@ -283,7 +282,7 @@
            :cljs (.push accumulator (canonical-number value)))
         accumulator)
 
-    ;; ---- the foreign crossing (rf2-56iys) ---------------------------------
+    ;; ---- the foreign crossing ---------------------------------------------
     ;;
     ;; A FOREIGN JS VALUE IS OPAQUE TO THIS WALK: it serialises to one
     ;; fixed identity-free token and is not descended into. Two branches,
@@ -300,8 +299,8 @@
     ;; `#"regex"`, `#object[Symbol(x)]`, the terminal `#object[Ctor]` —
     ;; emits bounded output and recurses into nothing. So stopping at
     ;; `object?`/`array?` stops the descent precisely where `pr-str` would
-    ;; have started it, and `#inst`/regex/symbol keep the print forms they
-    ;; have today.
+    ;; have started it, and `#inst`/regex/symbol keep their bounded `pr-str`
+    ;; print forms.
     ;;
     ;; WHY STOP AT ALL. Two reasons, and the second is why this is not
     ;; merely defensive:
@@ -310,17 +309,17 @@
     ;;      seen-set. React 19's `createContext` returns an object carrying
     ;;      a `Provider` key that points back AT THE CONTEXT ITSELF, so a
     ;;      render tree holding a provider — `[ctx.Provider {:value …} …]`,
-    ;;      the ordinary way to write one — made this walk recur until the
+    ;;      the ordinary way to write one — would make this walk recur until the
     ;;      stack blew (`RangeError: Maximum call stack size exceeded`)
-    ;;      rather than return a hash. That is the reported defect; the
-    ;;      cycle is a property of the object graph, not of React, and a
-    ;;      hand-built `(unchecked-set o "self" o)` reproduces it exactly.
+    ;;      rather than return a hash. The
+    ;;      cycle is a property of the object graph, not of React: a
+    ;;      hand-built `(unchecked-set o "self" o)` has the same shape.
     ;;
     ;;   2. A FOREIGN OBJECT'S PRINT FORM CARRIES FUNCTION IDENTITY, which
-    ;;      is the very leak the `fn?` branch above exists to close
-    ;;      (rf2-jsa2ml). `#js {"component" f}` printed
+    ;;      is the very leak the `fn?` branch above exists to close.
+    ;;      `#js {"component" f}` prints
     ;;      `#js {:component #object[f]}` — the JS function's `.name`, which
-    ;;      the `:advanced` compiler renames, so one render tree hashed
+    ;;      the `:advanced` compiler renames, so one render tree would hash
     ;;      differently in dev and in release and could never agree with a
     ;;      JVM-side hash of the same tree. Collapsing the object to a token
     ;;      applies the rule the fn branch already states, at the one place
@@ -343,15 +342,15 @@
 
 (defn canonical-edn
   "Print a render-tree node in a stable order. Maps are sorted by the
-  canonical-EDN form of their keys (a total order — rf2-mff1ht);
+  canonical-EDN form of their keys (a total order);
   sequences keep order. A raw fn head serialises to one fixed identity-
-  free token (`#fn[]`) — its `.toString` is not cross-runtime stable
-  (rf2-jsa2ml); a Var reference keeps its `#'ns/name` print form (stable
+  free token (`#fn[]`) — its `.toString` is not cross-runtime stable;
+  a Var reference keeps its `#'ns/name` print form (stable
   both runtimes). Numeric leaves are canonicalised via `canonical-number`
-  so whole-valued doubles / ratios agree cross-runtime (rf2-0ypnnk). A
+  so whole-valued doubles / ratios agree cross-runtime. A
   foreign JS value (a plain object or a JS array) serialises to a fixed
   token — `#js{}` / `#js[]` — rather than being descended into, for the
-  two reasons `canonical-edn-into`'s foreign branch gives (rf2-56iys):
+  two reasons `canonical-edn-into`'s foreign branch gives:
   the graph can be cyclic, and its print form leaks `:advanced`-munged
   function names into the hash.
 
@@ -364,8 +363,8 @@
   spurious `:rf.ssr/hydration-mismatch` traces. Returns nil for nil
   input so the parent collection's `keep` / `remove` step prunes it.
 
-  Delegates to `canonical-edn-into` with a fresh accumulator (rf2-8otin) —
-  the public surface is unchanged but the production hash path skips this
+  Delegates to `canonical-edn-into` with a fresh accumulator; the
+  production hash path skips this string
   allocation entirely (see `render-tree-hash`)."
   [value]
   (when-not (nil? value)
@@ -382,7 +381,7 @@
 ;; Why UTF-8 bytes, not UTF-16 code units?
 ;;
 ;;   - JVM uses primitive `byte[]` + `aget` — no boxing per step, ~3-5×
-;;     faster than the previous `.charAt`-per-step loop on medium trees.
+;;     faster than a `.charAt`-per-step loop on medium trees.
 ;;   - CLJS uses `TextEncoder` → `Uint8Array` and a `Math.imul` per-byte
 ;;     loop — same per-byte semantics as JVM.
 ;;
@@ -393,11 +392,11 @@
 ;; canonical-EDN serializer can produce.
 ;;
 ;; ASCII subset: for ASCII codepoints (0..127), UTF-8 emits a single byte
-;; whose numeric value equals the UTF-16 code unit. The previous
-;; `.charCodeAt` / `.charAt`-int path therefore produced the same hash as
+;; whose numeric value equals the UTF-16 code unit. A
+;; `.charCodeAt` / `.charAt`-int path therefore produces the same hash as
 ;; this byte-level path for ASCII input — the JVM↔CLJS parity pin in
 ;; `hash_check_cljs_test.cljs` (`9d7457ef` for `[:div {:class "x"} [:p "hi"]]`)
-;; is ASCII and survives unchanged.
+;; is ASCII.
 
 (defn fnv-1a-32
   "FNV-1a 32-bit hash of a string over its UTF-8 byte sequence. Returns
@@ -439,9 +438,8 @@
   identical canonical-EDN representation.
 
   Single-pass: feeds the canonical-EDN walker into one
-  accumulator and byte-hashes the result once. The streaming walker
-  emits byte-identical output to the prior tree-shaped-intermediates
-  shape; the parity-pinned literals at `re-frame.ssr.hash-parity-fixtures`
+  accumulator and byte-hashes the result once. The parity-pinned
+  literals at `re-frame.ssr.hash-parity-fixtures`
   are the cross-runtime contract."
   [render-tree]
   #?(:clj
@@ -453,7 +451,7 @@
        (canonical-edn-into accumulator render-tree)
        (fnv-1a-32 (.join accumulator "")))))
 
-;; ---- canonical DATA EDN (rf2-tax2) ----------------------------------------
+;; ---- canonical DATA EDN ---------------------------------------------------
 ;;
 ;; The nil-PRESERVING sibling of the render-tree walker above, for callers
 ;; asking "is this the same DATA?" rather than "does this render the same?".
@@ -483,14 +481,14 @@
     - **nil is content.** `nil` prints as `\"nil\"` wherever it appears —
       as a map value, a sequence element, a set member or the whole value.
       `{:x nil}` and `{}` therefore differ, as do `[nil 7]` / `[7]` and
-      `#{nil 1}` / `#{1}`. This is the whole reason the fn exists
-      (rf2-tax2). There is no sentinel and so no sentinel collision: `nil`
+      `#{nil 1}` / `#{1}`. This is the whole reason the fn exists.
+      There is no sentinel and so no sentinel collision: `nil`
       is an EDN literal and `pr-str` already distinguishes it from the
       STRING `\"nil\"` (which prints with its quotes).
 
     - **Map insertion order is not content**, so entries are emitted sorted
       by the canonical form of their KEY — the same total order
-      `canonical-edn` uses, and for the same reason (rf2-mff1ht): `str`
+      `canonical-edn` uses, and for the same reason: `str`
       alone collides a keyword `:a` with the string `\":a\"`, while their
       canonical forms differ.
 
