@@ -61,8 +61,8 @@
 ;; The non-streaming `default-html-shell` returns one finished string —
 ;; useful when everything renders synchronously. For streaming we need to
 ;; flush the prefix (open <html>, <head>, open <body>, open #app-div)
-;; immediately and emit the suffix (payload script and document close)
-;; close </body></html>) after the continuations have drained.
+;; immediately and emit the suffix (bootstrap script, body-end and the
+;; </body></html> close) after the continuations have drained.
 ;;
 ;; The split mirrors the default shell's structure 1:1. A one-piece
 ;; `:html-shell` fn is the NON-STREAMING contract and cannot be honoured
@@ -96,13 +96,13 @@
   close.
 
   The app root (`</div>`) is closed
-  closed at the END of the shell chunk (immediately after the shell HTML,
+  at the END of the shell chunk (immediately after the shell HTML,
   see `run-streaming-writer!`), so the resolved templates, hydration-delta
   scripts, and the final `__rf_payload` script all stream OUTSIDE `#app`
   per Spec 011 §Chunk-ordering contract (chunk 1 is
   `…<div id=\"app\"><shell-html/></div>`). The suffix is therefore purely
   the bootstrap `<script>` + the raw `:body-end` + the document close —
-  all of which already belonged outside `#app`, mirroring the non-streaming
+  all of which belong outside `#app`, mirroring the non-streaming
   `default-html-shell` (which emits the payload script + bootstrap + body-end
   after `</div>`)."
   [opts]
@@ -121,17 +121,17 @@
   (.write output-stream (.getBytes chunk StandardCharsets/UTF_8))
   (.flush output-stream))
 
-;; ---- the body pipe and its stall limit (rf2-3x7nj.14.1) ------------------
+;; ---- the body pipe and its stall limit -----------------------------------
 ;;
 ;; A body the host never drains must not pin the writer for ever. Middleware
 ;; that drops the response body unread and unclosed (Ring's `wrap-head` does
-;; exactly this for every HEAD) left the writer parked inside the JDK's
-;; `PipedInputStream.awaitSpace` once a page outgrew the pipe: that wait
+;; exactly this for every HEAD) would leave the writer parked inside the JDK's
+;; `PipedInputStream.awaitSpace` once a page outgrows the pipe: that wait
 ;; ends only when the reader reads, closes, or its thread dies, so the
-;; writer thread, the request frame and its side-channel slots lived for the
-;; life of the JVM. The writer therefore never hands the pipe more bytes than
+;; writer thread, the request frame and its side-channel slots would live for
+;; the life of the JVM. The writer therefore never hands the pipe more bytes than
 ;; fit, and gives up once the consumer has drained nothing for
-;; `stall-timeout-ms` — aborting through its existing catch/finally.
+;; `stall-timeout-ms` — aborting through its ordinary catch/finally.
 
 (def ^:private pipe-capacity
   "Bytes the body pipe buffers — large enough to absorb the shell chunk in
@@ -156,8 +156,8 @@
   "Write `len` bytes of `bs` from `off` into the pipe without ever parking
   inside `PipedOutputStream.write`: each write carries only what the pipe has
   free. While it is full, wait on the pipe's monitor — at most a second at a
-  time, the JDK's own poll, and a reader that empties the pipe wakes us as
-  before — and throw a `TimeoutException` once no byte has drained for
+  time, the JDK's own poll, and a reader that empties the pipe wakes us
+  early — and throw a `TimeoutException` once no byte has drained for
   `stall-timeout-ms`."
   [^PipedOutputStream pipe-out ^PipedInputStream pipe-in ^bytes bs off len]
   (loop [off (long off) remaining (long len) progress-at (System/nanoTime)]
@@ -213,7 +213,7 @@
   a prefix that cannot render (an attribute name `attr-string` refuses, a
   non-map bag) fails closed HERE, before the response head commits, exactly
   as the non-streaming handler does, instead of truncating a committed 200
-  on the writer thread (rf2-3x7nj.14.2). The hash markers it carries are
+  on the writer thread. The hash markers it carries are
   gated by `:emit-hash?`.
 
   `:doc-hash` is the body-only structural hash. It
@@ -221,7 +221,7 @@
   drives the streaming root-element `data-rf-render-hash` marker (when
   `:emit-hash?` is true). It is **nil when `:root-view` resolves to the
   unresolved root form** — that root carries no hash on either channel
-  (rf2-q1b96; see `lifecycle/render-document-hash`), so neither the chunk-1
+  (see `lifecycle/render-document-hash`), so neither the chunk-1
   marker nor the final payload's `:rf/render-hash` appears.
   `:head-hash` is the SEPARATE client-
   reconstructible head-model hash (`lifecycle/render-head-hash` over
@@ -232,8 +232,8 @@
   daemon writer needs (`:head-model` was consumed here, for the hash,
   and does not itself ride the wire).
 
-  When at least one continuation drains, `:doc-hash` no longer
-  drives the FINAL-payload `:rf/render-hash`. The final payload ships the
+  When at least one continuation drains, `:doc-hash` does not
+  drive the FINAL-payload `:rf/render-hash`. The final payload ships the
   live POST-drain `app-db`, so its hash must describe the POST-drain render
   tree (the one a streaming hydrate re-renders + verifies against). The
   writer re-resolves the root view AFTER every continuation drains and
@@ -261,7 +261,7 @@
   recovered-to-nil sub case does NOT throw here — its buffered fail-
   closed 5xx is picked up by the handler's post-shell
   `flush-response-result!` re-read, which then diverts to the non-streamed
-  projected-error arm (rf2-oytx7j)."
+  projected-error arm."
   [frame-id {:keys [root-view emit-hash?] :as opts}]
   ;; Blocking route resources settle before the shell; suspense continuation
   ;; deferral is a separate axis. Absent resource hooks make this a no-op.
@@ -281,7 +281,7 @@
           head-hash  (rf.ssr.ring.lifecycle/render-head-hash (:head-model head-bag))
           {:keys [shell-html continuations]} (rf.ssr.streaming/render-shell hiccup)
           ;; Render the prefix here, on the request thread, so a throw takes
-          ;; the caller's projected-error arm (rf2-3x7nj.14.2).
+          ;; the caller's projected-error arm.
           shell-prefix
           (default-streaming-prefix
             head-html
@@ -289,7 +289,7 @@
                    {:html-attrs  html-attrs
                     :body-attrs  body-attrs
                     ;; Mark the body tree actually streamed in chunk 1. nil
-                    ;; `doc-hash` (an unresolved root form — rf2-q1b96) omits
+                    ;; `doc-hash` (an unresolved root form) omits
                     ;; the marker as well as the payload key.
                     :render-hash (when emit-hash? doc-hash)
                     ;; Wire hash markers share the emit toggle; the payload's
@@ -368,16 +368,14 @@
   ;; outside a continuation drain. Updated as the writer advances so the
   ;; catch arm can name the in-flight phase.
   (let [writer-position (volatile! [:shell-prefix nil])
-        ;; rf2-8v89 — the ids of every continuation whose render THREW,
+        ;; The ids of every continuation whose render THREW,
         ;; accumulated as the growable FIFO drains (nested continuations
-        ;; included, since they are drained from the same queue). The drain
-        ;; loop has always read `:failed?` to pick the wire template and then
-        ;; dropped it, so the final payload's runtime slice said nothing about
-        ;; the failure and `frame-failed-boundaries` reported `#{}` after
-        ;; hydration — a durable-state/tooling truthfulness gap, not a broken
-        ;; fallback (`streaming/client.cljs` records observed failed chunks
-        ;; into its own process-level render-time registry, so what the user
-        ;; SEES was and stays correct). A volatile rather than a loop
+        ;; included, since they are drained from the same queue). The final
+        ;; payload's runtime slice carries them, so `frame-failed-boundaries`
+        ;; reports the failures after hydration rather than `#{}` — a
+        ;; durable-state/tooling truth, separate from the fallback the user
+        ;; SEES (`streaming/client.cljs` records observed failed chunks
+        ;; into its own process-level render-time registry). A volatile rather than a loop
         ;; accumulator: the value is read after the drain, by the
         ;; final-payload build several forms below.
         failed-boundaries (volatile! #{})]
@@ -425,7 +423,7 @@
                 render-template (if failed?
                                   rf.ssr.streaming/failed-template
                                   rf.ssr.streaming/resolved-template)]
-            ;; rf2-8v89 — record the failure for the final payload's runtime
+            ;; Record the failure for the final payload's runtime
             ;; slice. Same `failed?` the template choice above reads; recorded
             ;; here so a nested continuation, drained from the tail of this
             ;; same queue, is caught on exactly the same footing.
@@ -447,7 +445,7 @@
             ;; script rather than an inert `<script …>{}</script>` chunk
             ;; the client would parse and discard. `failed?` continuations
             ;; carry `:delta nil` (also falsy here), so the `not failed?`
-            ;; arm remains for intent clarity. A streaming hydration delta is
+            ;; arm is there for intent clarity. A streaming hydration delta is
             ;; browser-delivered state, so it obeys the same allowlist-first,
             ;; frame-project-second boundary as the final payload: an
             ;; off-allowlist changed key is DROPPED by the handler `:payload`
@@ -464,7 +462,7 @@
                   (rf/with-frame frame-id
                     (rf.ssr.streaming/project-delta delta frame-id
                                              {:payload                   payload
-                                              ;; rf2-hjz4r — the host's permit.
+                                              ;; The host's permit.
                                               :payload-include-sensitive payload-include-sensitive}))]
               (when (and (not failed?)
                          (map? projected-delta)
@@ -486,10 +484,10 @@
       ;; remains pre-drain because it describes chunk 1; the head hash is
       ;; drain-invariant. Server `:root-view` and client `:render-tree-fn` must
       ;; use symmetric EXPANDED forms — `(fn [] ((rf/view :app/root)))` against
-      ;; `#((rf/view :app/root))`. "Symmetric unexpanded" is no longer a second
+      ;; `#((rf/view :app/root))`. "Symmetric unexpanded" is not a second
       ;; way to agree: both sides would hash the constant `[#fn[]]`, a check
-      ;; that can never fail, so an unexpanded server root now carries no hash
-      ;; at all (rf2-q1b96).
+      ;; that can never fail, so an unexpanded server root carries no hash
+      ;; at all.
       ;;
       ;; Set phase before both payload construction and its write.
       (vreset! writer-position [:final-payload nil])
@@ -507,18 +505,18 @@
                   {:version         version
                    :schema-digest   schema-digest
                    :payload         payload
-                   ;; rf2-hjz4r — the host's permit, as on the deltas.
+                   ;; The host's permit, as on the deltas.
                    :payload-include-sensitive payload-include-sensitive
                    ;; Head state is drain-invariant.
                    :head-hash       head-hash
-                   ;; rf2-8v89 — the boundary ids whose continuation threw,
+                   ;; The boundary ids whose continuation threw,
                    ;; accumulated across the whole drain above. An EMPTY set
                    ;; contributes no key (`streaming/with-failed-boundaries`
                    ;; guards on `seq`), so the ordinary nothing-failed page
                    ;; keeps its `:rf/runtime-db`-free payload and the privacy
                    ;; projection is untouched.
                    :failed-boundaries @failed-boundaries
-                   ;; rf2-lm2yzy — stable WIRE :rf/frame-id (nil ⇒ omit).
+                   ;; The stable WIRE :rf/frame-id (nil ⇒ omit).
                    :client-frame-id client-frame-id})))]
         ;; Shared id-pinned, script-body-escaped payload element.
         (write-chunk! output-stream
@@ -527,7 +525,7 @@
       (vreset! writer-position [:suffix nil])
       (write-chunk! output-stream (default-streaming-suffix opts)))
     (catch Throwable cause
-      ;; Stamp the in-flight phase and, inside a
+      ;; Stamp the in-flight phase and (inside a
       ;; continuation drain) the boundary id + a coarse `:committed?` so
       ;; the writer-failed trace names WHERE the post-commit stream broke.
       ;; `:recovery` is hoisted to top-level by `build-event` (Spec 009
@@ -573,8 +571,8 @@
   meaningful Content-Type to default; `ssr-response->ring-response` ignores the
   body arg on its `:redirect` branch (pipeline.clj).
 
-  `frame` is the per-request frame VALUE (incarnation-EXACT teardown authority,
-  rf2-moftbs); `frame-id` remains the keyword for the failure trace."
+  `frame` is the per-request frame VALUE (incarnation-EXACT teardown
+  authority); `frame-id` is the keyword for the failure trace."
   [response frame-id frame]
   (try
     (rf.ssr.ring.pipeline/ssr-response->ring-response response nil)
@@ -590,11 +588,10 @@
   an `:error-view` (or the locked default template) body, and NO shell /
   continuations / `__rf_payload` / app-db. Shared by the drain-time 5xx branch
   and the post-shell recovered-to-nil 5xx branch of `stream-handler`. Per
-  Spec 011 §Drain-time error classification + §Streaming pre-commit rule
-  (rf2-oytx7j).
+  Spec 011 §Drain-time error classification + §Streaming pre-commit rule.
 
-  `frame` is the per-request frame VALUE (incarnation-EXACT teardown authority,
-  rf2-moftbs); `frame-id` remains the keyword the address-directed materialise +
+  `frame` is the per-request frame VALUE (incarnation-EXACT teardown
+  authority); `frame-id` is the keyword the address-directed materialise +
   the failure trace use."
   [frame-id response public-error opts frame]
   (try
@@ -617,7 +614,7 @@
   non-streaming `build-full-response` catch arm — NOT the `:on-error` transport
   net; the frame is torn down inline (no writer was spawned). The caller derefs
   a `reduced?` result and returns it directly; the outer handler try/catch
-  remains the net for the OTHER throws (head materialise, redirect materialise)
+  is the net for the OTHER throws (head materialise, redirect materialise)
   → `:on-error`.
 
   A production reactive-sub throw during the shell render does NOT throw here —
@@ -625,11 +622,10 @@
   substrate; the caller's post-shell `ssr/flush-response-result!` re-read
   drains that buffer, and a projected 5xx then diverts to the non-streamed
   projected-error arm (`stream-projected-error!`) — no writer thread, no
-  partial-state shell — rather than streaming the degraded shell under a 500
-  (rf2-oytx7j).
+  partial-state shell — rather than streaming the degraded shell under a 500.
 
-  `frame` is the per-request frame VALUE (incarnation-EXACT teardown authority,
-  rf2-moftbs); `frame-id` remains the keyword the address-directed render +
+  `frame` is the per-request frame VALUE (incarnation-EXACT teardown
+  authority); `frame-id` is the keyword the address-directed render +
   projector + failure trace use."
   [frame-id opts frame]
   (try
@@ -675,10 +671,10 @@
   via the slower destroy). A write that finds the pipe full while the body
   consumer drains nothing for `stall-timeout-ms` (60 s) aborts through the
   writer's catch/finally, so a body dropped unread (Ring's `wrap-head`)
-  cannot pin the writer, the frame or its slots for ever (rf2-3x7nj.14.1).
+  cannot pin the writer, the frame or its slots for ever.
 
-  `frame` is the per-request frame VALUE (incarnation-EXACT teardown authority,
-  rf2-moftbs); `frame-id` remains the keyword the address-directed materialise,
+  `frame` is the per-request frame VALUE (incarnation-EXACT teardown
+  authority); `frame-id` is the keyword the address-directed materialise,
   writer, thread name, and failure trace use."
   [frame-id rendered-shell post-shell-response content-type opts frame]
   (let [;; No body default-stamp here (we pass our own InputStream); `:body` is
@@ -698,8 +694,8 @@
             (finally
               ;; The writer's own finally closes the pipe; the frame teardown
               ;; happens here so it does NOT block the response close on the
-              ;; slower destroy path. Destroy the VALUE (incarnation-EXACT,
-              ;; rf2-moftbs); the keyword names the frame on any failure trace.
+              ;; slower destroy path. Destroy the VALUE (incarnation-EXACT);
+              ;; the keyword names the frame on any failure trace.
               (rf.ssr.ring.lifecycle/destroy-frame-quietly! frame frame-id))))
         ^String (str "rf2-ssr-streaming-" (name frame-id)))
       (.setDaemon true)
@@ -719,7 +715,7 @@
   through the shared `pipeline/setup-request-frame!` into the per-request
   `(rf/make-frame …)`, exactly as `ssr-handler` does — a declared
   `:url-strategy` encodes `route-link` hrefs in the streamed shell and is
-  validated at frame construction exactly as on the client, rf2-089dy)
+  validated at frame construction exactly as on the client)
   plus the four trusted
   shell-hook opts (`:head` / `:body-end` / `:script-src` /
   `:app-element-id`, honoured by `default-streaming-prefix` /
@@ -731,8 +727,8 @@
   `:rf.error/ssr-streaming-unsupported-opt` (ex-data `:opt-key`, `:got`,
   `:recovery`):
 
-    `:renderer` — the non-streaming `ssr-handler`'s render-body seam
-    (rf2-8arzr.1). The streaming path renders its shell and every
+    `:renderer` — the non-streaming `ssr-handler`'s render-body seam.
+    The streaming path renders its shell and every
     continuation chunk from the JVM-resolved `:root-view`, so a body that
     arrives whole from a non-local renderer has nothing to straddle;
     streaming over a non-local renderer is a programme non-goal. Use
@@ -770,8 +766,8 @@
       the post-shell `flush-response-result!` re-read picks up — BOTH fail
       closed to a non-200 projected error page (`:error-view` or the locked
       default template) on the request thread, with NO pipe or writer thread
-      spawned and NO partial-state shell / hydration payload shipped
-      (rf2-oytx7j). The streaming response is selected only once the shell is
+      spawned and NO partial-state shell / hydration payload shipped.
+      The streaming response is selected only once the shell is
       known-renderable (a clean render AND no projected 5xx),
     - then materialises the response head (status / headers / cookies)
       — so a header/cookie serialisation throw on a value that escaped
@@ -844,7 +840,7 @@
   ;; non-nil default would clobber an app's own `:rf.server/set-header
   ;; "content-type"`; an absent (nil) opt leaves the runtime's
   ;; default-seeded `text/html; charset=utf-8` — or the app's Content-Type
-  ;; — in control (the on-the-wire default is unchanged).
+  ;; — in control, so the handler leaves the on-the-wire default alone.
   (let [opts        (-> (merge {:emit-hash? true} raw-opts)
                         (assoc :on-error (rf.ssr.ring.lifecycle/resolve-on-error raw-opts)))
         {:keys [on-error content-type]} opts]
@@ -871,7 +867,7 @@
 
                 ;; A drain-time projected 5xx — NO shell, NO writer thread; a
                 ;; plain-String projected-error body on the request thread
-                ;; (Spec 011 §Streaming pre-commit rule, rf2-oytx7j).
+                ;; (Spec 011 §Streaming pre-commit rule).
                 (rf.ssr.ring.pipeline/projected-5xx? public-error)
                 (stream-projected-error! frame-id response public-error opts frame)
 
@@ -902,9 +898,8 @@
 
                         ;; A recovered-to-nil sub during the shell render
                         ;; buffered a fail-closed 5xx — take the NON-STREAMED
-                        ;; error arm (no writer thread, plain-String body).
-                        ;; rf2-oytx7j SUPERSEDES the old stream-the-degraded-
-                        ;; shell-under-500 behaviour: a 5xx before the chunked
+                        ;; error arm (no writer thread, plain-String body):
+                        ;; a 5xx before the chunked
                         ;; head commits never ships a partial-state shell.
                         (rf.ssr.ring.pipeline/projected-5xx? post-shell-public-error)
                         (stream-projected-error!
@@ -925,7 +920,7 @@
               ;; it falls back to the locked `default-on-error` rather
               ;; than escaping as a raw container 500 with leaked
               ;; internals.
-              ;; Destroy the VALUE (incarnation-EXACT, rf2-moftbs); the keyword
+              ;; Destroy the VALUE (incarnation-EXACT); the keyword
               ;; `frame-id` names the frame on any failure trace.
               (try (rf.ssr.ring.lifecycle/destroy-frame-quietly! frame frame-id)
                    (catch Throwable _ nil))
