@@ -28,8 +28,12 @@
                                  re-render the same controlled inputs. The
                                  draft PASSWORD is classified `:sensitive`
                                  by the shared model, so the projection
-                                 redacts it on both wires: the render cannot
-                                 print a secret it was never handed.
+                                 redacts it on both wires and it arrives as
+                                 the sentinel `:rf/redacted`. The render
+                                 cannot print a secret it was never handed,
+                                 so the view renders that sentinel empty. The
+                                 client owns this value, so it sets it after
+                                 hydrating (Spec 011's post-hydration rule).
     `:auth.login/server-notice`  a deployment notice the host resolves per
                                  request. NOT in the payload — the browser
                                  never receives it. A key in this position

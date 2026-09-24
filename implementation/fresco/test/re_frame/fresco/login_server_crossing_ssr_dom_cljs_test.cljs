@@ -55,6 +55,17 @@
       recovers and the framework emits the mismatch §6 proves absent. This
       row is why the shipped `host.clj` puts no notice in app-db, and why
       the rule is written beside the sub in `core.cljs`.
+  §8  the classified draft password on a HYDRATED page (rf2-3x7nj.43.1),
+      two rows, each the red of one of the example's two edits. STATE: the
+      payload carries the password as `:rf/redacted`, and the client that
+      boots through the example's own `hydrate-client!` holds `\"\"` there,
+      with the email, `:touched` and its classification untouched. MARKUP:
+      the server render prints that sentinel as an empty field rather than
+      the text `redacted`; its control is the email input, whose value the
+      same extraction reads.
+  §9  (DOM) the IDLE form page adopts with no mismatch, and the adopted
+      password input's live `.value` is empty. §6 adopts the Welcome page,
+      which has no password field to read.
 
   ## Two lanes, and a stated skip in each
 
@@ -64,9 +75,9 @@
   at RUN time rather than compiled in, because `implementation/ssr-node` is
   not on the CLJS classpath and shadow refuses a relative require that
   leaves it. So those rows run in the NODE lane and state their skip in the
-  browser one; §6 and §7 need a real React DOM and state theirs in Node.
+  browser one; §6, §7 and §9 need a real React DOM and state theirs in Node.
   Neither degrades to a false green, and §2 and §3 — the two rows that carry
-  the product claim — run in both."
+  the product claim — run in both, as does §8."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [clojure.string :as str]
             [goog.object :as gobj]
@@ -425,18 +436,22 @@
 
 (defn- hydrate-row!
   "Boot the client the way `fresco.login.core/run` boots it on a
-  server-rendered page — the payload through `ssr/hydrate!`, then the DOM
-  through an adopting `h/render!` with the example's own `identifier-prefix` — over
-  `html`, and answer a promise of `{:seen :adopted-html}`.
+  server-rendered page — the payload through the example's own
+  `hydrate-client!`, then the DOM through an adopting `h/render!` with the
+  example's own `identifier-prefix` — over `html`, and answer a promise of
+  `{:seen :adopted-html :password-value}`.
 
   The client frame is a FRESH one seeded exactly as the browser seeds it:
   `frame-config`, so the classification effects re-run, and then the payload
   replaces its state.
 
-  `:adopted-html` is read BEFORE `unmount!`, which is not tidiness: React
-  empties the container on unmount, so a row reading it afterwards asserts
-  against an empty container and fails whatever the adoption did. Measured — that is how
-  §6 first went red on a run whose adoption was clean.
+  `:adopted-html` and `:password-value` are read BEFORE `unmount!`, which is
+  not tidiness: React empties the container on unmount, so a row reading them
+  afterwards asserts against an empty container and fails whatever the
+  adoption did. Measured — that is how §6 first went red on a run whose
+  adoption was clean. `:password-value` is the password input's live `.value`
+  PROPERTY, which `innerHTML` does not show (it carries the attribute), or nil
+  on a page with no password input.
 
   `swallow-uncaught?` is the caller's, because it is a real decision. React
   routes a recovered hydration failure to `reportError`, and the browser
@@ -451,7 +466,7 @@
         watch     (rf.fresco.roots-frames-support/watch-mismatches!)
         console   (rf.fresco.roots-frames-support/open-console-capture! {:swallow-uncaught? swallow-uncaught?})]
     (rf/make-frame (merge {:id cfid} model/frame-config))
-    (rf.ssr/hydrate! {:frame cfid :payload payload})
+    (views/hydrate-client! cfid payload)
     (let [handle (rf.fresco/client-root)
           _      (rf.fresco/render! handle
                              [rf.fresco/frame-provider {:frame cfid}
@@ -461,12 +476,14 @@
                               :identifier-prefix views/identifier-prefix})]
       (.then (rf.fresco.roots-frames-support/adopted! handle)
              (fn [_]
-               (let [seen  ((:stop! watch))
-                     shown (.-innerHTML container)]
+               (let [seen     ((:stop! watch))
+                     shown    (.-innerHTML container)
+                     password (some-> (.querySelector container "[data-testid='login-password']")
+                                      .-value)]
                  ((:close! console))
                  (rf.fresco/unmount! handle)
                  (rf/destroy-frame! cfid)
-                 {:seen seen :adopted-html shown}))))))
+                 {:seen seen :adopted-html shown :password-value password}))))))
 
 (deftest the-client-adopts-the-server-bytes-with-no-recoverable-error
   (if-not (rf.fresco.impl.mount/browser?)
@@ -508,4 +525,87 @@
                    (is (every? #(= :rf.ssr/hydration-mismatch (:operation %)) seen)
                        "and the framework says so on its own channel, not only React's")))
           {:row  :server-only-value-costs-a-recovery
+           :done done})))))
+
+;; ---------------------------------------------------------------------------
+;; §8 / §9 — the classified draft password on a hydrated page (rf2-3x7nj.43.1)
+;; ---------------------------------------------------------------------------
+
+(def ^:private draft-password-path [:auth :login-form :draft :password])
+
+(deftest a-hydrated-client-re-seeds-its-draft-password
+  ;; The STATE half. Its red is a boot that hydrates and does not re-seed: the
+  ;; client then holds the payload's `:rf/redacted` in the field's draft.
+  (let [fid     (server-frame! idle-events)
+        payload (payload-of fid)
+        cfid    (keyword "rf.login-crossing" (str (gensym "client-")))]
+    (rf/destroy-frame! fid)
+    (rf/make-frame (merge {:id cfid} model/frame-config))
+    (try
+      (views/hydrate-client! cfid payload)
+      (let [db (rf/app-db-value cfid)]
+        (is (= "" (get-in db draft-password-path))
+            "the client owns the draft password, so it holds the empty default after hydrating rather than the payload's sentinel")
+        (testing "the controls - the re-seed moved that one leaf and nothing else"
+          (is (= :rf/redacted (get-in payload (into [:rf/app-db] draft-password-path)))
+              "the wire is unchanged: the payload still carries the sentinel, never the password")
+          (is (= "ada@example.com" (get-in db [:auth :login-form :draft :email]))
+              "the email is the payload's, so the server's app-db really was installed")
+          (is (= (get-in payload [:rf/app-db :auth :login-form :touched])
+                 (get-in db [:auth :login-form :touched]))
+              "`:touched` is the payload's: the re-seed is not an edit the user made")
+          (is (= :rf/redacted
+                 (get-in (rf.ssr.payload-policy/project-app-db-egress db cfid)
+                         draft-password-path))
+              "and the client's own classification survived hydration, so its egress still redacts the field")))
+      (finally
+        (rf/destroy-frame! cfid)))))
+
+(defn- input-tag
+  "The server HTML's `<input>` tag carrying `test-id`, or nil."
+  [html test-id]
+  (some #(when (str/includes? % (str "data-testid=\"" test-id "\"")) %)
+        (re-seq #"<input[^>]*>" html)))
+
+(defn- value-attr
+  "The `value` attribute of one `<input>` tag, or nil when it has none."
+  [tag]
+  (second (re-find #"value=\"([^\"]*)\"" tag)))
+
+(deftest the-server-render-prints-the-redacted-password-as-an-empty-field
+  ;; The MARKUP half. Its red is the view printing the sentinel as-is: the
+  ;; codec renders a keyword by its name, so the field reads `redacted`.
+  (with-frame! idle-events nil
+    (fn [fid]
+      (let [html     (rendered! fid)
+            password (input-tag html "login-password")
+            email    (input-tag html "login-email")]
+        (is (some? password) "the idle page renders the password input")
+        (is (not (str/includes? (str password) "redacted"))
+            "the render was handed the sentinel, and prints no text in its place")
+        (is (contains? #{nil ""} (value-attr password))
+            "so the server's password field arrives empty")
+        (testing "the control - the same extraction reads a real value off the email input"
+          (is (= "ada@example.com" (value-attr email))))))))
+
+(deftest the-client-adopts-the-idle-form-with-an-empty-password
+  ;; §9. The row §6 cannot be: §6 adopts the Welcome page, with no field.
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! "adoption is React's own DOM business")
+    (async done
+      (rf.fresco.roots-frames-support/leave-act-environment!)
+      (let [fid     (server-frame! idle-events)
+            html    (rendered! fid)
+            payload (payload-of fid)]
+        (rf/destroy-frame! fid)
+        (rf.fresco.roots-frames-support/settle-row!
+          (.then (hydrate-row! html payload {:swallow-uncaught? false})
+                 (fn [{:keys [seen adopted-html password-value]}]
+                   (is (= [] seen)
+                       "the server's empty field and the client's re-seeded draft agree, so adoption reports nothing")
+                   (is (str/includes? adopted-html "login-form")
+                       "and the page it adopted is the idle form")
+                   (is (= "" password-value)
+                       "whose password input is empty, so a typed password is the whole of what submits")))
+          {:row  :adopts-the-idle-form
            :done done})))))

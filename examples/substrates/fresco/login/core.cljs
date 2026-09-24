@@ -134,11 +134,19 @@
      ;; map is exactly the case `rf.fresco/event` exists for. Flattening the secret
      ;; into a positional intent to save four characters would break the
      ;; classification.
+     ;;
+     ;; The `:value` reads the draft, except for one exact value. On a
+     ;; server-rendered page the render is handed the draft password as the
+     ;; sentinel `:rf/redacted`, and printed as-is it fills the field with
+     ;; eight masked characters. The render cannot print a secret it was never
+     ;; handed, so it prints an empty field. The client's own state never holds
+     ;; the sentinel at render time: `hydrate-client!` below re-seeds it first.
      [:input {:type        "password"
               :placeholder "Password"
               :disabled    busy?
               :data-testid "login-password"
-              :value       (:password draft)
+              :value       (let [password (:password draft)]
+                             (if (= :rf/redacted password) "" password))
               :on-change   (rf.fresco/event [e]
                              [:auth.login/edit-password
                               {:value (.. e -target -value)}])}]
@@ -306,6 +314,24 @@
 ;; against. Adoption is verified by React itself — a divergence surfaces as
 ;; a recoverable error on this root's own stream.
 
+(defn hydrate-client!
+  "The SSR branch's state step: install the server's `payload` into
+  `frame-id`, then put back the one value the client owns.
+
+  `rf.ssr/hydrate!` REPLACES app-db with the payload's, and the payload
+  carries the classified draft password as `:rf/redacted`, never the value.
+  Left there, the field would be pre-filled with that sentinel and a typed
+  password would be appended to it. So the client re-seeds that one leaf,
+  after the hydration event and before the first render, which is where
+  Spec 011 puts client-seeded state.
+
+  Public so the crossing witness boots through the same function `run` does.
+  Returns what `rf.ssr/hydrate!` returned."
+  [frame-id payload]
+  (let [applied (rf.ssr/hydrate! {:frame frame-id :payload payload})]
+    (rf/dispatch-sync [:auth.login/reseed-draft-password] {:frame frame-id})
+    applied))
+
 (defn run []
   (rf/init! rf.fresco.substrate/adapter)
   (when-let [el (and (exists? js/document)
@@ -327,7 +353,7 @@
         (do (rf/make-frame (merge {:id  frame-id
                                    :doc "Login (Fresco) demo frame."}
                                   model/frame-config))
-            (rf.ssr/hydrate! {:frame frame-id :payload payload})
+            (hydrate-client! frame-id payload)
             (reset! !boundary [rf.fresco/frame-provider {:frame frame-id}])
             (rf.fresco/render! app-root
               [rf.fresco/frame-provider {:frame frame-id} [root-view]]

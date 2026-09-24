@@ -489,7 +489,9 @@
 ;; `[:auth :login-form :draft :password]` reads `:rf/redacted` in every app-db
 ;; snapshot, epoch, and off-box record, while handlers still see the real value
 ;; (docs/core/how-to/keep-secrets-out-of-traces.md, "Classify a durable secret
-;; in app-db").
+;; in app-db"). The SSR hydration payload is one of those records, so a
+;; hydrated client re-seeds its draft password right after hydrating
+;; (`:auth.login/reseed-draft-password`, below).
 (rf/reg-event :auth.login/initialise-form
   {:doc "Seed the login-form slice at [:auth :login-form] for this machine-driven
          variant (empty draft + validation bookkeeping; the machine owns the
@@ -686,6 +688,25 @@
                     :submit-attempted? false
                     :errors            {}
                     :touched           #{}})}))
+
+;; The one value a server-rendered page cannot hand back. A hydrated client
+;; adopts the server's app-db whole, and the draft password in it arrives as
+;; `:rf/redacted` — the payload never carries a classified value. That leaf is
+;; the client's to own, so the Fresco arm's SSR boot puts the empty default back
+;; right after hydrating (Spec 011: client-only seeded state runs after the
+;; hydration event, not before).
+;;
+;; It writes that one leaf and nothing else. `:auth.login/edit-password` would
+;; also mark the field `:touched`, which the user never did, and
+;; `:auth.login/reset-form` would wipe the email and the validation state the
+;; server just handed over.
+(rf/reg-event :auth.login/reseed-draft-password
+  {:doc "Put the draft password back to its empty default after SSR hydration
+         installed the payload's `:rf/redacted` sentinel there. Touches no
+         other key."}
+  (fn handler-login-form-reseed-draft-password [{:keys [db]} _]
+    {:db (assoc-in db [:auth :login-form :draft :password]
+                   (:password login-form-defaults))}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS

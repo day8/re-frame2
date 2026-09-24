@@ -232,9 +232,14 @@ asserted in `re-frame.fresco.login-server-crossing-ssr-dom-cljs-test`. So
 distinction between the two policies concrete rather than theoretical.
 
 The draft password shows the third case. It is classified `:sensitive` by the
-shared model, so BOTH projections redact it before either wire: the render
-cannot print a secret it was never handed, and the input comes back reading
-`redacted` on a server-rendered page.
+shared model, so BOTH projections redact it before either wire. A classified
+leaf in a slice you ship arrives as its sentinel, `:rf/redacted`. The render
+cannot print a secret it was never handed, so this field renders the sentinel
+empty. The client owns this value, so it sets it after hydrating (Spec 011's
+post-hydration rule): `hydrate-client!` in [`core.cljs`](core.cljs) runs
+`rf.ssr/hydrate!` and then `:auth.login/reseed-draft-password`, which writes
+the empty default back and touches nothing else. The field arrives empty, and
+a typed password signs in without clearing anything first.
 
 ### Build it and run it
 
