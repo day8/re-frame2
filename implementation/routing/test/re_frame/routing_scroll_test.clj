@@ -1,10 +1,9 @@
 (ns re-frame.routing-scroll-test
   "Scroll-restoration tests for re-frame.routing (scroll-position
   save/lookup, per-frame isolation, the LRU cap, the `:rf.nav/scroll` fx
-  emission, and scroll-strategy resolution precedence). Split from
-  routing_test.clj per rf2-u8qe7y finding 3.
+  emission, and scroll-strategy resolution precedence).
 
-  ## Posture split (rf2-o5dbf)
+  ## Posture split
 
   Scroll restoration proper is production-real and carries no posture guard:
   the save / lookup round-trip, per-frame isolation, the LRU cap and eviction
@@ -18,13 +17,14 @@
   stamp the canonical `:rf.fx/id` rather than a bare `:fx-id`. Tag spelling is
   a property of `:rf.fx/skipped-on-platform` events, emitted through
   `trace/emit!` behind `rf.interop/debug-enabled?`, so under the real gate there
-  are no events to spell anything. Its assertions are kept VERBATIM inside
-  `(when rf.interop/debug-enabled? …)` arms marked `rf2-o5dbf`.
+  are no events to spell anything. Its assertions sit inside
+  `(when rf.interop/debug-enabled? …)` arms, each marked as a
+  dev-instrumentation arm.
 
   Note the five `(is (not (contains? (first tags) :fx-id)))` legs in
   particular: with no traces `(first tags)` is nil and `(contains? nil :fx-id)`
-  is false, so each would pass VACUOUSLY — reporting that the drift was
-  removed from a tag map that was never built. Outside the arm each block now
+  is false, so each would pass VACUOUSLY — reporting no bare `:fx-id` on
+  a tag map that was never built. Outside the arm each block
   asserts the always-on CAUSE of the skip instead: the fx's
   `:platforms #{:client}` declaration (registrar state), and for the
   frame-not-url-bound path, that the frame really is not the URL owner."
@@ -49,8 +49,8 @@
 (deftest routing-scroll-metadata-preserved
   (testing "the :scroll metadata key is enumerable via handler-meta"
     ;; Per Spec 012 §Scroll restoration: a route may declare a :scroll
-    ;; strategy (:top / :restore / :preserve / false — a CLOSED vocabulary
-    ;; since rf2-px26m). Metadata is round-tripped through registration so
+    ;; strategy (:top / :restore / :preserve / false — a CLOSED
+    ;; vocabulary). Metadata is round-tripped through registration so
     ;; tooling can enumerate it.
     (rf/reg-route :route/home
                   {:scroll :top} "/")
@@ -148,19 +148,19 @@
       (is (= "section-2" (-> @calls first :fragment))
           "fragment from URL flows into :rf.nav/scroll args"))))
 
-;; ---- rf2-kuky.38 ruling: the URL-driven default scroll is a PURE FUNCTION
+;; ---- the URL-driven default scroll is a PURE FUNCTION
 ;; ---- of the resolved cause ------------------------------------------------
 ;;
-;; The retired forward-nav event id is gone (pre-alpha, no shim). The one URL-driven
-;; door `:rf.route/handle-url-change` now derives its default scroll strategy
+;; The one URL-driven
+;; door `:rf.route/handle-url-change` derives its default scroll strategy
 ;; from the cause `url-change-cause` resolves for THIS dispatch: `:top` for
-;; `:link` — the forward link click that used to be a second event id — and
+;; `:link` — a forward link click — and
 ;; `:restore` for everything else.
 ;;
 ;; The two arms are pinned SEPARATELY and both carry an EXPLICIT rider, so
 ;; neither can pass by accident: a rider-free dispatch resolves to `:initial`
 ;; and would answer `:restore` for the wrong reason, which is exactly the
-;; false pass a bare rewrite of the old link tests would have bought.
+;; false pass a rider-free link test would buy.
 
 (deftest url-change-default-scroll-follows-the-resolved-cause
   (testing "{:rf.route/cause :link} defaults the scroll strategy to :top"
@@ -184,7 +184,7 @@
       (is (= 1 (count @calls))
           "the link cause emits exactly one :rf.nav/scroll fx")
       (is (= :top (-> @calls first :strategy))
-          "cause :link ⇒ default scroll :top (the retired forward-nav door's default)")))
+          "cause :link ⇒ default scroll :top (a forward navigation's default)")))
 
   (testing "{:rf.route/cause :popstate} defaults the scroll strategy to :restore"
     (let [calls (atom [])]
@@ -206,14 +206,14 @@
       (is (= :restore (-> @calls first :strategy))
           "cause :popstate ⇒ default scroll :restore (the saved position wins)"))))
 
-;; ---- Spec 012 §Scroll restoration — pure helpers (rf2-1aqz / rf2-1hncp2) --
+;; ---- Spec 012 §Scroll restoration — pure helpers ---------------------------
 ;;
 ;; Per Spec 012 §Scroll restoration, the scroll-restoration helpers are
 ;; pure: `lookup-scroll-position` reads a [x y] from a per-frame cache map
 ;; (`{:positions {url [x y]} :order [...]}`), `save-scroll-position`
 ;; returns the cache map with the position recorded + the LRU cap applied.
 ;;
-;; rf2-1hncp2: scroll positions are a HOST-SIDE TRANSIENT cache, NOT
+;; Scroll positions are a HOST-SIDE TRANSIENT cache, NOT
 ;; runtime-db state — they live in the module-level
 ;; `re-frame.routing.scroll/scroll-positions-cache` atom keyed by
 ;; frame-id (host-derived, ephemeral, off the epoch/SSR egress wire). The
@@ -262,19 +262,19 @@
 
 (deftest scroll-position-storage-shape
   (testing "save-scroll-position records [x y] under :positions and tracks
-            recency under :order (the per-frame transient cache shape, rf2-1hncp2)"
+            recency under :order (the per-frame transient cache shape)"
     ;; Pin the cache-map shape. The cache is host-side transient state
     ;; (NOT runtime-db) — nothing reads a [:rf.runtime/routing :scroll-positions]
-    ;; path anymore, so the contract is the {:positions :order} cache map.
+    ;; path, so the contract is the {:positions :order} cache map.
     (let [c1 (rf.routing/save-scroll-position nil "/x" [5 50])]
       (is (= [5 50] (get-in c1 [:positions "/x"]))
           "the saved [x y] lives under :positions in the cache map")
       (is (= ["/x"] (:order c1))
           ":order tracks the url as the most-recent entry"))))
 
-;; ---- rf2-z2k4k: LRU cap on the scroll-position cache ----------------------
+;; ---- LRU cap on the scroll-position cache ---------------------------------
 ;;
-;; Per audit A12: long sessions deep-linking through `/articles/:id`-style
+;; Long sessions deep-linking through `/articles/:id`-style
 ;; routes can grow the per-frame scroll cache unboundedly. It is LRU-bounded
 ;; at `rf.routing/scroll-positions-cap` (50). Re-saving a known url promotes it
 ;; to most-recent; saves past the cap evict the LRU entry.
@@ -314,7 +314,7 @@
       (is (= 50 (count (:positions c2)))
           "cap is still 50"))))
 
-;; ---- rf2-1hncp2: host-side transient cache (frame-keyed) ------------------
+;; ---- host-side transient cache (frame-keyed) ------------------------------
 ;;
 ;; The cache is held off runtime-db in the module-level
 ;; `scroll-positions-cache` atom, keyed by frame-id. These tests pin the
@@ -341,8 +341,8 @@
 
 (deftest scroll-cache-not-in-runtime-db
   (testing "the host cache lives outside runtime-db — a frame's runtime-db
-            carries NO scroll-position keys after a capture (rf2-1hncp2)"
-    ;; The acceptance point: scroll positions no longer sit under
+            carries NO scroll-position keys after a capture"
+    ;; The acceptance point: scroll positions do not sit under
     ;; [:rf.runtime/routing ...], so they cannot egress to trace/epoch/SSR.
     (rf.routing/reset-scroll-cache!)
     (rf/reg-route :route/home {} "/")
@@ -379,8 +379,9 @@
 
 (deftest scroll-restore-end-to-end-across-navigation
   (testing "a captured position is restored on a later :restore navigation
-            back to the same url — save/restore survives the storage move"
-    ;; Acceptance point 1: no behavioral regression in scroll save/restore.
+            back to the same url — save/restore round-trips through the host
+            cache"
+    ;; Scroll save/restore end to end, through the host cache.
     (rf.routing/reset-scroll-cache!)
     (rf/reg-route :route/home    {} "/")
     (rf/reg-route :route/article {:params [:map [:id :string]]
@@ -403,15 +404,15 @@
         (is (= [0 640] (:saved-pos a))
             ":saved-pos is read from the host cache and threaded into the fx")))))
 
-;; ---- rf2-g1i5m6: symmetric scroll-cache keys (canonicalise on restore) ----
+;; ---- symmetric scroll-cache keys (canonicalise on restore) ----------------
 ;;
 ;; Capture keys the leaving position under the CANONICAL `route-url`
-;; reconstruction of the slice (canonical query order, no trailing slash), but
-;; restore used to look up under the RAW incoming popstate URL. A history entry
-;; the browser holds in a non-canonical spelling (a `/cart/` deep link, a
-;; `?b=2&a=1` reordered query) therefore never found its saved position. The
-;; restore lookup now canonicalises the resolved target the same way capture
-;; does, with a raw-URL fallback for a not-found popstate.
+;; reconstruction of the slice (canonical query order, no trailing slash), so
+;; the restore lookup canonicalises the resolved target the same way, with a
+;; raw-URL fallback for a not-found popstate. Looking up under the RAW incoming
+;; popstate URL would never find the saved position of a history entry the
+;; browser holds in a non-canonical spelling (a `/cart/` deep link, a
+;; `?b=2&a=1` reordered query).
 
 (deftest scroll-restore-canonicalises-non-canonical-popstate-url-rf2-g1i5m6
   (rf/reg-route :route/cart   {} "/cart")
@@ -444,7 +445,7 @@
     (testing "a reordered-query spelling restores its position"
       (is (= [0 810] (restore "/search?b=2&a=1"))
           "?b=2&a=1 canonicalises to the canonical query order and finds [0 810]"))
-    (testing "the canonical spelling still restores (no regression)"
+    (testing "the canonical spelling restores too"
       (is (= [0 640] (restore "/cart")))
       (is (= [0 810] (restore "/search?a=1&b=2"))))
     (testing "a route with no saved position misses on both canonical and raw keys"
@@ -502,14 +503,13 @@
       (is (empty? @calls)
           "opts :scroll false suppresses despite the route's :scroll :restore")))
 
-  (testing "rf2-px26m: the planner does not INTERPRET strategies — it carries
+  (testing "the planner does not INTERPRET strategies — it carries
             the resolved value to the fx, which owns adjudication (Spec 012:
             'the registered fx interprets the strategy'). An unsupported
-            value therefore still reaches the fx args unchanged; what changed
-            is that it is now REJECTED there instead of silently ignored.
-            This test previously asserted the pass-through as if the map form
-            were a supported host-extension — it was not: nothing downstream
-            read it. The rejection legs live in routing_nav_fx_schemas_test
+            value therefore reaches the fx args unchanged, and is
+            REJECTED there rather than silently ignored. The pass-through
+            is not a supported host-extension: nothing downstream reads a
+            map form. The rejection legs live in routing_nav_fx_schemas_test
             (schema) and routing_nav_fx_schemas_cljs_test (handler + gate)"
     (rf/reg-route :route/custom {:scroll {:behavior :smooth :block :center}} "/custom")
     (let [calls (atom [])]
@@ -526,15 +526,15 @@
           "…and the args it produced do NOT satisfy the fx's own :schema —
            the value is carried to the boundary that rejects it, not past it"))))
 
-;; ---- rf2-ukv4ck: nav-fx identity trace tags use canonical :rf.fx/id -------
+;; ---- nav-fx identity trace tags use canonical :rf.fx/id -------------------
 ;;
 ;; The rf.routing/nav fx skip & failure traces stamp the fx identity under the
 ;; CANONICAL `:rf.fx/id` tag — the same spelling core `re-frame.fx` uses for
 ;; `:rf.fx/skipped-on-platform` / `:rf.error/fx-handler-exception` and that
 ;; Spec 009's error catalogue + Spec-Schemas' `FxSkippedOnPlatformTags`
-;; document. Previously these emitted a bare `:fx-id`, drifting from core,
+;; document. A bare `:fx-id` would drift from core,
 ;; the spec, and the epoch projection's `(:rf.fx/id tags)` read (which would
-;; have seen nil). These tests pin the corrected tag on the JVM `:clj`
+;; see nil). These tests pin the canonical tag on the JVM `:clj`
 ;; skip-on-platform branch of each of the four `:rf.nav/*` fxs (the CLJS
 ;; push/replace `-failed` traces are pinned in routing_history_cljs_test).
 ;; They invoke the production handlers directly so a regression in THIS emit
@@ -557,33 +557,33 @@
   (testing ":rf.nav/scroll's JVM skip-on-platform trace stamps :rf.fx/id, not bare :fx-id"
     (let [tags (capture-fx-traces
                  #(rf.routing.scroll/scroll-fx-handler nil {:strategy :top}))]
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the skip's always-on cause.
+      ;; SEMANTIC, posture-independent:the skip's always-on cause.
       (is (= #{:client} (:platforms (rf/handler-meta {:source :store :kind :fx :id :rf.nav/scroll})))
           ":rf.nav/scroll is declared :client-only — that is what makes the JVM skip")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (= 1 (count tags))
             "the JVM :rf.nav/scroll handler emits exactly one skip trace")
         (is (= :rf.nav/scroll (:rf.fx/id (first tags)))
             "the skip trace carries :rf.fx/id :rf.nav/scroll (canonical identity tag)")
         (is (not (contains? (first tags) :fx-id))
-            "no bare :fx-id tag remains (drift removed)"))))
+            "no bare :fx-id tag"))))
 
   (testing ":rf.nav/capture-scroll's JVM skip-on-platform trace stamps :rf.fx/id"
     (let [tags (capture-fx-traces
                  #(rf.routing.scroll/capture-scroll-handler {:frame :rf/default}
                                                  {:url "/articles/intro"}))]
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the skip's always-on cause.
+      ;; SEMANTIC, posture-independent:the skip's always-on cause.
       (is (= #{:client} (:platforms (rf/handler-meta {:source :store :kind :fx :id :rf.nav/capture-scroll})))
           ":rf.nav/capture-scroll is declared :client-only")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (= 1 (count tags))
             "the JVM :rf.nav/capture-scroll handler emits exactly one skip trace")
         (is (= :rf.nav/capture-scroll (:rf.fx/id (first tags)))
             "the skip trace carries :rf.fx/id :rf.nav/capture-scroll")
         (is (not (contains? (first tags) :fx-id))
-            "no bare :fx-id tag remains"))))
+            "no bare :fx-id tag"))))
 
   (testing ":rf.nav/push-url's JVM owner-skip trace stamps :rf.fx/id"
     ;; :rf/default is the URL owner in this suite (reset-runtime declares
@@ -591,32 +591,32 @@
     ;; (history.pushState is browser-only), emitting :rf.fx/skipped-on-platform.
     (let [tags (capture-fx-traces
                  #(rf.routing.nav-fx/push-url-handler {:frame :rf/default} "/articles"))]
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the skip's always-on cause.
+      ;; SEMANTIC, posture-independent:the skip's always-on cause.
       (is (= #{:client} (:platforms (rf/handler-meta {:source :store :kind :fx :id :rf.nav/push-url})))
           ":rf.nav/push-url is declared :client-only")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (= 1 (count tags))
             "the JVM :rf.nav/push-url handler emits exactly one skip trace")
         (is (= :rf.nav/push-url (:rf.fx/id (first tags)))
             "the skip trace carries :rf.fx/id :rf.nav/push-url")
         (is (not (contains? (first tags) :fx-id))
-            "no bare :fx-id tag remains"))))
+            "no bare :fx-id tag"))))
 
   (testing ":rf.nav/replace-url's JVM owner-skip trace stamps :rf.fx/id"
     (let [tags (capture-fx-traces
                  #(rf.routing.nav-fx/replace-url-handler {:frame :rf/default} "/articles"))]
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the skip's always-on cause.
+      ;; SEMANTIC, posture-independent:the skip's always-on cause.
       (is (= #{:client} (:platforms (rf/handler-meta {:source :store :kind :fx :id :rf.nav/replace-url})))
           ":rf.nav/replace-url is declared :client-only")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (= 1 (count tags))
             "the JVM :rf.nav/replace-url handler emits exactly one skip trace")
         (is (= :rf.nav/replace-url (:rf.fx/id (first tags)))
             "the skip trace carries :rf.fx/id :rf.nav/replace-url")
         (is (not (contains? (first tags) :fx-id))
-            "no bare :fx-id tag remains"))))
+            "no bare :fx-id tag"))))
 
   (testing ":rf.nav/push-url's frame-not-url-bound skip trace also stamps :rf.fx/id"
     ;; A non-URL-bound frame skips the history push with :reason
@@ -625,12 +625,12 @@
     (rf/make-frame {:id :story/variant})              ;; no :url-bound?
     (let [tags (capture-fx-traces
                  #(rf.routing.nav-fx/push-url-handler {:frame :story/variant} "/articles"))]
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the OTHER skip path's
+      ;; SEMANTIC, posture-independent:the OTHER skip path's
       ;; always-on cause — :story/variant is not the URL owner, so the push
       ;; has nothing to push to whatever the posture.
       (is (= :rf/default (rf.routing/url-owner-frame-id))
           ":story/variant is not the URL owner — the frame-not-url-bound skip path")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (= 1 (count tags))
             "a non-URL-bound frame's :rf.nav/push-url emits exactly one skip trace")
@@ -639,4 +639,4 @@
         (is (= :frame-not-url-bound (:reason (first tags)))
             "it is the frame-not-url-bound skip path (not the platform skip)")
         (is (not (contains? (first tags) :fx-id))
-            "no bare :fx-id tag remains")))))
+            "no bare :fx-id tag")))))
