@@ -1,5 +1,5 @@
 (ns re-frame.bench.read-attribution
-  "rf2-j8ls2 / rf2-ncjyt — WHERE do `subscribe`'s bytes go?
+  "WHERE do `subscribe`'s bytes go?
 
   A 300-dependency render on the JVM allocates about 3.7 kB per dependency
   read, for a subscription whose whole body is `(get-in db [:items i])`.
@@ -8,19 +8,16 @@
   substrate. This namespace attributes it, in ONE process against the REAL
   sub-cache and REAL live nodes.
 
-  This file also carried a second ladder that priced the internal
-  observation port beside `subscribe` (rf2-mvqwe / rf2-21pck). The port was
-  retired on 2026-08-21 (rf2-63t1i) and that ladder went with it; the arms
-  below are the ones `re-frame.subs` itself still cites.
+  `re-frame.subs` itself cites the RC-ATTACH / RC-CAND pair below by name.
 
-  ## Inside `subscribe` (rf2-j8ls2 / rf2-ncjyt)
+  ## Inside `subscribe`
 
   The ladder opens `subscribe`'s cache-HIT path. Arms S1..S4 are strict
   prefixes of `RGSUB`, re-walked through public functions only, so
   neighbour subtraction attributes bytes to a step:
 
     S1-CURFRM  `require-current-frame!` on the happy path — the SHIPPED
-               reader-then-require spelling (rf2-a8bw0)
+               reader-then-require spelling
     S2-TGTID   + `frame-target->id`
     S3-CWFR    + `call-with-frame-resolution` around an empty thunk —
                the flush consult, the generation read, the `binding`
@@ -33,19 +30,19 @@
   prediction rather than a before/after story:
 
     S1-EAGER   `require-current-frame!` with the `{:where :event-id}`
-               extra map built EAGERLY — what `subscribe`'s 1-arity did
-               before rf2-a8bw0.  S1-EAGER - S1-CURFRM is the saving.
+               extra map built EAGERLY — the eager spelling of
+               `subscribe`'s 1-arity.  S1-EAGER - S1-CURFRM is the saving.
     N-CWFRWRAP `call-with-frame-resolution` behind the retired
-               `frame-resolution-target` wrapper (rf2-8gb3t), against
+               `frame-resolution-target` wrapper, against
     N-CWFRRAW  the shipped form, which passes the carried target itself.
                N-CWFRWRAP - N-CWFRRAW must equal N-RESTGT.
 
   `RGSUB - S4-PRELOOK` is then the ref-count attach, and the `RC-*` arms
   price its parts against the REAL 300-entry cache map:
 
-    RC-ATTACH  the PRE-rf2-j8ls2 `swap-vals!` form (the `update-in`
-               spelling), kept as the paired control
-    RC-CAND    the form that replaced it in `rf.subs/bump-ref-count-fn`
+    RC-ATTACH  the `update-in` spelling of the `swap-vals!` attach, the
+               paired control
+    RC-CAND    the shipped form, in `rf.subs/bump-ref-count-fn`
     RC-GUARD   the same `swap-vals!` whose fn returns `m` UNCHANGED —
                swap machinery + the identity guard, no update
     RC-SWAPID  `(swap-vals! cache identity)` — the machinery alone
@@ -56,19 +53,18 @@
     RC-EASSOC  pure `(assoc entry :ref-count n)` — the INNER copy alone
 
   The `N-*` arms open the pre-node lookups the same way: the throwaway
-  frame VALUE the retired `frame-resolution-target` minted, the late-bind
-  flush consult, the generation read, the `binding` alone, and `rf.registrar/
-  lookup` on both its branches (generation-bound and registrar-atom).
+  frame VALUE the retired `frame-resolution-target` spelling mints, the
+  late-bind flush consult, the generation read, the `binding` alone, and
+  `rf.registrar/lookup` on both its branches (generation-bound and registrar-atom).
 
   ## The instrument, and why its controls are the shape they are
 
   Allocation is exact TLAB accounting via
   `com.sun.management.ThreadMXBean/getThreadAllocatedBytes`, which is why
-  this harness is JVM-only. Seven instrument faults have been caught on
-  this measurement surface, two of them recently: two readers that agreed
-  to the byte because they were two doors onto ONE counter, and a
-  positive control built from `'x'.repeat(n)` that read as six kilobytes
-  on every reader.
+  this harness is JVM-only. Instrument faults on this measurement surface
+  are real and quiet: two readers that agree to the byte because they are
+  two doors onto ONE counter, and a positive control built from
+  `'x'.repeat(n)` that reads as six kilobytes on every reader.
 
   So the controls here are built from a type whose size is COMPUTABLE
   rather than assumed — a JVM `long-array` is a 16-byte header plus 8
@@ -80,14 +76,13 @@
   `NOOP` is the fixed per-pass overhead every arm carries; every figure
   is reported both raw and net of it.
 
-  ## The arm order is a MEASURED property of this run (rf2-88pie/rf2-om73r)
+  ## The arm order is a MEASURED property of this run
 
-  Until `rf2-om73r` this file made one pass over the plan and reported one
-  mean per arm. `RM_ORDER=rev` offered a second pass in a SECOND PROCESS
-  whose numbers nothing here ever joined up, and a mean alone carries no
-  range — both against standing method.
+  One pass over the plan reporting one mean per arm cannot check order: a
+  second pass in a SECOND PROCESS yields numbers nothing joins up, and a
+  mean alone carries no range.
 
-  So the plan now runs in `RM_ROUNDS` rounds, and the arm order ROTATES AND
+  So the plan runs in `RM_ROUNDS` rounds, and the arm order ROTATES AND
   REFLECTS with the round (`re-frame.bench.order-guard/slot-order`). A bare
   cyclic rotation would not do: arm `a` sits at slot `(a - r) mod n`, so its
   predecessor is `(a - 1) mod n` in every round and only the seam differs.
@@ -107,7 +102,7 @@
 
   The whole plan is also warmed BEFORE any arm is measured, rather than each
   arm warming itself immediately before its own reading. A site reads above
-  its settled value until it has run several times (`rf2-tb345`), and a
+  its settled value until it has run several times, and a
   per-arm warm-up leaves that curve aligned with position in the plan, which
   is exactly the confound the phase factor refuses.
 
@@ -132,7 +127,7 @@
   ranges rather than single samples), RM_TOLERANCE (the guard's
   relative-median tolerance, default 0.10 — TLAB accounting is exact, so a
   real arm reproduces to a fraction of a percent), RM_ORDER=rev (reverse the
-  base plan before scheduling — a knob now, not the mitigation)."
+  base plan before scheduling — a knob, not the mitigation)."
   (:require [re-frame.bench.order-guard :as rf.bench.order-guard]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -193,12 +188,12 @@
 ;; the RETIRED spellings, held here verbatim as paired controls
 ;;
 ;; Each is deliberately NOT a call into the shipped source: the whole point is
-;; to keep the retired EXPRESSION measurable beside the one that replaced it,
+;; to keep the retired EXPRESSION measurable beside the shipped one,
 ;; in the same process, against the same live frame — so a claimed saving is a
 ;; prediction the instrument can falsify rather than a before/after story.
 
-;; rf2-8gb3t. `rf.live-frame/frame-resolution-target`, as it stood before the
-;; wrapper was retired: a frame VALUE verbatim, a frame-id keyword through
+;; The retired `rf.live-frame/frame-resolution-target` wrapper: a frame VALUE
+;; verbatim, a frame-id keyword through
 ;; `live-frame` (which MINTS a fresh frame value), anything else nil.
 (defn- retired-resolution-target [target]
   (cond
@@ -206,16 +201,16 @@
     (keyword? target)                (rf.live-frame/live-frame target)
     :else                            nil))
 
-;; rf2-a8bw0. `subscribe`'s 1-arity, as it stood before the payload was
-;; deferred: the `{:where :event-id}` extra map built on EVERY call, read only
-;; on the `:rf.error/no-frame-context` path.
+;; The EAGER spelling of `subscribe`'s 1-arity: the `{:where :event-id}` extra
+;; map built on EVERY call, read only on the `:rf.error/no-frame-context`
+;; path.
 (defn- retired-current-frame! [query-v]
   (rf.frame/require-current-frame!
     :subscribe
     {:where    're-frame.subs/subscribe
      :event-id (first query-v)}))
 
-;; The SHIPPED spelling (rf2-a8bw0): the scope reader first, and the payload —
+;; The SHIPPED spelling: the scope reader first, and the payload —
 ;; with `require-current-frame!` building it — only when the reader found
 ;; nothing. Same error, same content, same call site; built lazily.
 (defn- shipped-current-frame! [query-v]
@@ -237,7 +232,7 @@
       (vreset! sink (if (rf.subs/subscribe (nth qs k)) 1 0)))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-j8ls2 — INSIDE `subscribe`'s cache-HIT path.
+;; INSIDE `subscribe`'s cache-HIT path.
 ;;
 ;; S1..S4 re-walk `rf.subs/subscribe`'s 1-arity through public functions only,
 ;; each a strict prefix of the next and of `RGSUB`. If they do not bracket
@@ -248,8 +243,8 @@
     (dotimes [k n]
       (vreset! sink (if (shipped-current-frame! (nth qs k)) 1 0)))))
 
-;; The paired control for S1-CURFRM: the eager-payload spelling rf2-a8bw0
-;; retired. S1-EAGER - S1-CURFRM is the whole of what deferring it saves.
+;; The paired control for S1-CURFRM: the eager-payload spelling.
+;; S1-EAGER - S1-CURFRM is the whole of what deferring it saves.
 (defn- arm-s1-eager [n]
   (let [qs (:qs @rig)]
     (dotimes [k n]
@@ -282,13 +277,14 @@
 
 ;; ---- the ref-count attach, part by part -----------------------------------
 ;;
-;; RC-ATTACH is the shipped form verbatim. The rest strip ONE thing each, so
-;; a difference names a part rather than a suspicion. The `RC-*` pure arms run
+;; RC-ATTACH is the `update-in` form, the paired control for the shipped
+;; RC-CAND. The rest strip ONE thing each from RC-ATTACH, so a difference
+;; names a part rather than a suspicion. The `RC-*` pure arms run
 ;; against a SNAPSHOT of the same 300-entry cache map, so the outer HAMT they
 ;; copy is the real one.
 
-;; The PRE-rf2-j8ls2 attach, held here verbatim as the paired control for the
-;; form that replaced it (RC-CAND). It is deliberately NOT a call into
+;; The `update-in` attach, held here verbatim as the paired control for the
+;; shipped form (RC-CAND). It is deliberately NOT a call into
 ;; `rf.subs/bump-ref-count-fn`: the whole point is to keep the retired expression
 ;; measurable beside the shipped one, in the same process, on the same map.
 (defn- arm-rc-attach [n]
@@ -353,7 +349,7 @@
     (dotimes [k n]
       (vreset! sink (if (assoc (get snap (nth qs k)) :ref-count 2) 1 0)))))
 
-;; The SHIPPED attach (rf2-j8ls2 — `rf.subs/bump-ref-count-fn`): the same
+;; The SHIPPED attach (`rf.subs/bump-ref-count-fn`): the same
 ;; `swap-vals!` under the same CAS-after-snapshot discipline and the same
 ;; identity guard, with the two-level `update-in` written out. Same result,
 ;; same semantics; measured beside RC-ATTACH so the difference is the whole
@@ -374,7 +370,7 @@
                               m))))]
         (vreset! sink (if (identical? reaction (:reaction (get new q))) 1 0))))))
 
-;; ---- rf2-ncjyt — the pre-node lookups -------------------------------------
+;; ---- the pre-node lookups -------------------------------------------------
 
 ;; `call-with-frame-resolution` with a target that names no image-loaded frame:
 ;; the late-bind flush consult, the generation read and the thunk call, with NO
@@ -387,7 +383,7 @@
   (dotimes [_ n]
     (vreset! sink (if (retired-resolution-target fid) 1 0))))
 
-;; rf2-8gb3t, the falsifiable pair: the RETIRED composition every caller wrote
+;; The falsifiable pair: the RETIRED composition
 ;; (`(cwfr (frame-resolution-target X) thunk)`) against the SHIPPED one
 ;; (`(cwfr X thunk)`). Their difference must be N-RESTGT — the wrapper and
 ;; nothing else.
@@ -454,7 +450,7 @@
     (println (format ";; debug-enabled? = %s  n=%d iters=%d warmup=%d alloc-iters=%d rounds=%d base order=%s"
                      rf.interop/debug-enabled? n iters warmup alloc-iters rounds
                      (if reverse-order? "REVERSED" "forward")))
-    (println (format ";; arm order ROTATES AND REFLECTS with the round (rf2-88pie); guard tolerance %.0f%%"
+    (println (format ";; arm order ROTATES AND REFLECTS with the round; guard tolerance %.0f%%"
                      (* 100.0 tolerance)))
     (binding [rf.frame/*current-frame* fid]
       ;; Hold n subscriptions the way a mounted application holds them, so
@@ -470,7 +466,7 @@
                       :held         held
                       :raw          raw
                       :db-container src
-                      ;; rf2-j8ls2: the `RC-*` arms need the exact reaction the
+                      ;; The `RC-*` arms need the exact reaction the
                       ;; shipped `identical?` guard compares against, a SNAPSHOT
                       ;; of the real 300-entry cache map for the pure arms, and
                       ;; the frame's sealed generation for the binding arms.
@@ -495,10 +491,9 @@
                           {:gen g :rgread rg-v :deref dr-v :raw raw-v}))))
       (let [advance! (fn [] (vswap! gen inc)
                        (rf.frame/replace-app-db! fid (db-of @gen)))
-            ;; ONE round of one arm. Split out of the old `measure` so the
-            ;; plan can be walked several times in several orders — a figure
-            ;; taken from a plan run in one order has not been checked
-            ;; (rf2-88pie).
+            ;; ONE round of one arm, so the plan can be walked several times
+            ;; in several orders — a figure taken from a plan run in one
+            ;; order has not been checked.
             round!
             (fn [f its allocs]
               (let [us (/ (p50 (vec (repeatedly its
@@ -520,7 +515,7 @@
             controls [["NOOP"    arm-noop]
                       ["CTRL-S"  arm-ctrl-small]
                       ["CTRL-L"  arm-ctrl-large]]
-            ;; rf2-j8ls2 / rf2-ncjyt. RGSUB heads the plan because it is the
+            ;; RGSUB heads the plan because it is the
             ;; whole that S1..S4 + the attach must add back up to.
             subs-plan [["RGSUB"     arm-rgsub]
                        ["S1-CURFRM" arm-s1-curfrm]  ["S1-EAGER"  arm-s1-eager]
@@ -546,7 +541,7 @@
             ;; --- warm the WHOLE plan before measuring any of it -----------
             ;; A per-arm warm-up immediately before that arm's reading leaves
             ;; the settling curve aligned with position in the plan, which is
-            ;; the confound the phase factor refuses (rf2-tb345).
+            ;; the confound the phase factor refuses.
             _ (do (println (format ";; warming %d arms x %d passes before the first measured round"
                                    k warmup))
                   (flush)
@@ -603,7 +598,7 @@
                            l (b l) (net l) (per l))))
         (do
           (println ";;")
-          (println ";; rf2-j8ls2 — INSIDE subscribe's cache-HIT path (prefix ladder)")
+          (println ";; INSIDE subscribe's cache-HIT path (prefix ladder)")
           (doseq [[lbl v] [["require-current-frame! (S1)"            (net "S1-CURFRM")]
                            ["+ frame-target->id     (S2-S1)"         (- (net "S2-TGTID") (net "S1-CURFRM"))]
                            ["+ call-with-frame-res  (S3-S2)"         (- (net "S3-CWFR") (net "S2-TGTID"))]
@@ -614,10 +609,10 @@
           (println ";; the retired spellings, as paired controls:")
           (doseq [[lbl v] [["S1-EAGER (retired eager payload)"       (per "S1-EAGER")]
                            ["S1-CURFRM (shipped, deferred)"          (per "S1-CURFRM")]
-                           ["rf2-a8bw0 saves (S1-EAGER - S1-CURFRM)" (- (per "S1-EAGER") (per "S1-CURFRM"))]
+                           ["deferral saves (S1-EAGER - S1-CURFRM)"  (- (per "S1-EAGER") (per "S1-CURFRM"))]
                            ["N-CWFRWRAP (retired target wrapper)"    (per "N-CWFRWRAP")]
                            ["N-CWFRRAW  (shipped, carried target)"   (per "N-CWFRRAW")]
-                           ["rf2-8gb3t saves (WRAP - RAW)"           (- (per "N-CWFRWRAP") (per "N-CWFRRAW"))]
+                           ["unwrapping saves (WRAP - RAW)"          (- (per "N-CWFRWRAP") (per "N-CWFRRAW"))]
                            ["  ... predicted by N-RESTGT"            (per "N-RESTGT")]]]
             (println (format ";;   %-38s %8.1f B/call" lbl v)))
           (println ";; the attach, part by part (RC-ATTACH is the shipped form):")
@@ -633,7 +628,7 @@
           (println (format ";;   %-38s %8.1f B/call"
                            "ATTACH - CAND (what the rewrite saves)"
                            (- (per "RC-ATTACH") (per "RC-CAND"))))
-          (println ";; rf2-ncjyt — the pre-node lookups:")
+          (println ";; the pre-node lookups:")
           (doseq [l ["N-RESTGT" "N-GENREAD" "N-FLUSH" "N-BINDONLY" "N-CWFRNOG"
                      "N-LOOKGEN" "N-LOOKATOM"]]
             (println (format ";;   %-38s %8.1f B/call" l (per l))))
@@ -653,7 +648,7 @@
             (println ";; ==== ARM ORDER: THESE FIGURES ARE NOT REPORTABLE ====")
             (println (str ";;   at least one arm reads differently for what preceded it, or for "
                           "where in the run it"))
-            (println (str ";;   was measured (rf2-88pie). The table above stands as raw data; "
+            (println (str ";;   was measured. The table above stands as raw data; "
                           "nothing in it may"))
             (println ";;   be quoted."))
           (flush)
