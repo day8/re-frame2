@@ -117,6 +117,29 @@
                   :path                     (:output-path flow)
                   :rf.egress/include-large? true})))
 
+(defn- explain-size-marker
+  "The `:rf.size/large-elided` marker that stands in for a failing output's
+  `:explain` when the frame's elision registry classifies anything in the
+  output large, else nil (rf2-srvio). `elided` is the output as the wire
+  walker elided it for the trace's `:value` slot, so the walker decides: the
+  output is size-classified exactly when that walk placed a marker in it.
+
+  A whole-output declaration yields the walker's own marker, reused as is. A
+  narrower one yields a marker for the whole output, since the explanation
+  re-ships all of it: its `:path` and `:handle` name `:output-path`, which the
+  observational write has just filled, and its `:reason` is the declaring
+  source the walker's markers carry."
+  [flow output elided]
+  (when-let [markers (seq (filter rf.elision/marker? (tree-seq coll? seq elided)))]
+    (if (rf.elision/marker? elided)
+      elided
+      (rf.elision/->marker
+        output (:output-path flow)
+        {:reason (rf.elision/owners->provenance
+                   (map #(hash-map :source (get-in % [:rf.size/large-elided :reason]))
+                        markers))
+         :hint   nil}))))
+
 (defn- validate-output!
   "Validate a computed output through the optional schemas artefact.
 
@@ -149,16 +172,17 @@
                 false
                 (let [redact (rf.late-bind/get-fn-cached
                                :schemas/redact-validation-tags)
+                      elided (rf.elision/elide-wire-value
+                               new-output
+                               {:frame frame-id
+                                :path (:output-path flow)})
                       tags   {:category   :rf.error/schema-validation-failure
                               :where      :flow-output
                               :rf.flow/id (:id flow)
                               :failing-id (:id flow)
                               :schema-id  (:id flow)
                               :path       (:output-path flow)
-                              :value      (rf.elision/elide-wire-value
-                                            new-output
-                                            {:frame frame-id
-                                             :path (:output-path flow)})
+                              :value      elided
                               :explain    explanation
                               :reason     (str "Flow " (:id flow)
                                                " output failed schema "
@@ -174,11 +198,24 @@
                       ;; is redacted whole here, and the trace is stamped so
                       ;; the egress gate drops it. This runs after the seam,
                       ;; so sensitive wins over any size marker it substituted.
-                      tags   (if (sensitive-output? frame-id flow new-output)
+                      ;; Otherwise an output the registry classifies large
+                      ;; gets a size marker in place of `:explain` (rf2-srvio),
+                      ;; as Spec 010's size arm does for a `:large?` schema —
+                      ;; unless the seam already redacted it, since sensitive
+                      ;; wins there too.
+                      tags   (cond
+                               (sensitive-output? frame-id flow new-output)
                                (assoc tags
                                       :explain    rf.privacy/redacted-sentinel
                                       :sensitive? true)
-                               tags)]
+
+                               (:sensitive? tags) tags
+
+                               :else
+                               (if-let [marker (explain-size-marker
+                                                 flow new-output elided)]
+                                 (assoc tags :explain marker :large? true)
+                                 tags))]
                   (if-not (live?)
                     false
                     (do

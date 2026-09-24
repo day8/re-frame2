@@ -24,6 +24,9 @@
     - an output the frame's elision registry classifies sensitive:
       `:explain` redacted whole and `:sensitive? true` stamped, while
       `:value` stays path-precise (rf2-3x7nj.18.1).
+    - an output the registry classifies large (and nothing sensitive):
+      `:explain` replaced whole by a `:rf.size/large-elided` marker for the
+      output at its `:output-path`, and `:large? true` stamped (rf2-srvio).
     - no `:schema`: validator never consulted.
     - no validator registered: soft-pass (no error trace).
     - production gate: with `debug-enabled?` false the validation is
@@ -370,3 +373,127 @@
       (is (= {:token "not-an-int"} (get-in ev [:tags :value])))
       (is (= {:token "not-an-int"} (get-in ev [:tags :explain :value]))
           ":explain is the registered explainer's output, unredacted"))))
+
+;; ---------------------------------------------------------------------------
+;; 9. rf2-srvio — the frame's elision registry reaches `:explain` on the SIZE
+;;    axis too. The `:value` slot rides the wire walker, so an output the
+;;    registry classifies `:large` ships a `:rf.size/large-elided` marker
+;;    there. Before this fix `:explain` still re-shipped the whole value
+;;    (Malli's `:value` and every `:errors[*].:value`), so the declared-large
+;;    blob went out anyway. `:explain` is not path-anchored, so it is replaced
+;;    WHOLE by a marker for the output at its `:output-path` and the trace is
+;;    stamped `:large? true` — Spec 010's validation size-safety arm, with the
+;;    registry rather than the schema as the classifier.
+;; ---------------------------------------------------------------------------
+
+(def ^:private blob
+  "A distinctive payload, so a test can ask whether it rode the trace at all."
+  (apply str (repeat 40 "BLOB-")))
+
+(deftest registry-large-output-size-elides-explain
+  (testing "an output the registry classifies :large fails a walkable :schema:
+            :explain is the size marker, and the blob rides nowhere"
+    (rf/reg-event :seed (fn [_ _] {:db {:blob blob :n "not-an-int"}}))
+    ;; The flow's own declaration over the WHOLE output ...
+    (rf/reg-flow :size/whole
+                 {:inputs [[:blob] [:n]] :output-path [:reports :whole]
+                  :large [[]] :schema [:map [:n :int]]}
+                 (fn [b n] {:blob b :n n}))
+    ;; ... and a commit-plane `:large` effect over ONE slot of another output.
+    (rf/reg-event :classify (fn [_ _] {:large [[:reports :part :blob]]}))
+    (rf/reg-flow :size/part
+                 {:inputs [[:blob] [:n]] :output-path [:reports :part]
+                  :schema [:map [:n :int]]}
+                 (fn [b n] {:blob b :n n}))
+    (rf/dispatch-sync [:classify])
+    (reset! *captured* [])
+    (rf/dispatch-sync [:seed])
+    (is (= blob (get-in (rf/app-db-value :rf/default) [:reports :whole :blob]))
+        "the output is still written — validation stays observational")
+    (let [ev     (violation-for :size/whole)
+          tags   (:tags ev)
+          marker (get-in tags [:value :rf.size/large-elided])]
+      (is (not (str/includes? (pr-str ev) "BLOB-BLOB"))
+          ":size/whole: the blob appears nowhere in the failure trace")
+      (is (= [:reports :whole] (:path marker))
+          ":size/whole: :value is the walker's marker for the output")
+      (is (= :flow (:reason marker))
+          ":size/whole: the marker names the flow's own declaration")
+      (is (= (:value tags) (:explain tags))
+          ":size/whole: :explain carries that same marker")
+      (is (= true (:large? tags)) ":size/whole: :large? stamped")
+      (is (nil? (:sensitive? ev)) ":size/whole: a size marker is not a redaction"))
+    (let [ev     (violation-for :size/part)
+          tags   (:tags ev)
+          output {:blob blob :n "not-an-int"}
+          marker (get-in tags [:explain :rf.size/large-elided])]
+      (is (not (str/includes? (pr-str ev) "BLOB-BLOB"))
+          ":size/part: the blob appears nowhere in the failure trace")
+      (is (= "not-an-int" (get-in tags [:value :n]))
+          ":size/part: :value stays path-precise")
+      (is (= [:reports :part :blob]
+             (get-in tags [:value :blob :rf.size/large-elided :path]))
+          ":size/part: :value marks only the declared slot")
+      (is (= [:reports :part] (:path marker))
+          ":size/part: the :explain marker describes the output where it lives")
+      (is (= [:rf.elision/at [:reports :part]] (:handle marker))
+          ":size/part: its handle re-fetches that output")
+      (is (= :map (:type marker)) ":size/part: :type is the output's")
+      ;; ASCII, so the printed length is the UTF-8 byte count.
+      (is (= (count (pr-str output)) (:bytes marker))
+          ":size/part: :bytes counts the output")
+      (is (= :effect (:reason marker))
+          ":size/part: :reason is the declaring source the walker's marker carries")
+      (is (= true (:large? tags)) ":size/part: :large? stamped")
+      (is (nil? (:sensitive? ev)) ":size/part: a size marker is not a redaction"))))
+
+(deftest sensitive-and-large-output-still-redacts-explain
+  (testing "sensitive wins over large: an output classified both ways keeps
+            the redacted :explain and :sensitive? true, with no size marker"
+    (rf/reg-event :seed (fn [_ _] {:db {:secret "hunter2-SECRET" :blob blob}}))
+    ;; Both axes over the whole output.
+    (rf/reg-flow :both/whole
+                 {:inputs [[:secret] [:blob]] :output-path [:both :whole]
+                  :sensitive [[]] :large [[]] :schema [:map [:token :int]]}
+                 (fn [s b] {:token s :blob b}))
+    ;; Each axis over its own slot.
+    (rf/reg-flow :both/slots
+                 {:inputs [[:secret] [:blob]] :output-path [:both :slots]
+                  :sensitive [[:token]] :large [[:blob]] :schema [:map [:token :int]]}
+                 (fn [s b] {:token s :blob b}))
+    ;; Registry-large, schema-SENSITIVE: the schemas seam redacts, and the
+    ;; size arm may not re-dress its `:explain` as a marker.
+    (rf/reg-flow :both/schema-sensitive
+                 {:inputs [[:secret] [:blob]] :output-path [:both :schema]
+                  :large [[]] :schema [:map [:token {:sensitive? true} :int]]}
+                 (fn [s b] {:token s :blob b}))
+    (rf/dispatch-sync [:seed])
+    (doseq [flow-id [:both/whole :both/slots :both/schema-sensitive]]
+      (let [ev (violation-for flow-id)]
+        (is (not (str/includes? (pr-str ev) "hunter2-SECRET"))
+            (str flow-id ": the secret appears nowhere in the failure trace"))
+        (is (= true (:sensitive? ev))
+            (str flow-id ": top-level :sensitive? so the egress gate drops it"))
+        (is (= :rf/redacted (get-in ev [:tags :explain]))
+            (str flow-id ": :explain is the redacted sentinel, not a size marker"))
+        (is (nil? (get-in ev [:tags :large?]))
+            (str flow-id ": no :large? stamp on a sensitive failure"))))))
+
+(deftest unclassified-output-keeps-its-explanation-beside-a-large-declaration
+  (testing "CONTROL: a :large declaration on an unrelated path leaves an
+            unclassified output's :explain raw and unstamped"
+    (rf/reg-event :seed (fn [_ _] {:db {:plain "not-an-int"}}))
+    (rf/reg-event :classify-elsewhere (fn [_ _] {:large [[:out-other]]}))
+    (rf/reg-flow :size/plain
+                 {:inputs [[:plain]] :output-path [:out]
+                  :schema [:map [:token :int]]}
+                 (fn [s] {:token s}))
+    (rf/dispatch-sync [:classify-elsewhere])
+    (reset! *captured* [])
+    (rf/dispatch-sync [:seed])
+    (let [ev (violation-for :size/plain)]
+      (is (nil? (:sensitive? ev)))
+      (is (nil? (get-in ev [:tags :large?])))
+      (is (= {:token "not-an-int"} (get-in ev [:tags :value])))
+      (is (= {:token "not-an-int"} (get-in ev [:tags :explain :value]))
+          ":explain is the registered explainer's output, untouched"))))
