@@ -1,6 +1,5 @@
 (ns re-frame.resources.work-ledger
-  "The resource-owned frame WORK LEDGER substrate (rf2-afpdkn, EP-0003
-  slice 3). Per Spec 016 §Frame work ledger and §Ledger row retention and
+  "The resource-owned frame WORK LEDGER substrate (EP-0003). Per Spec 016 §Frame work ledger and §Ledger row retention and
   identity, and the `:rf.runtime/work-ledger` runtime-subsystem grading
   in [Runtime-Subsystems].
 
@@ -21,7 +20,7 @@
     table keyed by `[frame-id work-id]`, OUTSIDE durable frame-state, and
     are NEVER serialized. This mirrors the host-side generation allocator
     (`re-frame.resources.state/generation-cache`) and routing's
-    nav-counters / scroll caches (rf2-oosjmh / rf2-1hncp2): a transient
+    nav-counters / scroll caches: a transient
     host cache an epoch restore cannot rewind, released on frame destroy.
 
   ## The correctness split (Spec 016 §Cancellation is opportunistic;
@@ -40,7 +39,7 @@
 
   Terminal rows (`:completed` / `:failed` / `:timed-out` / `:suppressed`
   / `:cancelled`) are pruned on the linked entry's next TERMINAL
-  transition — every settle, not only a successful one (rf2-6gzdb) — and a
+  transition — every settle, not only a successful one — and a
   small bounded per-resource-key tail is retained for Xray's recent-races
   view. When the entry itself LEAVES the cache the whole holding goes with
   it, tail and inverse-index bucket alike (`drop-rows-for-key`), and a
@@ -50,17 +49,17 @@
   suppression keys on `:work/id` (which embeds the generation); there is
   no separate `:stale-key` synonym.
 
-  ## Single-writer (v1)
+  ## Single-writer artefact (v1)
 
-  In the HTTP-only MVP the ledger is written ONLY through the resource
-  event handlers (which mint `:rf/framework-authority? true`). The ledger
-  is DESIGNED multi-writer (later slices extend it to timers / streams /
-  route loaders / spawned actors / machine async work), but who mints
-  authority for each additional writer is an OPEN question deferred to the
-  first non-resource writer (Spec 016 §Open questions). This slice keeps
-  it single-writer / resource-owned.
+  The ledger is written ONLY through the Resources artefact's event
+  handlers — resource reads and mutations — which mint
+  `:rf/framework-authority? true`. The ledger is DESIGNED multi-writer (its
+  shape admits timers / streams / route loaders / spawned actors / machine
+  async work), but who mints authority for a writer outside the Resources
+  artefact is an OPEN question deferred to that first writer (Spec 016
+  §Open questions). The ledger stays Resources-owned.
 
-  ## The durable reply-target boundary (rf2-6kdcs9, EP-0011 §Work Ledger
+  ## The durable reply-target boundary (EP-0011 §Work Ledger
   ## Integration / Managed-Effects §Work-ledger integration)
 
   Managed-Effects §Work-ledger integration says a ledger row *is* the
@@ -103,8 +102,8 @@
 
 (def work-kind-resource
   "The `:work/kind` for a resource-owned attempt (`:resource`). The ledger
-  is named neutrally — later slices add `:timer` / `:stream` / `:route` /
-  `:actor` kinds; this slice writes only `:resource` work. Per Spec 016
+  is named neutrally — its shape admits other kinds (`:timer` / `:stream` /
+  `:route` / `:actor`); a resource read writes `:resource` work. Per Spec 016
   §Frame work ledger."
   :resource)
 
@@ -131,7 +130,7 @@
 (def work-id-id
   "The CEDN-1 BYTE-IDENTITY map-key for a `work-id`
   (`[:rf.work/resource <scoped-key> <generation>]`) — its `canonical-bytes`
-  string (rf2-9e0tyq). The work-ledger runtime-db map is keyed on THIS string,
+  string. The work-ledger runtime-db map is keyed on THIS string,
   NOT the work-id vector, for the SAME reason `:entries` is keyed on
   `rf.resources.state/key-id`: the work-id embeds the scoped-key, so two work-ids that
   differ only by a list-vs-vector params spelling are `=`-equal (Clojure
@@ -143,7 +142,7 @@
   scoped-key. Per Spec 016 §Frame work ledger.
 
   This IS `rf.resources.state/key-id` (both are `canonical-bytes` of an
-  already-canonical EDN identity — rf2-366u0g): the work-id-as-map-key
+  already-canonical EDN identity): the work-id-as-map-key
   byte-identity rule is the SAME rule the scoped-key-as-map-key follows, so
   the ledger surface re-binds the one canonical wrapper under its own name
   rather than re-typing the `canonical-bytes` call."
@@ -183,10 +182,10 @@
 
 (def terminal-statuses
   "The terminal work statuses an attempt may reach with an outcome
-  summary. Terminal rows are pruned on the linked entry's next successful
+  summary. Terminal rows are pruned on the linked entry's next TERMINAL
   transition; a bounded per-resource-key tail is retained for Xray. Per
   Spec 016 §Ledger row retention and identity. The canonical set lives in
-  `re-frame.resources.state/terminal-work-statuses` (rf2-366u0g); re-bound
+  `re-frame.resources.state/terminal-work-statuses`; re-bound
   under the ledger surface's own name so a ledger consumer reads one home."
   rf.resources.state/terminal-work-statuses)
 
@@ -217,7 +216,7 @@
                      reply's `:rf.frame/id`)
   - `:resource/key`/`:generation`/`:transport`
   - `:owner`       — the initiating owner (nil-safe; folded into `:owners`)
-  - `:owners`      — the owners ALREADY holding the entry (rf2-gwye.15): a new
+  - `:owners`      — the owners ALREADY holding the entry: a new
                      read attempt starts from the entry's `:active-owners`, so
                      releasing one held owner never orphans work another held
                      owner still needs (Spec 016 §Race). Unioned with `:owner`;
@@ -237,7 +236,7 @@
                      load-more in flight (positive index) from a whole-feed
                      `:fetching?` refresh (page-0). Plain EDN — it rides SSR /
                      restore with the rest of the row.
-  - `:reply-targets`— EP-0016 D1 extension (rf2-p1yri7): the OPTIONAL vector of
+  - `:reply-targets`— EP-0016 D1 extension: the OPTIONAL vector of
                      data-only call-site `:reply-to` completion continuations an
                      `:rf.resource/ensure` / `:rf.resource/refetch` supplied. Each
                      joining ensure appends its target here (`add-reply-target`,
@@ -248,8 +247,8 @@
                      plain EDN that rides SSR / restore / epoch snapshots with the
                      rest of the row (a dangling restored row can never re-match a
                      live entry, so a restored reply is suppressed, not delivered).
-                     Omitted entirely when the read carried no continuation — the
-                     row shape is unchanged for every ordinary read / mutation.
+                     Omitted entirely when the read carried no continuation — an
+                     ordinary read / mutation row carries no such key.
                      This is the READ counterpart of the mutation `:reply-to`,
                      which rides the transport payload (a mutation never joins);
                      a read joins in flight, so its targets accumulate on the
@@ -273,15 +272,15 @@
     ;; EP-0021 — record the page index for an infinite-feed page fetch so
     ;; `:fetching-next?` is derivable from the durable row (a load-more =
     ;; a positive index; a page-0 fetch / refetch = 0). Omitted entirely for
-    ;; a non-infinite attempt (page-index nil) — the row shape is unchanged
-    ;; for every ordinary resource / mutation.
+    ;; a non-infinite attempt (page-index nil) — an ordinary resource /
+    ;; mutation row carries no `:page-index`.
     (some? page-index) (assoc :page-index page-index)
-    ;; EP-0016 D1 extension (rf2-p1yri7) — the call-site `:reply-to` targets an
+    ;; EP-0016 D1 extension — the call-site `:reply-to` targets an
     ;; ensure / refetch supplied. Omitted when empty, so the common no-reply-to
-    ;; read keeps the unchanged row shape.
+    ;; read carries no such key.
     (seq reply-targets) (assoc :reply-targets (vec reply-targets))))
 
-;; ---- durable reply-target (rf2-6kdcs9) ------------------------------------
+;; ---- durable reply-target -------------------------------------------------
 ;;
 ;; The framework-internal resource-read reply target made DURABLE
 ;; (Managed-Effects §Work-ledger integration — "the row's `:reply-to` field is
@@ -311,11 +310,11 @@
   is correlation metadata derivable from the resource key), so it is omitted
   from the durable continuation — one name per fact."
   [record]
-  ;; rf2-7wecib — the success reply event id is inlined here as the normative
+  ;; The success reply event id is inlined here as the normative
   ;; literal (Spec 016 §Events; the same id `transport.http/succeeded-reply`
   ;; spells). The ledger spells it locally rather than depending on
-  ;; transport.http (a layering dodge, not a cycle) — and there is exactly ONE
-  ;; use, so a local `def` only added a level of indirection over the literal.
+  ;; transport.http (a layering choice, not a cycle) — and there is exactly ONE
+  ;; use, so a local `def` would only add a level of indirection over the literal.
   ;; The success leg is canonical: the failure leg
   ;; (`:rf.resource.internal/failed`) shares the SAME verification payload, so
   ;; one durable target represents the reified continuation.
@@ -339,8 +338,8 @@
 
 (defn add-reply-target
   "Append a data-only call-site `:reply-to` completion continuation `target`
-  to a work record's `:reply-targets` vector (EP-0016 D1 extension to reads,
-  rf2-p1yri7). A joining ensure adds its target here so the ONE accepted
+  to a work record's `:reply-targets` vector (EP-0016 D1 extension to reads).
+  A joining ensure adds its target here so the ONE accepted
   terminal reply fans out to every target exactly once. DEDUPED: a target
   already present is not re-added (an ensure that re-joins with the same
   target still fans out to it exactly once). The vector preserves append order
@@ -369,7 +368,7 @@
   `:timed-out` / `:suppressed` / `:cancelled`) with an `outcome` summary.
   Per Spec 016 §Ledger row retention and identity — the row is then prunable
   on the linked entry's next TERMINAL transition. Prefer `settle-terminal`,
-  which marks AND prunes in one step (rf2-6gzdb). `outcome` is a small
+  which marks AND prunes in one step. `outcome` is a small
   serializable summary (NOT raw data — Xray gets summaries, the projection
   boundary)."
   [record status outcome]
@@ -403,13 +402,13 @@
 
 (defn record-path
   "Runtime-db-relative path to a single work record, keyed on the CEDN-1 byte
-  `work-id-id` (NOT the work-id vector; rf2-9e0tyq) so a list- and a
+  `work-id-id` (NOT the work-id vector) so a list- and a
   vector-params work-id never collide in the ledger map. Per Spec 016
   §Cache home (`[:rf.runtime/work-ledger <work-id-id>]`)."
   [work-id]
   [:rf.runtime/work-ledger (work-id-id work-id)])
 
-;; ---- resource-key → work-id inverse index (rf2-wyan7e) --------------------
+;; ---- resource-key → work-id inverse index ---------------------------------
 ;;
 ;; `prune-terminal-for-key` runs after EVERY resource settle to trim terminal
 ;; rows for the settling key. Filtering the WHOLE ledger to find that key's
@@ -430,7 +429,7 @@
   "Reserved runtime-db key for the work-ledger's resource-key → work-id-id
   inverse index `{<rk-id> #{<work-id-id> …}}`. Recomputable-from-the-ledger
   (rebuilt on hydration / restore, never trusted from a snapshot — mirrors the
-  resource `:tag-index`). Per Spec 016 §Ledger row retention (rf2-wyan7e)."
+  resource `:tag-index`). Per Spec 016 §Ledger row retention."
   :rf.runtime/work-ledger-by-key)
 
 (defn recompute-ledger-index
@@ -467,7 +466,7 @@
     runtime-db))
 
 (defn- ensure-ledger-index
-  "rf2-wyan7e — self-heal: a wholesale-installed ledger (hydration / restore)
+  "Self-heal: a wholesale-installed ledger (hydration / restore)
   arrives with NO inverse index (it is a derived projection, never trusted from
   the wire). Rebuild it ONCE so a per-key visit is bounded; live operation keeps
   it in step via `put-record` and the per-key row droppers' own bulk bucket
@@ -483,7 +482,7 @@
 (defn put-record
   "Write `record` at the work-ledger byte-keyed slot for `work-id` in
   `runtime-db`, and register it in the resource-key inverse index when that
-  index is live (rf2-wyan7e — the index member is idempotent, so re-putting an
+  index is live (the index member is idempotent, so re-putting an
   updated record is a no-op for the index). Returns the updated runtime-db."
   [runtime-db work-id record]
   (-> runtime-db
@@ -505,7 +504,7 @@
   survives a route supersession (`release-owner` marks the record
   `:abort-requested` but leaves the pointer set) and a direct / internal
   aborted settlement, so the LINKED RECORD'S status is the liveness fact. This
-  is the one definition of that question (rf2-v4ygg5): `ensure`'s dedupe gate
+  is the one definition of that question: `ensure`'s dedupe gate
   asks it to decide whether to JOIN or start a fresh attempt, `load-more`'s
   page dedupe asks it for the same reason, and the route planner
   (`re-frame.resources.route/adoptable?`) asks it to decide whether a retained
@@ -529,7 +528,7 @@
 (defn update-record-by-id
   "Apply `f` (and `args`) to the work record under an ALREADY-COMPUTED byte
   `work-id-id` (a ledger map key from a `(map key)` ledger scan) in
-  `runtime-db`, writing the result back (rf2-9e0tyq). No-op when no record
+  `runtime-db`, writing the result back. No-op when no record
   exists. Distinct from `update-record` (which transforms a work-id VECTOR to
   its byte id first) — a caller iterating the ledger already holds the byte
   id and must NOT re-transform it. Returns the updated runtime-db."
@@ -552,22 +551,22 @@
   for Xray's recent-races view (Spec 016 §Ledger row retention and
   identity — \"a small bounded per-resource-key tail\"). Non-terminal rows
   for the key are NEVER pruned. Called on the linked entry's next TERMINAL
-  transition — every settle, not only a successful one (rf2-6gzdb; see
+  transition — every settle, not only a successful one (see
   `settle-terminal`, which is the seam every caller should use). Returns the
   updated runtime-db.
 
   `keep-tail` defaults to `default-terminal-tail`."
   ([runtime-db resource-key] (prune-terminal-for-key runtime-db resource-key default-terminal-tail))
   ([runtime-db resource-key keep-tail]
-   ;; rf2-wyan7e — self-heal the inverse index when a wholesale-installed
+   ;; Self-heal the inverse index when a wholesale-installed
    ;; ledger (hydration / restore) arrives without one, so the per-key visit
    ;; below is bounded.
    (let [runtime-db (ensure-ledger-index runtime-db)
-         ;; rf2-9e0tyq — match by CEDN-1 byte identity, not `=` over the
+         ;; Match by CEDN-1 byte identity, not `=` over the
          ;; `:resource/key` vector (which would `=`-collapse a list- and a
          ;; vector-params key and prune both resources' rows).
          rk-id  (rf.resources.state/key-id resource-key)
-         ;; rf2-wyan7e — visit ONLY this key's rows (via the inverse index)
+         ;; Visit ONLY this key's rows (via the inverse index)
          ;; instead of scanning the WHOLE ledger per settle (O(rows-for-key)
          ;; rather than O(all-work)). The index members ARE this key's row ids.
          ledger (:rf.runtime/work-ledger runtime-db)
@@ -600,13 +599,13 @@
   `status` + `outcome`) AND prune that key's terminal tail, in one step. This
   is the seam Spec 016 §Ledger row retention's \"the ledger is bounded\"
   promise actually rests on, and it is why callers should reach for this rather
-  than `update-record` + `mark-terminal` (rf2-6gzdb).
+  than `update-record` + `mark-terminal`.
 
-  Pruning on a later SUCCESS alone bounds nothing on a key that never succeeds:
-  a polled resource against a failing endpoint settles `:failed` once per tick
-  and the success that would prune those rows never comes, so the ledger — which
-  rides every frame-state value and every epoch snapshot — grows a row per tick
-  for the frame's life. Mutation rows had no prune at all; their rows are keyed
+  Pruning on a later SUCCESS alone would bound nothing on a key that never
+  succeeds: a polled resource against a failing endpoint settles `:failed` once
+  per tick and the success that would prune those rows never comes, so the
+  ledger — which rides every frame-state value and every epoch snapshot — would
+  grow a row per tick for the frame's life. Mutation rows are keyed
   `[:rf.mutation <instance-id>]`, so the SAME per-key mechanism bounds them per
   instance.
 
@@ -628,7 +627,7 @@
   runtime-db.
 
   The REMOVAL counterpart of `prune-terminal-for-key`, and the distinction is
-  the entry's continued existence (rf2-6gzdb): a pruned key still exists, so a
+  the entry's continued existence: a pruned key still exists, so a
   bounded tail is retained as Xray's recent-races view of work that is still
   meaningful. A key whose entry (or mutation instance) has LEFT the cache has no
   recent-races view left to serve — nothing can join those rows to an entry
@@ -659,7 +658,7 @@
 ;; work-id]`. A module-level transient host cache — NOT runtime-db, NOT
 ;; serialized, off the epoch / SSR egress wire. Mirrors the host-side
 ;; generation allocator (`rf.resources.state/generation-cache`) and routing's
-;; nav-counters / scroll caches (rf2-oosjmh / rf2-1hncp2). Cleared on frame
+;; nav-counters / scroll caches. Cleared on frame
 ;; destroy (Spec 016 [Runtime-Subsystems] clause 5: transient host handles
 ;; dropped).
 
@@ -706,7 +705,7 @@
 ;; Forward declaration — `abort-handle!` reads the managed-HTTP transport
 ;; marker (`managed-abort-fx-transport`, defined below alongside the
 ;; in-cascade `abort-fx` builder) to decide whether to fire the
-;; `:http/abort-in-flight!` hook for a recorded slot (rf2-rak684).
+;; `:http/abort-in-flight!` hook for a recorded slot.
 (declare managed-abort-fx-transport)
 
 (defn- abort-handle!
@@ -717,7 +716,7 @@
      live handle fills this slot — e.g. a non-HTTP transport), and/or
    - for MANAGED HTTP, the frame-qualified `:request-id` the slot records
      (`[:rf.req frame-id work-id]`) routed through the `:http/abort-in-flight!`
-     late-bind hook the http artefact publishes (rf2-rak684).
+     late-bind hook the http artefact publishes.
 
   The managed-HTTP arm is THE out-of-cascade teardown seam: the resource
   runtime does not itself hold the AbortController (the managed-HTTP
@@ -752,7 +751,7 @@
                        (catch #?(:clj Throwable :cljs :default) _ false))))]
     (or direct? managed?)))
 
-;; ---- DETACH-then-abort (rf2-sdeae) ---------------------------------------
+;; ---- DETACH-then-abort ---------------------------------------------------
 ;;
 ;; Aborting a slot fires a CALLBACK (the transport's `:abort-fn`, or the
 ;; `:http/abort-in-flight!` hook) — app / host code that can synchronously churn
@@ -768,13 +767,13 @@
 ;; identity that is already off the table — it can neither be re-read by a
 ;; nested pass nor dissociated by the returning tail, and whatever a successor
 ;; seats afterwards is B's, untouched. This is exactly the discipline
-;; `timers/release-frame!` already uses for the sibling timer side table.
+;; `timers/release-frame!` also uses for the sibling timer side table.
 
 (defn- detach-slots!
   "Atomically remove every side-table slot whose key satisfies `key-pred` and
   return the DETACHED handle values. One `swap-vals!` — no host side effect runs
   inside the retriable swap, and no callback can observe or re-seat the slots
-  between the decision and the removal. Per rf2-sdeae."
+  between the decision and the removal."
   [key-pred]
   (let [[old _new] (swap-vals! handle-table
                                (fn [m] (into {} (remove (comp key-pred key)) m)))]
@@ -788,13 +787,13 @@
   on the work-id + generation stale-suppression check (NOT on the cancel
   landing). For managed HTTP the slot records only the frame-qualified
   `:request-id` (no live `:abort-fn`), so the abort rides the
-  `:http/abort-in-flight!` late-bind hook by that request-id (rf2-rak684) —
+  `:http/abort-in-flight!` late-bind hook by that request-id —
   this is the out-of-cascade counterpart to the in-cascade `:rf.http/managed-abort`
   fx. Returns true iff an abort capability was found and fired (a hint for
   the caller's trace), false otherwise. Never throws (a throwing abort-fn is
   swallowed — a failed cancel must not strand the teardown).
 
-  DETACHES BEFORE ABORTING (rf2-sdeae): the abort is a callback boundary, so
+  DETACHES BEFORE ABORTING: the abort is a callback boundary, so
   dropping the slot afterwards would delete whatever a successor incarnation
   re-seated under the same key during that callback."
   [frame-id work-id]
@@ -804,7 +803,7 @@
 (defn- abort-detached!
   "Best-effort abort every ALREADY-DETACHED handle in `handles`, in order.
   Aborts managed HTTP by the recorded frame-qualified `:request-id` through the
-  `:http/abort-in-flight!` hook (rf2-rak684), so frame destroy cancels the
+  `:http/abort-in-flight!` hook, so frame destroy cancels the
   underlying in-flight request before dropping the generation high-water — a
   surviving host reply can never match a future same-id frame. The handles are
   off the side table already (see `detach-slots!`), so an abort callback that
@@ -943,7 +942,7 @@ attempt is superseded / settled so a stale handle does not leak. Per Spec 016
   cancels all resource timers / clears host handles for that frame) /
   [Runtime-Subsystems] clause 5. Returns nil.
 
-  DETACHES BEFORE ABORTING (rf2-sdeae): the frame's slots are removed in one
+  DETACHES BEFORE ABORTING: the frame's slots are removed in one
   `swap-vals!` and only then aborted, so an abort callback that seats a same-id
   successor incarnation cannot have that successor's handle deleted by this
   cleanup's returning tail, and a callback that re-enters `release-frame!` finds
@@ -956,7 +955,7 @@ attempt is superseded / settled so a stale handle does not leak. Per Spec 016
   as a reset hook so the shared CLJS `make-reset-runtime-fixture`
   reset-hooks table clears it per test (host-side transient state, NOT
   cleared by the runtime / frames reset). Best-effort aborts each handle on
-  the way out — DETACHING the whole table first (rf2-sdeae), so an abort
+  the way out — DETACHING the whole table first, so an abort
   callback that records a fresh handle is not silently swallowed by a
   wholesale `reset!` afterwards. Returns nil."
   []
