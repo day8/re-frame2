@@ -65,13 +65,13 @@
   (rf.machines.parallel/build-initial-snapshot machine {:bootstrap-pending? false}))
 
 (deftest server-region-after-skips-host-timer-despite-stale-cache
-  (testing "rf2-z522n: a parallel-region :after under a `:platform :server`
+  (testing "a parallel-region :after under a `:platform :server`
    frame emits :rf.machine.timer/skipped-on-server (NOT :scheduled) and
    schedules NO host `:rf.machine/after-schedule` fx — even when the region
    cache was first populated from an unstamped (client/nil-platform)
    machine."
     ;; 1. Install the region cache and PRIME it from the UNSTAMPED machine
-    ;;    (no :rf/platform / :rf/frame) — reproducing the bug's origin: the
+    ;;    (no :rf/platform / :rf/frame) — the stale-cache case: the
     ;;    cached region spec captures a nil platform.
     (let [unstamped (rf.machines.parallel/install-region-cache base-spec)]
       (rf.machines.parallel/region-machine unstamped :climate)   ;; fault the stale entry in
@@ -98,7 +98,7 @@
             "the skip trace records :platform :server")))))
 
 (deftest client-region-after-schedules-and-carries-live-frame
-  (testing "rf2-z522n: the symmetric client path — a parallel-region :after
+  (testing "the symmetric client path — a parallel-region :after
    under a `:platform :client` frame DOES schedule (`:scheduled`) and the
    trace carries the live frame — confirming the overlay threads the real
    runtime frame through region pure logic, not a stale cached value."
@@ -121,7 +121,7 @@
             "the :scheduled trace carries the LIVE client frame")))))
 
 (deftest overlay-does-not-mutate-the-cached-region-spec
-  (testing "rf2-z522n: overlaying live runtime keys per step must not corrupt
+  (testing "overlaying live runtime keys per step must not corrupt
    the SHARED cached region spec — two transitions on different platforms
    must each see their OWN platform (the cache stays platform-agnostic;
    the overlay is per-step)."
@@ -162,7 +162,7 @@
                  :states  {:rest {}}}}})
 
 (deftest region-cofx-does-not-leak-from-cache-into-later-transition
-  (testing "rf2-gqr4vs: priming the region cache from a parent carrying
+  (testing "priming the region cache from a parent carrying
    `:rf/cofx`, then running a LATER transition whose parent carries NO
    `:rf/cofx`, must surface NO `:rf.cofx` on the region action ctx — the
    transition-local coeffect cannot survive on the cached region spec."
@@ -175,7 +175,7 @@
                                 {:data (:data ctx)}))
           installed (rf.machines.parallel/install-region-cache spec)]
       ;; 1. PRIME the cache from a parent carrying a causal coeffect token —
-      ;;    reproducing the bug origin: the cached region spec captures the
+      ;;    the stale-cache case: the cached region spec captures the
       ;;    coeffect-carrying parent.
       (rf.machines.parallel/region-machine (assoc installed :rf/cofx {:rf/time-ms 1}) :a)
       (rf.machines.parallel/region-machine (assoc installed :rf/cofx {:rf/time-ms 1}) :b)
@@ -191,7 +191,7 @@
           "and the destructured value is nil, never the primed {:rf/time-ms 1}"))))
 
 (deftest region-cofx-overlays-live-value-when-parent-carries-it
-  (testing "rf2-gqr4vs (symmetric): when the LIVE parent DOES carry `:rf/cofx`,
+  (testing "symmetric: when the LIVE parent DOES carry `:rf/cofx`,
    the region action ctx surfaces THAT value — the overlay threads the current
    dispatch's coeffect through region pure logic, even when the cache was primed
    under a DIFFERENT coeffect."
