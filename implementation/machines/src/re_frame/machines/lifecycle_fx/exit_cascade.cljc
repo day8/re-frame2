@@ -96,7 +96,13 @@
    (when actor-id
      (let [runtime-db (rf.frame/frame-runtime-db-value frame-id)
            snapshot   (when runtime-db (get-in runtime-db (rf.machines.paths/snapshot-path actor-id)))
-           machine    (resolve-machine-spec actor-id snapshot)]
+           ;; The resolved spec is the registered DEFINITION, which names no
+           ;; instance and no frame. Stamp both, as the transition path's
+           ;; machine map carries them, so every `:rf.machine/action-ran` the
+           ;; cascade emits names the instance being torn down and carries the
+           ;; `:frame` epoch capture admits a trace by.
+           machine    (some-> (resolve-machine-spec actor-id snapshot)
+                              (assoc :id actor-id :rf/frame frame-id))]
        (when (and snapshot machine)
          (let [r (rf.machines.parallel/run-active-exit-cascade machine snapshot)]
            (cond
