@@ -29,7 +29,7 @@
          :extra-deps  {day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                        ;; `[:schemas :data]` validation tests reach the
                        ;; default Malli validator via `re-frame.schemas.malli`.
-                       ;; Test-only: production remains schema-library agnostic.
+                       ;; Test-only: production is schema-library agnostic.
                        day8/re-frame2-schemas    {:local/root "../schemas"}}
          ;; The default gate excludes slow and stress tests; `:slow-test`
          ;; below selects exactly those tests for rigorous/nightly runs.
