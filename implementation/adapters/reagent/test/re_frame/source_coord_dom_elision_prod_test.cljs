@@ -1,6 +1,6 @@
 (ns re-frame.source-coord-dom-elision-prod-test
-  "Per Spec 006 §Source-coord annotation production-elision contract
-  (bead rf2-uwg5): under `:advanced` + `goog.DEBUG=false`, the
+  "Per Spec 006 §Source-coord annotation production-elision contract:
+  under `:advanced` + `goog.DEBUG=false`, the
   reg-view* wrapper's `data-rf2-source-coord` injection branch elides.
   A registered view's rendered output carries NO source-coord attribute
   under prod-mode.

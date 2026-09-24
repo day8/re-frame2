@@ -6,7 +6,7 @@
    write is a `reg-mutation` with an `:optimistic` exact-target patch over the
    board entry that COMMITS on `:ok` (`:patches`) and ROLLS BACK on `:error`
    (the runtime-recorded snapshot inverse). Closes the false-green gap the
-   test-free examples policy (rf2-8cevm) leaves: `test:examples-compile` catches
+   test-free examples policy leaves: `test:examples-compile` catches
    a missing namespace / init-fn and the resources artefact suites catch the
    generic optimistic-mutation runtime contract, but neither pins the
    EXAMPLE-SPECIFIC composition — its board resource + route ensure, its three
@@ -110,7 +110,7 @@
    the test drives success-vs-failure by choosing which reply to replay (rather
    than via the example's fail-next-write app-db seam).
 
-   THE ORDER MATTERS, AND THE FRAME IS MADE LAST (rf2-k4oe). A `:url-bound?`
+   THE ORDER MATTERS, AND THE FRAME IS MADE LAST. A `:url-bound?`
    frame performs a synchronous initial URL sync AT CONSTRUCTION — `make-frame`
    -> `frame/upsert-frame!`'s post-create hook -> routing's
    `:routing/on-frame-registered!` -> `reconcile-url-listener!` — and under Node
@@ -135,7 +135,7 @@
    0 after."
   []
   (reset! last-managed-args nil)
-  ;; rf2-h1vqa4: reinstate through `registrar/register!` — NOT a raw
+  ;; Reinstate through `registrar/register!` — NOT a raw
   ;; registrar-atom swap. Image-loaded frames resolve through the SOURCE
   ;; STORE (the default image is assembled from it), and the reset hook's
   ;; clear-kind! forgot the store rows too; register! writes registrar +
@@ -174,7 +174,7 @@
     ;; assembly loud for any suite whose baseline is captured after the second
     ;; app loads. `:app-ns` names OUR OWN app (never a sibling's): the fixture
     ;; keeps its rows out of every suite's baseline and reinstates them for
-    ;; this suite's own tests (rf2-kuky.27).
+    ;; this suite's own tests.
     {:adapter rf.adapter.reagent/adapter
      :app-ns  "linearlite."
      :init-fn init!}))
@@ -250,22 +250,19 @@
   (reset! last-managed-args nil))
 
 ;; ============================================================================
-;; 0. CO-LOAD ISOLATION CONTROL (rf2-k4oe) — the witness this suite lacked
+;; 0. CO-LOAD ISOLATION CONTROL — the witness for frame-last ordering
 ;; ============================================================================
 
 ;; EVERY test below section 0 is green in this bundle whether or not `init!`
 ;; makes the frame last. Seven co-loaded example apps also register a route at
 ;; "/", so one of THEM answers the URL sync `make-frame` performs at
 ;; construction and this app's blocking board resource is never planned there.
-;; That is the false green rf2-k4oe was filed for, and it survived the fix:
-;; measured on the pre-#9027 ordering in the consolidated `:node-test` bundle,
-;; sections 1-9 still read 10 tests / 51 assertions / 0 failures. Moving
-;; `make-frame` back up left CI green.
+;; That is a false green: with `make-frame` moved back up, sections 1-9 in the
+;; consolidated `:node-test` bundle would still pass.
 ;;
-;; This test is the missing witness, and it does NOT build a second bundle —
-;; the fifteen single-app builds that found the defect were audit evidence, too
-;; expensive to keep. It reproduces IN PROCESS the two facts a single-app bundle
-;; would have supplied:
+;; This test is the witness, and it does NOT build a second bundle —
+;; single-app builds are too expensive to keep. It reproduces IN PROCESS the
+;; two facts a single-app bundle would supply:
 ;;
 ;;   (1) "/" is answered by THIS app's board route ALONE. Every rival row is
 ;;       dropped through the local, ownership-guarded two-leg pairing below
@@ -302,7 +299,7 @@
    registrar AND the provenance source store, returning the captured
    source-store descriptor (or nil when the slot is absent).
 
-   LOCAL TO THIS TEST, deliberately (rf2-kuky.27). Removing a RIVAL app's
+   LOCAL TO THIS TEST, deliberately. Removing a RIVAL app's
    registrations to reproduce a single-app bundle in process is a different job
    from the fixture's `:app-ns`, which hides a suite's OWN app so no sibling's
    baseline sees it. Only this one control needs the rival-removal shape, so it
@@ -362,7 +359,7 @@
           (is (not= :error (:transition slice))
               "the construction-time route-entry resource plan SUCCEEDED: init!
                refilled the :resource registrar before it made the :url-bound?
-               frame (rf2-k4oe). A :transition :error here means make-frame ran
+               frame. A :transition :error here means make-frame ran
                first and the plan found the kind empty")
           (is (nil? (:rf.error/id (:error slice)))
               "and no :rf.error/resource-route-plan is stuck on the slice — the
@@ -510,7 +507,7 @@
     (is (= demo-board (board-data)) "the board is restored to its pre-edit value")))
 
 ;; ============================================================================
-;; 4b. THE TEMP-ID WINDOW — a card the server has not named yet (rf2-mmos)
+;; 4b. THE TEMP-ID WINDOW — a card the server has not named yet
 ;; ============================================================================
 ;;
 ;; The board's overlapping writes are the example's headline: adding a card
@@ -558,8 +555,7 @@
   (testing "examples/capabilities/resources/linearlite — while its create is in flight a
             card carries only the client-minted tmp id, so ITS retitle and move
             controls are withheld; a card the server has already named keeps
-            both, and the new card gets them the moment the create replies
-            (rf2-mmos)"
+            both, and the new card gets them the moment the create replies"
     (load-board!)
     (rf/dispatch-sync [:linearlite/create-issue "Gamma"])
     (let [tmp    (issue-by-title "Gamma")
@@ -595,7 +591,7 @@
 
 
 ;; ============================================================================
-;; 5. THE ARMED DEMO BACKEND — fail-next-write answers a REAL 503 (rf2-pqt5f)
+;; 5. THE ARMED DEMO BACKEND — fail-next-write answers a REAL 503
 ;; ============================================================================
 ;;
 ;; Everything above BYPASSES the example's own demo backend: the capturing
@@ -603,20 +599,19 @@
 ;; the generic mutation arcs (a `{:kind :rf.http/http-5xx :status 503}` failure
 ;; rolls back exactly and lands in the instance's `:error`) — but NOT that the
 ;; runnable backend users actually execute ever PRODUCES such a failure. That
-;; gap is where rf2-pqt5f lived: the armed "Fail the next write" branch built
-;; its 503 under a `:failure` key `:rf.http/managed-canned-failure` does not
-;; read, so the demo's advertised 503 silently settled as the contract's
-;; default `{:kind :rf.http/transport}`. Rollback still worked, which is
-;; exactly why nothing caught it.
+;; gap matters: an armed "Fail the next write" branch that built its 503 under
+;; a `:failure` key `:rf.http/managed-canned-failure` does not read would
+;; silently settle as the contract's default `{:kind :rf.http/transport}` —
+;; and rollback would still work, so nothing else would catch it.
 ;;
-;; These two tests close that gap at the seam the bug lived on: they drive the
+;; These two tests pin that seam: they drive the
 ;; ACTUAL registered `:linearlite.demo/http-stub` and pin WHICH framework
 ;; canned-reply fx it selects and WITH WHAT ARGS. The stub's whole observable
 ;; act is that selection plus those args — it resolves the canned fx from the
 ;; registrar at call time and hands off — so capturing them captures the
 ;; classification decision itself: top-level `:kind :rf.http/http-5xx` +
 ;; `:tags {:status 503 :message …}`, the shape the canned-failure contract
-;; (Spec 014 §Testing) actually reads, never the pre-fix `:failure` spelling.
+;; (Spec 014 §Testing) actually reads, never a `:failure` spelling.
 ;;
 ;; SCOPE BOUNDARY, stated rather than papered over. These tests stop at the
 ;; stub's emitted args; they do not carry the reply on into the mutation
@@ -701,9 +696,8 @@
             through the framework's canned-FAILURE fx carrying the promised
             503 in the shape that contract reads: top-level
             :kind :rf.http/http-5xx plus :tags {:status 503 :message …}.
-            Pre-fix the 503 rode a `:failure` key the contract ignores, so the
-            demo's advertised 503 silently classified as the default
-            :rf.http/transport (rf2-pqt5f)."
+            A 503 riding a `:failure` key the contract ignores would silently
+            classify as the default :rf.http/transport."
     (install-canned-parkers!)
     (rf/dispatch-sync [:linearlite/set-fail-next-write true])
     (is (true? (fail-next-write?)) "armed")
@@ -715,10 +709,10 @@
           "the ARMED branch was selected — the write met the canned-FAILURE fx")
       (is (pos? after-ms)
           "…deferred, as the demo does so the optimistic value paints first")
-      ;; THE REGRESSION. The canned-failure contract reads a TOP-LEVEL :kind
-      ;; and merges :tags into the classified failure map. Pre-fix both were
-      ;; absent (the 503 rode under :failure), so `emit-canned-failure!`
-      ;; defaulted :kind to :rf.http/transport.
+      ;; THE CONTRACT. The canned-failure contract reads a TOP-LEVEL :kind
+      ;; and merges :tags into the classified failure map. With both absent
+      ;; (the 503 under :failure), `emit-canned-failure!` would default :kind
+      ;; to :rf.http/transport.
       (is (= :rf.http/http-5xx (:kind args))
           "the failure is classified :rf.http/http-5xx — the http-5xx branch of
            the closed taxonomy, not the contract's default :rf.http/transport")
@@ -727,8 +721,8 @@
              (get-in args [:tags :message]))
           "…and the demo's own message")
       (is (nil? (:failure args))
-          "no vestigial `:failure` key — the pre-fix spelling the contract
-           never read is gone, not merely shadowed")
+          "no `:failure` key — a spelling the contract never reads is absent,
+           not merely shadowed")
       ;; The armed branch answers BEFORE touching the canonical board, so the
       ;; value the next read returns is untouched — the server-side half of the
       ;; rollback the mutation runtime performs client-side.
@@ -765,7 +759,7 @@
 
 
 ;; ============================================================================
-;; 6. OVERLAPPING WRITES (rf2-9man) — independent instances must not clobber
+;; 6. OVERLAPPING WRITES — independent instances must not clobber
 ;; ============================================================================
 ;;
 ;; The board's three writes run under SEPARATE mutation instances
@@ -776,11 +770,11 @@
 ;; question from two instances writing the same entry. Nothing on the client can
 ;; order those, so keeping their consequences disjoint is the example's job.
 ;;
-;; THE DEFECT THESE PIN (rf2-9man). All three mutations used to commit with
-;; `:populates`, seeding the whole board entry from that write's reply. A reply
-;; is a snapshot of the server as it stood when THAT write landed and knows
-;; nothing of a write that started a moment later, so committing it threw the
-;; other write's change away — and the board settled on whichever reply arrived
+;; THE HAZARD THESE PIN. A mutation that committed with `:populates` would
+;; seed the whole board entry from that write's reply. A reply is a snapshot
+;; of the server as it stood when THAT write landed and knows nothing of a
+;; write that started a moment later, so committing it would throw the other
+;; write's change away — and the board would settle on whichever reply arrived
 ;; last, which is exactly what the example's README promises it does not do.
 ;;
 ;; DETERMINISM — THERE IS NO TIMING IN THESE TESTS. The example's demo backend
@@ -797,8 +791,8 @@
 ;; unambiguously its own write's.
 ;;
 ;; The replies are deliberately WHOLE-BOARD envelopes — the coarse shape a server
-;; that only answers with snapshots returns, and the shape the pre-fix example
-;; seeded the entry from. A commit that patches only what it wrote picks its own
+;; that only answers with snapshots returns. A commit that patches only what it
+;; wrote picks its own
 ;; row out of that envelope and leaves every other card alone; a commit that
 ;; seeds from it swallows the whole stale snapshot. That difference is what these
 ;; two tests measure, and they measure it through the example's own passive
@@ -811,7 +805,7 @@
             first to settle carries a reply built BEFORE the second was
             dispatched. Committing it must not erase the second write's
             still-pending optimistic change, and once both have settled both
-            accepted changes must stand (rf2-9man)"
+            accepted changes must stand"
     (load-board!)
     ;; A — retitle srv-1. Lowered, captured, and left unsettled.
     (rf/dispatch-sync [:linearlite/commit-edit "srv-1" "Alpha!"])
@@ -840,10 +834,10 @@
         (is (true? (:optimistic? (mutation-state [:status "srv-2"])))
             "CONTROL: B is still in flight, its optimistic move on screen")
         (reply-success! args-a reply-a)
-        ;; THE REGRESSION. Pre-fix, committing A seeded the whole board entry
-        ;; from A's snapshot, reverting srv-2 to :in-progress on screen while B's
-        ;; instance was still pending and still deriving :optimistic? — the
-        ;; visible optimistic regression rf2-9man describes.
+        ;; THE CONTRACT. Seeding the whole board entry from A's snapshot would
+        ;; revert srv-2 to :in-progress on screen while B's instance was still
+        ;; pending and still deriving :optimistic? — a visible optimistic
+        ;; regression.
         (is (= :done (:status (issue-by-id "srv-2")))
             "settling A must not erase B's still-pending optimistic move: A's
              reply predates B, so committing the whole of it reverts srv-2")
@@ -859,7 +853,7 @@
             server applied them (an ordinary transport reordering). Both
             successes are accepted, so the older snapshot lands LAST; it must not
             permanently revert the change the other write already committed —
-            the last-reply-wins cache state rf2-9man was filed for"
+            a last-reply-wins cache state"
     (load-board!)
     (rf/dispatch-sync [:linearlite/commit-edit "srv-1" "Alpha!"])
     (let [args-a @last-managed-args]
@@ -890,23 +884,23 @@
         (reply-success! args-a reply-a)
         (is (= :done (:status (issue-by-id "srv-2")))
             "A's older snapshot landing last must not revert B's ACCEPTED move —
-             pre-fix this was permanent last-reply-wins in the client cache")
+             that would be permanent last-reply-wins in the client cache")
         (is (= "Alpha!" (:title (issue-by-id "srv-1"))) "A's accepted title survives")))))
 
 
 ;; ============================================================================
-;; 7. EVERY ARM TAKES ITS TURN AS THE OLDER WRITE (rf2-chl2)
+;; 7. EVERY ARM TAKES ITS TURN AS THE OLDER WRITE
 ;; ============================================================================
 ;;
-;; Section 6 pins the defect through ONE pairing: `edit-title` is always the
+;; Section 6 pins the hazard through ONE pairing: `edit-title` is always the
 ;; older write and `change-status` always the newer one, and only the older
 ;; one's reply ever lands behind a change it does not know about. That leaves
 ;; two of the three commit arms without a tooth, in two different ways:
 ;;
-;;   * Restore `change-status` ALONE to `:populates` and section 6 stays GREEN.
+;;   * Switch `change-status` ALONE to `:populates` and section 6 stays GREEN.
 ;;     Its reply is the snapshot taken AFTER the retitle, so seeding the whole
 ;;     entry from it happens to reinstate the very change that seeding would
-;;     otherwise clobber. An arm can be reverted with nothing on screen.
+;;     otherwise clobber. An arm can be switched with nothing on screen.
 ;;   * `create-issue` is never one of the two writes at all, and its commit is
 ;;     not the same shape as the other two — it reconciles a temporary row
 ;;     against the server's, rather than lifting one field off it. Nothing in
@@ -915,7 +909,7 @@
 ;; So here each arm takes its turn as A, the OLDER write, against a DIFFERENT
 ;; instance's later change B on a different card. One table, one driver, run in
 ;; both settle orders: B still merely optimistic when A's older reply lands, and
-;; B already ACCEPTED when it lands. Reverting any single arm to `:populates`
+;; B already ACCEPTED when it lands. Switching any single arm to `:populates`
 ;; reds the row that names it.
 ;;
 ;; THE REPLY SHAPE IS THE EXAMPLE'S OWN, and deliberately not section 6's.
@@ -998,7 +992,7 @@
    when A's older reply lands: `:peer-optimistic` leaves B in flight, so the
    reply can only erase an OPTIMISTIC value (the visible regression);
    `:peer-accepted` settles B first, so it can only revert a COMMITTED one (the
-   permanent last-reply-wins cache state). Both were rf2-9man's symptoms.
+   permanent last-reply-wins cache state).
 
    EVERY ROW STARTS FROM A FRESH RUNTIME, and the reset belongs HERE rather
    than in the fixture: `use-fixtures :each` runs once per `deftest`, so the
@@ -1011,7 +1005,7 @@
    committed by an earlier row is the card it returns, and the row then watches
    an instance that settled before it began. `frames`-reset-then-`init!` is
    section 0's pairing, and calling the example's own `init!` keeps the
-   registrar refilled before the url-bound frame is made (rf2-k4oe)."
+   registrar refilled before the url-bound frame is made."
   [{:keys [writer peer dispatch-a! reply-a dispatch-b! reply-b
            peer-desc peer-holds? writer-desc writer-committed? final]}
    order]
@@ -1063,7 +1057,7 @@
     (testing (str "examples/capabilities/resources/linearlite — " writer
                   " is the OLDER write and its reply lands while " peer
                   " is still optimistic over another card. Committing it must "
-                  "not erase what the other write has on screen (rf2-chl2)")
+                  "not erase what the other write has on screen")
       (run-stale-writer-case! row :peer-optimistic))))
 
 (deftest each-arm-in-turn-settles-behind-an-already-accepted-peer
@@ -1071,5 +1065,5 @@
     (testing (str "examples/capabilities/resources/linearlite — the same pairing "
                   "with the replies REORDERED: " peer " settles and is ACCEPTED "
                   "first, then " writer "'s older reply lands last. It must not "
-                  "permanently revert a change already committed (rf2-chl2)")
+                  "permanently revert a change already committed")
       (run-stale-writer-case! row :peer-accepted))))

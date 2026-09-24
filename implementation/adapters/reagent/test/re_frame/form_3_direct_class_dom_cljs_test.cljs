@@ -1,25 +1,23 @@
 (ns re-frame.form-3-direct-class-dom-cljs-test
-  "rf2-xccd — pins the ADVERTISED direct Form-3 shape: a `create-class` result
+  "Pins the ADVERTISED direct Form-3 shape: a `create-class` result
   handed straight to `reg-view*`, with no outer callable around it, as
   `docs/api/re-frame.core.md` documents and `core.cljc`'s function contract
-  names. Nothing covered that shape before; the two existing Form-3 fixtures
-  both register an outer fn that RETURNS a class.
+  names. The two other Form-3 fixtures both register an outer fn that
+  RETURNS a class.
 
-  rf2-xccd predicted the shape was broken — `build-frame-aware-view` ends in an
-  unconditional `(apply render-fn args)`, a `create-class` constructor satisfies
-  `fn?`, and the annotation walk's `reagent-class?` guard inspects the render's
-  OUTPUT rather than the registered INPUT, so it cannot catch a constructor that
-  has already been called. That reading of the source is correct, and it was
-  never executed: on STOCK Reagent the shape mounts correctly anyway. Measured
-  on the `:browser-test` lane by disabling a candidate repair and confirming
-  every assertion here still passes, with the disabled build verified in the
-  compiled output, and the fixture itself proven discriminating by a planted
-  fault that took the lane red.
+  A reading of the source suggests the shape breaks — `build-frame-aware-view`
+  ends in an unconditional `(apply render-fn args)`, a `create-class`
+  constructor satisfies `fn?`, and the annotation walk's `reagent-class?` guard
+  inspects the render's OUTPUT rather than the registered INPUT, so it cannot
+  catch a constructor that has already been called. That reading is correct as
+  far as it goes, yet on STOCK Reagent the shape mounts correctly: every
+  assertion here passes with no repair in place, and the fixture is
+  discriminating — a planted fault takes the `:browser-test` lane red.
 
-  So this namespace is REGRESSION COVERAGE for a contract that held rather than
-  the witness of a repair. It asserts what the bug report said would be lost:
+  So this namespace is coverage for a contract that holds rather than the
+  witness of a repair. It asserts what that reading says would be lost:
   rendered props from `:reagent-render` under a real class instance, and
-  exactly-once `:component-did-mount` / `:component-will-unmount`. If a future
+  exactly-once `:component-did-mount` / `:component-will-unmount`. If a
   change breaks the direct shape, this is what says so.
 
   Stock Reagent only. `reagent-slim` builds its class differently (it tags the
@@ -29,7 +27,7 @@
 
   Browser-only: the evidence is real React class construction and lifecycle
   ordering, which no headless invocation reproduces — calling the wrapper by
-  hand is precisely the mistake the bug report described. The `-dom-cljs-test`
+  hand would mistake a constructor call for a mount. The `-dom-cljs-test`
   suffix selects the `:browser-test` build; the consolidated node build loads
   the namespace and takes the no-DOM branch.
 
@@ -134,7 +132,7 @@
 
 (defn- setup! []
   (reset! lifecycle [])
-  (rf/make-frame {:id frame-id :doc "rf2-xccd direct Form-3 class fixture"}))
+  (rf/make-frame {:id frame-id :doc "direct Form-3 class fixture"}))
 
 (deftest direct-class-registered-before-init-mounts-with-exactly-once-lifecycle
   (testing "a create-class value passed straight to reg-view* at ns-load renders
@@ -147,8 +145,8 @@
         (run-mount-case
           ::preinit-panel "direct-class-preinit" "hello" done
           (fn []
-            ;; The whole bug in one assertion: called as a function, the
-            ;; constructor never produces this node.
+            ;; The whole contract in one assertion: called as a function,
+            ;; the constructor would never produce this node.
             (is (= "hello" (text-of "direct-class-preinit"))
                 "the class's :reagent-render produced the DOM node with its arg")
             (is (= [:render "hello"] (first @lifecycle))
@@ -184,7 +182,7 @@
                 "component-will-unmount fired exactly once")))))))
 
 ;; ---------------------------------------------------------------------------
-;; Controls — the two shapes that already worked must be untouched.
+;; Controls — the two other supported shapes mount too.
 ;; ---------------------------------------------------------------------------
 
 (deftest form-1-view-still-annotates-its-dom-root

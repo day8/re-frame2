@@ -1,11 +1,11 @@
 (ns reagent2.impl.component-test
   "JVM-side tests for the compile-time form-classification helpers in
-  reagent2.impl.component (Stage 4-C, rf2-6hyy).
+  reagent2.impl.component.
 
   The helper is a pure CLJ fn (`classify-form-body`) consumed by
-  `re-frame.core/expand-reg-view` via `requiring-resolve`. Per the
-  rf2-yfbx decision, the fold sits in the canonical `reg-view` macro —
-  there is no separate `defview` macro.
+  `re-frame.core/expand-reg-view` via `requiring-resolve`. The fold
+  sits in the canonical `reg-view` macro — there is no separate
+  `defview` macro.
 
   These tests run on the JVM. The CLJS-side runtime tests for
   wrap-render / create-class* / fn-to-class live in

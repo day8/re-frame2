@@ -1,5 +1,5 @@
 (ns re-frame.reagent-codemod-contract-donor-cljs-test
-  "The DONOR half of the M4 contract row (rf2-d2mwk).
+  "The DONOR half of the M4 contract row.
 
   The `[:>]` migration codemod — designed at
   `docs/design/fresco/studio/reagent-codemod-against-the-landed-escape.md`
@@ -9,22 +9,20 @@
   proof sketch, and every proof sketch is a claim about what **Reagent
   2.0.1** does. The obligation is therefore two-sided.
 
-  The Fresco side already landed, as
+  The Fresco side is
   `conversion-parity-with-the-door-on-one-prop-corpus` in
-  `implementation/fresco/test/re_frame/fresco/codec_cljs_test.cljs`
-  (it was written in the prototype's `front/codec_cljs_test.cljs`, which
-  rf2-3ewp moved into the package).
+  `implementation/fresco/test/re_frame/fresco/codec_cljs_test.cljs`.
   This file is the other half: **the same sixteen-prop corpus, through
   Reagent's own `[:>]` walk**, asserting the donor's answers. The pair
   straddles the equivalence the codemod claims.
 
-  Nothing here was broken when it was written, and that is the point.
-  These claims are currently verified by *reading* a dependency — the
-  design cites `reagent.impl.template`'s `vec-to-elem`, `native-element`,
+  Nothing here is a repair, and that is the point. The design verifies
+  these claims by *reading* a dependency — it cites
+  `reagent.impl.template`'s `vec-to-elem`, `native-element`,
   `convert-props`, `convert-prop-value`, `kv-conv` and `cached-prop-name`,
   and `reagent.impl.util`'s `dash-to-prop-name`, `js-val?`, `class-names`
   and `get-react-key`, by symbol. A Reagent upgrade could move any of
-  them and, before this file, nothing would have failed. Each deftest
+  them and, without this file, nothing would fail. Each deftest
   below names the design section whose proof it pins, so a red row says
   which argument just stopped being true.
 
@@ -271,7 +269,7 @@
   (testing "THE REPORT OBLIGATION (§4.3). `(name :theme/dark)` is \"dark\",
             so the donor collapsed two distinct keywords onto one string.
             Preserving that is exactly correct AND bakes in the collision
-            `rf2-vrvv9` was filed to remove — which is why the design
+            — which is why the design
             fires the rewrite and reports `:namespaced-named-value`."
     (is (= "dark" (donor-prop :theme :theme/dark "theme")))
     (is (= (donor-prop :theme :theme/dark "theme")

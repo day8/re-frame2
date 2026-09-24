@@ -1,19 +1,19 @@
 (ns re-frame.adapter.reagent-slim-flush-views-cljs-test
-  "rf2-b6nm5 — the canonical test-flush hook `flush-views!` is now surfaced
+  "The canonical test-flush hook `flush-views!` is surfaced
   from the reagent-slim ADAPTER ns (`re-frame.adapter.reagent-slim`) with
-  the canonical nil-return shape (rf2-3yij Decision 6), converging the
-  test-flush surface across all four substrates.
+  the canonical nil-return shape, the same test-flush surface every
+  substrate publishes.
 
-  Before this convergence the ONLY slim `flush-views!` lived in the
-  SUBSTRATE ns `reagent2.dom.client` and RETURNED A PROMISE (the
+  The SUBSTRATE ns `reagent2.dom.client` carries its own `flush-views!`,
+  which RETURNS A PROMISE (the
   goog.DEBUG-gated microtask→act→microtask Suspense-ordering primitive,
-  IMPL-SPEC §4.6) — diverging from UIx in BOTH location (substrate
-  ns vs adapter ns) AND return type (Promise vs nil). This file pins the
-  converged shape on the adapter ns: a fn whose 0-arity call returns nil,
-  matching stock Reagent and UIx.
+  IMPL-SPEC §4.6); on its own it would diverge from UIx in BOTH location
+  (substrate ns vs adapter ns) AND return type (Promise vs nil). This file
+  pins the canonical shape on the adapter ns: a fn whose 0-arity call
+  returns nil, matching stock Reagent and UIx.
 
   The substrate-level `reagent2.dom.client/flush-views!` Promise primitive
-  is unchanged (Suspense-deterministic callers keep it); this is the
+  serves Suspense-deterministic callers; this is the
   cross-substrate CANONICAL surface, distinct from that lower-level one.
 
   Node-safe (no DOM, no component): act() is unreachable / gated under the
@@ -26,11 +26,11 @@
 
 (deftest flush-views-canonical-shape
   (testing "reagent-slim — flush-views! surfaced from the ADAPTER ns with
-            the canonical nil-return shape (rf2-b6nm5 / Decision 6),
-            converged with the substrate-ns Promise-returning primitive"
+            the canonical nil-return shape, alongside the substrate-ns
+            Promise-returning primitive"
     (is (fn? rf.adapter.reagent-slim/flush-views!)
-        "the slim adapter ns exposes flush-views! as a fn (previously only the substrate ns did)")
+        "the slim adapter ns exposes flush-views! as a fn")
     (is (nil? (rf.adapter.reagent-slim/flush-views!))
-        "0-arity flush-views! returns nil — the converged contract (NOT the substrate-ns Promise)")
+        "0-arity flush-views! returns nil — the canonical contract (NOT the substrate-ns Promise)")
     (is (nil? (rf.adapter.reagent-slim/flush-views! (fn [] nil)))
         "1-arity flush-views! also returns nil")))

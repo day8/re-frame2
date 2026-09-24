@@ -4,13 +4,13 @@
   Per IMPL-SPEC §2.3:
 
     - `reaction` ships as a 5-line indirection over `make-reaction`.
-      Required for rf8 wizard/reports_util.cljs:158, 166 (rf2-kfpf §3).
+      Required for rf8 wizard/reports_util.cljs:158, 166.
       `reagent2.core/reaction` (src/reagent2/core.clj) is the same macro
       under the stock `reagent.core` spelling — the one Dash8's 25
       `r/reaction` sites use.
 
-    - `run!` is NOT shipped — audit-confirmed zero usage across re-com /
-      10x / Dash8 / rf8 (per §2.3 \"Symbols not shipped\" list).
+    - `run!` is NOT shipped — none of re-com /
+      10x / Dash8 / rf8 uses it (per §2.3 \"Symbols not shipped\" list).
 
   No CLJ-side runtime code lives here; only the macros consumed by CLJS
   build sites via `:require-macros`.")

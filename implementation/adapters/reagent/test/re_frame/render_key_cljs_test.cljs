@@ -1,5 +1,5 @@
 (ns re-frame.render-key-cljs-test
-  "Per Spec-Schemas §`:rf/epoch-record` (rf2-piag / rf2-t5tx Option C):
+  "Per Spec-Schemas §`:rf/epoch-record`:
   `:rf.view/render-key` in the `:rf.view/render` trace and the
   `:rf/epoch-record`'s `:renders` projection is the tuple
   `[<view-id> <instance-token>]`.

@@ -1,35 +1,33 @@
 (ns re-frame.m11-recipe-reactive-owner-cljs-test
-  "rf2-ynved — the PUBLISHED M-11 exceptional imperative-subscription Form-3
+  "The PUBLISHED M-11 exceptional imperative-subscription Form-3
   must own its subscription per mount.
 
-  WHAT SHIPPED, AND WHY IT WAS WRONG. The copy-pasteable recipe in
-  `skills/re-frame-migration/references/guided-views-m11.md` §M-11 acquired
-  a subscription in `:component-did-mount`, seeded an imperative widget from a
-  plain deref of it, and then observed it with `add-watch`. Under this adapter a
+  WHY THE NAIVE SHAPE FAILS. A Form-3 that acquires a subscription in
+  `:component-did-mount`, seeds an imperative widget from a plain deref of
+  it, and then observes it with `add-watch` does not work. Under this adapter a
   subscription IS a bare `reagent.ratom/Reaction`, built deliberately WITHOUT
   `:auto-run`, and a Reaction learns its sources only through `deref-capture`. A
   deref taken in a lifecycle hook runs outside `*ratom-context*`, so it computes
   the body raw and leaves `watching` nil: the node is in nobody's watcher set and
-  can never be told the value moved. The `add-watch` was therefore registered on
-  a node that COULD NOT FIRE, and the recipe handed users a widget fed once at
-  mount and deaf for the rest of its life — rf2-8cnxg's exact symptom, in
-  consumer code, taught by us.
+  can never be told the value moved. The `add-watch` would therefore be
+  registered on a node that CANNOT FIRE, handing users a widget fed once at
+  mount and deaf for the rest of its life.
 
-  THE REPAIR (operator ruling, rf2-ynved): a per-mount `r/track!` OWNER created
-  in the same hook. Its eager first run is both the seed and the missing
-  `deref-capture`; `r/dispose!` at unmount stops it before the cache slot is
-  released. No facade export — `activate-derived-value!` stays internal, and this
-  file proves the repair uses nothing a consumer does not already have: stock
+  THE RECIPE (`skills/re-frame-migration/references/guided-views-m11.md`
+  §M-11): a per-mount `r/track!` OWNER created in the same hook. Its eager
+  first run is both the seed and the `deref-capture` a plain deref lacks;
+  `r/dispose!` at unmount stops it before the cache slot is released. No
+  facade export — `activate-derived-value!` stays internal, and this file
+  proves the recipe uses nothing a consumer does not already have: stock
   `reagent.core/track!` and `reagent.core/dispose!`.
 
-  WHAT GIVES THIS FILE TEETH. `the-add-watch-shape-is-deaf-…` runs the PRE-FIX
-  recipe against the same registered sub, the same frame and the same write as
-  the repaired one, and shows it never moves. The two arms differ by exactly the
-  tracker, so the repaired arm's green is not free: delete `(r/track! …)` from
+  WHAT GIVES THIS FILE TEETH. `the-add-watch-shape-is-deaf-…` runs the naive
+  add-watch shape against the same registered sub, the same frame and the same
+  write as the recipe, and shows it never moves. The two arms differ by exactly
+  the tracker, so the recipe arm's green is not free: delete `(r/track! …)` from
   `recipe-mount!` and `the-repaired-recipe-feeds-…` fails on its first
   post-mount assertion. An assertion that the subscription merely EXISTS would
-  have passed in both worlds, which is precisely how this defect stayed
-  invisible for five occurrences.
+  pass in both worlds.
 
   CLJS-only (Reagent is CLJS) and DOM-free: the claim is about the notification
   channel, not about a render. The `-cljs-test` suffix enrols it in the
@@ -98,8 +96,8 @@
   (rf/unsubscribe fid gauge-query))
 
 (defn- add-watch-mount!
-  "The PRE-FIX `:component-did-mount` exactly as the recipe shipped it: acquire,
-  seed from a plain deref, observe with a per-mount `add-watch` key."
+  "The naive `:component-did-mount`: acquire, seed from a plain deref, observe
+  with a per-mount `add-watch` key."
   [handle feed!]
   (let [{:keys [subscribe]} handle
         reaction  (subscribe gauge-query)
@@ -117,16 +115,15 @@
     [log (fn [v] (swap! log conj v))]))
 
 ;; ===========================================================================
-;; The defect — the shape the recipe published
+;; The naive add-watch shape — the non-vacuity arm
 ;; ===========================================================================
 
 (deftest the-add-watch-shape-is-deaf-after-mount
-  (testing "the PRE-FIX recipe — acquire, seed from a plain lifecycle deref,
-            observe with add-watch — leaves the cached reaction capturing
-            NOTHING, so a real app-db write reaches the widget never. This is
-            rf2-8cnxg's symptom in the shape we shipped to consumers, and it is
-            the non-vacuity arm for the repaired test below: same sub, same
-            frame, same write, no tracker (rf2-ynved)"
+  (testing "the naive add-watch shape — acquire, seed from a plain lifecycle
+            deref, observe with add-watch — leaves the cached reaction
+            capturing NOTHING, so a real app-db write reaches the widget
+            never. It is the non-vacuity arm for the recipe test below: same
+            sub, same frame, same write, no tracker"
     (setup!)
     (let [handle (rf/capture-frame fid)
           [log feed!] (recorder)
@@ -153,7 +150,7 @@
           (add-watch-unmount! mounted))))))
 
 ;; ===========================================================================
-;; The repair — the shape the recipe now publishes
+;; The recipe — a per-mount r/track! owner
 ;; ===========================================================================
 
 (deftest the-repaired-recipe-feeds-its-widget-on-every-commit
@@ -161,7 +158,7 @@
             run and re-feeds it on every later commit. Delete the tracker from
             `recipe-mount!` and the first post-mount assertion here fails —
             that is what makes this test about liveness and not about the
-            subscription merely existing (rf2-ynved)"
+            subscription merely existing"
     (setup!)
     (let [handle (rf/capture-frame fid)
           [log feed!] (recorder)
@@ -207,10 +204,9 @@
   (testing "equal (frame, query-v) subscriptions share ONE cached reaction, but
             each mount owns its own tracker — so two widgets stay independent
             with no watch key anywhere: both see an update, disposing one leaves
-            the other live, and the ref-count balances back to zero. The pre-fix
-            recipe needed a per-mount gensym watch key to get this far; the
-            repair deletes the whole hazard rather than documenting it
-            (rf2-ynved)"
+            the other live, and the ref-count balances back to zero. An
+            add-watch shape would need a per-mount gensym watch key to get this
+            far; the tracker deletes the whole hazard rather than documenting it"
     (setup!)
     (let [handle (rf/capture-frame fid)
           [log-a feed-a!] (recorder)

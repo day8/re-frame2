@@ -24,7 +24,7 @@
   this smoke locks that the canned-stub fxs and the public test seam
   resolve under the Reagent adapter the same way they do on the JVM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            ;; Per rf2-t0hq — the canonical CLJS opt-in for Malli
+            ;; The canonical CLJS opt-in for Malli
             ;; validation. Publishes :schemas/malli-validate /
             ;; :schemas/malli-explain into the late-bind hook table so
             ;; the default validator delegates to Malli on CLJS. The
@@ -36,7 +36,7 @@
             [re-frame.fx :as rf.fx]
             [re-frame.frame :as rf.frame]
             [re-frame.http.managed :as rf.http.managed]
-            ;; rf2-cdmle — canned-stub fxs (`:rf.http/managed-canned-success`,
+            ;; Canned-stub fxs (`:rf.http/managed-canned-success`,
             ;; `:rf.http/managed-canned-failure`) gate on explicit
             ;; test-support require. This file uses :fx-overrides into
             ;; both fx ids throughout, so we opt in here.
@@ -44,7 +44,7 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]))
 
-;; Snapshot/restore the registrar around each test (rf2-am9d). The
+;; Snapshot/restore the registrar around each test. The
 ;; framework-shipped :rf.http/managed family registers at ns-load and
 ;; survives the snapshot; per-test reg-event / reg-sub registrations roll
 ;; back on the way out.
@@ -60,7 +60,7 @@
 ;; ---- 1. canned-success: unified :reply-to addressing ----------------------
 
 (deftest canned-success-reply-to-addressing-cljs
-  (testing "the canned-success stub dispatches the reply to the unified :reply-to target (rf2-et4c1s)"
+  (testing "the canned-success stub dispatches the reply to the unified :reply-to target"
     (rf/reg-event :article/load
       (fn [_ [_ msg reply]]
         (if reply
@@ -132,7 +132,7 @@
 ;; ---- 5. with-request-stubs helper -----------------------------------------
 
 (deftest with-request-stubs-cljs
-  (testing "rf2-rzqan — with-request-stubs routes [method url] → reply
+  (testing "with-request-stubs routes [method url] → reply
             with NO per-call :fx-overrides (the helper installs the
             :rf.http/managed override for the thunk's dynamic extent)"
     (rf/reg-event :articles/list
@@ -151,16 +151,16 @@
           (is (= :ok (get-in db [:result :status])))
           (is (= [:hello :world] (get-in db [:result :value]))))))))
 
-;; ---- 5a. rf2-rzqan — bare thunk INTERCEPTS, never reaching the real fx ----
+;; ---- 5a. bare thunk INTERCEPTS, never reaching the real fx ----------------
 ;;
-;; CLJS counterpart of the JVM interception regression. The documented
+;; CLJS counterpart of the JVM interception test. The documented
 ;; `with-request-stubs` form must route `:rf.http/managed` through
-;; the stub by ITSELF; pre-fix the thunk's bare dispatch reached the real
-;; production Fetch transport. We shadow `:rf.http/managed` with a sentinel
+;; the stub by ITSELF; otherwise the thunk's bare dispatch would reach the
+;; real production Fetch transport. We shadow `:rf.http/managed` with a sentinel
 ;; — reaching it proves the override was absent.
 
 (deftest with-request-stubs-intercepts-without-manual-override-cljs-rf2-rzqan
-  (testing "rf2-rzqan — inside with-request-stubs, a plain dispatch-sync
+  (testing "inside with-request-stubs, a plain dispatch-sync
             (NO per-call :fx-overrides) is intercepted by the stub and the real
             :rf.http/managed fx slot is NEVER invoked"
     (let [real-fx-invoked? (atom false)]
@@ -183,26 +183,27 @@
             (is (= {:stubbed true} (get-in db [:result :value])))
             (is (false? @real-fx-invoked?)
                 "the real :rf.http/managed fx was NEVER invoked — the helper
-                 intercepted (pre-fix: this fired the real Fetch transport)")))))))
+                 intercepted (otherwise this would fire the real Fetch
+                 transport)")))))))
 
-;; ---- 5b. rf2-bxc8kf — stubs work inside a PRE-CREATED SEALED frame ---------
+;; ---- 5b. stubs work inside a PRE-CREATED SEALED frame ---------------------
 ;;
-;; CLJS counterpart of the JVM sealed-frame regression. `rf/make-frame {}`
+;; CLJS counterpart of the JVM sealed-frame test. `rf/make-frame {}`
 ;; resolves + SEALS an image generation at construction; a dispatch into that
 ;; frame value resolves `(kind, id)` through the frame's OWN sealed generation,
-;; NOT the global registrar. Pre-fix, `with-request-stubs` minted a
-;; fresh `:rf.test/managed-http-stub-<n>` fx-id and registered it INSIDE the
-;; scope — AFTER the frame had sealed — so the bound override redirected to an
-;; fx-id the sealed generation could not resolve, and the bare dispatch reached
-;; the real Fetch transport. The fix registers ONE stable override target at
-;; ns-load (in the sealed generation of every frame created after the require)
-;; and carries the per-scope route map on the `*scope-stubs*` dynamic var. A
+;; NOT the global registrar. So `with-request-stubs` registers ONE stable
+;; override target at ns-load (in the sealed generation of every frame created
+;; after the require) and carries the per-scope route map on the
+;; `*scope-stubs*` dynamic var: an fx-id minted and registered INSIDE the
+;; scope — AFTER the frame had sealed — would be one the sealed generation
+;; could not resolve, and the bare dispatch would reach the real Fetch
+;; transport. A
 ;; sentinel shadows `:rf.http/managed` — reaching it proves the override was
 ;; absent. The dispatch targets the frame VALUE explicitly (`{:frame f}`), so
 ;; the sealed-generation resolution path is exercised.
 
 (deftest stubs-intercept-inside-pre-created-sealed-frame-cljs-rf2-bxc8kf
-  (testing "rf2-bxc8kf — inside with-request-stubs, a dispatch-sync into
+  (testing "inside with-request-stubs, a dispatch-sync into
             a PRE-CREATED sealed make-frame {} frame routes through the stub and
             NEVER invokes the real :rf.http/managed transport"
     (let [real-fx-invoked? (atom false)]
@@ -228,8 +229,9 @@
                   "the configured :ok value rode through the synthesised reply")
               (is (false? @real-fx-invoked?)
                   "the real :rf.http/managed fx was NEVER invoked in the sealed
-                   frame (pre-fix: the minted per-scope stub was unresolvable in
-                   the sealed generation, so this fired the real Fetch transport)"))))))))
+                   frame (a per-scope stub minted inside the scope would be
+                   unresolvable in the sealed generation, and this would fire
+                   the real Fetch transport)"))))))))
 
 ;; ---- 6. with-request-stubs — failure mapping -----------------------------
 
@@ -246,7 +248,7 @@
       {[:get "/articles"] {:reply {:failure {:kind   :rf.http/http-4xx
                                              :status 404}}}}
       (fn []
-        ;; Auto-routing — no manual :fx-overrides (rf2-rzqan).
+        ;; Auto-routing — no manual :fx-overrides.
         (rf/dispatch-sync [:articles/list])
         (let [db (rf/app-db-value :rf/default)]
           (is (= :error (get-in db [:result :status])))
@@ -268,7 +270,7 @@
       ;; Configure stubs that do NOT match the request URL.
       {[:get "/articles"] {:reply {:ok []}}}
       (fn []
-        ;; Auto-routing — no manual :fx-overrides (rf2-rzqan). The unmatched
+        ;; Auto-routing — no manual :fx-overrides. The unmatched
         ;; route still routes THROUGH the stub (which then synthesises the
         ;; no-match transport failure), never reaching the real client.
         (rf/dispatch-sync [:unmatched/load])

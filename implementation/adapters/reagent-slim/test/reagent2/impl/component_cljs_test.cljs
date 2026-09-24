@@ -1,10 +1,10 @@
 (ns reagent2.impl.component-cljs-test
-  "Unit tests for reagent2.impl.component (Stage 4-C, rf2-6hyy).
+  "Unit tests for reagent2.impl.component.
 
   Per IMPL-SPEC §5 + §6 + §12.1 + §12.5 R-002 + R-003. Covers:
 
     - Form-1/Form-2/Form-3 detection (runtime path).
-    - Compile-time form-tag fast path (rf2-yfbx fold).
+    - Compile-time form-tag fast path (the reg-view fold).
     - 7-key cap enforcement: out-of-cap keys throw
       :rf.error/create-class-key-unsupported.
     - Lifecycle key -> React lifecycle method mapping.
@@ -18,7 +18,7 @@
       `reagent2.dom.error-boundary-dom-cljs-test`, NOT here.
     - :get-snapshot-before-update pairs with :component-did-update's
       snapshot arg, and both paired update lifecycles forward React's
-      prevState (rf2-08hx1).
+      prevState.
     - Source-coord stamping integration (the renderer-side stamp lives
       in re-frame.views/reg-view*; the runtime here exercises the
       meta-tag fast path that the macro fold introduces).
@@ -191,7 +191,7 @@
       (is (= [:i 1 2 3] (component/wrap-render c outer))))))
 
 ;; ---------------------------------------------------------------------------
-;; Compile-time form-tag fast path (rf2-yfbx fold)
+;; Compile-time form-tag fast path (the reg-view fold)
 ;;
 ;; The runtime cond covers correctness for any fn. The fast path lets
 ;; reg-view's expansion stamp `^{:reagent2/form ...}` meta and skip
@@ -278,7 +278,7 @@
     ;; the user-args slice of the argv (i.e. argv minus the head). User
     ;; code that wants `this` reads it via `current-component`.
     ;;
-    ;; Per rf2-08t0: wrap-render returns raw hiccup (per IMPL-SPEC §5.1)
+    ;; wrap-render returns raw hiccup (per IMPL-SPEC §5.1)
     ;; but the class's render() method MUST return a React element — so
     ;; make-render-method runs the deref'd hiccup through the registered
     ;; as-element converter before returning. The assertion shape mirrors
@@ -340,7 +340,7 @@
       (is (identical? inst @fired)))))
 
 (deftest lifecycle-unmount-clears-dirty-flag-rf2-mdgt8t
-  (testing "rf2-mdgt8t (a): componentWillUnmount clears the dirty flag, so a
+  (testing "componentWillUnmount clears the dirty flag, so a
             component queued for re-render THEN unmounted is NOT forceUpdate'd
             on the next flush-render drain (stock-parity: stock clears the
             flag on unmount)."
@@ -354,7 +354,7 @@
       ;; Unmount BEFORE the drain runs — must clear the dirty flag.
       (.call (.. klass -prototype -componentWillUnmount) inst)
       (is (false? (.-cljsIsDirty inst))
-          "unmount cleared the dirty flag (the rf2-mdgt8t (a) fix)")
+          "unmount cleared the dirty flag")
       ;; Drain: flush-render skips non-dirty components → no forceUpdate on
       ;; the now-unmounted instance.
       (batching/flush!)
@@ -362,7 +362,7 @@
           "unmounted component was NOT forceUpdate'd on the drain"))))
 
 (deftest lifecycle-component-did-update-receives-prev-argv-prev-state-and-snapshot
-  (testing "componentDidUpdate forwards (this, prev-argv, prev-state, snapshot) — rf2-08hx1"
+  (testing "componentDidUpdate forwards (this, prev-argv, prev-state, snapshot)"
     ;; The documented FIXED four-argument callback (README.md / FORM-3.md /
     ;; IMPL-SPEC §6.6, stock-Reagent 2.0.1 parity). Distinct sentinels in
     ;; every slot so a dropped or shifted argument cannot read green: a
@@ -398,8 +398,8 @@
     ;; Per IMPL-SPEC §6.6: React captures the gSBU return value and
     ;; passes it as componentDidUpdate's 3rd React arg. The plumbing
     ;; here mirrors that — we don't run React, so we exercise the
-    ;; user-fn dispatch shape with the documented FIXED arities
-    ;; (rf2-08hx1): gSBU receives (this prev-argv prev-state) and
+    ;; user-fn dispatch shape with the documented FIXED arities:
+    ;; gSBU receives (this prev-argv prev-state) and
     ;; returns an arbitrary value; cDU receives (this prev-argv
     ;; prev-state snapshot). Distinct prev-state sentinels prove the
     ;; bridge forwards React's prevState rather than dropping it.
@@ -444,7 +444,7 @@
       (is (= "MyView" (.-displayName klass))))))
 
 ;; ---------------------------------------------------------------------------
-;; :component-did-catch error-boundary contract (per IMPL-SPEC §6.5 + rf2-gigc)
+;; :component-did-catch error-boundary contract (per IMPL-SPEC §6.5)
 ;;
 ;; React's error-boundary contract: a class with componentDidCatch
 ;; (and/or getDerivedStateFromError) catches errors thrown during
@@ -459,14 +459,12 @@
 ;; :component-did-catch is in the spec, that its marker bridges into the
 ;; public Reagent state atom, and that a user rethrow is not swallowed.
 ;;
-;; They do NOT — and cannot — prove React's own propagation. Between
-;; rf2-gigc and rf2-6r9j.31 two of them claimed to: one built an outer
-;; boundary, never mounted it, then asserted its counter was still zero
-;; (nothing could have made that fail), and one named a commit-phase
-;; scenario while invoking the boundary's componentDidCatch by hand,
-;; duplicating the forwarding test directly above. Both were removed
-;; under rf2-6r9j.31 and replaced by a MOUNTED proof under a real React
-;; 19 createRoot: `reagent2.dom.error-boundary-dom-cljs-test` covers the
+;; They do NOT — and cannot — prove React's own propagation: an outer
+;; boundary that is never mounted cannot fire, so asserting its counter
+;; stays zero proves nothing, and a commit-phase scenario that invokes
+;; the boundary's componentDidCatch by hand only repeats the forwarding
+;; test below. The MOUNTED proof runs under a real React 19 createRoot:
+;; `reagent2.dom.error-boundary-dom-cljs-test` covers the
 ;; child-render throw, the child-commit (componentDidMount) throw,
 ;; nested-boundary isolation, and — as its own control — the outer
 ;; boundary firing when it is the nearest one.
@@ -515,7 +513,7 @@
           "no auto-install when the user didn't opt into boundary semantics"))))
 
 (deftest error-boundary-derived-state-syncs-into-reagent-atom-rf2-ygknv
-  (testing "rf2-ygknv finding 4: the default getDerivedStateFromError
+  (testing "the default getDerivedStateFromError
             marker (React this.state.cljsHasError) is bridged into the
             public Reagent state atom at render entry, so a boundary
             render reading (state-atom this) sees the marker and can
@@ -559,7 +557,7 @@
       (.call (.. klass -prototype -componentWillUnmount) inst))))
 
 (deftest error-boundary-no-spurious-marker-without-error-rf2-ygknv
-  (testing "rf2-ygknv finding 4: a boundary that never caught an error
+  (testing "a boundary that never caught an error
             keeps an empty public state atom (the sync writes only on
             the error-state transition)"
     (let [^js klass (component/create-class*
@@ -611,7 +609,7 @@
 
 (deftest fn-to-class-render-yields-react-element
   (testing "the cached class's render produces a React element wrapping the user fn's hiccup"
-    ;; Per rf2-08t0: render() returns a React element (not raw hiccup);
+    ;; render() returns a React element (not raw hiccup);
     ;; make-render-method converts via the registered as-element fn.
     (let [f     (fn [n] [:p "n=" n])
           ^js klass (component/fn-to-class f)
@@ -715,15 +713,15 @@
       (is (= [:p.coord {:class "live"} 9] out)))))
 
 ;; ---------------------------------------------------------------------------
-;; as-element-fn unregistered → throw (rf2-lijel + rf2-n9nlk)
+;; as-element-fn unregistered → throw
 ;;
 ;; The make-render-method seam runs hiccup through the registered
 ;; `reagent2.impl.template/as-element` fn before handing the result to
 ;; React. If the seam is unregistered (a hand-rolled test bundle that
 ;; requires component without template), the slim adapter throws
-;; `:rf.error/as-element-fn-unregistered` — fail-fast over the silent
-;; pass-through that surfaced the React \"Objects are not valid as a
-;; React child\" error the rf2-08t0 fix was about.
+;; `:rf.error/as-element-fn-unregistered` — fail-fast rather than a silent
+;; pass-through, which would surface as React's \"Objects are not valid as
+;; a React child\" error.
 ;;
 ;; Production load order via reagent2.core pulls template; template's
 ;; ns-load calls set-as-element-fn!. The test paths below temporarily
@@ -743,7 +741,7 @@
 
 (deftest as-element-fn-unregistered-render-throws
   (testing "render method throws :rf.error/as-element-fn-unregistered
-            when the as-element seam is null (rf2-lijel)"
+            when the as-element seam is null"
     (with-unregistered-as-element-fn
       (fn []
         (let [^js klass (component/create-class*
@@ -768,7 +766,7 @@
               ":reason carries an actionable message"))))))
 
 ;; ---------------------------------------------------------------------------
-;; Framework-default shouldComponentUpdate — argv-equality gate (rf2-5al9d7)
+;; Framework-default shouldComponentUpdate — argv-equality gate
 ;;
 ;; Prototype-level unit coverage: the install is present on every class, and
 ;; the predicate exercises all four branches — equal argv skips, changed argv

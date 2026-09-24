@@ -2,29 +2,28 @@
   "Client-side render contract for the streaming SSR example
    (`examples/capabilities/ssr/ssr_streaming/`).
 
-   Closes the isomorphism gap rf2-o4rbh found: the example's `:clj` branch
-   was covered end-to-end by `re-frame.examples-test/ssr-streaming-example-
-   runs-end-to-end` (JVM), but NOTHING exercised the `:cljs` branch's render
-   tree. The example composed its cards as keyword view-refs
-   (`[:dashboard/card :revenue]`) inside `:rf/suspense-boundary` markers —
-   both of which resolve on the JVM SSR emitter and NEITHER of which has any
-   client-side meaning:
+   Covers the example's `:cljs` branch render tree; the `:clj` branch is
+   covered end-to-end by `re-frame.examples-test/ssr-streaming-example-
+   runs-end-to-end` (JVM). The client tree must not compose its cards as
+   keyword view-refs (`[:dashboard/card :revenue]`) or wrap them in
+   `:rf/suspense-boundary` markers — NEITHER has any client-side meaning:
 
      - Per [Conventions §Render-tree shape vs runtime lookup] a bare
        `[:keyword args]` head in a render tree is an **HTML element**; the
        runtime does not intercept the keyword case to dispatch via the views
        registry. Reagent's `parse-tag` runs `(name tag)`, so
-       `:dashboard/card` became the literal DOM tag `<card>`.
+       `:dashboard/card` would become the literal DOM tag `<card>`.
      - Per [Spec 011 §Streaming SSR] `:rf/suspense-boundary` is recognised
        ONLY by the streaming shell walker; its name passes the DOM tag
-       grammar, so on the client it became a phantom `<suspense-boundary>`
-       element with `{:id … :fallback …}` serialised as bogus attributes.
+       grammar, so on the client it would become a phantom
+       `<suspense-boundary>` element with `{:id … :fallback …}` serialised
+       as bogus attributes.
 
-   Server and client therefore disagreed STRUCTURALLY on the flagship
-   streaming example: the server streamed `<div class=\"card\">`s, the
-   browser painted `<suspense-boundary><card>…`.
+   Server and client would then disagree STRUCTURALLY: the server streaming
+   `<div class=\"card\">`s, the browser painting
+   `<suspense-boundary><card>…`.
 
-   The example tree itself stays test-free (rf2-8cevm), so this substrate-
+   The example tree itself stays test-free, so this substrate-
    side suite carries the cover — the same split as the JVM half, which lives
    in `re-frame.examples-test`. Sibling shape:
    `re-frame.infinite-feed-example-cljs-test`.
@@ -95,7 +94,7 @@
   Also stands in for the streaming client's finalization step, which
   records the failed boundary ids from the wire. That record is what lets
   `:card.flaky`'s boundary re-render its DECLARED fallback — the example's
-  `card-view` no longer carries a nil branch duplicating the skeleton."
+  `card-view` carries no nil branch duplicating the skeleton."
   []
   (rf/reg-event ::seed
     (fn [{:keys [db]} _]
@@ -110,7 +109,7 @@
 ;; ---- (1) no server-only marker leaks into the client DOM -------------------
 
 (deftest client-render-emits-no-server-only-markers
-  (testing "rf2-o4rbh: the client render tree contains neither a phantom
+  (testing "the client render tree contains neither a phantom
             <suspense-boundary> element (Spec 011 — streaming-shell-walker-only
             marker) nor a keyword view-ref rendered as a literal DOM tag
             (Conventions — keyword heads are HTML elements, never views)"
@@ -129,7 +128,7 @@
 ;; ---- (2) the client paints the same structure the server streamed ----------
 
 (deftest client-render-matches-the-streamed-dom
-  (testing "rf2-o4rbh: with the resolved cards hydrated, the client renders
+  (testing "with the resolved cards hydrated, the client renders
             the same .card structure the streaming server painted — this is
             what `hydrate-root` has to adopt without a mismatch"
     (seed-cards!)
@@ -148,7 +147,7 @@
 ;; ---- (3) a boundary that never resolved stays on its skeleton --------------
 
 (deftest failed-boundary-renders-its-declared-fallback
-  (testing "rf2-ycz3k: the `:flaky` card's continuation threw server-side, so
+  (testing "the `:flaky` card's continuation threw server-side, so
             the final payload named it in the failed set. Its BOUNDARY
             re-renders the `:fallback` it declared — the same skeleton the
             failed chunk's fallback left in the DOM — without `card-view`

@@ -1,6 +1,6 @@
 (ns re-frame.adapter.reagent-slim-source-coord-warn-once-cljs-test
-  "reagent-slim parity for the non-DOM-root warn-once contract (rf2-sx77q
-  G5; mirrors `re-frame.source-coord-warn-once-cljs-test` for the Reagent
+  "reagent-slim parity for the non-DOM-root warn-once contract (mirrors
+  `re-frame.source-coord-warn-once-cljs-test` for the Reagent
   bridge).
 
   Per Spec 006 §Documented exemption: a registered view whose root
@@ -10,13 +10,12 @@
   without spamming the console on re-render) and MUST NOT inject the
   attribute.
 
-  WHY THIS FILE EXISTS (rf2-sx77q G5, slim side). slim is a drop-in
+  WHY THIS FILE EXISTS. slim is a drop-in
   Reagent replacement and renders hiccup through the SAME
   `re-frame.views/warn-non-dom-root!` path (the warned-set is a
   process-wide `defonce` in re-frame.views). The Reagent bridge pins
-  fire-once via `source_coord_warn_once_cljs_test`; before this file slim
-  had no fire-once coverage at all (the audit's G1/G5 slim gap). This
-  file closes it.
+  fire-once via `source_coord_warn_once_cljs_test`; this file is the
+  slim side of that pin.
 
   Mechanism: `re-frame.views/warn-non-dom-root!` (private) consults the
   process-wide `defonce` set. First call for an id warns + records;

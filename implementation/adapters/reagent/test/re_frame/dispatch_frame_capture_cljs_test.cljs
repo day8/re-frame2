@@ -1,14 +1,12 @@
 (ns re-frame.dispatch-frame-capture-cljs-test
-  "Regression tests for *current-frame* propagation across direct
-  rf/dispatch calls — rf2-l5q3.
+  "Tests for *current-frame* propagation across direct
+  rf/dispatch calls.
 
-  Discovered during rf2-yf97 (websocket example): a handler scoped to
-  frame :A doing `(js/setTimeout #(rf/dispatch [:foo]) 0)` produced a
-  dispatch that landed on :rf/default, not :A. That destination is
-  PRE-EP-0002 HISTORY — it is how the defect presented when it was
-  found, and there is no `:rf/default` floor any more; the same escape
-  now raises `:rf.error/no-frame-context` (see §2 below). The workaround
-  the example adopted was `:fx [[:dispatch ...]]` — the :dispatch fx in
+  A handler scoped to frame :A doing
+  `(js/setTimeout #(rf/dispatch [:foo]) 0)` escapes the handler's dynamic
+  frame binding; with no `:rf/default` floor the escape raises
+  `:rf.error/no-frame-context` (see §2 below). The workaround is
+  `:fx [[:dispatch ...]]` — the :dispatch fx in
   re-frame.fx explicitly threads `{:frame frame-id}` so it survives
   any async tier.
 
@@ -17,14 +15,14 @@
 
     1. Synchronous direct `rf/dispatch` from inside the handler body.
     2. `js/setTimeout` deferred direct `rf/dispatch` from inside the
-       handler body (the rf2-yf97 case).
+       handler body.
     3. `:fx [[:dispatch ...]]` from a `reg-event` handler returning an
        `:fx` effects map (the documented workaround).
     4. `:fx [[:dispatch-later {:ms 0 :event ...}]]` and the
        `(:dispatch (rf/capture-frame))` capture-at-creation affordance.
 
-  Per rf2-l5q3 the fix routes through `process-event!`: the drain
-  loop now binds `frame/*current-frame*` to the envelope's `:frame`
+  The drain loop's `process-event!` binds `frame/*current-frame*` to
+  the envelope's `:frame`
   for the duration of the handler chain, so a synchronous
   `rf/dispatch` from inside the handler body sees the in-flight
   event's frame. Async escapes (setTimeout / Promise.then /
@@ -78,8 +76,8 @@
 ;; event lands on :tenant-a (the in-flight handler's frame), not
 ;; :rf/default.
 ;;
-;; The fix for rf2-l5q3 routes through `process-event!` — the drain
-;; loop binds `frame/*current-frame*` to the envelope's :frame for the
+;; The drain loop's `process-event!` binds `frame/*current-frame*` to
+;; the envelope's :frame for the
 ;; duration of the chain, so a synchronous rf/dispatch from inside the
 ;; handler body picks up the right frame.
 
@@ -104,7 +102,7 @@
 
 ;; ---- 2. setTimeout-deferred direct rf/dispatch ----------------------------
 ;;
-;; This is the rf2-yf97 scenario. A handler defers a dispatch via
+;; A handler defers a dispatch via
 ;; setTimeout. The setTimeout callback runs on a fresh JS stack — the
 ;; dynamic binding established by `process-event!` has long since
 ;; been popped. Under EP-0002 there is no `:rf/default` floor beneath
@@ -120,17 +118,13 @@
 
 (deftest direct-dispatch-from-set-timeout-raises-no-frame-context
   (testing "raw rf/dispatch from a setTimeout callback escapes *current-frame* — EP-0002 fails loudly"
-    ;; EP-0002 (rf2-9wa0lf) REFRAMES the rf2-yf97 gotcha: a raw
-    ;; `rf/dispatch` from a setTimeout callback no longer SILENTLY falls
-    ;; through to `:rf/default` (there is no `:rf/default` floor). The
-    ;; dead dynamic binding means no carried frame stamp, so the dispatch
-    ;; now FAILS LOUDLY with `:rf.error/no-frame-context`. The throw is
-    ;; caught here so the timer callback does not crash the host; the fix
-    ;; is to capture a `capture-frame` / use `:dispatch-later` (the
-    ;; deftests below). (Touched by the router bead to retire the old
-    ;; fall-through expectation + stop the uncaught-async crash; the
-    ;; adapter root/view migration bead — rf2-69r7ui — owns this surface
-    ;; more broadly.)
+    ;; EP-0002: a raw `rf/dispatch` from a setTimeout callback does not
+    ;; fall through to `:rf/default` (there is no `:rf/default` floor).
+    ;; The dead dynamic binding means no carried frame stamp, so the
+    ;; dispatch FAILS LOUDLY with `:rf.error/no-frame-context`. The throw
+    ;; is caught here so the timer callback does not crash the host; the
+    ;; remedy is to capture a `capture-frame` / use `:dispatch-later` (the
+    ;; deftests below).
     (async done
       (seed-frames!)
       (let [raised (atom nil)]
@@ -168,7 +162,7 @@
 ;; The fx-walker in re-frame.fx threads `{:frame frame-id}` through to
 ;; the :dispatch fx, so a setTimeout-scheduled `:fx` cannot deliver
 ;; the dispatch to the wrong frame even if the dynamic var has
-;; escaped. This is the canonical rf2-yf97 workaround.
+;; escaped. This is the canonical workaround.
 ;;
 ;; Note: re-frame.fx walks :fx during `process-event!`, NOT inside the
 ;; setTimeout. So the right pattern is `:fx [[:dispatch-later ...]]`
@@ -237,8 +231,8 @@
 ;; time and returns a dispatch op locked to that frame. This is the same
 ;; shape `:fx [[:dispatch ...]]` uses internally — exposed for plain-fn
 ;; callers (test setup, REPL, async libraries that don't speak re-frame
-;; fx). Per rf2-kkut0 `capture-frame` is the keystone affordance replacing
-;; the removed `dispatcher` / `subscriber` nouns.
+;; fx). `capture-frame` is the keystone affordance; there are no
+;; `dispatcher` / `subscriber` nouns.
 
 (deftest dispatcher-survives-set-timeout
   (testing "(:dispatch (rf/capture-frame)) captures the in-flight frame; the captured fn is safe to call from setTimeout"
@@ -271,8 +265,8 @@
 ;;
 ;; Sanity: when a handler on :tenant-a synchronously dispatches and
 ;; *another* handler is also running on :tenant-b in a separate
-;; dispatch-sync, neither cascade leaks into the other's frame. The
-;; rf2-l5q3 fix binds *current-frame* per `process-event!`, so the
+;; dispatch-sync, neither cascade leaks into the other's frame.
+;; *current-frame* is bound per `process-event!`, so the
 ;; binding is established and torn down PER EVENT — sibling frames
 ;; do not see each other's bindings.
 

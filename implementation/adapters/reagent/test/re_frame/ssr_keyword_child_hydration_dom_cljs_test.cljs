@@ -1,5 +1,5 @@
 (ns re-frame.ssr-keyword-child-hydration-dom-cljs-test
-  "rf2-53lsj — does the JVM emitter's markup actually HYDRATE?
+  "Does the JVM emitter's markup actually HYDRATE?
 
   The two keyword-head contract suites
   (`re-frame.ssr-keyword-head-contract-test` and its CLJS twin) pin the
@@ -10,10 +10,10 @@
 
   ## Why this file exists at all
 
-  #6378 asserted the element structure agreed and reasoned that the
-  differing TEXT was harmless because \"element structure is what
+  It is tempting to check that the element structure agrees and reason
+  that differing TEXT is harmless because \"element structure is what
   hydration reconciles\". React reconciles text nodes too. Rather than
-  argue the point again in a comment, the test below hands React the
+  argue the point in a comment, the test below hands React the
   server bytes and the client tree and asks it.
 
   ## The vacuity lever
@@ -22,15 +22,15 @@
   `console.error` capture is exactly the shape that rots. So the same
   harness is run TWICE:
 
-    - over the bytes the emitter produces NOW (`<card>revenue</card>`)
+    - over the bytes the emitter produces (`<card>revenue</card>`)
       — React must be silent;
-    - over the bytes it produced BEFORE the fix (`<card>:revenue</card>`)
+    - over the colon-prefixed spelling (`<card>:revenue</card>`)
       — React must COMPLAIN.
 
-  The second case is the red-before, kept permanently executable. If
+  The second case is a permanently executable red control. If
   React ever stops reporting text mismatches, or the capture stops
-  working, that test goes red and this file stops making a claim it can
-  no longer support — rather than going quietly green.
+  working, that test goes red and this file stops making a claim it
+  cannot support — rather than going quietly green.
 
   The `-dom-cljs-test$` suffix opts this file into the `:browser-test`
   build. `:node-test` loads it too (it matches `cljs-test$`), where
@@ -62,7 +62,7 @@
      :init-fn init!})
   ;; No test here INSTALLS a hydration payload, but the ledger is a
   ;; process-global `defonce` that neither `clear-all!` nor a frames
-  ;; reset touches (rf2-aorfy), so a future edit that adds an install
+  ;; reset touches, so a future edit that adds an install
   ;; would leak into sibling namespaces rather than fail here. Resetting
   ;; unconditionally keeps that trap shut.
   (fn [f] (rf.ssr.install/reset-installed-payloads!) (f)))
@@ -147,7 +147,7 @@
 (deftest jvm-markup-hydrates-without-a-text-mismatch
   (if-not (browser?)
     (is true "skipped under node — no js/document; npm run test:browser asserts")
-    (testing "rf2-53lsj — the bytes the JVM emitter produces for
+    (testing "the bytes the JVM emitter produces for
               `[:dashboard/card :revenue]` hydrate silently, and the text
               the user sees is the text the server sent"
       (let [{:keys [complaints text]}
@@ -162,20 +162,18 @@
 (deftest hydration-probe-detects-a-real-mismatch
   (if-not (browser?)
     (is true "skipped under node — no js/document; npm run test:browser asserts")
-    (testing "THE RED-BEFORE for rf2-53lsj, kept executable: the SAME
-              harness over the bytes the emitter produced BEFORE the fix
-              (`<card>:revenue</card>`) must make React complain.
+    (testing "THE RED CONTROL: the SAME harness over the colon-prefixed
+              bytes (`<card>:revenue</card>`) must make React complain.
 
               This is what licenses the green assertion above. Without it
               an empty-complaints result could mean `the markup hydrates`
               or `the capture is broken`, and those are indistinguishable
-              from a passing test. That is not hypothetical: the first
-              version of this harness went through
-              `reagent.dom.client/hydrate-root` and captured NOTHING on
+              from a passing test. A harness that went through
+              `reagent.dom.client/hydrate-root` would capture NOTHING on
               either input, because the wrapper drops the
               `onRecoverableError` it accepts.
 
-              React 19's verdict on the pre-fix bytes, verbatim:
+              React 19's verdict on the colon-prefixed bytes, verbatim:
 
                 Hydration failed because the server rendered text didn't
                 match the client. …
@@ -185,7 +183,7 @@
       (let [{:keys [complaints]}
             (hydrate-over "<card>:revenue</card>" [:dashboard/card :revenue])]
         (is (seq (hydration-complaints complaints))
-            "React must report the pre-fix server text as a hydration
+            "React must report the colon-prefixed server text as a hydration
              mismatch — if this is silent, the probe above proves nothing
              and the `hydration only reconciles element structure` claim
              would have been right after all")))))
@@ -194,8 +192,8 @@
   (if-not (browser?)
     (is true "skipped under node — no js/document; npm run test:browser asserts")
     (do
-      (testing "rf2-53lsj — the namespace-dropping case, which a
-                colon-stripping fix would have got wrong: the emitter sends
+      (testing "the namespace-dropping case, which a
+                colon-stripping emitter would get wrong: the emitter sends
                 `b` for `:a/b`, and that is what hydrates clean"
         (let [{:keys [complaints text]}
               (hydrate-over "<div>b</div>" [:div :a/b])]
@@ -203,8 +201,8 @@
               (str "got: " (pr-str (hydration-complaints complaints))))
           (is (= "b" text))))
 
-      (testing "…and the spelling a colon-strip would have produced does NOT
-                hydrate, which is why the `name` spelling is the fix"
+      (testing "…and the spelling a colon-strip would produce does NOT
+                hydrate, which is why the spelling is the `name`"
         (let [{:keys [complaints]} (hydrate-over "<div>a/b</div>" [:div :a/b])]
           (is (seq (hydration-complaints complaints))
               "`a/b` must be a mismatch — pinning this stops a future

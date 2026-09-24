@@ -1,6 +1,6 @@
 (ns reagent2.impl.template-keyword-prop-warn-once-clear-cljs-test
   "Re-arm coverage for the slim hiccup interpreter's keyword-prop warn-once
-  cache (rf2-qy6cl).
+  cache.
 
   `reagent2.impl.template` carries a process-wide `defonce` warn-once cache
   (`warned-keyword-prop`) backing the §7.2 D2 informational notice: a
@@ -10,9 +10,9 @@
   must RE-ARM the cache between cases or a sibling test that already warned
   for a pair silently swallows a later test's same-pair warning.
 
-  This is the same test-isolation hazard rf2-4edk fixed for the spine's
-  source-coord / non-DOM-root warn-cache. The fix (rf2-qy6cl) chains the
-  keyword-prop cache's clear-step into the SAME
+  This is the same test-isolation hazard the spine's source-coord /
+  non-DOM-root warn-cache has, and it has the same answer: the
+  keyword-prop cache's clear-step is chained into the SAME
   `:adapter/clear-warn-once-caches!` late-bind hook — via
   `spine/install-clear-warn-once-step!`, registered at slim-adapter
   ns-load. Requiring `re-frame.adapter.reagent-slim` here runs that
@@ -48,14 +48,14 @@
         (set! (.-warn js/console) orig)))))
 
 ;; ---------------------------------------------------------------------------
-;; Chained hook re-arms the keyword-prop cache (the rf2-qy6cl fix)
+;; Chained hook re-arms the keyword-prop cache
 ;; ---------------------------------------------------------------------------
 
 (deftest chained-clear-warn-once-re-arms-keyword-prop-cache
   (testing "After a keyword-prop warning fires for a pair, the chained
             :adapter/clear-warn-once-caches! hook re-arms the cache so the
-            SAME pair warns AGAIN — it is no longer silently swallowed
-            (rf2-qy6cl; the rf2-4edk hazard applied to the slim template's
+            SAME pair warns AGAIN — it is not silently swallowed
+            (the spine warn-cache hazard, applied to the slim template's
             keyword-prop cache)."
     (let [k :rf2-rearm-test-k
           v :rf2-rearm-test-v
@@ -76,7 +76,7 @@
           (is (= 1 (count phase-2))
               (str "phase-2 MUST re-emit the warning for the SAME pair AFTER "
                    "the chained :adapter/clear-warn-once-caches! hook fires "
-                   "(this is the rf2-qy6cl fix; before it the warning was "
+                   "(without the chained clear-step the warning is "
                    "swallowed). Got " (count phase-2) ": " (pr-str phase-2))))))))
 
 ;; ---------------------------------------------------------------------------

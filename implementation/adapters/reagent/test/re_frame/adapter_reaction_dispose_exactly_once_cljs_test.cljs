@@ -1,6 +1,6 @@
 (ns re-frame.adapter-reaction-dispose-exactly-once-cljs-test
   "Pins the stock Reagent adapter's exactly-once Reaction disposal
-  (rf2-rzeko; Spec 006 §On-dispose hooks). The adapter promises that a
+  (Spec 006 §On-dispose hooks). The adapter promises that a
   derived value's disposal is idempotent and re-entrant safe: every
   on-dispose callback fires EXACTLY ONCE in registration order, a second
   `dispose!` is a no-op, and a `dispose!` re-entered from inside a
@@ -215,7 +215,7 @@
       (rf.interop/add-on-dispose! rx (fn [_] (swap! fired inc)))
       (add-watch rx ::owner (fn [_ _ _ _] nil))
       ;; The owner unmounts first: stock auto-disposal fires the teardown,
-      ;; whose sub-cache closure evicts the slot (pre-existing behaviour).
+      ;; whose sub-cache closure evicts the slot.
       (remove-watch rx ::owner)
       (is (= 1 @fired) "stock auto-disposal fired the teardown once")
       (is (nil? (cached-reaction :once/b))

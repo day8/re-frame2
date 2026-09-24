@@ -1,5 +1,5 @@
 (ns reagent2.dom.boolean-attr-react-parity-cljs-test
-  "rf2-4hjw — the EXTERNAL anchor for `reagent2.dom.server`'s boolean
+  "The EXTERNAL anchor for `reagent2.dom.server`'s boolean
   attribute-value rosters.
 
   WHY THIS EXISTS, AND WHY IT IS NOT `parity_cljs_test.cljs`.
@@ -7,19 +7,16 @@
   ways and diffs byte-for-byte against `react-dom/server`, which is
   the right SHAPE of check — the reference really is outside this
   artefact. But its candidate set is a hand-written corpus, so it can
-  only catch what the corpus happens to contain, and the corpus
-  contained exactly two boolean rows (`{:disabled true}` and
-  `{:disabled false}`). Six react-dom presence names were missing
-  from the roster and the whole stringifying class was absent, and
-  every assertion in the file stayed green.
+  only catch what the corpus happens to contain: a roster missing a
+  react-dom presence name, or missing a whole class, stays green there
+  for as long as the corpus never asks about that name.
 
-  That is the same structural blind spot the rf2-r9kf SSR audit found
-  wearing a different disguise. There, two serialisers sharing one
-  roster made their parity test agree on the same wrong answer; here,
-  a genuine external reference is asked only the questions the corpus
-  thought to ask. A parity test can only validate what something
-  OUTSIDE the thing under test SUPPLIES — and supplying the questions
-  is half of that.
+  That is a structural blind spot with a familiar sibling: two
+  serialisers sharing one roster make their parity test agree on the
+  same wrong answer. Here a genuine external reference is asked only
+  the questions the corpus thought to ask. A parity test can only
+  validate what something OUTSIDE the thing under test SUPPLIES — and
+  supplying the questions is half of that.
 
   So the candidate NAMES come from react-dom too:
 
@@ -74,7 +71,7 @@
 
     1. PRESENCE SHORT FORM. React writes `disabled=\"\"`; this
        serializer writes the equivalent HTML5 short form `disabled`.
-       Pre-existing and allow-listed by IMPL-SPEC §8.7.
+       Allow-listed by IMPL-SPEC §8.7.
     2. PRESENCE NAME CASE. React preserves camelCase for most
        presence names (`readOnly=\"\"`, `noModule=\"\"`) while
        lowercasing three of them (`autoFocus` → `autofocus`); this
@@ -289,9 +286,9 @@
   Derived CASE-INSENSITIVELY, because react-dom lowercases a handful of
   names on the way out (`autoFocus` → `autofocus=\"\"`) and a
   case-sensitive read of React's own bytes calls those absent — a wrong
-  class that still looks like a measurement. Measured: this test read
-  `autoFocus` as `:dropped` until the flag was flipped, and then failed
-  the reverse arm for emitting markup React supposedly never writes."
+  class that still looks like a measurement. A case-sensitive read would
+  classify `autoFocus` as `:dropped`, and the reverse arm would then fail
+  for emitting markup React supposedly never writes."
   [attr-name]
   (reduce
    (fn [_ element]
@@ -343,7 +340,7 @@
   (testing "the probe actually measured the installed react-dom"
     (is (str/starts-with? react-dom-version "19.")
         (str "react-dom " react-dom-version
-             " — this probe was written against the 19.x builds"))
+             " — this probe targets the 19.x builds"))
     (is (> (count candidates) 300)
         (str "only " (count candidates) " candidate names scraped from "
              "possibleStandardNames — the scrape is broken, and an empty "
@@ -402,8 +399,8 @@
 ;; class while only booleans are supplied — both emit the bare name on
 ;; true and nothing on false. The distinction is a NON-boolean value,
 ;; which the probe above deliberately does not supply, so it is pinned
-;; here against live react-dom with a third value. (This is the gap the
-;; SSR probe recorded and could not close: its fixture is boolean-only.)
+;; here against live react-dom with a third value. (The SSR probe cannot
+;; pin this: its fixture is boolean-only.)
 ;; ---------------------------------------------------------------------------
 
 (deftest overloaded-booleans-keep-a-non-boolean-value
@@ -421,14 +418,15 @@
                  (pr-str slim-html)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Attribute NAMES over the same candidate space (rf2-u0xpc).
+;; Attribute NAMES over the same candidate space.
 ;;
 ;; `react-attribute-name-overrides` is a hand-kept copy of the names react-dom
 ;; writes differently from the prop name — its `aliases` Map and its
 ;; `pushAttribute` special cases — and a missing row falls through to the
-;; lowercase rule. Nine `xlink*` / `xml*` rows and `transformOrigin` were
-;; missing, and `parity_cljs_test`'s corpus never asked about them. So the
-;; candidates above are asked a second question: under which NAME does a
+;; lowercase rule. A hand-written corpus such as `parity_cljs_test`'s asks
+;; only about the names it contains, so a missing `xlink*` / `xml*` row or
+;; `transformOrigin` could pass it. So the candidates above are asked a
+;; second question: under which NAME does a
 ;; string value reach markup? Compared case-INSENSITIVELY, because HTML
 ;; attribute names are, and this serializer lowercases the camelCase names
 ;; outside its table (`hrefLang` → `hreflang`) where react-dom keeps them.
@@ -452,7 +450,7 @@
                          slim-name  (sentinel-name (slim-markup "div" attribute name-sentinel))]
                    :when (and react-name slim-name)]
                {:attribute attribute :react react-name :slim slim-name})]
-    (testing "the sweep compared real rows, including the three rf2-u0xpc named"
+    (testing "the sweep compared real rows, including xlinkHref, xmlLang and transformOrigin"
       (is (> (count rows) 200)
           (str "only " (count rows) " names compared — an empty sweep reads as a pass"))
       (is (every? (set (map :attribute rows)) ["xlinkHref" "xmlLang" "transformOrigin"])))
@@ -463,13 +461,13 @@
                  react "`; render-to-static-markup wrote `" slim "`"))))))
 
 ;; ---------------------------------------------------------------------------
-;; javascript: URLs over the same candidate space (rf2-w1hd8).
+;; javascript: URLs over the same candidate space.
 ;;
 ;; react-dom blocks a `javascript:` URL in a fixed set of props (its
 ;; `sanitizeURL`), and this serializer carries a copy of that set. So the
 ;; candidates are asked a third question: does a `javascript:` value reach
 ;; markup live, or blocked? If react-dom blocks a name and this serializer does
-;; not, the URL ships live; that is the defect rf2-w1hd8 found. The reverse
+;; not, the URL ships live. The reverse
 ;; would block a value react-dom writes. `data` is blocked only on an
 ;; `<object>`, which a `<div>` sweep cannot reach; `parity_cljs_test` pins it.
 ;; ---------------------------------------------------------------------------
@@ -508,8 +506,8 @@
 ;; Explicit pins.
 ;;
 ;; The table-driven checks above are the gate; these state the intent in
-;; bytes, so it stays readable without running react-dom and so the six
-;; names rf2-4hjw named are each visibly exercised.
+;; bytes, so it stays readable without running react-dom and so each of
+;; the six presence names pinned below is visibly exercised.
 ;; ---------------------------------------------------------------------------
 
 (deftest presence-names-added-by-rf2-4hjw
@@ -543,7 +541,7 @@
            (server/render-to-static-markup [:feComposite {:preserve-alpha true}])))))
 
 (deftest aria-and-data-booleans-stringify
-  (testing "rf2-r9kf's headline case, in this artefact: a false that carries meaning"
+  (testing "a false that carries meaning stringifies rather than dropping"
     (is (= "<button aria-expanded=\"true\">x</button>"
            (server/render-to-static-markup [:button {:aria-expanded true} "x"])))
     (is (= "<button aria-expanded=\"false\">x</button>"

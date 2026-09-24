@@ -1,21 +1,21 @@
 (ns re-frame.adapter.test-react-dispose-sub-cache-cljs-test
-  "The rf2-ghfkkk High finding's regression coverage — this ns OWNS it.
+  "Coverage for test-react's `dispose-adapter!` sub-cache contract — this ns
+  OWNS it.
 
   test-react's `dispose-adapter!`
   MUST clear every live frame's per-frame sub-cache (entries + ref-counts),
   the externally-visible counterpart of the React adapters' CLJS-only
   `re-frame.substrate.spine/dispose-frame-sub-caches!` walk — routed here
   through the CLJC-safe shared helper
-  `re-frame.subs.cache/clear-all-frame-sub-caches!`. Pre-fix, because
-  test-react's `make-derived-value` is a plain IDeref reify whose reaction
-  never auto-disposes, the `{:reaction … :ref-count n}` cache slot (held on
-  the FRAME, not the reaction) survived a dispose/reinstall cycle, allowing a
-  later subscribe to read a stale value and breaking process isolation.
+  `re-frame.subs.cache/clear-all-frame-sub-caches!`. Because test-react's
+  `make-derived-value` is a plain IDeref reify whose reaction never
+  auto-disposes, the `{:reaction … :ref-count n}` cache slot (held on the
+  FRAME, not the reaction) would otherwise survive a dispose/reinstall cycle,
+  allowing a later subscribe to read a stale value and breaking process
+  isolation.
 
-  Two cases, both here rather than split across namespaces (rf2-6r9j.81 —
-  `test_react_cljs_test.cljc` used to carry a byte-for-byte duplicate of the
-  single-frame case, so the same seven assertions were maintained and run
-  twice on each host):
+  Two cases, both here rather than split across namespaces, so each
+  assertion is maintained and run once per host:
 
   - `dispose-adapter-clears-sub-cache-and-recomputes-fresh` — the single-frame
     dispose / reinstall / fresh-recompute property.
@@ -47,7 +47,7 @@
   (get-in @(:sub-cache (rf.frame/frame :rf/default)) [query-v :ref-count]))
 
 (deftest dispose-adapter-clears-sub-cache-and-recomputes-fresh
-  (testing "rf2-ghfkkk — test-react dispose-adapter! disposes + clears every
+  (testing "test-react dispose-adapter! disposes + clears every
             live frame's sub-cache; a re-subscribe after reinstall recomputes
             from the current app-db (no stale cross-lifecycle read)"
     (rf/reg-event ::seed (fn [_ctx [_ v]] {:db {:n v}}))
@@ -78,7 +78,7 @@
       (rf.subs/unsubscribe :rf/default [::n]))))
 
 (deftest dispose-adapter-clears-sub-caches-across-multiple-frames
-  (testing "rf2-ghfkkk — the walk covers EVERY live frame, not just
+  (testing "the walk covers EVERY live frame, not just
             :rf/default: a per-instance frame's materialised slot is disposed
             and cleared by the same dispose-adapter! call"
     (rf/reg-event ::seed (fn [_ctx [_ v]] {:db {:n v}}))

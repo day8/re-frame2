@@ -1,5 +1,5 @@
 (ns reagent2.dom.error-boundary-dom-cljs-test
-  "rf2-6r9j.31 — the MOUNTED React error-boundary proof for
+  "The MOUNTED React error-boundary proof for
   `reagent2.core/create-class`'s `:component-did-catch` cap key, under a
   React 19 `createRoot`.
 
@@ -20,12 +20,11 @@
   WHY A DOM FILE, AND WHY THE OUTER-ONLY ARM. The sibling unit tests in
   `reagent2.impl.component-cljs-test` invoke `componentDidCatch` on the
   prototype directly — full control over the payload, but no reconciler,
-  so nothing there can observe React's own propagation. Until rf2-6r9j.31
-  this file did not exist, and the nested-isolation claim was carried by
-  a unit test that constructed an outer boundary, never mounted it, and
-  then asserted its counter was still zero — an assertion nothing could
-  have made fail. `outer-boundary-catches-when-inner-is-absent` below
-  exists so that cannot recur: it mounts the SAME throwing descendant
+  so nothing there can observe React's own propagation. A unit test
+  carrying the nested-isolation claim could only construct an outer
+  boundary, never mount it, and assert its counter is still zero — an
+  assertion nothing could make fail. `outer-boundary-catches-when-inner-is-absent`
+  below is the control: it mounts the SAME throwing descendant
   under the outer boundary ALONE and proves that counter does fire, so
   the zero read by the nested arm is a measurement rather than a
   tautology.
@@ -73,7 +72,7 @@
   appends the error message to `fired`; after React's default
   `getDerivedStateFromError` patch is bridged into the public Reagent
   state atom (`:cljsHasError`), it renders `\"<label>:fallback\"` — the
-  documented slim fallback contract (IMPL-SPEC §6.5, rf2-ygknv)."
+  documented slim fallback contract (IMPL-SPEC §6.5)."
   [label fired child-fn]
   (r/create-class
     {:display-name        (str label "-boundary")
@@ -107,7 +106,7 @@
 (deftest nested-boundaries-inner-catches-outer-does-not
   (testing "a descendant RENDER throw is caught by the NEAREST slim
             boundary; the enclosing outer boundary does not fire, and
-            the inner boundary's fallback commits (rf2-6r9j.31)"
+            the inner boundary's fallback commits"
     (if-not (browser?)
       (is true ":node-test: no DOM — the :browser-test runner exercises the assertion")
       (let [outer-fired   (atom [])
@@ -142,7 +141,7 @@
 (deftest outer-boundary-catches-when-inner-is-absent
   (testing "the SAME throwing descendant, mounted with no inner
             boundary, IS caught by the outer boundary — so the zero
-            read above is a measurement, not a tautology (rf2-6r9j.31)"
+            read above is a measurement, not a tautology"
     (if-not (browser?)
       (is true ":node-test: no DOM — the :browser-test runner exercises the assertion")
       (let [outer-fired (atom [])
@@ -170,7 +169,7 @@
 (deftest commit-phase-child-did-mount-throw-reaches-boundary
   (testing "a descendant that throws from :component-did-mount — React's
             COMMIT phase — reaches the enclosing slim boundary, which
-            commits its fallback (rf2-6r9j.31)"
+            commits its fallback"
     (if-not (browser?)
       (is true ":node-test: no DOM — the :browser-test runner exercises the assertion")
       (let [fired      (atom [])

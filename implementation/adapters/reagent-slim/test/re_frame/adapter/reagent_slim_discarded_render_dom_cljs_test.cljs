@@ -1,19 +1,20 @@
 (ns re-frame.adapter.reagent-slim-discarded-render-dom-cljs-test
-  "rf2-3x7nj.6.3 — a render React DISCARDS before commit must not keep what it
+  "A render React DISCARDS before commit must not keep what it
   subscribed to, on the reagent-slim (ratom) adapter.
 
-  THE DEFECT. Every slim `reg-view` is a class whose render builds a
+  THE HAZARD. Every slim `reg-view` is a class whose render builds a
   per-instance render Reaction and runs the user's render inside it, so the
   render both watches every subscription it derefs and holds re-frame's
-  render-owned `:ref-count` claim on each (rf2-ty246). The only disposal site
-  was `componentWillUnmount` — and React calls that only for an instance it
-  COMMITTED. A pass React renders and then throws away (a Suspense boundary
-  suspending on mount, an error boundary catching on mount, a hidden Activity
-  that is never shown) left every instance it rendered holding its
-  subscriptions for the life of the page: the slot could never reach 0, and
-  every change to it forceUpdated a never-mounted instance.
+  render-owned `:ref-count` claim on each. `componentWillUnmount` disposes
+  that Reaction — and React calls it only for an instance it COMMITTED. With
+  no other disposal site, a pass React renders and then throws away (a
+  Suspense boundary suspending on mount, an error boundary catching on mount,
+  a hidden Activity that is never shown) would leave every instance it
+  rendered holding its subscriptions for the life of the page: the slot could
+  never reach 0, and every change to it would forceUpdate a never-mounted
+  instance.
 
-  THE FIX UNDER TEST. `reagent2.impl.component` reaps the render Reaction of
+  THE MECHANISM UNDER TEST. `reagent2.impl.component` reaps the render Reaction of
   an instance React has not mounted one host macrotask (4 ms) after the render
   that built it, and `componentDidMount` re-renders an instance whose Reaction
   was reaped before it was adopted (Spec 006 §Which lifetime governs a ratom
@@ -158,7 +159,7 @@
 (defn- owners-holding
   "How many captured owners still record a render-owned holding — the
   per-owner holdings cell `re-frame.subs` keeps on the owner and clears when
-  the owner is disposed (rf2-3x7nj.3.1)."
+  the owner is disposed."
   [^js owners]
   (count (filter #(some? (.-rfSubRefs ^js %)) (array-seq owners))))
 
@@ -180,7 +181,7 @@
 (defn- seed-counter!
   "A frame holding `{:n 1}`, a `bump` event, and a sub `sub-id` reading `:n`."
   [frame-kw seed-id bump-id sub-id]
-  (rf/make-frame {:id frame-kw :doc "rf2-3x7nj.6.3 discarded-render probe frame"})
+  (rf/make-frame {:id frame-kw :doc "discarded-render probe frame"})
   (rf/reg-event seed-id (fn [_ _] {:db {:n 1}}))
   (rf/reg-event bump-id (fn [{:keys [db]} _] {:db (update db :n inc)}))
   (rf/dispatch-sync [seed-id] {:frame frame-kw})
@@ -332,7 +333,7 @@
                         (swap! thrown inc)
                         (capture-owner! owners)
                         (when (some? @(rf/subscribe query-v))
-                          (throw (js/Error. "rf2-3x7nj.6.3 discarded-render boom")))))
+                          (throw (js/Error. "discarded-render boom")))))
         (record-disposes! ::boundary-disposes disposes)
         (let [row      (rf/view ::boundary-row)
               control  (rf/view ::boundary-control)

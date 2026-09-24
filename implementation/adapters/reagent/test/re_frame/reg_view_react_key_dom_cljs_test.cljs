@@ -3,13 +3,13 @@
   reg-view that renders a seq of keyed reg-views (the `(for [n …]
   ^{:key n} [child n])` idiom) under a REAL React reconciliation commit
   must NOT emit React's 'Encountered two children with the same key'
-  warning. Per rf2-1anbp.
+  warning.
 
   The element-level sibling pins that `.-key` survives
   `reagent.core/as-element`; this file pins the end-to-end consequence —
   React's reconciler, fed the rendered tree, sees distinct keys and
-  stays quiet. The failing mode (rf2-1anbp) was a `console.error`
-  collision warning on mount where every list child fell back to the
+  stays quiet. The failing mode is a `console.error`
+  collision warning on mount, with every list child falling back to the
   same munged component name as its key.
 
   Browser-only — a real `react-dom` commit is required to drive
@@ -41,7 +41,7 @@
 (reg-view ^{:rf/id :rf.keydom/heading} keydom-heading [label]
   [:div "h-" label])
 
-;; The ladder shape from the bead's repro: a seq mixing two reg-view
+;; The ladder shape: a seq mixing two reg-view
 ;; kinds, each keyed at the call site.
 (def ^:private ladder
   [[:heading "Events"] [:row 1] [:row 2] [:row 3]
@@ -57,7 +57,7 @@
 (deftest mounting-seq-of-keyed-regviews-emits-no-collision-warning
   (testing "rendering a seq of reg-views each with ^{:key} under a real
             React commit emits NO 'same key' reconciliation warning, and
-            every keyed child is present in the DOM (rf2-1anbp)"
+            every keyed child is present in the DOM"
     (if-not (browser?)
       (is true ":node-test: no DOM — the :browser-test runner exercises this")
       (let [errs (atom [])

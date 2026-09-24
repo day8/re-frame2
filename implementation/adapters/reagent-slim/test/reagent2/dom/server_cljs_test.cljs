@@ -1,5 +1,5 @@
 (ns reagent2.dom.server-cljs-test
-  "Unit tests for reagent2.dom.server (Stage 4-E, rf2-6hyy).
+  "Unit tests for reagent2.dom.server.
 
   Per IMPL-SPEC §8 + §12.1 + §12.5 R-004. Covers:
 
@@ -14,7 +14,7 @@
     - Tag shorthand (`:div.foo#bar`) merged into class/id attrs.
     - User-fn heads invoked + recurse.
     - React-component heads (`:>`, `:r>`, `:f>`) emit comment placeholder.
-    - React context PROVIDER heads walk their children (rf2-iyz6j).
+    - React context PROVIDER heads walk their children.
 
   Parity tests against `react-dom/server.renderToStaticMarkup` live
   in `reagent2.dom.parity-cljs-test` per IMPL-SPEC §8.7 + §12.5 R-004.
@@ -39,7 +39,7 @@
            (server/render-to-static-markup [:div "1 < 2 && 3 > 0"])))))
 
 (deftest text-content-quotes-and-apostrophe-escaped
-  (testing "rf2-4dlxga: quotes (\" -> &quot;) and apostrophes (' -> &#39;)
+  (testing "quotes (\" -> &quot;) and apostrophes (' -> &#39;)
             ARE escaped in text content — byte-equal to
             re-frame.ssr.html-helpers/escape-html's full 5-char set"
     (is (= "<div>say &quot;hi&quot;</div>"
@@ -124,12 +124,12 @@
 
 (deftest attr-camelcase-react-canonical-name
   (testing "camelCased prop names emit React 19's canonical output name"
-    ;; rf2-ygknv finding 3: `attribute-name` is no longer a blanket lowercase.
-    ;; React's attribute-name table governs the output:
+    ;; `attribute-name` is not a blanket lowercase: React's attribute-name
+    ;; table governs the output:
     ;;   :tab-index → "tabindex"  (plain HTML camelCase → lowercased)
     ;;   :col-span  → "colSpan"   (React PRESERVES this camelCase token)
-    ;; The previous "<td colspan>" assertion pinned a divergence from
-    ;; react-dom/server; the corrected expectation matches React exactly.
+    ;; A "<td colspan>" expectation would pin a divergence from
+    ;; react-dom/server; this one matches React exactly.
     (is (= "<div tabindex=\"0\"></div>"
            (server/render-to-static-markup [:div {:tab-index "0"}])))
     (is (= "<td colSpan=\"2\"></td>"
@@ -316,14 +316,14 @@
              (server/render-to-static-markup [:r> Foo #js {}]))))))
 
 ;; ---------------------------------------------------------------------------
-;; React context Providers (rf2-iyz6j)
+;; React context Providers
 ;;
 ;; A context Provider is NOT opaque foreign content: it renders nothing of
-;; its own and its output IS its children. Before rf2-iyz6j the walker
-;; lumped it in with the foreign-component placeholder above, so the
-;; canonical slim mount `[rf/frame-provider {:frame f} [app]]` — which
-;; expands to `[:r> (.-Provider frame-context) #js {:value f} …]` — emitted
-;; `<!--reagent-react-component-->` and NOTHING ELSE. An empty document, no
+;; its own and its output IS its children. A walker that lumped it in with
+;; the foreign-component placeholder above would render the canonical slim
+;; mount `[rf/frame-provider {:frame f} [app]]` — which expands to
+;; `[:r> (.-Provider frame-context) #js {:value f} …]` — as
+;; `<!--reagent-react-component-->` and NOTHING ELSE: an empty document, no
 ;; error.
 ;;
 ;; These pin the walker itself. `server-subscribe-ssr-cljs-test` pins the
@@ -335,11 +335,11 @@
 ;; `Symbol.for("react.context")`; on React <=18 `ctx.Provider` is a distinct
 ;; object tagged `Symbol.for("react.provider")`), so asking React for the
 ;; object is what makes a future symbol change fail LOUDLY here instead of
-;; silently reverting to the dropped-subtree behaviour.
+;; silently dropping the subtree.
 ;; ---------------------------------------------------------------------------
 
 (deftest context-provider-head-renders-children
-  (testing "rf2-iyz6j: a context Provider scopes rather than renders, so the
+  (testing "a context Provider scopes rather than renders, so the
             static walker walks THROUGH it — children reach the markup"
     (let [ctx      (react/createContext :rf/none)
           Provider (.-Provider ctx)]
@@ -367,7 +367,7 @@
                  [:r> Provider #js {:value :frame/a}]))))))
 
 (deftest context-provider-head-nests-and-escapes
-  (testing "rf2-iyz6j: nested Providers compose, and content under a
+  (testing "nested Providers compose, and content under a
             Provider is escaped exactly as it is anywhere else"
     (let [outer (.-Provider (react/createContext :rf/none))
           inner (.-Provider (react/createContext :rf/none))]
@@ -379,7 +379,7 @@
                  [:div "a & b"]]]]))))))
 
 (deftest context-consumer-head-stays-opaque
-  (testing "rf2-iyz6j negative control: a context CONSUMER takes a RENDER FN
+  (testing "negative control: a context CONSUMER takes a RENDER FN
             as its child, not elements, so it must NOT be walked — it stays
             opaque like any other foreign component"
     (let [ctx (react/createContext :rf/none)]
@@ -388,8 +388,8 @@
               [:r> (.-Consumer ctx) #js {} (fn [_v] [:div "nope"])]))))))
 
 (deftest non-provider-react-component-still-opaque
-  (testing "rf2-iyz6j does not widen the walker: a genuine foreign React
-            component head is still opaque even when it carries children"
+  (testing "the Provider branch does not widen the walker: a genuine foreign
+            React component head stays opaque even when it carries children"
     (let [Foo (fn [_] [:div "x"])]
       (is (= "<!--reagent-react-component-->"
              (server/render-to-static-markup [:> Foo {} [:div "dropped"]]))))))
@@ -412,19 +412,18 @@
              (server/render-to-static-markup [greet "Mike" "!"]))))))
 
 ;; ---------------------------------------------------------------------------
-;; Form-2 user-fn heads (rf2-o3hqr)
+;; Form-2 user-fn heads
 ;;
 ;; A Form-2 component's outer fn is a one-shot setup that returns the
-;; inner render closure: `(fn [x] (fn [x] [:li x]))`. The static path
-;; previously invoked the head once and recursed on the returned inner
-;; FN, which reached `emit-element` as a bare fn and threw
-;; `:rf.error/static-markup-bad-element`. The fix mirrors the live
-;; `wrap-render` Form-1/Form-2 detection: when the head returns a fn,
-;; recall it with the same args and recurse on its hiccup.
+;; inner render closure: `(fn [x] (fn [x] [:li x]))`. Recursing on the
+;; returned inner FN would hand `emit-element` a bare fn and throw
+;; `:rf.error/static-markup-bad-element`, so the static path mirrors the
+;; live `wrap-render` Form-1/Form-2 detection: when the head returns a fn,
+;; it recalls it with the same args and recurses on its hiccup.
 ;; ---------------------------------------------------------------------------
 
 (deftest form-2-user-fn-head-renders
-  (testing "rf2-o3hqr: a Form-2 head (outer setup fn returning an inner
+  (testing "a Form-2 head (outer setup fn returning an inner
             render closure) renders its inner hiccup, not a thrown bad-element"
     (let [item (fn [_x] (fn [x] [:li x]))]
       (is (= "<ul><li>a</li><li>b</li></ul>"
@@ -432,17 +431,17 @@
               [:ul [item "a"] [item "b"]]))))))
 
 (deftest form-2-inner-closure-receives-same-args
-  (testing "rf2-o3hqr: the Form-2 inner closure is recalled with the SAME
+  (testing "the Form-2 inner closure is recalled with the SAME
             args as the outer setup (matches wrap-render's `(apply inner args)`)"
     ;; The outer fn ignores its args; the inner fn consumes them. If the
-    ;; fix passed no args (or wrong args) to the inner closure the span
-    ;; would render empty / throw on arity.
+    ;; inner closure received no args (or wrong args) the span would
+    ;; render empty / throw on arity.
     (let [greet (fn [_n _p] (fn [n p] [:span n p]))]
       (is (= "<span>Mike!</span>"
              (server/render-to-static-markup [greet "Mike" "!"]))))))
 
 (deftest form-2-closes-over-setup-state
-  (testing "rf2-o3hqr: the Form-2 inner closure can close over a value
+  (testing "the Form-2 inner closure can close over a value
             computed in the outer setup (the canonical Form-2 reason)"
     (let [labelled (fn [prefix]
                      (fn [_prefix v]
@@ -451,14 +450,14 @@
              (server/render-to-static-markup [labelled "n" 7]))))))
 
 (deftest form-2-nested-in-form-1
-  (testing "rf2-o3hqr: a Form-2 head nested inside a Form-1 head renders"
+  (testing "a Form-2 head nested inside a Form-1 head renders"
     (let [inner (fn [_x] (fn [x] [:em x]))
           outer (fn [x] [:p [inner x]])]
       (is (= "<p><em>hi</em></p>"
              (server/render-to-static-markup [outer "hi"]))))))
 
 ;; ---------------------------------------------------------------------------
-;; Form-3 class heads (rf2-o3hqr)
+;; Form-3 class heads
 ;;
 ;; A `create-class` head is a React class carrying its user
 ;; `:reagent-render` fn under `.-cljsReagentRender`. The static path
@@ -469,7 +468,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest form-3-reagent-class-renders
-  (testing "rf2-o3hqr: a create-class (Form-3) head renders its
+  (testing "a create-class (Form-3) head renders its
             :reagent-render fn to HTML"
     (let [box (r/create-class
                 {:display-name "box"
@@ -478,7 +477,7 @@
              (server/render-to-static-markup [box "hello"]))))))
 
 (deftest form-3-reagent-render-is-form-2
-  (testing "rf2-o3hqr: a create-class whose :reagent-render is itself
+  (testing "a create-class whose :reagent-render is itself
             Form-2 (returns an inner closure) renders the inner hiccup"
     (let [box (r/create-class
                 {:display-name "box2"
@@ -487,7 +486,7 @@
              (server/render-to-static-markup [box "x"]))))))
 
 (deftest form-3-lifecycle-keys-ignored-in-static-markup
-  (testing "rf2-o3hqr: Form-3 lifecycle callbacks do not fire under
+  (testing "Form-3 lifecycle callbacks do not fire under
             static markup (matches react-dom/server); only :reagent-render
             contributes to the HTML"
     (let [fired (atom false)
@@ -524,7 +523,7 @@
           (server/render-to-static-markup [42 "x"])))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-dwds9 HIGH: XSS surface — event handlers + fn props stripped
+;; XSS surface — event handlers + fn props stripped
 ;;
 ;; The static-markup serializer must NOT emit React event-handler props
 ;; (`onClick`, `:on-click`, …) as HTML attributes. Doing so would (a)
@@ -534,13 +533,13 @@
 ;; for function-valued props of any name — `(str f)` would leak the
 ;; source text into the attribute.
 ;;
-;; `react-dom/server.renderToStaticMarkup` elides these; the rewrite
-;; now matches.
+;; `react-dom/server.renderToStaticMarkup` elides these, and so does this
+;; serializer.
 ;; ---------------------------------------------------------------------------
 
 (deftest event-handler-string-stripped-rf2-dwds9
-  (testing "rf2-dwds9: :on-click with string value does NOT emit
-            onclick attribute (XSS vector closed)"
+  (testing ":on-click with string value does NOT emit
+            onclick attribute (no XSS vector)"
     (is (= "<div></div>"
            (server/render-to-static-markup [:div {:on-click "alert(1)"}])))
     (is (= "<div></div>"
@@ -551,7 +550,7 @@
         "no leaked onclick attribute on the rendered button")))
 
 (deftest event-handler-fn-stripped-rf2-dwds9
-  (testing "rf2-dwds9: fn-valued :on-click is stripped (does not
+  (testing "fn-valued :on-click is stripped (does not
             emit `function () { ... }` source as the attribute value)"
     (let [handler (fn [_e])
           out (server/render-to-static-markup
@@ -560,7 +559,7 @@
           "no onclick attribute, no leaked source"))))
 
 (deftest fn-valued-non-event-prop-stripped-rf2-dwds9
-  (testing "rf2-dwds9: any fn-valued prop (not just `on*`) is stripped
+  (testing "any fn-valued prop (not just `on*`) is stripped
             so source text never leaks into the attribute"
     (let [callback (fn [])
           out (server/render-to-static-markup
@@ -568,7 +567,7 @@
       (is (= "<div></div>" out)))))
 
 (deftest other-on-prefix-attrs-stripped-rf2-dwds9
-  (testing "rf2-dwds9: camelCase `onChange`, `onSubmit`, `onMouseEnter`
+  (testing "camelCase `onChange`, `onSubmit`, `onMouseEnter`
             all stripped (full event-handler family)"
     (is (= "<form></form>"
            (server/render-to-static-markup
@@ -578,7 +577,7 @@
             [:div {:onMouseEnter "evil()"}])))))
 
 (deftest on-not-event-prefix-passes-through
-  (testing "rf2-dwds9: attribute names starting with `on` but NOT
+  (testing "attribute names starting with `on` but NOT
             event-handler shape (e.g. `:once`) are NOT stripped —
             event-handler-prop? requires `on-x` (kebab) or `onX` (camel
             with uppercase letter after `on`)"
@@ -590,20 +589,21 @@
         "`:onyx` (lowercase letter after `on`) is preserved")))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-ut3mod: lowercase inline HTML event attributes must strip too
+;; Lowercase inline HTML event attributes must strip too
 ;;
 ;; `event-handler-prop?`'s structural check (`on-` kebab / `on[A-Z]`
 ;; camel) misses lowercase inline HTML event attributes — `:onclick`,
 ;; string `"onclick"`, `:onchange` — because there is no `-` and no
 ;; upper-case letter after `on`. Those are exactly the canonical names a
-;; browser fires on, so a string-valued `:onclick "alert(1)"` rode
-;; through to the wire as `onclick="alert(1)"`, an XSS vector of the
-;; same class rf2-dwds9 closed for the structural (kebab/camel) forms.
+;; browser fires on, so without the lowercase allowlist a string-valued
+;; `:onclick "alert(1)"` would ride through to the wire as
+;; `onclick="alert(1)"`, an XSS vector of the same class the structural
+;; check closes for the kebab/camel forms.
 ;; ---------------------------------------------------------------------------
 
 (deftest lowercase-onclick-keyword-stripped-rf2-ut3mod
-  (testing "rf2-ut3mod: :onclick (all-lowercase keyword) with string
-            value does NOT emit an onclick attribute (XSS vector closed)"
+  (testing ":onclick (all-lowercase keyword) with string
+            value does NOT emit an onclick attribute (no XSS vector)"
     (is (= "<div></div>"
            (server/render-to-static-markup [:div {:onclick "alert(1)"}])))
     (is (= "<button>x</button>"
@@ -612,46 +612,46 @@
         "no leaked onclick attribute on the rendered button")))
 
 (deftest lowercase-onclick-string-key-stripped-rf2-ut3mod
-  (testing "rf2-ut3mod: string key \"onclick\" with string value does
+  (testing "string key \"onclick\" with string value does
             NOT emit an onclick attribute"
     (is (= "<div></div>"
            (server/render-to-static-markup [:div {"onclick" "alert(1)"}])))))
 
 (deftest lowercase-onchange-stripped-rf2-ut3mod
-  (testing "rf2-ut3mod: :onchange (all-lowercase keyword) is stripped —
+  (testing ":onchange (all-lowercase keyword) is stripped —
             another canonical lowercase event name, not just :onclick"
     (is (= "<input>"
            (server/render-to-static-markup [:input {:onchange "evil()"}])))))
 
 (deftest lowercase-non-event-on-prefix-still-passes-through-rf2-ut3mod
-  (testing "rf2-ut3mod: the new lowercase-event allowlist must not
-            regress :once / :onyx — non-events keep passing through"
+  (testing "the lowercase-event allowlist must not catch
+            :once / :onyx — non-events pass through"
     (is (= "<div once=\"true\"></div>"
            (server/render-to-static-markup [:div {:once "true"}])))
     (is (= "<div onyx=\"x\"></div>"
            (server/render-to-static-markup [:div {:onyx "x"}])))))
 
 (deftest key-and-ref-still-stripped
-  (testing "regression: :key and :ref drops still work after the new
-            event-prop filter was added"
+  (testing ":key and :ref drop alongside the event-prop filter"
     (is (= "<div></div>"
            (server/render-to-static-markup [:div {:key "k" :ref "r"}])))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-3x7nj.6.1: attacker-controlled attribute and tag NAMES
+;; Attacker-controlled attribute and tag NAMES
 ;;
-;; The threat model is the one re-frame.ssr already accepts: an app splats
-;; an attacker-controlled attribute map into hiccup (a CMS or JSON payload
-;; read with keywordised keys), or builds a string head from data. This
-;; serializer emitted attribute and tag names verbatim, so a key carrying
-;; `=`, whitespace or a quote broke out of the attribute and installed a
-;; live inline handler — on the ordinary value path AND on the boolean
-;; path, which classifies any `data-*` / `aria-*` name as stringifying.
+;; The threat model is the one re-frame.ssr accepts: an app splats an
+;; attacker-controlled attribute map into hiccup (a CMS or JSON payload
+;; read with keywordised keys), or builds a string head from data. A
+;; serializer emitting attribute and tag names verbatim would let a key
+;; carrying `=`, whitespace or a quote break out of the attribute and
+;; install a live inline handler — on the ordinary value path AND on the
+;; boolean path, which classifies any `data-*` / `aria-*` name as
+;; stringifying.
 ;;
-;; RULED: THROW, refusing exactly the names react-dom 19.3.0's own
-;; predicates refuse (its attribute-name regex and its tag regex, not
-;; re-frame.ssr's narrower grammar), with the two ids re-frame.ssr already
-;; throws. `oncommand` joins the silent-drop event-handler allowlist.
+;; So this serializer THROWS, refusing exactly the names react-dom 19.3.0's
+;; own predicates refuse (its attribute-name regex and its tag regex, not
+;; re-frame.ssr's narrower grammar), with the two ids re-frame.ssr throws.
+;; `oncommand` is on the silent-drop event-handler allowlist.
 ;; ---------------------------------------------------------------------------
 
 (defn- render-outcome
@@ -684,7 +684,7 @@
 
 (deftest hostile-boolean-attribute-name-throws-rf2-3x7nj-6-1
   (testing "boolean value path: a data-*/aria-* prefixed name is classified
-            stringifying and was appended raw — for true AND false"
+            stringifying, so it must not be appended raw — for true AND false"
     (doseq [[k v] [["data-x onclick=alert(1) x" true]
                    ["aria-x onclick=alert(1) x" false]]]
       (let [{:keys [html error]} (render-outcome [:div {k v} "hi"])]
@@ -713,8 +713,8 @@
       (is (= head (:source error)))
       (is (= :use-a-valid-element-name (:recovery error)))
       (is (re-find #"\[:rf\.error/invalid-tag-name\]" (str message)))))
-  (testing "class-before-id shorthand parses to a NIL tag, which rendered as
-            the literal element `<null>`; it now throws the same id"
+  (testing "class-before-id shorthand parses to a NIL tag, which would render
+            as the literal element `<null>`; it throws the same id"
     (let [{:keys [html error]} (render-outcome [:div.a#id "x"])]
       (is (nil? html) (str "no markup may be produced; got " (pr-str html)))
       (is (= :rf.error/invalid-tag-name (:rf.error/id error)))
@@ -722,7 +722,7 @@
       (is (= :div.a#id (:source error))))))
 
 (deftest valid-names-still-serialise-rf2-3x7nj-6-1
-  (testing "controls: ordinary names render exactly as before"
+  (testing "controls: ordinary names render normally"
     (is (= "<div data-x=\"1\"></div>"
            (server/render-to-static-markup [:div {:data-x "1"}])))
     (is (= "<div aria-label=\"close\"></div>"
@@ -736,9 +736,9 @@
            (server/render-to-static-markup [:div {:online "x"}])))
     (is (= "<div data-flag=\"true\"></div>"
            (server/render-to-static-markup [:div {:data-flag true}]))
-        "the boolean path still emits a valid prefixed name"))
+        "the boolean path emits a valid prefixed name"))
   (testing "react-dom accepts `x.y` and `_foo`; re-frame.ssr's narrower
-            grammar would refuse both. They PIN the ruled grammar: a gate
+            grammar would refuse both. They PIN the chosen grammar: a gate
             copying the SSR grammar reds here"
     (is (= "<div x.y=\"1\"></div>"
            (server/render-to-static-markup [:div {(keyword "x.y") "1"}])))
@@ -758,13 +758,14 @@
            (server/render-to-static-markup [:a_b])))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-3x7nj.6.2: element-context text rules
+;; Element-context text rules
 ;;
 ;; `<script>` / `<style>` bodies are HTML RAW TEXT: the parser never decodes
 ;; character references inside them, so entity-escaping their text corrupts
-;; the CSS / JS (`'Open Sans'` became `&#39;Open Sans&#39;`, `a && b` became
-;; `a &amp;&amp; b`). react-dom emits the text verbatim and rewrites only an
-;; embedded closing-tag sequence. Separately, the parser eats one LF after
+;; the CSS / JS (`'Open Sans'` would become `&#39;Open Sans&#39;`, `a && b`
+;; would become `a &amp;&amp; b`). react-dom emits the text verbatim and
+;; rewrites only an embedded closing-tag sequence. Separately, the parser
+;; eats one LF after
 ;; `<pre>` / `<listing>` / `<textarea>`, and react-dom prefixes one
 ;; compensating LF when the sole string body starts with one.
 ;; ---------------------------------------------------------------------------

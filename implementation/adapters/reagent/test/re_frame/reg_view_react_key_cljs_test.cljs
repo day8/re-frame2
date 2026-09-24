@@ -1,7 +1,7 @@
 (ns re-frame.reg-view-react-key-cljs-test
   "Substrate contract: a `reg-view`'d component propagates the call-site
   `^{:key …}` (and a `:key` in metadata position) to the React element
-  it becomes, at PARITY with a plain Reagent fn. Per rf2-1anbp.
+  it becomes, at PARITY with a plain Reagent fn.
 
   Why this matters: rendering a seq of reg-views each with a per-item
   `^{:key n}` is the normal Reagent idiom (a `(for …)` list of rows). If
@@ -73,10 +73,10 @@
 (deftest seq-of-regviews-yields-distinct-react-keys
   (testing "a seq of reg-views each with a distinct ^{:key} yields
             DISTINCT React keys — the no-collision contract that prevents
-            React's 'two children with the same key' reconciliation bug
-            (rf2-1anbp). This is the (for [n …] ^{:key n} [view n]) idiom."
+            React's 'two children with the same key' reconciliation bug.
+            This is the (for [n …] ^{:key n} [view n]) idiom."
     (let [view (rf/view :rf.key-test/row)
-          ;; The exact failing shape from the bead's repro: a for-loop
+          ;; The failing shape: a for-loop
           ;; producing a seq of reg-views, each keyed by its item.
           children (for [n [1 2 3 4 5]]
                      ^{:key n} [view n])
@@ -86,7 +86,7 @@
       (is (= (count keys) (count (set keys)))
           "no two siblings collide — every React key is distinct")
       (is (not-any? #(re-find #"row" %) keys)
-          "no key fell back to the component name (the rf2-1anbp failure
+          "no key fell back to the component name (the failure
            mode: every sibling keyed by the munged component name)"))))
 
 (deftest seq-mixed-regview-kinds-distinct-keys

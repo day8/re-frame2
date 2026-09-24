@@ -1,16 +1,16 @@
 (ns re-frame.dispose-adapter-sub-cache-walk-cljs-test
   "Pins the Reagent adapter's `dispose-adapter!` four-MUST list item 1
-  (rf2-a47kq + Spec 006 §Adapter disposal lifecycle): cancel all
+  (Spec 006 §Adapter disposal lifecycle): cancel all
   in-flight reactive subscriptions by walking every live frame's
   per-frame sub-cache and disposing each cached Reaction.
 
   The reactive-graph reaping path (Reagent reaps a Reaction once its
   last watcher drops) handles the mounted-component case. This walk
   covers the test-fixture / headless path where no component unmount
-  fires before the adapter goes away — pre-rf2-a47kq the walk was a
-  no-op and the cached Reactions were leaked across teardown.
+  fires before the adapter goes away — without it the cached Reactions
+  would leak across teardown.
 
-  Three observable invariants:
+  Four observable invariants:
 
     1. After `dispose-adapter!`, every cached Reaction across every live
        frame's sub-cache reports `disposed? = true` via Reagent's own
@@ -21,7 +21,7 @@
        abort the rest of the walk (every other cached Reaction in the
        same cache + every cache in subsequent frames still gets
        disposed and cleared).
-    4. Best-effort is not silent (rf2-ss8x): once the drain has attempted
+    4. Best-effort is not silent: once the drain has attempted
        every Reaction and every root and ownership is finalized, the FIRST
        captured failure is rethrown to the `rf/destroy-adapter!` caller,
        unchanged, with any later failures attached as secondary evidence.
@@ -46,7 +46,7 @@
   ;; Wipe lifecycle state — adapter slot + disposed breadcrumb +
   ;; frame registry — so the test starts from a never-installed cold
   ;; state. The `reset-lifecycle-state-for-tests!` seam exists for
-  ;; exactly this purpose (rf2-6wxys).
+  ;; exactly this purpose.
   (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
   (reset! rf.frame/frames {})
   (rf/init! rf.adapter.reagent/adapter)
@@ -146,17 +146,16 @@
             (str "post-dispose: frame " (pr-str fid)
                  "'s sub-cache atom is empty"))))))
 
-;; ---- drain-then-rethrow (rf2-ss8x) ----------------------------------------
+;; ---- drain-then-rethrow ----------------------------------------
 ;;
 ;; Spec 006 §Adapter disposal lifecycle makes teardown failure THREE
 ;; constraints at once, and they pull against each other: drain every
 ;; Reaction and root even when one fails; do not swallow the failure; and
 ;; when several fail, surface the FIRST one, because the later ones are
-;; usually its consequences. Before rf2-ss8x the shared spine drain got the
-;; first right and the second wrong — `(catch :default _ nil)` at each step —
-;; so `rf/destroy-adapter!` returned a clean nil over a teardown that had
-;; malfunctioned, and this file's own poison proof pinned that nil as
-;; correct.
+;; usually its consequences. A drain that got the first right and the second
+;; wrong — `(catch :default _ nil)` at each step — would have
+;; `rf/destroy-adapter!` return a clean nil over a teardown that had
+;; malfunctioned.
 ;;
 ;; A throwing disposer needs a value the test can assert IDENTITY on, not
 ;; just a message: "the first failure specifically" is unprovable against an
@@ -165,10 +164,10 @@
 ;; It also has to be a value the disposer actually CALLS. The ratom family's
 ;; claimed-generation disposer dispatches
 ;; `re-frame.disposable/IDisposable` → the substrate's `IDisposable` →
-;; `:else nil`, so the bare `(js-obj "not" "a reaction")` this file used
-;; before rf2-ss8x fell through the `:else` and was skipped in silence — it
-;; proved the walk VISITED the entry and cleared the cache, but nothing ever
-;; threw, so the per-entry catch it was written to pin was never reached.
+;; `:else nil`, so a bare `(js-obj "not" "a reaction")` would fall through
+;; the `:else` and be skipped in silence — it would prove the walk VISITED
+;; the entry and cleared the cache, but nothing would ever throw, so the
+;; per-entry catch it was meant to pin would never be reached.
 ;; `throwing-cached-reaction` reifies Reagent's own `IDisposable` (whose
 ;; methods are `dispose!` / `add-on-dispose!`) so the real disposal route —
 ;; `dispose!-dispatch` → `dispose-once!` → `ratom/dispose!` — lands in a body

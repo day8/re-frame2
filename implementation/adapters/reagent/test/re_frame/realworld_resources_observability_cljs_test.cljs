@@ -1,16 +1,16 @@
 (ns re-frame.realworld-resources-observability-cljs-test
   "Mirror test for the RealWorld-on-resources example's production
-   error-reporting wiring — the frame `:observability` sink (rf2-gzp5).
+   error-reporting wiring — the frame `:observability` sink.
 
    WHY IT EXISTS. The frame `:observability` sink is the documented normal
    production observation surface (spec/API.md, spec/009,
    docs/core/observability.md and the report-errors-in-production how-to all
-   teach it first), but until rf2-gzp5 NO example in the tree configured one,
-   so a reader who followed the guide had nothing to copy from. The example now
-   carries the CONFIGURATION — `realworld-resources.core/observability` (the
+   teach it first), so a reader who follows the guide needs an example to
+   copy from. This example carries the CONFIGURATION —
+   `realworld-resources.core/observability` (the
    frame's policy) and `install-error-monitor!` (the gated sink registration) —
    and this ns carries every assertion about it. That split is the standing
-   test-free-examples lock (rf2-8cevm): no `*.spec.cjs` under `examples/`, so
+   test-free-examples lock: no `*.spec.cjs` under `examples/`, so
    the example is configuration and the framework test tree does the grading.
 
    WHAT IS PINNED, and each row is a claim the guide makes that a reader would

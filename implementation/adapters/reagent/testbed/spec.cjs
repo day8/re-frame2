@@ -1,5 +1,5 @@
 /*
- * Reagent adapter testbed — browser smoke (rf2-eceuv).
+ * Reagent adapter testbed — browser smoke.
  *
  * Proves the Reagent adapter wires up end-to-end: mount, subscribe,
  * dispatch, re-render. Minimal by design — real coverage lives in

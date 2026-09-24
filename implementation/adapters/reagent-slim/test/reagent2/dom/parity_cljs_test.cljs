@@ -1,6 +1,6 @@
 (ns reagent2.dom.parity-cljs-test
   "Parity tests for `reagent2.dom.server/render-to-static-markup`
-  against `react-dom/server.renderToStaticMarkup` (rf2-6hyy Stage 4-E).
+  against `react-dom/server.renderToStaticMarkup`.
 
   Per IMPL-SPEC §8.7 + §12.5 R-004. Mitigation for the risk that the
   pure-CLJS rewrite diverges from React's reference output.
@@ -31,24 +31,21 @@
   (server/render-to-static-markup hiccup))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-owml — there is deliberately NO roster of boolean attribute names
-;; here any more.
+;; There is deliberately NO roster of boolean attribute names here.
 ;;
-;; This file used to carry its own 22-name `boolean-attr-set`, a second
-;; copy of `reagent2.dom.server`'s presence roster, so that the diff
-;; could recognise `disabled=""` (React's spelling) as equivalent to
-;; the bare `disabled` this serializer emits. It drifted: PR #9224 added
-;; six presence names to the production roster and this copy stayed at
-;; 22, invisibly, because the corpus below exercises exactly one boolean
-;; name (`:disabled`).
+;; A roster here would be a second copy of `reagent2.dom.server`'s
+;; presence roster, kept so that the diff could recognise `disabled=""`
+;; (React's spelling) as equivalent to the bare `disabled` this serializer
+;; emits — and it would drift invisibly, because the corpus below
+;; exercises exactly one boolean name (`:disabled`).
 ;;
 ;; The roster was answering a question the canonicalisation never needed
 ;; to ask. `name` and `name=""` are the SAME markup: an HTML attribute
 ;; written without a value has the empty string as its value, so both
 ;; spellings parse to an identical DOM node and hydrate identically.
 ;; Collapsing them is therefore a lossless canonicalisation of equivalent
-;; bytes rather than an allow-list of names, and it needs no roster —
-;; which is why the drift surface is gone rather than corrected.
+;; bytes rather than an allow-list of names, and it needs no roster, so
+;; there is no copy to drift.
 ;;
 ;; What it does NOT do is hide a missing or wrong roster entry, because
 ;; those change whether the attribute is PRESENT, not how it is spelled:
@@ -88,7 +85,7 @@
        HTML5/the rewrite emits the short form `disabled`. Both
        spellings parse to the same DOM node, so BOTH sides collapse
        to the short form — no roster of names is consulted, and none
-       is maintained here (see the rf2-owml note below).
+       is maintained here (see the no-roster note above).
     3. React's attribute insertion order may differ from hiccup map
        order. Sort attributes within each tag.
     4. React 19 auto-emits `<link rel=\"preload\">` resource hints in
@@ -112,9 +109,10 @@
                                    ;; Empty value → the bare short form,
                                    ;; whatever the attribute is named. The
                                    ;; two spellings denote the same DOM
-                                   ;; node (rf2-owml, above), so this is a
-                                   ;; canonicalisation rather than a
-                                   ;; name-scoped allow-list.
+                                   ;; node (the no-roster note, above),
+                                   ;; so this is a canonicalisation
+                                   ;; rather than a name-scoped
+                                   ;; allow-list.
                                    (or (nil? v) (= "" v))
                                    (str " " k)
 
@@ -149,14 +147,14 @@
       (is (= a b)))))
 
 (deftest parity-escaped-text-quotes-apostrophe
-  (testing "rf2-4dlxga: text content escapes the full 5-char set
+  (testing "text content escapes the full 5-char set
             (& < > \" '). The serializer must be byte-equal to
             re-frame.ssr.html-helpers/escape-html — which emits the
             DECIMAL apostrophe entity &#39; (React 19 emits the
             equivalent hex &#x27;, so the apostrophe byte is pinned
             against the in-repo helper, not the React reference)."
     ;; & < > and " agree byte-for-byte with react-dom/server, so a
-    ;; =parity assertion catches the previous missing-quote-escape bug.
+    ;; =parity assertion catches a missing quote escape.
     (let [[a b] (=parity [:div "a < b > c & d \"e\""])]
       (is (= a b)))
     ;; Apostrophe diverges from React's hex form, so pin the full
@@ -194,7 +192,7 @@
       (is (= a b)))))
 
 (deftest parity-native-keyword-attr-values
-  (testing "rf2-ygknv finding 1: keyword DOM-attr values stringify on the
+  (testing "keyword DOM-attr values stringify on the
             LIVE React path the same way the server serializer does —
             [:button {:type :button}] / [:a {:target :_blank}]"
     (let [[a b] (=parity [:button {:type :button}])]
@@ -219,15 +217,15 @@
 (def ^:private presence-value-corpus
   "Non-boolean `:disabled` values, each labelled and paired with the bytes this
   serializer must produce. The corpus spans the JS PRIMITIVE TYPES that can be
-  falsey rather than a list of remembered values, because that is the axis the
-  defect lives on: string, number and bigint each contribute a falsey member and
+  falsey rather than a list of remembered values, because that is the axis a
+  divergence lives on: string, number and bigint each contribute a falsey member and
   a truthy neighbour, and every falsey member here is logically TRUE in
   ClojureScript — which is precisely why a `(when v ...)` written in CLJS
   diverges from react-dom.
 
   A bigint is the row worth stating plainly: `cljs.core/number?` compiles to
   `typeof x === \"number\"`, so a partial falsey roster written in CLJS terms
-  cannot see `0n` at all (rf2-owml). None of these values is a boolean, so the
+  cannot see `0n` at all. None of these values is a boolean, so the
   class probe in `reagent2.dom.boolean-attr-react-parity-cljs-test` cannot see
   any of them either."
   [["the empty string"      ""              "<button>x</button>"]
@@ -241,7 +239,7 @@
    ["a non-zero bigint"     (js/BigInt 1)   "<button disabled>x</button>"]])
 
 (deftest parity-presence-attr-collapses-on-js-truthiness
-  (testing "rf2-owml: a presence attribute collapses on JS TRUTHINESS, against
+  (testing "a presence attribute collapses on JS TRUTHINESS, against
             the live react-dom reference"
     (doseq [[label v _] presence-value-corpus]
       (let [[a b] (=parity [:button {:disabled v} "x"])]
@@ -260,7 +258,7 @@
     (is (= "<button>x</button>" (via-rewrite [:button {:disabled js/NaN} "x"])))))
 
 (deftest empty-value-on-an-ordinary-attribute-keeps-its-quotes
-  (testing "rf2-owml: the canonicalisation above collapses `k=\"\"` to bare `k`
+  (testing "the canonicalisation above collapses `k=\"\"` to bare `k`
             on BOTH sides, so it cannot be the thing asserting that an ordinary
             attribute keeps the quoted empty value. That is pinned here,
             OUTSIDE `=parity`, on the serializer's raw bytes — react-dom emits
@@ -338,14 +336,14 @@
       (is (= a b)))))
 
 ;; ---------------------------------------------------------------------------
-;; Element-context text rules (rf2-3x7nj.6.2)
+;; Element-context text rules
 ;;
 ;; react-dom emits a `<script>` / `<style>` string body verbatim (raw text,
 ;; which the HTML parser never entity-decodes) with only an embedded
 ;; closing-tag sequence rewritten, and prefixes one compensating LF to a
-;; `<pre>` whose sole string body starts with LF. This corpus had no
-;; raw-text element and no leading-LF body, which is why the serializer's
-;; entity-escaping of both went unnoticed.
+;; `<pre>` whose sole string body starts with LF. Without a raw-text
+;; element or a leading-LF body in this corpus, a serializer that
+;; entity-escaped either would pass unnoticed.
 ;; ---------------------------------------------------------------------------
 
 (deftest parity-raw-text-elements-rf2-3x7nj-6-2
@@ -389,7 +387,7 @@
       (is (= a b)))))
 
 ;; ---------------------------------------------------------------------------
-;; Inline-style serialisation (rf2-9nyg6)
+;; Inline-style serialisation
 ;;
 ;; `react-dom/server.renderToStaticMarkup` appends `px` to numeric values
 ;; of non-unitless CSS properties, keeps unitless properties bare, and
@@ -435,7 +433,7 @@
            (via-rewrite [:div {:style {:width "10em" :color "red"}}])))))
 
 (deftest parity-style-webkit-box-flex-group
-  (testing "rf2-4dlxga: `WebkitBoxFlexGroup` gets px (NOT unitless) —
+  (testing "`WebkitBoxFlexGroup` gets px (NOT unitless) —
             React 19.2.0's unitlessNumber Set spells the entry with a
             capital K (`WebKitBoxFlexGroup`), but the camelCase prop
             token is lowercase-k `WebkitBoxFlexGroup`, so React's own
@@ -454,21 +452,20 @@
 
 (deftest style-custom-property-verbatim
   (testing "CSS custom property (--foo) passes through verbatim, no px"
-    ;; rf2-ygknv finding 2: the React-element path now preserves `--foo`
-    ;; style keys verbatim (dash-to-prop-name short-circuits `--` names),
-    ;; so the live path and the pure serializer AGREE — a real parity
-    ;; assertion replaces the old documents-the-bug comment.
+    ;; The React-element path preserves `--foo` style keys verbatim
+    ;; (dash-to-prop-name short-circuits `--` names), so the live path
+    ;; and the pure serializer AGREE, and a real parity assertion pins it.
     (let [[a b] (=parity [:div {:style {:--gap "8px"}}])]
       (is (= a b) "live React path and pure serializer agree on --gap"))
     (is (= "<div style=\"--gap:8\"></div>"
            (via-rewrite [:div {:style {:--gap 8}}])))))
 
 (deftest parity-style-keyword-value-rf2-fdm4rm
-  (testing "rf2-fdm4rm: keyword-valued style properties stringify on the
+  (testing "keyword-valued style properties stringify on the
             LIVE React path so react-dom/server and the pure serializer
             AGREE — {:cursor :pointer} → cursor:pointer on both. This pin
             FAILS if the live template path passes a raw keyword into React
-            (the pre-fix bug: React string-coerces the CLJS keyword :pointer
+            (React would string-coerce the CLJS keyword :pointer
             to \":pointer\", emitting invalid `cursor::pointer`)."
     (let [[a b] (=parity [:div {:style {:cursor :pointer}}])]
       (is (= a b)
@@ -482,14 +479,14 @@
            (via-rewrite [:div {:style {:display :flex :text-align :center}}])))))
 
 ;; ---------------------------------------------------------------------------
-;; SVG attribute-name casing parity (rf2-ygknv finding 3)
+;; SVG attribute-name casing parity
 ;;
 ;; `react-dom/server` is case-sensitive about SVG attribute names: it
 ;; preserves `viewBox`/`preserveAspectRatio`/`gradientUnits`/`stdDeviation`,
 ;; dasherizes `clipPath`→`clip-path` / `strokeWidth`→`stroke-width` /
 ;; `fillOpacity`→`fill-opacity` / `stopColor`→`stop-color`, and lowercases
-;; plain HTML camelCase (`tabIndex`→`tabindex`). The pure serializer used
-;; to blanket-lowercase, turning `viewBox` into the broken `viewbox`. The
+;; plain HTML camelCase (`tabIndex`→`tabindex`). A blanket-lowercasing
+;; serializer would turn `viewBox` into the broken `viewbox`. The
 ;; =parity assertions pin the serializer against the live React reference;
 ;; the explicit-string assertions document the target independently.
 ;; ---------------------------------------------------------------------------
@@ -543,13 +540,12 @@
       (is (= a b)))))
 
 (deftest parity-svg-mask-family-rf2-4ale
-  (testing "rf2-4ale — react-dom 19.3 emits `maskType` as `mask-type`, where
-            19.2 emitted it verbatim. `react-attribute-name-overrides` carried
-            no `maskType` row, so the name fell through to the lowercase rule
-            and this serializer wrote `masktype` — wrong under BOTH versions.
-            The other mask-family names are the unaffected controls: they must
+  (testing "react-dom 19.3 emits `maskType` as `mask-type`. Without a
+            `maskType` row in `react-attribute-name-overrides` the name would
+            fall through to the lowercase rule and this serializer would write
+            `masktype`. The other mask-family names are the controls: they must
             keep their camelCase through the same code path, which is what
-            makes the correction narrow rather than a lowercase-rule change.
+            keeps the override narrow rather than a lowercase-rule change.
 
             The reference here is the INSTALLED react-dom rather than a
             hand-written expectation, because the defect class is this table
@@ -571,14 +567,14 @@
            (via-rewrite [:mask {:mask-content-units "userSpaceOnUse"}])))))
 
 (deftest parity-xml-namespaced-and-transform-origin-names-rf2-u0xpc
-  (testing "rf2-u0xpc — react-dom 19.3.0 writes the XML-namespaced names with
+  (testing "react-dom 19.3.0 writes the XML-namespaced names with
             their colon (`xlinkHref` → `xlink:href` and `xmlLang` → `xml:lang`
             are dedicated `pushAttribute` cases, `xmlnsXlink` → `xmlns:xlink`
             an `aliases` row) and dasherizes `transformOrigin` (an `aliases`
-            row). `react-attribute-name-overrides` carried none of them, so each
-            fell through to the lowercase rule and this serializer wrote
+            row). Without their `react-attribute-name-overrides` rows each would
+            fall through to the lowercase rule and this serializer would write
             `xlinkhref` / `xmllang` / `transformorigin`: attributes no browser
-            knows, so a `<use>` sprite reference did not resolve. The reference
+            knows, so a `<use>` sprite reference would not resolve. The reference
             is the INSTALLED react-dom; the whole candidate space is swept by
             `attribute-names-agree-with-installed-react-dom` in
             `reagent2.dom.boolean-attr-react-parity-cljs-test`"
@@ -605,21 +601,21 @@
            (via-rewrite [:svg [:g {:transform-origin "center"}]])))))
 
 (deftest parity-html-tab-index-lowercased
-  (testing ":tab-index still lowercases to tabindex (HTML camelCase)"
+  (testing ":tab-index lowercases to tabindex (HTML camelCase)"
     (let [[a b] (=parity [:div {:tab-index 3}])]
       (is (= a b)))
     (is (= "<div tabindex=\"3\"></div>"
            (via-rewrite [:div {:tab-index 3}])))))
 
 ;; ---------------------------------------------------------------------------
-;; javascript: URLs (rf2-w1hd8)
+;; javascript: URLs
 ;;
 ;; react-dom 19 neutralises a `javascript:` URL in its URL-bearing props:
 ;; `href`, `src`, `action`, `formAction` and `xlinkHref` on any non-custom
 ;; element, and `data` on an `<object>`. It swaps the value for a URL that
-;; throws (`sanitizeURL`, tested by `isJavaScriptProtocol`). This serializer
-;; wrote every one of them unchanged, so a `javascript:` URL that react-dom
-;; would have blocked went out live. The reference below is the INSTALLED
+;; throws (`sanitizeURL`, tested by `isJavaScriptProtocol`). A serializer
+;; writing them unchanged would send out live a `javascript:` URL that
+;; react-dom blocks. The reference below is the INSTALLED
 ;; react-dom. `javascript-url-blocking-agrees-with-installed-react-dom`, in
 ;; `reagent2.dom.boolean-attr-react-parity-cljs-test`, sweeps the same rule
 ;; over react-dom's whole candidate-name space.

@@ -1,24 +1,23 @@
 (ns re-frame.adapter.reagent-slim-dispose-sub-cache-walk-cljs-test
   "Pins the reagent-slim adapter's `dispose-adapter!` four-MUST list
-  item 1 (rf2-jcjul + Spec 006 §Adapter disposal lifecycle): cancel
+  item 1 (Spec 006 §Adapter disposal lifecycle): cancel
   all in-flight reactive subscriptions by walking every live frame's
   per-frame sub-cache and disposing each cached Reaction.
 
   Mirrors the Reagent adapter's
   `re-frame.dispose-adapter-sub-cache-walk-cljs-test` so the cross-
-  adapter parity from rf2-jcjul stays pinned at all three substrates'
+  adapter parity is pinned at all three substrates'
   user-facing surfaces. The unit-tier coverage of the underlying
   `spine/dispose-frame-sub-caches!` helper lives in
   `re-frame.substrate.spine-dispose-cljs-test`; this file covers the
   through-the-slim-adapter shape.
 
-  Pre-rf2-jcjul this adapter's `dispose-adapter!` was a no-op
-  (`nil` return; comment claimed 'Reactions GC themselves') — but
-  that's the headless / test-fixture path the spec calls out as the
+  A no-op `dispose-adapter!` that trusted 'Reactions GC themselves'
+  would fail the headless / test-fixture path the spec calls out as the
   exact reason for the walk: no component unmount fires before the
-  adapter goes away, so the per-frame sub-cache's Reactions stay
-  pinned at ref-count 1 forever and the adapter slot can't be reused
-  cleanly. The spine-backed walk now covers this.
+  adapter goes away, so the per-frame sub-cache's Reactions would stay
+  pinned at ref-count 1 forever and the adapter slot could not be reused
+  cleanly. The spine-backed walk covers this.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -39,7 +38,7 @@
   ;; Wipe lifecycle state — adapter slot + disposed breadcrumb +
   ;; frame registry — so the test starts from a never-installed cold
   ;; state. The `reset-lifecycle-state-for-tests!` seam exists for
-  ;; exactly this purpose (rf2-6wxys).
+  ;; exactly this purpose.
   (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
   (reset! rf.frame/frames {})
   (rf/init! rf.adapter.reagent-slim/adapter)
@@ -141,25 +140,23 @@
 
 ;; ---- the poison entry has to be one the disposer actually CALLS ------------
 ;;
-;; rf2-vy0a. Until this bead the poison entry here was a bare
-;; `(js-obj "not" "a reaction")`, and it never threw. The ratom family's
-;; claimed-generation disposer (`spine/make-ratom-dispose-dispatch`)
+;; A bare `(js-obj "not" "a reaction")` poison entry would never throw. The
+;; ratom family's claimed-generation disposer (`spine/make-ratom-dispose-dispatch`)
 ;; dispatches `re-frame.disposable/IDisposable` → the substrate's
 ;; `IDisposable` → `:else nil`; a bare `js-obj` satisfies NEITHER protocol,
-;; so the entry was SKIPPED in silence. Every assertion in the test passed
-;; and the per-entry failure path it was written for was never reached — the
-;; test proved visit-and-clear and nothing else.
+;; so such an entry is SKIPPED in silence. Every assertion in the test would
+;; pass and the per-entry failure path it is written for would never be
+;; reached — the test would prove visit-and-clear and nothing else.
 ;;
 ;; `throwing-cached-reaction` reifies reagent2's own `IDisposable` — whose
 ;; methods are `dispose!` / `add-on-dispose!`, NOT `-dispose`, and that
-;; naming detail is the whole reason the bare object fell through — so the
+;; naming detail is exactly how a bare object falls through — so the
 ;; real disposal route lands in a body that throws a sentinel this test
 ;; allocated. A sentinel rather than a message because "the FIRST failure
 ;; specifically" is unprovable against an error the runtime minted.
 ;;
 ;; Mirrors `re-frame.dispose-adapter-sub-cache-walk-cljs-test`'s
-;; `throwing-cached-reaction`, which rf2-ss8x built for the stock-Reagent
-;; surface after finding the same vacuity there.
+;; `throwing-cached-reaction` on the stock-Reagent surface.
 
 (defn- throwing-cached-reaction
   "A sub-cache-shaped `:reaction` whose disposal throws `sentinel` and
@@ -174,11 +171,11 @@
     (add-on-dispose! [_ _f] nil)))
 
 (deftest dispose-adapter-walk-drains-past-a-throwing-entry-then-rethrows
-  (testing "rf2-sx77q G3 + rf2-ss8x, made load-bearing by rf2-vy0a: a throwing
+  (testing "A throwing
   per-entry dispose does NOT abort the rest of the walk, and the failure is
   rethrown to the caller once the drain is complete. The tolerance and the
-  rethrow are both spine-shared but were pinned ONLY on the Reagent adapter;
-  this slim sibling closes the gap so a future spine refactor that drops
+  rethrow are both spine-shared; this slim sibling of the Reagent adapter's
+  pin means a spine refactor that drops
   either is caught at the slim surface too (slim claims drop-in Reagent
   parity)."
     (rf/make-frame {:id :walk/a})
@@ -213,8 +210,7 @@
                             ::returned-normally
                             (catch :default e e))]
             ;; (1) THE POISON ACTUALLY FIRED. Without this the rest of the
-            ;; test is satisfied by an entry that was silently skipped —
-            ;; which is exactly what it was before rf2-vy0a.
+            ;; test would be satisfied by an entry that was silently skipped.
             (is (= 1 @attempts)
                 "the poison entry's disposer was CALLED, exactly once — not
                  skipped by the dispatch's :else branch, and not retried")

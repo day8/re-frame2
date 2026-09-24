@@ -1,5 +1,5 @@
 (ns re-frame.adapter.reagent-slim-cljs-test
-  "Structural tests for re-frame.adapter.reagent-slim (Stage 4-D, rf2-6hyy).
+  "Structural tests for re-frame.adapter.reagent-slim.
 
   The substrate-shape contract (per re-frame.substrate.adapter):
 
@@ -11,14 +11,13 @@
   Test strategy: we don't drive React DOM here (no jsdom in node-
   test); we exercise the adapter map's keys and the shape of the
   fns on each slot. The full `(rf/init! ...)` dispatch / subscribe /
-  render path is exercised in the browser-test target (Stage 4-E
-  follow-up).
+  render path is exercised in the browser-test target.
 
-  Per rf2-0d35 the `:adapter/current-frame` and
-  `:adapter/current-component` late-bind hooks are now installed as
+  The `:adapter/current-frame` and
+  `:adapter/current-component` late-bind hooks are installed as
   routing closures that delegate to the actively-installed adapter
   (via `substrate-adapter/current-adapter`) — so a test bundle that
-  loads multiple adapter ns's no longer sees the last-loaded one
+  loads multiple adapter ns's does not see the last-loaded one
   silently win at the hook regardless of which adapter was
   `(rf/init!)`-installed. The `:reagent/set-hiccup-emitter!` hook is
   chained at ns-load time per the SSR shipping convention.
@@ -54,7 +53,7 @@
 
 (deftest adapter-has-canonical-keys
   (testing "the adapter map carries the substrate-shape keys + :kind discriminator
-            (incl. the optional rf2-40a84 :flush-render! slot)"
+            (incl. the optional :flush-render! slot)"
     (let [k (set (keys rf.adapter.reagent-slim/adapter))]
       (is (= #{:kind
               :make-state-container
@@ -65,7 +64,7 @@
               :render
               :render-to-string
               :register-context-provider
-              ;; rf2-40a84 — optional synchronous render-flush contract fn.
+              ;; Optional synchronous render-flush contract fn.
               :flush-render!
               :dispose-adapter!}
              k)
@@ -147,7 +146,7 @@
               "the installed emitter received the render-tree the caller passed in"))))))
 
 (deftest set-hiccup-emitter-published-through-late-bind-chain
-  (testing "rf2-swoks: the Reagent Slim adapter chains its set-hiccup-emitter!
+  (testing "The Reagent Slim adapter chains its set-hiccup-emitter!
             into `:reagent/set-hiccup-emitter!` at ns-load. Calling the
             hook installs the emitter into the Reagent Slim adapter's
             slot, so SSR's `re-frame.ssr.emit` ns-load can auto-wire

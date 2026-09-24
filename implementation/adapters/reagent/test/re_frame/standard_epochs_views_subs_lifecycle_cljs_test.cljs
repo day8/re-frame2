@@ -1,9 +1,9 @@
 (ns re-frame.standard-epochs-views-subs-lifecycle-cljs-test
-  "Per rf2-fqzmb — substrate contract coverage for the standard-epochs
+  "Substrate contract coverage for the standard-epochs
   Views/subscriptions section's view + subscription LIFECYCLE.
 
   The standard-epochs testbed (`tools/xray/testbeds/standard_epochs/core.cljs`)
-  is test-free (locked, rf2-8cevm): its BUTTONS demonstrate the
+  is test-free: its BUTTONS demonstrate the
   behaviour for Xray + re-frame2-pair inspection. The hard ASSERTIONS
   live here — the substrate subs/views contract suite — exactly
   mirroring the section's shape so the testbed wiring and the
@@ -18,7 +18,7 @@
               PLUS the arg-keyed `[:standard-epochs/greater-than? N]` sub.
     Child B — PROPS-driven. Receives a prop, subscribes NOTHING.
 
-  The five contract assertions (one per acceptance item):
+  The five contract assertions:
 
     1. Mounting A creates A's sub-cache entries — the chain L1/L2/L3
        AND `[:standard-epochs/greater-than? 5]`.
@@ -33,13 +33,13 @@
     5. A render driven by an own-sub change names that sub on
        `:rf.view/triggered-by` (Child A); a render driven by a PROPS
        change does NOT (Child B) — the consumer reads the absence as
-       `← props changed`. (Pairs with the rf2-bhi3t render-cause Xray
-       work.)
+       `← props changed`. (Pairs with Xray's render-cause
+       attribution.)
 
   Mechanism. A view's mount→render→deref path subscribes (a derefer
   arriving) and the unmount path unsubscribes (the derefer dropping)
   — the per-subscribe ref-count machinery in `re-frame.subs.cache`
-  (Spec 006 §Reference counting and disposal, rf2-cmfln). These tests
+  (Spec 006 §Reference counting and disposal). These tests
   stand in for the view by driving the subscribe/unsubscribe pairs
   directly with the Reagent adapter installed and inspecting the
   frame's `:sub-cache` atom (keyed by the query-vector, per
@@ -127,7 +127,7 @@
 ;; ===========================================================================
 
 (deftest mounting-a-creates-chain-and-arg-keyed-cache-entries
-  (testing "rf2-fqzmb #1: mounting Child A subscribes its own L1→L2→L3
+  (testing "#1: mounting Child A subscribes its own L1→L2→L3
    chain AND the arg-keyed [:standard-epochs/greater-than? 5] sub — every
    one lands a sub-cache entry. The chain's intermediate L1 (:chain-root)
    + L2 (:chain-doubled) materialise via the cascade even though A only
@@ -161,7 +161,7 @@
 ;; ===========================================================================
 
 (deftest changing-the-arg-creates-a-distinct-cache-entry
-  (testing "rf2-fqzmb #2: the parameterized-sub cache is keyed by arg.
+  (testing "#2: the parameterized-sub cache is keyed by arg.
    With A mounted at N=5, changing the arg to N=10 (the testbed's
    button 11) materialises a NEW [:standard-epochs/greater-than? 10] entry
    ALONGSIDE the original [:standard-epochs/greater-than? 5] — two distinct
@@ -196,7 +196,7 @@
 ;; ===========================================================================
 
 (deftest perturbing-chain-input-recomputes-the-chain
-  (testing "rf2-fqzmb #3: with A mounted, perturbing the chain input
+  (testing "#3: with A mounted, perturbing the chain input
    (the testbed's button 12) propagates invalidation down L1 (:chain-root)
    → L2 (:chain-doubled) → L3 (:chain-labelled). The L3 value the view
    reads reflects the new root — the recompute reached the leaf."
@@ -222,7 +222,7 @@
 
       (unmount-a! held)))
 
-  (testing "rf2-fqzmb #3 (gt? recompute): once the root crosses the
+  (testing "#3 (gt? recompute): once the root crosses the
    threshold the arg-keyed sub flips — same shared L1 drives both legs."
     (register-section-subs!)
     (register-section-events!)
@@ -238,7 +238,7 @@
 ;; ===========================================================================
 
 (deftest unmounting-a-disposes-every-sub-and-records-the-unmount
-  (testing "rf2-fqzmb #4: unmounting Child A (the testbed's button 13)
+  (testing "#4: unmounting Child A (the testbed's button 13)
    drops the last derefer on every sub A held, so the synchronous
    last-reader-gone GC evicts ALL of them — the chain L1/L2/L3 AND
    every [:gt? N] entry the section accumulated — and the unmount is
@@ -310,10 +310,10 @@
   #(= :rf.view/rendered (:operation %)))
 
 (deftest child-a-render-named-by-its-sub-child-b-by-props
-  (testing "rf2-fqzmb #5: Child A (subscription-driven) re-renders ←
+  (testing "#5: Child A (subscription-driven) re-renders ←
    a SUB changed, so :rf.view/rendered names that sub on
    :rf.view/triggered-by. Child B (props-driven) subscribes nothing, so
-   its re-render names NO sub — the foil. Pairs with the rf2-bhi3t Xray
+   its re-render names NO sub — the foil. Pairs with Xray's
    render-cause attribution."
     (register-section-subs!)
     (register-section-events!)

@@ -1,6 +1,5 @@
 (ns adapter-testbed-reagent.core
-  "Tiny standalone counter app — the Reagent adapter's smoke fixture
-   (rf2-eceuv).
+  "Tiny standalone counter app — the Reagent adapter's smoke fixture.
 
    Per TESTING.md §Test surface ownership: examples/ are for humans;
    per-adapter smoke lives with the adapter. This testbed proves the
@@ -26,7 +25,7 @@
 
 ;; -- View -------------------------------------------------------------------
 
-;; EP-0002 (rf2-9o48ih): the render-time `subscribe` below resolves its
+;; EP-0002: the render-time `subscribe` below resolves its
 ;; frame from the closest enclosing `frame-provider` via React context —
 ;; but ONLY a `reg-view`-registered component carries the `:contextType`
 ;; static-field wiring Reagent needs to read that context (a plain Reagent
@@ -35,7 +34,7 @@
 ;; So `root` is a `reg-view`, matching every other frame-scoped Reagent
 ;; view in the codebase (Spec 002 §Reading the frame from React context).
 (reg-view root []
-  ;; EP-0002 (rf2-9o48ih): capture a frame-bound `dispatch` at RENDER time via
+  ;; EP-0002: capture a frame-bound `dispatch` at RENDER time via
   ;; `(rf/capture-frame)`. The reg-view resolves the surrounding frame-provider's
   ;; frame through React context here; the frame api closes over it, so the
   ;; `:on-click` handler — which fires LATER (on user click), outside any render
@@ -55,14 +54,14 @@
 
 ;; -- Mount ------------------------------------------------------------------
 
-;; The adapter-owned client root (rf2-k5r9t): inert at namespace load, the
+;; The adapter-owned client root: inert at namespace load, the
 ;; React Root is created by the first `render!` through it and updated by
 ;; every later one — the same shape the boot guide and the generated
 ;; template teach, so this smoke mounts the way an app does.
 (defonce app-root (rf.adapter.reagent/client-root))
 
 (defn ^:export init []
-  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
+  ;; EP-0002: the runtime never synthesises a frame from
   ;; absence — `:rf/default` is this testbed's app frame, registered
   ;; explicitly here (init! installs only the adapter). The boot dispatch
   ;; runs under the frame scope and the render is wrapped in a

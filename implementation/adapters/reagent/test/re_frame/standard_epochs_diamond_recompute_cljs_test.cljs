@@ -1,14 +1,13 @@
 (ns re-frame.standard-epochs-diamond-recompute-cljs-test
-  "Per rf2-xxf8x — substrate contract coverage for the standard-epochs
-  Reactive-substrate section's DIAMOND redundant-recompute probe. The
-  automated regression companion to the visual diamond probe (rf2-kt5nx,
-  PR #2569) and the live measurement that found it clean (the join sub
-  recomputes 1× per single root change at both the raw-Reagent and the
-  re-frame reg-sub layers).
+  "Substrate contract coverage for the standard-epochs
+  Reactive-substrate section's DIAMOND redundant-recompute probe: the
+  automated companion to the testbed's visual diamond probe (the join
+  sub recomputes 1× per single root change at both the raw-Reagent and
+  the re-frame reg-sub layers).
 
   The standard-epochs testbed
-  (`tools/xray/testbeds/standard_epochs/core.cljs`) is test-free (locked,
-  rf2-8cevm): its button #24 demonstrates the behaviour for Xray +
+  (`tools/xray/testbeds/standard_epochs/core.cljs`) is test-free: its
+  button #24 demonstrates the behaviour for Xray +
   re-frame2-pair inspection. The hard ASSERTION lives here — the substrate
   subs contract suite — sibling to
   `re-frame.standard-epochs-views-subs-lifecycle-cljs-test`.
@@ -29,11 +28,10 @@
   sub TWICE per single root change (the push-based diamond redundant-
   recompute).
 
-  THE METHODOLOGICAL TWIST (the bead is explicit — do not get this wrong).
+  THE METHODOLOGICAL TWIST (do not get this wrong).
   To COUNT recomputes you must exercise the PUSH path, which needs an
   EAGER consumer + a flush. A single lazy deref always pulls the join node
-  exactly once and CANNOT reveal a double-compute (this was the first
-  wrong measurement during the live investigation). So we stand a real
+  exactly once and CANNOT reveal a double-compute. So we stand a real
   mounted view in with `reagent.ratom/run!` (an auto-running reaction that
   eagerly derefs `:diamond-c`), reset the counter, dispatch ONE root
   change, `flush!` the reaction queue (the push), and assert the counter
@@ -95,7 +93,7 @@
 ;; ===========================================================================
 
 (deftest diamond-join-recomputes-once
-  (testing "rf2-xxf8x: with an EAGER consumer of the join sub mounted
+  (testing "with an EAGER consumer of the join sub mounted
    (an auto-running `ratom/run!` reaction standing in for a mounted view),
    a single root bump pushes EXACTLY ONE recompute through the join node —
    no push-based diamond double-compute. Exercising the push path (eager

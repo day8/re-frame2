@@ -22,7 +22,7 @@
          ;; classpath RESOLVE, not that it covers anything. The adapter ns is
          ;; CLJS-only, so `test/` holds no JVM-runnable suite and zero tests
          ;; is the CORRECT outcome here — the runner's test-count floor
-         ;; (rf2-qqzmf) must not apply, and saying so explicitly is what
+         ;; must not apply, and saying so explicitly is what
          ;; keeps that a declared exemption rather than an accident. If a
          ;; JVM test ever lands here, drop `--probe` and take the floor.
          :main-opts   ["-m" "re-frame.test-quiet.runner" "--probe"]}

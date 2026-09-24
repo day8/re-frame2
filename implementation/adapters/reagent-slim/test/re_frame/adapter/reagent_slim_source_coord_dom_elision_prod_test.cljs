@@ -1,14 +1,14 @@
 (ns re-frame.adapter.reagent-slim-source-coord-dom-elision-prod-test
-  "Per Spec 006 §Source-coord annotation production-elision contract
-  (beads rf2-uwg5 / rf2-sx77q G1): under `:advanced` + `goog.DEBUG=false`,
+  "Per Spec 006 §Source-coord annotation production-elision contract:
+  under `:advanced` + `goog.DEBUG=false`,
   the reagent-slim adapter's source-coord injection branch elides. A
   registered view's rendered hiccup carries NO data-rf2-source-coord
   attribute under prod-mode.
 
-  WHY THIS FILE EXISTS (rf2-sx77q G1, the sharpest slim gap). slim is
+  WHY THIS FILE EXISTS. slim is
   positioned as a drop-in Reagent replacement and ships the SAME
-  `interop/debug-enabled?` stamping gate as the Reagent bridge — yet
-  before this file there was zero proof the slim path DCEs under
+  `interop/debug-enabled?` stamping gate as the Reagent bridge, so it
+  needs its own proof that the slim path DCEs under
   `:advanced` + `goog.DEBUG=false`. The Reagent bridge has
   `re-frame.source-coord-dom-elision-prod-test`; this is the slim
   sibling. Like the bridge, slim renders hiccup (not React elements), so
@@ -57,7 +57,7 @@
 
 (deftest reg-view-output-has-no-source-coord-under-prod-slim
   (testing "Per Spec 006 §Source-coord annotation production-elision
-            (rf2-sx77q G1, slim side): a registered view's rendered hiccup
+            (slim side): a registered view's rendered hiccup
             carries NO :data-rf2-source-coord attribute under :advanced +
             goog.DEBUG=false. The Closure compiler DCEs the entire
             (when interop/debug-enabled? ...) branch."

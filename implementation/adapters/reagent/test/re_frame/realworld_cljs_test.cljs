@@ -1,23 +1,21 @@
 (ns re-frame.realworld-cljs-test
-  "Integration test: drives the realworld (Conduit) example (rf2-4v73)
+  "Integration test: drives the realworld (Conduit) example
    feature by feature. Each helper spins a fresh frame via `make-frame`,
    drives a feature flow with a canned :rf.http/managed stub, and asserts
    the resulting app-db / sub state. The one row that uses NO canned stub is
-   the production-seam receipt at the bottom (rf2-k5lbd): managed HTTP wired
+   the production-seam receipt at the bottom: managed HTTP wired
    to the app's own demo backend, replies awaited rather than injected.
 
    The fixture fns + the canned-stub helpers live HERE (the adapter test
    tree), not under examples/real-apps/realworld_http/ — the example source stays
-   test-free per the locked test-free-examples policy (rf2-8cevm). The ns
+   test-free per the test-free-examples policy. The ns
    requires the example's production source (`realworld.core`, which
    chains in every feature ns — auth / articles / article-editor /
    comments / favorites / profile / settings / tags / routing — plus
    `realworld.ssr`), so their handlers / subs / views / machines register
-   at ns-load, then exercises them directly. (rf2-cd2zo folded the former
-   `realworld.test-helpers` + the nine `realworld.*-test` fixture nses in
-   here and retired the example test/ dir.)
+   at ns-load, then exercises them directly.
 
-   Per rf2-am9d this ns uses snapshot/restore via re-frame.test-support
+   This ns uses snapshot/restore via re-frame.test-support
    so the contract is uniform across CLJS fixtures: the snapshot captures
    the realworld example's ns-load registrations (and the
    `:realworld.test/canned-success-empty` stub registered at this ns's
@@ -30,9 +28,9 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
-            ;; Activate the default Malli validator (rf2-t0hq): without this
+            ;; Activate the default Malli validator: without this
             ;; require the CLJS default validator soft-passes and the durable
-            ;; AuthSlice regression below could never observe a rollback. This is
+            ;; AuthSlice test below could never observe a rollback. This is
             ;; the canonical app-boot opt-in for Malli app-schema validation.
             [re-frame.schemas.malli]
             [malli.core :as m]
@@ -40,7 +38,7 @@
             [re-frame.http.test-support]
             ;; The shared WIRE contract (User / UserResponse) + this app's
             ;; durable app-db schemas (AuthSlice), for the default-frame
-            ;; validator regression (rf2-3fc89f.32).
+            ;; validator test.
             [realworld-shared.schema :as ws]
             [realworld-http.schema :as app-schema]
             [realworld-http.core]
@@ -51,17 +49,17 @@
             ;; auth-gate tests exercise (EP-0037 R4).
             [realworld-http.routing]
             ;; Pagination pure helpers (page->offset / page-count / query-string /
-            ;; paginate-path) exercised directly by the pagination-helpers test
-            ;; (rf2-yt7ay6). The example source stays test-free; the assertions
+            ;; paginate-path) exercised directly by the pagination-helpers
+            ;; test. The example source stays test-free; the assertions
             ;; live here.
             [realworld-http.http :as rh]
             ;; Article-editor pure helpers (validate-draft / parse-tag-list /
             ;; draft-from-article / article-body) exercised directly by
-            ;; editor-pure-helpers-test (rf2-54eebb). Example source stays
+            ;; editor-pure-helpers-test. Example source stays
             ;; test-free; assertions live here.
             [realworld-http.article-editor :as editor]
             ;; The `home-context` pure flattener (tags.cljs) exercised directly by
-            ;; home-context-test (rf2-rq65wv).
+            ;; home-context-test.
             [realworld-http.tags :as tags]
             [realworld-http.ssr :as ssr]
             ;; The shared demo backend the app's production `:rf.http/managed`
@@ -160,19 +158,19 @@
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    ;; EP-0002 (rf2-9o48ih): each helper spins its OWN top-level frame via
+    ;; EP-0002: each helper spins its OWN top-level frame via
     ;; `make-frame`; opt out of the ambient `:rf/default` scope so the new
     ;; frame's `:initial-events` drain synchronously (top-level boot) rather than
     ;; being treated as a mid-cascade child-frame creation. In-body dispatches
     ;; carry explicit `{:frame f}` or run inside the `with-new-frame` scope.
     {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil
-     ;; Map-form (rf2-k5lbd): the production-seam receipt at the bottom is an
+     ;; Map-form: the production-seam receipt at the bottom is an
      ;; `(async done …)` row — it awaits the demo backend's deferred replies —
      ;; and cljs.test runs one only under a map fixture. Sync rows are served
      ;; identically (re-frame.async-reset-fixture-cljs-test pins that).
      :async?        true
-     ;; BUNDLE CO-LOAD HYGIENE (rf2-kuky.27): the RealWorld twins share id
+     ;; BUNDLE CO-LOAD HYGIENE: the RealWorld twins share id
      ;; vocabulary (`:settings/load`, `:auth/initialise`, …) and both register
      ;; the reserved per-app `:rf.route/not-found` route, so two provenance
      ;; rows for one id fail default-image assembly loud for any suite whose
@@ -196,7 +194,7 @@
 
   (with-new-frame [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed      :realworld.test/login-success
                                                     :auth.session/persist :rf/no-op}})]
-    ;; EP-0017 (rf2-16ck78): `:auth/initialise` consumes the recordable
+    ;; EP-0017: `:auth/initialise` consumes the recordable
     ;; `:auth.session/token` coeffect. Live, its registered supplier reads
     ;; localStorage; a test pins an exact value through the dispatch-site
     ;; `:rf.cofx` stub, which is the seam the registration itself documents.
@@ -205,7 +203,7 @@
                       {:frame f :rf.cofx {:auth.session/token nil}})
     (is (= :idle (rf/compute-sub [:auth/state] (rf/frame-state-value f))))
 
-    ;; rf2-agb5jk (item 1): the machine is credential-free — login goes through
+    ;; The machine is credential-free — login goes through
     ;; the credential-owning form-submit event, exactly the way the real app's
     ;; view dispatches it, not a direct password-bearing machine dispatch.
     (rf/dispatch-sync [:auth.login-form/initialise] {:frame f})
@@ -245,11 +243,11 @@
                         :body   {:errors {:body ["email or password is invalid"]}}})
 
   (with-new-frame [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed :realworld.test/login-failure}})]
-    ;; EP-0017 (rf2-16ck78): pin the recordable `:auth.session/token` through the
+    ;; EP-0017: pin the recordable `:auth.session/token` through the
     ;; dispatch-site `:rf.cofx` stub (nil node-side, as the supplier would give).
     (rf/dispatch-sync [:auth/initialise]
                       {:frame f :rf.cofx {:auth.session/token nil}})
-    ;; rf2-agb5jk (item 1): drive login through the credential-owning form-submit
+    ;; Drive login through the credential-owning form-submit
     ;; event — the machine itself is credential-free.
     (rf/dispatch-sync [:auth.login-form/initialise] {:frame f})
     (rf/dispatch-sync [:auth.login-form/edit-field :email "x@y.z"] {:frame f})
@@ -262,20 +260,21 @@
     (is (= :idle (rf/compute-sub [:auth/state] (rf/frame-state-value f))))))
 
 ;; ============================================================================
-;; auth — wire User vs token-free durable session-user (rf2-3fc89f.32)
+;; auth — wire User vs token-free durable session-user
 ;; ============================================================================
 ;;
-;; The correctness review found the durable AuthSlice validated its :user
-;; against the WIRE `ws/User`, which REQUIRES the sensitive :token — but
+;; A durable AuthSlice that validated its :user against the WIRE `ws/User`,
+;; which REQUIRES the sensitive :token, would break every login:
 ;; `:auth/store-session` stores `(dissoc user :token)`, so the durable user is
-;; token-free. In the dev/default build where app schemas are active, the real
-;; post-commit validator rejects that commit and rolls the whole login back.
+;; token-free, and in the dev/default build where app schemas are active the
+;; real post-commit validator would reject that commit and roll the whole
+;; login back.
 ;;
 ;; Every OTHER login/session test above runs on an anonymous frame
 ;; (`make-anon-frame-record!`), whose gensym'd id carries no registered app
-;; schema, so the validator never runs there — those tests stayed falsely green
-;; (the rf2-lo28u lesson: an acceptance test must hit the ACTUAL validated path).
-;; This regression registers the REAL production `AuthSlice` var on the test
+;; schema, so the validator never runs there — those tests would stay green
+;; whatever the schema said (an acceptance test must hit the ACTUAL validated
+;; path). This test registers the REAL production `AuthSlice` var on the test
 ;; frame — the same var `reg-app-schemas` binds to `:rf/default` at ns-load — so
 ;; the genuine post-commit validator participates on the genuine
 ;; `:auth/store-session` commit.
@@ -291,8 +290,8 @@
         (rest map-schema)))
 
 (defn- durable-session-user-schema-test []
-  ;; --- WIRE contract UNCHANGED: a token-less reply is still REJECTED and the
-  ;;     token slot stays sensitive (the fix must not weaken decode) ---
+  ;; --- WIRE contract: a token-less reply is REJECTED and the token slot
+  ;;     stays sensitive (the durable contract must not weaken decode) ---
   (is (true? (m/validate ws/UserResponse
                          {:user {:email "alice@example.com" :username "alice"
                                  :token "jwt-abc" :bio nil :image nil}}))
@@ -316,8 +315,8 @@
                                               :token "jwt-abc"
                                               :bio nil :image nil}]
                         {:frame f})
-      ;; RED on old code: AuthSlice embedded the wire `ws/User` (requires
-      ;; :token), the durable user is `(dissoc user :token)` → post-commit
+      ;; An AuthSlice embedding the wire `ws/User` (requires :token) goes RED
+      ;; here: the durable user is `(dissoc user :token)` → post-commit
       ;; validation fails :where :app-db and the login rolls back.
       (let [violations (filter #(and (= :rf.error/schema-validation-failure (:operation %))
                                      (= :app-db (-> % :tags :where)))
@@ -507,7 +506,7 @@
     (is (= 1 (count (rf/compute-sub [:comments/data] (rf/frame-state-value f)))))))
 
 (defn- comment-delete-rollback-stale-index-test []
-  ;; rf2-mzqd4.2 — :comment/delete-rollback re-inserts at an index
+  ;; :comment/delete-rollback re-inserts at an index
   ;; captured at optimistic-delete time. If the comments list SHRANK
   ;; before the DELETE's failure reply lands (a :comments/loaded re-fetch
   ;; or a concurrent delete), a stale index can point past the current
@@ -517,7 +516,7 @@
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     (rf/dispatch-sync [:comments/initialise] {:frame f})
     ;; Seed a single comment (the list is now length 1). :comments/loaded
-    ;; carries the slug it was requested for (rf2-iy3d6); the initialised
+    ;; carries the slug it was requested for; the initialised
     ;; slice targets nil, so a nil-slug reply is the matching identity here.
     (rf/dispatch-sync
       [:comments/loaded nil
@@ -528,9 +527,9 @@
 
     ;; A DELETE for a comment that WAS at index 3 in a since-shrunk list
     ;; fails. The captured prior carries the stale index 3 against the
-    ;; current length-1 list. Before the clamp this threw on `subvec`.
+    ;; current length-1 list. Without the clamp this would throw on `subvec`.
     ;; The rollback carries the slug it was deleting from ahead of the
-    ;; captured prior (rf2-84iek); the initialised slice targets nil, so a
+    ;; captured prior; the initialised slice targets nil, so a
     ;; nil-slug rollback is the matching identity here — same convention as
     ;; the `:comments/loaded nil` seed above.
     (rf/dispatch-sync
@@ -561,7 +560,7 @@
   (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/favorite-rollback}})]
     (rf/dispatch-sync [:articles/initialise] {:frame f})
-    ;; :article/toggle-favorite is auth-gated (rf2-ygh4m): a logged-out
+    ;; :article/toggle-favorite is auth-gated: a logged-out
     ;; click navigates to login instead of issuing a tokenless request.
     ;; Authenticate first so this test exercises the optimistic-rollback
     ;; path it is here to cover.
@@ -682,7 +681,7 @@
     ;; Submit. The canned-success stub resolves synchronously, so we
     ;; observe the machine in :correct (not :submitting) after the
     ;; dispatch returns. The slice's `:status :submitted` and
-    ;; `:submitted draft` are now the machine's `:state :correct` +
+    ;; `:submitted draft` correspond to the machine's `:state :correct` +
     ;; `:data :draft` (re-seeded from the server-returned user).
     (rf/dispatch-sync [:settings/submit] {:frame f})
     (let [db   (rf/frame-state-value f)
@@ -695,12 +694,12 @@
       ;; is in :correct and the in-flight tag has dropped.
       (is (false? (settings-machine-has-tag? f :settings/in-flight)))
       (is (true?  (settings-machine-has-tag? f :form/success)))
-      ;; the :auth slice has the new user data (the side-effect the
-      ;; original test asserted). EP-0001 (rf2-vzld77): `:auth` is app-db; read
-      ;; it off the `:rf.db/app` partition of the frame-state value.
+      ;; the :auth slice has the new user data. EP-0001: `:auth` is
+      ;; app-db; read it off the `:rf.db/app` partition of the
+      ;; frame-state value.
       (is (= "New bio" (get-in db [:rf.db/app :auth :user :bio])))
       ;; the `:settings/submitting?` sub returns false (same name a
-      ;; slice-form reader would use; only the source changed).
+      ;; slice-form reader would use; only the source differs).
       (is (false? (rf/compute-sub [:settings/submitting?] db))))))
 
 (defn- settings-failure-test []
@@ -732,12 +731,12 @@
       (is (true?  (settings-machine-has-tag? f :form/invalid)))
       (is (false? (settings-machine-has-tag? f :settings/in-flight)))
       ;; the auth slice was NOT updated; the user's :bio is still nil.
-      ;; EP-0001 (rf2-vzld77): `:auth` is app-db — read the `:rf.db/app` partition.
+      ;; EP-0001: `:auth` is app-db — read the `:rf.db/app` partition.
       (is (nil? (get-in db [:rf.db/app :auth :user :bio]))))))
 
 (defn- settings-validation-test []
   ;; Validation path — direct broadcasts exercise the
-  ;; :submit-invalid / :edit transitions. The bead's machine spec
+  ;; :submit-invalid / :edit transitions. The machine spec
   ;; includes a :neutral → :incorrect transition (on :submit-invalid)
   ;; and an :incorrect → :neutral transition (on :edit) so the
   ;; lifecycle is complete; in a production app a client-side Malli
@@ -782,8 +781,8 @@
    lowered PUT's args, still unanswered. The stub PARKS the request, so the test
    owns the window between submitting and replying, which is the window Logout
    lives in. Settings is opened by the REAL route, whose `:on-match` seeds the
-   draft: a success navigates only while the reader is still on /settings
-   (rf2-3x7nj.42.3), so a helper that never entered it would hide that gate."
+   draft: a success navigates only while the reader is still on /settings,
+   so a helper that never entered it would hide that gate."
   [f username]
   (rf/dispatch-sync [:auth/store-session {:email "alice@example.com"
                                           :token "jwt-1"
@@ -798,7 +797,7 @@
   @parked-managed-args)
 
 (defn- settings-logout-race-test []
-  ;; rf2-2ape. Logout stays live while the save is in flight — the button on
+  ;; Logout stays live while the save is in flight — the button on
   ;; this page and the navbar's — and the PUT is already on the wire, so its
   ;; reply can land on a signed-out app. Nothing below the app rejects it: same
   ;; frame, never superseded. :settings/submit-success is where the session
@@ -851,14 +850,14 @@
         (is (= "bob-jwt" (get-in db [:rf.db/app :auth :token]))
             "bob's token is untouched by the old account's reply")))))
 
-;; ---- rf2-0aub0 — the OVERLAPPING save, which the two rows above do not reach -
+;; ---- The OVERLAPPING save, which the two rows above do not reach ------------
 ;;
 ;; settings-account-switch-test has bob merely SIGN IN while alice's PUT is
-;; parked. The defect needs one more beat: bob starts HIS OWN save. That second
+;; parked. The hazard needs one more beat: bob starts HIS OWN save. That second
 ;; `:begin-submit` overwrites the machine's record of which save is awaited, so
-;; a lone "is the recorded owner still signed in?" was comparing BOB to BOB —
-;; and alice's late reply passed, wrote alice's User and token into bob's
-;; session, and navigated to alice's profile.
+;; a lone "is the recorded owner still signed in?" would compare BOB to BOB —
+;; and alice's late reply would pass, write alice's User and token into bob's
+;; session, and navigate to alice's profile.
 ;;
 ;; Both rows therefore assert TWO things, and the second is as load-bearing as
 ;; the first: the stale reply must not be acted on, AND it must not settle or
@@ -968,19 +967,19 @@
           (is (some? (get-in snap [:data :submit-error]))
               "with a readable message"))))))
 
-;; ---- rf2-ktkhn — the OCCUPIED-NAME RENAME, which the two rows above miss ----
+;; ---- The OCCUPIED-NAME RENAME, which the two rows above miss ----------------
 ;;
 ;; The rows above have bob save under his OWN name, so a previous account's
 ;; reply names a DIFFERENT account and is refused on that difference alone. The
-;; defect needs one more beat, and it is ordinary user behaviour rather than an
+;; hazard needs one more beat, and it is ordinary user behaviour rather than an
 ;; exotic race: bob renames himself to a username somebody else already has.
 ;;
 ;; His PUT is then on its way to an occupied-username rejection, and his form
 ;; records `{:owner "bob" :username "alice"}` — where `:username` is a string
-;; bob TYPED, not an account he owns. The previous fix asked "does the reply
-;; name the account our save names?", which alice's own successful reply
-;; answers YES, so it was accepted: alice's User and token over bob's session,
-;; and a navigation to alice's profile, before bob's rejection even arrived.
+;; bob TYPED, not an account he owns. A check asking "does the reply name the
+;; account our save names?" would get YES from alice's own successful reply,
+;; so it would be accepted: alice's User and token over bob's session, and a
+;; navigation to alice's profile, before bob's rejection even arrived.
 ;;
 ;; The reply cannot be pinned by its contents — RealWorld's User payload has no
 ;; stable account key, and both candidates are editable by this very form — so
@@ -1028,7 +1027,8 @@
             "nothing has navigated yet — the reader is on /settings")
 
         ;; ALICE'S SUCCESS LANDS FIRST. It names `alice` — exactly the account
-        ;; bob's form is waiting to hear about — so it passed the merged Q1.
+        ;; bob's form is waiting to hear about — so a check matching on the
+        ;; name alone would pass it.
         (reply-parked-success! alice-args
                                {:user {:email "alice@example.com" :token "alice-jwt-2"
                                        :username "alice" :bio "Alice bio" :image nil}}
@@ -1100,19 +1100,19 @@
               "and it navigates to his profile — which is also the positive
                control for the no-navigation assertion in the row above"))))))
 
-;; ---- rf2-bq1fy — the ledger must not outlive the requests it counts --------
+;; ---- The ledger must not outlive the requests it counts --------------------
 ;;
 ;; The two rows above stop where every request has settled, and that is exactly
 ;; where this one starts. Alice's success was refused as ambiguous, which
 ;; correctly retires nothing; bob's 422 settled his own form and retired one
 ;; entry. BOTH requests have now delivered their one and only reply, so nothing
-;; further can ever arrive — yet an entry was left standing, and RealWorld's
-;; one-reply-per-request contract offers no later callback that could drain it.
+;; further can ever arrive — and RealWorld's one-reply-per-request contract
+;; offers no later callback that could drain an entry left standing here.
 ;;
-;; Every subsequent save alice made was then measured against that ghost, read
-;; as ambiguous, and discarded — for the rest of the app's lifetime, and one
-;; ghost worse per attempt. Neither route load nor logout clears the ledger, by
-;; design, so nothing recovered it.
+;; Every subsequent save alice made would then be measured against that ghost,
+;; read as ambiguous, and discarded — for the rest of the app's lifetime, and
+;; one ghost worse per attempt. Neither route load nor logout clears the
+;; ledger, by design, so nothing would recover it.
 ;;
 ;; This row is the row above plus one beat: sign back in and save ordinarily.
 ;; The refusal is re-asserted on the way through, so the pin cannot be satisfied
@@ -1161,7 +1161,7 @@
 
         ;; A LATER, UNCONTENDED SAVE — alice signs back in and saves ordinarily.
         ;; Nothing is on the wire, nobody else claims her name, and this is the
-        ;; save the stale entry used to suppress.
+        ;; save a stale entry would suppress.
         (logout-scrubbing-the-settings-snapshot! f)
         (let [alice-again (park-a-settings-save! f "alice")]
           (is (some? alice-again) "her later save lowered a request of its own")
@@ -1196,7 +1196,7 @@
 (defn- tag-query-test []
   (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
-    ;; rf2-e90vfv route-shape conformance: applying a tag navigates to the
+    ;; Route-shape conformance: applying a tag navigates to the
     ;; official `/tag/:tag` PATH route, so the active tag is a route PARAM (read
     ;; via `:home/selected-tag`), NOT a `?tag=` query.
     (rf/dispatch-sync [:tags/apply-filter "clojure"] {:frame f})
@@ -1279,7 +1279,7 @@
     (rf/dispatch-sync [:rf.route/handle-url-change "/profile/eve"] {:frame f})
     (is (= :realworld.profile/show (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))
 
-    ;; `/settings` is `:requires-auth` (a `:can-enter` guard, rf2-p69yaz); this
+    ;; `/settings` is `:requires-auth` (a `:can-enter` guard); this
     ;; route-resolution check is about the route TABLE, not the auth gate, so
     ;; sign in first — otherwise the gate correctly refuses the logged-out entry
     ;; and redirects to login (that fail-closed behaviour is covered by
@@ -1288,7 +1288,7 @@
     (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame f})
     (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))
 
-    ;; rf2-e90vfv: the tag filter is the official `/tag/:tag` PATH route — the
+    ;; The tag filter is the official `/tag/:tag` PATH route — the
     ;; tag is a route PARAM, not a `?tag=` query.
     (rf/dispatch-sync [:rf.route/handle-url-change "/tag/clojure"] {:frame f})
     (is (= :realworld/home-tag (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))
@@ -1343,7 +1343,7 @@
         ":auth/post-login-redirect clears the :return-to slot")))
 
 (defn- auth-guard-all-access-paths-test []
-  ;; rf2-mzqd4.3 / rf2-p69yaz — the auth gate must FAIL CLOSED on EVERY
+  ;; The auth gate must FAIL CLOSED on EVERY
   ;; navigation entry point, not just the programmatic `:rf.route/navigate` the
   ;; navbar uses. The `:can-enter` guard runs on the ONE gate every door shares,
   ;; so a logged-out user reaching a `:requires-auth` route via the MOST common
@@ -1420,7 +1420,7 @@
         "authenticated anchor click to a :requires-auth route proceeds")))
 
 (defn- auth-guard-return-to-full-address-test []
-  ;; rf2-k5zty — the return-to stash is the FULL resolved destination, so the
+  ;; The return-to stash is the FULL resolved destination, so the
   ;; post-login return lands on the EXACT URL the visitor was headed for, not a
   ;; bare route. EP-0037 R4 hands the handler that destination directly on the
   ;; `:rf.route/entry-denied` payload (no `match-url` re-derivation), so the
@@ -1503,7 +1503,7 @@
 ;; ============================================================================
 
 (defn- hydration-payload-test []
-  ;; EP-0001 (rf2-vzld77): the SSR payload is built from a two-partition
+  ;; EP-0001: the SSR payload is built from a two-partition
   ;; frame-state value `{:rf.db/app … :rf.db/runtime …}` (the shape
   ;; `rf/frame-state-value` returns), NOT a flat single-map db. Application
   ;; slices live in the `:rf.db/app` partition; the framework-owned
@@ -1532,7 +1532,7 @@
     (is (= {:route-id :realworld/home}
            (get-in payload [:rf/runtime-db :rf.runtime/routing :current]))
         "the server route slice rides the runtime-db partition")
-    ;; rf2-ygh4m ITEM 7 — the bearer JWT must NOT cross the SSR seam.
+    ;; The bearer JWT must NOT cross the SSR seam.
     ;; The :auth slice still rides along (the client needs :user), but
     ;; :token is redacted at the payload boundary (ssr/exportable-app-db);
     ;; the client re-derives it from localStorage on hydrate.
@@ -1542,10 +1542,10 @@
         "the JWT must be redacted from the SSR hydration payload")))
 
 ;; ============================================================================
-;; pagination — pure limit/offset helpers + the page-nav semantics (rf2-yt7ay6)
+;; pagination — pure limit/offset helpers + the page-nav semantics
 ;; ============================================================================
 ;;
-;; Pagination is flagship Conduit behaviour and was entirely untested. Two
+;; Pagination is flagship Conduit behaviour. Two
 ;; halves: (1) the pure request-building maths (`page->offset` / `page-count` /
 ;; `query-string` / `paginate-path` in http.cljs) — clamps and URL-encoding
 ;; edges that a hand-typed `?page=0` or a tag with a reserved query character
@@ -1554,9 +1554,9 @@
 ;; active feed / tag / route forward when only the page changes.
 
 (defn- paginate-path-integration-test []
-  ;; The PURE page arithmetic + query encoding now live in the shared Conduit
-  ;; contract and are pinned there (realworld_shared_contract_cljs_test —
-  ;; rf2-fhxwhj). This app-local assertion proves THIS app's `paginate-path`
+  ;; The PURE page arithmetic + query encoding live in the shared Conduit
+  ;; contract and are pinned there (realworld_shared_contract_cljs_test).
+  ;; This app-local assertion proves THIS app's `paginate-path`
   ;; request builder threads the shared contract through correctly: it prepends
   ;; the path, encodes the filter, and appends the shared limit/offset window.
   ;; Multi-key order isn't guaranteed, so assert on the (order-independent) parts.
@@ -1617,8 +1617,7 @@
 
 ;; ============================================================================
 ;; auth — session-restore-with-token (the documented "restore stays put"
-;; invariant, previously untested — token-nil tests only hit the :idle no-op)
-;; (rf2-svj926)
+;; invariant; token-nil tests only hit the :idle no-op)
 ;; ============================================================================
 
 (defn- session-restore-with-token-test []
@@ -1644,7 +1643,7 @@
         "cold boot lands on the deep-linked article")
 
     ;; Boot with a saved JWT: the :has-token? guard routes to :begin-restore
-    ;; (NOT the token-nil :idle no-op the pre-existing tests exercised). The
+    ;; (NOT the token-nil :idle no-op the other tests exercise). The
     ;; canned stub resolves the GET /user synchronously, so the machine settles.
     (rf/dispatch-sync [:auth/initialise]
                       {:frame f :rf.cofx {:auth.session/token "jwt-restore"}})
@@ -1667,8 +1666,8 @@
     (rf/dispatch-sync [:auth/initialise]
                       {:frame f :rf.cofx {:auth.session/token nil}})
     (is (= :idle (rf/compute-sub [:auth/state] (rf/frame-state-value f)))
-        "no token → the :idle no-op branch (the only path the old tests hit)")
-    ;; rf2-agb5jk (item 1): drive login through the credential-owning
+        "no token → the :idle no-op branch (the only path the token-nil tests hit)")
+    ;; Drive login through the credential-owning
     ;; form-submit event — the machine itself is credential-free.
     (rf/dispatch-sync [:auth.login-form/initialise] {:frame f})
     (rf/dispatch-sync [:auth.login-form/edit-field :email "alice@example.com"] {:frame f})
@@ -1679,11 +1678,11 @@
         "interactive login bounces home via :auth/session-established → :auth/post-login-redirect")))
 
 ;; ============================================================================
-;; auth — THE COLD-BOOT DEEP-LINK RACE (rf2-k85nd)
+;; auth — THE COLD-BOOT DEEP-LINK RACE
 ;; ============================================================================
 ;;
 ;; `session-restore-with-token-test` above pins "restore stays put", but it cannot
-;; see this bug, and it is worth saying why so nobody deletes what follows as a
+;; see this race, and it is worth saying why so nobody deletes what follows as a
 ;; duplicate. That test (a) hand-dispatches `:rf.route/handle-url-change` instead of
 ;; letting the URL-bound frame do its own initial sync, (b) navigates to a PUBLIC
 ;; route first, and (c) uses a canned stub that answers `GET /user` SYNCHRONOUSLY —
@@ -1694,8 +1693,9 @@
 ;; lands in app-db), and THEN its POST-CREATE hook does the first URL→slice sync.
 ;; Frame setup settles only SYNCHRONOUS work — it does not await the in-flight
 ;; `GET /user` (EP-0027 §Construction). So the very first route decision is made
-;; against `[:auth :user]` = nil, and before the fix `:rf.route/entry-denied`
-;; replace-navigated a genuinely signed-in reader to `/login`, permanently.
+;; against `[:auth :user]` = nil, and without a deferral
+;; `:rf.route/entry-denied` would replace-navigate a genuinely signed-in reader
+;; to `/login`, permanently.
 ;;
 ;; So this exercise removes all three conveniences:
 ;;   - a REAL `:url-bound? true` frame whose own initial sync is the first
@@ -1773,9 +1773,9 @@
 (defn- cold-boot-deep-link-race-test []
   (let [restored-user {:username "alice" :email "alice@example.com" :token "jwt-saved"}]
 
-    ;; --- 1. THE REGRESSION: protected deep link + saved token + deferred reply.
-    ;;     Before the fix this ended on /login with the reader's session intact
-    ;;     but unreachable. ---
+    ;; --- 1. THE RACE: protected deep link + saved token + deferred reply.
+    ;;     Without the deferral this would end on /login with the reader's
+    ;;     session intact but unreachable. ---
     (let [sink (atom [])]
       (with-new-frame [f (booting-frame! "/settings" "jwt-saved" sink)]
         (let [st #(rf/frame-state-value f)]
@@ -1789,7 +1789,7 @@
               "and it is still outstanding: identity is genuinely unknown")
 
           (is (not= :realworld.auth/login (rf/compute-sub [:rf.route/id] (st)))
-              "THE BUG: a signed-in reader's protected deep link must NOT be bounced to login")
+              "THE CONTRACT: a signed-in reader's protected deep link must NOT be bounced to login")
           (is (nil? (rf/compute-sub [:rf.route/id] (st)))
               "the refusal is still TERMINAL — no route committed, no :on-match, nothing protected ran")
           (is (= {:to :realworld.user/settings}
@@ -1854,7 +1854,7 @@
 
     ;; --- 4. FAIL-CLOSED, part three: NO saved token. There is nothing to wait
     ;;     for, so the bounce is IMMEDIATE — the deferral must be conditional, or
-    ;;     it would be a hole rather than a fix. ---
+    ;;     it would be a hole rather than a guard. ---
     (let [sink (atom [])]
       (with-new-frame [f (booting-frame! "/settings" nil sink)]
         (let [st #(rf/frame-state-value f)]
@@ -1891,7 +1891,7 @@
   (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed      :realworld.test/canned-success-empty
                                                 :auth.session/persist :rf/no-op}})]
-    ;; EP-0017 (rf2-16ck78): `:auth/initialise` is no longer in the
+    ;; EP-0017: `:auth/initialise` is not in the
     ;; `:app/initialise` fan-out — it consumes the recordable
     ;; `:auth.session/token` coeffect, and the `:dispatch` fx does not forward
     ;; `:rf.cofx`, so it earns its own `:initial-events` step in the real app.
@@ -1902,7 +1902,7 @@
                       {:frame f :rf.cofx {:auth.session/token nil}})
     ;; After init: the :auth + :articles slices and the
     ;; :realworld/tags + :settings/form machine snapshots are present.
-    ;; EP-0001 (rf2-vzld77): app data is in app-db; machine snapshots in runtime-db.
+    ;; EP-0001: app data is in app-db; machine snapshots in runtime-db.
     (let [db (rf/app-db-value f)
           rt (:rf.db/runtime (rf/frame-state-value f))]
       (is (contains? db :auth))
@@ -1921,7 +1921,7 @@
     (login-failure-test))
   (testing ":auth.session/token is a recordable generator (not provided-at-dispatch)"
     (session-token-cofx-shape-test))
-  (testing "durable AuthSlice user validates token-free; wire User still requires :token (rf2-3fc89f.32)"
+  (testing "durable AuthSlice user validates token-free; wire User still requires :token"
     (durable-session-user-schema-test)))
 
 (deftest realworld-articles-feed
@@ -1941,7 +1941,7 @@
     (comments-load-test))
   (testing "comment submit clears the form and appends to the list"
     (comment-submit-test))
-  (testing "delete rollback with a stale (shrunk-list) index does not throw (rf2-mzqd4.2)"
+  (testing "delete rollback with a stale (shrunk-list) index does not throw"
     (comment-delete-rollback-stale-index-test)))
 
 (deftest realworld-favorites
@@ -1953,40 +1953,40 @@
     (profile-load-test)))
 
 (deftest realworld-settings
-  (testing ":settings/form machine — happy path lands in :correct (rf2-6d3x)"
+  (testing ":settings/form machine — happy path lands in :correct"
     (settings-test))
-  (testing ":settings/form machine — failure path lands in :incorrect (rf2-6d3x)"
+  (testing ":settings/form machine — failure path lands in :incorrect"
     (settings-failure-test))
-  (testing ":settings/form machine — :submit-invalid / :edit cycle (rf2-6d3x)"
+  (testing ":settings/form machine — :submit-invalid / :edit cycle"
     (settings-validation-test))
-  (testing "a save that replies after logout does not restore the session (rf2-2ape)"
+  (testing "a save that replies after logout does not restore the session"
     (settings-logout-race-test))
-  (testing "a save that replies after an account switch does not overwrite it (rf2-2ape)"
+  (testing "a save that replies after an account switch does not overwrite it"
     (settings-account-switch-test))
   (testing "a previous account's SUCCESS cannot replace a session whose own save is
-            in flight, and does not wipe that newer save either (rf2-0aub0)"
+            in flight, and does not wipe that newer save either"
     (settings-overlapping-save-stale-success-test))
   (testing "a previous account's FAILURE cannot settle or banner a session whose own
-            save is in flight (rf2-0aub0)"
+            save is in flight"
     (settings-overlapping-save-stale-failure-test))
   (testing "a previous account's SUCCESS cannot answer for a rename that CLAIMS that
             same account — an occupied-username submit is ordinary behaviour, and the
-            name a form requested is not an identity it owns (rf2-ktkhn)"
+            name a form requested is not an identity it owns"
     (settings-occupied-name-rename-stale-success-test))
   (testing "a rename to an unclaimed name still completes, with another account's save
-            parked the whole time (rf2-ktkhn)"
+            parked the whole time"
     (settings-valid-rename-still-completes-test))
   (testing "once BOTH of those requests have delivered their only reply the ledger
             drains, so a later uncontended save by the same account still lands —
-            an ambiguous reply refuses, it does not retire the account (rf2-bq1fy)"
+            an ambiguous reply refuses, it does not retire the account"
     (settings-ledger-drains-once-every-reply-has-landed-test)))
 
 (deftest realworld-tags
   (testing "tag filter and feed-kind round-trip via :rf.route/query"
     (tag-query-test))
-  (testing ":realworld/tags machine — load happy path (rf2-0i4y)"
+  (testing ":realworld/tags machine — load happy path"
     (tags-machine-load-test))
-  (testing ":realworld/tags machine — failure path lands in :error (rf2-0i4y)"
+  (testing ":realworld/tags machine — failure path lands in :error"
     (tags-machine-failure-test)))
 
 (deftest realworld-routing
@@ -1994,9 +1994,9 @@
     (routing-tests))
   (testing "auth-guard redirects unauthenticated nav to :requires-auth routes (Spec 012)"
     (auth-guard-test))
-  (testing "auth-guard fails CLOSED on direct-URL / anchor / reload entry points (rf2-mzqd4.3)"
+  (testing "auth-guard fails CLOSED on direct-URL / anchor / reload entry points"
     (auth-guard-all-access-paths-test))
-  (testing "auth-guard return-to preserves the FULL address — query + #fragment (rf2-k5zty)"
+  (testing "auth-guard return-to preserves the FULL address — query + #fragment"
     (auth-guard-return-to-full-address-test)))
 
 (deftest realworld-ssr
@@ -2004,19 +2004,18 @@
     (hydration-payload-test)))
 
 (deftest realworld-pagination
-  (testing "paginate-path threads the shared page arithmetic + query encoding (rf2-yt7ay6, rf2-fhxwhj)"
+  (testing "paginate-path threads the shared page arithmetic + query encoding"
     (paginate-path-integration-test))
-  (testing "page-nav events carry the active feed / tag / route forward (rf2-yt7ay6)"
+  (testing "page-nav events carry the active feed / tag / route forward"
     (pagination-nav-events-test)))
 
 (deftest realworld-session-restore
-  (testing "restore-with-token reaches :authed, stores the session, and does NOT navigate (rf2-svj926)"
+  (testing "restore-with-token reaches :authed, stores the session, and does NOT navigate"
     (session-restore-with-token-test)))
 
 (deftest realworld-cold-boot-deep-link-race
   (testing "a URL-bound cold boot at a PROTECTED deep link with a saved token and a
-            DEFERRED restore reply resolves to the requested route, never to login
-            (rf2-k85nd)"
+            DEFERRED restore reply resolves to the requested route, never to login"
     (cold-boot-deep-link-race-test)))
 
 (deftest realworld-core-smoke
@@ -2025,11 +2024,11 @@
 
 ;; ============================================================================
 ;; article-editor — edit-mode load (PUT) / load-failure / delete / invalid-submit
-;; + pure helpers (rf2-54eebb)
+;; + pure helpers
 ;; ============================================================================
 ;;
-;; editor-create-test above covers the CREATE path only. Untested until now: the
-;; edit-mode load (draft-from-article seed + :mode/edit + PUT-on-submit), the
+;; editor-create-test above covers the CREATE path only. These cover the rest:
+;; the edit-mode load (draft-from-article seed + :mode/edit + PUT-on-submit), the
 ;; load-failure render gate, the delete flow, the client-side invalid-submit
 ;; branch, and the four pure helpers the handlers lean on.
 
@@ -2192,8 +2191,9 @@
         (is (= #{:title} (:touched (rf/compute-sub [:editor/slice] (rf/frame-state-value f))))
             "typing marked :title touched and nothing else")
         ;; THE SETTLE. Replay the captured `:on-success` with the transport's
-        ;; success result appended, exactly as managed-HTTP delivers it. RED on the
-        ;; whole-slice seed `:editor/loaded` used to do: :title becomes "Hello, world".
+        ;; success result appended, exactly as managed-HTTP delivers it. A
+        ;; whole-slice seed in `:editor/loaded` would go RED here: :title would
+        ;; become "Hello, world".
         (rf/dispatch-sync (conj (:on-success req)
                                 {:status :ok
                                  :value {:article {:slug "hello-world" :title "Hello, world"
@@ -2217,7 +2217,7 @@
               "typing that survived a settle leaves the draft DIRTY — the save must send it")
           (is (= #{:title} (:touched slice)) "the seed marks nothing touched of its own"))))))
 
-;; The CROSS-slug half of the same defect, and the reason the leafwise seed above
+;; The CROSS-slug half of the same hazard, and the reason the leafwise seed above
 ;; is not the whole answer. `seed-slice` protects a field the USER HAS TOUCHED —
 ;; but a reply for article A lands on article B's slice with every field
 ;; untouched relative to B's baseline, so the merge would hand A's values over
@@ -2319,27 +2319,27 @@
             "…so the page-level error gate stays shut for a reply that was never beta's")))))
 
 (deftest realworld-article-editor-edit-delete
-  (testing "pure helpers: validate-draft / parse-tag-list / draft-from-article / article-body (rf2-54eebb)"
+  (testing "pure helpers: validate-draft / parse-tag-list / draft-from-article / article-body"
     (editor-pure-helpers-test))
-  (testing "edit-mode load seeds the draft, flips :mode/edit, and submit issues a PUT (rf2-54eebb)"
+  (testing "edit-mode load seeds the draft, flips :mode/edit, and submit issues a PUT"
     (editor-edit-load-and-put-test))
-  (testing "a load failure lands the lifecycle in :error and surfaces the message (rf2-54eebb)"
+  (testing "a load failure lands the lifecycle in :error and surfaces the message"
     (editor-load-failure-test))
-  (testing ":editor/delete issues a DELETE, resets the slice, and navigates home (rf2-54eebb)"
+  (testing ":editor/delete issues a DELETE, resets the slice, and navigates home"
     (editor-delete-test))
-  (testing "a client-invalid submit fills per-field errors and fires no request (rf2-54eebb)"
+  (testing "a client-invalid submit fills per-field errors and fires no request"
     (editor-invalid-submit-test))
-  (testing "a same-slug settle seeds LEAFWISE and does not clobber typing (rf2-czvc, R-C1)"
+  (testing "a same-slug settle seeds LEAFWISE and does not clobber typing (R-C1)"
     (editor-same-slug-seed-preserves-typing-test))
   (testing "a CROSS-slug settle is refused outright — a late A cannot rewrite B's
-            draft, baseline or slug (rf2-czvc, R-C2)"
+            draft, baseline or slug (R-C2)"
     (editor-cross-slug-settle-is-refused-test))
   (testing "a CROSS-slug FAILURE is refused too — a late A error cannot banner B
-            or trip B's lifecycle into :error (rf2-czvc, R-C2)"
+            or trip B's lifecycle into :error (R-C2)"
     (editor-cross-slug-failure-is-refused-test)))
 
 ;; ============================================================================
-;; article page — cross-slug detail replies stay owned by the route (rf2-iy3d6)
+;; article page — cross-slug detail replies stay owned by the route
 ;; ============================================================================
 ;;
 ;; The article page repeats the editor's navigation-staleness law over its TWO
@@ -2559,37 +2559,35 @@
 (deftest realworld-article-page-cross-slug
   (testing "cross-slug article/comments requests are independently deliverable;
             slugs ride both reply styles; a LATE alpha success cannot overwrite
-            the active beta page (rf2-iy3d6)"
+            the active beta page"
     (article-cross-slug-late-success-is-refused-test))
   (testing "a LATE alpha failure cannot mark beta errored; a CURRENT slug's own
-            failure is still accepted (the failure gate's non-vacuity control)
-            (rf2-iy3d6)"
+            failure is still accepted (the failure gate's non-vacuity control)"
     (article-cross-slug-late-failure-is-refused-test))
   (testing "a slug change resets the article/comments slices (alpha never
             renderable under beta's URL) while a same-slug re-load keeps the
-            loaded data up as a refresh (rf2-iy3d6)"
+            loaded data up as a refresh"
     (article-slug-change-resets-while-same-slug-refresh-retains-test)))
 
 ;; ============================================================================
 ;; article page — optimistic comment MUTATIONS stay owned by the route
-;; (rf2-84iek)
 ;; ============================================================================
 ;;
-;; rf2-iy3d6 (above) correlated the two route-driven READS. The comment
+;; The block above correlates the two route-driven READS. The comment
 ;; WRITES land on the very same shared state — `[:comments :data]` and the
-;; single `[:comment-form]` — and were left slug-free, so a POST or DELETE
-;; issued on alpha and answered after the reader reached beta wrote into
-;; beta: a success reset beta's draft, a failure bannered beta's form, and a
-;; failed DELETE spliced ALPHA'S COMMENT into beta's list.
+;; single `[:comment-form]` — so were they slug-free, a POST or DELETE
+;; issued on alpha and answered after the reader reached beta would write
+;; into beta: a success would reset beta's draft, a failure banner beta's
+;; form, and a failed DELETE splice ALPHA'S COMMENT into beta's list.
 ;;
-;; The fix carries the issuing slug in the three settle targets and gates
-;; each on the same `reply-for-current-slug?` the reads use. What makes
-;; DROPPING those writes safe rather than merely quiet is the other half:
-;; `:comments/load` now resets `[:comment-form]` whenever it takes on a new
+;; The issuing slug rides in the three settle targets, and each is gated on
+;; the same `reply-for-current-slug?` the reads use. What makes DROPPING
+;; those writes safe rather than merely quiet is the other half:
+;; `:comments/load` resets `[:comment-form]` whenever it takes on a new
 ;; article identity. Without that reset the form is a boot-time singleton
 ;; that rides across the navigation still `:status :submitting` — and since
 ;; the textarea and the Post button are both `:disabled` while submitting,
-;; refusing alpha's settle would have left beta's form permanently locked.
+;; refusing alpha's settle would leave beta's form permanently locked.
 ;; The strand control below is what pins that pairing.
 
 (defn- comment-form* [f] (rf/compute-sub [:comment-form/slice] (rf/frame-state-value f)))
@@ -2833,9 +2831,9 @@
           "a same-slug comments refresh leaves the in-progress draft alone"))))
 
 (defn- comment-draft-leaves-with-the-session-test []
-  ;; rf2-5yf3i — the PRINCIPAL crossing. The refresh rule above keeps the form
-  ;; on a same-slug re-entry, so a logout that left it alone handed alice's
-  ;; unsent words to the next account to open that article.
+  ;; The PRINCIPAL crossing. The refresh rule above keeps the form
+  ;; on a same-slug re-entry, so a logout that left it alone would hand
+  ;; alice's unsent words to the next account to open that article.
   (with-held-comment-fx :realworld.test/comment-form-logout
     (fn [f lowered]
       ;; Credential-free machine signals, so the logout below runs the
@@ -2861,73 +2859,73 @@
 
 (deftest realworld-comment-mutations-cross-slug
   (testing "a LATE alpha comment-submit SUCCESS cannot reset beta's form or
-            splice alpha's saved comment into beta's list (rf2-84iek)"
+            splice alpha's saved comment into beta's list"
     (comment-submit-cross-slug-late-settle-is-refused-test))
   (testing "a LATE alpha comment-submit FAILURE cannot banner beta's form or
-            disturb beta's half-typed draft (rf2-84iek)"
+            disturb beta's half-typed draft"
     (comment-submit-cross-slug-late-failure-is-refused-test))
   (testing "a LATE alpha DELETE failure cannot re-insert alpha's comment into
-            beta's list (rf2-84iek)"
+            beta's list"
     (comment-delete-cross-slug-late-rollback-is-refused-test))
   (testing "on the CURRENT slug all three settles still do their ordinary
-            optimistic job — the gates' non-vacuity control (rf2-84iek)"
+            optimistic job — the gates' non-vacuity control"
     (comment-mutation-gates-are-not-vacuous-test))
   (testing "a new article identity releases the comment form, so refusing a
-            cross-slug settle cannot strand beta mid-submit (rf2-84iek)"
+            cross-slug settle cannot strand beta mid-submit"
     (comment-form-is-released-on-slug-change-test))
-  (testing "…while a same-slug refresh leaves an in-progress draft alone
-            (rf2-84iek)"
+  (testing "…while a same-slug refresh leaves an in-progress draft alone"
     (comment-form-survives-same-slug-refresh-test))
   (testing "…and a logout takes the unsent draft with it, so the next account
-            on the same article does not inherit it (rf2-5yf3i)"
+            on the same article does not inherit it"
     (comment-draft-leaves-with-the-session-test)))
 
 ;; ============================================================================
-;; article page — the SOCIAL settles stay owned by the route too (rf2-amhpk)
+;; article page — the SOCIAL settles stay owned by the route too
 ;; ============================================================================
 ;;
-;; rf2-84iek correlated the comment mutations and left the article's own
-;; social settles alone, naming them in the source as a suspected same-class
-;; defect it had not reproduced. It is the same class, and it does reproduce.
+;; The article's own social settles are the same class as the comment
+;; mutations above.
 ;;
 ;; `:article/toggle-follow-author` flips `[:article :data :author :following]`
-;; optimistically and sends a POST/DELETE whose reply targets carried no slug.
-;; Follow eve on /article/alpha, walk to /article/beta before the reply lands,
-;; and the settle writes into BETA's author:
+;; optimistically and sends a POST/DELETE. Were its reply targets to carry no
+;; slug, following eve on /article/alpha and walking to /article/beta before
+;; the reply lands would have the settle write into BETA's author:
 ;;
-;;   - a late FAILURE (`:article/author-follow-rollback`) restores ALPHA's
-;;     prior flag onto beta's author, so beta's Follow/Unfollow button reads
-;;     the opposite of the truth;
-;;   - a late SUCCESS (`:article/author-follow-synced`) is worse — it
+;;   - a late FAILURE (`:article/author-follow-rollback`) would restore
+;;     ALPHA's prior flag onto beta's author, so beta's Follow/Unfollow button
+;;     would read the opposite of the truth;
+;;   - a late SUCCESS (`:article/author-follow-synced`) would be worse — it
 ;;     `assoc-in`s alpha's whole author profile over beta's, so the byline
-;;     name, the avatar and the profile link all become the wrong person's.
+;;     name, the avatar and the profile link would all become the wrong
+;;     person's.
 ;;
 ;; `:article/delete-failed` is the third of the same shape: alpha's failed
-;; DELETE banners its error on `[:article :error]`, where beta's page shows it
-;; until the next load.
+;; DELETE would banner its error on `[:article :error]`, where beta's page
+;; shows it until the next load.
 ;;
-;; `:article/delete-success` is the fourth, and it was excluded from the first
-;; pass because it writes no db at all. It navigates, and navigation is the
-;; route's own state — the most visible state there is. Delete alpha, walk to
-;; beta before the server answers, and the late success took beta's reader home
-;; and threw away the route they had chosen. Refusing it strands nothing: the
+;; `:article/delete-success` is the fourth, even though it writes no db at
+;; all. It navigates, and navigation is the route's own state — the most
+;; visible state there is. Delete alpha, walk to beta before the server
+;; answers, and an ungated late success would take beta's reader home and
+;; throw away the route they had chosen. Refusing it strands nothing: the
 ;; deletion succeeded on the server either way, so there is no retry to lose
 ;; and nothing left half-done.
 ;;
-;; And it needs a DIFFERENT gate from the other three, which is what the
-;; second pass on this bead found. The three writes land in `[:article …]`, so
-;; the slice's own slug is the right owner to ask about. The navigation does
-;; not — it is the ROUTE's — and the slice's slug outlives a walk to any
-;; NON-ARTICLE page, because home, a profile, login and the editor all run
-;; their own `:on-match` without touching `[:article]`. Alpha → beta cannot
-;; show that (beta's `:article/load` overwrites the cached slug on the way in),
-;; which is precisely why the first pass's refusal test passed over the gap;
-;; alpha → `/profile/eve` shows it, and that is the test below.
+;; And it needs a DIFFERENT gate from the other three. The three writes land
+;; in `[:article …]`, so the slice's own slug is the right owner to ask about.
+;; The navigation does not — it is the ROUTE's — and the slice's slug
+;; outlives a walk to any NON-ARTICLE page, because home, a profile, login and
+;; the editor all run their own `:on-match` without touching `[:article]`.
+;; Alpha → beta cannot show that (beta's `:article/load` overwrites the cached
+;; slug on the way in), which is precisely why a refusal test over alpha →
+;; beta alone would pass over the gap; alpha → `/profile/eve` shows it, and
+;; that is the test below.
 ;;
-;; The fix is the gate alone, with NO reset half — the difference from
-;; rf2-84iek that matters. `[:comment-form]` was a boot-time singleton that
-;; rode across the navigation still `:submitting`, so gating it without a
-;; reset would have locked beta's form; `[:article]` is rebuilt wholesale by
+;; The gate stands alone here, with NO reset half — the difference from the
+;; comment mutations that matters. `[:comment-form]` is a boot-time singleton
+;; that, unreset, would ride across the navigation still `:submitting`, so
+;; gating it without a reset would lock beta's form; `[:article]` is
+;; rebuilt wholesale by
 ;; `:article/load` on a slug change, and neither the Follow button nor the
 ;; Delete button carries any pending or disabled state, so the navigation has
 ;; already released everything a refused settle would have touched.
@@ -2988,7 +2986,7 @@
         (is (= "bob" (:username (author* f)))
             "a LATE alpha follow FAILURE leaves beta's author alone")
         (is (true? (:following (author* f)))
-            "…and does not flip beta's Follow button to the wrong state (rf2-amhpk)")))))
+            "…and does not flip beta's Follow button to the wrong state")))))
 
 (defn- follow-cross-slug-late-sync-is-refused-test []
   (with-held-comment-fx :realworld.test/follow-cross-slug-sync
@@ -3003,7 +3001,7 @@
                                                    :image nil :following true}}})
                           {:frame f})
         (is (= "bob" (:username (author* f)))
-            "a LATE alpha follow SUCCESS does not replace beta's author with alpha's (rf2-amhpk)")
+            "a LATE alpha follow SUCCESS does not replace beta's author with alpha's")
         (is (nil? (:bio (author* f)))
             "…not even partially — alpha's bio never reaches beta's byline")))))
 
@@ -3021,12 +3019,12 @@
                                 {:status :error :error {:kind :rf.http/http-5xx :status 500}})
                           {:frame f})
         (is (nil? (:error (article-slice* f)))
-            "a LATE alpha DELETE failure does not banner its error over beta's page (rf2-amhpk)")))))
+            "a LATE alpha DELETE failure does not banner its error over beta's page")))))
 
 (defn- article-delete-cross-slug-late-success-is-refused-test []
-  ;; The fourth of the shape, and the one the first pass excluded because it
-  ;; writes no db. Navigation is state all the same — the reader's own — and a
-  ;; late alpha success took it away from them.
+  ;; The fourth of the shape, even though it writes no db. Navigation is
+  ;; state all the same — the reader's own — and an ungated late alpha
+  ;; success would take it away from them.
   (with-held-comment-fx :realworld.test/article-delete-cross-slug-ok
     (fn [f lowered]
       (rf/dispatch-sync [:rf.route/handle-url-change "/article/alpha"] {:frame f})
@@ -3051,7 +3049,7 @@
                           {:frame f})
         (is (= :realworld.article/show
                (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
-            "a LATE alpha DELETE SUCCESS does not yank beta's reader home (rf2-amhpk)")
+            "a LATE alpha DELETE SUCCESS does not yank beta's reader home")
         (is (= {:slug "beta"} (route-params* f))
             "…the reader's own newer route choice is the one that stands")
         (is (= "beta" (:slug (article-slice* f)))
@@ -3068,8 +3066,8 @@
   ;; route's own outcome, so the route is the question that has to be asked.
   ;;
   ;; `/article/beta` cannot expose this, because `:article/load` happens to
-  ;; overwrite the cached slug on the way in — which is exactly why the first
-  ;; pass's refusal test passed while this gap stayed open.
+  ;; overwrite the cached slug on the way in — which is exactly why a refusal
+  ;; test over alpha → beta alone would pass with this gap open.
   (with-held-comment-fx :realworld.test/article-delete-off-article
     (fn [f lowered]
       (rf/dispatch-sync [:rf.route/handle-url-change "/article/alpha"] {:frame f})
@@ -3097,14 +3095,14 @@
         (is (= :realworld.profile/show
                (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
             "a LATE alpha DELETE SUCCESS does not yank a reader off a
-             NON-ARTICLE route (rf2-amhpk)")
+             NON-ARTICLE route")
         (is (= {:username "eve"} (route-params* f))
             "…the reader's own newer route choice is the one that stands")))))
 
 (defn- article-delete-current-slug-still-navigates-home-test []
   ;; The navigation control for the gate above: refusing a STALE success must
   ;; not cost the ordinary one. Delete the article you are reading, settle it
-  ;; while you are still reading it, and you go home as before.
+  ;; while you are still reading it, and you go home.
   (with-held-comment-fx :realworld.test/article-delete-current-slug
     (fn [f lowered]
       (rf/dispatch-sync [:rf.route/handle-url-change "/article/alpha"] {:frame f})
@@ -3119,7 +3117,7 @@
         (is (= :realworld/home
                (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
             ":article/delete-success still navigates home when its own slug is
-             the one on screen — the gate is not vacuous (rf2-amhpk)")))))
+             the one on screen — the gate is not vacuous")))))
 
 (defn- article-social-gates-are-not-vacuous-test []
   ;; The control that keeps the three refusals above honest: a gate wired to
@@ -3157,34 +3155,33 @@
 
 (deftest realworld-article-social-cross-slug
   (testing "a LATE alpha follow FAILURE cannot flip beta's author's Follow
-            button (rf2-amhpk)"
+            button"
     (follow-cross-slug-late-rollback-is-refused-test))
   (testing "a LATE alpha follow SUCCESS cannot replace beta's author with
-            alpha's (rf2-amhpk)"
+            alpha's"
     (follow-cross-slug-late-sync-is-refused-test))
   (testing "a LATE alpha DELETE failure cannot banner its error over beta's
-            page (rf2-amhpk)"
+            page"
     (article-delete-cross-slug-late-failure-is-refused-test))
-  (testing "a LATE alpha DELETE success cannot navigate beta's reader home
-            (rf2-amhpk)"
+  (testing "a LATE alpha DELETE success cannot navigate beta's reader home"
     (article-delete-cross-slug-late-success-is-refused-test))
   (testing "…nor a reader who walked to a NON-ARTICLE route, which no
-            slug-only gate can see (rf2-amhpk)"
+            slug-only gate can see"
     (article-delete-non-article-route-late-success-is-refused-test))
   (testing "…while a delete settled on its own slug still goes home — the
-            navigation control (rf2-amhpk)"
+            navigation control"
     (article-delete-current-slug-still-navigates-home-test))
   (testing "on the CURRENT slug all three settles still do their ordinary job
-            — the gates' non-vacuity control (rf2-amhpk)"
+            — the gates' non-vacuity control"
     (article-social-gates-are-not-vacuous-test)))
 
 ;; ============================================================================
 ;; favorites / comments / feed / profile — optimistic-success + follow-author +
-;; article-delete + blank-comment + feed-load + profile-follow (rf2-rq65wv)
+;; article-delete + blank-comment + feed-load + profile-follow
 ;; ============================================================================
 ;;
-;; favorite-toggle-test above covers the FAILURE rollback only; several
-;; demonstrated handlers had no coverage. These pin the success-sync re-seed, the
+;; favorite-toggle-test above covers the FAILURE rollback only. These pin the
+;; success-sync re-seed, the
 ;; detail-page follow-author + article-delete flows, the comment-form client
 ;; validation, the user-feed load lifecycle, the profile follow/unfollow/rollback,
 ;; and the pure home-context flattener.
@@ -3247,11 +3244,11 @@
           ":article/author-follow-synced re-seeds the author from the returned profile"))
     ;; Rollback handler (driven directly): restores the captured prior flag.
     ;; The leading "hello" is the issuing slug the handler correlates the
-    ;; author WRITE on (rf2-amhpk); the route is /article/hello, so the gate
+    ;; author WRITE on; the route is /article/hello, so the gate
     ;; admits it. Pass a different slug and this assertion fails — which is
     ;; exactly what follow-cross-slug-late-rollback-is-refused-test pins.
     ;; "eve" is the issuing USERNAME, which releases the shared follow latch
-    ;; unconditionally — a second identity with a second owner (rf2-zfr7w).
+    ;; unconditionally — a second identity with a second owner.
     (rf/dispatch-sync [:article/author-follow-rollback "hello" "eve" false {:kind :rf.http/http-4xx}] {:frame f})
     (is (false? (:following (rf/compute-sub [:article/author] (rf/frame-state-value f))))
         ":article/author-follow-rollback restores the captured prior following flag")))
@@ -3273,8 +3270,8 @@
     (rf/dispatch-sync [:rf.route/handle-url-change "/article/hello"] {:frame f})
     (is (= "hello" (:slug (rf/compute-sub [:article/data] (rf/frame-state-value f)))))
     ;; The failure branch (driven directly), taken FIRST so it runs while the
-    ;; reader is still on /article/hello — the slug it now correlates against
-    ;; (rf2-amhpk). Driving it after the successful delete would leave the
+    ;; reader is still on /article/hello — the slug it correlates against.
+    ;; Driving it after the successful delete would leave the
     ;; assertion hostage to whatever the home route does to `[:article :slug]`.
     (rf/dispatch-sync [:article/delete-failed "hello" {:error {:kind :rf.http/http-5xx :status 500}}] {:frame f})
     (is (some? (rf/compute-sub [:article/error] (rf/frame-state-value f)))
@@ -3364,7 +3361,7 @@
         ":profile/unfollowed re-seeds :following false")
     ;; Rollback handler (driven directly): restores the captured prior flag.
     ;; The username is the identity the flip was issued on, and the handler is
-    ;; gated on it (rf2-8icg) — the cross-username refusal is pinned by
+    ;; gated on it — the cross-username refusal is pinned by
     ;; `realworld-profile-page-cross-username` below.
     (rf/dispatch-sync [:profile/follow-rollback "eve" true {:kind :rf.http/http-4xx}] {:frame f})
     (is (true? (:following (rf/compute-sub [:profile/data] (rf/frame-state-value f))))
@@ -3381,25 +3378,25 @@
         "an empty route yields an all-nil context (no NPE)")))
 
 (deftest realworld-favorites-follow-feed
-  (testing ":article/favorite-synced re-seeds the count from the server reply (rf2-rq65wv)"
+  (testing ":article/favorite-synced re-seeds the count from the server reply"
     (favorite-synced-success-test))
-  (testing ":article/toggle-follow-author optimistic + synced + rollback (rf2-rq65wv)"
+  (testing ":article/toggle-follow-author optimistic + synced + rollback"
     (article-follow-author-test))
-  (testing ":article/delete navigates home; :article/delete-failed surfaces an error (rf2-rq65wv)"
+  (testing ":article/delete navigates home; :article/delete-failed surfaces an error"
     (article-detail-delete-test))
-  (testing ":comment-form/submit blank body fails on the client, no round trip (rf2-rq65wv)"
+  (testing ":comment-form/submit blank body fails on the client, no round trip"
     (comment-blank-body-test))
-  (testing "user feed :feed/load / :feed/loaded populate the slice (rf2-rq65wv)"
+  (testing "user feed :feed/load / :feed/loaded populate the slice"
     (feed-load-test))
-  (testing "user feed :feed/load-failed surfaces an error (rf2-rq65wv)"
+  (testing "user feed :feed/load-failed surfaces an error"
     (feed-load-failure-test))
-  (testing "profile follow / unfollow / rollback + favorites-tab load (rf2-rq65wv)"
+  (testing "profile follow / unfollow / rollback + favorites-tab load"
     (profile-follow-test))
-  (testing "home-context flattens the two home routes into {:tag :feed :page} (rf2-rq65wv)"
+  (testing "home-context flattens the two home routes into {:tag :feed :page}"
     (home-context-test)))
 
 ;; ============================================================================
-;; profile page — cross-username replies stay owned by the route (rf2-8icg)
+;; profile page — cross-username replies stay owned by the route
 ;; ============================================================================
 ;;
 ;; The profile page repeats the article page's navigation-staleness law
@@ -3426,7 +3423,7 @@
 ;;     never touches the AUTHORED one, which goes on holding alice's articles
 ;;     quite legitimately. What it must not do is show them under bob's URL.
 ;;
-;; The MACHINE matters here in a way it did not on the article page. An ungated
+;; The MACHINE matters here in a way it does not on the article page. An ungated
 ;; late alice failure broadcasts :fetch-failed, which puts the :data region in
 ;; :error — a state with no fetch-succeeded edge — so bob's own later success
 ;; would write app-db and leave the page rendering an error over the top of it.
@@ -3532,7 +3529,7 @@
             "bob's banner fetch is still out — the :data region sits at :loading")
         (is (= :loading (:status (pf-slice* f :profile.articles)))
             "…and so is his authored list")
-        ;; ALICE FAILS WHILE BOB IS STILL LOADING. This is the strand the fix
+        ;; ALICE FAILS WHILE BOB IS STILL LOADING. This is the strand the gate
         ;; is about: :error has no fetch-succeeded edge, so an accepted alice
         ;; failure here would outlive bob's own success.
         (settle-fail! f (:on-failure a-ban))
@@ -3677,7 +3674,7 @@
            so the gate correlates rather than swallowing rollbacks"))))
 
 ;; ---------------------------------------------------------------------------
-;; …and the SAME-profile race the username gate cannot see (rf2-8icg residual)
+;; …and the SAME-profile race the username gate cannot see
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Every settle above was refused because it named a profile the slice no
@@ -3811,7 +3808,7 @@
              MUTATION and the mutation has not settled")
         (is (true? (pf-sub* f [:profile/follow-pending?]))
             "…which the public sub reports, so the button comes back DISABLED.
-             This is the whole fix — a latch that died with the slice would
+             This is the whole point — a latch that died with the slice would
              hand the reader a live button here")
 
         ;; ---- so the second intent is refused, and no pair reaches the wire ----
@@ -3902,43 +3899,42 @@
 (deftest realworld-profile-page-cross-username
   (testing "cross-username banner/authored requests are independently
             deliverable; usernames ride both reply targets; a LATE alice
-            success cannot overwrite the active bob page (rf2-8icg)"
+            success cannot overwrite the active bob page"
     (profile-cross-username-late-success-is-refused-test))
   (testing "a LATE alice failure cannot strand bob's machine in :error, and
             bob's own success still renders :loaded; a CURRENT username's own
-            failure IS accepted (the failure gate's non-vacuity control)
-            (rf2-8icg)"
+            failure IS accepted (the failure gate's non-vacuity control)"
     (profile-cross-username-late-failure-is-refused-test))
   (testing "a username change resets the banner while a same-username re-load
             retains it as a refresh; the cross-TAB read guard keeps alice's
-            still-loaded authored rows off bob's URL (rf2-8icg)"
+            still-loaded authored rows off bob's URL"
     (profile-username-change-resets-and-cross-tab-read-guard-test))
   (testing "a held alice follow settles — success or rollback — cannot mutate
             bob's banner, while bob's own follow success and rollback are both
-            accepted (rf2-8icg)"
+            accepted"
     (profile-cross-username-follow-settles-are-refused-test))
   (testing "the SAME-profile Follow→Unfollow ordering hazard, which the
             username gate cannot see: the toggle is serialised, so a second
             intent issues no second request and there is no pair to reorder;
-            both a success and a rollback release the latch (rf2-8icg)"
+            both a success and a rollback release the latch"
     (profile-follow-toggle-is-serialised-test))
   (testing "the latch OUTLIVES a walk away and back, because it belongs to the
             mutation rather than to the banner slice: alice → bob → alice with
             the POST still in flight comes back disabled, so the newer Unfollow
-            the older POST would have overwritten is never issued (rf2-8icg)"
+            the older POST would have overwritten is never issued"
     (profile-follow-latch-survives-a-walk-away-and-back-test))
   (testing "the latch is KEYED, so it never leaks onto a bystander: bob's
             button stays live while alice's mutation is out, two profiles can
             be latched at once, and an older settle — success or rollback —
-            releases its own username alone (rf2-8icg)"
+            releases its own username alone"
     (profile-follow-latch-does-not-leak-to-a-bystander-test)))
 
 ;; ============================================================================
-;; the favourite heart and the article byline's Follow, serialised (rf2-zfr7w)
+;; the favourite heart and the article byline's Follow, serialised
 ;; ============================================================================
 ;;
-;; The block above pins the profile follow's one-at-a-time latch. Two toggles
-;; were left outside it, and both are the same hazard for the same reason: a
+;; The block above pins the profile follow's one-at-a-time latch. Two other
+;; toggles are the same hazard for the same reason: a
 ;; second click reads the FIRST click's optimistic flip, so it issues the
 ;; OPPOSITE method, and the pair is on the wire together with nothing able to
 ;; tell the older reply from the newer intent. Let it settle out of order and
@@ -3947,7 +3943,7 @@
 ;; which lies in the same direction with no success arriving at all.
 ;;
 ;; So the favourite is serialised per SLUG on its own `:favorite-pending`, and
-;; the article byline's Follow takes the profile page's EXISTING
+;; the article byline's Follow takes the profile page's
 ;; username-keyed `:profile.follow-pending` rather than a second latch of its
 ;; own. The sharing is the whole point of the second test: a latch keyed by
 ;; the MUTATION rather than by the screen (profile.cljs, SERIALISING THE
@@ -4118,41 +4114,42 @@
   (testing "the favourite heart is SERIALISED per slug: a second click while
             the first is in flight issues no second request, so there is no
             opposite pair to arrive out of order; both settles — success and
-            rollback — release the slug unconditionally (rf2-zfr7w)"
+            rollback — release the slug unconditionally"
     (favorite-toggle-is-serialised-test))
   (testing "the article byline's Follow SHARES the profile page's
             username-keyed latch rather than keeping one of its own, so a
             follow issued from the banner refuses the byline and one issued
             from the byline disables the banner — closing the cross-page hole
-            a per-screen latch cannot see (rf2-zfr7w)"
+            a per-screen latch cannot see"
     (article-byline-follow-shares-the-profile-latch-test)))
 
 ;; ============================================================================
-;; comment schema, home-feed ownership, editor write ownership (rf2-fzbj.21)
+;; comment schema, home-feed ownership, editor write ownership
 ;; ============================================================================
 ;;
-;; Three findings of one review, each a place where a candidate or a reply was
-;; judged against the wrong owner.
+;; Three places where a candidate or a reply could be judged against the
+;; wrong owner.
 ;;
-;;   - COMMENT SCHEMA (rf2-gwye.33). Every comment row above runs on an anon
-;;     frame that registers no app schema, so none of them could see that the
-;;     optimistic card — `:id "temp-<uuid>"` — failed the wire `ws/Comment` the
-;;     app registered at `[:comments :data]`. In a development build that
-;;     rejects the whole `:comment-form/submit` candidate, fx included: no card,
-;;     and no POST. The row below registers the app's REAL schema registry on
+;;   - COMMENT SCHEMA. Every comment row above runs on an anon
+;;     frame that registers no app schema, so none of them can see whether the
+;;     optimistic card — `:id "temp-<uuid>"` — passes the schema the app
+;;     registers at `[:comments :data]`. Were that the wire `ws/Comment`, a
+;;     development build would reject the whole `:comment-form/submit`
+;;     candidate, fx included: no card, and no POST. The row below registers
+;;     the app's REAL schema registry on
 ;;     its frame (the AuthSlice row explains why that is the only honest way)
 ;;     and drives the real submit with its real temp-id supplier.
 ;;
-;;   - HOME FEED OWNERSHIP (rf2-gwye.34). Your Feed (`:feed/load`) and the
+;;   - HOME FEED OWNERSHIP. Your Feed (`:feed/load`) and the
 ;;     Global Feed (`:articles/load`) carry DIFFERENT request ids, so neither
 ;;     supersedes the other, and both settle the ONE `:realworld/articles-home`
 ;;     machine. Its `:empty` / `:some` / `:error` states take no
-;;     `:fetch-succeeded`, so whichever reply landed first won — including one
-;;     for the feed the reader had already left.
+;;     `:fetch-succeeded`, so ungated, whichever reply landed first would win
+;;     — including one for the feed the reader had already left.
 ;;
-;;   - EDITOR WRITE OWNERSHIP (rf2-gwye.37). A clean editor leaves freely with a
-;;     save or delete still out, and the settle then wrote the ONE `[:editor]`
-;;     slice and navigated, whatever the reader had moved on to.
+;;   - EDITOR WRITE OWNERSHIP. A clean editor leaves freely with a
+;;     save or delete still out, and an ungated settle would then write the
+;;     ONE `[:editor]` slice and navigate, whatever the reader had moved on to.
 ;;
 ;; All of it reuses `with-held-comment-fx`, the article page's held-request
 ;; harness — comment-flavoured only in its name.
@@ -4189,7 +4186,7 @@
         (is (empty? (app-db-rejections @traces))
             "the optimistic candidate passes the app's own schema — no :app-db rejection"))
       (is (= 2 (count (comment-ids* f)))
-          "ONE optimistic card is on the list (rf2-gwye.33)")
+          "ONE optimistic card is on the list")
       (is (str/starts-with? (str (second (comment-ids* f))) "temp-")
           "…under the real supplier's temp id, not one the test chose")
       (is (= 1 (count (comment-posts @lowered "alpha")))
@@ -4257,7 +4254,7 @@
         (is (= :global (:feed (home-state* f))) "the reader is on the Global Feed")
         (settle-ok! f (:on-success (last-req-by-id @lowered :feed/load)) (articles-of))
         (is (= :loading (:data (home-state* f)))
-            "the departed Your Feed reply does not settle the shared machine (rf2-gwye.34)")
+            "the departed Your Feed reply does not settle the shared machine")
         (settle-ok! f (:on-success (last-req-by-id @lowered :articles/load))
                     (articles-of "hello-conduit"))
         (is (= :some (home-render* f))
@@ -4331,7 +4328,7 @@
         (rf/dispatch-sync [:editor/edit-field :title "New unsaved draft"] {:frame f})
         (settle-ok! f (:on-success del) nil)
         (is (= :realworld.editor/new (route-id* f))
-            "a LATE delete success does not take the reader home (rf2-gwye.37)")
+            "a LATE delete success does not take the reader home")
         (is (= "New unsaved draft" (get-in (editor-slice* f) [:draft :title]))
             "…and does not wipe the new draft they are typing")
         (is (false? (ed-has-tag? f :editor/busy))
@@ -4386,7 +4383,7 @@
           (is (= :realworld.profile/show (route-id* f)) "the reader confirmed and left")
           (settle-ok! f (:on-success put) {:article (full-article "alpha" "Alpha, edited")})
           (is (= :realworld.profile/show (route-id* f))
-              "a LATE save success does not drag the reader to the article (rf2-gwye.37)")
+              "a LATE save success does not drag the reader to the article")
           (is (= {:username "eve"} (route-params* f)) "…their own route stands"))))))
 
 (defn- editor-current-owner-settles-still-land-test []
@@ -4417,15 +4414,14 @@
 
 (deftest realworld-comment-feed-and-editor-ownership
   (testing "the optimistic comment passes the PRODUCTION app schemas: one card, one
-            POST, then the server's id; a failure removes the card and frees the form
-            (rf2-gwye.33)"
+            POST, then the server's id; a failure removes the card and frees the form"
     (comment-optimistic-card-under-app-schemas-test))
   (testing "the wire Comment stays strict; only the durable shape admits a temp id"
     (comment-wire-schema-stays-strict-test))
   (testing "a departed home-feed reply cannot settle the machine for the current
-            feed, in either direction (rf2-gwye.34)"
+            feed, in either direction"
     (home-feed-departed-reply-is-refused-test))
-  (testing "a late editor DELETE keeps the newer draft and its route (rf2-gwye.37)"
+  (testing "a late editor DELETE keeps the newer draft and its route"
     (editor-late-delete-keeps-a-newer-draft-test))
   (testing "a late editor DELETE leaves a profile detour alone, and the next session
             is not left busy"
@@ -4440,23 +4436,23 @@
 ;; ============================================================================
 ;;
 ;; The failure projector, query encoding, and page arithmetic are transport-
-;; neutral Conduit contract, extracted to `realworld-shared.http` (rf2-fhxwhj)
-;; and pinned ONCE in realworld_shared_contract_cljs_test.cljs — no longer
-;; duplicated per app. This app retains only the integration assertion above
+;; neutral Conduit contract, living in `realworld-shared.http`
+;; and pinned ONCE in realworld_shared_contract_cljs_test.cljs rather than
+;; per app. This app carries only the integration assertion above
 ;; (`paginate-path-integration-test`) proving its request builder threads that
 ;; shared contract through.
 
 ;; ============================================================================
 ;; THE PRODUCTION-SEAM RECEIPT — write, then load, against the demo backend the
-;; served app runs on (rf2-9n43e part B, rf2-k5lbd)
+;; served app runs on
 ;; ============================================================================
 ;;
 ;; Every stub above is a canned reply the test chose, which is the right tool
 ;; for pinning what a handler does with a given reply and the wrong one for the
 ;; claim the README makes: that a comment you post is still there when the page
-;; re-reads. rf2-9n43e found the shipped backend answering every later GET out
-;; of a frozen seed, and no test here could see it, because no test here let
-;; the backend answer.
+;; re-reads. A backend answering every later GET out of a frozen seed would
+;; break that claim, and no canned-stub test here could see it, because none
+;; of them lets the backend answer.
 ;;
 ;; This receipt chooses nothing. The frame is wired the way `realworld.core/
 ;; mount!` wires the served app (`:fx-overrides {:rf.http/managed

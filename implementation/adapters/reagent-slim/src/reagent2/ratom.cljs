@@ -1,7 +1,7 @@
 (ns reagent2.ratom
   "Reactive primitives for the day8/reagent-slim artefact.
 
-  Bounded surface per IMPL-SPEC §2.3 (rf2-6hyy Stage 4-A):
+  Bounded surface per IMPL-SPEC §2.3:
 
     Types:      RAtom, Reaction
     Protocols:  IReactiveAtom, IDisposable
@@ -9,8 +9,8 @@
                 reactive?, flush!
     Macros:     reaction  (in reagent2/ratom.clj)
 
-  Symbols deliberately NOT shipped (audit-confirmed zero usage across
-  re-com / 10x / Dash8 / rf8 — see IMPL-SPEC §2.3 + §2.3a):
+  Symbols deliberately NOT shipped (none of re-com / 10x / Dash8 / rf8
+  uses them — see IMPL-SPEC §2.3 + §2.3a):
 
     - track, track!, cursor, wrap, make-wrapper
     - Track, RCursor, Wrapper types
@@ -22,7 +22,7 @@
   day8/re-frame2-reagent; the rewrite's commitment is to ship only the
   surfaces the audited codebases actually exercise.
 
-  Design notes (per IMPL-SPEC §3 + Stage 2 §4 efficiency analysis):
+  Design notes (per IMPL-SPEC §3):
 
     - RAtom and Reaction shapes match stock Reagent byte-for-byte. The
       reactive kernel is one of stock Reagent's well-designed pieces —
@@ -39,7 +39,7 @@
       via protocol — no `instance?` branch in core. The shape of
       `dispose!` and `add-on-dispose!` MUST NOT change.
 
-  Render-layer coupling: this ns stays pure reactive primitives, no
+  Render-layer coupling: this ns is pure reactive primitives, no
   DOM/component dependency. The microtask render scheduler
   (`reagent2.impl.batching`) couples to it in two directions, both via
   the `rea-schedule` slot below — `batching` installs its `schedule`
@@ -156,7 +156,7 @@
   ;; any printing happens. The derefs worth guarding are the ones `pr-writer`
   ;; makes as it recurses — a nested ratom's own `-pr-writer` derefs it — and
   ;; capturing those would subscribe whatever is currently tracking to a
-  ;; value it merely printed (rf2-3hqm).
+  ;; value it merely printed.
   ;;
   ;; The receiver's own deref stays visible: both call sites build
   ;; `{:val (-deref a)}` before entering here, and that is deliberate. A
@@ -185,7 +185,7 @@
 
 (defonce ^{:doc "Hook the render scheduler installs to schedule a microtask
                 drain of rea-queue. Defaults to nil (synchronous flush
-                only); Stage 4-B's reagent2.impl.batching sets this so a
+                only); reagent2.impl.batching sets this so a
                 Reaction whose dependency changed schedules a drain
                 automatically."}
   rea-schedule (clojure.core/atom nil))
@@ -266,7 +266,7 @@
   user state into the reactive graph.
 
   Two-arity overload accepts :meta and :validator like clojure.core/atom.
-  (Stock Reagent's :equal? is NOT shipped — audit-confirmed zero usage.)"
+  (Stock Reagent's :equal? is NOT shipped — no audited codebase uses it.)"
   ([x] (->RAtom x nil nil nil nil))
   ([x & {:keys [meta validator]}]
    (->RAtom x meta validator nil nil)))
@@ -298,7 +298,7 @@
 ;; Reaction — derived value with equality memoisation
 ;;
 ;; Layout per IMPL-SPEC §3.2: the same nine-field shape stock Reagent
-;; uses. Stage 2 §4 ("Keep as-is") concluded the kernel is correct.
+;; uses.
 ;; ---------------------------------------------------------------------------
 
 (deftype Reaction [^:mutable f ^:mutable state ^:mutable ^boolean dirty?
@@ -365,14 +365,14 @@
   (_try-capture [this f]
     ;; Mirror stock Reagent: on the success branch SET `state` to the
     ;; recomputed value here (and return it); on the throw branch capture
-    ;; the error in BOTH `state` and `caught`. `_run` must NOT overwrite
-    ;; `state` in check mode (`(when-not check (set! state res))`) — doing
-    ;; so clobbers the captured error (`_try-capture`'s catch returns the
-    ;; value of `(set! dirty? false)`, i.e. `false`, not the error), so a
-    ;; throwing queued/flush! recompute would leave `state` = false instead
-    ;; of the error AND notify watchers of a spurious `false` change
-    ;; (rf2-ee38b.15 P2). Returning the new state keeps `_run`'s
-    ;; `notify-watches! … res` reflecting the recompute on the success path.
+    ;; the error in BOTH `state` and `caught`, and return the error. `_run`
+    ;; does NOT set `state` in check mode (`(when-not check (set! state
+    ;; res))`): `_try-capture` owns `state` on both branches, so a throwing
+    ;; queued/flush! recompute leaves `state` holding the error, never a
+    ;; catch-block return value such as the `false` of `(set! dirty? false)`,
+    ;; and watchers see no spurious `false` change. Returning the new state
+    ;; keeps `_run`'s `notify-watches! … res` reflecting the recompute on
+    ;; the success path.
     (try
       (set! caught nil)
       (set! state (deref-capture f this))
@@ -389,7 +389,7 @@
                      (deref-capture f this))]
       ;; In check mode `_try-capture` has already set `state` (success or
       ;; error path); only the unchecked path sets it here. See the
-      ;; rationale on `_try-capture` (rf2-ee38b.15 P2).
+      ;; rationale on `_try-capture`.
       (when-not check
         (set! state res))
       ;; Equality memoisation per IMPL-SPEC §3.2: use = (not identical?)
@@ -434,7 +434,7 @@
 
   IDisposable
   (dispose! [this]
-    ;; Idempotent + re-entrant safe (rf2-1bzlai). The Reaction keeps the
+    ;; Idempotent + re-entrant safe. The Reaction keeps the
     ;; fixed nine-field stock-Reagent shape (IMPL-SPEC §3.2 — no extra
     ;; disposed-flag field), so idempotence rides the callback holders
     ;; themselves: snapshot `on-dispose` / `on-dispose-arr` and CLEAR them
@@ -498,7 +498,7 @@
 
 (defn activate!
   "Put `rx` on the PUSH path by running its body through `deref-capture`,
-  so it subscribes to the sources it reads. Returns `rx`. rf2-8cnxg.
+  so it subscribes to the sources it reads. Returns `rx`.
 
   WHY THIS EXISTS. A Reaction is DEMAND-driven: `-deref` outside
   `*ratom-context*` with no `auto-run` takes the fast path — run `f` raw,
@@ -521,9 +521,9 @@
   synchronously inside every source `reset!`.
 
   Stock Reagent spells the same operation `reagent.ratom/run` (its
-  `IRunnable` protocol). The rewrite dropped `IRunnable` — no audited
-  codebase called it — so the one genuinely-needed use rides this named fn
-  instead of resurrecting the protocol."
+  `IRunnable` protocol). The rewrite has no `IRunnable` — no audited
+  codebase calls it — so the one genuinely-needed use rides this named fn
+  instead of the protocol."
   [rx]
   (when (and (instance? Reaction rx)
              (nil? (.-watching ^Reaction rx)))
@@ -545,8 +545,8 @@
     :on-dispose  fn called with the last computed value when dispose!
                  runs.
 
-  IMPL-SPEC §3.2: the kernel preserves stock Reagent's shape because
-  the Stage 2 efficiency analysis confirmed it's correct as-is."
+  IMPL-SPEC §3.2: the kernel keeps stock Reagent's shape, which is
+  correct as-is."
   [f & {:keys [auto-run on-set on-dispose]}]
   (let [r (->Reaction f nil true nil nil nil nil nil nil nil nil)]
     (._set-opts r {:auto-run    auto-run

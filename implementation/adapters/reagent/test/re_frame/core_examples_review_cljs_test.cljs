@@ -1,6 +1,6 @@
 (ns re-frame.core-examples-review-cljs-test
-  "Interaction and parser regressions from the examples/core review. Examples
-   remain test-free; this wrapper exercises their production registrations."
+  "Interaction and parser pins for the examples/core apps. Examples
+   are test-free; this wrapper exercises their production registrations."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [notebook.core :as notebook]

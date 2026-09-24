@@ -1,16 +1,16 @@
 (ns re-frame.schema-reject-notification-cljs-test
-  "Reagent leg of the rf2-uhk9ko cross-adapter contract (Mike-ruled
-  Option B): the router validates the COMPLETE candidate frame
+  "Reagent leg of a cross-adapter contract: the router validates the
+  COMPLETE candidate frame
   transition BEFORE installing it, so a schema-rejected dispatch never
   touches the container — the Reagent reaction graph is never dirtied,
   no tracking reaction re-runs, and a listener-triggered SYNCHRONOUS
   `r/flush` during the rejection still reads the OLD value.
 
-  Under the retired commit-then-rollback pair the forward commit
-  dirtied every dependent reaction with the INVALID candidate; a
-  synchronous `r/flush` from a trace listener (exactly what a dev tool
-  or test harness may do) recomputed and notified with the invalid
-  value before the rollback write restored it. This file is the
+  Under a commit-then-rollback pair the forward commit would dirty
+  every dependent reaction with the INVALID candidate; a synchronous
+  `r/flush` from a trace listener (exactly what a dev tool or test
+  harness may do) would recompute and notify with the invalid value
+  before the rollback write restored it. This file is the
   Reagent tooth that keeps that window closed; the UIx spine leg
   lives in `re-frame.adapter.react-shared-suite/
   assert-schema-rejection-zero-sub-notifications`.
@@ -37,7 +37,7 @@
 (deftest schema-rejection-zero-reaction-notifications
   (testing "a schema-rejected dispatch dirties NO Reagent reaction and a
             listener-triggered sync r/flush still reads the OLD value
-            (rf2-uhk9ko — the candidate is validated before install)"
+            (the candidate is validated before install)"
     (let [fid  :reagent.schema-reject/main
           runs (atom 0)]
       (rf/make-frame {:id fid})
@@ -60,10 +60,10 @@
             "precondition: the tracker primed to the seeded value")
         (let [after-prime @runs]
           ;; The listener-triggered sync flush: during the rejection emit,
-          ;; force Reagent's batch queue and read the reaction. Under the
-          ;; retired forward-commit the container held the invalid
-          ;; candidate here, the flush re-ran the tracker with it, and
-          ;; this deref exposed it.
+          ;; force Reagent's batch queue and read the reaction. Under a
+          ;; forward commit the container would hold the invalid
+          ;; candidate here, the flush would re-run the tracker with it,
+          ;; and this deref would expose it.
           (rf/register-listener! :trace ::reject-probe
             (fn [ev]
               (when (= :rf.error/schema-validation-failure (:operation ev))

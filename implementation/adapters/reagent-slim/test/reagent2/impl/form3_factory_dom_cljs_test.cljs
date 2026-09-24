@@ -1,5 +1,5 @@
 (ns reagent2.impl.form3-factory-dom-cljs-test
-  "rf2-oyrj — the per-instance Form-3 FACTORY mount witness.
+  "The per-instance Form-3 FACTORY mount witness.
 
   WHAT IT PROVES. `FORM-3.md` §\"A complete example\" documents the
   supported Form-3 shape as a plain factory `defn` whose body returns a
@@ -14,21 +14,21 @@
   imperative-widget recipe (maps, charts, popovers, cleanup-owning
   widgets).
 
-  The defect: `reagent2.impl.component/wrap-render` classified the
-  factory's OUTPUT with a bare `fn?` test. A reagent-slim class made by
-  `create-class*` IS a JS function, so it took the Form-2 branch and the
-  CLASS CONSTRUCTOR was cached as `cljsRenderFn` and applied with the
-  render args. No Form-3 instance was mounted and its render/lifecycle
-  methods were never reached. `reagent2.dom.server/emit-render-fn`
-  mirrored the same mistake at the static-markup factory-output
-  boundary — the class dispatch there covered only a class sitting
-  directly in the hiccup HEAD.
+  THE HAZARD. A reagent-slim class made by `create-class*` IS a JS
+  function, so classifying the factory's OUTPUT with a bare `fn?` test
+  would take the Form-2 branch: the CLASS CONSTRUCTOR would be cached as
+  `cljsRenderFn` and applied with the render args, no Form-3 instance
+  would mount, and its render/lifecycle methods would never be reached.
+  So `reagent2.impl.component/wrap-render` tests the output with
+  `reagent-class?` first, and `reagent2.dom.server/emit-render-fn` does
+  the same at the static-markup factory-output boundary — not only for
+  a class sitting directly in the hiccup HEAD.
 
   WHY A REAL MOUNT. A test that hand-invokes `new` on the returned class
   (or walks its prototype) proves the class is well formed, not that the
   renderer mounts one. Only a `react-dom/client` root driving the
   ordinary `[factory args...]` hiccup path exercises the classification
-  seam this bug lives in, so the live assertions here go through
+  seam this hazard lives in, so the live assertions here go through
   `rdc/render`.
 
   TEST-ONLY. The ns ends in `-dom-cljs-test` so shadow-cljs's
@@ -79,7 +79,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest factory-returned-class-mounts-updates-and-unmounts
-  (testing "reagent-slim — a plain factory returning create-class mounts its class, keeps closure identity across an update, and runs mount/unmount exactly once (rf2-oyrj)"
+  (testing "reagent-slim — a plain factory returning create-class mounts its class, keeps closure identity across an update, and runs mount/unmount exactly once"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (let [lifecycle  (atom [])
@@ -87,8 +87,9 @@
             mount-node (make-mount-node!)
             root       (rdc/create-root mount-node)]
         (try
-          ;; Initial mount. Pre-fix this rendered nothing usable: the
-          ;; class CONSTRUCTOR was applied as a Form-2 inner render fn.
+          ;; Initial mount. A factory output misread as Form-2 would apply
+          ;; the class CONSTRUCTOR as an inner render fn and render nothing
+          ;; usable.
           (react-dom/flushSync (fn [] (rdc/render root [factory "hello"])))
           (is (= "hello" (.-textContent mount-node))
               "initial mount rendered the class's :reagent-render output")
@@ -115,7 +116,7 @@
             (try (rdc/unmount root) (catch :default _ nil))))))))
 
 (deftest sibling-factory-instances-own-separate-closures
-  (testing "reagent-slim — two sibling mounts of one factory each own a separate closure and class (rf2-oyrj)"
+  (testing "reagent-slim — two sibling mounts of one factory each own a separate closure and class"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (let [lifecycle  (atom [])
@@ -136,7 +137,7 @@
             (try (rdc/unmount root) (catch :default _ nil))))))))
 
 (deftest genuine-form-2-and-direct-class-head-unchanged
-  (testing "reagent-slim — the Form-2 inner-fn path and a direct class head still behave (rf2-oyrj control)"
+  (testing "reagent-slim — the Form-2 inner-fn path and a direct class head behave normally (control)"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (let [setup-calls (atom 0)
@@ -160,12 +161,12 @@
 
           (react-dom/flushSync (fn [] (rdc/render root [direct "z"])))
           (is (= "d-z" (.-textContent mount-node))
-              "direct class head control: a create-class result in HEAD position still mounts")
+              "direct class head control: a create-class result in HEAD position mounts")
           (finally
             (try (rdc/unmount root) (catch :default _ nil))))))))
 
 (deftest static-markup-of-a-factory-emits-content-without-lifecycle
-  (testing "reagent-slim — render-to-static-markup of a factory-returned class emits the class's markup and runs no lifecycle (rf2-oyrj)"
+  (testing "reagent-slim — render-to-static-markup of a factory-returned class emits the class's markup and runs no lifecycle"
     ;; NOT browser-gated: the static serializer is pure string building,
     ;; so this assertion runs on the :node-test lane too.
     (let [lifecycle (atom [])

@@ -1,16 +1,16 @@
 (ns reagent2.impl.sibling-output-and-callable-props-dom-cljs-test
-  "rf2-fzbj.30 (rf2-gwye.51, rf2-gwye.52) — two reagent-slim render-boundary
-  contracts, witnessed through a real `react-dom/client` root.
+  "Two reagent-slim render-boundary contracts, witnessed through a real
+  `react-dom/client` root.
 
   1. A component whose render returns a SEQUENCE commits sibling children:
-     no wrapper element and no `:rf.error/template-bad-tag`. Before the fix,
-     `wrap-render`'s untagged arm coerced the seq with `vec`, so
+     no wrapper element and no `:rf.error/template-bad-tag`. Coercing the
+     seq with `vec` in `wrap-render`'s untagged arm would make
      `as-element` read the first child as a hiccup HEAD.
   2. A metadata-bearing callback (`cljs.core/MetaFn`, what `with-meta`
      returns for a fn) reaches React DOM as a real JS function, so a click
-     runs it and a callback ref is called with the node. Before the fix the
-     MetaFn object passed through unchanged; its `typeof` is \"object\", so
-     React DOM refused it as a listener and treated it as an object ref.
+     runs it and a callback ref is called with the node. Passed through
+     unchanged, the MetaFn object's `typeof` is \"object\", so React DOM
+     would refuse it as a listener and treat it as an object ref.
 
   TEST-ONLY. The ns ends in `-dom-cljs-test`, so `:browser-test` runs the
   live bodies; `:node-test` also loads it (`cljs-test$` matches), where they
@@ -46,7 +46,7 @@
 (defn- text-rows [] (list "a" "b"))
 
 (deftest sequence-output-commits-sibling-children
-  (testing "reagent-slim — an untagged component returning a sequence commits its items as siblings (rf2-fzbj.30)"
+  (testing "reagent-slim — an untagged component returning a sequence commits its items as siblings"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (with-attached-root
@@ -66,7 +66,7 @@
               "…and not as an `<a>` element holding the second item"))))))
 
 (deftest metafn-click-handler-and-callback-ref-reach-react-dom
-  (testing "reagent-slim — a metadata-bearing on-click and :ref are called by React DOM (rf2-fzbj.30)"
+  (testing "reagent-slim — a metadata-bearing on-click and :ref are called by React DOM"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (let [clicks   (atom 0)

@@ -7,11 +7,9 @@
 
    The fixture fns live HERE (the adapter test tree), not under
    examples/patterns/nine_states/ — the example source stays test-free per
-   the locked test-free-examples policy (rf2-8cevm). The ns requires the
+   the test-free-examples policy. The ns requires the
    example's production source (`nine-states.core`) so its handlers / subs
    / views / machines register at ns-load, then exercises them directly.
-   (rf2-cd2zo folded the former `nine-states.core-test` fixture ns in here
-   and retired the example test/ dir.)
 
    The example registers its handlers / subs / views / machines at
    namespace-load time. CLJS has no runtime (require :reload), so this
@@ -19,7 +17,7 @@
    Each helper uses make-frame to spin up a fresh frame, so per-test
    isolation comes from frame creation, not registry resets.
 
-   Per rf2-am9d the fixture uses snapshot/restore via re-frame.test-support
+   The fixture uses snapshot/restore via re-frame.test-support
    so the contract is uniform across CLJS fixtures — the snapshot captures
    the example's ns-load registrations, and the restore on the way out
    leaves them intact for any subsequent test ns."
@@ -49,7 +47,7 @@
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    ;; EP-0002 (rf2-9o48ih): each test spins its OWN top-level frame via
+    ;; EP-0002: each test spins its OWN top-level frame via
     ;; `make-frame`; opt out of the ambient `:rf/default` scope so the new
     ;; frame's `:initial-events` drain synchronously (top-level boot) rather than
     ;; being treated as a mid-cascade child-frame creation.
@@ -306,14 +304,14 @@
           "the abandoned load's items never land"))))
 
 ;; ----------------------------------------------------------------------------
-;; SUCCESS THEN INVALID SUBMIT (rf2-gwye.56)
+;; SUCCESS THEN INVALID SUBMIT
 ;;
 ;; A valid submit clears the draft and lands the :form region at :correct.
 ;; Add stays enabled, so pressing it again submits the now-empty draft, which
 ;; fails validation. The per-state fixtures above each start from a fresh frame
-;; and never make that :correct -> :submit-invalid step, which used to be
-;; unhandled: the form stayed :correct and "Todo added" out-ranked the new
-;; field error in the render-priority table.
+;; and never make that :correct -> :submit-invalid step. Left unhandled, the
+;; form would stay :correct and "Todo added" would out-rank the new field
+;; error in the render-priority table.
 ;; ----------------------------------------------------------------------------
 
 (deftest success-then-invalid-submit-selects-incorrect
@@ -333,7 +331,7 @@
         (is (machine-has-tag? f :form/invalid) "the :form region is :incorrect")
         (is (not (machine-has-tag? f :form/success)) "the success acknowledgement is gone")
         (is (= :incorrect (render-model f))
-            "THE REGRESSION: the page renders the error, not \"Todo added\"")
+            "THE CONTRACT: the page renders the error, not \"Todo added\"")
 
         ;; And the form still recovers to :correct on the next valid submit.
         (rf/dispatch-sync [:new-todo/edit-field :title "Buy eggs"] {:frame f})
@@ -350,11 +348,11 @@
 ;; `:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}` so
 ;; its `[:nine-states.story/load-failing]` setup runs against the canned-
 ;; FAILURE stub (overriding the `:story` preset's canned-success default).
-;; This regression pins that the failing variant actually takes the error
+;; This pins that the failing variant actually takes the error
 ;; branch: a frame carrying the SAME failure override, running the SAME
 ;; load-failing event, must land the `:data` region at `:error` (tag
 ;; `:data/error`) and compute `[:ui/render]` as `:error` — NOT settle on a
-;; loaded/empty success state, which is the bug rf2-t5ky67 caught.
+;; loaded/empty success state.
 ;; ----------------------------------------------------------------------------
 
 (def ^:private story-failure-overrides

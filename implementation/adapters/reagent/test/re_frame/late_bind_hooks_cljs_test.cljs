@@ -1,6 +1,6 @@
 (ns re-frame.late-bind-hooks-cljs-test
   "Pin the closed set of late-bind hooks the Reagent adapter publishes
-  at ns-load time (rf2-z3q3s).
+  at ns-load time.
 
   Spec 006 §The reactive-substrate adapter contract treats the adapter
   surface as closed-set; the late-bind hook table is the documented
@@ -46,14 +46,14 @@
   #{:reagent/set-hiccup-emitter!
     :adapter/current-frame
     :adapter/current-component
-    ;; rf2-7ds8 — stock Reagent's own hiccup → React element walk. Twin of
+    ;; Stock Reagent's own hiccup → React element walk. Twin of
     ;; `:adapter/current-component` above and published by the ratom family
     ;; alone; see the reagent-slim pin for the mechanism it protects.
     :adapter/as-element
     :adapter/ratom
     :adapter/ratom?
     :adapter/make-reaction
-    ;; rf2-8cnxg — the ratom family's push-path activation for a
+    ;; The ratom family's push-path activation for a
     ;; `make-derived-value` result. Published ONLY here and by
     ;; reagent-slim; the React-hook spine's derived values are push-based
     ;; from birth and publish nothing.
@@ -67,7 +67,7 @@
 (deftest reagent-adapter-publishes-its-documented-hooks
   (testing "every hook re-frame.adapter.reagent is documented to publish is
             present in the in-process late-bind hook table after the
-            adapter ns is loaded (rf2-z3q3s)"
+            adapter ns is loaded"
     (let [installed-keys (set (keys @rf.late-bind/hooks))
           missing        (clojure.set/difference reagent-adapter-published-hooks
                                                   installed-keys)]
@@ -76,13 +76,13 @@
                " — every key in this test's expected-set MUST be wired by"
                " (late-bind/set-fn! ...) or (late-bind/chain-fn! ...) at the"
                " bottom of re-frame.adapter.reagent.cljs"
-               " (`:reagent/set-hiccup-emitter!` is chained per rf2-cl1qv —"
+               " (`:reagent/set-hiccup-emitter!` is chained —"
                " see the directory entry's `:chained? true`)")))))
 
 (deftest reagent-adapter-hooks-match-directory-listing
   (testing "every Reagent-adapter hook this test pins is also listed in
             re-frame.late-bind.directory with re-frame.adapter.reagent
-            as a producer (rf2-z3q3s)"
+            as a producer"
     (doseq [hook reagent-adapter-published-hooks]
       (let [entry      (rf.late-bind.directory/entry hook)
             producer   (:producer-ns entry)

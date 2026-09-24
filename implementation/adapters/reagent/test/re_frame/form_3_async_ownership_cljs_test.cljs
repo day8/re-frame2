@@ -1,22 +1,22 @@
 (ns re-frame.form-3-async-ownership-cljs-test
   "Reagent adapter README §Form-3 — the async widget recipe owns every embed
-  result (rf2-gwye.50 / rf2-fzbj.29 F2).
+  result.
 
   The recipe teaches how to release an imperative library's state and
   listeners, so a version of it that leaks on ORDINARY navigation defeats its
-  own guidance. Two sequences did exactly that before this pin: a mount whose
-  embed Promise settles after the user has navigated away wrote the new widget
-  into a closure nothing would ever finalize again, and two overlapping
-  requests settling out of order let the older completion overwrite the newer
-  accepted instance, leaking it.
+  own guidance. Two sequences are where a naive version leaks: a mount whose
+  embed Promise settles after the user has navigated away would write the new
+  widget into a closure nothing would ever finalize again, and two overlapping
+  requests settling out of order would let the older completion overwrite the
+  newer accepted instance, leaking it.
 
   What is pinned is the recipe's OWNERSHIP ALGORITHM — the per-mount request
   token, `retire!`'s read-and-clear, and the three lifecycle bodies — mirrored
   below from `implementation/adapters/reagent/README.md` §Form-3 with
   `r/create-class`, `r/argv` and `js/vegaEmbed` replaced by plain calls and a
   caller-controlled embed fn, so the test drives the Promise sequencing. No
-  React, DOM or Vega is needed: the defect is in the algorithm, and a Markdown
-  link gate cannot see it. Keep the mirror and the README in step — the
+  React, DOM or Vega is needed: the leaks live in the algorithm, and a
+  Markdown link gate cannot see them. Keep the mirror and the README in step — the
   lifecycle bodies below are meant to read line-for-line against the recipe.
 
   Pins:

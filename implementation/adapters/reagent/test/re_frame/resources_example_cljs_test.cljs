@@ -2,17 +2,17 @@
   "Integration test: drives the resources example (`examples/capabilities/resources/resources/`)
    through the FOUR causal patterns it teaches — route-driven page load,
    event-driven owner ensure/release, manual refresh as a cause, and a
-   machine-owned resource. Closes the false-green gap rf2-3slxrk named:
+   machine-owned resource.
    `test:examples-compile` catches a missing namespace/init-fn and the generic
-   resource artefact tests catch the runtime contract, but neither pinned the
+   resource artefact tests catch the runtime contract, but neither pins the
    EXAMPLE-SPECIFIC composition — its route `:resources` metadata + owner
    lifetimes, its app-event-owner ensure/release pair, its manual-refresh `:cause`,
    and its `[:machine …]`-owned ensure released on actor destroy. Those could
-   drift while every gate stayed green.
+   drift while every other gate stays green.
 
    The fixture fns + the deterministic transport stub live HERE (the adapter
    test tree), not under examples/capabilities/resources/resources/ — the example source stays
-   test-free per the locked test-free-examples policy (rf2-8cevm). The ns
+   test-free per the test-free-examples policy. The ns
    requires the example's production source (`resources.core`) so its resources,
    routes, events, subs, and the reader machine register at ns-load, then
    exercises them directly against per-test frames.
@@ -26,7 +26,7 @@
    managed-HTTP transport produces. Routing's URL push is stubbed so navigation
    is deterministic without a browser.
 
-   Per rf2-am9d this ns uses snapshot/restore via re-frame.test-support so the
+   This ns uses snapshot/restore via re-frame.test-support so the
    contract is uniform across CLJS fixtures: the snapshot captures the example's
    ns-load registrations, and the restore on the way out leaves them intact for
    any subsequent test ns."
@@ -100,8 +100,8 @@
    integration, and stub the managed-HTTP + url-push fx so route entry's ensure
    + navigation are deterministic without a fetch / browser.
 
-   THE ORDER MATTERS, AND THE FRAME IS MADE LAST (rf2-djqm, prophylactic —
-   the shape rf2-k4oe repaired in the LinearLite suite). A `:url-bound?` frame
+   THE ORDER MATTERS, AND THE FRAME IS MADE LAST (prophylactic —
+   the same shape as the LinearLite suite). A `:url-bound?` frame
    performs a synchronous initial URL sync AT CONSTRUCTION — `make-frame` ->
    `frame/upsert-frame!`'s post-create hook -> routing's
    `:routing/on-frame-registered!` -> `reconcile-url-listener!` — and under
@@ -112,8 +112,9 @@
    / `:rf.error/resource-route-plan` on the routing slice, and — because the
    suite's own navigation never re-plans — the error is STICKY.
 
-   This suite is green either way TODAY only because its `\"/\"` route declares
-   no BLOCKING resource; add one and it reproduces rf2-k4oe exactly, silently.
+   With the frame made first this suite would still pass, but only because its
+   `\"/\"` route declares no BLOCKING resource; add one and the error sticks,
+   silently.
    Registering everything first and making the frame last removes the
    dependence entirely, and matches the committed pilot baseline
    (`docs/design/fresco/product/pilots/baseline/linearlite/baseline_test.cljs`,
@@ -121,7 +122,7 @@
   []
   (reset! last-managed-args nil)
   ;; Re-install the example's ns-load resource registrations (wiped post-dispose).
-  ;; rf2-h1vqa4: reinstate through `registrar/register!` — NOT a raw
+  ;; Reinstate through `registrar/register!` — NOT a raw
   ;; registrar-atom swap. Image-loaded frames resolve through the SOURCE
   ;; STORE (the default image is assembled from it), and the reset hook's
   ;; clear-kind! forgot the store rows too; register! writes registrar +
@@ -184,7 +185,7 @@
     ;; assembly loud for any suite whose baseline is captured after the second
     ;; app loads. `:app-ns` names OUR OWN app (never a sibling's): the fixture
     ;; keeps its rows out of every suite's baseline and reinstates them for
-    ;; this suite's own tests (rf2-kuky.27).
+    ;; this suite's own tests.
     {:adapter rf.adapter.reagent/adapter
      :app-ns  "resources."
      :init-fn init!}))
@@ -302,7 +303,7 @@
               "the owner was released — no dangling owner pins the entry"))))))
 
 ;; The test above pins the SIMPLE case (open X → close X). The two below pin the
-;; REPLACE case — the leak rf2-5jtsh named. The list leaves every Preview button
+;; REPLACE case. The list leaves every Preview button
 ;; live, so opening B while A is open REPLACES A, but there is only ONE Close
 ;; control and it reaches only the current slug. If :resources.app/preview-opened
 ;; did not release the prior slug's owner on replace, [:resources.app/preview-
@@ -316,7 +317,7 @@
             before ensuring B, so A's entry is no longer pinned. A→B→close then
             proves NEITHER owner remains (the single Close control only ever
             reaches the current slug, so a replaced owner left attached would
-            leak forever — rf2-5jtsh)."
+            leak forever)."
     (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (let [owner-a [:resources.app/preview-opened "resources-101"]
@@ -335,7 +336,7 @@
                (rf/compute-sub [:resources.app/preview-slug] (rf/frame-state-value f)))
             "the open slug is now B")
         (is (not (contains? (:active-owners (entry-in f dkey-a)) owner-a))
-            "REPLACE released A's owner — the prior preview is no longer pinned (the fix)")
+            "REPLACE released A's owner — the prior preview is no longer pinned")
         (is (contains? (:active-owners (entry-in f dkey-b)) owner-b)
             "B is now ensured under its own app-event owner")
         ;; CLOSE B — the only close control releases the CURRENT slug (B).
@@ -354,7 +355,7 @@
             slug re-ensures the owner it already holds (a fresh-skip cache hit —
             attach-owner is a no-op for an owner already present) rather than
             churning it. A release+reacquire would bump the entry's :revision
-            (detach of a present owner bumps it, Spec 016 rf2-cxwuhl); a clean
+            (detach of a present owner bumps it, Spec 016); a clean
             re-ensure leaves it untouched."
     (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
@@ -432,11 +433,10 @@
 ;; The test below pins the MACHINE-OWNED RESOURCE contract the example teaches:
 ;; the reader ensures its detail under the runtime ACTOR-ID owner
 ;; `[:machine :resources.app/reader]`, and stop-reader (actor destroy) releases
-;; exactly that owner. This is the regression pin for rf2-lbtqw4 — the example
-;; previously ensured under a three-part `[:machine machine-id instance-id]`
-;; owner while relying on actor-destroy auto-release, which the framework fires
-;; ONLY for the two-part `[:machine actor-id]` key (Spec 016 §Release authority
-;; is per owner kind, 016:291), so the owner leaked. The generic
+;; exactly that owner. A three-part `[:machine machine-id instance-id]` owner
+;; would leak: actor-destroy auto-release fires ONLY for the two-part
+;; `[:machine actor-id]` key (Spec 016 §Release authority is per owner kind,
+;; 016:291). The generic
 ;; ensure-under-owner + release-on-owner-drop mechanics are also pinned in the
 ;; resources artefact suites (`implementation/resources/test/`); this pins the
 ;; EXAMPLE's specific owner shape + stop-reader cleanup end-to-end against the
@@ -449,9 +449,9 @@
             runtime actor-id owner [:machine :resources.app/reader] — the one
             machine owner the framework auto-releases on destroy (Spec 016:291) —
             and NOT a three-part [:machine machine-id instance-id] key (an
-            app-authoritative owner the framework would NOT auto-release: the
-            leak the old example shape caused). stop-reader destroys the actor,
-            releasing that owner so the read is not left pinned (rf2-lbtqw4)."
+            app-authoritative owner the framework would NOT auto-release, so
+            it would leak). stop-reader destroys the actor,
+            releasing that owner so the read is not left pinned."
     (let [slug        "resources-101"
           instance-id (str "reader-" slug)
           actor-owner [:machine :resources.app/reader]
@@ -467,8 +467,8 @@
         (is (contains? (:active-owners e) actor-owner)
             "ensured under the two-part actor-id owner [:machine :resources.app/reader]")
         ;; ADVERSARIAL/NEGATIVE — the three-part [:machine machine-id instance-id]
-        ;; key must NOT be an owner. The old (buggy) shape attached it here and
-        ;; then leaked, because actor-destroy auto-releases only the two-part key.
+        ;; key must NOT be an owner. Attached here, it would leak, because
+        ;; actor-destroy auto-releases only the two-part key.
         (is (not (contains? (:active-owners e) three-part))
             "the domain instance-id is NOT folded into the owner (that would leak)"))
       ;; STOP — destroy the actor; teardown releases [:machine :resources.app/reader].

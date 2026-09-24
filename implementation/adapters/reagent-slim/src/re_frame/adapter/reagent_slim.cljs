@@ -64,14 +64,14 @@
   render queue), so a `:node-test` runner with no real React render path
   still flushes.
   It publishes a render phase, so do not call it from inside a
-  `dispatch-sync` handler (rf2-0c23j).
-  The promise-returning `reagent2.dom.client/flush-views!` remains available
+  `dispatch-sync` handler.
+  The promise-returning `reagent2.dom.client/flush-views!` is available
   when callers need deterministic Suspense ordering."
   (:flush-views! spine-fns))
 
 ;; ---- the client root ------------------------------------------------------
 ;;
-;; rf2-k5r9t. The same `client-root` / `render!` / `unmount!` trio the stock
+;; The same `client-root` / `render!` / `unmount!` trio the stock
 ;; Reagent adapter publishes, from the same shared ratom spine, so an app
 ;; that swaps coordinates keeps its boot namespace byte for byte. See
 ;; `re-frame.adapter.reagent` for the recipe.
@@ -128,16 +128,16 @@
      ;; spine handles re-frame-owned disposal before these substrate ops.
      :current-frame     rf.views/current-frame
      :current-component r/current-component
-     ;; rf2-7ds8 — reagent2's own hiccup walk, so a caller crossing a
+     ;; reagent2's own hiccup walk, so a caller crossing a
      ;; hiccup island into React under this adapter gets a subtree THIS
      ;; build renders, and `:current-component` above can see it.
      :as-element        r/as-element
      :atom              r/atom
      :ratom?            (fn [x] (satisfies? ratom/IReactiveAtom x))
      :make-reaction     ratom/make-reaction
-     ;; rf2-8cnxg — the missing `deref-capture`, same defect and same shape
-     ;; as stock Reagent's (the rewrite keeps stock's nine-field Reaction
-     ;; kernel, demand-driven `-deref` included). `ratom/activate!` is the
+     ;; The `deref-capture` run a Reaction needs to learn its sources, same
+     ;; need and same shape as stock Reagent's (the rewrite keeps stock's
+     ;; nine-field Reaction kernel, demand-driven `-deref` included). `ratom/activate!` is the
      ;; rewrite's name for stock's `IRunnable` `run`; it is idempotent and
      ;; a no-op on anything that is not one of its Reactions.
      :activate-reaction! ratom/activate!
@@ -145,7 +145,7 @@
      :add-on-dispose!   ratom/add-on-dispose!
      :dispose!          ratom/dispose!
      :reactive?         ratom/reactive?
-     ;; rf2-ty246 — twin of the stock adapter's entry; see it for why this is a
+     ;; Twin of the stock adapter's entry; see it for why this is a
      ;; call-time lambda over the dynamic var rather than the Var value.
      :reactive-owner    (fn [] ratom/*ratom-context*)
      :after-render      r/after-render}))

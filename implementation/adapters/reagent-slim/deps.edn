@@ -2,7 +2,7 @@
 ;;
 ;; This is the slim rewrite of stock Reagent for React 19. It replaces, and
 ;; does not depend on, stock Reagent.
-;; The bridge `day8/re-frame2-reagent` continues to ship in parallel so
+;; The bridge `day8/re-frame2-reagent` ships in parallel so
 ;; consumers that need the dropped surfaces (`track`, `cursor`, `wrap`,
 ;; `with-let`, etc.) keep a path to the React-19-stable React API.
 ;;

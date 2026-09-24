@@ -1,13 +1,12 @@
 (ns re-frame.realworld-markdown-cljs-test
   "Contract tests for the shared RealWorld article-body markdown renderer
-   (`realworld-shared.markdown` — rf2-e2t7v4), which replaced the
-   hand-rolled markdown subset (rf2-ke9gtx) with a real CommonMark library
+   (`realworld-shared.markdown`), built on a real CommonMark library
    (`io.github.nextjournal/markdown`, hiccup-emitting mode).
 
    The renderer source is example code (`examples/real-apps/realworld_shared/...`), but the
-   regression contract lives HERE in the adapter test tree per the
-   test-free-examples policy (rf2-8cevm) — the same posture the prior
-   markdown work used. Runs under the always-on `:node-test` gate (markdown-it
+   contract lives HERE in the adapter test tree per the
+   test-free-examples policy — the same posture as the shared wire-contract
+   suite (`realworld_shared_contract_cljs_test.cljs`). Runs under the always-on `:node-test` gate (markdown-it
    is pure JS — no DOM — so it tokenizes fine in plain Node).
 
    Two contracts:
@@ -22,8 +21,8 @@
         - a `[text](javascript:...)` link drops the unsafe `:href` (the link
           text survives) and likewise for `data:` image `:src`.
 
-   2. CommonMark FIDELITY. Shapes the hand-rolled subset could not do now
-      render correctly: a GFM table, a nested list, and an image."
+   2. CommonMark FIDELITY. A GFM table, a nested list, and an image render
+      correctly."
   (:require [clojure.walk :as walk]
             [clojure.string :as str]
             [cljs.test :refer-macros [deftest testing is]]
@@ -201,7 +200,7 @@
           "safe image src preserved"))))
 
 ;; ===========================================================================
-;; 2. CommonMark FIDELITY (shapes the hand-rolled subset could not render)
+;; 2. CommonMark FIDELITY (tables, nested lists, images)
 ;; ===========================================================================
 
 (deftest renders-gfm-table
@@ -243,7 +242,7 @@
           "the image :alt is preserved"))))
 
 (deftest renders-baseline-shapes
-  (testing "headings, emphasis, code, and blockquote still render"
+  (testing "headings, emphasis, code, and blockquote render"
     (let [tree (md/render (str "# Title\n\n"
                                "A **bold** and *italic* and `code` span.\n\n"
                                "> a quote\n"))

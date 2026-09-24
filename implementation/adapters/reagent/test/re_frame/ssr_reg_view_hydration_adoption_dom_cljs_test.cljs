@@ -1,21 +1,21 @@
 (ns re-frame.ssr-reg-view-hydration-adoption-dom-cljs-test
-  "rf2-8vi4q — does a REGISTERED view's server markup hydrate as a clean
+  "Does a REGISTERED view's server markup hydrate as a clean
   ADOPTION in a dev build?
 
-  ## The defect this closes
+  ## The divergence this pins shut
 
   In a DEV build the Reagent CLIENT render of a registered view stamps
   BOTH `data-rf2-source-coord` and `data-rf-view` on the view's root DOM
-  element. Before this bead the JVM SSR emitter stamped NEITHER on a
-  callable-head view (the shape isomorphic pages use), so the server
-  markup could not byte-match the dev client render: React reported a
-  hydration mismatch, leaving the adopted node's attributes unpatched and
-  the page's `no-flash / adopt existing DOM` property degraded in dev.
-  (Production elides the annotations on both hosts, so prod was clean —
-  the divergence was dev-only.)
+  element. A JVM SSR emitter that stamped NEITHER on a callable-head view
+  (the shape isomorphic pages use) would produce server markup that
+  cannot byte-match the dev client render: React would report a hydration
+  mismatch, leave the adopted node's attributes unpatched and degrade the
+  page's `no-flash / adopt existing DOM` property in dev. (Production
+  elides the annotations on both hosts, so the divergence would be
+  dev-only.)
 
-  rf2-8vi4q moved annotation to the reg-view REGISTRATION boundary on both
-  hosts, so a server render of a registered view now emits the SAME two
+  Annotation happens at the reg-view REGISTRATION boundary on both
+  hosts, so a server render of a registered view emits the SAME two
   attributes the client stamps. This file makes React the judge of whether
   that byte-match actually produces a clean adoption.
 
@@ -24,18 +24,18 @@
   The same harness runs TWICE, mirroring the sibling
   `re-frame.ssr-keyword-child-hydration-dom-cljs-test`:
 
-    - GREEN — over the bytes the JVM emitter produces NOW (root carries
+    - GREEN — over the bytes the JVM emitter produces (root carries
       BOTH annotations, values computed via the SHARED formatters so the
       fixture is the real dialect): React hydrates SILENTLY, the exact
       server node is adopted (`identical?` + `isConnected`), and both
       attributes are present on the live node.
-    - RED-BEFORE — over the bytes the JVM emitter produced BEFORE the fix
+    - RED — over unannotated bytes
       (root carries NEITHER annotation): React must COMPLAIN. This is the
       permanently-executable red that licenses the green: without it, an
       empty-complaints result could mean `adopts cleanly` OR `the capture
       is broken`, and those are indistinguishable.
 
-  Per the rf2-8vi4q ruling §5 and the #6378 browser probe: on React
+  On React
   18.3 / 19.2 an attribute-only mismatch WARNS and is left unpatched but
   does NOT replace the node — so node identity survives in BOTH arms, and
   the differentiator is the presence of a hydration complaint plus whether
@@ -152,7 +152,7 @@
                  (str/includes? s "server rendered")))
           complaints))
 
-;; The bytes the JVM emitter produces NOW for `[(rf/view test-view-id) "revenue"]`
+;; The bytes the JVM emitter produces for `[(rf/view test-view-id) "revenue"]`
 ;; — the root DOM element carries BOTH annotations, at the shared-dialect
 ;; values. Built from the formatters so a dialect drift on either host fails
 ;; the `source-coord-parity` tests, and this fixture stays truthful.
@@ -163,8 +163,8 @@
        "<h3>revenue</h3>"
        "</div>"))
 
-;; The pre-fix bytes: the same element with NEITHER annotation — what the JVM
-;; emitter emitted for a callable-head view before rf2-8vi4q.
+;; The unannotated bytes: the same element with NEITHER annotation — the red
+;; control's input.
 (def ^:private pre-fix-server-html
   "<div class=\"card\"><h3>revenue</h3></div>")
 
@@ -175,7 +175,7 @@
 (deftest reg-view-server-markup-hydrates-as-clean-adoption
   (if-not (browser?)
     (is true "skipped under node — no js/document; npm run test:browser asserts")
-    (testing "rf2-8vi4q — the server markup a registered view now emits
+    (testing "the server markup a registered view emits
               (root carries both annotations) hydrates SILENTLY, and both
               attributes are present on the live node after hydration."
       (let [{:keys [complaints node text view-attr coord-attr connected?]}
@@ -200,7 +200,7 @@
 (deftest reg-view-adoption-preserves-server-node-identity
   (if-not (browser?)
     (is true "skipped under node — no js/document; npm run test:browser asserts")
-    (testing "rf2-8vi4q — the exact server node object is still the mounted
+    (testing "the exact server node object is still the mounted
               one after hydration (adoption); it is not minted afresh."
       (let [container  (.createElement js/document "div")
             complaints (atom [])
@@ -243,14 +243,13 @@
               (.remove container))))))))
 
 ;; ---------------------------------------------------------------------------
-;; RED-BEFORE — the pre-fix bytes make React complain (kept executable)
+;; RED — unannotated bytes make React complain (the red control)
 ;; ---------------------------------------------------------------------------
 
 (deftest pre-fix-server-markup-makes-react-complain
   (if-not (browser?)
     (is true "skipped under node — no js/document; npm run test:browser asserts")
-    (testing "THE RED-BEFORE for rf2-8vi4q, kept executable: the SAME harness
-              over the bytes the JVM emitter produced BEFORE the fix (root
+    (testing "THE RED CONTROL: the SAME harness over unannotated bytes (root
               carries NEITHER annotation) must make React complain, because
               the dev client render stamps both attributes and the server has
               them on neither. This is what licenses the green assertions
@@ -260,10 +259,10 @@
             (hydrate-over pre-fix-server-html
                           [(rf/view test-view-id) "revenue"])]
         (is (seq (hydration-complaints complaints))
-            (str "React must report the pre-fix (unannotated) server markup "
+            (str "React must report the unannotated server markup "
                  "as a hydration mismatch — if this is silent, the green "
                  "adoption proof above proves nothing. Complaints seen: "
                  (pr-str complaints)))
         (is (some? node)
             "the node is still present (an attribute mismatch warns but does
-             not replace the node, per the ruling's browser probe)")))))
+             not replace the node)")))))

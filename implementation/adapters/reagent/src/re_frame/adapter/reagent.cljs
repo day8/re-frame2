@@ -7,7 +7,7 @@
             [re-frame.substrate.spine :as rf.substrate.spine]
             [re-frame.views :as rf.views]))
 
-;; ---- exactly-once Reaction disposal (rf2-rzeko) ---------------------------
+;; ---- exactly-once Reaction disposal ---------------------------------------
 ;;
 ;; Spec 006 §On-dispose hooks promises disposal that is idempotent and
 ;; re-entrant safe: every on-dispose callback fires EXACTLY ONCE in
@@ -23,8 +23,8 @@
 ;; the same callback array and can recurse to stack overflow.
 ;;
 ;; The guard is adapter-owned and per-Reaction (the reagent-slim Reaction
-;; bakes the same snapshot-and-clear pattern into its own `dispose!` —
-;; rf2-1bzlai — which an external stock artefact cannot).
+;; bakes the same snapshot-and-clear pattern into its own `dispose!`,
+;; which an external stock artefact cannot).
 ;; `install-dispose-guard!` registers a marker as the FIRST
 ;; `add-on-dispose!` callback AT CONSTRUCTION, before any cache/user
 ;; callback can register, so on the first disposal — whichever side
@@ -96,7 +96,7 @@
      ;; Var value at load time would freeze the original impls past any
      ;; `with-redefs` rebind). Runtime behaviour is identical.
      :r-atom        (fn [v] (r/atom v))
-     ;; Guarded ctor/disposer pair (rf2-rzeko): every Reaction this spine
+     ;; Guarded ctor/disposer pair: every Reaction this spine
      ;; creates carries the exactly-once disposal marker, and this
      ;; generation's claimed disposer consults it — see the section above.
      :make-reaction (fn [thunk] (make-guarded-reaction thunk))
@@ -126,12 +126,12 @@
   a plain synchronous flush (still runs `f` and drains the render queue),
   so a `:node-test` runner with no real React render path still flushes.
   It publishes a render phase, so do not call it from inside a
-  `dispatch-sync` handler (rf2-0c23j)."
+  `dispatch-sync` handler."
   (:flush-views! spine-fns))
 
 ;; ---- the client root ------------------------------------------------------
 ;;
-;; rf2-k5r9t. A browser boot needs one React Root for the life of the page:
+;; A browser boot needs one React Root for the life of the page:
 ;; created (or hydrated) once, re-rendered on every hot reload, released on
 ;; teardown. `client-root` + `render!` + `unmount!` give it that without a
 ;; caller-owned raw Root or a create/hydrate branch, and the Root they manage
@@ -190,7 +190,7 @@
 
   Adapter installation is explicit; there is no default-adapter registry.
   `make-ratom-spine` and `make-ratom-adapter` own the logic shared with
-  reagent-slim. The Reagent-shaped frame-provider remains injected from
+  reagent-slim. The Reagent-shaped frame-provider is injected from
   `re-frame.views`, keeping the spine independent of that component layer."
   (rf.substrate.spine/make-ratom-adapter
     spine-fns
@@ -200,30 +200,31 @@
      ;; The spine handles re-frame-owned disposal before these substrate ops.
      :current-frame     rf.views/current-frame
      :current-component r/current-component
-     ;; rf2-7ds8 — stock Reagent's own hiccup walk. Twin of the slim
+     ;; Stock Reagent's own hiccup walk. Twin of the slim
      ;; adapter's entry; see `:adapter/as-element` in the late-bind
      ;; directory for why the crossing must come from the installed build.
      :as-element        r/as-element
      :atom              r/atom
      :ratom?            (fn [x] (satisfies? ratom/IReactiveAtom x))
-     ;; Guarded ctor/disposer pair (rf2-rzeko): the routed
+     ;; Guarded ctor/disposer pair: the routed
      ;; `:adapter/make-reaction` / `:adapter/dispose!` hooks share the
      ;; exactly-once disposal marker with the claimed-generation disposer
      ;; above — one coherent disposal owner per adapter generation.
      :make-reaction     make-guarded-reaction
-     ;; rf2-8cnxg — the missing `deref-capture`. A stock `Reaction` learns
+     ;; The `deref-capture` run a stock `Reaction` needs. It learns
      ;; its sources ONLY by being run through `deref-capture`; `ratom/run`
      ;; (its `IRunnable` op) is exactly that run, and after it the reaction
      ;; is on Reagent's ordinary batched push path (`_handle-change` →
      ;; enqueue → `ratom/flush!` → notify). A plain `deref` outside
-     ;; `*ratom-context*` deliberately does NOT do this, which is why an
-     ;; `add-watch`-only observer — the observation port over a compiled
-     ;; ViewCell — never heard from a Reagent-hosted subscription.
+     ;; `*ratom-context*` deliberately does NOT do this, so without this
+     ;; run an `add-watch`-only observer — the observation port over a
+     ;; compiled ViewCell — would never hear from a Reagent-hosted
+     ;; subscription.
      ;;
      ;; Guarded twice, and both guards are load-bearing. `IRunnable` skips
      ;; anything that is not a Reagent `Reaction` (a base `r/atom`, or a
      ;; spine-produced derived value inherited through a cross-substrate
-     ;; test bundle — rf2-jicu2). A non-nil `watching` means the reaction is
+     ;; test bundle). A non-nil `watching` means the reaction is
      ;; ALREADY capturing, so re-running it would recompute a live node for
      ;; nothing; skipping keeps activation idempotent across the second and
      ;; subsequent ViewCells that acquire the same cached node.
@@ -240,7 +241,7 @@
      :add-on-dispose!   ratom/add-on-dispose!
      :dispose!          dispose-once!
      :reactive?         ratom/reactive?
-     ;; rf2-ty246 — the reaction currently capturing derefs, i.e. the component
+     ;; The reaction currently capturing derefs, i.e. the component
      ;; render Reaction a view's `@(subscribe q)` is running inside. A lambda,
      ;; not the Var value, because `*ratom-context*` is a dynamic var: it must be
      ;; read at CALL time, inside the binding, or it answers nil for every caller.

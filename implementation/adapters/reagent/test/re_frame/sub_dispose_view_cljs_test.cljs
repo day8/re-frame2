@@ -1,14 +1,12 @@
 (ns re-frame.sub-dispose-view-cljs-test
-  "Per rf2-e9g4g: substrate-level coverage for the `:rf.sub/dispose`
-  trace event (landed via rf2-mrnur, PR #2204) — exercises the
-  Reagent-side derefer-count round-trip that the JVM-side cache tests
-  (`re-frame.sub-dispose-trace-test`) cannot reach.
+  "Substrate-level coverage for the `:rf.sub/dispose` trace event —
+  exercises the Reagent-side derefer-count round-trip that the JVM-side
+  cache tests (`re-frame.sub-dispose-trace-test`) cannot reach.
 
-  Why this exists. rf2-mrnur shipped JVM-side cache-eviction tests
-  pinning the emit shape and reason enum at the cache module's seam —
-  strong coverage of the framework contract but blind to the
-  substrate's integration. The bead's acceptance items #4 + #5 call
-  for substrate-level pins:
+  Why this exists. The JVM-side cache-eviction tests pin the emit shape
+  and reason enum at the cache module's seam — strong coverage of the
+  framework contract but blind to the substrate's integration. Two
+  substrate-level pins:
 
     #4 view-unmount → :rf.sub/dispose fires with :reason
        :no-more-derefers when the last derefer drops.
@@ -23,7 +21,7 @@
   the per-subscribe ref-count machinery in `re-frame.subs.cache`: every
   `(rf/subscribe ...)` increments ref-count; the matched
   `(rf/unsubscribe ...)` decrements; the 1 → 0 transition fires
-  eviction synchronously (per rf2-cmfln, Spec 006 §Reference counting
+  eviction synchronously (per Spec 006 §Reference counting
   and disposal). On the Reagent substrate, a view's mount→render→deref
   path subscribes (one derefer arriving) and the unmount path
   unsubscribes (the derefer dropping). These tests stand in for the
@@ -33,7 +31,7 @@
   are Reagent's. Driving the assertions through bare
   subscribe/unsubscribe keeps the tests headless (no JSDOM /
   Playwright) and matches the test-surface convention used by the
-  rf2-9hoos view-side-capture suite (`install-unmount-hook!` +
+  view-side-capture suite (`install-unmount-hook!` +
   manual reaction dispose).
 
   Layer-2 setup. The `add-on-dispose!` callback installed in
@@ -89,7 +87,7 @@
 ;; releases input refs symmetrically).
 
 (deftest view-unmount-emits-rf-sub-dispose-on-input-cascade
-  (testing "rf2-e9g4g #4: a view-shaped subscribe/unsubscribe pair on
+  (testing "#4: a view-shaped subscribe/unsubscribe pair on
    a layer-2 sub fires :rf.sub/dispose with :reason :no-more-derefers
    for every evicted slot — parent + every input — exactly matching
    the JVM cascade test's emit count + payload shape, but with the
@@ -110,7 +108,7 @@
         (is (empty? @traces)
             "precondition: no :rf.sub/dispose has fired yet — the slot is held"))
 
-      ;; Unmount: the last derefer drops. Per rf2-cmfln the eviction
+      ;; Unmount: the last derefer drops. The eviction
       ;; lands synchronously and the trace lands before this returns.
       (rf/unsubscribe [:rf2-e9g4g.view/sum])
 
@@ -147,11 +145,10 @@
 ;; within a re-render rather than unmount cleanup).
 
 (deftest conditional-deref-flip-emits-rf-sub-dispose
-  (testing "rf2-e9g4g #5: when a view conditionally derefs a sub and
+  (testing "#5: when a view conditionally derefs a sub and
    the condition flips false, the runtime derefer drops and the slot
    evicts with :reason :no-more-derefers. The component-stays-mounted
-   shape is the rf2-mrnur audit's explicit gap from the JVM-only
-   cache tests"
+   shape is one the JVM-only cache tests cannot reach"
     (rf/reg-event :rf2-e9g4g/init (fn [{:keys [db]} _] {:db {:n 7 :a 1 :b 2}}))
     (rf/reg-sub :rf2-e9g4g.cond/n (fn [db _] (:n db)))
     (rf/reg-sub :rf2-e9g4g.cond/a (fn [db _] (:a db)))
@@ -209,7 +206,7 @@
 ;; pins it from the substrate's perspective.
 
 (deftest multi-derefer-emits-only-on-last-drop
-  (testing "rf2-e9g4g multi-derefer negative control: with two
+  (testing "multi-derefer negative control: with two
    derefers (two view subscribes), one unsubscribe does NOT fire
    :rf.sub/dispose — the slot's ref-count drops 2→1 but stays > 0.
    Only the second unsubscribe (the last derefer dropping 1→0)
@@ -258,7 +255,7 @@
             "every emit carries :reason :no-more-derefers (ref-count-drop path)")))))
 
 ;; ===========================================================================
-;; rf2-b2bxk additions — Reagent reaction-dispose + conditional-deref re-execution
+;; Reagent reaction-dispose + conditional-deref re-execution
 ;; ===========================================================================
 ;;
 ;; The three deftests above subscribe + unsubscribe directly. That pins the
@@ -271,7 +268,7 @@
 ;;
 ;; Test #1 — reaction-disposal path. Drives the production teardown sequence
 ;; by disposing the surrounding reaction (NOT by `rf/unsubscribe`). Mirrors
-;; the rf2-9hoos `install-unmount-hook!` pattern (view-side-capture
+;; the `install-unmount-hook!` pattern (view-side-capture
 ;; test:184): a per-instance reaction that derefs the sub, then
 ;; `interop/dispose!` simulates the React unmount signal at the reagent-
 ;; reaction layer.
@@ -285,7 +282,7 @@
 ;; here at the actual reagent seam, not by a bare `rf/unsubscribe`.
 
 (deftest reaction-disposal-fires-rf-sub-dispose
-  (testing "rf2-b2bxk #1: disposing the cached Reagent reaction directly
+  (testing "#1: disposing the cached Reagent reaction directly
    via `interop/dispose!` (the substrate-side reactive-graph reap
    pathway — what Reagent does when a render reaction loses its last
    watcher on componentWillUnmount) drives the production teardown
@@ -315,7 +312,7 @@
         ;; directly. This stands in for Reagent's reap of an unwatched
         ;; reaction (componentWillUnmount → render reaction disposed
         ;; → loses watcher on sum-rea → Reagent reaps sum-rea →
-        ;; add-on-dispose! callbacks fire). Mirrors the rf2-9hoos
+        ;; add-on-dispose! callbacks fire). Mirrors the
         ;; install-unmount-hook! test pattern, which similarly
         ;; disposes the reaction directly to drive the on-dispose
         ;; callback chain headlessly.
@@ -325,13 +322,11 @@
         ;; `unsubscribe`d, dropping their ref-counts to 0, evicting
         ;; their slots, and emitting `:rf.sub/dispose`.
         ;;
-        ;; THE PARENT EMITS HERE TOO, SINCE rf2-ty246. This comment used
-        ;; to say the opposite — "no emit for the parent on this path" —
-        ;; and that silence was the defect rf2-ty246 closed, not a
-        ;; property worth keeping: this is the substrate-side reap that a
-        ;; real componentWillUnmount takes, so it is exactly the path on
+        ;; THE PARENT EMITS HERE TOO. This is the substrate-side reap that
+        ;; a real componentWillUnmount takes, so it is exactly the path on
         ;; which Spec 006 §Reference counting and disposal promises the
-        ;; emit at the eviction site. The callback now emits when IT is
+        ;; emit at the eviction site; a silent parent here would violate
+        ;; that contract. The callback emits when IT is
         ;; the call that removed the slot, which is the case here and is
         ;; not the case on any cache-driven eviction (those remove the
         ;; slot before disposing the reaction, so the callback finds
@@ -345,12 +340,12 @@
           (is (= 1 (count b-evs))
               "input :b evicted via the reaction-dispose cascade")
           (is (= 1 (count sum-evs))
-              (str "rf2-ty246: the PARENT's own slot emits exactly one "
+              (str "the PARENT's own slot emits exactly one "
                    ":rf.sub/dispose on the substrate-side reap — one, not "
                    "zero (the pre-rf2-ty246 silence) and not two (a double "
                    "emit); got " (count sum-evs)))
           (is (= :no-more-derefers (-> sum-evs first :tags :rf.sub/reason))
-              "rf2-ty246: the parent's emit carries :rf.sub/reason :no-more-derefers")
+              "the parent's emit carries :rf.sub/reason :no-more-derefers")
           (doseq [ev (concat a-evs b-evs)]
             (let [t (:tags ev)]
               (is (= :no-more-derefers (:rf.sub/reason t))
@@ -359,7 +354,7 @@
                   ":frame is canonical (the Reagent adapter's default frame)"))))))))
 
 (deftest conditional-deref-re-execution-fires-rf-sub-dispose
-  (testing "rf2-b2bxk #2: a Reagent reaction whose body conditionally
+  (testing "#2: a Reagent reaction whose body conditionally
    derefs a sub. The conditional teardown — `rf/unsubscribe` fired by
    the production cleanup path (r/with-let :finally, a
    componentWillUnmount hook, an effect cleanup) — evicts the

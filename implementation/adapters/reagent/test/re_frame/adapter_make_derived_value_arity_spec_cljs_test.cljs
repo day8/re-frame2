@@ -1,12 +1,11 @@
 (ns re-frame.adapter-make-derived-value-arity-spec-cljs-test
-  "Reagent adapter — per-arity pin for `make-derived-value` (rf2-eoy63).
+  "Reagent adapter — per-arity pin for `make-derived-value`.
 
-  Pre-rf2-eoy63 the arity-spec lived inline in this adapter as a
-  4-branch `case`. The body now routes through `spine/build-recompute-fn`
-  so all four adapters share one implementation; these tests pin the
-  observable contract for the Reagent adapter so an inadvertent
-  spine-helper regression cannot silently revert this surface to the
-  naive `(apply compute-fn (map deref ...))` shape.
+  The body routes through `spine/build-recompute-fn`, so all four
+  adapters share one implementation; these tests pin the observable
+  contract for the Reagent adapter so an inadvertent spine-helper change
+  cannot silently turn this surface into the naive
+  `(apply compute-fn (map deref ...))` shape.
 
   Pins:
 

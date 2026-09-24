@@ -1,6 +1,6 @@
 (ns re-frame.cross-adapter-chained-emitter-cljs-test
   "Cross-adapter chained-install fan-out test for the
-  `:reagent/set-hiccup-emitter!` late-bind hook (rf2-cl1qv).
+  `:reagent/set-hiccup-emitter!` late-bind hook.
 
   ## Why this test exists
 
@@ -26,12 +26,11 @@
   consumer call only fans out to the producers that loaded AFTER
   the offender (plus the offender itself).
 
-  The pre-rf2-cl1qv bug was exactly that: `re-frame.adapter.reagent`
-  used `set-fn!` for this hook. The shadow-cljs ns-load
-  ordering happened to load reagent before uix — so uix's later
-  `chain-fn!` rebuilt a chain on top of reagent and the
-  hidden bug was invisible. A future ns-load reshuffle that loaded
-  reagent LAST would have silently dropped uix's and
+  Load order can hide that. Were `re-frame.adapter.reagent` to use
+  `set-fn!` for this hook, the shadow-cljs ns-load ordering that loads
+  reagent before uix would let uix's later `chain-fn!` rebuild a
+  chain on top of reagent, and the bug would be invisible — until an
+  ns-load reshuffle loaded reagent LAST and silently dropped uix's and
   reagent-slim's emitter installs.
 
   ## What this test pins
@@ -41,8 +40,8 @@
     1. The hook resolves to a non-nil fn.
     2. Calling that fn with a sentinel emitter installs the sentinel
        into EVERY adapter's emitter cell — proving every producer's
-       chain step ran. A regression that swaps any producer back to
-       `set-fn!` causes at least one of the three assertions to fail.
+       chain step ran. Swapping any producer to `set-fn!` causes at
+       least one of the three assertions to fail.
 
   Verification is end-to-end: we don't peek at the chained-fn's
   internal step list. We invoke the hook and observe each adapter's
@@ -89,7 +88,7 @@
   (fn [_render-tree _opts] marker))
 
 (deftest directory-entry-pins-the-chained-contract
-  (testing "rf2-cl1qv: the directory entry for :reagent/set-hiccup-emitter!
+  (testing "the directory entry for :reagent/set-hiccup-emitter!
             stays `:chained? true` and lists every React-shaped adapter as
             a producer. If a future change drops one or flips the flag,
             this test trips before the silent-clobber bug ships."
@@ -109,13 +108,13 @@
                "Directory entry: " (pr-str entry)))
       ;; Subset, not exact: every React-shaped adapter MUST stay listed.
       ;; Additional non-React producers (e.g. the headless test-react
-      ;; adapter, rf2-ee38b.16) legitimately chain onto the same hook.
+      ;; adapter) legitimately chain onto the same hook.
       (is (set/subset? react-adapters producers)
           (str "every React-shaped adapter must be listed as a "
                ":reagent/set-hiccup-emitter! producer; got " (pr-str producers))))))
 
 (deftest chained-install-fans-out-to-every-adapter
-  (testing "rf2-cl1qv: invoking the chained `:reagent/set-hiccup-emitter!`
+  (testing "invoking the chained `:reagent/set-hiccup-emitter!`
             hook installs the sentinel emitter into every adapter's
             render-to-string slot. Regressing any producer to `set-fn!`
             clobbers the chain and at least one adapter will not see

@@ -1,7 +1,6 @@
 (ns re-frame.adapter.reagent-slim-derived-container-replaced-cljs-test
   "Spec 006 §`make-derived-value` — `replace-container!` is NOT supported
-  on a derived container, exercised against the reagent-slim adapter
-  (rf2-8wrzz.3).
+  on a derived container, exercised against the reagent-slim adapter.
 
   This is the Reagent-family counterpart to the plain-atom suite at
   `re-frame.substrate.derived-container-replaced-cljs-test`. It pins the
@@ -17,10 +16,7 @@
   Without the adapter-published hook this suite's
   `replace-on-reaction-throws` test FAILS (the guard does not fire and the
   reset! flows through to the Reaction's read-only `-reset!` assert), which
-  is exactly the regression the prior atom-marker-only implementation
-  carried.
-
-  Per bead rf2-8wrzz.3."
+  is exactly the gap an atom-marker-only guard would leave."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent2.ratom :as ratom]
             [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
@@ -99,7 +95,7 @@
                 "a Reaction IS a derived container (the case the atom-marker heuristic misses)")))))))
 
 (deftest replace-on-base-ratom-succeeds
-  (testing "the happy path is untouched: writing to a base r/atom still works under reagent-slim"
+  (testing "the happy path: writing to a base r/atom works under reagent-slim"
     (let [c (rf.substrate.adapter/make-state-container {:n 0})]
       (is (= {:n 0} (rf.substrate.adapter/read-container c)) "precondition")
       (is (nil? (rf.substrate.adapter/replace-container! c {:n 1}))
@@ -123,7 +119,7 @@
                 "the :where slot names the user-facing surface fn")
             (is (= :no-recovery (:recovery (ex-data thrown)))
                 "the :recovery slot is :no-recovery")
-            ;; rf2-vvixub — message is the human :reason sentence + the
+            ;; The message is the human :reason sentence + the
             ;; trailing [:rf.error/<id>] token; assert the token, not equality.
             (is (re-find #"\[:rf\.error/derived-container-replaced\]" (ex-message thrown))
                 "the ex-message carries the [:rf.error/derived-container-replaced] token")))))))
@@ -162,18 +158,18 @@
           (is (= 6 (rf.substrate.adapter/read-container derived))
               "writing to the source recomputes the derived value normally"))))))
 
-;; ---- copied / wrapped adapter map routes to the live hook (rf2-dkl5z1) -----
+;; ---- copied / wrapped adapter map routes to the live hook -----------------
 ;;
 ;; `route-hook!` routes by stable token (the canonical :rf.adapter/* :kind),
 ;; not object identity — so a copied / wrapped reagent-slim adapter map still
-;; drives its live `:adapter/derived-container?` hook. Pre-fix, installing an
-;; `assoc`'d copy made the routed closure's identity guard fail, the hook fell
-;; through to the `(constantly false)` chain bottom, and a Reaction was no
-;; longer flagged as derived (so the choke point's atom-marker fall-back —
-;; which a Reaction's IAtom defeats — would WRONGLY allow a write to it).
+;; drives its live `:adapter/derived-container?` hook. Routing by identity
+;; would make an `assoc`'d copy fail the routed closure's guard: the hook
+;; would fall through to the `(constantly false)` chain bottom, and a Reaction
+;; would not be flagged as derived (so the choke point's atom-marker fall-back
+;; — which a Reaction's IAtom defeats — would WRONGLY allow a write to it).
 
 (deftest copied-adapter-map-routes-to-live-derived-container-hook
-  (testing "a copied reagent-slim adapter map still drives the live :adapter/derived-container? hook (rf2-dkl5z1)"
+  (testing "a copied reagent-slim adapter map still drives the live :adapter/derived-container? hook"
     (let [original (rf.substrate.adapter/current-adapter)
           copied   (assoc rf.adapter.reagent-slim/adapter :rf.test/instrumentation-wrapper true)]
       (try
@@ -194,7 +190,7 @@
               (is (true? (boolean (hook derived)))
                   (str "under the COPIED reagent-slim map, a Reaction is STILL flagged"
                        " as a derived container — the routed hook fired its live impl"
-                       " despite the copy's distinct identity (rf2-dkl5z1)"))
+                       " despite the copy's distinct identity"))
               ;; End-to-end: the choke point STILL rejects a write to the Reaction.
               (is (thrown? js/Error (rf.substrate.adapter/replace-container! derived 42))
                   "replace-container! on the Reaction STILL throws under the copied map"))))

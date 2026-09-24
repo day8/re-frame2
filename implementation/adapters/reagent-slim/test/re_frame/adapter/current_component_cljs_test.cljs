@@ -1,14 +1,14 @@
 (ns re-frame.adapter.current-component-cljs-test
-  "Per rf2-wbnl — coverage for the `:adapter/current-component` late-bind
+  "Coverage for the `:adapter/current-component` late-bind
   hook installed by `re-frame.adapter.reagent-slim`.
 
-  Background: before rf2-wbnl, `re-frame.views` statically `:require`d
-  `reagent.core` and called `(reagent.core/current-component)` directly.
-  Under the slim adapter (which ships `reagent2.core`) that read returned
-  nil for slim-rendered components and silently dropped the React-context
-  tier of the frame resolution chain — meaning `(rf/init! reagent-slim/adapter)`
-  was structurally callable but not yet a drop-in functional swap for the
-  bridge.
+  Background: the hook is how the React-context tier of the frame
+  resolution chain finds the in-flight component. A direct
+  `(reagent.core/current-component)` read would return nil for
+  slim-rendered components under the slim adapter (which ships
+  `reagent2.core`) and silently drop that tier — so
+  `(rf/init! reagent-slim/adapter)` would be structurally callable but not
+  a drop-in functional swap for the bridge.
 
   Scope of this file (slim adapter):
     - Requiring `re-frame.adapter.reagent-slim` registers
@@ -17,7 +17,7 @@
       the no-component shape views.cljs relies on.
 
   Note re cross-test order (bridge vs slim): both adapter ns's register
-  the same hook key at ns-load. Per rf2-0d35 each adapter wraps its
+  the same hook key at ns-load. Each adapter wraps its
   reader in a routing closure that consults
   `(substrate-adapter/current-adapter)` and runs THIS adapter's reader
   only when this adapter is the installed one (otherwise chains to

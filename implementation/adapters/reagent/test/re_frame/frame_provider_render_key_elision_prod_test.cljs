@@ -1,11 +1,11 @@
 (ns re-frame.frame-provider-render-key-elision-prod-test
-  "Per Spec 009 §Production builds (bead rf2-l7hlm) — `:advanced` +
+  "Per Spec 009 §Production builds — `:advanced` +
   `goog.DEBUG=false` runtime contract for the dev-only frame-provider /
   render-tree machinery owned by `re-frame.views`. Companion to:
 
-   - `re-frame.source-coord-dom-elision-prod-test` (rf2-uwg5) — pins
+   - `re-frame.source-coord-dom-elision-prod-test` — pins
      the `data-rf2-source-coord` DOM-injection elision specifically.
-   - `re-frame.trace-listener-elision-prod-test` (rf2-2zdu) — pins the
+   - `re-frame.trace-listener-elision-prod-test` — pins the
      trace surface elision.
 
   This file pins the *render-key* binding + `:view/render` trace
@@ -40,7 +40,7 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             [re-frame.views :as rf.views]
-            ;; rf2-qwm0a — listener surface lives in `re-frame.trace.tooling`.
+            ;; Listener surface lives in `re-frame.trace.tooling`.
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
@@ -50,7 +50,7 @@
 ;; ---- :view/render trace does not fire under prod -------------------------
 
 (deftest reg-view-render-emits-no-view-render-trace-under-prod
-  (testing "Per Spec 009 §Production builds (rf2-l7hlm): every render
+  (testing "Per Spec 009 §Production builds: every render
             of a `reg-view*`-registered view fires a `:view/render`
             trace under dev. Under prod the entire emit body (gated on
             `interop/debug-enabled?`) DCEs — a registered trace

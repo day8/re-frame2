@@ -1,15 +1,16 @@
 (ns reagent2.impl.component
   "Compile-time component-shape classification for the day8/reagent-slim
-  artefact (rf2-6hyy Stage 4-C).
+  artefact.
 
-  Per IMPL-SPEC §5.2 + §14.1 (rf2-yfbx decision): the runtime detection
+  Per IMPL-SPEC §5.2 + §14.1: the runtime detection
   in `reagent2.impl.component/wrap-render` is the load-bearing
-  correctness mechanism. The compile-time fold is additive — `reg-view`'s
+  correctness mechanism. The compile-time fold is an optimisation on
+  top of it — `reg-view`'s
   expansion classifies the body shape as Form-1 vs Form-2 at expansion
   time and stamps the wrapper with `^{:reagent2/form ...}` meta so the
   runtime path can skip the cond on the hot path. NO separate `defview`
   macro is shipped — `reg-view` is the single canonical view-registration
-  surface (per the rf2-yfbx decision).
+  surface.
 
   Public fn (the one compile-time helper, consumed by `reg-view`'s
   expansion):

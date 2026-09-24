@@ -1,40 +1,39 @@
 (ns reagent2.dom.server-subscribe-ssr-cljs-test
   "Substrate contract test: render a SUBSCRIBING reg-view through the
-  SLIM `reagent2.dom.server/render-to-static-markup` (rf2-uacxd.1).
+  SLIM `reagent2.dom.server/render-to-static-markup`.
 
-  ## Why this file exists — the rf2-s36l regression locus
+  ## Why this file exists — the first-subscribe IDisposable path
 
-  rf2-s36l was a P2 first-subscribe IDisposable miss: when SSR walks a
-  user-fn view head whose body derefs `@(subscribe [...])`,
-  `re-frame.subs/subscribe` builds a Reaction on first build and calls
-  `interop/add-on-dispose!` on it (core/src/re_frame/subs.cljc — the
-  exact line s36l fixed by moving interop's reactive surfaces to
-  late-bind hooks). Pre-fix, that first-subscribe call THREW under the
-  slim substrate during boot-time SSR.
+  When SSR walks a user-fn view head whose body derefs
+  `@(subscribe [...])`, `re-frame.subs/subscribe` builds a Reaction on
+  first build and calls `interop/add-on-dispose!` on it
+  (core/src/re_frame/subs.cljc), which dispatches through interop's
+  late-bind hooks to the installed substrate. If that first-subscribe
+  call threw under the slim substrate, boot-time SSR would fail.
 
-  The existing slim SSR corpus exercises ONLY:
+  The rest of the slim SSR corpus exercises ONLY:
     - raw hiccup (reagent2.dom.parity-cljs-test, server-cljs-test escaping
       / attrs / void / fragment / nested cases), and
     - a PLAIN user-fn head with NO subscribe
       (server-cljs-test/user-fn-head-invoked: `(fn [x] [:li x])`).
 
   None drives a frame `subscribe` deref through `render-to-static-markup`.
-  So a regression that re-broke `add-on-dispose!` routing under the slim
+  So a regression that broke `add-on-dispose!` routing under the slim
   substrate — or the non-reactive `-deref` branch the SSR deref hits
   (reagent2/ratom.cljs IDeref: `*ratom-context*` nil → `flush!` +
-  on-demand recompute, returns `state`) — would pass every current gate.
-  This file closes that runtime-output gap.
+  on-demand recompute, returns `state`) — would pass every other gate.
+  This file covers that runtime output.
 
-  ## What it asserts (the s36l path, value-5)
+  ## What it asserts (the first-subscribe path, value-5)
 
   Models the `examples/substrates/reagent_slim/counter` dataflow
-  exactly (the boot path the parent uacxd review found uncovered):
+  exactly (its boot path):
   `:counter/initialise → {:counter/value 5}`, a `:counter/value` sub, and
   a `counter-app → counter-buttons` reg-view tree that derefs
   `@(subscribe [:counter/value])`. Then:
 
-    1. `render-to-static-markup [counter-app]` MUST NOT throw (the s36l
-       failure was a throw on first subscribe).
+    1. `render-to-static-markup [counter-app]` MUST NOT throw (the
+       failure this guards is a throw on first subscribe).
     2. The returned markup MUST contain the subscribed value `5` — proving
        it rode through the non-reactive deref branch into the output.
     3. A second render reuses the sub cache without throwing (idempotent
@@ -43,9 +42,9 @@
        SSR deref re-reads LIVE app-db through the subscription, not a
        value frozen at first build.
 
-  Respects rf2-8cevm (examples/ is TEST-FREE): this is a CLJS substrate
+  examples/ is TEST-FREE: this is a CLJS substrate
   contract test in the slim adapter's own test tree, NOT a per-example
-  spec and NOT under examples/. The dir is already on the consolidated
+  spec and NOT under examples/. The dir is on the consolidated
   :node-test classpath (shadow-cljs.edn). No DOM needed — same headless
   reg-* / dispatch-sync / subscribe / render pattern the other slim
   node-tests use.
@@ -88,14 +87,14 @@
   (reg-view counter-app []
     [counter-buttons]))
 
-;; A FORM-2 subscribing reg-view (rf2-o3hqr): the body's last form is a
+;; A FORM-2 subscribing reg-view: the body's last form is a
 ;; literal `(fn ...)`, so `reg-view` classifies it Form-2 — the outer body
 ;; runs once as setup, the inner closure is the live render. The inner
-;; closure derefs `@(subscribe ...)`. Before the fix the static renderer
-;; called the view head once, got the inner render fn back, and recursed
-;; on that bare fn — throwing `:rf.error/static-markup-bad-element` before
-;; the subscribe ever ran. Now the inner closure is recalled and its
-;; subscribing hiccup rides into the markup.
+;; closure derefs `@(subscribe ...)`. A static renderer that called the
+;; view head once and recursed on the bare inner render fn it got back
+;; would throw `:rf.error/static-markup-bad-element` before the subscribe
+;; ever ran. The inner closure is recalled instead, and its subscribing
+;; hiccup rides into the markup.
 (defn- register-form2-counter! []
   (rf/reg-event :counter/initialise
     (fn [{:keys [db]} _event] {:db {:counter/value 5}}))
@@ -116,7 +115,7 @@
 (deftest subscribing-reg-view-renders-through-slim-ssr-without-throwing
   (testing "render-to-static-markup over a reg-view that derefs
             @(subscribe ...) does NOT throw and the subscribed value rides
-            into the markup — the rf2-s36l first-subscribe IDisposable path"
+            into the markup — the first-subscribe IDisposable path"
     (register-counter!)
     ;; Populate app-db FIRST so the sub has a live value to read.
     (rf/dispatch-sync [:counter/initialise])
@@ -135,8 +134,7 @@
 (deftest second-render-reuses-sub-cache-without-throwing
   (testing "a second render-to-static-markup of the same subscribing view
             reuses the per-frame sub cache and still renders 5 (idempotent
-            SSR — the cached Reaction's dispose routing is not re-broken on
-            reuse)"
+            SSR — the cached Reaction's dispose routing holds on reuse)"
     (register-counter!)
     (rf/dispatch-sync [:counter/initialise])
     (let [first-markup  (server/render-to-static-markup [counter-app])
@@ -161,10 +159,10 @@
         (is (not (re-find #">5<" after))
             "the stale value 5 no longer appears — the subscription re-read, not froze")))))
 
-;; ---- Form-2 reg-view SSR (rf2-o3hqr) --------------------------------------
+;; ---- Form-2 reg-view SSR --------------------------------------------------
 
 (deftest form2-subscribing-reg-view-renders-through-slim-ssr
-  (testing "rf2-o3hqr: a FORM-2 reg-view (outer setup returns an inner
+  (testing "a FORM-2 reg-view (outer setup returns an inner
             render closure that derefs @(subscribe ...)) renders through
             render-to-static-markup without throwing, and the subscribed
             value rides into the markup"
@@ -177,24 +175,24 @@
           (str "subscribed :counter/value (5) from the Form-2 inner closure "
                "appears in the markup — got: " (pr-str markup))))))
 
-;; ---- the canonical slim mount under frame-provider (rf2-iyz6j) -------------
+;; ---- the canonical slim mount under frame-provider -------------------------
 ;;
 ;; `[rf/frame-provider {:frame f} [app]]` is the mount the guides teach and
 ;; `docs/core/how-to/use-uix-or-slim.md` sells for HTML export. It expands
 ;; (via `re-frame.views.provider/frame-provider-component`) to
 ;; `[:r> (.-Provider frame-context) #js {:value f} & children]`.
 ;;
-;; Before rf2-iyz6j the static walker treated that `:r>` head as opaque
-;; foreign content and emitted `<!--reagent-react-component-->` and NOTHING
-;; ELSE — the whole app subtree silently gone, no error, for the documented
-;; mount on the documented export path.
+;; A static walker that treated that `:r>` head as opaque foreign content
+;; would emit `<!--reagent-react-component-->` and NOTHING ELSE — the whole
+;; app subtree silently gone, no error, for the documented mount on the
+;; documented export path.
 ;;
 ;; These assert the PRECONDITION — that the subtree's CONTENT is actually
 ;; in the markup — rather than merely that nothing threw. An empty or
 ;; placeholder-only string fails every one of them.
 
 (deftest canonical-frame-provider-mount-renders-its-subtree
-  (testing "rf2-iyz6j: the canonical mount [rf/frame-provider {:frame f} [app]]
+  (testing "the canonical mount [rf/frame-provider {:frame f} [app]]
             renders its subtree through slim's render-to-static-markup
             instead of collapsing to a placeholder comment"
     (register-counter!)
@@ -203,8 +201,8 @@
                   [rf/frame-provider {:frame :rf/default}
                    [counter-app]])]
       (is (string? markup) "the canonical mount rendered to a string")
-      ;; (a) the defect, stated directly: the output is NOT the placeholder
-      ;;     and NOT empty.
+      ;; (a) the failure mode, stated directly: the output is NOT the
+      ;;     placeholder and NOT empty.
       (is (not= "" markup)
           "the canonical mount did not render an EMPTY document")
       (is (not (re-find #"reagent-react-component" markup))
@@ -226,7 +224,7 @@
                "subtree is present — got: " (pr-str markup))))))
 
 (deftest frame-provider-mount-matches-the-unwrapped-render
-  (testing "rf2-iyz6j: a frame-provider is a SCOPING wrapper — it renders no
+  (testing "a frame-provider is a SCOPING wrapper — it renders no
             markup of its own, so wrapping the app in one must not change a
             single byte of the output"
     (register-counter!)
@@ -243,7 +241,7 @@
                (pr-str bare) " provided: " (pr-str provided))))))
 
 (deftest frame-provider-mount-renders-multiple-children
-  (testing "rf2-iyz6j: frame-provider takes VARIADIC children; every one of
+  (testing "frame-provider takes VARIADIC children; every one of
             them must reach the markup, in order"
     (register-counter!)
     (rf/dispatch-sync [:counter/initialise])
@@ -260,7 +258,7 @@
           (str "last child present — got: " (pr-str markup))))))
 
 (deftest form2-ssr-deref-reads-live-app-db
-  (testing "rf2-o3hqr: after [:counter/inc], the Form-2 SSR re-render
+  (testing "after [:counter/inc], the Form-2 SSR re-render
             reflects live app-db (6), proving the inner closure re-ran and
             re-read the subscription"
     (register-form2-counter!)

@@ -1,5 +1,5 @@
 (ns re-frame.boot-cljs-test
-  "Integration test: drives the boot example (rf2-dsm2) through a
+  "Integration test: drives the boot example through a
    canonical Pattern-Boot trajectory. Each test spins a fresh frame
    via `make-frame`, fires the `:boot/initialise` event, and asserts
    the :app/boot state machine and the four loaded slices end up in
@@ -10,14 +10,12 @@
 
    The fixture fns + canned-stub helpers live HERE (the adapter test
    tree), not under examples/patterns/boot/ — the example source stays
-   test-free per the locked test-free-examples policy (rf2-8cevm). The
+   test-free per the test-free-examples policy. The
    ns requires the example's production source (`boot.core`, which
    chains in `boot.boot` / `boot.schema`) so the boot machine, loader,
    subs and demo fxs are registered, then exercises them directly.
-   (rf2-m2lol folded the former `boot.boot-test` fixture ns in here and
-   retired the example test/ dir.)
 
-   Per rf2-am9d this ns uses snapshot/restore via re-frame.test-support
+   This ns uses snapshot/restore via re-frame.test-support
    so the contract is uniform across CLJS fixtures: the snapshot
    captures the boot example's ns-load registrations
    (`:app/boot`, `:boot/loader`, `:app/initialise`, the subs and the
@@ -37,8 +35,7 @@
      - boot-join-child-failure-path — /user.json alone fails inside the
        :spawn-all, under the real BootData schema. The boot reaches
        :failed through :on-any-failed, the failure never lands in the
-       :user slot, and both in-flight siblings are cancelled
-       (rf2-3x7nj.41.1)."
+       :user slot, and both in-flight siblings are cancelled."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -160,7 +157,7 @@
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    ;; EP-0002 (rf2-9o48ih): each test spins its OWN top-level frame via
+    ;; EP-0002: each test spins its OWN top-level frame via
     ;; `make-frame` (inside `with-new-frame`); opt out of the ambient
     ;; `:rf/default` scope so the new frame's `:initial-events` drain
     ;; synchronously (top-level boot) rather than being treated as a
@@ -173,10 +170,10 @@
 ;; TESTS
 ;; ============================================================================
 
-;; EP-0002 (rf2-9o48ih): these tests model a TOP-LEVEL boot. The fixture
+;; EP-0002: these tests model a TOP-LEVEL boot. The fixture
 ;; above opts out of the ambient `:rf/default` scope (`:ambient-frame nil`)
 ;; so each `make-frame`'s `:initial-events` drain synchronously (rather than
-;; being treated as a mid-cascade child-frame creation, rf2-cufbh) and the
+;; being treated as a mid-cascade child-frame creation) and the
 ;; post-boot state is observable, as a real top-level `make-frame` boot is.
 
 (deftest boot-machine-progression
@@ -198,7 +195,7 @@
         ;; Every payload folded into the boot machine's own :data. There is
         ;; no `[:boot/staging …]` slot in app-db any more: a child completes
         ;; by reaching a `:final?` state and the parent's `:on-done` fold is
-        ;; the only writer (rf2-kuky.14).
+        ;; the only writer.
         (let [boot-data (get-in db [:rf.db/runtime :rf.runtime/machines :snapshots :app/boot :data])]
           (assert (= test-config (:config boot-data)))
           (assert (= test-routes (:routes boot-data)))
@@ -258,13 +255,13 @@
                   "expected :app.boot/error to be populated on the failure path"))))))
 
 (deftest boot-join-child-failure-path
-  (testing "rf2-3x7nj.41.1 — /user.json alone fails inside the :spawn-all: the boot reaches :failed, the failure never lands in :user, and the in-flight siblings are cancelled"
+  (testing "/user.json alone fails inside the :spawn-all: the boot reaches :failed, the failure never lands in :user, and the in-flight siblings are cancelled"
     ;; `boot-failure-path` above reaches `:failed` through the single-`:spawn`
     ;; config loader's `:on-error`, because its blanket stub fails /config.json
     ;; first. This one lets config succeed and fails a JOIN child, with the
-    ;; real `BootData` schema attached. Before the fix the failed child's
-    ;; per-child `:on-done` folded the 503 map into `:user` (`[:maybe User]`),
-    ;; the schema rollback swallowed the carrier, and the boot hung at
+    ;; real `BootData` schema attached. Were the failed child's per-child
+    ;; `:on-done` to fold the 503 map into `:user` (`[:maybe User]`), the
+    ;; schema rollback would swallow the carrier and the boot would hang at
     ;; `:loading-deps` for ever.
     (reg-join-failure-stub! :boot.test/fail-user-json test-config)
     (let [traces (atom [])]
@@ -301,7 +298,7 @@
         (finally (rf/unregister-listener! :trace ::join-failure))))))
 
 ;; ============================================================================
-;; MACHINE :data SCHEMA BOUNDARY  (rf2-t5ky67 issue 2)
+;; MACHINE :data SCHEMA BOUNDARY
 ;; ============================================================================
 ;;
 ;; The singleton `:app/boot` machine attaches a `[:schemas :data]` schema
@@ -370,7 +367,7 @@
             "at least one :where :machine-data trace fires when the boot machine's :data goes malformed")
         (is (some #(= :app/boot (-> % :tags :machine-id)) traces)
             "a trace names the :app/boot machine")
-        ;; `:recovery` rides the trace ENVELOPE, not :tags (rf2-twt7m) —
+        ;; `:recovery` rides the trace ENVELOPE, not :tags —
         ;; mirrors the :where :app-db projection.
         (let [boot-trace (some #(when (= :app/boot (-> % :tags :machine-id)) %) traces)]
           (is (= :no-recovery (:recovery boot-trace))))

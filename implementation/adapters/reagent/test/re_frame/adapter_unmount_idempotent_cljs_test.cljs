@@ -1,9 +1,10 @@
 (ns re-frame.adapter-unmount-idempotent-cljs-test
-  "rf2-k5r9t — Spec 006 §`render` says the returned unmount-fn is IDEMPOTENT
+  "Spec 006 §`render` says the returned unmount-fn is IDEMPOTENT
   (`(fn [] nil)` — idempotent; releases all resources). The shared
   `track-active-root!` tail behind every React-shaped adapter's `render`
-  removed the root from the active set and called the underlying unmount
-  op on EVERY call, so a second call reached React again. This pins the
+  releases the root only while the active set still holds it; a tail that
+  removed it and called the underlying unmount op on EVERY call would let
+  a second call reach React again. This pins the
   contract at the adapter's `:render` slot, spying on
   `reagent.dom.client/unmount` the way `re-frame.adapter-render-cljs-test`
   does (no DOM; :node-test).

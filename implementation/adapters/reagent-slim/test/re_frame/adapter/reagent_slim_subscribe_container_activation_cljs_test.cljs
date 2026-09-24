@@ -1,18 +1,18 @@
 (ns re-frame.adapter.reagent-slim-subscribe-container-activation-cljs-test
   "reagent-slim adapter — `subscribe-container` on a DERIVED container
-  activates it (rf2-59cz; the slim twin of
+  activates it (the slim twin of
   `re-frame.adapter-subscribe-container-activation-cljs-test`).
 
-  THE FIX IS SHARED; ONLY THE ASSERTION IS PER-ADAPTER. rf2-gwye.47 / PR
-  #9768 landed one repair, `re-frame.substrate.spine/activating-subscribe-
+  THE MECHANISM IS SHARED; ONLY THE ASSERTION IS PER-ADAPTER. The activation
+  lives in one place, `re-frame.substrate.spine/activating-subscribe-
   container`, wired in `make-ratom-adapter` rather than in
   `make-ratom-spine` — that is where the substrate's `:activate-reaction!`
   op arrives, so stock Reagent and reagent-slim share one subscription
-  algorithm with no edit in either adapter namespace. reagent-slim injects
-  `:activate-reaction! reagent2.ratom/activate!` and was therefore fixed by
-  that PR without a line of slim-side code. Nothing in this tree PINNED it,
-  so a change to the shared helper could regress reagent-slim silently while
-  the stock-Reagent suite stayed green. This namespace closes that.
+  algorithm with no activation code in either adapter namespace. reagent-slim
+  injects `:activate-reaction! reagent2.ratom/activate!` and needs no
+  slim-side code beyond that. This namespace pins it on the slim side, so a
+  change to the shared helper cannot regress reagent-slim silently while the
+  stock-Reagent suite stays green.
 
   Spec 006 §`make-derived-value` requires PUSH: the derived container updates
   automatically when a source changes, and `subscribe-container` \"works as on

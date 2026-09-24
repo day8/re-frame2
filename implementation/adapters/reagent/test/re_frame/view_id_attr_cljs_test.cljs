@@ -1,5 +1,5 @@
 (ns re-frame.view-id-attr-cljs-test
-  "Per Spec 006 §View tagging contract (rf2-01il5): when
+  "Per Spec 006 §View tagging contract: when
   `interop/debug-enabled?` is true, the Reagent substrate adapter MUST
   also inject `data-rf-view=\"<id>\"` on the rendered root DOM element
   of every registered view — ALONGSIDE `data-rf2-source-coord`. The

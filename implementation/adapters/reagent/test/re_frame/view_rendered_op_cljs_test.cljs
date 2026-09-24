@@ -1,5 +1,5 @@
 (ns re-frame.view-rendered-op-cljs-test
-  "Per rf2-25zo2 — the substrate-agnostic `:rf.view/rendered` op fires
+  "The substrate-agnostic `:rf.view/rendered` op fires
   alongside `:rf.view/render` for every render of a registered view, and
   carries the cascade-attribution slots Xray's Reactive panel uses to
   graph cause→effect for re-renders.
@@ -10,7 +10,7 @@
   the same shape — drift would surface as one of the three tests
   diverging from the locked tag set.
 
-  Locked tags (rf2-25zo2 acceptance):
+  Locked tags:
 
     :frame          — the frame the render landed in
     :rf.view/id        — the registered view id
@@ -74,7 +74,7 @@
 (deftest rf-view-rendered-carries-cause-event-id-in-cascade
   (testing ":rf.view/rendered emitted inside a cascade carries
    :rf.view/cause-event-id — the in-flight cascade's :event/run-start event-id,
-   sourced from the epoch capture buffer at emit time (rf2-25zo2). The
+   sourced from the epoch capture buffer at emit time. The
    attribution is meant for Xray's Reactive panel to graph cause→effect
    for re-renders."
     (with-trace-recorder! [traces {:pred view-rendered-pred}]
@@ -133,7 +133,7 @@
 
 (deftest rf-view-rendered-carries-elapsed-ms
   (testing ":rf.view/rendered carries :rf.view/elapsed-ms — the wall-clock
-   duration of the user render-fn for this render (rf2-8wrzz.1). Present on
+   duration of the user render-fn for this render. Present on
    every dev-build render (the timing rides interop/debug-enabled?)."
     (with-trace-recorder! [traces {:pred view-rendered-pred}]
       (rf/reg-view ^{:rf/id :rf2-8wrzz1/timed} timed-view []
@@ -148,9 +148,9 @@
 
 (deftest rf-view-rendered-carries-render-args
   (testing ":rf.view/rendered carries :rf.view/render-args — the vector of
-   positional render args/props passed to THIS render (rf2-rpgq8). Captured
+   positional render args/props passed to THIS render. Captured
    by the substrate-agnostic views.cljs frame-aware-view wrapper. A no-arg
-   render omits the slot (additive — existing consumers unaffected)."
+   render omits the slot."
     (with-trace-recorder! [traces {:pred view-rendered-pred}]
       (rf/reg-view ^{:rf/id :rf2-rpgq8/with-args} args-view [_label _n]
         [:span "ok"])
@@ -162,8 +162,8 @@
             ":rf.view/render-args is the vector of positional render args")))))
 
 (deftest rf-view-rendered-omits-render-args-on-no-arg-render
-  (testing ":rf.view/render-args is ABSENT on a no-arg render (rf2-rpgq8 —
-   additive contract)."
+  (testing ":rf.view/render-args is ABSENT on a no-arg render (the slot is
+   optional)."
     (with-trace-recorder! [traces {:pred view-rendered-pred}]
       (rf/reg-view ^{:rf/id :rf2-rpgq8/no-args} no-args-view []
         [:span "static"])
@@ -175,7 +175,7 @@
             ":rf.view/render-args omitted when the view took no args")))))
 
 (deftest rf-view-rendered-render-args-elided-at-emit
-  (testing "PRIVACY (rf2-rpgq8 / Spec 009 §Privacy): render args are
+  (testing "PRIVACY (Spec 009 §Privacy): render args are
    arbitrary user data, so :rf.view/render-args routes through the SAME
    emit-time elision chokepoint as :rf.event/db — the marks projection runs
    `elide-wire-value` against the frame's app-db elision registry. A
@@ -204,7 +204,7 @@
 
 (deftest rf-sub-run-carries-elapsed-ms
   (testing ":rf.sub/run carries :rf.sub/elapsed-ms — the wall-clock duration
-   of the sub body recompute (rf2-hhh92). The reactive memo wrapper brackets
+   of the sub body recompute. The reactive memo wrapper brackets
    the body with interop/now-ms inside the debug-enabled? gate, so the dev
    trace stream carries per-op timing for the Trace panel's DURATION column.
    Driven through a real reactive recompute (the plain-atom JVM substrate
@@ -229,7 +229,7 @@
 (deftest rf-view-rendered-carries-triggered-by-when-own-sub-changed
   (testing ":rf.view/rendered carries :rf.view/triggered-by — the single
    sub-id in THIS view's read-set whose value changed in the cascade, the
-   precise per-view re-render cause (rf2-8wrzz.1). A view that derefs a sub
+   precise per-view re-render cause. A view that derefs a sub
    which the cascade recomputed with a changed value names that sub. A sub's
    FIRST recompute in a cascade reports value-changed? true (the ::unset
    sentinel), so running + reading the sub fresh inside the handler before
@@ -263,7 +263,7 @@
 
 (deftest rf-view-rendered-omits-triggered-by-on-structural-render
   (testing ":rf.view/triggered-by is ABSENT on a structural render — a view
-   with no subs (or whose subs did not change) names no cause (rf2-8wrzz.1).
+   with no subs (or whose subs did not change) names no cause.
    The consumer reads its absence as the `← parent re-render` reason."
     (with-trace-recorder! [traces {:pred view-rendered-pred}]
       (rf/reg-view ^{:rf/id :rf2-8wrzz1/no-subs} no-subs-view []

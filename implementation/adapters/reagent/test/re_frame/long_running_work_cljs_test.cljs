@@ -1,5 +1,5 @@
 (ns re-frame.long-running-work-cljs-test
-  "Integration test: drives the long-running-work example (rf2-o9fg)
+  "Integration test: drives the long-running-work example
    through the parent coordinator + child workers. Each helper spins a
    fresh frame via `make-frame`, walks the :work/flow parent through a
    flow (spawn cascade, happy-path join, mid-flight cancel, parent
@@ -10,16 +10,14 @@
 
    The fixture fns live HERE (the adapter test tree), not under
    examples/patterns/long_running_work/ — the example source stays
-   test-free per the locked test-free-examples policy (rf2-8cevm). The ns
+   test-free per the test-free-examples policy. The ns
    requires the example's `long-running-work.worker` source directly (its
    ns-load reg-machine calls install :work/flow + :work/processor + the
    related subs), then exercises it. We don't need long-running-work.core
    (the entry point) since the integration tests bypass mount and React
    entirely; the views ns is exercised by the adapter browser smoke.
-   (rf2-cd2zo folded the former `long-running-work.worker-test` fixture ns
-   in here and retired the example test/ dir.)
 
-   Per rf2-am9d this ns uses snapshot/restore via re-frame.test-support
+   This ns uses snapshot/restore via re-frame.test-support
    so the contract is uniform across CLJS fixtures — the snapshot
    captures the example's ns-load registrations (the :work/flow
    parent + :work/processor child machines and the views' framework
@@ -36,7 +34,7 @@
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    ;; EP-0002 (rf2-9o48ih): each test spins its OWN top-level frame via
+    ;; EP-0002: each test spins its OWN top-level frame via
     ;; `make-frame`; opt out of the ambient `:rf/default` scope so the new
     ;; frame's `:initial-events` drain synchronously (top-level boot) rather than
     ;; being treated as a mid-cascade child-frame creation.
@@ -73,8 +71,8 @@
   "Synthesise the completion carrier the runtime mints when a child reaches its
    `:final?` state — `[:work/flow [:rf.machine.spawn/done <invoke-id>
    <completion>]]` — carrying the SAME exact-attempt coordinate the runtime
-   would have copied off the child's own `:rf/join-child` membership record
-   (rf2-nvxehu). The join fold checks every carrier's coordinate for
+   would have copied off the child's own `:rf/join-child` membership
+   record. The join fold checks every carrier's coordinate for
    exact-current EQUALITY with the join attempt — parent/invoke identity,
    logical child id, exact current actor id, exact per-attempt token — so a
    bare hand-authored carrier is suppressed as :attempt-unverified.
@@ -143,7 +141,7 @@
     ;; fire :after timers, so for the headless test we synthesise those
     ;; carriers directly — carrying the exact-attempt coordinate the
     ;; runtime would have copied off each child's membership record
-    ;; (rf2-nvxehu; see dispatch-synthetic-child-completion!). With the
+    ;; (see dispatch-synthetic-child-completion!). With the
     ;; coordinate, the join folds them identically to live completions.
 
     (dispatch-synthetic-child-completion! f :s1)

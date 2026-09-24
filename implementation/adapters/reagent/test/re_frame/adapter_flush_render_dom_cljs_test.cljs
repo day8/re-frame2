@@ -1,5 +1,5 @@
 (ns re-frame.adapter-flush-render-dom-cljs-test
-  "rf2-40a84 — the Reagent synchronous-commit proof for the substrate-adapter
+  "The Reagent synchronous-commit proof for the substrate-adapter
   contract fn `flush-render!`.
 
   WHAT IT PROVES. `(adapter/flush-render! f)` SYNCHRONOUSLY commits the render
@@ -9,8 +9,8 @@
   framework capability the re-frame2-pair MCP's headless `dispatch → render →
   observe-DOM` loop depends on (the rAF drain is throttled to ~never in a
   backgrounded tab; flushSync-class commits are not — see Spec 006
-  §`flush-render!` + Spec Tool-Pair §Driving the render). The sibling
-  rf2-vk79g dispatch-and-settle op consumes this.
+  §`flush-render!` + Spec Tool-Pair §Driving the render). The pair's
+  dispatch-and-settle op consumes this.
 
   HOW THE PROOF IS RIGOROUS. After the initial mount commits, we dispatch a
   state change — under Reagent this only ENQUEUES the dependent component for a
@@ -33,7 +33,7 @@
             [re-frame.test-support :as rf.test-support]
             [re-frame.views]))
 
-;; EP-0002 (rf2-9o48ih): `:ambient-frame nil` opts out of the fixture's default
+;; EP-0002: `:ambient-frame nil` opts out of the fixture's default
 ;; ambient `*current-frame*` :rf/default scope. The probe is a reg-view whose
 ;; `subscribe` resolves its frame from the enclosing `frame-provider` via the
 ;; React-context tier. The render runs synchronously inside `flushSync` /
@@ -54,13 +54,13 @@
     (.createElement js/document "div")))
 
 (deftest flush-render-synchronously-commits
-  (testing "Reagent — flush-render! synchronously commits a pending render (rf2-40a84)"
+  (testing "Reagent — flush-render! synchronously commits a pending render"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (let [frame-kw :rf.reagent-flush-render/probe-frame
             flush!   (:flush-render! rf.adapter.reagent/adapter)]
         (is (fn? flush!)
-            "the Reagent adapter map exposes :flush-render! (rf2-40a84 contract slot)")
+            "the Reagent adapter map exposes :flush-render! (the Spec 006 contract slot)")
         (rf/make-frame {:id frame-kw :doc "flush-render! synchronous-commit probe frame"})
         (rf/reg-event ::seed (fn [{:keys [db]} _] {:db {:n 1}}))
         (rf/reg-event ::inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
@@ -91,6 +91,6 @@
             (flush!)
             (is (= "n=2" (.-textContent mount-node))
                 "DOM reflects the dispatched change SYNCHRONOUSLY after
-                 flush-render! returns — no rAF wait (rf2-40a84)")
+                 flush-render! returns — no rAF wait")
             (finally
               (try (.unmount root) (catch :default _ nil)))))))))

@@ -1,8 +1,8 @@
 (ns re-frame.realworld-resources-cljs-test
   "Integration test: drives the RealWorld-on-resources example
    (`examples/real-apps/realworld_resources/`) through the example-SPECIFIC wiring
-   the bead rf2-3slxrk named as the false-green gap — the composition `test:
-   examples-compile` + the generic resource/mutation artefact tests do NOT pin:
+   that `test:examples-compile` + the generic resource/mutation artefact tests
+   do NOT pin:
 
      1. SESSION-SCOPE RESOLVER — the named `reg-resource-scope :realworld/session`
         resolves the per-user feed scope from `[:auth :user :username]`, nil when
@@ -24,7 +24,7 @@
         (the mandatory teardown path);
      6. THE AUTH MACHINE — login drives :idle → :submitting → :authed via managed
         HTTP and stores the session;
-     7. THE PRODUCTION-SEAM RECEIPT (§11, rf2-k5lbd) — with managed HTTP wired to
+     7. THE PRODUCTION-SEAM RECEIPT (§11) — with managed HTTP wired to
         the app's OWN demo backend, a comment posted through the comment form
         survives the refetch its invalidation causes: the runtime refetches the
         route-owned comments read on its own, and the refetch settles on the
@@ -32,7 +32,7 @@
 
    The fixture fns + the deterministic transport stub live HERE (the adapter test
    tree), not under examples/real-apps/realworld_resources/ — the example source
-   stays test-free per the locked test-free-examples policy (rf2-8cevm). The ns
+   stays test-free per the test-free-examples policy. The ns
    requires the example's production source (`realworld-resources.core`, which
    chains in every feature ns — resources / mutations / scope / routing / auth /
    settings / article-editor / http / schema / views) so their resources /
@@ -48,7 +48,7 @@
    `test-support/poll-until`, which is why the suite runs under the MAP-FORM
    (`:async? true`) reset fixture.
 
-   Per rf2-am9d this ns uses snapshot/restore via re-frame.test-support so the
+   This ns uses snapshot/restore via re-frame.test-support so the
    contract is uniform across CLJS fixtures."
   (:require [clojure.string :as str]
             [cljs.test :refer-macros [deftest testing use-fixtures is async]]
@@ -60,9 +60,9 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
-            ;; Activate the default Malli validator (rf2-t0hq): the CLJS default
+            ;; Activate the default Malli validator: the CLJS default
             ;; validator soft-passes without this require, so the durable
-            ;; AuthSlice regression below could never observe a rollback. The
+            ;; AuthSlice test below could never observe a rollback. The
             ;; canonical app-boot opt-in for Malli app-schema validation.
             [re-frame.schemas.malli]
             [malli.core :as m]
@@ -92,7 +92,7 @@
             [realworld-shared.demo-backend :as demo]
             ;; The shared WIRE contract (User / UserResponse) + this app's durable
             ;; app-db schemas (AuthSlice), for the default-frame validator
-            ;; regression (rf2-3fc89f.32).
+            ;; test.
             [realworld-shared.schema :as ws]
             [realworld-resources.schema :as app-schema])
   (:require-macros [re-frame.core :refer [with-new-frame]]
@@ -152,8 +152,8 @@
    counters, re-publish the late-bound routing integration, and stub managed-HTTP
    + url-push so ensure / navigation are deterministic without a fetch / browser.
 
-   THE ORDER MATTERS, AND THE FRAME IS MADE LAST (rf2-djqm, prophylactic —
-   the shape rf2-k4oe repaired in the LinearLite suite). A `:url-bound?` frame
+   THE ORDER MATTERS, AND THE FRAME IS MADE LAST (prophylactic —
+   the same shape as the LinearLite suite). A `:url-bound?` frame
    performs a synchronous initial URL sync AT CONSTRUCTION — `make-frame` ->
    `frame/upsert-frame!`'s post-create hook -> routing's
    `:routing/on-frame-registered!` -> `reconcile-url-listener!` — and under
@@ -165,8 +165,9 @@
    and — because the suite's own navigation never re-plans — the error is
    STICKY.
 
-   This suite is green either way TODAY only because its `\"/\"` route declares
-   no BLOCKING resource; add one and it reproduces rf2-k4oe exactly, silently.
+   With the frame made first this suite would still pass, but only because its
+   `\"/\"` route declares no BLOCKING resource; add one and the error sticks,
+   silently.
    Registering everything first and making the frame last removes the
    dependence entirely, and matches the committed pilot baseline
    (`docs/design/fresco/product/pilots/baseline/linearlite/baseline_test.cljs`,
@@ -175,7 +176,7 @@
   (reset! last-managed-args nil)
   (reset! managed-args-log [])
   ;; Re-install the example's ns-load resource/mutation/scope registrations.
-  ;; rf2-h1vqa4: reinstate through `registrar/register!` — NOT a raw
+  ;; Reinstate through `registrar/register!` — NOT a raw
   ;; registrar-atom swap. Image-loaded frames resolve through the SOURCE
   ;; STORE (the default image is assembled from it), and the reset hook's
   ;; clear-kind! forgot the store rows too; register! writes registrar +
@@ -243,12 +244,12 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter
      :init-fn init!
-     ;; Map-form (rf2-k5lbd): §11's production-seam receipt is an
+     ;; Map-form: §11's production-seam receipt is an
      ;; `(async done …)` row, and cljs.test runs one only under map fixtures.
      ;; Sync rows are served identically (re-frame.async-reset-fixture-cljs-test
      ;; pins that).
      :async?  true
-     ;; BUNDLE CO-LOAD HYGIENE (rf2-kuky.27): the RealWorld twins share id
+     ;; BUNDLE CO-LOAD HYGIENE: the RealWorld twins share id
      ;; vocabulary (`:settings/load`, `:auth/initialise`, …) and both register
      ;; the reserved per-app `:rf.route/not-found` route. `:app-ns` names OUR
      ;; OWN app's whole tree: the fixture removes those rows before it takes
@@ -256,7 +257,7 @@
      ;; provenances for one id — and reinstates them, registrar + source store
      ;; in lockstep, before each of this suite's tests. The sibling hides
      ;; ITSELF the same way, which is why nothing here names `realworld-http.`
-     ;; and why the per-test re-scrub this suite used to carry is gone.
+     ;; and why this suite needs no per-test re-scrub.
      :app-ns  "realworld-resources."}))
 
 ;; ============================================================================
@@ -274,7 +275,7 @@
 (defn- viewer-scope
   "The concrete `[:rf.scope/viewer {:username …}]` scope for a signed-in reader —
    the identity the `:realworld/viewer` resolver derives for the optional-auth
-   reads (rf2-j538f7.29)."
+   reads."
   [username]
   [:rf.scope/viewer {:username username}])
 
@@ -282,9 +283,9 @@
   "The confirmed-anonymous viewer scope (no user, no token)."
   [:rf.scope/viewer :anonymous])
 
-;; The optional-auth reads (article / profile / comments) are now VIEWER-scoped:
+;; The optional-auth reads (article / profile / comments) are VIEWER-scoped:
 ;; each carries the reader's own `favorited` / `following` flags, so its cache
-;; identity is the viewer (rf2-j538f7.29). The mutation / populate / seed tests
+;; identity is the viewer. The mutation / populate / seed tests
 ;; below act as the logged-in user "alice", so their reads land under alice's
 ;; viewer scope — the 1-arity helpers default to that; the 2-arity form names an
 ;; explicit viewer for the cross-viewer leak tests.
@@ -350,9 +351,8 @@
    Route auth is `:can-enter` metadata on the protected routes themselves
    (routing.cljs), registered at ns load, so a frame needs no auth wiring at all
    for the guard to run: the runtime consults it on the one navigation planning
-   pipeline. This helper used to install the retired
-   `:realworld-resources.routing/auth-guard` interceptor here, mirroring the
-   frame config core.cljs used to carry (rf2-k85nd).
+   pipeline. There is no `:realworld-resources.routing/auth-guard`
+   interceptor to install.
 
    `:url-bound? true` lets the route slice track the current route (needed so an
    in-place request resolves against it); url-push is a no-op so navigation is
@@ -383,7 +383,7 @@
 (defn- editor-route-owner?
   "True iff `entry` carries an active `[:route :realworld.editor/edit _]` owner —
    the route-owned owner the editor's article read holds while the edit route is
-   live (rf2-y4mgw: the read is a route `:resource`, owned under
+   live (the read is a route `:resource`, owned under
    `[:route route-id nav-token]` and released by the runtime on route leave)."
   [entry]
   (route-owner? entry :realworld.editor/edit))
@@ -425,12 +425,12 @@
             (whose payloads carry the viewer's favorited/following flags) declare
             :scope {:from-db :realworld/viewer}; only the truly-invariant popular
             tags stays :rf.scope/global; the private feed stays {:from-db
-            :realworld/session} (rf2-j538f7.29)"
-    ;; the feed is the private, session-scoped read (unchanged).
+            :realworld/session}"
+    ;; the feed is the private, session-scoped read.
     (is (= {:from-db :realworld/session}
            (:scope (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :realworld/feed}))))
         "the feed resource's scope is the session resolver reference")
-    ;; every optional-auth read is now VIEWER-scoped, not global — 'public' is an
+    ;; every optional-auth read is VIEWER-scoped, not global — 'public' is an
     ;; access policy, not a cache-identity proof.
     (doseq [rid [:realworld/articles :realworld/article :realworld/comments
                  :realworld/profile :realworld/author-articles :realworld/favorited-articles]]
@@ -447,7 +447,7 @@
             :anonymous, and FAILS CLOSED (nil) while a saved token is present but
             the user has not restored yet — so each viewer's representation gets a
             distinct cache identity and the token-authenticated restore window
-            never labels a read shareable-anonymous (rf2-j538f7.29)"
+            never labels a read shareable-anonymous"
     ;; signed in → per-user viewer scope
     (is (= [:rf.scope/viewer {:username "alice"}]
            (rf/resolve-resource-scope {:auth {:user {:username "alice"} :token "jwt"}} :realworld/viewer)))
@@ -491,15 +491,15 @@
             "the JWT from the auth slice rides every outbound request as a Bearer header")))))
 
 ;; ============================================================================
-;; 2b. WIRE User vs token-free durable session-user (rf2-3fc89f.32)
+;; 2b. WIRE User vs token-free durable session-user
 ;; ============================================================================
 ;;
-;; Same defect as the http variant: the durable AuthSlice validated its :user
-;; against the WIRE `ws/User`, which REQUIRES the sensitive :token, while
-;; `:auth/store-session` stores `(dissoc user :token)`. Under the active
-;; post-commit validator the token-free commit is rejected and the login rolls
-;; back. The suite's other auth tests run on anonymous frames (no registered app
-;; schema), so the validator never runs — falsely green (the rf2-lo28u lesson).
+;; Same hazard as the http variant: were the durable AuthSlice to validate its
+;; :user against the WIRE `ws/User`, which REQUIRES the sensitive :token, while
+;; `:auth/store-session` stores `(dissoc user :token)`, the active post-commit
+;; validator would reject the token-free commit and roll the login back. The
+;; suite's other auth tests run on anonymous frames (no registered app schema),
+;; so the validator never runs there — they would be falsely green.
 ;; This registers the REAL production `AuthSlice` on the test frame so the
 ;; genuine validator participates on the genuine store-session commit.
 
@@ -515,7 +515,7 @@
 (deftest durable-auth-user-validates-token-free-wire-user-still-requires-token
   (testing "examples/real-apps/realworld_resources — the durable AuthSlice user
             validates token-free against the real post-commit validator, while
-            the wire User still requires the sensitive :token (rf2-3fc89f.32)"
+            the wire User still requires the sensitive :token"
     ;; WIRE contract UNCHANGED — token-less reply rejected, token slot sensitive.
     (is (true? (m/validate ws/UserResponse
                            {:user {:email "alice@example.com" :username "alice"
@@ -555,14 +555,14 @@
 (deftest store-session-event-token-redacts-at-its-arg-map-path
   (testing "examples/real-apps/realworld_resources — the DIRECTLY-DISPATCHABLE
             :auth/store-session event classifies its JWT at the ARG-MAP-relative
-            path [:token], not the vector-relative [1 :token] it shipped with
-            (rf2-3x7nj.42.1, the resources twin of rf2-oxyle). An event's
+            path [:token], not a vector-relative [1 :token]. An event's
             classification paths index into the event vector's SECOND element
             (`redact-event-vec` redacts `(second event)`), and here that element
-            IS the User map, so [1 :token] asked for a numeric map key `1` no map
-            has — a silent no-op, and the JWT rode RAW into the dispatched-event
-            trace. Assertions are POSITIVE (the sentinel at the slot), so the old
-            spelling cannot pass them, and the non-secret username rides visible
+            IS the User map, so [1 :token] would ask for a numeric map key `1` no
+            map has — a silent no-op, and the JWT would ride RAW into the
+            dispatched-event trace. Assertions are POSITIVE (the sentinel at the
+            slot), so the vector-relative spelling cannot pass them, and the
+            non-secret username rides visible
             beside it: selective classification, not whole-arg blanking."
     (is (= {:sensitive [[:token]]}
            (rf.classification/registration-classification :event :auth/store-session))
@@ -651,7 +651,7 @@
     (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       ;; Boot registers the :editor/can-submit? flow ONCE against the frame
-      ;; (`:app/initialise` -> `:editor/register-flow`, rf2-xugvye); the create-route
+      ;; (`:app/initialise` -> `:editor/register-flow`); the create-route
       ;; `:on-match` (`:editor/initialise`) then only resets the slice. Mirror that
       ;; boot ordering here so the flow materialises `[:editor :can-submit?]`.
       (rf/dispatch-sync [:editor/register-flow] {:frame f})
@@ -681,7 +681,7 @@
             "after the save reply re-seeds the baseline, the draft is clean → can leave")
         (is (false? (rf/compute-sub [:editor/dirty?] (state-value f)))
             "the saved draft is no longer dirty")
-        ;; The ownership control for rf2-gwye.39: this save was issued and
+        ;; The ownership control: this save was issued and
         ;; answered under ONE navigation, so its continuation still navigates.
         (is (= :realworld.article/show (route-id f))
             "on its own page the save continuation still opens the saved article")))))
@@ -699,7 +699,7 @@
             :realworld/save-article request builder passes the resulting vector
             through untouched. A second parse would not throw under CLJS —
             `clojure.string/split` coerces with `str` — it would send the
-            vector's PRINTED form as a single tag (rf2-0mxz)"
+            vector's PRINTED form as a single tag"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:editor/register-flow] {:frame f})
@@ -747,7 +747,7 @@
             viewer-scoped reads (articles / profiles carrying that user's
             favorited/following flags) via :rf.resource/clear-scope, so the next
             user can never read a stale entry of theirs. Only the truly-invariant
-            global tags read is left alone (rf2-j538f7.29)."
+            global tags read is left alone."
     (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
@@ -798,7 +798,7 @@
       (rf/dispatch-sync [:auth/initialise]
                         {:frame f :rf.cofx {:realworld-resources.session/token nil}})
       (is (= :idle (rf/compute-sub [:auth/state] (state-value f))))
-      ;; submit a login → :submitting. rf2-agb5jk (item 1): the machine is
+      ;; submit a login → :submitting. The machine is
       ;; credential-free — the credential-owning form-submit event issues the
       ;; managed POST itself, exactly as the real app's view dispatches it.
       (rf/dispatch-sync [:auth.login-form/initialise] {:frame f})
@@ -837,12 +837,12 @@
           "a recordable generator carries a value-returning supplier fn"))))
 
 ;; ============================================================================
-;; 8. PAGINATION — the page-nav semantics (rf2-yt7ay6)
+;; 8. PAGINATION — the page-nav semantics
 ;; ============================================================================
 ;;
 ;; The PURE page arithmetic (`page->limit-offset`) + query encoding are
 ;; transport-neutral Conduit contract, extracted to `realworld-shared.http`
-;; (rf2-fhxwhj) and pinned ONCE in realworld_shared_contract_cljs_test.cljs.
+;; and pinned ONCE in realworld_shared_contract_cljs_test.cljs.
 ;; What stays here is the app-SPECIFIC page-nav events integration.
 
 (deftest pagination-nav-events-carry-feed-tag-and-drop-page-1
@@ -885,19 +885,20 @@
       (is (nil? (:page (route-query f))) "profile page 1 drops ?page="))))
 
 ;; ============================================================================
-;; 9. THE EDITOR EDIT-MODE LOAD + ROUTE-OWNED TEARDOWN + DELETE (rf2-y4mgw)
+;; 9. THE EDITOR EDIT-MODE LOAD + ROUTE-OWNED TEARDOWN + DELETE
 ;; ============================================================================
 ;;
 ;; The editor's CREATE path is covered above (editor-flow-gates-…). This pins the
 ;; EDIT path: the read-side `:reply-to` seed-on-load, and the ROUTE-OWNED teardown
-;; NO-LEAK property. rf2-y4mgw re-homed the article read's lifecycle onto the ROUTE:
+;; NO-LEAK property. The article read's lifecycle lives on the ROUTE:
 ;; `:realworld.editor/edit` declares `:realworld/article` as a `:resources` entry,
 ;; so the runtime owns it under `[:route :realworld.editor/edit nav-token]` and
-;; RELEASES that owner on every route leave. That closes the leak the app-minted
-;; `[:app :editor/article slug]` had — the old owner was released only on
-;; edit→new / edit A→B / delete and (in the Reagent tier) the component unmount, so
-;; ordinary route leave in the native (unmount-free) rendition stranded it. Now
-;; EVERY exit (edit→new, edit A→B, save, delete, and edit→any-other-route) releases
+;; RELEASES that owner on every route leave. An app-minted
+;; `[:app :editor/article slug]` owner released only on
+;; edit→new / edit A→B / delete and (in the Reagent tier) the component unmount
+;; would leak: ordinary route leave in the native (unmount-free) rendition would
+;; strand it. EVERY exit (edit→new, edit A→B, save, delete, and
+;; edit→any-other-route) releases
 ;; through the one framework lifecycle. The seed-on-load is the route's `:on-match`
 ;; OWNERLESS `:reply-to [:editor/article-loaded]` ensure — it mints no owner, it
 ;; joins the route's own read purely to seed. These tests drive REAL navigations
@@ -909,7 +910,7 @@
             :reply-to [:editor/article-loaded] continuation, while the ROUTE owns
             the read under [:route :realworld.editor/edit nav-token]; navigating
             edit→New Article releases that owner (the route leave) so the article
-            entry is reclaimed (rf2-y4mgw)"
+            entry is reclaimed"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
@@ -957,13 +958,12 @@
             "an owner-free, work-free entry is reclaimed — edit→new leaks nothing")))))
 
 (deftest editor-edit-then-navigate-to-unrelated-route-releases-the-route-owned-read
-  (testing "examples/real-apps/realworld_resources — THE rf2-y4mgw FIX: leaving the
+  (testing "examples/real-apps/realworld_resources — leaving the
             edit route for an UNRELATED route (home) releases the editor's article
-            owner. This is the exact path the native (unmount-free) rendition
-            leaked: no :editor/* event fires on an ordinary route leave, and the
-            old app-minted [:app :editor/article slug] was released only on
-            new/A→B/delete/unmount — so a plain edit→home stranded it. With the
-            read re-homed onto the route `:resources`, route leave IS the release"
+            owner. No :editor/* event fires on an ordinary route leave, so an
+            app-minted [:app :editor/article slug] owner released only on
+            new/A→B/delete/unmount would be stranded by a plain edit→home. With
+            the read on the route `:resources`, route leave IS the release"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
@@ -977,8 +977,8 @@
       (is (false? (rf/compute-sub [:editor/dirty?] (state-value f)))
           "the seeded draft is clean, so the :can-leave guard won't block")
       ;; ORDINARY ROUTE LEAVE — navigate to home, a route that does NOT read this
-      ;; article. RED on the pre-fix code: nothing releases the editor's article
-      ;; owner on this path, so the entry stays pinned active forever.
+      ;; article. With an app-minted owner nothing would release the editor's
+      ;; article owner on this path, so the entry would stay pinned active forever.
       (rf/dispatch-sync [:rf.route/navigate {:to :realworld/home}] {:frame f})
       (is (= :realworld/home (route-id f)) "left the editor for home")
       (is (not (editor-route-owner? (entry f (article-key "hello-conduit"))))
@@ -995,7 +995,7 @@
             mutation under the session's save instance with :reply-to [:editor/replied];
             the delete branch clears the slice and navigates home, and that
             navigate-home leaves the edit route, so the runtime releases the
-            route-owned article read on the way out (rf2-y4mgw)"
+            route-owned article read on the way out"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
@@ -1020,16 +1020,16 @@
 
 (deftest editor-late-cross-slug-reply-does-not-clobber-the-current-draft
   (testing "examples/real-apps/realworld_resources — the ownerless seed-on-load
-            continuation is SLUG-CORRELATED (rf2-y4mgw, the #6569 reopen). Slug A
+            continuation is SLUG-CORRELATED. Slug A
             and slug B are DISTINCT :realworld/article cache entries with
             independent generations, so leaving edit A for edit B releases A's
             route owner and requests an OPPORTUNISTIC abort — but that abort is
             best-effort (stale suppression is by work-id+generation, per
             release-owner-handler), so a late A settle is still ACCEPTED for A's
             own live entry and fans out to A's `:reply-to [:editor/article-loaded
-            article-a]` target AFTER the editor has moved to B. Before the slug
-            guard that late reply reseeded the editor slice with A, clobbering the
-            B draft the user now edits; now `:editor/article-loaded` seeds only
+            article-a]` target AFTER the editor has moved to B. Without a slug
+            guard that late reply would reseed the editor slice with A, clobbering
+            the B draft the user is editing; `:editor/article-loaded` seeds only
             while the current route still targets the reply's slug, so the late A
             reply is dropped and the B draft survives"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
@@ -1081,13 +1081,10 @@
             before anyone types into B). Entering edit A and typing before A's
             read settles is the ordinary case, not a race: the round trip is
             slower than the first keystroke. The reply is for the current slug,
-            so the slug guard passes it, and the seed it then performs used to be
-            a whole-slice `(assoc db :editor (editor-slice …))` that threw the
-            keystrokes away — the R-C1 harness case (fitness-harness.md §C.2),
-            named MATERIAL by the rf2-y4mgw audit and uncovered by any suite
-            until now. The seed is LEAFWISE instead. The withdrawn
-            `re-frame.freehand` substrate stated that seed law for its forms
-            (`FH-CTRL-013`): a TOUCHED field keeps its own draft AND its own
+            so the slug guard passes it, and a whole-slice
+            `(assoc db :editor (editor-slice …))` seed would throw the
+            keystrokes away. The seed is LEAFWISE instead: a TOUCHED field
+            keeps its own draft AND its own
             baseline, so the typing survives and stays dirty; every untouched
             field takes the loaded article's value in both, so the dirty-check
             still compares against what the server holds."
@@ -1125,7 +1122,7 @@
           (is (= {:title "" :description "about a" :body "body a" :tagList "ay"}
                  (:baseline slice))
               "the baseline is seeded leafwise in step with the draft — asserted whole,
-               because the bug is never the leaf you looked at")
+               because a clobber is never the leaf you looked at")
           (is (= "article-a" (:slug slice))
               "the slice still targets the loaded slug")
           (is (true? (rf/compute-sub [:editor/dirty?] (state-value f)))
@@ -1135,21 +1132,20 @@
 
 ;; ============================================================================
 ;; 10. SESSION RESTORE + [:rf.route/replan-resources …] — the documented "restore
-;;     stays put" invariant over the framework's replan command (rf2-svj926 →
-;;     rf2-y8jjk): the composed-route deep link, the confirmed-anonymous twin,
+;;     stays put" invariant over the framework's replan command: the
+;;     composed-route deep link, the confirmed-anonymous twin,
 ;;     and the logged-out home
 ;; ============================================================================
 ;;
 ;; Cold-boot session restore is the one principal switch with no accompanying
 ;; route change, so the route's `{:from-db …}` reads fail closed at entry (the
-;; viewer is unresolved) and nothing re-plans them for free. The example used to
-;; carry its own 39-line partial planner (`:auth/ensure-viewer-route`) here; it
-;; read the LEAF route's handler-meta only, so on a composed route it silently
-;; omitted the inherited parent read, and it never touched the durable plan /
-;; blocking slots or the slice readiness. Both restore outcomes now dispatch the
-;; framework's `[:rf.route/replan-resources {:cause …}]`, which reruns the ONE
-;; canonical planner over the registered parent-to-leaf branch under the
-;; UNCHANGED nav-token — the tests below pin what the app-side copy could not:
+;; viewer is unresolved) and nothing re-plans them for free. Both restore
+;; outcomes dispatch the framework's `[:rf.route/replan-resources {:cause …}]`,
+;; which reruns the ONE canonical planner over the registered parent-to-leaf
+;; branch under the UNCHANGED nav-token. An app-side partial planner that read
+;; the LEAF route's handler-meta only would silently omit the inherited parent
+;; read on a composed route, and never touch the durable plan / blocking slots
+;; or the slice readiness — the tests below pin what such a copy could not:
 ;; the inherited parent read, the stored plan membership, the blocking slot, the
 ;; repaired `:error` / `:transition`, and the absence of any navigation effect.
 
@@ -1208,11 +1204,11 @@
             to / plans the article list (under the anonymous viewer) and the tags, and
             NOT the session feed: the feed occurrence is admitted by ROUTE DATA only on
             the ?feed=following arm, so a nil session scope is never a whole-plan
-            failure on the public home page. Before rf2-y8jjk the feed entry carried
-            no :when, its {:from-db :realworld/session} scope resolved nil for a
-            logged-out visitor, the WHOLE home plan failed closed, and — because a
-            no-token boot takes the machine's :idle no-op branch — nothing ever
-            rescued the articles or the tags."
+            failure on the public home page. Without that :when, the feed's
+            {:from-db :realworld/session} scope would resolve nil for a logged-out
+            visitor, the WHOLE home plan would fail closed, and — because a
+            no-token boot takes the machine's :idle no-op branch — nothing would
+            ever rescue the articles or the tags."
     (with-new-frame [f (restore-frame!)]
       (rf/dispatch-sync [:auth/initialise]
                         {:frame f :rf.cofx {:realworld-resources.session/token nil}})
@@ -1256,7 +1252,7 @@
             [:session-restore]}]: the same route, the same nav-token, the whole plan
             (articles under alice's viewer, tags, the feed under alice's session) now
             ensured and recorded, the error repaired — and NO navigation (the deep
-            link survives) (rf2-j538f7.29, rf2-y8jjk)"
+            link survives)"
     (with-new-frame [f (restore-frame!)]
       ;; Boot WITH a saved token → :begin-restore (GET /user in flight). Capture
       ;; that request now, before the route plan below lowers others.
@@ -1322,7 +1318,7 @@
                         {:frame f :rf.cofx {:realworld-resources.session/token nil}})
       (is (= :idle (rf/compute-sub [:auth/state] (state-value f)))
           "no token → the :idle no-op branch")
-      ;; rf2-agb5jk (item 1): drive login through the credential-owning
+      ;; Drive login through the credential-owning
       ;; form-submit event — the machine itself is credential-free.
       (rf/dispatch-sync [:auth.login-form/initialise] {:frame f})
       (rf/dispatch-sync [:auth.login-form/edit-field :email "alice@example.com"] {:frame f})
@@ -1336,7 +1332,7 @@
           "interactive login bounces home via :auth/session-established → :auth/post-login-redirect"))))
 
 (deftest session-restore-success-replans-a-composed-deep-link-through-the-parent-chain
-  (testing "ACCEPTANCE (rf2-y8jjk) — cold boot with a saved token on the favorites
+  (testing "ACCEPTANCE — cold boot with a saved token on the favorites
             tab, a route that INHERITS the BLOCKING :realworld/profile banner from its
             :realworld.profile/show :parent. Route entry fails closed (viewer
             unresolved). Once GET /user lands, [:rf.route/replan-resources {:cause
@@ -1347,9 +1343,9 @@
             materialized two-identity map and the blocking slot names the banner until
             it settles; (iv) the slice error is repaired and :transition goes :loading
             → :idle as the banner reply lands; (v) no URL push / replace, no scroll,
-            no activation trace, no :on-match. The retired app-side copy read the
-            LEAF's handler-meta only, so it never ensured the banner: the slice kept
-            the planning error and the token's slots stayed unwritten."
+            no activation trace, no :on-match. A planner that read the LEAF's
+            handler-meta only would never ensure the banner: the slice would keep
+            the planning error and the token's slots would stay unwritten."
     (let [pushed   (atom [])
           scrolled (atom [])]
       ;; Capture the host nav fxs GLOBALLY (both platforms) so a push / scroll
@@ -1496,8 +1492,7 @@
             token was rejected) clears the session and STAYS PUT on the public deep
             link, then replans the current route's reads under the now-confirmed
             ANONYMOUS viewer (:abandon-restore → [:rf.route/replan-resources {:cause
-            [:session-restore-failed]}]), without navigating home (rf2-j538f7.29,
-            gate 5 failure branch; rf2-y8jjk)"
+            [:session-restore-failed]}]), without navigating home (gate 5 failure branch)"
     (with-new-frame [f (restore-frame!)]
       (rf/dispatch-sync [:auth/initialise]
                         {:frame f :rf.cofx {:realworld-resources.session/token "jwt-stale"}})
@@ -1545,8 +1540,7 @@
             reader. The same article read resolves a DISTINCT cache key per viewer,
             so alice's favorited=true never surfaces in bob's or an anonymous
             reader's UI — and the favorite verb (POST vs DELETE) is therefore chosen
-            from the CURRENT viewer's bytes, not the departing one's (rf2-j538f7.29,
-            gates 3 + 4)"
+            from the CURRENT viewer's bytes, not the departing one's (gates 3 + 4)"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       ;; ALICE loads the article; her representation carries favorited=true.
@@ -1579,7 +1573,7 @@
               "an anonymous reader does not see alice's favorited=true either"))))))
 
 ;; ============================================================================
-;; 11. NON-FAVORITE MUTATIONS + failure->message (rf2-xm57ne)
+;; 11. NON-FAVORITE MUTATIONS + failure->message
 ;; ============================================================================
 ;;
 ;; Section 3 above (favorite-populates-…) pins the FAVORITE mutation only. These
@@ -1589,7 +1583,7 @@
 ;; the two detail-page mutation continuations (:ui/follow-author-replied re-stale,
 ;; :ui/article-deleted navigate-home). The failure->message projector is
 ;; transport-neutral Conduit contract, pinned once in the shared contract suite
-;; (realworld_shared_contract_cljs_test — rf2-fhxwhj), not re-tested here.
+;; (realworld_shared_contract_cljs_test), not re-tested here.
 
 (deftest unfavorite-optimistic-patch-clamps-count-at-zero
   (testing "examples/real-apps/realworld_resources — :realworld/unfavorite's optimistic
@@ -1712,7 +1706,7 @@
                                               :bio nil :image nil}] {:frame f})
       ;; Open Settings (its route :on-match seeds the draft from the user), then
       ;; edit the bio. The reader is still on /settings when the reply lands,
-      ;; which is what lets the success navigate (rf2-3x7nj.42.3).
+      ;; which is what lets the success navigate.
       (rf/dispatch-sync [:rf.route/navigate {:to :realworld.user/settings}] {:frame f})
       (rf/dispatch-sync [:settings/edit-field :bio "A brand new bio"] {:frame f})
       (rf/dispatch-sync [:settings/submit] {:frame f})
@@ -1730,8 +1724,8 @@
           "the profile route carries the saved username"))))
 
 ;; ----------------------------------------------------------------------------
-;; …and the same continuation when the session it was issued for has gone
-;; (rf2-2ape). Logout stays live while the save is in flight — both the form's
+;; …and the same continuation when the session it was issued for has gone.
+;; Logout stays live while the save is in flight — both the form's
 ;; own button and the navbar's — and the PUT is already on the wire, so its
 ;; reply can land on a signed-out app. Nothing below the app rejects it: the
 ;; frame is the same one and the mutation instance is the same live instance,
@@ -1761,7 +1755,7 @@
   (testing "examples/real-apps/realworld_resources — a settings save that replies
             AFTER the user logged out is refused by :settings/replied: the
             departed user's User and token do not come back, and there is no
-            stale navigation to their profile (rf2-2ape)"
+            stale navigation to their profile"
     (with-new-frame [f (settings-frame!)]
       (let [save-args (park-a-settings-save! f "alice")]
         (is (some? save-args) "the settings PUT lowered a write")
@@ -1784,7 +1778,7 @@
 (deftest settings-reply-from-an-old-account-does-not-overwrite-the-new-one
   (testing "examples/real-apps/realworld_resources — the same refusal covers an
             account SWITCH: alice's parked save replying after bob has signed in
-            must not put alice's credentials over bob's session (rf2-2ape)"
+            must not put alice's credentials over bob's session"
     (with-new-frame [f (settings-frame!)]
       (let [alice-args (park-a-settings-save! f "alice")]
         (rf/dispatch-sync [:auth/clear-session] {:frame f})
@@ -1804,9 +1798,9 @@
             survives BOB OPENING SETTINGS before alice's parked save replies.
             Route entry runs :settings/load, which rebuilds the whole draft
             slice from whoever is signed in; an ownership record living on that
-            slice would now read 'bob' and accept alice's reply. The record is
+            slice would then read 'bob' and accept alice's reply. The record is
             captured at submit into [:settings-save-owner] instead, which no
-            route entry writes (rf2-2ape audit residual, PR #9374)"
+            route entry writes"
     (with-new-frame [f (settings-frame!)]
       (let [alice-args (park-a-settings-save! f "alice")]
         (is (= "alice" (:settings-save-owner (rf/app-db-value f)))
@@ -1838,7 +1832,7 @@
   (testing "examples/real-apps/realworld_resources — the same-session case the
             refusal must not catch: alice parks a save, wanders off and comes
             BACK to Settings (re-seeding the draft slice), and her own reply is
-            still accepted (rf2-2ape audit residual)"
+            still accepted"
     (with-new-frame [f (settings-frame!)]
       (let [alice-args (park-a-settings-save! f "alice")]
         (rf/dispatch-sync [:rf.route/navigate {:to :realworld/home}] {:frame f})
@@ -1885,15 +1879,15 @@
             ":ui/follow-author-replied re-staled [:article slug] → the detail refetches")))))
 
 ;; ----------------------------------------------------------------------------
-;; A write outlives the page that issued it (rf2-fzbj.21)
+;; A write outlives the page that issued it
 ;; ----------------------------------------------------------------------------
 ;;
 ;; A mutation runs to completion wherever the reader goes: leaving a page
 ;; releases the reads the ROUTE owns, never an independent write. So every
 ;; continuation that navigates or writes page-local state has to ask whether
 ;; the reader is still on the page that issued it. The detail-page delete asks
-;; the route (`[:ui/article-deleted slug]`, rf2-gwye.42); the editor asks the
-;; navigation (`[:editor/replied nav-token]`, rf2-gwye.39), because a create
+;; the route (`[:ui/article-deleted slug]`); the editor asks the
+;; navigation (`[:editor/replied nav-token]`), because a create
 ;; draft has no slug to ask about.
 
 (defn- delete-alpha-then-walk-to!
@@ -1914,7 +1908,7 @@
 (defn- alpha-delete-status [f]
   (:status (rf/compute-sub [:rf/mutation {:instance [:delete-article "alpha"]}] (state-value f))))
 
-;; The editor's writes run under a per-session instance (rf2-3x7nj.42.5), so the
+;; The editor's writes run under a per-session instance, so the
 ;; tests below read it the way the view does: the session instance off
 ;; `:editor/save-instance`, then that instance's `:rf/mutation` state.
 
@@ -1972,7 +1966,7 @@
 (deftest delete-article-continuation-leaves-a-departed-reader-where-they-are
   (testing "examples/real-apps/realworld_resources — walk from alpha to another
             article or to a profile before the server answers, and the late
-            success leaves the reader on the page they chose (rf2-gwye.42); the
+            success leaves the reader on the page they chose; the
             completed instance is still cleared"
     (doseq [[label detour expect-id expect-params]
             [["alpha → beta" {:to :realworld.article/show :params {:slug "beta"}}
@@ -2004,8 +1998,7 @@
 
 (deftest editor-write-continuations-stay-with-the-page-that-issued-them
   (testing "examples/real-apps/realworld_resources — a DELETE answered after a detour
-            to a profile leaves the reader there and the editor slice alone
-            (rf2-gwye.39)"
+            to a profile leaves the reader there and the editor slice alone"
     (with-new-frame [f (guarded-frame!)]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
       (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/edit :params {:slug "doomed"}}]
@@ -2060,9 +2053,9 @@
             "…nor re-seed the editor slice with the saved article"))))
   (testing "entering a NEW editor cancels nothing: the old delete's late reply
             lands, runs its :invalidates, and is refused by the nav-token gate,
-            which retires that delete's own instance (rf2-3x7nj.42.5). Clearing
-            it on entry used to ABORT the delete and suppress its reply, so a
-            list cached before the delete kept serving the deleted article"
+            which retires that delete's own instance. Clearing
+            it on entry would ABORT the delete and suppress its reply, so a
+            list cached before the delete would keep serving the deleted article"
     (with-new-frame [f (guarded-frame!)]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
       (let [list-key (cache-home-list! f)]
@@ -2091,7 +2084,7 @@
             editor is a new form session under the same slug. The old delete
             still in flight neither busies the new form nor, answering :ok or
             :error, touches the new session's pending save — the case a
-            slug-keyed instance gets wrong (rf2-3x7nj.42.5)"
+            slug-keyed instance gets wrong"
     (doseq [[label answer! invalidates?]
             [[":ok" (fn [f del] (reply-success! del {} f)) true]
              [":error" (fn [f del]
@@ -2145,8 +2138,7 @@
   (testing "examples/real-apps/realworld_resources — a save that fails while the
             reader is still on the page that issued it stays on the session's
             instance, where the form shows it and a retry re-executes under it:
-            the gate-first :editor/replied clears only a reply it refuses
-            (rf2-3x7nj.42.5)"
+            the gate-first :editor/replied clears only a reply it refuses"
     (with-new-frame [f (guarded-frame!)]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
       (rf/dispatch-sync [:editor/register-flow] {:frame f})
@@ -2203,9 +2195,9 @@
 (deftest follow-and-unfollow-restale-the-session-feed
   (testing "examples/real-apps/realworld_resources — Your Feed is exactly the
             articles of the authors you follow, so a follow or unfollow stales the
-            session [:feed] alongside the viewer's [:profile username]
-            (rf2-gwye.35). Without it a feed visited in the last minute is a
-            cache-hit on re-entry, still showing the old membership"
+            session [:feed] alongside the viewer's [:profile username]. Without
+            it a feed visited in the last minute is a cache-hit on re-entry,
+            still showing the old membership"
     (testing "follow from the PROFILE page: an empty cached feed refetches and shows the author"
       (with-new-frame [f (guarded-frame!)]
         (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
@@ -2244,21 +2236,19 @@
             "…and the unfollowed author's article is gone")))))
 
 (deftest auth-guard-return-to-preserves-full-address
-  ;; rf2-78x8j (twin of rf2-k5zty in realworld_http) — the return-to stash is the
+  ;; The twin of the realworld_http test — the return-to stash is the
   ;; FULL resolved address, so a login bounce-back lands on the EXACT URL the
-  ;; visitor was headed for, not a bare route. Before the fix the stash was
-  ;; {:id :params}, stranding the query string and #fragment.
+  ;; visitor was headed for, not a bare route. A {:id :params} stash would
+  ;; strand the query string and #fragment.
   ;;
-  ;; rf2-k85nd retargeted this onto the `:can-enter` gate: the guard is route
+  ;; The guard is the `:can-enter` gate: route
   ;; metadata, the runtime hands the denial handler an already-resolved
   ;; `:destination` (a `:rf/route-destination`), routing.cljs writes THAT to the
   ;; crumb, and :auth/post-login-redirect (auth.cljs) reads it back wholesale via
-  ;; [:rf.route/navigate (assoc return-to :replace? true)]. The retired auth-guard
-  ;; interceptor re-derived the address itself with `match-url`; the destination is
+  ;; [:rf.route/navigate (assoc return-to :replace? true)]. The destination is
   ;; the framework's own answer, so the expectations below are the MINIMAL
-  ;; destination shape (no `:query {}` / `:fragment nil` padding) rather than the
-  ;; interceptor's always-four-keys map.
-  (testing "examples/real-apps/realworld_resources — auth return-to preserves query + #fragment (rf2-78x8j)"
+  ;; destination shape (no `:query {}` / `:fragment nil` padding).
+  (testing "examples/real-apps/realworld_resources — auth return-to preserves query + #fragment"
 
     ;; --- 1. destination deep-link carrying BOTH a query and a #fragment ---
     (with-new-frame [f (guarded-frame!)]
@@ -2317,7 +2307,7 @@
       ;; padding, because `:rf/route-destination`'s address branch omits what is
       ;; empty. This is the commonest denial there is, so it is the one the
       ;; AuthSlice `:return-to` schema has to accept — and demanding all four keys
-      ;; is exactly what used to roll this stash back (rf2-k85nd).
+      ;; would roll this stash back.
       (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame f})
       (is (= :realworld.auth/login (route-id f))
           "logged-out reload of a guarded route with no query/#fragment → login")
@@ -2335,7 +2325,7 @@
             "an unmatched URL leaves the existing crumb untouched — no spurious re-stash")))
 
     ;; --- 4. THE DEFERRED WINDOW: a protected deep link mid-restore is NOT
-    ;;     bounced to login (rf2-k85nd) ---
+    ;;     bounced to login ---
     (with-new-frame [f (guarded-frame!)]
       ;; Cold boot with a saved JWT but no restored user yet — exactly what the
       ;; frame's `:initial-events` leave behind while `GET /user` is in flight.
@@ -2372,18 +2362,18 @@
 ;; (`resources_route_cljs_test`) against a purpose-built exercise app. What these
 ;; two pin is THIS route table, which is the thing users copy.
 ;;
-;; Nothing navigated to the favorites tab before (rf2-8vccg): the ~30 tests above
-;; reach the profile only through `{:to :realworld.profile/show}`, so the branch
-;; was live in the shipped example and unexercised. A broken `:parent` link, a leaf
+;; The ~30 tests above reach the profile only through
+;; `{:to :realworld.profile/show}`, so without these two the favorites branch
+;; would go unexercised. A broken `:parent` link, a leaf
 ;; that restated the banner, or a `:when` gate that let the authored list follow
-;; the visitor onto the favorites tab would all have shipped silently.
+;; the visitor onto the favorites tab would all ship silently.
 
 (deftest profile-favorites-tab-composes-the-parent-banner-with-its-own-list
   (testing "examples/real-apps/realworld_resources — activating
             :realworld.profile/favorites ensures BOTH the banner read its
             `:parent :realworld.profile/show` contributes and the leaf's own
             :realworld/favorited-articles, under the one active-route owner, while
-            the parent's authored list stays gated off by its `:when` (rf2-8vccg)"
+            the parent's authored list stays gated off by its `:when`"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
@@ -2415,7 +2405,7 @@
             tabs KEEPS the banner the `:parent` contributes: it is adopted, not
             refetched (generation unchanged, data intact), while the departed tab's
             own list loses the route owner and the arriving tab's list is ensured —
-            EP-0037 R2 partial revalidation, on the shipped table (rf2-8vccg)"
+            EP-0037 R2 partial revalidation, on the shipped table"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
@@ -2449,17 +2439,17 @@
 
 ;; ============================================================================
 ;; 11. THE PRODUCTION-SEAM RECEIPT — read → write → invalidate → refetch against
-;;     the demo backend the served app runs on (rf2-9n43e part B, rf2-k5lbd)
+;;     the demo backend the served app runs on
 ;; ============================================================================
 ;;
 ;; Every other test in this file answers managed HTTP by hand: `init!` swaps
 ;; `:rf.http/managed` for a capture, and each test replays the reply it wants.
 ;; That pins the app's wiring, but it cannot pin the one claim the example's
 ;; README makes — that a write is still there after the refetch it causes —
-;; because the reply is whatever the test says it is. rf2-9n43e found exactly
-;; that gap: the old comment test hand-injected the write reply and asserted
-;; only that a refetch BEGAN, while the shipped backend answered the refetch
-;; out of a frozen seed and every comment vanished on success.
+;; because the reply is whatever the test says it is. A test that hand-injects
+;; the write reply and asserts only that a refetch BEGAN stays green even when
+;; the backend answers the refetch out of a frozen seed and every comment
+;; vanishes on success.
 ;;
 ;; This receipt answers nothing by hand. The frame is wired the way `core.cljs`
 ;; wires the served app (`:fx-overrides {:rf.http/managed

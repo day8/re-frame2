@@ -1,10 +1,10 @@
 (ns re-frame.adapter.reagent-slim-render-cljs-test
   "reagent-slim render-path coverage parity with the Reagent adapter's
-  `re-frame.adapter-render-cljs-test` (rf2-yrb8r). The slim adapter's
+  `re-frame.adapter-render-cljs-test`. The slim adapter's
   `render` slot must follow the React 18+ Root API exactly as the bridge
   does — `(rdc/create-root mount-point)` first, then `(rdc/render root
   render-tree)` — NOT `(rdc/render mount-point tree)` directly. The same
-  bug the bridge guards against (rf2-fn5rk: `TypeError: root.render is
+  bug the bridge guards against (`TypeError: root.render is
   not a function`) would bite slim too, because slim is positioned as a
   drop-in Reagent replacement and routes through `reagent2.dom.client`
   with the identical Root-API shape.
@@ -47,14 +47,14 @@
   (testing "non-hydrate render: (rdc/create-root mount-point) is called
             first; (rdc/render root render-tree) follows; the unmount
             thunk closes over the Root (parity with the bridge's
-            rf2-fn5rk pin)"
+            pin)"
     (let [calls      (atom [])
           fake-root  (make-fake-root :non-hydrate)
           fake-mount #js {:rf-test-mount :non-hydrate}
           fake-tree  [:div "tree"]]
       ;; Stubs are multi-arity to mirror reagent2.dom.client's published
-      ;; API (create-root: 1/2, render: 2, hydrate-root: 2/3). Only the
-      ;; lowest arities are exercised by the slim adapter today, but
+      ;; API (create-root: 1/2, render: 2, hydrate-root: 2/3). The slim
+      ;; adapter exercises only the lowest arities, but
       ;; covering the published arities keeps the stubs robust.
       (with-redefs [rdc/create-root  (fn
                                        ([mount-point]   (swap! calls conj [:create-root mount-point])
@@ -108,7 +108,7 @@
   (testing "hydrate render: (rdc/hydrate-root mount-point render-tree)
             returns the Root; create-root / render are NOT called; the
             unmount thunk closes over the Root from hydrate-root (parity
-            with the bridge's rf2-fn5rk pin)"
+            with the bridge's pin)"
     (let [calls      (atom [])
           fake-root  (make-fake-root :hydrate)
           fake-mount #js {:rf-test-mount :hydrate}
@@ -148,7 +148,7 @@
 ;; ---- regression pin --------------------------------------------------------
 
 (deftest render-does-not-pass-mount-point-to-rdc-render
-  (testing "regression pin (parity with rf2-fn5rk) — the slim render slot
+  (testing "regression pin (parity with the bridge) — the slim render slot
             must NEVER call `(rdc/render mount-point render-tree)`; the
             mount-point may only reach create-root / hydrate-root, never
             rdc/render's first arg"

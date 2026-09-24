@@ -1,5 +1,5 @@
 (ns re-frame.pair-dispatch-and-settle-dom-cljs-test
-  "rf2-vk79g — end-to-end proof of the re-frame2-pair runtime's
+  "End-to-end proof of the re-frame2-pair runtime's
   `dispatch-and-settle!`: dispatch → SYNCHRONOUSLY flush renders →
   return the SETTLED epoch INCLUDING its `:rf.view/render` /
   `:rf.view/unmounted` entries. ONE call = dispatch → render → complete
@@ -17,8 +17,8 @@
   real view-render trace emission. The pair-mcp dispatch_test pins the
   WIRE wiring (`:settle` → `dispatch-and-settle!` form); this pins the
   RUNTIME behaviour the wire depends on. Sibling of
-  `adapter-flush-render-dom-cljs-test` (rf2-40a84), whose header notes
-  'The sibling rf2-vk79g dispatch-and-settle op consumes this.'
+  `adapter-flush-render-dom-cljs-test`, whose synchronous flush this op
+  consumes.
 
   HOW THE PROOF IS RIGOROUS. A parent view renders a child only when a
   `:show?` flag in app-db is true. We mount the parent through a real
@@ -35,7 +35,7 @@
 
   The single `dispatch-and-settle!` call does ALL of it synchronously —
   no `setTimeout`, no manual `r/flush`, no `requestAnimationFrame`. If
-  the flush were rAF-scheduled (the pre-rf2-40a84 behaviour) the emit
+  the flush were rAF-scheduled the emit
   would land a tick later and the just-read epoch would miss it; the
   assertion passing IS the proof the flush was synchronous and the
   back-fill landed before the re-read.
@@ -52,7 +52,7 @@
             [re-frame.views :as rf.views]
             [re-frame2-pair.runtime :as pair]))
 
-;; EP-0002 (rf2-9o48ih): `:ambient-frame nil` opts out of the fixture's default
+;; EP-0002: `:ambient-frame nil` opts out of the fixture's default
 ;; ambient `*current-frame*` :rf/default scope. The parent/child views are
 ;; reg-views whose `subscribe` resolves the frame from the enclosing
 ;; `frame-provider` via the React-context tier; the renders run synchronously
@@ -82,7 +82,7 @@
 
 (deftest dispatch-and-settle-returns-epoch-with-render-and-unmount
   (testing "dispatch-and-settle! flushes renders synchronously and returns
-            the epoch carrying :rf.view/render + :rf.view/unmounted (rf2-vk79g)"
+            the epoch carrying :rf.view/render + :rf.view/unmounted"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (let [frame-kw :rf.pair-settle/probe-frame]
@@ -105,7 +105,7 @@
                       (fn parent []
                         ;; No frame arg on the subscribe — the
                         ;; frame-provider wrapping the mounted tree binds
-                        ;; the frame for the view (mirrors the rf2-40a84
+                        ;; the frame for the view (mirrors the
                         ;; flush-render sibling test).
                         [:div.parent
                          (when @(rf/subscribe [::show?])
@@ -157,13 +157,13 @@
             ;; whenever that teardown emit fires, the framework back-fills
             ;; it into the frame's most-recently-settled epoch — the
             ;; [:hide] epoch this call just returned — and re-fans the
-            ;; record (Spec 009 §post-settle unmount back-fill, rf2-59hx3).
+            ;; record (Spec 009 §post-settle unmount back-fill).
             ;;
             ;; We prove that target is correct deterministically: with the
             ;; removal committed and the [:hide] epoch the
             ;; most-recently-settled one, we fire the teardown emit through
             ;; the SAME public surface React's componentWillUnmount uses
-            ;; (`views/emit-view-unmounted!`, the rf2-9hoos teardown
+            ;; (`views/emit-view-unmounted!`, the teardown
             ;; marker), then RE-READ `dispatch-and-settle!`'s epoch-id and
             ;; assert the unmount landed in it. (Driving the emit directly
             ;; rather than racing Reagent's deferred reaction-disposal
@@ -189,13 +189,13 @@
                 (is (contains? ops :rf.view/unmounted)
                     "the [:hide] epoch dispatch-and-settle! returned is the
                      unmount-attribution target — the teardown back-fills
-                     into it + re-fans (Spec 009 / rf2-59hx3)")))
+                     into it + re-fans (Spec 009)")))
             (finally
               (try (.unmount root) (catch :default _ nil)))))))))
 
 (deftest dispatch-and-settle-frame-failure-rides-through
   (testing "an :ok? false dispatch (no recorded epoch) rides through with
-            NO flush attempted — the rf2-ldfnx invariant holds (rf2-vk79g)"
+            NO flush attempted — a failed dispatch passes through verbatim"
     ;; Pure-runtime arm — no DOM needed; runs on :node-test too. With
     ;; recording disabled the frame records no epoch, so
     ;; pair-dispatch-sync! returns the :ok? false envelope;

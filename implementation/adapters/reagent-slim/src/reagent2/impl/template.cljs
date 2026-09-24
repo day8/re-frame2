@@ -1,6 +1,5 @@
 (ns reagent2.impl.template
-  "Hiccup → React-element translation for the day8/reagent-slim artefact
-  (rf2-6hyy Stage 4-D).
+  "Hiccup → React-element translation for the day8/reagent-slim artefact.
 
   Per IMPL-SPEC §7. The pipeline:
 
@@ -31,19 +30,19 @@
     as-element        — top-level entry; hiccup → React element
     vec-to-elem       — vector dispatch (the head-test)
     parse-tag         — :div.cls#id → {:tag :id :class}
-    convert-prop-value — narrowed per DECISION-2 (§7.2)
-    cached-prop-name  — kebab→camel cache (kept; same as stock)
+    convert-prop-value — narrowed (§7.2)
+    cached-prop-name  — kebab→camel cache (same as stock)
     expand-seq        — sequence-as-children + key-warnings
 
-  D2 narrowed `convert-prop-value` (per IMPL-SPEC §7.2): keyword values
-  pass through unchanged for non-HTML-attribute prop names. The audit-
-  driven set `html-attr-names` plus `data-*`/`aria-*` prefix-matched
+  Narrowed `convert-prop-value` (per IMPL-SPEC §7.2): keyword values
+  pass through unchanged for non-HTML-attribute prop names. The
+  set `html-attr-names` plus `data-*`/`aria-*` prefix-matched
   names get the stringification path. Other prop names (e.g. user-
   defined React-component props, `:value` on a React-context Provider)
-  see the keyword preserved. This deletes the rf2-d4sf coercion seam
-  that the bridge needed to undo over-stringification.
+  see the keyword preserved, so there is no over-stringification for a
+  coercion seam to undo.
 
-  React 19 strictness (§7.6): refs continue as JS-shape `ref`; no
+  React 19 strictness (§7.6): refs are JS-shape `ref`; no
   `defaultProps` emission for function components; no
   `React.Children.only` invocation."
   (:require [clojure.string :as str]
@@ -54,8 +53,8 @@
 ;; ---------------------------------------------------------------------------
 ;; Tag parsing — :div.cls#id shorthand
 ;;
-;; Per IMPL-SPEC §7.3: same regex stock Reagent has used for years. We
-;; lift the pattern byte-for-byte and cache parses on first sight.
+;; Per IMPL-SPEC §7.3: stock Reagent's regex, lifted byte-for-byte, with
+;; parses cached on first sight.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private re-tag
@@ -64,7 +63,7 @@
    shorthand — in THAT order. `#id` MUST precede the `.class` segments
    (the `:div#id.a.b` form); the class-before-id form (`:div.a#id`) does
    NOT match and yields a nil tag. This mirrors stock Reagent's own
-   id-before-class regex (a documented constraint, not a regression)."
+   id-before-class regex (a documented constraint)."
   #"([^\s\.#]+)(?:#([^\s\.#]+))?(?:\.([^\s#]+))?")
 
 ;; Note on field name `className` (rather than `class`): in JS-target
@@ -76,15 +75,15 @@
 (deftype ^:private HiccupTag [tag id className])
 
 ;; ---------------------------------------------------------------------------
-;; Reserved `:rf/*` heads fail loud (rf2-01zvu — the CLIENT half of the
-;; rf2-j81hs SS4 ruling; the two JVM emitters already carry the server half).
+;; Reserved `:rf/*` heads fail loud (the CLIENT half; the two JVM emitters
+;; carry the server half).
 ;;
-;; rf2-j81hs made keyword heads HTML elements EVERYWHERE. That leaves a
-;; head in the framework-reserved `:rf/*` scheme sailing straight through
+;; Keyword heads are HTML elements EVERYWHERE, which would let a
+;; head in the framework-reserved `:rf/*` scheme sail straight through
 ;; the DOM-tag grammar: `:rf/suspense-boundry` (typo) has a `name` that
 ;; matches `re-tag`, so the renderer would paint a phantom
-;; `<suspense-boundry>` and say nothing — the exact silent mis-render that
-;; bead exists to kill, displaced by one keystroke.
+;; `<suspense-boundry>` and say nothing — a silent mis-render one
+;; keystroke away from a real head.
 ;;
 ;; The guard is TOTAL — every `:rf/*` / `:rf.<area>/*` head is rejected,
 ;; with no allow-list carve-out. The `:rf/*` root is framework-owned
@@ -97,10 +96,10 @@
 ;;
 ;; COST: the guard runs in `parse-tag` (the cache-MISS path, and the
 ;; `reagent2.dom.server` direct-call path) AND once more at the top of
-;; `cached-parse`, BEFORE the cache lookup (rf2-sgbna). A `parse-tag`-only
-;; guard was reached only on a cache MISS, but the reserved keyword `:rf/x`
+;; `cached-parse`, BEFORE the cache lookup. A `parse-tag`-only
+;; guard would be reached only on a cache MISS, but the reserved keyword `:rf/x`
 ;; and a valid STRING head "rf/x" share the same cache key "rf/x", so an
-;; app that first rendered the string form let the later reserved keyword
+;; app that first rendered the string form would let the later reserved keyword
 ;; ride the cache-HIT path and skip the reject entirely — see the note on
 ;; `cached-parse`. The pre-lookup guard is a single cheap `reserved-rf-head?`
 ;; predicate (keyword? + namespace, false-fast for the common unnamespaced
@@ -110,9 +109,9 @@
 ;; ALWAYS-ON: no `goog.DEBUG` gate. This is a correctness reject on a
 ;; runtime DATA branch, so it survives `:advanced` + `goog.DEBUG=false`
 ;; exactly as the sibling `:rf.error/template-empty-vector` throw does.
-;; rf2-2hkfy is why that is PINNED rather than asserted in a comment: a
-;; rejection described as "always-on" there was in fact goog.DEBUG-gated
-;; and so was absent from the build users ship. The pin is
+;; That is PINNED rather than asserted in a comment, because a comment
+;; cannot tell an always-on rejection from a goog.DEBUG-gated one that is
+;; absent from the build users ship. The pin is
 ;; `reagent2.impl.template-reserved-head-elision-prod-test`, which runs
 ;; under the `:browser-test-prod-elision` build (`:advanced` +
 ;; `goog.DEBUG=false`) and asserts the OBSERVABLE OUTCOME — that no
@@ -134,22 +133,22 @@
 (defn- reject-reserved-rf-head!
   "Throw `:rf.error/invalid-hiccup-head` for an unrecognised `:rf/*` head.
 
-  Canonical thrown-error shape per Spec 009 §The thrown-error shape
-  (rf2-vvixub), replicated INLINE — the central `re-frame.error` builder is
+  Canonical thrown-error shape per Spec 009 §The thrown-error shape,
+  replicated INLINE — the central `re-frame.error` builder is
   not reachable from this bundle-isolated adapter (see the sibling
   `:rf.error/template-empty-vector` throw in `vec-to-elem`). The id and the
-  `:recovery` token are the ones the JVM emitters' reserved-head arm already
+  `:recovery` token are the ones the JVM emitters' reserved-head arm
   carries, so server and client teach one grammar.
 
-  `element` is the WHOLE offending hiccup vector and is REQUIRED (rf2-vzno0).
+  `element` is the WHOLE offending hiccup vector and is REQUIRED.
   Spec 009's `:rf.error/invalid-hiccup-head` row promises the payload pair
   `:head`, `:element` on BOTH arms, and the JVM arm
-  (`re-frame.ssr.emit/reject-reserved-rf-hiccup-head!`) supplies both. This
-  arm stamped `:head` alone, so a diagnostic consumer reading the documented
-  payload got the head server-side and nil client-side for the same
+  (`re-frame.ssr.emit/reject-reserved-rf-hiccup-head!`) supplies both.
+  Stamping `:head` alone would hand a diagnostic consumer reading the
+  documented payload the head server-side and nil client-side for the same
   category — exactly the cross-host friction the shared id exists to avoid.
   Required rather than optional because every live caller has the vector in
-  hand: an optional arity would only re-open a path that stamps `:element
+  hand: an optional arity would only open a path that stamps `:element
   nil`, which is a claim the catalogue does not permit."
   [head element]
   (when (reserved-rf-head? head)
@@ -192,9 +191,9 @@
     (parse-tag :div.a.b#id [:div.a.b#id])  → HiccupTag{tag nil   id nil  class nil}  ; NOT supported
 
   Rejects an UNRECOGNISED head in the framework-reserved `:rf/*` scheme —
-  see `reject-reserved-rf-head!` (rf2-01zvu). `element` is the whole hiccup
+  see `reject-reserved-rf-head!`. `element` is the whole hiccup
   vector `hiccup-tag` heads; it is carried ONLY so the reject can stamp the
-  `:element` payload slot Spec 009 promises (rf2-vzno0) and takes no part in
+  `:element` payload slot Spec 009 promises and takes no part in
   parsing. Every call site has it in hand, so it is required, not optional."
   [hiccup-tag element]
   (reject-reserved-rf-head! hiccup-tag element)
@@ -205,7 +204,7 @@
     (->HiccupTag tag id class)))
 
 ;; ---------------------------------------------------------------------------
-;; Cache + props-object safety (rf2-dwds9 MEDIUM)
+;; Cache + props-object safety
 ;;
 ;; Hiccup keys reaching `aset` are user-controlled. A literal
 ;; `{:__proto__ x}` or `{:constructor x}` in a prop map would, on a
@@ -232,85 +231,78 @@
 ;; sole defence — sufficient on its own because every pollution path runs
 ;; through the filtered `aset` chokepoints.
 ;;
-;; THE CACHES ARE NOT PROPS OBJECTS (rf2-lhdp0). `tag-name-cache` and
+;; THE CACHES ARE NOT PROPS OBJECTS. `tag-name-cache` and
 ;; `prop-name-cache` are module-private lookup tables; nothing in them is ever
 ;; handed to React, so the constraint above does not reach them and they take
 ;; `Object.create(null)` instead. That is what lets their HIT path — the path
-;; a mount takes once per element and once per prop — drop BOTH guards it used
-;; to carry. See `own-key?`'s epitaph below.
+;; a mount takes once per element and once per prop — carry NEITHER an
+;; own-property guard nor a reserved-name check. See the note on the caches
+;; below.
 ;; ---------------------------------------------------------------------------
 
 (defn- ^boolean reserved-prop-key?
   "True for the three JS property names that must NEVER be `aset` from
   user-controlled input: writing to one of them mutates the target's
   prototype instead of creating an own property, leaking inherited slots
-  across every subsequent prop-map conversion. Per rf2-dwds9 MEDIUM.
+  across every subsequent prop-map conversion.
 
-  THE ROSTER IS THE FUNCTION BODY (rf2-lhdp0). This was a
-  `PersistentHashSet` and a `contains?` — a string hash plus a hash-map
-  probe, for a roster of three, asked once per prop occurrence on every
-  element of every mount. Costed side by side on one run over the census
-  page's own prop names: set 53.7 ns/op, three `===` compares 10.4, a
-  null-prototype index derived from the set 15.8. The chain wins on the
+  THE ROSTER IS THE FUNCTION BODY. The question is asked once per prop
+  occurrence on every element of every mount, and a `PersistentHashSet`
+  with a `contains?` would answer it with a string hash plus a hash-map
+  probe, for a roster of three. Costed side by side on one run over the
+  census page's own prop names: set 53.7 ns/op, three `===` compares 10.4,
+  a null-prototype index derived from the set 15.8. The chain wins on the
   clock, and it is the only one of the three that needs no data structure
-  at all — so the roster stops being a thing to look up and becomes
-  something to read. `front/codec`'s `reserved-name?` is the same shape
+  at all — so the roster is something to read rather than a thing to look
+  up. `front/codec`'s `reserved-name?` is the same shape
   for the same reason."
   [n]
   (or (identical? "__proto__" n)
       (identical? "prototype" n)
       (identical? "constructor" n)))
 
-;; WHY THERE IS NO `own-key?` ANY MORE (rf2-tsuk6, closed structurally by
-;; rf2-lhdp0).
+;; WHY THE CACHES HAVE NO PROTOTYPE.
 ;;
 ;; The caches key entries by user-controlled names: `tag-name-cache` on tag
 ;; heads (a string head like "hasOwnProperty" is accepted) and
 ;; `prop-name-cache` on prop-key names (`{:hasOwnProperty x}` is accepted).
-;; When the caches were `#js {}` this raised two hostile questions on EVERY
-;; lookup. Testing a hit with `(.hasOwnProperty cache n)` read the method OFF
-;; the cache object, so caching an entry literally named "hasOwnProperty"
-;; shadowed the method and the next lookup invoked a string as a function
-;; (rf2-tsuk6); and an inherited name like `toString` could falsely hit a
-;; value nobody cached. The answer was `Object.prototype.hasOwnProperty.call`
-;; plus a reserved-name check, both on the HIT path.
+;; On a `#js {}` cache that raises two hostile questions on EVERY lookup.
+;; Testing a hit with `(.hasOwnProperty cache n)` reads the method OFF the
+;; cache object, so caching an entry literally named "hasOwnProperty" would
+;; shadow the method and the next lookup would invoke a string as a
+;; function; and an inherited name like `toString` could falsely hit a value
+;; nobody cached. Answering both on a `#js {}` cache takes
+;; `Object.prototype.hasOwnProperty.call` plus a reserved-name check, both on
+;; the HIT path.
 ;;
 ;; `Object.create(null)` answers both questions in the cache's CONSTRUCTION.
 ;; There is no prototype chain, so a lookup can only ever return an own
 ;; property: no inherited name can hit, and no entry can shadow a method the
-;; lookup does not use. The hit path is now one `unchecked-get` and an
-;; `undefined?` test. The write guard survives on the MISS branch — the only
+;; lookup does not use. The hit path is one `unchecked-get` and an
+;; `undefined?` test. The write guard sits on the MISS branch — the only
 ;; branch that writes — where it runs once per distinct literal for the life
 ;; of the build instead of once per element per mount.
 ;;
-;; This is strictly safer than the guard it replaces, not a trade: a cache
-;; that CANNOT serve an inherited value beats one that promises to notice.
-;; It is also where the bead's named term went: `cached-prop-name` read 2.0x
-;; stock Reagent's over the census page's 1,489 prop occurrences before this
-;; and 0.53x after, measured on the real function in the same instrument
-;; either side of the change (rf2-lhdp0).
+;; This is strictly safer than a hit-path guard, not a trade: a cache that
+;; CANNOT serve an inherited value beats one that promises to notice. It is
+;; also cheaper: over the census page's 1,489 prop occurrences
+;; `cached-prop-name` runs at 0.53x stock Reagent's cost, where the guarded
+;; `#js {}` form ran at 2.0x in the same instrument.
 
 (def ^:private tag-name-cache (js/Object.create nil))
 
-;; The cache key is the head's FULLY-QUALIFIED name, not its bare `name`
-;; (rf2-01zvu). Keyed on `name` alone, `:button` and `:rf/button` collide on
-;; the entry `"button"`: an app rendering ordinary `[:button …]` markup would
-;; seed it, and a later `[:rf/button …]` would HIT the cache, never reach
-;; `parse-tag`, and paint a phantom — the app's own markup silently
-;; disarming the reserved-head guard. Namespaced heads are rare and
-;; erroneous, so the `str` runs essentially never; the common unnamespaced
-;; head keeps `name`'s exact cost. (Parsing itself is unaffected: `parse-tag`
-;; reads `(name …)`, so the two spellings always produced the same
-;; `HiccupTag` — the collision was harmless until this guard made the head's
-;; namespace load-bearing.)
+;; The cache key is the head's FULLY-QUALIFIED name, not its bare `name`, so
+;; distinct keyword spellings stay distinct: keyed on `name` alone, `:button`
+;; and `:rf/button` would collide on the entry `"button"`. Namespaced heads
+;; are rare and erroneous, so the `str` runs essentially never; the common
+;; unnamespaced head keeps `name`'s exact cost. (Parsing itself is
+;; unaffected: `parse-tag` reads `(name …)`, so the two spellings produce the
+;; same `HiccupTag`.)
 ;;
-;; NOTE (rf2-sgbna): the reserved-head phantom is now prevented at its
-;; source — `cached-parse` rejects a reserved keyword head BEFORE this key
-;; is even computed — so no cache key can serve a reserved head. The
-;; fully-qualified key remains to keep distinct keyword spellings distinct;
-;; it is no longer the reserved-head guard. (This very qualification is also
-;; what made `:rf/x` alias the string head "rf/x", the collision rf2-sgbna
-;; closes.)
+;; The key is NOT the reserved-head guard: `cached-parse` rejects a reserved
+;; keyword head BEFORE this key is even computed, so no cache key can serve a
+;; reserved head. That ordering matters, because this very qualification
+;; makes `:rf/x` alias the string head "rf/x" (see `cached-parse`).
 (defn- cache-key [k]
   (let [n (name k)]
     (if-let [ns* (and (keyword? k) (namespace k))]
@@ -318,14 +310,14 @@
       n)))
 
 (defn- cached-parse [k element]
-  ;; Reject a reserved `:rf/*` keyword head BEFORE consulting the cache
-  ;; (rf2-sgbna). `reject-reserved-rf-head!` also runs inside `parse-tag`,
+  ;; Reject a reserved `:rf/*` keyword head BEFORE consulting the cache.
+  ;; `reject-reserved-rf-head!` also runs inside `parse-tag`,
   ;; but `parse-tag` is reached only on a cache MISS. The fully-qualified
   ;; `cache-key` for the reserved keyword `:rf/x` is the string "rf/x" —
   ;; IDENTICAL to the key a valid STRING head "rf/x" seeds (a string's
-  ;; `cache-key` is its own name). So an app that first renders the string
-  ;; form seeds "rf/x", and the later reserved keyword `:rf/x` takes the
-  ;; cache-HIT path, never reaches `parse-tag`, and paints a phantom
+  ;; `cache-key` is its own name). So once an app renders the string
+  ;; form and seeds "rf/x", a later reserved keyword `:rf/x` would take the
+  ;; cache-HIT path, never reach `parse-tag`, and paint a phantom
   ;; <rf/x> — the type-aliased cache silently disarming the fail-loud
   ;; guard. Rejecting here, before the lookup, closes that path. The reject
   ;; is keyword-only (`reserved-rf-head?` is false-fast for the common
@@ -335,7 +327,7 @@
   (let [n (cache-key k)
         v (unchecked-get tag-name-cache n)]
     ;; The cache has no prototype, so a non-undefined answer is necessarily
-    ;; an own entry somebody cached — the hit test IS the lookup (rf2-lhdp0).
+    ;; an own entry somebody cached — the hit test IS the lookup.
     (if (undefined? v)
       (let [v' (parse-tag k element)]
         (when-not (reserved-prop-key? n)
@@ -370,9 +362,9 @@
       ;; CSS custom properties (`--gap`) are case-sensitive and must NOT
       ;; be camelCased — `--gap` split on `-` would yield `"Gap"`,
       ;; silently dropping the variable. React's style handling preserves
-      ;; `--`-prefixed names verbatim; the pure server serializer already
-      ;; does too, so preserving here closes the live-vs-server style
-      ;; parity gap (rf2-ygknv finding 2). Guarded on the `--` prefix so
+      ;; `--`-prefixed names verbatim; the pure server serializer
+      ;; does too, so preserving here keeps live and server style output
+      ;; in parity. Guarded on the `--` prefix so
       ;; only custom properties are exempted from kebab→camel.
       (if (str/starts-with? name-str "--")
         name-str
@@ -399,18 +391,17 @@
     :data-foo → \"data-foo\"  (data-* not camelCased)
     :aria-label → \"aria-label\" (aria-* not camelCased)
 
-  Per rf2-dwds9 MEDIUM: reserved JS keys (`__proto__`, `prototype`,
+  Reserved JS keys (`__proto__`, `prototype`,
   `constructor`) are never cached. The downstream `convert-props` writes
   drop these too (see `add-converted-nested-prop!`), so a malicious key cannot
   reach the React props object.
 
-  The cache has no prototype (rf2-lhdp0), so the HIT path is one property
+  The cache has no prototype, so the HIT path is one property
   load and an `undefined?` test — no own-property guard, no reserved-name
   probe. A reserved name simply never occupies an entry, so it misses every
   time and takes the conversion path, which answers it verbatim:
   `dash-to-prop-name` of each of the three returns the name unchanged (no
-  `-`, no `--` prefix, no `data`/`aria` start), exactly what the previous
-  early-return produced."
+  `-`, no `--` prefix, no `data`/`aria` start)."
   [k]
   (if (or (keyword? k) (symbol? k))
     (let [n (name k)
@@ -424,13 +415,13 @@
     k))
 
 ;; ---------------------------------------------------------------------------
-;; Narrowed convert-prop-value (per DECISION-2 + IMPL-SPEC §7.2)
+;; Narrowed convert-prop-value (per IMPL-SPEC §7.2)
 ;;
 ;; Keyword values stringify only for HTML attribute names. For non-
 ;; HTML prop names (e.g. `:value` on a React-context Provider, custom
-;; component props), the keyword passes through unchanged. This deletes
-;; the bridge's coerce-context-value seam (rf2-d4sf) — there's no
-;; over-stringification to undo because we never broadly stringified.
+;; component props), the keyword passes through unchanged. So there is no
+;; coerce-context-value seam here — no over-stringification to undo,
+;; because nothing broadly stringifies.
 ;; ---------------------------------------------------------------------------
 
 (def html-attr-names
@@ -444,10 +435,9 @@
         (or (str/starts-with? n "data-")
             (str/starts-with? n "aria-")))))
 
-;; Dev-only one-shot warning cache. Keyed on `[k name-of-v]`. The audit
-;; (rf2-cgcv + rf2-kfpf) showed a small number of legitimate non-HTML
-;; keyword props in production code; the warning is informational, not
-;; a deprecation. Per IMPL-SPEC §7.2.
+;; Dev-only one-shot warning cache. Keyed on `[k name-of-v]`. Production
+;; code carries a small number of legitimate non-HTML keyword props, so
+;; the warning is informational, not a deprecation. Per IMPL-SPEC §7.2.
 (defonce ^:private ^{:doc "[k v-name] → true once warned."}
   warned-keyword-prop (atom #{}))
 
@@ -457,13 +447,12 @@
   The user-facing contract is `warn once per [k name-of-v] pair` for the
   process lifetime, so this cache is a `defonce`. Tests, however, must
   re-arm it between cases — otherwise a sibling test that already warned
-  for a given pair silently swallows a later test's same-pair warning
-  (the rf2-4edk test-isolation hazard, applied here per rf2-qy6cl). The
-  reagent-slim adapter ns wires this into the chained
+  for a given pair silently swallows a later test's same-pair warning.
+  The reagent-slim adapter ns wires this into the chained
   `:adapter/clear-warn-once-caches!` late-bind hook (via
   `spine/install-clear-warn-once-step!`) so `make-reset-runtime-fixture`
   clears it alongside every other adapter's warn-once cache. Reset-only;
-  no production behaviour changes (the hook is a test-fixture surface)."
+  it has no production effect (the hook is a test-fixture surface)."
   []
   (reset! warned-keyword-prop #{})
   nil)
@@ -478,7 +467,7 @@
                     " on non-HTML prop " (pr-str k)
                     " passes through unchanged. If you intended a string,"
                     " call (name v) at the call site;"
-                    " otherwise the keyword is preserved (rf2-6hyy §7.2 D2)."))))))
+                    " otherwise the keyword is preserved."))))))
 
 (defn- ^boolean named? [x]
   (or (keyword? x) (symbol? x)))
@@ -495,8 +484,7 @@
   "A plain JS function forwarding every call to the object-backed callable
   `f` (a `cljs.core/MetaFn`, or a `deftype`/`reify` implementing `IFn`)
   and returning its value. The same `f` always yields the same function,
-  so a converted callback prop keeps one identity across renders
-  (rf2-fzbj.30)."
+  so a converted callback prop keeps one identity across renders."
   [f]
   (or (.get js-callables f)
       (let [shim (fn [& args] (apply f args))]
@@ -518,16 +506,16 @@
   (`dom/server.cljs`, whose `named-value->string` stringifies every style
   value),
   so the slim LIVE and SSR style paths agree — no live-vs-SSR hydration
-  mismatch (rf2-fdm4rm). Routing nested values through the 2-arg
-  (interop) form instead left keyword style values (`:cursor :pointer`)
+  mismatch. Routing nested values through the 2-arg
+  (interop) form instead would leave keyword style values (`:cursor :pointer`)
   reaching React as RAW keywords, silently dropped by the CSSOM. The KEY
-  is still camelCased via `cached-prop-name`. The TOP-LEVEL prop map is
+  is camelCased via `cached-prop-name`. The TOP-LEVEL prop map is
   converted by `convert-props` with the DOM-aware
   `add-converted-top-level-prop!`
   step instead, the seam that makes native-DOM keyword ATTRIBUTES
-  stringify (per rf2-ygknv finding 1).
+  stringify.
 
-  Per rf2-dwds9 MEDIUM: reserved JS keys (`__proto__`, `prototype`,
+  Reserved JS keys (`__proto__`, `prototype`,
   `constructor`) are dropped silently. `aset js-props \"__proto__\" value`
   would invoke the prototype-setter on the props object — replacing its
   prototype chain with whatever `v` is, leaking inherited slots into
@@ -538,7 +526,7 @@
     (if (and (string? converted-key) (reserved-prop-key? converted-key))
       js-props
       ;; 1-arg form: nested-map values carry no outer prop-name context,
-      ;; so stringify every named value (rf2-fdm4rm). See the docstring.
+      ;; so stringify every named value. See the docstring.
       (let [converted-value (convert-prop-value prop-value)]
         (aset js-props converted-key converted-value)
         js-props))))
@@ -551,14 +539,14 @@
 
   For native DOM tags, keyword/symbol values stringify for ANY prop
   name — every prop on a real DOM element is an HTML attribute that
-  takes a string value, and the pure server serializer already
+  takes a string value, and the pure server serializer
   stringifies them unconditionally; so `[:button {:type :button}]`
-  must reach React with `props.type === \"button\"` (rf2-ygknv finding
-  1). For custom/interop components, the narrowed (interop) rule
+  must reach React with `props.type === \"button\"`. For
+  custom/interop components, the narrowed (interop) rule
   applies via the 2-arg `convert-prop-value` — a keyword like
   `:rf/foo` on a React-context Provider's `:value` is preserved.
 
-  Reserved-key dropping (rf2-dwds9 MEDIUM) is unchanged."
+  Reserved keys are dropped exactly as in `add-converted-nested-prop!`."
   [dom-element? js-props prop-key prop-value]
   (let [converted-key (cached-prop-name prop-key)]
     (if (and (string? converted-key) (reserved-prop-key? converted-key))
@@ -572,7 +560,7 @@
   "Convert a hiccup `prop-value` for `prop-key` to a React-
   shaped JS value.
 
-  Per IMPL-SPEC §7.2 (DECISION-2) + rf2-ygknv finding 1: keyword/symbol
+  Per IMPL-SPEC §7.2: keyword/symbol
   stringification is TARGET-AWARE.
 
     - NATIVE DOM/string tags (the 3-arg form with `dom-element?` true):
@@ -606,10 +594,9 @@
       caller passes as a prop meaning \"React may call this\". Such a
       value is callable through CLJS's invoke protocol (and its own
       `.call`), but its `typeof` is \"object\", so JavaScript's `f(...)`
-      syntax cannot invoke it: React DOM refuses it as a listener, treats
-      it as an OBJECT ref, and a foreign component calling the prop
-      throws (rf2-fzbj.30 — this arm used to hand a MetaFn back
-      unchanged). The shim is cached per input, so converting the same
+      syntax cannot invoke it: handed over unchanged, React DOM would
+      refuse it as a listener and treat it as an OBJECT ref, and a
+      foreign component calling the prop would throw. The shim is cached per input, so converting the same
       handler on every render yields the SAME function and `React.memo` /
       `shouldComponentUpdate` / callback-ref identity hold. NOTE that
       keywords, maps, sets and vectors — the usual \"used as a function\"
@@ -729,12 +716,12 @@
   so `set-id-class`'s shorthand merge has a single key to read. A no-op
   when neither `:className` nor `:class` is present.
 
-  `:className` IS THE DISCRIMINATOR, so it is probed first (rf2-lhdp0).
+  `:className` IS THE DISCRIMINATOR, so it is probed first.
   Every branch that does anything requires it; when it is absent — which is
   every element of idiomatic hiccup, where the spelling is `:class` — the
   answer is `props` unchanged and one probe has settled it. Asking
-  `:class` first cost two probes on that path and three when `:class` was
-  present, the extra one re-asking a question already answered."
+  `:class` first would cost two probes on that path and three when `:class`
+  is present, the extra one re-asking a question already answered."
   [props]
   (if (contains? props :className)
     (if (contains? props :class)
@@ -750,7 +737,7 @@
   "Convert a hiccup prop map `props` to a React-shape JS props object.
   `parsed` is the HiccupTag with id/class shorthand merged in.
 
-  Target-awareness (rf2-ygknv finding 1): when `parsed`'s tag is a
+  Target-awareness: when `parsed`'s tag is a
   string the element is a NATIVE DOM tag — keyword/symbol prop values
   stringify for every attribute (HTML attributes are string-valued,
   matching the pure server serializer + React DOM). When the tag is a
@@ -808,8 +795,8 @@
   precisely what the constructor's own `props-slot?` test has just done for
   it, so re-deriving the slot from the head — `react-key-from-argv`'s
   `nth`/`case` ladder below — is work the hot path does not owe: 133.9 → 62.8
-  ns per element, the two costed side by side on one run over the census page
-  (rf2-lhdp0)."
+  ns per element, the two costed side by side on one run over the census
+  page."
   [argv props]
   (or (some-> (meta argv) :key)
       (:key props)))
@@ -888,22 +875,21 @@
 
   Lockstep with `re-frame.ssr.emit/void-elements` (keyword form, same
   membership). Bundle isolation forbids `:require` across artefacts
-  (per rf2-6phn + IMPL-SPEC §14.3), so the set is duplicated by
+  (per IMPL-SPEC §14.3), so the set is duplicated by
   intent. If HTML5 ever extends the void element list (extraordinarily
   unlikely), update both copies."
   #{"area" "base" "br" "col" "embed" "hr" "img" "input" "link"
     "meta" "param" "source" "track" "wbr"})
 
 ;; A null-prototype index DERIVED from `void-tags`, so the roster above stays
-;; the single source of truth and there is no second list to drift
-;; (rf2-lhdp0). The probe is asked once per DOM element of every mount, and
+;; the single source of truth and there is no second list to drift.
+;; The probe is asked once per DOM element of every mount, and
 ;; costed side by side on one run over the census page's own tag strings,
-;; `contains?` on this 14-entry PersistentHashSet was 102.3 ns/op — a string
+;; `contains?` on this 14-entry PersistentHashSet runs 102.3 ns/op — a string
 ;; hash plus a hash-map probe — against 17.5 for a property load on a
 ;; prototype-less object. Fourteen `===` compares are not the readable answer
 ;; the three-name reserved roster's are, so here the index earns its five
-;; lines; a `case` was costed too (25.4) and declined because it would be a
-;; SECOND copy of the roster.
+;; lines; a `case` (25.4) would be a SECOND copy of the roster.
 (def ^:private void-tag-index
   (reduce (fn [o t] (unchecked-set o t true) o)
           (js/Object.create nil)
@@ -929,11 +915,11 @@
       (do
         ;; HTML5 void tags (br/hr/img/input/…) take no children — React
         ;; RAISES "<tag> is a void element tag and must neither have
-        ;; children…" if any are passed. The slim renderer stays LENIENT
+        ;; children…" if any are passed. The slim renderer is LENIENT
         ;; (it drops the children rather than crashing the render), but
-        ;; that leniency is now INTENTIONAL and NON-SILENT: a DEBUG-gated
-        ;; warning surfaces the app bug instead of masking it
-        ;; (rf2-mdgt8t (c)). Elided under :advanced + goog.DEBUG=false.
+        ;; deliberately NON-SILENT: a DEBUG-gated
+        ;; warning surfaces the app bug instead of masking it.
+        ;; Elided under :advanced + goog.DEBUG=false.
         (when ^boolean js/goog.DEBUG
           (when (and (pos? n-children) (exists? js/console))
             (.warn js/console
@@ -941,7 +927,7 @@
                         "> was given " n-children
                         " child element(s); HTML5 void tags cannot have"
                         " children — the children are dropped. Remove them"
-                        " from the hiccup (rf2-mdgt8t)."))))
+                        " from the hiccup."))))
         (react/createElement component js-props))
 
       (== n-children 0)
@@ -971,7 +957,7 @@
   `:key` meta or `:key` in its prop map.
 
   Single-pass: the DEBUG key-check runs inline with the as-element
-  conversion (was two passes over the same lazy seq); production
+  conversion; production
   builds (`goog.DEBUG=false`) DCE the inner branch."
   [s]
   (let [arr #js []]
@@ -983,7 +969,7 @@
     ;; shape — `(for [x xs] (when (pred? x) [:li ...]))` — yields exactly
     ;; such interior nils and would truncate at the first filtered row.
     ;; Stock Reagent maps `as-element` over the WHOLE seq (nil → React
-    ;; null, renders nothing); we match that. (rf2-8u8tx.1)
+    ;; null, renders nothing); we match that.
     (loop [items (seq s)]
       (when items
         (let [el (first items)]
@@ -991,7 +977,7 @@
             (when (and (vector? el)
                        (not (react-key-from-argv el))
                        (exists? js/console))
-              ;; EP-0015 (rf2-uwqale): summarise the offending child, never
+              ;; Per EP-0015, summarise the offending child, never
               ;; `pr-str` it whole — a hiccup child can carry app-owned
               ;; sensitive/large values and the warning lands verbatim in
               ;; the browser console (an off-box observation surface).
@@ -1013,18 +999,18 @@
 ;; "is the slot
 ;; at `first-pos` a props map, and where do children start?"
 ;;
-;; THE RULE IS THE SHARED THING; THE ARITHMETIC IS NOT (rf2-e7zxb). This was
-;; `hiccup-shape`, which answered all three parts at once and handed them back
-;; in a freshly minted `[head has-props first-child]` vector that every call
-;; site destructured and discarded — an allocation plus three `nth` calls per
-;; element, to carry two answers that are one expression each. Costed side by
-;; side on the census page's own 1,202 element vectors, the tuple read 85.3
+;; THE RULE IS THE SHARED THING; THE ARITHMETIC IS NOT. A helper answering
+;; all three parts at once would hand them back in a freshly minted
+;; `[head has-props first-child]` vector that every call site destructures
+;; and discards — an allocation plus three `nth` calls per element, to carry
+;; two answers that are one expression each. Costed side by side on the
+;; census page's own 1,202 element vectors, such a tuple reads 85.3
 ;; ns/element against 44.9 for the same three answers derived in place (0.53x;
 ;; 0.49x and 0.49x on two further runs, so the sign is not a run artefact).
 ;; Stock Reagent allocates nothing here.
 ;;
 ;; What could actually drift between four sites is the RULE — what counts as a
-;; props slot — so that is what keeps a name. `(nth argv first-pos nil)` and
+;; props slot — so that is what has a name. `(nth argv first-pos nil)` and
 ;; "children start one later if there was a props map" are self-evident at each
 ;; site, and reading them there beats trusting the field order of a positional
 ;; tuple.
@@ -1106,11 +1092,11 @@
   (let [component (nth argv 1 nil)
         supplied  (nth argv 2 nil)]
     (if-some [key (-> (meta argv) :key)]
-      ;; Copy the caller's js-props before stamping :key (rf2-mdgt8t (d)).
+      ;; Copy the caller's js-props before stamping :key.
       ;; js-props here is the caller-supplied object (nth argv 2); mutating
-      ;; it with (set! (.-key …)) is a user-visible mutation of an input.
+      ;; it with (set! (.-key …)) would be a user-visible mutation of an input.
       ;; converted-props-element / react-component-element mint fresh props objects,
-      ;; so only :r> was affected. Shallow-copy so the stamp is ours alone.
+      ;; so only :r> needs the copy. Shallow-copy so the stamp is ours alone.
       (let [js-props (js/Object.assign #js {} (or supplied #js {}))]
         (set! (.-key js-props) key)
         (make-element argv component js-props 3))
@@ -1156,7 +1142,7 @@
   "Emit `:f>` — function-component dispatch.
   `[:f> some-fn args...]` renders `some-fn` as a REAL React FUNCTION
   component (via `as-fn-component`), NOT a class — so React hooks work
-  inside it (rf2-bf4uw2). The prior `fn-to-class` lowering produced a
+  inside it. Lowering through `fn-to-class` would produce a
   React class, and calling a hook during class render throws
   'Invalid hook call', silently defeating the head's defining purpose.
 
@@ -1188,8 +1174,7 @@
   cached `js-callable` shim) — which is the part that matters, because
   React detaches and reattaches on a changed ref identity. An object ref
   falls to the `:else` arm and is likewise untouched. React answers either with a `FragmentInstance` rather than a
-  DOM node. This docstring previously said only `:key` was meaningful
-  here; that was true before React 19.3 and is no longer."
+  DOM node."
   [argv]
   (let [slot-value  (nth argv 1 nil)
         has-props?  (props-slot? slot-value)
@@ -1220,8 +1205,8 @@
   "Dispatch on a hiccup vector's head and emit the React element."
   [argv]
   (when (zero? (count argv))
-    ;; Canonical thrown-error shape per Spec 009 §The thrown-error shape
-    ;; (rf2-vvixub). The central `re-frame.error` builder is NOT used here:
+    ;; Canonical thrown-error shape per Spec 009 §The thrown-error shape.
+    ;; The central `re-frame.error` builder is NOT used here:
     ;; reagent-slim is bundle-isolated and MUST NOT `:require` re-frame.*
     ;; (the slim bundle-isolation gate). The shape is replicated inline —
     ;; human message + trailing [:rf.error/<id>] token, `:rf.error/id` the
@@ -1240,18 +1225,18 @@
     ;;
     ;; `case` over all-keyword tests lowers to `(if (keyword? tag) (.-fqn tag)
     ;; nil)` and a JS `switch` on that string, so the whole roster costs ONE
-    ;; keyword test and one constant-time dispatch. The ladder it replaces
-    ;; asked four `(= tag :>)`-shaped questions, and `cljs.core/=` falls
+    ;; keyword test and one constant-time dispatch. A ladder of four
+    ;; `(= tag :>)`-shaped questions would be far slower: `cljs.core/=` falls
     ;; through `identical?` to an `-equiv` protocol dispatch on a miss — which
-    ;; every DOM element, i.e. essentially every element, misses four times.
-    ;; Costed on the census page's own 1,202 heads: 191.3 ns/element for the
-    ;; ladder against 33.7 for the `case` (9.6 and 9.2 against 64.5 and 68.6
-    ;; on two further runs — the absolutes move with the box, the sign does
-    ;; not). rf2-e7zxb.
+    ;; every DOM element, i.e. essentially every element, would miss four
+    ;; times. Costed on the census page's own 1,202 heads: 191.3 ns/element
+    ;; for such a ladder against 33.7 for the `case` (9.6 and 9.2 against 64.5
+    ;; and 68.6 on two further runs — the absolutes move with the box, the
+    ;; sign does not).
     ;;
     ;; The lowering is also why this is not merely an identity trick: the fqn
-    ;; switch answers a RECONSTRUCTED `(keyword ">")` exactly as `=` did, and
-    ;; still refuses the string `">"` and the symbol `'>`, which are DOM-tag
+    ;; switch answers a RECONSTRUCTED `(keyword ">")` exactly as `=` would, and
+    ;; refuses the string `">"` and the symbol `'>`, which are DOM-tag
     ;; heads and must fall through to `hiccup-tag?`.
     (case tag
       :>  (interop-element argv)
@@ -1279,7 +1264,7 @@
         :else
         ;; Canonical shape replicated inline (bundle isolation — see the
         ;; empty-vector throw above for the rationale).
-        ;; EP-0015 (rf2-uwqale): the head + argv summarise into shape-only
+        ;; Per EP-0015, the head + argv summarise into shape-only
         ;; diagnostics — never the raw head/children. A bad-tag throw is
         ;; captured by error boundaries / host logs before the projector can
         ;; classify it, and the argv carries app-owned hiccup children that
@@ -1320,7 +1305,7 @@
     (satisfies? IPrintWithWriter x) (pr-str x)
     :else           x))
 
-;; Per rf2-08t0: register `as-element` with `reagent2.impl.component`
+;; Register `as-element` with `reagent2.impl.component`
 ;; so the class's render() method can convert hiccup (returned by
 ;; `wrap-render` per IMPL-SPEC §5.1) into React elements before
 ;; handing back to React. Statically `:require`ing this ns from

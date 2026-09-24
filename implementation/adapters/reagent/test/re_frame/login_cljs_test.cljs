@@ -1,18 +1,18 @@
 (ns re-frame.login-cljs-test
-  "Regression: the login example's `:auth.login/flow` machine attaches a
+  "The login example's `:auth.login/flow` machine attaches a
    `[:schemas :data]` schema (`login.model/AuthLoginData`) that validates the
    snapshot's `:data` slot at the `:where :machine-data` boundary
-   (rf2-t5ky67 issue 2 / Spec 005 §Schema validation).
+   (Spec 005 §Schema validation).
 
    The fixture fns live HERE (the adapter test tree), not under
    examples/core/login/ — the example source stays test-free per the
-   locked test-free-examples policy (rf2-8cevm). The ns requires the login
+   test-free-examples policy. The ns requires the login
    feature's substrate-free model owner (`login.model`, the ONE owner of the
    `auth.login` registrations shared across the Reagent/UIx login
-   examples — rf2-ppbvav) so its machine / events / schemas register at ns-load,
+   examples) so its machine / events / schemas register at ns-load,
    then exercises the MACHINE directly.
 
-   Post rf2-3fc89f.33 the machine is credential-free: `submit-form` owns the
+   The machine is credential-free: `submit-form` owns the
    (sensitive) HTTP request, and the machine receives only signals —
    a bare `[:auth.login/flow [:auth.login/submit]]` to enter `:submitting`, and
    the framework-shaped reply as `[:auth.login/flow [:auth.login/failure] {…}]`
@@ -128,7 +128,7 @@
             "exactly one :where :machine-data trace fired on the violating macrostep")
         (is (= :auth.login/flow (:machine-id tag))
             "the trace names the login machine")
-        ;; `:recovery` rides the trace ENVELOPE, not :tags (rf2-twt7m).
+        ;; `:recovery` rides the trace ENVELOPE, not :tags.
         (is (= :no-recovery (:recovery trace-ev)))
         ;; Rollback: the bad :data never sticks. The snapshot's :error must
         ;; NOT be the rejected map.
@@ -154,7 +154,7 @@
             "the attempt counter advanced (the transition committed)")))))
 
 ;; ---------------------------------------------------------------------------
-;; (4) direct retry from :error-shown clears the prior :error (rf2-qx9b1y)
+;; (4) direct retry from :error-shown clears the prior :error
 ;; ---------------------------------------------------------------------------
 
 (deftest retry-clears-prior-error

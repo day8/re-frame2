@@ -1,14 +1,13 @@
 (ns re-frame.events-cljs-test
-  "Per EP-0018 Slice Z (rf2-xhfxcs.14) — CLJS-side coverage that the ONE
+  "Per EP-0018 Slice Z — CLJS-side coverage that the ONE
   public event form `reg-event` threads the metadata-map `:interceptors`
-  superset chain under the Reagent reactive substrate, that the retired
-  positional vector middle slot fails loudly, and that the retired public
-  names (`reg-event-db` / `reg-event-fx` / `reg-event-ctx`) are throwing
+  superset chain under the Reagent reactive substrate, that a
+  positional vector middle slot fails loudly, and that the names
+  `reg-event-db` / `reg-event-fx` / `reg-event-ctx` are throwing
   stubs.
 
-  This SUPERSEDES the former rf2-bbea CLJS coverage (which asserted
-  `:rf.warning/interceptors-in-metadata-map` fired): `:interceptors` inside the
-  metadata-map is now the documented home, not a typo. The JVM coverage lives
+  `:interceptors` inside the metadata-map is the documented home, not a
+  typo. The JVM coverage lives
   in re-frame.events-test; this companion exists so the superset form resolves
   correctly under the Reagent substrate where macro indirection (re-frame.core's
   `reg-event` is a CLJS macro that wraps the runtime fn) might otherwise hide
@@ -24,16 +23,16 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter}))
 
-;; EP-0022 reference-only flip (rf2-0adhqs.9): an INLINE interceptor value in a
-;; chain now throws `:rf.error/inline-interceptor-removed` at registration.
-;; Chain entries must be REFERENCES, so the formerly-inline `:test/noop` is
+;; EP-0022 reference-only chains: an INLINE interceptor value in a
+;; chain throws `:rf.error/inline-interceptor-removed` at registration.
+;; Chain entries must be REFERENCES, so `:test/noop` is
 ;; registered up front and referenced by its bare keyword in the chains below.
 ;; The chain is stored UNRESOLVED in handler-meta, so a referenced entry reads
 ;; back as the bare keyword `:test/noop` (NOT a resolved map) — hence the
 ;; `chain-id` helper, which returns the keyword itself for a ref entry and `:id`
 ;; for the framework wrapper map at the tail.
 (def ^:private noop-icpt-value
-  "The inline interceptor VALUE — kept for the negative non-vector
+  "The inline interceptor VALUE — used by the negative non-vector
   `:interceptors` test below (which must reject a non-vector value)."
   {:id :test/noop :before identity :after identity})
 
@@ -53,7 +52,7 @@
           ids  (mapv chain-id (:interceptors meta))]
       (is (= "Superset form." (:doc meta)))
       (is (not (contains? meta :event/kind))
-          "the :event/kind sub-tag is gone (one form, no kind)")
+          "there is no :event/kind sub-tag (one form, no kind)")
       (is (= [:test/noop :rf/event-handler] ids)
           "the metadata-map :interceptors chain (the authored ref) sits before the runtime wrapper"))))
 
@@ -86,7 +85,7 @@
           "the metadata map registers the effective chain (authored ref + wrapper, in order)"))))
 
 (deftest retired-reg-event-names-throw-their-removal-stubs
-  (testing "Per EP-0018 Slice Z — the retired public event-registration names
+  (testing "Per EP-0018 Slice Z — the reg-event-db / -fx / -ctx names
             are throwing stubs under the Reagent substrate too"
     (letfn [(stub-throw-id [f]
               (try (f)

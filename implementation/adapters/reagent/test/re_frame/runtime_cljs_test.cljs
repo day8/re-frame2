@@ -6,26 +6,26 @@
             [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.source-store :as rf.source-store]
-            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            ;; Listener / buffer surface lives in re-frame.trace.tooling.
             [re-frame.trace.tooling :as rf.trace.tooling]
-            ;; rf2-bmzq0: sub-cache-snapshot lives in re-frame.subs.tooling.
+            ;; Sub-cache-snapshot lives in re-frame.subs.tooling.
             [re-frame.subs.tooling :as rf.subs.tooling]
-            ;; rf2-0sr0ai: reg-runtime-sub (framework runtime-db sub) is an
+            ;; reg-runtime-sub (framework runtime-db sub) is an
             ;; internal subs surface, not on the rf/ facade — required for
             ;; the two-partition projection-equality invalidation pins below.
             [re-frame.subs :as rf.subs]
             [re-frame.frame :as rf.frame]
             [re-frame.machines :as rf.machines]
-            ;; rf2-k682: routing ships in day8/re-frame2-routing.
+            ;; Routing ships in day8/re-frame2-routing.
             ;; Required here so its load-time hook + reg-sub
             ;; registrations fire before this ns's reg-route call.
             [re-frame.routing :as rf.routing]
-            ;; rf2-tfw3: flows ships in day8/re-frame2-flows.
+            ;; Flows ships in day8/re-frame2-flows.
             ;; Required here so its load-time hook registrations
             ;; fire before this ns's reg-flow call.
             [re-frame.flows]
             [re-frame.ssr :as rf.ssr]
-            ;; rf2-lt4e: epoch ships in day8/re-frame2-epoch.
+            ;; Epoch ships in day8/re-frame2-epoch.
             ;; Required here so its load-time hook publications
             ;; (`:epoch/settle!`, `:epoch/capture-event`,
             ;; `:epoch/epoch-history`, `:epoch/restore-epoch!`,
@@ -39,7 +39,7 @@
   (:require-macros [re-frame.core :refer [with-frame with-new-frame
                                           reg-view]]))
 
-;; Snapshot/restore the registrar around each test (rf2-am9d). Wiping the
+;; Snapshot/restore the registrar around each test. Wiping the
 ;; registrar with clear-all! is hostile to CLJS test isolation: framework
 ;; events / subs registered at ns-load (re-frame.routing, re-frame.machines)
 ;; and example apps (nine-states.core) cannot be re-loaded under CLJS, so
@@ -96,8 +96,8 @@
 (deftest capture-frame-survives-scope-unwind-cljs
   (testing "capture-frame captures the current frame at creation time; its
             handle still targets that frame after with-frame unwinds
-            (API-shrink #1, rf2-csbbwu removed frame-bound-fn/frame-bound-fn*
-            from the facade — capture-frame is the one public carry primitive)"
+            (capture-frame is the one public carry primitive; there is no
+            frame-bound-fn/frame-bound-fn* on the facade)"
     (rf/make-frame {:id :side :doc "side frame"})
     (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     (rf/dispatch-sync [:seed 99] {:frame :side})
@@ -114,7 +114,7 @@
 
 (deftest reg-view-registers
   (testing "reg-view (defn-shape macro) registers the view under the :view kind"
-    ;; Per Spec 001 §Allowed forms of the middle slot (rf2-d0pi): the macro is defn-shape. It
+    ;; Per Spec 001 §Allowed forms of the middle slot: the macro is defn-shape. It
     ;; auto-derives the id from (keyword *ns* sym); the ^{:rf/id ...}
     ;; metadata override pins an explicit keyword for assertion.
     (reg-view ^{:rf/id :greet} greet [n] [:p "hi " n])
@@ -124,7 +124,7 @@
         "the macro defs the supplied symbol to a callable render fn")))
 
 (deftest reg-view-macro-defs-the-symbol
-  ;; Per Spec 001 §Allowed forms of the middle slot (rf2-d0pi), the macro is defn-shape and defs
+  ;; Per Spec 001 §Allowed forms of the middle slot, the macro is defn-shape and defs
   ;; the supplied symbol to the registered render fn — there is no
   ;; outer-def pattern any more (the legacy
   ;; `(def name (reg-view :id meta render-fn))` shape is gone with the
@@ -139,7 +139,7 @@
     (is (fn? my-widget)
         "the macro defined the supplied symbol as a fn")))
 
-;; ---- (rf/view id) — runtime-lookup handle (rf2-yl9n) ----------------------
+;; ---- (rf/view id) — runtime-lookup handle ----------------------
 ;; Per Spec 001 §(re-frame.core/view id): render trees use Vars; runtime
 ;; lookups use ids. (rf/view id) is the
 ;; id-keyed lookup handle that returns the registered render fn (whatever
@@ -151,7 +151,7 @@
     (let [f (rf/view :my.ns/my-view)]
       (is (fn? f)
           "(rf/view id) returns a fn for a registered view")
-      ;; Per Spec 006 §Source-coord annotation (rf2-z7f7), the wrapper
+      ;; Per Spec 006 §Source-coord annotation, the wrapper
       ;; splices :data-rf2-source-coord into the root attrs map under
       ;; interop/debug-enabled?. The view's body content remains
       ;; structurally the registered hiccup (root tag, children).
@@ -162,11 +162,11 @@
   (testing "(rf/view :nope) is nil for an unregistered id (no error)"
     (is (nil? (rf/view :nope/not-registered)))))
 
-;; ---- keyword-head render tree is HTML, not a view dispatch (rf2-yl9n) ----
+;; ---- keyword-head render tree is HTML, not a view dispatch ----
 ;; Per Conventions §Render-tree shape vs runtime lookup: keyword vectors at render time
-;; are HTML elements (Reagent's existing semantics) — the runtime does NOT
+;; are HTML elements (Reagent's semantics) — the runtime does NOT
 ;; intercept :keyword vectors and dispatch via the views registry. This is
-;; the negative-regression test: even if a view is registered under :foo,
+;; the negative test: even if a view is registered under :foo,
 ;; bare [:foo args] in a render tree must NOT resolve to that view.
 
 (deftest keyword-head-does-not-dispatch-to-registered-view
@@ -208,7 +208,7 @@
 
 (deftest multi-frame-state-isolation
   (testing "two frames carry independent app-db state, share handler registry"
-    ;; rf2-h1vqa4 bundle co-load hygiene: CLAIM this test's id vocabulary
+    ;; Bundle co-load hygiene: CLAIM this test's id vocabulary
     ;; before creating the frames — the story testbed registers the same
     ;; canonical :counter/inc at its ns load, and sibling suites' in-test
     ;; registrations of :counter/init / :count can leak through fixtures
@@ -351,7 +351,7 @@
        (for [it (rf/subscribe-once [:items])]
          ^{:key it} [:li it])])
     (rf/dispatch-sync [:seed])
-    ;; rf2-j81hs — callable head, not `[:pages/list]`. `render-to-string`
+    ;; Callable head, not `[:pages/list]`. `render-to-string`
     ;; ships from the shared `.cljc` emitter, so the keyword-head removal
     ;; lands on the CLJS side of it too: a keyword head is an element on
     ;; every host, and `[:pages/list]` would render an empty `<list>`.
@@ -432,7 +432,7 @@
                  (pr-str (remove #{21 201} seen))))))))
 
 (deftest sub-correctness-on-value-equal-input
-  (testing "[Spec 006 §No-op via value equality, rf2-719e] a value-equal app-db replacement does NOT re-run the body fn of a layer-2 sub whose resolved input is value-equal — the wrapper short-circuits to the cached return value"
+  (testing "[Spec 006 §No-op via value equality] a value-equal app-db replacement does NOT re-run the body fn of a layer-2 sub whose resolved input is value-equal — the wrapper short-circuits to the cached return value"
     (let [a-runs       (atom 0)
           squared-runs (atom 0)]
       (rf/reg-event :stable/init (fn [{:keys [db]} _] {:db {:n 5 :unrelated "z"}}))
@@ -480,8 +480,7 @@
         (remove-watch r ::touch)
         (rf/unsubscribe [:stable/squared])))))
 
-;; ---- two-partition projection-equality invalidation (EP-0001 decision #7,
-;; rf2-0sr0ai) -----------------------------------------------------------------
+;; ---- two-partition projection-equality invalidation (EP-0001 decision #7) -
 ;;
 ;; Spec 006 §Frame-state container and partition projections: app-db and
 ;; runtime-db are PROJECTION REACTIONS over the ONE physical frame-state
@@ -506,7 +505,7 @@
   (rf/reg-event id {:doc "framework-authority" :rf/machine? true} f))
 
 (deftest runtime-only-commit-does-not-rerun-app-subs-cljs
-  (testing "[EP-0001 #7, rf2-0sr0ai] a runtime-only commit leaves the app-db
+  (testing "[EP-0001 #7] a runtime-only commit leaves the app-db
   projection `=` and does NOT re-run an app-db layer-1 sub body under the
   Reagent reactive substrate"
     (let [runs (atom 0)]
@@ -533,7 +532,7 @@
         (rf/unsubscribe [:inval/app-sub])))))
 
 (deftest app-only-commit-does-not-rerun-runtime-subs-cljs
-  (testing "[EP-0001 #7, rf2-0sr0ai] an app-only commit leaves the runtime-db
+  (testing "[EP-0001 #7] an app-only commit leaves the runtime-db
   projection `=` and does NOT re-run a runtime-db (reg-runtime-sub) sub body
   under the Reagent reactive substrate"
     (let [runs (atom 0)]
@@ -559,7 +558,7 @@
         (rf/unsubscribe [:inval/rt-sub])))))
 
 (deftest real-partition-change-propagates-to-its-subs-cljs
-  (testing "[EP-0001 #7, rf2-0sr0ai] the converse: a real change to a
+  (testing "[EP-0001 #7] the converse: a real change to a
   partition DOES re-run that partition's subs (exactly once) and only that
   partition's — under the Reagent reactive substrate"
     (let [app-runs (atom 0)
@@ -621,13 +620,13 @@
                 @traces)
           "expected :rf.error/dispatch-sync-in-handler trace"))))
 
-;; ---- sub-cache (rf2-vvsh) -------------------------------------------------
+;; ---- sub-cache -------------------------------------------------
 
 (deftest sub-cache-projects-tool-pair-shape
   (testing "(re-frame.subs.tooling/sub-cache-snapshot frame-id) returns
            {query-v {:value v :ref-count n :input-kind k :realized-inputs [...]}}
            for every materialised subscription in the named frame
-           (rf2-80mmlf demoted the `rf/sub-cache` facade alias — the
+           (there is no `rf/sub-cache` facade alias — the
            tooling-surface home is `re-frame.subs.tooling`)"
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7 :name "ada"}}))
     (rf/reg-sub :n     (fn [db _] (:n db)))
@@ -647,7 +646,7 @@
       (is (= 2     (get-in snapshot [[:n]     :ref-count]))
           "ref-count reflects two outstanding subscribes for [:n]")
       (is (= 1     (get-in snapshot [[:name*] :ref-count])))
-      ;; rf2-e3acps — layer-1 readers carry :input-kind :db / no realized edges.
+      ;; Layer-1 readers carry :input-kind :db / no realized edges.
       (is (= :db (get-in snapshot [[:n]     :input-kind]))
           "layer-1 reader surfaces :input-kind :db")
       (is (= []  (get-in snapshot [[:n]     :realized-inputs]))
@@ -713,7 +712,7 @@
           "static sub-topology reports the :parametric sentinel, not the realized edges")
       (rf/unsubscribe [:article/page :a1]))))
 
-;; ---- live sub-cache algebra view (EP-0014 slice-2, rf2-gge6mf) -------------
+;; ---- live sub-cache algebra view (EP-0014 slice-2) -------------
 ;;
 ;; Per [spec/Derivations.md] §Static and live graphs + the
 ;; `:rf/derivation-node` shape in [spec/Spec-Schemas.md]. The LIVE
@@ -815,7 +814,7 @@
           "the static algebra view reports the :parametric marker, not the realized edges")
       (rf/unsubscribe [:article/page :a1]))))
 
-;; ---- epoch history (Tool-Pair §Time-travel, rf2-shjf) ---------------------
+;; ---- epoch history (Tool-Pair §Time-travel) ---------------------
 ;;
 ;; CLJS smoke test — JVM-side epoch_test.clj covers the broad surface; this
 ;; verifies the same machinery loads + records under the Reagent substrate.
@@ -838,16 +837,16 @@
         (is (= {:n 1} (:db-after (last history))))
         (is (= 2 (count @seen)) "register-epoch-listener! fired per-cascade")))))
 
-;; ---- frame-provider (rf2-sixo) -------------------------------------------
+;; ---- frame-provider -------------------------------------------
 ;;
 ;; rf/frame-provider is a Reagent component that scopes a frame keyword to
 ;; its subtree via React context. Per Spec 002 §What `frame-provider` is.
 ;;
 ;; These tests verify the component-shape contract — the hiccup the wrapper
 ;; emits and how it composes with build-frame-provider. The runtime
-;; React-context resolution path (which is currently broken under
-;; Reagent 1.2 + React 18 — tracked by rf2-kdwc) is exercised in the
-;; browser-test target where a real DOM is available; node-test cannot
+;; React-context resolution path is exercised in the browser-test target
+;; (`re-frame.frame-provider-context-dom-cljs-test`), where a real DOM is
+;; available; node-test cannot
 ;; mount a component, so these tests stop at the hiccup-emission level.
 
 (deftest frame-provider-emits-provider-hiccup
@@ -885,8 +884,8 @@
             "children pass through unchanged")))))
 
 (deftest frame-provider-missing-or-nil-frame-key-fails-loud
-  ;; EP-0002 (rf2-9o48ih) + rf2-nyea0r (frame-boundary split). `frame-provider`
-  ;; is now SCOPE-only: it requires a `:frame` target (a frame-id keyword or a
+  ;; EP-0002 (frame-boundary split). `frame-provider`
+  ;; is SCOPE-only: it requires a `:frame` target (a frame-id keyword or a
   ;; live `make-frame` value — see frame-provider-frame-target-grammar below)
   ;; and creates nothing. An
   ;; EMPTY prop map (no `:frame`, no `:id`) is a SCOPE with a nil `:frame`;
@@ -930,11 +929,10 @@
           "all children present in source order"))))
 
 (deftest frame-provider-frame-target-grammar
-  ;; rf2-thg1s: `frame-provider`'s `:frame` teaches the SAME one frame-target
-  ;; grammar as `dispatch` / `subscribe` (API-shrink #1, rf2-csbbwu; Spec 002
+  ;; `frame-provider`'s `:frame` teaches the SAME one frame-target
+  ;; grammar as `dispatch` / `subscribe` (Spec 002
   ;; §`frame-provider`) — a frame-id KEYWORD or the live frame VALUE
-  ;; `make-frame` returns, the latter normalized ONE WAY to its id. This test
-  ;; previously asserted the retired keyword-only rule.
+  ;; `make-frame` returns, the latter normalized ONE WAY to its id.
   (testing "a frame-id keyword threads through to the scope tier unchanged"
     ;; SCOPE-only `{:frame …}` fails loud if absent — register the frame.
     (rf/make-frame {:id :rf.frame/anonymous-1})
@@ -971,7 +969,7 @@
     ;; hook into re-frame.adapter.reagent/register-context-provider is
     ;; build-frame-provider. Both are callable; both produce the same
     ;; final hiccup shape when invoked with a frame keyword.
-    ;; rf2-4y60: build-frame-provider is 0-arity — the returned component
+    ;; build-frame-provider is 0-arity — the returned component
     ;; takes the frame keyword at render time. The SCOPE-only provider
     ;; fails loud if the frame is absent, so register :hello live first.
     (rf/make-frame {:id :hello})
@@ -991,11 +989,11 @@
           "both emit the same :value on the raw JS props object")
       (is (= (drop 3 a) (drop 3 b)) "both emit the same children"))))
 
-;; ---- per-frame sub-cache disposal (Spec 006, rf2-cmfln) -------------------
+;; ---- per-frame sub-cache disposal (Spec 006) -------------------
 ;;
 ;; Mirrors the synchronous-disposal portion of
-;; implementation/test/re_frame/sub_cache_test.clj under the Reagent
-;; adapter. Per rf2-cmfln sub-cache disposal is synchronous on
+;; implementation/core/test/re_frame/sub_cache_test.clj under the Reagent
+;; adapter. Sub-cache disposal is synchronous on
 ;; derefer-count → 0; no grace-period to configure.
 
 (defn- cache-keys-of
@@ -1003,7 +1001,7 @@
   (set (keys @(:sub-cache (rf.frame/frame frame-id)))))
 
 (deftest sub-cache-sync-disposes-on-last-unsubscribe
-  (testing "ref-count → 0 disposes the slot synchronously (rf2-cmfln)"
+  (testing "ref-count → 0 disposes the slot synchronously"
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
@@ -1013,7 +1011,7 @@
     (is (not (contains? (cache-keys-of :rf/default) [:n]))
         "slot evicted in-tick on the 1 → 0 transition")))
 
-;; ---- restore-epoch! reactive surfaces (Tool-Pair §Time-travel, rf2-2fat) ---
+;; ---- restore-epoch! reactive surfaces (Tool-Pair §Time-travel) ---
 ;;
 ;; Per Tool-Pair §Time-travel + Spec 006 §Subscription cache:
 ;; restore-epoch! goes through adapter/replace-container! — the same

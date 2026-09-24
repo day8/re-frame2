@@ -4,7 +4,7 @@
   boot namespace must compile unchanged against either coordinate. That
   holds only while the two in-tree adapter namespaces publish the SAME set
   of public vars — the adapter map, the test flush, the SSR seam, and the
-  client-root trio (rf2-k5r9t). This reads both surfaces off the CLJS
+  client-root trio. This reads both surfaces off the CLJS
   analyzer at compile time (the API-manifest probe's `emit-ns-publics`) and
   pins them equal, so a var added to one adapter and not the other reds
   here rather than at a consumer's swap.
