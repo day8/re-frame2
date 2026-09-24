@@ -156,7 +156,7 @@
 ;; cljs-devtools formatters API doesn't apply (it operates on live
 ;; values, not strings).
 ;;
-;; The pipeline is two-stage:
+;; The pipeline is three-stage:
 ;;
 ;;   1. **zprint pre-format** — `format-source` runs the source string
 ;;      through `zprint/zprint-file-str` so a poorly-formatted
@@ -179,11 +179,16 @@
 ;;      `.syntax-*` CSS classes. Keeping the highlighter in-bundle as a
 ;;      Clojure-mode subset avoids the cost of a JS-side highlight.js
 ;;      dep on the dev classpath.
+;;
+;;   3. **String-literal unescape** — `unescape-string-tokens` turns the
+;;      `\n` escape in each string token back into a real line break, so
+;;      a multi-line `:doc` renders across lines (rf2-iosnp), and leaves
+;;      regex and character literals as printed (rf2-3x7nj.25.6).
 
 (defn unescape-source-newlines
   "Turn the two-character escaped-newline sequence `\\n` (backslash + n)
-  inside a captured Clojure source string back into a REAL newline so a
-  multi-line `:doc` (or any multi-line string literal) renders across
+  in the text of ONE captured string literal back into a REAL newline so
+  a multi-line `:doc` (or any multi-line string literal) renders across
   lines, matching how it was written in source. Pure fn; testable.
 
   ## Why this is needed
@@ -200,13 +205,15 @@
   that paints one over-wide line carrying a visible `\\n`, not the
   multi-line docstring the author wrote.
 
-  ## Why a whole-string replace is safe
+  ## Only ever handed a string literal (rf2-3x7nj.25.6)
 
-  `pr-str` only ever emits the `\\n` escape INSIDE string literals — a
-  bare `\\n` two-char sequence never occurs elsewhere in printed Clojure
-  source. So unescaping `\\n` across the whole formatted string
-  reconstructs the original line breaks without misfiring on code. The
-  replace is escape-aware: `pr-str` emits every escape as a two-char
+  `pr-str` prints the same two characters OUTSIDE string literals too: a
+  regex literal's pattern source verbatim (`#\"\\n\"`), and the character
+  literals `\\n` (the letter n) and `\\newline`. A whole-source replace
+  broke all three across lines, so `code-block` calls this on the text
+  of each `:string` token and nothing else ([[unescape-string-tokens]]).
+
+  The replace is escape-aware: `pr-str` emits every escape as a two-char
   sequence (`\\\\` for a literal backslash, `\\n` for a newline, `\\\"`
   for a quote, …). The regex consumes a literal backslash-pair (`\\\\`)
   as its FIRST alternative so it is kept verbatim, leaving only a
@@ -237,19 +244,18 @@
   capped at 72 columns so the rendered block fits inside the Event
   panel's narrow handler-source slot without horizontal scroll.
 
-  After zprint (or the fall-through on a parse failure) the result is
-  run through [[unescape-source-newlines]] so an embedded multi-line
-  `:doc` renders its real line breaks instead of a literal
-  backslash-n on one over-wide line. zprint preserves string-literal
-  contents verbatim, so the `\\n` escape survives the round-trip and is
-  unescaped here as the final step."
+  zprint preserves string-literal contents verbatim, so an embedded
+  multi-line `:doc` still carries its `\\n` escape here. `code-block`
+  unescapes it after tokenising, one string token at a time
+  ([[unescape-string-tokens]]) — never across the whole formatted
+  source, where `\\n` is also regex and character-literal code
+  (rf2-3x7nj.25.6)."
   [src]
   (if-not (and (string? src) (seq src))
     src
-    (-> (try
-          (zprint/zprint-file-str src "rf-xray-handler-source" {:width 72})
-          (catch :default _ src))
-        unescape-source-newlines)))
+    (try
+      (zprint/zprint-file-str src "rf-xray-handler-source" {:width 72})
+      (catch :default _ src))))
 
 (defn highlight-clojure-token
   "Per-token colour resolution for the in-bundle Clojure syntax
@@ -336,6 +342,14 @@
             m   (subs s 0 end)]
         (recur (conj acc [:comment m]) (subs s end)))
 
+      ;; character literal — ONE token (rf2-3x7nj.25.6): `\n`, `\newline`,
+      ;; `\"`. Split into `\` plus the rest, `\"` opened a STRING running
+      ;; to the next quote, and `\;` a comment.
+      (str/starts-with? s "\\")
+      (let [m (or (re-find #"^\\(?:newline|space|tab|formfeed|backspace|return|u[0-9a-fA-F]{4}|o[0-7]{1,3}|.)" s)
+                  (subs s 0 1))]
+        (recur (conj acc [:symbol m]) (subs s (count m))))
+
       ;; string
       (str/starts-with? s "\"")
       (let [m (or (re-find #"^\"(?:[^\"\\]|\\.)*\"" s)
@@ -364,6 +378,21 @@
             t (classify-token m)]
         (recur (conj acc [t m]) (subs s (count m)))))))
 
+(defn unescape-string-tokens
+  "Run [[unescape-source-newlines]] over the `:string` tokens of a
+  `tokenize-clojure` result and nothing else (rf2-3x7nj.25.6). A
+  `:string` token straight after a `#` token is a regex literal's
+  pattern, whose `\\n` is the regex escape, so it is left as printed.
+  Character literals are tokens of their own and never reach the
+  rewrite. Pure fn; testable."
+  [toks]
+  (mapv (fn [prev [t literal :as tok]]
+          (if (and (= :string t) (not= "#" (second prev)))
+            [t (unescape-source-newlines literal)]
+            tok))
+        (cons nil toks)
+        toks))
+
 (defn code-block
   "Render `:source` as a syntax-highlighted code block. Pure hiccup —
   Clojure-only highlighter for source-text strings (cljs-devtools
@@ -390,7 +419,7 @@
      "(source unavailable)"]
     (let [formatted  (if (= :clojure lang) (format-source source) source)
           tokens-seq (if (= :clojure lang)
-                       (tokenize-clojure formatted)
+                       (unescape-string-tokens (tokenize-clojure formatted))
                        [[:symbol formatted]])]
       [:pre {:data-testid testid
              :data-lang   (name lang)

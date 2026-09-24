@@ -246,8 +246,8 @@
     (is (nil? (w/unescape-source-newlines nil)))))
 
 (deftest unescape-source-newlines-keeps-escaped-backslash
-  (testing "rf2-iosnp — the result is still SOURCE TEXT (it is re-fed to
-            the tokenizer + painted under `white-space: pre`), so a
+  (testing "rf2-iosnp — the result is still SOURCE TEXT (a string token
+            painted under `white-space: pre`), so a
             printed escaped backslash `\\\\` (the valid source-text form
             of one literal backslash) is KEPT verbatim — only the `\\n`
             newline escape relaxes to a real line break. The fn is NOT a
@@ -279,6 +279,57 @@
           "the rendered text carries a REAL newline")
       (is (not (str/includes? text "\\n"))
           "no literal backslash-n survives in the rendered text"))))
+
+;; ---- rf2-3x7nj.25.6 — backslash-n OUTSIDE a string literal is code -------
+;;
+;; `pr-str` prints the same two characters outside string literals: a
+;; regex literal's pattern source verbatim, and the character literals
+;; `\n` (the letter n) and `\newline`. Each source below is the exact
+;; JVM `pr-str` of the whole form, the shape the capture macro stores.
+
+(defn- rendered-text
+  "The text a `code-block` paints for `src`."
+  [src]
+  (let [pre (some #(when (and (vector? %) (= :pre (first %))) %)
+                  (walk-hiccup (w/code-block {:source src})))]
+    (str/join "" (filter string? (flatten pre)))))
+
+(deftest code-block-keeps-a-regex-literal-verbatim
+  (let [text (rendered-text "(rf/reg-event :lines/split (fn [{:keys [db]} [_ s]] {:db (assoc db :lines (str/split s #\"\\n\"))}))")]
+    (is (str/includes? text (str "#\"" BS "n\""))
+        "the regex's `\\n` is the regex escape, not a line break")))
+
+(deftest code-block-keeps-character-literals-verbatim
+  (testing "the character literal `\\newline`"
+    (is (str/includes?
+          (rendered-text "(rf/reg-event :lines/join (fn [{:keys [db]} _] {:db (assoc db :text (str/join \\newline (:lines db)))}))")
+          (str BS "newline"))))
+  (testing "the character literal `\\n`, the letter n"
+    (is (str/includes?
+          (rendered-text "(rf/reg-event :char/n? (fn [{:keys [db]} [_ c]] {:db (assoc db :n? (= c \\n))}))")
+          (str "c " BS "n)"))))
+  (testing "after the character literal `\\\"`, which must not open a string"
+    (let [text (rendered-text "(rf/reg-event :csv/q? (fn [{:keys [db]} [_ c]] (if (= c \\\") {:db (assoc db :sep \\n)} {:db db, :doc \"a\\nb\"})))")]
+      (is (str/includes? text (str ":sep " BS "n)"))
+          "a later `\\n` character literal is kept")
+      (is (str/includes? text (str "\"a" NL "b\""))
+          "and a later string literal still unescapes"))))
+
+(deftest tokenize-clojure-lexes-a-character-literal-as-one-token
+  (is (= [[:paren "("] [:symbol "="] [:whitespace " "] [:symbol "c"]
+          [:whitespace " "] [:symbol (str BS "\"")] [:paren ")"]]
+         (w/tokenize-clojure (str "(= c " BS "\")")))))
+
+(deftest unescape-string-tokens-rewrites-string-tokens-only
+  (let [esc (str "\"a" BS "nb\"")]
+    (is (= [[:symbol "#"] [:string esc]
+            [:whitespace " "] [:string (str "\"a" NL "b\"")]
+            [:whitespace " "] [:symbol (str BS "newline")]]
+           (w/unescape-string-tokens
+             [[:symbol "#"] [:string esc]
+              [:whitespace " "] [:string esc]
+              [:whitespace " "] [:symbol (str BS "newline")]]))
+        "a regex's pattern and a character literal are left alone")))
 
 (deftest code-block-pre-formats-via-zprint
   (let [out  (w/code-block {:source "(reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :n inc)}))"})
