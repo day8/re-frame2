@@ -29,7 +29,7 @@
   "Surface a pre-frame hydration parse failure as a frameless, always-on
   `:rf.error/malformed-hydration-payload` record. The
   `read-server-payload` DOM read runs BEFORE `hydrate!` resolves the target
-  frame, so there is no `:frame` to carry (`:frame nil`) — exactly the
+  frame, so there is no `:frame` to carry: the
   record carries `:frame nil`. Corrupt hydration input is a fail-closed
   boundary event, so the record reaches the always-on error emitter even when
   development tracing is disabled. The helper is platform-neutral so JVM
@@ -61,7 +61,7 @@
      server-rendered (no payload script present) — the \"client-only
      first load\" shape. The server escapes `<` to the EDN `\\u003c`
      unicode escape inside string literals before injection (the
-     rf2-7ksyr `</script>` XSS gate, EDN-aware per rf2-rdxxa);
+     `</script>` XSS gate, EDN-aware);
      `cljs.reader/read-string` accepts that escape so the payload
      round-trips unchanged, including payloads carrying keyword/symbol
      tokens with `<`.
@@ -273,7 +273,7 @@
   `__rf_payload`. The FIRST `hydrate!` for a payload id installs it; a
   later one with the SAME payload finds it live and does not re-seed, so a
   sibling root booting second cannot silently discard what happened after
-  the first one seeded (per [004C §6], ratified). A later call carrying a
+  the first one seeded (per [004C §6]). A later call carrying a
   DIFFERENT payload for that id is the exception and fails loud with
   `:rf.error/frame-payload-conflict` — before any install, leaving the
   live payload and the roots using it untouched.
@@ -327,7 +327,7 @@
                        :clj nil))
         ;; A payload the `:rf/hydrate` handler will REFUSE — not a map, or a
         ;; present-but-non-map partition (Spec 011 §The :rf/hydrate event) —
-        ;; never commits, so it must never CLAIM (rf2-gwye.19). The seed check
+        ;; never commits, so it must never CLAIM. The seed check
         ;; below cannot see a refusal: the handler leaves the frame live and
         ;; returns normally, and a live incarnation proves only that the
         ;; dispatch was delivered. So the handler's OWN predicate screens the
@@ -362,7 +362,7 @@
       ;; this root is the first to reference the payload; `:already-installed`
       ;; means a sibling root already seeded exactly this content, and
       ;; re-seeding would discard everything that happened since (004C §6's
-      ;; ratified "later roots find it live and do not re-seed"). A
+      ;; "later roots find it live and do not re-seed"). A
       ;; DIFFERENT payload under the same id throws before any install.
       (let [{:keys [decision claim]}
             (rf.ssr.install/preflight! 'rf.ssr/hydrate!
@@ -427,7 +427,7 @@
               ;; Runs only on a landed seed: verifying a client tree against a
               ;; server hash the frame never received compares nothing.
               ;;
-              ;; Call `render-tree-fn` UNDER the target frame's scope (rf2-0vk7b). The
+              ;; Call `render-tree-fn` UNDER the target frame's scope. The
               ;; documented idiom `(fn [] ((rf/view :app/root)))` computes the client
               ;; tree by CALLING a registered view, whose reg-view-injected `subscribe`
               ;; resolves the ambient frame via the carried invariant. `hydrate!` already
