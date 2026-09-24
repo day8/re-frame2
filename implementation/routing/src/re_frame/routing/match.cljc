@@ -321,12 +321,12 @@
            ;; splat captures the literal "/"), and a home route
            ;; `{:path "/"}` parses to total-length 0 while `/*` is
            ;; length 1 — so if total-length compared first, `/*` would
-           ;; out-length the root and shadow it (rf2-1ugs5u). Putting the
+           ;; out-length the root and shadow it. Putting the
            ;; catch-all bit before length demotes `/*` below `/` (and
            ;; every other concrete route). For any two NON-catch-all
            ;; patterns the catch-all bit ties (both 1), so the comparison
-           ;; falls through to total-length exactly as before — only
-           ;; rankings involving the bare `/*` change. Rules 4 and 5 are
+           ;; falls through to total-length — the bit decides only
+           ;; rankings involving the bare `/*`. Rules 4 and 5 are
            ;; boolean discriminators per
            ;; Spec 012 §Route ranking algorithm — "named params beat rest
            ;; params" / "exact routes beat optional-group routes" — not a
@@ -404,7 +404,7 @@
               (recur end depth (conj parts (regex-escape static-seg)) names
                      inner group-stack counts'))))))))
 
-;; ---- pattern co-matchability (rf2-6gzobp) ----------------------------------
+;; ---- pattern co-matchability ----------------------------------------------
 ;; Spec 012 §Route ranking algorithm rule 6 scopes the MUST-warn
 ;; `:rf.warning/route-shadowed-by-equal-score` to routes with an equal
 ;; structural score ON THE SAME URL FAMILY — patterns that can actually
@@ -428,7 +428,7 @@
 ;;   - a final `*name` / bare `*` splat matches ONE OR MORE remaining
 ;;     segments (`(.+)`) — and, when the splat is the pattern's only atom
 ;;     (`/*` / `/*rest`, regex `^/?(.+)$`), also the zero-segment root URL
-;;     `/` (the capture is the literal `/` — the rf2-1ugs5u root quirk);
+;;     `/` (the capture is the literal `/` — the splat-only root quirk);
 ;;   - a `{/…}?` optional group contributes its inner segments OR nothing
 ;;     (an epsilon branch).
 ;; Both patterns are canonical at registration (trailing slashes stripped by
@@ -574,7 +574,7 @@
 (defn patterns-intersect?
   "True when some URL path can match BOTH canonical route patterns — the
   Spec 012 §Route ranking algorithm rule-6 'same URL family' test behind
-  `:rf.warning/route-shadowed-by-equal-score` (rf2-6gzobp). Decided by
+  `:rf.warning/route-shadowed-by-equal-score`. Decided by
   product-automaton reachability over the two patterns' segment automata
   (see the section comment above): the product walks pairs of states,
   advancing both automata one co-compatible segment at a time; a reachable
@@ -625,13 +625,13 @@
   "Try to match url against the route's compiled pattern. Returns the
   params map (with %-decoded values) on success, nil on miss.
 
-  Per Spec 012 §Routing failure semantics (rf2-wbvme): if any captured
+  Per Spec 012 §Routing failure semantics: if any captured
   group is malformed percent-encoding (`safe-url-decode` returns nil
   for a non-nil group), the URL fails closed as a route-miss rather
   than throwing through the call site.
 
   Per Spec 012 §Path-pattern grammar (Optional segment group): a param
-  inside an unmatched optional group is ABSENT, not nil-valued (rf2-yejde).
+  inside an unmatched optional group is ABSENT, not nil-valued.
   An optional group that didn't participate in the match yields a nil
   regex capture; we drop such keys so the params map omits them entirely.
   This matters for routes carrying a `:params` schema: Malli `{:optional
@@ -657,7 +657,7 @@
           ;; After the malformed-%-encoding guard, any remaining nil
           ;; decoded value corresponds to a nil regex group — an unmatched
           ;; optional group. Strip those keys so the param is absent, not
-          ;; nil-valued (rf2-yejde).
+          ;; nil-valued.
           (into {}
                 (comp (filter (fn [[_ value]] (some? value)))
                       (map (fn [[param-name value]]
