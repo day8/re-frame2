@@ -30,10 +30,9 @@
 
   `:fresco-release` compiles this namespace under `:advanced` with
   `goog.DEBUG` false — Fresco compiled the way a consumer ships it. A
-  namespace that merely
-  REQUIRED the door would be no use for that: Closure keeps what is
-  reachable and an unused require is not, so the bundle would DCE to
-  nearly nothing and report a cost no consumer pays. Everything below is
+  namespace that merely REQUIRED the door would be no use for that:
+  Closure keeps what is reachable and an unused require is not, so the
+  bundle would DCE to nearly nothing and report a cost no consumer pays. Everything below is
   reached from the mount instead — a declared view whose body reads a
   subscription, a controlled field that writes back through an intent,
   and a root that owns its frame.
