@@ -214,9 +214,8 @@
      lane that `hm/settle!`'s empty `flushSync` does not flush — so a
      plain dispatch would read `aria-rowindex` of `1` four hundred and
      ninety-seven rows into the model with the `scrollTop` assertion
-     above passing. `flushSync` upgrades the
-     update to the sync lane, which is what makes the next line's DOM
-     read honest.
+     above passing. `flushSync` upgrades the update to the sync lane,
+     which is what makes the next line's DOM read honest.
 
   3. Settle twice. The window report is a PASSIVE effect: React runs it
      after the commit that scheduled it, so the first settle is what
