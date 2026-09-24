@@ -1,14 +1,14 @@
 (ns re-frame.ssr-frame-resolution-test
-  "rf2-blpg — the explicitly targeted SSR queries resolve their
+  "The explicitly targeted SSR queries resolve their
   REGISTRATIONS through the target frame's generation, not only its data.
 
   `head-model` and `project-error` both take an explicit
   frame and are called OUTSIDE any `with-frame` binding — that is what
   \"explicit target\" means, and it is how `ssr_head_test` and the Ring
-  host call them. Each read the named frame's app-db / `:ssr` config by
+  host call them. Each reads the named frame's app-db / `:ssr` config by
   id, which needs no ambient scope. The `(kind, id)` lookups they then
-  perform did NOT: they went to the process registrar atom, which is a
-  different question with a different answer.
+  perform must resolve through that frame too: the process registrar atom
+  is a different question with a different answer.
 
   ## Why two support namespaces
 
@@ -24,10 +24,10 @@
 
   ALPHA registers first and BETA second in every test here, so the
   registrar atom always holds BETA. A read that resolves correctly returns
-  ALPHA's body for ALPHA's frame; the pre-fix behaviour returned BETA's
-  body for BOTH frames, run against whichever frame's app-db was asked
-  for — a plausible head model, or a public error status, for the wrong
-  page.
+  ALPHA's body for ALPHA's frame; a read from the registrar atom would
+  return BETA's body for BOTH frames, run against whichever frame's app-db
+  was asked for — a plausible head model, or a public error status, for
+  the wrong page.
 
   ## The adapter these tests run under
 
@@ -43,7 +43,7 @@
   `-Dre-frame.debug=false`, and its roster is an EXCLUSION list — a new
   namespace joins that lane BY DEFAULT. So every assertion here must hold
   with the dev-only surfaces compiled out, and `clojure -M:test` passing
-  is only half the evidence. The one thing that bit: a descriptor's
+  is only half the evidence. The one trap: a descriptor's
   `:doc` is pure documentation and is stripped before storage under the
   gate (Spec 001 §Production elision contract), so the divergence between
   the two images is discriminated by RUNNING the resolved `:handler-fn`
@@ -126,9 +126,8 @@
             drops BEFORE the metadata is stored when `debug-enabled?` is
             false (Spec 001 §Production elision contract), so a `:doc`
             assertion passes in the ordinary lane and reads nil under
-            `scripts/test-ssr-prod-gate.sh` — which is where this one was
-            caught, and the same trap `ssr_head_test`'s docstring records
-            for `reg-head-accepts-metadata-arity`. The handler fn is the
+            `scripts/test-ssr-prod-gate.sh` — the same trap `ssr_head_test`'s
+            docstring records for `reg-head-accepts-metadata-arity`. The handler fn is the
             executable and is never stripped; it is also the thing this
             test is actually about, so the elision-proof assertion is the
             more direct one."
@@ -153,8 +152,8 @@
               not the registrar atom's last writer"
       (is (= {:title "alpha:A"} (rf.ssr/head-model alpha-frame {:head-id rf.ssr.head-image-alpha/head-id}))))
 
-    (testing "and BETA's frame gets BETA's, so the fix is resolution rather
-              than a different fixed answer"
+    (testing "and BETA's frame gets BETA's, so the answer comes from
+              resolution rather than a different fixed answer"
       (is (= {:title "beta:B"} (rf.ssr/head-model beta-frame {:head-id rf.ssr.head-image-alpha/head-id}))))
 
     (testing "and the read is pure — re-reading ALPHA's frame answers ALPHA
@@ -166,7 +165,7 @@
   (rf/reg-head ::unselected (fn [_ _] {:title "unselected"}))
   (let [alpha-frame (frame-selecting! "re-frame.ssr.head-image-alpha" {:marker "A"})]
     (testing "a head registered outside the frame's image is not that frame's
-              head — resolving it from the process store rendered another
+              head — resolving it from the process store would render another
               application's <title> into this one"
       (is (= :rf.error/no-such-head
              (caught-error-id #(rf.ssr/head-model alpha-frame {:head-id ::unselected})))))))
@@ -186,7 +185,7 @@
           "the frame carries no :doc, so the default title is the empty string"))))
 
 ;; ---------------------------------------------------------------------------
-;; project-error — the same omission, deciding a public status
+;; project-error — the same resolution, deciding a public status
 ;; ---------------------------------------------------------------------------
 
 (deftest project-error-runs-the-target-frames-own-projector
