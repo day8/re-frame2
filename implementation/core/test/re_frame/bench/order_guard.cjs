@@ -8,7 +8,7 @@
 //
 // ## The fault this exists for
 //
-// `rf2-jr76s` measured one control two ways in a single process. A
+// One control, measured two ways in a single process. A
 // `.slice()` of a packed SMI array — predicted 8.000 B/slot, because slot
 // width is a build fact on an uncompressed V8 — read:
 //
@@ -16,12 +16,12 @@
 //     REVERSED arm order    8.0027 B/slot   (+0.03%)
 //     plain node, no harness ~8.5  B/slot
 //
-// It was caught only because the whole plan was run in both orders and the
-// two controls disagreed with EACH OTHER rather than with a prediction.
-// `rf2-88pie` filed it as *a large-object arm doubles the reading of its
-// immediate successor*.
+// Only running the whole plan in both orders exposes it: the two controls
+// disagree with EACH OTHER rather than with a prediction. Read at face value
+// it says *a large-object arm doubles the reading of its immediate
+// successor*.
 //
-// ## What a live reproduction says, and why it changes the remedy
+// ## What a live reproduction says about the remedy
 //
 // [[liveReproduction]] rebuilds that control in plain node and separates
 // the factors a reversal moves together. Measured on node 24.13.0 /
@@ -42,7 +42,7 @@
 //
 //   THE WINDOW SIZE — a knob with nothing to do with order. Measured COLD,
 //   in a fresh process, 32 slices per window read 16.50 B/slot against 8
-//   slices' 8.12: **2.03x**, the magnitude `rf2-jr76s` recorded. Measured
+//   slices' 8.12: **2.03x**, the magnitude of the recorded fault. Measured
 //   WARM it is 8.2515 against 8.1377, +1.4%. So that 2x is warm-up too.
 //
 // So the immediate predecessor is worth a third of a percent, and
@@ -54,14 +54,14 @@
 // them it caught — and a plan re-ordered to keep large arms away from
 // small ones fixes the factor that measured smallest.
 //
-// This does not restate what happened inside `rf2-jr76s`'s own harness;
-// that harness is not reproduced here and its mechanism stays undiagnosed.
-// It does say that the REMEDY the bead proposed — order the plan, or run
-// it in both orders — is not sufficient on its own.
+// This does not restate what happened inside the harness that recorded the
+// fault; that harness is not reproduced here and its mechanism is
+// undiagnosed. It does say that ordering the plan, or running it in both
+// orders, is not sufficient on its own.
 //
 // ## The property, and why this one
 //
-// Three remedies were available.
+// Three remedies are available.
 //
 // **Randomise the order.** Rejected. Randomising SPREADS a contaminant
 // across every arm instead of concentrating it in one, converting a
@@ -74,12 +74,12 @@
 // rule produces no evidence the rule worked; and the live reproduction
 // says adjacency is the smallest of the three effects anyway.
 //
-// **Stratify and REFUSE.** Chosen, and widened past the bead's proposal:
+// **Stratify and REFUSE.** Chosen, and widened past a plain both-orders
+// comparison:
 //
 //   1. [[schedule]] builds a run order in which every arm has at least two
-//      DISTINCT immediate predecessors across rounds. Cyclic rotation —
-//      which is what every interleaved harness in this repository was
-//      doing — does not have that property; see below.
+//      DISTINCT immediate predecessors across rounds. Cyclic rotation — the
+//      obvious interleaving — does not have that property; see below.
 //   2. Every sample carries what ran immediately before it AND its
 //      position in the run.
 //   3. [[verdict]] partitions each arm's samples by EACH of those factors
@@ -93,10 +93,9 @@
 //
 // ## Cyclic rotation does not vary adjacency, and that is the trap
 //
-// `b8_run.cjs` and `b6_rows.cljs` both chose the arm for slot `j` of round
-// `r` as `ARMS[(j + r) % n]`, and both published that as "arm order
-// rotating with the round". A cyclic rotation changes which arm goes
-// FIRST; it does not change which arm follows which. Arm `a` sits at slot
+// Choosing the arm for slot `j` of round `r` as `ARMS[(j + r) % n]` reads
+// as "arm order rotating with the round". A cyclic rotation changes which
+// arm goes FIRST; it does not change which arm follows which. Arm `a` sits at slot
 // `(a - r) mod n`, so its predecessor is `ARMS[(a - 1) mod n]` in every
 // round. The only sample with a different predecessor is the one at the
 // round seam — exactly one of the arm's `R`.
@@ -105,26 +104,26 @@
 // `a -> a+1` adjacency with `a -> a-1`. `selfTest` proves both halves of
 // that arithmetically.
 //
-// ## Two arms are the case where the reflection cancels (rf2-ouwh8)
+// ## Two arms are the case where the reflection cancels
 //
 // Reversing a pair IS rotating it by one. So at `n === 2` — and only there —
 // composing the rotation with the reflection returns `[0, 1]` at every index,
 // and a two-arm plan runs in a SINGLE ORDER for ever. That is not a weaker
 // version of the property; it is the absence of it, and the guard says so:
-// four two-arm rows came back `only 1 stratum — the question was never
+// a two-arm row comes back `only 1 stratum — the question was never
 // asked`. Two arms is the natural shape for *candidate versus comparator*, so
 // the case is not exotic. [[schedule]] drops the reflection at `n === 2`,
 // where the bare rotation already supplies both of the orders that exist.
 //
 // ## A LOST position is a refusal, not a smaller question
 //
-// Every instrument fault on this programme produced a plausible PRECISE
-// WRONG NUMBER before it was caught, and one of them was aimed straight at
-// this module: a shadowed binding in a harness made every `position` `NaN`
-// from round 2 on. `stratifyArm` filters non-finite positions out of the
-// phase contrast, so the phase question was quietly answered over the six
-// samples that still had one while `format` printed the arm's full
-// twenty-four beside it — and the run returned `[ok]`.
+// An instrument fault produces a plausible PRECISE WRONG NUMBER, and one
+// kind aims straight at this module: a shadowed binding in a harness that
+// makes every `position` `NaN` from round 2 on. `stratifyArm` filters
+// non-finite positions out of the phase contrast, so unguarded the phase
+// question would be quietly answered over the six samples that still have
+// one while `format` prints the arm's full twenty-four beside it — and the
+// run would return `[ok]`.
 //
 // A harness that records NO positions is a different and documented case:
 // it is excused the phase contrast (and still owes the predecessor one). A
@@ -133,16 +132,15 @@
 // check 10 replays it with deliberately flat values, so nothing but the
 // lost positions can be what refuses.
 //
-// The excuse belongs to the RUN, not to the sample, and reading it the other
-// way is how the same fault came back: a first repair counted only `NaN`, so
-// a sample carrying `position: null` — present, unusable, dropped by
-// `stratifyArm` exactly as `NaN` is — was excused one at a time, and
-// twenty-four samples with six positions and eighteen nulls adjudicated
-// phase over four survivors and answered `[ok]` again. Inside a run that
-// records positions at all, EVERY unusable position is a loss; only a run in
+// The excuse belongs to the RUN, not to the sample. Read the other way —
+// counting only `NaN` — a sample carrying `position: null` (present,
+// unusable, dropped by `stratifyArm` exactly as `NaN` is) would be excused
+// one at a time, and twenty-four samples with six positions and eighteen
+// nulls would adjudicate phase over four survivors and answer `[ok]`. Inside
+// a run that records positions at all, EVERY unusable position is a loss; only a run in
 // which no sample offers one is excused. Check 11 prices both halves.
 //
-// ## What the `predecessor` factor can and cannot attribute (rf2-om73r)
+// ## What the `predecessor` factor can and cannot attribute
 //
 // Under [[schedule]] an arm's predecessor is `(a - 1) mod n` on EVEN rounds
 // and `(a + 1) mod n` on ODD ones, so with only two orders available the
@@ -169,9 +167,9 @@
  *
  * Reversing a pair is rotating it by one, so a schedule that always composes
  * returns `[0, 1]` at every index and a two-arm plan runs in ONE ORDER FOR
- * EVER — the single-order result this module exists to refuse (`rf2-ouwh8`;
- * the guard found it, four two-arm rows deep, as `only 1 stratum — the
- * question was never asked`). At `n === 2` the bare rotation already
+ * EVER — the single-order result this module exists to refuse (the guard
+ * reports it as `only 1 stratum — the question was never asked`). At
+ * `n === 2` the bare rotation already
  * alternates `[0, 1]` and `[1, 0]`, which is every order two arms have, so
  * the reflection is dropped rather than composed. `selfTest` checks 9 and 10
  * price both halves.
@@ -182,7 +180,7 @@ function schedule(n, round) {
   return round % 2 === 1 && n > 2 ? xs.reverse() : xs;
 }
 
-/** The plain cyclic rotation, kept so `selfTest` can price it. */
+/** The plain cyclic rotation, for `selfTest` to price. */
 function rotationOnly(n, round) {
   const xs = [];
   for (let j = 0; j < n; j++) xs.push((j + round) % n);
@@ -252,7 +250,7 @@ function summarise(predecessor, values) {
 /**
  * The nuisance factors a plan varies whether it means to or not.
  *
- * `predecessor` is the bead's factor. `phase` is the one the live
+ * `predecessor` is the obvious factor. `phase` is the one the live
  * reproduction says is larger: split an arm's own samples at the median of
  * their positions in the run, so EARLY and LATE are the same arm measured
  * at two points in the process's history. A warm-up effect, a pretenuring
@@ -307,11 +305,10 @@ function stratifyArm(samples, factor) {
  *
  * So the excuse is a property of the RUN, not of the sample: only a run in
  * which NO sample offers a position is excused, and inside a run that does
- * record them every unusable position is a loss. `NaN` was the recorded
- * fault and null is its sibling — `stratifyArm` drops both from the phase
- * contrast while `format` prints the arm's full count beside it, so a guard
- * that counted only `NaN` would adjudicate 24 samples on four and answer
- * `[ok]` for the second reason having been repaired for the first.
+ * record them every unusable position is a loss. `NaN` and null are
+ * siblings — `stratifyArm` drops both from the phase contrast while
+ * `format` prints the arm's full count beside it, so a guard that counted
+ * only `NaN` would adjudicate 24 samples on four and answer `[ok]`.
  */
 function lostPositions(samples) {
   if (!samples.some((s) => s.position !== undefined && s.position !== null)) return 0;
@@ -328,7 +325,7 @@ function lostPositions(samples) {
  * Strata of a single sample carry no range, so they are adjudicated on the
  * ratio alone — and only when there is no better-powered pair available,
  * because a powered comparison should decide the question when one exists.
- * `rf2-jr76s`'s recorded fault is exactly the unpowered case (one forward
+ * The recorded fault is exactly the unpowered case (one forward
  * reading, one reversed) and must still fire.
  */
 function adjudicate(strata, tolerance) {
@@ -349,7 +346,7 @@ function adjudicate(strata, tolerance) {
   // exactly, and on two n=1 strata (which are adjudicated on the ratio
   // alone) it FIRES — the one thing the house rule exists to prevent.
   // `read-attribution`'s CACHEGET and NOOP arms are identically zero in
-  // every round and were the reproduction (rf2-om73r).
+  // every round.
   const ratio = hi.p50 === lo.p50 ? 1 : lo.p50 === 0 ? Infinity : hi.p50 / lo.p50;
   const disjoint = hi.min > lo.max;
   const degenerate = lo.n < 2 || hi.n < 2;
@@ -401,10 +398,10 @@ function verdict(samples, opts = {}) {
       const lost = f === 'phase' ? lostPositions(ss) : 0;
       if (lost > 0) {
         // A sample with no usable position in a run that records positions
-        // is a HARNESS FAULT, and it is the recorded one: a shadowed
-        // binding made every position `NaN` from round 2 on, `stratifyArm`
-        // dropped them, and the report said "24 samples" over a phase
-        // contrast adjudicated on six — and answered `[ok]`. null is the
+        // is a HARNESS FAULT — a shadowed binding making every position
+        // `NaN` from round 2 on is one. `stratifyArm` drops them, so without
+        // this branch the report would say "24 samples" over a phase
+        // contrast adjudicated on six — and answer `[ok]`. null is the
         // same loss by another route and is counted the same way. Silently
         // narrowing the question is the one thing this module must not do.
         per[f] = {
@@ -469,7 +466,7 @@ function format(v, title) {
 function assertClean(samples, opts = {}) {
   const v = verdict(samples, opts);
   if (v.refuse) {
-    throw new Error('arm-order guard REFUSED (rf2-88pie)\n' + format(v, opts.title).join('\n'));
+    throw new Error('arm-order guard REFUSED\n' + format(v, opts.title).join('\n'));
   }
   return v;
 }
@@ -484,7 +481,7 @@ function selfTest() {
   const check = (name, ok, detail) => checks.push({ name, ok: !!ok, detail });
   const one = (v, arm, factor) => v.arms[arm].factors[factor];
 
-  // 1. THE RECORDED 2x, replayed from `rf2-jr76s`. A packed-SMI `.slice()`
+  // 1. THE RECORDED 2x, replayed. A packed-SMI `.slice()`
   //    control, predicted 8.000 B/slot, read once in forward arm order and
   //    once in reversed. Both strata are n=1, which is the whole difficulty:
   //    a guard that insisted on ranges would have passed this.
@@ -514,8 +511,8 @@ function selfTest() {
     'forward 2830.7 / reversed 2842.8'
   );
 
-  // 3. A SINGLE-ORDER RESULT IS REFUSED — the bead's first actionable: a
-  //    study that ran one order has not checked this.
+  // 3. A SINGLE-ORDER RESULT IS REFUSED: a study that ran one order has not
+  //    checked this.
   const oneOrder = [
     { arm: 'A', predecessor: 'B', position: 0, value: 100 },
     { arm: 'A', predecessor: 'B', position: 1, value: 101 },
@@ -549,8 +546,8 @@ function selfTest() {
   // 5. THE WARM-UP STEP, from `liveReproduction`'s own measured sweep: the
   //    SAME control, nothing else running, sixteen consecutive windows.
   //    The predecessor is identical throughout, so ONLY the phase factor
-  //    can catch it — and a guard built to the bead's literal proposal
-  //    (reverse the plan, compare) would not have.
+  //    can catch it — and a guard that only reverses the plan and compares
+  //    would not.
   const warmup = [
     10.3223, 10.2627, 10.2588, 10.2588, 10.334, 10.2832,
     8.1221, 8.1221, 8.1221, 8.1221, 8.1221, 8.1221,
@@ -606,9 +603,9 @@ function selfTest() {
   // 8. TWO ARMS, where the reflection CANCELS the rotation. Priced beside 7
   //    because it is the same arithmetic asked at the smallest `n` a
   //    comparison can have, and two arms is the natural shape for
-  //    "candidate versus comparator". `alwaysReflect` is what [[schedule]]
-  //    used to be, kept HERE and nowhere else so the defect stays
-  //    reproducible rather than merely described (rf2-ouwh8).
+  //    "candidate versus comparator". `alwaysReflect` is [[schedule]]
+  //    without its `n === 2` exception, kept HERE and nowhere else so the
+  //    defect stays reproducible rather than merely described.
   //
   //    A pair has exactly one adjacency per round, so the WITHIN-round
   //    question is unaskable at `n = 2` under any schedule; the seams are
@@ -640,11 +637,12 @@ function selfTest() {
       `largest modal share ${(fixShare * 100).toFixed(0)}%`
   );
 
-  // 10. THE LOST POSITIONS, replayed. A shadowed binding made every position
-  //     `NaN` from round 2 on; `stratifyArm` dropped them, the report printed
-  //     the arm's full sample count beside a phase contrast taken over the
-  //     survivors, and the run came back `[ok]`. Values are deliberately flat,
-  //     so nothing but the lost positions can be what refuses this.
+  // 10. THE LOST POSITIONS, replayed. A shadowed binding makes every position
+  //     `NaN` from round 2 on; `stratifyArm` drops them, and an unguarded
+  //     report prints the arm's full sample count beside a phase contrast
+  //     taken over the survivors, and comes back `[ok]`. Values are
+  //     deliberately flat, so nothing but the lost positions can be what
+  //     refuses this.
   const lostSamples = Array.from({ length: 24 }, (_, i) => ({
     arm: 'A',
     predecessor: 'B',
@@ -662,7 +660,7 @@ function selfTest() {
   // 11. THE SAME LOSS BY THE OTHER ROUTE. `null` is dropped from the phase
   //     contrast exactly as `NaN` is, so a guard that counts only `NaN`
   //     adjudicates these 24 samples on FOUR survivors and answers `[ok]` —
-  //     the fault of check 10, repaired for one spelling and live for the
+  //     the fault of check 10, guarded for one spelling and live for the
   //     other. Only `phase` is asked, so nothing but the lost positions can
   //     be what refuses; and the second half pins the excuse it must NOT
   //     swallow, a run in which no sample offers a position at all.
@@ -712,8 +710,7 @@ function liveReproduction(opts = {}) {
 
   // PACKED_SMI and PACKED_DOUBLE, built by push so neither is holey. A
   // holey array's `.slice()` does not take the packed fast path and the
-  // prediction would be a fiction — `rf2-jr76s`'s own control ladder
-  // records that mistake.
+  // prediction would be a fiction.
   const smi = [];
   for (let i = 0; i < slots; i++) smi.push(i);
   const dbl = [];
