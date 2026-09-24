@@ -1,5 +1,5 @@
 'use strict';
-// ONE TRANSPORT OVER THE PROTOCOL (rf2-hic-056).
+// ONE TRANSPORT OVER THE PROTOCOL.
 //
 // HTTP is what a JVM caller already speaks, so it is the transport this
 // package ships. It is deliberately thin and deliberately NOT the
@@ -12,20 +12,15 @@
 //
 // BUFFERED (the default) collects the chunks, computes a byte-accurate
 // `Content-Length`, and writes once. STREAMING writes each chunk as it
-// arrives under chunked transfer-encoding. They differ in exactly the
-// place the bead's separability constraint says the difference belongs —
-// the edge — and the service beneath them cannot tell which is running.
+// arrives under chunked transfer-encoding. They differ only at the edge,
+// and the service beneath them cannot tell which is running.
 //
 // ## CONTENT-LENGTH IS COUNTED IN BYTES
 //
-// `Buffer.byteLength(body, 'utf8')`, never `body.length`. This repo has
-// already paid for that distinction once: the SSR bake manifest claimed
-// UTF-16 code units under byte-named columns, and every corpus row's
-// title carries an em dash. Here the consequence would be worse than a
-// wrong number in a report — a `Content-Length` short by the width of
-// one em dash TRUNCATES the response, and what a truncated SSR body
-// costs is the tail of the markup and any hydration the client was going
-// to do with it.
+// `Buffer.byteLength(body, 'utf8')`, never `body.length`, which counts
+// UTF-16 code units. A `Content-Length` short by the width of one em dash
+// TRUNCATES the response, and what a truncated SSR body costs is the tail
+// of the markup and any hydration the client was going to do with it.
 //
 // ## A TORN RESPONSE IS NOT A SHORT ONE
 //
@@ -80,10 +75,9 @@ function sendRefusal(res, refusal, requestId) {
  * OVER THE CEILING, THE BYTES ARE DISCARDED BUT THE REQUEST IS STILL
  * DRAINED. Destroying the socket the moment the ceiling is crossed is the
  * obvious move and it is wrong: the caller is still writing, so it never
- * reads the 413 and sees a broken connection instead — a transport fault
- * where the service meant to give a diagnosable refusal. Measured, not
- * theorised; the first version of this function did exactly that and the
- * witness came back with `UND_ERR_SOCKET` in place of a status code.
+ * reads the 413 and sees a broken connection instead — `UND_ERR_SOCKET` in
+ * place of a status code, a transport fault where the service means to
+ * give a diagnosable refusal.
  *
  * Draining is bounded rather than unbounded: memory is freed at the
  * ceiling, and a body still going at sixteen times it is past any
@@ -128,16 +122,16 @@ function readBody(req, maxBytes) {
 
 /**
  * Split a trailing HIGH surrogate off a streamed chunk, to be written with
- * the next one (rf2-gwye.24).
+ * the next one.
  *
  * `emit` takes JavaScript strings and puts no code-point boundary on them,
  * so a module splitting its markup at a code-unit offset can end one chunk
  * on the first half of an astral character and start the next on the
  * second. Encoding each chunk to UTF-8 on its own turns each half into
  * U+FFFD — a 200 whose bytes differ from the buffered mode's, which joins
- * before it encodes. Holding back at most ONE code unit is the whole
- * repair: the pair is encoded together once its mate arrives, and every
- * other chunk goes out as promptly as before. One still held at the end is
+ * before it encodes. Holding back at most ONE code unit prevents that:
+ * the pair is encoded together once its mate arrives, and every other
+ * chunk goes out at once. One still held at the end is
  * written alone, which is exactly what the buffered join does with an
  * unmatched surrogate.
  */
@@ -162,14 +156,14 @@ async function handleRender(service, req, res, requestUrl, { maxRequestBytes }) 
     }
     requestId =
       typeof renderRequest?.requestId === 'string' ? renderRequest.requestId : undefined;
-    // THE ECHO IS A HEADER, AND NOT EVERY STRING IS ONE (rf2-gwye.25). An
-    // ellipsis, an emoji or a CR/LF in `requestId` is a valid protocol
-    // string that Node refuses at `writeHead` — which runs AFTER the render,
-    // so a caller's unrepresentable token came back as a `render-threw` 500
-    // from a renderer that had succeeded. Checked here instead, before an
+    // THE ECHO IS A HEADER, AND NOT EVERY STRING IS ONE. An ellipsis, an
+    // emoji or a CR/LF in `requestId` is a valid protocol string that Node
+    // refuses at `writeHead` — which runs AFTER the render, so an
+    // unrepresentable token would come back as a `render-threw` 500 from a
+    // renderer that had succeeded. It is checked here instead, before an
     // isolate is acquired, and refused as the caller fault it is. The
-    // in-process protocol's string domain is untouched: this is a fact
-    // about HTTP, and the refusal body still carries the token back.
+    // in-process protocol's string domain is unaffected: this is a fact
+    // about HTTP, and the refusal body carries the token back.
     if (requestId !== undefined) {
       try {
         http.validateHeaderValue('x-rf-ssr-request', requestId);
@@ -191,16 +185,13 @@ async function handleRender(service, req, res, requestUrl, { maxRequestBytes }) 
   }
 
   // ONE SELECTOR. Buffered is the default and `?stream=1` is the opt-in,
-  // and there is no second way to say it: the entry point also honoured an
-  // `x-rf-ssr-stream: 1` request header and a `streamingDefault` serve
-  // option (with a `?stream=0` escape that only ever mattered when that
-  // option was on). Neither had a consumer anywhere — no CLI flag, no
-  // README contract, no test, no JVM adapter — so the response framing a
-  // caller got could be changed by a magic header or an unpinned
-  // in-process option that the operational docs did not teach. Retired
-  // under rf2-6r9j.72; `test/bytes.test.cjs` pins that the header is inert.
-  // Read off the target the listener already parsed, inside its guard —
-  // one parse, not a second unguarded one (rf2-gwye.22).
+  // and there is no second way to say it: no request header and no serve
+  // option selects the framing, so the framing a caller gets cannot be
+  // changed by a magic header or by an in-process option the operational
+  // docs do not teach. `test/bytes.test.cjs` pins that an
+  // `x-rf-ssr-stream: 1` header is inert. Read off the target the listener
+  // already parsed, inside its guard — one parse, not a second unguarded
+  // one.
   const streaming = requestUrl.searchParams.get('stream') === '1';
 
   const bufferedHtmlChunks = [];
@@ -281,12 +272,12 @@ function handleHealth(service, res) {
  */
 function serve({ service, port = 8148, host = '127.0.0.1', maxRequestBytes = 1 << 20 }) {
   const server = http.createServer((req, res) => {
-    // CONTAINED HERE, NOT BY THE PROCESS (rf2-gwye.22). Node's HTTP parser
-    // accepts request targets the WHATWG URL constructor refuses — `//`, or
+    // CONTAINED HERE, NOT BY THE PROCESS. Node's HTTP parser accepts
+    // request targets the WHATWG URL constructor refuses — `//`, or
     // `http://[::1` — and this listener is synchronous with no catch above
-    // it, so the throw was an uncaught exception: one caller's bad request
-    // line took the whole sidecar down, and every render in flight with it.
-    // It is a malformed request like any other, so it gets that refusal.
+    // it, so an uncaught throw would let one caller's bad request line take
+    // the whole sidecar down, and every render in flight with it. It is a
+    // malformed request like any other, so it gets that refusal.
     let requestUrl;
     try {
       requestUrl = new URL(req.url, 'http://localhost');
