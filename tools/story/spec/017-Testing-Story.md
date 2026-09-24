@@ -3279,20 +3279,29 @@ and terminal assertions and `:script` stay child-only. An artifact that
 records no registered source is promoted as captured.
 
 **The capture boundary.** What a promotion can carry depends on what the
-capture handed it. The API route, an artifact built from the compiled plan
-(`determinism/->artifact` of `variant-plan`), carries every source shape.
-The Test-mode dialog's capture (`ui.promotion/result->artifact`) takes the
-first of: the run's `:run-artifact` back-link; the run's dispatches
-(`play/variant-play-events`); and, for a run whose `:script` dispatches
-nothing, the stepped program of the variant the run result names
+capture handed it. A run artifact carries a program, its `:fx-decisions` and
+its `:network`, never the source's world: its decorators (a
+`:rf.story/force-fx-stub` among them), `:db-seed`, frame-setup and loaders.
+So the setup and world of a registered source reach the promoted variant
+through `:extends`, exactly once, on both routes. The API route, an artifact
+built from the compiled plan (`determinism/->artifact` of `variant-plan`),
+carries the source's primary `:script` whole, `[:assert …]` checkpoints
+included. The Test-mode dialog's capture (`ui.promotion/result->artifact`)
+takes the first of: the run's `:run-artifact` back-link; the run's
+dispatches (`play/variant-play-events`); and, for a run whose `:script`
+dispatches nothing, the stepped program of the variant the run result names
 (`promotion/source-program`). That last case covers setup events plus
 `[:assert …]` checkpoints, the shape of every `:story.login-form/*` testbed
 variant, and it yields an empty program for a variant with no `:script`.
-The capture never folds in `[:world :setup]`: the dialog's default draft
-`:extends` the source, which supplies it. Source intent above then restores
-the full step program and the declarative `:assertions` / `:checks`, so on
-either route the promoted variant fails under the fault, passes after the
-fix and fails again when the fault returns. `materialize-variant-plan` and
+For a registered source neither route folds `[:world :setup]` into the
+program. The dialog's default draft `:extends` the source, and a promotion
+given no `:extends` defaults it to the registered source the artifact
+records. A plan that names no registered variant, such as an inline plan,
+has nothing to extend: its setup stays folded into the program and its world
+is not carried. Source intent above then restores the full step program and
+the declarative `:assertions` / `:checks`, so on either route the promoted
+variant fails under the fault, passes after the fix and fails again when the
+fault returns. `materialize-variant-plan` and
 `promote-run-artifact!` MUST refuse a nil or non-artifact with
 `:rf.error/story-promote-no-artifact`, as `promote-run-artifact!` refuses a
 missing `:variant/id`; neither builds a body from nothing.

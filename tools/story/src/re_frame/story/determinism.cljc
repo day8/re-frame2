@@ -66,40 +66,47 @@
   headless flush-hooks, so the JVM gate exercises the full gate."
   (:require [re-frame.story.artifact    :as rf.story.artifact]
             [re-frame.story.fingerprint :as rf.story.fingerprint]
-            [re-frame.story.play.runner :as rf.story.play.runner]))
+            [re-frame.story.play.runner :as rf.story.play.runner]
+            [re-frame.story.registrar   :as rf.story.registrar]))
 
 ;; ===========================================================================
 ;; PLAN / ARTIFACT → REPLAYABLE ARTIFACT  (pure)
 ;; ===========================================================================
 
 (defn ->artifact
-  "Coerce `target` into a `:rf.test/run-artifact`. Pure data → data.
+  "Coerce `target` into a `:rf.test/run-artifact`. Data → data; a plan target
+  reads the Story side-table (see below).
 
   `target` is one of:
 
   - a `:rf.test/run-artifact` map — used verbatim (it already carries the
     `:event-program` + `:fx-decisions`);
   - a normalized variant plan (a map with `:world` / `:script`) — a PROGRAM
-    PROJECTION, the promotion API route (spec/017 §Promotion): its
-    `[:world :setup]` ⧺ primary `:script` fold into the artifact
-    `:event-program` (the same setup-first fold `make-run-artifact`
-    applies), its `[:world :frame :fx-overrides]` become the artifact
-    `:fx-decisions`, its `[:world :network]` per-route reply map becomes the
-    artifact `:network` slot (so replay re-installs the managed-request stubs
-    the `:fx-decisions` redirect points at — rf2-tymyh, spec/017 §The network
-    surface), and it gets a `:source`. It is NOT a reproduction of the
-    variant's run: decorator stubs (`:rf.story/force-fx-stub`), `:db-seed`,
-    frame-setup decorators, loaders, interceptor overrides, the plan's
-    `:expect` (terminal `:assertions` / `:checks`) and every play in
-    `[:world :scripts]` after the primary one are not carried. That is why
-    the determinism gate and the golden family refuse a plan (rf2-3x7nj.31.2);
+    PROJECTION, the promotion API route (spec/017 §Promotion): its primary
+    `:script` becomes the artifact `:event-program`, its `[:world :frame
+    :fx-overrides]` become the artifact `:fx-decisions`, its `[:world
+    :network]` per-route reply map becomes the artifact `:network` slot (so
+    replay re-installs the managed-request stubs the `:fx-decisions` redirect
+    points at — rf2-tymyh, spec/017 §The network surface), and it gets a
+    `:source`. For a plan of a REGISTERED variant `[:world :setup]` stays out
+    of the program, as it does from a Test-mode capture: promotion `:extends`
+    that variant by default, which supplies its setup and world exactly once
+    (rf2-hyheo). A plan with no registered variant has nothing to extend, so
+    its setup folds in first, the setup-first fold `make-run-artifact`
+    applies. It is NOT a reproduction of the variant's run: decorator stubs
+    (`:rf.story/force-fx-stub`), `:db-seed`, frame-setup decorators, loaders,
+    interceptor overrides, the plan's `:expect` (terminal `:assertions` /
+    `:checks`) and every play in `[:world :scripts]` after the primary one are
+    not carried. That is why the determinism gate and the golden family refuse
+    a plan (rf2-3x7nj.31.2);
   - any other map carrying `:setup` / `:script` / `:event-program` — folded
     by `make-run-artifact` directly.
 
   Reading the plan's `[:world :setup]` / `:script` / `:network` is the only
-  contact this ns has with the plan compiler (`re-frame.story.plan`); it
-  WRITES nothing there. An already-built artifact short-circuits so a
-  recorder's captured program replays verbatim."
+  contact this ns has with the plan compiler (`re-frame.story.plan`), and
+  asking whether the plan's variant is registered its only contact with the
+  Story side-table; it WRITES nothing to either. An already-built artifact
+  short-circuits so a recorder's captured program replays verbatim."
   [target]
   (cond
     (rf.story.artifact/run-artifact? target)
@@ -108,11 +115,14 @@
     ;; A normalized variant plan: setup lives under [:world :setup], the
     ;; primary script under :script, fx decisions under [:world :frame
     ;; :fx-overrides], the per-route HTTP reply map under [:world :network].
-    ;; Fold setup ⧺ script into the event program; carry the network routes
-    ;; so replay re-installs the managed-request stubs.
+    ;; The script is the event program; setup folds in first only when no
+    ;; registered variant can supply it through :extends (rf2-hyheo). Carry
+    ;; the network routes so replay re-installs the managed-request stubs.
     (and (map? target) (contains? target :world))
     (rf.story.artifact/make-run-artifact
-      (cond-> {:setup        (get-in target [:world :setup] [])
+      (cond-> {:setup        (if (rf.story.registrar/registered? :variant (:variant/id target))
+                               []
+                               (get-in target [:world :setup] []))
                :script       (get target :script [])
                :fx-decisions (get-in target [:world :frame :fx-overrides] {})
                :source       {:tool :determinism-gate :variant/id (:variant/id target)}}

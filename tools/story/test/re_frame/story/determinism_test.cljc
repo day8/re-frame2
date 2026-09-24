@@ -27,7 +27,8 @@
             #?(:clj [re-frame.story :as rf.story])
             [re-frame.story.artifact    :as rf.story.artifact]
             [re-frame.story.determinism :as rf.story.determinism]
-            [re-frame.story.fingerprint :as rf.story.fingerprint]))
+            [re-frame.story.fingerprint :as rf.story.fingerprint]
+            [re-frame.story.registrar   :as rf.story.registrar]))
 
 ;; ===========================================================================
 ;; PURE: the per-run stamp strip in canonicalize  (rf2-5x1wt.8)
@@ -155,7 +156,9 @@
     (let [a (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:x]]]})]
       (is (identical? a (rf.story.determinism/->artifact a)))))
 
-  (testing "a normalized plan folds [:world :setup] ⧺ :script and lifts fx-overrides"
+  (testing "a plan of an unregistered variant folds [:world :setup] ⧺ :script
+            and lifts fx-overrides — nothing can supply its setup through
+            :extends"
     (let [plan {:variant/id :story/x
                 :world  {:setup [[:dispatch [:seed]]]
                          :frame {:fx-overrides {:http/get :http/stub}}}
@@ -166,7 +169,22 @@
              (:event-program a))
           "setup-first fold, then script")
       (is (= {:http/get :http/stub} (:fx-decisions a))
-          "[:world :frame :fx-overrides] become :fx-decisions"))))
+          "[:world :frame :fx-overrides] become :fx-decisions")))
+
+  (testing "a plan of a REGISTERED variant leaves [:world :setup] out of the
+            program: promotion :extends that variant, which supplies it
+            (rf2-hyheo)"
+    (rf.story.registrar/reg-variant* :story.det/registered
+      {:setup [[:dispatch [:seed]]] :script [[:dispatch [:act]]]})
+    (try
+      (let [plan {:variant/id :story.det/registered
+                  :world  {:setup [[:dispatch [:seed]]]}
+                  :script [[:dispatch [:act]]]}
+            a    (rf.story.determinism/->artifact plan)]
+        (is (= [[:dispatch [:act]]] (:event-program a)) "the script alone")
+        (is (= :story.det/registered (get-in a [:source :variant/id]))
+            "the artifact records its source, so promotion can extend it"))
+      (finally (rf.story.registrar/unregister! :variant :story.det/registered)))))
 
 ;; ===========================================================================
 ;; PURE: compare-runs
