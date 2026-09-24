@@ -8,7 +8,7 @@
   compound (or a region's compound) signals `done.state.<compound>` — an
   in-machine completion event an enclosing `:on-done` / `:on` takes IN THE
   SAME MACROSTEP — WITHOUT tearing the machine down. The D7 reconciliation:
-  a TOP-LEVEL `:final?` leaf (direct child of the machine root) STILL
+  a TOP-LEVEL `:final?` leaf (direct child of the machine root)
   auto-destroys (the actor-done case); an embedded final signals-not-destroys.
 
   To advance a completed sub-flow you mark the sub-flow's terminal leaf
@@ -76,7 +76,7 @@
 (deftest compound-done-no-on-done-rests-without-destroy
   (testing "an embedded :final? leaf with NO enclosing :on-done is a benign
             done no-op — the machine RESTS in the final config rather than
-            auto-destroying (the rf2-zlmz7 footgun is gone)"
+            auto-destroying"
     (let [traces (record-traces! ::no-handler)]
       (rf/reg-machine :rf2-zlmz7/rest
         {:initial :flow
@@ -112,13 +112,13 @@
         ":on-done action ran once in the same macrostep")))
 
 ;; ===========================================================================
-;; D7 reconciliation — TOP-LEVEL :final? STILL auto-destroys (regression)
+;; D7 reconciliation — a TOP-LEVEL :final? auto-destroys
 ;; ===========================================================================
 
 (deftest top-level-final-still-auto-destroys
-  (testing "D7 regression: a TOP-LEVEL :final? leaf (direct child of the root)
-            STILL auto-destroys — the embedded-vs-top-level split preserves the
-            actor-done case"
+  (testing "D7: a TOP-LEVEL :final? leaf (direct child of the root)
+            auto-destroys — the actor-done case, distinct from an embedded
+            final"
     (let [traces (record-traces! ::top-level)]
       (rf/reg-machine :rf2-bnjb3/top
         {:initial :running
@@ -128,7 +128,7 @@
       (is (nil? (snapshot :rf2-bnjb3/top))
           "top-level final auto-destroyed (snapshot cleared)")
       (is (some? (rf.registrar/lookup :event :rf2-bnjb3/top))
-          "the DEFINITION survives the top-level-final auto-destroy (rf2-xjee)")
+          "the DEFINITION survives the top-level-final auto-destroy")
       (is (= 1 (count (traces-for traces :rf.machine/done)))
           "the whole-machine :rf.machine/done fired (actor finality)"))))
 
@@ -177,7 +177,7 @@
           "the parallel :on-done action's :fx dispatched the coordinator event"))))
 
 (deftest parallel-on-done-fires-once-not-on-every-resting-macrostep
-  (testing "(h3wca.1) the parallel root :on-done fires EXACTLY ONCE — on
+  (testing "the parallel root :on-done fires EXACTLY ONCE — on
             ENTERING the all-regions-final config — and does NOT re-fire on a
             later event delivered while the machine rests all-final (XState v5
             `onDone` / SCXML `done.state.<id>` fire once on entry; re-frame2
@@ -218,8 +218,8 @@
           "machine still alive (no-op events don't tear it down)"))))
 
 (deftest parallel-no-on-done-still-auto-destroys
-  (testing "D7 regression: a parallel machine with NO root :on-done reaching
-            all-regions-final STILL auto-destroys (the actor-done default)"
+  (testing "D7: a parallel machine with NO root :on-done reaching
+            all-regions-final auto-destroys (the actor-done default)"
     (rf/reg-machine :rf2-bnjb3/par-destroy
       {:type    :parallel
        :regions {:a {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}
@@ -228,7 +228,7 @@
     (is (nil? (snapshot :rf2-bnjb3/par-destroy))
         "no :on-done ⇒ all-regions-final auto-destroys (snapshot cleared)")
     (is (some? (rf.registrar/lookup :event :rf2-bnjb3/par-destroy))
-        "the DEFINITION survives (rf2-xjee)")))
+        "the DEFINITION survives")))
 
 (deftest parallel-one-region-pending-no-on-done-no-destroy
   (testing "negative: with one region still non-final, the parallel :on-done
@@ -253,11 +253,10 @@
 ;; ===========================================================================
 
 (deftest parallel-on-done-action-returning-db-emits-error-and-drops-db
-  (testing "rf2-z522n: a parallel-root :on-done action that wrongly returns
+  (testing "a parallel-root :on-done action that wrongly returns
             :db emits :rf.error/machine-action-wrote-db (the same uniform
             hard-disallow every other phase enforces) and DROPS the :db key —
-            its :data still flows. Previously the parallel-root path bypassed
-            the validation and silently ignored the :db write."
+            its :data still flows."
     (let [traces (record-traces! ::db-disallow)]
       (rf/reg-machine :rf2-z522n/par-on-done-db
         {:type    :parallel
@@ -279,7 +278,7 @@
         ;; wrongly returned) is summarized to `:rf/redacted` at the trace egress
         ;; chokepoint so it never leaks raw; `:action-id` still locates it.
         (is (= :rf/redacted (-> errs first :tags :offending-value))
-            "the offending app-db value is redacted at egress (rf2-x9haxl)"))
+            "the offending app-db value is redacted at egress"))
       ;; The :data write STILL flowed through (the :db key was stripped, not
       ;; the whole effects map).
       (is (= 1 (get-in (snapshot :rf2-z522n/par-on-done-db) [:data :completions]))
@@ -289,7 +288,7 @@
           "no :db key leaked onto the snapshot"))))
 
 (deftest parallel-on-done-action-ran-stamps-transition-phase
-  (testing "rf2-z522n: the parallel-root :on-done action's :rf.machine/action-ran
+  (testing "the parallel-root :on-done action's :rf.machine/action-ran
             trace carries phase :transition — consistent with an embedded
             compound :on-done (which runs through apply-transition-once) and
             within the documented closed MachineActionRanTags phase enum (NO
@@ -362,7 +361,7 @@
 ;; candidate, run no action, mark the parallel done-signal handled (suppressing
 ;; auto-destroy), and move nowhere. Registration rejects them up front.
 (deftest parallel-on-done-bare-keyword-target-rejected
-  (testing "rf2-6srk5: a parallel root's :on-done declaring a BARE-KEYWORD
+  (testing "a parallel root's :on-done declaring a BARE-KEYWORD
             target (:on-done :next) is rejected at registration — it would
             otherwise silently stall in the all-final config"
     (is (thrown-with-msg?
@@ -374,7 +373,7 @@
              :regions {:a {:initial :run :states {:run {}}}}})))))
 
 (deftest parallel-on-done-vector-path-target-rejected
-  (testing "rf2-6srk5: a parallel root's :on-done declaring a VECTOR-PATH
+  (testing "a parallel root's :on-done declaring a VECTOR-PATH
             target (:on-done [:next]) is rejected at registration"
     (is (thrown-with-msg?
           #?(:clj Exception :cljs js/Error)
@@ -385,7 +384,7 @@
              :regions {:a {:initial :run :states {:run {}}}}})))))
 
 (deftest parallel-on-done-candidate-vector-target-rejected
-  (testing "rf2-6srk5: a parallel root's :on-done CANDIDATE VECTOR containing
+  (testing "a parallel root's :on-done CANDIDATE VECTOR containing
             a target-bearing map is rejected at registration"
     (is (thrown-with-msg?
           #?(:clj Exception :cljs js/Error)
@@ -398,8 +397,8 @@
              :regions {:a {:initial :run :states {:run {}}}}})))))
 
 (deftest parallel-on-done-action-fx-only-accepted
-  (testing "rf2-6srk5: an :action / :fx-only parallel root :on-done (NO
-            :target) stays ACCEPTED at registration and fires exactly once"
+  (testing "an :action / :fx-only parallel root :on-done (NO
+            :target) is ACCEPTED at registration and fires exactly once"
     (let [ran (atom 0)]
       (rf/reg-machine :rf2-6srk5/ok-action-only
         {:type    :parallel
