@@ -2419,9 +2419,9 @@ back.
   import cannot recover it.
 - `:entry` / `:exit` state actions — omitted; neither their names nor a
   comment carrying them survive the export.
-- **Internal-default self-transition semantics (rf2-0pp6as).** re-frame2 /
-  XState v5 make a transition targeting its own declaring state
-  INTERNAL by default — the targeted state's own `:exit` / `:entry` do
+- **Internal-default self-transition semantics.** re-frame2 / XState v5
+  make a transition targeting its own declaring state INTERNAL by
+  default — the targeted state's own `:exit` / `:entry` do
   **not** re-run (see [Spec 005 §Self-transitions](../../../spec/005-StateMachines.md)).
   W3C SCXML's `type="internal"` only changes the transition domain for a
   **compound source whose target is a proper descendant** (the one case
@@ -2430,7 +2430,8 @@ back.
   target is no loss either: SCXML exits and re-enters the ancestor
   whatever the `type`, and so does re-frame2. For a **self-target**
   (source == target), SCXML re-enters the source regardless of `type`,
-  so the re-frame2 internal default has no exact SCXML equivalent. The export still references the source state's
+  so the re-frame2 internal default has no exact SCXML equivalent. The
+  export still references the source state's
   **real declared id** (never the pre-fix dangling `same_2dstate`
   phantom) and emits `type="internal"` to record the intended axis, and
   the local `scxml->spec` round-trips the `:same-state` sentinel exactly —
