@@ -1,23 +1,23 @@
 (ns re-frame.fresco.frame-boundary-heads-dom-cljs-test
   "THE TWO IN-TREE FRAME BOUNDARIES — `h/frame-root` (ENSURE) and
-  `h/frame-provider` (SCOPE) — against a real React root (rf2-kuky.58).
+  `h/frame-provider` (SCOPE) — against a real React root.
 
   ## The claim this file exists for
 
-  Fresco's root door used to ENSURE its frame SYNCHRONOUSLY, before
-  `createRoot`, and `rf/make-frame` drains its `:initial-events` to a
-  fixed point before returning — so *the first paint is the seeded one*
-  held BY CONSTRUCTION. Spelling ENSURE in the tree gives that
-  construction up: spec/002's `frame-root` makes the frame in a client
+  A root door that ENSURED its frame SYNCHRONOUSLY, before `createRoot`,
+  would make *the first paint is the seeded one* hold BY CONSTRUCTION,
+  because `rf/make-frame` drains its `:initial-events` to a fixed point
+  before returning. Spelling ENSURE in the tree gives that construction
+  up: spec/002's `frame-root` makes the frame in a client
   `useLayoutEffect` at COMMIT, and its FIRST render emits no descendant
   subtree at all.
 
-  **That is the trade this bead turned on, and W1 is its measurement.**
+  **That is the trade, and W1 is its measurement.**
   The property survives, for a reason that is React's rather than ours: a
   layout effect runs before the browser paints, the `useState` flip it
   performs re-renders synchronously in the same layout phase, and
   `h/render!` renders inside `flushSync` — which does not return until
-  that work is done. So the door still returns with the seeded markup on
+  that work is done. So the door returns with the seeded markup on
   the page, and W1 reads it with NOTHING dispatched in between. Were the
   ENSURE owned by a passive effect instead, W1 would read the empty first
   pass and go red, which is what makes it a witness rather than a
@@ -61,9 +61,8 @@
 
 ;; The seeding event fires an EFFECT rather than writing the db, so
 ;; `:fx-overrides` is what decides which handler runs. That is the whole point
-;; of W2: `:fx-overrides` could not ride the old root-door config at all, which
-;; is why the one shipped example had to call `rf/make-frame` first and mount to
-;; JOIN.
+;; of W2: `:fx-overrides` is a `make-frame` option the root door refuses (W6),
+;; so it has to ride the head.
 (defonce ^:private !fx-seen (atom nil))
 
 (rf/reg-event ::stamp-via-fx (fn [_ _] {:fx [[::stamp-fx :fired]]}))
@@ -124,7 +123,7 @@
 ;; W1 — the ENSURE is in the TREE, and the FIRST PAINT is still the seeded one
 ;; ---------------------------------------------------------------------------
 ;;
-;; The row that decides this bead. Nothing is dispatched between the mount and
+;; The row that decides the trade. Nothing is dispatched between the mount and
 ;; the assertion: what is asserted is the markup `h/render!` itself put on the
 ;; page, through a boundary whose first render emits no subtree and whose frame
 ;; is made at commit.
@@ -179,10 +178,8 @@
 ;; W2 — the head takes the WHOLE `make-frame` option map
 ;; ---------------------------------------------------------------------------
 ;;
-;; `:fx-overrides` is the key that could not ride the old root-door config, and
-;; the reason `examples/substrates/fresco/login` called `rf/make-frame` first
-;; and mounted to JOIN. It rides the head like any other option, because the
-;; head IS the `make-frame` call.
+;; `:fx-overrides` is a key the root door refuses (W6). It rides the head like
+;; any other option, because the head IS the `make-frame` call.
 
 (deftest frame-root-takes-the-whole-make-frame-option-map
   (if-not (rf.fresco.impl.mount/browser?)
@@ -222,15 +219,14 @@
 ;; contract rather than a wrinkle. `frame-root`'s ENSURE is a second
 ;; `rf/make-frame` under the same id, which is spec/002 §`frame-root`'s
 ;; reuse-without-reseed on the state side (app-db, sub-cache, queue survive;
-;; `:initial-events` are re-recorded, never replayed) and `make-frame`'s ruled
+;; `:initial-events` are re-recorded, never replayed) and `make-frame`'s
 ;; IDEMPOTENT REPLACEMENT on the config side — the Clojure re-def model, where
 ;; re-declaring an id refreshes its config while its state survives.
 ;;
-;; The second `testing` block below is the one that had no witness: the facade
-;; docstring once promised "no config refresh", which the shared lifecycle does
-;; not do and this file could not see, because a state-only reading is green
-;; either way. `:fx-overrides` is the instrument, because a live effect handler
-;; is config that ANNOUNCES which incarnation is installed.
+;; The second `testing` block below is the config half's witness. A state-only
+;; reading is green whether or not the config refreshes, so `:fx-overrides` is
+;; the instrument, because a live effect handler is config that ANNOUNCES which
+;; incarnation is installed.
 
 (deftest a-second-frame-root-under-one-id-joins-without-re-seeding
   (if-not (rf.fresco.impl.mount/browser?)
@@ -349,14 +345,14 @@
 ;; W6 — the root doors carry ROOT options only, and fail loud on the rest
 ;; ---------------------------------------------------------------------------
 ;;
-;; The No-silent-swallow half. The old config was *closed at three keys and
-;; every other key ignored without complaint*, which is how `:fx-overrides`
-;; handed to a mount went on the floor.
+;; The No-silent-swallow half. A config *closed at three keys and every other
+;; key ignored without complaint* would drop `:fx-overrides` handed to a mount
+;; on the floor.
 
 (deftest the-root-doors-refuse-frame-configuration-naming-the-head-that-takes-it
   (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no container to hand a door")
-    ;; ONE door now, in its two first-call modes: the refusal is the same
+    ;; ONE door, in its two first-call modes: the refusal is the same
     ;; `require-root-options!` on the create path and the hydrate path alike.
     (doseq [[door call] [["render!"                #(rf.fresco/render! (rf.fresco/client-root) [panel {}] (rf.fresco.impl.mount/fresh-container!) %)]
                          ["render! {:hydrate? true}" #(rf.fresco/render! (rf.fresco/client-root) [panel {}] (rf.fresco.impl.mount/fresh-container!) (assoc % :hydrate? true))]]]
@@ -376,27 +372,26 @@
 ;; W7 — THE DOCUMENTED BOOT → RELOAD PAIR, and the trap on the other side of it
 ;; ---------------------------------------------------------------------------
 ;;
-;; Every reload example this package ships now writes the root tree ONCE, as a
+;; Every reload example this package ships writes the root tree ONCE, as a
 ;; function both calls take, so a reload hands `frame-root` the same options
-;; the boot render did. That is not a stylistic preference: the guides used to boot
-;; with `:initial-events` and reload with `{:id …}` alone, on the reasonable-
-;; sounding ground that the seed had already run. `frame-root-opts` strips only
-;; `:children` / `:fallback`, and `frame-root-fc` compares the committed opts
-;; with the current opts on EVERY later render — so the trimmed reload is not a
-;; harmless omission, it is `:rf.error/frame-root-reconfigured`, and a reader
-;; copying the pair got a throw where the whole point of `render!` is to
-;; preserve the mounted tree.
+;; the boot render did. That is not a stylistic preference. Booting with
+;; `:initial-events` and reloading with `{:id …}` alone sounds reasonable — the
+;; seed has already run — but `frame-root-opts` strips only `:children` /
+;; `:fallback`, and `frame-root-fc` compares the committed opts with the
+;; current opts on EVERY later render, so the trimmed reload is not a harmless
+;; omission: it is `:rf.error/frame-root-reconfigured`, a throw where the whole
+;; point of `render!` is to preserve the mounted tree.
 ;;
 ;; Both directions are witnessed, because either alone reads as an accident:
-;; the repaired pair must go through (this row), and the trimmed one must be
-;; the refusal that made the repair necessary (W8, which needs a different
-;; instrument and says why there). Neither could be seen by W2, which measures
-;; the ENSURE's option handoff at MOUNT time and never re-renders.
+;; the documented pair must go through (this row), and the trimmed one must be
+;; refused (W8, which needs a different instrument and says why there). Neither
+;; can be seen by W2, which measures the ENSURE's option handoff at MOUNT time
+;; and never re-renders.
 
 (defn- reload-tree
   "The documented boot tree, parameterised only by the view code that a hot
   reload is what changes. The OPTIONS are fixed by construction, which is the
-  shape the guides now teach."
+  shape the guides teach."
   [tag]
   [rf.fresco/frame-root
    {:id reloaded :initial-events [[::seed "boot"]]}
@@ -430,7 +425,7 @@
                   goes through rather than raising
                   `:rf.error/frame-root-reconfigured`"
           (is (nil? (refusal #(rf.fresco/render! a (reload-tree "reloaded") ca)))
-              "the repaired boot → reload pair was refused; a reader copying
+              "the documented boot → reload pair was refused; a reader copying
                the guide's own recipe would get a throw where `render!` is
                supposed to preserve the mounted tree"))
 
@@ -456,21 +451,21 @@
 ;; W8 — THE TRAP on the other side of W7, and why it is witnessed THIS way
 ;; ---------------------------------------------------------------------------
 ;;
-;; W7 shows the repaired pair going through. On its own that is not evidence
-;; the repair was NEEDED: a row that passes proves the guard is quiet, never
-;; that it would have spoken. This is the half that bites.
+;; W7 shows the documented pair going through. On its own that is not evidence
+;; the guard matters: a row that passes proves the guard is quiet, never that
+;; it would speak. This is the half that bites.
 ;;
 ;; **The obvious spelling of it does not work, and the reason is worth having
 ;; rather than rediscovering.** `require-unchanged-root-opts!` throws in
 ;; `frame-root-fc`'s RENDER body, and React does not rethrow a render-phase
 ;; throw to whoever called `flushSync`: it reports it as an uncaught Chromium
-;; `pageerror` (measured — `cljs$core$ExceptionInfo`, with React naming
+;; `pageerror` (a `cljs$core$ExceptionInfo`, with React naming
 ;; `<re_frame$views$frame_boundary$frame_root_fc>` and asking for an error
 ;; boundary), so a `try`/`catch` around `h/render!` sees NOTHING and reads as
 ;; "the guard never fired". Worse, this lane's verdict policy makes any
-;; pageerror fatal on purpose (`_impl-browser-runners-verdict-policy.test.cjs`,
-;; rf2-mwx08 / rf2-wf5al), so provoking one to observe it would red the whole
-;; browser suite rather than this row.
+;; pageerror fatal on purpose (`_impl-browser-runners-verdict-policy.test.cjs`),
+;; so provoking one to observe it would red the whole browser suite rather than
+;; this row.
 ;;
 ;; So the refusal is observed through the affordance the guide tells an
 ;; application to put there anyway: an `h/error-boundary` ABOVE the frame-root
@@ -504,9 +499,9 @@
           (is (= "boot" (text-at ca ".label")))
           (is (nil? (text-at ca ".fell"))))
 
-        (testing "the reload TRIMS `:initial-events` — precisely the omission
-                  the guides used to teach, on the ground that the seed had
-                  already run — and the committed boundary refuses it"
+        (testing "the reload TRIMS `:initial-events` — the omission that
+                  sounds reasonable because the seed has already run — and
+                  the committed boundary refuses it"
           (rf.fresco/render! a (guarded {:id trimmed-frame} "trimmed") ca)
           (is (= "fell" (text-at ca ".fell"))
               "a committed frame-root accepted a DIFFERENT option map: the
