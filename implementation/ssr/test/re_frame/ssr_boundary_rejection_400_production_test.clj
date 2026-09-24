@@ -1,23 +1,25 @@
 (ns re-frame.ssr-boundary-rejection-400-production-test
-  "rf2-qwydk ACCEPTANCE — an SSR request whose payload the
+  "ACCEPTANCE — an SSR request whose payload the
   `:boundary? true` step-1 check refuses answers HTTP 400 under the
   REAL production gate, and the record it answers from carries nothing the
   attacker sent.
 
-  THE HOLE THIS CLOSES. `re-frame.interop/debug-enabled?` reads
-  `-Dre-frame.debug=false` ONCE at namespace-load time. Until rf2-mwv4e the
-  boundary rejection reached the outside world through ONE channel —
-  `spec/validate-at-boundary!` → `trace/emit-error!`, which sits
-  inside that gate. The CHECK was never elided (Spec 010 §Production builds
-  keeps this one surface ungated, and it is the whole point of the
-  interceptor), so a production server really did refuse the payload; what it
-  did not do was say so. Nothing buffered, `flush-response!` had nothing to
-  project, and `:status` stayed 200 — a malformed request body answered with
-  RFC 9110's success code. rf2-mwv4e supplies the missing record: one
-  always-on, structural-only `:rf.error/schema-validation-failure` with
+  WHY A PRODUCTION-GATE WITNESS. `re-frame.interop/debug-enabled?` reads
+  `-Dre-frame.debug=false` ONCE at namespace-load time, and the dev channel
+  for a boundary rejection — `spec/validate-at-boundary!` →
+  `trace/emit-error!` — sits inside that gate. The CHECK is never elided
+  (Spec 010 §Production builds keeps this one surface ungated, and it is the
+  whole point of the interceptor), so a production server refuses the
+  payload; with the dev channel as its only record it would not say so.
+  Nothing would buffer, `flush-response!` would have nothing to project, and
+  `:status` would stay 200 — a malformed request body answered with RFC
+  9110's success code. The record that says so is one always-on,
+  structural-only `:rf.error/schema-validation-failure` with
   `:source :boundary` and `:where :event`. This suite is the SSR half of that
-  — nothing in `implementation/ssr` changed to earn the 400, and this is the
-  proof of that claim rather than a restatement of it.
+  — nothing in `implementation/ssr` is specific to the boundary 400 (the
+  projection listener's generic tag-lift hands `:where :event` to the
+  default projector), and this is the proof of that claim rather than a
+  restatement of it.
 
   WHY THIS SUITE IS POSTURE-INDEPENDENT, AND WHY THAT MATTERS. Every
   assertion below is true under BOTH postures and mentions the dev trace bus
@@ -25,7 +27,7 @@
   (that roster is an EXCLUSION list) and executes under
   `-Dre-frame.debug=false` for real. A `with-redefs [interop/debug-enabled?
   false]` rebind CANNOT reach a load-time gate — it is not evidence for this
-  bead, and its absence here is deliberate.
+  contract, and its absence here is deliberate.
 
   WHAT IS PINNED:
 
@@ -41,7 +43,7 @@
        it. Two sentinels, one for each.
     4. Sibling attribution. Under concurrent SSR many server frames are live;
        the 400 lands on the frame that refused and nowhere else.
-    5. The dev/prod symmetry, MEASURED rather than reasoned (rf2-qwydk §3).
+    5. The dev/prod symmetry, MEASURED rather than reasoned.
        In a dev build the rejection buffers on BOTH buses and only one of
        them can win the last-write-wins drain. Every buffered entry is
        therefore asserted to project the SAME 400, the drain is asserted to
@@ -49,11 +51,11 @@
        to find nothing left to re-stamp.
 
   Companion suites:
-    - `re-frame.always-on-validation-production-test` (core, rf2-mwv4e) —
+    - `re-frame.always-on-validation-production-test` (core) —
       the record and `:outcome :rejected` under core's own production gate.
-    - `re-frame.ssr-route-miss-404-production-test` (rf2-ov56u) — the
+    - `re-frame.ssr-route-miss-404-production-test` — the
       always-on witness this one is modelled on.
-    - `re-frame.ssr-safe-redirect-production-test` (rf2-6jqa8) — the
+    - `re-frame.ssr-safe-redirect-production-test` — the
       DELIBERATE opposite: those three categories are non-projection-eligible
       because a refused redirect is a working mitigation, and conjuring a 500
       from a hostile probe would be a denial of service. A refused request
@@ -149,13 +151,12 @@
 ;; ===========================================================================
 
 (deftest a-refused-payload-projects-400-under-the-production-gate
-  (testing "rf2-qwydk: THE BEAD. A handler carrying `:boundary? true`
-            refuses a non-conforming payload in every build; since rf2-mwv4e
-            the refusal also produces an always-on record, which the SSR
-            projection listener buffers and the default projector maps to
-            400. Before that record existed this assertion observed 200 under
-            `-Dre-frame.debug=false` — a malformed request body answered with
-            a success code."
+  (testing "A handler carrying `:boundary? true` refuses a
+            non-conforming payload in every build, and the refusal produces
+            an always-on record, which the SSR projection listener buffers
+            and the default projector maps to 400. Without that record this
+            assertion would observe 200 under `-Dre-frame.debug=false` — a
+            malformed request body answered with a success code."
     (let [{:keys [frame]} (ingest! bad-payload)
           {:keys [response public-error]} (rf.ssr/flush-response-result! frame)]
       (is (= 400 (:status response))
@@ -173,7 +174,7 @@
            (:status response)"))))
 
 (deftest a-conforming-payload-leaves-the-response-untouched
-  (testing "rf2-qwydk non-vacuity: without this, every 400 above would be
+  (testing "non-vacuity: without this, every 400 above would be
             satisfied by a projector arm that fired unconditionally. A
             conforming payload ships no record, keeps the 200, and — the part
             that proves the pipeline really ran — lands the handler's write."
@@ -196,7 +197,7 @@
 ;; ===========================================================================
 
 (deftest the-rejection-fans-exactly-one-always-on-record
-  (testing "rf2-qwydk / Spec 009's one-runtime-error law: the two enforcement
+  (testing "Spec 009's one-runtime-error law: the two enforcement
             routes (dev refuses in step-1, production inside the interceptor)
             converge on ONE emit site, so a rejection cannot report twice —
             which is also what stops the projection buffer from filling with
@@ -206,7 +207,7 @@
           "exactly one always-on record, and it is the boundary category"))))
 
 (deftest the-record-carries-the-discriminators-the-projector-gates-on
-  (testing "rf2-qwydk: `:where :event` is what
+  (testing "`:where :event` is what
             `default-error-projector-fn` gates its 400 arm on — a record
             without it falls through to the locked generic 500, telling the
             client the server broke when the client sent bad input.
@@ -230,7 +231,7 @@
       (is (number? (:time record))))))
 
 (deftest the-default-projector-gates-the-400-arm-on-where-event
-  (testing "rf2-qwydk: the gate, unit-tested directly on the pure projector
+  (testing "the gate, unit-tested directly on the pure projector
             fn, so the claim holds without a bus. A server-side surface
             (`:where :fx-args`) is a SERVER fault and must not be reported to
             the client as a 400; a record with no `:where` at all falls
@@ -263,7 +264,7 @@
   (map str (tree-seq coll? seq record)))
 
 (deftest the-record-carries-nothing-from-the-rejected-payload
-  (testing "rf2-mwv4e / rf2-qwydk EGRESS: this record reaches Sentry / Datadog
+  (testing "EGRESS: this record reaches Sentry / Datadog
             from a production build, and the payload it describes is
             attacker-controlled by definition. The offending VALUE is the slot
             a redaction policy would target; the UNDECLARED KEY beside it is
@@ -282,7 +283,7 @@
            structurally, WITHOUT the payload that travelled with it"))))
 
 (deftest the-production-record-carries-exactly-the-enumerated-slots
-  (testing "rf2-mwv4e: the key set is CLOSED. A slot added to this record
+  (testing "the key set is CLOSED. A slot added to this record
             reaches an off-box shipper in a production build, so widening it
             must be a deliberate change rather than a drift — and the
             payload-bearing slots the DEV trace carries are named here by
@@ -303,7 +304,7 @@
 ;; ===========================================================================
 
 (deftest the-400-lands-on-the-emitting-frame-only
-  (testing "rf2-qwydk / rf2-7d30s: under concurrent SSR many server frames are
+  (testing "under concurrent SSR many server frames are
             live at once. The record carries the emitting frame, so the
             projection routes to THAT response accumulator; a sibling request
             whose payload conformed keeps its 200. Without the stamp the
@@ -320,7 +321,7 @@
           "its concurrent sibling, which conformed, is untouched"))))
 
 (deftest a-client-frame-rejection-stamps-no-status
-  (testing "rf2-qwydk: the record fans on both hosts — a CLJS production
+  (testing "the record fans on both hosts — a CLJS production
             build's error shipper sees a client-side boundary rejection too —
             but the projection listener no-ops for a non-server frame. There
             is no request to fail."
@@ -338,16 +339,16 @@
 ;; (5) DEV/PROD SYMMETRY — the duplicate buffer cannot change the wire
 ;; ===========================================================================
 ;;
-;; rf2-qwydk §3.  rf2-6jqa8 measured a real dev/prod wire asymmetry on its own
-;; surface: the safe-redirect categories were projection-eligible on the
-;; trace-cb path, so a dev build stamped a 500 where production answered 200.
+;; Posture CAN change the wire: were the safe-redirect categories
+;; projection-eligible on the trace-cb path, a dev build would stamp a 500
+;; where production answers 200.
 ;; Here BOTH buses carry the rejection in a dev build, and the reasoning is
 ;; that `consume-pending-traces!` plus last-write-wins makes the duplicate
 ;; benign.  Reasoned is not measured, so measure it — WITHOUT asserting a
 ;; buffer COUNT, which is the one thing that legitimately differs by posture.
 
 (deftest every-buffered-entry-projects-the-same-400
-  (testing "rf2-qwydk §3: in a dev build the rejection buffers on both the
+  (testing "in a dev build the rejection buffers on both the
             trace-cb and the always-on path, and `apply-error-projection!`
             projects the LAST entry. Whichever wins is only safe if they agree,
             so assert the agreement rather than the count — the count is the
@@ -370,7 +371,7 @@
              pick a different status in one posture than the other")))))
 
 (deftest one-drain-consumes-the-buffer-and-a-second-flush-restamps-nothing
-  (testing "rf2-qwydk §3: the duplicate must not double-stamp. One drain clears
+  (testing "the duplicate must not double-stamp. One drain clears
             the WHOLE per-frame buffer — both entries in a dev build, the one
             in production — so a later flush has nothing left to re-project
             onto a response the host may already have committed."
