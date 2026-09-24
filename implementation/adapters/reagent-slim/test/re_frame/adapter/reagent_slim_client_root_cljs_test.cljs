@@ -1,5 +1,5 @@
 (ns re-frame.adapter.reagent-slim-client-root-cljs-test
-  "reagent-slim twin of `re-frame.adapter-client-root-cljs-test` (rf2-k5r9t).
+  "reagent-slim twin of `re-frame.adapter-client-root-cljs-test`.
   The published slim artefact ships its adapter at the canonical
   `re-frame.adapter.reagent` ns, so the `client-root` / `render!` /
   `unmount!` trio must behave identically over `reagent2.dom.client`: this
