@@ -804,7 +804,7 @@
                       nil
                       (catch :default e (ex-data e)))]
         (is (= :rf.error/fresco-bad-host-declaration (:rf.error/id data))
-            ":handler is retired; a plain function is what it named")))))
+            ":handler is not a contract; the two are :event and :render")))))
 
 (deftest every-other-host-prop-value-crosses-exactly-as-it-did
   (testing "functions by identity — `React.memo` and every downstream
@@ -845,7 +845,7 @@
       (is (identical? r (host-prop :ref r "ref"))
           "and a defhost crossing — HD-011's conversion parity, which is
            what makes 'enforced at one crossing and not the other' the
-           outcome design C ruled out")))
+           outcome design C excludes")))
   (testing "and it is one rule at one slot, so an alternate spelling of the
             ref position answers the same way"
     (let [r (react/createRef)]
