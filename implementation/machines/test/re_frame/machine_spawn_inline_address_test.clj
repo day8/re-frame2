@@ -1,16 +1,16 @@
 (ns re-frame.machine-spawn-inline-address-test
   "An inline `:definition` spawn must carry an ADDRESS — `:id-prefix` or
   `:fixed-actor-id` — and one carrying neither is refused early, typed and
-  fail-closed (rf2-j1ykz).
+  fail-closed.
 
   A `:machine-id` spawn defaults its id prefix to that registered type; an
-  inline definition has no type to default to. Registration used to accept the
-  unaddressed shape, and the id allocator then crashed on the nil prefix (an
-  NPE in `format-spawn-id`, surfacing as `:rf.error/handler-exception`), so
-  the parent never booted. A hand-emitted `[:rf.machine/spawn …]` in the same
-  shape did not crash: it installed an actor at address `nil`.
+  inline definition has no type to default to. Accepting the unaddressed
+  shape would crash the id allocator on the nil prefix (an NPE in
+  `format-spawn-id`, surfacing as `:rf.error/handler-exception`), so the
+  parent would never boot; a hand-emitted `[:rf.machine/spawn …]` in the same
+  shape would not crash but would install an actor at address `nil`.
 
-  Registration now refuses the declarative shapes, so the machine never
+  Registration refuses the declarative shapes, so the machine never
   registers, and the spawn fx refuses the hand-emitted shape before anything
   installs."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
