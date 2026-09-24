@@ -1,6 +1,6 @@
 'use strict';
 // ONE ISOLATE — a worker thread, its deadline, and its one in-flight
-// render (rf2-hic-056, guarantees 1, 3 and 4).
+// render (guarantees 1, 3 and 4).
 //
 // ## WHY A THREAD AND NOT A FUNCTION CALL
 //
@@ -53,14 +53,15 @@ const WORKER_PATH = path.join(__dirname, 'worker.cjs');
  * anything in the worker, so its `try/catch` — and therefore its stderr
  * write — never runs. This is the only place the exception exists.
  *
- * WHICH IS WHY THIS FUNCTION IS PART OF THE FIX RATHER THAN A COURTESY.
- * Closing the refusal's wording without opening this would have traded a
- * leak for a silence, and a failure nobody can diagnose is its own defect.
+ * WHICH IS WHY THIS FUNCTION IS PART OF THE CONTRACT RATHER THAN A
+ * COURTESY. A refusal whose wording is closed, with no copy of the fault
+ * anywhere else, would trade a leak for a silence, and a failure nobody can
+ * diagnose is its own defect.
  *
- * NOT A NEW SUBSYSTEM and no flag, for the reasons `reportRenderException`
- * gives: `bin/serve.cjs` already writes `[rf.ssr-node] …` here, so this is
- * that stream under that prefix, and a diagnostic that can be switched off
- * is off on the day it is wanted.
+ * NO SEPARATE SUBSYSTEM and no flag, for the reasons `reportRenderException`
+ * gives: `bin/serve.cjs` writes `[rf.ssr-node] …` here, so this is that
+ * stream under that prefix, and a diagnostic that can be switched off is
+ * off on the day it is wanted.
  */
 function reportIsolateFault(isolateSeq, err) {
   const trace = err && err.stack ? err.stack : String(err);
@@ -68,20 +69,18 @@ function reportIsolateFault(isolateSeq, err) {
 }
 
 /**
- * Stamp the service-owned torn-response count onto a terminal refusal
- * (rf2-kirm).
+ * Stamp the service-owned torn-response count onto a terminal refusal.
  *
  * `README.md` §refusals and `service.cjs`'s own header promise that a failure
  * arriving AFTER chunks is a torn response carrying `detail.afterChunks`, and
  * name "the isolate dying under a render" as one of the two ways that happens.
- * The count was attached only where the WORKER reported the failure — but the
- * three paths that matter most here are precisely the ones the worker cannot
- * report on, because on each of them the worker is already gone or going: the
- * deadline rejection, `_failPendingRender` (the crashed / exited thread), and
- * `close()`. Each rebuilt a refusal from scratch and cleared `pendingRender`,
- * so the only record of how many chunks had already left went with it, and a
- * transport branching on the advertised discriminator saw `undefined` beside
- * body bytes it had already written.
+ * The worker cannot report the count on three paths, because on each of them
+ * it is already gone or going: the deadline rejection, `_failPendingRender`
+ * (the crashed / exited thread), and `close()`. Each builds its refusal from
+ * scratch and clears `pendingRender`, which holds the only record of how many
+ * chunks have left, so a refusal built without the count would leave a
+ * transport branching on the advertised discriminator seeing `undefined`
+ * beside body bytes it has already written.
  *
  * SERVICE-OWNED, on the same footing as the `isolate` / `threadId` /
  * `timeoutMs` fields it joins: the count is what THIS file forwarded, and
@@ -164,22 +163,22 @@ class Isolate {
         // stays registered for the worker's whole life, so before boot
         // resolves the `reject` below is live and `_failPendingRender` is a
         // no-op; afterwards the promise is settled and it is the other way
-        // round. The two arms answer different people and that is why only
-        // one of them changed.
+        // round. The two arms answer different people and that is why they
+        // differ.
         //
         // THE RENDER ARM — a fault that reached a CALLER. `handleRender`'s
-        // own catch never saw this one: an exception thrown from a callback
+        // own catch never sees this one: an exception thrown from a callback
         // the render scheduled runs on a later tick with no `try` above it,
-        // so Node killed the thread and the `Error` arrived here instead.
-        // That made this the second receiver of the response law, and for a
-        // while the only one not stating it — `err.message` was the module's
-        // wording and `err.stack` was that wording plus every absolute path
-        // in the deployment, both published on the public `Refusal` and
-        // serialised into the HTTP body. So: the contract's wording, and a
-        // `detail` this file builds. `isolate` and `threadId` are the same
-        // two service-owned facts the deadline refusal above carries, and
-        // for the same reason — they name the thread an operator is about
-        // to go looking for, and neither originates in the module.
+        // so Node kills the thread and the `Error` arrives here instead.
+        // That makes this the second receiver of the response law.
+        // `err.message` is the module's wording and `err.stack` is that
+        // wording plus every absolute path in the deployment, and either one
+        // on the public `Refusal` would be serialised into the HTTP body.
+        // So: the contract's wording, and a `detail` this file builds.
+        // `isolate` and `threadId` are the same two service-owned facts the
+        // deadline refusal below carries, and for the same reason — they
+        // name the thread an operator is about to go looking for, and
+        // neither originates in the module.
         //
         // The real exception goes to stderr first, and on this path that is
         // the only copy that has ever existed; see `reportIsolateFault`.
@@ -190,35 +189,35 @@ class Isolate {
             threadId: this.threadId,
           }),
         );
-        // THE BOOT ARM — untouched, deliberately. Boot fails before the
-        // service listens, so this refusal is read by the operator standing
-        // at the process they just started rather than by a caller across a
-        // wire; `worker.cjs`'s boot post names this handler as where the
-        // real stack survives, and it is the diagnostic for a module that
-        // cannot be loaded at all. Two audiences, and this one is already
-        // the operator.
+        // THE BOOT ARM — the module's own wording, deliberately. Boot fails
+        // before the service listens, so this refusal is read by the
+        // operator standing at the process they just started rather than by
+        // a caller across a wire; `worker.cjs`'s boot post names this
+        // handler as where the real stack survives, and it is the diagnostic
+        // for a module that cannot be loaded at all. Two audiences, and this
+        // one is already the operator.
         //
         // Read NULLISH-SAFELY, because this line runs in every phase: the
         // `reject` is a no-op after boot, but its arguments are still
         // evaluated. A module callback that throws `null` or `undefined`
         // (CLJS emits `throw null` for `(throw nil)`) arrives here as that
-        // value itself, and reading `.message` off it threw in the MAIN
-        // thread — an uncaught exception that took the whole sidecar down,
-        // every isolate's in-flight render with it (rf2-3x7nj.15.1).
+        // value itself, and reading `.message` off it would throw in the
+        // MAIN thread — an uncaught exception that takes the whole sidecar
+        // down, every isolate's in-flight render with it.
         reject(new Refusal(CODE.MALFORMED_MODULE, err?.message ?? String(err), { stack: err?.stack }));
       });
       worker.on('exit', (exitCode) => {
         clearTimeout(bootTimer);
-        // THE BOOT ARM OF THIS EVENT (rf2-gwye.23). A worker that exits
-        // before it posts `ready` — a module calling `process.exit()` while
-        // it is evaluated, or from its `boot` hook — raises no `error` and
-        // posts no `boot-error`, and the line above had just cleared the one
-        // other thing that could settle startup. So startup stayed pending
-        // for ever, past `bootTimeoutMs`, and so did everything above it:
-        // `Pool.start`'s `allSettled` never reached its sibling cleanup, and
-        // a replacement never left `startingReplacements`, which `close()`
-        // waits on. A no-op once `ready` has resolved, exactly as the `error`
-        // arm's `reject` is.
+        // THE BOOT ARM OF THIS EVENT. A worker that exits before it posts
+        // `ready` — a module calling `process.exit()` while it is evaluated,
+        // or from its `boot` hook — raises no `error` and posts no
+        // `boot-error`, and the line above has just cleared the one other
+        // thing that could settle startup. Without this `reject`, startup
+        // would stay pending for ever, past `bootTimeoutMs`, and so would
+        // everything above it: `Pool.start`'s `allSettled` would never reach
+        // its sibling cleanup, and a replacement would never leave
+        // `startingReplacements`, which `close()` waits on. A no-op once
+        // `ready` has resolved, exactly as the `error` arm's `reject` is.
         reject(
           new Refusal(
             CODE.MALFORMED_MODULE,
@@ -226,23 +225,20 @@ class Isolate {
             { modulePath: this.modulePath, exitCode },
           ),
         );
-        // THE SIBLING ARM, AND IT IDENTIFIES ITSELF THE SAME WAY (rf2-rhyi).
+        // THE SIBLING ARM, AND IT IDENTIFIES ITSELF THE SAME WAY.
         // `ISOLATE_LOST` covers three distinct causes — a crashed worker, a
         // worker that exited, and a replacement that will not boot — and a
         // consumer tells them apart by detail SHAPE, because the code and
-        // the wording are the only other things it has. This arm reached
-        // that code with an EMPTY map, so the one arm whose thread is gone
-        // most quietly (nothing thrown, nothing on stderr) was also the one
-        // that named neither the isolate nor the thread an operator is
-        // about to go looking for. `isolate` and `threadId` are the same
-        // two service-owned facts the `error` arm above and the deadline
-        // refusal below already carry, and for the same reason: neither
-        // originates in the render module.
+        // the wording are the only other things it has. This is the arm
+        // whose thread is gone most quietly (nothing thrown, nothing on
+        // stderr), so an EMPTY map here would name neither the isolate nor
+        // the thread an operator is about to go looking for. `isolate` and
+        // `threadId` are the same two service-owned facts the `error` arm
+        // above and the deadline refusal below carry, and for the same
+        // reason: neither originates in the render module.
         //
-        // The code, the wording and the termination/replacement behaviour
-        // are deliberately unchanged — this is a detail-map gap rather than
-        // a policy change. `_failPendingRender` still stamps `afterChunks`
-        // on top, so a torn exit keeps its discriminator.
+        // `_failPendingRender` stamps `afterChunks` on top, so a torn exit
+        // keeps its discriminator.
         this._failPendingRender(
           new Refusal(CODE.ISOLATE_LOST, 'the isolate exited mid-render', {
             isolate: this.seq,
@@ -266,8 +262,7 @@ class Isolate {
    * the only thing that both writes the real trace to the operator's stderr
    * and publishes the contract's own wording to the caller. Building a
    * `Refusal` here would satisfy the sentence above and leave the operator
-   * with no copy of the failure at all, which is the trade rf2-2hmg
-   * refused.
+   * with no copy of the failure at all.
    */
   render(request, { timeoutMs, onChunk }) {
     if (this.dead) {
@@ -288,25 +283,25 @@ class Isolate {
     const renderId = this._nextRenderId++;
 
     return new Promise((resolve, reject) => {
-      // THE POST COMES FIRST, AND NOTHING IS MARKED UNTIL IT LANDS
-      // (rf2-ey07). `postMessage` throws — a structured clone refuses any
-      // value it cannot copy — and this used to run last, after the flag
-      // and the timer were already set. A throw then left the isolate
-      // marked busy with a render that had already rejected, and only the
-      // deadline could clear it: `pendingRender` is the sole reading of
-      // `busy`, and every other path that clears it is a message about a
-      // render this one never sent. So the pool took the isolate back
-      // (`dead` was false, so nothing replaced it), handed it to the next
-      // caller, and that caller was refused SERVICE_SATURATED by an isolate
-      // doing nothing at all — until the deadline fired and TERMINATED a
-      // healthy worker thread, costing one more request and a boot.
+      // THE POST COMES FIRST, AND NOTHING IS MARKED UNTIL IT LANDS.
+      // `postMessage` throws — a structured clone refuses any value it
+      // cannot copy. Run last, after the flag and the timer were set, a
+      // throw would leave the isolate marked busy with a render that had
+      // already rejected, and only the deadline could clear it:
+      // `pendingRender` is the sole reading of `busy`, and every other path
+      // that clears it is a message about a render this one never sent. The
+      // pool would take the isolate back (`dead` is false, so nothing
+      // replaces it) and hand it to the next caller, who would be refused
+      // SERVICE_SATURATED by an isolate doing nothing at all — until the
+      // deadline fired and TERMINATED a healthy worker thread, costing one
+      // more request and a boot.
       //
-      // Ordering is the whole fix, and it needs no new state: a throw here
-      // unwinds the executor with the timer unarmed and `pendingRender`
-      // untouched, so the isolate is exactly as free as it was a line ago.
-      // The reverse ordering is safe because nothing can observe the gap —
-      // a reply from another thread cannot arrive until this synchronous
-      // executor has run to its end.
+      // The ordering needs no extra state: a throw here unwinds the
+      // executor with the timer unarmed and `pendingRender` untouched, so
+      // the isolate is exactly as free as it was a line ago. Posting before
+      // marking is safe because nothing can observe the gap — a reply from
+      // another thread cannot arrive until this synchronous executor has
+      // run to its end.
       this.worker.postMessage({ t: 'render', id: renderId, request });
 
       const deadlineTimer = setTimeout(() => {
@@ -325,8 +320,8 @@ class Isolate {
                 isolate: isolateSeq,
                 threadId,
                 entry: request.entry,
-                // rf2-kirm — a deadline can land after chunks have already
-                // gone out; the count is the transport's discriminator.
+                // A deadline can land after chunks have already gone out;
+                // the count is the transport's discriminator.
                 afterChunks: pendingRender.chunkCount,
               },
             ),
@@ -404,7 +399,7 @@ class Isolate {
   /**
    * `settle` is handed the pendingRender it is settling — the record is
    * cleared before it runs, so a settler that needs the render's own facts
-   * (`chunkCount`, rf2-kirm) has no other way to reach them.
+   * (`chunkCount`) has no other way to reach them.
    */
   _settlePendingRender(renderId, settle) {
     const pendingRender = this.pendingRender;
@@ -421,8 +416,8 @@ class Isolate {
     if (pendingRender) {
       clearTimeout(pendingRender.deadlineTimer);
       this.pendingRender = null;
-      // rf2-kirm — the worker is gone, so nothing else knows how many chunks
-      // it forwarded. Stamp before the reject, while the record is still in
+      // The worker is gone, so nothing else knows how many chunks it
+      // forwarded. Stamp before the reject, while the record is still in
       // hand.
       pendingRender.reject(stampAfterChunks(refusal, pendingRender.chunkCount));
     }
@@ -445,9 +440,9 @@ class Isolate {
       const pendingRender = this.pendingRender;
       this.pendingRender = null;
       pendingRender.reject(
-        // rf2-kirm — the third terminal path that clears `pendingRender`. A
-        // shutdown under a streaming render tears it exactly as a deadline
-        // does, so it names the count on the same footing.
+        // The third terminal path that clears `pendingRender`. A shutdown
+        // under a streaming render tears it exactly as a deadline does, so
+        // it names the count on the same footing.
         stampAfterChunks(
           new Refusal(CODE.SERVICE_CLOSED, 'the service is shutting down', {}),
           pendingRender.chunkCount,
