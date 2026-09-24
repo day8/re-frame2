@@ -734,7 +734,7 @@
 ;; The `view -> core late-bind <- ssr` discovery seam
 ;; ---------------------------------------------------------------------------
 ;;
-;; A view artefact's hydrate-root door must resolve a container's Root Manifest,
+;; A view artefact's hydrate door must resolve a container's Root Manifest,
 ;; but the discovery code lives HERE, in the optional `day8/re-frame2-ssr`
 ;; artefact. A direct `view artefact -> re-frame.ssr.manifest` require is ruled
 ;; out twice over: the Independence rule reserves the single sanctioned direct
@@ -743,7 +743,7 @@
 ;; classpath — a static require would fail to COMPILE every non-SSR app and drag
 ;; ssr into every view bundle.
 ;;
-;; So the seam is late-bind, the same shape a view artefact already
+;; So the seam is late-bind, the same shape a view artefact (Fresco)
 ;; exercises against routing (`:routing/link-model` / `:routing/activate-link!`).
 ;; The hook does EXACTLY what its name says: hand back the validated adjacent
 ;; Root Manifest, or nil when there is none. It exposes no payload install and
