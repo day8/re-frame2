@@ -75,7 +75,7 @@
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 (defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
-;; rf2-8iciw8 — `:rf.runtime/mutations` is keyed on the instance id's CEDN-1
+;; `:rf.runtime/mutations` is keyed on the instance id's CEDN-1
 ;; byte `key-id` (`rf.resources.state/key-id`), not the raw id; resolve through it.
 (defn- instance [instance-id] (get-in (runtime-db) [:rf.runtime/mutations (rf.resources.state/key-id instance-id)]))
 (defn- patch-summary [instance-id] (:patch-summary (instance instance-id)))
@@ -252,7 +252,7 @@
   (competing-authoritative-write! {:article {:favorited false :favoritesCount 100}})
   ;; the :invalidate conflict rule marks the moved entry durably stale at its
   ;; EXACT carried :resource/key and — because owner [:v :d] is active — arms
-  ;; the ordinary exact refetch (rf2-wcdj4: recovery is keyed by the carried
+  ;; the ordinary exact refetch (recovery is keyed by the carried
   ;; exact key, never rediscovered through the entry's optional tags). Capture
   ;; the recovery request the refetch lowers into managed HTTP.
   (let [muta @last-managed-args]
@@ -393,7 +393,7 @@
         (is (= :error (get-in out [rf.resources.mutation-runtime/mutations-key (rf.resources.mutation-runtime/instance-key-id :f1) :status])))))))
 
 ;; ===========================================================================
-;; 6. OWNER-CHANGE ROLLBACK (rf2-cxwuhl) — an owner attach / release that lands
+;; 6. OWNER-CHANGE ROLLBACK — an owner attach / release that lands
 ;;    BETWEEN the optimistic apply and the FAILED reply is an authoritative
 ;;    durable write (it mutates the snapshot-captured `:active-owners`), so it
 ;;    MUST move `:revision`. Otherwise a revision-keyed conflict check is BLIND
@@ -414,13 +414,13 @@
   (rf/reg-fx :rf.resource/refetch           (fn [_ _] nil)))
 
 (deftest release-mid-flight-does-not-resurrect-the-owner-on-rollback
-  ;; THE LEAK (bead rf2-cxwuhl): a route owns an article; an optimistic favorite
+  ;; THE LEAK: a route owns an article; an optimistic favorite
   ;; is in flight; the route navigates away (release) BEFORE the reply; the reply
-  ;; FAILS. Before the fix, the release did not bump `:revision`, so the rollback
-  ;; saw no conflict and restored the pre-apply snapshot verbatim — putting the
+  ;; FAILS. The release bumps `:revision`; without that bump the rollback would
+  ;; see no conflict and restore the pre-apply snapshot verbatim — putting the
   ;; departed route back into `:active-owners` and re-adding it to the
-  ;; owner-index, pinning the entry `:has-owner` forever (it can never GC and its
-  ;; poll re-arms for the frame's life).
+  ;; owner-index, pinning the entry `:has-owner` forever (it could never GC and
+  ;; its poll would re-arm for the frame's life).
   (stub-lifecycle-fx!)
   (reg-article-resource!)
   (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"}
@@ -452,13 +452,13 @@
       (is (nil? (:current-work e)) "no in-flight work pins it"))
     (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key article-key}])
     (is (nil? (entry article-key))
-        "GC removed the entry — the owner leak is fixed (was pinned :has-owner forever)")))
+        "GC removed the entry — no leaked owner pins it :has-owner")))
 
 (deftest attach-mid-flight-is-not-dropped-by-rollback
-  ;; THE MIRROR CASE (rf2-cxwuhl): an owner ATTACHED between the apply and the
+  ;; THE MIRROR CASE: an owner ATTACHED between the apply and the
   ;; failed reply (via a fresh-skip cache-hit ensure — the entry is fresh after
-  ;; the optimistic apply) must survive the rollback. Before the fix the attach
-  ;; did not bump `:revision`, so the no-conflict restore dropped the freshly
+  ;; the optimistic apply) must survive the rollback. The attach bumps
+  ;; `:revision`; without that bump the no-conflict restore would drop the freshly
   ;; attached owner (the caller holding it would then see the entry GC out from
   ;; under it). The bump makes it a conflict → `:invalidate` keeps the CURRENT owner
   ;; set (both owners) and recovers via the read path.
@@ -480,7 +480,7 @@
   (testing "the freshly-attached owner is NOT dropped by the rollback"
     (let [owners (:active-owners (entry article-key))]
       (is (contains? owners [:v :second])
-          "the mid-flight attach survived (was dropped by the blind restore before the fix)")
+          "the mid-flight attach survived (a blind restore would drop it)")
       (is (contains? owners [:v :first]) "the original owner is intact too")))
   (testing "the owner-index still routes both owners to the entry"
     (is (contains? (get-in (runtime-db) (conj (rf.resources.state/owner-index-path) [:v :second]))
@@ -503,7 +503,7 @@
   "Count the work-ledger rows linked to `scoped-key`, read straight off the
   durable slot — deliberately NOT through the ledger's own index or its
   `drop-rows-for-key`, so the count cannot be answered by the machinery under
-  test (rf2-6gzdb's bounded-ledger surface)."
+  test (the bounded-ledger surface)."
   [scoped-key]
   (->> (:rf.runtime/work-ledger (runtime-db))
        vals
@@ -512,18 +512,18 @@
 
 (deftest remove-mid-flight-release-does-not-resurrect-the-owner-on-rollback
   ;; THE REMOVE-FORM TWIN of release-mid-flight-does-not-resurrect-the-owner-on-
-  ;; rollback above (rf2-pkkft) — identical shape, identical leak. It survived
-  ;; the rf2-cxwuhl fix for one reason: that fix works by making `detach-owner`
-  ;; BUMP `:revision`, and an optimistic REMOVE had DISSOC'd the entry, so there
-  ;; was no entry to bump. `detach-owner` is a documented no-op on a nil entry —
-  ;; the release wrote nothing, moved nothing, and the revision-keyed conflict
-  ;; check was blind to it.
+  ;; rollback above — identical shape, identical leak risk. That test relies on
+  ;; `detach-owner` BUMPING `:revision`, and `detach-owner` is a documented
+  ;; no-op on a nil entry — so an optimistic REMOVE that DISSOC'd the entry would
+  ;; leave nothing to bump: the release would write nothing, move nothing, and
+  ;; the revision-keyed conflict check would be blind to it. The optimistic
+  ;; remove therefore TOMBSTONES the entry rather than dissocing it.
   ;;
-  ;; Delete a card; navigate away before the DELETE reply; the reply FAILS. The
-  ;; rollback restored the full pre-apply entry INCLUDING a route owner that had
-  ;; already released. The entry could then never GC (`gc-fired` reads
-  ;; `:has-owner`), refetched on every focus and reconnect, and polled for the
-  ;; frame's life.
+  ;; Delete a card; navigate away before the DELETE reply; the reply FAILS. A
+  ;; rollback that restored the full pre-apply entry INCLUDING a route owner that
+  ;; had already released would leave an entry that could never GC (`gc-fired`
+  ;; reads `:has-owner`), refetched on every focus and reconnect, and polled for
+  ;; the frame's life.
   (stub-lifecycle-fx!)
   (reg-article-resource!)
   (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"}
@@ -555,8 +555,8 @@
               authoritative write the conflict check can SEE"
       ;; The discriminating half of this pin. A departed owner can only be
       ;; RESURRECTED if it genuinely left first, so without this the test would
-      ;; also pass against a path where the owner never released — the case that
-      ;; was never broken. Against the dissoc'ing tree both halves fail: there is
+      ;; also pass against a path where the owner never released, which cannot
+      ;; resurrect anything. Against a dissoc'ing tree both halves fail: there is
       ;; no entry for `detach-owner` to write, and `entry-revision` reads 0 on
       ;; both sides of the release.
       (let [e (entry article-key)]
@@ -565,7 +565,7 @@
             "the release dropped the owner from the LIVE entry")
         (is (= (inc before-release) (:revision e))
             "detach-owner bumped :revision — the release is an authoritative
-             durable write, so the settle can see it (rf2-cxwuhl)"))))
+             durable write, so the settle can see it"))))
 
   ;; the reply FAILS → conflict-aware rollback runs.
   (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 500})
@@ -588,14 +588,13 @@
          work-ledger rows behind, so a drop is observable")
     (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key article-key}])
     (is (nil? (entry article-key))
-        "GC collected the tombstone — the owner leak is fixed (was pinned
-         :has-owner for the frame's life)"))
-  (testing "rf2-6gzdb RIDER — the collected tombstone takes its ledger rows with it"
-    ;; The tombstone does not re-open the bounded-ledger axis #9895 closed; it is
-    ;; what finally puts the optimistic remove INSIDE it. A dissoc'ing optimistic
-    ;; remove called no `drop-rows-for-key` — the only production droppers are
-    ;; `:rf.resource/remove`, clear-scope, `clear-resource`, GC, a mutation
-    ;; `:removes` target and `:rf.mutation/clear` — so it orphaned the key's rows
+        "GC collected the tombstone — no leaked owner pins it :has-owner"))
+  (testing "RIDER — the collected tombstone takes its ledger rows with it"
+    ;; The tombstone keeps the optimistic remove INSIDE the bounded ledger. A
+    ;; dissoc'ing optimistic remove would call no `drop-rows-for-key` — the only
+    ;; production droppers are `:rf.resource/remove`, clear-scope,
+    ;; `clear-resource`, GC, a mutation `:removes` target and
+    ;; `:rf.mutation/clear` — so it would orphan the key's rows
     ;; and its inverse-index bucket for good: nothing can ever join them to an
     ;; entry again, and `prune-terminal-for-key` only ever runs for a key whose
     ;; own work settles. Tombstoned, the entry is collected by the ordinary GC,
@@ -604,12 +603,12 @@
         "gc-fired dropped every work row linked to the collected key")))
 
 ;; ===========================================================================
-;; 7. EXACT-KEY CONFLICT RECOVERY (rf2-wcdj4) — rollback recovery is keyed by
+;; 7. EXACT-KEY CONFLICT RECOVERY — rollback recovery is keyed by
 ;;    the carried exact :resource/key, NEVER rediscovered through the entry's
 ;;    OPTIONAL :tags. A resource that legitimately omits :tags gets the SAME
-;;    stale+refetch recovery as a tagged one (before the fix, the tagless
-;;    conflicted entry was silently left FRESH with the failed optimistic value
-;;    as cache truth, no recovery request — yet reported refetched). An
+;;    stale+refetch recovery as a tagged one (tag-based rediscovery would
+;;    silently leave a tagless conflicted entry FRESH with the failed optimistic
+;;    value as cache truth, with no recovery request — yet report it refetched). An
 ;;    owner-free conflicted entry stays durably stale (no immediate fetch) and
 ;;    recovers on its next public ensure.
 ;; ===========================================================================
@@ -624,7 +623,7 @@
   "Register the exact-target settings/profile resource — required :scope +
   :params-schema only (its ONE cache entry is addressed exactly, so it
   legitimately declares no :tags). `tags?` adds the OPTIONAL :tags fn — the
-  paired control proving tag metadata no longer changes recovery."
+  paired control proving tag metadata does not change recovery."
   [tags?]
   (rf/reg-resource :r/profile
     (cond-> {:scope :rf.scope/global
@@ -643,10 +642,10 @@
     (fn [_p _] {:request {:method :post :url "/profile"}})))
 
 (defn- contested-save-failure!
-  "Drive the rf2-wcdj4 reproduction through PUBLIC surfaces only: load server
+  "Drive the exact-key conflict scenario through PUBLIC surfaces only: load server
   value A under owner [:v :a], execute the exact-target optimistic save (A→B),
   move the entry's :revision mid-flight via a SECOND owner attach (a fresh-skip
-  cache-hit ensure — rf.resources.state/attach-owner advances :revision, rf2-cxwuhl), then
+  cache-hit ensure — rf.resources.state/attach-owner advances :revision), then
   deliver the accepted mutation failure. Returns the rolled-back trace tags;
   `@last-managed-args` afterwards holds the recovery request (or nil)."
   []
@@ -667,7 +666,7 @@
       #(reply-failure! muta {:kind :rf.http/http-5xx :status 500}))))
 
 (defn- assert-exact-key-recovery!
-  "The rf2-wcdj4 acceptance assertions — IDENTICAL for the tagless resource and
+  "The exact-key recovery assertions — IDENTICAL for the tagless resource and
   its tagged control, because recovery is keyed by the carried exact
   :resource/key and must not depend on the optional :tags."
   [rb]
@@ -693,30 +692,30 @@
     (is (= :loaded (:status @(rf/subscribe [:rf/resource profile-q]))))))
 
 (deftest tagless-conflict-rollback-recovers-by-the-exact-key
-  ;; THE BUG (rf2-wcdj4): before the fix, the tag-based rediscovery returned nil
-  ;; for this tagless entry — the failed optimistic B stayed FRESH cache truth,
-  ;; no recovery request was emitted, and the key was STILL listed refetched.
+  ;; A tag-based rediscovery would return nil for this tagless entry — the
+  ;; failed optimistic B would stay FRESH cache truth, no recovery request would
+  ;; be emitted, and the key would still be listed refetched.
   (reg-profile-resource! false)
   (assert-exact-key-recovery! (contested-save-failure!)))
 
 (deftest tagged-control-conflict-rollback-recovers-identically
   ;; THE PAIRED CONTROL: adding ONLY a :tags fn must not change recovery — the
-  ;; same observable outcomes as the tagless arm, proving :tags is no longer an
-  ;; undocumented correctness prerequisite for rollback recovery.
+  ;; same observable outcomes as the tagless arm, proving :tags is not a
+  ;; correctness prerequisite for rollback recovery.
   (reg-profile-resource! true)
   (assert-exact-key-recovery! (contested-save-failure!)))
 
 (deftest owner-free-conflict-leaves-the-exact-entry-durably-stale
   ;; A conflicted entry with NO active owners at settle stays durably stale in
   ;; place — no liveness created, no immediate fetch — and recovers on its next
-  ;; public ensure. This distinguishes STALE from REFETCHED and prevents an
-  ;; always-fetch fix. AND the stale-marked key is still AFFECTED (rf2-wcdj4
-  ;; audit residual): Spec 016 §Mutation completion continuations — `:affected-keys` carries
+  ;; public ensure. This distinguishes STALE from REFETCHED and rules out
+  ;; always fetching. AND the stale-marked key is AFFECTED:
+  ;; Spec 016 §Mutation completion continuations — `:affected-keys` carries
   ;; every key populated, patched, removed, OR MARKED STALE by the accepted
   ;; reply, so the owner-free conflict key flows into the instance row, the
   ;; `:rf.mutation/failed` trace, and the `:reply-to` continuation even though
-  ;; no refetch was armed (before the fix, affected was derived only from
-  ;; restored + actually-refetched keys and the owner-free stale key vanished).
+  ;; no refetch was armed (deriving affected only from restored +
+  ;; actually-refetched keys would lose the owner-free stale key).
   (reg-profile-resource! false)
   (let [replied (atom nil)]
     (rf/reg-event :t/save-settled (fn [_ event] (reset! replied (last event)) {}))
@@ -725,8 +724,8 @@
     (reg-save-profile-mutation!)
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save-profile :params {} :instance :s1
                                              :reply-to [:t/save-settled]}])
-    ;; the sole owner leaves mid-flight — rf.resources.state/detach-owner advances :revision
-    ;; (rf2-cxwuhl), so the settle sees a conflict on an OWNER-FREE entry.
+    ;; the sole owner leaves mid-flight — rf.resources.state/detach-owner advances
+    ;; :revision, so the settle sees a conflict on an OWNER-FREE entry.
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:v :a]}])
     (is (empty? (:active-owners (entry profile-key)))
         "precondition: the entry is owner-free before the reply settles")
@@ -768,25 +767,25 @@
             "the next live-owner ensure issued the recovery request")))))
 
 ;; ===========================================================================
-;; 7. IN-FLIGHT-READ ROLLBACK (rf2-veef) — a refetch that STARTS between the
+;; 8. IN-FLIGHT-READ ROLLBACK — a refetch that STARTS between the
 ;;    optimistic apply and the failed reply must survive the rollback.
 ;;
 ;;    `entry-start-load` deliberately does NOT bump `:revision` (EP-0019 Open
 ;;    Issue 5 / `resources_revision_substrate_cljs_test` — a read START must not
 ;;    false-conflict), so the settle correctly sees an UNMOVED revision and
-;;    chooses `:restore`. Restoring the snapshot WHOLE then put back the
+;;    chooses `:restore`. Restoring the snapshot WHOLE would then put back the
 ;;    pre-read `:generation` / `:current-work`, after which
-;;    `reply-handlers/live-slot-for-reply` suppressed the read's own valid
-;;    reply — the newer read was orphaned and its data never arrived — and any
-;;    owner that load had attached was dropped and reindexed away.
+;;    `reply-handlers/live-slot-for-reply` would suppress the read's own valid
+;;    reply — orphaning the newer read, so its data never arrives — and any
+;;    owner that load had attached would be dropped and reindexed away.
 ;;
-;;    The two rules are each right; their composition was not. An optimistic
+;;    The two rules are each right; composed naively they are not. An optimistic
 ;;    apply writes an entry's PAYLOAD and FRESHNESS only, so the read-work and
-;;    ownership facts were never the rollback's to restore.
+;;    ownership facts are never the rollback's to restore.
 ;; ===========================================================================
 
 (deftest a-refetch-started-mid-flight-survives-the-rollback
-  ;; THE ORPHAN (rf2-veef): load A; start an optimistic favorite (B); start a
+  ;; THE ORPHAN: load A; start an optimistic favorite (B); start a
   ;; refetch while it is pending; the mutation FAILS before the refetch replies.
   ;; B must roll back, the read must stay acceptable, and its eventual reply (C)
   ;; must land.
@@ -822,7 +821,7 @@
         (is (= false (get-in (entry article-key) [:data :article :favorited])))
         (is (= 9 (get-in (entry article-key) [:data :article :favoritesCount]))))
 
-      (testing "THE REGRESSION — the newer read's work facts SURVIVED the
+      (testing "the newer read's work facts SURVIVED the
                 rollback, so its reply is still acceptable"
         (let [e (entry article-key)]
           (is (= read-work (:current-work e))
@@ -836,7 +835,7 @@
 
       ;; ---- the read finally replies with C -------------------------------
       (reply-success! read-args {:article {:favorited false :favoritesCount 42}})
-      (testing "the read's own valid reply LANDS (it was suppressed before)"
+      (testing "the read's own valid reply LANDS (a wholesale restore would suppress it)"
         (is (= 42 (get-in (entry article-key) [:data :article :favoritesCount])))
         (is (= :loaded (:status (entry article-key))))
         (is (nil? (:current-work (entry article-key))) "the read settled"))
@@ -847,11 +846,11 @@
                                                   :params {:slug "w"}}])))))))
 
 (deftest an-owner-attached-by-that-refetch-survives-the-rollback
-  ;; THE MIRROR (rf2-veef): the mid-flight refetch also attaches a NEW owner.
+  ;; THE MIRROR: the mid-flight refetch also attaches a NEW owner.
   ;; `entry-start-load` attaches it WITHOUT bumping `:revision` (unlike a
   ;; standalone `attach-owner`, which bumps precisely so a rollback cannot
-  ;; clobber it — rf2-cxwuhl), so the no-conflict restore dropped it and the
-  ;; reindex removed its ownership too.
+  ;; clobber it), so a wholesale no-conflict restore would drop it and the
+  ;; reindex would remove its ownership too.
   (stub-lifecycle-fx!)
   (reg-article-resource!)
   (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"}
@@ -874,18 +873,18 @@
       (testing "the derived owner-index agrees (reindex saw the surviving owner)"
         (is (contains? (get-in (runtime-db) (conj (rf.resources.state/owner-index-path) [:v :second]))
                        (rf.resources.state/key-id article-key))
-            "the second owner still indexes the entry — it would have been
-             reindexed away with a wholesale restore"))
+            "the second owner still indexes the entry — a wholesale restore
+             would reindex it away"))
       (testing "and that read still settles"
         (reply-success! read-args {:article {:favorited false :favoritesCount 42}})
         (is (= 42 (get-in (entry article-key) [:data :article :favoritesCount])))))))
 
-;; ---- the pure seam: the two properties the whole repair rests on -----------
+;; ---- the pure seam: the two properties the rollback rests on ---------------
 
 (deftest reconcile-restored-entry-is-a-no-op-without-newer-work
-  (testing "rf2-veef — an optimistic apply never writes the live-work keys, so
+  (testing "an optimistic apply never writes the live-work keys, so
             copying them back off an unchanged entry changes nothing: the
-            existing exact rollback is preserved by construction"
+            exact rollback holds by construction"
     (let [before (-> (rf.resources.state/empty-entry :r/article article-key)
                      (rf.resources.state/entry-succeeded
                        {:data {:n 1} :loaded-at 100 :stale-at nil :tags #{}}))]
@@ -895,7 +894,7 @@
           "a vanished entry (:force over a removed key) restores verbatim too"))))
 
 (deftest an-absent-restore-keeps-a-live-read-rather-than-dissocing-it
-  (testing "rf2-veef — rolling back an optimistic SEED restores the absence,
+  (testing "rolling back an optimistic SEED restores the absence,
             UNLESS a read started on that key while the mutation was pending:
             dissoc'ing the entry would orphan that read exactly as a wholesale
             restore does, so the empty pre-seed entry is seated carrying it"
@@ -922,14 +921,14 @@
                   :before rf.resources.mutation-runtime/absent-snapshot :forward :seed}]
         (is (nil? (get-in (rf.resources.mutation-runtime/restore-before rdb disp)
                           (rf.resources.state/entry-path article-key)))
-            "the seeded key is removed, exactly as before")))))
+            "the seeded key is removed — the absence restored exactly")))))
 
 ;; ===========================================================================
-;; 6. An optimistic SEED the reply does not cover ARMS ITS GC TIMER (rf2-6gzdb)
+;; 9. An optimistic SEED the reply does not cover ARMS ITS GC TIMER
 ;; ===========================================================================
 
 (deftest optimistic-seed-uncovered-by-the-reply-arms-its-gc-timer
-  ;; rf2-6gzdb — THE DEFECT, mechanism 2, and the one that regresses silently.
+  ;; A missing arm here regresses silently.
   ;;
   ;; An optimistic SEED (`:forward :seed` — a patch over an ABSENT entry) creates
   ;; a brand-new cache entry back at execute time, phase 1.5. No read path ever
@@ -939,13 +938,13 @@
   ;; When the success reply's authoritative `:patches` / `:populates` /
   ;; `:removes` COVER the key, the settle's ordinary timer arming reaches it.
   ;; When they do NOT — the common shape for a create-mutation that seeds a
-  ;; detail key the server response does not echo back — the entry used to
-  ;; settle owner-free carrying a durable `:stale-at` / `:gc-after-ms` policy
-  ;; and NO armed reaper, and was collected only by luck: nothing else in the
-  ;; system will ever visit that key again. That is unbounded per-frame cache
-  ;; growth on a production path, and it is the mutation-side peer of rf2-ar9pcx
-  ;; / rf2-kz5op1, which closed the same leak on the resource read path's
-  ;; first-load `:error` and abort settles.
+  ;; detail key the server response does not echo back — the settle arms the
+  ;; timers itself. Without that, the entry would settle owner-free carrying a
+  ;; durable `:stale-at` / `:gc-after-ms` policy and NO armed reaper, collected
+  ;; only by luck: nothing else in the system will ever visit that key again.
+  ;; That would be unbounded per-frame cache growth on a production path; the
+  ;; resource read path's first-load `:error` and abort settles arm the same
+  ;; reaper for the same reason.
   (let [armed (atom [])]
     (rf.fx/reg-fx :rf.resource/schedule-timers (fn [_ args] (swap! armed conj args) nil))
     (rf/reg-resource :r/detail
@@ -989,6 +988,6 @@
           (is (= 1 (count for-k))
               "exactly one :rf.resource/schedule-timers fx for the seeded key")
           (is (= 120000 (-> for-k first :timers :gc))
-              "carrying the resource's :gc-after-ms — the reaper that was missing")
+              "carrying the resource's :gc-after-ms — the reaper the entry needs")
           (is (= 60000 (-> for-k first :timers :stale))
               "and its :stale-after-ms, exactly as a fetched entry would arm"))))))
