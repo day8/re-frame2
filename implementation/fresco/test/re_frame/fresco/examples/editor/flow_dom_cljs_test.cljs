@@ -13,10 +13,10 @@
     firing an event, which is the whole of what `::h/revision` buys.
 
   The word *eventless* in that third claim is load-bearing rather than
-  descriptive, and it cost this file a row. A keystroke's own
+  descriptive. A keystroke's own
   divergence is converged in the turn that typed it — the second claim
-  above IS that mechanism — so a reset row built on typing asserts a
-  value that has been on the glass since before the reset and stays green
+  above IS that mechanism — so a reset row built on typing would assert a
+  value that has been on the glass since before the reset and stay green
   with the counter deleted.
   [[what-the-revision-bump-is-actually-load-bearing-FOR]] carries the
   reasoning and the measurement.
@@ -283,15 +283,15 @@
            commit re-asserted the model over a draft React's own value
            diff had nothing to say about. Delete the `(update :revision
            (fnil inc 0))` from `::events/discard` and THIS row reds, with
-           the field still showing `typed-by-nobody` — measured, and that
-           is why the counter cannot be dropped as bookkeeping nobody can
-           see a reason for")
+           the field still showing `typed-by-nobody` — which is why the
+           counter cannot be dropped as bookkeeping nobody can see a
+           reason for")
       (rf.fresco.test.mounted/unmount! m))))
 
 (rf.fresco/defview bad-revision-box
-  "A DELIBERATE DEFECT, and the only one in this bead's two applications.
+  "A DELIBERATE DEFECT.
 
-  It lives in a test namespace and not in either witness, because a
+  It lives in a test namespace and not in the application, because a
   witness models proper re-frame2 and a control has to be able to make a
   gate red. `published-box`'s docstring claims the door refuses a
   revision here; this is the view that asks it to."
