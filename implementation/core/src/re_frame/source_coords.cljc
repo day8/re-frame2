@@ -20,7 +20,7 @@
        synthesises registrations from another source can stamp the
        original coordinates).
 
-  ## Production elision (rf2-3un2g)
+  ## Production elision
 
   Source-coord capture has TWO sinks:
 
@@ -93,7 +93,7 @@
   unchanged when no coords are pending (programmatic registration,
   REPL eval without the macro path).
 
-  Per rf2-3un2g §Production elision: in CLJS `:advanced` +
+  Per §Production elision (ns docstring): in CLJS `:advanced` +
   `goog.DEBUG=false` builds (and JVM SSR with `re-frame.debug=false`)
   this fn returns `user-meta` unchanged regardless of any pending
   coords binding. Coord-keys are stripped from the public registry-meta
@@ -111,7 +111,7 @@
         (merge coords (or user-meta {}))
         (or user-meta {})))))
 
-;; ---- source-coord annotation value formatters (rf2-5q0jv) -----------------
+;; ---- source-coord annotation value formatters -----------------------------
 ;;
 ;; The pure string projections of the two dev-mode DOM-annotation attribute
 ;; VALUES: `data-rf2-source-coord` = `<ns>:<sym>:<line>:<col>` (Spec 006
@@ -127,10 +127,9 @@
 ;;     walk (`re-frame.substrate.spine`), both routed through
 ;;     `re-frame.adapter.context` — alias these.
 ;;
-;; Before rf2-5q0jv the JVM copy (`.clj`) and the CLJS copy (`.cljs`,
-;; in `adapter.context`) were two hand-kept duplicates; the canonical-literal
-;; parity tests could only catch a drift AFTER it shipped. Collapsing both
-;; into this single `.cljc` implementation makes cross-host divergence
+;; Two hand-kept host copies could drift, and canonical-literal parity tests
+;; would only catch a drift AFTER it shipped. This single `.cljc`
+;; implementation makes cross-host divergence
 ;; structurally impossible and honours this namespace's contract that a
 ;; format and its inverse parse live together (the parsers below,
 ;; [[parse-source-coord]] / [[parse-view-id]], are their inverses). The
@@ -146,7 +145,7 @@
   `reg-view*` that bypassed the macro path — `:column` is optional per Spec
   001). Per Spec 006 §Source-coord annotation.
 
-  The single cross-host implementation (rf2-5q0jv): the JVM registration-
+  The single cross-host implementation: the JVM registration-
   boundary annotation and the CLJS Reagent / React-element injection walks
   all alias this one `.cljc` fn, so the value is byte-identical across hosts
   by construction. Its inverse is [[parse-source-coord]] below."
@@ -163,16 +162,16 @@
 (defn format-view-id
   "Render a registry id keyword as the `data-rf-view` attribute value —
   `(str id)`, so `:rf.foo/bar` → `\":rf.foo/bar\"` (leading colon included).
-  Per Spec 006 §View tagging contract (rf2-01il5).
+  Per Spec 006 §View tagging contract.
 
-  The single cross-host implementation (rf2-5q0jv): the JVM registration-
+  The single cross-host implementation: the JVM registration-
   boundary annotation and the CLJS injection walks all alias this one `.cljc`
   fn. Its inverse is [[parse-view-id]] below (which reads the leading `:` back
   into a keyword)."
   [id]
   (str id))
 
-;; ---- DOM source-coord attribute parser (rf2-nr7vf2) -----------------------
+;; ---- DOM source-coord attribute parser ------------------------------------
 ;;
 ;; The inverse of [[format-source-coord]] above (aliased on the CLJS side as
 ;; `re-frame.adapter.context/format-source-coord`, re-exported as
@@ -185,9 +184,8 @@
 ;; reading the attribute include JVM-side `.cljc` surfaces (Story's
 ;; element-inspector pure helpers, the SSR round-trip parity test).
 ;; Co-locating format + parse here keeps the round-trip a single source of
-;; truth (rf2-nr7vf2 collapses the parser that was reimplemented near-byte-
-;; for-byte in Story's element_inspector.cljc and the re-frame2-pair preload
-;; runtime; rf2-5q0jv brought the formatters home beside them).
+;; truth: Story's element_inspector.cljc and the re-frame2-pair preload
+;; runtime call this parser rather than reimplementing it.
 ;;
 ;; Tool-Pair.md declares the attribute value opaque to consumers and warns
 ;; downstream callers MUST NOT depend on the parsed shape's stability across
@@ -239,7 +237,7 @@
              :line       (parse-coord-int line-part)
              :col        (parse-coord-int col-part)}))))))
 
-;; ---- data-rf-view attribute parser (rf2-ztxnm8 / rf2-16znzb) ---------------
+;; ---- data-rf-view attribute parser ----------------------------------------
 ;;
 ;; The inverse of [[format-view-id]] above (aliased on the CLJS side as
 ;; `re-frame.adapter.context/format-view-id`, re-exported as
@@ -248,13 +246,10 @@
 ;; attribute value via `(str id)` — `:rf.foo/bar` → `":rf.foo/bar"`; this parser
 ;; recovers the id from that string. Both live HERE — in the source-coord
 ;; contract owner (Spec 006 §View tagging contract / §Source-coord annotation) —
-;; because the read rule used to live ONLY in `format-view-id`'s docstring +
-;; Spec 006 prose and was re-implemented inline by every consumer (its
-;; consumers today — e.g. the re-frame2-pair preload runtime's `view-entity`).
-;; Co-locating format + parse keeps the round-trip a single source of truth
-;; (rf2-ztxnm8 collapses those re-derivations — the data-rf-view analogue of the
-;; `parse-source-coord` work in rf2-nr7vf2; rf2-5q0jv brought the formatters
-;; home beside them).
+;; so consumers (e.g. the re-frame2-pair preload runtime's `view-entity`) call
+;; the parser rather than re-deriving the read rule from `format-view-id`'s
+;; docstring + Spec 006 prose. Co-locating format + parse keeps the round-trip
+;; a single source of truth, as for [[parse-source-coord]].
 ;;
 ;; Tool-Pair.md declares the attribute value opaque to consumers and warns
 ;; downstream callers MUST NOT depend on the parsed shape's stability across
@@ -300,7 +295,7 @@
     :else
     attr-val))
 
-;; ---- co-located per-element machine source (rf2-npvsx) -------------------
+;; ---- co-located per-element machine source --------------------------------
 ;;
 ;; The registered machine spec carries ONE cohesive map per guard / action:
 ;; `:guards {<id> {:fn <fn> :source-coords {...} :source-code
@@ -311,9 +306,9 @@
 ;; `(if rf.interop/debug-enabled? ...)` gate, so production CLJS builds run the
 ;; `(else)` branch — [[wrap-element-fns]] — which collapses each entry to
 ;; `{:fn <fn>}` with no source literals reachable. Keeping `:fn` separable is
-;; what lets Closure DCE the dev-only source bytes (rf2-npvsx supersedes the
-;; rf2-8bp3 `:rf.machine/source-coords` + rf2-ypu5i `:rf.machine/handler-
-;; source` side-indexes — consumers now read ONE place, one lookup).
+;; what lets Closure DCE the dev-only source bytes. There are no
+;; `:rf.machine/source-coords` / `:rf.machine/handler-source` side-indexes —
+;; consumers read ONE place, one lookup.
 
 (defn wrap-element-fns
   "Production-branch co-location: rewrite the `slot-key` map's
@@ -327,7 +322,7 @@
       preserved VERBATIM, NOT re-wrapped under a fresh `:fn`. Re-wrapping
       would nest `:rf.cofx/requires` one level down, emptying the
       cofx-ensure index and resolving the guard/action `:fn` to a map
-      rather than the fn (rf2-ful212). A user-authored entry-map carries
+      rather than the fn. A user-authored entry-map carries
       no debug slots in production (those are added only by the dev arm's
       [[collocate-element-source]]), so there is nothing to drop;
     - a keyword-reference value (`{<id> :other-id}`) → preserved verbatim
@@ -367,10 +362,10 @@
       :fn (fn …)}` — the named-cofx form authored inline in `reg-machine`
       or via `defmachine`) → the source-data is merged ONTO the entry, so
       `:fn` / `:rf.cofx/requires` stay at the top level. It is NOT
-      re-wrapped under a fresh `:fn`: doing so nested `:rf.cofx/requires`
-      one level down, which emptied the cofx-ensure index and resolved the
+      re-wrapped under a fresh `:fn`: doing so would nest `:rf.cofx/requires`
+      one level down, emptying the cofx-ensure index and resolving the
       guard/action `:fn` to a map rather than the fn — so the guard/action
-      silently never ran (rf2-ful212). This matches the shape the
+      would silently never run. This matches the shape the
       `def`/let-bound-symbol registration path yields (there the macro walker
       sees only a symbol and leaves the user's entry-map verbatim);
     - a keyword-reference value → preserved verbatim (no `:fn` wrapper —
@@ -400,8 +395,8 @@
 
 (defn collocate-state-source
   "Dev-branch runtime co-location of reference-site `:source-coords` onto
-  each map node inside the registered machine spec's `:states` tree
-  (rf2-vqja2). `coords` is the `{<map-spec-path> <coord-map>}` index the
+  each map node inside the registered machine spec's `:states` tree.
+  `coords` is the `{<map-spec-path> <coord-map>}` index the
   reg-machine macro built via [[walk-machine-spec]] at expansion time; this
   fn splices each coord onto the map living at its spec-path, yielding e.g.
 
@@ -429,7 +424,7 @@
 
 (defn collocate-state-inline-source
   "Dev-branch runtime co-location of inline-fn `:source-code` strings onto
-  each enclosing `:states`-tree map node (rf2-se70xj). `inline-source` is the
+  each enclosing `:states`-tree map node. `inline-source` is the
   `{<map-spec-path> {<slot> <source-string>}}` index the macro built via
   [[walk-machine-inline-source]] at expansion time; this fn splices each
   per-slot source map onto the map living at its spec-path under
@@ -447,7 +442,7 @@
                     :source-code   {:action \"(fn [_] {})\"}}}
 
   The `:source-code` map sits ALONGSIDE the `:source-coords` already
-  co-located on the node (per rf2-vqja2 / [[collocate-state-source]]); a tool
+  co-located on the node (per [[collocate-state-source]]); a tool
   resolving an inline-fn slot key (`[… :action]`) reads `(get-in spec […
   :source-code :action])` off the enclosing node. The inline SLOT itself
   keeps its bare fn value — the runtime engine resolves it via `fn?` and
@@ -476,7 +471,7 @@
         acc))
     spec inline-source))
 
-;; ---- always-on error-coord registry (rf2-3un2g) --------------------------
+;; ---- always-on error-coord registry --------------------------------------
 ;;
 ;; The parallel registry that retains source-coords in production builds.
 ;; Populated unconditionally at registration time via [[remember-error-
@@ -502,9 +497,7 @@
   `*pending-coords*` is bound (the public reg-* macro path). In CLJS
   production builds the coord-map's `:column` slot is absent — the
   prod-side macro emission omits it; only `:ns`/`:file`/`:line` ride
-  through. Returns the stored coord-map.
-
-  Per rf2-3un2g §Always-on error-coord registry."
+  through. Returns the stored coord-map."
   [kind id coords]
   (when (and kind id coords)
     (swap! error-coords-by-id assoc-in [kind id] coords))
@@ -515,18 +508,18 @@
   no coords were captured for that pair (programmatic registration, REPL
   eval that bypassed the macro path). The error-emit substrate uses this
   to stamp `:source-coord` on the tight record + policy-event in BOTH
-  dev AND production. Per rf2-3un2g."
+  dev AND production."
   [kind id]
   (get-in @error-coords-by-id [kind id]))
 
 (defn forget-error-coords!
   "Clear the parallel registry. Test fixtures use this between cases.
-  Mirrors `registrar/clear-all!`. Per rf2-3un2g."
+  Mirrors `registrar/clear-all!`."
   []
   (reset! error-coords-by-id {})
   nil)
 
-;; ---- :file resolution at macro-expansion time (rf2-mdjp) ------------------
+;; ---- :file resolution at macro-expansion time -----------------------------
 ;;
 ;; The reg-* macros in `re-frame.core` capture `(meta &form)` and `*file*`
 ;; from their compile-time environment and emit a `*pending-coords*`
@@ -539,7 +532,7 @@
 ;; registration's source-coord, defeating jump-to-source and tooling
 ;; that reads `(rf/handler-meta {:source :store :kind kind :id id})`.
 ;;
-;; The fix mirrors rf2-ulxi (PR #340, Story's `coords-form`):
+;; The remedy mirrors Story's `coords-form`:
 ;; prefer `(:file (meta &form))` — tools.reader's indexing-push-back-reader
 ;; stamps `:file` on every collection-form's metadata, which survives the
 ;; macro-expansion handoff to cljs.analyzer. Fall back to `*file*` (the
@@ -568,7 +561,7 @@
       (not (no-source-path? file))      file
       :else                              nil)))
 
-;; ---- :file absolutisation (rf2-wvsxg) ------------------------------------
+;; ---- :file absolutisation ------------------------------------------------
 ;;
 ;; Both shadow-cljs and the JVM compiler put the **classpath-relative**
 ;; portion of a source file in the form's `:file` slot — for
@@ -581,13 +574,13 @@
 ;; whenever the project-root isn't the same as the classpath root that
 ;; resolved the file.
 ;;
-;; Live failure shape (rf2-wvsxg):
+;; Failure shape without absolutisation:
 ;;   project-root  C:/Users/me/code/my-app/tools/xray/testbeds
 ;;   :file         day8/re_frame2_xray/views/edn_inspector.cljs
 ;;   composed      C:/.../tools/xray/testbeds/day8/.../edn_inspector.cljs
 ;;   actual        C:/.../tools/xray/src/day8/.../edn_inspector.cljs
 ;;
-;; The fix: at macro-expansion time on the JVM, resolve the classpath-
+;; The remedy: at macro-expansion time on the JVM, resolve the classpath-
 ;; relative `:file` to its on-disk URL via the context class-loader and
 ;; bake the **absolute on-disk path** into the emitted coord. The
 ;; downstream URI builder's `compose-path` already detects absolute
@@ -597,7 +590,7 @@
 ;; macro expansion (JVM-side); the CLJS runtime sees a literal string
 ;; (cheap).
 ;;
-;; PRODUCTION KEEPS THIS PATH. The rf2-3un2g gate drops the DEV
+;; PRODUCTION KEEPS THIS PATH. The production-elision gate drops the DEV
 ;; coord-form — the one carrying `:column` — and keeps
 ;; [[prod-coords-form]], which absolutises `:file` exactly as the dev
 ;; branch does, so the always-on error-coord registry can still name a
@@ -607,8 +600,8 @@
 ;; oversight, and `spec/Privacy.md` §What the production bundle itself
 ;; discloses owns it — including the remedy for anyone who needs
 ;; path-independent bytes, which is to build in a neutral working
-;; directory rather than relativise a path the framework promised to keep
-;; absolute. Asked and answered as rf2-4k9m.
+;; directory rather than relativise a path the framework promises to keep
+;; absolute.
 ;;
 ;; Failure modes that fall through to the unchanged input:
 ;;   - Already-absolute path (e.g. a JVM-compile `*file*` that
@@ -620,8 +613,7 @@
 ;;     `:file`, a test fixture's fabricated path, a path under a
 ;;     classpath root the JVM doesn't have when the macro expands):
 ;;     pass through unchanged; the downstream URI builder still gets a
-;;     coord, just one whose `:project-root` join is the legacy
-;;     behaviour.
+;;     coord, just one whose `:file` is joined to `:project-root` as-is.
 ;;   - CLJS-side calls (no class-loader access): no-op pass-through;
 ;;     the macro path is JVM-side by construction so this branch only
 ;;     fires when callers reach the fn from CLJS runtime code (rare).
@@ -644,9 +636,7 @@
      ambiguity that bites multi-source-path builds (shadow-cljs lists
      both `tools/xray/src` and `tools/xray/testbeds` for the panel-
      gallery testbed; the form-meta's classpath-relative `:file` carries
-     no signal about which source root resolved it).
-
-     Per rf2-wvsxg."
+     no signal about which source root resolved it)."
      [path]
      (if (or (nil? path) (.isEmpty ^String path) (rf.source-coords.editor-uri/absolute-path? path))
        path
@@ -681,7 +671,7 @@
            path)
          (catch Throwable _
            ;; Defensive — classpath probing must never break macro
-           ;; expansion. Any failure → preserve original behaviour.
+           ;; expansion. Any failure → pass the input through.
            path)))))
 
 (defn coords-form
@@ -692,8 +682,7 @@
   consumer's namespace symbol. The returned form is syntax-quote-safe
   data the caller splices into its expansion.
 
-  EVALUATION-ORDER TRANSPARENCY (rf2-i3dvj — standing, binds all future
-  macro emission). The `cond->` runs HERE, in Clojure, at expansion time;
+  EVALUATION-ORDER TRANSPARENCY (binds all macro emission). The `cond->` runs HERE, in Clojure, at expansion time;
   absent keys are simply omitted from the emitted literal. It is NOT
   emitted as a runtime `cond->` form. That distinction is a CORRECTNESS
   requirement, not a micro-optimisation:
@@ -709,16 +698,15 @@
   code sits in a CLJS async context (`cljs.test/async`, a `go` block, any
   `^:async` fn), the compiler lowers a spliced multi-step form such as a
   runtime `cond->` to `await (async function(){...})()` — inserting a real
-  microtask YIELD immediately BEFORE the instrumented call. That silently
-  broke the documented same-stack synchronicity of `dispatch-sync!` and was
-  mis-attributed to the router (PR #6432, since reversed). A map literal
-  cannot lower that way. Harmonises with [[form-coords]]'s existing
+  microtask YIELD immediately BEFORE the instrumented call. That would
+  silently break the documented same-stack synchronicity of `dispatch-sync!`.
+  A map literal cannot lower that way. Harmonises with [[form-coords]]'s
   expansion-time literal emission on the machines path.
 
   :file picks the form-meta value over `*file*` and rejects the
   `\"NO_SOURCE_PATH\"` sentinel via `resolve-file`.
 
-  Per rf2-3un2g §Production elision: callers SHOULD wrap the dev
+  Per §Production elision (ns docstring): callers SHOULD wrap the dev
   emission alongside [[prod-coords-form]] under
   `(if rf.interop/debug-enabled? <dev> <prod>)` so Closure DCEs the dev
   shape (with `:column`) under `:advanced` + `goog.DEBUG=false`. The
@@ -726,7 +714,7 @@
   per-element machine stamping and call-site stamping handle elision
   through their own outer gates and call this fn directly.
 
-  Per rf2-wvsxg: when running on the JVM (the macro-expansion side),
+  When running on the JVM (the macro-expansion side),
   the picked `:file` is fed through [[absolutise-file]] to resolve the
   classpath-relative form-meta `:file` to its absolute on-disk path.
   Downstream URI builders' `compose-path` detects absolute paths and
@@ -747,7 +735,7 @@
 #?(:clj
    (defn prod-coords-form
      "Slim production-side variant of [[coords-form]]: omits `:column`.
-     Per rf2-3un2g — `:column` is dev-tooling-only (IDE jump-to-source
+     `:column` is dev-tooling-only (IDE jump-to-source
      refinement); Sentry-style observability needs only `:ns`/`:file`/
      `:line`. Emitting the slim form under the prod branch of an
      `(if rf.interop/debug-enabled? ...)` lets Closure DCE the dev coords
@@ -763,10 +751,10 @@
      Both branches build with `cond->` AT EXPANSION TIME so absent keys
      (e.g. nil `:line` on a programmatic synthesis) elide cleanly from the
      emitted LITERAL — see [[coords-form]] for why the `cond->` must not
-     survive into the emitted form (rf2-i3dvj evaluation-order
+     survive into the emitted form (evaluation-order
      transparency).
 
-     Per rf2-wvsxg: the picked `:file` is absolutised via
+     The picked `:file` is absolutised via
      [[absolutise-file]] at macro-expansion time so the downstream URI
      builder receives an absolute on-disk path regardless of which
      source-root resolved the file on shadow-cljs's classpath."
@@ -791,14 +779,13 @@
 ;; Tools (pair, 10x, IDE jump-to-source) read the coord back by navigating
 ;; from a snapshot state-path to the state-node and reading its `:source-
 ;; coords` — `(rf/handler-meta {:source :store :kind :event :id machine-id})` → `:rf/machine` → `(get-in
-;; spec [:states ...])` → `:source-coords`. Per rf2-vqja2 this supersedes the
-;; flat, spec-path-keyed `:rf.machine/state-coords` side-index that paralleled
-;; the `:states` tree (the same parallel-side-index anti-pattern rf2-npvsx
-;; removed for guards/actions, now removed for STATES).
+;; spec [:states ...])` → `:source-coords`. There is no flat, spec-path-keyed
+;; `:rf.machine/state-coords` side-index paralleling the `:states` tree — the
+;; same parallel-side-index anti-pattern avoided for guards/actions.
 ;;
 ;; The DEFINITION-site coords (where a guard / action fn
 ;; literal lives — the `:guards` / `:actions` map
-;; values) live on each element entry per rf2-npvsx (`:guards {<id> {:fn ..
+;; values) live on each element entry (`:guards {<id> {:fn ..
 ;; :source-coords .. :source-code ..}}`). See [[walk-element-source]] +
 ;; [[collocate-element-source]].
 ;;
@@ -808,7 +795,7 @@
 ;; `:action`) hold a fn or keyword VALUE — there is no map to
 ;; hang a key on — so they are NOT stamped directly; a tool resolving an
 ;; inline-fn slot reads the `:source-coords` off the nearest enclosing map
-;; (its state-node / transition map), which IS stamped. This mirrors Mike's
+;; (its state-node / transition map), which IS stamped. This mirrors the
 ;; keyword-reference rule: a keyword `:guard :form-valid?` carries no reader
 ;; metadata, and the enclosing transition map's coord stands in for it.
 ;;
@@ -832,7 +819,7 @@
   the reader-attached `:file` on the form's metadata over the macro's
   `*file*` arg, and reject the `\"NO_SOURCE_PATH\"` sentinel.
 
-  Per rf2-wvsxg: the picked `:file` is absolutised via
+  The picked `:file` is absolutised via
   [[absolutise-file]] (JVM macro-expansion path) so per-machine-element
   coords ship absolute on-disk paths matching the reg-* macro coords."
   [form ns-sym file]
@@ -885,7 +872,7 @@
   Inline-fn / keyword slots (`:entry` / `:exit` / `:guard` /
   `:action`) are NOT stamped: they hold a fn or keyword value, not a map,
   so there is no node to co-locate `:source-coords` onto (a tool resolving
-  such a slot reads the enclosing map's coord). Per rf2-vqja2.
+  such a slot reads the enclosing map's coord).
 
   Note on style: this walker is mutation-heavy (`acc` is a `volatile!`
   around a transient, mutated via `vswap! acc assoc!` through nested
@@ -961,7 +948,7 @@
   `[:states :idle]` for the `:idle` state-node. Inline-fn / keyword slots
   (`:entry` / `:exit` / `:guard` / `:action`) are NOT keyed —
   they hold a value, not a map, so there is no node to co-locate a coord
-  on; a tool reads the enclosing map's coord (per rf2-vqja2, mirroring the
+  on; a tool reads the enclosing map's coord (mirroring the
   keyword-reference rule).
 
   The returned index is consumed by [[collocate-state-source]], which
@@ -971,7 +958,7 @@
   in a flat side-index.
 
   Definition-site coords (each fn literal under `:guards` / `:actions`)
-  are NOT produced here — per rf2-npvsx they are
+  are NOT produced here — they are
   co-located on each element entry via [[walk-element-source]].
 
   When the spec form is not a map literal (a symbol, a let-bound expr),
@@ -990,24 +977,25 @@
     ;; `acc` is a VOLATILE around the transient (not a bare transient): a
     ;; transient array-map promotes to a hash-map on its 9th key and returns a
     ;; NEW object, so `stamp-map!` threads the return via `vswap!` rather than
-    ;; relying on in-place mutation (which capped the index at 8 entries).
+    ;; relying on in-place mutation (which would cap the index at 8 entries).
     (let [acc (volatile! (transient {}))]
       ;; Reference-site stamping of MAP nodes under :states.
       (walk-states-tree (:states spec-form) [:states] acc ns-sym file)
       (persistent! @acc))))
 
-;; ---- inline-fn source-code co-location (rf2-se70xj) -----------------------
+;; ---- inline-fn source-code co-location ------------------------------------
 ;;
-;; Per rf2-vqja2 an inline-fn slot (`:entry` / `:exit` / `:guard` / `:action`)
+;; An inline-fn slot (`:entry` / `:exit` / `:guard` / `:action`)
 ;; inside the `:states` tree holds a fn VALUE, not a map, so it carries no
 ;; `:source-coords` of its own — a tool resolving such a slot reads the
 ;; enclosing map node's coord (jump-to-editor lands on the right line). But
 ;; the enclosing map's coord cannot supply the inline fn's CODE TEXT: pr-str
 ;; of the enclosing transition map (`{:target :x :action (fn …)}`) is not the
-;; action fn body, so Xray's Epoch-panel micro-step rendered an inline action
-;; as `#object[Function]` (the bare compiled fn falling through `pr-str`).
+;; action fn body, so without a separate capture Xray's Epoch-panel micro-step
+;; would render an inline action as `#object[Function]` (the bare compiled fn
+;; falling through `pr-str`).
 ;;
-;; The fix mirrors the guard mechanism's `:source-code` capture (the
+;; The capture mirrors the guard mechanism's `:source-code` capture (the
 ;; `pr-str` of the fn literal) WITHOUT wrapping the inline slot value — the
 ;; runtime engine resolves `:entry`/`:exit`/`:guard`/`:action` slots
 ;; directly via `fn?`/`keyword?` and stamps the slot value as the trace
@@ -1031,7 +1019,7 @@
 
 (def ^:private inline-source-slots
   "The inline-fn slots whose fn-literal source is co-located onto the
-   enclosing `:states`-tree map node's `:source-code` map (rf2-se70xj).
+   enclosing `:states`-tree map node's `:source-code` map.
    State-nodes carry `:entry` / `:exit`; transition maps carry `:guard` /
    `:action`. Only fn-literal values are captured (keyword references defer
    to the named `:guards` / `:actions` entry's own `:source-code`)."
@@ -1066,7 +1054,7 @@
    `{<map-spec-path> {<slot> <source-string>}}` capturing each inline-fn
    slot's fn-literal source (`:entry` / `:exit` on state-nodes; `:guard` /
    `:action` on transition maps), keyed by the ENCLOSING map node's
-   spec-path (rf2-se70xj). Mirrors `walk-states-tree`'s structural recursion
+   spec-path. Mirrors `walk-states-tree`'s structural recursion
    so the same `:on` / `:always` / `:after` / nested-`:states` shapes are
    covered, but collects fn-literal SOURCE rather than map-node coords.
 
@@ -1103,7 +1091,7 @@
                     nil)
                   nil on-map)))
             ;; :always — single transition MAP or a vector of candidate maps
-            ;; (rf2-k7yqod; mirrors the `:on` single-map / vector forms the
+            ;; (mirrors the `:on` single-map / vector forms the
             ;; runtime + validator both accept — `transition/pick-always-
             ;; transition` wraps a non-vector `:always` into `[always]`,
             ;; `validation/always-entries` does the same). The single-map
@@ -1138,19 +1126,19 @@
 (defn walk-machine-inline-source
   "Compile-time helper. Walk a literal machine-spec form's `:states` tree
    and return a flat index `{<map-spec-path> {<slot> <source-string>}}`
-   capturing each inline-fn slot's fn-literal source (rf2-se70xj). Keyed by
+   capturing each inline-fn slot's fn-literal source. Keyed by
    the ENCLOSING `:states`-tree map node's spec-path — e.g.
    `[:states :idle :on :submit]` → `{:action \"(fn [_] {})\"}` for an inline
    transition `:action`, `[:states :open]` → `{:entry \"(fn …)\"}` for an
    inline state `:entry`.
 
    Inline-fn slots hold a fn VALUE, not a map, so they cannot carry a
-   `:source-code` key of their own (per rf2-vqja2 the same reason
+   `:source-code` key of their own (the same reason
    `:source-coords` lives on the enclosing node). This index is consumed by
    [[collocate-state-inline-source]], which co-locates the per-slot source
    strings under a `:source-code` map on each enclosing node — the read-back
    surface Xray's Epoch-panel micro-step uses to render an inline action's
-   code (it previously fell through to `pr-str` of the bare fn → an opaque
+   code (without it, `pr-str` of the bare fn yields an opaque
    `#object[Function]` token).
 
    Keyword-reference slots (`:action :clear-hold`) are NOT captured here —
@@ -1174,7 +1162,7 @@
 
    )) ;; end #?(:clj (do ...)) for the inline-source walk
 
-;; ---- co-located per-element source walk (rf2-npvsx) ----------------------
+;; ---- co-located per-element source walk ----------------------------------
 ;;
 ;; The reg-machine macro walks the literal `:guards` / `:actions`
 ;; maps at expansion time and produces, per id, the
