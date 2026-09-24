@@ -28,13 +28,13 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.machines.classification :as rf.machines.classification]
             [re-frame.machines.data-validation :as rf.machines.data-validation]
-            ;; rf2-dokz — the occupied-`:fixed-actor-id` replacement runs the
+            ;; The occupied-`:fixed-actor-id` replacement runs the
             ;; occupant through the ORDINARY destroy path. Nothing under
             ;; `lifecycle-fx.destroy`'s require graph reaches this ns (only the
             ;; `re-frame.machines` aggregator requires it), so the edge is
             ;; acyclic.
             [re-frame.machines.lifecycle-fx.destroy :as rf.machines.lifecycle-fx.destroy]
-            ;; rf2-3x7nj.9.6 — an inline `:definition` is materialised through
+            ;; An inline `:definition` is materialised through
             ;; the SAME `handler-meta-for` the lazy resolver uses, at spawn
             ;; time. Only the `re-frame.machines` aggregator requires this ns,
             ;; so the edge is acyclic.
@@ -126,10 +126,10 @@
 (defn- inline-definition-error
   "The throw an inline `:definition` would raise when the lazy resolver first
   materialises its handler, or nil for a valid definition / a `:machine-id`
-  spawn (rf2-3x7nj.9.6). Validation used to happen only there, per dispatch,
-  where the router's resolver catch-all swallowed it: the actor installed as a
-  zombie (snapshot present, `:rf/bootstrap-pending?` forever) and every event
-  to it read `:rf.error/no-such-handler`. Asking the SAME `handler-meta-for`
+  spawn. Left to the resolver alone, the throw would surface per dispatch,
+  where the router's resolver catch-all swallows it: the actor would install
+  as a zombie (snapshot present, `:rf/bootstrap-pending?` forever) and every
+  event to it would read `:rf.error/no-such-handler`. Asking the SAME `handler-meta-for`
   at spawn time lets the spawn reject fail-closed, before anything installs,
   with the validator's own typed error."
   [args]
@@ -141,11 +141,12 @@
 
 (defn- inline-address-error
   "The throw an inline `:definition` spawn carrying NO ADDRESS — neither
-  `:id-prefix` nor `:fixed-actor-id` — earns, or nil (rf2-j1ykz). Registration
-  already refuses the declarative shapes (`validate-spawn!` /
+  `:id-prefix` nor `:fixed-actor-id` — earns, or nil. Registration
+  refuses the declarative shapes (`validate-spawn!` /
   `validate-spawn-all!`, same id); this is the same rule for a hand-emitted
   `[:rf.machine/spawn …]`, which no registration sees. Without it such a spawn
-  had no prefix to allocate from and installed an actor at address `nil`.
+  would have no prefix to allocate from and would install an actor at address
+  `nil`.
   Returned rather than thrown, so the caller throws it before anything
   installs, exactly as it throws `inline-definition-error`."
   [args]
@@ -213,7 +214,7 @@
 (defn- reject-address-collision!
   "Emit the `:rf.error/machine-spawn-all-duplicate-id` dev trace for a
   `:spawn-all` invoke whose children RESOLVE to ALIASING actor addresses
-  (rf2-qlzh9), naming every aliased address and its offending logical
+  naming every aliased address and its offending logical
   child ids. The registration-time `validate-spawn-all!` variant guards LOGICAL
   `:id` uniqueness (and throws); THIS is the RUNTIME resolved-address guard:
   two DISTINCT logical children whose `:fixed-actor-id` literals — or a fixed id
@@ -233,7 +234,7 @@
   `collisions` is the deterministic `[[<resolved-address> [<logical-child-id> …]]
   …]` vector `spawn-all-address-collisions` returns (first-appearance order,
   stable on CLJ and CLJS); one trace fans per invoke, and its `:collisions` tag
-  is THAT VECTOR, carried through unchanged (rf2-hys95) — both the GROUP order
+  is THAT VECTOR, carried through unchanged — both the GROUP order
   (first appearance in the declaration) and each group's per-address child-id
   order are read positionally, identically on both hosts.
 
@@ -245,7 +246,7 @@
   same vector, so message and tag can never disagree.
 
   This is the FIRST diagnostic an aliased invoke can fan and, because the alias
-  short-circuits ahead of preparation, its ONLY one (rf2-ri19s): no child TYPE
+  short-circuits ahead of preparation, its ONLY one: no child TYPE
   was resolved and no `[:schemas :data]` validator ran, so there is no
   unregistered-type or schema-validation reject to order against."
   [frame-id parent-id invoke-id collisions]
@@ -280,7 +281,7 @@
   entry `:fx` vector — read this sentinel (via `spawn-all-invoke-rejected?`)
   and suppress themselves, so a malformed `:spawn-all` spawns NOTHING rather
   than orphaning the registered siblings with no seeded join to ever tear
-  them down (rf2-qb1j5z)."
+  them down."
   {:rf/spawn-all-rejected? true})
 
 (defn- spawn-all-invoke-rejected?
@@ -296,7 +297,7 @@
 
   `spawn-fx` consults this AHEAD of its child-local `unregistered-spawn-type?`
   gate so an OFFENDING child suppresses too rather than re-emitting the reject
-  the preflight already fanned (rf2-smya7a)."
+  the preflight already fanned."
   [frame-id args]
   (when-let [invoke-id (:rf/spawn-all-id args)]
     (let [slot (get-in (rf.frame/frame-runtime-db-value frame-id)
@@ -324,8 +325,8 @@
   and, for declarative-`:spawn` spawns, its parent's address +
   invoke-id. `join-child` (a `:spawn-all` child's private join-membership
   record — see `join-child-record`) rides under `:rf/join-child` when
-  present. `invoke-attempt` (a declarative single `:spawn`'s attempt token,
-  rf2-3x7nj.9.3) rides under `:rf/invoke-attempt` when present; the child's
+  present. `invoke-attempt` (a declarative single `:spawn`'s attempt token)
+  rides under `:rf/invoke-attempt` when present; the child's
   completion carriers hand it back to the parent's currency gate."
   [spec spawned-id parent-id invoke-id join-child invoke-attempt]
   (when spec
@@ -341,7 +342,7 @@
   "`join-child-record`'s pure core — build the record from an already-in-hand
   join-state VALUE rather than reading it back out of runtime-db.
 
-  Split out (rf2-7u8gen) so `spawn-all-init-fx`'s invoke-level PREFLIGHT can
+  Split out so `spawn-all-init-fx`'s invoke-level PREFLIGHT can
   build the candidate child `:data` it validates against the join-state it is
   ABOUT to seed: that state is not in runtime-db yet, and for a REJECTED
   invoke it never will be. Sharing this core is what makes the preflight's
@@ -371,7 +372,7 @@
 
 (defn- join-child-record
   "Build the PRIVATE join-membership record the runtime stamps into a
-  `:spawn-all` child's `:data` under `:rf/join-child` (rf2-nvxehu). It
+  `:spawn-all` child's `:data` under `:rf/join-child`. It
   carries the exact coordinates of the join ATTEMPT this child instance
   belongs to — the parent/invoke identity, the logical child id, the
   child's own spawned instance address, the opaque per-attempt token the
@@ -405,7 +406,7 @@
   ALREADY-RESOLVED TYPE spec, yielding the exact spec a spawn of `args` would
   install. Returns nil for a nil `spec`.
 
-  Split out from `candidate-spawn-spec` (rf2-rxjy3) so `prepare-spawn-all-child`
+  Split out from `candidate-spawn-spec` so `prepare-spawn-all-child`
   can resolve the child's TYPE spec ONCE and retain BOTH derivatives: the
   stamped spec the install lands, and the RAW resolved definition the install
   needs to keep the child handler-resolvable (see `prepared-type-ref`). Without
@@ -430,7 +431,7 @@
   unregistered `:machine-id` — the `unregistered-spawn-type?` gate's child).
 
   The SINGLE source of truth shared by `spawn-all-init-fx`'s invoke-level
-  PREFLIGHT and `spawn-fx*`'s per-child install (rf2-7u8gen), so the two can
+  PREFLIGHT and `spawn-fx*`'s per-child install, so the two can
   never disagree about the value that gets schema-validated. Pure: the
   transition reducer already materialised any user `:data` fn into a VALUE on
   the args (`spawn-one`), so this evaluates no application code and allocates
@@ -458,8 +459,8 @@
   rejected actor leaves NO half-installed bookkeeping (no registered
   handler, no actor state, no phantom `:rf/machine?` registry entry).
 
-  `continue?` is A's exact-frame-incarnation continuation predicate
-  (rf2-vxgfnd.153). The schema validator is application code that can destroy
+  `continue?` is A's exact-frame-incarnation continuation predicate.
+  The schema validator is application code that can destroy
   A / publish same-id B; when it does, `validate-spawn-data!` returns
   `:rf/stale-incarnation` (NOT a schema verdict), which is `(false? …)` → this
   fn returns `false` (not a schema reject) and the ENCLOSING cascade fence in
@@ -478,7 +479,7 @@
   revertible `:rf/machine-type` TYPE reference stamped at the root) and
   the runtime-owned spawn registry slot into the frame's runtime-db.
 
-  Returns an EXPLICIT committed/live result (rf2-hloj0g): `:committed`
+  Returns an EXPLICIT committed/live result: `:committed`
   when the runtime-db swap landed, `:skipped` when the exact-owner recheck
   fenced the swap (an earlier callback destroyed A / published same-id B).
   The caller (`spawn-fx*`)
@@ -506,16 +507,16 @@
   the caller already had. Machine snapshots are durable runtime-db state
   (EP-0001).
 
-  rf2-dokz — DISCARDING `_rt` MAKES THE BASE'S CURRENCY THE CALLER'S PROBLEM,
+  DISCARDING `_rt` MAKES THE BASE'S CURRENCY THE CALLER'S PROBLEM,
   and there is exactly one path on which the caller's first read is NOT current:
   an occupied-`:fixed-actor-id` replacement writes to runtime-db (the occupant's
   teardown) between that read and this swap. Handing the pre-teardown value in
   would silently RESTORE the occupant's snapshot and undo the destroy. So
   `spawn-fx*` rebuilds the base from the post-teardown runtime-db before calling
-  here (`install-base-after-replacing-occupant!`); this fn is unchanged and
-  simply installs whatever base it is given.
+  here (`install-base-after-replacing-occupant!`); this fn simply installs
+  whatever base it is given.
 
-  `type-ref-fn` is a THUNK, not a value (rf2-zo5n9). The revertible TYPE
+  `type-ref-fn` is a THUNK, not a value. The revertible TYPE
   reference a PREPARED `:spawn-all` child stamps is registrar-DERIVED —
   `prepared-type-ref` compares the prepared definition against what the
   registrar currently holds — so the moment it is chosen is a correctness
@@ -524,32 +525,32 @@
   the swap, so every pre-install emission and every in-drain mutation it may
   have provoked is already reflected in the reference this stamps.
 
-  Note the premise has NARROWED (rf2-wxy1c). The pre-install emission named
-  above — the caller's `:rf.machine.spawn/spawned` trace — no longer fans
-  synchronously to
+  The pre-install emission named above — the caller's
+  `:rf.machine.spawn/spawned` trace — does not fan synchronously to
   application listeners: trace listeners are OBSERVERS, and internal
   drain-owned emits deliver at the POST-DRAIN boundary, so no listener body
   can unregister or replace the child's TYPE between the caller's bindings and
-  this write. That window is now closed BY CONSTRUCTION. This placement is kept
-  regardless: it costs nothing, it is the honest place to read a registrar-derived
-  value, and it remains load-bearing for in-drain application code that CAN run
-  ahead of the write — a prepared child's own `[:schemas :data]` validator runs
-  after its `:type-spec` was retained, so the definition-lifetime rule must still
-  decide against the registrar as it stands at COMMIT."
+  this write; that window is closed BY CONSTRUCTION. The late placement
+  matters anyway: it costs nothing, it is the honest place to read a
+  registrar-derived value, and it is load-bearing for in-drain application
+  code that CAN run ahead of the write — a prepared child's own
+  `[:schemas :data]` validator runs after its `:type-spec` is retained, so the
+  definition-lifetime rule must decide against the registrar as it stands at
+  COMMIT."
   [frame-id rt-after-alloc spec spawned-id initial-snap
    {:keys [parent-id invoke-id track? type-ref-fn continue? owner-token]}]
-  ;; rf2-3evq0x — the caller's `:rf.machine.spawn/spawned` trace is
+  ;; The caller's `:rf.machine.spawn/spawned` trace is
   ;; callback-bearing; recheck the exact-incarnation continuation before the
   ;; runtime-db swap so a listener that destroyed A / published same-id B
   ;; cannot land the A-derived snapshot / spawn-slot install (a bare-id
   ;; `swap-runtime-db!` resolves to the CURRENT incarnation B). `continue?`
   ;; is nil only for a hypothetical caller that did not thread it — treated
   ;; as live.
-  ;; rf2-hloj0g — return the swap outcome EXPLICITLY (`:committed` /
-  ;; `:skipped`) so the caller can fence its own post-install tail on it (the
-  ;; earlier `:ok`/nil return was IGNORED, so a `:skipped` install still let
-  ;; classification / spawn-order / lifecycle-spawned run against B).
-  ;; rf2-4ipqe4 — the pre-swap `(continue?)` check fences a LISTENER, but the
+  ;; Return the swap outcome EXPLICITLY (`:committed` / `:skipped`) so the
+  ;; caller can fence its own post-install tail on it (an outcome the caller
+  ;; could ignore would let a `:skipped` install still run classification /
+  ;; spawn-order / lifecycle-spawned against B).
+  ;; The pre-swap `(continue?)` check fences a LISTENER, but the
   ;; WRITE ITSELF is callback-bearing: a synchronous container watch can
   ;; destroy A / publish same-id B DURING the physical install. The bare
   ;; `swap-runtime-db!` would still bump the id-keyed commit epoch (now B's).
@@ -559,44 +560,39 @@
   ;; owner (conformance / pure-fn), fall back to the bare write (its non-nil
   ;; return marks `:committed`).
   (if (or (nil? continue?) (continue?))
-    (let [;; rf2-zo5n9 — CHOOSE the revertible TYPE reference HERE, at the last
+    (let [;; CHOOSE the revertible TYPE reference HERE, at the last
           ;; point before the write, and stamp it onto the snapshot root so the
           ;; lazy resolver can re-materialise the handler from runtime-db alone.
           ;;
-          ;; THE WINDOW THIS CLOSES. rf2-rxjy3 made a prepared `:spawn-all`
-          ;; child's reference follow the definition-lifetime rule — keep the
-          ;; `:machine-id` keyword while the registrar still holds the prepared
-          ;; definition, pin that definition once the registrar has diverged —
-          ;; but the CHOICE was taken in `spawn-fx*`'s `let` bindings, ahead of
-          ;; the two emissions that still run before this write: the caller's
-          ;; `:rf.machine.spawn/spawned` trace and the
-          ;; trace. That then fanned
-          ;; synchronously to application listeners, so a listener that
-          ;; UNREGISTERED or REPLACED the admitted child's TYPE diverged the
+          ;; THE WINDOW THIS CLOSES. A prepared `:spawn-all` child's reference
+          ;; follows the definition-lifetime rule — keep the `:machine-id`
+          ;; keyword while the registrar still holds the prepared definition,
+          ;; pin that definition once the registrar has diverged. Taken in
+          ;; `spawn-fx*`'s `let` bindings, the CHOICE would sit ahead of the
+          ;; emission that runs before this write, the caller's
+          ;; `:rf.machine.spawn/spawned` trace. A callback there that
+          ;; UNREGISTERED or REPLACED the admitted child's TYPE would diverge the
           ;; registrar AFTER `prepared-type-ref` had observed it intact and
-          ;; returned the keyword — the install stamped a now-STALE keyword and
-          ;; the child came up INERT (nothing resolves; it never leaves
+          ;; returned the keyword — the install would stamp a STALE keyword and
+          ;; the child would come up INERT (nothing resolves; it never leaves
           ;; `:initial`, and every event raises `:rf.error/no-such-handler`) or
           ;; SPLIT (a prepared-v1 snapshot driven by an unrelated current-v2
-          ;; handler). The very failure modes rxjy3 removed, reached through a
-          ;; later door.
+          ;; handler).
           ;;
-          ;; rf2-wxy1c CLOSED that door from the other side: those two emits are
-          ;; internal and drain-owned, so their listeners now run at the
+          ;; That emit is internal and drain-owned, so its listeners run at the
           ;; post-drain boundary and no listener body can act here at all. The
-          ;; late force is retained because it is still the correct reading
-          ;; point for a registrar-derived value, and because in-drain
-          ;; application code — notably a prepared child's own
-          ;; `[:schemas :data]` validator, which `prepare-spawn-all-child` runs
-          ;; AFTER retaining `:type-spec` — can still diverge the registrar
-          ;; ahead of this write.
+          ;; late force still matters because it is the correct reading point
+          ;; for a registrar-derived value, and because in-drain application
+          ;; code — notably a prepared child's own `[:schemas :data]` validator,
+          ;; which `prepare-spawn-all-child` runs AFTER retaining `:type-spec` —
+          ;; can diverge the registrar ahead of this write.
           ;;
           ;; Deferring the CHOICE — rather than re-checking anything — is the
-          ;; whole fix: `type-ref-fn` reads the registrar as it stands at
+          ;; whole mechanism: `type-ref-fn` reads the registrar as it stands at
           ;; commit, so whatever the last pre-install callback did to it is
           ;; what the definition-lifetime rule decides against. It is NOT a
-          ;; re-verdict: an admitted child ALWAYS installs (rf2-v4oqd), and
-          ;; this can only select the FORM of its reference.
+          ;; re-verdict: an admitted child ALWAYS installs, and this can only
+          ;; select the FORM of its reference.
           type-ref     (type-ref-fn)
           ;; The spawn is known-accepted by the time `install-spawn!` runs (an
           ;; unregistered `:machine-id` was rejected fail-closed upstream), so
@@ -607,7 +603,7 @@
           install-fn (fn [_rt]
                        (cond-> rt-after-alloc
                          spec      (assoc-in (rf.machines.paths/snapshot-path spawned-id) initial-snap)
-                         ;; rf2-1vlyg — append the actor to the DURABLE
+                         ;; Append the actor to the DURABLE
                          ;; spawn-order vector in the SAME swap that lands its
                          ;; snapshot, so the frame's total creation order is
                          ;; recorded rather than reconstructed. The per-prefix
@@ -621,13 +617,13 @@
                          ;; order tracks exactly the actors that have snapshots.
                          spec      (rf.machines.spawn-order/record-in-runtime-db spawned-id)
                          track?    (assoc-in (rf.machines.paths/spawned-path parent-id invoke-id) spawned-id)
-                         ;; rf2-3x7nj.9.4 — write the parent's `:rf/spawned`
+                         ;; Write the parent's `:rf/spawned`
                          ;; mirror beside the registry slot it mirrors: the
                          ;; teardown projection clears the two TOGETHER, so the
-                         ;; install writes them together. The reducer bound the
-                         ;; mirror already, but a macrostep that exits and
+                         ;; install writes them together. The reducer binds the
+                         ;; mirror too, but a macrostep that exits and
                          ;; re-enters the spawning state drains the old child's
-                         ;; destroy FIRST, and that clear took the successor's
+                         ;; destroy FIRST, and that clear takes the successor's
                          ;; freshly bound mirror with it. A value no-op otherwise.
                          (and track?
                               (contains? (get-in rt-after-alloc (rf.machines.paths/snapshot-path))
@@ -651,7 +647,7 @@
 (def ^:private prepared-children-key
   "The reserved join-state slot under which `spawn-all-init-fx`'s admission
   preflight retains the AUTHORITATIVE prepared per-child result on the accept
-  path (rf2-ek435): a `{<spawned-id> {:spec <stamped-spec> :snap <initial-snap>
+  path: a `{<spawned-id> {:spec <stamped-spec> :snap <initial-snap>
   :type-spec <raw-resolved-definition>}}` map, one entry per admitted child.
   Each child's own `:rf.machine/spawn` fx —
   a SEPARATE entry later in the same entry vector — consumes its entry
@@ -659,13 +655,13 @@
   snapshot, or re-running its `[:schemas :data]` validator. Consuming rather than
   recomputing is what makes the preflight's verdict authoritative: a type
   re-registration or a second validator pass between the preflight and the
-  install can no longer flip an admitted child into a rejected one (which would
+  install cannot flip an admitted child into a rejected one (which would
   strand an impossible half-live join), and each child is resolved / prepared /
   validated EXACTLY ONCE per attempt.
 
   `:type-spec` — the RAW resolved definition, before the `:data` override and
-  the framework stamps — is what keeps the admitted child HANDLER-RESOLVABLE
-  (rf2-rxjy3). Consuming the verdict installs the child's snapshot, but the
+  the framework stamps — is what keeps the admitted child HANDLER-RESOLVABLE.
+  Consuming the verdict installs the child's snapshot, but the
   actor's HANDLER is materialised lazily from the snapshot's `:rf/machine-type`
   reference, so a mid-drain registry mutation could still leave an installed
   child pointing at a definition that is gone (or at an unrelated successor).
@@ -677,14 +673,14 @@
   installs its snapshot (`drop-prepared-entry`), and the key vanishes once the
   last child has installed — so the join state the `join.cljc` interceptor and
   epoch capture see carries no scratch. It rides under a reserved `:rf/*` key,
-  is never application-facing, and — unlike the retired public boolean verdict —
+  is never application-facing, and — unlike a public boolean verdict —
   cannot be forged: the value the install lands is the framework-built snapshot,
   not a re-derivation a public flag could bypass."
   :rf/prepared)
 
 (defn- spawn-all-prepared-child
   "The framework-owned prepared result `spawn-all-init-fx` retained for THIS
-  `:spawn-all` child (rf2-ek435), read from the join slot's `:rf/prepared`
+  `:spawn-all` child, read from the join slot's `:rf/prepared`
   scratch by the child's own spawned-id. Returns `{:spec <stamped-spec>
   :snap <initial-snap>}` for an admitted `:spawn-all` child, or nil when there
   is no invoke (`:rf/spawn-all-id` absent — a plain single `:spawn`) or no
@@ -701,7 +697,7 @@
   "Remove THIS child's consumed `:rf/prepared` entry from the join slot, and
   drop the `:rf/prepared` key entirely once the last admitted child has
   consumed its entry — so the durable join state carries no install-time
-  scratch (rf2-ek435). Applied to the install's `rt-after-alloc` base so the
+  scratch. Applied to the install's `rt-after-alloc` base so the
   drop rides the SAME runtime-db swap that lands the snapshot; a no-op if the
   join slot is not a live join (belt-and-braces)."
   [runtime-db args spawned-id]
@@ -716,20 +712,20 @@
 
 (defn- spawn-all-prepared?
   "True iff THIS `:spawn-all` per-child carries an AUTHORITATIVE prepared entry
-  its invoke's `spawn-all-init-fx` preflight retained (rf2-ek435), keyed by the
+  its invoke's `spawn-all-init-fx` preflight retained, keyed by the
   child's pre-allocated spawned-id in the live join slot's `:rf/prepared`
   scratch. `spawn-fx` consults this to CONSUME the preflight verdict rather than
   re-running its child-local `unregistered-spawn-type?` registry recheck against
-  an already-ADMITTED+prepared child (rf2-v4oqd): a
+  an already-ADMITTED+prepared child: a
   `:rf.machine.spawn-all/started` listener that UNREGISTERED the child TYPE
   between the preflight and this per-child install would otherwise flip the
   admitted child to rejected, leaving prepared scratch and no child snapshot —
   the impossible half-live join (a live join naming a child whose snapshot a
   second verdict omitted) the authoritative handoff exists to make impossible.
-  Re-registering to another still-present type was already covered (the recheck
-  saw a spec and passed through), but UNREGISTERING was not; consuming the
-  prepared verdict closes both, and each admitted child is resolved / prepared /
-  validated EXACTLY once.
+  A recheck would pass a child RE-REGISTERED to another still-present type (it
+  sees a spec) but not an UNREGISTERED one; consuming the prepared verdict
+  covers both, and each admitted child is resolved / prepared / validated
+  EXACTLY once.
 
   Returns false for a standalone single `:spawn` (no `:rf/spawn-all-id`) and a
   hand-emitted `:spawn-all` child fx with no preceding init fx (no prepared
@@ -744,20 +740,21 @@
   "The revertible TYPE reference an ADMITTED+prepared `:spawn-all` child's
   install stamps at `:rf/machine-type` — the slot the lazy resolver
   (`lifecycle-fx.resolver/spec-from-snapshot`) reads to re-materialise the
-  actor's handler on every dispatch (rf2-rxjy3).
+  actor's handler on every dispatch.
 
-  THE WINDOW THIS CLOSES. Consuming the prepared verdict (rf2-v4oqd) installs an
+  THE WINDOW THIS CLOSES. Consuming the prepared verdict installs an
   admitted child's snapshot unconditionally — but the snapshot alone is not a
   LIVE actor. A `:machine-id` spawn stamps the registered TYPE KEYWORD, and the
-  resolver reads that keyword back through the registrar on every dispatch. So a
-  `:rf.machine.spawn-all/started` listener that mutates the registrar between the
-  preflight and this install left the child installed-but-INERT: UNREGISTERED
-  the TYPE and the keyword resolves to nothing — the child never runs its
-  synthetic `[:rf.machine.spawn/spawned]` bootstrap, sits at its `:initial` with
-  `:rf/bootstrap-pending? true`, and every event it is sent raises
-  `:rf.error/no-such-handler`; RE-REGISTERED the TYPE to another spec and the
-  keyword resolves to a definition the child's PREPARED snapshot was never built
-  from — a prepared-v1 state driven by an unrelated current-v2 handler.
+  resolver reads that keyword back through the registrar on every dispatch. So,
+  with a bare keyword, a `:rf.machine.spawn-all/started` listener that mutates
+  the registrar between the preflight and this install would leave the child
+  installed-but-INERT: unregister the TYPE and the keyword resolves to nothing —
+  the child never runs its synthetic `[:rf.machine.spawn/spawned]` bootstrap,
+  sits at its `:initial` with `:rf/bootstrap-pending? true`, and every event it
+  is sent raises `:rf.error/no-such-handler`; re-register the TYPE to another
+  spec and the keyword resolves to a definition the child's PREPARED snapshot
+  was never built from — a prepared-v1 state driven by an unrelated current-v2
+  handler.
 
   THE DEFINITION-LIFETIME RULE. A prepared child's definition authority is the
   definition its invoke PREPARED (`:type-spec`, retained by
@@ -773,14 +770,14 @@
       its own spec — fully revertible, resolvable with no registrar entry at
       all, and coherent with the prepared snapshot installed beside it.
 
-  NOT a re-verdict (rf2-v4oqd is PRESERVED). The registry read here decides only
+  NOT a re-verdict. The registry read here decides only
   the FORM of the reference; it can never reject, suppress, or alter the child's
-  admission. An admitted child ALWAYS installs — that is exactly what v4oqd
-  established, and re-instating a fail-closed recheck here would restore the
-  impossible half-live join it removed. The divergent case simply stops
-  depending on a registrar entry the preflight's verdict no longer speaks for.
+  admission. An admitted child ALWAYS installs, and a fail-closed recheck here
+  would reintroduce the impossible half-live join. The divergent case simply
+  stops depending on a registrar entry the preflight's verdict no longer speaks
+  for.
 
-  WHEN this runs is part of the contract (rf2-zo5n9). Because the rule is
+  WHEN this runs is part of the contract. Because the rule is
   decided by comparing the prepared definition against the registrar's CURRENT
   contents, a divergence that happens after the comparison is a divergence the
   installed snapshot does not reflect — and the callbacks between the child's
@@ -839,7 +836,7 @@
       (the spawned actor's own address) and, when applicable,
       `:rf/parent-id` + `:rf/invoke-id` into the actor's initial `:data`.
       Re-spawn at an address a LIVE actor still occupies REPLACES that
-      actor, and replacement is a CLEAN destroy-then-install: rf2-dokz
+      actor, and replacement is a CLEAN destroy-then-install: the spawn
       runs the occupant through the ordinary `[:rf.machine/destroy
       <actor-id>]` path first (`:reason :explicit`, join preparation
       included), so its `:exit` runs and its timers / managed HTTP /
@@ -883,10 +880,10 @@
       ;; the join slot. EVERY per-child effect of a rejected invoke suppresses
       ;; here — registered, unregistered, and schema-invalid alike — so the
       ;; reject is ATOMIC: no live orphan with no seeded join to ever tear it
-      ;; down (rf2-qb1j5z).
+      ;; down.
       ;;
       ;; This gate is FIRST, ahead of the child-local unregistered check
-      ;; below, and the order is the CONTRACT (rf2-smya7a). The invoke-level
+      ;; below, and the order is the CONTRACT. The invoke-level
       ;; preflight is the SOLE emitter for a rejected invoke: it already
       ;; emitted exactly one reject per offending child. Were the child-local
       ;; gate tested first, each offending child would bypass this suppression
@@ -903,11 +900,11 @@
       ;; still covers a hand-emitted `:spawn-all` child fx that reaches the
       ;; runtime with no preceding init fx (no sentinel, no live join).
       ;;
-      ;; rf2-v4oqd — but an ADMITTED+prepared `:spawn-all` child CONSUMES its
+      ;; But an ADMITTED+prepared `:spawn-all` child CONSUMES its
       ;; invoke's authoritative preflight verdict: skip this registry recheck
       ;; when a keyed `:rf/prepared` entry exists (`spawn-all-prepared?`), so a
       ;; `:rf.machine.spawn-all/started` listener that unregistered the child
-      ;; TYPE between the preflight and this install can no longer flip the
+      ;; TYPE between the preflight and this install cannot flip the
       ;; already-admitted child to rejected (stranding a half-live join whose
       ;; snapshot the recheck omitted). `spawn-fx*` then installs the exact
       ;; prepared spec + snapshot. The gate still fires for a standalone
@@ -918,11 +915,11 @@
       (reject-unregistered-spawn! frame-id (:machine-id args))
 
       :else
-      ;; Step 0c — rf2-3x7nj.9.6: an invalid inline `:definition` rejects
+      ;; Step 0c — an invalid inline `:definition` rejects
       ;; before anything installs, THROWING the validator's own typed error so
       ;; the fx runner surfaces it (`:rf.error/fx-handler-exception`, carrying
       ;; the exception). A prepared `:spawn-all` child was already validated by
-      ;; its invoke's preflight. rf2-j1ykz: an UNADDRESSED inline definition
+      ;; its invoke's preflight. An UNADDRESSED inline definition
       ;; is refused the same way, ahead of validating the definition itself.
       (let [definition-error (when-not (spawn-all-prepared? frame-id args)
                                (or (inline-address-error args)
@@ -931,15 +928,15 @@
           (throw definition-error)
           (spawn-fx* frame-id envelope args))))))
 
-;; ---- generated-address collision (rf2-1sip) --------------------------------
+;; ---- generated-address collision -------------------------------------------
 
 (defn- generated-address-collision?
-  "rf2-1sip — is this spawn's GENERATED `<type>#<n>` address already occupied by
+  "Is this spawn's GENERATED `<type>#<n>` address already occupied by
   a LIVE actor? True only when every clause below holds; the answer is `false`
   on every ordinary spawn and costs one `runtime-db` read.
 
   WHY A GENERATED COLLISION IS A DIFFERENT ANIMAL FROM AN OCCUPIED
-  `:fixed-actor-id`. rf2-dokz ruled that a spawn arriving at a fixed address a
+  `:fixed-actor-id`. A spawn arriving at a fixed address a
   live actor occupies REPLACES it cleanly and raises nothing: the author named
   that address, and naming an address twice is a request for the actor there to
   become the new one. NOBODY NAMES A GENERATED ADDRESS. `<type>#<n>` is minted
@@ -956,15 +953,16 @@
 
   CLAUSES, and each is load-bearing.
 
-  - A SUPPLIED `:fixed-actor-id` is excluded — that is rf2-dokz's replacement
-    path, ruled and delivered, and it is checked on `args` rather than on the
+  - A SUPPLIED `:fixed-actor-id` is excluded — that is the replacement
+    path (`install-base-after-replacing-occupant!`), and it is checked on
+    `args` rather than on the
     id's SPELLING because a fixed literal may itself end in `#<digits>`
     (`join-child-record-from-state`'s `:work-generation` makes the same
     distinction for the same reason).
-  - A PREPARED `:spawn-all` child is excluded. rf2-v4oqd's invariant is that an
-    ADMITTED child ALWAYS installs — the authoritative preflight is the sole
-    verdict, and a second per-child reject here would strand a live join naming
-    a child that never appears, which is the dead-join class rf2-ek435 closed.
+  - A PREPARED `:spawn-all` child is excluded. An ADMITTED child ALWAYS
+    installs — the authoritative preflight is the sole verdict, and a second
+    per-child reject here would strand a live join naming a child that never
+    appears (a dead join).
     The WITHIN-BATCH aliasing case is already rejected atomically by that
     preflight (`spawn-all-address-collisions`); a prepared child colliding with
     a live actor OUTSIDE its batch is left alone and belongs to the counter
@@ -984,14 +982,14 @@
          (rf.machines.lifecycle-fx.destroy/occupant-actor-live? frame-id spawned-id))))
 
 (defn- reject-generated-address-collision!
-  "rf2-1sip — REJECT a spawn whose GENERATED address is already held by a live
+  "REJECT a spawn whose GENERATED address is already held by a live
   actor, and emit `:rf.error/machine-spawn-all-duplicate-id`. Returns nil, so
   the caller's cascade gate suppresses the whole spawn — no snapshot, no
   spawn-order entry, no `:rf.machine.spawn/spawned`, no `:start` dispatch —
   exactly as the schema-reject and unregistered-TYPE paths do.
 
-  THE EXISTING CATEGORY, NOT A NEW ONE. `:rf.error/machine-spawn-all-duplicate-id`
-  is already the name for \"two distinct spawns resolve to one actor address and
+  ONE CATEGORY FOR ONE FAILURE. `:rf.error/machine-spawn-all-duplicate-id`
+  is the name for \"two distinct spawns resolve to one actor address and
   one would silently overwrite the other\" (Spec 005 §Errors; its runtime
   surfacing is `reject-address-collision!`, which names a fixed id colliding
   with a generated `<type>#n` among the shapes it refuses). This is the same
@@ -1012,11 +1010,10 @@
   occupant, which Spec 005's *Teardown is explicit in v1* rule reserves to the
   author. The `reason` therefore names the author-side escapes, and it names
   them PER SHAPE, because the three collision shapes do not share a recovery and
-  one of them has neither of the obvious two (rf2-1sip, measured):
+  one of them has neither of the obvious two:
 
     * DISTINCT parent TYPES minting one child type — a distinct `:id-prefix`
-      separates them. rf2-r9ey made that key load-bearing on the declarative
-      path, where it had been accepted, documented and then ignored.
+      separates them; the declarative path honours that key.
     * A parent colliding with its OWN live orphan — destroy the orphan first,
       or name a distinct `:fixed-actor-id`.
     * TWO LIVE INSTANCES OF ONE PARENT TYPE — NEITHER key can separate them.
@@ -1035,7 +1032,7 @@
       skip an occupied address, so where a declarative child already holds
       `<child>#1` the BARE hand-emitted form re-mints exactly that address and
       is refused again — on every retry, since a rejected allocation is not
-      committed either (rf2-1sip, merged-PR audit of #9563, measured). The
+      committed either. The
       recovery therefore carries its OWN `:id-prefix`, naming an address
       namespace no declarative spawn allocates into, so the frame-wide counter
       starts from an empty one.
@@ -1089,7 +1086,7 @@
     nil))
 
 (defn- install-base-after-replacing-occupant!
-  "rf2-dokz — the occupied-`:fixed-actor-id` step. Returns the `runtime-db`
+  "The occupied-`:fixed-actor-id` step. Returns the `runtime-db`
   value `install-spawn!` must build its install on, or nil when the install must
   NOT proceed.
 
@@ -1103,23 +1100,23 @@
   failing.
 
   (2) THE OCCUPANT IS TORN DOWN THROUGH THE ORDINARY DESTROY PATH, under the
-  EXISTING `:reason :explicit` (see
+  ordinary `:reason :explicit` (see
   `lifecycle-fx.destroy/destroy-occupant-for-replacement!` for why it delegates
   and why the reason may not be a new enum member). Scoped to a SUPPLIED
-  `:fixed-actor-id`, and that scope is now the OTHER half of a two-way split
+  `:fixed-actor-id`, and that scope is the OTHER half of a two-way split
   rather than an omission: a generated `<type>#<n>` address that collides with a
-  live actor is REJECTED instead (rf2-1sip —
-  `generated-address-collision?` / `reject-generated-address-collision!` above),
+  live actor is REJECTED instead (`generated-address-collision?` /
+  `reject-generated-address-collision!` above),
   because nobody named that address so there is no replacement request to
   honour. The caller picks exactly one of the two.
 
   (3) THE INSTALL BASE IS REBUILT FROM THE POST-TEARDOWN VALUE. This is the trap
-  the fix exists to avoid: `install-spawn!`'s `install-fn` DISCARDS the swap's
+  this step exists to avoid: `install-spawn!`'s `install-fn` DISCARDS the swap's
   `_rt` argument and returns a value captured before it, so passing the caller's
   pre-teardown `rt-after-alloc` would RESTORE every slot the teardown just
   removed — the occupant's snapshot among them — and the destroy would be undone
   by the very write it was meant to precede. Re-reading the frame's live
-  `runtime-db` here is the whole repair. The one delta `rt-after-alloc` carries
+  `runtime-db` here is what avoids it. The one delta `rt-after-alloc` carries
   over `old-rt` that must survive the rebase is `drop-prepared-entry`, so it is
   re-applied (it is a belt-and-braces no-op against a slot that is not a live
   join). The spawn-counter bump is NOT re-applied and does not need to be: it is
@@ -1127,7 +1124,8 @@
   spawn always has one.
 
   Between this read and the swap sit only the `type-ref-fn` force, the
-  `(continue?)` rechecks and the two spawned traces — no `runtime-db` writer —
+  `(continue?)` rechecks and the `:rf.machine.spawn/spawned` trace — no
+  `runtime-db` writer —
   so the rebased base is as current at commit as the caller's own read is on the
   untouched path (Spec 002 §Single drainer per frame).
 
@@ -1159,7 +1157,7 @@
   inheritable keys ride the newborn's bootstrap dispatch; `args` the spawn
   args. Returns the allocated `spawned-id`."
   [frame-id envelope args]
-  (let [;; A's exact-frame-incarnation continuation predicate (rf2-vxgfnd.153).
+  (let [;; A's exact-frame-incarnation continuation predicate.
         ;; The `[:schemas :data]` spawn validator (`validate-spawn-data!`, run
         ;; inside `spawn-rejected?` below) is APPLICATION code that can
         ;; synchronously destroy this frame incarnation A and publish a same-id
@@ -1174,7 +1172,7 @@
         ;; threaded into `spawn-rejected?` so the callback and the cascade fence
         ;; against the SAME token.
         continue?  (rf.machines.data-validation/owner-continuation frame-id)
-        ;; rf2-4ipqe4 — the RAW exact owner token (`continue?` closes over it),
+        ;; The RAW exact owner token (`continue?` closes over it),
         ;; threaded into `install-spawn!` so the snapshot / spawn-slot install
         ;; rides `swap-runtime-db-exact!`: a synchronous container watch
         ;; that destroys A / publishes same-id B DURING the physical write neither
@@ -1182,8 +1180,8 @@
         ;; `swap-runtime-db!` bumps the id-keyed epoch — now B's — before the
         ;; later owner check). nil for a
         ;; non-router pure-fn / conformance caller (no event owner) — the install
-        ;; falls back to the historical bare-id write and that path stays
-        ;; unaffected, symmetric with `continue?`'s `(constantly true)`.
+        ;; then takes the bare-id write, symmetric with `continue?`'s
+        ;; `(constantly true)`.
         owner-token (rf.frame/current-event-owner-token)
         ;; Prefer the pre-allocated id (declarative :spawn
         ;; routes through the transition reducer which bumps the parent
@@ -1218,11 +1216,11 @@
           :else         [old-rt nil])
         ;; A `:spawn-all` child consumes the AUTHORITATIVE prepared result its
         ;; invoke's `spawn-all-init-fx` preflight resolved, stamped, built, and
-        ;; validated ONCE (rf2-ek435) — never re-resolving the type, rebuilding
+        ;; validated ONCE — never re-resolving the type, rebuilding
         ;; the snapshot, or re-running its `[:schemas :data]` validator here. So
         ;; a type re-registration or a second validator pass BETWEEN the
-        ;; preflight and this install can no longer flip an admitted child into
-        ;; a rejected one (which stranded an impossible half-live join naming a
+        ;; preflight and this install cannot flip an admitted child into
+        ;; a rejected one (which would strand an impossible half-live join naming a
         ;; child whose snapshot a second verdict omitted), and the validator
         ;; runs exactly once per attempt. nil for a plain single `:spawn` or a
         ;; hand-emitted child with no preceding init fx — those keep the
@@ -1248,24 +1246,22 @@
         ;; `:spawn-all` child selects it from its prepared entry so it can never
         ;; install against a definition the registrar no longer holds, or against
         ;; an unrelated successor definition its prepared snapshot was not built
-        ;; from (rf2-rxjy3 — see `prepared-type-ref` for the definition-lifetime
-        ;; rule; the undisturbed case still stamps the plain `:machine-id`
-        ;; keyword, so hot-reload semantics are unchanged).
+        ;; from (see `prepared-type-ref` for the definition-lifetime
+        ;; rule; the undisturbed case stamps the plain `:machine-id`
+        ;; keyword, so hot-reload reaches the child as it reaches any spawned
+        ;; actor).
         ;;
-        ;; rf2-zo5n9 — a THUNK, deliberately unforced here. `prepared-type-ref`
+        ;; A THUNK, deliberately unforced here. `prepared-type-ref`
         ;; is the one registrar-DERIVED input the install still needs, so it is
         ;; read as late as possible: `install-spawn!` forces it at the last point
         ;; before the swap, and the definition-lifetime rule therefore decides
         ;; against the registrar as it stands at COMMIT rather than at this
         ;; binding.
         ;;
-        ;; This originally guarded against TRACE LISTENERS — the
-        ;; `:rf.machine.spawn/spawned` trace below fanned synchronously to
-        ;; application listeners that could unregister or replace the child's
-        ;; TYPE mid-drain. rf2-wxy1c retired that premise: it is an internal
-        ;; drain-owned emit, delivered at the post-drain boundary, so no
-        ;; listener body runs between here and the write. The thunk stays because
-        ;; the late read is still correct and still load-bearing for ordinary
+        ;; The `:rf.machine.spawn/spawned` trace below is an internal
+        ;; drain-owned emit, delivered at the post-drain boundary, so no TRACE
+        ;; LISTENER body runs between here and the write. The thunk matters
+        ;; because the late read is correct and load-bearing for ordinary
         ;; in-drain application code — a prepared child's `[:schemas :data]`
         ;; validator runs after `prepare-spawn-all-child` retained `:type-spec`,
         ;; so a registrar it mutates must be the one the rule sees.
@@ -1311,37 +1307,37 @@
     ;;       `spawned-id`; firing a phantom spawned trace + `[nil <start>]`
     ;;       dispatch would be an atomicity violation), and
     ;;   (3) the exact frame incarnation that owns the event STILL being live
-    ;;       AFTER the schema callback (`(continue?)` — rf2-vxgfnd.153). A
+    ;;       AFTER the schema callback (`(continue?)`). A
     ;;       validator that destroyed A / published same-id B loses the token;
     ;;       none of the A-derived install / classification / spawn-order /
     ;;       trace / dispatch tail may land on B.
     ;; A destroyed-frame or owner-lost spawn is a clean no-op — no trace, no
     ;; install, no dispatch — symmetric with the schema-reject path's atomicity.
     ;;
-    ;; rf2-dokz adds a FOURTH condition, and folds the three above into the same
-    ;; `and` so the short-circuit order is unchanged: the install base must be
-    ;; obtainable. `install-base-after-replacing-occupant!` runs LAST — after the
+    ;; A FOURTH condition shares the same `and`, after the three above: the
+    ;; install base must be obtainable. `install-base-after-replacing-occupant!` runs LAST — after the
     ;; validator verdict, so a rejected spawn never disturbs an occupant — and it
     ;; tears a LIVE occupant of a supplied `:fixed-actor-id` down through the
     ;; ORDINARY destroy path before returning the POST-teardown value the install
     ;; must be built on. It returns nil when the occupant's authored `:exit` cost
     ;; us the frame or the exact owner, which suppresses the spawned traces and
     ;; the install together. On every other spawn it returns `rt-after-alloc`
-    ;; unchanged, so this reads exactly as it did before.
+    ;; unchanged.
     ;;
     ;; The teardown sits AHEAD of the `:rf.machine.spawn/spawned` trace on
     ;; purpose: the occupant's `:rf.machine/destroyed` is therefore observed
     ;; BEFORE the replacement's spawned traces, and a tool pairing lifecycle
     ;; events never sees one address spawned twice with no destroy between.
     ;;
-    ;; rf2-1sip SPLITS that fourth condition in two on the SAME occupancy
+    ;; That fourth condition SPLITS in two on the SAME occupancy
     ;; question, because occupancy means opposite things at the two kinds of
-    ;; address. At a SUPPLIED `:fixed-actor-id` it means REPLACE (rf2-dokz,
-    ;; above). At a GENERATED `<type>#<n>` it means REJECT: the counter is
+    ;; address. At a SUPPLIED `:fixed-actor-id` it means REPLACE (above). At a
+    ;; GENERATED `<type>#<n>` it means REJECT: the counter is
     ;; per-snapshot while the address space is per-frame, so a respawned parent
     ;; — or a second parent of the same child TYPE — re-mints an address a live
-    ;; actor still holds, and installing there is the unannounced death rf2-dokz
-    ;; removed from the fixed path, reached with no author involvement at all.
+    ;; actor still holds, and installing there would be an unannounced death —
+    ;; the one the fixed path's clean replacement avoids — reached with no
+    ;; author involvement at all.
     ;; The reject returns nil and so suppresses the traces and the install
     ;; together, exactly as an unobtainable install base does. It sits INSIDE
     ;; the same `and`, after the validator verdict, so a schema-rejected spawn
@@ -1365,7 +1361,7 @@
                     :start      (:start args)
                     :parent-id  parent-id
                     :invoke-id  invoke-id})
-      ;; rf2-3evq0x — the `:rf.machine.spawn/spawned` trace above is
+      ;; The `:rf.machine.spawn/spawned` trace above is
       ;; callback-bearing: a trace LISTENER can synchronously destroy A /
       ;; publish same-id B before returning. Recheck the exact-incarnation
       ;; continuation HERE, after the trace fanout and before ANY framework-
@@ -1373,8 +1369,8 @@
       ;; `:rf.machine.lifecycle/spawned` trace / `:start` dispatch tail is all
       ;; A-derived and would otherwise commit into B's name (the bare-id
       ;; `swap-runtime-db!` resolves to the CURRENT incarnation B). The initial
-      ;; `(continue?)` cascade gate only fenced the SCHEMA-validator callback;
-      ;; this fences the trace-listener callback the earlier gate ran ahead of.
+      ;; `(continue?)` cascade gate fences only the SCHEMA-validator callback;
+      ;; this fences the trace-listener callback that gate runs ahead of.
       ;;
       ;; NO per-instance handler registration. The actor's liveness IS its
       ;; snapshot's presence in the (revertible) frame value; the snapshot's
@@ -1397,7 +1393,7 @@
                                          :type-ref-fn type-ref-fn
                                          :continue?   continue?
                                          :owner-token owner-token})]
-        ;; rf2-hloj0g — the emissions ahead of `install-spawn!`'s swap are
+        ;; The emissions ahead of `install-spawn!`'s swap are
         ;; callback-bearing: a listener can destroy A / publish
         ;; same-id B on the trace's own stack. Run the framework-owned tail —
         ;; per-instance classification, the spawn-order record, and the
@@ -1405,9 +1401,9 @@
         ;; AND the exact owner is STILL current after those callbacks. Otherwise
         ;; the bare-id `rf.machines.spawn-order/record!` / classification writes + the
         ;; lifecycle-spawned trace would commit into B's name. The initial
-        ;; `(continue?)` gate at the cascade top fenced only the earlier
+        ;; `(continue?)` gate at the cascade top fences only the earlier
         ;; `:rf.machine.spawn/spawned` trace-listener callback; this fences the
-        ;; install's own two callbacks that gate ran ahead of.
+        ;; install's own two callbacks that gate runs ahead of.
         (when (and (= :committed installed) (continue?))
         ;; Lower the machine spec's projection-relative `:sensitive` / `:large`
         ;; `:data` declarations
@@ -1416,10 +1412,10 @@
         ;; snapshot path. The classification travels with the machine def and
         ;; applies to every generated `<type>#n`, dropped on destroy
         ;; (`teardown-live-actor!`). The egress READ path
-        ;; (`re-frame.classification/frame-snapshot-classification`, SSR, trace) is unchanged —
-        ;; this writes the registry-entry source `:source :machine`, a peer of
+        ;; (`re-frame.classification/frame-snapshot-classification`, SSR, trace) is not
+        ;; involved — this writes the registry-entry source `:source :machine`, a peer of
         ;; the general commit-plane `:source :effect` route. A spec declaring
-        ;; no classification is a no-op. rf2-i4aj9c — thread A's `owner-token`
+        ;; no classification is a no-op. Thread A's `owner-token`
         ;; so the per-instance classification lowering rides the EXACT elision
         ;; write: a container watch that destroys A / publishes same-id B DURING
         ;; the registry write cannot re-root the lowered `:sensitive` / `:large`
@@ -1427,7 +1423,7 @@
         ;; install itself is already exact; this closes the sibling classification
         ;; write the earlier fences ran ahead of).
         (rf.machines.classification/lower-at-spawn! frame-id spawned-id spec'' owner-token)
-        ;; rf2-rbxdxa — `lower-at-spawn!` writes through the EXACT elision swap, a
+        ;; `lower-at-spawn!` writes through the EXACT elision swap, a
         ;; container-write boundary: a synchronous watch can destroy A / publish
         ;; same-id B DURING the classification lowering. Recheck `(continue?)`
         ;; AFTER it before the spawn-order record / lifecycle trace / `:start`
@@ -1464,7 +1460,7 @@
                       :invoke-id  invoke-id
                       :parent-id  parent-id
                       :state      (:state initial-snap)})
-      ;; rf2-3evq0x — the `:rf.machine.lifecycle/spawned` trace above is
+      ;; The `:rf.machine.lifecycle/spawned` trace above is
       ;; likewise callback-bearing; recheck ownership once more before the
       ;; `:start` (or synthetic) actor-bootstrap dispatch so a listener that
       ;; just replaced A with B cannot kick B's bootstrap under A's authority.
@@ -1482,7 +1478,7 @@
         ;; discriminator (closed-enum per Spec-Schemas
         ;; §`:rf/dispatch-envelope`).
         ;;
-        ;; rf2-gbzv9 — a spawn QUEUES A CHILD (Spec 002 §Run propagation), so
+        ;; A spawn QUEUES A CHILD (Spec 002 §Run propagation), so
         ;; the bootstrap dispatch goes through the reserved-dispatch seam
         ;; `rf.fx/child-dispatch!`: the spawning envelope's inheritable keys
         ;; (`:fx-overrides`, `:interceptor-overrides`, `:trace-id`,
@@ -1502,7 +1498,7 @@
 ;; ---- :rf.machine/spawn-all-init -------------------------------------------
 
 (defonce ^:private join-attempt-counter
-  ;; Monotonic per-seed attempt-token source (rf2-nvxehu; mirrors
+  ;; Monotonic per-seed attempt-token source (mirrors
   ;; `timer/after-attempt-counter`). Every LIVE `:spawn-all` seed mints one
   ;; opaque token into the join state under `:rf/attempt`, and the same token
   ;; is stamped into each child's private `:rf/join-child` membership record —
@@ -1519,7 +1515,7 @@
 
 (defn- prepare-spawn-all-child
   "The AUTHORITATIVE single preparation of ONE `:spawn-all` per-child spawn for
-  an attempt (rf2-ek435 / rf2-7u8gen). Resolves the child's TYPE, stamps its
+  an attempt. Resolves the child's TYPE, stamps its
   framework `:data`, builds its initial snapshot, and runs its `[:schemas :data]`
   validator EXACTLY ONCE — against the join-state about to be seeded — and
   returns the prepared result the per-child install then consumes verbatim:
@@ -1533,7 +1529,7 @@
   derivatives are retained: `:spec`, the framework-stamped spec the install
   lands, and `:type-spec`, the RAW definition that resolution returned. The raw
   definition is what keeps an admitted child HANDLER-resolvable when the
-  registrar mutates between here and the install (rf2-rxjy3 — the install's
+  registrar mutates between here and the install (the install's
   `prepared-type-ref` pins it onto the snapshot once the registrar has diverged
   from it, so the actor's lazily-materialised handler and its prepared snapshot
   stay one authority).
@@ -1576,7 +1572,7 @@
                                     (some? (:machine-id args))
                                     (nil? (:definition args))
                                     (nil? spec)))
-        ;; rf2-3x7nj.9.6 — an invalid inline `:definition` is the FOURTH
+        ;; An invalid inline `:definition` is the FOURTH
         ;; admission condition. Decided before the snapshot is built, so a
         ;; malformed definition reaches no builder and no application validator.
         definition-error (when spawned-id (inline-definition-error args))
@@ -1595,8 +1591,8 @@
      :rejected?        (or unregistered? (some? definition-error) schema-reject?)}))
 
 (defn- spawn-all-address-collisions
-  "Detect `:spawn-all` children whose RESOLVED actor addresses ALIAS
-  (rf2-qlzh9). `:spawn-all` permits two DISTINCT logical children to resolve to
+  "Detect `:spawn-all` children whose RESOLVED actor addresses ALIAS.
+  `:spawn-all` permits two DISTINCT logical children to resolve to
   the SAME actor id — a `:fixed-actor-id` literal shared by two children, or a
   fixed id colliding with a generated `<type>#n` — because registration guards
   only LOGICAL `:id` uniqueness (`validate-spawn-all!`), not the resolved
@@ -1605,7 +1601,7 @@
   spec/snapshot and drops the only entry, while the later child falls back to a
   second resolution/validator verdict.
 
-  Reads the RAW per-child spawn args, NOT prepared children (rf2-ri19s). An
+  Reads the RAW per-child spawn args, NOT prepared children. An
   address is `pre-allocated-actor-id` — the child's own `:fixed-actor-id` or the
   `:rf/spawned-id` the transition reducer stamped — so aliasing is a purely
   STRUCTURAL property of the args, decidable without resolving a TYPE, building a
@@ -1635,7 +1631,7 @@
 (defn- write-spawned-slot!
   "Write `value` into the frame's join slot at
   `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`, bound to A's RAW
-  owner token (rf2-8nxsh). `spawn-all-init-fx` reaches this write only AFTER
+  owner token. `spawn-all-init-fx` reaches this write only AFTER
   its admission preflight has run application `[:schemas :data]` validators and
   (on the reject path) fanned callback-bearing reject records — either of which
   can synchronously destroy owner frame A and publish a same-id successor B on
@@ -1648,13 +1644,13 @@
   and on mid-write owner loss (a synchronous container watch that destroys A
   during the physical install) it returns nil WITHOUT bumping B's epoch — B
   stays byte-identical. Without an owner (a conformance / pure-fn caller with no
-  router event owner), fall back to the historical bare-id write; that path has
+  router event owner), fall back to the bare-id write; that path has
   no incarnation to lose, symmetric with `continue?`'s `(constantly true)`.
   Returns the new runtime-db slice, or nil on owner loss.
 
   `mirror`, when supplied (the live-join accept path), is written in the SAME
   swap at the parent's `[:data :rf/spawned <invoke-id>]` — the children map the
-  slot's `:children` mirrors (rf2-3x7nj.9.4). The exit-cascade clear removes
+  slot's `:children` mirrors. The exit-cascade clear removes
   slot and mirror together, so the seed writes them together: a macrostep that
   exits and re-enters the `:spawn-all` state drains the old batch's clear FIRST,
   taking the successor batch's freshly bound mirror with it."
@@ -1674,17 +1670,17 @@
 
 (defn- seed-reject-sentinel!
   "Seed the childless `spawn-all-reject-sentinel` at the invoke's join slot,
-  making a rejected `:spawn-all` ATOMIC (rf2-qb1j5z): every per-child
+  making a rejected `:spawn-all` ATOMIC: every per-child
   `:rf.machine/spawn` fx later in THIS entry vector reads it
   (`spawn-all-invoke-rejected?`) and suppresses itself, so a rejected invoke
   spawns NOTHING rather than orphaning registered siblings under no live join.
 
-  Fenced on `(continue?)` and bound to A's raw owner token (rf2-8nxsh): the
+  Fenced on `(continue?)` and bound to A's raw owner token: the
   reject path fans callback-bearing records whose listeners can synchronously
   destroy owner frame A and publish a same-id successor B, and no A-derived
   sentinel may land on B. Returns nil — the fx's reject-path return value.
 
-  Shared by BOTH reject branches (rf2-ri19s): the structural alias reject, which
+  Shared by BOTH reject branches: the structural alias reject, which
   short-circuits ahead of preparation, and the prepared-child reject for an
   unregistered TYPE / schema rejection."
   [frame-id owner-token parent-id invoke-id continue?]
@@ -1706,15 +1702,15 @@
      :cancelled  #{}   ;; authenticated explicit-teardown tombstones for THIS attempt
      :resolved?  false
      :spec       <invoke-all-spec>
-     :rf/attempt <opaque-attempt-token>   ;; minted HERE per live seed (rf2-nvxehu)
+     :rf/attempt <opaque-attempt-token>   ;; minted HERE per live seed
      :rf/prepared {<spawned-id> {:spec      <stamped-spec>
                                  :snap      <initial-snap>
                                  :type-spec <raw-resolved-definition>}, ...}}
        ;; EPHEMERAL — the authoritative prepared children each per-child install
-       ;; CONSUMES then drops (rf2-ek435); gone once every child has installed.
+       ;; CONSUMES then drops; gone once every child has installed.
        ;; `:type-spec` is the definition reference the install stamps at
        ;; `:rf/machine-type`, keeping the admitted child handler-resolvable
-       ;; across a mid-drain registrar mutation (rf2-rxjy3).
+       ;; across a mid-drain registrar mutation.
 
   Each child's completion is its own `:final?` state: `lifecycle-fx.finalize`
   mints the reserved `:rf.machine.spawn/done` carrier from the child's
@@ -1731,9 +1727,9 @@
 
   Three admission conditions, all decided over the per-child spawn args
   (`:child-args`) before anything is published — STRUCTURE first, then the
-  conditions that need resolution / application callbacks (rf2-ri19s):
+  conditions that need resolution / application callbacks:
 
-   0. **Resolved-address ALIASING** — rf2-qlzh9. Two DISTINCT logical children
+   0. **Resolved-address ALIASING.** Two DISTINCT logical children
       resolving to ONE actor address (a shared `:fixed-actor-id`, or a fixed id
       colliding with a generated `<type>#n`) would collapse to one
       `:rf/prepared` entry / one live actor — a silent overwrite that leaves an
@@ -1743,20 +1739,20 @@
       straight off the args (`pre-allocated-actor-id`), so it needs no TYPE
       resolution, no snapshot, and no application validator — and an
       already-aliased batch must not pay for, nor be pre-empted by, any of them.
-   1. **Unregistered child TYPE** (no inline `:definition`) — rf2-qb1j5z. A
+   1. **Unregistered child TYPE** (no inline `:definition`). A
       never-running spec-less child would never reach a `:final?` state,
       blocking an `:all` join FOREVER (`join.cljc`
       `(= n-done n-total)` can never hold).
-   2. **Spawn-time `[:schemas :data]` rejection** — rf2-7u8gen. Validation
-      used to run only inside each per-child spawn, so a mixed
-      valid/schema-invalid invoke published a live join naming EVERY child,
-      installed the valid siblings, and left the rejected child in that join
-      forever: it has no snapshot and can never emit completion, so the
-      parent waits on it eternally while its valid siblings are real live
-      actors owned by an impossible join. That is the same dead-join/orphan
-      class the unregistered-type sentinel exists to remove, and it violates
-      Spec 005's promise that a parent never observes a half-installed child.
-      Preflighting it HERE composes the two guarantees.
+   2. **Spawn-time `[:schemas :data]` rejection.** Validated only inside
+      each per-child spawn, a mixed valid/schema-invalid invoke would publish
+      a live join naming EVERY child, install the valid siblings, and leave
+      the rejected child in that join forever: it has no snapshot and can
+      never emit completion, so the parent would wait on it eternally while
+      its valid siblings are real live actors owned by an impossible join.
+      That is the same dead-join/orphan class the unregistered-type sentinel
+      exists to remove, and it would violate Spec 005's promise that a parent
+      never observes a half-installed child. Preflighting it HERE composes
+      the two guarantees.
 
   (1) and (2) are read off the PREPARED children — one
   `prepare-spawn-all-child` per child, resolving its TYPE, building its
@@ -1764,21 +1760,21 @@
   (0) is prepared at all, so a structurally invalid invoke fans exactly one
   diagnostic (its alias) and reaches no application code.
 
-  An all-valid invoke keeps the existing fast path. Registration-time SHAPE
-  rejection stays where it already belongs (`reg-machine`).
+  An all-valid invoke takes the fast path. Registration-time SHAPE
+  rejection belongs to `reg-machine`.
   EVERY child's per-child `:rf.machine/spawn` fx — SEPARATE entries later in
   THIS same entry vector — reads the sentinel (`spawn-all-invoke-rejected?`)
   and SUPPRESSES itself BEFORE installing, so a malformed set spawns NOTHING
   rather than orphaning the registered siblings under no live join. That
   suppression covers the OFFENDING children too, not just their registered
   siblings: this fx is the SOLE emitter for a rejected invoke and emits
-  exactly ONE reject per offending child (rf2-smya7a).
+  exactly ONE reject per offending child.
   Because the sentinel is childless, no actor is ever spawned to complete:
   a stray / forged completion hits `join.cljc`'s childless-slot
   guard and is a no-op (no deadlock), and `destroy-spawn-all-children!`
   finds nothing to tear down and clears the sentinel on parent exit.
 
-  EXACT-INCARNATION FENCE (rf2-8nxsh). The preflight's `[:schemas :data]`
+  EXACT-INCARNATION FENCE. The preflight's `[:schemas :data]`
   validators are application code, and the reject path fans callback-bearing
   always-on records + dev traces; either can synchronously destroy owner frame
   A and publish a same-id successor B on its own stack. Both durable writes —
@@ -1808,16 +1804,17 @@
         ;; `[:spec :children]`, is what lets the invoke-level decision see
         ;; everything a per-child effect would: the materialised `:data`, the
         ;; pre-allocated id, and hence the child's real `[:schemas :data]`
-        ;; verdict (rf2-7u8gen).
+        ;; verdict.
         ;;
-        ;; rf2-ek435 — re-stamp each child-arg's `:rf/spawn-all-id` (and
+        ;; Re-stamp each child-arg's `:rf/spawn-all-id` (and
         ;; `:rf/parent-id`) to THIS fx's own `invoke-id` / `parent-id`. For a
         ;; PARALLEL-region invoke, `rf.machines.parallel/prefix-region-invoke-id` region-
         ;; prefixes the init-fx's top-level `:rf/invoke-id` AND every per-child
         ;; `:rf.machine/spawn` fx's top-level `:rf/spawn-all-id`, but NOT the
         ;; `:child-args` nested here — so their `:rf/spawn-all-id` is the
-        ;; UN-prefixed path. The preflight now RETAINS the `:rf/join-child`
-        ;; membership record built from these args (rf2-nvxehu `:invoke-id`), and
+        ;; UN-prefixed path. The preflight RETAINS the `:rf/join-child`
+        ;; membership record built from these args (its `:invoke-id` among
+        ;; them), and
         ;; the per-child install consumes it, so that record must carry the SAME
         ;; region-prefixed invoke-id the per-child spawn fxs (and hence the join
         ;; slot) use — else a parallel child's completion coordinate names a slot
@@ -1838,7 +1835,7 @@
                           :cancelled #{}
                           :rf/attempt (next-join-attempt-token))
         continue?  (rf.machines.data-validation/owner-continuation frame-id)
-        ;; rf2-8nxsh — the RAW exact owner token (`continue?` closes over the
+        ;; The RAW exact owner token (`continue?` closes over the
         ;; same authority). The admission preflight below runs application
         ;; `[:schemas :data]` validators (`prepare-spawn-all-child`), and the
         ;; reject path fans callback-bearing always-on reject records + dev
@@ -1852,9 +1849,8 @@
         owner-token (rf.frame/current-event-owner-token)
         ;; ---- The invoke-level admission preflight ------------------------
         ;; ONE authoritative preparation per child, then ONE decision — both
-        ;; taken BEFORE a live join or ANY child side effect is published
-        ;; (rf2-qb1j5z for unregistered types, rf2-7u8gen for spawn-time schema
-        ;; validity, rf2-ek435 for retaining the result). `prepare-spawn-all-child`
+        ;; taken BEFORE a live join or ANY child side effect is published.
+        ;; `prepare-spawn-all-child`
         ;; resolves each child's type, stamps its `:data`, builds its snapshot,
         ;; and runs its `[:schemas :data]` validator EXACTLY ONCE, returning the
         ;; prepared result. The accept path retains those prepared children so
@@ -1864,10 +1860,9 @@
         ;; reject reasons are DISJOINT — an unregistered type resolves to no
         ;; spec, so it can never also be a schema reject — hence each offending
         ;; child is reported exactly once under exactly one of them.
-        ;; Registration-time SHAPE rejection stays where it belongs
-        ;; (`reg-machine`).
+        ;; Registration-time SHAPE rejection belongs to `reg-machine`.
         ;;
-        ;; rf2-qlzh9 — resolved actor-address ALIASING is a THIRD fail-closed
+        ;; Resolved actor-address ALIASING is a THIRD fail-closed
         ;; admission condition, alongside unregistered TYPE and spawn-time
         ;; `[:schemas :data]` rejection. Registration guards only LOGICAL `:id`
         ;; uniqueness, so two distinct logical children can resolve to the SAME
@@ -1875,14 +1870,14 @@
         ;; with a generated `<type>#n`) and silently collapse to one
         ;; `:rf/prepared` entry / one live actor.
         ;;
-        ;; rf2-ri19s — it is decided FIRST, over the RAW `child-args`, because it
+        ;; It is decided FIRST, over the RAW `child-args`, because it
         ;; is the only admission condition that is purely STRUCTURAL: an address
         ;; is the child's own `:fixed-actor-id` / reducer-stamped
         ;; `:rf/spawned-id`, so aliasing is knowable without resolving a TYPE,
         ;; building a snapshot, or running an application validator. Preparing
         ;; first would (a) run application `[:schemas :data]` callbacks — and emit
         ;; their `:rf.error/schema-validation-failure` traces — for a batch
-        ;; ALREADY known structurally invalid, so the structural fault did not
+        ;; ALREADY known structurally invalid, so the structural fault would not
         ;; fail first, and (b) let one of those validators / its listeners destroy
         ;; owner frame A mid-preflight and PRE-EMPT the collision reject through
         ;; the `(continue?)` fence, losing the diagnostic entirely. Only a
@@ -1900,7 +1895,7 @@
       (let [prepared       (mapv #(prepare-spawn-all-child % join-state continue?) child-args)
             unregistered   (mapv :args (filterv :unregistered? prepared))
             schema-invalid (filterv :schema-reject? prepared)
-            ;; rf2-3x7nj.9.6 — invalid inline `:definition`s.
+            ;; Invalid inline `:definition`s.
             bad-defs       (keep :definition-error prepared)]
         (if (or (seq unregistered) (seq schema-invalid) (seq bad-defs))
           ;; Fail-closed: reject the join so the never-running spec-less child
@@ -1908,9 +1903,9 @@
           ;; offending child (structural-only tags, per the privacy contract) —
           ;; this fx is the sole emitter, and each offending child's own
           ;; `:rf.machine/spawn` fx suppresses silently under the sentinel it
-          ;; seeds below rather than emitting a duplicate (rf2-smya7a).
+          ;; seeds below rather than emitting a duplicate.
           ;;
-          ;; ATOMIC reject (rf2-qb1j5z): seed `spawn-all-reject-sentinel` at the
+          ;; ATOMIC reject: seed `spawn-all-reject-sentinel` at the
           ;; join slot rather than seeding NO join-state. The registered
           ;; siblings' per-child `:rf.machine/spawn` fxs — SEPARATE entries later
           ;; in THIS entry `:fx` vector — would otherwise install live orphan
@@ -1930,10 +1925,10 @@
           ;;
           ;; The resolved-address alias is NOT decided here — it is structural
           ;; and already rejected upstream, before this branch's `prepared` was
-          ;; ever computed (rf2-ri19s). Reaching this branch therefore means the
+          ;; ever computed. Reaching this branch therefore means the
           ;; batch's addresses are all distinct.
           ;;
-          ;; rf2-8nxsh — every reject record + dev trace `reject-unregistered-spawn!`
+          ;; Every reject record + dev trace `reject-unregistered-spawn!`
           ;; fans is callback-bearing (an always-on `:errors` listener can destroy A
           ;; / publish same-id B), and the preflight's schema validators above may
           ;; ALREADY have lost A. Fence between emissions on `(continue?)` so a
@@ -1941,10 +1936,10 @@
           ;; than attributing stale diagnostics to a dead frame / successor B; then
           ;; seed the childless sentinel ONLY while A still owns, bound to A's raw
           ;; token so a same-id B stays byte-identical (no A-derived sentinel lands
-          ;; on B). Under a live owner with no destroyer this is the historical
-          ;; behaviour: one reject per unregistered child, one sentinel seeded.
+          ;; on B). Under a live owner with no destroyer this is simply one
+          ;; reject per unregistered child and one sentinel seeded.
           ;;
-          ;; rf2-3x7nj.9.6 — an invalid inline `:definition` rejects the invoke
+          ;; An invalid inline `:definition` rejects the invoke
           ;; the same way; once the sentinel is seeded (so every sibling
           ;; suppresses), the first definition's typed error is THROWN, exactly
           ;; as a single `:spawn` throws it, for the fx runner to surface.
@@ -1956,7 +1951,7 @@
               (when-let [e (first bad-defs)]
                 (throw e)))
           ;; The all-valid fast path. `join-state` already carries the opaque
-          ;; per-attempt token (rf2-nvxehu) minted above: one LIVE seed = one join
+          ;; per-attempt token minted above: one LIVE seed = one join
           ;; ATTEMPT, and the token rides both the join state and each child's
           ;; `:rf/join-child` membership record (stamped by the per-child spawn
           ;; fxs that run AFTER this fx in the same entry vector), binding every
@@ -1964,7 +1959,7 @@
           ;;
           ;; Machine spawn-registry state is durable runtime-db state.
           ;;
-          ;; rf2-8nxsh — the preflight's `[:schemas :data]` validators are
+          ;; The preflight's `[:schemas :data]` validators are
           ;; application code that may have destroyed A / published same-id B even
           ;; when every child CONFORMED (a conforming validator returning true still
           ;; ran on A's stack). Seed the live join ONLY while A still owns and bind
@@ -1975,14 +1970,14 @@
           ;; into A (a nil return means B, or a dead frame, and gets no started
           ;; trace).
           ;;
-          ;; rf2-ek435 — retain the AUTHORITATIVE prepared children on the seeded
+          ;; Retain the AUTHORITATIVE prepared children on the seeded
           ;; join under `:rf/prepared` (`{<spawned-id> {:spec … :snap …}}`, one
           ;; entry per admitted child). Every child was admitted here, so each has a
           ;; resolved spec + built snapshot; each per-child install then CONSUMES its
           ;; entry (`spawn-all-prepared-child`) instead of re-resolving / rebuilding /
           ;; re-validating, and drops it in the same swap that lands its snapshot —
           ;; so the scratch never outlives the drain. Every `:spawned-id` here is
-          ;; DISTINCT — the upstream structural alias guard (rf2-ri19s) rejected the
+          ;; DISTINCT — the upstream structural alias guard rejects the
           ;; invoke outright otherwise — so this map can never silently overwrite.
           (do (when (continue?)
                 (when (some? (write-spawned-slot!
