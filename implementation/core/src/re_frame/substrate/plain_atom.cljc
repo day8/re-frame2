@@ -11,7 +11,7 @@
   plain-atom path on CLJS) call `(rf/init! plain-atom/adapter)`
   explicitly. The `adapter` var below is the public surface.
 
-  ## Disposal / ref-count participation (rf2-uatcy)
+  ## Disposal / ref-count participation
 
   The sub-cache wires symmetric input-release through
   `re-frame.interop/add-on-dispose!` at slot construction (Spec 006
@@ -21,7 +21,7 @@
   or input ref-counts leak monotonically until `clear-sub-cache!`.
 
     - **JVM.** The plain-atom JVM derived value IS an
-      `re-frame.interop/make-reaction` `Reaction` (per rf2-tnnln), which
+      `re-frame.interop/make-reaction` `Reaction`, which
       carries its own on-dispose callback storage on the object. So
       `re-frame.interop/add-on-dispose!` / `dispose!` store/fire
       callbacks directly on the reaction — no process-wide registry, and
@@ -55,14 +55,14 @@
   ;; sub at most a handful of times per request; caching would add
   ;; complexity for negligible gain.
   ;;
-  ;; JVM (rf2-tnnln): the derived value IS an `rf.interop/make-reaction`
+  ;; JVM: the derived value IS an `rf.interop/make-reaction`
   ;; `Reaction`, which carries its own on-dispose callback storage on the
   ;; object. `re-frame.interop`'s `add-on-dispose!` / `dispose!` store and
   ;; fire callbacks directly on it — no process-wide registry — so an
   ;; un-disposed reaction is GC-reclaimable along with its callbacks
   ;; rather than pinned in a global strong-ref map.
   ;;
-  ;; CLJS (rf2-uatcy): `re-frame.interop` (the .cljs) routes
+  ;; CLJS: `re-frame.interop` (the .cljs) routes
   ;; `add-on-dispose!` / `dispose!` through the `:adapter/*` hooks, which
   ;; dispatch on the derived value reifying `IDisposable`. Reify it here
   ;; (mirroring `re-frame.substrate.spine`) so the sub-cache's symmetric
@@ -84,7 +84,7 @@
          (-add-on-dispose [_ f]
            (swap! on-dispose-fns conj f))
          (-dispose [_]
-           ;; Idempotent + re-entrant safe (rf2-1bzlai), mirroring the spine
+           ;; Idempotent + re-entrant safe, mirroring the spine
            ;; (spine.cljs). Flip the guard FIRST so a re-entrant `-dispose`
            ;; from inside an on-dispose callback (or a plain second call)
            ;; short-circuits before any teardown re-runs; snapshot-and-clear
@@ -127,7 +127,7 @@
       (str "no hiccup emitter is bound on the plain-atom adapter; require the "
            "re-frame.ssr namespace (which calls set-hiccup-emitter! on load) "
            "before calling render-to-string.")
-      ;; EP-0015 (rf2-uwqale): carry an EP-0015-safe SUMMARY of the
+      ;; EP-0015: carry an EP-0015-safe SUMMARY of the
       ;; render-tree, never the raw tree (a thrown render diagnostic is
       ;; captured off-box before path-based projection can classify it).
       {:recovery :require-re-frame-ssr
@@ -161,7 +161,7 @@
    :register-context-provider register-context-provider
    :dispose-adapter!          dispose-adapter!})
 
-;; ---- late-bind hook routing (CLJS only, rf2-uatcy) ------------------------
+;; ---- late-bind hook routing (CLJS only) -----------------------------------
 ;;
 ;; On CLJS `re-frame.interop`'s `add-on-dispose!` / `dispose!` route
 ;; through these `:adapter/*` hooks (the JVM `re-frame.interop` implements
