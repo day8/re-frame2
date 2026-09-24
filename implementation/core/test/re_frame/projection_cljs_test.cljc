@@ -518,8 +518,8 @@
 ;; Truthiness at either step would make `{:frame nil}` unsayable: it would read
 ;; as absence and borrow the AMBIENT frame, which for a tool projecting another
 ;; app's value resolves, is live, and has an empty registry — so the value
-;; would ship RAW. Every arm below binds a LIVE ambient frame with declarations of its
-;; own, so a borrow is directly observable rather than vacuous.
+;; would ship RAW. Every arm below binds a LIVE ambient frame with declarations
+;; of its own, so a borrow is directly observable rather than vacuous.
 ;; ---------------------------------------------------------------------------
 
 (deftest explicit-nil-frame-opt-wins-over-the-ambient-scope
