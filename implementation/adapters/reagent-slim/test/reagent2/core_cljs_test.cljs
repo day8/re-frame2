@@ -1,20 +1,19 @@
 (ns reagent2.core-cljs-test
-  "Unit tests for `reagent2.core` user-facing surface (Stage 4-D, rf2-6hyy).
+  "Unit tests for `reagent2.core` user-facing surface.
 
   Covers the surfaces that don't have dedicated test files:
 
     - force-update — routes .forceUpdate on `this`; 1-arity only
-      (the stock-Reagent 2-arity `[this deep?]` was dropped per
-      rf2-okpsr — :deep? has no React 19 analogue and no audited
-      caller relied on it).
+      (there is no stock-Reagent 2-arity `[this deep?]`: :deep? has no
+      React 19 analogue).
 
-    - Form-3 component-state surface (rf2-ynjts.3 coverage pass): the
+    - Form-3 component-state surface: the
       PUBLIC `reagent2.core` wrappers `state-atom` / `state` /
       `set-state` / `replace-state` and the argv accessors `argv` /
       `props` / `children`. These are the symbols downstream code
       imports as `reagent.core/state` etc. (re-com / Day8). The
       underlying `reagent2.impl.component/*` fns are pinned in
-      component_cljs_test; what was UNVERIFIED before this pass is the
+      component_cljs_test; what this file pins is the
       `reagent2.core`-level wiring — that `state` derefs the cached
       cell, `set-state` MERGES while `replace-state` RESETS (a real,
       distinguishable invariant a key-swap bug would otherwise slip),
@@ -24,7 +23,7 @@
       dedicated per-impl coverage (ratom / component / template /
       batching).
 
-    - The `reaction` macro (rf2-b9l8o): stock Reagent's
+    - The `reaction` macro: stock Reagent's
       `reagent.core/reaction` is a macro over the body, and so is this
       one. Pinned here, from the consumer side, with only
       `reagent2.core` required at the call site: the body is deferred
@@ -69,8 +68,8 @@
       (is true "did not throw"))))
 
 (deftest force-update-is-strictly-1-arity
-  (testing "force-update declares a single 1-arity body (rf2-okpsr —
-            the stock-Reagent 2-arity `[this deep?]` was dropped). The
+  (testing "force-update declares a single 1-arity body (there is no
+            stock-Reagent 2-arity `[this deep?]`). The
             metadata `:arglists` is the canonical contract surface."
     (let [arglists (-> #'r/force-update meta :arglists)]
       (is (= 1 (count arglists))
@@ -79,7 +78,7 @@
           ":arglists is [this] only"))))
 
 ;; ---------------------------------------------------------------------------
-;; Form-3 component-state surface (rf2-ynjts.3)
+;; Form-3 component-state surface
 ;;
 ;; `reagent2.core/state-atom` lazily creates a per-component RAtom and
 ;; caches it on the instance; `state` derefs it; `set-state` MERGES a map
@@ -163,7 +162,7 @@
           "distinct instances get distinct state cells"))))
 
 ;; ---------------------------------------------------------------------------
-;; Form-3 argv accessors (rf2-ynjts.3)
+;; Form-3 argv accessors
 ;;
 ;; `reagent2.core/argv` / `props` / `children` are thin wrappers over the
 ;; `component/get-*` fns (impl-pinned in component_cljs_test). Here we pin
@@ -207,14 +206,14 @@
           "no props map → children start right after the head"))))
 
 ;; ---------------------------------------------------------------------------
-;; reaction macro (rf2-b9l8o)
+;; reaction macro
 ;;
 ;; `reagent2.core/reaction` is a macro with stock Reagent's body syntax:
 ;; `(r/reaction body...)` expands to
-;; `(reagent2.ratom/make-reaction (fn [] body...))`. Against the earlier
-;; thunk-taking function `(defn reaction [f] ...)` every test below is red:
-;; the body ran eagerly at the call site, its VALUE was handed to
-;; make-reaction as `f`, and the first deref tried to call that value.
+;; `(reagent2.ratom/make-reaction (fn [] body...))`. A thunk-taking
+;; function `(defn reaction [f] ...)` would fail every test below: the
+;; body would run eagerly at the call site, its VALUE would be handed to
+;; make-reaction as `f`, and the first deref would try to call that value.
 ;; ---------------------------------------------------------------------------
 
 (deftest reaction-body-is-deferred-until-deref
