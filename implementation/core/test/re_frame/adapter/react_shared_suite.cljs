@@ -4172,7 +4172,7 @@
 ;; ===========================================================================
 
 (defn assert-use-sub-provider-tier-resolution-ambient-cleared
-  "rf2-4mi2zj — provider-tier resolution with the AMBIENT dynamic scope
+  "Provider-tier resolution with the AMBIENT dynamic scope
   CLEARED. The 1-arg `use-sub` under a `frame-provider`, with
   `rf.frame/*current-frame*` bound to nil, must still resolve to the
   provider's frame via the React-context tier (tier 2). The fixture's
@@ -4193,15 +4193,15 @@
     :frame-provider-query           query-v keyword the probe subscribes to"
   [{:keys [name frame-provider-mount-element probe-frame-provider-element
            probe-frame-provider-observed provider-tier-frame frame-provider-query]}]
-  (testing (str name " — use-sub 1-arg provider-tier resolution, ambient scope cleared (rf2-4mi2zj)")
+  (testing (str name " — use-sub 1-arg provider-tier resolution, ambient scope cleared")
     (with-browser-act
      (fn [act-fn]
       ;; Clear the fixture's ambient :rf/default dynamic scope so the
       ;; React-context tier is the genuine decider, not a shadowing
-      ;; dynamic var (the masking the bead flags).
+      ;; dynamic var.
       (binding [rf.frame/*current-frame* nil]
         (reset! probe-frame-provider-observed [])
-        (rf/make-frame {:id provider-tier-frame :doc "rf2-4mi2zj provider-tier (ambient cleared) frame"})
+        (rf/make-frame {:id provider-tier-frame :doc "provider-tier (ambient cleared) frame"})
         (rf/reg-event ::provider-tier-seed (fn [{:keys [db]} _] {:db {:k :from-provider}}))
         (rf/dispatch-sync [::provider-tier-seed] {:frame provider-tier-frame})
         (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
@@ -4222,24 +4222,20 @@
               (try (.unmount root) (catch :default _ nil))))))))))
 
 (defn assert-use-sub-provider-precedence-over-dynamic-var
-  "rf2-kuky.62 — THE ADVERSARIAL CASE, and the row that makes the ruling
-  un-silent. With BOTH a live `with-frame` dynamic scope naming frame A
+  "THE ADVERSARIAL CASE, and the row that makes the rule observable. With
+  BOTH a live `with-frame` dynamic scope naming frame A
   AND a surrounding `frame-provider` naming frame B, every React hook
   resolves to **B**: the provider wins, because the hook consults React
-  context and nothing else.
-
-  THE DIRECTION HERE IS THE OPPOSITE OF THE ONE THIS ROW USED TO ASSERT.
-  It was `assert-use-sub-dynamic-var-precedence-over-provider` (rf2-4mi2zj),
-  which pinned tier 1 beating tier 2 for the hook. rf2-kuky.61 ruled that
-  precedence off the hook family — see the section header above for the
-  rule and its reason — and this row is its witness.
+  context and nothing else. See the section header above for the rule and
+  its reason; this row is its witness.
 
   WHY THE BINDING IS LIVE RATHER THAN CLEARED. React 18 `act()` runs the
   component body on the CALLING stack, so a `binding` wrapped around the
   act/render call is genuinely in scope while the body runs. That is what
-  makes this a contest rather than a vacuous pass: under the old rule the
-  probe read A, and it is exactly the synchronous-flush shape (act,
-  `flushSync`, a server render) where the two rules disagree. Both frames
+  makes this a contest rather than a vacuous pass: a hook that consulted the
+  dynamic tier first would read A, and this is exactly the synchronous-flush
+  shape (act, `flushSync`, a server render) where the two orderings
+  disagree. Both frames
   register the same query, so the ONLY signal separating them is which
   frame's app-db the read came from — A is seeded `:from-dynamic`, B
   `:from-provider`.
@@ -4267,12 +4263,12 @@
            probe-frame-provider-observed probe-use-frame-element use-frame-observed
            dynamic-precedence-provider-frame dynamic-precedence-dynamic-frame
            frame-provider-query]}]
-  (testing (str name " — hooks: the PROVIDER beats a live with-frame (rf2-kuky.62)")
+  (testing (str name " — hooks: the PROVIDER beats a live with-frame")
     (with-browser-act
      (fn [act-fn]
       (reset! probe-frame-provider-observed [])
-      (rf/make-frame {:id dynamic-precedence-provider-frame :doc "rf2-kuky.62 provider (the winner)"})
-      (rf/make-frame {:id dynamic-precedence-dynamic-frame :doc "rf2-kuky.62 dynamic-var (the loser)"})
+      (rf/make-frame {:id dynamic-precedence-provider-frame :doc "provider (the winner)"})
+      (rf/make-frame {:id dynamic-precedence-dynamic-frame :doc "dynamic-var (the loser)"})
       (rf/reg-event ::precedence-seed (fn [{:keys [db]} [_ v]] {:db {:k v}}))
       (rf/dispatch-sync [::precedence-seed :from-provider] {:frame dynamic-precedence-provider-frame})
       (rf/dispatch-sync [::precedence-seed :from-dynamic]  {:frame dynamic-precedence-dynamic-frame})
@@ -4325,11 +4321,11 @@
               (try (.unmount root) (catch :default _ nil))))))))))
 
 (defn assert-use-sub-no-provider-no-dynamic-raises-no-frame-context
-  "rf2-4mi2zj — the second ADVERSARIAL case. A 1-arg `use-sub` with
+  "The second ADVERSARIAL case. A 1-arg `use-sub` with
   NO surrounding `frame-provider` and NO dynamic scope must resolve to nil
   and emit `:rf.error/no-frame-context` (EP-0002 — no `:rf/default`
   floor), NOT subscribe against the no-provider sentinel
-  `:rf.frame/no-provider` (which the buggy spine did, surfacing a
+  `:rf.frame/no-provider` (which would surface a
   bad/destroyed-frame outcome instead).
 
   Proof shape: clear the ambient dynamic scope, register the sub but mount
@@ -4350,7 +4346,7 @@
     :frame-provider-query           query-v keyword the probe subscribes to"
   [{:keys [name substrate-kw probe-frame-provider-element probe-frame-provider-observed
            no-scope-frame frame-provider-query]}]
-  (testing (str name " — use-sub 1-arg with no scope raises no-frame-context (rf2-4mi2zj)")
+  (testing (str name " — use-sub 1-arg with no scope raises no-frame-context")
     (with-browser-act
      (fn [act-fn]
       (binding [rf.frame/*current-frame* nil]
@@ -4361,7 +4357,7 @@
           (reset! probe-frame-provider-observed [])
           ;; Register the sub + a frame so the ONLY reason resolution can
           ;; fail is the absent scope — not a missing sub/frame.
-          (rf/make-frame {:id no-scope-frame :doc "rf2-4mi2zj no-scope frame (must never be resolved-to)"})
+          (rf/make-frame {:id no-scope-frame :doc "no-scope frame (must never be resolved-to)"})
           (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
           (let [mount-node (make-mount-node!)
                 root       (react-dom-client/createRoot mount-node)]
@@ -4377,30 +4373,28 @@
                     "a :rf.error/no-frame-context trace fired — the 1-arg read failed
                      CLOSED on the specified error (no :rf/default floor)"))
               (is (not (some #{:rf.frame/no-provider} @probe-frame-provider-observed))
-                  "the no-provider sentinel was NEVER used as a frame id (the buggy
-                   spine subscribed against :rf.frame/no-provider instead of erroring)")
+                  "the no-provider sentinel was NEVER used as a frame id (not
+                   subscribed against :rf.frame/no-provider instead of erroring)")
               (finally
                 (rf.trace.tooling/unregister-listener! lk)
                 (try (.unmount root) (catch :default _ nil)))))))))))
 
 (defn assert-hook-no-provider-with-dynamic-scope-raises-no-frame-context
-  "rf2-kuky.62 — THE NEW CASE. With NO `frame-provider` above it but a LIVE
-  `with-frame` dynamic scope around the render, a React hook raises
-  `:rf.error/no-frame-context`. Before this ruling the UIx hooks answered
-  the dynamically-bound frame, which is the whole of what changed for a
-  caller.
+  "With NO `frame-provider` above it but a LIVE `with-frame` dynamic scope
+  around the render, a React hook raises `:rf.error/no-frame-context`; it
+  does not answer the dynamically-bound frame.
 
   It is the mirror of `assert-use-sub-provider-precedence-over-dynamic-var`:
   that row proves the provider WINS a contest, this one proves the dynamic
   var cannot win UNOPPOSED either. Without it the rule would be satisfiable
   by a chain that merely reordered the two tiers, and the reason for the
-  ruling — a hook must not depend on which imperative scope surrounds a
+  rule — a hook must not depend on which imperative scope surrounds a
   flush — would still be violated.
 
   BOTH CONTEXT-READING ENVIRONMENTS, because they read different slots.
   The client renderer pushes and pops React's PRIMARY `_currentValue`; the
   Fizz server renderer (`react-dom/server`) uses the SECONDARY
-  `_currentValue2` (rf2-5rqn). A hook resolving from the `useContext`
+  `_currentValue2`. A hook resolving from the `useContext`
   RETURN is renderer-agnostic and covers both, but only a run under each
   says so.
 
@@ -4408,9 +4402,7 @@
   refusal is raised per hook: `use-sub` and `use-frame` classify the same
   `useContext` return through the same helper, but each raises under its
   own `:op`, so a repair that reached only one of them would leave the
-  other answering the dynamically-bound frame on the server. (The
-  `use-frame` server leg was missing until the rf2-kuky.62 merged-PR
-  audit of #9427 noticed part 3 exercised the `use-sub` probe twice.)
+  other answering the dynamically-bound frame on the server.
 
     1. CLIENT — `use-sub`'s 1-arity, mounted with no provider inside a live
        `binding`. A `:rf.error/no-frame-context` trace fires and nothing is
@@ -4434,7 +4426,7 @@
     :frame-provider-query           query-v keyword the probe subscribes to"
   [{:keys [name substrate-kw probe-frame-provider-element probe-frame-provider-observed
            probe-use-frame-element use-frame-observed frame-provider-query]}]
-  (testing (str name " — a hook with no provider refuses even under a live with-frame (rf2-kuky.62)")
+  (testing (str name " — a hook with no provider refuses even under a live with-frame")
     (with-browser-act
      (fn [act-fn]
       (let [dyn-frame (mint-kw substrate-kw "no-provider-dynamic-frame")
@@ -4446,7 +4438,7 @@
         ;; The frame the dynamic scope names is REAL and SEEDED, so the only
         ;; reason the read can fail is that the hook refused to consult the
         ;; dynamic tier — not a missing frame and not a missing sub.
-        (rf/make-frame {:id dyn-frame :doc "rf2-kuky.62 dynamically-bound frame (must never be resolved-to)"})
+        (rf/make-frame {:id dyn-frame :doc "dynamically-bound frame (must never be resolved-to)"})
         (rf/reg-event ::kuky62-dyn-seed (fn [_ _] {:db {:k :from-dynamic}}))
         (rf/dispatch-sync [::kuky62-dyn-seed] {:frame dyn-frame})
         (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
@@ -4464,8 +4456,8 @@
                     "a :rf.error/no-frame-context trace fired — the hook did NOT
                      answer the dynamically-bound frame")
                 (is (not (some #{:from-dynamic} @probe-frame-provider-observed))
-                    "and the dynamic frame's value was never read (this is the
-                     value the pre-rf2-kuky.62 chain returned here)")
+                    "and the dynamic frame's value was never read (a
+                     dynamic-tier-first chain would return it here)")
                 (finally
                   (try (.unmount root) (catch :default _ nil))))))
           (testing "2. CLIENT — use-frame refuses"
@@ -4500,10 +4492,9 @@
               (is (empty? @probe-frame-provider-observed)
                   "and nothing rendered")))
           (testing "4. SERVER — use-frame's refusal through react-dom/server"
-            ;; The leg the merged-PR audit of #9427 found missing: part 3
-            ;; rendered the use-sub probe on both of its runs, so the server's
-            ;; SECONDARY slot had never been exercised through `use-frame` at
-            ;; all. The dynamic scope is live and names a REAL, SEEDED frame,
+            ;; The server's SECONDARY slot exercised through `use-frame`, not
+            ;; only through `use-sub`. The dynamic scope is live and names a
+            ;; REAL, SEEDED frame,
             ;; so the only reason the hook can refuse is that it declined to
             ;; consult the dynamic tier.
             (reset! use-frame-observed [])
@@ -4539,7 +4530,7 @@
     #js {:onUncaughtError (fn [e _info] (when (nil? @sink) (reset! sink e)))}))
 
 (defn assert-hook-scheduled-render-after-unwind-reads-context-only
-  "rf2-kuky.62, merged-PR audit of #9427 — THE SCHEDULING WITNESS, and the
+  "THE SCHEDULING WITNESS, and the
   one shape the rest of this cluster cannot reach.
 
   Every other row in this section renders inside `act()` — and Fresco's
@@ -4547,11 +4538,10 @@
   stack that scheduled it and a `with-frame` around the render really is
   live while the body runs. That is the right harness for an ADVERSARIAL
   row, because a dynamic tier can only ever win there. It is the wrong
-  harness for the other half of what rf2-kuky.61 ruled: *the same
+  harness for the other half of the rule: *the same
   component tree resolves the same frame under either scheduling mode — a
   scheduled concurrent render and a synchronous act/flushSync/server
-  render must not disagree*. Until this row, the scheduled half had no
-  witness at all, and the audit said so.
+  render must not disagree*. This row is the scheduled half's witness.
 
   THE SHAPE. `root.render` is called on a concurrent root with the act
   environment OFF, so React schedules the work and returns; the body runs
@@ -4598,7 +4588,7 @@
   [{:keys [name substrate-kw frame-provider-mount-element probe-frame-provider-element
            probe-frame-provider-observed probe-use-frame-element use-frame-observed
            frame-provider-query]}]
-  (testing (str name " — a SCHEDULED render reads React context after the scope unwinds (rf2-kuky.62 audit)")
+  (testing (str name " — a SCHEDULED render reads React context after the scope unwinds")
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises the assertion")
       (async done
@@ -4633,9 +4623,9 @@
           ;; No act, and no flushSync anywhere below: `root.render` must be
           ;; free to SCHEDULE rather than to commit on this stack.
           (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-          (rf/make-frame {:id provider-frame :doc "rf2-kuky.62 scheduled-render provider frame"})
-          (rf/make-frame {:id ambient-frame  :doc "rf2-kuky.62 scheduled-render persistent ambient frame"})
-          (rf/make-frame {:id scope-frame    :doc "rf2-kuky.62 scheduled-render with-frame scope frame"})
+          (rf/make-frame {:id provider-frame :doc "scheduled-render provider frame"})
+          (rf/make-frame {:id ambient-frame  :doc "scheduled-render persistent ambient frame"})
+          (rf/make-frame {:id scope-frame    :doc "scheduled-render with-frame scope frame"})
           (rf/reg-event ::scheduled-seed (fn [_ [_ v]] {:db {:k v}}))
           (rf/reg-event bumped (fn [{:keys [db]} _] {:db (assoc db :bumped true)}))
           (rf/dispatch-sync [::scheduled-seed :from-provider] {:frame provider-frame})
@@ -4753,7 +4743,7 @@
             (leg-1-use-sub-provider)))))))
 
 (defn assert-use-sub-cleanup-decrements-refcount
-  "rf2-7g959: use-sub pairs subscribe with rf.subs/unsubscribe on
+  "`use-sub` pairs subscribe with rf.subs/unsubscribe on
   unmount so the sub-cache ref-count for the (frame, query) pair returns
   to 0 (or the entry is dropped) after unmount.
 
@@ -4765,7 +4755,7 @@
     :rc-frame                frame-id keyword for the refcount probe
     :rc-query                query-v keyword ProbeRefcount subscribes to"
   [{:keys [name probe-refcount-element refcount-target rc-frame rc-query]}]
-  (testing (str name " — use-sub cleanup decrements sub-cache refcount (rf2-7g959)")
+  (testing (str name " — use-sub cleanup decrements sub-cache refcount")
     (with-browser-act
      (fn [act-fn]
       (reset! refcount-target rc-frame)
@@ -4783,35 +4773,35 @@
               "mounted probe pinned a cache entry with ref-count > 0")
           (act-fn (fn [] (.unmount root)))
           ;; After unmount the useEffect cleanup fires rf.subs/unsubscribe;
-          ;; per rf2-cmfln the entry is disposed synchronously on the
-          ;; 1 → 0 transition. The ref-count is no longer pinned at >0
-          ;; — the regression rf2-7g959 named.
+          ;; the entry is disposed synchronously on the 1 → 0 transition,
+          ;; so the ref-count is not left pinned at >0.
           (is (or (nil? (get @cache cache-key-v))
                   (zero? (or (get-in @cache [cache-key-v :ref-count]) 0)))
-              "post-unmount ref-count is zero (or entry already dropped) — rf2-7g959 cleanup fired")
+              "post-unmount ref-count is zero (or entry already dropped) — the cleanup fired")
           (finally
             (try (.unmount root) (catch :default _ nil)))))))))
 
 (defn assert-use-sub-siblings-same-query-both-invalidate
-  "rf2-e4pyb finding 1: two INDEPENDENT sibling components subscribing to
+  "Two INDEPENDENT sibling components subscribing to
   the SAME (frame, query) pair must BOTH receive invalidation after a
   single dispatch, and BOTH must clean up on unmount.
 
-  WHY THIS IS THE REGRESSION. Subscriptions are cached/deduped by query,
-  so sibling subscribers to the same query share the SAME cached reaction
-  object. The buggy spine derived the `add-watch` key from
-  `(hash reaction)` — identical across the siblings — so `add-watch`
-  (which replaces an existing watcher with the same key) let the
-  last-mounted sibling's `useSyncExternalStore` `on-change` SILENTLY
-  OVERWRITE the earlier sibling's. The earlier sibling then rendered
-  STALE: a dispatch invalidated the reaction, but its callback was gone,
-  so its committed DOM never updated. The fix mints a UNIQUE watch key
-  per `subscribe-fn` invocation, so each sibling's callback survives.
+  WHY THIS IS A REGRESSION GUARD. Subscriptions are cached/deduped by
+  query, so sibling subscribers to the same query share the SAME cached
+  reaction object. An `add-watch` key derived from `(hash reaction)` —
+  identical across the siblings — would let `add-watch` (which replaces an
+  existing watcher with the same key) have the last-mounted sibling's
+  `useSyncExternalStore` `on-change` SILENTLY OVERWRITE the earlier
+  sibling's, and the earlier sibling would render STALE: a dispatch
+  invalidates the reaction, but its callback is gone, so its committed DOM
+  never updates. The spine mints a UNIQUE watch key per `subscribe-fn`
+  invocation, so each sibling's callback survives.
 
   PROOF SHAPE. We seed n=1, mount TWO sibling probes reading the same
   query under the same frame, dispatch ::sib-inc ONCE, and assert BOTH
-  sibling DOM nodes show n=2 (the buggy spine leaves the first-mounted
-  sibling at n=1). We assert on the COMMITTED DOM text — not just the
+  sibling DOM nodes show n=2 (a shared watch key would leave the
+  first-mounted sibling at n=1). We assert on the COMMITTED DOM text — not
+  just the
   observation atoms — because a stale render is precisely a DOM that
   React never re-committed for the orphaned subscriber. After unmount the
   shared cache entry's ref-count must return to 0 (both cleanups ran;
@@ -4830,13 +4820,13 @@
     :sib-query               query-v keyword both siblings subscribe to"
   [{:keys [name probe-siblings-element siblings-observed-a siblings-observed-b
            refcount-target sib-frame sib-query]}]
-  (testing (str name " — sibling subscribers to the same query both invalidate (rf2-e4pyb)")
+  (testing (str name " — sibling subscribers to the same query both invalidate")
     (with-browser-act
      (fn [act-fn]
       (reset! siblings-observed-a [])
       (reset! siblings-observed-b [])
       (reset! refcount-target sib-frame)
-      (rf/make-frame {:id sib-frame :doc "rf2-e4pyb sibling-collision probe frame"})
+      (rf/make-frame {:id sib-frame :doc "sibling-collision probe frame"})
       (rf/reg-event ::sib-seed (fn [{:keys [db]} _] {:db {:n 1}}))
       (rf/reg-event ::sib-inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
       (rf/dispatch-sync [::sib-seed] {:frame sib-frame})
@@ -4851,15 +4841,15 @@
           ;; cache entry's ref-count reflects both live subscribers.
           (is (= "a=1 b=1" (.-textContent mount-node))
               "both siblings committed the seeded value n=1")
-          ;; ONE dispatch. The fix guarantees BOTH siblings' on-change
-          ;; callbacks survive on the shared reaction, so React re-commits
-          ;; BOTH. The bug leaves sibling A's callback overwritten by
+          ;; ONE dispatch. Unique watch keys keep BOTH siblings' on-change
+          ;; callbacks on the shared reaction, so React re-commits BOTH. A
+          ;; shared key would leave sibling A's callback overwritten by
           ;; sibling B's → A renders STALE at n=1.
           (act-fn (fn [] (rf/dispatch-sync [::sib-inc] {:frame sib-frame})))
           (is (= "a=2 b=2" (.-textContent mount-node))
               "BOTH siblings re-committed n=2 after one dispatch — neither
                sibling's useSyncExternalStore callback was overwritten by
-               the other's (rf2-e4pyb: unique per-invocation watch key)")
+               the other's (unique per-invocation watch key)")
           (is (some #{2} @siblings-observed-a)
               "sibling A observed the incremented value (not just stale n=1)")
           (is (some #{2} @siblings-observed-b)
@@ -4873,19 +4863,19 @@
             (try (.unmount root) (catch :default _ nil)))))))))
 
 (defn assert-use-sub-stable-deps-key
-  "rf2-mwft2 (+ rf2-es09qq lifecycle): a stable-literal query-v across N
+  "A stable-literal query-v across N
   re-renders must not cause the sub-cache ref-count to CHURN — it stays
   pinned at exactly 1 throughout and returns to 0 on unmount.
 
-  rf2-es09qq changed the acquisition lifecycle: the render-phase reaction
-  fetch is now a BALANCED `rf.subs/subscribe` + `rf.subs/unsubscribe` round-trip
+  The render-phase reaction
+  fetch is a BALANCED `rf.subs/subscribe` + `rf.subs/unsubscribe` round-trip
   (net 0), and the single DURABLE ref is taken/released only in the
   commit-owned `useSyncExternalStore` subscribe callback. So the meaningful
-  invariant is no longer 'exactly one raw subscribe call' (the OLD design's
-  proxy) but: (a) every render's subscribe/unsubscribe calls are BALANCED, so
+  invariant is not 'exactly one raw subscribe call'
+  but: (a) every render's subscribe/unsubscribe calls are BALANCED, so
   the committed steady state never crosses the 1 → 0 disposal edge, and
   (b) the net cache ref-count is pinned at 1 across re-renders and drops to 0
-  on unmount. The stable deps key (rf2-mwft2) still matters: it keeps the
+  on unmount. The stable deps key matters too: it keeps the
   memo/callback identities stable so React doesn't re-run the commit-owned
   subscribe per render (which WOULD churn the durable ref).
 
@@ -4898,11 +4888,11 @@
     :stable-deps-frame    frame-id keyword the child resolves under
     :stable-deps-query    query-v keyword the child subscribes to"
   [{:keys [name probe-stable-deps-element stable-deps-set-tick stable-deps-frame stable-deps-query]}]
-  (testing (str name " — use-sub stable deps key: one subscribe across N renders (rf2-mwft2)")
+  (testing (str name " — use-sub stable deps key: one subscribe across N renders")
     (with-browser-act
      (fn [act-fn]
       (reset! stable-deps-set-tick nil)
-      (rf/make-frame {:id stable-deps-frame :doc "rf2-mwft2 stable-deps probe frame"})
+      (rf/make-frame {:id stable-deps-frame :doc "stable-deps probe frame"})
       (rf/reg-event ::stable-deps-seed (fn [{:keys [db]} _] {:db {:p 0}}))
       (rf/dispatch-sync [::stable-deps-seed] {:frame stable-deps-frame})
       (rf/reg-sub stable-deps-query (fn [db _] (:p db)))
@@ -4916,7 +4906,7 @@
             mount-node        (make-mount-node!)
             root              (react-dom-client/createRoot mount-node)]
         ;; Spies preserve the multi-arity shape of rf.subs/subscribe
-        ;; (`[query-v]` and `[query-v opts]`, API-shrink #1 rf2-csbbwu) and
+        ;; (`[query-v]` and `[query-v opts]`) and
         ;; rf.subs/unsubscribe (`[query-v]` and `[frame-id query-v]`) so
         ;; spine call sites that bind the arity-2 invoke-slot resolve.
         ;; A bare `[& args]` variadic spy compiles only the variadic
@@ -4928,13 +4918,12 @@
         ;; implementation without recursing back through the redefined Var —
         ;; each logical call trips the spy exactly once.
         ;;
-        ;; rf2-2rtt6.25 — `unsubscribe-if-reaction` counts as a RELEASE.
-        ;; Since the provisional hand-off the spine has two release verbs, not
-        ;; one: the ordinary `unsubscribe` and the identity-guarded release
-        ;; that returns an escrowed render-phase reference. The invariant these
-        ;; assertions pin — every acquire is balanced by a release, bar the one
-        ;; durable committed reference — is unchanged; what widened is the set
-        ;; of verbs a spy must watch to see it. Counting only `unsubscribe`
+        ;; `unsubscribe-if-reaction` counts as a RELEASE. The spine has two
+        ;; release verbs: the ordinary `unsubscribe` and the identity-guarded
+        ;; release that returns an escrowed render-phase reference. The
+        ;; invariant these assertions pin — every acquire is balanced by a
+        ;; release, bar the one durable committed reference — needs a spy on
+        ;; both verbs to see it. Counting only `unsubscribe`
         ;; would read the hand-off's adoption as an unbalanced acquire.
         (with-redefs [rf.subs/subscribe
                       (fn spy-subscribe
