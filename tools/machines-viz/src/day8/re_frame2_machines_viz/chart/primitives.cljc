@@ -4,15 +4,14 @@
   The xyflow chart owns node + edge rendering; these primitives live
   here because they are consumed OUTSIDE the chart canvas:
 
-    - `countdown-ring` — Xray's `panels/machine_after_rings.cljs`
-      overlay paints rings ON TOP of the chart for the focused
-      `:after`-timer. The overlay's positioning logic is host-side
-      (it walks the chart's DOM to find node bboxes), but the ring
+    - `countdown-ring` — the `chart.overlays.after-rings` overlay
+      (which Xray's `panels/machine_after_rings.cljs` mounts) paints
+      rings ON TOP of the chart for armed `:after` timers. The
+      overlay walks the chart's DOM to find node bboxes, but the ring
       glyph itself is pure-data hiccup so the JVM test corpus can
-      still pin its shape.
-    - `sparkline` — used by Xray's cluster-row state-change rate
-      indicator and various Story / Xray stats surfaces. Pure
-      hiccup, JVM-runnable.
+      pin its shape.
+    - `sparkline` — an inline rate glyph for a host's stats
+      surfaces. Pure hiccup, JVM-runnable.
 
   Both fns produce hiccup forms; substrate-agnostic; JVM-testable.
 
