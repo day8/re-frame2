@@ -458,11 +458,11 @@
           "one region still pending ⇒ the parallel machine is NOT done"))))
 
 (deftest scxml-parallel-region-ancestor-restart-is-region-local
-  (testing "SCXML §3.4 + §3.13 (rf2-emz8l): the LCCA ancestor-restart applies
+  (testing "SCXML §3.4 + §3.13: the LCCA ancestor-restart applies
             PER REGION — a transition to a region-local compound ancestor
             restarts ONLY that region's subtree (exit+re-enter+re-init); the
             sibling region is untouched. Each region runs the same transition
-            engine, so the LCCA fix is inherited. Spec 005 §Parallel regions
+            engine, so the LCCA rule holds per region. Spec 005 §Parallel regions
             §Entry/exit cascading along the LCCA."
     (let [[log mk] (order-recorder)
           m {:type :parallel :data {}
@@ -584,7 +584,7 @@
           "the compound is not done (child not final) ⇒ :on-done did NOT fire"))))
 
 (deftest scxml-embedded-final-does-not-leak-to-machine-finality
-  (testing "rf2-zlmz7 D7 reconciliation: an EMBEDDED `:final?` leaf signals
+  (testing "D7: an EMBEDDED `:final?` leaf signals
             compound-done WITHOUT being whole-machine finality — the pure
             engine commits the snapshot (machine alive) rather than the
             lifecycle teardown. With NO enclosing `:on-done`, the done signal
@@ -658,7 +658,7 @@
           ":on-done did NOT fire — :right is still :run (not all-regions-final)"))))
 
 (deftest scxml-parallel-region-compound-done-fires-region-local-on-done
-  (testing "rf2-bnjb3 + rf2-zlmz7 composed: a COMPOUND region reaching its
+  (testing "a COMPOUND region reaching its
             `<final>` child raises a region-local done.state that the region's
             own `:on-done` takes (re-broadcast through the parent internal-event
             queue), advancing that region while siblings continue. Spec 005
@@ -681,15 +681,15 @@
            region to :work-done; :status stayed :idle"))))
 
 (deftest scxml-parallel-region-done-not-caught-by-sibling-unguarded-on
-  (testing "rf2-m3arq + rf2-12ekv: a region-local done.state is region-SCOPED —
+  (testing "a region-local done.state is region-SCOPED —
             a SIBLING region's UNGUARDED `:on {:rf.machine/done …}` escape hatch
             must NOT catch another region's done signal, even though the parent
             internal-event queue re-broadcasts the raise across every region
             (the correct XState v5 / SCXML `:raise` rule). XState v5 / SCXML
             scope `done.state.<id>` to the region that raised it BY IDENTITY.
-            Strengthened for rf2-12ekv: `:other` now SHARES the leading
-            state-name `:flow` (the rf2-m3arq shape-match leaked on exactly
-            this collision; only region-NAME scoping closes it). Spec 005
+            `:other` SHARES the leading state-name `:flow` (a shape-match
+            would leak on exactly this collision; only region-NAME scoping
+            closes it). Spec 005
             §Final states §The done-state signal × §Parallel regions; the
             arm-2 escape-hatch region scoping in `pick-done-transition`."
     (let [m {:type :parallel :data {}
@@ -727,16 +727,16 @@
            `:flow` state-name → :other stayed [:flow :wait]"))))
 
 (deftest scxml-parallel-region-done-arm2-not-caught-by-sibling-shared-state-name
-  (testing "rf2-12ekv: arm 2 region scoping must be by region IDENTITY, not
+  (testing "arm 2 region scoping must be by region IDENTITY, not
             state-name SHAPE. A region-local done.state is region-SCOPED even
             when a SIBLING region shares the LEADING state-name on the done
             compound's region-relative path. XState v5 / SCXML scope
             `done.state.<id>` to the originating region by node identity, never
-            by a same-named compound in a sibling. The rf2-m3arq arm-2 gate
-            used `prefix-of?` on two REGION-RELATIVE paths — a shape match that
-            falsely passes when the sibling shares the leading state-name. The
-            fix region-name-prefixes the done-raise path (as `:after` /
-            `:on-error` already do) and declines by region-NAME head. Spec 005
+            by a same-named compound in a sibling. An arm-2 gate using
+            `prefix-of?` on two REGION-RELATIVE paths would be a shape match
+            that falsely passes when the sibling shares the leading state-name,
+            so the done-raise path is region-name-prefixed (as `:after` /
+            `:on-error` are) and declines by region-NAME head. Spec 005
             §Final states §The done-state signal × §Parallel regions
             (005:2819 — \"sibling regions are untouched\")."
     (let [m {:type :parallel :data {}
@@ -770,14 +770,13 @@
            :other stayed [:flow :wait]"))))
 
 (deftest scxml-parallel-region-done-arm1-not-caught-by-sibling-shared-state-name
-  (testing "rf2-12ekv: arm 1 (`:on-done` on the done node) must ALSO be
-            region-scoped by identity. The rf2-m3arq fix only gated arm 2 (and
-            with a shape match); arm 1 was ungated entirely. A sibling region
-            carrying an `:on-done` on a compound at the SAME region-relative
-            path as the originating region's done compound resolves the done
-            node via `node-at` against the sibling's body and fires on the
-            broadcast — a silent cross-region leak. The fix region-name-prefixes
-            the done-raise path and declines BOTH arms by region-NAME head.
+  (testing "arm 1 (`:on-done` on the done node) must ALSO be
+            region-scoped by identity. Ungated, a sibling region carrying an
+            `:on-done` on a compound at the SAME region-relative path as the
+            originating region's done compound would resolve the done node via
+            `node-at` against the sibling's body and fire on the broadcast — a
+            silent cross-region leak. The done-raise path is region-name-prefixed
+            and BOTH arms decline by region-NAME head.
             Spec 005 §Final states §The done-state signal × §Parallel regions."
     (let [m {:type :parallel :data {}
              :regions
@@ -806,7 +805,7 @@
            :work's done (region IDENTITY) → :other stayed [:flow :wait]"))))
 
 (deftest scxml-parallel-region-done-arm1-negative-control-genuine-sibling-done
-  (testing "rf2-12ekv negative control: the region-identity scoping must NOT
+  (testing "negative control: the region-identity scoping must NOT
             block a region's OWN compound-done from firing its own `:on-done`
             when a sibling shares the leading state-name. Both regions go done
             on the SAME external event; each must advance via its OWN `:on-done`
@@ -861,7 +860,7 @@
              ;; an :action (Spec 005 §Self-loop forbidden at registration). The
              ;; action flips the guard false and the microstep loop settles —
              ;; no exit/entry churn. A self-:target :always (guarded or not) is
-             ;; rejected at registration (acdlp), so the corpus must NOT model
+             ;; rejected at registration, so the corpus must NOT model
              ;; one; the targetless form is observationally identical here
              ;; (:a has no :entry/:exit) and is the form a real machine uses.
              :states  {:a {:always [{:guard :more? :action :bump}]}}}
@@ -1074,8 +1073,7 @@
             fires onexit THEN the transition's action THEN onentry of the
             source, leaving the configuration at the source state. Spec 005
             §Self-transitions + Spec-Schemas (`:same-state` is the documented
-            literal sentinel; `:reenter? true` is the v5 external opt-in —
-            rf2-eicq0)."
+            literal sentinel; `:reenter? true` is the v5 external opt-in)."
     (let [[log mk] (order-recorder)
           m {:initial :a :data {}
              :states {:a {:entry (mk :entry) :exit (mk :exit)
@@ -1090,7 +1088,7 @@
   (testing "Spec 005 §Entry/exit cascading: a `:target` naming the declaring
             state's OWN keyword with `:reenter? true` is an external
             self-transition — exit and entry fire. Same exit → action → entry
-            ordering as `:same-state`. rf2-eicq0."
+            ordering as `:same-state`."
     (let [[log mk] (order-recorder)
           m {:initial :a :data {}
              :states {:a {:entry (mk :entry) :exit (mk :exit)
@@ -1102,10 +1100,9 @@
           "onexit → action → onentry — identical to the `:same-state` sentinel"))))
 
 (deftest scxml-default-self-transition-is-internal
-  (testing "rf2-eicq0 v5 DEFAULT FLIP: a `:target :same-state` (or own-keyword)
+  (testing "v5 DEFAULT: a `:target :same-state` (or own-keyword)
             WITHOUT `:reenter?` is INTERNAL — the action fires, onexit/onentry
-            do NOT. This is the breaking regression guard that the OLD
-            external-default (rf2-46ban) is gone. Spec 005 §Self-transitions."
+            do NOT. Spec 005 §Self-transitions."
     ;; :same-state, no :reenter?
     (let [[log mk] (order-recorder)
           m {:initial :a :data {}
@@ -1114,7 +1111,7 @@
           r (step m {:state :a :data {}} [:self])]
       (is (= :a (:state r)) "default self-target leaves the configuration unchanged")
       (is (= [:action] @log)
-          ":target :same-state is INTERNAL by default — ONLY the action fired (v5 flip)"))
+          ":target :same-state is INTERNAL by default — ONLY the action fired (XState v5)"))
     ;; own-keyword target, no :reenter?
     (let [[log mk] (order-recorder)
           m {:initial :a :data {}
@@ -1159,13 +1156,13 @@
             PROPER ANCESTOR A restarts A — exit A's active subtree (deepest-
             first, INCLUDING A), run the transition action at the LCCA
             (A's parent), then re-enter A and re-descend A's :initial chain
-            (shallowest-first). Before rf2-emz8l this was a silent no-op.
+            (shallowest-first).
             Spec 005 §Entry/exit cascading along the LCCA."
     (let [[log mk] (order-recorder)
           ;; Active config [:p :a :x]; :x targets its grandparent :a via an
           ;; absolute vector + :reenter?. A's :initial is :x, so the restart
-          ;; re-descends back to [:p :a :x] — the exact case the LCP-as-LCA
-          ;; missed.
+          ;; re-descends back to [:p :a :x] — the case an LCP-as-LCA
+          ;; computation would miss.
           m {:initial :p :data {}
              :states
              {:p {:entry (mk :entry-P) :exit (mk :exit-P)     ;; LCCA — neither fires
@@ -1310,7 +1307,7 @@
           "exit cascade leaf→root (:active, :session) → action → entry cascade root→leaf (re-runs :initial)"))))
 
 (deftest scxml-ancestor-restart-regression-disjoint-targets-unchanged
-  (testing "REGRESSION GUARD (rf2-emz8l): the LCCA fix must NOT disturb
+  (testing "the LCCA ancestor-restart does NOT reach
             DISJOINT-subtree targets. A sibling-leaf transition and a
             cross-level-to-sibling-subtree transition keep their plain
             common-prefix LCA — the common-ancestor node neither exits nor
@@ -1329,7 +1326,7 @@
       (is (= [:exit-A :entry-B] @log)
           "only :a exits and :b enters; the common ancestor :p neither exits nor enters (unchanged)"))
     ;; (b) cross-level to a sibling SUBTREE: [:p :a :x] -> [:p :b :y].
-    ;;     LCCA = :p; mirrors scxml-lca-cascade-* — must be untouched by the fix.
+    ;;     LCCA = :p; mirrors scxml-lca-cascade-* — untouched by the ancestor restart.
     (let [[log mk] (order-recorder)
           m {:initial :p :data {}
              :states
@@ -1346,7 +1343,7 @@
           r (step m {:state [:p :a :x] :data {}} [:go])]
       (is (= [:p :b :y] (:state r)) "cross-level lands at the sibling subtree leaf")
       (is (= [:exit-X :exit-A :entry-B :entry-Y] @log)
-          "exit X,A → enter B,Y; the LCCA :p untouched (sibling-subtree case unchanged by the fix)"))))
+          "exit X,A → enter B,Y; the LCCA :p untouched (the sibling-subtree case keeps its plain LCA)"))))
 
 ;; ===========================================================================
 ;; §10c. Explicit targets on the active path RE-RESOLVE DESCENDANTS
@@ -1374,12 +1371,12 @@
 ;; ===========================================================================
 
 (deftest scxml-explicit-current-compound-target-re-resolves-to-initial
-  (testing "rf2-gt1pu (xstate@5.32.0): at [:process :step3], a transition
+  (testing "xstate@5.32.0: at [:process :step3], a transition
             DECLARED ON the compound :process targeting :process itself (no
             :reenter?) does NOT exit/re-enter :process, but RE-RESOLVES its
             descendants — exits the active child :step3 and re-descends
-            :process's :initial (:step1). The middle case rf2-eicq0 collapsed
-            into a targetless no-op. XState v5: an explicit target re-resolves
+            :process's :initial (:step1) — unlike a targetless no-op. XState
+            v5: an explicit target re-resolves
             child states to their initial. Spec 005 §Self-transitions."
     (let [[log mk] (order-recorder)
           m {:initial :process :data {}
@@ -1401,7 +1398,7 @@
           "exit the active child :step3 → action at the LCCA (:process) → enter :initial (:step1); :process NOT exited/entered"))))
 
 (deftest scxml-explicit-compound-target-re-resolves-child-even-when-on-initial
-  (testing "rf2-gt1pu: re-resolving descendants is keyed to the TARGET's depth,
+  (testing "re-resolving descendants is keyed to the TARGET's depth,
             not to whether the active child differs from :initial. Targeting
             the compound :process exits the active CHILD and re-enters the
             re-resolved :initial — EVEN when the active child IS already the
@@ -1428,7 +1425,7 @@
           "the active child :step1 is exited + re-entered (descendant re-resolved); :process NOT exited/entered (no :reenter?)"))))
 
 (deftest scxml-parent-declared-descendant-target-re-enters-child-not-parent
-  (testing "rf2-gt1pu (xstate@5.32.0): at [:parent :child :a], a transition
+  (testing "xstate@5.32.0: at [:parent :child :a], a transition
             DECLARED ON :parent targeting the DESCENDANT [:parent :child] (no
             :reenter?) re-enters the TARGETED CHILD :child (XState v5: 'child
             state nodes are always re-entered when targeted by transitions
@@ -1456,7 +1453,7 @@
           "exit deepest-first (:b, :child) → action at the LCCA (:parent) → re-enter :child → re-descend :child's :initial (:a); :parent NOT exited/entered"))))
 
 (deftest scxml-parent-declared-descendant-target-WITH-reenter-restarts-declaring-compound
-  (testing "rf2-127ff (RULED A — xstate@5.32.0): :reenter? true on a transition
+  (testing "xstate@5.32.0: :reenter? true on a transition
             DECLARED ON a compound S whose target is a DESCENDANT of S exits +
             re-enters S itself (run S's :exit then :entry — restart S's :after,
             re-spawn), THEN descends to the NAMED descendant target (NOT S's
@@ -1485,7 +1482,7 @@
           "exit deepest-first (:draft, :editor) → action at the LCCA (:editor's parent = root) → re-enter :editor → descend to the NAMED :preview"))))
 
 (deftest scxml-child-declared-sibling-reenter-does-NOT-re-enter-parent
-  (testing "rf2-127ff anti-case (xstate@5.32.0): :reenter? true on a transition
+  (testing "anti-case (xstate@5.32.0): :reenter? true on a transition
             DECLARED ON the CHILD :draft targeting a SIBLING [:editor :preview]
             does NOT re-enter the parent :editor — the source is a DESCENDANT,
             so findLCCA(:draft, :preview) = :editor and the domain (:editor) is
@@ -1511,7 +1508,7 @@
           ":draft exits, :preview enters; :editor (the common ancestor) NOT re-entered despite :reenter? (no-op for a disjoint target)"))))
 
 (deftest scxml-targetless-on-compound-preserves-active-descendants
-  (testing "rf2-gt1pu regression guard: a TARGETLESS transition declared on a
+  (testing "a TARGETLESS transition declared on a
             compound preserves the active descendants UNCHANGED — the
             distinguishing counterpart to the re-resolving explicit-target
             cases above. 'To preserve child states, omit target entirely.'
@@ -1708,8 +1705,8 @@
 (deftest scxml-history-well-placed-validates
   (testing "Control + first-class smoke: a `:type :history` node correctly
             placed inside a compound's `:states` validates cleanly — history
-            is a claimed (`:fsm/history`) capability, not a deferred grammar
-            feature. Spec 005 §History states; W3C 387/388 shape."
+            is a claimed (`:fsm/history`) capability. Spec 005 §History
+            states; W3C 387/388 shape."
     (is (= ::no-throw
            (history-rejection-id
              {:initial :player
