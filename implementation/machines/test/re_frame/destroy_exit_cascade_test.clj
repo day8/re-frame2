@@ -189,3 +189,103 @@
       (rf/dispatch-sync [:ne/fx-killer [:fire]])
       (is (= 1 @fx-fired)
           ":exit-emitted :fx fired through the fx interpreter (rf2-nahfm — destroy path uses do-fx)"))))
+
+;; ---- :rf.machine/action-ran attribution on the destroy path --------------
+;;
+;; Spec 005's `action-ran` tag set makes `:actor-id` (the live instance) and
+;; `:frame` unconditional on every phase, `:destroy-exit` included. The Xray
+;; Handler section attributes a teardown's `:exit` rows by `:actor-id`, and
+;; epoch capture admits a trace only when it carries `:frame`.
+
+(defn- action-ran-rows
+  "Every `:rf.machine/action-ran` in `traces`, as `[phase actor-id action-id]`
+  triples in emit order."
+  [traces]
+  (into []
+        (comp (filter #(= :rf.machine/action-ran (:operation %)))
+              (map :tags)
+              (map (juxt :phase :actor-id :action-id)))
+        traces))
+
+(defn- destroy-exit-tags
+  "The tags of every `:phase :destroy-exit` `:rf.machine/action-ran` in
+  `traces`, in emit order."
+  [traces]
+  (into []
+        (comp (filter #(= :rf.machine/action-ran (:operation %)))
+              (map :tags)
+              (filter #(= :destroy-exit (:phase %))))
+        traces))
+
+(def ^:private logging-actions
+  {:ent-a (fn [_] {}) :ex-a (fn [_] {}) :tx (fn [_] {})
+   :ent-b (fn [_] {}) :ex-b (fn [_] {})})
+
+(deftest destroy-exit-row-names-an-explicitly-destroyed-singleton
+  (testing "an explicit destroy of a singleton attributes its :exit row to the singleton and its frame"
+    (rf/reg-machine :dea/single
+      {:initial :a
+       :actions logging-actions
+       :states  {:a {:entry :ent-a :exit :ex-a :on {:go {:target :b :action :tx}}}
+                 :b {:entry :ent-b :exit :ex-b}}})
+    (rf/reg-event :dea/kill-single (fn [_ _] {:fx [[:rf.machine/destroy :dea/single]]}))
+    (let [traces (rf.machines.test-support/with-trace-capture seen
+                   (rf/dispatch-sync [:dea/single [:rf.machine/start]])
+                   (rf/dispatch-sync [:dea/single [:go]])
+                   (rf/dispatch-sync [:dea/kill-single])
+                   @seen)]
+      (is (nil? (rf.machines.test-support/snapshot :dea/single)) "the singleton is torn down")
+      (is (= [[:initial-entry :dea/single :ent-a]
+              [:exit          :dea/single :ex-a]
+              [:transition    :dea/single :tx]
+              [:entry         :dea/single :ent-b]
+              [:destroy-exit  :dea/single :ex-b]]
+             (action-ran-rows traces))
+          "every phase, :destroy-exit included, names the live instance")
+      (is (= [:rf/default] (mapv :frame (destroy-exit-tags traces)))
+          "the :destroy-exit row carries the destroying frame"))))
+
+(deftest destroy-exit-row-names-a-destroyed-spawned-child
+  (testing "a declarative child destroyed by its parent's exit attributes its :exit row to the child instance"
+    (rf/reg-machine :dea/kid
+      {:initial :working
+       :actions logging-actions
+       :states  {:working {:exit :ex-a}}})
+    (rf/reg-machine :dea/parent
+      {:initial :idle
+       :states  {:idle    {:on {:start :working}}
+                 :working {:spawn {:machine-id :dea/kid}
+                           :on    {:stop :idle}}}})
+    (rf/dispatch-sync [:dea/parent [:start]])
+    (let [kid    (get-in (rf.machines.test-support/runtime-db)
+                         [:rf.runtime/machines :spawned :dea/parent [:working]])
+          traces (rf.machines.test-support/with-trace-capture seen
+                   (rf/dispatch-sync [:dea/parent [:stop]])
+                   @seen)]
+      (is (= :dea/kid#1 kid))
+      (is (nil? (rf.machines.test-support/snapshot kid)) "the child is torn down")
+      (is (= [[kid :ex-a :rf/default]]
+             (mapv (juxt :actor-id :action-id :frame) (destroy-exit-tags traces)))
+          "the child's :destroy-exit row names the child instance and the frame"))))
+
+(deftest destroy-exit-row-names-a-finalised-actor
+  (testing "final-state auto-destroy attributes its :exit row to the finishing instance"
+    (rf/reg-machine :dea/finisher
+      {:initial :running
+       :actions logging-actions
+       :states  {:running {:on {:finish :done}}
+                 :done    {:final? true :exit :ex-b}}})
+    (rf/reg-machine :dea/final-parent
+      {:initial :working
+       :states  {:working {:spawn {:machine-id :dea/finisher}}}})
+    (rf/dispatch-sync [:dea/final-parent [:rf.machine.spawn/spawned]])
+    (let [kid    (get-in (rf.machines.test-support/runtime-db)
+                         [:rf.runtime/machines :spawned :dea/final-parent [:working]])
+          traces (rf.machines.test-support/with-trace-capture seen
+                   (rf/dispatch-sync [kid [:finish]])
+                   @seen)]
+      (is (some? kid))
+      (is (nil? (rf.machines.test-support/snapshot kid)) "the finished child is torn down")
+      (is (= [[kid :ex-b :rf/default]]
+             (mapv (juxt :actor-id :action-id :frame) (destroy-exit-tags traces)))
+          "the final state's :destroy-exit row names the finishing instance and the frame"))))
