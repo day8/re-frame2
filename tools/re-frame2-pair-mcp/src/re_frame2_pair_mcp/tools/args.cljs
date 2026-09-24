@@ -102,7 +102,7 @@
     (rf.mcp-base.args/parse-boolean raw default)))
 
 ;; ---------------------------------------------------------------------------
-;; Caller-supplied ids → keywords (rf2-3x7nj.32.2).
+;; Caller-supplied ids → keywords.
 ;;
 ;; Every id a caller names — a `:build`, a `:frame`, a view id, an fx /
 ;; interceptor id, a key of an object argument — is minted into a keyword
@@ -195,8 +195,8 @@
    is single-sourced across the re-frame2-pair-mcp wire surface — same
    helper underpins both `parse-frames-arg` and the per-slice-mode key
    coercion in `parse-modes-arg`. A string without keyword grammar
-   yields nil rather than a keyword that would print as code
-   (rf2-3x7nj.32.2); the `invoke` chokepoint refuses such a `:frame` /
+   yields nil rather than a keyword that would print as code; the
+   `invoke` chokepoint refuses such a `:frame` /
    `:frames` with `:rf.mcp/invalid-arg` before any tool runs."
   [x]
   (->id-keyword x))
@@ -230,7 +230,7 @@
   structured error rather than passed through to fall silently through to
   the original fx.
 
-  **rf2-m7x0qb — the `:rf/fn-override` sentinel fails loud, not just
+  **The `:rf/fn-override` sentinel fails loud, not just
   malformed shapes.** `:rf/fn-override` (Spec-Schemas §`:rf/epoch-record`)
   is the opaque marker `re-frame.router/serializable-fx-overrides` writes
   in place of a fn-valued `:fx-overrides` entry the router could not
@@ -261,7 +261,7 @@
           (fn [acc k v]
             (if (= :err (first acc))
               acc
-              (let [;; rf2-3x7nj.32.2 — both halves are caller strings that
+              (let [;; Both halves are caller strings that
                     ;; get PRINTED into the dispatch form, so each is minted
                     ;; only with keyword grammar (`->id-keyword`); a failing
                     ;; key or target is refused rather than printed as code.
@@ -291,7 +291,7 @@
                                       (pr-str v) ". A bare string or non-string value would "
                                       "silently fall through to the real fx instead of stubbing it.")}]
 
-                  ;; rf2-m7x0qb / Tool-Pair §Replay — the opaque
+                  ;; Tool-Pair §Replay — the opaque
                   ;; :rf/fn-override marker makes the recorded run
                   ;; UNREPLAYABLE under :strict. Fail loud, the same
                   ;; incomplete-record class as
@@ -337,7 +337,7 @@
         ::invalid))
 
     :else
-    ;; rf2-3x7nj.32.2 — minted only with keyword grammar, so the id can't
+    ;; Minted only with keyword grammar, so the id can't
     ;; print into the dispatch form as code.
     (let [kw (->id-keyword s)]
       (if (keyword? kw) kw ::invalid))))
@@ -627,7 +627,7 @@
   `invalid` are the per-tool reason keywords (e.g. `:missing-db` /
   `:invalid-db-edn`) so each tool's error envelope stays specific.
 
-  Factors out the trim+read+sentinel core shared verbatim by
+  This is the trim+read+sentinel core shared verbatim by
   `replace-app-db` (`:db`), `restore-epoch` (`:epoch-id`), and
   `handler-meta` (`:id`). The richer `dispatch` / `dispatch-dry-run`
   event-vector parse — the same trim+read core PLUS a vector-shape
@@ -746,7 +746,7 @@
 
   A whole numeric below the safe-integer ceiling but outside the window
   on the string arm is caught by routing the parsed string back through
-  the SAME guard. Fractional numbers are still `::bad` (the integer
+  the SAME guard. Fractional numbers are `::bad` (the integer
   knobs reject non-whole values; we do NOT adopt mcp-base's benign-floor
   posture here)."
   [raw]
@@ -794,8 +794,8 @@
 ;; ---------------------------------------------------------------------------
 ;; Timeout / wait millisecond args.
 ;;
-;; Three tools thread a millisecond deadline straight from
-;; the MCP args into an `(>= elapsed deadline)` poll comparison with NO
+;; Three tools thread a millisecond deadline from the MCP args into an
+;; `(>= elapsed deadline)` poll comparison, which itself does NO
 ;; coercion or lower-bound check:
 ;;
 ;;   - `tail-build`  → `:wait-ms`   (probe-change poll loop);
@@ -813,9 +813,9 @@
 ;;
 ;; Returns the same tagged `[:ok n|nil]` / `[:err {…}]` shape as the
 ;; other numeric validators so each tool short-circuits a bad value to an
-;; honest `:ok? false` / isError envelope (the masterpiece-CORRECTNESS
-;; posture: an unbounded-poll arg is an agent error worth telling the
-;; agent about, not a value to silently paper over). An ABSENT arg is
+;; honest `:ok? false` / isError envelope: an unbounded-poll arg is an
+;; agent error worth telling the agent about, not a value to silently
+;; paper over. An ABSENT arg is
 ;; `[:ok nil]` — the caller falls back to its documented default.
 
 (defn parse-timeout-arg
