@@ -198,12 +198,12 @@
     form-str
     (str
     "(try"
-    ;; rf2-gwye.27 — the caller's source is terminated with a NEWLINE
+    ;; The caller's source is terminated with a NEWLINE
     ;; before the wrapper's closing delimiters. A form ending in a `;`
-    ;; line comment is valid CLJS; without the break it swallowed the
-    ;; `)}` that closes the `do` and the map, and the reader reached EOF
-    ;; with both still open — the eval failed to READ rather than
-    ;; returning the value the caller's form evaluates to.
+    ;; line comment is valid CLJS; without the break it would swallow the
+    ;; `)}` that closes the `do` and the map, and the reader would reach
+    ;; EOF with both still open — the eval would fail to READ rather than
+    ;; return the value the caller's form evaluates to.
     "  (let [result# (try {:rf2pair/ok (do " form-str "\n)}"
     "                     (catch :default e# {:rf2pair/threw e#}))]"
     "    (if (contains? result# :rf2pair/threw)"
@@ -244,7 +244,7 @@
 (defn tagged?
   "True iff `v` is a tagged `:rf.mcp/result` envelope produced by
   `wrap-form`. Used by tools to decide whether to project via
-  `envelope->result` or fall back to the legacy untagged path."
+  `envelope->result` or fall back to the untagged path."
   [v]
   (and (map? v) (contains? v result-key)))
 
@@ -337,10 +337,10 @@
   `handler-meta`'s `:unexpected-shape` (a non-map meta-map back from an
   otherwise-successful eval) — that isn't one of `envelope->result`'s
   own tagged outcomes but IS a defect signal, not a miss like
-  `:not-registered`. rf2-acckgr: without this stamp such a map lacks
-  the `::codec-error` meta `error?` keys off, so it silently rode back
-  as `wire/ok-text` despite carrying `:ok? false` — masking the defect
-  as a success per spec/003's universal isError rule."
+  `:not-registered`. Without this stamp such a map lacks
+  the `::codec-error` meta `error?` keys off, so it would silently ride
+  back as `wire/ok-text` despite carrying `:ok? false` — masking the
+  defect as a success, against spec/003's universal isError rule."
   [result-map]
   (with-meta result-map {::codec-error true}))
 
