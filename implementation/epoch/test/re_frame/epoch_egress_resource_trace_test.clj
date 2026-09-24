@@ -1165,23 +1165,22 @@
                (pr-str (frequencies (map :operation frameless))))))))
 
 ;; ===========================================================================
-;; (rf2-1zc33) the FREE `:scope` tag on the rows the sibling
+;; the FREE `:scope` tag on the rows the sibling
 ;; `:rf.resource/scope-resolved` projector never touches — rostered below.
 ;; ===========================================================================
 ;;
-;; `trace-egress/sibling-owned-slot` passed `:scope` through VERBATIM, justified
-;; by a docstring claiming the sibling
-;; `scope-registry/project-scope-resolved-egress` had already classified it
-;; upstream. The epoch tool-pair applies that sibling under
+;; `:scope` is not in `trace-egress/sibling-owned-slot`: the sibling
+;; `scope-registry/project-scope-resolved-egress` classifies it upstream only
+;; on its own row. The epoch tool-pair applies that sibling under
 ;; `(= :rf.resource/scope-resolved (:operation ev))` — ONE operation — while the
 ;; family projector that consults `sibling-owned-slot` runs on EVERY
 ;; `:rf.resource/*` / `:rf.mutation/*` / `:rf.warning/resource-*` row
 ;; (`resource-family-op?` is operation-agnostic). So on every OTHER row type
 ;; that stamps one, the resolved concrete scope — `[:rf.scope/session
-;; {:username …}]`, tier keyword plus IDENTITY MAP — was classified by NOBODY
-;; and egressed raw. ONE OPERATION PER LINE, deliberately: this roster used to
-;; pack the two `:rf.mutation/*` rows onto a shared line, and every prose count
-;; taken off it read the LINES rather than the operations (rf2-ruiga).
+;; {:username …}]`, tier keyword plus IDENTITY MAP — is the family projector's
+;; to classify; passed through, it would egress raw. ONE OPERATION PER LINE,
+;; deliberately, so a prose count taken off this roster counts operations
+;; rather than lines.
 ;;
 ;;   :rf.resource/invalidated                       (events.cljc:1811)
 ;;   :rf.resource/refetch-decision                  (events.cljc:1828)
@@ -1190,30 +1189,30 @@
 ;;   :rf.mutation/optimistic-applied                (mutation_events.cljc:1390)
 ;;
 ;; `:rf.resource/refetch-decision` is the sharpest case: it carries the SAME
-;; scope TWICE — correctly redacted inside `:resource/key`, raw under `:scope`.
-;; The row redacted and leaked one value side by side.
+;; scope TWICE — inside `:resource/key` and under `:scope` — so a pass-through
+;; would redact and leak one value side by side on one row.
 ;;
-;; The repair drops `:scope` from `sibling-owned-slot` and lets the SHAPE-driven
-;; fail-closed default own it (rf2-wd9im). Per shape:
+;; The SHAPE-driven fail-closed default owns `:scope`. Per shape:
 ;;
 ;;   `:rf.scope/global`                  scalar  → verbatim (no over-redaction)
 ;;   `[:rf.scope/session {:username …}]` 2-vec   → walked: TIER keyword verbatim
 ;;                                                 (attribution), identity MAP
-;;                                                 tokenized (distinct scopes →
-;;                                                 distinct digests)
+;;                                                 tokenized (content-free: see
+;;                                                 `free-scope-tokens-carry-no-
+;;                                                 enumerable-content`)
 ;;   on `:rf.resource/scope-resolved`            → the sibling has already
-;;                                                 substituted; unchanged.
+;;                                                 substituted; rides as-is.
 
 (def ^:private session-scope
   "A resolved CONCRETE scope as the rows rostered above carry it — the tier
-  keyword plus the resolver's IDENTITY MAP. The map is what EP-0025 made
-  unconditionally fail-closed on the scope-resolved row, and what leaked on
-  every rostered row."
+  keyword plus the resolver's IDENTITY MAP. The map is what EP-0025 makes
+  unconditionally fail-closed on the scope-resolved row, and what every
+  rostered row carries."
   [:rf.scope/session {:username secret}])
 
 (def ^:private other-session-scope
-  "A SECOND distinct concrete scope — the per-scope-join control (distinct scopes
-  must keep distinct digests)."
+  "A SECOND distinct concrete scope — the control that two distinct sessions
+  project to the SAME content-free token."
   [:rf.scope/session {:username (str secret "-2")}])
 
 (def ^:private plain-session-scope
@@ -1231,10 +1230,10 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest off-box-redacts-invalidated-free-scope-tag
-  (testing "rf2-1zc33 — the invalidation summary row's FREE :scope tag carries
+  (testing "the invalidation summary row's FREE :scope tag carries
             the resolved concrete scope. The sibling projector runs on
-            :rf.resource/scope-resolved ONLY, so nobody classified this one and
-            the identity map egressed raw. It must now tokenize while the TIER
+            :rf.resource/scope-resolved ONLY, so the family projector must
+            classify this one: the identity map tokenizes while the TIER
             keyword rides (a tool still shows \"session scope\")."
     (let [k1     (sk session-scope :derived/profile {:slug "me"})
           record (record-with
@@ -1269,11 +1268,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest off-box-refetch-decision-scope-carriers-agree
-  (testing "rf2-1zc33 — the per-key refetch decision row emits
+  (testing "the per-key refetch decision row emits
             `:scope (first resource-key)`, so ONE value rides TWO carriers on
-            ONE row: inside `:resource/key` (owner-classified, correctly
-            redacted) and under the free `:scope` tag (classified by nobody,
-            raw). The two carriers must AGREE — neither may leak the identity."
+            ONE row: inside `:resource/key` (owner-classified) and under the
+            free `:scope` tag (shape-classified). The two carriers must
+            AGREE — neither may leak the identity."
     (let [k1        (sk session-scope :derived/profile {:slug "me"})
           record    (record-with
                       [(event :rf.resource/refetch-decision
@@ -1286,17 +1285,17 @@
                                :cause        [:mutation :m/save 1]})])
           projected (rf/project-egress record)
           tags      (:tags (first (:trace-events projected)))]
-      (testing "carrier 1 — the owner-classified scoped key (already correct)"
+      (testing "carrier 1 — the owner-classified scoped key"
         (is (redacted-component? (first (:resource/key tags)))
             "the key's scope component is tokenized whole by owner classification")
         (is (= :derived/profile (second (:resource/key tags)))
             "the resource-id survives"))
-      (testing "carrier 2 — the free :scope tag (the leak)"
+      (testing "carrier 2 — the free :scope tag"
         (is (= :rf.scope/session (first (:scope tags)))
             "the tier keyword rides verbatim")
         (is (redacted-component? (second (:scope tags)))
             "the identity map is tokenized"))
-      (testing "THE AGREEMENT — the row can no longer redact and leak the same
+      (testing "THE AGREEMENT — the row cannot redact and leak the same
                 value side by side"
         (is (not (contains-secret? (:resource/key tags)))
             "carrier 1 does not leak")
@@ -1314,7 +1313,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest off-box-redacts-removed-free-scope-tag
-  (testing "rf2-1zc33 — the clear-scope teardown row's FREE :scope tag is the
+  (testing "the clear-scope teardown row's FREE :scope tag is the
             very scope that was torn down; its identity map must tokenize"
     (let [k1        (sk session-scope :derived/profile {:slug "me"})
           record    (record-with
@@ -1344,7 +1343,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest off-box-redacts-mutation-started-free-scope-tag
-  (testing "rf2-1zc33 — the mutation lifecycle rows stamp the mutation's
+  (testing "the mutation lifecycle rows stamp the mutation's
             resolved default scope under a FREE :scope tag; the identity map
             must tokenize on BOTH of them"
     (let [k1        (sk session-scope :derived/profile {:slug "me"})
@@ -1398,11 +1397,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest off-box-keeps-global-scope-and-plain-owner-key-verbatim
-  (testing "rf2-1zc33 guard — `:rf.scope/global` is a SCALAR, so the shape
+  (testing "over-redaction guard — `:rf.scope/global` is a SCALAR, so the shape
             default rides it verbatim and does NOT stamp the row sensitive; and
             a PLAIN owner's `:resource/key` beside it keeps scope AND params.
-            This is the side that proves the repair costs no attribution on the
-            ordinary global-scoped row."
+            This is the side that proves the free-`:scope` projection costs no
+            attribution on the ordinary global-scoped row."
     (let [k1        (sk :rf.scope/global :plain/article {:slug plain-slug})
           record    (record-with
                       [(event :rf.resource/refetch-decision
@@ -1422,15 +1421,15 @@
           "a plain global-scoped row is NOT stamped sensitive"))))
 
 (deftest off-box-plain-owner-free-scope-map-fails-closed-key-rides-verbatim
-  (testing "rf2-1zc33 — the deliberate, documented asymmetry. A free `:scope`
+  (testing "the deliberate, documented asymmetry. A free `:scope`
             tag on `:rf.resource/invalidated` / `removed` names NO single owner
             (an invalidation sweep spans owners, and a clear-scope teardown
             outlives them), so there is nothing to read a `:sensitive?` claim
             from and the shape default's MAP arm fails closed unconditionally.
             The TIER survives, and — the point of this test — the PLAIN owner's
-            own `:resource/key` on the same row still rides fully verbatim, so
-            the repair is confined to the free tag and does not spill into
-            owner classification."
+            own `:resource/key` on the same row rides fully verbatim, so the
+            free-tag projection is confined to the free tag and does not spill
+            into owner classification."
     (let [k1        (sk plain-session-scope :plain/profile {:slug "me"})
           record    (record-with
                       [(event :rf.resource/invalidated
@@ -1452,16 +1451,15 @@
           "and so does the plain owner's :matched key vector"))))
 
 (deftest free-scope-tokens-carry-no-enumerable-content
-  (testing "rf2-1zc33 / rf2-hzcv8 — a free scope tag keeps its TIER keyword, so
-            an Xray invalidation graph still groups by scope tier; but the
+  (testing "a free scope tag keeps its TIER keyword, so
+            an Xray invalidation graph groups by scope tier; but the
             identity map's token is CONTENT-FREE, so two distinct sessions are
             indistinguishable after projection.
 
-            This assertion used to run the other way — distinct scopes kept
-            distinct digests, so a tool could join per session. rf2-hzcv8
-            settled that the digest which bought that join was the leak: a
-            session id lives in a candidate space small enough to enumerate, so
-            a 32-bit token over it is recoverable and testable. A free scope tag
+            A digest that kept distinct scopes distinct would let a tool join
+            per session, and would itself be the leak: a session id lives in a
+            candidate space small enough to enumerate, so a 32-bit token over it
+            is recoverable and testable. A free scope tag
             carries no owner claim that could permit a content-derived token, so
             it takes the fail-closed shape. Per-session joins lose; tier-level
             attribution, which is what the graph actually groups on, survives."
@@ -1480,18 +1478,17 @@
            two sessions apart"))))
 
 ;; ---------------------------------------------------------------------------
-;; (6) the SIBLING still owns its own row — nothing changes on scope-resolved
+;; (6) the SIBLING owns its own row — scope-resolved rides as the sibling left it
 ;; ---------------------------------------------------------------------------
 
 (deftest scope-resolved-row-scope-still-owned-by-the-sibling
-  (testing "rf2-1zc33 — on `:rf.resource/scope-resolved` the sibling projector
+  (testing "on `:rf.resource/scope-resolved` the sibling projector
             has ALREADY substituted the `:rf/redacted` sentinel (a bare KEYWORD,
             not a `{:rf/redacted <digest>}` map) before the family projector
             runs. The sentinel is a scalar, so the shape default rides it
-            verbatim: the row is byte-identical to what it was before `:scope`
-            left `sibling-owned-slot`, and the sibling's `:sensitive?` stamp
-            survives. `:input-values` stays sibling-owned — this ruling covers
-            `:scope` only."
+            verbatim: the row is exactly what the sibling produced, and the
+            sibling's `:sensitive?` stamp survives. `:input-values` is
+            sibling-owned — only `:scope` is the shape default's."
     (let [record    (record-with
                       [(event :rf.resource/scope-resolved
                               {:rf.frame/id   :test/rt
@@ -1506,7 +1503,7 @@
       (is (= :rf/redacted (:scope tags))
           "the sibling's sentinel rides through the family projector unchanged")
       (is (= :rf/redacted (:input-values tags))
-          ":input-values is still sibling-owned and unchanged")
+          ":input-values is sibling-owned and passes through unchanged")
       (is (true? (:sensitive? tags)) "the sibling's :sensitive? stamp survives")
       (testing "the structural resolver attribution rides verbatim"
         (is (= :rt/session (:resource-id tags)))
@@ -1521,7 +1518,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest trusted-local-include-sensitive-keeps-raw-free-scope
-  (testing "rf2-1zc33 — the trusted-local `:rf.egress/include-sensitive?` opt-in keeps the
+  (testing "the trusted-local `:rf.egress/include-sensitive?` opt-in keeps the
             raw free `:scope` tag on every rostered row type, one of each driven
             below (the local-raw boundary — the tokenization is the off-box
             default, not a strip)"
@@ -1544,17 +1541,16 @@
           "every row's raw :scope rides with :rf.egress/include-sensitive?"))))
 
 ;; ===========================================================================
-;; (rf2-425mm) the SAME free `:scope`, ONE CARRIER FURTHER OUT — inside the
+;; the SAME free `:scope`, ONE CARRIER FURTHER OUT — inside the
 ;; transport continuation payload copied onto `:rf.fx/args` / `:rf.event/fx`.
 ;; ===========================================================================
 ;;
-;; §(rf2-1zc33) above settled the free `:scope` tag on the rows the resource
-;; family OWNS. This is not its residual — a one-line change to
-;; `sibling-owned-slot` could not have reached here, because the epoch tool-pair
-;; routes that projector by OPERATION NAMESPACE (`resource-family-op?`) and the
-;; rows below are `rf.fx`. It is the completeness remainder of rf2-1kiuj, the
-;; OTHER projector: `project-fx-args-egress` → `project-embedded-keys`, reached
-;; by SLOT on every row.
+;; The section above covers the free `:scope` tag on the rows the resource
+;; family OWNS. This is not its residual — `sibling-owned-slot` cannot reach
+;; here, because the epoch tool-pair routes that projector by OPERATION
+;; NAMESPACE (`resource-family-op?`) and the rows below are `rf.fx`. It
+;; belongs to the OTHER projector: `project-fx-args-egress` →
+;; `project-embedded-keys`, reached by SLOT on every row.
 ;;
 ;; An `ensure` lowers into `[:rf.http/managed <args>]`, and
 ;; `transport.http/build-managed-args` puts the runtime's stale-suppression
@@ -1562,32 +1558,32 @@
 ;;
 ;;   {:work/id      [:rf.work/resource <scoped-key> <gen>]
 ;;    :resource/key <scoped-key>
-;;    :scope        <resolved scope>          ← the leak
+;;    :scope        <resolved scope>          ← the identity
 ;;    :generation   <n>
 ;;    :rf.frame/id  <frame>}
 ;;
 ;; `re-frame.fx/handle-one-fx` stamps those args under `:rf.fx/args` and `do-fx`
 ;; stamps the whole effect vector under `:rf.event/fx`, so the payload egresses
-;; twice. `project-embedded-keys` walks both carriers, and — deliberately, and
-;; rightly (rf2-1kiuj) — DESCENDS a map rather than tokenizing it, because an
+;; twice. `project-embedded-keys` walks both carriers, and — deliberately —
+;; DESCENDS a map rather than tokenizing it, because an
 ;; fx-args payload belongs to the fx family and tokenizing it wholesale would
-;; redact a plain owner's request map. It recognised the `:resource/key` and the
-;; key embedded in the `:work/id` and redacted both. The `:scope` beside them is
-;; a `[tier {identity}]` TUPLE, not a scoped key, so the walk descended it, found
-;; an ordinary map, and let the resolver's IDENTITY MAP through in the clear —
-;; one slot from the `:resource/key` that had just redacted the identical bytes,
-;; and one carrier from the `:effects[*].args` twin that read `:rf/redacted`.
+;; redact a plain owner's request map. It recognises the `:resource/key` and the
+;; key embedded in the `:work/id` and redacts both. The `:scope` beside them is
+;; a `[tier {identity}]` TUPLE, not a scoped key, so a walk that recognised only
+;; scoped keys would descend it, find an ordinary map, and let the resolver's
+;; IDENTITY MAP through in the clear — one slot from the `:resource/key` that
+;; redacts the identical bytes, and one carrier from the `:effects[*].args`
+;; twin that reads `:rf/redacted`.
 ;;
-;; No existing fixture could see it: every resource in every epoch-egress fixture
-;; scoped `:rf.scope/global`, a SCALAR with nothing in it to leak. Only a
-;; `{:from-db …}` resolver puts an identity map on the carrier, and the MCP-egress
-;; conformance cascade reaches its identity-bearing scope through
-;; `invalidate-tags`, which stamps a free `:scope` on a FAMILY row and never
-;; lowers into fx.
+;; A fixture sees it only through an identity-bearing scope on an operation
+;; that lowers into fx: `:rf.scope/global` is a SCALAR with nothing in it to
+;; leak, only a `{:from-db …}` resolver puts an identity map on the carrier, and
+;; `invalidate-tags` stamps its free `:scope` on a FAMILY row without lowering
+;; into fx.
 ;;
-;; The repair gives a `:scope`-keyed value inside the carrier the SAME family rule
-;; §(rf2-1zc33) gave it on the family's own rows (`project-unknown-slot-value`),
-;; so the two carriers agree by construction. Per shape, unchanged from there:
+;; A `:scope`-keyed value inside the carrier takes the SAME family rule the
+;; section above gives it on the family's own rows (`project-unknown-slot-value`),
+;; so the two carriers agree by construction. Per shape, as there:
 ;; a `:rf.scope/global` scalar rides verbatim, a `[tier {identity}]` tuple keeps
 ;; its tier and tokenizes its identity map.
 
@@ -1597,19 +1593,18 @@
 
   Every test in this file that reads a value OUT of `:rf.fx/args` or
   `:rf.event/fx` goes through this door rather than through bare
-  `project-egress`, because since rf2-79fvm those two slots FAIL CLOSED at the
+  `project-egress`, because those two slots FAIL CLOSED at the
   off-box default: `omit-off-box-fx-args` redacts the whole fx-args payload
-  there, exactly as `elide-effect-row` has always redacted the structured
+  there, exactly as `elide-effect-row` redacts the structured
   `:effects[*].args` twin. At that default posture there is nothing left in a
   carrier for the family's key projection to discriminate, so a test asserting
   a plain owner's request map rides verbatim — or that a `:sensitive?` owner's
   scope tokenizes rather than vanishing — could only ever assert the blanket
-  redaction, and the rf2-1kiuj / rf2-0t7o8 / rf2-425mm owner-discrimination
-  contract would go unpinned.
+  redaction, and the owner-discrimination contract would go unpinned.
 
-  The opt-in is where that contract now lives, and it is load-bearing exactly
+  The opt-in is where that contract lives, and it is load-bearing exactly
   there: `:rf.egress/include-fx-args? true` is the ONE posture in which these
-  bytes reach a wire at all, so it is the only posture in which it still
+  bytes reach a wire at all, so it is the only posture in which it
   matters whether a resolver-owned key inside them is tokenized. The default
   posture is pinned separately, and deliberately from the OTHER side — that
   the carriers disclose nothing whatever — by the fail-closed tests in
@@ -1617,8 +1612,8 @@
 
   Note this is NOT `:rf.egress/include-sensitive?`. That opt lifts the app-db
   sensitive axis ALONE (spec/Security.md §Off-box egress MUST be projected);
-  it does not lift the orthogonal fx-args axis, and before rf2-79fvm it wrongly
-  did for these carriers. A test wanting BOTH axes raw passes
+  it does not lift the orthogonal fx-args axis. A test wanting BOTH axes raw
+  passes
   `{:rf.egress/include-sensitive? true}` here and gets both."
   ([record] (project-carrier-egress record nil))
   ([record opts]
@@ -1669,7 +1664,7 @@
 (defn- carrier-scopes
   "Every value sitting under a `:scope` key anywhere inside the `:rf.fx/args` /
   `:rf.event/fx` carriers of `record`'s trace rows — i.e. the exact slot the
-  four leaking paths name, found by walking rather than by index so the
+  four carrier paths name, found by walking rather than by index so the
   assertion does not encode the cascade's fx ORDER."
   [record]
   (let [found (atom [])
@@ -1688,7 +1683,7 @@
 (defn- continuation-payload
   "The `:on-success` verification payload of the `:rf.http/managed` args as they
   egress under `:rf.fx/args` — `{:work/id … :resource/key … :scope … :generation
-  … :rf.frame/id …}`, the map the four leaking paths run through."
+  … :rf.frame/id …}`, the map the four carrier paths run through."
   [record]
   (->> (:trace-events record)
        (map :tags)
@@ -1736,12 +1731,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest real-session-scoped-ensure-leaks-no-identity-into-fx-carriers
-  (testing "rf2-425mm — `project-egress` over the record a REAL
+  (testing "`project-egress` over the record a REAL
             `[:rf.resource/ensure …]` settles for a `:sensitive?` resource with
-            a `{:from-db …}` scope must carry the resolved identity at ZERO
-            paths. Before the repair it carried it at four: the `:scope` inside
-            the `:on-success` and `:on-failure` continuation payloads, once under
-            `:rf.fx/args` and again under `:rf.event/fx`."
+            a `{:from-db …}` scope must carry the resolved identity at ZERO of
+            the four paths it rides: the `:scope` inside the `:on-success` and
+            `:on-failure` continuation payloads, once under `:rf.fx/args` and
+            again under `:rf.event/fx`."
     (let [records   (drive-session-scoped-ensure! :derived/profile)
           raw       (last records)
           projected (project-carrier-egress raw)]
@@ -1761,9 +1756,9 @@
       (testing "ACCEPTANCE — nothing raw survives anywhere in the projected
                 record"
         (is (= [] (carrier-leak-paths projected))
-            "every leaking path is named here; before the repair this printed
-             the four [:trace-events n :tags :rf.fx/args :on-success 1 :scope 1
-             :username] shapes"))
+            "every leaking path is named here — a failure prints paths shaped
+             [:trace-events n :tags :rf.fx/args :on-success 1 :scope 1
+             :username]"))
 
       (testing "and each carrier's scope is PROJECTED, not merely absent"
         (is (= (count (carrier-scopes raw)) (count (carrier-scopes projected)))
@@ -1772,7 +1767,7 @@
             "each keeps its TIER keyword and tokenizes its identity map"))
 
       (testing "the sibling `:resource/key` in the SAME payload agrees — the two
-                carriers of one scope can no longer redact and leak it side by
+                carriers of one scope cannot redact and leak it side by
                 side"
         (let [cont (continuation-payload projected)]
           (is (some? cont) "the continuation payload is on the carrier")
@@ -1822,7 +1817,7 @@
                            [:rf.http/managed args]]})]))
 
 (deftest fx-carrier-scope-tokenizes-on-both-carriers
-  (testing "rf2-425mm — the projector, over the exact payload the transport
+  (testing "the projector, over the exact payload the transport
             builds. Four `:scope` occurrences across the two carriers, every one
             of them tokenized; and the fx family's OWN slots on the same rows
             ride untouched, because the resource family speaks only for what it
@@ -1832,7 +1827,7 @@
           projected (project-carrier-egress (fx-carrier-record args))
           scopes    (carrier-scopes projected)]
       (is (= 4 (count scopes))
-          "two payloads per carrier, two carriers — the four paths the bead named")
+          "two payloads per carrier, two carriers — four paths")
       (is (every? tokenized-scope? scopes)
           "each keeps its tier keyword and tokenizes its identity map")
       (is (= [] (secret-leak-paths projected))
@@ -1851,12 +1846,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest fx-carrier-keeps-plain-request-map-and-global-scope-verbatim
-  (testing "rf2-425mm guard — a PLAIN owner's `:rf.http/managed` args, whose
+  (testing "over-redaction guard — a PLAIN owner's `:rf.http/managed` args, whose
             scope is the `:rf.scope/global` SCALAR, must ride BYTE-IDENTICAL
             through both carriers and must not stamp the row sensitive. This is
-            the side that proves the repair did not turn `project-embedded-keys`
-            into the wholesale map tokenizer rf2-1kiuj rejected: the app's own
-            request map, its params and its scope all survive."
+            the side that proves `project-embedded-keys` is not a wholesale map
+            tokenizer: the app's own request map, its params and its scope all
+            survive."
     (let [k1        (sk :rf.scope/global :plain/article {:slug plain-slug})
           args      (managed-args k1 :rf.scope/global)
           record    (fx-carrier-record args)
@@ -1877,8 +1872,8 @@
           "on either carrier"))))
 
 (deftest fx-carrier-scope-tokens-carry-no-enumerable-content
-  (testing "rf2-425mm / rf2-hzcv8 — the fx carriers take the SAME token contract
-            as the family's own rows, which is the whole point of rf2-425mm: one
+  (testing "the fx carriers take the SAME token contract
+            as the family's own rows: one
             scope, one rule, whichever carrier it rides. So the carrier's scope
             token is content-free too, and two distinct sessions agree here
             exactly as they do on the trace row above"
@@ -1895,18 +1890,18 @@
       (is (= :rf.scope/session (first s1) (first s2))
           "the tier keyword rides on the carrier too")
       (is (= (second s1) (second s2))
-          "and the two tokens AGREE — the carrier did not acquire a weaker rule
-           than the row"))))
+          "and the two tokens AGREE — the carrier has no weaker rule than the
+           row"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (4) the trusted-local boundary — the redaction is the off-box DEFAULT
 ;; ---------------------------------------------------------------------------
 
 (deftest trusted-local-include-sensitive-keeps-raw-fx-carrier-scope
-  (testing "rf2-425mm — the trusted-local opt-ins keep the raw carrier scope
+  (testing "the trusted-local opt-ins keep the raw carrier scope
             (the local-raw boundary — the tokenization is the off-box default,
-            not a strip). Reaching a carrier's contents at all takes BOTH axes
-            since rf2-79fvm: `:rf.egress/include-fx-args? true` (supplied by
+            not a strip). Reaching a carrier's contents at all takes BOTH
+            axes: `:rf.egress/include-fx-args? true` (supplied by
             `project-carrier-egress`) lifts the fail-closed fx-args redaction,
             and `:rf.egress/include-sensitive? true` lifts the family's key
             tokenization. Neither lifts the other"
@@ -1921,16 +1916,16 @@
           "and so does the rest of the payload it sits in"))))
 
 ;; ===========================================================================
-;; (rf2-xx4ty) the SAME two carriers, a DIFFERENT map: the READ COMPLETION
+;; the SAME two carriers, a DIFFERENT map: the READ COMPLETION
 ;; CONTINUATION reply, whose `:value` is the DECODED RESPONSE BODY.
 ;; ===========================================================================
 ;;
-;; §(rf2-425mm) above closed the resolved `:scope` inside the TRANSPORT
+;; The section above covers the resolved `:scope` inside the TRANSPORT
 ;; continuation payload. This is a different map on the same carriers, and it
 ;; is the most sensitive datum the family puts there.
 ;;
 ;; An `ensure` / `refetch` MAY carry a call-site `:reply-to` (EP-0016 D1 →
-;; reads, rf2-p1yri7; Spec 016 §Read completion continuations). When the read
+;; reads; Spec 016 §Read completion continuations). When the read
 ;; settles — or is served immediately by a fresh-skip cache hit —
 ;; `events/read-continuation-reply` augments the canonical reply with the
 ;; top-level read facts and `re-frame.reply/complete` APPENDS the whole map as
