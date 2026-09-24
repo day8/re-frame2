@@ -421,6 +421,48 @@
                  (pr-str slim-html)))))))
 
 ;; ---------------------------------------------------------------------------
+;; Attribute NAMES over the same candidate space (rf2-u0xpc).
+;;
+;; `react-attribute-name-overrides` is a hand-kept copy of the names react-dom
+;; writes differently from the prop name — its `aliases` Map and its
+;; `pushAttribute` special cases — and a missing row falls through to the
+;; lowercase rule. Nine `xlink*` / `xml*` rows and `transformOrigin` were
+;; missing, and `parity_cljs_test`'s corpus never asked about them. So the
+;; candidates above are asked a second question: under which NAME does a
+;; string value reach markup? Compared case-INSENSITIVELY, because HTML
+;; attribute names are, and this serializer lowercases the camelCase names
+;; outside its table (`hrefLang` → `hreflang`) where react-dom keeps them.
+;; What this arm catches is a DIFFERENT attribute (`xlinkhref` for
+;; `xlink:href`). A name reaching markup on one side only is a value-class
+;; question, which the tests above own, so it is not compared here.
+;; ---------------------------------------------------------------------------
+
+(def ^:private name-sentinel "rf2NameSentinel")
+
+(defn- sentinel-name
+  "The attribute name `markup` carries `name-sentinel` under, or nil."
+  [markup]
+  (when markup
+    (second (re-find (re-pattern (str " ([^\\s=<>\"]+)=\"" name-sentinel "\""))
+                     markup))))
+
+(deftest attribute-names-agree-with-installed-react-dom
+  (let [rows (for [attribute candidates
+                   :let [react-name (sentinel-name (react-markup "div" attribute name-sentinel))
+                         slim-name  (sentinel-name (slim-markup "div" attribute name-sentinel))]
+                   :when (and react-name slim-name)]
+               {:attribute attribute :react react-name :slim slim-name})]
+    (testing "the sweep compared real rows, including the three rf2-u0xpc named"
+      (is (> (count rows) 200)
+          (str "only " (count rows) " names compared — an empty sweep reads as a pass"))
+      (is (every? (set (map :attribute rows)) ["xlinkHref" "xmlLang" "transformOrigin"])))
+    (testing "every name reaches markup under the attribute react-dom writes"
+      (doseq [{:keys [attribute react slim]} rows]
+        (is (= (str/lower-case react) (str/lower-case slim))
+            (str "react-dom " react-dom-version " writes `" attribute "` as `"
+                 react "`; render-to-static-markup wrote `" slim "`"))))))
+
+;; ---------------------------------------------------------------------------
 ;; Explicit pins.
 ;;
 ;; The table-driven checks above are the gate; these state the intent in
