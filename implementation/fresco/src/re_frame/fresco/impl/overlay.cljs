@@ -375,11 +375,11 @@
   `:anchor` is the DOM id of the trigger to position against, and neither
   the door's contract nor the guide makes it initial-only — a single
   shared menu moved from row A to row B is the ordinary caller. But the
-  claim is imperative, and the only commit-phase door the module had was
-  the ref callback, which React calls on ATTACHMENT and not on an
-  ordinary prop update: the panel kept the fiber, the ref kept its
-  identity, and the claim stayed on A while the panel went on resolving
-  `position-anchor` against it (rf2-kx9f).
+  claim is imperative, and the ref callback, its other commit-phase door,
+  is one React calls on ATTACHMENT and not on an ordinary prop update:
+  the panel keeps the fiber and the ref keeps its identity, so without
+  this reconciliation the claim would stay on A while the panel went on
+  resolving `position-anchor` against it.
 
   Release before claim, and both through the shared doors above, because
   a trigger may carry an author's own `anchor-name` and two overlays may
