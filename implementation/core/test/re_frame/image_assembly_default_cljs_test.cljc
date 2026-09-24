@@ -1,6 +1,6 @@
 (ns re-frame.image-assembly-default-cljs-test
-  "EP-0023 §Default Image Semantics / Bead Plan item 6 — the DEFAULT image
-  projection over the source store (rf2-32siq3.24).
+  "EP-0023 §Default Image Semantics — the DEFAULT image
+  projection over the source store.
 
   > the default image is the implicit selector over [the default registration]
   > source [store] … The default image is the implicit selector over all
@@ -10,7 +10,7 @@
   > does not let load order win; default image assembly fails with a collision
   > error.
 
-  Pins the bead's enumerated coverage:
+  Pins the enumerated coverage:
 
     * the default projection includes ALL source-store descriptors + the
       framework standards;
@@ -18,7 +18,7 @@
       FAILS LOUD (`:rf.error/image-duplicate-id`) — no clobber, no
       last-write-wins on the default path;
     * the default generation is CACHED and INVALIDATES on a source-store change
-      (the .7 cache, keyed on the source-store generation);
+      (the generation cache, keyed on the source-store generation);
     * a single-namespace default projects cleanly;
     * `assemble` with NO / empty `:images` routes to the default projection
       (the empty-images entry).
@@ -29,8 +29,8 @@
   The deterministic projection cases use the EXPLICIT-POOL form
   `(assemble-default descriptors)` — no live source-store mutation. The
   cache-invalidation case needs the LIVE store, so it SNAPSHOTS the source-store
-  atom and RESTORES it (per the bead — no `clear-all!` that would destroy
-  authored registrations) and clears only the derived standard registry +
+  atom and RESTORES it (no `clear-all!`, which would destroy authored
+  registrations) and clears only the derived standard registry +
   generation cache. `.cljc` ending `-cljs-test` rides `npm run test:cljs` AND
   `clojure -M:test`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
@@ -216,7 +216,7 @@
 
 ;; ===========================================================================
 ;; 5. The default generation is CACHED + invalidates on a source-store change
-;;    (the .7 cache, keyed on the source-store generation). Uses the LIVE store
+;;    (the generation cache, keyed on the source-store generation). Uses the LIVE store
 ;;    so the store-generation invalidation fires for real; snapshot/restore in
 ;;    the body keeps the live store clean.
 ;; ===========================================================================
@@ -286,8 +286,8 @@
 
 ;; ===========================================================================
 ;; 7. A PROVENANCED app descriptor colliding with a framework STANDARD FAILS
-;;    LOUD on the DEFAULT path too — symmetric with the explicit path
-;;    (rf2-x76af2.29). The default-image standard-shadow filter drops ONLY the
+;;    LOUD on the DEFAULT path too — symmetric with the explicit path.
+;;    The default-image standard-shadow filter drops ONLY the
 ;;    framework's OWN no-provenance registrar shadow; a provenanced app
 ;;    descriptor must survive selection so it reaches check-standard-collision!.
 ;; ===========================================================================
@@ -297,7 +297,7 @@
             collides with a registered framework standard FAILS LOUD on the
             DEFAULT path with :rf.error/image-standard-replacement-forbidden —
             the standard is protected and the app registration is NOT silently
-            dropped (rf2-x76af2.29)"
+            dropped"
     (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
     (let [pool [(reg-desc "shop.nav"  :fx    :rf.nav/push-url ::app-nav)
                 (reg-desc "shop.cart" :event :cart/add        ::cart-add)]]
@@ -312,9 +312,9 @@
   (testing "the SAME misconfiguration — a provenanced app descriptor colliding
             with a standard — yields the SAME
             :rf.error/image-standard-replacement-forbidden on BOTH the default
-            and the explicit path. Before rf2-x76af2.29 the default path
-            silently dropped the app descriptor and resolved to the standard
-            (the documented fail-loud asymmetry)"
+            and the explicit path. A default path that silently dropped the app
+            descriptor and resolved to the standard would fail loud
+            asymmetrically"
     (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
     (let [pool     [(reg-desc "shop.nav" :fx :rf.nav/push-url ::app-nav)]
           explicit (rf.image/image {:id :shop/nav :select-ns {:include ["shop.nav"]}})]
@@ -324,15 +324,15 @@
              (assembly-error-id #(rf.image-assembly/assemble [explicit] pool))))
       (is (= (assembly-error-id #(rf.image-assembly/assemble-default pool))
              (assembly-error-id #(rf.image-assembly/assemble [explicit] pool)))
-          "same error id on both paths — the default path is no longer the odd one out"))))
+          "same error id on both paths"))))
 
 (deftest default-projection-drops-framework-own-no-provenance-standard-shadow
   (testing "the framework's OWN no-provenance registrar shadow of a standard
-            (nil :rf.provenance/ns) is STILL filtered out of the default
+            (nil :rf.provenance/ns) IS filtered out of the default
             selection — it is the standard's own copy, unioned in separately, so
             it must NOT reach check-standard-collision! and must NOT throw. The
-            standard still resolves and ordinary app descriptors still project
-            (rf2-x76af2.29 NARROWED the filter, it did not remove it)"
+            standard resolves and ordinary app descriptors project: the filter
+            drops that shadow and nothing else"
     (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
     (let [own-shadow {:rf.provenance/ns nil :kind :fx :id :rf.nav/push-url
                       :handler-fn ::std-nav}
@@ -340,14 +340,14 @@
                       (reg-desc "shop.cart" :event :cart/add ::cart-add)]
           gen        (rf.image-assembly/assemble-default pool)]
       (is (contains? (:rf.gen/resolver gen) [:fx :rf.nav/push-url])
-          "the standard is still present (unioned in)")
+          "the standard is present (unioned in)")
       (is (= ::std-nav (:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :rf.nav/push-url)))
           "resolves to the standard's own copy; the no-provenance shadow was dropped")
       (is (contains? (:rf.gen/resolver gen) [:event :cart/add])
-          "ordinary app descriptors still project into the default generation"))))
+          "ordinary app descriptors project into the default generation"))))
 
 ;; ===========================================================================
-;; 5. Framework REPLACEABLE DEFAULTS (rf2-0r6q4) — the framework's own
+;; 8. Framework REPLACEABLE DEFAULTS — the framework's own
 ;;    no-provenance seeding of an id the APPLICATION is invited to register
 ;; ===========================================================================
 ;;
@@ -355,10 +355,9 @@
 ;; encodes an execution invariant and is PROTECTED — an app must not shadow it.
 ;; A default (`:rf.route/entry-denied`, Spec 012 §Entry is terminal) is the
 ;; framework's stand-in for a decision the app is invited to make, so an app
-;; registration of the same id is the DOCUMENTED override. Before rf2-0r6q4 the
-;; documented recipe was the broken path: the default image selected the
-;; framework's own copy alongside the app's and refused to let selection order
-;; decide (`:rf.error/image-duplicate-id`).
+;; registration of the same id is the DOCUMENTED override. Selecting the
+;; framework's own copy alongside the app's would break that recipe: the default
+;; image refuses to let selection order decide (`:rf.error/image-duplicate-id`).
 
 (defn- fw-default-desc
   "The framework's OWN copy of a replaceable default — carries the reserved
@@ -386,9 +385,8 @@
 (deftest application-registration-supersedes-the-framework-default
   (testing "a PROVENANCED application registration of a framework-default id
             assembles cleanly and WINS — the framework's own no-provenance copy
-            is not projected into the app layer once the app supplied its own.
-            This is the rf2-0r6q4 fix: before it, this threw
-            :rf.error/image-duplicate-id"
+            is not projected into the app layer once the app supplies its own,
+            so this does not throw :rf.error/image-duplicate-id"
     (let [pool [(fw-default-desc :event :rf.route/entry-denied ::fw-noop)
                 (reg-desc "shop.auth" :event :rf.route/entry-denied ::app-denial)]
           gen  (rf.image-assembly/assemble-default pool)]
@@ -398,8 +396,8 @@
 
 (deftest two-application-registrations-of-a-default-id-still-collide
   (testing "the seam is NOT a winner rule. Two DISTINCT application namespaces
-            registering the same framework-default id remain ambiguous — image
-            assembly still refuses to let selection order decide"
+            registering the same framework-default id are ambiguous — image
+            assembly refuses to let selection order decide"
     (let [pool [(fw-default-desc :event :rf.route/entry-denied ::fw-noop)
                 (reg-desc "shop.auth"  :event :rf.route/entry-denied ::a)
                 (reg-desc "shop.admin" :event :rf.route/entry-denied ::b)]]
@@ -409,8 +407,8 @@
 (deftest the-framework-default-marker-is-not-forgeable-from-app-code
   (testing "the marker only identifies the FRAMEWORK's own copy: it is read
             together with nil provenance. An app descriptor stamping the
-            reserved key on itself is still an ordinary provenanced app
-            registration, so a genuine app-vs-app collision still fails loud"
+            reserved key on itself is an ordinary provenanced app
+            registration, so a genuine app-vs-app collision fails loud"
     (let [pool [(assoc (reg-desc "shop.auth"  :event :cart/add ::a)
                        :rf/framework-default? true)
                 (reg-desc "shop.admin" :event :cart/add ::b)]]
@@ -440,7 +438,7 @@
 
 ;; ---- the framework default's CARRIER CLASSIFICATION rides an override -----
 ;;
-;; rf2-kqxe6.20: replacing a framework default replaces BEHAVIOUR. The payload
+;; Replacing a framework default replaces BEHAVIOUR. The payload
 ;; the framework itself constructs and dispatches (the `:rf.route/entry-denied`
 ;; denial map, whose `:requested-url` / `:destination` / `:target` embed query
 ;; values and path params) is not the application's to re-describe, so the
@@ -501,11 +499,11 @@
          framework's own copy — the same unforgeability the supersession seam has")))
 
 (deftest the-reconcile-half-covers-the-inverse-registration-order
-  (testing "rf2-kqxe6.20 (audit of #6949): when the APPLICATION descriptor is
+  (testing "when the APPLICATION descriptor is
             recorded FIRST the retention read has no framework slot to carry
             from. The reconcile half runs when the framework's default lands and
             brings the already-stored app descriptor to the SAME union, so
-            require order no longer decides the effective classification"
+            require order does not decide the effective classification"
     ;; The inverse order — the app registration is in the store, no framework
     ;; default yet.
     (rf.source-store/record-descriptor! :event ::denied {:ns         "shop.auth"
@@ -542,7 +540,7 @@
 
 (deftest an-explicit-image-is-unaffected-by-the-default-seam
   (testing "an explicit :select-ns image selects by provenance namespace, so the
-            framework's own no-provenance default was never selectable there.
+            framework's own no-provenance default is never selectable there.
             The app's registration is simply the image's descriptor"
     (let [pool     [(fw-default-desc :event :rf.route/entry-denied ::fw-noop)
                     (reg-desc "shop.auth" :event :rf.route/entry-denied ::app-denial)]
