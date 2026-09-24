@@ -1,5 +1,5 @@
 (ns re-frame.features
-  "Feature-inspection front-porch (rf2-3nbl5.5, API-governance G5).
+  "Feature-inspection front-porch.
 
   re-frame2's optional capabilities ship as separate Maven artefacts
   (`day8/re-frame2-<feature>`) whose implementation namespaces core
@@ -80,8 +80,9 @@
   `set-fns!` block, so its presence in `rf.late-bind/hooks` is a faithful
   loaded?-signal. Renaming a probe key here without keeping it in step
   with the producing artefact's publication would silently report a
-  loaded feature as absent; the keys are chosen from the feature's
-  registration surface (`reg-*`) precisely because those never go away."
+  loaded feature as absent; the keys are chosen from each feature's
+  always-published surface (its `reg-*` registration where it has one)
+  precisely because those never go away."
   {:schemas  {:maven     "day8/re-frame2-schemas"
               :require   "re-frame.schemas"
               :spec      "Spec 010 (Schemas)"
