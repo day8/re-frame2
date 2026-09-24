@@ -1,5 +1,5 @@
 'use strict';
-// THE PRE-REGISTERED CALLER LATENCY ENVELOPE (rf2-hic-056).
+// THE PRE-REGISTERED CALLER LATENCY ENVELOPE.
 //
 // These numbers are STATED BEFORE THEY ARE MEASURED, and the commit that
 // introduces this file carries no measurement code at all — that is the
@@ -40,46 +40,42 @@
 //   - a request whose `state` and `runtime` partitions are at most 64 KiB
 //     of EDN text TOGETHER, counted the way `protocol.cjs` counts them —
 //     every UTF-8 key byte plus every UTF-8 value byte, over both
-//     partitions (see the amendment below);
+//     partitions (see below);
 //   - sequential requests — one in flight at a time;
 //   - Node 24 on one box.
 //
-// ## AMENDMENT, AND WHAT IT DID NOT TOUCH (rf2-6r9j.71)
+// ## THE CONDITION COVERS BOTH PARTITIONS, AND THE CEILINGS DO NOT MOVE
 //
-// The registration above was written when a request carried ONE
-// partition, and it bounded `state` alone. `runtime` became a second
-// cloned partition later (9a42302f7a) and `protocol.cjs` now counts every
-// key and value of BOTH against one combined ceiling — but the condition
-// here was never widened to follow, so the published envelope could be
-// read as covering a runtime-heavy request that its witness never sent,
-// and the witness's own byte definition (two values, no keys) was not the
-// validator's.
+// A request carries two cloned partitions, `state` and `runtime`, and
+// `protocol.cjs` counts every key and value of BOTH against one combined
+// ceiling. The condition above counts the same way. Bounding `state`
+// alone would let the published envelope be read as covering a
+// runtime-heavy request its witness never sent, and a witness counting
+// only values would not share the validator's byte definition.
 //
-// The condition's DOMAIN is corrected here; its NUMBER is not, and
-// neither is any ceiling. `p50Ms`, `p95Ms`, `maxMs` and `samples` carry
-// the values they were registered with in f39829caa6, before any
-// measurement code existed, and `git log --follow` on this file still
-// separates that registration from this repair. A ceiling moved after a
-// run would be a description of the run; a condition corrected to name
-// the requests the validator actually admits is the opposite — it makes
-// the claim harder to satisfy, not easier.
+// `p50Ms`, `p95Ms`, `maxMs` and `samples` carry the values they were
+// registered with, before any measurement code existed, and
+// `git log --follow` on this file separates that registration from any
+// later change to the condition. A ceiling moved after a run would be a
+// description of the run; a condition that names the requests the
+// validator actually admits is the opposite — it makes the claim harder
+// to satisfy, not easier.
 //
 // The 64 KiB here is the ENVELOPE's sampling condition and is not
 // `protocol.cjs`'s refusal ceiling, which is `maxRequestBytes` (1 MiB by
 // default). Two different layers: the service refuses above one, and the
-// latency figures are only claimed below the other. What the two must
-// share — and now do — is how a byte is counted.
+// latency figures are only claimed below the other. What the two share
+// is how a byte is counted.
 //
 // ## Why the ceilings are where they are
 //
 // The mechanism costs one structured clone of a small object each way plus
 // a message hop, which is sub-millisecond work; p50 is set at 5 ms so that
 // a breach means something structural changed rather than that the box was
-// busy. The upper two are deliberately loose. This repo has already
-// measured what a shared developer box does to a millisecond-scale figure:
-// the X3 adoption witness published two runs at one commit whose phase
-// maxima differed by more than 2x, and recorded that a tenth of a
-// millisecond is not reproducible here. A p95 or a max tight enough to be
+// busy. The upper two are deliberately loose. A shared developer box
+// makes a millisecond-scale figure noisy: two runs at one commit can
+// differ by more than 2x in their phase maxima, and a tenth of a
+// millisecond is not reproducible there. A p95 or a max tight enough to be
 // impressive would be a gate that reds on other people's compiles, and a
 // gate that reds for reasons unrelated to its subject teaches its readers
 // to re-run it.
@@ -116,8 +112,7 @@ const ENVELOPE = Object.freeze({
  *
  * It reads `PARTITIONS` from `protocol.cjs` rather than naming `state`
  * and `runtime` here, so a third partition cannot be added to the wire
- * and leave this condition silently measuring two of three — which is
- * precisely how the condition came to bound `state` alone.
+ * and leave this condition silently measuring two of three.
  */
 function requestBytes(request) {
   let bytes = 0;
