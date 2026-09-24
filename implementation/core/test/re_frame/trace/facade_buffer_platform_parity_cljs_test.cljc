@@ -1,35 +1,30 @@
 (ns re-frame.trace.facade-buffer-platform-parity-cljs-test
-  "rf2-kuky.51 — `rf/trace-buffer` and `rf/clear-trace-buffer!` exist on
-  BOTH platforms.
+  "`rf/trace-buffer` and `rf/clear-trace-buffer!` exist on BOTH platforms.
 
-  Both defs used to sit inside a `#?(:clj (do …))` reader conditional in
-  `re-frame.core`, with a docstring reading \"JVM-only alias — CLJS callers
-  use `re-frame.trace.tooling/trace-buffer` directly\". Nothing under
-  `spec/` ever said so: Spec 009 §`trace-buffer` API tables the facade
-  form, Tool-Pair §How AI tools attach names `(rf/trace-buffer frame-id)`
-  as THE surface, and 22 normative occurrences spell it. An AI following
-  the spec in a CLJS REPL got `nil` / an undeclared-var warning.
+  Spec 009 §`trace-buffer` API tables the facade form, and Tool-Pair §How
+  AI tools attach names `(rf/trace-buffer frame-id)` as THE surface, so an
+  AI following the spec in a CLJS REPL must find it there. Behind a
+  `#?(:clj …)` reader conditional in `re-frame.core` it would get `nil` /
+  an undeclared-var warning.
 
-  The stated reason was production DCE, and the tree already refuted it:
-  the facade def is an UNCONDITIONAL alias of
-  `re-frame.trace.tooling/trace-buffer` on both platforms (rf2-kuky.52
-  retired the intermediate `re-frame.trace/…` re-export it used to name),
-  so the facade adds an alias of a shape every CLJS build already carries. `npm run
-  test:bundle-isolation` (family `trace-tooling`, sentinel
-  `trace-events`) is the proof, not the require graph.
+  Production DCE is no reason for such a fence: the facade def is an
+  UNCONDITIONAL alias of `re-frame.trace.tooling/trace-buffer` on both
+  platforms, so the facade adds an alias of a shape every CLJS build
+  already carries. `npm run test:bundle-isolation` (family `trace-tooling`,
+  sentinel `trace-events`) is the proof, not the require graph.
 
-  This suite is the platform witness the fence made impossible: it runs
-  under `npm run test:cljs` (the shadow-cljs `:node-test` build picks up
-  `*-cljs-test` namespaces) AND under the JVM `clojure -M:test` lane, and
-  every assertion goes through the `rf/` facade. Before the fence lift
-  the namespace does not even COMPILE on CLJS — `rf/trace-buffer` is an
-  undeclared var — so a green CLJS run is itself the acceptance.
+  This suite is the platform witness: it runs under `npm run test:cljs`
+  (the shadow-cljs `:node-test` build picks up `*-cljs-test` namespaces)
+  AND under the JVM `clojure -M:test` lane, and every assertion goes
+  through the `rf/` facade. Behind a CLJS fence the namespace would not
+  even COMPILE on CLJS — `rf/trace-buffer` would be an undeclared var — so
+  a green CLJS run is itself the acceptance.
 
-  Posture: dev-only, declared by `^:requires-debug` (rf2-d2841). The ring
-  is never allocated under `-Dre-frame.debug=false` / `goog.DEBUG=false`,
-  so an unguarded body would certify itself green over an empty stream.
-  The namespace is still LOADED under the production-gate lane, so a
-  load-time regression (the fence coming back) still reddens that job.
+  Posture: dev-only, declared by `^:requires-debug`. The ring is never
+  allocated under `-Dre-frame.debug=false` / `goog.DEBUG=false`, so an
+  unguarded body would certify itself green over an empty stream. The
+  namespace is LOADED under the production-gate lane too, so a load-time
+  regression (a fence around the defs) reddens that job.
 
   Per Spec 009 §Per-frame trace rings (event-keyed, dev-only) and
   §`trace-buffer` API."
