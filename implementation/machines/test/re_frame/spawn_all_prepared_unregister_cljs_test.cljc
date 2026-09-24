@@ -2,29 +2,27 @@
   "An ADMITTED+prepared `:spawn-all` child CONSUMES its invoke's authoritative
   preflight verdict — `spawn-fx` must NOT re-run its child-local
   `unregistered-spawn-type?` registry recheck against an already-prepared child
-  (rf2-v4oqd) — and stays HANDLER-RESOLVABLE when the registrar DIVERGES from
-  the definition its invoke prepared (rf2-rxjy3).
+  — and stays HANDLER-RESOLVABLE when the registrar DIVERGES from
+  the definition its invoke prepared.
 
   `spawn-all-init-fx` (the FIRST fx in the entry vector) resolves, stamps,
   builds, and validates every declarative `:spawn-all` child EXACTLY ONCE and
-  RETAINS the prepared result under the join slot's `:rf/prepared` scratch
-  (rf2-ek435). But the per-child `:rf.machine/spawn` fx STILL consulted the
+  RETAINS the prepared result under the join slot's `:rf/prepared` scratch.
+  A per-child `:rf.machine/spawn` fx that consulted the
   CURRENT registry via `unregistered-spawn-type?` BEFORE reading its keyed
-  prepared entry, so a mid-drain UNREGISTER of an admitted child TYPE flipped
-  the already-admitted child to rejected: the per-child spawn emitted a SECOND
-  `:rf.error/machine-spawn-unregistered-type` reject and installed NO snapshot —
-  after the live child-bearing join had already been published. The result was
-  the exact impossible half-live join (a join naming a child whose snapshot a
+  prepared entry would let a mid-drain UNREGISTER of an admitted child TYPE flip
+  the already-admitted child to rejected: the per-child spawn would emit a SECOND
+  `:rf.error/machine-spawn-unregistered-type` reject and install NO snapshot —
+  after the live child-bearing join had already been published. The result would
+  be the exact impossible half-live join (a join naming a child whose snapshot a
   second verdict omitted) the authoritative handoff exists to make impossible.
 
-  THE MID-DRAIN MUTATOR THIS SUITE USES (rf2-wxy1c). These tests originally
-  diverged the registrar from a TRACE LISTENER on
-  `:rf.machine.spawn-all/started` / `:rf.machine.spawn/spawned`.
-  That instrument is gone: under the rf2-wxy1c
-  ruling trace listeners are OBSERVERS, not participants — internal drain-owned
-  emits deliver at the POST-DRAIN boundary, so a listener body can no longer run
-  between an admitted child's preparation and its install ON ANY PLATFORM. The
-  window those listeners reached is now closed BY CONSTRUCTION.
+  THE MID-DRAIN MUTATOR THIS SUITE USES. A TRACE LISTENER on
+  `:rf.machine.spawn-all/started` / `:rf.machine.spawn/spawned` cannot diverge
+  the registrar here: trace listeners are OBSERVERS, not participants — internal
+  drain-owned emits deliver at the POST-DRAIN boundary, so a listener body
+  cannot run between an admitted child's preparation and its install ON ANY
+  PLATFORM. That window is closed to listeners BY CONSTRUCTION.
 
   The mechanism under test is NOT, though — the definition-lifetime rule still
   has to hold for any mid-drain divergence, and one in-drain, non-listener
@@ -37,12 +35,12 @@
   by ordinary in-drain application code rather than by an observer, and it is
   platform-uniform: schema validation is not reader-conditional.
 
-  So these tests assert the SAME pinning outcomes as before — an admitted child
+  So these tests assert the pinning outcomes — an admitted child
   always installs, and its `:rf/machine-type` is the revertible KEYWORD while the
   registrar still holds the prepared definition, the PINNED definition once the
   registrar has diverged from it.
 
-  The sibling `spawn_all_authoritative_preflight` suite (rf2-ek435) pins the
+  The sibling `spawn_all_authoritative_preflight` suite pins the
   RE-REGISTER seam and the all-valid validator cardinality. This suite pins the
   UNREGISTER seam — the recheck's fail-closed branch — on JVM + CLJS."
   (:require
@@ -54,8 +52,8 @@
    [re-frame.machines]
    [re-frame.machines.test-support :as rf.machines.test-support]
    ;; Unregister a machine TYPE mid-drain (from the child's own `[:schemas :data]`
-   ;; validator) by dropping its `:event` registrar entry — the seam the recheck
-   ;; tripped on.
+   ;; validator) by dropping its `:event` registrar entry — the seam a registry
+   ;; recheck would trip on.
    [re-frame.registrar :as rf.registrar]
    ;; The schemas artefact ships the registered-validator hot path the
    ;; `:where :machine-data` boundary routes through; the `.malli` adapter
@@ -90,7 +88,7 @@
   `plain-child` above cannot tell a LIVE actor from an INERT snapshot: its
   `:initial` is also its resting state, so `(= :running (machine-state id))`
   holds whether or not the actor's handler ever resolved. This fixture is what
-  pins handler RESOLVABILITY rather than mere snapshot presence (rf2-rxjy3) —
+  pins handler RESOLVABILITY rather than mere snapshot presence —
   an installed-but-unresolvable child sits at `:idle` with
   `:rf/bootstrap-pending? true` while a `:rf.error/no-such-handler` fires."
   {:initial :idle
@@ -116,7 +114,7 @@
   the preflight and the install. Its state set is DISJOINT from
   `booting-child`'s, so a child whose prepared v1 snapshot resolved its handler
   from this current v2 would be driving a snapshot whose `:state` v2 does not
-  even name — the split-authority failure mode (rf2-rxjy3)."
+  even name — the split-authority failure mode."
   {:initial :v2-initial
    :data    {}
    :states  {:v2-initial {:on {:rf.machine.spawn/spawned :v2-boot}}
@@ -133,7 +131,7 @@
   framework calls synchronously on every platform.
 
   It always returns `true`: the child is ADMITTED (the divergence must never be
-  read as a re-verdict — rf2-v4oqd), and the FORM of its installed
+  read as a re-verdict), and the FORM of its installed
   `:rf/machine-type` reference is the only thing under test."
   [child f]
   (let [fired (atom false)]
@@ -176,7 +174,7 @@
   (:rf/machine-type (snap-of actor-id)))
 
 ;; ===========================================================================
-;; (1) THE BUG — a mid-drain mutator UNREGISTERS an admitted child TYPE between
+;; (1) A mid-drain mutator UNREGISTERS an admitted child TYPE between
 ;;     the preflight and the install. The child must STILL install from its
 ;;     prepared entry, with no duplicate reject and a fully-live join.
 ;;
@@ -191,8 +189,8 @@
             install consumes the prepared entry rather than re-consulting the
             (now-empty) registry, so the child installs its prepared snapshot,
             the join stays fully live, and NO duplicate
-            :rf.error/machine-spawn-unregistered-type reject fires (the pre-fix
-            recheck rejected the child + stranded a snapshotless half-live join)."
+            :rf.error/machine-spawn-unregistered-type reject fires (a recheck
+            would reject the child + strand a snapshotless half-live join)."
     (let [child-a (mutating-child plain-child
                                   #(rf.registrar/unregister! :event :sa/plain-a))]
       (rf/reg-machine :sa/plain-a child-a)
@@ -254,20 +252,18 @@
 ;;     between the preflight and the install (the recheck, and any second
 ;;     spawn-time validation, is skipped for the prepared child).
 ;;
-;;     THE SAMPLING INSTRUMENT (rf2-wxy1c). The count used to be sampled in a
-;;     trace listener on the child's `:rf.machine.lifecycle/spawned` emit. That
-;;     instrument no longer measures what it names: internal drain-owned traces
-;;     now deliver at the POST-DRAIN boundary, so the sample is taken after the
-;;     actor's later macrosteps have already re-validated a LIVE child's `:data`
-;;     — an end-of-drain total, which measures liveness rather than install-time
-;;     cardinality (the very confound the old comment warned about, now reached
-;;     through the sampling point itself).
+;;     THE SAMPLING INSTRUMENT. A trace listener on the child's
+;;     `:rf.machine.lifecycle/spawned` emit cannot take this count: internal
+;;     drain-owned traces deliver at the POST-DRAIN boundary, so a sample taken
+;;     there follows the actor's later macrosteps re-validating a LIVE child's
+;;     `:data` — an end-of-drain total, which measures liveness rather than
+;;     install-time cardinality.
 ;;
-;;     The instrument is now the validator's OWN view of the runtime-db: a call
+;;     The instrument is the validator's OWN view of the runtime-db: a call
 ;;     taken while the child's snapshot is absent is BY DEFINITION a pre-install
 ;;     validation. No listener, no timing assumption, no platform split — and it
-;;     still discriminates exactly what the test is about, because the pre-fix
-;;     path's second validation ran at the install, ahead of the write.
+;;     discriminates exactly what the test is about, because a second
+;;     spawn-time validation would run at the install, ahead of the write.
 ;; ===========================================================================
 
 (deftest schema-validator-runs-once-by-install-even-when-type-unregistered-mid-drain
@@ -307,18 +303,18 @@
           "no unregistered-type reject fired for the prepared child"))))
 
 ;; ===========================================================================
-;; rf2-rxjy3 — a prepared child must stay HANDLER-RESOLVABLE, not merely
+;; A prepared child must stay HANDLER-RESOLVABLE, not merely
 ;; snapshot-present. Consuming the prepared verdict (above) installs the child,
 ;; but if the snapshot's `:rf/machine-type` still named the (now-unregistered)
 ;; TYPE keyword, the lazy resolver would resolve NOTHING: the actor would be
 ;; inert — never bootstrapped, and every later event falling through to
 ;; `:rf.error/no-such-handler`.
 ;;
-;; DEFINITION-LIFETIME RULE (rf2-rxjy3). A prepared `:spawn-all` child's
+;; DEFINITION-LIFETIME RULE. A prepared `:spawn-all` child's
 ;; definition authority is the definition its invoke PREPARED. The install
 ;; keeps the revertible `:machine-id` KEYWORD reference while the registrar
-;; still holds exactly that definition — so ordinary hot-reload semantics are
-;; unchanged and live children continue to track a re-registered TYPE (test 6).
+;; still holds exactly that definition — so ordinary hot-reload semantics
+;; apply and live children track a re-registered TYPE (test 6).
 ;; The moment the registrar has DIVERGED from the prepared definition —
 ;; unregistered (test 4) or replaced (test 5) — the prepared definition is
 ;; pinned onto the snapshot verbatim, exactly as an inline `:definition` spawn
@@ -326,20 +322,18 @@
 ;; MISSING definition, and never mixes a prepared-v1 snapshot with an unrelated
 ;; current-v2 handler.
 ;;
-;; rf2-zo5n9 refined WHEN that comparison is taken: `spawn-fx*` passes
+;; WHEN that comparison is taken: `spawn-fx*` passes
 ;; `prepared-type-ref` as a THUNK and `install-spawn!` forces it at the LAST
 ;; point before the runtime-db swap, so the rule decides against the registrar
-;; as it stands at COMMIT. That placement stands unchanged. What no longer
-;; exists is a way for APPLICATION code to act between `spawn-fx*`'s bindings
-;; and the write: the only callback there was the
-;; `:rf.machine.spawn/spawned` trace, and under rf2-wxy1c that delivers
-;; post-drain. zo5n9's window is closed BY CONSTRUCTION rather than by late
-;; selection, so it carries no separate red/green lever and the suites that used
-;; to reach it through a listener are folded into the tests below.
+;; as it stands at COMMIT. No APPLICATION code can act between `spawn-fx*`'s
+;; bindings and the write: the only callback in that span is the
+;; `:rf.machine.spawn/spawned` trace, which delivers post-drain. That window is
+;; closed BY CONSTRUCTION rather than by late selection, so it carries no
+;; separate red/green lever here.
 ;; ===========================================================================
 
 ;; ===========================================================================
-;; (4) The bug: an admitted child whose TYPE is unregistered mid-drain must be
+;; (4) An admitted child whose TYPE is unregistered mid-drain must be
 ;;     a LIVE actor — bootstrap runs, and later ordinary events run too.
 ;; ===========================================================================
 
@@ -357,7 +351,7 @@
       (rf/dispatch-sync [:sup/bootunreg [:start]])
       (let [id (get (:children (join-slot :sup/bootunreg)) :c)]
         (is (some? (snap-of id))
-            "the admitted child installed its prepared snapshot (rf2-v4oqd)")
+            "the admitted child installed its prepared snapshot")
         (is (= child (type-ref-of id))
             "the prepared definition is PINNED verbatim — the diverged registrar keyword is not the authority")
         (is (= :ready (rf.machines.test-support/machine-state id))
@@ -373,7 +367,7 @@
         (is (empty? (no-such-handler-errors))
             "still no :rf.error/no-such-handler after the ordinary event"))
       (is (empty? (unregistered-rejects))
-          "rf2-v4oqd preserved — the prepared verdict was consumed, the registry recheck never re-ran"))))
+          "the prepared verdict was consumed — the registry recheck never re-ran"))))
 
 ;; ===========================================================================
 ;; (5) Adversarial: RE-REGISTER an admitted child TYPE to an UNRELATED v2
@@ -430,7 +424,7 @@
       (rf/reg-machine :sa/hot booting-child-v2)
       (rf/dispatch-sync [child [:go]])
       (is (= :hot-reloaded (rf.machines.test-support/machine-state child))
-          "the live child picked up the hot-reloaded definition — hot-reload semantics preserved"))
+          "the live child picked up the hot-reloaded definition — hot-reload semantics hold"))
     (is (empty? (no-such-handler-errors))
         "no :rf.error/no-such-handler fired")))
 
