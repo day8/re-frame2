@@ -1,5 +1,5 @@
 (ns re-frame.routing-url-strategy-cljs-test
-  "CLJS tests for the URL-strategy seam (rf2-aerrz5) — the four
+  "CLJS tests for the URL-strategy seam — the four
   egress/ingress consult points driven end-to-end against a stubbed
   `window`. The JVM suite (`routing_url_strategy_test.clj`) pins the pure
   encode/decode legs + frame-config resolution; this suite pins the
@@ -8,7 +8,7 @@
   1. `:rf.nav/push-url` / `:rf.nav/replace-url` through a HASH-strategy frame
      push/replace the `#`-prefixed href (history entries carry `#/active`).
   2. `route-link` renders a `#`-prefixed `:href` for a hash frame.
-  3. The `:url-bound?` frame LIFECYCLE (rf2-g8pbwg) automatically wires a
+  3. The `:url-bound?` frame LIFECYCLE automatically wires a
      `hashchange` listener for a hash frame (a `popstate` listener for a
      history frame) and decodes each change to path-form before dispatching
      `:rf.route/handle-url-change` — no imperative install call.
@@ -17,14 +17,14 @@
   Plus an ADVERSARIAL negative: a malformed `#`-URL fails closed to a
   route-miss, exactly as a malformed path-URL does.
 
-  5. The `with-base-path` combinator (rf2-33uv27 / rf2-irygd6): `:encode` is
+  5. The `with-base-path` combinator: `:encode` is
      the single outbound authority that re-adds the deployment base (the nav
      fxs encode ONCE then drive the RAW `:push!` / `:replace!` legs), and
      `:install-listener!` STRIPS the base off each browser-driven change before
      `on-change` — a `/realworld`-deployed app's address bar carries the
      mount-point URL while the router stays app-relative.
 
-  6. rf2-irygd6 end-to-end: over BOTH shipped strategies, with and without a
+  6. End-to-end: over BOTH shipped strategies, with and without a
      base, `:encode` / `:rf.nav/push-url` / `:rf.nav/replace-url` agree — a
      `/demos` hash app's route-link href AND its pushed/replaced address bar
      all read `/demos#/active` (base OUTSIDE the fragment), never
@@ -41,7 +41,7 @@
             [re-frame.routing.strategy :as rf.routing.strategy]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
-            ;; rf2-y6e2zb: the browser history/location/document stub,
+            ;; The browser history/location/document stub,
             ;; `*history-state*`, `current-url`, and `with-window-stub-fixture`
             ;; are the SUPERSET fixture shared with routing_history_cljs_test.
             [re-frame.routing-browser-test-support
@@ -50,8 +50,8 @@
 ;; ---- window / history + location stub ------------------------------------
 ;;
 ;; The jsdom-style history/location/document stub, `*history-state*`,
-;; `current-url`, and `with-window-stub-fixture` now live in the shared
-;; re-frame.routing-browser-test-support ns (rf2-y6e2zb) — the SUPERSET fixture
+;; `current-url`, and `with-window-stub-fixture` live in the shared
+;; re-frame.routing-browser-test-support ns — the SUPERSET fixture
 ;; this suite and routing_history_cljs_test both drive. `location` splits
 ;; pathname / search / hash the way a real browser does, and
 ;; pushState/replaceState re-sync it, so a hash strategy that writes `#/active`
@@ -75,7 +75,7 @@
 
 (defn- double-hash?
   "True when `s` carries two or more `#` — the double-encode failure shape
-  (`#/demos#/active`) rf2-irygd6 forbids on every produced URL."
+  (`#/demos#/active`) that no produced URL may carry."
   [s]
   (<= 2 (count (filter #(= % \#) s))))
 
@@ -104,7 +104,7 @@
 
 (deftest history-frame-push-url-pushes-path-href-cljs
   (testing "a HISTORY-strategy (default) URL owner pushes the path-form href —
-            no `#` — proving the default is unchanged by the seam"
+            no `#` — the seam leaves the default path-form"
     (rf/make-frame {:id :rf/default :url-bound? true})   ;; no :url-strategy → history
     (register-routes!)
     (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
@@ -130,7 +130,7 @@
 ;; ==========================================================================
 
 (deftest hash-frame-install-listener-wires-hashchange-cljs
-  (testing "rf2-g8pbwg: registering a :url-bound? true hash-strategy frame
+  (testing "registering a :url-bound? true hash-strategy frame
             automatically wires a `hashchange` listener, decodes
             location.hash to path-form, and dispatches handle-url-change to
             the owner — the browser→app leg of the seam, zero install call"
@@ -153,16 +153,16 @@
     (is (= :s/active
            (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
         "the hashchange listener decoded #/active → /active and restored the slice")
-    ;; destroy-frame! removes the listener (rf2-g8pbwg — install/remove is the
+    ;; destroy-frame! removes the listener (install/remove is the
     ;; :url-bound? frame lifecycle, not an imperative pair of calls).
     (rf/destroy-frame! :rf/default)
     (is (empty? (get-in @*history-state* [:listeners "hashchange"]))
         "destroy-frame! tore down the browser hashchange listener")))
 
 (deftest history-frame-install-listener-wires-popstate-cljs
-  (testing "rf2-g8pbwg: registering a :url-bound? true history (default)
-            frame automatically wires a `popstate` listener — the seam
-            preserves the existing history behaviour, zero install call"
+  (testing "registering a :url-bound? true history (default)
+            frame automatically wires a `popstate` listener — the default
+            history behaviour, zero install call"
     (rf/make-frame {:id :rf/default :url-bound? true})
     (register-routes!)
     (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
@@ -217,25 +217,25 @@
     (is (= "#/active" (rf.routing.strategy/hash-encode (rf.routing.strategy/hash-encode "/active"))))))
 
 ;; ==========================================================================
-;; 5. with-base-path (rf2-g8pbwg / rf2-33uv27 / rf2-irygd6) — the CLJS-only
+;; 5. with-base-path — the CLJS-only
 ;;    side-effecting legs driven against the live stubbed window.
 ;;
 ;; The JVM suite (`routing_url_strategy_test.clj`) pins the host-agnostic
 ;; :encode/:decode wrapping + the blank-base no-op; these legs are CLJS-only
-;; and had ZERO executed coverage (rf2-33uv27).
+;; and this suite is where they execute.
 ;;
-;; rf2-irygd6 CONTRACT CHANGE: `:encode` is the SINGLE outbound encoding
+;; `:encode` is the SINGLE outbound encoding
 ;; authority — the nav fxs encode the path-form url ONCE (base re-added there)
 ;; and hand the final href to the RAW `:push!` / `:replace!` legs, which drive
-;; window.history WITHOUT re-encoding. So `with-base-path` no longer wraps
+;; window.history WITHOUT re-encoding. So `with-base-path` does not wrap
 ;; `:push!` / `:replace!` (they pass through from the inner strategy); the base
 ;; rides the encoded href instead. These two tests therefore model the nav-fx
 ;; contract directly: encode-once, then drive the raw leg with the final href.
-;; The ingress `:install-listener!` STRIPS the base (unchanged).
+;; The ingress `:install-listener!` STRIPS the base.
 ;; ==========================================================================
 
 (deftest with-base-path-encode-then-push!-drives-base-prefixed-entry-cljs
-  (testing "rf2-irygd6: :encode re-adds the base ONCE, then the RAW :push! leg
+  (testing ":encode re-adds the base ONCE, then the RAW :push! leg
             drives window.history with that final href unchanged — every pushed
             entry carries the real /realworld mount-point href (base outside the
             wrapped form), mirroring how the nav fx drives it"
@@ -250,7 +250,7 @@
           "the address bar sits on the base-prefixed completed href"))))
 
 (deftest with-base-path-encode-then-replace!-overwrites-cljs
-  (testing "rf2-irygd6: the RAW :replace! leg overwrites the current history
+  (testing "the RAW :replace! leg overwrites the current history
             entry (no new entry) with the encode-once base-prefixed href —
             mirroring the shipped strategy's replace semantics under the base"
     (let [wrapped (rf.routing.strategy/with-base-path rf.routing.strategy/history-url-strategy "/realworld")]
@@ -265,7 +265,7 @@
             "no stray /active remains as the tail — it was replaced in place")))))
 
 (deftest with-base-path-install-listener!-strips-base-before-on-change-cljs
-  (testing "rf2-33uv27: the wrapped :install-listener! STRIPS the base off each
+  (testing "the wrapped :install-listener! STRIPS the base off each
             browser-driven change before calling on-change — a /realworld app's
             Back/Forward navs reach the router app-relative (/active), never the
             base-prefixed /realworld/active that would route-miss on every
@@ -291,7 +291,7 @@
           "the teardown thunk removed the popstate listener — no further deliveries"))))
 
 (deftest with-base-path-install-listener!-mount-root-delivers-app-root-cljs
-  (testing "rf2-33uv27: at the bare mount root (location == the base itself,
+  (testing "at the bare mount root (location == the base itself,
             /realworld) the wrapped listener delivers `/` — the app root — not
             an empty string, exactly as strip-base-path's mount-root case
             specifies"
@@ -305,17 +305,17 @@
       (teardown))))
 
 ;; ==========================================================================
-;; 6. rf2-irygd6 — single outbound-encoding authority: :encode / :rf.nav/push-url
+;; 6. Single outbound-encoding authority: :encode / :rf.nav/push-url
 ;;    / :rf.nav/replace-url AGREE over both strategies, with and without a base,
 ;;    and no produced URL is double-encoded. The canonical hash+base shape is
 ;;    base OUTSIDE the fragment (/demos#/active) — the route-link href AND the
 ;;    address bar read it identically; inbound decode always returns the
-;;    app-relative path-form. This is the divergence the bead fixes: before, the
-;;    :encode href read /demos#/active while :push! drove #/demos/active.
+;;    app-relative path-form. A :push! that re-encoded would diverge: the
+;;    :encode href would read /demos#/active while :push! drives #/demos/active.
 ;; ==========================================================================
 
 (deftest hash-base-links-and-address-bar-agree-irygd6-cljs
-  (testing "rf2-irygd6: a /demos-based HASH app — the route-link href, the
+  (testing "a /demos-based HASH app — the route-link href, the
             :rf.nav/push-url entry, and the :rf.nav/replace-url entry ALL read
             /demos#/…-shaped (base OUTSIDE the fragment), inbound decode returns
             the app-relative path-form, and no URL is double-hashed"
@@ -352,9 +352,9 @@
           "decode of the live /demos#/completed address bar is app-relative /completed"))))
 
 (deftest history-base-links-and-address-bar-agree-irygd6-cljs
-  (testing "rf2-irygd6 mirror: a /demos-based HISTORY app — route-link href +
+  (testing "the HISTORY mirror: a /demos-based HISTORY app — route-link href +
             push + replace all read /demos/…-shaped, decode is app-relative
-            (behaviour unchanged by the seam, pinned for parity with the hash case)"
+            (pinned for parity with the hash case)"
     (rf/make-frame {:id :rf/default :url-bound?   true
                     :url-strategy (rf.routing.strategy/with-base-path
                                     rf.routing.strategy/history-url-strategy "/demos")})
@@ -379,14 +379,14 @@
           "decode strips the base — app-relative /completed"))))
 
 ;; ==========================================================================
-;; 6b. rf2-exnw — INGRESS: a based HASH app keeps an app route whose own first
+;; 6b. INGRESS: a based HASH app keeps an app route whose own first
 ;;     segment happens to EQUAL the mount point.
 ;;
-;; `:encode` puts the base OUTSIDE the fragment (rf2-irygd6), so a `/demos`-
+;; `:encode` puts the base OUTSIDE the fragment, so a `/demos`-
 ;; deployed hash app's route `/demos/item` renders `/demos#/demos/item`. The
 ;; base therefore lives in the PATHNAME, and `hash-decode` reads only
 ;; `location.hash` — its result is ALREADY app-relative. Stripping the base off
-;; it a second time ate the route's own leading segment (`/demos/item` →
+;; it a second time would eat the route's own leading segment (`/demos/item` →
 ;; `/item`), which either renders a same-named shorter route or lands on
 ;; not-found. The path-form (history) leg is the control: THERE the base really
 ;; is inside what `:decode` reads, so it must still be stripped.
@@ -394,14 +394,14 @@
 
 (defn- register-colliding-routes!
   "Routes whose app-relative names share their first segment with the `/demos`
-  deployment mount point — the collision rf2-exnw is about."
+  deployment mount point — the collision these tests pin."
   []
   (rf/reg-route :s/demos      {} "/demos")
   (rf/reg-route :s/demos-item {} "/demos/item")
   (rf/reg-route :rf.route/not-found {} "/_404"))
 
 (deftest hash-base-preserves-colliding-app-route-prefix-exnw-cljs
-  (testing "rf2-exnw: a /demos-based HASH app whose app routes are /demos and
+  (testing "a /demos-based HASH app whose app routes are /demos and
             /demos/item round-trips both VERBATIM — `:encode` still puts the
             base outside the fragment, and inbound `:decode` returns the app
             path unmangled because the fragment never carried the base"
@@ -410,7 +410,7 @@
                                     rf.routing.strategy/hash-url-strategy "/demos")})
     (register-colliding-routes!)
     (let [strat (rf.routing.strategy/url-strategy-for-frame-id :rf/default)]
-      ;; (a) egress is unchanged — base OUTSIDE the fragment (rf2-irygd6).
+      ;; (a) egress — base OUTSIDE the fragment.
       (is (= "/demos#/demos/item" ((:encode strat) "/demos/item"))
           "the base sits outside the fragment; the app route rides inside it")
       (is (= "/demos#/demos" ((:encode strat) "/demos"))
@@ -430,7 +430,7 @@
             "the round-tripped href is not double-hashed")))))
 
 (deftest hash-base-install-listener!-preserves-colliding-prefix-exnw-cljs
-  (testing "rf2-exnw: the wrapped `:install-listener!` hands `on-change` the
+  (testing "the wrapped `:install-listener!` hands `on-change` the
             app-relative path for a based HASH app — a browser-driven change to
             /demos#/demos/item delivers /demos/item, not /item"
     (let [wrapped  (rf.routing.strategy/with-base-path
@@ -446,7 +446,7 @@
       (teardown))))
 
 (deftest hash-base-initial-sync-lands-on-colliding-route-exnw-cljs
-  (testing "rf2-exnw: a deep link / reload at /demos#/demos/item syncs the
+  (testing "a deep link / reload at /demos#/demos/item syncs the
             owner's route slice to :s/demos-item — the initial sync decodes
             through the same wrapped `:decode`"
     (register-colliding-routes!)
@@ -458,7 +458,7 @@
         "the initial sync landed on the /demos/item route, not /item → not-found")))
 
 (deftest history-base-still-strips-colliding-app-route-prefix-exnw-cljs
-  (testing "rf2-exnw CONTROL: for the PATH-form (history) strategy the base IS
+  (testing "CONTROL: for the PATH-form (history) strategy the base IS
             part of what `:decode` reads, so it must STILL be stripped —
             /demos/demos/item decodes to /demos/item (query + fragment ride
             along untouched)"
@@ -479,7 +479,7 @@
             (str "decode of " href " strips the base to " app-path))))))
 
 (deftest history-base-mount-root-before-query-or-fragment-cljs-rf2-gwye-29
-  (testing "rf2-gwye.29: a /app-deployed HISTORY app reached at its mount root
+  (testing "a /app-deployed HISTORY app reached at its mount root
             with a query or fragment and NO terminal slash lands on the app
             root — on the initial sync and on each browser change through the
             real listener — rather than decoding to the base-carrying /app?…
@@ -517,7 +517,7 @@
           "root + fragment: the fragment survives the strip"))))
 
 (deftest hash-no-base-push-is-single-hash-irygd6-cljs
-  (testing "rf2-irygd6: the HASH strategy WITHOUT a base still pushes a single
+  (testing "the HASH strategy WITHOUT a base pushes a single
             #/active (no double-hash) — the raw :push! leg drives exactly the
             :encode-produced href. (History-without-base is pinned by
             `history-frame-push-url-pushes-path-href-cljs`.)"
@@ -531,7 +531,7 @@
         "the hash URL is not double-hashed")))
 
 ;; ==========================================================================
-;; 7. Registration-time frame-config preflight (rf2-ktmto9) — CLJS host units
+;; 7. Registration-time frame-config preflight — CLJS host units
 ;; ==========================================================================
 ;;
 ;; The core engine preflights a declared :url-strategy through the
@@ -541,7 +541,7 @@
 ;; JVM validation — the host-specific half of the contract.
 
 (deftest make-frame-rejects-cljs-incomplete-strategy-at-registration-ktmto9-cljs
-  (testing "rf2-ktmto9: a custom strategy carrying only the two host-agnostic
+  (testing "a custom strategy carrying only the two host-agnostic
             legs (JVM-shaped) is rejected at FIRST registration on CLJS — the
             browser legs :push! / :replace! / :install-listener! are
             host-required here; no frame record is left"
@@ -557,12 +557,12 @@
       (is (contains? (set (:missing (ex-data ex))) :install-listener!)
           "the missing browser leg is named")
       (is (nil? (rf/frame-meta :ktmto9/cljs-legs))
-          "no frame config was seated (rf2-h1vqa4 — frames have no registrar rows)")
+          "no frame config was seated (frames have no registrar rows)")
       (is (not (contains? (set (rf/frame-ids)) :ktmto9/cljs-legs))
           "no frame record was created"))))
 
 (deftest make-frame-rejects-explicit-nil-strategy-ktmto9-cljs
-  (testing "rf2-ktmto9: an EXPLICIT nil :url-strategy is a PRESENT declaration
+  (testing "an EXPLICIT nil :url-strategy is a PRESENT declaration
             and fails loud at registration — presence semantics; only OMISSION
             selects the default history strategy"
     (let [ex (try (rf/make-frame {:id :ktmto9/nil-strat :url-bound? true :url-strategy nil})
@@ -575,7 +575,7 @@
           "no frame config was seated"))))
 
 (deftest make-frame-missing-routing-artefact-fails-loud-ktmto9-cljs
-  (testing "rf2-ktmto9: declaring :url-strategy while the
+  (testing "declaring :url-strategy while the
             :routing/preflight-frame-config! hook is unpublished fails loud
             with :rf.error/routing-artefact-missing (no config commit); the
             hook is restored afterwards"
@@ -595,17 +595,17 @@
                            rf.routing.strategy/preflight-frame-config!)))))
 
 ;; ==========================================================================
-;; 8. rf2-3x7nj.12.2 — `{:url …}` and `:rf.route/url-requested` speak the
+;; 8. `{:url …}` and `:rf.route/url-requested` speak the
 ;;    APP-RELATIVE space, under every strategy
 ;; ==========================================================================
 ;;
 ;; A reference with no origin (`?tab=2`, `#section`, `7`) is an APP reference:
 ;; it resolves against the navigating frame's current app URL. A reference with
-;; an origin is a BROWSER ADDRESS: the URL owner's `:decode` reduces it. Both
-;; doors used to resolve every reference against `window.location.href` and
-;; decode nothing, which is right only for history-without-a-base — under a
-;; base path `?tab=2` doubled the base and missed, and under a hash strategy
-;; `#section` and `?tab=2` landed on the home route. Each row below runs BOTH
+;; an origin is a BROWSER ADDRESS: the URL owner's `:decode` reduces it.
+;; Resolving every reference against `window.location.href` and decoding
+;; nothing is right only for history-without-a-base — under a
+;; base path `?tab=2` would double the base and miss, and under a hash strategy
+;; `#section` and `?tab=2` would land on the home route. Each row below runs BOTH
 ;; doors.
 
 (defn- register-user-routes! []
@@ -638,7 +638,7 @@
 (defn- doc-origin [] (.-origin (.-location js/globalThis.window)))
 
 (deftest a-query-reference-keeps-the-route-under-a-base-path-cljs
-  (testing "rf2-3x7nj.12.2: under (with-base-path history \"/app\") on user 42,
+  (testing "under (with-base-path history \"/app\") on user 42,
             `?tab=2` commits user 42 with the query and pushes the base ONCE —
             not not-found at /app/app/users/42?tab=2"
     (register-user-routes!)
@@ -657,7 +657,7 @@
             (str door ": the address bar carries the base once"))))))
 
 (deftest a-fragment-reference-is-a-fragment-change-under-hash-cljs
-  (testing "rf2-3x7nj.12.2: under hash-url-strategy on user 42, `#section` is a
+  (testing "under hash-url-strategy on user 42, `#section` is a
             fragment-only change on user 42 — not the home route with fragment
             \"section\""
     (register-user-routes!)
@@ -674,7 +674,7 @@
             (str door ": the app URL's fragment rides inside the hash route"))))))
 
 (deftest a-fragment-reference-under-hash-plus-base-cljs
-  (testing "rf2-3x7nj.12.2: under (with-base-path hash \"/app\"), `#section`
+  (testing "under (with-base-path hash \"/app\"), `#section`
             pushes /app#/users/42#section — not /app#/app#section"
     (register-user-routes!)
     (own-url-at! "/app#/users/42" (rf.routing.strategy/with-base-path
@@ -688,7 +688,7 @@
           (str door ": the base once, outside the fragment")))))
 
 (deftest an-origin-bearing-reference-is-decoded-by-the-owner-cljs
-  (testing "rf2-3x7nj.12.2: an absolute same-origin URL is a BROWSER address,
+  (testing "an absolute same-origin URL is a BROWSER address,
             decoded by the URL owner's strategy"
     (register-user-routes!)
     (testing "history + /app: the base is stripped"
@@ -703,7 +703,7 @@
             (str door ": the address bar carries the base once"))))))
 
 (deftest an-origin-bearing-reference-under-hash-cljs
-  (testing "rf2-3x7nj.12.2: under hash, https://host/#/users/7 is user 7 — not
+  (testing "under hash, https://host/#/users/7 is user 7 — not
             the home route with fragment \"/users/7\""
     (register-user-routes!)
     (own-url-at! "/#/users/42" rf.routing.strategy/hash-url-strategy)
@@ -716,7 +716,7 @@
         (is (nil? (:fragment s)) (str door ": no fragment smuggled in"))))))
 
 (deftest a-custom-strategy-decodes-with-its-own-decode-cljs
-  (testing "rf2-3x7nj.12.2: the contract is uniform — an origin-bearing
+  (testing "the contract is uniform — an origin-bearing
             reference goes through WHATEVER `:decode` the owner declares"
     (let [bang {:encode (fn [path] (str "#!" path))
                 :decode (fn [href]
@@ -736,7 +736,7 @@
             (str door ": and its own :encode wrote it back"))))))
 
 (deftest an-app-reference-resolves-against-the-navigating-frame-cljs
-  (testing "rf2-3x7nj.12.2: a frame that is not the URL owner resolves `?tab=2`
+  (testing "a frame that is not the URL owner resolves `?tab=2`
             against ITS route, never the host page's address bar"
     (register-user-routes!)
     (own-url-at! "/users/42" nil)
@@ -753,7 +753,7 @@
 
 (deftest app-reference-bases-cljs
   (register-user-routes!)
-  (testing "rf2-3x7nj.12.2: on a NOT-FOUND slice the base is the requested app
+  (testing "on a NOT-FOUND slice the base is the requested app
             URL the slice preserves, which the not-found pattern is not"
     (own-url-at! "/missing/page?old=1" nil)
     (is (= :rf.route/not-found (:route-id (slice-of :rf/default))) "precondition")
@@ -763,14 +763,14 @@
       (is (= :rf.route/not-found (:route-id (slice-of :rf/default))))
       (is (= "/missing/page?tab=2" (:url (:params (slice-of :rf/default))))
           (str door ": the query replaced the missed URL's query, on the missed path"))))
-  (testing "rf2-3x7nj.12.2: a frame with NO location resolves against `/`"
+  (testing "a frame with NO location resolves against `/`"
     (doseq [[door go!] both-doors]
       (let [frame-id (keyword "u" (str "fresh-" (name door)))]
         (rf/make-frame {:id frame-id})
         (go! frame-id "?tab=2")
         (is (= :u/home (:route-id (slice-of frame-id))) (str door ": the root route"))
         (is (= {"tab" "2"} (:query (slice-of frame-id))) (str door ": with the query")))))
-  (testing "rf2-3x7nj.12.2: a bare relative segment resolves against the
+  (testing "a bare relative segment resolves against the
             frame's CANONICAL location, so `7` from user 42 is user 7"
     (doseq [[door go!] both-doors]
       (to-user! :rf/default "42")
@@ -778,8 +778,8 @@
       (is (= {:id "7"} (:params (slice-of :rf/default))) (str door ": user 7")))))
 
 (deftest a-rooted-reference-is-the-same-app-path-under-every-strategy-cljs
-  (testing "rf2-3x7nj.12.2 CONTROL: `/users/7` already meant the app path under
-            every strategy — the one row that worked everywhere, and still does"
+  (testing "CONTROL: `/users/7` means the app path under
+            every strategy — the one reference form every strategy reads alike"
     (register-user-routes!)
     (doseq [[label strategy] [["history"        rf.routing.strategy/history-url-strategy]
                               ["history + /app" (rf.routing.strategy/with-base-path
