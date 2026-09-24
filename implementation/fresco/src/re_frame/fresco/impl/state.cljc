@@ -28,8 +28,8 @@
     subscription path and therefore through whatever frame its boundary
     already resolved.
 
-  That is the whole architectural claim, and it is why this file is 200
-  lines rather than a subsystem: the sugar is a NAMING CONVENTION with
+  That is the whole architectural claim, and it is why this is one short
+  file rather than a subsystem: the sugar is a NAMING CONVENTION with
   refusals, not a feature.
 
   ## The tier — ONE app-space conventional root, concern-first
