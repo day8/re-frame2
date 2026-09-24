@@ -396,9 +396,9 @@ payload.
 ;; parent
 {:states
  {:loading
-  {:spawn {:machine :fetch-user
-           :on-done {:target :loaded
-                     :action :store-user}}}}}
+  {:spawn {:machine-id :fetch-user
+           :on-done    {:target :loaded
+                        :action :store-user}}}}}
 ```
 
 Conceptually:

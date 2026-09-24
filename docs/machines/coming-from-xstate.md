@@ -73,6 +73,7 @@ completion. v5 helper creators such as `assign`, `sendTo`, `raise`, and
 | timeout / onTimeout | `:timeout` + `:on-timeout` |
 | choice state | `:type :choice` + a declarative `:choice` vector |
 | `invoke` | `:spawn` |
+| `invoke` `onDone` | `:spawn`'s `:on-done` transition |
 | `invoke` `onError` | `:spawn`'s `:on-error` transition |
 | multiple invokes / fan-out | `:spawn-all` |
 | `enq.raise` (v5 `raise`) | `:fx [[:raise [:tick]]]` |
@@ -264,16 +265,21 @@ State-bound child work is `:spawn`:
 :authenticating
 {:spawn {:machine-id :auth/request
          :data       {:url "/api/login"}
-         :on-done    (fn [{:keys [data result]}]
-                       (assoc data :token result))
+         :on-done    {:target :authenticated
+                      :action (fn [{data :data ev :event}]
+                                {:data (assoc data :token (:result (nth ev 2)))})}
          :on-error   {:target :idle}}
  :on    {:cancel :idle}}
 ```
 
 The child is destroyed automatically when the parent leaves `:authenticating`
 or is destroyed.
-`:on-done` folds the child's result into the parent's `:data`. `:on-error` is a
-transition.
+`:on-done` and `:on-error` are transitions, like XState's `onDone` and
+`onError`: each resolves at the spawning state's level, so `:authenticated` and
+`:idle` are its siblings. The child's result rides the transition's event as
+`(:result (nth ev 2))`. A fn `:on-done` —
+`(fn [{:keys [data result]}] (assoc data :token result))` — instead folds the
+result into the parent's `:data` without moving the parent.
 
 `spawn` is the same lifecycle idea as `invoke`, renamed because a child actor
 exists while the state is active. The parent registered with `reg-machine` is
@@ -289,7 +295,8 @@ A child reports a result by reaching a root-level final state:
        :output-key :token}
 ```
 
-The parent receives that value as `result` in `:on-done`.
+The parent receives that value as `(:result (nth ev 2))` in an `:on-done`
+transition, or as `result` in an `:on-done` fold.
 
 There is no long-lived `snapshot.output` to read later. Completion happens,
 reports, and the child is destroyed. A singleton that reaches `:final?` is

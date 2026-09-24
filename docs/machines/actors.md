@@ -76,8 +76,8 @@ Each visit to `:submitting` allocates a new spawned id. Leaving
 `:submitting` — success, error, cancel, timeout — destroys that actor.
 
 The two success halves do different jobs. `:on-done` folds the child's token
-into the parent's `:data` and stops there; it is not a transition, so on its
-own the parent would sit in `:submitting` wearing `:auth/busy` with the child
+into the parent's `:data` and stops there; a fn `:on-done` is not a transition,
+so on its own the parent would sit in `:submitting` wearing `:auth/busy` with the child
 already gone. The move is an ordinary trigger: the child's final state
 dispatches `[:auth.login/success]` to `:rf/parent-id`, and `:submitting`
 handles it. Failure needs no counterpart — `:on-error` **is** a transition.
@@ -141,7 +141,7 @@ Supply `:machine-id` or `:definition`, not both.
 | `:data` | child's initial data — a map, or `(fn [{:keys [snapshot event]}] …)` evaluated on entry against the **post-action** snapshot |
 | `:id-prefix` | base for the allocated id (`:websocket/socket#0`); defaults to `:machine-id`. Ids are counters, never `gensym` |
 | `:start` | first event sent to the newborn |
-| `:on-done` | data-fold when the child reaches a successful final state |
+| `:on-done` | transition when the child reaches a successful final state — or, as a fn, a `:data` fold |
 | `:on-error` | transition when the child reaches an error final state or fails |
 | `:timeout` / `:on-timeout` | wall-clock deadline on this child's lifetime; lowers onto the state's `:after` |
 | `:fixed-actor-id` | explicit actor id for a per-state singleton |
@@ -264,7 +264,10 @@ up with `:output-key`. The parent folds that value in `:on-done`:
  :on    {:cancel :idle}}
 ```
 
-- **`:on-done` is a data-fold**, not a transition:
+- **`:on-done` is a transition or a data-fold, chosen by its value.** An
+    `:on`-shaped value — `{:target :configured :action …}`, a keyword or path
+    target, or guarded candidates — moves the parent like `:on-error`, with
+    the result at `(:result (nth ev 2))`. A fn is a data-fold:
     `(fn [{:keys [data result]}] new-data)`. The fold itself does not move the
     parent — but the completion **event** then flows into the parent's ordinary
     macrostep, so the parent *can* advance on it. Fold the result in `:on-done`
@@ -448,7 +451,9 @@ Rules:
   named the events children dispatched — is
   `:rf.error/machine-spawn-all-bad-shape`.
 - **A child spec may declare `:on-done`** — a `:data` fold on the parent at
-  that child's finality, run before the join fold. It may **not** declare
+  that child's finality, run before the join fold. It must be a fn:
+  registration refuses any other value (`:rf.error/machine-bad-on-done-clause`),
+  because the join's events own control flow. It may **not** declare
   `:on-error` (`:rf.error/machine-unknown-spawn-key`): failure control flow
   under a join is the block's `:on-any-failed`, which decides for the whole
   fan-out.
