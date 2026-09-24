@@ -1,11 +1,11 @@
 (ns re-frame.routing-browser-test-support
   "Shared node-runtime browser-history fixture for the routing CLJS test
-  suites (rf2-y6e2zb).
+  suites.
 
-  `routing_history_cljs_test` and `routing_url_strategy_cljs_test` each carried
-  their own copy of this jsdom-style history/location/document stub; this
-  namespace is the single owner of the SUPERSET fixture — the history suite's
-  version, which additionally exposes `go` alongside `back` / `forward`.
+  Suites such as `routing_history_cljs_test` and `routing_url_strategy_cljs_test`
+  share this jsdom-style history/location/document stub rather than each
+  carrying a copy; this namespace is its single owner, and the stub
+  exposes `go` alongside `back` / `forward`.
 
   Node has no `window` / `document` globals, so `with-window-stub-fixture`
   installs a minimal stub on `js/globalThis` and tears it down in `finally`. The
@@ -20,7 +20,7 @@
   from `document.getElementById` (so the fragment branch falls through). The
   fixture is scoped to the test target; production code is untouched.
 
-  Node-runtime only by design (rf2-6qclsc). This namespace deliberately ends in
+  Node-runtime only by design. This namespace deliberately ends in
   `-test-support`, NOT `-cljs-test`, so the shadow-cljs `:node-test` discovery
   regex (`cljs-test$`) never runs it as a test namespace (and the narrowed
   `:browser-test` `-dom-cljs-test$` regex ignores it too). A real browser's
@@ -58,11 +58,11 @@
                       :hash     ""}
         ;; Keep `location` in sync with the current history entry, the way a
         ;; real browser updates `window.location` on pushState / back /
-        ;; forward. The automatically-installed popstate handler (rf2-g8pbwg —
-        ;; a `:url-bound? true` frame's lifecycle installs it) reads the new
+        ;; forward. The automatically-installed popstate handler (a
+        ;; `:url-bound? true` frame's lifecycle installs it) reads the new
         ;; URL off `window.location` (not the test's state atom), so the stub
         ;; MUST reflect the navigation here for the listener-driven
-        ;; Back/Forward tests (rf2-6qgbs.4). Splits the entry into pathname /
+        ;; Back/Forward tests. Splits the entry into pathname /
         ;; search / hash so `current-url` reassembles the same string.
         sync-location!
         (fn []
