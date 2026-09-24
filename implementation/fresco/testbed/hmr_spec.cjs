@@ -1,13 +1,12 @@
 'use strict';
 
 /*
- * THE HMR CONTRACT, WITNESSED IN A BROWSER (rf2-vsgq — the browser half
- * the #7755 audit on rf2-hic-015 requires).
+ * THE HMR CONTRACT, WITNESSED IN A BROWSER.
  *
- * `hmr_registry_cljs_test` and `hmr_remount_cljs_test` measured this
+ * `hmr_registry_cljs_test` and `hmr_remount_cljs_test` measure this
  * contract in Node, at the commit seam, with `load-namespace!` standing in
- * for a reload. The audit accepted those suites and named what they cannot
- * reach: they call `collector/mint-view!` directly and drive the
+ * for a reload. What those suites cannot reach: they call
+ * `collector/mint-view!` directly and drive the
  * commit/release seams by hand, so they can neither catch drift between
  * the `defview` macro and a real shadow reload, nor catch a renderer that
  * fails to run old-generation cleanup on a type replacement.
@@ -25,11 +24,10 @@
  * The field under test is CONTROLLED, so its value after a save is
  * repainted from app-db — and app-db survives a save. The characters on
  * screen are therefore byte-identical whether React updated the fiber in
- * place or destroyed the subtree and built a new one. rf2-hic-016
- * established the same point by measurement: three injected regressions
- * were caught by its caret rows and by nothing else, because React's own
- * end-of-event restore repairs value errors inside the same discrete
- * event.
+ * place or destroyed the subtree and built a new one. `spec.cjs` makes
+ * the same point by measurement: injected regressions are caught by its
+ * caret rows and by nothing else, because React's own end-of-event
+ * restore repairs value errors inside the same discrete event.
  *
  * So the observables here are the ones a repaint cannot forge:
  *
@@ -59,9 +57,9 @@
  *
  * ## No row is a bare "it threw"
  *
- * rf2-hic-011 ran its own named sabotage and the reads still threw, from a
- * different layer and with a different error id, so `(is (thrown? …))`
- * would have stayed green. Nothing in this suite asserts that something
+ * A named sabotage can leave the reads still throwing, from a different
+ * layer and with a different error id, so `(is (thrown? …))` stays green
+ * through it. Nothing in this suite asserts that something
  * failed: every row asserts an exact value, an exact count or an exact
  * identity. Uncaught page errors are a separate, independent verdict the
  * runner keeps and fails on.
@@ -225,7 +223,7 @@ const islandState = (page) => page.evaluate((slots) => {
 // 1. The reload is real, and it really replaced what the macro made
 // ---------------------------------------------------------------------------
 
-// The audit's first clause: "a browser suite drives an actual shadow
+// The contract's first clause: "a browser suite drives an actual shadow
 // reload through `defview`". Three independent facts have to hold together
 // for that sentence to be true — the hook ran, the NEW CODE is on screen,
 // and the object the real `defview` macro produced was really replaced.
@@ -259,7 +257,7 @@ async function reloadIsReal(page, witness, runContext) {
   const after = await identity(page);
   witness.eq(after['head-same?'], false,
     'the head the real defview macro produced was replaced by the real reload — ' +
-    'which is the drift the node lane could not have caught');
+    'which is the drift the node lane cannot catch');
 }
 
 // ---------------------------------------------------------------------------
@@ -417,10 +415,10 @@ async function activeImperativeHost(page, witness, runContext) {
   // then says the same baseline does not, so the only thing that changed
   // between them is the save.
   //
-  // Taking it here also fixes a defect the control caught: a baseline
+  // Taking it here is also what keeps the control honest: a baseline
   // captured before the PREVIOUS section's save is stale by a remount, so
-  // `instance-same?` was already false before this section did anything
-  // and the control failed. It was right to.
+  // `instance-same?` would already be false before this section did
+  // anything and the control would fail — rightly.
   await capture(page);
 
   // CONTROL: no save. The instance must still be the same one and its
@@ -455,7 +453,7 @@ async function activeImperativeHost(page, witness, runContext) {
 // 6. Frame routing
 // ---------------------------------------------------------------------------
 
-// The audit's clause the bead's own text did not name. Two frames render
+// The contract's clause that is easiest to leave out. Two frames render
 // the SAME view into two roots, so "each root still reads its own frame"
 // is a real question with a wrong answer available. The row checks the
 // static half (each root paints its own label) and the LIVE half (a write
@@ -514,26 +512,26 @@ async function frameRoutingAcrossASave(page, witness, runContext) {
 // 7. The island and the React.lazy bridge, through a real recompile
 // ---------------------------------------------------------------------------
 
-// rf2-y5x6j and rf2-iq0a in one section, because they are one fixture.
+// Two claims in one section, because they are one fixture.
 //
 // §7 of the Fresco specification names `HMR` in the code-splitting row's
-// required proof, beside load, fallback, error and retry — the four that
-// landed in `lazy_boundary_dom_cljs_test`, which then stated the hot-reload
-// fact in PROSE: "the retry a rejected chunk needs is a NEW HEAD, which is
-// the same allocation a hot reload performs". Nothing had performed one.
+// required proof, beside load, fallback, error and retry — the four
+// `lazy_boundary_dom_cljs_test` covers, which states the hot-reload fact
+// in PROSE: "the retry a rejected chunk needs is a NEW HEAD, which is the
+// same allocation a hot reload performs". This section performs one.
 // Separately, the island is a raw React function component behind a
 // `react/memo` record and two `react/lazy` heads — top-level `def`s in the
 // reloaded namespace, every one — and React's own remount rule says a save
 // REPLACES each of them: the def re-evaluates, the element type at that
 // position is a new object, and React rebuilds the subtree. Allocation,
-// never a lookup by name. Nothing had measured that under a real recompile
-// either.
+// never a lookup by name. This section measures that under a real
+// recompile too.
 //
 // Both claims are about the same event, so they are measured on the same
 // save. The instrument is the LOADER COUNT and OBJECT IDENTITY, never the
 // paint: a re-fetched chunk and a preserved one paint the same island, in
-// the same place, with the same text — which is exactly how the prose
-// survived unmeasured.
+// the same place, with the same text — which is why prose alone cannot
+// settle it.
 async function nativeLazyIslandAcrossASave(page, witness, runContext) {
   await waitForIslands(page);
   await quiesce(page);
@@ -565,11 +563,11 @@ async function nativeLazyIslandAcrossASave(page, witness, runContext) {
   await waitForIslands(page);
 
   // ------------------------------------------------------------------
-  // rf2-y5x6j: WHICH of the two is it?
+  // WHICH of the two is it?
   // ------------------------------------------------------------------
   //
-  // The bead requires this row to state one and assert it, rather than
-  // assert whichever happened. It is THE BOUNDARY RE-LOADS. A head is a
+  // This row states one and asserts it, rather than asserting whichever
+  // happened. It is THE BOUNDARY RE-LOADS. A head is a
   // top-level `def` in the reloaded namespace, so the save re-evaluates it
   // and `react/lazy` allocates a fresh record; a fresh payload is
   // Uninitialized, so React calls the loader again and the chunk is
@@ -590,8 +588,8 @@ async function nativeLazyIslandAcrossASave(page, witness, runContext) {
   witness.eq(after.heads.escapeHead['same?'], false, 'and the [:>] crossing\'s');
   witness.eq(after.heads.islandMemo['same?'], false,
     'and the `react/memo` record — a memo record is the element type React '
-    + 'reconciles on, so it must NOT survive a hot reload, and nothing had run '
-    + 'one to check');
+    + 'reconciles on, so it must NOT survive a hot reload, and this row is the '
+    + 'one that checks');
   witness.eq(after.heads.islandBody['same?'], false,
     'and the island function itself — allocation, never a lookup by name, '
     + 'which is React\'s own remount rule');
@@ -634,7 +632,7 @@ async function nativeLazyIslandAcrossASave(page, witness, runContext) {
 // 8. The pinned-head sabotage
 // ---------------------------------------------------------------------------
 
-// rf2-y5x6j's third acceptance clause: break the bridge's reload path and
+// The island section's own sabotage: break the bridge's reload path and
 // the row above fails BY NAME.
 //
 // The fault modelled is a bridge that caches a head BY NAME. React's
@@ -695,7 +693,7 @@ async function pinnedLazyHeadSabotage(page, witness, runContext) {
 // 9. Zero stale-generation registrations
 // ---------------------------------------------------------------------------
 
-// The audit's last clause, and the one the whole door exists for. Read
+// The contract's last clause, and the one the whole door exists for. Read
 // past the runtime's own reap horizon, because a residue baseline taken
 // one macrotask after a render still counts entries the runtime is about
 // to drop.
@@ -758,7 +756,7 @@ async function zeroStaleRegistrations(page, witness, runContext) {
 // 10. The lost-cleanup sabotage
 // ---------------------------------------------------------------------------
 
-// The bead's named perturbation, run for real. The fault is a RENDERER
+// The named perturbation, run for real. The fault is a RENDERER
 // fault — "a renderer failing to run old-generation cleanup on type
 // replacement" — so it is injected at the renderer's own seam: the
 // function React calls to unsubscribe is swallowed, and the runtime, which
