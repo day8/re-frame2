@@ -1,4 +1,4 @@
-;; reagent-migration MIG-23 cold-start fixture build (rf2-vpdrf).
+;; reagent-migration MIG-23 cold-start fixture build.
 ;;
 ;; ONE :node-test build. `:deps true` routes classpath resolution through
 ;; this directory's deps.edn (same idiom as
