@@ -2,9 +2,8 @@
   "THE TWO HOOKS, WHERE NO DOM IS NEEDED.
 
   `re-frame.fresco.native` is two React hooks — `n/use-sub` and
-  `n/use-frame` — and nothing else. An
-  island is an ordinary React component, raw or UIx, and it reaches
-  Fresco state through these two. Most of what is true about them is
+  `n/use-frame` — and nothing else. An island is an ordinary React
+  component, raw or UIx, and it reaches Fresco state through these two. Most of what is true about them is
   true only once React is driving a real fiber — identity across
   re-renders, StrictMode's double mount, teardown, the crossing through
   `h/defhost` — and that is `hooks_island_dom_cljs_test`'s subject.
