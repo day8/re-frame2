@@ -54,12 +54,12 @@
  "MCP wire EDN stays readable. The raw Function ref emits "
  "`#object[Function ...]` under pr-str, which the MCP read-edn-safe "
  "cannot parse — surfacing `:unexpected-shape` with the real payload "
- "buried as a string. See bead rf2-l7vnd.")))
+ "buried as a string.")))
 
 (deftest registrar-describe-still-carries-handler-fn-hash
  (is (form-contains? (fn [node] (= :handler-fn-hash node))
  registrar-describe-form)
- (str "registrar-describe must still emit `:handler-fn-hash` — the wire-"
+ (str "registrar-describe must emit `:handler-fn-hash` — the wire-"
  "friendly substitute consumers (hot-reload probing, tail-build) "
  "actually use. Dropping it would silently break those flows.")))
 
@@ -68,14 +68,14 @@
  registrar-describe-form)
  (str "registrar-describe MUST run `strip-fns` over the meta map so the "
  "resources-artefact kinds (`:resource` / `:mutation` / "
- "`:resource-scope`, EP-0016 / rf2-f8s9g6) serialize cleanly. Their "
+ "`:resource-scope`, EP-0016) serialize cleanly. Their "
  "spec lives under `:rf/resource` / `:rf/mutation` / `:rf/resource-scope` "
  "with NESTED handler fns (`:request` / `:tags` / `:invalidates` / "
  "`:populates` / `:resolve`). Dropping only the top-level `:handler-fn` "
  "leaves those nested handles, so the response still `pr-str`s to "
  "`#object[Function]` and trips the wire codec's `:unserializable` "
  "path — hiding the inspectable structure (a resolver's `:inputs` map "
- "+ `:whole-db?` cost, the EP-0016 disposition-2 promise). See rf2-f8s9g6.")))
+ "+ `:whole-db?` cost, the EP-0016 disposition-2 promise).")))
 
 (def ^:private strip-fns-form
  ;; `strip-fns` is a private `defn-`, so match both `defn` and `defn-`.
@@ -90,7 +90,7 @@
  (is (some? strip-fns-form)
  (str "preload/re_frame2_pair/runtime.cljs must define `strip-fns` — the "
  "recursive fn→`:rf/fn` sentinel walker registrar-describe uses to keep "
- "nested handler fns off the EDN wire (rf2-f8s9g6).")))
+ "nested handler fns off the EDN wire.")))
 
 (deftest strip-fns-handles-fn-and-recurses
  (is (and (form-contains? (fn [node] (= 'fn? node)) strip-fns-form)
