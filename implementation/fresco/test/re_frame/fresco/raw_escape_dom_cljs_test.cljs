@@ -2,7 +2,7 @@
   "THE `[:>]` RAW ESCAPE AGAINST A REAL REACT (HD-011).
 
   The element-level contract — the carrier, the prop walk, the value
-  roster, `:key`, refs, the mis-parse regression — is
+  roster, `:key`, refs, the mis-parse guard — is
   [[re-frame.fresco.codec-cljs-test]]'s, where it can be
   read off the element without a DOM. This file carries the three claims
   that a mounted React is the only honest witness for:
@@ -18,7 +18,7 @@
      `onRecoverableError` and a console/window capture; a row that only
      read the settled DOM would pass over a mismatch React repaired.
 
-  2. **The canonical DOM is not reduced at all.** HD-011's ruled phrase
+  2. **The canonical DOM is not reduced at all.** HD-011's phrase
      is *reduced structural identity*, and the reduction is exactly one
      slot of the hiccup vector (slot 1 holds a JS value compared by
      identity). The DOM is not reduced, and that is provable rather than
