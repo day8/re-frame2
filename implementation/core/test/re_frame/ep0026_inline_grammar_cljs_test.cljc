@@ -1,8 +1,8 @@
 (ns re-frame.ep0026-inline-grammar-cljs-test
-  "EP-0026 §Inline Registration Grammar (rf2-fsd822) — the NARROWED inline
+  "EP-0026 §Inline Registration Grammar — the four-kind inline
   `:registrations` grammar.
 
-  EP-0026 narrows inline `:registrations` to EXACTLY the four kinds with a
+  EP-0026 limits inline `:registrations` to EXACTLY the four kinds with a
   concrete inline parser + a published late-bind lowering hook:
 
     | section     | kind   | body                                   |
@@ -16,7 +16,7 @@
   unsupported-inline-kind diagnostic until its owning spec defines an inline
   lowering.
 
-  This suite pins the bead's enumerated coverage:
+  This suite pins:
 
     * each supported inline kind LOWERS through its kind's OWN registrar parser
       (the LIVE `:image/lower-inline-<kind>` publisher, exercised through
@@ -25,20 +25,20 @@
     * per-kind metadata/body pins: an inline `:reg-sub` with no `:inputs` is the
       layer-1 `:input-kind :db` db-reader (`:input-signals []`), and one that
       DECLARES `{:inputs …}` lowers to a derived `:static` / `:parametric` sub
-      through the same seam the public registrar uses (rf2-kuky.46); inline
+      through the same seam the public registrar uses; inline
       `:reg-cofx` carries the coeffect's `:recordable?` / `:provided?` grade
       exactly as `reg-cofx` does; inline `:reg-event` parses
       `:rf.cofx/requires` into `:rf.cofx/requires-parsed`;
     * an UNSUPPORTED inline kind fails loud at `rf/image`;
-    * a metadata-only `[id metadata]` 2-tuple fails loud (EP-0026 retires the
-      EP-0023 metadata-only form).
+    * a metadata-only `[id metadata]` 2-tuple fails loud (under EP-0026 a
+      2-tuple's second slot is the handler body).
 
   Dual-runtime (`-cljs-test` rides `npm run test:cljs`; cognitect-test-runner
   discovers the `.cljc` on the JVM). The four core kind namespaces are required
   so their `:image/lower-inline-<kind>` publishers are installed (they
   `set-fn!` at ns load); no adapter/runtime state, so no reset fixture.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   The grammar itself — which sections lower, which are rejected, which slots the
   runtime owns — is entirely posture-independent and runs unchanged under
@@ -48,10 +48,10 @@
   authored metadata map WHOLE, `:doc` included) is a dev-posture row and sits
   inside a `(when rf.interop/debug-enabled? …)` arm.
 
-  Two of those rows were the ONLY witness their claim had, and a doc-only
-  witness is a bad one — it makes the claim unprovable in the posture that
-  ships. Each is now paired with an always-on partner that reads a LOAD-BEARING
-  key instead: `(dissoc meta :doc)` still nested for the hostile-metadata row,
+  A doc-only witness is a bad one — it makes the claim unprovable in the
+  posture that ships — so each of the two rows that would otherwise be the ONLY
+  witness for its claim is paired with an always-on partner that reads a
+  LOAD-BEARING key instead: `(dissoc meta :doc)` still nested for the hostile-metadata row,
   and a `:rf.cofx/requires` middle slot for \"a 3-tuple is how metadata is
   attached\"."
   (:require [clojure.test :refer [deftest is testing]]
@@ -143,9 +143,9 @@
       (is (= :sub (:kind d)))
       (is (= :counter/value (:id d)))
       (is (= body (:impl d)))
-      ;; rf2-d2841 — `:doc` is stripped under -Dre-frame.debug=false, so the
-      ;; WHOLE-map comparison and the `:doc` read-back are dev-posture rows.
-      ;; Kept verbatim inside the arm.
+      ;; `:doc` is stripped under -Dre-frame.debug=false, so the
+      ;; WHOLE-map comparison and the `:doc` read-back are dev-posture rows,
+      ;; inside the arm.
       (when rf.interop/debug-enabled?
         (is (= meta (:metadata d))
             "the authored metadata remains nested for provenance/introspection")
@@ -181,9 +181,9 @@
 
 (deftest inline-sub-declares-derived-inputs-through-the-shared-seam
   (testing "an inline :reg-sub declaring {:inputs [[…]]} lowers to a DERIVED sub
-            — the layer-2 gain of moving the dependency declaration into the
-            metadata map (rf2-kuky.46). The inline tuple always carried a
-            metadata slot, so nothing about the grammar had to widen."
+            — the dependency declaration lives in the metadata map, and the
+            inline tuple carries a metadata slot, so the grammar needs no
+            extra position for it."
     (let [body (fn [[items] _] (sort items))
           d    (runnable {:reg-sub [[:cart/sorted
                                      {:doc "Derived inline." :inputs [[:cart/items]]}
@@ -249,8 +249,7 @@
     (testing "the grade is carried from the inline metadata (recordable / provided)"
       ;; A PROVIDED fact has no generator, so its inline entry carries a nil
       ;; body — exactly the shape `reg-cofx` accepts. A supplier here is the
-      ;; contradiction `reg-cofx` refuses, and so does the inline lowering
-      ;; (rf2-3x7nj.5.1).
+      ;; contradiction `reg-cofx` refuses, and so does the inline lowering.
       (let [d (runnable {:reg-cofx [[:graded/cofx
                                      {:recordable? true :provided? true}
                                      nil]]})]
@@ -286,11 +285,11 @@
       (is (= [:reg-cofx :reg-event :reg-fx :reg-sub] (:supported-sections data))))))
 
 ;; ===========================================================================
-;; 3. The metadata-only [id metadata] form is RETIRED (EP-0026 reverses EP-0023).
+;; 3. The metadata-only [id metadata] form is rejected (EP-0026).
 ;; ===========================================================================
 
 (deftest metadata-only-tuple-rejected
-  (testing "a 2-tuple [id metadata-map] (the retired metadata-only form) fails
+  (testing "a 2-tuple [id metadata-map] (a metadata-only form) fails
             loud — a 2-tuple's second slot is the handler BODY, not metadata"
     (doseq [section [:reg-event :reg-sub :reg-fx :reg-cofx]]
       (is (= :rf.error/invalid-image
@@ -299,15 +298,15 @@
   (testing "a 3-tuple [id metadata body] is the way to attach metadata"
     (let [body (fn [_ _] {})
           d    (runnable {:reg-event [[:x {:doc "ok"} body]]})]
-      ;; rf2-d2841 — a doc-ONLY metadata map is the weakest possible witness
+      ;; A doc-ONLY metadata map is the weakest possible witness
       ;; for this claim: `:doc` is stripped under -Dre-frame.debug=false, so
       ;; the map reduces to nothing and the row cannot distinguish "the middle
       ;; slot was read as metadata" from "the middle slot was ignored".
-      ;; Kept verbatim in the arm...
+      ;; It sits in the arm...
       (when rf.interop/debug-enabled?
         (is (= {:doc "ok"} (:metadata d))))
       (is (= body (:impl d))))
-    ;; ...and given an always-on partner that reads a LOAD-BEARING middle slot,
+    ;; ...and has an always-on partner that reads a LOAD-BEARING middle slot,
     ;; so the grammar claim holds in the posture that ships.
     (let [body (fn [_ _] {})
           d    (runnable {:reg-event [[:x {:rf.cofx/requires [:rf.cofx/now]} body]]})]
