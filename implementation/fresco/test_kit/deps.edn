@@ -8,7 +8,7 @@
 ;; that on EVERY invocation:
 ;;   WARNING: Use of :paths external to the project has been deprecated,
 ;;   please remove: ../re-frame2/implementation/fresco/test_kit/src
-;; Nothing fails today, but a future CLI may refuse it, and a pilot following
+;; The warning fails nothing, but it names a deprecation, and a pilot following
 ;; the published route meets the warning on their first build.
 ;;
 ;; A :local/root coordinate pointing HERE is inside the project boundary of
@@ -16,16 +16,15 @@
 ;; a manifest: without this file the same coordinate is a HARD failure,
 ;; "Error building classpath. Manifest file not found for
 ;; day8/re-frame2-fresco-test-kit in coordinate ..." — measured on CLI
-;; 1.12.4.1618, which is why the chapter's line could not simply change shape
-;; and this file had to land with it (rf2-luo6).
+;; 1.12.4.1618, which is why the chapter's coordinate needs this file.
 ;;
-;; WHAT THIS DOES NOT CHANGE. test_kit/src stays deliberately OFF the Fresco
+;; WHAT THIS DOES NOT DO. test_kit/src is deliberately OFF the Fresco
 ;; artefact's own :paths, so an application that writes no test still carries
 ;; none of the kit — see the header of implementation/fresco/deps.edn, which
 ;; spends several paragraphs on why :paths and :clein/build :src-dirs are not
 ;; the same lever. This file adds a SECOND coordinate; it does not put
-;; test_kit/src on the artefact. Reachability, not packaging, is still what
-;; keeps the kit out of a production bundle.
+;; test_kit/src on the artefact. Reachability, not packaging, is what keeps
+;; the kit out of a production bundle.
 ;;
 ;; Deliberately NO :aliases here, and specifically no :clein/build. The
 ;; publishable-artefact discovery in
