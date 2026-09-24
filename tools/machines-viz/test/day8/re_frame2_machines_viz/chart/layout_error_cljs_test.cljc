@@ -1,5 +1,5 @@
 (ns day8.re-frame2-machines-viz.chart.layout-error-cljs-test
-  "rf2-4lyvh — pure-data tests for the ELK layout-failure surface.
+  "Pure-data tests for the ELK layout-failure surface.
 
   Pins the shapes the `chart.layout-error` ns produces:
 
@@ -14,7 +14,7 @@
        a refactor that drops the slot fails here.
 
   These pins guard the SHAPE consumers (Xray Issues panel; the
-  chart's banner) read. `chart-cljs-test` (browser-only, sibling) is
+  chart's banner) read. `chart-dom-cljs-test` (browser-only, sibling) is
   the place to wire a DOM-level pin for the banner itself; the data
   shape it reads must not drift, which is what this suite enforces.
 
@@ -128,7 +128,7 @@
       (is (map? result) "result is a map (so `when result` reset!s)")
       (is (= {} (:positions result)) "positions empty on failure")
       (is (= {} (:edge-points result)) "edge-points empty on failure")
-      ;; rf2-rlq97 — :edge-labels mirrors :edge-points (ELK's computed
+      ;; :edge-labels mirrors :edge-points (ELK's computed
       ;; label positions); empty on failure, same as the routes.
       (is (= {} (:edge-labels result)) "edge-labels empty on failure")
       (is (some? (:layout-error result)) ":layout-error slot present")
