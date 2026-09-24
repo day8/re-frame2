@@ -1313,7 +1313,7 @@
           (rf.late-bind/set-fn! http-key orig-http))))))
 
 (deftest perform-restore!-does-not-quiesce-on-failed-install
-  (testing "rf2-u5kmf8 — a destroyed-frame install (perform-restore! returns
+  (testing "a destroyed-frame install (perform-restore! returns
             false, writes nothing) does NOT fire the quiesce hooks: cancelling a
             live frame's host work for a restore that never landed would be a
             false cancellation. The quiesce runs only on the success branch,
@@ -1343,7 +1343,7 @@
           (rf.late-bind/set-fn! machines-key orig-mach))))))
 
 (deftest restore-releases-armed-machine-after-timer-end-to-end
-  (testing "rf2-u5kmf8 — ADVERSARIAL end-to-end through the REAL machines
+  (testing "ADVERSARIAL end-to-end through the REAL machines
             artefact (no stubbed hook): a machine `:after` host-clock timer
             armed before a restore is released by the restore boundary, so the
             restored frame carries no orphaned wall-clock handle from the
@@ -1447,7 +1447,7 @@
         (is (vector? (:failing-paths (:tags ev))))))))
 
 (deftest restore-schema-mismatch-trace-carries-digests
-  (testing "Per Spec 010 §Schema digest + Tool-Pair §Time-travel (rf2-0z1z):
+  (testing "Per Spec 010 §Schema digest + Tool-Pair §Time-travel:
             the :rf.epoch/restore-schema-mismatch trace carries non-nil
             :schema-digest-recorded and :schema-digest-current tags."
     (rf/make-frame {:id :test/main})
@@ -1490,13 +1490,14 @@
                 (:schema-digest-current tags))
           "recorded ≠ current — that's *why* the restore was rejected"))))
 
-;; ---- rf2-3x7nj.17.3 — restore / replace obey `set-schema-fns!` -------------
+;; ---- restore / replace obey `set-schema-fns!` ------------------------------
 ;;
-;; The app-db check behind `restore-epoch!` and `replace-frame-state!` used to
-;; call Malli directly, bypassing the registered validator: validation switched
-;; off still refused, a substituted validator's rejections were admitted, and a
-;; validator that threw counted as a pass. It now routes through the
-;; `:schemas/validate-with-registered-fn` seam every other Spec 010 site uses.
+;; The app-db check behind `restore-epoch!` and `replace-frame-state!` routes
+;; through the `:schemas/validate-with-registered-fn` seam every other Spec 010
+;; site uses. Calling Malli directly would bypass the registered validator:
+;; validation switched off would still refuse, a substituted validator's
+;; rejections would be admitted, and a validator that threw would count as a
+;; pass.
 
 (defn- with-schema-fns
   "Run `f` with `fns` installed through `set-schema-fns!`, restoring the
@@ -1512,7 +1513,7 @@
   (some #(when (= :rf.epoch/replace-schema-mismatch (:operation %)) %) @recorded))
 
 (deftest restore-obeys-a-nil-validator
-  (testing "rf2-3x7nj.17.3 — with validation switched off, restore rewinds to a
+  (testing "with validation switched off, restore rewinds to a
             state the app itself committed; the schema set is inert data"
     (rf/make-frame {:id :test/off})
     (rf/reg-app-schema [:n] {:frame :test/off} :int)
@@ -1532,9 +1533,10 @@
           (is (= {:n "not-an-int"} (rf/app-db-value :test/off))))))))
 
 (deftest replace-obeys-a-substituted-validators-verdict
-  (testing "rf2-3x7nj.17.3 — a substituted (non-Malli) validator decides: its
-            rejection refuses the replace, its acceptance admits it. Malli
-            threw on the foreign schema token, and the throw counted as a pass."
+  (testing "a substituted (non-Malli) validator decides: its
+            rejection refuses the replace, its acceptance admits it. Calling
+            Malli directly would throw on the foreign schema token and count
+            the throw as a pass."
     (with-schema-fns {:validate (fn [schema v]
                                   (if (= ::pos schema) (and (int? v) (pos? v)) true))}
       (fn []
@@ -1556,7 +1558,7 @@
             "CONTROL: a value the installed validator accepts is admitted")))))
 
 (deftest replace-obeys-a-permissive-validator
-  (testing "rf2-3x7nj.17.3 — respecting a substituted validator includes its
+  (testing "respecting a substituted validator includes its
             permissiveness: an accept-all validator admits a value default Malli
             would refuse"
     (rf/make-frame {:id :test/lax})
@@ -1572,10 +1574,10 @@
         (is (= {:n "not-an-int"} (rf/app-db-value :test/lax)))))))
 
 (deftest replace-refuses-when-the-validator-throws
-  (testing "rf2-3x7nj.17.3 — a validator that THROWS (here default Malli on the
+  (testing "a validator that THROWS (here default Malli on the
             childless, malformed `[:vector]`) refuses the replace, as the hot
-            path refuses the write. The probe used to count the throw as a pass
-            and install the unvalidated value."
+            path refuses the write. Counting the throw as a pass would install
+            the unvalidated value."
     (rf/make-frame {:id :test/malformed})
     (rf/reg-event :seed (fn [_ _] {:db {:n [1 2]}}))
     (rf/dispatch-sync [:seed] {:frame :test/malformed})
@@ -1588,7 +1590,7 @@
           "the refusal names the path whose validation threw"))))
 
 (deftest epoch-record-stamps-schema-digest
-  (testing "Per Spec-Schemas §:rf/epoch-record (rf2-0z1z): every epoch
+  (testing "Per Spec-Schemas §:rf/epoch-record: every epoch
             record carries a :schema-digest pinned at record time."
     (rf/make-frame {:id :test/digest})
     (rf/reg-app-schema [:n] {:frame :test/digest} [:int])
@@ -1608,8 +1610,8 @@
     ;; Register a route so the recorded route reference resolves; we'll
     ;; later unregister it to trigger the missing-handler failure.
     (rf/reg-route :route/users {} "/users")
-    ;; EP-0001 (rf2-vzld77 / rf2-3aizt1): the route slice is runtime-db state
-    ;; at [:rf.runtime/routing :current]; bead 7's missing-references reads the
+    ;; EP-0001: the route slice is runtime-db state
+    ;; at [:rf.runtime/routing :current]; `missing-references` reads the
     ;; recorded frame-state's runtime-db partition.
     (rf/reg-event :route-to
       (fn [{rt :rf.db/runtime} _]
@@ -1638,14 +1640,14 @@
                             (= :route/users (:id %)))
                       missing))))))))
 
-;; EP-0001 (rf2-vzld77) re-enabled by bead 7 (rf2-3aizt1): the epoch now
+;; EP-0001: the epoch
 ;; captures + restores the runtime-db partition (machine snapshots are
 ;; runtime-db state), and `tool_pair/missing-references` reads the recorded
-;; runtime-db partition (rf2-k4xe7u). See machine-raise note above.
+;; runtime-db partition. See machine-raise note above.
 (deftest restore-failure-missing-handler-machine
   (testing "restore-epoch! on a frame-state referencing a machine snapshot whose
-  machine is no longer registered fires :rf.epoch/restore-missing-handler. Per
-  rf2-ocg1: machine resolution goes through the public event registry
+  machine is no longer registered fires :rf.epoch/restore-missing-handler.
+  Machine resolution goes through the public event registry
   (:rf/machine? metadata), NOT the internal :head registrar kind."
     (rf/make-frame {:id :test/main})
     ;; Register a machine via the public reg-machine path. This installs an
@@ -1683,12 +1685,12 @@
                       missing)
                 "missing entry surfaces the machine id under :machine kind")))))))
 
-;; EP-0001 (rf2-vzld77) re-enabled by bead 7 (rf2-3aizt1): same runtime-db
+;; EP-0001: same runtime-db
 ;; epoch capture/restore as restore-failure-missing-handler-machine.
 (deftest restore-failure-missing-handler-non-machine-event-not-confused
   (testing "an event handler under the same id as a recorded machine snapshot —
-  but NOT marked :rf/machine? — does not satisfy the machine reference. Per
-  rf2-ocg1, the registry probe gates on :rf/machine? metadata."
+  but NOT marked :rf/machine? — does not satisfy the machine reference. The
+  registry probe gates on :rf/machine? metadata."
     (rf/make-frame {:id :test/main})
     ;; Register a machine, drive it, then replace its registration with a
     ;; plain event handler (no :rf/machine? metadata). The recorded snapshot
@@ -1716,7 +1718,7 @@
 
 (deftest restore-failure-version-mismatch
   (testing "restore-epoch! on a db whose machine snapshot version drifts fires
-  :rf.epoch/restore-version-mismatch. Per rf2-ocg1: the recorded snapshot's
+  :rf.epoch/restore-version-mismatch. The recorded snapshot's
   [:meta :rf/snapshot-version] is compared against the registered machine's
   [:meta :rf/snapshot-version], both via the public Spec 005 surface."
     (rf/make-frame {:id :test/main})
@@ -1726,9 +1728,9 @@
        :meta    {:rf/snapshot-version 1}
        :states  {:red {:on {:tick :green}} :green {}}})
     ;; Commit a snapshot carrying matching :meta :rf/snapshot-version into the
-    ;; runtime-db partition (EP-0001 rf2-vzld77 — machine snapshots are
-    ;; runtime-db state; bead 7 reads the runtime-db partition of the recorded
-    ;; frame-state for the version-drift precondition).
+    ;; runtime-db partition (EP-0001 — machine snapshots are
+    ;; runtime-db state; the version-drift precondition reads the runtime-db
+    ;; partition of the recorded frame-state).
     (rf/reg-event :put-snap
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime
@@ -1790,10 +1792,11 @@
                            @recorded-traces)}))))
 
 (deftest restore-refuses-a-version-stamp-added-since-the-recording
-  (testing "rf2-3x7nj.17.2 — absent → 1 (a machine's FIRST incompatible change)
+  (testing "absent → 1 (a machine's FIRST incompatible change)
             is drift. The machines artefact's rule is exact equality, absent
-            included, so a restore that passed here was reset to `:initial` by
-            the machine's own check on its next event, after reporting success."
+            included, so a restore that passed here would be reset to `:initial`
+            by the machine's own check on its next event, after reporting
+            success."
     (let [{:keys [ok? unchanged? mismatch]} (restore-across-a-version-change nil 1)]
       (is (false? ok?) "restore refused up front")
       (is (true? unchanged?) "frame state unchanged")
@@ -1802,7 +1805,7 @@
       (is (= 1 (get-in mismatch [:tags :version-current]))))))
 
 (deftest restore-refuses-a-version-stamp-removed-since-the-recording
-  (testing "rf2-3x7nj.17.2 — the mirror, 1 → absent, is drift too"
+  (testing "the mirror, 1 → absent, is drift too"
     (let [{:keys [ok? unchanged? mismatch]} (restore-across-a-version-change 1 nil)]
       (is (false? ok?) "restore refused up front")
       (is (true? unchanged?) "frame state unchanged")
@@ -1811,7 +1814,7 @@
       (is (nil? (get-in mismatch [:tags :version-current]))))))
 
 (deftest restore-admits-an-unversioned-machine-across-a-reload
-  (testing "rf2-3x7nj.17.2 CONTROL — both absent matches: an unversioned machine
+  (testing "CONTROL — both absent matches: an unversioned machine
             hot-reloaded without a stamp still restores"
     (let [{:keys [ok? unchanged? mismatch]} (restore-across-a-version-change nil nil)]
       (is (true? ok?) "restore succeeds")
@@ -1870,14 +1873,14 @@
       (is (some #(= :n   (:sub-id %)) sub-runs))
       (is (some #(= :n*2 (:sub-id %)) sub-runs))
       (is (every? :recomputed? sub-runs))
-      ;; rf2-7e2y: :result-changed? was structurally always true (only
-      ;; recomputed subs emit :rf.sub/run under rf2-719e value-equality
-      ;; suppression) and has been dropped — every entry must NOT carry
+      ;; There is no :result-changed? slot: it would be structurally always
+      ;; true (only recomputed subs emit :rf.sub/run under value-equality
+      ;; suppression), so every entry must NOT carry
       ;; the slot.
       (is (every? #(not (contains? % :result-changed?)) sub-runs)))))
 
 (deftest sub-run-row-threads-cause-event-id
-  (testing "rf2-okz1u / rf2-1cc03 — `:rf.sub/cause-event-id` (the
+  (testing "`:rf.sub/cause-event-id` (the
             dispatching cascade's trigger event-id) is threaded onto
             the structured `:sub-runs` row as `:cause-event-id` so
             consumers (Xray's Epoch panel SUBSCRIPTIONS section) can
@@ -1905,7 +1908,7 @@
         (is (= :counter/inc (:cause-event-id row))
             ":cause-event-id is lifted from the `:rf.sub/cause-event-id` tag")
         (is (true? (:value-changed? row))
-            "the existing slots still ride alongside the new attribution")))
+            "the other slots ride alongside the attribution")))
     (testing "tag OMITTED (post-settle reactive flush outside a cascade,
               or `re-frame.epoch` artefact absent) → row slot is ABSENT,
               parity with the OMIT-vs-nil semantics of the trace tag"
@@ -1924,7 +1927,7 @@
              omitted at the emit site (cond-> on (contains? tags ...))")))))
 
 (deftest sub-run-row-threads-large-marker
-  (testing "rf2-at60h — the whole-output `:large?` stamp that
+  (testing "the whole-output `:large?` stamp that
             `re-frame.classification/project-sub-tags` writes onto a `:rf.sub/run`
             trace tag (when the sub's output is marked large but its raw
             value is left in place for the on-box ring) is threaded onto
@@ -2010,7 +2013,7 @@
       (is (some? (:error-trace ent))))))
 
 (deftest effects-projection-records-success
-  (testing ":effects captures :ok outcomes for successful user fx (rf2-rrgq)"
+  (testing ":effects captures :ok outcomes for successful user fx"
     (rf/make-frame {:id :test/main})
     (let [calls (atom 0)]
       (rf/reg-fx :tally-fx (fn [_ args] (swap! calls + args)))
@@ -2041,9 +2044,9 @@
     (rf/dispatch-sync [:seed]  {:frame :test/main})
     (rf/dispatch-sync [:outer] {:frame :test/main})
 
-    ;; Per rf2-nj6p7: per-event epochs — the two `:dispatch` fx fire
+    ;; Per-event epochs — the two `:dispatch` fx fire
     ;; during :outer's own do-fx, so they project onto :outer's record
-    ;; (NOT the last record, which is now the second :inc child epoch).
+    ;; (NOT the last record, which is the second :inc child epoch).
     (let [history (rf/epoch-history :test/main)
           r       (first (filter #(= :outer (:event-id %)) history))
           effects (:effects r)
@@ -2053,7 +2056,7 @@
       (is (every? #(= :ok (:outcome %)) dispatches)))))
 
 (deftest effects-projection-one-entry-per-fx
-  (testing "an epoch with N dispatched fx produces N :effects entries (rf2-rrgq)"
+  (testing "an epoch with N dispatched fx produces N :effects entries"
     (rf/make-frame {:id :test/main})
     (rf/reg-fx :ok-fx       (fn [_ _] :ok))
     (rf/reg-fx :throwing-fx (fn [_ _] (throw (ex-info "boom" {}))))
@@ -2079,17 +2082,16 @@
              (mapv :fx-id effects))
           "fx-ids preserved in dispatch order"))))
 
-;; ---- partial-drain semantics (rf2-v0jwt) ---------------------------------
+;; ---- partial-drain semantics ---------------------------------------------
 
 (deftest depth-exceeded-commits-halted-record
-  (testing "per rf2-nj6p7 (per-event epochs): a depth-exceeded drain leaves
+  (testing "per-event epochs: a depth-exceeded drain leaves
             the events that already ran as DURABLE :ok epochs (no whole-
             drain rollback — each settled event is independently atomic),
             and commits a single trailing :halted-depth record marking the
             halt boundary. The halting event (next in queue) never ran, so
             its record's :db-before / :db-after both equal the durable
-            last-settled db. NOTE: this changes Spec 002 rule 3's pre-
-            rf2-u6jsj whole-drain-rollback semantics — see report."
+            last-settled db."
     (rf/make-frame {:id :test/main :drain-depth 5})
     (rf/reg-event :loop
       (fn [{:keys [db]} _]
@@ -2122,7 +2124,7 @@
             "the halting event's trigger pins the :halted-depth record")
         (is (= [:loop] (:trigger-event r))
             "the synthesised trigger-event is the halting event vector")
-        ;; rf2-bhu3a0 — the halt record's whole frame-state is sourced from
+        ;; The halt record's whole frame-state is sourced from
         ;; the canonical last-settled :ok epoch record's :frame-state-after
         ;; (the same value restore rewinds to), NOT a live re-read. Pin that
         ;; both partitions equal the last-settled record's :frame-state-after.
@@ -2132,12 +2134,12 @@
                  (:frame-state-after r))
               ":frame-state-before/-after are the durable last-settled
                :frame-state-after — sourced from the canonical record, not a
-               live container re-read (rf2-bhu3a0)"))))))
+               live container re-read"))))))
 
 (deftest halted-record-fires-listeners
   (testing "register-epoch-listener! listeners receive halted records too —
-            devtools route off :outcome to render failure shapes. Per
-            rf2-nj6p7 (per-event epochs) the listener observes each durable
+            devtools route off :outcome to render failure shapes. With
+            per-event epochs the listener observes each durable
             :ok event epoch as it settles, then the trailing :halted-depth
             marker."
     (rf/make-frame {:id :test/main :drain-depth 5})
@@ -2169,7 +2171,7 @@
     ;; Drive the halted cascade to land a non-:ok record in history.
     (rf/dispatch-sync [:loop] {:frame :test/main})
 
-    ;; Per rf2-nj6p7: per-event epochs — the :halted-depth marker is the
+    ;; Per-event epochs — the :halted-depth marker is the
     ;; trailing record (the durable :ok event epochs precede it).
     (let [history     (rf/epoch-history :test/main)
           halted      (last history)
@@ -2183,14 +2185,14 @@
           ":rf.epoch/restore-non-ok-record fired so listeners can surface
            the refusal to the user"))))
 
-;; ---- :rf.epoch/outcome consumer-facing enum (rf2-18g1w) ------------------
+;; ---- :rf.epoch/outcome consumer-facing enum ------------------------------
 ;;
-;; Per Mike's decision on rf2-jppad (2026-05-25) the runtime emits a
+;; The runtime emits a
 ;; SEPARATE trace op `:rf.epoch/outcome` carrying the consumer-facing
 ;; `{:ok :blocked :error}` tier, derived from the detailed cause enum
 ;; on `:rf.epoch/snapshotted` (`:ok` / `:halted-depth` / `:halted-destroy`
 ;; / `:halted-handler-exception`, per Spec-Schemas §`:rf/epoch-record`
-;; §Outcomes / rf2-v0jwt). The new op sits at the same cascade-trailer
+;; §Outcomes). The op sits at the same cascade-trailer
 ;; point as `:rf.epoch/snapshotted` — both fire per dequeued event —
 ;; and the consuming spec (`tools/xray/spec/023-Trace-Panel.md` §13)
 ;; reads it directly for the EPOCH CLOSE row.
@@ -2205,7 +2207,7 @@
 (deftest outcome-enum-projection-pins-mapping
   (testing "the pure helper is total over the schema's four cause values
             and projects them onto the {:ok :blocked :error} consumer-
-            facing tier per rf2-18g1w / rf2-jppad (the rationale lives
+            facing tier (the rationale lives
             in `re-frame.epoch.assembly/outcome->consumer-facing`)"
     (testing ":ok → :ok (the cascade settled cleanly)"
       (is (= :ok (rf.epoch.assembly/outcome->consumer-facing :ok))))
@@ -2245,7 +2247,7 @@
 (deftest rf-epoch-outcome-emits-on-halted-depth
   (testing "a depth-exceeded drain emits :rf.epoch/outcome :blocked
             for the trailing halt marker (the :halted-depth cause
-            projects to the :blocked consumer tier per rf2-18g1w).
+            projects to the :blocked consumer tier).
             The durable :ok events that preceded it emit :outcome :ok."
     (rf/make-frame {:id :test/main :drain-depth 5})
     (rf/reg-event :loop
@@ -2268,8 +2270,8 @@
 (deftest rf-epoch-outcome-emits-on-halted-destroy
   (testing "a mid-drain destroy emits :rf.epoch/outcome :blocked alongside
             the partial :halted-destroy :rf.epoch/snapshotted record (the
-            :halted-destroy cause projects to the :blocked consumer tier
-            per rf2-18g1w). The frame's ring buffer is dropped in the
+            :halted-destroy cause projects to the :blocked consumer tier).
+            The frame's ring buffer is dropped in the
             same destroy step, so :epoch-history is empty — the outcome
             survives in the trace stream as evidence."
     (rf/make-frame {:id :test/short-lived})
@@ -2286,14 +2288,14 @@
             ":rf.epoch/outcome fired for the mid-drain destroy")
         (is (some #(= :blocked (get-in % [:tags :outcome])) outcomes)
             "the :halted-destroy cause projects to :blocked at the consumer
-             tier per rf2-18g1w / rf2-jppad")))))
+             tier")))))
 
 (deftest committed-at-on-halted-destroy-is-destroying-token-time
   (testing "the :halted-destroy partial record committed when a handler
             destroys its OWN frame mid-drain carries the DESTROYING event's
             causal token :time-ms as :committed-at — threaded via the
             router-bound frame/*run-time-ms*, NOT an ambient now-ms read
-            at assembly time (rf2-bh56rc / EP-0010 §Time). The ring is
+            at assembly time (EP-0010 §Time). The ring is
             dropped in the same destroy step, so the record is observed via
             a register-epoch-listener! callback."
     (rf/make-frame {:id :test/short-lived})
@@ -2325,16 +2327,16 @@
 
 ;; ---- :halted-handler-exception is schema-reserved, never emitted ---------
 ;;
-;; Per Spec-Schemas §`:rf/epoch-record` §Outcomes (rf2-v0jwt) and Spec 009
+;; Per Spec-Schemas §`:rf/epoch-record` §Outcomes and Spec 009
 ;; §register-epoch-listener!: the reference runtime commits exactly three
 ;; drain-boundary outcomes — :ok / :halted-depth / :halted-destroy.
 ;; `:halted-handler-exception` is a SCHEMA-RESERVED enum value held for a
-;; future runtime path that aborts the drain on handler throw; today's
+;; runtime path that aborts the drain on handler throw; the reference
 ;; runtime routes handler exceptions through the interceptor error-capture
 ;; seam (the drain does NOT abort), so the cascade settles `:ok` with the
 ;; `:rf.error/handler-exception` trace under `:trace-events`. This test
 ;; pins that contract directly so the dead outcome can't silently start
-;; being emitted (rf2-zymix) — the dual of `depth-exceeded-commits-halted-
+;; being emitted — the dual of `depth-exceeded-commits-halted-
 ;; record` for the one halt the runtime deliberately does NOT model.
 
 (deftest handler-exception-settles-ok-never-halted-handler-exception
@@ -2372,25 +2374,24 @@
                     history)
           "no record across the whole ring carries the reserved outcome"))))
 
-;; ---- rf2-xs7fn: flow-throw epoch shape (regression-guard) ----------------
+;; ---- flow-throw epoch shape (regression-guard) ---------------------------
 ;;
 ;; Sibling to `handler-exception-settles-ok-never-halted-handler-exception`
 ;; above: pins the epoch-record observability shape of a flow-throw event.
 ;;
-;; Per the confirmed atomicity contract (Spec 013 §Failure semantics;
-;; `bd remember --key event-pipeline-atomicity`) a flow's `:derive` throw is
+;; Per the atomicity contract (Spec 013 §Failure semantics) a flow's `:derive` throw is
 ;; a PRE-INSTALL failure — the router's `flows-after-interceptor` dissoc-s
 ;; the pending `:db` so the single deferred install installs NOTHING. The
 ;; cascade-level `:rf.error/flow-eval-exception` is emitted by
 ;; `emit-flow-eval-exception!` (router.cljc) and `commit-and-flow!` skips
-;; `:fx`. `settle-event-epoch!` (router.cljc:1175) receives only the
-;; `(frame-id db-before db-after)` triple — the outcome slot is not
+;; `:fx`. `settle-event-epoch!` (router.cljc) settles every event with a
+;; literal `:ok` outcome — the event's failure is not
 ;; threaded through — so the resulting epoch record's `:outcome` is `:ok`
 ;; and the error rides `:trace-events`. Pinned downstream consequence:
 ;;
 ;;   1. `:db-before == :db-after`   (the pending `:db` was discarded — no
 ;;                                   handler write and no flow write landed)
-;;   2. `:outcome :ok`              (current intentional behaviour — the
+;;   2. `:outcome :ok`              (intentional behaviour — the
 ;;                                   flow-throw failure rides `:trace-events`,
 ;;                                   not the outcome slot; mirrors the
 ;;                                   handler-exception pin above)
@@ -2401,14 +2402,14 @@
 ;; `:halted-*` enums); the test names it directly. The companion
 ;; observability surfaces are pinned elsewhere — the always-on event-emit
 ;; record's `:flow-error` outcome lives in
-;; `core/test/re_frame/event_emit_test.cljc`; the trace-stream + app-db
+;; `core/test/re_frame/event_emit_cljs_test.cljc`; the trace-stream + app-db
 ;; invariants live in `ssr/test/re_frame/flows_integration_test.clj`.
 
 (deftest flow-throw-epoch-shape
   (testing "a flow whose :derive throws aborts the event pre-install: the
             epoch settles with :db-before == :db-after (the pending :db was
             discarded — no handler write and no flow write landed), :outcome
-            is :ok (current intentional behaviour — flow-throw rides
+            is :ok (intentional behaviour — flow-throw rides
             :trace-events, not the outcome slot, sibling to
             handler-exception-settles-ok-never-halted-handler-exception),
             and :trace-events carries a :rf.error/flow-eval-exception entry"
