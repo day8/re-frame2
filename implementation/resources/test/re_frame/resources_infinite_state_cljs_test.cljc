@@ -1,12 +1,11 @@
 (ns re-frame.resources-infinite-state-cljs-test
   "Pure state-transition unit tests for the durable infinite-feed entry
-  refinement (EP-0021 wave 2, Spec 016 §Durable cache shape (R1) / §Causal
-  event — load-more (R2)).
+  refinement (Spec 016 §Durable cache shape (R1) / §Causal event — load-more
+  (R2)).
 
   An infinite feed is the SAME `:rf/resource-entry` whose `:data` is the
   ordered page vector (R1 — no new entry kind). These tests lock the PURE
-  transition fns the wave-3 load-more event will drive from the work-ledger
-  reply path:
+  transition fns the load-more event drives from the work-ledger reply path:
 
     - `empty-infinite-entry` seeds the feed facts (page vector / params /
       cursor / page-error);
@@ -20,15 +19,14 @@
       refetch settle) — incl. the structural-sharing identical-value branch
       and the delegate-to-append-past-tail branch;
     - `refetch-window-count` is the pure R6 multi-page REFRESH-window policy
-      (default page-0-only + the all-pages / windowed opt-ins + clamp edges;
-      rf2-byl7bk.3.3 — replaces the old truncate-the-tail keep-count);
+      (default page-0-only + the all-pages / windowed opt-ins + clamp edges);
     - `refetch-sweep-tail` / `entry-begin-refetch-sweep` /
       `entry-advance-refetch-sweep` / `clear-refetch-sweep` arm + drive the
       ordered multi-page sweep cursor (the pages beyond 0 a windowed/all-pages
       refetch re-fetches in sequence, replacing in place — never truncating);
     - `resolve-page->items` lifts the R3 accessor.
 
-  The load-more EVENT (wave 3) + subs (wave 4) are out of scope."
+  The load-more EVENT + subs are out of scope here."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
             [re-frame.resources.state :as rf.resources.state]))
@@ -360,14 +358,13 @@
                                              :next-page-param-fn next-cursor
                                              :loaded-at 1 :stale-at 2})))))
 
-;; ---- refetch-window-count (R6 — multi-page refresh window, rf2-byl7bk.3.3) --
+;; ---- refetch-window-count (R6 — multi-page refresh window) -----------------
 ;;
 ;; Spec 016 §Refetch defines the opt-ins as a multi-page REFRESH of the
 ;; accumulation IN SEQUENCE (NOT a truncate-the-tail): the default refreshes
 ;; page 0 in place; `:refetch-all-pages?` refreshes EVERY page; `:refetch-window
 ;; n` the first n. The accumulation length is preserved; its contents are
-;; re-fetched. These tests assert the new contract (the prior tests pinned the
-;; truncate-to-page-0 BUG — rf2-byl7bk.3.3).
+;; re-fetched.
 
 (deftest refetch-window-count-empty-feed
   (testing "an empty feed (page-count 0) refreshes 0 pages — nothing to refresh"
@@ -377,7 +374,7 @@
         "window over an empty feed is still 0 (zero-page short-circuits first)")))
 
 (deftest refetch-window-count-default-refreshes-page-0-only
-  (testing "the ruled DEFAULT (no policy / empty policy) refreshes PAGE 0 only —
+  (testing "the DEFAULT (no policy / empty policy) refreshes PAGE 0 only —
             the window-preserving default (replace page 0 in place, keep tail)"
     (is (= 1 (rf.resources.state/refetch-window-count nil 3)))
     (is (= 1 (rf.resources.state/refetch-window-count {} 3)))
