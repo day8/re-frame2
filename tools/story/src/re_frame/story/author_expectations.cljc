@@ -417,7 +417,8 @@
 ;; UI state. `:script` / `:plays` are CHILD-ONLY through `:extends` (context
 ;; flows down, verdict is local — `plan.cljc`), so the form re-declares the
 ;; source's own verbatim: the test replays the story, then checks its end
-;; state (rf2-3x7nj.29.1).
+;; state (rf2-3x7nj.29.1). `:compose` is child-only too (spec/017
+;; §`:compose`), so it rides the same way (rf2-379k7).
 
 (defn merge-assertions
   "Merge `existing` declared assertions with newly `authored` atoms,
@@ -463,6 +464,10 @@
       :plays         optional   or :plays, emitted verbatim: neither is
                                 inherited through :extends, so without them
                                 the new variant runs no interaction at all
+      :compose       optional — the source variant's declared :compose,
+                                emitted verbatim: it is child-only through
+                                :extends too, so without it the new variant
+                                drops the source's composed fragments/checks
       :authored      required — the authored canonical atoms (from
                                 `expectation->atom` over the draft rows)
       :doc           optional — a docstring
@@ -473,12 +478,13 @@
   The output is `read-string`-able EDN that round-trips through the Story
   registrar. The author pastes it into source — source is never written
   directly (same escape hatch as save-variant / recorder / promotion)."
-  [{:keys [variant-id extends existing script plays authored doc alias]
+  [{:keys [variant-id extends existing script plays compose authored doc alias]
     :or   {alias "rf.story"}}]
   (let [merged    (merge-assertions existing authored)
         body-keys (cond-> []
                     doc            (conj [:doc (pr-str doc)])
                     extends        (conj [:extends (pr-str extends)])
+                    (some? compose) (conj [:compose (pr-str compose)])
                     (some? script) (conj [:script (pr-str script)])
                     (some? plays)  (conj [:plays (pr-str plays)])
                     true           (conj [:assertions (pr-assertions-vector merged)])
