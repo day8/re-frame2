@@ -1539,6 +1539,88 @@
                       pushes)
                 "synthetic subscribe-ack server push was logged")))))))
 
+(defn- subscribe-acked?
+  "Did the mock server ack a subscribe for `topic`? It answers every
+   `{:type :subscribe}` frame that reaches the wire with one synthetic push
+   carrying `:note \"subscribed\"`, so the ack in the inbox is proof the
+   subscribe was SENT, not merely recorded."
+  [f topic]
+  (boolean (some (fn [m]
+                   (and (= :push (:type m))
+                        (= topic (:topic m))
+                        (= "subscribed" (:note m))))
+                 (get-in (rf/app-db-value f) [:messages :received]))))
+
+(defn- off-connection-subscribe-survives-test []
+  ;; rf2-3x7nj.41.2 — a :ws/subscribe issued in ANY state but :connected is
+  ;; recorded, never dropped, and the next :connected entry sends it. Before
+  ;; the fix only :active recorded one: :disconnected, :reconnecting and
+  ;; :failed left the event unhandled, so the topic never reached
+  ;; :data :subscriptions and the reconnect never re-issued it — the room a
+  ;; user opened mid-reconnect simply never received a push.
+  (with-sync-mock!
+    (fn []
+      (with-new-frame [f (new-frame)]
+        ;; --- :disconnected: subscribe before the first connect ------------
+        (rf/dispatch-sync [:ws/connection [:ws/subscribe :t/before-connect]]
+                          {:frame f})
+        (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
+          (is (= :disconnected (:state s)))
+          (is (contains? (get-in s [:data :subscriptions]) :t/before-connect)
+              "a subscribe while :disconnected is recorded"))
+        (rf/dispatch-sync [:ws/connection
+                           [:ws/connect {:url "ws://mock" :cred-ref :ws.demo/cred-a}]]
+                          {:frame f})
+        (is (true? (machine-has-tag? f :websocket/connected)))
+        (is (subscribe-acked? f :t/before-connect)
+            "the first :connected entry sent the subscribe recorded while :disconnected")
+        ;; --- :reconnecting: subscribe mid-reconnect -----------------------
+        (messages/simulate-disconnect! (rf/capture-frame f))
+        (is (true? (machine-has-tag? f :websocket/reconnecting)))
+        (rf/dispatch-sync [:ws/connection [:ws/subscribe :t/mid-reconnect]]
+                          {:frame f})
+        (is (contains? (get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
+                               [:data :subscriptions])
+                       :t/mid-reconnect)
+            "a subscribe while :reconnecting is recorded")
+        (fire-after-timer! f)
+        (is (true? (machine-has-tag? f :websocket/connected)))
+        (is (subscribe-acked? f :t/mid-reconnect)
+            "the reconnect's :connected entry sent the subscribe recorded while :reconnecting")
+        ;; --- :failed: subscribe after giving up ---------------------------
+        (drive-to-failed! f)
+        (is (true? (machine-has-tag? f :websocket/failed)))
+        (rf/dispatch-sync [:ws/connection [:ws/subscribe :t/while-failed]]
+                          {:frame f})
+        (is (contains? (get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
+                               [:data :subscriptions])
+                       :t/while-failed)
+            "a subscribe while :failed is recorded")
+        (rf/dispatch-sync [:ws/connection
+                           [:ws/connect {:url "ws://mock" :cred-ref :ws.demo/cred-a}]]
+                          {:frame f})
+        (is (true? (machine-has-tag? f :websocket/connected)))
+        (is (subscribe-acked? f :t/while-failed)
+            "the manual :ws/connect out of :failed sent the subscribe recorded while :failed")))))
+
+(defn- subscribe-transitions-declared-test []
+  ;; rf2-3x7nj.41.2 — structural mirror of the runtime proof above: every
+  ;; state but :connected binds :ws/subscribe to the SAME record-only action,
+  ;; as a self-transition, and :connected keeps its record-and-send.
+  (let [m ws.connection/connection-machine]
+    (doseq [path [[:states :disconnected]
+                  [:states :active]
+                  [:states :reconnecting]
+                  [:states :failed]]]
+      (let [t (get-in m (conj path :on :ws/subscribe))]
+        (is (= :record-subscription (:action t))
+            (str path " records a :ws/subscribe"))
+        (is (nil? (:target t))
+            (str path " :ws/subscribe is a self-transition (no state change)"))))
+    (is (= :register-subscription
+           (:action (get-in m [:states :active :states :connected :on :ws/subscribe])))
+        ":connected records AND sends")))
+
 (defn- handle-message-newest-first-test []
   ;; :ws/handle-message is the dispatch :ws/received uses for pushed
   ;; bodies. The slice keeps them newest-first.
@@ -2031,6 +2113,18 @@
 (deftest websocket-subscription-tracking
   (testing ":data :subscriptions tracking — :ws/subscribe records the topic"
     (subscription-tracking-test)))
+
+(deftest websocket-off-connection-subscribe-survives
+  (testing "rf2-3x7nj.41.2 — a :ws/subscribe issued while :disconnected,
+            :reconnecting or :failed is recorded, not dropped, and the next
+            :connected entry sends it"
+    (off-connection-subscribe-survives-test)))
+
+(deftest websocket-subscribe-transitions-declared
+  (testing "rf2-3x7nj.41.2 — :disconnected, :active, :reconnecting and :failed
+            bind :ws/subscribe to the record-only action; :connected keeps
+            record-and-send"
+    (subscribe-transitions-declared-test)))
 
 (deftest websocket-handle-message-newest-first
   (testing ":ws/handle-message keeps the [:messages :received] log newest-first"

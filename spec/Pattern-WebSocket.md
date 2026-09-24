@@ -55,7 +55,7 @@ The canonical states form a hierarchical machine. `:connecting`, `:authenticatin
 :failed                 --:ws/disconnect-->      :disconnected
 ```
 
-`:reconnecting` and `:failed` are siblings of `:active`, not leaves inside it, so neither inherits `:active`'s doors — each carries its own `:ws/disconnect`, and its own `:ws/send` / `:ws/request` enqueue transitions, or the offline queue would have a hole in exactly the two states a user is most likely to be sitting in.
+`:reconnecting` and `:failed` are siblings of `:active`, not leaves inside it, so neither inherits `:active`'s doors — each carries its own `:ws/disconnect`, its own `:ws/send` / `:ws/request` enqueue transitions and its own record-only `:ws/subscribe`, or the offline queue and the subscription set would have a hole in exactly the two states a user is most likely to be sitting in.
 
 Per [005 §Transition resolution — deepest-wins with parent fallthrough](005-StateMachines.md#transition-resolution--deepest-wins-with-parent-fallthrough), the doors *out* of `:active` — the `:ws/closed` drop, the `:ws/fatal` escape hatch, and the clean `:ws/disconnect` — are declared on `:active` once and inherited by every leaf, so every `:connecting`, `:authenticating`, and `:connected` exit path routes through the same parent-level transition. Each of those doors destroys the socket actor, so **each of them also settles the `:in-flight` request set on the way out** — see §Message correlation for request-reply, item 5.
 
@@ -302,6 +302,16 @@ The connection machine composes the locked substrate:
     (fn [{:keys [data] event :event}]
       {:data (update data :queue conj event)})
 
+    :record-subscription
+    ;; Off connection there's no socket to send a subscribe on, so just note
+    ;; the topic: the next :connected entry's :on-connected re-issues every
+    ;; tracked topic. Bound on :active and on :disconnected, :reconnecting
+    ;; and :failed, so a subscribe issued while the socket is down is kept
+    ;; rather than dropped as an unhandled event; :connected records AND
+    ;; sends instead (see §Subscription protocol).
+    (fn [{:keys [data] [_ topic] :event}]
+      {:data (update data :subscriptions conj topic)})
+
     :reset-retries
     ;; A clean :ws/disconnect out of :reconnecting or :failed is the user
     ;; saying "stop trying", not a connection failure — so the retry counter
@@ -398,7 +408,8 @@ The connection machine composes the locked substrate:
     {:on {:ws/connect {:target [:active]
                        :action :record-connection-opts}
           :ws/send    {:action :enqueue-message}
-          :ws/request {:action :enqueue-message}}}
+          :ws/request {:action :enqueue-message}
+          :ws/subscribe {:action :record-subscription}}}
 
     :active
     {;; The socket actor is invoked at the parent level — its lifetime
@@ -456,7 +467,10 @@ The connection machine composes the locked substrate:
              ;; queued like any other send (the whole event is buffered, so
              ;; its :request-id survives); the :connected leaf overrides
              ;; below.
-             :ws/request  {:action :enqueue-message}}
+             :ws/request  {:action :enqueue-message}
+             ;; A subscribe before we're :connected is recorded; the next
+             ;; :connected entry sends it (§Subscription protocol).
+             :ws/subscribe {:action :record-subscription}}
 
      :initial :connecting
 
@@ -563,6 +577,7 @@ The connection machine composes the locked substrate:
                            :action :record-and-reset}
               :ws/send    {:action :enqueue-message}
               :ws/request {:action :enqueue-message}
+              :ws/subscribe {:action :record-subscription}
               :ws/rotate-cred {:action :rotate-cred}
               ;; The user giving up while we back off. Without this the
               ;; Disconnect affordance is dead during :reconnecting, which
@@ -580,10 +595,13 @@ The connection machine composes the locked substrate:
     ;; :flush-queue drains whatever was buffered here. Without these, a send
     ;; in :failed is unhandled and silently dropped: user-visible message
     ;; loss, through the one door a user is most likely to be standing in.
+    ;; A :ws/subscribe is kept on the same terms: recorded, and sent by the
+    ;; next :connected entry.
     {:on {:ws/connect     {:target [:active]
                            :action :record-and-reset}
           :ws/send        {:action :enqueue-message}
           :ws/request     {:action :enqueue-message}
+          :ws/subscribe   {:action :record-subscription}
           :ws/rotate-cred {:action :rotate-cred}
           :ws/disconnect  {:target :disconnected
                            :action :reset-retries}}}}})
@@ -620,7 +638,7 @@ To subscribe / unsubscribe at runtime, the running app dispatches sub/unsub even
             :fx   [[:dispatch [(socket-id data) [:send {:type :subscribe :topic topic}]]]]})}
 ```
 
-(Wire the slot into `:connected`'s `:on` map alongside `:ws/received` and `:ws/send`.) The exact subscribe-message wire format is application-specific; the pattern is "track in `:data`, re-issue on `:connected` entry."
+(Wire this record-and-send slot into `:connected`'s `:on` map alongside `:ws/received` and `:ws/send`. Every other state records only: `:active` and its three siblings `:disconnected`, `:reconnecting` and `:failed` bind `:ws/subscribe` to the worked example's `:record-subscription`, so a subscribe issued while the socket is down lands in `:subscriptions` and the next `:connected` entry sends it. Wire `:connected` alone and a subscribe dispatched mid-reconnect — or straight after `:ws/connect`, while still `:connecting` — is an unhandled event, and the topic is silently lost.) The exact subscribe-message wire format is application-specific; the pattern is "track in `:data`, re-issue on `:connected` entry."
 
 ### Message correlation for request-reply
 

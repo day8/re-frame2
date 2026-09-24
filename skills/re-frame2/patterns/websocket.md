@@ -234,7 +234,7 @@ The `:connected` `:ws/received` transition vets the frame first — connection e
 
 **Heartbeat / keepalive.** `:after` on `:connected` re-arms a periodic ping; a missed pong transitions to `:reconnecting`. Non-trivial cases use a child heartbeat machine.
 
-**Subscription protocol.** Topics live in `:data :subscriptions`. `:on-connected` re-issues subscribes on entry — subscriptions survive reconnects automatically.
+**Subscription protocol.** Topics live in `:data :subscriptions`. `:on-connected` re-issues subscribes on entry — subscriptions survive reconnects automatically. `:ws/subscribe` records and sends on `:connected`, and **records only everywhere else** — bind the record-only action on `:active` AND on `:disconnected`, `:reconnecting` and `:failed`, which sit outside `:active` and inherit nothing from it. Wire `:connected` alone and a subscribe issued mid-reconnect is an unhandled event: the topic never reaches `:subscriptions`, so the reconnect never re-issues it.
 
 **Re-authentication on reconnect.** *Proactive*: auth machine refreshes the bearer (storing it host-side), then dispatches `[:ws/connection [:ws/rotate-cred new-cred-ref]]` carrying only the opaque ref — the bearer itself does not cross the dispatch boundary. Next `:active` entry's `:spawn :data` fn picks up the fresh ref and the new socket re-resolves it at its own auth write. *Reactive*: reconnect into `:authenticating` fails with `:ws/auth-failed`, lands in `:failed`; auth machine observes via the `:rf/machine` sub, refreshes, dispatches a fresh `:ws/connect` carrying the new `:cred-ref`. Either way, no bearer in machine `:data`, no bearer in dispatch payloads.
 
