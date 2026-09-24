@@ -98,10 +98,9 @@
 
 (deftest documented-overrides-are-not-reconstructed-test
   (testing "the extractor reads whole tokens from the document, repository half included"
-    ;; Guards the regression this suite was rebuilt around: the previous
-    ;; helper matched only a `%…` suffix and prepended the expected repository
-    ;; half, so a documented token with a wrong half could never fail. Feeding
-    ;; the extractor a wrong half must surface that half verbatim.
+    ;; An extractor that matched only a `%…` suffix and prepended the expected
+    ;; repository half would let a documented token with a wrong half never
+    ;; fail. Feeding the extractor a wrong half must surface that half verbatim.
     (let [wrong "io.github.day8/wrong-repo%io.github.day8/re-frame2-template"]
       (is (= [wrong] (documented-override-tokens (str "prose " wrong " prose")))
           "extraction must return the token as written, not a repaired one"))))
@@ -208,7 +207,7 @@
     (testing "the three-component deps-root grammar is named distinctly"
       (is (str/includes? text "`repo%deps-root%template-sym`")
           "the optional deps-root grammar must be named so the fields cannot be confused"))
-    (testing "the mislabel repo%root%template-sym does not return"
+    (testing "the mislabel repo%root%template-sym is absent"
       (is (not (str/includes? text "repo%root%template-sym"))
           "repo%root%template-sym conflates the two-component form with the
            three-component deps-root form — deps-new's two-component grammar has
