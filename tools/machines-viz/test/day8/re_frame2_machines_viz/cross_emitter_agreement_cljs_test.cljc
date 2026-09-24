@@ -699,7 +699,7 @@
                  {:type    :parallel
                   :regions {:r {:initial :a :timeout secret :on-timeout :a :states {:a {}}}}}]]
         (let [{:keys [message] :as r} (refusal f d)]
-          (is (= id (:rf.error/id r)) (str label ": the surface error id is unchanged"))
+          (is (= id (:rf.error/id r)) (str label ": carries its surface error id"))
           (is (str/includes? (str message) ":rf.error/machine-bad-timeout-duration at depth 1")
               (str label ": the message names the timeout defect"))
           (is (not (str/includes? (str message) ":initial"))
@@ -711,7 +711,7 @@
               d [{:initial :a :states {} :data {:token secret}}
                  {:type :parallel :regions {}}]]
         (let [{:keys [message] :as r} (refusal f d)]
-          (is (= id (:rf.error/id r)) (str label ": the surface error id is unchanged"))
+          (is (= id (:rf.error/id r)) (str label ": carries its surface error id"))
           (is (str/includes? (str message) ":states")
               (str label ": the message names the missing shape"))
           (is (not (str/includes? (str message) secret))
