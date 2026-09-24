@@ -1,23 +1,23 @@
 (ns re-frame.ssr-error-two-frame-attribution-test
-  "Per rf2-7d30s — the two-server-frame error-attribution regression.
+  "The two-server-frame error-attribution contract.
 
   Context. `re-frame.ssr.error-listener/candidate-frame-for-error`
   routes an error trace to a response accumulator by the frame named in
-  the trace's `[:tags :frame]`. It USED to carry a fallback: when the
-  trace lacked `:frame`, it guessed `the single active server frame if
-  exactly one exists`. Under concurrent SSR there are MANY simultaneous
-  server frames (the canonical request shape — see ssr-ring's
-  `concurrency_stress_test`), so the fallback silently returned nil with
-  >1 frame live: no projector ran, the public-error `:status` was never
-  stamped, and the response defaulted to 200 for a request that should
-  have been a 4xx. The single-frame fallback ALSO masked this in every
-  existing test, since each test ran exactly one frame.
+  the trace's `[:tags :frame]`, and never guesses. A fallback that, for a
+  trace lacking `:frame`, chose `the single active server frame if
+  exactly one exists` would fail under concurrent SSR, where there are
+  MANY simultaneous server frames (the canonical request shape — see
+  ssr-ring's `concurrency_stress_test`): with >1 frame live it would
+  return nil, no projector would run, the public-error `:status` would
+  never be stamped, and the response would default to 200 for a request
+  that should be a 4xx. A single-frame test cannot see that, because the
+  guess succeeds with exactly one frame.
 
-  The fix (rf2-7d30s) stamps `[:tags :frame]` at every error-emit site
+  So `[:tags :frame]` is stamped at every error-emit site
   reachable inside a server-frame drain (here: the navigate-reject
   `:rf.error/schema-validation-failure` at routing/navigate.cljc, which
-  the in-flight cascade's `:frame` cofx attributes), THEN removes the
-  fallback so an unroutable trace no-ops EXPLICITLY rather than guessing.
+  the in-flight cascade's `:frame` cofx attributes), and an unroutable
+  trace no-ops EXPLICITLY rather than guessing.
 
   This suite drives the canonical concurrent shape — TWO live server
   frames — and proves:
@@ -25,13 +25,13 @@
     1. A navigate-reject in ONE frame stamps the projected 4xx on THAT
        frame's response accumulator only; the sibling stays clean. With
        >1 server frame live this can only succeed if the trace carries
-       the emitting frame's `:frame` (the removed fallback would have
-       returned nil and stamped nothing).
+       the emitting frame's `:frame` (a single-frame fallback would
+       return nil and stamp nothing).
 
     2. The emitted error trace carries `[:tags :frame]` = the emitting
        frame — the precondition `re-frame.epoch.capture/capture-event!`
        gates on (capture.cljc skips frame-less traces), so the violation
-       is now visible in the emitting frame's epoch / Xray rather than
+       is visible in the emitting frame's epoch / Xray rather than
        silently dropped. Asserted at the trace-tag level so the suite
        does not pull the epoch artefact onto the ssr test classpath.
 
@@ -41,10 +41,10 @@
     - `re-frame.ssr-error-projector-substrate-test` — the always-on
       error-emit substrate install under production hardening.
     - `re-frame.ssr.ring.concurrency-stress-test` — the live-host
-      concurrent-frame stress shape this regression's two-frame setup
+      concurrent-frame stress shape this suite's two-frame setup
       mirrors at the unit level.
 
-  ## Posture split (rf2-lwtlk)
+  ## Posture split
 
   Tests (1)-(3) drive the attribution contract through ONE trigger — the
   navigate-reject — and that trigger does not exist in a production build.
@@ -52,11 +52,11 @@
   `validate-*!` body returns `true` unconditionally under
   `-Dre-frame.debug=false` (Spec 010 §Production builds), so no reject
   fires, no `:rf.error/schema-validation-failure` is emitted, and the
-  responses stay 200. They are kept VERBATIM inside
+  responses stay 200. They run inside
   `(when interop/debug-enabled? …)` arms. Test (3) is doubly dev-scoped:
   it reads the DEV trace bus and its subject is epoch / Xray capture.
 
-  GUARDING THEM ALONE WOULD HAVE BEEN A FALSE GREEN. Per-frame error
+  GUARDING THEM ALONE WOULD BE A FALSE GREEN. Per-frame error
   attribution is not a dev contract — it is the invariant that stops one
   concurrent request's failure stamping another's response, and it is
   worth most on a production server. So test (4) pins the SAME contract
@@ -64,7 +64,7 @@
   `:rf.error/handler-exception` rides the always-on axis through
   `dispatch-on-error!` and is routed by `error-emit-projection-listener`'s
   own `(:frame record)` attribution — a DIFFERENT code path from the dev
-  listener's `candidate-frame-for-error`, and one nothing else pinned with
+  listener's `candidate-frame-for-error`, and one nothing else pins with
   a sibling server frame live."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
@@ -85,7 +85,7 @@
 
 (defn- with-stub-validator []
   (let [snap     (rf.schemas/schema-fns)
-        ;; rf2-ps05ug: the stub is process-global, so while installed EVERY
+        ;; The stub is process-global, so while installed EVERY
         ;; schema-validating boundary uses it — including the routing
         ;; recordable allocation cofx, whose `:schema` is a real Malli VECTOR
         ;; (`[:map [:token :string] [:counter :int]]`). A Malli vector is not
@@ -129,7 +129,7 @@
   ;; these tests compare trace `[:tags :frame]` stamps and read the
   ;; per-frame response accumulator by id. Both are
   ;; `:platform :server` so `error-projector/server-frame?` recognises
-  ;; them as the live server frames the (removed) fallback enumerated.
+  ;; them as live server frames.
   (rf/make-frame {:id frame-id :platform :server
                   :ssr      {:public-error-id   :rf.ssr/default-error-projector
                              :dev-error-detail? false}})
@@ -141,14 +141,13 @@
 ;; ===========================================================================
 
 (deftest two-server-frames-navigate-reject-stamps-only-the-emitting-frame
-  (testing "rf2-7d30s: with TWO live server frames, a navigate-reject
+  (testing "with TWO live server frames, a navigate-reject
             (`:rf.error/schema-validation-failure :where :event`) in
             frame-a stamps the default projector's 400 on frame-a's
             response accumulator ONLY — frame-b is untouched. Proves the
-            `:frame` stamp routes per-frame and the removed single-frame
-            fallback does not regress (the fallback returned nil with >1
-            server frame, stamping nothing)."
-    ;; rf2-lwtlk — DEV ARM. The navigate-reject trigger is production-elided
+            `:frame` stamp routes per-frame (a single-frame fallback would
+            return nil with >1 server frame, stamping nothing)."
+    ;; DEV ARM. The navigate-reject trigger is production-elided
     ;; (Spec 010 §Production builds): under the gate the params validate
     ;; vacuously, nothing is rejected, and both frames would sit at 200. The
     ;; production-posture pin for this same contract is test (4).
@@ -159,7 +158,7 @@
           (let [fa (make-server-frame frame-a)
                 fb (make-server-frame frame-b)]
             ;; BOTH frames are live + registered server frames — the exact
-            ;; >1-server-frame shape the removed fallback could not handle.
+            ;; >1-server-frame shape a single-frame fallback could not handle.
             ;; Caller bug routed to frame-a only: `:id "zoo"` fails the
             ;; route's `:params` predicate → reject → schema-validation-failure.
             (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "zoo"}}]
@@ -172,8 +171,8 @@
             (is (= 200 (:status (rf.ssr/get-response fb)))
                 "frame-b's response stays at the default 200 (Spec 011
                  §Status defaults) — the error did not bleed onto the
-                 sibling. The removed single-frame fallback would have
-                 no-op'd with >1 server frame, masking the per-frame
+                 sibling. A single-frame fallback would no-op with >1
+                 server frame, masking the per-frame
                  contract this asserts."))
           (finally (restore)))))))
 
@@ -183,11 +182,11 @@
 ;; ===========================================================================
 
 (deftest two-server-frames-navigate-reject-attributes-each-frame-independently
-  (testing "rf2-7d30s: a reject in frame-b stamps frame-b's 400 while
+  (testing "a reject in frame-b stamps frame-b's 400 while
             frame-a stays clean — the mirror of test (1), proving
             attribution follows the EMITTING frame in both directions
             (not a fixed/first-registered server frame)."
-    ;; rf2-lwtlk — DEV ARM, same reason as test (1). Test (4) mirrors this
+    ;; DEV ARM, same reason as test (1). Test (4) mirrors this
     ;; symmetry check on the always-on axis.
     (when rf.interop/debug-enabled?
       (let [restore (with-stub-validator)]
@@ -204,22 +203,22 @@
           (finally (restore)))))))
 
 ;; ===========================================================================
-;; (3) Epoch-visibility precondition — the navigate-reject trace now carries
+;; (3) Epoch-visibility precondition — the navigate-reject trace carries
 ;;     `[:tags :frame]`, the key `re-frame.epoch.capture/capture-event!`
 ;;     gates on. Without it the violation is invisible to epoch / Xray.
 ;; ===========================================================================
 
 (deftest navigate-reject-trace-carries-frame-for-epoch-capture
-  (testing "rf2-7d30s: the navigate-reject `:rf.error/schema-validation-
+  (testing "the navigate-reject `:rf.error/schema-validation-
             failure` trace carries `[:tags :frame]` = the emitting frame.
             `re-frame.epoch.capture/capture-event!` buffers a trace into
             the in-flight cascade ONLY when its tags carry the cascade's
-            `:frame`; pre-fix this trace was unframed and silently dropped
+            `:frame`; an unframed trace would be silently dropped
             from the per-frame epoch record (and so invisible to the Xray
             Issues / Schema-timeline lens). Asserted at the trace-tag
             level so this suite does not pull the epoch artefact onto the
             ssr test classpath."
-    ;; rf2-lwtlk — DEV ARM, doubly so: the trigger is production-elided AND
+    ;; DEV ARM, doubly so: the trigger is production-elided AND
     ;; the assertions read the DEV trace bus, whose subject here (epoch /
     ;; Xray capture) is dev tooling. Nothing about this test has a
     ;; production counterpart, and that is correct rather than a gap.
@@ -248,7 +247,7 @@
           (finally (restore)))))))
 
 ;; ===========================================================================
-;; (4) THE PRODUCTION-POSTURE PIN (rf2-lwtlk). The same per-frame
+;; (4) THE PRODUCTION-POSTURE PIN. The same per-frame
 ;;     attribution contract, driven by a trigger that survives
 ;;     `-Dre-frame.debug=false`: a handler that throws. Its
 ;;     `:rf.error/handler-exception` rides the always-on axis via
@@ -259,7 +258,7 @@
 ;; ===========================================================================
 
 (deftest always-on-handler-exception-attributes-each-frame-independently
-  (testing "rf2-7d30s / rf2-lwtlk: with TWO live server frames, a throwing
+  (testing "with TWO live server frames, a throwing
             handler dispatched to frame-a projects 500 on frame-a's
             response ONLY — frame-b keeps its default 200 — and the mirror
             holds when frame-b is the one that throws. This is the
