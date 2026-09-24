@@ -28,8 +28,8 @@
     <path>]` is RESERVED, not shipped — declaring one is a loud
     registration error (route-derived scope un-defers only when an in-repo
     consumer carries a principal in a path segment and needs named-resolver
-    scope at a non-route site, per Spec 016 §Route-derived scope is
-    reserved).
+    scope at ANY site, a route entry included, per Spec 016 §Route-derived
+    scope is reserved).
   - The resolver (the third, value slot) — `(fn [inputs ctx] -> scope | nil)`.
     PURE. **The first arg is ALWAYS the resolved input map** — this is the one
     stable, Name-over-place meaning across every registration.
@@ -177,8 +177,8 @@
                     " — it is named in the input vocabulary but NOT "
                     "shipped. Route-derived scope (`[:runtime <path>]`) "
                     "un-defers only for a consumer that carries a principal "
-                    "in a path segment and needs named-resolver scope at a "
-                    "non-route site. Use a `[:db <rf-path>]` source: viewer "
+                    "in a path segment and needs named-resolver scope at any "
+                    "site, a route entry included. Use a `[:db <rf-path>]` source: viewer "
                     "identity that is app state is db-derived. Per Spec 016 "
                     "§Route-derived scope is reserved.")
                {:scope-id scope-id :input input-name :source head}))
