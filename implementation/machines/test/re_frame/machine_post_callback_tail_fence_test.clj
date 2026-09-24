@@ -1,23 +1,23 @@
 (ns re-frame.machine-post-callback-tail-fence-test
-  "rf2-hloj0g — fence machine SPAWN and FINALIZATION tails after EVERY
+  "Fence machine SPAWN and FINALIZATION tails after EVERY
   callback boundary.
 
-  #5856 (rf2-3evq0x) fenced the spawn cascade before install and the
-  completion tail before teardown, but framework-owned tails still crossed
-  LATER callback boundaries the earlier fences ran ahead of:
+  A fence on the spawn cascade before install and on the completion tail
+  before teardown is not enough: framework-owned tails cross LATER callback
+  boundaries too:
 
     - Spawn: the `:rf.machine.lifecycle/spawned` trace is callback-bearing
       and fires AFTER install / classification / spawn-order, so a listener
       that destroys A + publishes same-id B must not let the `:start`
       bootstrap dispatch reach B.
     - Finalization: after the top-level completion fence, the teardown tail
-      ran the `:rf.machine/destroyed` trace and the late-bound HTTP abort
+      runs the `:rf.machine/destroyed` trace and the late-bound HTTP abort
       hook, and then HTTP/timer cancellation, classification/spawn-order
-      drop, registrar unregister, and `:on-error` dispatch with NO fresh
-      fence between them. A listener / late-abort hook that published same-id
-      B let A's tail mutate B.
+      drop, registrar unregister, and `:on-error` dispatch. With NO fresh
+      fence between them, a listener / late-abort hook that published same-id
+      B would let A's tail mutate B.
 
-  The ruled policy (rf2-3evq0x, extended here): already-entered authored
+  The policy: already-entered authored
   callbacks may unwind, but loss of exact-incarnation ownership is a TERMINAL
   fence for EVERY subsequent framework-owned action, rechecked after each
   callback-bearing trace or hook. These fixtures drive the tails DIRECTLY
@@ -106,8 +106,8 @@
           (rf.late-bind/set-fn! :router/dispatch! orig-dispatch!))))))
 
 (deftest lifecycle-spawned-loss-fences-start
-  (testing "control (regression guard for the existing post-lifecycle-spawned
-            fence): a :rf.machine.lifecycle/spawned listener that destroys A +
+  (testing "control (the post-lifecycle-spawned fence): a
+            :rf.machine.lifecycle/spawned listener that destroys A +
             publishes same-id B fires AFTER install / classification /
             spawn-order (all against live A), so only the :start dispatch is
             fenced — B receives no bootstrap dispatch."
@@ -210,7 +210,7 @@
           nil)))
     (try
       (when (= trigger :http-abort)
-        ;; rf2-wjfm — the cascade calls the hook's frame-bearing arity.
+        ;; The cascade calls the hook's frame-bearing arity.
         (rf.late-bind/set-fn! :http/abort-on-actor-destroy
                            (fn [_frame-id _actor-id] (destroy+B!) nil)))
       (let [ret (rf.frame/call-with-event-owner-token frame-a token-a
