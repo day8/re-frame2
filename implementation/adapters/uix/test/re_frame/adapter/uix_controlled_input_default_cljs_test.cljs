@@ -1,20 +1,20 @@
 (ns re-frame.adapter.uix-controlled-input-default-cljs-test
   "The UIx adapter's controlled-input implementation is React's own, and it
-  is NOT selected by what else is on the classpath (rf2-heqwo).
+  is NOT selected by what else is on the classpath.
 
   `uix.compiler.aot/create-uix-input` picks, per `:input` element and at
   element-creation time, between plain React and a port of Reagent's
   controlled-input workaround. Left unset,
   `uix.compiler.input/*use-reagent-input-enabled?*` makes that choice by
   asking whether `reagent.impl.util/*non-reactive*` happens to EXIST — so
-  adding the Reagent adapter beside UIx silently changed how the UIx app's
-  `<input>` elements behave. `re-frame.adapter.uix` now `set!`s the var at
+  adding the Reagent adapter beside UIx would silently change how the UIx
+  app's `<input>` elements behave. `re-frame.adapter.uix` `set!`s the var at
   load, so the answer is the adapter's, not the bundle's.
 
   The two implementations are materially different products, measured in
   real Chromium against react-dom 19.2.0 in
-  `docs/design/fresco/studio/controlled-input-two-implementations.md`
-  (rf2-n3dxw): React keeps the element controlled and converges inside the
+  `docs/design/fresco/studio/controlled-input-two-implementations.md`:
+  React keeps the element controlled and converges inside the
   discrete event; the port makes it uncontrolled and converges one
   `requestAnimationFrame` later. Those DOM-level differences are witnessed
   there, in the browser lane. What THIS namespace pins is narrower and is
@@ -61,7 +61,7 @@
 
 (deftest the-pin-is-load-bearing-in-a-bundle-that-carries-reagent
   (testing "clear the pin and this bundle's contents choose instead — which
-           is the accident rf2-heqwo removes, and the reason this assertion
+           is the accident the pin prevents, and the reason this assertion
            is not vacuous"
     (with-cleared-pin
       (fn []
@@ -79,7 +79,7 @@
         "and the pin is back after the probe")))
 
 (deftest the-port-remains-reachable-explicitly
-  (testing "the ruling makes React the DEFAULT, not the only option: the var
+  (testing "the adapter makes React the DEFAULT, not the only option: the var
            stays public and dynamic, so a consumer who genuinely wants
            Reagent's port asks for it by name"
     (set! uix.compiler.input/*use-reagent-input-enabled?* true)
