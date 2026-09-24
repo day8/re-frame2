@@ -22,6 +22,7 @@
   does not throw on `(inc nil)`, so the serialiser throws EXPLICITLY via the
   canonical builder — the ids and ex-data are identical on both hosts."
   (:require [clojure.test :refer [deftest is testing]]
+            [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
             [re-frame.ssr.ui-tree :as rf.ssr.ui-tree]
             [re-frame.ssr :as rf.ssr]))
 
@@ -239,6 +240,43 @@
     (is (= "<div data-fooBar=\"1\"></div>"
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div :attrs {:data-fooBar "1"}}))))))
 
+(defn- caught-error
+  "Run `f`; return `[error-id message]` for whatever it throws, or
+  `[::emitted output]` when it returns, so a failure shows the markup."
+  [f]
+  (try
+    [::emitted (f)]
+    (catch #?(:clj Throwable :cljs :default) e
+      [(:rf.error/id (ex-data e)) (ex-message e)])))
+
+(deftest attribute-names-are-gated-like-the-hiccup-tier
+  ;; `escape-html` covers attribute VALUES only, so a name is written into
+  ;; the tag as it stands. Each key below breaks out of the tag when written
+  ;; unchecked: the first ends in a live `onmouseover` handler, the second
+  ;; closes the tag and opens an `<img>` whose `onerror` runs, and the third
+  ;; shows the `data-*` pass-through is a naming rule, not an exemption.
+  (doseq [attribute-key [(keyword "title\" onmouseover=\"alert(1)")
+                         (keyword "x><img src=x onerror=alert(1) z")
+                         (keyword "data-a><b")]]
+    (let [tree-error   (caught-error
+                         #(rf.ssr.ui-tree/emit-ui-tree
+                            (v1 {:tag :div :attrs {attribute-key "v"}})))
+          hiccup-error (caught-error
+                         #(rf.ssr.html-helpers/attr-string {attribute-key "v"}))]
+      (testing (str "the hiccup tier refuses " (pr-str (name attribute-key)))
+        (is (= :rf.error/ssr-invalid-attribute-name (first hiccup-error))
+            "parity control: the hiccup tier's own gate fires on this name"))
+      (testing (str "emit-ui-tree refuses " (pr-str (name attribute-key)))
+        (is (= :rf.error/ssr-invalid-attribute-name (first tree-error))
+            (str "the name must be refused, not written into the markup; got "
+                 (pr-str tree-error)))
+        (is (= hiccup-error tree-error)
+            "the same id and the same message as the hiccup tier"))))
+  (testing "control: a grammar-legal name still emits"
+    (is (= "<div data-ok=\"v\" title=\"t\"></div>"
+           (rf.ssr.ui-tree/emit-ui-tree
+             (v1 {:tag :div :attrs {:data-ok "v" :title "t"}}))))))
+
 (deftest emits-boolean-classes
   (testing "boolean attr: true -> presence, false -> omitted"
     (is (= "<input disabled=\"\">"
@@ -265,6 +303,27 @@
   (is (= "<br>" (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :br}))))
   (is (= "<img src=\"a.png\">"
          (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :img :attrs {:src "a.png"}})))))
+
+(deftest void-element-children-are-refused
+  ;; react-dom/server throws for children on a void element; a serialiser
+  ;; that self-closes the tag and drops them would hide a malformed tree.
+  (testing "a text child on <br> fails loud at the element"
+    (let [d (caught-ex-data
+              #(rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :br :children ["lost"]})))]
+      (is (= :rf.error/ui-tree-malformed (:rf.error/id d))
+          (str "void children must be refused, not dropped; got " (pr-str d)))
+      (is (= [] (:path d)) "locates the void element")
+      (is (= ["lost"] (:value d)) "carries the refused children")))
+  (testing "a nested void element with an element child"
+    (let [d (caught-ex-data
+              #(rf.ssr.ui-tree/emit-ui-tree
+                 (v1 {:tag :div
+                      :children [{:tag :img :attrs {:src "a.png"}
+                                  :children [{:tag :span :children ["x"]}]}]})))]
+      (is (= :rf.error/ui-tree-malformed (:rf.error/id d)))
+      (is (= [:children 0] (:path d)))))
+  (testing "control: an EMPTY children vector is no children"
+    (is (= "<br>" (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :br :children []}))))))
 
 (deftest drops-events-and-keys
   (testing "events never serialise into HTML; :key has no HTML presence"

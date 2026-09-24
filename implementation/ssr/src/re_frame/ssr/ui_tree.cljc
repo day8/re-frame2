@@ -709,11 +709,20 @@
 (defn- attrs->string
   "Render an element's `:attrs` as ` name=\"value\"` fragments (leading
   space when non-empty; empty string otherwise). Presence attributes emit
-  `name=\"\"`. Values are `escape-html`-escaped."
+  `name=\"\"`. Values are `escape-html`-escaped.
+
+  Every emitted NAME passes `rf.ssr.html-helpers/validate-attr-name!`, the
+  gate and the `:rf.error/ssr-invalid-attribute-name` error the hiccup tier
+  applies, because a name is written into the tag unescaped: a
+  caller-supplied key carrying `\"`, `>`, `=` or whitespace would otherwise
+  break out of the tag (spec/011 treats attribute keys as untrusted). The
+  gate reads the name as written, after the conversion table; a
+  `data-*`/`aria-*` name passes through verbatim and is checked like any
+  other."
   [attrs property-props]
   (let [rendered (map (fn [[attribute-name attribute-value]]
-                         (str " " attribute-name "=\""
-                              (escape-html attribute-value) "\""))
+                         (str " " (rf.ssr.html-helpers/validate-attr-name! attribute-name)
+                              "=\"" (escape-html attribute-value) "\""))
                        (element-attr-pairs attrs property-props))]
     (str/join rendered)))
 
@@ -939,7 +948,16 @@
     (when textarea?
       (reject-textarea-content! textarea-value (:children element) path))
     (cond
-      void?          (str open-tag ">")
+      ;; A void element takes no children: react-dom/server throws for them,
+      ;; and self-closing the tag would drop them without a word.
+      void?          (if (seq (:children element))
+                       (malformed-node!
+                         (str "a <" tag-name "> is a void element and takes no "
+                              "children — react-dom/server 19.2 throws for children "
+                              "on a void element: "
+                              (rf.error/pr-form (:children element)))
+                         path {:value (:children element)})
+                       (str open-tag ">"))
       ;; <script>/<style> content is HTML raw text: emit it
       ;; unescaped (only the closing-sequence escape), matching react-dom/server.
       ;; But honor a sole `{:html s}` child (the trusted-markup
@@ -1079,7 +1097,8 @@
   `:rf.ui/tree-version` FIRST — a missing / non-integer / unsupported
   version throws `:rf.error/ssr-ui-tree-version-unsupported` with `{:got …
   :supported #{1}}` BEFORE any emission; a malformed node past the gate
-  throws the shared `:rf.error/ui-tree-malformed`.
+  throws the shared `:rf.error/ui-tree-malformed`, and an attribute name
+  outside the HTML5 grammar throws `:rf.error/ssr-invalid-attribute-name`.
 
   Calls NOTHING — no view, no subscription, no frame. Pure, deterministic
   to the byte, JVM-runnable. `opts` carries a single option,
