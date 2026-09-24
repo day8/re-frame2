@@ -1,5 +1,5 @@
 (ns re-frame.spawn-carrier-currency-cljs-test
-  "rf2-3x7nj.9.3 / rf2-3x7nj.8.2 — a single-`:spawn` completion carrier is
+  "A single-`:spawn` completion carrier is
   delivered only while the SAME spawn attempt is current.
 
   A child's completion carrier (`[:rf.machine.spawn/done …]`, or
@@ -8,9 +8,10 @@
   state, or leave and re-enter it with a fresh child, before the carrier
   arrives. Such a carrier is stale (Spec 005 §Stale suppression): no `:on-done`
   fold, no `:on-error`, no ancestor / root `:on` for its event, and one
-  `:rf.machine.spawn/stale-completion` trace. Before the fix the done carrier
-  folded into whichever attempt was current and the error carrier fired
-  `:on-error` against the re-entered attempt, destroying its healthy child.
+  `:rf.machine.spawn/stale-completion` trace. Delivered anyway, the done
+  carrier would fold into whichever attempt is current and the error carrier
+  would fire `:on-error` against the re-entered attempt, destroying its
+  healthy child.
 
   Every row is producer-derived: one plain handler queues the child's
   finishing event and then the parent's own events, so the runtime mints the
@@ -213,7 +214,7 @@
     (is (empty? (stale-traces)))))
 
 (deftest error-carrier-behind-a-retry-does-not-undo-it
-  (testing "rf2-3x7nj.8.2: a :retry queued ahead of child#1's failure re-enters
+  (testing "a :retry queued ahead of child#1's failure re-enters
             :working; the stale failure must not fire :on-error against the
             new attempt or destroy child#2"
     (reg-kick!)
@@ -290,7 +291,7 @@
     (is (= ["first"] (get-in (snapshot :sca0/parent) [:data :results])))
     (is (empty? (stale-traces))))
   (testing "control: behind a :cancel the :spawn-all carrier is dropped by the
-            join's own exact-attempt fence, as before"
+            join's own exact-attempt fence"
     (reg-child! :sca1/child)
     (reg-spawn-all-parent! :sca1/parent :sca1/child)
     (rf/dispatch-sync [:sca1/parent [:start]])
