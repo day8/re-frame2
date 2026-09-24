@@ -1,26 +1,26 @@
 (ns re-frame.security.validation-redaction-invariant-security-cljs-test
   "Class-invariant security tier — uniform `:sensitive?` redaction across
-  EVERY framework-side validation-failure emission site (rf2-o69h5).
+  EVERY framework-side validation-failure emission site.
 
   ## The class
 
-  rf2-a5kzs#1 was a real leak: `validate-event!` ignored a per-slot
-  `:sensitive?` inside an event schema, so a failing login payload shipped
-  the password verbatim through `:received` / `:value` / `:explain` to every
-  trace listener (and onward to off-box monitors and the AI/MCP boundary).
-  It was the SAME class as the earlier schemas `:set` / `:and` / `:or` /
-  `:multi` collection-nested leak — and the earlier fix did NOT generalise:
-  several OTHER validation-failure emit sites built their own failure tags
-  and emitted them WITHOUT consulting the schema's `:sensitive?` declaration:
+  A validation-failure emit site that ignores a per-slot `:sensitive?`
+  inside its schema ships the failing value verbatim through `:received` /
+  `:value` / `:explain` to every trace listener (and onward to off-box
+  monitors and the AI/MCP boundary) — a failing login payload would carry
+  the password. It is the same class as the collection-nested `:set` /
+  `:and` / `:or` / `:multi` leak, and guarding one site does not guard the
+  others: each of these builds its own failure tags, so each must consult
+  the schema's `:sensitive?` declaration itself:
 
+    - `:where :event`         (re-frame.schemas/validate-event!)
     - `:where :machine-data`  (re-frame.machines.data-validation)
     - `:where :sub-override`  (re-frame.subs — a `:sub-overrides` pin that
                                fails the sub's own output schema; bypasses
                                `validate-sub!`)
-    - `:where :flow-output`   (re-frame.flows — `:explain` left verbatim;
-                               `:value` was path-elided only)
+    - `:where :flow-output`   (re-frame.flows)
 
-  ## The invariant (the deliverable)
+  ## The invariant
 
   EVERY `:rf.error/schema-validation-failure` the framework emits MUST route
   its value-bearing slots through the ONE shared schema-aware redactor
@@ -35,24 +35,22 @@
 
   This namespace fails RED if ANY validation kind ships an un-redacted
   value-bearing slot for a `:sensitive?`-marked surface. A new emit site
-  that forgets the seam re-opens the class and trips this gate.
+  that forgets the seam trips this gate.
 
   ## Why property-style + a per-kind corpus
 
   A unique unguessable SENTINEL is planted at a `:sensitive?` slot of a
   schema, a type failure is forced there, and the test asserts the sentinel
   NEVER appears anywhere in the emitted trace (deep-walked) — across BOTH a
-  fuzzer (arbitrary collection/map nestings of the sensitive slot, the
-  rf2-g5auo shape space) AND a fixed per-kind corpus that drives each named
-  validation surface. One escaped surface = one leak.
+  fuzzer (arbitrary collection/map nestings of the sensitive slot) AND a
+  fixed per-kind corpus that drives each named validation surface. One
+  escaped surface = one leak.
 
-  ## Net property (verify-by-revert)
+  ## Net property
 
-  Reverting any one emit site to its pre-rf2-o69h5 shape (emit the raw
-  `:value` / `:received` / `:explain` without routing through
-  `redact-validation-tags`) makes that kind's corpus assertion go RED — the
-  sentinel surfaces unredacted. Confirmed by temporary local revert +
-  restore (see PR Quality gates)."
+  An emit site that emits the raw `:value` / `:received` / `:explain`
+  without routing through `redact-validation-tags` makes that kind's corpus
+  assertion go RED — the sentinel surfaces unredacted."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
@@ -62,7 +60,7 @@
             [re-frame.schemas.malli]
             [re-frame.schemas :as rf.schemas]
             [re-frame.machines.data-validation :as rf.machines.data-validation]
-            ;; rf2-g1a4ho — the two PRODUCTION-PATH drivers below register a
+            ;; The two PRODUCTION-PATH drivers below register a
             ;; flow / a sub-override and drive the real drain + subscribe
             ;; cascades end-to-end. Requiring `re-frame.flows` publishes the
             ;; `:flows/run-flows-on-db` late-bind hook so the router's
@@ -70,7 +68,7 @@
             ;; transform on `dispatch-sync`; `plain-atom` is the substrate the
             ;; drain / subscribe paths run against.
             [re-frame.flows]
-            ;; CLJS-only: the sole `late-bind` use left in this ns is the
+            ;; CLJS-only: the sole `late-bind` use in this ns is the
             ;; `:subs/resolve-sub-override` publish inside the `#?(:cljs …)`
             ;; sub-override driver below (the `:sub-overrides` subscribe seam
             ;; is a CLJS-only dev surface). Scoping the require to `:cljs`
@@ -84,7 +82,7 @@
 
 ;; Reset per-test so app-schema registrations don't bleed across cases.
 ;;
-;; EP-0002 (rf2-gjq3ow): `reg-app-schema` + `validate-app-schema!` are
+;; EP-0002: `reg-app-schema` + `validate-app-schema!` are
 ;; context-required frame-local (no `:rf/default` floor). The adapter-less
 ;; reset fixture establishes no ambient scope, so the outer fixture below
 ;; pins `:rf/default` as the carried scope for the test body — the
@@ -110,8 +108,8 @@
 (defn- contains-sentinel?
   "Deep-walk `x`; true when the sentinel string appears anywhere (as a
   value - matched as a SUBSTRING - inside a collection, or inside a
-  stringified form). Thin wrapper over the shared `gen/contains-string?`
-  (rf2-n5bkm7), which matches the sentinel as a substring."
+  stringified form). Thin wrapper over the shared `gen/contains-string?`,
+  which matches the sentinel as a substring."
   [x]
   (rf.security.gen/contains-string? x sentinel))
 
@@ -163,7 +161,7 @@
 (def ^:private failing-sensitive-value
   {:secret [sentinel]})
 
-;; An EVENT schema whose payload map marks a slot sensitive (the rf2-a5kzs#1
+;; An EVENT schema whose payload map marks a slot sensitive (a login
 ;; shape): `[:cat [:= id] [:map [:password {:sensitive? true} :string]]]`.
 (def ^:private sensitive-event-schema
   [:cat [:= :auth/login]
@@ -173,12 +171,12 @@
   [:auth/login {:password [sentinel]}])
 
 ;; ---------------------------------------------------------------------------
-;; CONFORMING SENSITIVE SIBLING (rf2-3qam7b) — the secret rides at a slot that
+;; CONFORMING SENSITIVE SIBLING — the secret rides at a slot that
 ;; CONFORMS, while a DIFFERENT, non-sensitive slot FAILS. The whole-payload
 ;; slots (`:value` / `:received` / `:explain`) ship the WHOLE checked value,
 ;; so the conforming sensitive sibling rides inside them. A leaf-precise
 ;; decision keyed on the (non-sensitive) failing slot is sibling-blind and
-;; leaked the conforming secret — the rf2-3qam7b leak. Per PER-SLOT DECISION
+;; would leak the conforming secret. Per PER-SLOT DECISION
 ;; SCOPING the whole-payload slots redact under the ROOT check, so the
 ;; conforming sibling must never egress.
 ;;   schema: [:map [:jwt {:sensitive? true} :string] [:count :int]]
@@ -196,7 +194,7 @@
   {:jwt sentinel :count "not-an-int"})
 
 ;; An EVENT schema where the `:cat` payload map carries a CONFORMING sensitive
-;; sibling next to a non-sensitive failing one (the bead's event-surface pin).
+;; sibling next to a non-sensitive failing one (the event-surface pin).
 (def ^:private sibling-sensitive-event-schema
   [:cat [:= :auth/profile]
    [:map
@@ -214,7 +212,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest event-validation-redacts-sensitive
-  (testing "rf2-a5kzs#1 — :where :event (validate-event!) redacts the
+  (testing ":where :event (validate-event!) redacts the
             sensitive payload"
     (let [trace (capture-failure
                   #(rf.schemas/validate-event!
@@ -225,9 +223,9 @@
       (is (= :rf/redacted (-> trace :tags :received)) ":received redacted")
       (is (= :rf/redacted (-> trace :tags :explain)) ":explain redacted"))))
 
-;; NB the :where :cofx redaction test was REMOVED per rf2-nkf4l3 — the
-;; injection-time validate-cofx! it exercised was retired (EP-0017). The live
-;; cofx schema surface (`re-frame.cofx/validate-recordable-value!` →
+;; There is no :where :cofx redaction row: there is no injection-time
+;; validate-cofx! (EP-0017). The cofx schema surface
+;; (`re-frame.cofx/validate-recordable-value!` →
 ;; `:rf.error/cofx-value-invalid`) routes its value-bearing slots through the
 ;; same `redact-validation-tags` seam; its redaction is covered by the core
 ;; artefact's cofx satisfaction tests.
@@ -266,9 +264,8 @@
       (is (= :rf/redacted (-> trace :tags :explain)) ":explain redacted"))))
 
 (deftest machine-data-validation-redacts-sensitive
-  (testing "rf2-o69h5 — :where :machine-data (data-validation/validate-snapshot-data!)
-            redacts the sensitive :data map. Pre-fix this emitted :value /
-            :received / :explain verbatim."
+  (testing ":where :machine-data (data-validation/validate-snapshot-data!)
+            redacts the sensitive :data map."
     (let [trace (capture-failure
                   #(rf.machines.data-validation/validate-snapshot-data!
                      :my/machine {:data failing-sensitive-value}
@@ -279,20 +276,19 @@
       (is (= :rf/redacted (-> trace :tags :explain)) ":explain redacted"))))
 
 ;; ---------------------------------------------------------------------------
-;; CONFORMING SENSITIVE SIBLING CORPUS (rf2-3qam7b) — for each kind, the
+;; CONFORMING SENSITIVE SIBLING CORPUS — for each kind, the
 ;; sentinel rides at a CONFORMING sensitive slot while a DIFFERENT non-sensitive
 ;; slot fails. Because every kind's whole-payload slots carry the whole checked
-;; value, the conforming sibling rides inside them and must NOT egress. The
-;; leaf-precise (sibling-blind) decision the pre-rf2-3qam7b run-validation /
-;; app-db paths used leaked it; per PER-SLOT DECISION SCOPING the whole-payload
-;; slots redact under the ROOT check. Verify-by-revert: restoring the
+;; value, the conforming sibling rides inside them and must NOT egress. A
+;; leaf-precise (sibling-blind) decision would leak it; per PER-SLOT DECISION
+;; SCOPING the whole-payload slots redact under the ROOT check. A
 ;; leaf-precise `schema-sensitive-at?` decision on `run-validation` /
-;; `validate-app-schema!`'s whole-payload slots makes these RED (the sentinel
-;; surfaces in :received / :explain / :value).
+;; `validate-app-schema!`'s whole-payload slots would make these RED (the
+;; sentinel surfaces in :received / :explain / :value).
 ;; ---------------------------------------------------------------------------
 
 (deftest event-validation-redacts-conforming-sensitive-sibling
-  (testing "rf2-3qam7b — :where :event: a CONFORMING sensitive :password rides
+  (testing ":where :event: a CONFORMING sensitive :password rides
             next to a non-sensitive failing :age; the whole event vector (every
             value-bearing slot) redacts under the root check and the conforming
             sibling never egresses"
@@ -305,13 +301,13 @@
       (is (= :rf/redacted (-> trace :tags :value)) ":value redacted")
       (is (= :rf/redacted (-> trace :tags :explain)) ":explain redacted"))))
 
-;; NB the :where :cofx conforming-sibling test was REMOVED per rf2-nkf4l3 —
-;; the injection-time validate-cofx! was retired (EP-0017). The whole-payload
-;; conforming-sibling invariant is still covered for the event / fx / sub /
+;; There is no :where :cofx conforming-sibling row: there is no
+;; injection-time validate-cofx! (EP-0017). The whole-payload
+;; conforming-sibling invariant is covered for the event / fx / sub /
 ;; app-db / machine-data surfaces below + above.
 
 (deftest fx-validation-redacts-conforming-sensitive-sibling
-  (testing "rf2-3qam7b — :where :fx-args: a CONFORMING sensitive :jwt rides next
+  (testing ":where :fx-args: a CONFORMING sensitive :jwt rides next
             to a non-sensitive failing :count; the whole fx args redact (incl.
             :rf.fx/args)"
     (let [trace (capture-failure
@@ -323,7 +319,7 @@
       (is (= :rf/redacted (-> trace :tags :rf.fx/args)) ":rf.fx/args redacted"))))
 
 (deftest sub-return-validation-redacts-conforming-sensitive-sibling
-  (testing "rf2-3qam7b — :where :sub-return: a CONFORMING sensitive :jwt rides
+  (testing ":where :sub-return: a CONFORMING sensitive :jwt rides
             next to a non-sensitive failing :count; the whole return value
             redacts"
     (let [trace (capture-failure
@@ -335,7 +331,7 @@
       (is (= :rf/redacted (-> trace :tags :received)) ":received redacted"))))
 
 (deftest app-db-validation-redacts-conforming-sensitive-sibling-whole-explain
-  (testing "rf2-3qam7b — :where :app-db: a CONFORMING sensitive :jwt rides next
+  (testing ":where :app-db: a CONFORMING sensitive :jwt rides next
             to a non-sensitive failing :count. The NARROWED `:value` slot (the
             failing :count leaf) rides verbatim — the precise-narrowing win for
             the genuinely narrowed slot — but the WHOLE-PAYLOAD `:explain` slot
@@ -353,7 +349,7 @@
       (is (= :rf/redacted (-> trace :tags :explain)) ":explain redacted"))))
 
 (deftest machine-data-validation-redacts-conforming-sensitive-sibling
-  (testing "rf2-3qam7b — :where :machine-data: a CONFORMING sensitive :jwt rides
+  (testing ":where :machine-data: a CONFORMING sensitive :jwt rides
             next to a non-sensitive failing :count in the :data map; the whole
             :data redacts via the shared seam (root check)"
     (let [trace (capture-failure
@@ -366,32 +362,33 @@
 
 ;; ---------------------------------------------------------------------------
 ;; PRODUCTION-PATH coverage for `:where :flow-output` and `:where
-;; :sub-override` (rf2-g1a4ho).
+;; :sub-override`.
 ;;
 ;; The two corpus drivers below REGISTER a real flow / a real sub-override on
 ;; a `:sensitive?`-marked output schema and drive the ACTUAL production
 ;; cascade — `dispatch-sync` → router flows-after-interceptor → private
 ;; `validate-output!` for flows; `subscribe` → `resolve-sub-override` →
-;; private `maybe-validate-sub-override!` for the sub-override seam — far
+;; `re-frame.subs.override-schema/validate-sub-override!` for the
+;; sub-override seam — far
 ;; enough to emit `:rf.error/schema-validation-failure`. They then assert the
 ;; captured trace has NO sentinel and IS stamped `:sensitive?`.
 ;;
 ;; This couples the security invariant to the real call sites: a refactor in
-;; `flows.cljc`'s `validate-output!` or `subs.cljc`'s
-;; `maybe-validate-sub-override!` that drops the `(redact schema)` application,
+;; `flows.cljc`'s `validate-output!` or `override_schema.cljc`'s
+;; `validate-sub-override!` that drops the `(redact schema …)` application,
 ;; emits a new un-listed value-bearing slot, or loses the `:sensitive?` stamp
-;; now goes RED here — the false-green gap the prior shape-only tests left
-;; open (the production emit could bypass the seam while the handcrafted
-;; tag-shape test stayed green). Verify-by-revert: removing the
-;; `redact (->> (redact schema))` cond-> arm from either production path makes
-;; the corresponding test below fail (the sentinel surfaces in `:explain` /
-;; `:value`).
+;; goes RED here. Shape-only tests alone would leave a false-green gap (the
+;; production emit could bypass the seam while a handcrafted tag-shape test
+;; stayed green). Removing the redaction from either production path — the
+;; `(redact schema tags)` application in flows, the
+;; `redact (->> (redact schema))` cond-> arm in the sub-override primitive —
+;; makes the corresponding test below fail (the sentinel surfaces in
+;; `:explain` / `:value`).
 ;;
 ;; The flow driver is `.cljc` (the flow path is cross-runtime); the
 ;; sub-override driver is `#?(:cljs ...)` because the `:sub-overrides`
 ;; subscribe seam is a CLJS-only dev surface (`re-frame.subs`'
-;; `maybe-validate-sub-override!` / `resolve-sub-override` are guarded
-;; `#?(:cljs …)`).
+;; `resolve-sub-override` is guarded `#?(:cljs …)`).
 ;; ---------------------------------------------------------------------------
 
 (defn- with-runtime*
@@ -403,7 +400,7 @@
   supplies the ambient scope; we just stand up the substrate and the default
   frame here.
 
-  ## Setup failures PROPAGATE (rf2-6r9j.102)
+  ## Setup failures PROPAGATE
 
   `rf/init!` is documented idempotent and raises only on a nil / non-map
   adapter, so in this fixture state a throw out of it is a genuine setup
@@ -413,7 +410,7 @@
   converts it into a misleading downstream assertion failure or, worse, a
   false green on a suite whose whole job is to fail RED on a leak.
 
-  ## Adapter lifetime is the OUTER fixture's (rf2-6r9j.102)
+  ## Adapter lifetime is the OUTER fixture's
 
   Teardown is DELEGATED, deliberately and in full, to
   `make-reset-runtime-fixture` above: it disposes the installed adapter on
@@ -430,12 +427,12 @@
   (thunk))
 
 (deftest flow-output-production-path-redacts-sensitive
-  (testing "rf2-g1a4ho — :where :flow-output PRODUCTION PATH: a flow whose
+  (testing ":where :flow-output PRODUCTION PATH: a flow whose
             output fails a :sensitive?-marked schema drives the real
             dispatch-sync drain cascade and the emitted
             schema-validation-failure trace redacts every value-bearing slot
-            + stamps :sensitive?. Reverting flows.cljc's `(redact schema)`
-            arm makes this RED."
+            + stamps :sensitive?. Without flows.cljc's `(redact schema tags)`
+            application this goes RED."
     (with-runtime*
       (fn []
         ;; Seed an event that writes the flow's input; the flow's :derive
@@ -454,17 +451,17 @@
           (is (= :rf/redacted (-> trace :tags :explain)) ":explain redacted"))))))
 
 (deftest recordable-cofx-schema-failure-production-path-redacts-sensitive
-  (testing "rf2-hdi6wr — :rf.error/cofx-value-invalid PRODUCTION PATH: a
+  (testing ":rf.error/cofx-value-invalid PRODUCTION PATH: a
             recordable reg-cofx whose declared `:schema` marks a slot
             `{:sensitive? true}`, SUPPLIED/replayed a sentinel-bearing value
             that FAILS that schema, drives the real dispatch-sync recordable-
             value validation (re-frame.cofx/validate-recordable-value! ->
             emit-cofx-value-invalid!). BOTH the emitted trace AND the thrown
-            ex-data are off-box egress; pre-fix both carried the raw secret in
-            `:value` and Malli `:explain`. Asserts the sentinel appears NOWHERE
-            in either, `:value`/`:explain` are `:rf/redacted`, and `:sensitive?`
-            is stamped. Reverting cofx.cljc's `(redact-fn schema …)` wiring on
-            this emit makes this RED."
+            ex-data are off-box egress; without redaction both would carry the
+            raw secret in `:value` and Malli `:explain`. Asserts the sentinel
+            appears NOWHERE in either, `:value`/`:explain` are `:rf/redacted`,
+            and `:sensitive?` is stamped. Without cofx.cljc's
+            `(redact-fn schema …)` wiring on this emit this goes RED."
     (with-runtime*
       (fn []
         ;; A recordable cofx whose schema marks `:token` sensitive. The
@@ -516,18 +513,18 @@
                      (pr-str d)))))))))
 
 (deftest generated-recordable-cofx-schema-failure-no-pre-validation-leak
-  (testing "rf2-0mjgx6 — :rf.cofx/generated PRODUCTION PATH: a GENERATOR-backed
+  (testing ":rf.cofx/generated PRODUCTION PATH: a GENERATOR-backed
             recordable reg-cofx whose declared `:schema` marks a slot
             `{:sensitive? true}` and whose GENERATED value FAILS that schema
             must NOT ship the raw produced value on the dev `:rf.cofx/generated`
             trace BEFORE the redacted `:rf.error/cofx-value-invalid` fires.
-            Pre-fix `re-frame.cofx/run-generator` emitted `:rf.cofx/generated`
-            (carrying the raw value under `:rf.cofx/value`) THEN validated, so
-            a schema-invalid sensitive generated value leaked verbatim to every
-            trace listener / epoch :trace-events / MCP / log sink — the
-            marks-projection chokepoint redacts only explicit `:sensitive`
-            reg-marks, not schema-slot `:sensitive?`. The fix validates BEFORE
-            the emit so the throw aborts before the raw value reaches ANY trace.
+            Emitting `:rf.cofx/generated` (carrying the raw value under
+            `:rf.cofx/value`) BEFORE validating would leak a schema-invalid
+            sensitive generated value verbatim to every trace listener / epoch
+            :trace-events / MCP / log sink — the marks-projection chokepoint
+            redacts only explicit `:sensitive` reg-marks, not schema-slot
+            `:sensitive?`. `re-frame.cofx/run-generator` validates BEFORE the
+            emit, so the throw aborts before the raw value reaches ANY trace.
             Asserts: NO `:rf.cofx/generated` trace carries the sentinel, and the
             `:rf.error/cofx-value-invalid` trace + thrown ex-data redact."
     (with-runtime*
@@ -552,10 +549,10 @@
               (catch #?(:clj clojure.lang.ExceptionInfo
                         :cljs cljs.core/ExceptionInfo) e
                 (reset! thrown e)))
-            ;; (a) NO :rf.cofx/generated trace leaks the sentinel (the prior
-            ;;     pre-validation emit). It is acceptable for the op to be absent
-            ;;     entirely (validation aborts before the emit) — the invariant is
-            ;;     that NONE that DID fire carry the secret.
+            ;; (a) NO :rf.cofx/generated trace leaks the sentinel (as a
+            ;;     pre-validation emit would). It is acceptable for the op to be
+            ;;     absent entirely (validation aborts before the emit) — the
+            ;;     invariant is that NONE that DID fire carry the secret.
             (let [generated (filter #(= :rf.cofx/generated (:operation %)) @all)]
               (doseq [g generated]
                 (is (not (contains-sentinel? g))
@@ -582,7 +579,7 @@
                 "the generated sentinel must not appear anywhere in the trace stream")))))))
 
 (deftest valid-recordable-cofx-schema-path-unaffected
-  (testing "rf2-hdi6wr (c) — a recordable reg-cofx whose value CONFORMS to its
+  (testing "a recordable reg-cofx whose value CONFORMS to its
             `:sensitive?`-bearing schema runs clean: no cofx-value-invalid
             trace, no throw, the value is delivered to the handler verbatim.
             The redaction wiring must not perturb the valid path."
@@ -610,13 +607,13 @@
 
 #?(:cljs
    (deftest sub-override-production-path-redacts-sensitive
-     (testing "rf2-g1a4ho — :where :sub-override PRODUCTION PATH (CLJS): a
+     (testing ":where :sub-override PRODUCTION PATH (CLJS): a
                :sub-overrides HIT pinning a value that fails the sub's
                :sensitive?-marked output schema drives the real subscribe ->
-               resolve-sub-override -> maybe-validate-sub-override! path; the
+               resolve-sub-override -> validate-sub-override! path; the
                emitted trace redacts every value-bearing slot + stamps
-               :sensitive?. Reverting subs.cljc's `(redact schema)` arm makes
-               this RED."
+               :sensitive?. Without the sub-override primitive's
+               `(redact schema)` arm this goes RED."
        (with-runtime*
          (fn []
            ;; A sub declaring a :sensitive?-marked output schema. The
@@ -642,15 +639,14 @@
              (finally
                (rf.late-bind/set-fn! :subs/resolve-sub-override nil))))))))
 
-;; SUPPLEMENTARY (rf2-g1a4ho) — the handcrafted tag-shape tests below now
-;; backstop the production-path drivers above: they exercise the shared seam
-;; against the EXACT tag map each site builds, so a shape drift (a new
-;; value-bearing slot added without listing it in `value-bearing-slots`) is
-;; caught here even if a future production-path refactor stops building that
-;; slot. They are no longer the ONLY coverage for these two emit sites.
+;; SUPPLEMENTARY — the handcrafted tag-shape tests below backstop the
+;; production-path drivers above: they exercise the shared seam against the
+;; EXACT tag map each site builds, so a shape drift (a new value-bearing slot
+;; added without listing it in `value-bearing-slots`) is caught here even if a
+;; production-path refactor stops building that slot.
 
 (deftest sub-override-tag-shape-redacts-through-seam
-  (testing "rf2-o69h5 — the :where :sub-override tag shape redacts every
+  (testing "the :where :sub-override tag shape redacts every
             value-bearing slot through the shared seam"
     (let [tags  {:where          :sub-override
                  :rf.sub/id      :sub/secret
@@ -671,8 +667,8 @@
           (str "the sentinel survived the :sub-override redaction: " (pr-str out))))))
 
 (deftest flow-output-tag-shape-redacts-through-seam
-  (testing "rf2-o69h5 — the :where :flow-output tag shape redacts :explain (the
-            slot the prior path left verbatim) AND :value through the shared seam"
+  (testing "the :where :flow-output tag shape redacts :explain AND :value
+            through the shared seam"
     (let [tags  {:category   :rf.error/schema-validation-failure
                  :where      :flow-output
                  :rf.flow/id :flow/secret
@@ -691,17 +687,17 @@
 
 ;; ---------------------------------------------------------------------------
 ;; PROPERTY — across arbitrary collection/map nestings of a sensitive slot,
-;; NO callable validation kind leaks the sentinel. Reuses the rf2-g5auo shape
-;; generator idea but sweeps every callable validation entry point per draw.
+;; NO callable validation kind leaks the sentinel. Reuses the nested-shape
+;; generator but sweeps every callable validation entry point per draw.
 ;; ---------------------------------------------------------------------------
 
 ;; The recursive walk, the eleven wrapper arms, and the leaf are shared with the
-;; schema-redaction suite via `gen/nested-sensitive-generator` (rf2-iu6fqv; see
-;; that fn for each arm's rationale). This suite keeps its own sentinel and
-;; passes its own wrapper-arm order + a 1..5 depth, so its generated shapes are
-;; byte-identical to before (a failing draw still reproduces from its seed). The
-;; `:map-of-key`-before-`:tuple` order below is this suite's historical draw
-;; order, preserved deliberately - see the shared block comment on the drift.
+;; schema-redaction suite via `gen/nested-sensitive-generator` (see that fn
+;; for each arm's rationale). This suite passes its own sentinel, its own
+;; wrapper-arm order and a 1..5 depth, which fix its generated shapes (a
+;; failing draw reproduces from its seed). The `:map-of-key`-before-`:tuple`
+;; order below is this suite's own draw order - see the shared block comment
+;; on how the callers differ.
 (def ^:private gen-nested-sensitive
   (rf.security.gen/nested-sensitive-generator
     sentinel
@@ -716,7 +712,7 @@
         event-value  [:gen/id value]
         checks
         [;; :where :event — the payload schema is the generated shape, the
-         ;; event wraps it under a :cat (the rf2-a5kzs#1 shape).
+         ;; event wraps it under a :cat (the login-event shape).
          (capture-failure
            #(rf.schemas/validate-event! :gen/id event-value {:schema event-schema}))
          ;; :where :fx-args
@@ -736,7 +732,7 @@
             checks)))
 
 (deftest every-kind-redacts-at-arbitrary-nesting
-  (testing "rf2-o69h5 — across arbitrary collection/map nestings of a
+  (testing "across arbitrary collection/map nestings of a
             :sensitive? slot, EVERY callable validation kind (event /
             fx / sub-return / machine-data) redacts the sentinel and stamps
             :sensitive?. One escaped kind/shape = one leak."
@@ -754,7 +750,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest non-sensitive-failure-not-over-redacted
-  (testing "rf2-o69h5 — a failure on a schema with no :sensitive? slot rides
+  (testing "a failure on a schema with no :sensitive? slot rides
             verbatim across the kinds; the seam does not over-redact"
     (let [plain-schema [:map [:n :int]]
           plain-value  {:n "not-an-int"}
@@ -767,7 +763,7 @@
                              :plain/machine {:data plain-value} plain-schema :macrostep))]
       (is (some? event-trace))
       ;; The stamp lives on the envelope: the trace builder strips
-      ;; `:sensitive?` from `:tags` on every trace (rf2-3x7nj.20.2).
+      ;; `:sensitive?` from `:tags` on every trace.
       (is (not (contains? event-trace :sensitive?))
           ":where :event — no :sensitive? stamp when nothing is sensitive")
       (is (not= :rf/redacted (-> event-trace :tags :value))
