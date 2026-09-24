@@ -1,9 +1,9 @@
 ;;;; tests/storage_materializer_test.clj — the canonical storage materializer
-;;;; in references/schemaless-events.md must be TOTAL (rf2-1lv3).
+;;;; in references/schemaless-events.md must be TOTAL.
 ;;;;
 ;;;; The leaf's "After" is a copyable canonical fix. Its `:doc` promises the
-;;;; supplier yields nil when storage is absent or its contents unusable, but
-;;;; the shape it shipped threw in both cases:
+;;;; supplier yields nil when storage is absent or its contents unusable, and
+;;;; the direct shape throws in both cases:
 ;;;;
 ;;;;   (some-> (.getItem js/globalThis.localStorage "session") ...)
 ;;;;
@@ -13,14 +13,14 @@
 ;;;; `js/JSON.parse` before `m/validate` runs. Neither is the advertised nil.
 ;;;; The framework catches a recordable generator's throw, emits
 ;;;; `:rf.error/coeffect-exception` and sets `:rf/skip-handler?`, so the
-;;;; declaring `:session/rehydrate` never runs — a boot step that silently did
+;;;; declaring `:session/rehydrate` never runs — a boot step that silently does
 ;;;; not happen, which is harder to diagnose than the nil the handler already
 ;;;; handles. Hence: total materializer, property lookup first, decode bounded
 ;;;; by a catch.
 ;;;;
 ;;;; This is a structural fixture over the DOCUMENT, not a CLJS runtime test:
 ;;;; no gate in this repository executes fenced CLJS, so what is pinned here is
-;;;; the shape of the snippet an agent copies. Restoring the direct
+;;;; the shape of the snippet an agent copies. The direct
 ;;;; `.getItem js/globalThis.localStorage` form in the "After" block fails
 ;;;; `after-block-is-total` while the Before-block control keeps passing (the
 ;;;; non-vacuity criterion).
@@ -86,24 +86,24 @@
     (testing "ABSENT storage: the property lookup is the first link, so some-> can short-circuit"
       (is (str/includes? block "(.-localStorage js/globalThis)")
           "the chain must start from the localStorage PROPERTY, not a method call on it"))
-    (testing "ABSENT storage: the direct-method form is gone from the canonical fix"
+    (testing "ABSENT storage: the canonical fix has no direct-method form"
       (is (not (str/includes? block "js/globalThis.localStorage"))
           (str "`.getItem js/globalThis.localStorage` throws on Node/SSR/headless hosts "
-               "before some-> can test anything — it is the defect rf2-1lv3 records")))
+               "before some-> can test anything")))
     (testing "UNUSABLE storage: JSON decoding is bounded, so a corrupt entry cannot escape as a supplier throw"
       (is (str/includes? block "catch")
           "js/JSON.parse throws on a corrupt entry; the decode boundary must catch it"))))
 
 ;; ---------------------------------------------------------------------------
-;; Totality must not have been bought by weakening the leaf's two lessons
+;; Totality does not weaken the leaf's two lessons
 ;; ---------------------------------------------------------------------------
 
 (deftest trust-and-replay-boundaries-survive
   (let [block @after-block]
-    (testing "replay boundary: the generator is still recordable"
+    (testing "replay boundary: the generator is recordable"
       (is (str/includes? block ":recordable? true")
-          "a durable write folds a RECORDED fact; ambient would reintroduce the replay hole"))
-    (testing "trust boundary: validation is still always-on"
+          "a durable write folds a RECORDED fact; an ambient generator would open the replay hole"))
+    (testing "trust boundary: validation is always-on"
       (is (str/includes? block "m/validate Session")
           "the always-on Malli gate is the trust boundary")
       (is (not (str/includes? block "goog.DEBUG"))
@@ -116,11 +116,11 @@
              ":session/rehydrate would follow the missing-required path rather than the promised nil path"))))
 
 ;; ---------------------------------------------------------------------------
-;; Non-vacuity control — the Before block must still exhibit the anti-pattern
+;; Non-vacuity control — the Before block must exhibit the anti-pattern
 ;; ---------------------------------------------------------------------------
 
 (deftest before-block-still-demonstrates-the-antipattern
-  (testing "the Before example still reads localStorage mid-body (it is the finding being taught)"
+  (testing "the Before example reads localStorage mid-body (it is the anti-pattern being taught)"
     (is (some? @before-block)
         "the Before block is missing or duplicated")
     (is (str/includes? @before-block "js/globalThis.localStorage")
