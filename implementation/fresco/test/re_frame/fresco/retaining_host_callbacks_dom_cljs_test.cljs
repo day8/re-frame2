@@ -50,9 +50,7 @@
   - `:plain-fn` — an ordinary unmarked function, hoisted out of every
     render. `lower-prop` claims no unmarked fn at any position and
     `host-prop-value` crosses functions by identity, so this row proves
-    identity stability is REACHABLE at this edge today. (A `:handler` row
-    sat beside it until rf2-6c12m.24 retired that contract: it declared
-    the passthrough this row already measures.)
+    identity stability is REACHABLE at this edge.
   - `:native-stable` — `n/use-frame` plus React's own `useCallback`
     inside a raw React island: the one carrier that is BOTH
     identity-stable and dispatching.
@@ -158,9 +156,9 @@
   (atom []))
 
 (defonce ^:private !plain-calls
-  ;; How often the two identity-stable-but-inert carriers were invoked.
-  ;; Neither dispatches (see the grid's notes), so a call count is the
-  ;; only evidence that they ran at all.
+  ;; How often the two hoisted carriers' own bodies ran: `plain-ping`,
+  ;; which dispatches nothing, so a call count is the only evidence that
+  ;; it ran at all, and `hoisted-event`'s author function.
   (atom 0))
 
 (defn- sink-body
@@ -177,7 +175,7 @@
 (def ^:private sink (react/memo sink-body))
 
 (rf.fresco/defhost sink-event
-  "The crossing under the RULED DEFAULT `:server :client-only`, so the grid
+  "The crossing under the DEFAULT `:server :client-only`, so the grid
   measures the path a consumer gets by writing nothing. The gate that
   policy mints is a plain function component that hands its props object
   straight to the foreign component, so it changes what is compared not
@@ -538,9 +536,9 @@
             (finally (rf.fresco.impl.mount/release! handle))))))))
 
 (deftest NEGATIVE-CONTROL-an-unpinned-capture-does-reach-the-successor
-  ;; Section 5's safety half asserts a NON-event, and the bead names the
-  ;; sabotage that has to redden it: remove the retirement check and the
-  ;; retired-callback case must go red. Performed through the documented
+  ;; Section 5's safety half asserts a NON-event, so a sabotage has to
+  ;; redden it: remove the retirement check and the retired-callback case
+  ;; must go red. Performed through the documented
   ;; seam rather than by redefining a runtime var — `rf/capture-frame`
   ;; taken while NO frame is live under the id pins nothing, so the ops
   ;; stay address-directed and write whoever occupies the address later.
