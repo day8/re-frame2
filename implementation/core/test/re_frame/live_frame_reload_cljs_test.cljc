@@ -1,15 +1,15 @@
 (ns re-frame.live-frame-reload-cljs-test
-  "EP-0023 §Hot Reload / §Default Image Semantics — the IMAGE HOT-RELOAD slice
-  (rf2-32siq3.10, folded into re-construction by rf2-lxwpob): re-calling
+  "EP-0023 §Hot Reload / §Default Image Semantics — IMAGE HOT-RELOAD, which is
+  re-construction: re-calling
   `make-frame` against the SAME `:id` with a new `:images` vector swaps the
   generation a frame runs WHILE PRESERVING FRAME MEMORY, and a source-store
   change reprojects affected EXPLICIT-image frames (not only default-image
   frames).
 
-  Pins the bead's enumerated coverage:
+  Pins the enumerated coverage:
 
-    * re-`make-frame` swaps the generation but PRESERVES frame memory — EP-0024
-      (rf2-tu2vr7): the generation lives on the frame record in the ONE
+    * re-`make-frame` swaps the generation but PRESERVES frame memory — EP-0024:
+      the generation lives on the frame record in the ONE
       `rf.frame/frames` registry (the `:generation` slot), swapped by id via
       `rf.frame/set-generation!` (reached through `make-frame`'s surgical-update
       path); app-db / durable state continue, the id keeps naming the same
@@ -38,7 +38,7 @@
   same decoupling idiom `live-frame-cljs-test` / `image-assembly-cljs-test` use.
   The reprojection test exercises the LIVE source store and so SNAPSHOTS +
   RESTORES it around the case (NOT `rf.registrar/clear-all!`, which would wipe the
-  shared node-test-bundle registrations — slice .9's note). `.cljc` ends
+  shared node-test-bundle registrations). `.cljc` ends
   `-cljs-test` so it rides `npm run test:cljs` AND `clojure -M:test`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -60,13 +60,13 @@
 ;; `rf.frame/frames`, so image-loaded frame records do not leak across cases; the
 ;; source-store reprojection test snapshots + restores the source store locally.
 ;;
-;; EP-0024 (rf2-tu2vr7): the two-registry model collapsed to ONE — the resolved
+;; EP-0024: there is ONE registry — the resolved
 ;; image GENERATION lives ON the frame record in the single `rf.frame/frames`
-;; registry (the `:generation` slot), and the former second live-frame registry
-;; dissolved, so the runtime fixture's `(reset! rf.frame/frames {})` clears every
-;; record AND its generation — no separate live-frame index to clear
-;; (rf2-ji3tvy). `make-frame` creates/updates a RUNNABLE record (app-db / queue /
-;; sub-cache) via `make-frame`, which needs a substrate adapter — so the
+;; registry (the `:generation` slot), so the runtime fixture's
+;; `(reset! rf.frame/frames {})` clears every
+;; record AND its generation — there is no separate live-frame index to clear.
+;; `make-frame` creates/updates a RUNNABLE record (app-db / queue /
+;; sub-cache), which needs a substrate adapter — so the
 ;; plain-atom adapter is installed via the runtime fixture. These cases assert
 ;; the reload/diff/reproject contract; the backing record is an allocation side
 ;; effect they do not otherwise inspect.
@@ -133,8 +133,8 @@
             context and durable frame MEMORY (app-db) continues unchanged
             (EP-0024 §One live frame registry / EP-0023 §Hot Reload — not a
             teardown/recreate)"
-    ;; EP-0027 (rf2-7ae2to): this case seeds via `:initial-events [[:rf/set-db
-    ;; {:count 7}]]`, which resolves the framework-standard `:rf/set-db` through
+    ;; This case seeds via `:initial-events [[:rf/set-db
+    ;; {:count 7}]]` (EP-0027), which resolves the framework-standard `:rf/set-db` through
     ;; the sealed generation (the image standard registry). The ns fixture's
     ;; blanket `clear-standards!` keeps the OTHER generation-diff cases isolated,
     ;; so seed the one standard THIS case needs locally (cache cleared so the
@@ -191,7 +191,7 @@
 
 ;; ===========================================================================
 ;; 3. generation-diff over before/after generations names a concrete
-;;    added/changed/removed/retained diff (rf2-lxwpob: a READ, not a bespoke
+;;    added/changed/removed/retained diff (a READ, not a bespoke
 ;;    reload-report verb)
 ;; ===========================================================================
 
@@ -232,7 +232,7 @@
 
 (deftest reload-report-carries-the-shadow-report
   (testing "after a reload, frame-shadows reads the NEW generation's cross-image
-            SHADOW REPORT (EP-0026 §Shadow Report, rf2-ke7w5j) — an ordinary
+            SHADOW REPORT (EP-0026 §Shadow Report) — an ordinary
             read, not a bespoke reload-report field"
     (let [override (rf.image/image {:id :counter/override
                                  :registrations {:reg-event [[:counter/inc (fn [_ _] {})]]}})
@@ -271,16 +271,13 @@
                                        :event :counter/inc))))))))
 
 ;; ===========================================================================
-;; 5. A direct (no-id) frame object has no `:id` to reload against (rf2-lxwpob)
+;; 5. A direct (no-id) frame object has no `:id` to reload against
 ;;
-;; The retired `reload-images!` accepted a direct frame VALUE as a target
-;; (reloading it in place, keyed by its private runnable-id). Re-`make-frame`
-;; has no equivalent for a no-id frame: calling `make-frame` again with no
+;; Calling `make-frame` again with no
 ;; `:id` creates ANOTHER new anonymous frame, it does not update the existing
 ;; one in place — there is no id to key a re-construction on. A no-id frame
 ;; is LOCAL-ONLY (per `make-frame`'s own docstring); refreshing one means
-;; discarding it and making a new one, not reloading it. This capability gap
-;; is an accepted, deliberate consequence of the facade collapse (rf2-lxwpob).
+;; discarding it and making a new one, not reloading it. That is deliberate.
 ;; ===========================================================================
 
 ;; ===========================================================================
@@ -383,13 +380,13 @@
         (finally
           (reset! rf.source-store/kind->id->ns->descriptor snapshot))))))
 
-;; ---- the REMOVED leg (rf2-32siq3.40 minor a) ------------------------------
+;; ---- the REMOVED leg -------------------------------------------------------
 ;;
-;; The .31 review found reproject coverage exercised only the impl-CHANGED
+;; Beside the impl-CHANGED
 ;; leg (source-store-change-reprojects-an-explicit-image-frame) and the
-;; UNCHANGED leg (reproject-leaves-unchanged-frames-untouched). The REMOVED
-;; leg — a descriptor the frame's image SELECTED is FORGOTTEN from the source
-;; store (the `forget-descriptor!` path) — was untested. After the forget,
+;; UNCHANGED leg (reproject-leaves-unchanged-frames-untouched), the REMOVED
+;; leg: a descriptor the frame's image SELECTED is FORGOTTEN from the source
+;; store (the `forget-descriptor!` path). After the forget,
 ;; reproject must re-resolve the frame to a NARROWER generation, report the
 ;; dropped id under the diff's `:removed`, and the swapped generation must no
 ;; longer resolve it.
@@ -440,9 +437,8 @@
         (finally
           (reset! rf.source-store/kind->id->ns->descriptor snapshot))))))
 
-;; ---- composed multi-image reproject, one member ns changes (minor b) ------
+;; ---- composed multi-image reproject, one member ns changes ----------------
 ;;
-;; The .31 review found the reproject coverage used only a SINGLE-image frame.
 ;; A COMPOSED frame (two images, each selecting a DIFFERENT member namespace)
 ;; must reproject when ONLY ONE member ns changes: the changed member's id is
 ;; :changed in the diff, the untouched member's id stays :retained, and both
@@ -498,33 +494,31 @@
         (finally
           (reset! rf.source-store/kind->id->ns->descriptor snapshot))))))
 
-;; The NON-DEFAULT-REALM reproject leg (rf2-vnduo9) was RETIRED under the
-;; realm-substrate collapse (rf2-9w37t2 / rf2-afdlyr): every frame lives in the
-;; single default realm, so `reproject-live-frames!` enumerates the realm-free
-;; `image-loaded-frame-ids` and no per-frame `*current-realm*` re-key is needed.
-;; The default-realm reproject behaviour is covered by the explicit/composed
-;; reproject tests above (source-store-change-reprojects-an-explicit-image-frame,
-;; reproject-composed-frame-on-one-member-ns-change, …).
+;; Every frame lives in the single default realm, so `reproject-live-frames!`
+;; enumerates the flat `image-loaded-frame-ids` with no per-frame realm
+;; binding. The explicit/composed reproject tests above
+;; (source-store-change-reprojects-an-explicit-image-frame,
+;; reproject-composed-frame-on-one-member-ns-change, …) cover that sweep.
 
 ;; ===========================================================================
 ;; 9. AUTO-reprojection: a `reg-*` change reprojects the affected explicit-image
-;;    frame WITHOUT a manual reproject-live-frames! call (rf2-h4q6cy)
+;;    frame WITHOUT a manual reproject-live-frames! call
 ;; ===========================================================================
 ;;
-;; The .28 B1 finding: `reproject-live-frames!` implements the EP-0023 headline
-;; guarantee but NOTHING called it — no hook fired on `reg-*`, so a hot-reload of
-;; an `:include-ns`-selected namespace left the running frame on its STALE
-;; generation until some external reproject/reload ran. rf2-h4q6cy wires
+;; `reproject-live-frames!` implements the EP-0023 headline guarantee, and
 ;; `rf.registrar/add-registration-hook!` → mark-dirty + coalesced `next-tick`
-;; flush, so an ordinary `reg-*` re-eval swaps the affected frame automatically.
+;; flush wires it to `reg-*`, so an ordinary `reg-*` re-eval swaps the affected
+;; frame automatically. Without the hook, a hot-reload of an
+;; `:include-ns`-selected namespace would leave the running frame on its STALE
+;; generation until some external reproject/reload ran.
 ;;
 ;; These tests drive the change through `rf.registrar/register!` (the path every
 ;; `reg-*` macro funnels through — and the path that FIRES the hook), and they
 ;; NEVER call `reproject-live-frames!` manually. The deferred flush is forced
 ;; deterministically via the synchronous `flush-pending-reprojection!` (the same
-;; flush the scheduled `next-tick` tick arms). Before the fix the hook did not
-;; exist, so `flush-pending-reprojection!` found nothing pending and the frame
-;; stayed on ::auto-v1 — RED. After the fix the `register!` marks dirty, the
+;; flush the scheduled `next-tick` tick arms). Without the hook,
+;; `flush-pending-reprojection!` would find nothing pending and the frame would
+;; stay on ::auto-v1 — RED. With it, the `register!` marks dirty, the
 ;; flush reprojects, and the frame resolves ::auto-v2 — GREEN.
 
 (deftest reg-star-change-auto-reprojects-explicit-image-frame
@@ -532,30 +526,30 @@
             :include-ns image selects marks the projection dirty and the coalesced
             flush reprojects + swaps THAT frame's generation — WITHOUT a manual
             reproject-live-frames! call (EP-0023 §Default Image Semantics — the
-            headline guarantee, wired by rf2-h4q6cy). Uses the LIVE source store
+            headline guarantee). Uses the LIVE source store
             + the shared registrar; snapshot/restore the source store and clean
             the registrar in finally (NOT clear-all!). Asserts BEHAVIOR (the
             frame resolves the new impl), never the internal dirty flag.
 
-            DETERMINISM (rf2-roou7s): the shared `pending-reprojection?` flag and
+            DETERMINISM: the shared `pending-reprojection?` flag and
             the `rf.interop/next-tick` schedule are process-wide (a `defonce` hook).
             The register!s below schedule a REAL deferred `next-tick` flush that
             races this case's synchronous `flush-pending-reprojection!`: were a
             scheduled tick (this case's own, or one a prior case left in flight on
             the JVM executor thread / a CLJS next-turn task) to fire first, it would
             DRAIN the pending flag and the assert-time synchronous flush would
-            return `{}` — the observed intermittent `(not (contains? {} :auto/main))`.
+            return `{}` — an intermittent `(not (contains? {} :auto/main))`.
             So redef `rf.interop/next-tick` to a NO-OP for the whole case: no async
             flush ever runs, the ONLY flush is the explicit synchronous one this
             case drives, and the dirty flag is set by `register!` and drained
             ONLY by that synchronous flush. This is the same `next-tick`-isolation
-            every sibling auto-reprojection case below already uses; the assertions
-            are unchanged (still the register!-armed synchronous flush)."
+            every sibling auto-reprojection case below uses; the assertion is on
+            the register!-armed synchronous flush."
     (let [snapshot @rf.source-store/kind->id->ns->descriptor]
       (try
         ;; The next-tick no-op makes the coalesced flush deterministic: no
         ;; scheduled tick can fire and drain the shared pending flag out from
-        ;; under the synchronous flush this case asserts on (rf2-roou7s).
+        ;; under the synchronous flush this case asserts on.
         (with-redefs [rf.interop/next-tick (fn [_f] nil)]
           ;; Start from a clean slate: drain any reprojection a prior case left
           ;; pending (the hook is a process-defonce, shared across cases).
@@ -598,10 +592,10 @@
           ;; process-defonce — it stays installed across cases by design.) Keep the
           ;; next-tick no-op over the cleanup too: the synchronous drain stays
           ;; synchronous and no stray real tick can be left scheduled to fire
-          ;; mid-sibling and drain its pending flag (the same rf2-roou7s race,
-          ;; just relocated to teardown).
+          ;; mid-sibling and drain its pending flag (the same race,
+          ;; relocated to teardown).
           (with-redefs [rf.interop/next-tick (fn [_f] nil)]
-            ;; rf2-h1vqa4: `unregister!` now MARKS DIRTY too (the removal twin
+            ;; `unregister!` MARKS DIRTY too (the removal twin
             ;; of the reg-* hook). Clear the live frame BEFORE draining, or the
             ;; drain would reproject :auto/main against the just-forgotten
             ;; descriptor — a zero-match throw in teardown (the same
@@ -614,7 +608,7 @@
 (deftest reg-star-burst-coalesces-to-one-flush
   (testing "a BURST of reg-* (a hot-reloaded namespace re-evaluating N
             registrations) schedules at MOST ONE deferred reprojection flush — the
-            coalescing gate (rf2-h4q6cy). Counting the next-tick schedules proves
+            coalescing gate. Counting the next-tick schedules proves
             the burst reprojects ONCE at the batch boundary, not per reg-*. A live
             explicit-image frame over the reloaded ns must exist for the schedule
             to arm at all (the no-live-frame short-circuit — see the burst-with-no-
@@ -652,7 +646,7 @@
                 {:rf.provenance/ns "burst.feature" :handler-fn (keyword "impl" (str n))}))
             (testing "the 5-reg-* burst scheduled exactly ONE flush (coalesced) —
                       the deferred tick was never run during the burst.
-                      JVM (rf2-h1vqa4): the deferred tick is CLJS-only — the
+                      JVM: the deferred tick is CLJS-only — the
                       burst MARKS once (same CAS gate) but schedules nothing;
                       the read-time consult / explicit flush drains it."
               (is (= #?(:cljs 1 :clj 0) @scheduled)
@@ -675,7 +669,7 @@
           ;; Forget the live frame before draining (see register!-during-flush's
           ;; finally): a pending reproject of :burst/main must not re-assemble its
           ;; image after the burst descriptors are unregistered. The ONE registry
-          ;; reset clears the record AND its generation (rf2-ji3tvy).
+          ;; reset clears the record AND its generation.
           (reset! rf.frame/frames {})
           (rf.live-frame/flush-pending-reprojection!)
           (doseq [n (range 5)]
@@ -684,30 +678,29 @@
 
 ;; ---- the HANG GUARD: a burst with NO live frame schedules ZERO flushes -----
 ;;
-;; rf2-h4q6cy fix: the auto-reprojection hook fires on EVERY register! (the
-;; EP-0023 collapse made make-frame's backing make-frame a register! too, so even
-;; frame creation funnels through it). Marking dirty + scheduling a next-tick
-;; flush on each — when there is NOTHING reprojectable (no PUBLIC-id live frame
-;; exists) — floods the host task queue with one no-op deferred flush per
+;; The auto-reprojection hook fires on EVERY register! (even frame creation
+;; funnels through it). Marking dirty + scheduling a next-tick
+;; flush on each when there is NOTHING reprojectable (no PUBLIC-id live frame
+;; exists) would flood the host task queue with one no-op deferred flush per
 ;; registration. The bundle issues thousands of reg-* with no live image frame
-;; (app boot, every handler-only test); the flood interleaved with cljs.test's
-;; async scheduling never settled (the observed CI node-test / browser-test /
-;; elision hang). The fix short-circuits the hook to a NO-OP when no live frame
-;; is reprojectable, so a registration burst with no live frame schedules ZERO
-;; flushes — the bounded-flush guarantee.
+;; (app boot, every handler-only test), and that flood interleaved with
+;; cljs.test's async scheduling never settles — a hung CI node-test /
+;; browser-test / elision run. So the hook short-circuits to a NO-OP when no
+;; live frame is reprojectable, and a registration burst with no live frame
+;; schedules ZERO flushes — the bounded-flush guarantee.
 
 (deftest reg-star-burst-with-no-live-frame-schedules-nothing
   (testing "a BURST of reg-* with NO live image frame schedules ZERO deferred
-            flushes (rf2-h4q6cy hang guard): with nothing reprojectable the hook
+            flushes (the hang guard): with nothing reprojectable the hook
             short-circuits, so a hot-reloaded namespace re-evaluating N
             registrations costs no next-tick scheduling at all — bounding the
-            flush work that previously hung CI's node-test/browser jobs."
+            flush work that would otherwise hang CI's node-test/browser jobs."
     (let [snapshot  @rf.source-store/kind->id->ns->descriptor
           scheduled (atom 0)]
       (try
         ;; No live frame: clear the registry and drain any residual pending flush a
         ;; prior case left, so the flag starts clean and live-frame-ids is empty.
-        ;; The ONE registry reset clears every record AND its generation (rf2-ji3tvy).
+        ;; The ONE registry reset clears every record AND its generation.
         (reset! rf.frame/frames {})
         (rf.live-frame/flush-pending-reprojection!)
         (with-redefs [rf.interop/next-tick (fn [_f] (swap! scheduled inc) nil)]
@@ -730,23 +723,19 @@
 
 ;; ---- a flush never re-arms: reprojection swaps generations, never reg-* -----
 ;;
-;; EP-0024 (rf2-tu2vr7) DISSOLVED the former `reprojecting?` re-entrancy guard.
-;; It existed only because the EP-0023 two-registry `make-frame` created its
-;; backing record via `rf.frame/make-frame` (a `register!`), raising the defensive
-;; worry that a reproject flush might provoke a registration and re-arm itself.
-;; Under the unified model reprojection swaps the generation onto the ONE record
-;; via `rf.frame/set-generation!` — a plain `swap!`, NOT a `register!` — so the
+;; Reprojection swaps the generation onto the ONE record (EP-0024)
+;; via `rf.frame/set-generation!` — a plain `swap!`, NOT a `register!` — so a
 ;; flush can never fire the registration hook and never schedules its own
-;; successor. This test proves that property directly: a REAL flush (which does
+;; successor; there is no re-entrancy to guard. This test proves that property
+;; directly: a REAL flush (which does
 ;; genuine generation-swapping work) arms no extra tick, and a fresh reg-* after
 ;; it still re-arms (the flag clears and stays re-armable).
 
 (deftest flush-swaps-generations-and-never-re-arms-itself
   (testing "a reprojection flush swaps generations via set-generation! (a plain
-            swap!, never reg-*), so running it schedules NO successor flush — the
-            former reprojecting? guard dissolved with the second registry
-            (EP-0024). A fresh reg-* AFTER the flush still re-arms (the flag is
-            cleared and re-armable)."
+            swap!, never reg-*), so running it schedules NO successor flush and
+            needs no re-entrancy guard (EP-0024). A fresh reg-* AFTER the flush
+            still re-arms (the flag is cleared and re-armable)."
     (let [snapshot  @rf.source-store/kind->id->ns->descriptor
           scheduled (atom 0)]
       (try
@@ -769,7 +758,7 @@
             (rf.registrar/register! :event :reentry/inc
               {:rf.provenance/ns "reentry.feature" :handler-fn ::v2})
             (testing "the live-frame reg-* armed exactly one flush (CLJS;
-                      JVM marks the flag only — rf2-h1vqa4)"
+                      JVM marks the flag only)"
               (is (= #?(:cljs 1 :clj 0) @scheduled)))
             ;; Run the flush: it re-resolves + swaps :reentry/main's generation
             ;; via set-generation! (a plain swap!). That cannot fire the
@@ -807,25 +796,25 @@
 
 ;; ===========================================================================
 ;; 10. Generation PROVENANCE — reprojection resolves an EXPLICIT-POOL frame
-;;     against its OWN pool, never the live store (rf2-rf3zgt)
+;;     against its OWN pool, never the live store
 ;; ===========================================================================
 ;;
-;; Bug: `reproject-live-frame!` always re-resolved a frame's `:rf.gen/images`
-;; against `nil` (⇒ the LIVE source store), even for a frame `make-frame`'s
-;; 2-arity created against an EXPLICIT descriptor pool. Any reprojection sweep
+;; `frame-generation-pool` (§Generation PROVENANCE in live_frame.cljc) records
+;; which pool a frame's generation came from, and reprojection threads the
+;; SAME pool through. Re-resolving a frame's `:rf.gen/images` against `nil`
+;; (⇒ the LIVE source store) would be wrong for a frame `make-frame`'s
+;; 2-arity created against an EXPLICIT descriptor pool: any reprojection sweep
 ;; — a manual `reproject-live-frames!` call, or the auto-hook firing on ANY
-;; `reg-*` anywhere — would then re-resolve that frame against a store its
-;; composition was never selected from. The fix (`frame-generation-pool`,
-;; §Generation PROVENANCE in live_frame.cljc) records which pool a frame's
-;; generation came from and threads the SAME pool through reprojection.
+;; `reg-*` anywhere — would re-resolve that frame against a store its
+;; composition was never selected from.
 
 (deftest reproject-resolves-explicit-pool-frame-against-its-own-pool
   (testing "a frame created via make-frame's 2-arity (an EXPLICIT descriptor
             pool) reprojects against that SAME pool, not the live source
             store. The pool's namespace exists ONLY in the pool, never in the
-            live store, so a reprojection that (bug) fell through to the live
+            live store, so a reprojection that fell through to the live
             store would :rf.error/image-zero-match fail-loud here — proving
-            the fix threads the ORIGINAL pool through, not nil/live."
+            reprojection threads the ORIGINAL pool through, not nil/live."
     (let [pool  [(reg-desc "rpf-pool.provenance.ns" :event :rpf-pool/inc ::pool-v1)]
           img   (rf.image/image {:id :rpf-pool/img :select-ns {:include ["rpf-pool.provenance.ns"]}})
           frame (rf.live-frame/make-frame {:id :rpf-pool/main :images [img]} pool)
@@ -834,7 +823,7 @@
         (is (= ::pool-v1 (:handler-fn (rf.image-assembly/resolve-descriptor gen-before :event :rpf-pool/inc)))))
       (testing "reprojecting does NOT throw and reports the frame UNCHANGED —
                 the live store has NOTHING under \"rpf-pool.provenance.ns\", so
-                a fall-through-to-live bug would zero-match fail-loud here"
+                a fall-through-to-live reprojection would zero-match fail-loud here"
         (is (nil? (rf.live-frame/reproject-live-frame! :rpf-pool/main))))
       (testing "the frame's generation is untouched and still resolves through
                 the explicit pool"
@@ -844,18 +833,18 @@
                                          :event :rpf-pool/inc))))))))
 
 (deftest failed-re-construction-preserves-generation-provenance-rf2-ktmto9
-  (testing "rf2-ktmto9 (failure-atomicity completion): a FAILED re-`make-frame`
-            records NO new provenance — `record-frame-generation-pool!` now runs
+  (testing "Failure atomicity: a FAILED re-`make-frame`
+            records NO new provenance — `record-frame-generation-pool!` runs
             AFTER the make-frame engine commit returns, so the pool row written
             by the successful creation survives and a later reprojection still
-            resolves against the ORIGINAL pool. Pre-fix the record ran BEFORE
-            the engine, so the failed re-make below (threading a DIFFERENT
-            pool) CLOBBERED the provenance — and the reprojection would
+            resolves against the ORIGINAL pool. Recording BEFORE the engine
+            would let the failed re-make below (threading a DIFFERENT
+            pool) CLOBBER the provenance — and the reprojection would
             :rf.error/image-zero-match fail-loud (the frame's namespace exists
             ONLY in its original pool)."
     (let [pool       [(reg-desc "ktmto9-pool.provenance.ns" :event :ktmto9-pool/inc ::pool-v1)]
           ;; A DIFFERENT pool that does NOT carry the frame's namespace — the
-          ;; failed re-make below threads it, so a pre-fix provenance clobber
+          ;; failed re-make below threads it, so a provenance clobber
           ;; (pool → other-pool) is observable: reprojection against other-pool
           ;; would zero-match the frame's :include-ns composition.
           other-pool [(reg-desc "ktmto9-other.provenance.ns" :event :ktmto9-other/inc ::other)]
@@ -875,7 +864,7 @@
             "the frame's generation is untouched by the failed re-construction"))
       (testing "reprojection still resolves against the ORIGINAL pool — the
                 provenance row was NOT clobbered by the failed re-construction
-                (pre-fix this threw :rf.error/image-zero-match)"
+                (a clobbered row would throw :rf.error/image-zero-match)"
         (is (nil? (rf.live-frame/reproject-live-frame! :ktmto9-pool/main))
             "reprojection reports the explicit-pool frame UNCHANGED, no throw")
         (is (= ::pool-v1 (:handler-fn (rf.image-assembly/resolve-descriptor
@@ -885,7 +874,7 @@
 
 #?(:clj
    (deftest failed-first-construction-records-no-provenance-rf2-ktmto9
-     (testing "rf2-ktmto9: a FAILED FIRST `make-frame` (the engine rejects the
+     (testing "A FAILED FIRST `make-frame` (the engine rejects the
                config before any write) records NO generation-provenance row —
                nothing to unwind because nothing was written (JVM-only direct
                read of the private provenance table)"
@@ -905,7 +894,7 @@
             the explicit-pool frame is left untouched (no cross-contamination,
             no throw, no stray move either way).
 
-            DETERMINISM (rf2-roou7s idiom): creating the SECOND live frame
+            DETERMINISM: creating the SECOND live frame
             below (once the first is already live) fires the process-defonce
             auto-reprojection hook for real — `rf.interop/next-tick` is redef'd
             to a no-op for the whole case so no background tick can race this
@@ -947,23 +936,22 @@
 
 ;; ===========================================================================
 ;; 11. Deferred-flush resilience — no mid-sweep abort, failure DIAGNOSED, not
-;;     silently swallowed (rf2-rf3zgt)
+;;     silently swallowed
 ;; ===========================================================================
 ;;
-;; Bug: `deferred-flush!` (the `next-tick`-scheduled background tick) caught
-;; whatever `reproject-live-frames!`'s all-or-nothing `reduce` threw and
-;; swallowed it with ZERO emission — but that `reduce` had ALREADY aborted
-;; mid-sweep on the first failing frame, so every OTHER live frame queued
-;; AFTER it (in enumeration order) silently stayed on its stale generation
-;; too, with no diagnostic anywhere naming what broke. The fix
-;; (`reproject-live-frames-resiliently!`) isolates each frame's reprojection
-;; so ONE failure does not stop the sweep from reaching the rest, and
-;; diagnoses the failure on the trace channel (`:rf.warning/reprojection-failed`)
-;; instead of a silent black hole. `rf.frame/image-loaded-frame-ids` is redef'd
-;; to a FIXED order so the regression is pinned deterministically — the real
+;; `deferred-flush!` (the `next-tick`-scheduled background tick) runs
+;; `reproject-live-frames-resiliently!`, which isolates each frame's
+;; reprojection so ONE failure does not stop the sweep from reaching the rest,
+;; and diagnoses the failure on the trace channel
+;; (`:rf.warning/reprojection-failed`). An all-or-nothing `reduce` whose throw
+;; the tick swallowed would abort mid-sweep on the first failing frame, leaving
+;; every OTHER live frame queued AFTER it (in enumeration order) silently on
+;; its stale generation, with no diagnostic naming what broke.
+;; `rf.frame/image-loaded-frame-ids` is redef'd
+;; to a FIXED order so the property is pinned deterministically — the real
 ;; registry enumerates a hash-set whose natural iteration order this test must
 ;; not depend on (an ordering where the good frame happened to process BEFORE
-;; the bad one would make the OLD buggy code look fine too).
+;; the bad one would make an all-or-nothing sweep look fine too).
 
 (deftest deferred-flush-does-not-abort-mid-sweep-on-one-frame-failure
   (testing "the deferred (next-tick) reprojection flush isolates a PER-FRAME
@@ -989,7 +977,7 @@
           ;; Capture (never run) every scheduled tick for the rest of the case
           ;; — including the ones make-frame's own make-frame calls arm — so no
           ;; real async tick can race this case's manual drive (the same
-          ;; rf2-roou7s determinism idiom the auto-reprojection tests above
+          ;; determinism idiom the auto-reprojection tests above
           ;; use). `rf.frame/image-loaded-frame-ids` is ALSO fixed for the whole
           ;; case: `mark-dirty-and-schedule!`'s guard only checks non-empty,
           ;; so the fixed answer is harmless during setup and DETERMINISTIC at
@@ -1022,12 +1010,11 @@
                    (:handler-fn (rf.image-assembly/resolve-descriptor
                                   (rf.live-frame/frame-generation (rf.live-frame/live-frame :rpf-good/main))
                                   :event :rpf-good/inc)))))
-          ;; rf2-d2841 — `:rf.warning/reprojection-failed` rides the DIAGNOSTIC
+          ;; `:rf.warning/reprojection-failed` rides the DIAGNOSTIC
           ;; channel and emits nothing under -Dre-frame.debug=false. The
           ;; production-visible half of the same claim is the assertion above:
           ;; the sweep REACHED the good frame despite the bad frame throwing,
-          ;; which is the mid-sweep-abort defect this case exists for. Kept
-          ;; verbatim.
+          ;; which is the mid-sweep-abort property this case exists for.
           (when rf.interop/debug-enabled?
             (testing "the bad frame's failure was DIAGNOSED (not a silent black
                       hole) via a :rf.warning/reprojection-failed trace event
@@ -1042,13 +1029,11 @@
           (reset! rf.source-store/kind->id->ns->descriptor snapshot))))))
 
 ;; ---------------------------------------------------------------------------
-;; Read-time coalesced flush (rf2-h1vqa4) — a `reg-*` issued AFTER `make-frame`
+;; Read-time coalesced flush — a `reg-*` issued AFTER `make-frame`
 ;; must be visible to the very next SAME-TICK dispatch: the resolution seam
 ;; (`call-with-frame-resolution`) flushes the dirty projection synchronously
-;; instead of racing the deferred `next-tick` sweep. This is the behavioral
-;; bridge that lets every former `make-frame` caller (nil-generation → LIVE
-;; registrar fallback) converge on `make-frame` (sealed default generation)
-;; without losing same-tick registration visibility.
+;; instead of racing the deferred `next-tick` sweep. That is what keeps a frame
+;; on a sealed default generation seeing same-tick registrations.
 ;; ---------------------------------------------------------------------------
 
 (deftest read-time-flush-makes-late-registration-visible-same-tick
