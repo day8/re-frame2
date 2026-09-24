@@ -111,11 +111,14 @@
       EP-0026 §Framework Standard Registrations: a standard encodes an execution
       invariant, so shadowing it is a correctness violation, not an app policy
       choice. There is NO public `:replace-standard` opt-in.
-    * [[standard-replaceable?]] is the predicate the standard OWNER's
-      internal define/revise path reads — the plug point for a conformance-profile
-      proof that would lift an invariant-coupled lock. A public app-facing
-      standard-replacement hook, if ever wanted, is a separate standards-track
-      decision; EP-0026 does not add one.
+    * [[standard-replaceable?]] states the replacement POLICY a standard
+      descriptor carries (`:rf.standard/replaceable?`,
+      `:rf.standard/requires-conformance`). Nothing at runtime reads it —
+      `check-standard-collision!` refuses every app collision whatever the
+      descriptor says — and its one reader is the EP-0023 conformance suite,
+      which pins that an invariant-coupled standard is not replaceable. A
+      public app-facing standard-replacement hook, if ever wanted, is a
+      separate standards-track decision; EP-0026 does not add one.
 
   A framework **DEFAULT** ([[framework-default-descriptor?]]) is the
   opposite kind of registration and must not be confused with a standard: it is
@@ -507,12 +510,13 @@
 ;;      — the internal seam for invariant-coupled conformance) -----------------
 ;;
 ;; EP-0026 §Framework Standard Registrations: a PUBLIC app image MUST NOT shadow
-;; a framework standard (the no-shadowing rule is enforced by
-;; `check-standard-collision!`). `standard-replaceable?` is the predicate the
-;; framework standard OWNER's internal path reads (a public app-facing
-;; standard-replacement hook, if ever wanted, is a separate standards-track
-;; decision — EP-0026 does not add one). It exists for the standard owner's
-;; internal define/revise path and conformance coverage.
+;; a framework standard, and `check-standard-collision!` enforces that on every
+;; app collision without consulting the predicate below. `standard-replaceable?`
+;; states the replacement POLICY a standard descriptor carries; nothing at
+;; runtime reads it, and its one reader is the EP-0023 conformance suite, which
+;; pins that an invariant-coupled standard is not replaceable. (A public
+;; app-facing standard-replacement hook, if ever wanted, is a separate
+;; standards-track decision — EP-0026 does not add one.)
 
 (defn standard-replaceable?
   "True when a framework `standard` descriptor MAY be replaced by an image.
@@ -526,7 +530,9 @@
   conformance-profile proof plugs in. The rule is the simple one the EP
   mandates — an invariant-coupled standard (a non-empty
   `:rf.standard/requires-conformance`) is NOT replaceable regardless of the
-  flag, until a spec provides the conformance profile. Pure."
+  flag, until a spec provides the conformance profile. Policy only: no runtime
+  path reads it, and `check-standard-collision!` refuses an app collision with
+  any standard whatever this answers. Pure."
   [standard-descriptor]
   (and (boolean (:rf.standard/replaceable? standard-descriptor))
        (empty? (:rf.standard/requires-conformance standard-descriptor #{}))))
