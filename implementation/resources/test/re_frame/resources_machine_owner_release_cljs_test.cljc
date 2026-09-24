@@ -162,7 +162,7 @@
 ;; ===========================================================================
 
 (deftest explicit-actor-destroy-releases-machine-owned-resource-owner
-  (testing "rf2-xw5t0y — a singleton machine ensures a resource under its
+  (testing "a singleton machine ensures a resource under its
             [:machine actor-id] owner; an explicit [:rf.machine/destroy <id>]
             releases the owner (owner-index drop + :active-owners empty + poll
             cancelled + entry GC-eligible) so the owner does NOT outlive the
@@ -195,7 +195,7 @@
                      (catch #?(:clj Throwable :cljs :default) e e)))
           "destroying the actor does not throw")
 
-      ;; ASSERT: the owner is released — the leak is closed.
+      ;; ASSERT: the owner is released — it does not outlive the actor.
       (is (nil? (machine-snapshot :reader/proc))
           "the actor is gone (snapshot torn down)")
       (is (empty? (:active-owners (entry k)))
@@ -219,7 +219,7 @@
 ;; ===========================================================================
 
 (deftest final-state-auto-destroy-releases-machine-owned-resource-owner
-  (testing "rf2-xw5t0y — a singleton that ensures a resource under [:machine
+  (testing "a singleton that ensures a resource under [:machine
             actor-id] and then enters a :final? state AUTO-destroys (cause
             :rf.machine/finished, via finalize-machine); the owner must still
             release. This pins the OTHER teardown codepath — finalize appends
@@ -234,7 +234,7 @@
       (is (contains? (:active-owners (entry k)) owner) "owned before finish")
 
       ;; ACT: drive the singleton into :final? — finalize-machine auto-destroys
-      ;; it AND (rf2-xw5t0y) releases its [:machine :reader/proc] owner via the
+      ;; it AND releases its [:machine :reader/proc] owner via the
       ;; release fx appended to its returned :fx (drains in-line).
       (reset! cancelled-poll [])
       (rf/dispatch-sync [:reader/proc [:finish]])
@@ -256,7 +256,7 @@
 ;; ===========================================================================
 
 (deftest actor-destroy-release-is-scoped-to-the-destroyed-actor
-  (testing "rf2-xw5t0y — over-release guard: destroying actor A releases ONLY
+  (testing "over-release guard: destroying actor A releases ONLY
             [:machine A]'s owner; a second resource owned by a different owner
             (a sibling actor / owner) is untouched"
     (let [ka     (slug-key "a")
@@ -292,10 +292,10 @@
 ;; ===========================================================================
 
 (deftest released-machine-entry-does-not-keep-polling
-  (testing "rf2-xw5t0y — after the actor's owner is released, a poll-fired
+  (testing "after the actor's owner is released, a poll-fired
             re-check on the (still-present-but-owner-free) entry refetches
-            nothing and does not re-arm: the orphaned-owner refetch leak is
-            closed (Spec 016 §Polling — a poll never pins an owner-free entry)"
+            nothing and does not re-arm: no orphaned owner keeps it
+            refetching (Spec 016 §Polling — a poll never pins an owner-free entry)"
     (let [slug  "infinite"
           owner [:machine :reader/proc]
           k     (slug-key slug)]
@@ -310,7 +310,7 @@
 
       ;; A poll tick on the owner-free entry must do nothing: no refetch, no
       ;; flip back to :loading, no re-attached owner — the entry stays settled
-      ;; and owner-free (it was the orphaned-owner poll that leaked).
+      ;; and owner-free (an orphaned-owner poll is what would leak).
       (let [gen-before    (:generation (entry k))
             status-before (:status (entry k))]
         (poll-fired! k)
