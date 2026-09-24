@@ -1,5 +1,5 @@
 (ns re-frame.performance
-  "Performance API instrumentation — prod timing, default off (rf2-du3i).
+  "Performance API instrumentation — prod timing, default off.
 
   Per Spec 009 §Performance instrumentation. Distinct from the trace
   surface: trace runs in dev (and is too noisy to keep on in prod);
@@ -31,9 +31,9 @@
       using the **options-bag** form
       `performance.measure(name, {start, end})` with numeric
       `performance.now()` timestamps. No `performance.mark` entries are
-      allocated — the two marks per bracket were pure buffer growth with
-      no documented consumer (nothing reads the `:start` / `:end` marks),
-      so the options-bag form drops two-thirds of the entry churn.
+      allocated — a `:start` / `:end` mark pair per bracket would be pure
+      buffer growth with no documented consumer (nothing reads marks), so
+      the options-bag form emits one entry per bracket instead of three.
     - After emitting, the bracket **clears the measure by name**
       (`performance.clearMeasures(name)`) so the host's User-Timing entry
       buffer does NOT accumulate. A live `PerformanceObserver` still
@@ -117,12 +117,12 @@
   for there to be one spelling — this fn.
 
   `(str id)` is NOT that spelling. A keyword stringifies WITH its colon,
-  so a substrate stamping `(str view-id)` on a React component showed
-  `:app.todo/todo-row` while its own measure carried
-  `rf:render:app.todo/todo-row`; pasting the name DevTools showed into
-  the documented `rf:render:` filter produced a double colon and matched
-  nothing — the tool answering \"no such trace\" to a developer using it
-  exactly as documented (rf2-2rtt6.136)."
+  so a substrate stamping `(str view-id)` on a React component would show
+  `:app.todo/todo-row` while its own measure carries
+  `rf:render:app.todo/todo-row`; pasting the name DevTools shows into
+  the documented `rf:render:` filter would produce a double colon and
+  match nothing — the tool answering \"no such trace\" to a developer
+  using it exactly as documented."
   [id]
   (if (keyword? id)
     (if-let [n (namespace id)]
@@ -207,8 +207,7 @@
               (finally
                 (try
                   ;; Options-bag measure: numeric start/end timestamps,
-                  ;; so no mark entries are ever allocated (two-thirds of
-                  ;; the old per-bracket buffer growth; nothing reads the
+                  ;; so no mark entries are ever allocated (nothing reads
                   ;; marks). The entry is delivered to any live
                   ;; PerformanceObserver at this call, then — unless the
                   ;; consumer opted into buffer retention — cleared so the
