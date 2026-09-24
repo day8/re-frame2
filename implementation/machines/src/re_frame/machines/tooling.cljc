@@ -23,8 +23,8 @@
 
   READ-ONLY over the registry + live runtime-db. This ns touches NEITHER the
   core registrar write-path NOR the machine registration signatures — exactly
-  as slice-2's subs.tooling read the sub registry, and slice-3's flows.tooling
-  read the flow registry, without touching the registrar. It reads:
+  as `subs.tooling` reads the sub registry, and `flows.tooling` reads the
+  flow registry, without touching the registrar. It reads:
     - the registered-machine spec map STRAIGHT OFF the `:event` registrar
       slot's `:rf/machine?` / `:rf/machine` stamp (Spec 005 §Querying
       machines) — the SAME registrar read the `:rf/machine?` filter +

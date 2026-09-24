@@ -168,8 +168,7 @@
 ;; There is NO per-kind query alias on this namespace. A machine is an
 ;; `:event` registration carrying `:rf/machine? true`, so both questions
 ;; tooling asks are answered by the one `{id meta}` registrar grammar every
-;; tool already speaks (rf2-kuky.31 — the `<kind>-ids` / `<kind>-meta` family
-;; is retired in favour of that grammar):
+;; tool already speaks:
 ;;
 ;;   ;; every registered machine-id
 ;;   (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
@@ -191,14 +190,14 @@
 ;; The algebra views over registered machines and over their live instances /
 ;; spawned actors live in `re-frame.machines.tooling` and are reached there.
 ;;
-;; rf2-kuky.86: no `machine-algebra-view` / `machine-instance-algebra-view`
+;; There are no `machine-algebra-view` / `machine-instance-algebra-view`
 ;; facade aliases. Both algebra views ship NO public accessor (Derivations
 ;; §Machines expose algebra views) — every consumer names
 ;; `re-frame.machines.tooling/<name>` directly (Xray and the conformance
 ;; fixtures statically; `re-frame.derivation.graph` through
 ;; `requiring-resolve` on the JVM).
 ;;
-;; The selector recognizer and extractor KEEP their JVM convenience aliases:
+;; The selector recognizer and extractor HAVE JVM convenience aliases:
 ;; the bodies live in `re-frame.machines.tooling` so a CLJS app that loads the
 ;; machines artefact but attaches no tool DCEs them (the CLJS facade never
 ;; `:require`s the tooling sibling — the require above is `#?@(:clj ...)`-gated).
@@ -423,12 +422,10 @@
 (rf.late-bind/set-fn! :machines/reg-machine            reg-machine*)
 (rf.late-bind/set-fn! :machines/make-machine-handler make-machine-handler)
 (rf.late-bind/set-fn! :machines/machine-transition     machine-transition)
-;; No `:machines/machines` hook: the retired enumerate alias (rf2-kuky.31) had
-;; no consumer at all, and the read it published is a `filter` over the generic
-;; registrar query any caller can write. Removed from the directory with it.
-;; The `machine-meta` hook key IS retained (rf2-kuky.31): that alias was
-;; a one-line delegate to `resolver/spec-from-registry`, so the hook publishes
-;; that resolver directly — same 1-arity, same value, one fewer public name.
+;; There is no `:machines/machines` hook: enumerating machines is a `filter`
+;; over the generic registrar query any caller can write. The `machine-meta`
+;; hook publishes `resolver/spec-from-registry` directly, with no public alias
+;; in between.
 (rf.late-bind/set-fn! :machines/machine-meta           rf.machines.lifecycle-fx.resolver/spec-from-registry)
 (rf.late-bind/set-fn! :machines/reset-timers!          reset-timers!)
 ;; Per-frame timer-table cleanup wired into `rf.frame/destroy-frame!`.
@@ -499,7 +496,7 @@
 ;; `[:meta :rf/snapshot-version]` so a spawned actor whose TYPE was hot-reloaded
 ;; forward surfaces `:rf.epoch/restore-version-mismatch` instead of silently
 ;; accepting an incompatible older snapshot (the snapshot key is an instance id,
-;; not a registered handler, so the singleton registrar probe never matched it).
+;; not a registered handler, so the singleton registrar probe never matches it).
 (rf.late-bind/set-fn! :machines/spec-from-snapshot     rf.machines.lifecycle-fx.resolver/spec-from-snapshot)
 ;; The post-commit walker the router AND-conjoins with
 ;; `validate-app-schema!` to gate the `:db` commit on the

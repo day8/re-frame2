@@ -57,7 +57,7 @@
   as in `grammar/node-at` / `resolver/spawn-spec-at`) is a different
   operation — it walks to
   a known target rather than seeking a deepest match. Treating it as
-  the same primitive with a direction flag obscured the unifying rule
+  the same primitive with a direction flag would obscure the unifying rule
   (deepest-wins isn't 'a walk'; it's 'a walk in a specific direction
   with a specific tie-breaking semantics'). It lives in its own ns.")
 

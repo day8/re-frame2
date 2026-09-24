@@ -17,8 +17,8 @@
   `:rf/machine-id` names the actor whose snapshot at
   `[:rf.runtime/machines :snapshots <id>]` is patched; `:rf/patch` is the map merged onto
   that snapshot, and its `:data` leg MERGES exactly as an action's `{:data ...}`
-  return does rather than replacing the map (rf2-0hi3x — a replace silently
-  dropped the reserved `:rf/*` runtime slots that live under `:data`; see
+  return does rather than replacing the map (a replace would silently
+  drop the reserved `:rf/*` runtime slots that live under `:data`; see
   `apply-patch`). Only the spec-permitted top-level snapshot keys flow
   through (`:state` / `:meta` / `:data`); any other key is ignored (the
   escape hatch can't graft arbitrary slots onto a snapshot). User
@@ -43,8 +43,8 @@
   "Merge `clean-patch` onto `snapshot`, with the `:data` leg MERGING rather
   than REPLACING — the same rule an action's `{:data ...}` return already
   obeys (`transition`'s
-  `(cond-> before-data (contains? r :data) (merge (:data r)))`). Before
-  rf2-0hi3x the two paths wrote the same shape and disagreed about it.
+  `(cond-> before-data (contains? r :data) (merge (:data r)))`), so the two
+  paths agree about the shape they both write.
 
   Why `:data` must merge. It is not only user working memory: the runtime
   keeps framework-owned reserved `:rf/*` slots in there that the programmer
@@ -53,14 +53,14 @@
   `:rf/after-epoch-by-region`), a spawned actor's
   `:rf/self-id` / `:rf/parent-id` / `:rf/invoke-id` / `:rf/join-child`
   lineage, and the `:rf/spawned` invoke-id capture. A wholesale replace
-  dropped them SILENTLY, so the documented idiom
-  `{:rf/patch {:data {:status :degraded}}}` stale-suppressed every live
+  would drop them SILENTLY, so the documented idiom
+  `{:rf/patch {:data {:status :degraded}}}` would stale-suppress every live
   `:after` timer of the actor (`node-epoch` falls back to 0, so an in-flight
   timer armed at a non-zero epoch never matches and simply never arrives)
-  and made a spawned child finalize as a singleton (`finalize` reads
+  and make a spawned child finalize as a singleton (`finalize` reads
   `:rf/parent-id` off `:data` to decide whether anyone is waiting on it).
 
-  `:state` / `:meta` still REPLACE: those the caller names outright, and
+  `:state` / `:meta` REPLACE: those the caller names outright, and
   neither holds hidden runtime slots. The `contains?` guard is what keeps a
   patch that doesn't mention `:data` from installing a nil one."
   [snapshot clean-patch]
@@ -88,7 +88,7 @@
   low-frequency \"I need to touch `:state` + something else atomically\"
   primitive, not a guarded `:on`-transition.
 
-  Incarnation fence (rf2-vxgfnd.22): the escape-hatch store-write is fenced to
+  Incarnation fence: the escape-hatch store-write is fenced to
   the exact frame incarnation, mirroring the destroy / finalize / spawn
   incarnation-fencing family. The `:db` hard-disallow trace below is a PRE-WRITE
   callback that fires synchronous trace listeners (the epoch
@@ -97,7 +97,7 @@
   Ownership is rechecked AFTER that emit and before the read/merge/write, and
   the store-write rides the EXACT owner token (`swap-runtime-db-exact!`) so a
   merge never lands on — nor bumps the commit epoch of — successor B. An
-  eventless caller (nil token) keeps the historical bare write."
+  eventless caller (nil token) uses the bare write."
   [{frame-id :frame} args]
   (let [;; The cascade envelope frame is the fx-context `:frame`; a nil
         ;; stamp is an invariant failure (`:rf.error/no-frame-context`),
@@ -108,7 +108,7 @@
                       :event-id (:rf/machine-id args)})
         machine-id (:rf/machine-id args)
         patch      (:rf/patch args)
-        ;; rf2-vxgfnd.22 — capture A's exact-frame-incarnation continuation +
+        ;; Capture A's exact-frame-incarnation continuation +
         ;; raw owner token ONCE at the fx entry, mirroring the destroy /
         ;; finalize / spawn incarnation-fencing family. This fx runs inside the
         ;; emitting event's fx drain, so `*event-owner*` names the exact
@@ -118,7 +118,7 @@
         ;; app-registered `:trace` handler — has destroyed A / published a
         ;; same-id successor B; `owner-token` binds the store-write to A's OWN
         ;; container. An eventless caller (no owner bound) yields
-        ;; `(constantly false)` / nil — the historical full-authority bare write.
+        ;; `(constantly false)` / nil — the full-authority bare write.
         continue?   (rf.machines.data-validation/owner-continuation frame-id)
         owner-gone? (fn [] (not (continue?)))
         owner-token (rf.frame/current-event-owner-token)]
@@ -143,7 +143,7 @@
                             :offending-value (:db patch)
                             :frame           frame-id
                             :recovery        :logged-and-skipped}))
-      ;; rf2-vxgfnd.22 — the `:db` hard-disallow trace above fires SYNC trace
+      ;; The `:db` hard-disallow trace above fires SYNC trace
       ;; listeners (the epoch capture + any app-registered
       ;; `:trace` listener); one may destroy A and re-seed a same-id successor
       ;; B on this stack. Recheck ownership BEFORE the read/merge/write — a
@@ -171,7 +171,7 @@
             ;; the write when it fails (a PRE-WRITE rejection — nothing is
             ;; committed, so `:rollback? false`; the trace fires with
             ;; `:phase :update-snapshot`). A valid patch — or a machine with
-            ;; no `[:schemas :data]` schema — writes exactly as before. Absent actor
+            ;; no `[:schemas :data]` schema — is written. Absent actor
             ;; (destroyed / unknown) is a no-op: nothing to merge into, and
             ;; nothing to validate.
             (let [snapshots (get-in (rf.frame/frame-runtime-db-value frame-id)
@@ -180,14 +180,14 @@
                 (let [merged (apply-patch (get snapshots machine-id) clean-patch)]
                   (when (rf.machines.data-validation/validate-update-snapshot-data!
                           machine-id merged)
-                    ;; rf2-vxgfnd.22 — route the store-write through the EXACT
+                    ;; Route the store-write through the EXACT
                     ;; durable write so it NO-OPS on owner loss: no merge onto
                     ;; B, and no phantom commit-epoch bump (a
                     ;; signal B never earned). The `validate-update-snapshot-
                     ;; data!` callback above is itself schema/app code that can
                     ;; lose A, so the exact write is the terminal fence for that
                     ;; boundary too. The eventless caller (nil token) falls back
-                    ;; to the historical bare write.
+                    ;; to the bare write.
                     (let [swap-fn
                           (fn [runtime-db]
                             ;; Re-check presence inside the swap — never conjure

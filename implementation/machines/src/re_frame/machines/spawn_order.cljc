@@ -23,13 +23,12 @@
   is precisely what the transient channel below does not.
 
   **The process-side `spawn-order` atom is a transient CACHE, never the
-  authority** (rf2-1vlyg). It is runtime bookkeeping in the Spec 002
+  authority**. It is runtime bookkeeping in the Spec 002
   §Durable vs transient sense: no observer contract, not serialised, and
-  absent in any fresh process. Before rf2-1vlyg, frame destroy fell back
-  to parsing the `#<n>` suffix of a restored actor-id when this atom was
-  empty; that suffix is a per-id-prefix sequence and cannot order actors
-  of different machine types, so the fallback emitted a confident wrong
-  order. The durable vector replaced it.
+  absent in any fresh process. Frame destroy does not fall back to
+  parsing the `#<n>` suffix of a restored actor-id when this atom is
+  empty: that suffix is a per-id-prefix sequence and cannot order actors
+  of different machine types, so it would yield a confident wrong order.
 
   ## What a cache entry means, and what it does not
 

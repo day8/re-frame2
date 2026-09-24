@@ -30,7 +30,7 @@
   address (`:machine-id` is reserved for the registered TYPE);
   `:invoke-id` is the declarative invocation path. Callers pass only the
   slots their site populates —
-  `nil` values are stamped through, matching pre-consolidation behaviour.
+  `nil` values are stamped through.
 
   `reason` is the discriminator — `:explicit` for direct-destroy
   cascades, `:rf.machine/finished` for final-state auto-destroy.
@@ -55,9 +55,7 @@
       join child too: completion IS finality, so a child that folded into a
       join reached a `:final?` state and closed its own attempt on the way
       out. Only SURVIVORS remain for the join to tear down at resolution, and
-      their teardown is a genuine `:explicit` cancellation.
-
-  The public destroyed-trace shape is unchanged."
+      their teardown is a genuine `:explicit` cancellation."
   [{:keys [frame actor-id parent-id invoke-id child-id reason
            work-bearing-path work-generation]
     :or {reason :explicit}
@@ -93,13 +91,13 @@
   "Fail loud when a `:rf.machine/destroy` fx receives a MAP arg the runtime
   cannot honour. The actor is NOT torn down and NO `:rf.machine/destroyed`
   trace fires — the fx refuses rather than silently choosing a semantic
-  reason (rf2-3lyqzu).
+  reason.
 
   The closed `cause` vocabulary:
 
     - `:slot-shape-mismatch` — a well-formed tracked / spawn-all form whose
-      addressed `[:spawned p i]` slot holds the OTHER form's shape
-      (rf2-3phait): the tracked single-`:spawn` form resolving a `:spawn-all`
+      addressed `[:spawned p i]` slot holds the OTHER form's shape:
+      the tracked single-`:spawn` form resolving a `:spawn-all`
       join-state MAP (consuming it as an actor id would clear the join slot
       and orphan every live child), or the spawn-all form resolving an
       actor-id KEYWORD.
@@ -108,11 +106,11 @@
       (the keyword `actor-id` form, the tracked `{:rf/parent-id :rf/invoke-id}`
       `:spawn` exit-cascade form, or the `:rf/spawn-all` form). Notably this is
       the pre-auth forgery
-      `{:rf/actor-id … :rf/reason …}`, which used to mint a CALLER-chosen
+      `{:rf/actor-id … :rf/reason …}`, which would otherwise mint a CALLER-chosen
       destroyed reason and thereby suppress the cancellation terminal of an
       in-progress actor at the public reserved-fx boundary — and every
       false-valued / wrong-typed discriminator, missing or wrongly-typed
-      coordinate, and overlapping discriminator set (rf2-3phait).
+      coordinate, and overlapping discriminator set.
 
   Diagnostic channel (DCE'd in production), matching the sibling forgery
   guard `:rf.error/machine-spawn-all-bad-child-id`: the SAFE behaviour (no
