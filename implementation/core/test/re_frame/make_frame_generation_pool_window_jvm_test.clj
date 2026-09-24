@@ -1,72 +1,72 @@
 (ns re-frame.make-frame-generation-pool-window-jvm-test
-  "rf2-rt4jz — a frame's GENERATION and the POOL that generation was resolved
-  against must never be observable OUT OF STEP.
+  "A frame's GENERATION and the POOL that generation was resolved against must
+  never be observable OUT OF STEP.
 
-  THE WINDOW. `re-frame.live-frame/make-frame` does two things in order:
+  THE WINDOW. `re-frame.live-frame/make-frame` does two things:
 
       (frame/upsert-frame! runnable-id record-config token-box) ;; INSTALL the generation
       (record-frame-generation-pool! runnable-id descriptors)   ;; RECORD the pool it came from
 
-  Between them the record already carries the NEW generation while the
-  provenance row (rf2-rf3zgt — `frame-generation-pool`, the per-frame row naming
-  WHICH descriptor pool a generation was resolved against) still names the pool
-  of some PREVIOUS incarnation, or names nothing at all. Anything that reprojects
-  the frame inside that window re-resolves its composition against the WRONG pool
-  and `frame/set-generation!`s the result over the generation the constructor
-  had just installed. The constructor returns having silently lost its own swap.
+  Were they run in that order, between them the record would already carry the
+  NEW generation while the provenance row (`frame-generation-pool`, the
+  per-frame row naming WHICH descriptor pool a generation was resolved against)
+  still named the pool of some PREVIOUS incarnation, or nothing at all. Anything
+  that reprojected the frame inside that window would re-resolve its
+  composition against the WRONG pool and `frame/set-generation!` the result
+  over the generation the constructor had just installed. The constructor would
+  return having silently lost its own swap.
 
   AND SOMETHING DOES REPROJECT INSIDE IT — synchronously, on the constructing
   thread, on BOTH hosts. `upsert-frame!` runs the `:initial-events` setup steps
   (EP-0027) INSIDE the call, after the record is published. Those steps dispatch,
   so they go through `call-with-frame-resolution`, whose read-time consult
-  flushes any PENDING reprojection (rf2-h1vqa4 / rf2-9c2jf). That flush is the
-  reprojection, and it runs while the provenance row is still stale.
+  flushes any PENDING reprojection. That flush is the reprojection, and in that
+  order it would run while the provenance row is stale.
 
   So the reproduction below needs NO threads and NO barrier — unlike its sibling
-  `make-frame-generation-seal-race-jvm-test` (rf2-djkr0), whose window is a
-  genuine two-thread race. This one is a plain ordering wart, reachable by a
+  `make-frame-generation-seal-race-jvm-test`, whose window is a genuine
+  two-thread race. This one is a plain ordering property, reachable by a
   single synchronous call:
 
     1. `:pool-window/target` is created against explicit pool V1 and destroyed,
-       and the V1 row is then PLANTED back onto the dead id. It used to be left
-       there by the destroy itself; since rf2-cq0yi teardown releases it, so the
-       reproduction establishes the state directly. See the long comment at the
-       plant for why nothing else reaches this state, and why planting it does
-       not weaken the pin.
+       and the V1 row is then PLANTED back onto the dead id: teardown releases
+       the row, so the reproduction establishes the state directly. See the
+       long comment at the plant for why nothing else reaches this state, and
+       why planting it does not weaken the pin.
     2. A `reg-*` arms `pending-reprojection?` (an image-loaded decoy frame is
        standing, so the hook does not take its no-image-loaded-frame skip; on the
        JVM `mark-dirty-and-schedule!` schedules no tick, so the flag simply
        waits for the next resolution).
     3. `:pool-window/target` is re-created against explicit pool V2, carrying
        `:initial-events`. The setup cascade flushes → the sweep reaches the
-       just-published frame → reads the row, which does not yet say V2 →
-       re-resolves against the WRONG pool and swaps THAT over the V2
-       generation the constructor had just installed.
+       just-published frame → reads the row → re-resolves against it and swaps
+       the result over the V2 generation the constructor had just installed.
 
-  PRE-FIX the constructor returns a frame running the V1 descriptors it was
-  never asked for. POST-FIX the row is written BEFORE the engine commit (and
-  rolled back exactly on failure, preserving rf2-ktmto9's no-residue contract
-  EXPLICITLY rather than by ordering), so the cascade's flush re-resolves the
-  frame against the pool it was actually sealed from — a byte-for-byte identical
-  generation, hence no swap at all.
+  Written after the commit, the row in step 3 would not yet say V2, and the
+  constructor would return a frame running the V1 descriptors it was never
+  asked for. The row is written BEFORE the engine commit (and rolled back
+  exactly on failure, keeping the no-residue contract EXPLICITLY rather than
+  by ordering), so the cascade's flush re-resolves the frame against the pool
+  it was actually sealed from — a byte-for-byte identical generation, hence no
+  swap at all.
 
-  WHY THE `_jvm_test` SUFFIX WHEN THE DEFECT IS COMMON. The defect is NOT
+  WHY THE `_jvm_test` SUFFIX WHEN THE PROPERTY IS COMMON. The property is NOT
   JVM-only — the read-time flush in `call-with-frame-resolution` is synchronous
-  on both hosts, so CLJS reaches the same clobber inside the same synchronous
-  `make-frame` call (this is the rf2-djkr0 relationship INVERTED: that one was a
-  JVM-only race with a common-code repair; this one is a common-code defect).
-  The CLJS side is covered where the wart was first observed —
+  on both hosts, so CLJS would reach the same clobber inside the same
+  synchronous `make-frame` call (the seal race's relationship INVERTED: that
+  one is a JVM-only race with a common-code guard; this one is a common-code
+  ordering). The CLJS side is covered by
   `live-frame-reload-cljs-test/reload-swaps-generation-preserving-frame-memory`,
   which rides `npm run test:cljs` and reddens under an unconditional
-  construction-path dirty mark. This namespace is the DETERMINISTIC, defect-
-  specific reproduction, and it is JVM-scoped so it can arm the dirty flag
-  without racing a scheduled `next-tick` flush (CLJS schedules one; the JVM does
-  not — `mark-dirty-and-schedule!`).
+  construction-path dirty mark. This namespace is the DETERMINISTIC,
+  property-specific reproduction, and it is JVM-scoped so it can arm the dirty
+  flag without racing a scheduled `next-tick` flush (CLJS schedules one; the JVM
+  does not — `mark-dirty-and-schedule!`).
 
-  See also `make-frame-generation-seal-race-jvm-test` §4, which pins that
-  rf2-djkr0's construction-path dirty mark is CONDITIONAL. That conditionality
-  is what keeps this wart out of the ordinary quiet-construction path; it is not
-  what closes the wart, and it stays exactly as it is."
+  See also `make-frame-generation-seal-race-jvm-test` §4, which pins that the
+  construction-path dirty mark is CONDITIONAL. That conditionality is what
+  keeps this window out of the ordinary quiet-construction path; it is not what
+  closes the window."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.events :as rf.events]
@@ -77,7 +77,7 @@
             [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
-;; White-box handles. The whole defect lives in the relationship between two
+;; White-box handles. The whole property lives in the relationship between two
 ;; PRIVATE pieces of process-local bookkeeping — the coalescing dirty flag and
 ;; the generation-provenance table — so the reproduction observes both directly,
 ;; exactly as `make-frame-generation-seal-race-jvm-test` does.
@@ -96,9 +96,9 @@
     ;; reason and reporting a result that proves nothing. Clear either side.
     (reset! @dirty-flag false)
     ;; The provenance table is process-local `defonce` bookkeeping that no
-    ;; fixture resets. Since rf2-cq0yi a destroyed id's row is released by
+    ;; fixture resets. A destroyed id's row is released by
     ;; teardown, so the cases clean up after themselves — but a case that throws
-    ;; part-way can still leave one, so clear this namespace's own ids
+    ;; part-way can leave one, so clear this namespace's own ids
     ;; explicitly and keep a re-run inside one JVM starting from "no row".
     (swap! @provenance dissoc :pool-window/target :pool-window/decoy :pool-window/rollback)
     (t)
@@ -151,28 +151,26 @@
     (rf.events/register-set-db-standard!)
 
     ;; A standing image-loaded frame, so the registration hook below does NOT
-    ;; take `mark-dirty-and-schedule!`'s no-image-loaded-frame skip (rf2-h4q6cy).
+    ;; take `mark-dirty-and-schedule!`'s no-image-loaded-frame skip.
     (rf/make-frame {:id :pool-window/decoy})
 
-    ;; The id's FIRST incarnation, against pool V1. Destroying it now RELEASES
-    ;; the row (rf2-cq0yi) — see the control below for what that does to the
+    ;; The id's FIRST incarnation, against pool V1. Destroying it RELEASES
+    ;; the row — see the control below for what that does to the
     ;; window under test.
     (rf.live-frame/make-frame {:id :pool-window/target :images [img]} pool-v1)
     (is (= ::inc-v1 (inc-impl :pool-window/target))
         "control: the first incarnation resolved against pool V1")
     (rf/destroy-frame! :pool-window/target)
     (is (not (contains? (deref @provenance) :pool-window/target))
-        "control: teardown RELEASED the destroyed incarnation's row (rf2-cq0yi)")
+        "control: teardown RELEASED the destroyed incarnation's row")
 
-    ;; …so the stale row this reproduction needs is now PLANTED rather than
-    ;; inherited (rf2-cq0yi). Until the release landed, the row simply survived
-    ;; the destroy and step 3 below read it as a matter of course; the fix
-    ;; removes it, and the state under test has to be established some other
-    ;; way. WHITE-BOX IS THE ONLY WAY LEFT, and it is measured rather than
-    ;; assumed — both alternatives were tried against the reverted ordering and
-    ;; neither reproduces:
+    ;; …so the stale row this reproduction needs is PLANTED rather than
+    ;; inherited. Teardown removes it, so the state under test has to be
+    ;; established some other way. WHITE-BOX IS THE ONLY WAY, and it is
+    ;; measured rather than assumed — both alternatives, run against the
+    ;; write-after-commit ordering, do not reproduce:
     ;;
-    ;;   * leaving the row ABSENT (what the destroy now leaves behind) reads as
+    ;;   * leaving the row ABSENT (what the destroy leaves behind) reads as
     ;;     nil ⇒ the LIVE SOURCE STORE, whose zero-match against this frame's
     ;;     explicit `:include-ns` composition is SWALLOWED by the resilient
     ;;     flush, so the constructor's generation survives and every assertion
@@ -184,13 +182,13 @@
     ;;
     ;; So the id must be destroyed (to make the next construction a FIRST one,
     ;; which is what runs the setup cascade) AND carry a previous incarnation's
-    ;; row. That pairing no longer occurs by itself, and planting it is not a
+    ;; row. That pairing does not occur by itself, and planting it is not a
     ;; weakening: this namespace is white-box by construction — it reads the
     ;; private provenance table and the private dirty flag directly, and says so
     ;; — and the value planted is byte-identical to what the first incarnation
-    ;; recorded three lines up. Verified in both directions: with this plant the
-    ;; case reddens under the pre-rf2-rt4jz ordering (the constructor returns a
-    ;; frame running V1) and is green under the current one.
+    ;; recorded three lines up. With this plant the case reddens under the
+    ;; write-after-commit ordering (the constructor returns a frame running V1)
+    ;; and is green under write-before-commit.
     (swap! @provenance assoc :pool-window/target pool-v1)
     (is (= pool-v1 (pool-row :pool-window/target))
         "control: the row under test names the PREVIOUS incarnation's pool V1")
@@ -204,8 +202,8 @@
 
     ;; THE CONSTRUCTION UNDER TEST. Its `:initial-events` step dispatches inside
     ;; `upsert-frame!`, whose `call-with-frame-resolution` consult flushes the
-    ;; pending reprojection while the frame is published but its provenance row
-    ;; is (pre-fix) still the destroyed incarnation's.
+    ;; pending reprojection while the frame is published — the moment at which
+    ;; a row written after the commit would still be the destroyed incarnation's.
     (rf.live-frame/make-frame {:id             :pool-window/target
                     :images         [img]
                     :initial-events [[:rf/set-db {:seeded true}]]}
@@ -213,22 +211,22 @@
 
     (is (= ::inc-v2 (inc-impl :pool-window/target))
         (str "the constructor's own generation survived its :initial-events "
-             "cascade — pre-fix the cascade's flush reprojected the frame "
-             "against the PREVIOUS incarnation's pool (V1) and swapped that "
-             "over the V2 generation the constructor had just installed"))
+             "cascade — a stale row would let the cascade's flush reproject "
+             "the frame against the PREVIOUS incarnation's pool (V1) and swap "
+             "that over the V2 generation the constructor had just installed"))
     (is (some? (rf.image-assembly/resolve-descriptor (rf.live-frame/frame-generation :pool-window/target)
                                        :event :pool-window/reset))
         "the V2-only registration is resolvable — the frame is running V2")
     (is (= pool-v2 (pool-row :pool-window/target))
         "the provenance row names the pool the frame is actually running")
     (is (= {:seeded true} (rf/app-db-value :pool-window/target))
-        "the setup cascade itself still ran (the flush is not being skipped)")))
+        "the setup cascade itself ran (the flush is not being skipped)")))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. THE SAME WINDOW WITHOUT :initial-events. The clobber needs a resolution
 ;;    inside `upsert-frame!` to trigger it, and `:initial-events` is the only
-;;    one on the construction path — so a construction with no setup steps must
-;;    come through unharmed both before AND after the fix. This case exists so
+;;    one on the construction path — so a construction with no setup steps comes
+;;    through unharmed whichever order the row is written in. This case exists so
 ;;    the reproduction above cannot be mistaken for "re-construction is broken":
 ;;    it pins the trigger precisely.
 ;; ---------------------------------------------------------------------------
@@ -247,13 +245,13 @@
     (is (= ::inc-v2 (inc-impl :pool-window/target)))))
 
 ;; ---------------------------------------------------------------------------
-;; 3. THE ROLLBACK. Moving the provenance write AHEAD of the engine commit is
+;; 3. THE ROLLBACK. Writing the provenance row AHEAD of the engine commit is
 ;;    only safe because the write is UNDONE exactly when the commit fails —
-;;    rf2-ktmto9's contract (a failed creation records nothing; a failed
-;;    re-construction preserves the OLD row) now holds by explicit rollback
+;;    the no-residue contract (a failed creation records nothing; a failed
+;;    re-construction preserves the OLD row) holds by explicit rollback
 ;;    rather than by ordering. `live-frame-reload-cljs-test` pins the contract's
-;;    OBSERVABLE consequence (reprojection still resolves against the original
-;;    pool); these two pin the row itself, which is the thing the fix moved.
+;;    OBSERVABLE consequence (reprojection resolves against the original
+;;    pool); these two pin the row itself.
 ;; ---------------------------------------------------------------------------
 
 (deftest failed-re-construction-restores-the-previous-provenance-row
