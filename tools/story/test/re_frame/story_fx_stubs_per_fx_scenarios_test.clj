@@ -217,33 +217,31 @@
 ;; ===========================================================================
 ;; rf2-mwr16 — stub-failure-mode
 ;;
-;; Install a stub whose :response represents a failure payload. The
-;; variant's event handler reads the stub's response into app-db (the
-;; common shape for libraries like re-frame-http-fx, where the fx handler
-;; emits an `:on-failure` event with the response body). Asserts:
+;; Install a stub whose :response represents a failure payload, and author
+;; the failure STATE separately, the way a variant must. The stub only
+;; absorbs the call and logs it (with its :response) in the per-frame
+;; stub-call log; it never delivers the response, and nothing here reads
+;; the log into app-db. `:record/failure` stands in for the app's own
+;; failure event: the script dispatches it, and it closes over the same
+;; literal payload. Asserts:
 ;;
 ;;   1. Lifecycle reaches :ready (no crash).
-;;   2. The failure response made it into app-db along the documented path.
+;;   2. The authored failure state is in app-db.
 ;;   3. The :rf.assert/path-equals against the failure path passes.
 ;;
-;; The wiring here is intentionally a thin emulation of how a library
-;; like re-frame-http-fx surfaces a failure: the stub's :response sits
-;; in the per-frame stub-call log; a follow-on event reads it and
-;; copies it into app-db. The test asserts the *contract* — the stub
-;; absorbed the call without crashing AND a downstream consumer can
-;; observe the failure payload — without coupling to any specific
-;; failure-event shape.
+;; A separately dispatched failure event tests the downstream state
+;; transition. It does not prove the request would have produced that
+;; reply (rf2-3x7nj.31.4).
 ;; ===========================================================================
 
 (deftest stub-failure-mode-records-without-crash
   (testing "force-fx-stub with a failure response payload — variant
             records the failure into app-db and assertions pass"
     (let [failure-payload {:status :error :code 500 :body {:reason "server-down"}}]
-      ;; Event handler emits the :http fx; a follow-on event reads the
-      ;; stub-call log entry for this frame and copies the payload into
-      ;; app-db along [:http-result]. The stub itself just absorbs the
-      ;; call; the failure-shape contract is whatever the app under
-      ;; test makes of the response.
+      ;; Event handler emits the :http fx, which the stub absorbs and
+      ;; logs. The failure state reaches app-db along [:http-result]
+      ;; through a separate event, `:record/failure`, that closes over
+      ;; `failure-payload`; nothing reads the stub-call log into app-db.
       (rf/reg-event :do/http-emit-fail
         (fn [_ _] {:fx [[:http {:url "/api/may-fail"}]]}))
       ;; Record the failure marker into app-db so :rf.assert/path-equals
@@ -272,10 +270,9 @@
              the three :rf.assert/path-equals against the failure path")
         (is (= 4 (count asserts))
             "exactly four assertions recorded — :effect-emitted + three :path-equals")
-        ;; Belt-and-braces: pluck the recorded payload off the stub log
-        ;; and confirm it matches what we declared in the decorator.
-        ;; Proves the failure payload made the full round-trip through
-        ;; the framework's :fx-overrides redirect.
+        ;; Belt-and-braces: pluck the recorded call off the stub log and
+        ;; confirm it carries the original fx-id and request payload,
+        ;; i.e. the framework's :fx-overrides redirect reached the stub.
         (let [log (rf.story.frames/stub-call-log-for :story.fxfail/v)]
           (is (= 1 (count log)))
           (is (= :http (:fx-id (first log))))

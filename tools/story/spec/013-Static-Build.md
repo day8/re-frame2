@@ -353,6 +353,7 @@ their `staticwebapp.config.json` under Azure, etc.).
 | Registrar-fingerprint poll (the 500ms `setInterval`) | gated on `(not static-mode?)`; DCEs under `:advanced` |
 | First-visit help overlay auto-open | gated on `(not static-mode?)` |
 | `goog.DEBUG`-keyed branches (trace listener emit, source-coord DOM stamp) | the rest of the framework's standard release-build elision still applies |
+| `:sub-overrides` pins | compiled out with the rest of the `goog.DEBUG`-gated seam: core `subscribe`'s override consult and Story's override provider ([spec/006 §The sub-override subscribe seam (debug-gated)](../../../spec/006-ReactiveSubstrate.md#the-sub-override-subscribe-seam-debug-gated)). A pinned variant renders its REAL subscription values in the export. Publish `:setup` / `:db-seed` variants for states that must survive (`re-frame.story.ui.view-state/upgrade-snippet` scaffolds that upgrade), or accept the gap |
 
 ## Downstream pattern
 
