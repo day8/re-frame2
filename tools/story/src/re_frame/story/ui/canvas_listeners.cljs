@@ -27,13 +27,16 @@
 
   Story-side, CLJS-only. Production builds elide the whole Story UI
   shell at the `mount-shell!` call site, so this ns is reachable only
-  when Story is enabled. No tools->tools cross-require.")
+  when Story is enabled. No tools->tools cross-require."
+  (:require [re-frame.story.play.dom :as rf.story.play.dom]))
 
-(def ^:const canvas-selector
+(def canvas-selector
   "The framework-stable hook the shell stamps on the canvas frame
-  (`shell/canvas`). The single source of truth for where the
-  canvas-side observers attach."
-  "[data-test=\"story-canvas-frame\"]")
+  (`shell/canvas`) — where the canvas-side observers attach. Defined once
+  as `rf.story.play.dom/canvas-selector`, which the play runner resolves
+  its selectors under, so a recorded step replays in the root it was
+  captured in."
+  rf.story.play.dom/canvas-selector)
 
 (defn canvas-root
   "The current shell canvas root, looked up by the framework-stable

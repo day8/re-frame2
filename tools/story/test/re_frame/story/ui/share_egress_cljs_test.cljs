@@ -12,6 +12,7 @@
             [cljs.reader :as reader]
             [cljs.test :refer [deftest is testing use-fixtures async]]
             [goog.object :as gobj]
+            [re-frame.registrar :as rf.registrar]
             [re-frame.story :as rf.story]
             [re-frame.story.plan :as rf.story.plan]
             [re-frame.story.registrar :as rf.story.registrar]
@@ -81,6 +82,43 @@
     (let [report (rf.story.ui.share/current-share-report (rf.story.ui.state/get-state))]
       (is (= :view-only (:status report)))
       (is (some #(= :override-fn (:code %)) (:reasons report))))))
+
+;; ---- rf2-nlvgc — the report compiles the shared cell, not the bare body ----
+
+(def ^:private labelled-view
+  "A registered view requiring `:label` — the prop the story supplies."
+  :views.nlvgc/labelled)
+
+(deftest report-keeps-the-plan-of-a-variant-that-leaves-a-prop-to-its-story
+  (testing "rf2-nlvgc: a variant whose required prop comes from its story's
+            :args still carries its plan-derived downgrade reason. The report
+            compiles the shared cell with the ambient arg layers, as a run
+            does; the bare compile failed view-args validation, the plan was
+            dropped, and a function-valued network stub read :full"
+    (rf.registrar/register! :view labelled-view
+                            {:rf/props   [:map [:label :string]]
+                             :handler-fn (fn [_] nil)})
+    (try
+      (rf.story/reg-story :story.nlvgc {:component labelled-view :args {:label "Go"}})
+      (rf.story/reg-variant :story.nlvgc/stubbed
+                            {:tags    #{:dev}
+                             :network {[:get "/api/x"] {:reply {:ok (fn [_] {})}}}})
+      (rf.story/reg-variant :story.nlvgc/plain {:tags #{:dev} :setup []})
+      (rf.story.ui.state/swap-state!
+        (fn [s] (assoc s :selected-variant :story.nlvgc/stubbed)))
+      (let [report (rf.story.ui.share/current-share-report (rf.story.ui.state/get-state))]
+        (is (= :partial (:status report)))
+        (is (= [:network-reply-fn] (mapv :code (:reasons report)))
+            "the stub's reason comes off the compiled plan"))
+      (testing "control: the same story's variant with no plan-derived reason
+                is fully reproducible"
+        (rf.story.ui.state/swap-state!
+          (fn [s] (assoc s :selected-variant :story.nlvgc/plain)))
+        (let [report (rf.story.ui.share/current-share-report (rf.story.ui.state/get-state))]
+          (is (= :full (:status report)))
+          (is (empty? (:reasons report)))))
+      (finally
+        (rf.registrar/unregister! :view labelled-view)))))
 
 (deftest edn-snippet-emits-reg-variant-form
   (testing "the copy-EDN snippet is a (reg-variant …) form pinning :extends

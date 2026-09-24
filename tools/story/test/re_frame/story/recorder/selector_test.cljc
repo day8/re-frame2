@@ -53,6 +53,27 @@
               :attrs {}
               :index-of-type 2})))))
 
+(deftest positional-recognises-the-fallback-only
+  (testing "rf2-3x7nj.30.5: `positional?` is true of exactly what the
+            nth-of-type fallback builds, so the translator hints those steps"
+    (doseq [shape [{:tag "input" :attrs {} :index-of-type 1}
+                   {:tag "BUTTON" :attrs {} :index-of-type 3}
+                   {:tag nil :attrs {} :index-of-type 2}
+                   {:tag "my-widget" :attrs {} :index-of-type 1}]]
+      (is (true? (rf.story.recorder.selector/positional?
+                   (rf.story.recorder.selector/pick-selector shape)))
+          (pr-str shape)))
+    (testing "control: an attribute hook is not positional, even one whose
+              value reads like the fallback"
+      (doseq [shape [{:tag "button" :attrs {"data-test" "save"} :index-of-type 1}
+                     {:tag "input" :attrs {"id" "name"} :index-of-type 1}
+                     {:tag "button" :attrs {"aria-label" "Close"} :index-of-type 1}
+                     {:tag "button" :attrs {"data-test" "b:nth-of-type(1)"} :index-of-type 1}]]
+        (is (false? (rf.story.recorder.selector/positional?
+                      (rf.story.recorder.selector/pick-selector shape)))
+            (pr-str shape)))
+      (is (false? (rf.story.recorder.selector/positional? nil))))))
+
 (deftest returns-nil-when-nothing-usable
   (testing "no attributes + no index → nil"
     (is (nil? (rf.story.recorder.selector/pick-selector {:tag "div" :attrs {} :index-of-type nil})))

@@ -76,7 +76,8 @@
   build the snippet text. JVM-testable end-to-end."
   (:require [clojure.string :as str]
             [re-frame.story.play.runner :as rf.story.play.runner]
-            [re-frame.story.predicates  :as rf.story.predicates]))
+            [re-frame.story.predicates  :as rf.story.predicates]
+            [re-frame.story.recorder.selector :as rf.story.recorder.selector]))
 
 ;; ---------------------------------------------------------------------------
 ;; Tunables
@@ -481,6 +482,21 @@
   for the convention rationale."
   "  :script [")
 
+(defn- positional-step-hint
+  "The comment line `render-script-vec` writes above a `:click` / `:type` /
+  `:focus` step whose selector is the recorder's positional fallback
+  (`tag:nth-of-type(N)` — `rf.story.recorder.selector/positional?`), or nil.
+  That selector names the element by its place among its siblings, so the
+  first markup change moves it; the hint is the documented contract that
+  makes the fallback acceptable (`selector.cljc`). A comment, so the
+  rendered form still reads back to the same script."
+  [step]
+  (let [[tag selector] (when (vector? step) step)]
+    (when (and (#{:click :type :focus} tag)
+               (rf.story.recorder.selector/positional? selector))
+      (str ";; TODO harden selector: " (pr-str selector)
+           " is positional; give the element a data-test hook"))))
+
 (defn- render-script-vec
   "Render the `:script` vector as multi-line EDN aligned under the
   opening `[`. Returns a string of the form
@@ -488,14 +504,21 @@
       [[:dispatch [:foo]]
                 [:wait 100]]
 
-  When `script` is empty, returns `\"[]\"`."
+  A step on a positional selector is preceded by a `;; TODO harden
+  selector` comment line (`positional-step-hint`). When `script` is empty,
+  returns `\"[]\"`."
   [script]
-  (if (seq script)
-    (str "["
-         (str/join (rf.story.predicates/indent-after indent-prefix)
-                   (map pr-str script))
-         "]")
-    "[]"))
+  (let [sep (rf.story.predicates/indent-after indent-prefix)]
+    (if (seq script)
+      (str "["
+           (str/join sep
+                     (map (fn [step]
+                            (if-let [hint (positional-step-hint step)]
+                              (str hint sep (pr-str step))
+                              (pr-str step)))
+                          script))
+           "]")
+      "[]")))
 
 (defn render-script-body
   "Render a parsed `:script` body map as a human-readable EDN string

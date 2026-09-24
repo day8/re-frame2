@@ -32,15 +32,17 @@
   ## Memoization
 
   The default (production) path memoizes the compiled schema per
-  `[variant-id mutation-tick]`, where `mutation-tick` is the registrar's
-  monotonic write counter (`re-frame.story.registrar/current-mutation-
-  tick`). Reading the compiled plan per render is therefore cheap: between
-  two registrar writes, repeated calls for the same variant return the
-  cached schema in O(1); any registration / hot-reload bumps the tick and
+  `[variant-id mutation-tick global-args]`, where `mutation-tick` is the
+  registrar's monotonic write counter (`re-frame.story.registrar/current-
+  mutation-tick`). Reading the compiled plan per render is therefore cheap:
+  between two registrar writes, repeated calls for the same variant return
+  the cached schema in O(1); any registration / hot-reload bumps the tick and
   invalidates the slot. The schema does not depend on the runtime
   effective-args (control overrides / active modes) — only the variant's
   registered body + its `:extends`/`:compose` chain — so the variant-id is
-  the only run-varying part of the key.
+  the only run-varying part of the key. The compile does read the ambient
+  arg layers (see `compile-schema`), which is why the global args, the one
+  such layer outside the registrar, are part of the slot's stamp.
 
   ## Purity / elision
 
@@ -48,8 +50,9 @@
   behind the §6 elision contract along with the rest of the Story runtime;
   the default lookup reads the Story side-table, which is empty in a
   production bundle."
-  (:require [re-frame.story.malli-schema :as rf.story.malli-schema]
-            [re-frame.story.plan         :as rf.story.plan]
+  (:require [re-frame.story.cell-plan    :as rf.story.cell-plan]
+            [re-frame.story.config       :as rf.story.config]
+            [re-frame.story.malli-schema :as rf.story.malli-schema]
             [re-frame.story.registrar    :as rf.story.registrar]))
 
 ;; ---- key resolution (re-exported from the leaf for the in-ns surface) ----
@@ -75,31 +78,37 @@
 ;; ---- compiled-plan resolver (the ONE shared entry) -----------------------
 
 (defonce ^:private cache
-  ;; {variant-id schema} valid for one `mutation-tick`. A single tick slot,
-  ;; not a {tick → {id → schema}} nest: every registrar write invalidates
-  ;; ALL cached schemas (a hot-reloaded view changes its props schema), so
-  ;; carrying stale-tick entries buys nothing. Mirrors the registrar's
+  ;; {variant-id schema} valid for one stamp — the registrar's
+  ;; `mutation-tick` plus the global args. A single stamp slot, not a
+  ;; {stamp → {id → schema}} nest: every registrar write invalidates ALL
+  ;; cached schemas (a hot-reloaded view changes its props schema), so
+  ;; carrying stale entries buys nothing. Mirrors the registrar's
   ;; `variants-with-tags-cache` shape.
-  (atom {:tick -1 :by-id {}}))
+  (atom {:stamp nil :by-id {}}))
 
 (defn- compile-schema
   "Compile `variant-id` into a plan (default side-table lookup) and return
   the `[:world :view-args-schema]` it wrote, or nil. A plan-construction
-  failure (an unregistered variant, a missing `[:arg]`, a malformed view
-  input under a registered validator, …) yields nil rather than throwing —
-  this resolver is a best-effort tooling read (the controls + schema panels
-  render gracefully with no schema), not the authoritative compile path
-  that fails registration.
+  failure (an unregistered variant, a `[:arg]` no layer supplies, a
+  malformed view input under a registered validator, …) yields nil rather
+  than throwing — this resolver is a best-effort tooling read (the controls
+  + schema panels render gracefully with no schema), not the authoritative
+  compile path that fails registration.
+
+  The compile is the variant's declared cell (`rf.story.cell-plan/cell-plan`:
+  global + story args, no modes or overrides), so an `[:arg k]` in `:setup`
+  / `:script` that the story or the globals supply substitutes as it does
+  for a run, instead of throwing `:rf.error/story-missing-arg` before the
+  schema is resolved (rf2-yfwfa).
 
   The schema is the component's `:rf/props`, not a function of the args, so
   an args-validation veto (`:rf.error/story-view-args-invalid`) does not
   erase it: the schema that validation used rides on the error and is
-  returned (rf2-3x7nj.28.3). This bare compile sees only the variant arg
-  layer, so a variant leaving a required prop to its story's `:args` — the
-  flagship authoring pattern — fails validation here and still resolves."
+  returned (rf2-3x7nj.28.3), so args that genuinely miss a required prop on
+  every layer still show the schema they violate."
   [variant-id]
   (try
-    (-> (rf.story.plan/variant-plan variant-id) :world :view-args-schema)
+    (-> (rf.story.cell-plan/cell-plan variant-id) :world :view-args-schema)
     (catch #?(:clj Exception :cljs :default) e
       (when (= :rf.error/story-view-args-invalid (:rf.error/id (ex-data e)))
         (:view-args-schema (ex-data e))))))
@@ -114,19 +123,21 @@
   `:component`, or its component view carries no `:rf/props` / `:schema`
   slot.
 
-  Memoized per `[variant-id mutation-tick]` (see the ns docstring): cheap
-  to call per render. The result is identical to
-  `(get-in (rf.story.plan/variant-plan variant-id) [:world :view-args-schema])` but
-  does not recompile the plan on every call between two registrar writes."
+  Memoized per `[variant-id mutation-tick global-args]` (see the ns
+  docstring): cheap to call per render. The result is identical to
+  `(get-in (rf.story.cell-plan/cell-plan variant-id) [:world :view-args-schema])`
+  but does not recompile the plan on every call between two registrar
+  writes."
   [variant-id]
-  (let [tick (rf.story.registrar/current-mutation-tick)
-        c    @cache]
-    (if (and (= tick (:tick c)) (contains? (:by-id c) variant-id))
+  (let [stamp [(rf.story.registrar/current-mutation-tick)
+               (rf.story.config/get-global-args)]
+        c     @cache]
+    (if (and (= stamp (:stamp c)) (contains? (:by-id c) variant-id))
       (get (:by-id c) variant-id)
       (let [schema (compile-schema variant-id)]
         (swap! cache
-               (fn [{prev-tick :tick prev-by :by-id}]
-                 (if (= prev-tick tick)
-                   {:tick tick :by-id (assoc prev-by variant-id schema)}
-                   {:tick tick :by-id {variant-id schema}})))
+               (fn [{prev-stamp :stamp prev-by :by-id}]
+                 (if (= prev-stamp stamp)
+                   {:stamp stamp :by-id (assoc prev-by variant-id schema)}
+                   {:stamp stamp :by-id {variant-id schema}})))
         schema))))

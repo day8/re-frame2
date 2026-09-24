@@ -11,7 +11,10 @@
   The runner-events ns consults `dom-available?` before driving a DOM
   step; on JVM (or in a CLJS REPL with no `js/document`) a DOM step
   records `{:passed? false :skipped? true :message \"no DOM\"}` rather
-  than throwing."
+  than throwing.
+
+  Inside the Story shell a selector resolves under the canvas root, not the
+  whole page (see `search-root`)."
   (:require [clojure.string :as str]))
 
 ;; ---- environment probe --------------------------------------------------
@@ -27,22 +30,54 @@
 
 ;; ---- selector resolution -----------------------------------------------
 
+(def ^:const canvas-selector
+  "The framework-stable hook the Story shell stamps on the canvas frame
+  (`shell/canvas`) — the root a variant's view renders under. The single
+  source of truth for it: the canvas-side observers
+  (`re-frame.story.ui.canvas-listeners`) attach there, and the play runner
+  resolves its selectors there. Lives in this `.cljc` leaf because the
+  play runner cannot require the UI shell."
+  "[data-test=\"story-canvas-frame\"]")
+
+#?(:cljs
+   (defn- search-root
+     "The node a step's selector resolves under: the Story canvas root when
+     the shell has mounted one, else the whole document.
+
+     The recorder captures DOM events on the canvas root only, and its
+     positional fallback (`tag:nth-of-type(N)`) names an element by its
+     place among its siblings. Resolved over the whole page, such a
+     selector matches the first element of that type in document order —
+     Story's own toolbar and sidebar, which precede the canvas — so a
+     recorded type into the canvas's first input replayed into the
+     sidebar's search box (rf2-3x7nj.30.5). Resolving under the canvas root
+     replays a step where it was captured, and no step can reach Story's
+     chrome — nor, inside the shell, a node the view portals out of the
+     canvas. Outside the shell (a bare test harness, a host page) there is
+     no canvas root and the document is the scope, as before."
+     []
+     (or (try (.querySelector js/document canvas-selector)
+              (catch :default _ nil))
+         js/document)))
+
 (defn query
-  "Look up a single element matching `selector`. Returns the DOM node
-  or nil. JVM → nil."
+  "Look up a single element matching `selector` under the search root
+  (the Story canvas when one is mounted, else the document). Returns the
+  DOM node or nil. JVM → nil."
   [selector]
   #?(:clj  nil
      :cljs (when (dom-available?)
-             (try (.querySelector js/document selector)
+             (try (.querySelector (search-root) selector)
                   (catch :default _ nil)))))
 
 (defn query-all
-  "Return a JS Array of all elements matching `selector`. JVM → []."
+  "Return a JS Array of all elements matching `selector` under the search
+  root (see `query`). JVM → []."
   [selector]
   #?(:clj  []
      :cljs (when (dom-available?)
              (try
-               (let [nl (.querySelectorAll js/document selector)]
+               (let [nl (.querySelectorAll (search-root) selector)]
                  (if nl
                    (vec (array-seq nl))
                    []))

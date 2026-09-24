@@ -1030,6 +1030,12 @@ not every step is legal in both positions:
 | `[:type selector text]` | DOM text input | `:dom` / `:browser` |
 | `[:focus selector]` | DOM focus | `:dom` / `:browser` |
 
+Inside the Story shell a DOM step's selector (and a `:rf.assert/dom-*`
+assertion's) resolves under the canvas root, `[data-test="story-canvas-frame"]`
+— the root the recorder captures on — so a recorded positional selector
+replays where it was captured and no step reaches Story's own chrome.
+Outside the shell, with no canvas root, it resolves against the document.
+
 Future steps MAY add drag, keypress, pointer, file, route, or agent/MCP
 operations. Every step MUST declare its runner requirement.
 
