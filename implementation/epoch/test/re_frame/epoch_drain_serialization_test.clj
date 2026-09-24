@@ -1,25 +1,26 @@
 (ns re-frame.epoch-drain-serialization-test
-  "Deterministic JVM regression for rf2-3fc89f.4 — Tool-Pair state writes
+  "Deterministic JVM race tests — Tool-Pair state writes
   (`restore-epoch!` / `replace-frame-state!`) MUST be serialized against the
   frame's event drain via the core single-drainer `:drain-lock`, so a tool
   write holds ONE serial position relative to any event transition.
 
-  The defect (pre-fix): the precondition validators read the router's
-  `:in-drain?` / `:in-sync-drain?` flags, but the coherent read / reconcile /
-  physical write / success bookkeeping ran OUTSIDE the frame's `:drain-lock`.
-  A drain that started AFTER validation and BEFORE the write could interleave
-  between a handler's `db` read and its commit, so the tool write spliced into
-  the middle of an event transition — a non-linearizable result — while the
-  tool op still returned `true` and emitted success telemetry.
+  The precondition validators read the router's `:in-drain?` /
+  `:in-sync-drain?` flags, and that alone is not enough. Were the coherent
+  read / reconcile / physical write / success bookkeeping to run OUTSIDE the
+  frame's `:drain-lock`, a drain that started AFTER validation and BEFORE the
+  write could interleave between a handler's `db` read and its commit, so the
+  tool write would splice into the middle of an event transition — a
+  non-linearizable result — while the tool op still returned `true` and
+  emitted success telemetry.
 
   These tests force that TOCTOU window open with a barrier wrapped around the
   precondition validator: the restore/replace validates its preconditions with
   NO drain in flight (so validation passes), THEN a concurrent `dispatch-sync`
   starts a drain and blocks its handler mid-transition (holding `:drain-lock`),
-  THEN the tool write is released. On the buggy code the write splices in and
-  is overwritten; with the fix the write blocks on `:drain-lock` and serializes
-  AFTER the drain, producing a linearizable transition whose installed value
-  matches the recorded synthetic epoch.
+  THEN the tool write is released. An unserialized write would splice in and be
+  overwritten; the write blocks on `:drain-lock` and serializes AFTER the
+  drain, producing a linearizable transition whose installed value matches the
+  recorded synthetic epoch.
 
   CLJS cannot thread-preempt, so this interleaving is JVM-only; the reentrant
   mid-drain refusal (which CLJS DOES need) is covered on both runtimes by the
@@ -61,7 +62,7 @@
   (some (fn [r] (when (= db (:db-after r)) (:epoch-id r)))
         (rf/epoch-history frame-id)))
 
-;; ---- Acceptance criterion 1 — restore-epoch! linearizability ---------------
+;; ---- restore-epoch! linearizability ----------------------------------------
 
 (deftest restore-epoch!-serialized-against-concurrent-drain
   (testing "A restore whose preconditions pass with no drain in flight, then
@@ -120,12 +121,12 @@
               (let [drain-fut (future (rf/dispatch-sync [:blocked-inc] {:frame frame-id}))]
                 (is (= {:n 2} (await-promise handler-read))
                     "the racing event read the pre-restore db {:n 2}")
-                ;; 3. Release the restore to attempt its write. On the buggy
-                ;;    code it writes {:n 1} immediately (no lock); with the fix
-                ;;    it blocks on :drain-lock.
+                ;; 3. Release the restore to attempt its write. It blocks on
+                ;;    :drain-lock; an unserialized write would land {:n 1}
+                ;;    immediately.
                 (.countDown release-precond)
-                ;; Give the restore a beat to either finish (buggy) or park on
-                ;; the lock (fixed).
+                ;; Give the restore a beat to park on the lock (or, were it
+                ;; unserialized, to finish).
                 (Thread/sleep 100)
                 ;; 4. Let the blocked handler commit {:n 3} and settle.
                 (.countDown release-handler)
@@ -139,9 +140,9 @@
                   ;; The event read the pre-restore state {:n 2}, so a
                   ;; linearizable schedule places the event BEFORE the restore;
                   ;; therefore the restore committed LAST and its value must be
-                  ;; the durable final state. The bug produces {:n 3} — the
-                  ;; restore's write erased by the event commit despite the true
-                  ;; return — which no serial order can produce.
+                  ;; the durable final state. An unserialized write would leave
+                  ;; {:n 3} — the restore's write erased by the event commit
+                  ;; despite the true return — which no serial order can produce.
                   (is (= {:n 1} (rf/app-db-value frame-id))
                       (str "restore reported success but its installed value must be "
                            "durable; final db was "
@@ -149,7 +150,7 @@
                            " (a mid-transition splice overwritten by the event "
                            "commit is non-linearizable)")))))))))))
 
-;; ---- Acceptance criterion 2 — replace-frame-state! partition coherence -----
+;; ---- replace-frame-state! partition coherence ------------------------------
 
 (deftest replace-frame-state!-serialized-preserves-omitted-partition
   (testing "A partial replace-frame-state! that patches ONLY app-db, racing a
@@ -230,8 +231,8 @@
                         "exactly one synthetic :rf.epoch/db-replaced record was appended")
                     ;; The synthetic undo-anchor must describe the EXACT installed
                     ;; transition — its :frame-state-after equals the installed
-                    ;; whole frame-state. The bug records runtime :r0 here
-                    ;; (computed from a stale pre-event read) while the frame holds
+                    ;; whole frame-state. An unserialized write would record
+                    ;; runtime :r0 here (from a stale pre-event read) while the frame holds
                     ;; :r1, so restoring the anchor would silently revert the
                     ;; event's runtime update.
                     (is (= installed (:frame-state-after synthetic))
@@ -244,15 +245,15 @@
                     (is (= (+ history-before 2) (count history))
                         "history grew by exactly the drain epoch + the synthetic replace epoch")))))))))))
 
-;; ---- Acceptance criterion 3 — reentrant mid-drain refusal, no deadlock -----
+;; ---- reentrant mid-drain refusal, no deadlock ------------------------------
 
 (deftest reentrant-tool-writes-refuse-mid-drain-without-deadlock
   (testing "A restore/replace invoked reentrantly from the active drainer (i.e.
             issued from inside an event handler) must return false, emit the
             documented :rf.epoch/restore-during-drain / :rf.epoch/replace-during-drain
             trace, create NO synthetic record, and NOT deadlock re-taking the
-            drain lock. This is the same-thread reentrancy contract the fix must
-            preserve on CLJ (and, single-threaded, CLJS)."
+            drain lock. This is the same-thread reentrancy contract the drain
+            serialization must preserve on CLJ (and, single-threaded, CLJS)."
     (let [frame-id :drainlin/reentrant]
       (rf/make-frame {:id frame-id :doc "reentrant refusal frame"})
       (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
