@@ -102,13 +102,12 @@
 ;; when an entire teardown cascade completes within one clock tick.
 (defonce ^:private phase-seq (atom 0))
 
-;; FIXED ARITY by design (rf2-6r9j.83). The entry shape IS the contract
+;; FIXED ARITY by design. The entry shape IS the contract
 ;; `lifecycle-log` publishes — exactly `{:phase … :seq …}`, nothing else — so
-;; the literal map is appended directly. It previously took a variadic
-;; `& {:as extras}` merged on TOP of the canonical keys; no call site in the
-;; adapter's whole history ever supplied one, and because the merge landed
-;; last it was an escape hatch that could overwrite `:phase` or `:seq` and
-;; contradict the very ordering invariant the log promises.
+;; the literal map is appended directly. There is no variadic
+;; `& {:as extras}`: merged on TOP of the canonical keys, extras would be an
+;; escape hatch that could overwrite `:phase` or `:seq` and contradict the
+;; very ordering invariant the log promises.
 (defn- log-phase! [mount phase]
   (swap! (:lifecycle-log mount)
          conj {:phase phase :seq (swap! phase-seq inc)}))
@@ -151,7 +150,7 @@
   already-unmounted mount is a no-op). Logs the mount's own `:will-unmount`
   BEFORE cascading into its children, mirroring React's ClassComponent
   deletion effect (`componentWillUnmount` on the deleted fiber, then the
-  recursive descendant traversal — rf2-ytyq). Throws
+  recursive descendant traversal). Throws
   `:rf.error/sync-unmount-during-render` if called while a render is in flight
   anywhere in the tree — keyed off the global
   `render-depth`, so a parent re-render that synchronously unmounts a separate
@@ -181,7 +180,7 @@
             {:recovery :defer-the-unmount-until-render-settles
              :extra    {:mount-id (:id mount)}}))
         ;; PARENT-FIRST :will-unmount, then the descendant cascade — React's
-        ;; own order (rf2-ytyq). `commitDeletionEffectsOnFiber`'s
+        ;; own order. `commitDeletionEffectsOnFiber`'s
         ;; ClassComponent case calls `safelyCallComponentWillUnmount` on the
         ;; deleted fiber's instance and only THEN
         ;; `recursivelyTraverseDeletionEffects` over its children
@@ -220,7 +219,7 @@
   "Force-tear every descendant of `parent` down GRANDCHILDREN-first. This is a
   SIMULATOR-ONLY drain order and deliberately NOT a React-parity claim — React
   has no analogue of forced teardown, and its normal deletion effect runs
-  parent-first (which is what the `:will-unmount` path mirrors — rf2-ytyq).
+  parent-first (which is what the `:will-unmount` path mirrors).
   Draining deepest-first here keeps a descendant from being evicted while an
   ancestor still lists it. The descendants may be speculative mounts from
   a render that threw or pre-existing children of an already-committed mount;
@@ -250,7 +249,7 @@
   - `mount-tree!`'s failed-INITIAL-mount rollback — the root there never
     registered in `active-mounts`, so its `disj` is a no-op, but the record was
     born `mounted?` true holding the throwing candidate tree and IS exposed to
-    the render body, so it needs the same invalidation (rf2-fzbj.26).
+    the render body, so it needs the same invalidation.
 
   By contrast, `force-teardown-descendants!` deliberately drains DESCENDANTS
   only and leaves the supplied parent for its caller to handle."
@@ -304,13 +303,13 @@
         ;; transactional. `run-render!` already restored `render-depth` through
         ;; its own `finally`, so the rollback runs with the guard state correct.
         ;;
-        ;; THIS RECORD ITSELF IS ROLLED BACK TOO (rf2-fzbj.26), via the same
+        ;; THIS RECORD ITSELF IS ROLLED BACK TOO, via the same
         ;; `force-teardown-subtree!` the failed-UPDATE path uses. Draining only
-        ;; the descendants left this record born `mounted? true` (line above)
-        ;; holding the THROWING candidate tree `run-render!` stored before
+        ;; the descendants would leave this record born `mounted? true` (line
+        ;; above) holding the THROWING candidate tree `run-render!` stored before
         ;; invoking the body — and the render body is handed that record, so a
-        ;; test that retains it keeps a live-looking handle to a mount that never
-        ;; committed. `trigger-update!` accepts any record still marked mounted,
+        ;; test that retains it would keep a live-looking handle to a mount that
+        ;; never committed. `trigger-update!` accepts any record still marked mounted,
         ;; so such a handle could log `:did-update` with no preceding
         ;; `:did-mount`; and because the record never reaches the `conj` below,
         ;; `dispose-adapter!`'s drain over `active-mounts` cannot repair it
@@ -405,8 +404,8 @@
   ;; The hiccup-emitter is deliberately NOT cleared: it holds no host
   ;; resource and is re-derivable infrastructure installed via the
   ;; `:reagent/set-hiccup-emitter!` chain at SSR ns-load. When re-frame.ssr is
-  ;; loaded, install-adapter! ALSO replays the durable emitter on re-install
-  ;; (rf2-vxgfnd.204), but this adapter is the LOCAL-TEST fixture and is often
+  ;; loaded, install-adapter! ALSO replays the durable emitter on re-install,
+  ;; but this adapter is the LOCAL-TEST fixture and is often
   ;; exercised WITHOUT re-frame.ssr on the classpath (the standalone
   ;; `clojure -M:test` run depends on core + test-quiet only) — there the
   ;; durable slot is unset and the replay no-ops, so leaving this atom intact
@@ -553,7 +552,7 @@
 
 (defn unmount!
   "Unmount `mount`, logging its own `:will-unmount` before cascading into its
-  children (React tears a parent down before its children — rf2-ytyq). Records
+  children (React tears a parent down before its children). Records
   a `:will-unmount` phase entry per torn-down mount. Throws `:rf.error/sync-unmount-during-render` if called while a render
   is in flight anywhere in the tree, including the
   organic case where a parent's render body synchronously unmounts a separate
@@ -591,7 +590,7 @@
 (defn ^:deprecated mounted-roots
   "Deprecated compatibility alias for `mounted-components`.
 
-  Despite its historical name, the result includes descendants as well as
+  Despite its name, the result includes descendants as well as
   roots. New callers should use `mounted-components`."
   []
   (mounted-components))
@@ -606,7 +605,7 @@
 (defn ^:deprecated children
   "Deprecated compatibility alias for `mounted-children`.
 
-  Despite its historical name, the result contains only children that remain
+  Despite its name, the result contains only children that remain
   mounted; the record's retained `:children` field can also contain dead mounts."
   [mount]
   (mounted-children mount))
@@ -624,7 +623,7 @@
   (fn test-react-current-frame [] (rf.frame/current-frame))
   #(rf.frame/current-frame))
 
-;; SSR emitter install — chains onto the existing :reagent/set-hiccup-emitter!
+;; SSR emitter install — chains onto the :reagent/set-hiccup-emitter!
 ;; late-bind hook so a single `(require '[re-frame.ssr])` wires
 ;; render-to-string for whichever adapter ends up (rf/init!)-installed.
 (rf.late-bind/chain-fn! :reagent/set-hiccup-emitter! set-hiccup-emitter!)
