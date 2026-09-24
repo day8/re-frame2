@@ -84,7 +84,7 @@
         ;; this provider would, from inside the tree, so wrapping one
         ;; here as well would put a second Provider fiber above every
         ;; such root for nothing. The impl tier's own witness-driving
-        ;; shape still passes a frame and still gets the wrapper.
+        ;; shape passes a frame and gets the wrapper.
         app      (if (some? frame-kw) (provider frame-kw element) element)]
     (if-some [window (:adoption handle)]
       (react/createElement (.-Fragment react) nil
@@ -127,7 +127,7 @@
 (def ^:private root-options-roster
   "Every key a ROOT DOOR's opts map may carry. Two keys, because a root
   door configures the REACT ROOT and nothing else: the frame is the
-  TREE's business now (`h/frame-root` / `h/frame-provider`).
+  TREE's business (`h/frame-root` / `h/frame-provider`).
 
   `:hydrate?` picks which React constructor the FIRST render through a
   handle calls; `:identifier-prefix` is React's own `identifierPrefix`,
@@ -137,10 +137,10 @@
   #{:hydrate? :identifier-prefix})
 
 (def ^:private frame-config-keys
-  "The two keys the root door used to own and no longer does. Named
-  separately from the unknown-key refusal so a caller who wrote the OLD
-  spelling is answered with the NEW one rather than with `is not an
-  option`."
+  "The two FRAME keys a caller may hand the root door, which carries
+  neither. Named separately from the unknown-key refusal so such a caller
+  is answered with the head that spells the key rather than with `is not
+  an option`."
   {:frame          "frame-provider {:frame …} (SCOPE — the frame already exists) or frame-root {:id …} (ENSURE — create it if absent)"
    :initial-events "frame-root {:id … :initial-events […]}"})
 
@@ -148,16 +148,14 @@
   "Refuse a root-door opts map carrying anything outside
   `root-options-roster`.
 
-  A closed list that was *ignored without complaint* is what this
-  replaces, and the two refusals are separated because the two mistakes
+  The two refusals are separated because the two mistakes
   are: `:frame` and `:initial-events` are FRAME configuration, which the
-  tree now spells, so they are answered with the head that spells them
+  tree spells, so they are answered with the head that spells them
   (`:rf.error/fresco-frame-config-misplaced`); anything else is an
   option the door does not have
   (`:rf.error/fresco-unknown-root-option`), which is the No-silent-
-  swallow rule — `:fx-overrides` handed to a mount used to be dropped on
-  the floor, and the whole make-frame-then-join detour existed because of
-  it.
+  swallow rule — an `:fx-overrides` ignored at a mount would be a policy
+  set and never applied.
 
   `where` is the door's own facade symbol, so the refusal names
   `h/render!` rather than an impl fn the caller did not write. Answers
@@ -176,7 +174,7 @@
         (if-some [head (get frame-config-keys k)]
           (fail! :rf.error/fresco-frame-config-misplaced
                  where
-                 (str "The root door no longer configures a frame: " (pr-str k)
+                 (str "The root door configures no frame: " (pr-str k)
                       " belongs in the TREE, on " head ". A root door carries "
                       "ROOT options only (:hydrate?, :identifier-prefix), and "
                       "the frame boundary is a head you write:\n\n"
@@ -220,7 +218,7 @@
   A NIL `frame-kw` ensures nothing, and is not an error: it is a root
   whose TREE names its own frame — `h/frame-root`, whose ENSURE is core's
   commit-owned two-pass, or `h/frame-provider`. That is the shape the
-  PUBLIC doors take; this positional ensure is the impl tier's, kept for
+  PUBLIC doors take; this positional ensure is the impl tier's, for
   the witnesses that drive `root!` directly."
   [frame-kw initial-events]
   (when (and (some? frame-kw)
@@ -262,9 +260,9 @@
          ;; public handle stays inert, and neither `h/unmount!` nor
          ;; `drain-active-roots!` can reach it ever again. Lowered first
          ;; there is nothing to reach — React was never handed the
-         ;; container. `hydrate-root!` already builds its element before
-         ;; `hydrateRoot`; this is that shape, for that reason
-         ;; (rf2-gwye.1, witnessed in
+         ;; container. `hydrate-root!` builds its element before
+         ;; `hydrateRoot` too; this is that shape, for that reason
+         ;; (witnessed in
          ;; `re-frame.fresco.public-root-lifecycle-dom-cljs-test`).
          base    {:frame frame-kw :container container}
          element (tree base hiccup)
@@ -304,7 +302,7 @@
   "React's own default reporting, replicated. Installing any
   `onRecoverableError` takes React's default off, so a reporter that only
   emitted would swallow the error, which the fail-open rule forbids
-  (docs/design/fresco/studio/ssr-spike-witness.md, rf2-2rtt6.97)."
+  (docs/design/fresco/studio/ssr-spike-witness.md)."
   [error]
   (if (fn? (.-reportError js/globalThis))
     (js/reportError error)
@@ -442,8 +440,7 @@
 ;; The client root — Spec 006 §The client root, Fresco's realisation
 ;; ---------------------------------------------------------------------------
 ;;
-;; ONE handle with a first-call mode, in place of the four verbs this
-;; package used to spell (rf2-kuky.59). The grammar is the one every React
+;; ONE handle with a first-call mode. The grammar is the one every React
 ;; view adapter publishes — `client-root` / `render!` / `unmount!` — and
 ;; the semantics below are the spec's, proved here against Fresco's OWN
 ;; root path rather than the spine's: `flushSync` on every update, a
@@ -463,7 +460,7 @@
 ;; than by a shared call.
 
 ;; React Roots this package currently keeps mounted, `root` -> its handle.
-;; MEMBERSHIP IS THE SINGLE LIVENESS FACT (the rf2-k5r9t rule): no flag in
+;; MEMBERSHIP IS THE SINGLE LIVENESS FACT: no flag in
 ;; the handle may disagree with it, which is what lets `drain-active-roots!`
 ;; and a handle's own `unmount!` both reach the host unmount exactly once
 ;; per root, whichever gets there first.
@@ -476,7 +473,7 @@
 ;; `re-frame.substrate.adapter/dispose-adapter!`, which is the PROCESS
 ;; teardown boundary: `rf/destroy-adapter!` therefore releases these roots
 ;; whichever adapter an application installed, Fresco over UIx and over
-;; Reagent included (rf2-kuky.59).
+;; Reagent included.
 ;;
 ;; A comment rather than a docstring because CLJS `defonce` takes no
 ;; docstring — it is `(defonce name expr)` and nothing else.
@@ -542,7 +539,7 @@
   `{:hydrate? true}` takes `hydrate-root!`, which installs this root's
   own adoption window and (in debug builds) its own recoverable-error
   reporter; anything else takes `root!`, which renders inside `flushSync`.
-  Either way the frame slot is `nil`: post-views.3 the frame is spelled in
+  Either way the frame slot is `nil`: the frame is spelled in
   the TREE, on `h/frame-root` or `h/frame-provider`."
   [render-tree mount-point opts]
   (let [handle (if (:hydrate? opts)
