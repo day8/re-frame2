@@ -444,7 +444,8 @@
                    "REACHABILITY from `make-frame` (only "
                    "`ensure-reprojection-installed!` publishes these keys) rather "
                    "than by an `interop/debug-enabled?` gate."))
-          (is (str/includes? (or desc "") "rf2-9c2jf")
-              (str k " dropped its rf2-9c2jf citation. The row must keep saying WHY "
-                   "the maintainer is ungated, or the next author reinstates the "
-                   "gate and reproduces the release blocker.")))))))
+          (is (str/includes? lowered "correctness")
+              (str k " does not say WHY the maintainer is ungated. The row must "
+                   "name it a CORRECTNESS matter rather than a diagnostic, or the "
+                   "next author reinstates the gate and freezes each frame's view "
+                   "of the registration pool at construction time.")))))))
