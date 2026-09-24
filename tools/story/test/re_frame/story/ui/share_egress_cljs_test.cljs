@@ -8,6 +8,7 @@
   Runs on CLJS under shadow's `:node-test` target (ns suffix
   `-cljs-test`). `share.cljs` is CLJS-only (Reagent / DOM)."
   (:require [clojure.string :as str]
+            [clojure.walk :as walk]
             [cljs.reader :as reader]
             [cljs.test :refer [deftest is testing use-fixtures async]]
             [goog.object :as gobj]
@@ -582,4 +583,88 @@
                      (is (true? ok?))
                      (is (= :share-url (:copied (rf.story.ui.share/dialog-state-snapshot)))
                          "success appears once the write fulfils")))
+            (.finally (fn [] (restore! prev) (done))))))))
+
+;; ---- rf2-3x7nj.29.7 — a failed TEXT copy shows on its ROW -----------------
+;;
+;; rf2-jgn8 made the state honest, and the suite above pins only the state
+;; atom, so a row that never rendered the error passed it. `command-block` is
+;; a child component: the dialog's hiccup holds its invocation props, so
+;; `expand-command-rows` calls it the way Reagent would and these assertions
+;; read the row's own `data-test` hooks.
+
+(defn- expand-command-rows
+  "`hiccup` with each `command-block` invocation (a component vector whose
+  props carry `:action-label`) replaced by the row it renders."
+  [hiccup]
+  (walk/prewalk
+    (fn [x]
+      (if (and (vector? x) (fn? (first x))
+               (map? (second x)) (contains? (second x) :action-label))
+        ((first x) (second x))
+        x))
+    hiccup))
+
+(defn- node-with-data-test
+  "The first element in `hiccup` whose attrs carry `data-test`, or nil."
+  [hiccup data-test]
+  (some (fn [x]
+          (when (and (vector? x) (map? (second x))
+                     (= data-test (:data-test (second x))))
+            x))
+        (tree-seq coll? seq hiccup)))
+
+(defn- failed-copy-dialog
+  "Open the dialog on a focused variant, fail `cmd`'s text copy (no
+  `navigator.clipboard`), and resolve the expanded dialog hiccup."
+  [cmd]
+  (rf.story.ui.share/open-share-export-dialog!)
+  (-> (rf.story.ui.share/copy-text! cmd "text the clipboard never received")
+      (.then (fn [_] (expand-command-rows (rf.story.ui.share/share-export-dialog))))))
+
+(deftest text-copy-failure-renders-on-its-own-row
+  (testing "rf2-3x7nj.29.7 — Share URL, Copy EDN and Static build each render
+            their own failed copy, as the Screenshot row already did"
+    (async done
+      (rf.story/reg-variant :story.egress/copied {:tags #{:dev} :setup []})
+      (rf.story.ui.state/swap-state! #(assoc % :selected-variant :story.egress/copied))
+      (let [prev  (install-globals! {"navigator" #js {}})
+            check (fn [cmd]
+                    (-> (failed-copy-dialog cmd)
+                        (.then (fn [dialog]
+                                 (let [row (node-with-data-test
+                                             dialog (str "story-egress-error-" (name cmd)))]
+                                   (is (some? row) (str cmd " renders its error"))
+                                   (is (str/includes? (str row) "copy it by hand")
+                                       (str cmd " says why, and what to do"))
+                                   (is (nil? (node-with-data-test
+                                               dialog (str "story-egress-copied-" (name cmd))))
+                                       (str cmd " shows no copied flash")))))))]
+        (-> (check :share-url)
+            (.then (fn [_] (check :copy-edn)))
+            (.then (fn [_] (check :static-build)))
+            (.finally (fn [] (restore! prev) (done))))))))
+
+(deftest failed-copy-edn-shows-the-snippet-to-copy-by-hand
+  (testing "rf2-3x7nj.29.7 — Copy EDN has no on-screen body of its own, so a
+            failed copy shows the snippet read-only: the manual fallback
+            `copy-text!` promises. A dialog with no failure shows none."
+    (async done
+      (rf.story/reg-variant :story.egress/by-hand {:tags #{:dev} :setup []})
+      (rf.story.ui.state/swap-state! #(assoc % :selected-variant :story.egress/by-hand))
+      (rf.story.ui.share/open-share-export-dialog!)
+      (is (nil? (node-with-data-test
+                  (expand-command-rows (rf.story.ui.share/share-export-dialog))
+                  "story-egress-copy-edn-fallback"))
+          "control: no fallback field before any copy failed")
+      (let [prev (install-globals! {"navigator" #js {}})]
+        (-> (failed-copy-dialog :copy-edn)
+            (.then (fn [dialog]
+                     (let [attrs (second (node-with-data-test
+                                           dialog "story-egress-copy-edn-fallback"))]
+                       (is (true? (:read-only attrs)) "the fallback field is read-only")
+                       (is (str/starts-with? (str (:value attrs)) "(rf.story/reg-variant ")
+                           "it holds the snippet Copy EDN copies")
+                       (is (str/includes? (str (:value attrs)) ":extends :story.egress/by-hand")
+                           "for the focused variant"))))
             (.finally (fn [] (restore! prev) (done))))))))
