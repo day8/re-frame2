@@ -154,8 +154,8 @@
 (deftest initial-entry-action-reads-generated-fact
   (testing "end-to-end: the INITIAL state's :entry action requiring a
             generator-backed recordable fact reads the GENERATED value at
-            BIRTH (the bootstrap cascade runs in maybe-boot, which previously
-            ran BEFORE any ensure step — the rf2-knxbok bootstrap hole)"
+            BIRTH (the bootstrap cascade runs in maybe-boot, so the ensure
+            step runs before it)"
     (rf/reg-cofx :test/birth-gen {:recordable? true} (fn [] 9))
     (let [m {:initial :booting
              :data    {}
@@ -192,14 +192,15 @@
           "the initial-descent :entry action read the GENERATED fact at birth"))))
 
 ;; ===========================================================================
-;; D. rf2-s2bda — a SYNTHETIC slot's target :entry is ensured like an :on's
+;; D. A SYNTHETIC slot's target :entry is ensured like an :on's
 ;; ===========================================================================
 ;;
 ;; `:spawn :on-error`, a compound `:on-done`, a state `:after` and a parallel
 ;; root `:on` / `:after` each select from a slot the `:on` walk never visits.
-;; Their helpers ensured the target's `:always` closure but not its `:entry`,
-;; so a named `:entry` action declaring `:rf.cofx/requires` read nil when it
-;; was reached through one of them, and its value when reached through `:on`.
+;; A helper that ensured the target's `:always` closure but not its `:entry`
+;; would leave a named `:entry` action declaring `:rf.cofx/requires` reading
+;; nil when reached through one of them, and its value when reached through
+;; `:on`.
 
 (def ^:private capture-token
   {:rf.cofx/requires [:audit/token]
