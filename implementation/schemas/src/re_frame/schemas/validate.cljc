@@ -106,7 +106,7 @@
 ;; size marker may stand in for them. `:rf.sub/query-v` is value-bearing for
 ;; privacy (it is the lookup key) but it is not the checked value: a marker
 ;; there would replace the query vector Xray matches a sub-return violation
-;; by with a description of a different value (rf2-3x7nj.19.2).
+;; by with a description of a different value.
 (def ^:private size-elided-slots
   (filterv #(not= :rf.sub/query-v %) value-bearing-slots))
 
@@ -313,7 +313,7 @@
   the first error's own `:value` is the failing datum. That is not always
   the value AT `:in`: a `:map-of` KEY failure reports the key under the same
   `:in [k]` as the entry, so `get-in` would hand back the entry's VALUE —
-  possibly valid — as the thing that failed (rf2-3x7nj.19.3). When the
+  possibly valid — as the thing that failed. When the
   errors diverge, `in-path` is their common ancestor and no single error
   owns it, so the value is read from `registered-value`. An error without a
   `:value` key (a non-Malli explainer) falls back to `get-in` too."
@@ -358,7 +358,7 @@
 (defn- emit-validation-failure!
   "Single emit seam for `:rf.error/schema-validation-failure` traces.
   A thin wrapper over `trace/emit-error!` — the `:explain-humanized`
-  augmentation now happens at the call-sites (via `humanize-explain`
+  augmentation happens at the call-sites (via `humanize-explain`
   folded into base-tags before redaction) so the
   privacy redaction in `redact-tags` can scrub the humanized slot
   symmetrically with `:explain`. Centralising the bare emit keeps the
@@ -383,12 +383,12 @@
   `constructor` is an ORDINARY, WRITABLE property name. A foreign JS value
   carrying its own `constructor` field returns that field's text verbatim, so
   the supposed type tag is PAYLOAD wearing the costume of trusted runtime
-  structure. Measured (rf2-xpd8 audit of PR #9208): a `js-obj` with
-  `constructor` set to a sentinel string returned the sentinel, which
-  `emit-app-db-rejection-record!` then concatenated after `\"got \"` and
-  published unchanged to the corpus-wide `:errors` listener registry —
-  defeating this record's whole closed-shape/no-payload guarantee, the one
-  thing that let a dev-only check ride the always-on stream at all.
+  structure. A `js-obj` with `constructor` set to a sentinel string returns
+  the sentinel, which `emit-app-db-rejection-record!` would then concatenate
+  after `\"got \"` and publish unchanged to the corpus-wide `:errors`
+  listener registry — defeating this record's whole closed-shape/no-payload
+  guarantee, the one thing that lets a dev-only check ride the always-on
+  stream at all.
 
   ## Why not a host classification either
 
@@ -396,7 +396,7 @@
   fallback here is a CONSTANT rather than a cleverer lookup:
 
     - `Object.prototype.toString.call(v)` is steered by `Symbol.toStringTag`,
-      an ordinary own property — measured returning `[object <attacker text>]`.
+      an ordinary own property — it returns `[object <attacker text>]`.
     - `(.-name (.-constructor v))` re-reads the same overridable slot.
 
   So the only arms permitted here are predicates that read the VALUE'S SHAPE
@@ -414,15 +414,15 @@
   ## Total, including against hostile code
 
   `map?` / `vector?` are protocol lookups, i.e. property GETs, and a Proxy
-  can install a `get` trap that throws (measured: reading `.constructor`
-  through such a proxy raised). A diagnostic that explodes while explaining a
-  rejection is the rf2-9s68n failure one level up, so the whole cond is
-  wrapped and a throwing value classifies as `\"object\"`.
+  can install a `get` trap that throws (reading `.constructor` through such
+  a proxy raises). A diagnostic must not explode while explaining a
+  rejection, so the whole cond is wrapped and a throwing value classifies
+  as `\"object\"`.
 
   The eight named tags are `error/type-of-value`'s documented vocabulary,
-  reused deliberately: this record's reason stays a SUBSET of the framework's
-  existing reason-string vocabulary, so no consumer learns a new word. Only
-  the unbounded host-class fallback is replaced — by `\"object\"`."
+  reused deliberately: this record's reason is a SUBSET of the framework's
+  reason-string vocabulary, so no consumer learns a new word. Only the
+  unbounded host-class fallback differs: here it is `\"object\"`."
   [v]
   (try
     (cond
@@ -440,7 +440,7 @@
 (defn- emit-app-db-rejection-record!
   "Fan ONE structural-only `:rf.error/schema-validation-failure` record onto
   the always-on `:errors` stream for a rejected `app-db` candidate — the
-  `:where :app-db`, `:rollback? true` arm (RULED rf2-xpd8, PR1).
+  `:where :app-db`, `:rollback? true` arm.
 
   ## Why a dev-only check reports on the always-on stream
 
@@ -451,14 +451,13 @@
   the STREAM's survival, not a promise that every producer exists in every
   build.
 
-  And the silence this closes was total. A rejected candidate leaves the page
-  rendering its pre-event state with nothing thrown, nothing logged, no failed
-  request, and nothing on the stream an application registers to hear about its
-  own errors — measured on a live page as 0 `:errors` records beside 17 dev
-  traces for one dispatch, with an unregistered-event-id control proving the
-  listener live. The dev TRACE carried the whole story and has no default
-  listener, so unless the developer already had Xray open and knew to look, an
-  application-wide permanent rollback loop simply rendered empty.
+  And without it the silence would be total. A rejected candidate leaves the
+  page rendering its pre-event state with nothing thrown, nothing logged, no
+  failed request, and — but for this record — nothing on the stream an
+  application registers to hear about its own errors. The dev TRACE carries
+  the whole story and has no default listener, so unless the developer has
+  Xray open and knows to look, an application-wide permanent rollback loop
+  simply renders empty.
 
   ## Production is untouched BY CONSTRUCTION
 
@@ -477,7 +476,7 @@
   set is CLOSED and every member is composed here from a framework keyword,
   the developer's own registration root, or an event / frame id.
 
-  Deliberately OMITTED, each for a measured reason:
+  Deliberately OMITTED, each for a reason:
 
     - `:path` — the trace's `:path` is the registered root conj'd with the
       failing leaf's Malli `:in`, and `:in` segments are not all structural:
@@ -486,12 +485,12 @@
       the schema declares something `:sensitive?`, so a set element under a
       schema declaring nothing sensitive would ship verbatim. A
       structural-path projection would have to drop those segment kinds
-      first; that is not this PR.
+      first.
     - `:value` / `:received` / `:explain` / `:explain-humanized` / `:schema` —
       the payload itself, and the schema FORM (unbounded `pr-str`).
 
-  All of them stay on the dev trace, which is BYTE-IDENTICAL to before this
-  change: Xray, Story and the epoch recorder read the trace and are unaffected.
+  All of them stay on the dev trace, which this record does not alter: Xray,
+  Story and the epoch recorder read the trace.
 
   ## The reason is composed, not copied
 
@@ -499,10 +498,9 @@
   ride here. This sentence is built from the registered path and
   `record-type-tag` alone — a CLOSED nine-literal vocabulary, never
   `error/type-of-value`, whose host-class fallback `(str (type v))` reads the
-  value's own overridable `constructor` on CLJS and so returned caller text
-  through this slot until the rf2-xpd8 audit of PR #9208 caught it (see that
-  fn's docstring for the measurement and for why the obvious host-side
-  repairs are value-controlled too). The tag is what the rf2-fu75
+  value's own overridable `constructor` on CLJS and so would return caller
+  text through this slot (see that fn's docstring for why the obvious
+  host-side repairs are value-controlled too). The tag is what the
   unowned-error console fallback prints when
   nothing owns the `:errors` stream: seventeen red lines each naming a
   registered path and ending `got nil` is a self-diagnosing incident.
@@ -539,8 +537,7 @@
 (defn- emit-malformed-schema-rejection-record!
   "Fan ONE structural-only `:rf.error/malformed-schema` record onto the
   always-on `:errors` stream for a candidate transition REJECTED because a
-  registered `app-db` schema is itself malformed (RULED rf2-xpd8, extended to
-  this arm by rf2-vkn8).
+  registered `app-db` schema is itself malformed.
 
   Sibling of `emit-app-db-rejection-record!` above, for the same reason it is
   a sibling rather than a shared seam: the union record is BUILT FROM this
@@ -551,10 +548,10 @@
 
   It is the SAME consequence — `:rollback? true`, the whole candidate
   discarded, nothing installed — reached through the schema FORM rather than
-  the value. Leaving it trace-only would have been the worse half of an
-  inconsistency: a developer whose non-nilable schema rejects every commit
-  would see red console lines, while one whose childless `[:vector]` rejects
-  every commit would see an app that silently stopped updating. Both are the
+  the value. Leaving it trace-only would split one error class in two: a
+  developer whose non-nilable schema rejects every commit would see red
+  console lines, while one whose childless `[:vector]` rejects every commit
+  would see an app that silently stops updating. Both are the
   same programming error class, and both are dev-only, so both report from
   inside `validate-app-schema!`'s own `debug-enabled?` gate.
 
@@ -567,14 +564,13 @@
   corpus listeners and a frame's `:observability :errors` sink. This sentence
   is composed from the registered path alone (the literal vector the
   application author wrote in their own `reg-app-schema` call) plus framework
-  prose. The validator's message stays on the DCE'd dev trace, which is
-  BYTE-IDENTICAL to before this change.
+  prose. The validator's message stays on the DCE'd dev trace.
 
   `:schema` (the malformed registration form), `:path`, and every
   value-bearing slot are omitted for the reasons `emit-app-db-rejection-
-  record!` sets out — and note this arm never carried a value in the first
-  place: the validator threw, so it never proved the slot's sensitivity, and
-  omitting it is the fail-closed posture the category was built with.
+  record!` sets out — and this arm carries no value at all: the validator
+  threw, so it never proved the slot's sensitivity, and omitting the value
+  is the category's fail-closed posture.
 
   Reached through the `:error-emit/dispatch-error-record` late-bind hook,
   never a static require into core's error-emit namespace. A nil hook is a
@@ -618,7 +614,7 @@
   redact path-targeted; omitting the value is fail-closed).
 
   The same emit serves event, effect, and subscription validation. Those
-  surfaces retain structural locator tags but never include a value-bearing
+  surfaces carry structural locator tags but never include a value-bearing
   slot because the validator did not establish sensitivity."
   [tags]
   (rf.trace/emit-error! :rf.error/malformed-schema tags))
@@ -669,7 +665,7 @@
     - `reg-meta`     the registration metadata (handler / sub /
                      fx) — its `:schema` entry, when PRESENT, is the
                      declaration. Presence is KEY-presence, never value
-                     truthiness (rf2-6eh5h): a present nil / false is a
+                     truthiness: a present nil / false is a
                      declaration whose exact token is delegated to the
                      registered validator (the value is opaque per Spec
                      010), mirroring `validate-app-schema!`'s
@@ -693,7 +689,7 @@
       a distinct `:rf.error/malformed-schema` trace fires and the fn returns
       `false`, so each caller applies its normal recovery (skip handler /
       skip fx / replace sub return) instead of the silent throw-as-pass.
-    - A throwing explainer no longer aborts trace construction — the
+    - A throwing explainer cannot abort trace construction — the
       explainer is invoked through `safe-explain`, which degrades a throw
       to a nil explanation and preserves the `false` verdict.
 
@@ -719,7 +715,7 @@
   (if-not (continue?)
     :rf/stale-incarnation
     (if-let [validate-fn @rf.schemas.validator/validator-fn]
-      ;; KEY-presence, not value truthiness (rf2-6eh5h): a present nil /
+      ;; KEY-presence, not value truthiness: a present nil /
       ;; false `:schema` is delegated verbatim — default Malli then throws
       ;; on the non-schema form and the malformed isolation below fails
       ;; CLOSED; a custom validator interprets its own token.
@@ -768,7 +764,7 @@
                              :recovery (get base-tags :recovery :no-recovery)))
                     (if (continue?) false :rf/stale-incarnation))))
 
-              ;; Legitimate validation failure — the existing emit path.
+              ;; Legitimate validation failure.
               :else
               (let [;; A diagnostic explainer cannot change the false verdict.
                     explanation (safe-explain schema value)]
@@ -784,12 +780,12 @@
                 ;; failing leaf the way the app-db path narrows `:value`). So
                 ;; the redaction decision MUST be scoped to the WHOLE schema
                 ;; (`schema-has-sensitive?`), NOT the leaf-precise
-                ;; `schema-sensitive-at?`. A failing non-sensitive sibling (e.g.
-                ;; `:age`) cleared redaction while a CONFORMING sensitive
-                ;; sibling (e.g. `:password` / `:jwt`) rode unredacted inside
-                ;; every whole-payload slot. Leaf precision does not apply here
-                ;; because there is no narrowed slot:
-                ;; the whole payload carries the sibling. (It DOES still apply
+                ;; `schema-sensitive-at?`: under that, a failing non-sensitive
+                ;; sibling (e.g. `:age`) would clear redaction while a
+                ;; CONFORMING sensitive sibling (e.g. `:password` / `:jwt`)
+                ;; rides unredacted inside every whole-payload slot. Leaf
+                ;; precision does not apply here because there is no narrowed
+                ;; slot: the whole payload carries the sibling. (It DOES apply
                 ;; to the app-db `:value` slot, which is genuinely leaf-narrowed
                 ;; — see `validate-app-schema!`.)
                 ;; A compiled or opaque schema (a non-vector,
@@ -854,7 +850,7 @@
   the production-side validation surfaces are the
   `:boundary? true` step-1 arm and the
   `:schemas/validate-with-registered-fn` seam, neither of which is gated
-  this way. Per Spec 010 §Production builds and the rf2-bkvu5 ruling.
+  this way. Per Spec 010 §Production builds.
 
   Per Spec 010 §Per-frame schemas only the named frame's schemas are
   walked — schemas registered against sibling frames are ignored.
@@ -889,7 +885,7 @@
               to roll back the :db effect to the pre-handler value.
 
   Structurally distinct from the three meta-bearing validate-*! fns
-  (event / fx / sub): walks N schemas via doseq, has no
+  (event / fx / sub): walks N schemas in a loop, has no
   single `:schema`-on-meta lookup, and emits a trace per failure (rather
   than at-most-one). Returns a single boolean conjoining every entry's
   result so the caller can decide rollback deterministically — but
@@ -916,7 +912,7 @@
    ;; Dereference the validator once outside the per-schema loop.
    (if rf.interop/debug-enabled?
      (if-let [validate-fn @rf.schemas.validator/validator-fn]
-       ;; reduce + atomic short-circuit replaced doseq so we can emit
+       ;; A loop rather than doseq, so we can emit
        ;; a trace per failure (full surface for consumers) AND return
        ;; a single conjoined boolean (single signal for the rollback
        ;; gate). Pass-state stays `true` only when every entry passed.
@@ -950,7 +946,7 @@
                (let [validator-error (second validation-result)
                      reason          #?(:clj  (.getMessage ^Throwable validator-error)
                                         :cljs (ex-message validator-error))]
-                 ;; rf2-vkn8: the always-on `:errors` record FIRST, then the
+                 ;; The always-on `:errors` record FIRST, then the
                  ;; dev trace — `emit-error-both!`'s axis-1-then-axis-2
                  ;; ordering, so the JVM SSR listener's last-write-wins buffer
                  ;; keeps the richer trace as its final input. Both sit inside
@@ -977,7 +973,7 @@
                    (recur (next entries) false)
                    :rf/stale-incarnation))
 
-               ;; Legitimate validation failure — the existing emit path.
+               ;; Legitimate validation failure.
                :else
                (do
                  ;; The registered explainer is invoked exactly once
@@ -1005,8 +1001,8 @@
                  ;; check (`schema-sensitive-at?`) governs only the slot this
                  ;; surface NARROWS to the failing leaf — `:value` — so a
                  ;; failure at a non-sensitive leaf whose SIBLING is
-                 ;; sensitive does not redact it (the precise-narrowing
-                 ;; win; ancestor- OR descendant-sensitive at the leaf
+                 ;; sensitive does not redact it (leaf precision;
+                 ;; ancestor- OR descendant-sensitive at the leaf
                  ;; counts). The WHOLE-PAYLOAD slots (`:explain` /
                  ;; `:explain-humanized`, which carry the whole registered value)
                  ;; stay under the coarse `schema-has-sensitive?` root
@@ -1014,9 +1010,9 @@
                  ;; them — and so does the `:path` / `:reason` sanitization,
                  ;; because a `:set` segment carries the whole element.
                  ;;
-                 ;; The trace carries `:rollback? true` (consistent with depth-exceeded;
-                 ;; reuses the existing `:recovery :no-recovery`
-                 ;; vocabulary rather than minting a new enum value).
+                 ;; The trace carries `:rollback? true` (consistent with depth-exceeded,
+                 ;; and using the shared `:recovery :no-recovery`
+                 ;; vocabulary).
                  ;; The router consumes the loop's final boolean to
                  ;; perform the actual container restoration.
                  ;; Explainer failure is diagnostic only and cannot change the
@@ -1051,7 +1047,7 @@
                        ;;     `registered-value` verbatim (Malli's explanation root
                        ;;     `:value` is the whole input map / the humanized
                        ;;     decomposition is path-shaped over it). A
-                       ;;     Conforming sensitive siblings such as a valid jwt
+                       ;;     conforming sensitive sibling such as a valid jwt
                        ;;     rides inside `:explain`; gating `:explain` on the
                        ;;     leaf-precise `[:name]` decision (sibling-blind)
                        ;;     would leak through a leaf-only decision. The root
@@ -1072,17 +1068,17 @@
                        ;; walkable vector-form EDN can still embed a NESTED
                        ;; opaque child (e.g. `[:map [:token (m/schema
                        ;; [:string {:sensitive? true}])]]`); `schema-opaque?`
-                       ;; alone only sees the root, so both decisions now
+                       ;; alone only sees the root, so both decisions
                        ;; route through `schema-sensitive-at?`, which fails
                        ;; closed on a nested opaque node exactly where it
                        ;; sits — the failing LEAF's own opacity (or an
                        ;; opaque ancestor/descendant along its path) for
                        ;; `leaf-sensitive?`, and the WHOLE schema's opacity
                        ;; anywhere for `whole-sensitive?` (`nil` path — the
-                       ;; same whole-schema scope `schema-has-sensitive?`
-                       ;; already used). Scoping `leaf-sensitive?` to the
+                       ;; same whole-schema scope as `schema-has-sensitive?`).
+                       ;; Scoping `leaf-sensitive?` to the
                        ;; failing path (rather than "opaque anywhere in the
-                       ;; schema") preserves leaf precision: an opaque sibling must
+                       ;; schema") is what keeps it leaf-precise: an opaque sibling must
                        ;; not taint an unrelated non-opaque leaf's `:value`.
                        leaf-sensitive?  (rf.schemas.walker/schema-sensitive-at? schema in-path)
                        whole-sensitive? (rf.schemas.walker/schema-sensitive-at? schema nil)
@@ -1095,9 +1091,8 @@
                        ;; from the leaf so no sensitive sibling reaches its
                        ;; `:bytes`, and the whole-payload slots under
                        ;; `whole-large?`. Gating `:value` on the whole-schema
-                       ;; decision switched the arm off beside ANY sensitive
-                       ;; sibling and shipped the blob verbatim
-                       ;; (rf2-3x7nj.19.2).
+                       ;; decision would switch the arm off beside ANY
+                       ;; sensitive sibling and ship the blob verbatim.
                        large?           (rf.schemas.walker/schema-has-large? schema)
                        leaf-large?      (and large? (not leaf-sensitive?))
                        whole-large?     (and large? (not whole-sensitive?))
@@ -1116,8 +1111,8 @@
                        ;; `whole-sensitive?`, NOT `leaf-sensitive?`: a `:set`
                        ;; segment is the WHOLE element, so a failure at a
                        ;; non-sensitive leaf carries every conforming
-                       ;; sensitive sibling of that element in its own path
-                       ;; (rf2-3x7nj.19.1). Whenever the schema declares
+                       ;; sensitive sibling of that element in its own path.
+                       ;; Whenever the schema declares
                        ;; anything sensitive, scrub the value-bearing segments
                        ;; out of `:path` via `sanitize-sensitive-path`
                        ;; (navigable `:vector` / `:tuple` / declared `:map`
@@ -1173,7 +1168,7 @@
                           (if-not (continue?)
                             :rf/stale-incarnation
                             (do
-                              ;; rf2-xpd8 PR1: the always-on `:errors` record
+                              ;; The always-on `:errors` record
                               ;; FIRST, then the dev trace — mirroring
                               ;; `emit-error-both!`'s axis-1-then-axis-2
                               ;; ordering (error_emit.cljc), so the JVM SSR
@@ -1209,8 +1204,8 @@
   marks the password slot sensitive. `walker/schema-has-sensitive?` walks
   the whole schema form (the `:cat` container
   descends into its `:map` payload child), so a per-slot `:sensitive?`
-  anywhere in the event schema (incl. container-level props) now drives
-  redaction; non-sensitive event failures still ride verbatim (the walker
+  anywhere in the event schema (incl. container-level props) drives
+  redaction; non-sensitive event failures ride verbatim (the walker
   reports nothing → no redaction)."
   ([event-id event handler-meta]
    (validate-event! event-id event handler-meta nil (constantly true)))
@@ -1408,7 +1403,7 @@
   non-vector, non-keyword `m/schema` object the walker cannot introspect):
   it redacts as if sensitive, because Malli may have honoured a
   `{:sensitive? true}` slot the walker cannot see — without this an opaque
-  schema's failure leaks verbatim while the vector form redacts. The same
+  schema's failure would leak verbatim while the vector form redacts. The same
   fail-closed posture applies when the opaque value is
   nested inside an otherwise-walkable vector-form schema (`schema-opaque?`
   alone only sees the root) — `schema-has-opaque-child?` catches both.
