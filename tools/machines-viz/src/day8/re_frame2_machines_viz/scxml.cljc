@@ -1198,8 +1198,9 @@
 
 (defn- parse-after-key
   "Decode an `after.<delay>` SCXML event name into its `:after` map key.
-  A numeric delay parses to a Long/int; a non-numeric delay is an
-  id-encoded keyword decoded symmetrically with
+  A numeric delay parses to a Long/int; an ISO-8601 duration, which the
+  export writes verbatim (`after.PT1S`), stays that string; any other
+  delay is an id-encoded keyword decoded symmetrically with
   `keyword->id-string` so a namespaced keyword delay (`:a/b` →
   `after.a-b`) round-trips its namespace. Shared by `consume-transitions`
   and `parse-root-parallel-transitions` (each keeps its own target decoder)."
@@ -1210,7 +1211,9 @@
                    :cljs (let [n (js/parseInt d-str 10)]
                            (if (js/isNaN n) nil n)))
                 (catch #?(:clj Exception :cljs :default) _ nil))]
-    (or d (id-string->keyword d-str))))
+    (or d
+        (when (g/resolve-timeout-ms d-str) d-str)
+        (id-string->keyword d-str))))
 
 (defn- simplify-candidates
   "Finalise an accumulated candidate vector to the canonical

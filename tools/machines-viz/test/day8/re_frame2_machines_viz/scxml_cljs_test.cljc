@@ -283,6 +283,16 @@
   (testing ":after timers round-trip via event=\"after.<ms>\""
     (is (round-trips? after-machine))))
 
+(deftest round-trip-iso-after-machine
+  (testing "an ISO-8601 :after delay rides event=\"after.<duration>\" verbatim
+            and imports as the same string"
+    (let [spec {:initial :loading
+                :states  {:loading {:after {"PT1S" :timeout "PT0.5S" :done}}
+                          :timeout {}
+                          :done    {}}}]
+      (is (str/includes? (scxml/spec->scxml spec) "event=\"after.PT1S\""))
+      (is (round-trips? spec)))))
+
 (deftest round-trip-always-machine
   (testing ":always eventless transitions round-trip"
     (is (round-trips? always-machine))))
