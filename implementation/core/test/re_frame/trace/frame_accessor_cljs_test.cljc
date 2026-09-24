@@ -1,8 +1,8 @@
 (ns re-frame.trace.frame-accessor-cljs-test
   "Cross-tool parity test for the canonical raw-trace-event frame reader
-  (`re-frame.trace/trace-event-frame` / `frame-of`) — rf2-7737vq Stage A.
+  (`re-frame.trace/trace-event-frame` / `frame-of`).
 
-  Mike's ruling: raw trace events carry frame identity ONLY at
+  Raw trace events carry frame identity ONLY at
   `[:tags :frame]`; there is no public top-level `:frame` on the raw
   trace-event shape. Derived / projection records (event bundles,
   `:rf/epoch-record`s, dispatch consequences, cursor / summary records)
@@ -12,9 +12,9 @@
 
   Pure-data — no fixture, no frame, no router; JVM and CLJS run the same
   suite (the accessor is a tag read with no platform-specific arms).
-  This is the SSOT acceptance test that every tool consumer (Xray,
-  Story, story-mcp, machines-viz, re-frame2-pair) reads frame off a raw
-  event through — Stage B migrates those call sites onto it."
+  This is the SSOT acceptance test for the one reader through which a
+  tool consumer (Xray, Story, story-mcp, machines-viz, re-frame2-pair)
+  reads frame off a raw event."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.trace :as rf.trace]
             [re-frame.trace.projection :as rf.trace.projection]))
@@ -51,7 +51,7 @@
 
 (deftest trace-event-frame-ignores-top-level-frame-on-raw-shape
   (testing "the raw shape has NO public top-level :frame — a stray top-level :frame is NOT the raw frame slot"
-    ;; The ruling: raw events carry frame ONLY at [:tags :frame]. The
+    ;; Raw events carry frame ONLY at [:tags :frame]. The
     ;; canonical reader deliberately does not fall back to a top-level
     ;; :frame on the raw shape (that slot belongs to projection records).
     ;; A raw event whose :tags lack :frame reads nil even if some
@@ -72,7 +72,7 @@
     ;; The producer stamps :frame under [:tags :frame] on every raw event;
     ;; the projection hoists it to the cascade record's top-level :frame
     ;; slot (the bare record/projection vocabulary, Tool-Pair §Identity
-    ;; spellings). This is the derived-record half of the two-layer ruling.
+    ;; spellings). This is the derived-record half of the two-layer contract.
     (let [raw-events [{:op-type :rf.event :operation :rf.event/dispatched
                        :id 1 :tags {:frame :counter/a
                                     :rf.event/v [:inc]
@@ -83,7 +83,7 @@
           [record] (rf.trace.projection/group-by-event raw-events)]
       (is (= :counter/a (:frame record))
           "the projected cascade record carries frame at top-level :frame")
-      ;; And the canonical RAW reader still reads each underlying raw
+      ;; And the canonical RAW reader reads each underlying raw
       ;; event's frame off [:tags :frame] — the two layers coexist.
       (is (every? #(= :counter/a (rf.trace/trace-event-frame %)) raw-events)
           "the raw events the record was projected from carry frame at [:tags :frame]"))))
