@@ -1,5 +1,5 @@
 (ns re-frame.cascade-envelope-propagation-test
-  "Per rf2-4jci1.1 — Spec/002 §Cascade propagation (line 1162) +
+  "Spec/002 §Cascade propagation (line 1162) +
   §Drain-loop pseudocode `inheritable-envelope-keys` (lines 947-952).
 
   The dispatch envelope's `:fx-overrides`, `:interceptor-overrides`,
@@ -8,7 +8,7 @@
   containing `:dispatch`, the dispatched child inherits the parent
   envelope's overrides. Same mechanism for `:dispatch-later`.
 
-  `:source` is **excluded from inheritance** per rf2-ejtpd — each
+  `:source` is **excluded from inheritance** — each
   fx-emitted child stamps its own immediate-trigger value
   (`:fx-dispatch` / `:fx-dispatch-later`) so the trigger-kind axis
   reflects the substrate's actual dispatch site rather than the
@@ -17,33 +17,32 @@
   JVM-only — the cascade propagation is platform-agnostic; the runtime
   paths under test do not depend on a CLJS host.
 
-  EP-0002 (rf2-9wa0lf): under the carried-invariant frame contract the
+  EP-0002: under the carried-invariant frame contract the
   top-level `dispatch-sync` calls below must establish a frame scope — a
-  bare dispatch under no scope now raises `:rf.error/no-frame-context`
+  bare dispatch under no scope raises `:rf.error/no-frame-context`
   (there is no `:rf/default` floor). The fixture registers an ordinary
   `:rf/default` frame and pins `*current-frame*` to it (the fixture-level
   equivalent of `(with-frame :rf/default …)`); the CHILD dispatches
-  (`:fx [[:dispatch …]]` / `:dispatch-later`) already carry the parent's
-  `:frame` explicitly via `child-dispatch-opts`, so the cascade
-  propagation under test is unchanged.
+  (`:fx [[:dispatch …]]` / `:dispatch-later`) carry the parent's
+  `:frame` explicitly via `child-dispatch-opts`, so the fixture scope does
+  not affect the cascade propagation under test.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
-  Every deftest here except one already reads production surfaces — an
-  fx-handler stub's captured args, the `(:envelope m)` slot on the fx-handler
-  ctx — and runs under `scripts/test-core-prod-gate.sh` unchanged.
+  Every deftest here reads production surfaces — an fx-handler stub's
+  captured args, the `(:envelope m)` slot on the fx-handler ctx — and runs
+  under `scripts/test-core-prod-gate.sh`.
 
-  The exception, `trace-id-origin-propagate-source-overridden-through-cascade`,
-  asserted `:origin` inheritance and the `:source :fx-dispatch` re-stamp off
-  the `:rf.event/dispatched` TRACE stream, which is gone under
-  `-Dre-frame.debug=false`. It is not guarded, it is RE-AIMED: the same two
-  claims are read off the child's DISPATCH ENVELOPE via `(:envelope m)` — the
-  production-visible surface `fx-handler-ctx-carries-envelope-slot` already
-  establishes exists — so they now hold in BOTH postures. The trace-shape
-  half (`:origin` under `:tags`, `:source` hoisted to the top level per Spec
-  009 §Core fields) is a claim about the trace EVENT rather than about
-  propagation, and that half alone stays in a `(when rf.interop/debug-enabled? …)`
-  arm marked `rf2-d2841`."
+  `trace-id-origin-propagate-source-overridden-through-cascade` reads
+  `:origin` inheritance and the `:source :fx-dispatch` re-stamp off the
+  child's DISPATCH ENVELOPE via `(:envelope m)` — the production-visible
+  surface `fx-handler-ctx-carries-envelope-slot` establishes — rather than
+  off the `:rf.event/dispatched` TRACE stream, which is gone under
+  `-Dre-frame.debug=false`, so both claims hold in BOTH postures. The
+  trace-shape half (`:origin` under `:tags`, `:source` hoisted to the top
+  level per Spec 009 §Core fields) is a claim about the trace EVENT rather
+  than about propagation, and that half alone sits in a
+  `(when rf.interop/debug-enabled? …)` arm."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -126,17 +125,17 @@
 
 (deftest trace-id-origin-propagate-source-overridden-through-cascade
   (testing ":trace-id and :origin ride the child envelope; :source is OVERRIDDEN to :fx-dispatch"
-    ;; Capture parent and child envelopes via the trace stream — every
-    ;; :rf.event/dispatched event surfaces :origin on :tags and :source
-    ;; hoisted to the top level.
+    ;; Capture parent and child envelopes via an fx probe (both postures)
+    ;; and via the trace stream (dev only) — every :rf.event/dispatched
+    ;; event surfaces :origin on :tags and :source hoisted to the top level.
     ;;
-    ;; Per rf2-ejtpd: `:source` is NOT inherited through `:fx [[:dispatch ...]]`
+    ;; `:source` is NOT inherited through `:fx [[:dispatch ...]]`
     ;; cascades — the `:dispatch` fx handler stamps `:source :fx-dispatch`
     ;; on the child envelope, regardless of what the parent carried. The
     ;; parent's `:source :test` is recorded against the parent's own
     ;; envelope; the child reports the substrate's actual dispatch site.
     (let [seen       (atom [])
-          ;; ALWAYS-ON PROBE (rf2-d2841): the fx-handler ctx's `:envelope`
+          ;; ALWAYS-ON PROBE: the fx-handler ctx's `:envelope`
           ;; slot is a production surface (see `fx-handler-ctx-carries-
           ;; envelope-slot` below), so running one of these inside EACH level
           ;; of the cascade reads the parent's and the child's envelopes
@@ -175,11 +174,11 @@
           (is (= :fx-dispatch (:source child-env))
               "child's :source is :fx-dispatch (stamped by the :dispatch fx; NOT inherited from parent)"))
 
-        ;; ---- rf2-d2841 dev-instrumentation arm ---------------------------
+        ;; ---- dev-instrumentation arm ------------------------------------
         ;; What remains here is a claim about the trace EVENT's SHAPE — that
         ;; `:origin` rides under `:tags` while `:source` is hoisted to the top
         ;; level per Spec 009 §Core fields — rather than about propagation,
-        ;; which the envelope assertions above now carry in both postures.
+        ;; which the envelope assertions above carry in both postures.
         (when rf.interop/debug-enabled?
           (let [dispatched   (->> @seen
                                   (filter #(= :rf.event/dispatched (:operation %))))
@@ -195,7 +194,7 @@
                 "child's :source is :fx-dispatch (stamped by the :dispatch fx; NOT inherited from parent)")))
         (finally (rf/unregister-listener! :trace ::rec))))))
 
-;; ---- :envelope exposed on fx-handler ctx (rf2-4jci1.4) -------------------
+;; ---- :envelope exposed on fx-handler ctx -----------------------------------
 
 (deftest fx-handler-ctx-carries-envelope-slot
   (testing "user fx-handler receives (:envelope m) — the parent dispatch envelope"
@@ -218,7 +217,7 @@
         (is (= :unit-test (:source env)))
         (is (= [:test/run] (:event env)))))))
 
-;; ---- the in-flight envelope, for framework code in a handler BODY (rf2-ix8fd)
+;; ---- the in-flight envelope, for framework code in a handler BODY ---------
 
 (deftest in-flight-envelope-is-bound-for-the-handler-call
   (testing "`current-event-envelope` hands a handler body the dequeued envelope,
@@ -250,7 +249,7 @@
 ;; :dispatch-later wraps in set-timeout!; we can verify the opts the
 ;; eventual :router/dispatch! call would receive by stubbing set-timeout!
 ;; semantics. Easier path: register a fixture timer that runs the inner
-;; fn synchronously via a custom :dispatch-later shape — but the existing
+;; fn synchronously via a custom :dispatch-later shape — but the
 ;; reserved-fx body is platform-coupled (rf.interop/set-timeout!). For JVM
 ;; the timer fires on a future; we use a CountDownLatch coordinated stub
 ;; to keep the test deterministic.
