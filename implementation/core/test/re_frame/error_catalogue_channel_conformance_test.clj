@@ -827,8 +827,8 @@
 ;; all — `re-frame.error/thrown-ex-info` builds a FLAT ex-data map, and Spec 009
 ;; §The thrown-error shape already declares `:recovery` among four REQUIRED
 ;; slots on it — so they never derive a schema and the arm never reasons about
-;; them. 486 active rows, 93 paired — and those are the trace-emitting ones,
-;; which is why the trace-event-scoped exclusion rule below is the right one.
+;; them. The paired rows are the trace-emitting ones, which is why the
+;; trace-event-scoped exclusion rule below is the right one.
 ;;
 ;; PAIRING KEYS OFF THE WHOLE `:operation`, NOT ITS NAME HALF. Spec-Schemas
 ;; names a schema in one of two ways, and `derived-schema-names` reads both:
