@@ -1,13 +1,12 @@
 (ns re-frame.classification
   "Data-classification path projection for sensitive + large values per
-  EP-0025 (Spec 015 graduation).
+  EP-0025 and Spec 015.
 
-  This namespace owns the EGRESS-TIME PROJECTION substrate (migrated off the
-  retired `re-frame.marks` ns, EP-0025): the path-walk + sentinel substitution
-  that redacts `:rf/redacted` at `:sensitive` paths and surfaces
+  This namespace owns the EGRESS-TIME PROJECTION substrate: the path-walk +
+  sentinel substitution that redacts `:rf/redacted` at `:sensitive` paths and surfaces
   `:rf.size/large-elided` markers at `:large` paths. There is NO classification
   PROPAGATION (no sub / flow input → output inheritance, no value-match) and NO
-  imperative `add-marks` / `set-marks` API — both removed by EP-0025.
+  imperative `add-marks` / `set-marks` API.
 
   It owns:
     - Per-registration classification — DERIVED at read time
@@ -17,7 +16,7 @@
       (`:sensitive` / `:large` / `:large?`) are stored by every reg-* path on
       the registrar entry, so the projection re-derives them through the SAME
       `normalise-classification` validation the registration ran — no
-      duplicated imperative side-table (rf2-ehexnw).
+      duplicated imperative side-table.
     - Emit-time projection — the path-walk + sentinel substitution consumed by
       `re-frame.trace/build-event` to redact a trace event's `:tags` against
       the in-scope registrations' declared paths and the frame's app-db
@@ -30,13 +29,13 @@
 
   Durable app-db classification lives in the per-frame elision registry
   (`[:rf.runtime/elision :sensitive-declarations]` / `:declarations` in the
-  frame's runtime-db partition — EP-0001 rf2-vzld77), populated by the EP-0025
+  frame's runtime-db partition — EP-0001), populated by the EP-0025
   commit-plane classification effects (`re-frame.elision`, `:source :effect` —
   a `reg-event` returns `:sensitive` / `:large` alongside `:db`), by `reg-flow`
   output declarations (`re-frame.flows.registry`, `:source :flow`), and by
   subsystem projection-relative declarations (resources / routing). The sources
-  union at lookup time. EP-0025: the durable `:sensitive` / `:large {:app-db …}`
-  *frame annotation* is REMOVED (a frame is not app-db's definition site), and
+  union at lookup time. There is no durable `:sensitive` / `:large {:app-db …}`
+  *frame annotation* (a frame is not app-db's definition site), and
   classification does NOT propagate — you redact exactly the paths you classify;
   nothing is inherited (no derived-output sensitivity, no value-match)."
   (:require [re-frame.elision :as rf.elision]
@@ -49,7 +48,7 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- per-registration classification: DERIVED from the registrar (rf2-ehexnw)
+;; ---- per-registration classification: DERIVED from the registrar
 ;;
 ;; A registration's declared classification (`:sensitive` / `:large` /
 ;; `:large?`) is NOT stashed into a second imperative side-table at registration
@@ -60,16 +59,16 @@
 ;; registrar is the single source of truth, snapshot/restored by the test-
 ;; isolation runtime fixture for free.
 
-;; ---- malformed-declaration rejection (rf2-y7l5t5) ------------------------
+;; ---- malformed-declaration rejection --------------------------------------
 ;;
 ;; A `:sensitive` / `:large` declaration is a vector of output-path vectors
 ;; (`[[:user :ssn] [:auth :token]]`; `[[]]` marks the whole value). We REJECT
 ;; LOUDLY at the ingestion boundary (`validate-classification!`, called from each
-;; reg-* path AFTER the registrar write — rf2-ehexnw): a hand-written typo —
+;; reg-* path BEFORE the registrar write): a hand-written typo —
 ;; `:sensitive :token` (bare keyword), `:sensitive "blob"` (string),
 ;; `:sensitive {…}` (map), or `:sensitive [:token]` / `[[:a [:b]]]` (a
-;; non-vector / non-scalar-element entry) — registers with NO error and NO
-;; classification under the prior silent-drop, the worst failure mode for a
+;; non-vector / non-scalar-element entry) — would otherwise register with NO
+;; error and NO classification, the worst failure mode for a
 ;; safety surface. The validation runs the SAME `normalise-classification` the
 ;; projection re-runs at read time, so a malformed declaration is caught at
 ;; registration (fail-loud) AND can never be re-derived into a classification.
@@ -106,7 +105,7 @@
   vectors. `nil` becomes `[]`. The whole value must be a vector and every entry
   a vector of scalar path elements (`[[]]` for whole-value); a malformed value
   or entry is REJECTED with `:rf.error/bad-classification` rather than silently
-  dropped (rf2-y7l5t5 — fail-loud, not fail-open).
+  dropped (fail-loud, not fail-open).
 
   `class-key` (`:sensitive` / `:large`) names the offending key in the thrown
   ex-data."
@@ -143,10 +142,10 @@
      :large?     <bool-or-nil>}  ;; whole-output size override (subs/flows)
 
   EP-0025: there is NO derived-output sensitivity claim — classification does
-  not propagate. A `:rf.egress/output-sensitivity` enum and the boolean
-  `:sensitive?` overload are GONE; they are silently dropped if present (no
-  propagation reads them). `:large?` survives as the whole-output size override
-  (size has no propagation analogue).
+  not propagate. A `:rf.egress/output-sensitivity` enum or a boolean
+  `:sensitive?` key is silently dropped if present (no propagation reads
+  them). `:large?` is the whole-output size override (size has no
+  propagation analogue).
 
   Returns `nil` when the meta-map carries no classification-relevant keys —
   callers branch on the nil to avoid stashing empty tables. An EMPTY `:sensitive`
@@ -171,7 +170,7 @@
 
 (defn validate-classification!
   "Validate a registration's classification declaration at the reg-* boundary,
-  FAIL-LOUD (rf2-ehexnw / rf2-y7l5t5). Returns nil. No-op (no throw) when `meta`
+  FAIL-LOUD. Returns nil. No-op (no throw) when `meta`
   carries no classification-relevant keys or carries only well-formed ones.
 
   Called from each reg-* path BEFORE the underlying registrar write. It runs the
@@ -179,8 +178,7 @@
   DISCARDS the result — its only job is the throw-side-effect: a malformed
   `:sensitive` / `:large` declaration raises `:rf.error/bad-classification` at
   registration rather than silently mis-deriving at the first emit. NOTHING is
-  stashed. The `kind` arg is accepted for call-site symmetry but unused (EP-0025
-  removed the `:sub`-scoped `:sensitive?` rejection)."
+  stashed. The `kind` arg is accepted for call-site symmetry but unused."
   ([meta] (validate-classification! nil meta))
   ([_kind meta]
    (normalise-classification meta)
@@ -188,7 +186,7 @@
 
 (defn registration-classification
   "Return the classification declaration for `(kind, id)`, or nil — DERIVED at
-  read time from `rf.registrar/handler-meta` (rf2-ehexnw), NOT a duplicated
+  read time from `rf.registrar/handler-meta`, NOT a duplicated
   side-table.
 
   The returned shape is `{:sensitive [paths] :large [paths] :large? bool}` —
@@ -246,7 +244,7 @@
 ;; candidate rides the descent beside the advanced one, so a single declaration
 ;; can hold several of its own prefixes alive at once. Against `#{[0 0 0]}` the
 ;; set grows `1 → 2 → 3 → 4` and ends `#{[] [0] [0 0] [0 0 0]}` — four
-;; candidates for one declaration (merged-PR audit #7107). Finite and
+;; candidates for one declaration. Finite and
 ;; declaration-derived either way, which is what keeps the walk linear in the
 ;; tree; but a reader who took "declaration cardinality" literally would expect
 ;; a singleton and misread the fork.
@@ -284,11 +282,11 @@
   `sensitive-paths` and `large-paths` are rooted at `v`. Sensitive wins over
   large at the same path; a large-marked subtree containing a sensitive
   descendant descends-and-redacts rather than emitting a size marker
-  (nested-axis suppression — rf2-izlr7f).
+  (nested-axis suppression).
 
-  `index-free?` selects how a POSITIONAL container is read (rf2-zaopo). Default
+  `index-free?` selects how a POSITIONAL container is read. Default
   false — every index is a declaration segment, so matching is the exact path
-  membership test this walker has always applied. True — an index is a
+  membership test. True — an index is a
   COLLECTION COORDINATE that consumes no declared segment, so the index-free
   declaration `[:value :email]` matches the runtime `[:value <i> :email]` in
   every element. A declaration that pins a literal index still matches either
@@ -297,7 +295,7 @@
 
   No-op early-exit: when both path sets are empty, returns `v` unchanged.
   Shares the map/vec/set/seq recursion skeleton with the schema-first elision
-  walker via `re-frame.elision/walk-tree` (rf2-cywzkh)."
+  walker via `re-frame.elision/walk-tree`."
   [v sensitive-paths large-paths index-free?]
   (if (and (empty? sensitive-paths) (empty? large-paths))
     v
@@ -311,7 +309,7 @@
         {:decide  (fn [[path candidates] v]
                     (cond
                       (matches? sensitive-set candidates) rf.privacy/redacted-sentinel
-                      ;; NESTED-AXIS SUPPRESSION (rf2-izlr7f): a large-marked
+                      ;; NESTED-AXIS SUPPRESSION: a large-marked
                       ;; node that shadows a sensitive descendant descends so
                       ;; the descendant redacts in place — no size marker.
                       (and (matches? large-set candidates)
@@ -339,7 +337,7 @@
   paths. Empty `[[]]` path substitutes the whole value (sensitive wins over large
   at the root). Per Spec 015 §What gets a sentinel.
 
-  `opts` may carry `:index-free? true` (rf2-zaopo) for a caller whose declared
+  `opts` may carry `:index-free? true` for a caller whose declared
   paths are INDEX-FREE — written against the shape rather than against a
   concrete runtime position, so a positional container contributes no segment
   and the declaration names EVERY element. That is the kind a
@@ -403,7 +401,7 @@
 
 (defn- project-execute-event-payload
   "Per-event-id DYNAMIC projection for a `[:rf.mutation/execute <args>]` event
-  vector (rf2-3ej3xu). The execute payload's classification lives on the
+  vector. The execute payload's classification lives on the
   MUTATION spec named INSIDE the args (`:mutation` — per-owner,
   projection-relative), not on the `:rf.mutation/execute` event registration,
   so the static registration layer cannot express it. Defers to the late-bound
@@ -423,14 +421,14 @@
 
 (defn redact-event-by-registration
   "Project an event vector for egress — the SINGLE event-vector chokepoint,
-  the event peer of `project-fx-args`. Two layers compose (rf2-3ej3xu):
+  the event peer of `project-fx-args`. Two layers compose:
 
   1. The event REGISTRATION's static `:sensitive` / `:large` classification
      declared under `(first event)`, applied to the arg-map paths (EP-0015 —
      event args are registration-owned transient payloads).
   2. Per-event-id DYNAMIC classification the static model cannot express:
      `:rf.mutation/execute` — the payload's classification lives on the
-     MUTATION spec named inside the args (per-owner, rf2-825mzj's declaration
+     MUTATION spec named inside the args (the per-owner declaration
      surface), so the resources-published
      `:resources/project-execute-event-args` hook projects it
      (`project-execute-event-payload`). Unbound ⇒ pass-through.
@@ -441,7 +439,7 @@
   ALWAYS-ON (NOT gated on `interop/debug-enabled?`) — the registration
   classification is populated at registration time in production as well as dev
   (only the emit-time TRACE projection is dev-gated), and this fn is the
-  production egress consumer (rf2-qe6v1u).
+  production egress consumer.
 
   Published via the `:classification/redact-event-by-registration` late-bind
   hook; `re-frame.projection` consumes it for the `:rf.observe/error` /
@@ -463,7 +461,7 @@
   `[event-id arg-map]` form; the `:rf.error/*` error traces carry it under the
   bare `:event` slot, so we redact whichever slot the trace carries — through
   `redact-event-by-registration`, the single event-vector chokepoint (static
-  registration classification + the per-event-id dynamic layer, rf2-3ej3xu),
+  registration classification + the per-event-id dynamic layer),
   so this slot, the always-on `:rf.observe/*` records, and the `:dispatch` /
   `:dispatch-later` fx-arg recursion all redact identically.
   Reference-preserving when nothing applies."
@@ -479,7 +477,7 @@
   — Spec 002 §Reserved fx-ids) by recursing the carried TARGET event through
   the target's OWN registration classification. `:dispatch-later` is a
   reserved fx with no registration to declare paths on, but the event it
-  defers has an owner (rf2-32ffq1, extending the rf2-6h3c02 per-entry walk).
+  defers has an owner.
   Identity-preserving when the target declares none."
   [args]
   (if-let [event (and (map? args) (:event args))]
@@ -492,9 +490,9 @@
   chokepoint shared by every fx-arg-bearing trace slot (`project-fx-tags` for
   the `[:rf.fx/id :rf.fx/args]` pair, `project-event-fx-entry` for the
   `:rf.event/fx` aggregate entries, and the machine action-`:outcome` `:fx`
-  echo). Two layers compose (rf2-32ffq1):
+  echo). Two layers compose:
 
-  1. The fx REGISTRATION's static `:sensitive` / `:large` paths (rf2-6h3c02).
+  1. The fx REGISTRATION's static `:sensitive` / `:large` paths.
   2. Per-fx-id DYNAMIC classification the static model cannot express:
 
      - `:dispatch` — the args ARE a target event vector, so the TARGET
@@ -537,12 +535,12 @@
   :rf.fx/args]` pair, through `project-fx-args` — the fx REGISTRATION's
   declared `:sensitive` / `:large` PLUS the per-fx-id dynamic classification
   (`:dispatch` / `:dispatch-later` target inheritance, `:rf.http/managed`'s
-  per-call `:sensitive?` — rf2-32ffq1).
+  per-call `:sensitive?`).
 
   Covers the per-effect `:rf.fx/handled` success trace AND the always-on fx
   ERROR traces (`:rf.error/fx-handler-exception` + its siblings) AND
   `:rf.fx/skipped-on-platform` — every one stamps the SAME `:rf.fx/id` +
-  `:rf.fx/args`, so every one gets the SAME redaction (rf2-6h3c02). Keying
+  `:rf.fx/args`, so every one gets the SAME redaction. Keying
   off the SLOT SHAPE (both keys present) rather than op `:rf.fx/handled` is
   what closes the error-trace `:rf.fx/args` leak — the production-survivable
   `:rf.error/fx-handler-exception` fans out through the always-on error-emit
@@ -550,15 +548,15 @@
   classified value (a session token to localStorage, an auth header) must NOT
   egress it raw when the fx throws.
 
-  A KEYWORD-REDIRECTED fx (`:fx-overrides` id-redirect — rf2-2siusz) stamps
+  A KEYWORD-REDIRECTED fx (`:fx-overrides` id-redirect) stamps
   the ORIGINAL fx-id as `:rf.fx/from` alongside the resolved `:rf.fx/id`,
   and the args are the SAME value the caller shaped for the ORIGINAL fx's
   contract — so the walk composes `project-fx-args` for BOTH ids: the
   redirect TARGET's own declaration first (an app stub may declare its own
   static paths), then the ORIGINAL registration's static paths + per-fx-id
-  dynamic classification. This closes the run-mode leak where a
+  dynamic classification. Without it a
   `:sensitive? true` `:rf.http/managed` request redirected to a canned /
-  test stub rode RAW on the stub's own `:rf.fx/handled` — the stub
+  test stub would ride RAW on the stub's own `:rf.fx/handled` — the stub
   registration declares nothing and the resolved id matches no dynamic
   case, but the ORIGINAL id carries both."
   [tags]
@@ -596,10 +594,10 @@
   `re-frame.fx/do-fx`). Redact each entry's args through THAT fx-id's
   registration classification, mirroring how `project-db-tags` covers the
   sibling `:rf.event/db` slot (the two share posture — Spec 009 §Canonical
-  per-event trace sequence). This closes the aggregate-slot leak the per-effect
-  `:rf.fx/handled` redaction alone left open: a classified fx's args survived
+  per-event trace sequence). The per-effect `:rf.fx/handled` redaction alone
+  is not enough: without this walk a classified fx's args would survive
   RAW on this always-stamped `:rf.event/fx` vector even though `:rf.fx/handled`
-  redacted them (rf2-6h3c02)."
+  redacts them."
   [tags]
   (let [fx-vec (:rf.event/fx tags)]
     (if-not (vector? fx-vec)
@@ -636,9 +634,9 @@
       (assoc tags :rf.cofx/value (redact-by-classification (:rf.cofx/value tags) class)))))
 
 (defn- project-route-sub-slot
-  "rf2-mtzv5m — apply the routing-owned route-sub egress projector to a route
+  "Apply the routing-owned route-sub egress projector to a route
   read sub's value `v`. Defers to the late-bound `:routing/project-route-sub-egress`
-  hook (routing publishes it; core stays decoupled — rf2-k682), which re-seeds
+  hook (routing publishes it; core stays decoupled), which re-seeds
   the wire walk at the route slice's runtime-db storage position so the route's
   re-rooted `:sensitive` / `:large` decls match the bare slice the sub returns.
   A no-op pass-through when the hook is unbound (routing artefact absent) or
@@ -662,7 +660,7 @@
   input's sensitivity, and there is no whole-output `:sensitive? true` stamp from
   a propagation table. Only the registration's own declared paths redact.
 
-  rf2-mtzv5m — ROUTE READ SUBS are the one NARROW exception: the framework route
+  ROUTE READ SUBS are the one NARROW exception: the framework route
   subs (`:rf/route` / `:rf.route/query` / `:rf.route/params`) are alternate
   PROJECTIONS of the route-owned durable fact, so their value/prev-value are
   ALSO run through the routing-owned egress projector (late-bound, decoupled),
@@ -673,11 +671,11 @@
   projection composes ON TOP of any registration classification (the route subs
   declare none, so in practice the registration step is a no-op for them).
 
-  EP-0002 (rf2-gjq3ow) — FAIL CLOSED on a nil `frame-id`: subs are frame-scoped,
+  EP-0002 — FAIL CLOSED on a nil `frame-id`: subs are frame-scoped,
   so a sub trace with no carried frame is malformed; `:rf.sub/value` (and
   `:rf.sub/prev-value` when present) are conservatively redacted.
 
-  rf2-vxgfnd.220 — IMAGE-LOCAL classification: the reactive recompute carries the
+  IMAGE-LOCAL classification: the reactive recompute carries the
   EXACT classification declaration captured for its reaction under an internal
   `:rf.sub/classification` slot (the same `sub-meta` the schema validator read).
   When present it is AUTHORITATIVE — we project from it rather than re-resolving
@@ -719,7 +717,7 @@
   Cheap registry read used to gate the full-db walk so the no-classification
   common case stays reference-preserving.
 
-  rf2-wcvv6h: on a CLASSIFIED frame this gate re-reads the registry that the
+  On a CLASSIFIED frame this gate re-reads the registry that the
   downstream `elide-wire-value` walk reads again (a few extra `get-in` reads
   per db-bearing trace event). The gate read is INTENTIONALLY kept separate
   rather than threading pre-resolved tables into the walk: `elide-wire-value`
@@ -727,7 +725,7 @@
   live-frame resolution (not the registry tables), so folding the tables down
   would spread that contract across call sites for no production gain — the
   whole projection path is dev/JVM-only (DCE-elided in production CLJS). The
-  explicit gate stays readable as-is; clarity wins over a dev-only read count."
+  explicit gate reads plainly; clarity wins over a dev-only read count."
   [frame-id]
   (boolean (or (seq (rf.elision/sensitive-declarations frame-id))
                (seq (rf.elision/declarations frame-id)))))
@@ -743,7 +741,7 @@
   reference-identity the `:rf.event/db` stamp promises. FAIL CLOSED on a nil
   `frame-id`.
 
-  rf2-3x7nj.4.3 — t1 / t2 fire BEFORE the commit folds this event's EP-0025
+  t1 / t2 fire BEFORE the commit folds this event's EP-0025
   classification effects into the registry, so the router carries those
   effects under the PRIVATE tag `::pending-classification-effects`
   (`:re-frame.classification/pending-classification-effects`, never a `:rf.*`
@@ -809,10 +807,10 @@
   :effects …}}` record per user `:after` that changed the context, each diff
   carrying its `:before` / `:after` VALUES. The standard `:rf.interceptor/path`
   `:after` rewrites `[:coeffects :db]` and widens `[:effects :db]`, so without
-  this arm every path-focused handler shipped the frame's classified paths RAW
-  past this chokepoint (rf2-3x7nj.4.2).
+  this arm every path-focused handler would ship the frame's classified paths
+  RAW past this chokepoint.
 
-  A `:db` value is walked at its TRUE app-db focus (rf2-fc84b): under a path
+  A `:db` value is walked at its TRUE app-db focus: under a path
   focus it is a SLICE, and a root walk cannot match `[:auth :token]` against
   `{:token …}`. The producer, `re-frame.interceptor/invoke-after`, records each
   side's absolute focus in a PRIVATE metadata carrier on the record,
@@ -954,8 +952,8 @@
 
 (defn frame-snapshot-classification
   "Compute the SNAPSHOT-relative sensitive/large path set the FRAME declares for
-  the machine snapshot keyed under `actor-id` (EP-0025, rf2-398kql) — the
-  frame-owned replacement for the removed `:data-schema`→classification bridge.
+  the machine snapshot keyed under `actor-id` (EP-0025) — classification is
+  frame-owned; there is no `:data-schema`→classification bridge.
   Reads the frame's elision-registry declarations, keeps only those rooted at
   `[:rf.runtime/machines :snapshots <actor-id> …]`, and strips that prefix so
   the remaining path indexes into the snapshot value (e.g. `[… :data :token]`).
@@ -984,7 +982,7 @@
 (defn- project-action-outcome-shell
   "UNCONDITIONAL (machine-classification-independent) projection of the
   `:rf.machine/action-ran` `:outcome` tag — the action's RAW returned effect
-  map (rf2-orcd31). Per Spec 005 §Action effect map the return is `{:data
+  map. Per Spec 005 §Action effect map the return is `{:data
   :fx}` or nil (`:outcome` is then `:ok`; a throw stamps a keyword error id —
   non-maps pass through untouched here):
 
@@ -1021,11 +1019,11 @@
   SNAPSHOT — per Spec 015 §State machines — so common paths are written as
   `[:data :jwt]`, `[:data :user :ssn]`, etc.
 
-  EP-0025 (rf2-398kql): the classification comes from the FRAME's declared
+  EP-0025: the classification comes from the FRAME's declared
   classification of the machine snapshot path (`frame-snapshot-classification`,
   the frame-owned sole app-db mechanism), UNIONED with any author classification
-  on the machine's `:event` registration meta. The prior machine
-  `:data-schema`→classification bridge (EP-0005) is removed.
+  on the machine's `:event` registration meta. There is no machine
+  `:data-schema`→classification bridge.
 
   Machine `:data` surfaces in several differently-shaped trace slots, and EVERY
   one is redacted: `:before` / `:after` / `:snapshot` (full snapshot maps),
@@ -1037,7 +1035,7 @@
   `(second outer-event)` there). A `:sensitive` payload carried THROUGH the
   machine as that routed event would otherwise ship RAW in these echo slots —
   the generic `project-event-tags` keys off the INNER event-id, which is
-  typically unregistered (rf2-ghgbqi, rf2-agb5jk item 2). So the machine's own
+  typically unregistered. So the machine's own
   EVENT-rooted classification paths redact these echo slots too. That is safe to
   union with the `:data` snapshot paths on the SAME declaration because the two
   roots are disjoint: an integer event index never matches a `:data`-prefixed
@@ -1047,7 +1045,7 @@
   ;; The CHILD-OWNED synthetic on-error payload and the `:start` payload are
   ;; summarized UNCONDITIONALLY (independent of the parent/spawn machine's
   ;; classification), and the action-`:outcome` echo's `:fx` / disallowed-`:db`
-  ;; halves are registration-driven (rf2-orcd31). Run these first so they apply
+  ;; halves are registration-driven. Run these first so they apply
   ;; even when the trace's machine declares no `:data` classification.
   (let [tags       (project-spawn-synthetic-payloads tags)
         tags       (project-action-outcome-shell tags)
@@ -1075,7 +1073,7 @@
                                 (contains? input :data)  (update :data project-data)
                                 ;; `:event` echoes the routed inner event —
                                 ;; redacted by the machine's EVENT-rooted paths
-                                ;; (rf2-ghgbqi), mirroring the top-level `:event`.
+                                ;; mirroring the top-level `:event`.
                                 (contains? input :event) (update :event project))
                               input))
             project-cascade (fn [cascade]
@@ -1091,7 +1089,7 @@
           (contains? tags :after)    (assoc :after    (project (:after    tags)))
           (contains? tags :snapshot) (assoc :snapshot (project (:snapshot tags)))
           (contains? tags :data)     (assoc :data     (project-data (:data tags)))
-          ;; rf2-orcd31 — the action's returned effect map echoed at
+          ;; The action's returned effect map echoed at
           ;; `:rf.machine/action-ran`'s `:outcome`: its `:data` half is
           ;; snapshot-`:data`-shaped (one level shallower, exactly like the
           ;; bare `:data` slot), so the SAME `:data`-rooted path set applies.
@@ -1105,7 +1103,7 @@
                                                  (update outcome :data project-data)
                                                  outcome)))
           ;; The routed inner event echoed at the top level — redacted by the
-          ;; machine's EVENT-rooted classification (rf2-ghgbqi). `project` is
+          ;; machine's EVENT-rooted classification. `project` is
           ;; a whole-value path walk; only the machine's event-rooted paths
           ;; bite here (the disjoint-root reasoning in the docstring).
           (contains? tags :event)    (assoc :event    (project (:event    tags)))
@@ -1126,7 +1124,7 @@
   conservative, footgun-prevention posture: when the machine declares ANY
   `:sensitive` classification, elide the WHOLE `:exception-data` slot.
 
-  EP-0025 (rf2-398kql): the \"machine declares ANY `:sensitive`\" decision now
+  EP-0025: the \"machine declares ANY `:sensitive`\" decision
   consults the FRAME's snapshot-path classification (the sole app-db mechanism)
   unioned with any author `:event` registration classification.
 
@@ -1268,7 +1266,7 @@
                         ;; The bare `:event` slot on the realm-AMBIGUOUS
                         ;; `:rf.error/frame-destroyed` trace carries a raw
                         ;; subscription QUERY VECTOR in the `:subscribe` realm
-                        ;; (public IDENTITY — rf2-zwgqe / rf2-alk8a / Spec 015),
+                        ;; (public IDENTITY — Spec 015),
                         ;; NOT a dispatched event. It egresses VERBATIM here,
                         ;; mirroring the always-on record's
                         ;; `error-emit/raw-identity-query-vector-event?` skip
@@ -1277,19 +1275,18 @@
                         ;; vector as a dispatched event and borrow a same-id
                         ;; EVENT registration's `:sensitive` paths to mutate the
                         ;; identity — a LEGAL event/sub id collision, since the
-                        ;; two live in SEPARATE registries (rf2-wd4ac). Every
-                        ;; OTHER `:event` slot still projects — including the
+                        ;; two live in SEPARATE registries. Every
+                        ;; OTHER `:event` slot projects — including the
                         ;; `:dispatch` / `:dispatch-sync` frame-destroyed realms,
                         ;; whose `:event` IS a dispatched-event payload. `=` on
-                        ;; keyword operands, never `identical?` (#6365).
+                        ;; keyword operands, never `identical?`.
                         (and (contains? tags :event)
                              (not (and (= :rf.error/frame-destroyed operation)
                                        (= :subscribe (:op tags)))))
                         (project-event-tags :event)
 
                         ;; `:rf.error/drain-depth-exceeded`'s dev-only
-                        ;; `:last-event` — the last-settled event's vector
-                        ;; (rf2-3x7nj.17.1).
+                        ;; `:last-event` — the last-settled event's vector.
                         (contains? tags :last-event)
                         (project-event-tags :last-event)
 
@@ -1304,7 +1301,7 @@
                         ;; (`:rf.error/fx-handler-exception` + siblings) +
                         ;; `:rf.fx/skipped-on-platform`. Keyed off slot SHAPE,
                         ;; not op `:rf.fx/handled`, so the production-survivable
-                        ;; error-trace args redact too (rf2-6h3c02).
+                        ;; error-trace args redact too.
                         (and (contains? tags :rf.fx/id)
                              (contains? tags :rf.fx/args))
                         (project-fx-tags)
@@ -1319,7 +1316,7 @@
                         (project-db-tags frame-id)
 
                         ;; `:rf.event/run-end`'s per-`:after` ctx diffs — their
-                        ;; `:db` / `:fx` values (rf2-3x7nj.4.2).
+                        ;; `:db` / `:fx` values.
                         (contains? tags :rf.event/after-deltas)
                         (project-after-deltas-tags frame-id)
 
