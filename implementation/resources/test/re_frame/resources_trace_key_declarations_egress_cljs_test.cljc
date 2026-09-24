@@ -1,32 +1,30 @@
 (ns re-frame.resources-trace-key-declarations-egress-cljs-test
   "A `:serialize` owner's per-slot `:params` / `:scope` declaration is honoured
-  INSIDE `:resource/key` at trace / tool egress (rf2-dl7bz).
+  INSIDE `:resource/key` at trace / tool egress.
 
-  ## The leak this suite pins
+  ## The leak this suite guards against
 
   A resource declaring
 
     (rf/reg-resource :account/summary
       {:sensitive [[:params :account-id]] …} …)
 
-  and NO coarse `:sensitive?` root prop classifies `:serialize`. The trace /
-  tool key projection read only that coarse disposition
-  (`rf.resources.ssr/project-scoped-key`), so the declared `:account-id` rode RAW inside
+  and NO coarse `:sensitive?` root prop classifies `:serialize`. A trace /
+  tool key projection reading only that coarse disposition
+  (`rf.resources.ssr/project-scoped-key`) would let the declared `:account-id` ride RAW inside
   `:resource/key` on every `:rf.resource/*` / `:rf.mutation/*` row, inside every
   scoped-keys vector slot, inside every `[:rf.work/resource <key> <gen>]`
   work-id, and inside every fx carrier (`:rf.fx/args` / `:rf.event/fx`) the key
-  reaches — off-box, epoch, MCP. Meanwhile the SAME bytes in the durable entry
-  redact, because `reconcile-registry` lowered the declaration to
+  reaches — off-box, epoch, MCP — while the SAME bytes in the durable entry
+  redact, because `reconcile-registry` lowers the declaration to
   `[… :resource/key 2 :account-id]` and the SSR wire key walks it
   (`rf.resources.classification/project-entry-params`). One value, two carriers, one rule
-  applied: the rf2-irwsq shape.
+  applied.
 
-  The artefact ALREADY DOCUMENTED the closed behaviour before it existed —
-  `tooling.cljc` claimed `:serialize` \"applies the resource's per-slot
+  `tooling.cljc` documents that `:serialize` \"applies the resource's per-slot
   `:params` projection-relative declarations\" and \"projects per-slot
-  `:params-schema` marks\", and `rf.resources.ssr/project-scoped-key` took a `spec` argument
-  it named `_spec`. §1 below is the standing statement that the prose is now
-  true of the code, and §5 is the standing statement that it was made true
+  `:params-schema` marks\". §1 below is the standing statement that the prose
+  is true of the code, and §5 is the standing statement that it holds
   WITHOUT widening `project-scoped-key`, whose `:serialize` deferral is
   deliberate (the SSR durable path resolves the same declaration from the
   per-frame elision REGISTRY, which a frameless trace boundary cannot read).
@@ -37,7 +35,7 @@
   UNDECLARED sibling param stays readable (a tool must still see `:page 3`),
   `:rf.scope/global` is untouched, and the resource-id survives at position 1
   so every per-key join a tool makes still lands. A change that
-  over-redacts fails this suite as loudly as the leak did.
+  over-redacts fails this suite as loudly as the leak would.
 
   ## Build posture
 
@@ -182,10 +180,10 @@
 
   Read from `projection-metadata`'s `:projected-key` rather than from the wire
   row, because a `:serialize` entry re-keyed by its own per-slot declaration is
-  WITHHELD from the wire (rf2-rjq9d — an unaddressable row hydrates as an
-  ownerless duplicate nothing can reach or collect). The projection itself is
-  untouched: `rf.resources.classification/project-entry-params` still runs and still produces
-  this key, so the agreement asserted below is the same agreement, read off the
+  WITHHELD from the wire (an unaddressable row would hydrate as an
+  ownerless duplicate nothing can reach). The projection itself runs
+  regardless: `rf.resources.classification/project-entry-params` produces
+  this key, so the agreement asserted below is read off the
   carrier that survives."
   [frame-id scoped-key]
   (let [rdb (rf.frame/frame-runtime-db-value frame-id)]
@@ -197,13 +195,10 @@
 ;; ===========================================================================
 ;; 1. THE LEAK. A `:serialize` owner's declared params slot must not ride raw
 ;;    inside `:resource/key` on the trace path.
-;;
-;;    This is the assertion `epoch_egress_resource_trace_test.clj` §(rf2-ko5lm)
-;;    named in prose and deliberately did not make.
 ;; ===========================================================================
 
 (deftest serialize-owner-declared-param-does-not-ride-raw-in-the-key
-  (testing "rf2-dl7bz — a resource declaring {:sensitive [[:params :account-id]]}
+  (testing "a resource declaring {:sensitive [[:params :account-id]]}
             with NO coarse :sensitive? prop classifies :serialize, and its
             DECLARED param must be substituted inside the projected
             :resource/key rather than riding verbatim"
@@ -221,7 +216,7 @@
           "a row whose key redacted is stamped :sensitive?"))))
 
 (deftest declared-param-is-closed-on-every-carrier-of-the-key
-  (testing "rf2-dl7bz — :resource/key is the family's UNIVERSAL carrier: the
+  (testing ":resource/key is the family's UNIVERSAL carrier: the
             same declaration must close the key inside a scoped-keys VECTOR
             slot, inside a work-id, and inside the fx carriers a foreign row
             stamps"
@@ -231,7 +226,7 @@
                    :matched     [k]
                    :work/id     work-id
                    ;; a slot NOBODY has enumerated, reached by the shape-driven
-                   ;; default (rf2-wd9im) rather than by the slot roster.
+                   ;; default rather than by the slot roster.
                    :unnamed     [[k]]}
           proj    (project-row rows)]
       (is (not (leaks? account-secret proj))
@@ -270,7 +265,7 @@
           "an undeclared param is app data and stays readable to a tool"))))
 
 (deftest kind-preserving-when-nothing-is-declared
-  (testing "rf2-wgutc2 — the walker reconstructs collections, so an UNNECESSARY
+  (testing "the walker reconstructs collections, so an UNNECESSARY
             walk would collapse a list-valued param to a vector and change the
             key's bytes. The declaration-existence gate is what stops it"
     (let [k  (rf.resources.state/scoped-resource-key :rf.scope/global :plain/summary
@@ -319,15 +314,15 @@
      :resource/key         scoped-key}))
 
 (deftest a-declared-key-must-not-widen-the-reply-to-a-coarse-redaction
-  (testing "rf2-dl7bz — the row's :sensitive? STAMP and the owner's COARSE claim
+  (testing "the row's :sensitive? STAMP and the owner's COARSE claim
             are two readings, and `row-owner-redacts?` must take the coarse one.
 
             A `:params` declaration substituting inside the key makes the KEY
             redact, which the stamp must report. It says NOTHING about the free
             cursor or the reply body, which no declaration names. Conflating the
-            two tokenized a declaration-only owner's whole :value / :params —
-            destroying exactly the undeclared siblings rf2-ko5lm's grain
-            argument exists to keep readable"
+            two would tokenize a declaration-only owner's whole :value / :params —
+            destroying exactly the undeclared siblings the per-slot grain
+            exists to keep readable"
     (let [k     (key-for :account/summary)
           reply (read-reply k {:ok true})
           tags  {:rf.frame/id :rf/default :rf.fx/args reply}
@@ -347,7 +342,7 @@
 ;; ===========================================================================
 
 (deftest scope-rooted-declaration-is-honoured-in-the-key
-  (testing "rf2-dl7bz — `split-projection-paths` routes a `:scope`-rooted path
+  (testing "`split-projection-paths` routes a `:scope`-rooted path
             into the scoped-key bucket, so [:scope :tenant-id] must redact the
             key's SCOPE component, reaching through the [tier {identity}] tuple
             the way a projection-relative declaration always reads"
@@ -368,14 +363,14 @@
             "its undeclared sibling still rides")))))
 
 ;; ===========================================================================
-;; 4. AGREEMENT WITH THE SSR DURABLE WIRE KEY (the bead's Q1).
+;; 4. AGREEMENT WITH THE SSR DURABLE WIRE KEY.
 ;;
 ;;    This is what stops a fourth answer appearing later: the trace key, the
 ;;    tool key and the SSR wire key are ONE value derived two ways.
 ;; ===========================================================================
 
 (deftest trace-key-agrees-with-the-ssr-durable-wire-key
-  (testing "rf2-dl7bz Q1 — the spec-derived per-slot projection is BYTE-EQUAL
+  (testing "the spec-derived per-slot projection is BYTE-EQUAL
             to the registry-driven `rf.resources.classification/project-entry-params` the SSR
             durable path runs. Two derivations, one answer"
     (let [k        (install-entry! :rf/default (key-for :account/summary))
@@ -390,18 +385,18 @@
                " vs trace " (pr-str (nth trace 2)))))))
 
 (deftest projection-is-idempotent
-  (testing "rf2-dl7bz Q2 — re-projecting an already-projected key substitutes
+  (testing "re-projecting an already-projected key substitutes
             the same sentinel at the same path, so a doubly-projected row and a
             singly-projected one agree"
     (let [k (key-for :account/summary)]
       (is (= (projected-key k) (projected-key (projected-key k)))))))
 
 ;; ===========================================================================
-;; 5. THE DEFERRAL IS INTACT. `project-scoped-key` was NOT widened.
+;; 5. THE DEFERRAL HOLDS. `project-scoped-key` does NOT carry the per-slot arm.
 ;; ===========================================================================
 
 (deftest project-scoped-key-still-defers-on-serialize
-  (testing "rf2-dl7bz ruling — the per-slot arm lives at the trace / tool
+  (testing "the per-slot arm lives at the trace / tool
             boundary, NOT inside `rf.resources.ssr/project-scoped-key`, whose `:serialize`
             deferral is deliberate (the SSR durable path resolves the same
             declaration from the per-frame elision registry). This test reds if
@@ -415,7 +410,7 @@
           "…and it still ignores the spec argument, exactly as documented"))))
 
 ;; ===========================================================================
-;; 6. THE COARSE ARM IS UNCHANGED — the two arms compose by grain.
+;; 6. THE COARSE ARM IS INDEPENDENT — the two arms compose by grain.
 ;; ===========================================================================
 
 (deftest coarse-owner-still-tokenizes-the-whole-component
@@ -432,7 +427,7 @@
       (is (= :sealed/summary (nth pk 1)) "the resource-id survives")
       (is (true? (:sensitive? tags)))
       (is (= pk (rf.resources.ssr/project-scoped-key k :redact nil))
-          "byte-for-byte what `project-scoped-key` alone produced before"))))
+          "byte-for-byte what `project-scoped-key` alone produces"))))
 
 (deftest unregistered-owner-still-fails-closed
   (testing "the nil-spec fail-closed arm is untouched by the declaration arm"
@@ -445,15 +440,14 @@
 ;; ===========================================================================
 ;; 7. THE TOOL BOUNDARY ANSWERS IDENTICALLY.
 ;;
-;;    `tooling.cljc` documented this behaviour before it existed. The live
+;;    `tooling.cljc` documents this behaviour, and the live
 ;;    algebra view is where that prose is cashed out.
 ;; ===========================================================================
 
 (deftest tool-egress-honours-the-same-declaration
-  (testing "rf2-dl7bz — the EP-0015 tool-egress projection opts into the SAME
-            helper, so a tool's node identity carries no declared param either.
-            Before this, `project-key-for-egress`'s docstring claimed `:serialize`
-            projected per-slot marks and the code did nothing"
+  (testing "the EP-0015 tool-egress projection opts into the SAME
+            helper, so a tool's node identity carries no declared param either,
+            as `project-key-for-egress`'s docstring states for `:serialize`"
     (let [k    (install-entry! :rf/default (key-for :account/summary))
           view (rf.resources.tooling/resource-cache-algebra-view :rf/default)
           node (first (vals view))]
