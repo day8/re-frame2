@@ -1309,9 +1309,9 @@
   ;; application's n boundaries have.
   ;;
   ;; `coords?` decides whether those registrations carry SOURCE COORDS, and it
-  ;; is not a detail (rf2-4k5hs). This ns requires `re-frame.core` WITHOUT
-  ;; `:include-macros true`, so `rf/reg-sub` here is the plain FUNCTION and no
-  ;; call site is captured — left alone the registrar slot comes out `{}`. A
+  ;; is not a detail. This ns requires `re-frame.core` WITHOUT `:include-macros
+  ;; true`, so `rf/reg-sub` here is the plain FUNCTION and no call site is
+  ;; captured — left alone the registrar slot comes out `{}`. A
   ;; real application writes `(rf/reg-sub ...)` in a namespace that does get the
   ;; macro, so its slots carry `:ns` / `:file` / `:line`. The DEFAULT hands the
   ;; registrar the production meta explicitly.
@@ -1352,8 +1352,8 @@
                 :held      held
                 :raw       raw
                 :container src
-                ;; rf2-f70iq: the installed spec the routing predicate compares
-                ;; against, and the routed impl the calling-convention pair calls
+                ;; the installed spec the routing predicate compares against,
+                ;; and the routed impl the calling-convention pair calls
                 :spec      (rf.substrate.adapter/current-adapter)
                 :impl      rf.adapter.context/function-component-current-frame
                 ;; the exact reaction the shipped `identical?` guard compares
@@ -1377,23 +1377,23 @@
   ;; are fixtures replayed from recorded readings, so this is deterministic.
   (when-not (rf.bench.order-guard/print-self-test!)
     (throw (ex-info "order guard self-test FAILED — nothing may be measured" {})))
-  ;; And its floor-attribution counterpart (rf2-hydpy), for the same reason:
+  ;; And its floor-attribution counterpart, for the same reason:
   ;; a broken verdict here could lift a refusal it had no right to lift.
   (when-not (print-floor-self-test!)
     (throw (ex-info "floor-verdict self-test FAILED — nothing may be measured" {})))
-  ;; rf2-l3jv4 — and the control calibration, whose refusal is a third
-  ;; independent contributor to this run's exit code. Injected ratios,
-  ;; including the recorded 16.11 B/slot the owner bead was opened on.
+  ;; And the control calibration, whose refusal is a third independent
+  ;; contributor to this run's exit code. Injected ratios, including the
+  ;; recorded 16.11 B/slot polymorphic-site reading.
   (when-not (rf.bench.calibration/print-self-test!)
     (throw (ex-info "calibration self-test FAILED — nothing may be measured" {})))
   (let [n            (env-int "RA_N" 300)
         samples      (env-int "RA_SAMPLES" 42)
         warmup       (env-int "RA_WARMUP" 3)
-        ;; rf2-x0fe2: 6 was `write_attribution`'s figure and it is NOT enough
-        ;; here. At 6 the FORWARD plan refused on two arms — `N-CALLTHUNK` and
+        ;; `write_attribution`'s figure is 6, and 6 is NOT enough here. At
+        ;; 6 the FORWARD plan refuses on two arms — `N-CALLTHUNK` and
         ;; `N-CWFRNOG`, both by PHASE, both reading up to 2x their settled value
         ;; in the FIRST THIRD and dead flat thereafter — while the REVERSED plan
-        ;; passed with the same 6. That is the settling curve aligned with
+        ;; passes with the same 6. That is the settling curve aligned with
         ;; position, exactly the confound the phase factor exists to catch, and
         ;; the answer to it is more warm-up, never a wider tolerance.
         warm-windows (env-int "RA_WARM_WINDOWS" 12)
@@ -1402,7 +1402,7 @@
         tolerance    (env-num "RA_TOLERANCE" 0.25)
         rev?         (= "rev" (env "RA_ORDER" ""))
         coords?      (not= "0" (env "RA_COORDS" "1"))]
-    ;; rf2-f70iq PROVENANCE. `route-hook!` chains, so the shipped hook is one
+    ;; PROVENANCE. `route-hook!` chains, so the shipped hook is one
     ;; closure PER PUBLISHING ADAPTER. Whether any adapter published this key at
     ;; ns-load — before the bench installs its own — decides whether the shipped
     ;; route is ONE link or two — and a second link would be a second
@@ -1426,7 +1426,7 @@
     ;; window, so the scope itself is never charged to an arm.
     (binding [rf.frame/*current-frame* fid]
       (build-rig! n coords?)
-      (println ";; rf2-x0fe2 READ attribution — CLJS, node V8, :advanced")
+      (println ";; READ attribution — CLJS, node V8, :advanced")
       (println (gstring/format ";; debug-enabled? = %s   gc-exposed? = %s"
                        rf.interop/debug-enabled?
                        (some? (gobj/get js/globalThis "gc"))))
@@ -1438,7 +1438,7 @@
       (println (gstring/format ";; n=%d samples=%d (%d rounds x %d) warmup=%d calls + %d windows  base order=%s"
                        n samples rounds per-round warmup warm-windows
                        (if rev? "REVERSED" "forward")))
-      (println (gstring/format ";; arm order ROTATES AND REFLECTS with the round (rf2-88pie); guard tolerance %s%%"
+      (println (gstring/format ";; arm order ROTATES AND REFLECTS with the round; guard tolerance %s%%"
                        (.toFixed (* 100.0 tolerance) 0)))
       (println (gstring/format ";; registration = %s"
                        (if coords?
@@ -1473,8 +1473,8 @@
         (when-not agree?
           (throw (ex-info "arms disagree; measurement is meaningless"
                           {:want expect :rgread rg-v :deref dr-v :raw raw-v :scope scope-v}))))
-      ;; rf2-f70iq — the retired predicate spelling is only a paired CONTROL
-      ;; while it decides identically. Checked over the cases that discriminate
+      ;; The retired predicate spelling is only a paired CONTROL while it
+      ;; decides identically. Checked over the cases that discriminate
       ;; the branches: nil, a canonical-kind match, a canonical-kind mismatch, a
       ;; kindless map (object identity), and a copied canonical map.
       (let [spec   (rf.substrate.adapter/current-adapter)
@@ -1534,14 +1534,13 @@
                          ["N-CWFRRAW"  arm-n-cwfr-raw  n]
                          ["N-LOOKGEN"  arm-n-lookgen   n]
                          ["N-LOOKATOM" arm-n-lookatom  n]
-                         ;; rf2-f70iq — the ambient reader's route, decomposed
-                         ;; HERE because this is the plan in which S0-SCOPE reads
-                         ;; the 264.0 B/read the bead is about. NONE of these arms
-                         ;; publishes a routed hook; they only call ones that
-                         ;; already exist, which is what keeps them from moving
-                         ;; the arms above (the 2x2 and the chain ladder DO
-                         ;; publish, and they live in RA_SUITE=hooks for that
-                         ;; reason).
+                         ;; the ambient reader's route, decomposed HERE because
+                         ;; this is the plan in which S0-SCOPE reads its
+                         ;; 264.0 B/read. NONE of these arms publishes a routed
+                         ;; hook; they only call ones that exist, which is what
+                         ;; keeps them from moving the arms above (the ns
+                         ;; docstring says why a hook-PUBLISHING arm does not
+                         ;; belong in this plan).
                          ["H-FVID"     arm-h-fvid      n]
                          ["H-CACHE"    arm-h-cache     n]
                          ["H-SPEC"     arm-h-spec      n]
@@ -1553,8 +1552,8 @@
             k    (count plan)
             ;; --- warm-up and calibration, one pass, nothing read -----------
             ;; A site reads 1.26x to 5.3x its settled value until it has run
-            ;; several full-size windows (rf2-tb345). Charged to round 1 that
-            ;; reads as allocation and — worse — as an arm whose figure moves
+            ;; several full-size windows. Charged to round 1 that reads as
+            ;; allocation and — worse — as an arm whose figure moves
             ;; with where in the plan it sat, which the guard refuses.
             reps (mapv (fn [[label f _]]
                          (dotimes [_ warmup] (f))
@@ -1598,7 +1597,7 @@
                                            :windows    (get-in run [:windows label] 0))]))
                          plan))
             b    (fn [l] (:p50 (get res l)))
-            ;; rf2-l3jv4 — the control's own verdict, computed ONCE from the
+            ;; The control's own verdict, computed ONCE from the
             ;; same p50s the CONTROLS block prints, and carried to the exit
             ;; code at the bottom. The bands live in
             ;; `re-frame.bench.calibration` and are expressed nowhere else,
@@ -1654,7 +1653,7 @@
           (println (gstring/format
                      ";;   DBL slope, LARGE pair (1000->10000)  %.4f B/double  predicted 8.0000  %+.2f%%   (page-tail filler; the arms here are all SMALL objects)"
                      lg (* 100.0 (/ (- lg 8.0) 8.0))))
-          ;; rf2-l3jv4 — the width is the one the RATIOS above selected, not
+          ;; The width is the one the RATIOS above selected, not
           ;; one read off this slope. Selecting it from the slope cannot see a
           ;; doubled slope at all: 16.1 simply answers "OFF" and is then
           ;; compared to 8.
@@ -1681,15 +1680,15 @@
                              (fmt (* r (:p50 m))) (fmt3 (/ (:p50 m) n))
                              (:unverified m)))))
         (println ";;")
-        ;; --- rf2-ktrvw: what a thunk-dominated arm actually measures ----------
+        ;; --- what a thunk-dominated arm actually measures ------------------
         ;;
         ;; Five arms here hand a freshly-allocated thunk to another function,
         ;; and every one of them reads TWO values across windows: a settled one
-        ;; and a high one, bit-identical, with nothing between. The bead was
-        ;; opened on the suspicion that this is escape analysis eliding the
-        ;; subject in some windows. `N-NEWFN` decides it, by pricing the closure
-        ;; with nothing else in the arm at all.
-        (println ";; rf2-ktrvw — THE THUNK-DOMINATED ARMS ARE BIMODAL, and the mode is the CLOSURE")
+        ;; and a high one, bit-identical, with nothing between. The obvious
+        ;; suspicion is escape analysis eliding the subject in some windows.
+        ;; `N-NEWFN` decides it, by pricing the closure with nothing else in
+        ;; the arm at all.
+        (println ";; THE THUNK-DOMINATED ARMS ARE BIMODAL, and the mode is the CLOSURE")
         (let [closure (net* "N-NEWFN")
               steps   (volatile! [])]
           (println (gstring/format ";;   N-NEWFN  one closure per inner iteration, nothing else:  %s B/read net" (fmt closure)))
