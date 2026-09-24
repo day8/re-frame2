@@ -1,29 +1,29 @@
 (ns re-frame.flows-settle-ordering-test
   "Spec 013 §Sequencing — the settle runs BEFORE the continuations the same
-  handler queued (rf2-kh73v, audit of PR #8893).
+  handler queued.
 
   `re-frame.flows-settle-on-dispatch-test` pins the settle BOUNDARY: the
   derived slot is correct by the time the originating dispatch returns. That
-  is necessary and not sufficient. The settle used to be appended to the BACK
-  of the frame's router queue, so a `:dispatch` effect emitted by the SAME
-  handler was already ahead of it in FIFO order. Those child handlers ran
-  inside the originating run-to-completion pass while `app-db` still reflected
+  is necessary and not sufficient. Were the settle appended to the BACK
+  of the frame's router queue, a `:dispatch` effect emitted by the SAME
+  handler would already be ahead of it in FIFO order. Those child handlers would
+  run inside the originating run-to-completion pass while `app-db` still reflected
   the pre-registration / pre-clear state — so a continuation after a register
-  could not read the new output, and a continuation after a clear read the
-  stale one. Each could persist a wrong decision into `app-db` that the later
+  could not read the new output, and a continuation after a clear would read
+  the stale one. Each could persist a wrong decision into `app-db` that the later
   settle, repairing only the derived slot, would not undo.
 
-  The two deftests below are exactly that shape: one handler emitting a
+  The first two deftests below are exactly that shape: one handler emitting a
   lifecycle effect AND a `:dispatch`, where the dispatched handler reads the
   derived slot and records what it saw. They are the CONTROL for the ordering
-  fix — under the back-of-queue settle they read `nil` (register arm) and the
-  stale value (clear arm), while every other flows test stays green, which is
-  why this had to be found by hand rather than by the existing lane."
+  — under a back-of-queue settle they would read `nil` (register arm) and the
+  stale value (clear arm), while every other flows test stays green, so no
+  other test in the lane catches it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Loading `re-frame.flows` is what publishes the `:flows/reg-flow`
             ;; / `:flows/clear-flow` late-bind hooks. Without it the reserved fx
-            ;; find no hook and NO-OP silently, which reads exactly like the
+            ;; find no hook and NO-OP silently, which reads exactly like a
             ;; lagging runtime — every assertion below goes red for the wrong
             ;; reason. Required for effect, not for a var.
             [re-frame.flows]
@@ -34,7 +34,7 @@
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private sum-flow
-  "1 + 2 = 3 at `[:derived]` — the audit probe's own shape."
+  "1 + 2 = 3 at `[:derived]`."
   [:sum
    {:inputs      [[:wizard :foo] [:wizard :bar]]
     :output-path [:derived]}
@@ -60,7 +60,7 @@
     (let [db (rf/app-db-value :rf/default)]
       (is (= 3 (:derived db))
           (str "precondition — the settle boundary itself still holds. Row " db))
-      ;; THE CONTROL, register arm. Red under the back-of-queue settle:
+      ;; THE CONTROL, register arm. Red under a back-of-queue settle:
       ;; `{:seen-after-register nil, :derived 3}`.
       (is (= 3 (:seen-after-register db))
           (str "the continuation ran AFTER the settle and read the new output. Row " db)))))
@@ -88,7 +88,7 @@
     (let [db (rf/app-db-value :rf/default)]
       (is (not (contains? db :derived))
           (str "precondition — the settle boundary itself still holds. Row " db))
-      ;; THE CONTROL, clear arm. Red under the back-of-queue settle:
+      ;; THE CONTROL, clear arm. Red under a back-of-queue settle:
       ;; `{:seen-after-clear 3}` with `:derived` already removed.
       (is (nil? (:seen-after-clear db))
           (str "the continuation ran AFTER the settle and read the vacated slot. Row " db)))))
