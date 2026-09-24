@@ -1,10 +1,10 @@
 (ns re-frame.classification-effects-cljs-test
-  "EP-0025 B3 (rf2-g2pckt) — the four COMMIT-PLANE data-classification
+  "EP-0025 B3 — the four COMMIT-PLANE data-classification
   effects `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`,
   applied WITH the `:db` write at the commit point (a frame-state transform
   into the per-frame elision registry), NOT a post-commit `:fx`.
 
-  Pins the acceptance legs the bead enumerates:
+  Pins these acceptance legs:
 
     1. classify-then-egress (SAME event) — a handler returning
        `{:sensitive [[:user :token]]}` alongside `:db` records the path in the
@@ -19,9 +19,9 @@
     5. value-independence — a path may be classified BEFORE a value lands there;
        the classification redacts whatever later occupies the path.
 
-  EP-0025 (clean break complete): the durable `:sensitive` / `:large {:app-db
-  …}` *frame annotation* and the imperative `add-marks` API are both REMOVED.
-  These commit-plane effects (`:source :effect`) are the canonical durable
+  EP-0025: there is no durable `:sensitive` / `:large {:app-db …}` *frame
+  annotation* and no imperative `add-marks` API. These commit-plane effects
+  (`:source :effect`) are the canonical durable
   app-db classification route; they populate the SAME registry slots that
   `reg-flow` outputs (`:source :flow`) and the subsystem projection-relative
   declarations (`:source :route` / `:source :machine`) write, unioning with
@@ -31,17 +31,17 @@
   build (`npm run test:cljs`) AND the JVM `clojure -M:test` runner both run
   it. Plain CLJC; no DOM dependency.
 
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   Legs 1, 2, 3 and 5 read the per-frame elision registry and app-db — durable
-  production state — and run under `scripts/test-core-prod-gate.sh` unchanged.
+  production state — and run under `scripts/test-core-prod-gate.sh`.
 
-  Leg 4 (fail-loud) was the only thing rostering this file, and it did NOT need
-  a guard. `:rf.error/classification-effect-shape` is a PROMOTED category:
+  Leg 4 (fail-loud) needs no guard either.
+  `:rf.error/classification-effect-shape` is a PROMOTED category:
   `router/emit-classification-effect-shape!` goes through
   `error-emit/emit-error-both!`, so the rejection fans out on the always-on
   corpus axis as well as the dev trace. Every \"exactly one error was emitted\"
-  row is therefore RE-AIMED at the `:errors` stream, where it stays live in
+  row therefore reads the `:errors` stream, where it stays live in
   production posture — which is the posture that matters for a fail-loud claim.
 
   What genuinely is dev-only is the DIAGNOSTIC DETAIL. `emit-error-both!` lifts
@@ -96,7 +96,7 @@
                   (= operation (:operation ev))))
            @recorded))
 
-;; rf2-d2841 — the ALWAYS-ON corpus axis. `:rf.error/classification-effect-shape`
+;; The ALWAYS-ON corpus axis. `:rf.error/classification-effect-shape`
 ;; is a promoted category (`router/emit-classification-effect-shape!` fans it
 ;; through `error-emit/emit-error-both!`), so the fail-loud COUNT is readable in
 ;; production posture off `:errors` rather than off the dev trace.
@@ -224,7 +224,7 @@
         "the cleared large path is removed")))
 
 ;; ---------------------------------------------------------------------------
-;; 2b. SOURCE-SCOPED clear (rf2-34jrb6) — a clear removes only the effect's own
+;; 2b. SOURCE-SCOPED clear — a clear removes only the effect's own
 ;;     contribution; a path ALSO claimed by another source stays redacted
 ;; ---------------------------------------------------------------------------
 
@@ -233,12 +233,12 @@
             path ALSO claimed by another owner (e.g. a reg-flow output under
             :source :flow) stays classified — the clear must not silently
             un-redact a path another owner still considers sensitive (a privacy
-            fail-open). rf2-34jrb6 + rf2-wdm1vg.
+            fail-open).
 
             This exercises the REAL cross-event path with NO artificial
             re-assertion of the flow mark: the flow claim is installed ONCE up
             front, then a LATER, unrelated event does SET+CLEAR on the same
-            path. The effect SET UNIONS in (multi-owner registry, rf2-wdm1vg) —
+            path. The effect SET UNIONS in (multi-owner registry) —
             both owners now claim the path — and the source-scoped clear removes
             ONLY the effect owner, leaving the flow owner standing."
     ;; A flow (another owner) declares [:user :token] sensitive in the SAME
@@ -262,7 +262,7 @@
     (rf/dispatch-sync [:effect-classify-token])
     (is (= #{{:source :flow :flow-id :token-watch} {:source :effect}}
            (get (sensitive-decls) [:user :token]))
-        "the same-path effect SET UNIONS in — both owners claim the path (rf2-wdm1vg)")
+        "the same-path effect SET UNIONS in — both owners claim the path")
     ;; A still-later event CLEARS the path. The source-scoped clear removes ONLY
     ;; the effect owner — the flow owner survives, the path stays classified and
     ;; the value stays REDACTED. This is the real operational sequence.
@@ -281,7 +281,7 @@
 (deftest clear-sensitive-removes-effect-sourced-entry-when-sole-claimant
   (testing "when the effect is the SOLE source for a path, the source-scoped
             clear removes it (no other-source entry shields it) — the ordinary
-            set/unset case is unchanged. rf2-34jrb6."
+            set/unset case."
     (rf/reg-event :effect-only-classify
       (fn [{:keys [db]} _] {:db db :sensitive [[:only :effect]]}))
     (rf/dispatch-sync [:effect-only-classify])
@@ -293,7 +293,7 @@
         "an effect-sourced path with no other claimant is removed by its clear")))
 
 ;; ---------------------------------------------------------------------------
-;; 2c. CLEAR over an ABSENT / wrong-axis path is a harmless NO-OP (rf2-26p9yg)
+;; 2c. CLEAR over an ABSENT / wrong-axis path is a harmless NO-OP
 ;;     The fail-open clear contract relies on a clear being a harmless dissoc.
 ;;     A regression that throws on an absent-key clear, or that prunes the
 ;;     wrong axis slot, would be a fail-open privacy hazard — pin it.
@@ -301,8 +301,7 @@
 
 (deftest clear-sensitive-over-never-classified-path-is-a-silent-no-op
   (testing ":clear-sensitive over a path that was NEVER classified is a silent
-            no-op — no throw, no error trace, the registry is unchanged.
-            rf2-26p9yg."
+            no-op — no throw, no error trace, the registry is unchanged."
     ;; nothing is classified yet
     (is (not (contains? (sensitive-decls) [:never :classified]))
         "precondition: the path is absent from the sensitive registry")
@@ -318,8 +317,7 @@
 
 (deftest clear-large-over-never-classified-path-is-a-silent-no-op
   (testing ":clear-large over a path that was NEVER classified is a silent
-            no-op — no throw, no error trace, the large registry is unchanged.
-            rf2-26p9yg."
+            no-op — no throw, no error trace, the large registry is unchanged."
     (is (not (contains? (large-decls) [:never :large]))
         "precondition: the path is absent from the large registry")
     (rf/reg-event :clear-absent-large
@@ -336,7 +334,7 @@
   (testing ":clear-sensitive over a path classified on the OTHER axis only
             (:large) is a no-op on the sensitive axis AND leaves the large
             classification intact — the wrong-axis clear must not prune the
-            large slot. rf2-26p9yg."
+            large slot."
     (rf/reg-event :classify-large-only
       (fn [{:keys [db]} _] {:db db :large [[:docs :blob]]}))
     (rf/dispatch-sync [:classify-large-only])
@@ -357,7 +355,7 @@
         "the sensitive axis is still empty for this path — the clear was a no-op there")))
 
 ;; ---------------------------------------------------------------------------
-;; 2d. SAME-EVENT SET + CLEAR of one path — CLEAR WINS (rf2-9zylo0)
+;; 2d. SAME-EVENT SET + CLEAR of one path — CLEAR WINS
 ;;     rf.elision/apply-classification-effects reduces SET axes before CLEAR
 ;;     axes within one effect map, so a same-event set+clear of one path on
 ;;     one axis resolves to UNclassified. A reorder regression (clear-then-set)
@@ -371,7 +369,7 @@
             before its CLEAR (set axes reduced first), so the CLEAR is the
             later write and wins. Pins the effect ordering so a reorder
             regression that left the path classified-then-shipped-raw OR
-            raw-then-redacted is caught. rf2-9zylo0."
+            raw-then-redacted is caught."
     (rf/reg-event :set-and-clear-same
       (fn [{:keys [db]} _]
         {:db              (assoc-in db [:user :token] "Bearer set-then-cleared")
@@ -397,7 +395,7 @@
   (testing "the same set-before-clear ordering holds on the :large axis: an
             event returning both :large [[:p]] and :clear-large [[:p]] ends
             with the path UNclassified, so an oversized value there ships RAW
-            (no large marker) at egress. rf2-9zylo0."
+            (no large marker) at egress."
     (rf/reg-event :set-and-clear-large
       (fn [{:keys [db]} _]
         {:db          (assoc-in db [:docs :csv] (apply str (repeat 500 "Y")))
@@ -470,17 +468,17 @@
     (let [recorded (record-traces! :bad-classify-probe)
           records  (record-errors! :bad-classify-errors)]
       (rf/dispatch-sync [:bad-classify])
-      ;; ALWAYS-ON axis (rf2-d2841): the fail-loud COUNT reads the corpus-wide
+      ;; ALWAYS-ON axis: the fail-loud COUNT reads the corpus-wide
       ;; error-emit registry, which survives -Dre-frame.debug=false.
       (let [recs (error-records records :rf.error/classification-effect-shape)]
         (is (= 1 (count recs))
             "exactly one :rf.error/classification-effect-shape record fans on the always-on axis")
         (is (= :bad-classify (:event-id (first recs)))
             "the always-on record attributes the rejection to the offending event"))
-      ;; rf2-d2841 — the dev-trace arm. `:offending-key` is NOT lifted onto the
+      ;; The dev-trace arm. `:offending-key` is NOT lifted onto the
       ;; always-on record (`emit-error-both!` lifts only `:failing-id` /
       ;; `:reason`, and this category passes no `:failing-id`), so it is
-      ;; readable on the trace tags alone. Kept verbatim.
+      ;; readable on the trace tags alone.
       (when rf.interop/debug-enabled?
         (let [errs (error-events recorded :rf.error/classification-effect-shape)]
           (is (= 1 (count errs))
@@ -504,10 +502,10 @@
     (let [recorded (record-traces! :bad-entry-probe)
           records  (record-errors! :bad-entry-errors)]
       (rf/dispatch-sync [:bad-entry])
-      ;; ALWAYS-ON axis (rf2-d2841).
+      ;; ALWAYS-ON axis.
       (is (= 1 (count (error-records records :rf.error/classification-effect-shape)))
           "a non-sequential path entry fails loud on the always-on axis (one record)")
-      ;; rf2-d2841 — dev-trace arm.
+      ;; The dev-trace arm.
       (when rf.interop/debug-enabled?
         (is (= 1 (count (error-events recorded :rf.error/classification-effect-shape)))
             "a non-sequential path entry fails loud (one error emitted)"))
@@ -517,13 +515,13 @@
         "no :db commit happened on the malformed-entry abort")))
 
 ;; ---------------------------------------------------------------------------
-;; 4b. fail-loud negatives across ALL FOUR axes (rf2-mz582u)
-;;     The original negatives only exercised :sensitive. elision.cljc
-;;     classification-effect-defect validates all four keys (:sensitive
-;;     :large :clear-sensitive :clear-large) and reports a distinct
-;;     :offending-key. A regression that skipped validation on the clear keys
-;;     (or :large) would ship a malformed clear SILENTLY. Feed each of the
-;;     other three a malformed payload — a NON-VECTOR value and a NON-VECTOR
+;; 4b. fail-loud negatives across ALL FOUR axes
+;;     elision.cljc classification-effect-defect validates all four keys
+;;     (:sensitive :large :clear-sensitive :clear-large) and reports a
+;;     distinct :offending-key. A regression that skipped validation on the
+;;     clear keys (or :large) would ship a malformed clear SILENTLY. Feed each
+;;     of the three non-:sensitive keys a malformed payload — a NON-VECTOR
+;;     value and a NON-VECTOR
 ;;     path entry — and assert each raises the SAME error id with its own
 ;;     :offending-key, with NO :db commit. Each test feeds ONLY the one
 ;;     malformed key so :offending-key is unambiguous (defect detection
@@ -544,14 +542,14 @@
   (let [recorded (record-traces! probe-id)
         records  (record-errors! (keyword (namespace probe-id) (str (name probe-id) "-errors")))]
     (rf/dispatch-sync [ev-id])
-    ;; ALWAYS-ON axis (rf2-d2841): every one of the four axes fails loud on the
+    ;; ALWAYS-ON axis: every one of the four axes fails loud on the
     ;; corpus-wide channel, which is the channel a production build has.
     (let [recs (error-records records :rf.error/classification-effect-shape)]
       (is (= 1 (count recs))
           (str "exactly one always-on classification-effect-shape record for " effect-key))
       (is (= ev-id (:event-id (first recs)))
           (str "the always-on record attributes the " effect-key " rejection to its event")))
-    ;; rf2-d2841 — `:offending-key` rides the dev-trace tags only. Verbatim.
+    ;; `:offending-key` rides the dev-trace tags only.
     (when rf.interop/debug-enabled?
       (let [errs (error-events recorded :rf.error/classification-effect-shape)]
         (is (= 1 (count errs))
@@ -565,13 +563,13 @@
 
 (deftest malformed-large-payload-fails-loud
   (testing "a non-vector :large payload fails :rf.error/classification-effect-shape
-            with :offending-key :large and no :db commit. rf2-mz582u."
+            with :offending-key :large and no :db commit."
     (assert-axis-fails-loud :large :not-a-vector
                             :bad-large-probe :bad-large)))
 
 (deftest malformed-large-path-entry-fails-loud
   (testing "a non-vector path entry inside an otherwise-vector :large payload
-            fails loud with :offending-key :large. rf2-mz582u."
+            fails loud with :offending-key :large."
     (assert-axis-fails-loud :large [:not-a-path-vector]
                             :bad-large-entry-probe :bad-large-entry)))
 
@@ -579,20 +577,20 @@
   (testing "a non-vector :clear-sensitive payload fails
             :rf.error/classification-effect-shape with :offending-key
             :clear-sensitive and no :db commit — the clear keys are validated
-            too, so a malformed clear is never shipped silently. rf2-mz582u."
+            too, so a malformed clear is never shipped silently."
     (assert-axis-fails-loud :clear-sensitive :not-a-vector
                             :bad-clear-sensitive-probe :bad-clear-sensitive)))
 
 (deftest malformed-clear-large-payload-fails-loud
   (testing "a non-vector :clear-large payload fails
             :rf.error/classification-effect-shape with :offending-key
-            :clear-large and no :db commit. rf2-mz582u."
+            :clear-large and no :db commit."
     (assert-axis-fails-loud :clear-large :not-a-vector
                             :bad-clear-large-probe :bad-clear-large)))
 
 (deftest malformed-clear-large-path-entry-fails-loud
   (testing "a non-vector path entry inside an otherwise-vector :clear-large
-            payload fails loud with :offending-key :clear-large. rf2-mz582u."
+            payload fails loud with :offending-key :clear-large."
     (assert-axis-fails-loud :clear-large [:not-a-path-vector]
                             :bad-clear-large-entry-probe :bad-clear-large-entry)))
 
@@ -602,7 +600,7 @@
             re-frame.path/normalize-concrete throw :rf.error/bad-path, which
             classification-effect-defect catches and re-reports as the SAME
             classification-effect-shape defect (one error id for the whole
-            fail-closed :rf/path boundary). No :db commit. rf2-mz582u."
+            fail-closed :rf/path boundary). No :db commit."
     (rf/reg-event :seed-seg (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
     (rf/dispatch-sync [:seed-seg])
     ;; a function is not a legal path segment — a sequential path whose
@@ -613,7 +611,7 @@
     (let [recorded (record-traces! :bad-segment-probe)
           records  (record-errors! :bad-segment-errors)]
       (rf/dispatch-sync [:bad-segment])
-      ;; ALWAYS-ON axis (rf2-d2841): the whole fail-closed `:rf/path` boundary
+      ;; ALWAYS-ON axis: the whole fail-closed `:rf/path` boundary
       ;; collapses to ONE record on the corpus channel, not a throw and not a
       ;; second category.
       (let [recs (error-records records :rf.error/classification-effect-shape)]
@@ -621,7 +619,7 @@
             "a non-segment path element fails loud as ONE always-on record")
         (is (empty? (error-records records :rf.error/bad-path))
             ":rf.error/bad-path is re-reported, not surfaced as its own category"))
-      ;; rf2-d2841 — dev-trace arm.
+      ;; The dev-trace arm.
       (when rf.interop/debug-enabled?
         (let [errs (error-events recorded :rf.error/classification-effect-shape)]
           (is (= 1 (count errs))
@@ -647,15 +645,15 @@
         "a classification-only effect writes the registry")))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-3x7nj.4.3 — the SAME event's own t1 / t2 trace honours its classification
+;; The SAME event's own t1 / t2 trace honours its classification
 ;; ---------------------------------------------------------------------------
 ;;
 ;; t1 `:rf.event/db-pending` and t2 `:rf.event/db-pending-post-flow` stamp the
 ;; pending app-db BEFORE the commit folds this event's classification effects
-;; into the registry, so projecting them against the committed registry shipped
-;; the very secret the event was classifying. They are now projected against
+;; into the registry, so projecting them against the committed registry would
+;; ship the very secret the event is classifying. They are projected against
 ;; the CANDIDATE registry: the committed one with this event's effects applied.
-;; Dev-trace legs, so `^:requires-debug` (rf2-d2841).
+;; Dev-trace legs, so `^:requires-debug`.
 
 (def ^:private t1-secret "SAME-EVENT-TRACE-SENTINEL-4x3")
 
