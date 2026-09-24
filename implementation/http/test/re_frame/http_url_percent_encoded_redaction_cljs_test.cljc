@@ -26,13 +26,13 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest encoded-default-denylist-name-matches
-  (testing "rf2-065xo — a percent-encoded DEFAULT-denylist name matches via the decoded form"
+  (testing "a percent-encoded DEFAULT-denylist name matches via the decoded form"
     ;; api%5Fkey decodes to api_key; %61ccess_token decodes to access_token.
     (is (rf.http.url/sensitive-query-param-name? "api%5Fkey"))
     (is (rf.http.url/sensitive-query-param-name? "%61ccess_token"))
     ;; case-insensitive on the decoded form too (%41PI%5FKEY → API_KEY).
     (is (rf.http.url/sensitive-query-param-name? "%41PI%5FKEY"))
-    ;; raw match path unchanged — plain names still match.
+    ;; raw match path — plain names match too.
     (is (rf.http.url/sensitive-query-param-name? "api_key"))
     (is (rf.http.url/sensitive-query-param-name? "access_token"))))
 
@@ -49,13 +49,13 @@
       (is (rf.http.url/sensitive-query-param-name? "api%5Fkey")))))
 
 (deftest non-sensitive-encoded-name-does-not-match
-  (testing "rf2-065xo — an encoded NON-denylisted name stays non-sensitive"
+  (testing "an encoded NON-denylisted name stays non-sensitive"
     ;; page%5Fnum decodes to page_num — not denylisted.
     (is (not (rf.http.url/sensitive-query-param-name? "page%5Fnum")))
     (is (not (rf.http.url/sensitive-query-param-name? "user%5Fid")))))
 
 (deftest malformed-escape-falls-back-to-raw-never-throws
-  (testing "rf2-065xo — a malformed percent-escape decodes to nil; matching falls back to the raw name and never throws"
+  (testing "a malformed percent-escape decodes to nil; matching falls back to the raw name and never throws"
     ;; Truncated / invalid escapes — must not throw on either host.
     (is (false? (rf.http.url/sensitive-query-param-name? "api%5")))
     (is (false? (rf.http.url/sensitive-query-param-name? "%zz")))
@@ -71,7 +71,7 @@
     (is (true? (rf.http.url/sensitive-query-param-name? "token")))))
 
 (deftest sensitive-query-param-name-tolerates-non-string
-  (testing "rf2-065xo — nil / non-string is not sensitive and never throws"
+  (testing "nil / non-string is not sensitive and never throws"
     (is (false? (rf.http.url/sensitive-query-param-name? nil)))
     (is (false? (rf.http.url/sensitive-query-param-name? :keyword)))
     (is (false? (rf.http.url/sensitive-query-param-name? 42)))))
@@ -81,7 +81,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest redact-url-encoded-default-name-value-redacted
-  (testing "rf2-065xo — a percent-encoded default-denylist param has its VALUE redacted; the raw name spelling is preserved"
+  (testing "a percent-encoded default-denylist param has its VALUE redacted; the raw name spelling is preserved"
     (let [[redacted any?] (rf.http.url/redact-url-query-string
                             "https://api.example.com/x?api%5Fkey=SECRET&page=2"
                             false)]
@@ -91,7 +91,7 @@
           "the encoded denylisted name is the signal — sensitivity is stamped"))))
 
 (deftest redact-url-encoded-name-leading-escape-value-redacted
-  (testing "rf2-065xo — %61ccess_token (= access_token) value is redacted"
+  (testing "%61ccess_token (= access_token) value is redacted"
     (let [[redacted any?] (rf.http.url/redact-url-query-string
                             "https://api.example.com/x?%61ccess_token=SECRET&q=hi"
                             false)]
@@ -108,7 +108,7 @@
       (is (true? any?)))))
 
 (deftest redact-url-malformed-escape-does-not-throw-and-passes-through
-  (testing "rf2-065xo — a malformed percent-escape in a non-denylisted name does not throw and is preserved unchanged"
+  (testing "a malformed percent-escape in a non-denylisted name does not throw and is preserved unchanged"
     (let [[redacted any?] (rf.http.url/redact-url-query-string
                             "https://api.example.com/x?weird%5=v&page=2"
                             false)]
@@ -117,7 +117,7 @@
       (is (false? any?)))))
 
 (deftest redact-url-malformed-escape-on-other-param-still-redacts-real-denylist-hit
-  (testing "rf2-065xo — a malformed escape elsewhere in the URL does not stop a real (encoded) denylisted name from being redacted"
+  (testing "a malformed escape elsewhere in the URL does not stop a real (encoded) denylisted name from being redacted"
     (let [[redacted any?] (rf.http.url/redact-url-query-string
                             "https://api.example.com/x?weird%5=v&api%5Fkey=SECRET"
                             false)]
