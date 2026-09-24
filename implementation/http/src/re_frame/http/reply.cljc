@@ -10,11 +10,9 @@
   map that is delivered to the app reply target. There is no second
   public dialect: the unified `:reply-to` and the `:on-success` /
   `:on-failure` split sugar all deliver the canonical map verbatim,
-  appended as the reply target's last argument (rf2-et4c1s — the
-  co-located `:rf/reply`-merge default was retired pre-alpha).
-  The old `{:kind :success/:failure}` reshape (`reply->public-payload` /
-  the `:rf.http/compat-reply` layer) was DELETED per rf2-ibksxg — one
-  canonical async-reply envelope, no compat dialect.
+  appended as the reply target's last argument. There is no co-located
+  `:rf/reply`-merge default and no `{:kind :success/:failure}` reshape —
+  one canonical async-reply envelope, no compat dialect.
 
   Two concerns:
 
@@ -26,7 +24,7 @@
       `work-id`) (Managed-Effects §Work-id correlation). The HTTP `:request-id` is
       NOT a second stale-suppression key — it rides as `:correlation`
       metadata on the reply map. The frame-qualified transport
-      request-id `[:rf.req frame-id work-id]` (landed in Spec 016) is the
+      request-id `[:rf.req frame-id work-id]` (Spec 016) is the
       sanctioned second identity for process-global transport
       correlation; the Resources work-ledger's `managed-request-id` is
       its only shipped constructor.
@@ -63,7 +61,7 @@
 ;; identity is the caller's `:request-id` when supplied (a stable, =-
 ;; comparable handle the caller already chose for supersede/abort), else
 ;; the originating event-id TAGGED as `[:rf.http/anonymous event-id]`
-;; (rf2-5g0bt). The tag is what keeps the key exact: named and anonymous
+;; The tag is what keeps the key exact: named and anonymous
 ;; issuances are numbered by independent counters, so an untagged anonymous
 ;; `:ev` and a named request whose `:request-id` is `:ev` would both read
 ;; `[:rf.work/http :ev 1 1]` while live together. A caller's request-id
@@ -72,16 +70,16 @@
 ;; no generation counter of its own — supersession is keyed on `:request-id`
 ;; equality — so two discriminators ride the tuple:
 ;;
-;;  - `issuance` — the monotonic per-request-id ISSUANCE number (rf2-azcmd3,
-;;    allocated by `http-registry/next-issuance!`). It bumps on each fresh
+;;  - `issuance` — the monotonic per-request-id ISSUANCE number (allocated
+;;    by `http-registry/next-issuance!`). It bumps on each fresh
 ;;    request issued under the same `:request-id`, so a SUPERSEDED attempt
 ;;    (issuance N) and the SUPERSEDING one (issuance N+1) carry DISTINCT work
 ;;    ids even though both reset their retry `:attempt` to 1. Without it both
-;;    computed `[:rf.work/http logical-id 1]` and tooling/conformance could
-;;    not tell the old suppressed attempt from the new one (the EP-0011
-;;    single-attempt-identity break this fixes). An ANONYMOUS request (no
+;;    would carry the same work id and tooling/conformance could not tell
+;;    the suppressed attempt from the superseding one (EP-0011
+;;    single-attempt identity). An ANONYMOUS request (no
 ;;    `:request-id`) is numbered per (frame, originating event-id) instead,
-;;    never reset (rf2-x8oz5), so two anonymous requests of one event never
+;;    never reset, so two anonymous requests of one event never
 ;;    share a work id.
 ;;  - `attempt`  — the retry attempt number WITHIN one issuance, which
 ;;    discriminates transport retries of the same issuance.
@@ -95,13 +93,13 @@
 
   `[:rf.work/http logical-id issuance attempt]` where `logical-id` is the
   caller's `:request-id` (when non-nil) else the originating event-id tagged
-  `[:rf.http/anonymous event-id]` (rf2-5g0bt — so an anonymous request can
+  `[:rf.http/anonymous event-id]` (so an anonymous request can
   never share a work id with a named one whose request-id equals its
   event-id);
-  `issuance` is the monotonic per-request-id issuance number (rf2-azcmd3 —
-  bumped on each fresh request under the same `:request-id`, so a superseded
+  `issuance` is the monotonic per-request-id issuance number (bumped on
+  each fresh request under the same `:request-id`, so a superseded
   attempt and its superseder carry distinct work ids; for an anonymous request
-  it is numbered per (frame, originating event-id), rf2-x8oz5); `attempt` is
+  it is numbered per (frame, originating event-id)); `attempt` is
   the retry attempt within that issuance. `=`-comparable and EDN-serializable
   (Managed-Effects §Work-id correlation). `issuance` defaults to 1 (the first
   issuance) when the ctx carries none."
@@ -112,31 +110,31 @@
     [:rf.work/http logical-id (or issuance 1) (or attempt 1)]))
 
 ;; ---------------------------------------------------------------------------
-;; Self-identifying failure maps (rf2-1u9dja; debugging-dx finding 3). Every
+;; Self-identifying failure maps. Every
 ;; public HTTP failure map (the classified `:rf.http/*` shape that rides under
 ;; `:error` on the canonical reply) carries WHICH request failed, not just what
 ;; KIND of failure it was: `:request {:method :url}`, `:request-id`, `:attempt`
 ;; / `:max-attempts`, `:work/id`. The framework has this identity at finalise
-;; time — it was previously stamped only onto the DEV-ONLY trace and dropped at
-;; the public boundary, leaving production triage of ':rf.http/timeout spiking
+;; time; stamped only onto the DEV-ONLY trace, it would be dropped at the
+;; public boundary, leaving production triage of ':rf.http/timeout spiking
 ;; — which endpoint?' unanswerable. These fields make the one surface that
 ;; survives production (the reply the app's error reporting is built from)
-;; self-identifying, exactly like every diagnostic trace already is.
+;; self-identifying, exactly like every diagnostic trace is.
 ;;
 ;; The `:url` on the in-app reply is on-box data the caller supplied in the
 ;; first place, so it rides verbatim there; OFF-BOX egress (the trace surface)
-;; redacts it for a `:sensitive?` request exactly as the trace already does
+;; redacts it for a `:sensitive?` request exactly as the trace does
 ;; (the privacy layer walks `:request :url` on egress).
 ;; ---------------------------------------------------------------------------
 
 (defn self-identify-failure
-  "Stamp the four self-identifying fields (rf2-1u9dja) onto a classified
+  "Stamp the four self-identifying fields onto a classified
   `:rf.http/*` failure map, from the request's identity `ctx`:
 
    - `:request {:method :url}` — an echo of the caller's own wire envelope;
-   - `:request-id`             — uniform (was aborted-only before);
-   - `:attempt` / `:max-attempts` — the retry accounting (already on the
-                                    canonical envelope);
+   - `:request-id`             — uniform across every failure category;
+   - `:attempt` / `:max-attempts` — the retry accounting (`:attempt` is
+                                    also on the canonical envelope);
    - `:work/id`                — correlation to the trace stream.
 
   `ctx` supplies `:request-id` / `:origin-event` / `:issuance` / `:attempt`
@@ -188,13 +186,13 @@
   completion. `value` is the decoded-and-`:accept`-projected payload.
   `:rf.reply/work-status :completed`.
 
-  `response-meta` (rf2-lddbk) is the successful response's wire facts —
+  `response-meta` is the successful response's wire facts —
   `{:status <int> :status-text <string> :headers <normalized map>}` as the
   transport normalized them — riding under the envelope's `:meta`
   family-extension slot (Managed-Effects §The reply map: `:meta`
   effect-family-data) so `:after` middleware and the app reply target can
   read the actual response status and headers on success, exactly as the
-  failure paths already expose them on the `:error` map. `:headers` is the
+  failure paths expose them on the `:error` map. `:headers` is the
   SAME cross-host normalized shape the failure maps carry (lower-cased
   names; string value, or vector-of-strings for a multi-valued header) —
   never a second representation. When nil/absent (a canned stub that
@@ -246,7 +244,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Stale suppression for HTTP supersession (Managed-Effects §Stale
-;; suppression; rf2-azcmd3). When a fresh request supersedes a prior one with
+;; suppression). When a fresh request supersedes a prior one with
 ;; the same `:request-id`, the prior (superseded) attempt's app reply MUST NOT
 ;; run, its ledger row reaches `:suppressed`, and the trace stream records a
 ;; `:status :stale` / `:rf.reply/work-status :suppressed` reply-envelope row carrying
@@ -265,7 +263,7 @@
 
 (defn suppress
   "Produce the stale-suppression outcome for a SUPERSEDED HTTP attempt —
-  WITHOUT dispatching the app reply target (rf2-azcmd3). Delegates to the
+  WITHOUT dispatching the app reply target. Delegates to the
   shared `re-frame.reply/suppress` (the correctness boundary made concrete):
   the returned `:reply` is `:status :stale` (no `:value`, no app mutation),
   `:deliver?` is false, and `:trace` carries the carried/current work-id
@@ -291,7 +289,7 @@
                       (some? (:request-id ctx)) (assoc :correlation {:request-id (:request-id ctx)})))))
 
 ;; ---------------------------------------------------------------------------
-;; Actor-destroy obsolescence (rf2-yrrpe2; Managed-Effects §Cancellation —
+;; Actor-destroy obsolescence (Managed-Effects §Cancellation —
 ;; "`:status :cancelled` when the actor-bound target is still meaningful,
 ;; `:status :stale`/`:suppressed` when teardown made the target obsolete
 ;; before delivery"; EP-0011 §Status taxonomy line 763-768). An
@@ -302,7 +300,7 @@
 ;; app reply MUST NOT run. It lowers to the canonical `:status :stale` /
 ;; `:rf.reply/work-status :suppressed` outcome, exactly like supersession. A request
 ;; whose reply target is an ordinary (non-actor) event is STILL MEANINGFUL —
-;; it keeps the live `:status :cancelled` delivery (rf2-wvkn). The
+;; it keeps the live `:status :cancelled` delivery. The
 ;; obsolescence determinant is STRUCTURAL, not a live-DB read: when
 ;; `abort-on-actor-destroy` fires, the actor IS being torn down (its snapshot
 ;; is still present mid-cascade — `destroy-single-actor!` aborts in-flight
@@ -318,7 +316,7 @@
 (defn actor-destroy-target-obsolete?
   "True when an actor-destroy abort's reply target is OBSOLETE — its event-id
   names the destroyed actor itself, so dispatching it would address a now-dead
-  actor (Managed-Effects §Cancellation; rf2-yrrpe2).
+  actor (Managed-Effects §Cancellation).
 
   `reply-target-id` is the head of the reply event the abort would dispatch:
   the explicit `:on-failure` vector's head when supplied, else the originating
@@ -328,8 +326,8 @@
   whose default reply addresses its own actor.
 
   A target naming an ORDINARY (different) event is still meaningful and stays a
-  live `:cancelled` delivery (the rf2-wvkn `:on-failure [:reply/recorder]`
-  shape). A nil `actor-id` (the request was not actor-bound) is never
+  live `:cancelled` delivery (e.g. an `:on-failure [:reply/recorder]`
+  target). A nil `actor-id` (the request was not actor-bound) is never
   obsolete."
   [reply-target-id actor-id]
   (and (some? actor-id)
@@ -338,7 +336,7 @@
 
 (defn actor-destroy-suppress
   "Produce the stale-suppression outcome for an actor-destroy abort whose
-  reply target is OBSOLETE (rf2-yrrpe2) — WITHOUT dispatching the app reply
+  reply target is OBSOLETE — WITHOUT dispatching the app reply
   target. Delegates to the shared `re-frame.reply/suppress` correctness
   boundary: the returned `:reply` is `:status :stale` (no `:value`, no app
   mutation), `:deliver?` is false, and `:trace` carries the carried correlation
@@ -363,11 +361,9 @@
                       (some? (:frame ctx))      (assoc :rf.frame/id (:frame ctx))
                       (some? (:request-id ctx)) (assoc :correlation {:request-id (:request-id ctx)})))))
 
-;; rf2-ibksxg — the `reply->public-payload` reshape (the `:rf.http/compat-reply`
-;; body that projected the canonical reply back onto the retired
-;; `{:kind :success/:failure}` dialect) was DELETED. Every reply family now
-;; delivers the canonical envelope verbatim; there is no second public dialect.
-;; A SUPPRESSED (`:status :stale`) reply is still never delivered to the app
+;; Every reply family delivers the canonical envelope verbatim; there is no
+;; second public dialect and no public-boundary reshape of the reply.
+;; A SUPPRESSED (`:status :stale`) reply is never delivered to the app
 ;; target — the transport's supersede / actor-destroy paths gate that BEFORE
 ;; dispatch (`reply-suppressing-abort-reason?` and the stale-trace emitters),
 ;; so no public-boundary projection is needed here.
@@ -388,7 +384,7 @@
   (Managed-Effects §Tracing); the identity facts (`:status`, `:rf.reply/work-id`,
   `:rf.reply/work-kind`, `:rf.reply/work-status`, `:attempt`, `:rf.frame/id`,
   `:completed-at`) ride verbatim. CORE owns the wire-bearing slot set — this
-  namespace no longer mirrors it.
+  namespace does not mirror it.
 
   `opts`:
    - `:frame`      — the carried wire-egress frame (EP-0002); forwarded to
@@ -400,7 +396,7 @@
                      sole owner of the wire-bearing slot set) redacts EVERY
                      wire slot to the framework sentinel before egress — the
                      coarse escape hatch for an ad-hoc sensitive request whose
-                     payload carries no schema marks, matching the existing
+                     payload carries no schema marks, matching the
                      `:rf.http/*` trace redaction posture. When false/absent
                      the shared walker applies the frame's frame-declared
                      `:sensitive?` / `:large?` app-db policy as usual."
