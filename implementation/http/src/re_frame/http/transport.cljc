@@ -46,15 +46,15 @@
 (declare finalise-failure!)
 (declare schedule-backoff-handle!)
 
-;; ---- test-only interleaving seam (rf2-6nczv9) ------------------------------
+;; ---- test-only interleaving seam -------------------------------------------
 ;;
 ;; The abort-vs-retry race lives in the TRANSITIONAL window between
 ;; `maybe-retry!`'s abort-snapshot and the backoff handle taking over the
 ;; request-id slot. On the JVM the completion runs on a ForkJoinPool thread and
 ;; the abort dispatch on the event thread, so the window is only reachable by
 ;; wall-clock timing — non-deterministic. This seam lets a JVM concurrency test
-;; DETERMINISTICALLY inject an abort at a named point in that window (the audit
-;; noted deterministic repro needs interleaving injection, not timing). It is a
+;; DETERMINISTICALLY inject an abort at a named point in that window (a
+;; deterministic repro needs interleaving injection, not timing). It is a
 ;; single atom-holder deref at each call site; nil in production (never set),
 ;; so the cost is one volatile read on the retry path and nothing else.
 
@@ -63,7 +63,7 @@
   (atom nil))
 
 (defn set-test-interleave-hook!
-  "Test-only (rf2-6nczv9): install a `(fn [point ctx])` interleaving hook, or
+  "Test-only: install a `(fn [point ctx])` interleaving hook, or
   clear it with nil. Not part of the user-facing API."
   [f]
   (reset! test-interleave-hook f)
@@ -87,8 +87,8 @@
   restore unwound the timeline this request belonged to; per EP-0011 /
   Managed-Effects §restore (\"epoch restore MUST NOT revive host work\") a
   pre-restore completion MUST NOT deliver to its original `:rf/reply-to` target.
-  `:frame-destroyed` means the request's owning frame was DESTROYED
-  (rf2-j538f7.8): the target frame is already marked destroyed, so dispatching a
+  `:frame-destroyed` means the request's owning frame was DESTROYED:
+  the target frame is already marked destroyed, so dispatching a
   live cancellation reply into it is invalid — the late completion MUST NOT
   deliver to its original `:rf/reply-to` target either.
   All still emit their trace facts (the suppressed-attempt's stale envelope);
@@ -111,7 +111,7 @@
   (contains? reply-suppressing-abort-reasons reason))
 
 (defn- detach-external-abort!
-  "Detach the request's external `:abort-signal` listener (rf2-3fc89f.9).
+  "Detach the request's external `:abort-signal` listener.
   CLJS-only — the binding exists only when the caller supplied an
   `:abort-signal` on a browser/Node host (the `:external-abort` slot the
   shared lifecycle threads through ctx). Idempotent and a no-op on the JVM /
@@ -132,11 +132,12 @@
 
   Per Spec 014 §Failure mode a response-side throw MUST NOT be reclassified
   as a transport rejection. Letting it propagate back into the platform
-  completion handler retried a request whose wire outcome already SUCCEEDED —
-  on CLJS a 2xx re-send storm (the `.catch` fed `classify-cljs-error` →
-  `:rf.http/transport` → `maybe-retry!`, and the retry mints a FRESH handle,
-  bypassing the once-only `:finalised?` guard); on the JVM the throw escaped
-  the unobserved `whenComplete` future and vanished (the caller hung). This
+  completion handler would retry a request whose wire outcome already
+  SUCCEEDED — on CLJS a 2xx re-send storm (the `.catch` feeds
+  `classify-cljs-error` → `:rf.http/transport` → `maybe-retry!`, and the retry
+  mints a FRESH handle, bypassing the once-only `:finalised?` guard); on the
+  JVM the throw would escape the unobserved `whenComplete` future and vanish
+  (the caller hangs). This
   boundary catches the reply-tail throw and surfaces it ONCE as
   `:rf.error/http-reply-tail-failed` — the response-side analogue of the
   request-side `:rf.error/fx-handler-exception` boundary — observably (not
@@ -150,24 +151,19 @@
   (the URL redacts under the per-call `:sensitive?` flag / query-param
   denylist) matching the sibling `:rf.http/*` error rows.
 
-  rf2-1eng8 — ALWAYS-ON, and this is a deliberate PRODUCTION behaviour change.
-  The emit was wrapped in an outer `interop/debug-enabled?` gate and reached
-  the dev trace ONLY, so in a production CLJS bundle — the one place a broken
-  `:after` cannot be caught by running the tests — the reply vanished with
-  nothing left behind. Spec 014 §Failure mode promises the throw is surfaced
-  \"observably\", and a dev-only surface does not keep that promise. The emit
-  now fans out through BOTH error substrates via the
+  ALWAYS-ON, in production too. Behind an outer `interop/debug-enabled?` gate
+  the emit would reach the dev trace ONLY, so in a production CLJS bundle —
+  the one place a broken `:after` cannot be caught by running the tests — the
+  reply would vanish with nothing left behind. Spec 014 §Failure mode promises
+  the throw is surfaced \"observably\", and a dev-only surface does not keep
+  that promise. The emit fans out through BOTH error substrates via the
   `:error-emit/emit-error-both` late-bind hook, exactly as core's
   `fx/emit-fx-error!` does for the request-side `:rf.error/fx-handler-exception`
   boundary this one is the response-side analogue of: axis 1 is the always-on
   listener registry (production-survivable, the off-box shipper's source of
-  truth), axis 2 is the dev trace. The DEV surface is byte-for-byte unchanged —
-  same category, same tag map, and the `debug-enabled?` gate still applies to
-  it, now from INSIDE `trace/emit-error!` rather than from out here — so the
-  only delta is that production observers start seeing a failure that was
-  previously silent. Production emit VOLUME therefore rises on this path: it
-  was zero, and is now one record per reply tail that throws. That is the
-  point of the item, not a side effect of it.
+  truth), axis 2 is the dev trace. The `debug-enabled?` gate applies to the
+  dev trace from INSIDE `trace/emit-error!`. In production this path emits
+  one record per reply tail that throws.
 
   The hook is read through `late-bind` rather than a static require because
   `emit-fx-error!` does the same for the same reason (a load cycle through the
@@ -207,28 +203,27 @@
   nil)
 
 (defn- complete-fenced!
-  "rf2-1eng8 — THE COMPLETION FENCE. Invoke `f`, the WHOLE body of a platform
+  "THE COMPLETION FENCE. Invoke `f`, the WHOLE body of a platform
   completion callback (the Fetch `.then` on CLJS, the `CompletableFuture`
   `.whenComplete` on the JVM), and catch anything it throws.
 
   The reply-tail fence in `dispatch-reply!` below covers the BOTTOM of that
   callback — the `:after` chain and the late-bind reply dispatch. This covers
   everything ABOVE it: the 4xx/5xx/2xx cascade, response-body schema
-  classification, the retry decision, and the finalise + teardown itself. A
-  throw there was unfenced, and it failed differently — and badly — on each
-  host:
+  classification, the retry decision, and the finalise + teardown itself. An
+  unfenced throw there would fail differently — and badly — on each host:
 
-  - CLJS — the throw rejected the promise `.then` returns, so the `.catch`
-    chained after it fed `classify-cljs-error` → `:rf.http/transport` →
-    `maybe-retry!`, which RE-SENT a request whose wire outcome had already
+  - CLJS — the throw would reject the promise `.then` returns, so the `.catch`
+    chained after it would feed `classify-cljs-error` → `:rf.http/transport` →
+    `maybe-retry!`, which RE-SENDS a request whose wire outcome had already
     SUCCEEDED. The retry mints a FRESH handle, so the once-only `:finalised?`
     guard does not stop it. The double-send presents to the caller as success:
     nothing observable says the request ran twice, and a non-idempotent
     endpoint is mutated twice.
-  - JVM — the throw escaped into the `whenComplete` stage nobody holds, which
-    completes that discarded future exceptionally and swallows it. No reply is
-    dispatched and the registry entry is never cleared, so the request hangs
-    in flight for ever, silently.
+  - JVM — the throw would escape into the `whenComplete` stage nobody holds,
+    which completes that discarded future exceptionally and swallows it. No
+    reply is dispatched and the registry entry is never cleared, so the
+    request hangs in flight for ever, silently.
 
   Those are exactly the two registers Spec 014 §Failure mode already names for
   a response-side throw, which is why this routes to the SAME non-retrying,
@@ -236,8 +231,8 @@
   rather than minting a second category: from the app's point of view the
   situation is identical — the transport succeeded and the outcome could not be
   delivered. `:reply-error-id` carries the caught throw's own `:rf.error/id`,
-  which is what tells the two apart on the wire; the reachable case named on
-  the item is `:rf.error/schemas-artefact-missing`, thrown by
+  which is what tells the two apart on the wire; one reachable case is
+  `:rf.error/schemas-artefact-missing`, thrown by
   `privacy-body/classify-decoded` when the request's `:decode` schema declares
   a per-slot mark and the shared walker hook is unbound.
 
@@ -275,7 +270,7 @@
   what `build-reply-event` appends to the user's `:on-success` /
   `:on-failure` event vector.
 
-  rf2-v3f6 — the CHAIN is carried forward with the ctx, on the normalised
+  The CHAIN is carried forward with the ctx, on the normalised
   ctx's `:interceptor-chain` slot (also populated by `managed-handler`,
   from a capture taken before the `:before` walk). The `:after` walk runs
   that captured chain, so a registry change landing while the request was
@@ -288,7 +283,7 @@
   unchanged — the chain's contract is to see the `:before`'s ctx, not a
   synthesised one.
 
-  rf2-ln85eg — the `:after` chain + late-bind dispatch is the REPLY TAIL,
+  The `:after` chain + late-bind dispatch is the REPLY TAIL,
   and it runs AFTER the transport already succeeded (the once-only reply CAS
   is won and the registry cleared before this fn is reached). A throw here (a
   throwing `:after`, or a belt-and-braces malformed-reply-target throw) MUST
@@ -314,7 +309,7 @@
       (rf.http.middleware/run-after-then-dispatch!
         {:frame          frame
          :middleware-ctx middleware-ctx
-         ;; rf2-v3f6 — the chain this request captured at issue, carried on
+         ;; The chain this request captured at issue, carried on
          ;; the normalised ctx beside `:middleware-ctx` and surviving the
          ;; retry handoff (which only ever dissocs `:rf.http/retry-handoff`
          ;; and `:handle`). The `:after` walk uses it instead of a
@@ -324,11 +319,11 @@
          :explicit-on    explicit
          :reply-payload  reply-payload
          :kind           kind
-         ;; EP-0010 / EP-0017 (rf2-n1rh0f / rf2-alc1lf): the host completion time
+         ;; EP-0010 / EP-0017: the host completion time
          ;; rides the reply dispatch's `:rf.cofx` `:rf/time-ms` so a reply reducer
          ;; reads it as causal data, never a fresh clock.
          :completed-at   completed-at})
-      ;; rf2-ln85eg — reply-tail fence. Post-transport-success throw → a
+      ;; Reply-tail fence. Post-transport-success throw → a
       ;; non-retrying, observable `:rf.error/http-reply-tail-failed`, NOT the
       ;; transport-rejection classifier (no CLJS retry-storm, no JVM swallow).
       (catch #?(:clj Throwable :cljs :default) e
@@ -343,13 +338,13 @@
 ;; `:request-id` is correlation metadata, NOT a second stale-suppression key).
 ;; A live-transport SUCCESS additionally carries the response wire facts under
 ;; `:meta` — `{:status :status-text :headers}` as the transport normalized
-;; them (rf2-lddbk), so `:after` middleware and the app target can read the
+;; them, so `:after` middleware and the app target can read the
 ;; actual status/headers on success as the failure paths already do on `:error`.
 ;; The same canonical reply is delivered to the app target verbatim.
 ;; `:on-success` / `:on-failure`
 ;; are pure ROUTING sugar (both receive the canonical map) and the co-located
-;; `(:rf/reply msg)` merge carries the canonical map under `:rf/reply`. The old
-;; reply addressing is routing sugar; it does not select a second payload dialect.
+;; `(:rf/reply msg)` merge carries the canonical map under `:rf/reply`. Neither
+;; addressing form selects a second payload dialect.
 
 (defn- reply-ctx
   "Project the transport ctx onto the data-only correlation/identity facts
@@ -381,7 +376,7 @@
   {:method :url}`, `:request-id`, `:attempt` / `:max-attempts`, `:work/id`)
   onto a classified `:rf.http/*` failure map from the request ctx, so the
   PUBLIC failure reply (and the trace that inherits it) names WHICH request
-  failed, not just what kind of failure it was (debugging-dx finding 3).
+  failed, not just what kind of failure it was.
 
   Delegates the field construction to `http-reply/self-identify-failure`;
   this fn projects the transport `ctx` onto the identity map that helper
@@ -399,12 +394,11 @@
      :attempt      (:attempt ctx)
      :max-attempts (:max-attempts (:retry ctx))}))
 
-;; rf2-ee38b.7 — the failure-reply and success-reply dispatch shapes were
-;; spelled out inline at four / two sites across finalise-success!,
-;; finalise-failure! and the abort path's dispatch-aborted!. These two
-;; helpers collapse each to one line and make the abort/natural symmetry
-;; the surrounding comments describe visible in code. The load-bearing
-;; concurrency comments stay at the call sites.
+;; `dispatch-failure!` and `dispatch-success!` below spell the failure-reply
+;; and success-reply dispatch shapes once for finalise-success!,
+;; finalise-failure! and the abort path's dispatch-aborted!, which makes the
+;; abort/natural symmetry the surrounding comments describe visible in code.
+;; The load-bearing concurrency comments sit at the call sites.
 
 (defonce ^:private failure-swallowed-warned?
   ;; One-shot latch so the "real failure swallowed by
@@ -459,8 +453,8 @@
 
    - explicit `:on-failure nil` (`:supplied?` true, `nil` `:value`) — the
      documented fire-and-forget beacon; and
-   - an UNADDRESSED failure branch (`:supplied?` false) — the co-located
-     default was retired, so a request that addressed only its success
+   - an UNADDRESSED failure branch (`:supplied?` false) — there is no
+     co-located default, so a request that addressed only its success
      branch (`:on-success` / a success-only `:reply-to` is impossible — a
      `:reply-to` seeds BOTH branches, so this is the `:on-success`-alone
      case) has no failure target."
@@ -493,7 +487,7 @@
     ;; the dev trace (and by the off-box fail-closed disposition for captures).
     ;; Only the success status carries a DECODED body; failure / cancel carry
     ;; the classified failure map at `:error`, which gets its own family
-    ;; redaction below (rf2-kiepc) rather than this schema pass — its body is
+    ;; redaction below rather than this schema pass — its body is
     ;; raw and unschematized by construction. The schema's per-slot marks cover
     ;; `:sensitive?` (→ `:rf/redacted`) and `:large?` (→ `:rf.size/large-elided`)
     ;; through the shared marks walker.
@@ -502,7 +496,7 @@
                           (rf.http.privacy-body/schema-decode? (:decode ctx)))
                    (update reply :value rf.http.privacy-body/classify-decoded (:decode ctx))
                    reply)
-          ;; rf2-lddbk — the success reply's `:meta` carries the response
+          ;; The success reply's `:meta` carries the response
           ;; wire facts (status / status-text / normalized headers). The
           ;; DELIVERED reply rides raw (on-box app data — the caller's own
           ;; response); the trace surface redacts every header whose name
@@ -512,10 +506,10 @@
           ;; Per-call `:sensitive?` then force-redacts the whole `:meta`
           ;; wire slot via `trace-reply` below, as for every wire slot.
           reply' (rf.http.privacy/redact-response-meta reply')
-          ;; rf2-kiepc — an `:error` / `:cancelled` reply seats the
+          ;; An `:error` / `:cancelled` reply seats the
           ;; classified `:rf.http/*` failure map VERBATIM under `:error`
           ;; (`http-reply/failure-reply`), so WITHOUT this step a 4xx/5xx
-          ;; put its response `:headers` — `set-cookie`, `www-authenticate`
+          ;; would put its response `:headers` — `set-cookie`, `www-authenticate`
           ;; — on this trace row unredacted, on an ordinary request that
           ;; never asked for `:sensitive?`. Spec 014 §Privacy rule 1
           ;; redacts denylisted headers "regardless of the effective
@@ -541,7 +535,7 @@
       ;; explicit `:frame` the elider fails closed and redacts every wire slot).
       ;; The per-call `:sensitive?` flag (Spec 014 §Privacy) is forwarded so a
       ;; sensitive request redacts its payload slots wholesale, matching the
-      ;; existing `:rf.http/*` trace posture.
+      ;; `:rf.http/*` trace posture.
       ;;
       ;; Off-box egress fails closed. The
       ;; on-box `:value` above is the dev-operator view (an unschematized body
@@ -553,7 +547,7 @@
       ;; (`re-frame.epoch.tool-pair`) consults it and omits / classifies the
       ;; body slot. BOTH statuses carry a body slot to gate: success at
       ;; `:value`, failure at `[:error :body]` / `[:error :body-text]` /
-      ;; `[:error :decoded]` (rf2-kiepc).
+      ;; `[:error :decoded]`.
       (rf.trace/emit! :info :rf.http/replied
                    (cond-> (rf.http.reply/trace-reply reply' (cond-> {:sensitive? (true? (:sensitive? ctx))}
                                                             (:frame ctx) (assoc :frame (:frame ctx))))
@@ -561,7 +555,7 @@
                      (assoc :rf.http/off-box-body
                             (rf.http.privacy-body/off-box-body-disposition (:decode ctx)))
 
-                     ;; rf2-kiepc / rf2-t55hxg.10 — the FAILURE arm of the same
+                     ;; The FAILURE arm of the same
                      ;; off-box fail-closed rule (Spec 014 §Response-body
                      ;; classification Rule 4). A failure reply's body rides
                      ;; nested under `:error`, so the slot paths tool-pair omits
@@ -598,7 +592,7 @@
   `:work/id`). The carried (superseded) and current (superseding) work ids are
   `=`-distinct because the per-request-id issuance counter bumped — so tooling
   and conformance can tell the suppressed attempt from its replacement by
-  `:work/id` (the EP-0011 single-attempt-identity rule this restores).
+  `:work/id` (the EP-0011 single-attempt-identity rule).
 
   The wire-bearing slots route through the shared
   `http-reply/trace-reply` → `re-frame.reply/trace-summary` →
@@ -667,7 +661,7 @@
   trace row is emitted from those canonical facts, and the SAME canonical
   reply is delivered to the app target verbatim.
 
-  rf2-lddbk — the ctx's `:response-meta` (the successful response's
+  The ctx's `:response-meta` (the successful response's
   actual `:status` / `:status-text` / normalized `:headers`, threaded from
   `handle-response!`'s 2xx branch) rides the canonical reply under `:meta`
   so both the `:after` chain and the app reply target can read it."
@@ -727,13 +721,13 @@
 
 (defn- emit-failure-trace!
   "Emit the trace row for a classified `:rf.http/*` failure of `kind`. The
-  failure KIND picks the `:op-type`, never the `:reason` (rf2-s8kcj). An abort
+  failure KIND picks the `:op-type`, never the `:reason`. An abort
   (`:rf.http/aborted`, whatever its reason) is `:info`. Every abort reason names
   a deliberate act: a cancel, a supersession, an actor or frame teardown, an
   epoch restore, or a resource refetch. The reply protocol already delivers an
   abort as `:status :cancelled`, not `:status :error`. Every other kind is a real
   failure and keeps `emit-error!`. `redacted` is the privacy-prepared failure
-  map. Its `:recovery` still rides the `:info` row, because `build-event` hoists
+  map. Its `:recovery` rides the `:info` row too, because `build-event` hoists
   a supplied `:recovery` on either branch. Callers gate on `debug-enabled?`."
   [kind redacted]
   (if (= :rf.http/aborted kind)
@@ -759,7 +753,7 @@
   `:epoch-restored` / `:frame-destroyed` / `:resource-superseded` — the
   genuine cancellation reasons that flip the handle's `:aborted?` cell and
   reach this path. Every one emits its trace row at `:info`
-  (`emit-failure-trace!`, rf2-s8kcj). A `:timeout` is NOT an
+  (`emit-failure-trace!`). A `:timeout` is NOT an
   abort: it classifies to `:rf.http/timeout` (a failure kind) and routes
   through `maybe-retry!` → `finalise-failure!`, never here. `ctx` must
   carry `:request-id`, `:actor-id`, `:url`, `:sensitive?`.
@@ -798,7 +792,7 @@
     ;; issuance, so the evict skips and the live successor keeps the id; only a
     ;; genuinely-quiescent id is dropped.
     (rf.http.registry/evict-issuance-on-completion! (:frame ctx) (:request-id ctx) (:issuance ctx))
-    ;; rf2-3fc89f.9 — terminal for this request: detach the external
+    ;; Terminal for this request: detach the external
     ;; `:abort-signal` listener so a shared / parent controller retains no
     ;; completed-request listener. Fires for every abort reason (this is the
     ;; single choke both phase abort-fns route through).
