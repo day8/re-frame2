@@ -1,11 +1,11 @@
 'use strict';
-// THE FRESCO LANE'S ONE CACHE RULE — rf2-2rtt6.20.
+// THE FRESCO LANE'S ONE CACHE RULE.
 //
-// HD-017 gives the whole P0 lane a SINGLE build id, `:fresco-bench`, because
-// `implementation/shadow-cljs.edn` is hot-zone and a build id per arm would be
-// a sequenced dispatch per arm. Every driver in the lane therefore rides
-// that one id and supplies its own `:init-fn` and `:output-dir` through
-// `--config-merge`. That design is good and this file does not change it.
+// HD-017 gives the whole P0 lane a SINGLE build id, `:fresco-bench`, so a new
+// arm needs no edit to the lane's `shadow-cljs.edn`. Every driver in the lane
+// therefore rides that one id and supplies its own `:init-fn` and
+// `:output-dir` through `--config-merge`. That design is good and this file
+// does not change it.
 //
 // What it costs is stated here once: **one build id means one build cache**,
 // and shadow-cljs derives the cache directory from the build id alone —
@@ -16,12 +16,12 @@
 //
 // ## The fault that makes this a rule rather than a note
 //
-// Running one arm after another left a cache that COMPILED CLEANLY and then
-// produced an `:advanced` bundle that DIED ON ITS FIRST EXECUTION:
+// Running one arm after another leaves a cache that COMPILES CLEANLY and then
+// produces an `:advanced` bundle that DIES ON ITS FIRST EXECUTION:
 //
 //     pageerror: Cannot read properties of undefined (reading 'd')
 //
-// MEASURED, at unmodified main `6509d8e5c5`: from a cold cache, two
+// MEASURED: from a cold cache, two
 // `run.cjs` builds (`p0-reagent-app`) and one `p0_converge_run.cjs` build
 // (`p0-converge-app`), then `hd8_run.cjs` — which exits 1 before taking a
 // single sample. `rm -rf .shadow-cljs/builds/fresco-bench` clears it
@@ -46,13 +46,13 @@
 //
 // The two Closure name-stability maps were the first suspect and are NOT the
 // carrier: removing `closure.property.map` and `closure.variable.map` from a
-// poisoned cache leaves it dead. That failed guess is why this file clears the
-// WHOLE entry instead of the one directory now known to carry it — the
-// invariant "N programs, one id, so nothing may cache between them" holds
-// whatever shadow-cljs caches next, and a surgical clear is a standing bet on
-// internals that has already been lost once.
+// poisoned cache leaves it dead. That is why this file clears the WHOLE entry
+// instead of the one directory known to carry it — the invariant "N programs,
+// one id, so nothing may cache between them" holds whatever shadow-cljs caches
+// next, while a surgical clear is a standing bet on internals, and the first
+// suspect shows how easily that bet is lost.
 //
-// ## What it costs, measured, because that was the objection
+// ## What it costs, measured
 //
 // Nothing that registers. Rebuilding `hd8-app` on this box, alternating:
 // warm 34s, 26s; cleared 33s, 37s. The clear is inside the run-to-run noise,
@@ -63,21 +63,16 @@
 // And it buys something beyond not crashing: **the build becomes
 // deterministic.** Two cleared-cache builds of the same arm emit a
 // byte-identical `main.js` (sha256 `a1d14753ef818fcd…`, measured both ways),
-// where before the fix the bundle depended on which arm had built last —
+// where without the clear the bundle depends on which arm built last —
 // Closure's renaming for a build compiled fresh differs from the same build
 // compiled with a sibling warm, which `fresco_narrow_run.cjs` measured at
 // 4,075 bytes. A reproduction command a studio page publishes should not emit
 // a different bundle depending on what the reader ran an hour ago.
 //
-// ## What the rows published BEFORE the clear are worth — rf2-t84ee
+// ## What a sibling-warm cache does to a row
 //
-// The `fresco-bench` lane got this call on 2026-07-31. The seven
-// `freehand-release` riders did not get it until `448d368bb9` on 2026-08-06,
-// so every row those seven have published was measured without it. Whether any
-// one run was warm over a SIBLING is operator shell history and cannot be
-// recovered. Whether the fault could have reached that row CAN be, and was:
-// each arm built once from a cleared cache and once with a sibling warm ahead
-// of it, at `5a08b14a29`, then loaded in headless Chromium.
+// Each arm built once from a cleared cache and once with a sibling warm ahead
+// of it, then loaded in headless Chromium:
 //
 //   arm             cold           warm over a sibling            loads?
 //   reads_ladder     649,251 B      649,251 B  (spine_ablation)    yes
@@ -122,22 +117,20 @@
 // AND THE CONTROL THAT MAKES THAT LEGIBLE: a build warm over ITSELF is
 // byte-identical — the ladder built twice with no clear between compiles 0 the
 // second time and emits the same sha256. "Warm" is not the fault; "warm over a
-// SIBLING" is. A driver invoked twice in a row — which is how the ladder took
-// its two substrate pages — was never at risk.
+// SIBLING" is. A driver invoked twice in a row is never at risk.
 //
 // Rejected, with reasons, so the next reader does not re-litigate them:
 //
-//   * A build id per arm. Six hot-zone, sequenced edits to
-//     `implementation/shadow-cljs.edn` to buy back three seconds, and it
-//     discards the one thing HD-017 built this lane to avoid.
+//   * A build id per arm. An edit to the lane's `shadow-cljs.edn` for every
+//     arm to buy back three seconds, and it discards the one thing HD-017
+//     built this lane to avoid.
 //   * A cache root per arm (`SHADOW_CLJS='{:cache-root ...}'`, the only lever
 //     that reaches `:cache-root`, since `--config-merge` cannot). It would
 //     keep a warm cache per arm — but it also duplicates the 22 MB
 //     `jar-manifest` and the classpath cache per arm, and the node side still
 //     discovers a server through `.shadow-cljs`, so the override can silently
 //     fail to apply. A silent non-fix for the silent-failure bug.
-//   * Only improving the error message (the bead's fallback). It leaves the
-//     trap armed.
+//   * Only improving the error message. It leaves the trap armed.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -145,9 +138,6 @@ const path = require('node:path');
 // Clears the shared build cache entry for `buildId`, both modes. Returns the
 // directory if one was there, else null. `maxRetries` because this is Windows
 // and a scanner or a just-exited JVM can still hold a handle for a moment.
-// (The same guard `package.json`'s `clean:freehand-*` scripts once used;
-// they went with the Freehand tree under rf2-0yp7w and `package.json` now
-// carries no `clean:*` script at all.)
 function resetLaneBuildCache(implDir, buildId) {
   const dir = path.join(implDir, '.shadow-cljs', 'builds', buildId);
   if (!fs.existsSync(dir)) return null;
