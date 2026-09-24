@@ -19,7 +19,7 @@
   settles through the SAME one-status reply shape resources + every other
   managed-async family produce (EP-0011 §Mutation Reply).
 
-  ## What this slice does
+  ## What this namespace does
 
   - **`:rf.mutation/execute`** mints a mutation INSTANCE (keyed by a
     caller-supplied or generated instance id, so concurrent submissions of
@@ -81,18 +81,18 @@
 ;;
 ;; EP-0010 / EP-0017: every durable mutation timestamp is a recordable coeffect,
 ;; DECLARED via `:rf.cofx/requires [:rf/time-ms]` and consumed FLAT from the
-;; coeffects map (rf2-601ife — not reached through the whole `:rf.cofx` token).
+;; coeffects map (not reached through the whole `:rf.cofx` token).
 ;; The instance / work-ledger `:started-at` is the `:rf.mutation/execute`
-;; token's `:rf/time-ms` (rf2-dsyqmz); the terminal `:settled-at` + any patch /
+;; token's `:rf/time-ms`; the terminal `:settled-at` + any patch /
 ;; populate `:loaded-at` is the reply token's completion time (`:completed-at`,
-;; the reply event's causal `:rf/time-ms`, rf2-40dqi6 / rf2-r65m41). No ambient
+;; the reply event's causal `:rf/time-ms`). No ambient
 ;; clock is read at a durable write site (the timer DELAYS are advisory host
 ;; transients computed from the durable absolute timestamps).
 ;;
 ;; The pure stale / timer helpers a patched / populated entry reads
 ;; (`stale-at-for` / `positive-or-nil` / `server-frame?`) live in `state.cljc`
 ;; — shared byte-for-byte with the read path so a patched entry ages exactly as
-;; a fetched one and arms exactly the timers a fetched one would (rf2-366u0g).
+;; a fetched one and arms exactly the timers a fetched one would.
 
 (defn- timer-delays
   "The advisory stale / GC timer delays for a patched / populated entry from
@@ -114,7 +114,7 @@
   row id), else a generated id derived from the mutation id + the frame's
   monotone generation, kept PURE (no host call — the recorded
   `:rf.resource/generation-allocation` cofx already supplied the value, so
-  the derived instance-id reproduces on replay; rf2-abyycr). Two concurrent
+  the derived instance-id reproduces on replay). Two concurrent
   submissions of the same mutation id get DIFFERENT generated ids (the
   generation differs), so they never clobber each other's instance row. Per
   EP-0003 §Mutations (a generated or caller-supplied mutation instance id)."
@@ -122,7 +122,7 @@
   (or supplied-instance
       [:rf.mutation/instance mutation-id generation]))
 
-;; ---- exact-target scope resolution (EP-0016 Rider 2 / slice 6) -------------
+;; ---- exact-target scope resolution (EP-0016 Rider 2) -----------------------
 ;;
 ;; A map-form `:populates` / `:patches` target declares its OWN `:scope` —
 ;; concrete, `:rf.scope/same` (the mutation's resolved scope, the default), or
@@ -170,15 +170,15 @@
   RECOVERABLE bad target (unregistered resource / non-map / non-keyword
   `:resource`) is DROPPED-AND-collected (`skipped-targets`) — this runs
   POST-WRITE at settle, so a typo'd sibling must not strand the whole committed
-  mutation (rf2-1vpbld); cache-identity CORRUPTION still throws the whole arm.
+  mutation; cache-identity CORRUPTION still throws the whole arm.
   Per EP-0003 §Mutations / Spec 016 §Map-form exact resource targets."
   [runtime-db patches-fn params result clock-ms mut-scope db where]
   (let [[patches nil-ids skipped]
         (when patches-fn
-          ;; rf2-3yyaur / EP-0016 Rider 2 — resolve each map-form target's
+          ;; EP-0016 Rider 2 — resolve each map-form target's
           ;; scope against the settle-time db, then classify + canonicalize
-          ;; EVERY resolved key. POST-WRITE settle policy (rf2-1vpbld,
-          ;; :skip-recoverable): a nil-resolving {:from-db …} target is dropped
+          ;; EVERY resolved key. POST-WRITE settle policy
+          ;; (:skip-recoverable): a nil-resolving {:from-db …} target is dropped
           ;; (never a wrong-scope write); a RECOVERABLE bad target is
           ;; dropped-and-warned (the valid siblings still land); cache-identity
           ;; CORRUPTION still throws the whole arm.
@@ -217,7 +217,7 @@
   scope resolves nil is FAIL-CLOSED (dropped). A RECOVERABLE bad target
   (unregistered resource / non-map / non-keyword `:resource`) is
   DROPPED-AND-collected (`skipped-targets`) — POST-WRITE at settle, so a typo'd
-  sibling must not strand the committed mutation (rf2-1vpbld); cache-identity
+  sibling must not strand the committed mutation; cache-identity
   CORRUPTION still throws the whole arm. Per EP-0003 §Mutations / Spec 016
   §Map-form exact resource targets / §Populate is an authoritative load."
   [runtime-db populates-fn params result clock-ms mut-scope db where]
@@ -249,13 +249,13 @@
       [runtime-db #{} {} (vec nil-ids) (vec skipped)])))
 
 (defn- supersede-reads-under-writes
-  "Settle the read each authoritative `:patches` / `:populates` write superseded
-  (rf2-3x7nj.11.3). `patch-entry` / `populate-entry` clear the written entry's
+  "Settle the read each authoritative `:patches` / `:populates` write superseded.
+  `patch-entry` / `populate-entry` clear the written entry's
   `:current-work` — a settled entry owns no read — so a read still in flight on
   it can no longer land: its late reply fails the work-id gate and is
   stale-suppressed, as a forced `refetch` supersedes one (Spec 016 §Race and
   in-flight semantics). Without this, a GET the server answered before it
-  committed the write overwrote the written value, stamped fresh.
+  committed the write would overwrite the written value, stamped fresh.
 
   Settles that read's row terminal `:suppressed {:reason :superseded :by
   by-work-id}` and returns `[runtime-db' superseded-work]`, `superseded-work`
@@ -284,13 +284,13 @@
   :scope}`, resolved + canonicalized exactly as `:patches` / `:populates` are
   (`validate-target-map!`, which threads VALUES; a remove carries no value, so
   each target maps to a placeholder). Each resolved key is DISSOC'd from the
-  cache by its byte `key-id` (rf2-9e0tyq — a dissoc by the scoped-key vector
+  cache by its byte `key-id` (a dissoc by the scoped-key vector
   would no-op and leak the entry), mirroring `:rf.resource/remove`. A target
   whose `{:from-db …}` scope resolves nil is FAIL-CLOSED (dropped). A
   RECOVERABLE bad target (unregistered resource / non-map / non-keyword
   `:resource`) is DROPPED-AND-collected (`skipped-targets`) — POST-WRITE at
-  settle, so a typo'd sibling must not strand the committed mutation
-  (rf2-1vpbld); cache-identity CORRUPTION still throws the whole arm. Returns
+  settle, so a typo'd sibling must not strand the committed mutation;
+  cache-identity CORRUPTION still throws the whole arm. Returns
   `[runtime-db' removed-keys removed-work nil-resolved-ids skipped-targets]`
   where `removed-work` is `[[work-id transport] …]` for each removed entry's
   in-flight attempt (best-effort abort + terminal `:cancelled` work row, as
@@ -325,16 +325,16 @@
                      (update-in (rf.resources.state/entries-path) dissoc k-id)
                      (cond-> wid (rf.resources.work-ledger/update-record
                                    wid rf.resources.work-ledger/mark-terminal
-                                   ;; rf2-pk4i6.1#6 — a cancellation is a
+                                   ;; A cancellation is a
                                    ;; COMPLETION, so it carries the reply token's
                                    ;; causal `:completed-at`, symmetric with
                                    ;; `:rf.resource/remove` / clear-scope
-                                   ;; (rf2-x76af2.14) and every reply-driven
-                                   ;; cancellation (rf2-rl27r2). The clock is the
+                                   ;; and every reply-driven
+                                   ;; cancellation. The clock is the
                                    ;; settling reply's, never an ambient read.
                                    :cancelled {:reason :mutation-remove
                                                :completed-at clock-ms}))
-                     ;; rf2-6gzdb — the removed entry is LEAVING the cache, so its
+                     ;; The removed entry is LEAVING the cache, so its
                      ;; whole ledger holding goes with it (every row for the key
                      ;; plus its inverse-index bucket), exactly as
                      ;; `:rf.resource/remove` does. Spec 016 §Ledger row retention
@@ -357,7 +357,7 @@
 ;; sentinel) + its `:revision` at apply time, applies the forward patch
 ;; (`rf.resources.mutation-runtime/apply-optimistic-patch`, which bumps the entry's `:revision`), and
 ;; records the inverse on the instance row's `:patch-summary` `:rollback` slot.
-;; The SETTLE slice (next) consumes that recorded inverse +
+;; The SETTLE step (below) consumes that recorded inverse +
 ;; `rf.resources.mutation-runtime/optimistic-conflict?` (the recorded POST-apply `:applied-revision`)
 ;; to commit / rollback / reconcile.
 ;;
@@ -381,7 +381,7 @@
   recorded causal facts), so it reproduces on replay for free — no host call, no
   ambient counter. A re-execute under the same instance mints a NEW generation,
   hence a NEW snapshot id; the superseded apply's inverse is rolled back or
-  inherited by the successor at that re-execute (rf2-3x7nj.11.2), and its late
+  inherited by the successor at that re-execute, and its late
   reply is stale-suppressed."
   [instance-id generation]
   [:rf.mutation/snapshot instance-id generation])
@@ -406,7 +406,7 @@
 
 (defn- warn-optimistic-tag-descriptor-skipped!
   "DEV-ONLY: emit `:rf.warning/optimistic-tags-descriptor-skipped` for a
-  malformed `:optimistic-tags` descriptor that was warn-and-skipped (rf2-o5ca8k).
+  malformed `:optimistic-tags` descriptor that was warn-and-skipped.
   Behind `rf.interop/debug-enabled?` so Closure DCE elides it in production, riding
   the same `rf.trace/emit!` gate as the other write-side dev tripwires. Returns nil."
   [{:keys [frame-id mutation]} reason detail]
@@ -426,11 +426,11 @@
   for every tag-matched entry) and a `:tags` collection. The `:scope` defaults
   to `:rf.scope/same` (resolved at execute time).
 
-  WARN-AND-SKIP (rf2-o5ca8k): a malformed descriptor — a non-map entry, a
+  WARN-AND-SKIP: a malformed descriptor — a non-map entry, a
   non-collection `:tags`, or a missing `:patch` — is DROPPED with a dev-visible
   `:rf.warning/optimistic-tags-descriptor-skipped` warning, NOT thrown. This runs
-  inline in `execute-handler` BEFORE the request lowers; a throw here aborted the
-  whole event and the authoritative write NEVER fired — strictly worse than
+  inline in `execute-handler` BEFORE the request lowers; a throw here would abort
+  the whole event and the authoritative write would NEVER fire — strictly worse than
   `:invalidates` (which runs post-write at settle). The optimistic paint is
   reversible best-effort, so skipping a bad descriptor corrupts nothing (the
   authoritative reply still settles the cache via `:populates` / `:invalidates`);
@@ -544,7 +544,7 @@
   recorded `:rollback` slot the instance row carries (in apply order). Indexes are
   recomputed by the caller (a seed may create entries / tags).
 
-  EVERY FORM NOW LEAVES A CONCRETE REVISION BEHIND (rf2-pkkft), which is what
+  EVERY FORM LEAVES A CONCRETE REVISION BEHIND, which is what
   lets `rf.resources.mutation-runtime/optimistic-conflict?` be one uniform
   comparison rather than a numeric rule beside a remove-shaped sentinel."
   [runtime-db target-map clock-ms]
@@ -558,7 +558,7 @@
                      ;; optimistic REMOVE — a TOMBSTONE written IN PLACE
                      ;; (`:data nil`, `:status :idle`), keeping the entry's
                      ;; owners, live read-work, tags and index membership
-                     ;; (rf2-pkkft). It is NOT a dissoc: an entry that leaves the
+                     ;; It is NOT a dissoc: an entry that leaves the
                      ;; cache takes with it the very facts the settle protocol
                      ;; needs to notice an owner releasing mid-flight, and a
                      ;; failed reply then resurrects the departed owner onto the
@@ -591,7 +591,7 @@
 
 ;; ---- the settle protocol (phase 4) — commit / rollback / reconcile --------
 ;;
-;; The SETTLE slice (EP-0019 Decision 3) consumes the recorded inverse on the
+;; The SETTLE step (EP-0019 Decision 3) consumes the recorded inverse on the
 ;; instance row's `:patch-summary` `:rollback` slot + `rf.resources.mutation-runtime/optimistic-conflict?`
 ;; (the recorded POST-apply `:applied-revision`) to deterministically dispose
 ;; each optimistic apply when its mutation reply settles:
@@ -607,9 +607,9 @@
 ;;     conflict-aware rollback: an UNMOVED `:revision` restores the recorded
 ;;     `:before` verbatim; a MOVED `:revision` defers to `:on-conflict`
 ;;     (`:invalidate` default — mark stale + refetch; `:force` — restore anyway).
-;;   - STALE / superseded REPLY — handled by the existing stale-suppression
-;;     branch, which writes nothing. The superseded APPLY is not forgotten
-;;     (rf2-3x7nj.11.2): a same-instance re-execute rolls back the keys its
+;;   - STALE / superseded REPLY — handled by the stale-suppression
+;;     branch, which writes nothing. The superseded APPLY is not forgotten:
+;;     a same-instance re-execute rolls back the keys its
 ;;     successor does not re-touch and hands the successor the pre-paint
 ;;     `:before` of those it does, and `:rf.mutation/clear` rolls the whole
 ;;     apply back. A row whose baseline came from such an abandoned attempt
@@ -636,8 +636,8 @@
   :invalidate` (EP-0019 Decision 3), addressed by the EXACT `:resource/key` the
   rollback disposition carries — never rediscovered through the entry's tags
   (`:tags` is OPTIONAL registration metadata and an exact-target optimistic
-  write needs none, so tag metadata must not gate rollback recovery —
-  rf2-wcdj4). The caller has already marked the surviving entry durably stale
+  write needs none, so tag metadata must not gate rollback recovery).
+  The caller has already marked the surviving entry durably stale
   in the settle pass (`rf.resources.state/entry-invalidate`); this arms the ordinary exact
   refetch ONLY when the entry has ACTIVE OWNERS (a live owner needs fresh data
   now — Spec 016 §Invalidation 3/4). Returns nil when the (moved) entry has
@@ -674,12 +674,12 @@
   `:invalidate` key actually marked durably stale (never a vanished key): the
   caller's `:affected-keys` evidence, because a stale-marked key IS affected
   even when owner-free with no refetch armed (Spec 016 §Mutation completion
-  continuations — rf2-wcdj4 audit); `:refetched-keys` names ONLY the keys
+  continuations); `:refetched-keys` names ONLY the keys
   whose recovery refetch was actually enqueued (its active-owner subset —
-  never a stale-only / vanished key — rf2-wcdj4). PURE w.r.t. trace (the
+  never a stale-only / vanished key). PURE w.r.t. trace (the
   caller emits `:rf.mutation/optimistic-rolled-back`).
 
-  THE REVALIDATE OBLIGATION (rf2-3x7nj.11.2): a recorded row carrying
+  THE REVALIDATE OBLIGATION: a recorded row carrying
   `:revalidate? true` — its baseline came from an attempt whose reply the
   runtime discarded or abandoned — is restored and THEN marked stale
   (`rf.resources.state/entry-invalidate`, in that order, so a still-pending
@@ -694,7 +694,7 @@
                                (:revalidate? recorded) (assoc :revalidate? true)))
                            inverse)
         restored?    #(= :restore (:disposition %))
-        ;; rf2-2c2mkh — capture the pre-rollback entries so the index delta is
+        ;; Capture the pre-rollback entries so the index delta is
         ;; reconciled against them. Only the recorded inverse's keys can change
         ;; (a :restore re-creates / drops an entry; an :invalidate keeps the
         ;; moved entry's current owner/work facts, only staling it), so
@@ -709,17 +709,16 @@
         ;; :resource/key (`rf.resources.state/entry-invalidate` — the same in-place exact-key
         ;; staling the EP-0019 restore-dangle reconciler uses), never
         ;; rediscovered through the entry's tags (`:tags` is optional and must
-        ;; not gate rollback recovery — rf2-wcdj4). A vanished entry no-ops —
+        ;; not gate rollback recovery). A vanished entry no-ops —
         ;; and only a key actually marked stale accumulates into `staled-ks`,
         ;; the caller's `:affected-keys` evidence (a stale-marked key is
-        ;; materially changed and therefore affected, refetched or not —
-        ;; rf2-wcdj4 audit).
+        ;; materially changed and therefore affected, refetched or not).
         [rdb' staled-ks]
                      (reduce (fn [[rdb staled] {scoped-key :resource/key :as disp}]
                                (case (:disposition disp)
                                  :restore    (let [rdb1 (rf.resources.mutation-runtime/restore-before rdb disp)
                                                    path (rf.resources.state/entry-path scoped-key)]
-                                               ;; rf2-3x7nj.11.2 — restore THEN stale
+                                               ;; Restore THEN stale
                                                ;; a row carrying the revalidate obligation.
                                                (if (and (:revalidate? disp)
                                                         (not= (:before disp)
@@ -742,7 +741,7 @@
         ;; the moved entries that stayed). A vanished / owner-free key arms no
         ;; refetch (the owner-free entry stays durably stale for its next
         ;; ensure), and is therefore NEVER listed in `:refetched-keys`.
-        ;; rf2-3x7nj.11.2 — read off `staled-ks`, which is every SURVIVING
+        ;; Read off `staled-ks`, which is every SURVIVING
         ;; `:invalidate` key plus every revalidated restore, so a restore that
         ;; carried the obligation recovers exactly as a conflict key does.
         recoveries   (into []
@@ -776,7 +775,7 @@
 (defn- abandon-optimistic-apply
   "Roll back the recorded `rows` of a PENDING optimistic apply the runtime
   abandons on its own initiative — a same-instance re-execute supersedes it, or
-  `:rf.mutation/clear` drops it (rf2-3x7nj.11.2). Its reply will be discarded,
+  `:rf.mutation/clear` drops it. Its reply will be discarded,
   and the write may still have reached the server, so every row carries the
   revalidate obligation: restore the pre-paint `:before`, mark the key stale,
   refetch it when owned (`settle-optimistic-rollback`). `inst` is the abandoned
@@ -797,7 +796,7 @@
 (defn- emit-abandoned-rollback!
   "Emit `:rf.mutation/optimistic-rolled-back` for an ABANDONED apply
   (`abandon-optimistic-apply`), carrying that apply's own `:snapshot-id`, so
-  tooling joins the rollback to the apply it undid (rf2-3x7nj.11.2)."
+  tooling joins the rollback to the apply it undid."
   [frame-id inst {:keys [dispositions on-conflict cause] :as rolled}]
   (rf.trace/emit! :rf.event :rf.mutation/optimistic-rolled-back
                   {:rf.frame/id frame-id :instance (:instance/id inst)
@@ -811,9 +810,9 @@
                    :refetched (vec (:refetched-keys rolled))
                    :cause cause}))
 
-;; ---- scoped invalidation descriptors (EP-0016 D2 / slice 5) ---------------
+;; ---- scoped invalidation descriptors (EP-0016 D2) -------------------------
 ;;
-;; The mutation `:invalidates` arm now lowers TWO public forms — the bare
+;; The mutation `:invalidates` arm lowers TWO public forms — the bare
 ;; tag-set shorthand AND the per-target descriptor form — into ONE canonical
 ;; descriptor vector (the pure `rf.resources.mutation-runtime/normalize-invalidation-descriptors`),
 ;; then resolves each descriptor's OWN scope and dispatches the SINGLE scoped
@@ -869,8 +868,8 @@
   per-descriptor `:rf.resource/invalidate-tags` fx and attaches the whole plan
   (incl. the fail-closed `:unresolved` evidence) to the mutation settlement
   trace (the descriptor-level invalidation evidence Spec 016 §Trace evidence
-  for invalidation prescribes, recorded on the existing `:rf.mutation/*`
-  settlement op rather than a new trace op). Per EP-0003 §Mutations / EP-0016 D2."
+  for invalidation prescribes, recorded on the `:rf.mutation/*`
+  settlement op rather than a separate trace op). Per EP-0003 §Mutations / EP-0016 D2."
   [invalidates-fn params result mut-scope db where]
   (when invalidates-fn
     (let [descriptors (rf.resources.mutation-runtime/normalize-invalidation-descriptors
@@ -935,13 +934,13 @@
   (so the reply, the trace, and the engine never disagree). Returns
   `{:invalidated-keys <vec> :populate-exempt <vec> :per-descriptor [<vec> …]}`:
 
-  - `:invalidated-keys` (rf2-fi6tda.2) — every key a dispatched descriptor
+  - `:invalidated-keys` — every key a dispatched descriptor
     WILL mark stale (tags intersect, in the descriptor's resolved scope, not
     its own exempt key), de-duplicated across descriptors. This is the set
     Spec 016 §Mutation completion continuations wants unioned into the
     accepted reply's `:affected-keys` (the contract names keys POPULATED,
     PATCHED, REMOVED, **or marked stale**).
-  - `:per-descriptor` (rf2-fi6tda.3 finding 2) — the EXACT exempt keys EACH
+  - `:per-descriptor` — the EXACT exempt keys EACH
     dispatched descriptor spared, in `:dispatches` order. The runtime applies
     `:refetch-populated?` PER DESCRIPTOR (`plan->fx` passes the populated keys
     as `:exempt-keys` only for non-opt-in descriptors), so an opt-in descriptor
@@ -949,7 +948,7 @@
     This is the truthful per-pass evidence (the settlement facet's
     `:dispatched` rows carry it).
   - `:populate-exempt` — the UNION of every descriptor's spared keys (a single
-    `:refetch-populated? true` descriptor no longer collapses it to `[]`).
+    `:refetch-populated? true` descriptor does not collapse it to `[]`).
 
   `populated-ks` is the set of EXACT scoped keys this same mutation populated
   (matched by byte `key-id`). Per Spec 016 §Trace evidence for invalidation /
@@ -988,8 +987,8 @@
   "The descriptor-level invalidation evidence facet for the mutation settlement
   trace (Spec 016 §Trace evidence for invalidation): the descriptor count, the
   per-descriptor resolved `(scope, cross-scope?, tags, refetch-populated?)` —
-  each now also carrying its OWN `:exempt-keys` (the populated keys THAT
-  descriptor's pass spared, rf2-fi6tda.3 finding 2) — the fail-closed
+  each also carrying its OWN `:exempt-keys` (the populated keys THAT
+  descriptor's pass spared) — the fail-closed
   `:unresolved` `{:from-db …}` ids (descriptors that resolved nil and produced
   no invalidation), and the top-level `:populate-exempt` UNION (the keys at
   least one descriptor spared; NOT collapsed to `[]` the instant any descriptor
@@ -1009,7 +1008,7 @@
        :unresolved (vec (:unresolved plan))
        :populate-exempt populate-exempt})))
 
-;; ---- dev-only write-side scope-mismatch diagnostic (rf2-byl7bk.4) ----------
+;; ---- dev-only write-side scope-mismatch diagnostic ------------------------
 ;;
 ;; The mutation-scope footgun (Spec 016 §Mutation scope is two distinct scopes
 ;; — Scope-match guidance): a mutation's resolved (execution) scope defaults
@@ -1051,13 +1050,13 @@
   (reset! warned-mutation-scope-mismatch #{})
   nil)
 
-;; ---- the settle-time skipped-target dev tripwire (rf2-1vpbld) --------------
+;; ---- the settle-time skipped-target dev tripwire --------------------------
 ;;
 ;; A POST-WRITE `:patches` / `:populates` / `:removes` target that is RECOVERABLE
 ;; (unregistered resource; non-map / non-keyword :resource) is DROPPED-AND-WARNED
 ;; rather than thrown, because the server write already landed — a typo'd sibling
 ;; must not strand the whole committed mutation. This is the DEDICATED warning
-;; path the relaxation requires: NOT `maybe-warn-scope-mismatch!` (whose dedupe
+;; path for that drop: NOT `maybe-warn-scope-mismatch!` (whose dedupe
 ;; key + payload are invalidation-scope-specific). CACHE-IDENTITY CORRUPTION
 ;; (reserved-scope typo; non-EDN scope / params) still THROWS in the runtime
 ;; classifier and never reaches here.
@@ -1082,13 +1081,13 @@
   nil)
 
 (defn maybe-warn-target-skipped!
-  "Emit the dev-only `:rf.warning/mutation-target-skipped` warning (rf2-1vpbld)
+  "Emit the dev-only `:rf.warning/mutation-target-skipped` warning
   for each RECOVERABLE settle-time target that was dropped-and-warned: an
   unregistered resource, or a non-map / non-keyword-`:resource` target reaching
   a POST-WRITE `:patches` / `:populates` / `:removes` arm. The server write
   already committed, so dropping the bad sibling (and applying the valid ones)
   beats stranding the whole instance — but the developer still needs the loud,
-  recoverable tripwire (the asymmetry-fix is not a silent swallow). Cache-identity
+  recoverable tripwire (dropping is not a silent swallow). Cache-identity
   CORRUPTION never reaches here (it throws in the runtime classifier).
 
   DEV-ONLY: the whole body is behind `rf.interop/debug-enabled?` so Closure DCE
@@ -1135,7 +1134,7 @@
 
 (defn maybe-warn-scope-mismatch!
   "Emit the dev-only write-side likely-scope-mismatch warning
-  (`:rf.warning/mutation-scope-mismatch`, rf2-byl7bk.4) for each dispatched
+  (`:rf.warning/mutation-scope-mismatch`) for each dispatched
   invalidation descriptor whose resolved scope matched NO cache entry while the
   SAME tags DO match an entry in a DIFFERENT scope — the runtime
   tripwire for the mutation-scope footgun (Spec 016 §Mutation scope is two
@@ -1257,7 +1256,7 @@
   reply substrate every managed-async family uses (NOT a family-private
   callback contract). A nil / blank target yields nil (no continuation).
 
-  No trace side effect (rf2-ru73k6 F2): the `:rf.mutation/replied` evidence is
+  No trace side effect: the `:rf.mutation/replied` evidence is
   emitted from the effect-bound settlement boundary, AFTER
   `:rf.mutation/succeeded`, so the trace row reflects the actual phase-6
   ordering (continuation runs after cache consequences + instance settlement,
@@ -1272,8 +1271,8 @@
   that DID continue into app workflow (a non-nil `cont-fx`). Called from the
   effect-bound settlement boundary AFTER `:rf.mutation/succeeded` /
   `:rf.mutation/failed` is emitted, so the trace row truthfully reflects the
-  continuation-dispatch boundary's place in the phase order (rf2-ru73k6 F2;
-  tools/xray/spec/024 §6c documents it as post-settlement evidence). Never
+  continuation-dispatch boundary's place in the phase order
+  (tools/xray/spec/024 §6c documents it as post-settlement evidence). Never
   fires on a stale/suppressed reply (that path returns no continuation) nor
   when the call site supplied no `:reply-to` (cont-fx is nil)."
   [cont-fx {:keys [frame-id mutation-id instance-id work-id status reply-to]}]
@@ -1292,7 +1291,7 @@
   §Deferred slices / EP-0003 §Mutations. Payload:
   `{:mutation :params :instance :scope :cause}`.
 
-  **`:scope` is a public ScopeInput** (rf2-l11670, Spec 016 §Resolver
+  **`:scope` is a public ScopeInput** (Spec 016 §Resolver
   references): a CONCRETE scope value OR a `{:from-db <resolver-id>}`
   named-resolver reference, resolved against this handler's app-db coeffect
   at event-execution time — SYMMETRIC with ensure / clear-scope /
@@ -1318,12 +1317,12 @@
 
   EP-0019 PHASE 1.5 — when the mutation declares an `:optimistic` /
   `:optimistic-tags` plan (and the call did NOT opt out with
-  `{:optimistic? false}`, Q4), the FORWARD optimistic patch is applied to the
+  `{:optimistic? false}`), the FORWARD optimistic patch is applied to the
   resource cache BEFORE the request is lowered: each touched entry is
   snapshotted (the truthful inverse) + its `:revision` recorded on the instance
   row's `:patch-summary` `:rollback` slot, the forward patch applied, and the
   entry's `:revision` bumped. Emits `:rf.mutation/optimistic-applied`. The SETTLE
-  slice consumes that recorded inverse (commit / rollback / reconcile).
+  step consumes that recorded inverse (commit / rollback / reconcile).
 
   Returns the effects map (`:rf.db/runtime` + `:fx`)."
   [{rt :rf.db/runtime, frame-id :rf.frame/id
@@ -1333,12 +1332,12 @@
   (let [where      'rf.mutation/execute
         runtime-db (or rt {})
         spec       (rf.resources.mutation-registry/require-mutation-spec! mutation where)
-        ;; rf2-hgy5kf — thread `:params` presence (absent vs explicit nil) to
+        ;; Thread `:params` presence (absent vs explicit nil) to
         ;; the validation boundary: an absent slot defaults to `{}` there, an
         ;; explicit `{:params nil}` reaches `:params-schema` unchanged.
         cparams    (rf.resources.mutation-registry/validate+canonicalize-params
                      mutation spec (rf.resources.state/params-present? payload) where)
-        ;; rf2-l11670 — the payload / spec :scope is a public ScopeInput: a
+        ;; The payload / spec :scope is a public ScopeInput: a
         ;; concrete scope OR a `{:from-db <id>}` named-resolver reference,
         ;; resolved against THIS handler's app-db coeffect at event-execution
         ;; time, symmetric with ensure / clear-scope / invalidate-tags (the
@@ -1351,13 +1350,13 @@
         ;; concrete scope. An ABSENT :scope keeps the documented fail-open
         ;; :rf.scope/global default.
         cscope     (rf.resources.mutation-registry/resolve-scope mutation spec scope app-db)
-        ;; rf2-e8wj5t — reject a non-serializable caller-supplied instance id
+        ;; Reject a non-serializable caller-supplied instance id
         ;; BEFORE any runtime-db / work-ledger write or HTTP lowering (the
         ;; instance id is durable + trace-visible + epoch-restore-safe). A nil
         ;; instance falls through to the generated id (serializable by
         ;; construction).
         _          (rf.resources.mutation-runtime/validate-instance-id! instance where)
-        ;; rf2-6kdcs9 — the call-site `:reply-to` continuation (EP-0016 D1) is
+        ;; The call-site `:reply-to` continuation (EP-0016 D1) is
         ;; a TRANSPORT-PAYLOAD-only app target (NOT a durable ledger row fact),
         ;; but it MUST still be data-only: it rides the internal reply payload
         ;; across the transport boundary and is later dispatched. Run it through
@@ -1369,9 +1368,9 @@
         ;; at completion. A nil target stays nil (no continuation). The
         ;; data-only-validated target rides the `:reply-payload` below.
         reply-to'  (when (some? reply-to) (rf.reply/durable-target reply-to))
-        ;; rf2-abyycr — the generation is the RECORDED allocation value (the
-        ;; generator-backed `:rf.resource/generation-allocation` cofx minted
-        ;; it at processing-start and the runtime recorded it on the token),
+        ;; The generation is the RECORDED allocation value (the
+        ;; generator-backed `:rf.resource/generation-allocation` cofx mints
+        ;; it at processing-start and the runtime records it on the token),
         ;; NOT a `(inc snapshot)` re-mint from an ambient read here. The
         ;; instance-id + work-id derive from it, so recording the generation
         ;; reproduces both on replay for free — a recorded mutation reply
@@ -1384,7 +1383,7 @@
         ;; suppression keys on it). The scoped "key" for a mutation is the
         ;; instance id (no cache identity — a write is not cached by params).
         work-id    (rf.resources.work-ledger/resource-work-id [:rf.mutation instance-id] generation)
-        ;; rf2-sxyrzk — the transport correlation token is the frame-QUALIFIED
+        ;; The transport correlation token is the frame-QUALIFIED
         ;; request-id, NOT the bare work-id. The managed-HTTP in-flight registry
         ;; keys by request-id PROCESS-GLOBALLY and supersedes by equal
         ;; request-id (Spec 014); a mutation instance id is frame-local, so two
@@ -1393,7 +1392,7 @@
         ;; in-flight write. Qualifying with the frame id isolates them.
         request-id (rf.resources.work-ledger/managed-request-id frame-id work-id)
         ;; EP-0010 §Resources, Mutations, And Work-Ledger Timestamps + EP-0017
-        ;; declared-only delivery (rf2-601ife): `:rf.mutation/execute` writes the
+        ;; declared-only delivery: `:rf.mutation/execute` writes the
         ;; durable instance + work-ledger `:started-at` from the TRIGGERING
         ;; TOKEN'S causal `:rf/time-ms` (DECLARED via `:rf.cofx/requires`,
         ;; consumed FLAT — not reached through the `:rf.cofx` token), NOT an
@@ -1435,8 +1434,7 @@
                        (assoc :work/kind :mutation))
         ;; Guard the declared transport (registration-time misconfig throw),
         ;; then lower directly into the only built-in
-        ;; transport. The one-arm dispatch indirection
-        ;; (`rf.resources.transport/lower-ensure`) is folded into this guarded call.
+        ;; transport (with one transport there is no dispatch table).
         lower-fx   (do
                      (rf.resources.transport/assert-managed-transport! transport-id where)
                      (rf.resources.transport.http/lower
@@ -1463,7 +1461,7 @@
                                               :work/id     work-id
                                               :scope       cscope
                                               :generation  generation}
-                                       ;; the data-only-validated (rf2-6kdcs9)
+                                       ;; the data-only-validated
                                        ;; call-site target rides the payload.
                                        (some? reply-to') (assoc :reply-to reply-to'))
                       :work-id      work-id
@@ -1473,7 +1471,7 @@
                       :generation   generation
                       :where        where}))
         ;; EP-0019 PHASE 1.5 — the FORWARD optimistic apply, BEFORE the request
-        ;; lowers. Per-call opt-out (Q4): `{:optimistic? false}` forces the
+        ;; lowers. Per-call opt-out: `{:optimistic? false}` forces the
         ;; pessimistic path for one call (the registration plan is otherwise
         ;; always-on). Resolve the `:optimistic` exact targets + the
         ;; `:optimistic-tags` tag-matched targets (each fail-closed on a
@@ -1487,7 +1485,7 @@
         has-opt?    (and (not opt-out?)
                          (or (:optimistic spec) (:optimistic-tags spec)))
         ;; the successor's targets are resolved against the cache AS IT STANDS
-        ;; (it paints on the current value — rf2-3x7nj.11.2)
+        ;; (it paints on the current value)
         opt-entries (when has-opt? (get-in runtime-db (rf.resources.state/entries-path)))
         [exact-tm exact-nils]
         (when has-opt?
@@ -1510,13 +1508,13 @@
         ;; record the `:target-unresolved` evidence + emit the trace).
         opt-applied?   (boolean (and has-opt? (or (seq opt-target-map) (seq opt-nil-ids))))
         snapshot-id    (when opt-applied? (mint-snapshot-id instance-id generation))
-        ;; rf2-3x7nj.11.2 — a re-execute over a still-PENDING instance
+        ;; A re-execute over a still-PENDING instance
         ;; SUPERSEDES its optimistic apply (its reply will be discarded). The
         ;; keys this successor will not re-touch roll back NOW (restore → stale →
         ;; refetch if owned); the keys it does re-touch it paints on the current
         ;; value, inheriting the superseded pre-paint `:before` (below).
         ;; PENDING is `pending?`, never the presence of `:rollback` — a settled
-        ;; row keeps a stripped `:rollback` vector (rf2-3x7nj.11.1).
+        ;; row keeps a stripped `:rollback` vector.
         prior       (get-in runtime-db (rf.resources.mutation-runtime/instance-path instance-id))
         prior-rows  (when (rf.resources.mutation-runtime/pending? prior)
                       (recorded-rollback prior))
@@ -1546,7 +1544,7 @@
                               row))
                           opt-inverse)
         ;; record the snapshot inverse on the instance row's reserved
-        ;; `:patch-summary` `:snapshot-id` / `:rollback` slots (the SETTLE slice
+        ;; `:patch-summary` `:snapshot-id` / `:rollback` slots (the SETTLE step
         ;; replays them). The `:target-unresolved` carries the fail-closed
         ;; nil-resolved `{:from-db …}` optimistic targets (recorded even when
         ;; ALL targets dropped — the evidence must survive).
@@ -1557,10 +1555,10 @@
                                     :rollback          opt-inverse
                                     :optimistic-keys   (vec opt-ks)
                                     :target-unresolved (vec opt-nil-ids)
-                                    ;; the SETTLE slice fills these:
+                                    ;; the SETTLE step fills these:
                                     :reconciliation-refetches nil})
                          ;; a seed / remove may have created / dropped entries +
-                         ;; tags. rf2-2c2mkh — only the applied keys' index
+                         ;; tags. Only the applied keys' index
                          ;; members change, so reconcile that bounded set
                          ;; incrementally (against the pre-apply `opt-entries`)
                          ;; rather than full-rebuilding from all entries.
@@ -1576,7 +1574,7 @@
                     :snapshot-id snapshot-id
                     :affected-keys (vec opt-ks)
                     ;; per-key revision observed at apply time (the conflict-check
-                    ;; basis the SETTLE slice compares) + the forward op shape.
+                    ;; basis the SETTLE step compares) + the forward op shape.
                     :revisions (mapv (fn [{:keys [resource/key revision forward]}]
                                        {:resource/key key :revision revision :forward forward})
                                      opt-inverse)
@@ -1592,7 +1590,7 @@
                    ;; nil-resolved `{:from-db …}` ids) to the started trace.
                    ;; No populates before the request, so the exempt set is empty.
                    before-plan (assoc :invalidation (plan-trace before-plan #{} runtime-db))))
-    ;; DEV-ONLY write-side scope-mismatch tripwire (rf2-byl7bk.4) — a
+    ;; DEV-ONLY write-side scope-mismatch tripwire — a
     ;; `:before-request` invalidation can mis-scope exactly as a success-time
     ;; one (it lowers the same scoped descriptors). Checked against the
     ;; execute-time runtime-db entries (the cache state before the write).
@@ -1600,21 +1598,21 @@
       before-plan {:frame-id frame-id :mutation-id mutation :instance-id instance-id
                    :mut-scope cscope :entries (get-in runtime-db (rf.resources.state/entries-path))})
     {:rf.db/runtime rdb'
-     ;; rf2-agrjvk — `:before-request` invalidation must precede the request
+     ;; `:before-request` invalidation must precede the request
      ;; being lowered to transport. fx run in order, so the invalidation
      ;; dispatch is placed BEFORE `lower-fx` (not appended after it). The
-     ;; generation commit + work-handle record stay first (they establish the
+     ;; generation commit + work-handle record come first (they establish the
      ;; stale-suppression identity the lowered request rides); the invalidation
-     ;; then fires; only THEN does the write lower. Without the reorder the
-     ;; contract ("before-request invalidation happens before the request is
-     ;; lowered") was violated — the request lowered first.
+     ;; then fires; only THEN does the write lower. Appended after `lower-fx`,
+     ;; the request would lower first and violate the contract
+     ;; ("before-request invalidation happens before the request is lowered").
      :fx (cond-> [[:rf.resource/commit-generation {:value generation}]
                   [:rf.resource/record-work-handle
                    {:frame-id frame-id :work-id work-id
                     :transport transport-id :request-id request-id}]]
            before-fxs (into before-fxs)
            true       (conj lower-fx)
-           ;; rf2-3x7nj.11.2 — the superseded apply's recovery refetches
+           ;; the superseded apply's recovery refetches
            superseded (into (:recovery-fx superseded)))}))
 
 ;; ---- :rf.mutation/clear — causal instance reset ---------------------------
@@ -1630,11 +1628,11 @@
   (opportunistic; stale suppression by work-id + generation protects
   correctness — the instance a late reply would write into is gone, so the
   reply handler's existence check suppresses it). Marks the in-flight work
-  row terminal `:cancelled` (carrying the event's causal `:completed-at` —
-  rf2-pk4i6.1#6) and DROPS every cleared instance's ledger rows, the instance
-  having left the runtime (rf2-6gzdb).
+  row terminal `:cancelled` (carrying the event's causal `:completed-at`)
+  and DROPS every cleared instance's ledger rows, the instance
+  having left the runtime.
 
-  A cleared PENDING optimistic apply is rolled back first (rf2-3x7nj.11.2):
+  A cleared PENDING optimistic apply is rolled back first:
   each touched key is restored to its pre-paint snapshot, marked stale (the
   write's server outcome is unknown) and refetched when owned, and
   `:rf.mutation/optimistic-rolled-back` names the cleared apply's
@@ -1643,7 +1641,7 @@
    [_event-id {:keys [instance mutation]}]]
   (let [runtime-db (or rt {})
         instances  (get-in runtime-db (rf.resources.mutation-runtime/instances-path))
-        ;; rf2-8iciw8 — the `:rf.runtime/mutations` map is keyed on the CEDN-1
+        ;; The `:rf.runtime/mutations` map is keyed on the CEDN-1
         ;; byte `key-id`; the storage targets (`dissoc` / `get`) MUST be those
         ;; byte key-ids, never the raw caller-supplied instance id (which is
         ;; `=`-coarser than the byte identity for sequential ids). An explicit
@@ -1669,7 +1667,7 @@
         ;; byte key-ids are an opaque storage detail), read off the rows BEFORE
         ;; they were dissoc'd.
         cleared-ids (mapv #(:instance/id (get instances %)) target-kids)
-        ;; rf2-3x7nj.11.2 — clear is a CANCELLATION: a cleared PENDING
+        ;; Clear is a CANCELLATION: a cleared PENDING
         ;; optimistic apply is rolled back (restore → stale → refetch if owned)
         ;; BEFORE its row, and with it the inverse, is dropped.
         [rdb-r abandoned]
@@ -1688,26 +1686,25 @@
                        (as-> db (reduce (fn [d [wid _]]
                                           (rf.resources.work-ledger/update-record
                                             d wid rf.resources.work-ledger/mark-terminal
-                                            ;; rf2-pk4i6.1#6 — a cancellation is a
+                                            ;; A cancellation is a
                                             ;; COMPLETION, so it carries the event's
                                             ;; causal `:completed-at` (`time-ms`, the
                                             ;; declared-flat `:rf/time-ms`),
                                             ;; symmetric with clear-scope
-                                            ;; (rf2-x76af2.14) and every
-                                            ;; reply-driven cancellation
-                                            ;; (rf2-rl27r2).
+                                            ;; and every
+                                            ;; reply-driven cancellation.
                                             :cancelled {:reason :mutation-clear
                                                         :completed-at time-ms}))
                                         db in-flight))
-                       ;; rf2-6gzdb — a cleared instance LEAVES the runtime, so its
+                       ;; A cleared instance LEAVES the runtime, so its
                        ;; whole ledger holding goes with it: mutation work rows are
                        ;; keyed `[:rf.mutation <instance-id>]`, so the same per-key
                        ;; dropper bounds them PER INSTANCE. Note this covers every
                        ;; cleared instance, not only the in-flight ones above — an
                        ;; instance with no attempt running still carries the
                        ;; terminal rows of every attempt it ever made, and those
-                       ;; are precisely the rows nothing else in the system ever
-                       ;; pruned. Spec 016 §Ledger row retention and identity.
+                       ;; are precisely the rows nothing else in the system
+                       ;; prunes. Spec 016 §Ledger row retention and identity.
                        (as-> db (reduce (fn [d iid]
                                           (rf.resources.work-ledger/drop-rows-for-key
                                             d [:rf.mutation iid]))
@@ -1715,19 +1712,19 @@
     (doseq [[inst rolled] abandoned]
       (emit-abandoned-rollback! frame-id inst rolled))
     (rf.trace/emit! :rf.event :rf.mutation/cleared
-                 ;; rf2-pk4i6.1#6 — the causal `:completed-at` rides the trace as
+                 ;; The causal `:completed-at` rides the trace as
                  ;; well as the cancelled rows, symmetric with
-                 ;; `:rf.resource/removed` (rf2-x76af2.14). The rows themselves
-                 ;; are dropped with the cleared instances (rf2-6gzdb), so the
+                 ;; `:rf.resource/removed`. The rows themselves
+                 ;; are dropped with the cleared instances, so the
                  ;; trace is where epoch / tooling correlation of a mutation
                  ;; cancellation reads its completion time.
                  {:rf.frame/id frame-id :cleared cleared-ids
                   :aborted (mapv first in-flight)
                   :completed-at time-ms})
     {:rf.db/runtime rdb'
-     ;; rf2-sxyrzk — abort by the frame-QUALIFIED request-id (the token the
+     ;; Abort by the frame-QUALIFIED request-id (the token the
      ;; lower registered); the bare work-id would miss the in-flight request.
-     ;; rf2-3x7nj.11.2 — the rolled-back keys' recovery refetches ride beside it.
+     ;; The rolled-back keys' recovery refetches ride beside it.
      :fx (-> []
              (into (keep (fn [[wid transport]] (rf.resources.work-ledger/abort-fx transport frame-id wid)))
                    in-flight)
@@ -1742,7 +1739,7 @@
 
 ;; The stale-suppression trio (the live-slot verifier, the stale-suppress
 ;; reply builder, and the stale-suppressed trace emitter) is the SHARED
-;; substrate `re-frame.resources.reply-handlers` (rf2-nnke18) — byte-identical
+;; substrate `re-frame.resources.reply-handlers` — byte-identical
 ;; behaviour to the resource family, parameterized by the three mutation knobs
 ;; below (the slot path-fn, the work-kind, and the stale-reason) plus the
 ;; mutation correlation-fn / trace-id / bespoke trace facts.
@@ -1799,10 +1796,10 @@
   "Emit the `:rf.mutation/stale-suppressed` trace for a suppressed late
   mutation reply via the SHARED `rf.resources.reply-handlers/emit-stale-suppressed!`,
   carrying the mutation bespoke facts (`:instance` / `:generation` /
-  `:outcome`) PLUS the canonical reply-envelope vocabulary ADDITIVELY
-  (Managed-Effects §Tracing / EP-0011 / rf2-waawic). The work identity rides
-  ONLY as `:rf.reply/work-id` (one name per fact — rf2-o6c2jr dropped the bare
-  `:work/id` duplicate the additive vocabulary already carries)."
+  `:outcome`) PLUS the canonical reply-envelope vocabulary alongside them
+  (Managed-Effects §Tracing / EP-0011). The work identity rides
+  ONLY as `:rf.reply/work-id` (one name per fact — no bare `:work/id`
+  duplicate of what the reply-envelope vocabulary carries)."
   [frame-id instance-id _work-id generation outcome stale]
   (rf.resources.reply-handlers/emit-stale-suppressed!
     :rf.mutation/stale-suppressed
@@ -1821,14 +1818,14 @@
 ;; :completed-at :correlation}` (Managed-Effects §The uniform reply envelope
 ;; / EP-0011 §Mutation Reply). The mutation instance then stores the canonical
 ;; reply's `:value` under its durable `:result` (the instance layer's spelling
-;; of the same decoded result — the reply-map spelling is `:value`, kh9jz6 /
+;; of the same decoded result — the reply-map spelling is `:value`,
 ;; EP-0007). A direct-dispatch test may inline :result / :error on arg 2.
 
 ;; The transport-payload extractors a reply handler lifts from arg 3 live in
 ;; `re-frame.resources.reply` (`transport-success-value` /
 ;; `transport-failure-envelope`) — shared with the resource read path, which
 ;; differs only by the inline durable-layer fallback key (`:result` here for a
-;; mutation instance, `:data` for a resource entry — rf2-366u0g).
+;; mutation instance, `:data` for a resource entry).
 
 (defn succeeded-handler
   "`:rf.mutation.internal/succeeded` — a mutation write succeeded. Verifies
@@ -1850,7 +1847,7 @@
   The reply is re-lifted into the canonical reply map (`rf.resources.reply/success-reply`
   with `:work/kind :mutation`); the decoded result rides as `:value` (the
   reply-map spelling) and is stored under the instance's durable `:result`
-  (the instance-layer spelling — kh9jz6 / EP-0007).
+  (the instance-layer spelling — EP-0007).
 
   Event shape: `[_ <verification-payload> <http-result>]`."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms, app-db :db}
@@ -1858,8 +1855,8 @@
   (let [where      'rf.mutation.internal/succeeded
         runtime-db (or rt {})
         ;; EP-0010 §Managed Effects And Reply Tokens / §Resources, Mutations,
-        ;; And Work-Ledger Timestamps + EP-0017 declared-only delivery
-        ;; (rf2-601ife): the reply is a CAUSAL TOKEN; the host completion time
+        ;; And Work-Ledger Timestamps + EP-0017 declared-only delivery:
+        ;; the reply is a CAUSAL TOKEN; the host completion time
         ;; (`:completed-at`, read ONCE at the transport finalisation boundary)
         ;; rides the reply event's causal `:rf/time-ms`, DECLARED via
         ;; `:rf.cofx/requires` and consumed FLAT here. The handler MUST NOT
@@ -1881,8 +1878,9 @@
       ;; durable write. Per Managed-Effects §Stale suppression the completion
       ;; is recorded `:status :stale` / `:rf.reply/work-status :suppressed` through the
       ;; SHARED `re-frame.reply` substrate (via `stale-suppress-reply`), and
-      ;; the canonical reply-envelope vocabulary rides ADDITIVELY on the
-      ;; `:rf.mutation/stale-suppressed` trace. Settle the (already-superseded)
+      ;; the canonical reply-envelope vocabulary rides on the
+      ;; `:rf.mutation/stale-suppressed` trace alongside the bespoke facts.
+      ;; Settle the (already-superseded)
       ;; work row terminal + clear the host handle.
       (let [stale (stale-suppress-reply runtime-db payload {:outcome :success})]
         (emit-mutation-stale-suppressed!
@@ -1913,10 +1911,10 @@
             ;; populate wins on a key written by both (it ran last).
             [rdb1 patched-ks patch-policies patch-nil-ids patch-skipped]        (apply-patches runtime-db (:patches spec) params result clock-ms scope app-db where)
             [rdb2 populated-ks populate-policies populate-nil-ids populate-skipped] (apply-populates rdb1 (:populates spec) params result clock-ms scope app-db where)
-            ;; rf2-3x7nj.11.3 — a written key's in-flight read is superseded.
+            ;; A written key's in-flight read is superseded.
             [rdb2' superseded-reads] (supersede-reads-under-writes
                                        runtime-db rdb2 (set/union patched-ks populated-ks) work-id)
-            ;; controlled REMOVES (EP-0016 Rider 2 / rf2-fi6tda.3 finding 1 —
+            ;; controlled REMOVES (EP-0016 Rider 2 —
             ;; accepted replies apply patches, populates, invalidates, AND
             ;; removes). Each map-form target's scope resolves exactly as a
             ;; patch / populate target; the resolved key is DISSOC'd + its
@@ -1926,7 +1924,7 @@
             [rdb3 removed-ks removed-work remove-nil-ids remove-skipped] (apply-removes rdb2' (:removes spec) params result clock-ms scope app-db where)
             timer-policies      (merge patch-policies populate-policies)
             target-nil-ids      (-> (vec patch-nil-ids) (into populate-nil-ids) (into remove-nil-ids))
-            ;; rf2-1vpbld — the RECOVERABLE post-write targets the relaxed
+            ;; The RECOVERABLE post-write targets the `:skip-recoverable`
             ;; settle policy DROPPED-AND-WARNED (unregistered resource / non-map
             ;; / non-keyword :resource), per arm. The server write already
             ;; committed, so a typo'd sibling does NOT strand the instance — the
@@ -1957,16 +1955,16 @@
             ;; the union of every dispatched descriptor's tags (the affected-key
             ;; / patch-summary trace reservation records the invalidated tags).
             inv-tags    (when inv-plan (plan-tags inv-plan))
-            ;; rf2-fi6tda.2 — the keys the invalidation pass WILL mark stale,
+            ;; The keys the invalidation pass WILL mark stale,
             ;; computed against the post-cache-consequence entries (`rdb3`) via
             ;; the SHARED match the dispatched invalidate-tags will use, PLUS
-            ;; the actual per-descriptor populate-exempt evidence (rf2-fi6tda.3
-            ;; finding 2). Empty when no invalidation timing fires.
+            ;; the actual per-descriptor populate-exempt evidence.
+            ;; Empty when no invalidation timing fires.
             inv-key-evidence (when inv-plan (plan-key-evidence inv-plan populated-ks rdb3))
             invalidated-ks   (vec (:invalidated-keys inv-key-evidence))
             ;; Spec 016 §Mutation completion continuations: `:affected-keys` are
             ;; the keys POPULATED, PATCHED, REMOVED, OR MARKED STALE by the
-            ;; accepted reply — the union of all four (rf2-fi6tda.2 + .3).
+            ;; accepted reply — the union of all four.
             affected    (vec (distinct (concat patched-ks populated-ks removed-ks invalidated-ks)))
             ;; EP-0019 PHASE 4 — COMMIT the optimistic apply. An accepted `:ok`
             ;; reply settles the optimistic value AUTHORITATIVELY: the
@@ -1985,7 +1983,7 @@
             opt-keys     (when opt-applied?
                            (set (map :resource/key (:rollback opt-summary))))
             authoritative-keys (set/union patched-ks populated-ks (set removed-ks))
-            ;; rf2-6gzdb — an optimistic SEED (`:forward :seed`, a patch over an
+            ;; An optimistic SEED (`:forward :seed`, a patch over an
             ;; ABSENT entry) created a brand-new cache entry back at execute time
             ;; (phase 1.5). No read path ever touched that key, so nothing ever
             ;; armed its advisory stale / GC timers, and the entry is OWNERLESS
@@ -2002,15 +2000,15 @@
             ;; Only `:seed` qualifies, and for ONE reason that covers the other
             ;; two forms: an entry that already EXISTED was created by the read
             ;; path, which armed its timers. A `:patch` forward patches such an
-            ;; entry; a `:remove` forward now TOMBSTONES one in place (rf2-pkkft)
+            ;; entry; a `:remove` forward TOMBSTONES one in place
             ;; rather than dissoc'ing it, so it is reaped by the very timers that
-            ;; entry has carried all along — the owner-free `:idle` tombstone is
+            ;; entry already carries — the owner-free `:idle` tombstone is
             ;; GC-eligible on the ordinary structural gate, and `gc-fired` takes
             ;; its ledger rows and index bucket with it. Only a seed conjures a
             ;; key no read path ever visited, so only a seed needs arming here.
-            ;; This is the mutation-side peer of rf2-ar9pcx / rf2-kz5op1, which
-            ;; closed the same owner-free-entry-never-reaped leak on the resource
-            ;; read path's first-load `:error` and abort settles.
+            ;; This is the mutation-side peer of the timer arming on the
+            ;; resource read path's first-load `:error` and abort settles, which
+            ;; guards the same owner-free-entry-never-reaped leak.
             seeded-orphan-policies
             (when opt-applied?
               (into {}
@@ -2048,7 +2046,7 @@
                                    ;; scope resolved nil were DROPPED (never written
                                    ;; under an implicit global).
                                    :target-unresolved (vec target-nil-ids)
-                                   ;; rf2-1vpbld drop-and-warn evidence: RECOVERABLE
+                                   ;; Drop-and-warn evidence: RECOVERABLE
                                    ;; post-write targets (unregistered resource /
                                    ;; non-map / non-keyword :resource) DROPPED while
                                    ;; the valid siblings applied — egress-safe
@@ -2063,7 +2061,7 @@
                             ;; facts and drops its `:before` snapshot — the whole
                             ;; pre-apply entry, `:data` included, which would
                             ;; otherwise ride `:rf.mutation/succeeded` off-box and
-                            ;; stay pinned on the settled row (rf2-3x7nj.11.1).
+                            ;; stay pinned on the settled row.
                             opt-applied?
                             (assoc :snapshot-id (:snapshot-id opt-summary)
                                    :rollback    (mapv #(dissoc % :before)
@@ -2073,7 +2071,7 @@
             inst'       (rf.resources.mutation-runtime/instance-succeeded
                           inst {:result result :settled-at clock-ms
                                 :affected-keys affected :patch-summary patch-summary})
-            ;; rf2-2c2mkh — the cache consequences (apply-patches /
+            ;; The cache consequences (apply-patches /
             ;; apply-populates / apply-removes above) touch ONLY the
             ;; `authoritative-keys`; reconcile that bounded set's index members
             ;; incrementally against the pre-mutation entries rather than
@@ -2110,7 +2108,7 @@
                                   ;; `:poll` is ABSENT, so an actively-polling
                                   ;; entry the mutation writes into KEEPS its
                                   ;; poll cadence (polling is owner-driven, not
-                                  ;; data-driven) — rf2-3fc89f.10
+                                  ;; data-driven)
                                   :timers       {:stale stale-delay-ms
                                                  :gc    gc-delay-ms}
                                   :server?      server?}])
@@ -2124,10 +2122,10 @@
             ;; dispatched LAST (after the cache-consequence fx) so the
             ;; continuation runs after the invalidation it composes with. PURE —
             ;; the `:rf.mutation/replied` trace is emitted below, AFTER
-            ;; `:rf.mutation/succeeded` (rf2-ru73k6 F2).
+            ;; `:rf.mutation/succeeded`.
             cont-fx     (continuation-fx
                           reply-to
-                          ;; rf2-825mzj — redact the owner-declared sensitive
+                          ;; Redact the owner-declared sensitive
                           ;; param / scope subpaths on the continuation echo
                           ;; (derived from the mutation spec's projection-relative
                           ;; declaration), so a `:sensitive`-declared param does
@@ -2139,7 +2137,7 @@
                             (continuation-reply
                               reply {:mutation-id mutation-id :params params
                                      :instance-id instance-id :scope scope
-                                     ;; rf2-fi6tda.2 + .3: the full affected set
+                                     ;; the full affected set
                                      ;; (populated + patched + removed + stale),
                                      ;; not just patch/populate.
                                      :affected-keys affected})
@@ -2147,14 +2145,14 @@
             ;; best-effort abort of each REMOVED entry's in-flight attempt +
             ;; cancel its advisory timers (its durable facts are gone) —
             ;; mirroring `:rf.resource/remove`. Stale suppression by work-id +
-            ;; generation remains the correctness boundary.
+            ;; generation is the correctness boundary.
             remove-abort-fx (into [] (keep (fn [[wid transport]]
                                              (rf.resources.work-ledger/abort-fx transport frame-id wid)))
                                   removed-work)
             remove-timer-fx (when (seq removed-ks)
                               [[:rf.resource/cancel-timers
                                 {:frame-id frame-id :resource/keys (vec removed-ks)}]])
-            ;; rf2-3x7nj.11.3 — drop each superseded read's host handle and
+            ;; Drop each superseded read's host handle and
             ;; best-effort abort its request, as a forced refetch does.
             supersede-fx (into [] (mapcat (fn [[wid transport]]
                                             (let [abort (rf.resources.work-ledger/abort-fx
@@ -2168,7 +2166,7 @@
                      (cond-> {:rf.frame/id frame-id :instance instance-id :mutation mutation-id
                               :work/id work-id :generation generation
                               :affected-keys affected :patch-summary patch-summary}
-                       ;; rf2-fi6tda.3 finding 1: removed keys ride the
+                       ;; Removed keys ride the
                        ;; settlement trace (the same scoped-key VECTOR shape).
                        (seq removed-ks) (assoc :removed (vec removed-ks))
                        ;; EP-0016 D2: the descriptor-level invalidation evidence
@@ -2195,7 +2193,7 @@
                         :committed committed-keys
                         :reconciliation-refetches reconciliation-refetches
                         :cause [:mutation mutation-id instance-id]}))
-        ;; DEV-ONLY write-side scope-mismatch tripwire (rf2-byl7bk.4) — for each
+        ;; DEV-ONLY write-side scope-mismatch tripwire — for each
         ;; dispatched descriptor that matched NO entry in its resolved scope while
         ;; the same tags DO match an entry in a DIFFERENT scope, emit the loud
         ;; `:rf.warning/mutation-scope-mismatch` diagnostic.
@@ -2204,19 +2202,20 @@
         (maybe-warn-scope-mismatch!
           inv-plan {:frame-id frame-id :mutation-id mutation-id :instance-id instance-id
                     :mut-scope scope :entries (get-in rdb3 (rf.resources.state/entries-path))})
-        ;; DEV-ONLY drop-and-warn tripwire (rf2-1vpbld) — for each RECOVERABLE
-        ;; post-write `:patches` / `:populates` / `:removes` target the relaxed
-        ;; settle policy DROPPED (unregistered resource / non-map / non-keyword
-        ;; :resource), emit the dedicated `:rf.warning/mutation-target-skipped`.
-        ;; The valid siblings already applied + the instance settled (the asymmetry
-        ;; fix); the developer still needs the loud, recoverable tripwire.
+        ;; DEV-ONLY drop-and-warn tripwire — for each RECOVERABLE
+        ;; post-write `:patches` / `:populates` / `:removes` target the
+        ;; `:skip-recoverable` settle policy DROPPED (unregistered resource /
+        ;; non-map / non-keyword :resource), emit the dedicated
+        ;; `:rf.warning/mutation-target-skipped`. The valid siblings already
+        ;; applied + the instance settled; the developer still needs the loud,
+        ;; recoverable tripwire.
         (doseq [{:keys [arm] :as s} target-skipped]
           (maybe-warn-target-skipped!
             [s] {:frame-id frame-id :mutation-id mutation-id
                  :instance-id instance-id :arm arm}))
         ;; PHASE 6 evidence — emitted AFTER `:rf.mutation/succeeded` so the
         ;; `:rf.mutation/replied` trace row truthfully follows settlement in the
-        ;; phase order (rf2-ru73k6 F2). No-op when no `:reply-to` continued.
+        ;; phase order. No-op when no `:reply-to` continued.
         (emit-replied! cont-fx
                        {:frame-id frame-id :mutation-id mutation-id
                         :instance-id instance-id :work-id work-id
@@ -2251,8 +2250,8 @@
   (let [where      'rf.mutation.internal/failed
         runtime-db (or rt {})
         ;; EP-0010 §Managed Effects And Reply Tokens / §Resources, Mutations,
-        ;; And Work-Ledger Timestamps + EP-0017 declared-only delivery
-        ;; (rf2-601ife): a terminal mutation reply writes `:settled-at` from the
+        ;; And Work-Ledger Timestamps + EP-0017 declared-only delivery:
+        ;; a terminal mutation reply writes `:settled-at` from the
         ;; reply completion time. The host `:completed-at` (read ONCE at the
         ;; transport finalisation boundary) rides the reply event's causal
         ;; `:rf/time-ms`, DECLARED via `:rf.cofx/requires` and consumed FLAT
@@ -2266,7 +2265,7 @@
                                          {:work-kind rf.resources.reply/work-kind-mutation
                                           :completed-at completed-at})
         error      (:error reply)
-        ;; rf2-qsn30x (EP-0011 §Status taxonomy / §Work-status mapping): an
+        ;; EP-0011 §Status taxonomy / §Work-status mapping: an
         ;; `:rf.http/aborted` failure envelope is an intentional CANCELLATION,
         ;; which `failure-reply` lowers to `:status :cancelled` /
         ;; `:rf.reply/work-status :cancelled` (not `:error` / `:failed`). The accepted
@@ -2285,8 +2284,8 @@
       ;; NO durable write, NO `:reply-to` continuation. The completion is
       ;; recorded `:status :stale` / `:rf.reply/work-status :suppressed` through the
       ;; SHARED `re-frame.reply` substrate (via `stale-suppress-reply`), with
-      ;; the canonical reply-envelope vocabulary riding ADDITIVELY on the
-      ;; `:rf.mutation/stale-suppressed` trace.
+      ;; the canonical reply-envelope vocabulary riding on the
+      ;; `:rf.mutation/stale-suppressed` trace alongside the bespoke facts.
       (let [stale (stale-suppress-reply runtime-db payload {:outcome :failure})]
         (emit-mutation-stale-suppressed!
           frame-id instance-id work-id generation :failure stale)
@@ -2311,7 +2310,7 @@
             ;; `:on-conflict` — `:invalidate` (default) marks the moved entry
             ;; durably stale at its EXACT carried key + arms the ordinary exact
             ;; refetch when it has active owners (never resurrecting the stale
-            ;; inverse, never keyed off the entry's optional tags — rf2-wcdj4),
+            ;; inverse, never keyed off the entry's optional tags),
             ;; `:force` restores the inverse anyway (single-writer
             ;; last-write-wins, with the tooling warning below). Runs BEFORE the
             ;; failure-time invalidation so that pass reads the ROLLED-BACK cache.
@@ -2338,10 +2337,9 @@
             ;; invalidation a plain pass.
             inv-fxs  (when inv-plan (plan->fx inv-plan cause #{}))
             inv-tags (when inv-plan (plan-tags inv-plan))
-            ;; rf2-fi6tda.2 — an `:after-failure` invalidation marks tagged
+            ;; An `:after-failure` invalidation marks tagged
             ;; keys stale; those keys ARE affected and must flow into
-            ;; `:affected-keys` (the failure path previously recorded an empty
-            ;; vector). Computed against the ROLLED-BACK settle-time entries via
+            ;; `:affected-keys`. Computed against the ROLLED-BACK settle-time entries via
             ;; the SHARED match the dispatched invalidate-tags will use.
             invalidated-ks (when inv-plan
                              (vec (:invalidated-keys (plan-key-evidence inv-plan #{} settle-db))))
@@ -2351,7 +2349,7 @@
             ;; disposition — the refetched keys are its active-owner subset)
             ;; flow into the reply `:affected-keys` (a conflict-invalidated
             ;; key IS affected, even owner-free with no refetch armed — Spec
-            ;; 016 §Mutation completion continuations, rf2-wcdj4 audit). The
+            ;; 016 §Mutation completion continuations). The
             ;; restored keys are also affected.
             refetched-ks (vec (:refetched-keys rolled))
             restored-ks  (vec (:restored-keys rolled))
@@ -2372,7 +2370,7 @@
                        rolled-summary (assoc :patch-summary rolled-summary))
             rdb'     (-> settle-db
                          (assoc-in (rf.resources.mutation-runtime/instance-path instance-id) inst')
-                         ;; rf2-qsn30x: the ledger row settles `:cancelled` for
+                         ;; The ledger row settles `:cancelled` for
                          ;; an accepted abort (the reply lowered it to
                          ;; `:status :cancelled`), else `:failed`. The outcome
                          ;; summary mirrors the resource abort path
@@ -2393,14 +2391,13 @@
             ;; validation errors / form state / notifications off the reply
             ;; `:status`. A failed write applies no patch/populate/remove (no
             ;; result), so the ONLY affected keys are those an `:after-failure`
-            ;; invalidation marks stale (rf2-fi6tda.2 — previously dropped to
-            ;; `#{}`). Dispatched LAST, after the optional failure-time
-            ;; invalidation it composes with.
+            ;; invalidation marks stale. Dispatched LAST, after the optional
+            ;; failure-time invalidation it composes with.
             ;; PURE — the `:rf.mutation/replied` trace is emitted below, AFTER
-            ;; `:rf.mutation/failed` (rf2-ru73k6 F2).
+            ;; `:rf.mutation/failed`.
             cont-fx  (continuation-fx
                        reply-to
-                       ;; rf2-825mzj — redact the owner-declared sensitive param /
+                       ;; Redact the owner-declared sensitive param /
                        ;; scope subpaths on the failure continuation echo too
                        ;; (an accepted `:error` / `:cancelled` reply dispatches
                        ;; `:reply-to`). Derived from the mutation spec.
@@ -2456,7 +2453,7 @@
                        ;; populated keys on a failure, so the Rider 1 exempt
                        ;; set is empty).
                        inv-plan (assoc :invalidation (plan-trace inv-plan #{} settle-db))))
-        ;; DEV-ONLY write-side scope-mismatch tripwire (rf2-byl7bk.4) — also fires
+        ;; DEV-ONLY write-side scope-mismatch tripwire — also fires
         ;; on the `:after-failure` / `:after-settle` invalidation timing (a write
         ;; that invalidates on failure to force a re-read of authoritative server
         ;; state can mis-scope exactly as a success-time one). Computed against
@@ -2466,7 +2463,7 @@
                     :mut-scope scope :entries (get-in settle-db (rf.resources.state/entries-path))})
         ;; PHASE 6 evidence — emitted AFTER `:rf.mutation/failed` so the
         ;; `:rf.mutation/replied` row truthfully follows settlement in the phase
-        ;; order (rf2-ru73k6 F2). No-op when no `:reply-to` continued.
+        ;; order. No-op when no `:reply-to` continued.
         (emit-replied! cont-fx
                        {:frame-id frame-id :mutation-id mutation-id
                         :instance-id instance-id :work-id work-id
