@@ -277,7 +277,10 @@ are part of the implemented composition contract (§Strict composition).
 An inline plan is an executable plan map that is not registered as a
 Story variant. Inline plans MUST NOT appear in Story navigation. They
 MAY compose registered fragments and checks. They MUST return the same
-run-result shape as registered variants.
+run-result shape as registered variants. A map carrying `:world` is a
+compiled plan (the output of `variant-plan`), not an authoring body, and
+is refused with `:rf.error/story-compiled-plan-target`; run the variant by
+its id instead (rf2-nt9f1).
 
 **Execution (rf2-5x1wt.20).** All three verbs accept a map target as well
 as a keyword: `(story/run inline-plan opts)` / `(story/is inline-plan
