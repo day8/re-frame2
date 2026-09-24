@@ -21,9 +21,9 @@
   IS this value, and nothing would have to recompute it from the model.
 
   Every OWNERSHIP row of the census exists because that identity is not
-  available today. The application has to derive `wanted`, remember what
-  it derived last time, and fire the difference by hand at every intent
-  that could have moved it.
+  available to application code. The application has to derive
+  `wanted`, remember what it derived last time, and fire the difference
+  by hand at every intent that could have moved it.
 
   ## Two resources, deliberately
 
