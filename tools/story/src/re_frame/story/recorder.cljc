@@ -37,6 +37,15 @@
     carries `:rf.trace/parent-dispatch-id`, e.g. an `:fx [[:dispatch …]]`
     child) is skipped: replaying its root re-dispatches it, so recording
     it too would run it twice on every replay (rf2-3x7nj.30.2).
+  - A `:dispatch-later` child is not a step either: replaying its root
+    re-arms the timer. In the browser its timer fires outside any handler
+    scope, so it carries no parent id, and the listener recognises it by
+    the `:rf.event/source-detail {:ms …}` stamp that only the
+    `:dispatch-later` seam writes. It lands on `:entries` as a payload-free
+    `:event/timer-child` marker, so the export still waits for the re-armed
+    timer before the next step (rf2-tbik1). On the JVM the timer callback is
+    `bound-fn`-wrapped, so the child carries a parent id and the rule
+    above already skips it.
   - The listener consults `recording?` per emit — toggling off STOPS
     recording without tearing down anything else.
 
@@ -586,6 +595,8 @@
 ;;   {:kind :dom/click      :selector <str> :t <ms>}
 ;;   {:kind :dom/type       :selector <str> :text <str> :t <ms>}
 ;;   {:kind :dom/submit     :selector <str> :t <ms>}
+;;   {:kind :event/timer-child :t <ms>}   ; a fired :dispatch-later child
+;;                                        ; (`append-timer-child`, rf2-tbik1)
 ;;
 ;; `:entries` is a SUPERSET of `:events`: every recordable dispatch
 ;; and assertion lands in BOTH streams (via `append` / `append-
@@ -642,6 +653,21 @@
                                 :event (vec event)
                                 :t     (timestamp-since-start state now-ms)}
                          cofx* (assoc :rf.cofx cofx*))))))))
+
+(defn append-timer-child
+  "Pure: append a payload-free `{:kind :event/timer-child :t <ms>}` marker
+  onto `:entries` iff the state is recording — the time a `:dispatch-later`
+  child fired (rf2-tbik1). It is NOT an event: `:events` never sees it and
+  the export emits no dispatch for it, because replaying the child's root
+  re-arms its timer. The export turns the marker's `:t` into a `[:wait …]`,
+  so the step after it (an auto-assert, typically) runs once the re-armed
+  timer has fired."
+  ([state] (append-timer-child state (now-ms*)))
+  ([state now-ms]
+   (cond-> state
+     (:recording? state)
+     (conj-entry {:kind :event/timer-child
+                  :t    (timestamp-since-start state now-ms)}))))
 
 ;; ---------------------------------------------------------------------------
 ;; DOM-event capture
@@ -890,6 +916,15 @@
      (swap! state append event (now-ms*) cofx))
    nil))
 
+(defn record-timer-child!
+  "Note that a `:dispatch-later` child fired, iff a recording is in flight —
+  the impure writer over `append-timer-child`. Called by the trace listener
+  (rf2-tbik1)."
+  []
+  (when rf.story.config/enabled?
+    (swap! state append-timer-child (now-ms*)))
+  nil)
+
 (defn record-dom-event!
   "Append a DOM-event entry to the recorder's `:entries` slot iff a
   recording is in flight. Called by the DOM-capture
@@ -954,6 +989,13 @@
 
 (def ^:const listener-id ::recorder-listener)
 
+(defn- timer-child?
+  "True iff dispatched-trace `tags` belong to a `:dispatch-later` child
+  (fx- or machine-emitted): the `:dispatch-later` seam is the one dispatch
+  site that stamps `:rf.event/source-detail {:ms …}` (rf2-tbik1)."
+  [tags]
+  (number? (get-in tags [:rf.event/source-detail :ms])))
+
 (defn- trace-listener
   "Trace-bus callback. Routes a single trace event through the
   recorder's filter chain:
@@ -965,6 +1007,9 @@
     4. Must be a ROOT dispatch — no `:rf.trace/parent-dispatch-id` tag.
        A child its root's handler dispatched is reproduced by replaying
        the root (rf2-3x7nj.30.2).
+    5. A `:dispatch-later` child (`timer-child?`) records only a timing
+       marker, never a step: replaying its root re-arms the timer
+       (rf2-tbik1).
 
   Sensitive events (`:sensitive? true`) are RECORDED-BUT-REDACTED: the
   placeholder `redacted-event` vector replaces the event payload so the
@@ -1013,7 +1058,11 @@
                  (vector? (:rf.event/v tags))
                  (nil? (:rf.trace/parent-dispatch-id tags))
                  (recordable-event? (:rf.event/v tags)))
-        (if (rf.story.config/suppress-sensitive? ev (:frame tags))
+        (cond
+          (timer-child? tags)
+          (record-timer-child!)
+
+          (rf.story.config/suppress-sensitive? ev (:frame tags))
           (do
             ;; Record-but-redact: append the redacted
             ;; placeholder so the row's position survives, and bump the
@@ -1025,6 +1074,8 @@
             ;; thing being suppressed.
             (rf.story.config/note-suppressed! (:frame tags))
             (record-event! redacted-event))
+
+          :else
           ;; EP-0017: carry the same trace event's flat
           ;; `:rf.cofx` map (the framework-stamped `:rf/time-ms` plus any
           ;; provided recordable facts — see router.cljc §:rf.event/dispatched

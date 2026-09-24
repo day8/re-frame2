@@ -27,8 +27,9 @@
   The recorder captures BOTH dispatched events (off the trace bus)
   AND DOM interactions (off the canvas root via
   `re-frame.story.recorder.dom-capture`). Each captured entry
-  rides on the recorder's `:entries` slot as one of four shapes;
-  the translator maps them to `:script` steps:
+  rides on the recorder's `:entries` slot as one of four shapes,
+  beside the payload-free `:event/timer-child` marker; the translator
+  maps them to `:script` steps:
 
   | Recorded entry kind                         | Translated step              |
   |---------------------------------------------|------------------------------|
@@ -38,6 +39,7 @@
   | `{:kind :dom/click  :selector s :t ms}`     | `[:click s]`                 |
   | `{:kind :dom/type   :selector s :text t :t ms}` | `[:type s t]`            |
   | `{:kind :dom/submit :selector s :t ms}`     | `[:click s]` (best-effort)   |
+  | `{:kind :event/timer-child :t ms}`          | `[:wait Δt]` only, whatever the threshold (rf2-tbik1) |
   | time gap between entries > `wait-threshold-ms` | `[:wait Δt]` inserted before the next step |
   | `(app-db snapshot at end)` (if provided)    | trailing `[:assert-db path expected]` steps (top-N changed paths) |
 
@@ -292,6 +294,19 @@
              step   (entry->step entry)
              this-t (:t entry)]
          (cond
+           ;; A fired `:dispatch-later` child (rf2-tbik1): no step, because
+           ;; replaying its root re-arms the timer, but ALWAYS its wait,
+           ;; whatever the threshold, so the next step (an auto-assert,
+           ;; typically) runs after the re-armed timer has fired.
+           (= :event/timer-child (:kind entry))
+           (let [gap (when (and (some? last-t) (some? this-t))
+                       (- this-t last-t))]
+             (recur (rest remaining)
+                    (or this-t last-t)
+                    (if (and (number? gap) (pos? gap))
+                      (conj! out [:wait (long gap)])
+                      out)))
+
            ;; Skip entries that don't yield a step (e.g. redacted).
            ;; Leave `last-t` pointing at the most recent TRANSLATED
            ;; step's timestamp so the next emitted step's wait gap
