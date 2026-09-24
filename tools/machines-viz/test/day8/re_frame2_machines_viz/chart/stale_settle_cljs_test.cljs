@@ -1,5 +1,5 @@
 (ns day8.re-frame2-machines-viz.chart.stale-settle-cljs-test
-  "rf2-x19xi — a stale async ELK settle must not overwrite the current
+  "A stale async ELK settle must not overwrite the current
   topology.
 
   ## What this pins
@@ -8,15 +8,15 @@
   (definition / direction / layout-options / density / context-rows /
   adaptive-mode tuple) changes, and keeps the PREVIOUS committed layout
   visible while the pass is in flight. Each pass callback closes over
-  the `this-key` it was launched for. Before rf2-x19xi the callback
-  committed its result UNCONDITIONALLY: a slow result for topology A
-  resolving after topology B had already settled would overwrite B's
+  the `this-key` it was launched for. A callback that committed its
+  result UNCONDITIONALLY would let a slow result for topology A,
+  resolving after topology B had already settled, overwrite B's
   positions / routed edge points / edge-label positions / layout-error
   state and schedule a fit for A — B node ids absent from A's result
   fall back to the `{x 0 y 0}` origin, so the visible current machine
   collapses at the origin or carries another topology's routes.
 
-  The invariant (the rf2-x19xi stale-settle guard): only the completion
+  The invariant (the stale-settle guard): only the completion
   whose closed-over key equals the chart instance's CURRENT
   `layout-key` may mutate visible layout state or trigger post-settle
   fitting. Completion order must not change the final visualization —
@@ -195,7 +195,7 @@
 ;; ---- 1. stale INITIAL settle is dropped (layout state + fit) -----------
 
 (deftest stale-initial-settle-is-dropped
-  (testing "rf2-x19xi — definition A's slow initial settle resolving
+  (testing "definition A's slow initial settle resolving
             AFTER definition B has settled must be dropped whole: B's
             committed positions/routes/edge-labels survive, and the
             stale completion neither updates :fit-key nor calls
@@ -226,16 +226,16 @@
           ;; B (the CURRENT key) settles first.
           ((:done (nth @passes 1)) b-result)
           (is (= 1 (count @fit-calls))
-              "the current B settle schedules exactly the existing one
-               post-settle fit")
+              "the current B settle schedules exactly one post-settle
+               fit")
           (rfn {:machine-id :m :definition machine-b})
           (is (= (:positions b-result) (:positions (last @projections)))
               "non-vacuity: B's settle visibly moves the projection off
                the pre-layout fallback before the stale result arrives")
           ;; This render also fires the ORTHOGONAL first-observed
-          ;; :fit-signal entry fit (fit-sig ::unfit → nil) — existing
-          ;; behavior, not under test; pin it so the later \"no stale
-          ;; fit\" delta is exact.
+          ;; :fit-signal entry fit (fit-sig ::unfit → nil) — behavior
+          ;; outside this test; pin it so the later \"no stale fit\"
+          ;; delta is exact.
           (is (= 2 (count @fit-calls))
               "the first post-settle render adds only the orthogonal
                entry fit")
@@ -260,7 +260,7 @@
 ;; ---- 2. stale MEASURED-RELAYOUT settle is dropped ----------------------
 
 (deftest stale-measured-relayout-settle-is-dropped
-  (testing "rf2-x19xi — the measure-then-relayout SECOND pass closes
+  (testing "the measure-then-relayout SECOND pass closes
             over the same key as its initial pass, so A's measured
             relayout resolving after B has settled is equally stale and
             equally dropped. Also pins the in-flight behavior: after B
@@ -294,8 +294,8 @@
           (is (= 3 (count @passes)) "B's initial pass captured")
           (is (= (:positions a-result)
                  (:positions (last @projections)))
-              "in-flight behavior preserved: while B's pass is pending,
-               the B render still projects A's last committed layout
+              "in-flight behavior: while B's pass is pending, the B
+               render projects A's last committed layout
                rather than flashing an empty graph")
           ;; B settles — B is current.
           ((:done (nth @passes 2)) b-result)
@@ -323,7 +323,7 @@
 ;; ---- 3. stale ERROR settle does not surface ----------------------------
 
 (deftest stale-error-settle-does-not-surface
-  (testing "rf2-x19xi — a stale pass resolving with a LAYOUT-ERROR
+  (testing "a stale pass resolving with a LAYOUT-ERROR
             result must not replace B's committed layout with the empty
             error shape nor paint the layout-error banner over the
             healthy current topology."
