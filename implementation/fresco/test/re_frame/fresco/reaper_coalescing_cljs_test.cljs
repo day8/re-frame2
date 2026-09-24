@@ -1,15 +1,15 @@
 (ns re-frame.fresco.reaper-coalescing-cljs-test
   "THE REAPERS ARM ONE TIMER PER HORIZON PER TURN — not one per cell and
-  one per entry (rf2-6c12m.18).
+  one per entry.
 
   A cell whose last reader leaves and a read-set entry nobody has claimed
   are each given a horizon of grace before they are dropped — one
-  macrotask for a cell, `entry-reap-horizon-ms` for an entry. The runtime
-  used to arm one `setTimeout` per cell and per entry, so a cold mount of
-  N distinct-read boundaries armed N timers during the render and
-  unmounting them armed 2N more: on the 300-row shape the runtime is tuned
-  for, hundreds of heap allocations and scheduler entries per turn for
-  work that is one drain.
+  macrotask for a cell, `entry-reap-horizon-ms` for an entry. One
+  `setTimeout` per cell and per entry would mean a cold mount of N
+  distinct-read boundaries arms N timers during the render and unmounting
+  them arms 2N more: on the 300-row shape the runtime is tuned for,
+  hundreds of heap allocations and scheduler entries per turn for work
+  that is one drain.
 
   ## The row is the 300-row shape, taken at the commit seam
 
@@ -25,8 +25,8 @@
   residue readings that follow are taken past the runtime's own horizon
   exactly as every other suite takes them.
 
-  Measured before the coalescing: 300 timers to mount, 600 to unmount.
-  After: one and two."
+  The row pins one timer to mount and two to unmount, where a timer per
+  cell and per entry would be 300 and 600."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
@@ -93,7 +93,7 @@
                       (fn [_]
                         (testing "and past the horizon every cell, membership
                                   and entry has been reaped — the coalescing
-                                  changed how many timers, never what runs"
+                                  changes how many timers, never what runs"
                           (is (= {:cells 0 :cell-refs 0 :boundaries 0
                                   :edges 0 :entries 0}
                                  (rf.fresco.test.runtime/residue))))
