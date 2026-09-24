@@ -195,8 +195,8 @@
   The extent CLOSES IN A `finally`, so a mint that refuses does not leave
   its own name ambient for whatever runs next. A declaration refusal is
   routinely caught — by a module loader, or by an HMR runtime whose
-  mounted page carries on rendering — and the slot then named a `def`
-  that never completed.
+  mounted page carries on rendering — and without the `finally` the slot
+  would then name a `def` that never completed.
 
   ## The name is also REGISTERED — an AUTHORING-TIME ALIAS FOR FORWARD
   RESOLUTION ONLY
