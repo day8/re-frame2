@@ -22,6 +22,7 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.path :as rf.path]
             [re-frame.privacy :as rf.privacy]
+            [re-frame.registrar :as rf.registrar]
             [re-frame.schemas.validator :as rf.schemas.validator]
             [re-frame.schemas.walker :as rf.schemas.walker]
             [re-frame.source-coords :as rf.source-coords]))
@@ -637,7 +638,12 @@
        (maybe-warn-validator-unavailable!)
        (maybe-warn-walker-opaque! schema path)
        (maybe-emit-schema-violation! frame-id path prior-known? prior-schema
-                                     schema))
+                                     schema)
+       ;; Spec 001 §`:doc` is dev-warned when absent covers app-db schemas.
+       ;; The registrar's shared emitter keeps the macro-path carve-out
+       ;; (`schema-meta` carries `:ns` only when a macro captured coords)
+       ;; and the once-per-`(kind, id)` suppression.
+       (rf.registrar/maybe-emit-missing-doc! :app-schema path schema-meta))
      path))))
 
 (defn reg-app-schemas

@@ -401,10 +401,16 @@
     (or (nil? d)
         (and (string? d) (= "" d)))))
 
-(defn- maybe-emit-missing-doc!
+(defn ^:no-doc maybe-emit-missing-doc!
   "Emit `:rf.warning/missing-doc` once per `(kind, id)` when `meta`
   came from the public macro path and carries no usable `:doc`.
   Per Spec 001 §`:doc` is dev-warned when absent.
+
+  The one emitter for the warning: `register!` calls it for every
+  registrar kind, and the schemas artefact's `reg-app-schema` calls it
+  with kind `:app-schema` and the canonical path as id, because an app-db
+  schema lives in that artefact's per-frame side table and never reaches
+  `register!`. Both share this suppression cache.
 
   Callers MUST wrap invocations in `(when rf.interop/debug-enabled? ...)`
   so the production bundle DCEs the consult+emit branch (Spec 009
