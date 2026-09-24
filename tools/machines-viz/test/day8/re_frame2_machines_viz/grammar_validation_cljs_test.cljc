@@ -1,16 +1,15 @@
 (ns day8.re-frame2-machines-viz.grammar-validation-cljs-test
-  "RECURSIVE grammar-validation tests (rf2-j538f7.18).
+  "RECURSIVE grammar-validation tests.
 
   `grammar/valid-definition?` / `grammar/definition-defect` recursively enforce
-  the runtime-relevant STRUCTURAL PROJECTABILITY contract — no longer the
-  pre-fix SHALLOW minimum-shape check that validated only the root (or
-  parallel-region roots) and therefore blessed
-  structurally-invalid-but-shallowly-ok definitions.
+  the runtime-relevant STRUCTURAL PROJECTABILITY contract, where a SHALLOW
+  minimum-shape check that validated only the root (or parallel-region roots)
+  would bless structurally-invalid-but-shallowly-ok definitions.
 
   These tests pin the recursive walker directly:
 
-    - the three deterministic false positives from the bead report are now
-      REJECTED with the CANONICAL `:rf.error/machine-*` defect category;
+    - three deterministic shallow-check false positives are REJECTED with
+      the CANONICAL `:rf.error/machine-*` defect category;
     - recursive coverage over root / nested-compound / parallel-region initial
       presence + type, empty / non-map state bodies, unknown bare node / spawn
       keys (namespaced keys pass), malformed / dangling keyword AND vector
@@ -33,10 +32,9 @@
   (:category (g/definition-defect definition)))
 
 ;; ---------------------------------------------------------------------------
-;; The three deterministic false positives (bead report §DETERMINISTIC
-;; REPRODUCTION). Pre-fix each returned `valid-definition? => true`; each is
-;; now rejected with the SAME `:rf.error/machine-*` id the runtime
-;; `validate-machine!` raises.
+;; Three deterministic shallow-check false positives. A root-only check
+;; returns `valid-definition? => true` for each; each is rejected with the
+;; SAME `:rf.error/machine-*` id the runtime `validate-machine!` raises.
 
 (deftest deterministic-false-positives-now-rejected
   (testing "nested compound missing :initial => machine-compound-state-missing-initial"
@@ -220,7 +218,7 @@
                                                        :definition {:initial :x :states {:x {}}}}}}}))))
   (testing "a :spawn declaring EXACTLY ONE is accepted"
     (is (nil? (g/definition-defect {:initial :a :states {:a {:spawn {:machine-id :m}}}}))))
-  (testing "rf2-0oy7d — an inline :definition with neither :id-prefix nor
+  (testing "an inline :definition with neither :id-prefix nor
             :fixed-actor-id has no address, and is rejected like the engine"
     (is (= :rf.error/machine-spawn-bad-shape
            (category {:initial :a :states {:a {:spawn {:definition {:initial :x :states {:x {}}}}}}})))
@@ -251,7 +249,7 @@
     (is (nil? (g/definition-defect {:initial :a :states {:a {:timeout 1000 :on-timeout :b} :b {}}})))))
 
 ;; ---------------------------------------------------------------------------
-;; VALID definitions continue to PROJECT (rf2-j538f7.18 acceptance #6)
+;; VALID definitions PROJECT
 
 (def ^:private valid-definitions
   {:flat       {:initial :idle :states {:idle {:on {:go :done}} :done {:final? true}}}
@@ -274,7 +272,7 @@
     (is (nil? (g/definition-defect d))  (str label " carries no defect"))))
 
 ;; ---------------------------------------------------------------------------
-;; Value-FREE diagnostics (rf2-8nzxib / EP-0015): the defect + summary carry
+;; Value-FREE diagnostics (EP-0015): the defect + summary carry
 ;; STRUCTURAL facts only — never a :data slot's live values, an action / guard,
 ;; or any raw value.
 
@@ -300,12 +298,12 @@
       (is (= :rf.error/machine-unknown-node-key (get-in summary [:defect :category]))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-qgtcvy — injective id codec: fixed-width escape, reversible + collision-
-;; free across the whole UTF-16 code-unit range (the pre-fix `_<var-hex>` was
+;; Injective id codec: fixed-width escape, reversible + collision-free across
+;; the whole UTF-16 code-unit range (a variable-width `_<var-hex>` would be
 ;; neither self-delimiting nor reversible above 0xFF).
 
 (deftest escape-id-segment-fixed-width-and-injective
-  (testing "≤ U+00FF keeps the 2-hex `_XX` form (Latin-1 golden ids unchanged)"
+  (testing "≤ U+00FF uses the 2-hex `_XX` form"
     (is (= "_2f" (g/escape-id-segment "/")))
     (is (= "_2d" (g/escape-id-segment "-")))
     (is (= "_5f" (g/escape-id-segment "_")))
@@ -315,7 +313,7 @@
     (is (= "_u5f00" (g/escape-id-segment "开")))      ;; 开
     (is (= "_u59cb" (g/escape-id-segment "始")))      ;; 始
     (is (= "_u0111" (g/escape-id-segment "đ"))))     ;; đ
-  (testing "the pre-fix collision is gone: đ (U+0111) vs \\u0011 + \"1\""
+  (testing "no collision between đ (U+0111) and \\u0011 + \"1\""
     (is (not= (g/escape-id-segment "đ")
               (g/escape-id-segment (str (char 0x11) "1")))
         "distinct inputs must mint distinct ids"))
@@ -328,9 +326,9 @@
                 (str (char 0x11) "1") "a-b" "a/b" "a_b"]]
       (is (= (count segs) (count (distinct (map g/escape-id-segment segs))))))))
 
-;; rf2-qgtcvy — a non-MAP `:on` / `:after` (e.g. `{:on :retry}` from an LLM)
-;; must return the clean slot-specific defect, NOT throw an uncaught ISeq
-;; exception (which bypassed the emit paths' `:invalid-definition` promise).
+;; A non-MAP `:on` / `:after` (e.g. `{:on :retry}` from an LLM) must return
+;; the clean slot-specific defect, NOT throw an uncaught ISeq exception
+;; (which would bypass the emit paths' `:invalid-definition` promise).
 
 (deftest non-map-on-after-rejected-cleanly
   (testing "a non-map `:on` yields :rf.error/machine-bad-on-clause (no throw)"
@@ -348,12 +346,12 @@
     (is (nil? (g/definition-defect {:initial :a :states {:a {:on {:go :b}} :b {}}})))
     (is (nil? (g/definition-defect {:initial :a :states {:a {:after {500 :b}} :b {}}})))))
 
-;; rf2-bj3sxo — the SAME slot-shape rule must cover the FALLBACK `:on` /
-;; `:after` at every root scope (flat root, region root, parallel root), not
-;; only ordinary state nodes. Pre-fix `root-on-target-defect` iterated the flat
-;; root `:on` with NO shape guard, so `{:initial :a :states {:a {}} :on :retry}`
-;; threw an uncaught ISeq exception out of `valid-definition?` / the emitters
-;; instead of returning the catalogued defect.
+;; The SAME slot-shape rule must cover the FALLBACK `:on` / `:after` at every
+;; root scope (flat root, region root, parallel root), not only ordinary state
+;; nodes. Iterating the flat root `:on` with NO shape guard would throw an
+;; uncaught ISeq exception out of `valid-definition?` / the emitters for
+;; `{:initial :a :states {:a {}} :on :retry}` instead of returning the
+;; catalogued defect.
 
 (deftest non-map-root-fallback-on-rejected-cleanly
   (testing "a malformed FLAT-ROOT `:on` (`{… :on :retry}`) returns
@@ -387,8 +385,8 @@
       (is (not (some #(and (string? %) (str/includes? % "leak-me-42"))
                      (tree-seq coll? seq defect)))
           "the malformed application value must not appear anywhere in the defect")))
-  (testing "a well-formed MAP root fallback `:on` / `:after` still PROJECTS
-            (handler normalization + ancestor-fallback precedence preserved)"
+  (testing "a well-formed MAP root fallback `:on` / `:after` PROJECTS
+            (handler normalization + ancestor-fallback precedence)"
     ;; flat root `:on` fallback (every state inherits :logout)
     (is (nil? (g/definition-defect {:initial :a :on {:logout :a}
                                     :states {:a {:on {:go :b}} :b {}}})))
@@ -399,15 +397,14 @@
                                               :b {:initial :one :states {:one {} :two {}}}}})))))
 
 ;; ---------------------------------------------------------------------------
-;; EP-0015 — the summary is content-free BY CONSTRUCTION (rf2-oztox)
+;; EP-0015 — the summary is content-free BY CONSTRUCTION
 ;;
 ;; `defect-diagnostics-are-value-free` above plants a secret in a VALUE
-;; position and hunts for it. It passed for as long as `definition-summary`
-;; disclosed the definition anyway, because a sentinel hunt only ever finds the
-;; leak someone thought to plant: the map leg returned `:keys` — every
-;; top-level key, uncapped and unsanitised — and the `:defect` it embedded
-;; named the offending KEYS and the state-id PATH they sat at. All three are
-;; KEY-position material that hunt never looked at, and all three are
+;; position and hunts for it, and a sentinel hunt only ever finds the leak
+;; someone thought to plant: a map leg returning `:keys` — every top-level key,
+;; uncapped and unsanitised — or an embedded `:defect` naming the offending
+;; KEYS and the state-id PATH they sat at would pass it. All three are
+;; KEY-position material that hunt never looks at, and all three are
 ;; attacker-chosen in content and in size: a definition reaches this function
 ;; from a forged share URL (the share decoder gates `…/chart`'s `:definition`
 ;; through `valid-definition?`), from an LLM response, and from SCXML /
@@ -442,12 +439,11 @@
     (boolean (some #(str/includes? s %) sentinel-fragments))))
 
 (def ^:private exploding-key
-  "A map key whose `toString` THROWS. The old summary ran `(sort-by str (keys
-  definition))` over caller-supplied keys, and `unknown-bare-keys` called
-  `namespace` on them — either could raise the KEY's own exception in place of
-  the failure the summariser was called to describe (the rf2-210uq path-5
-  shape). A caller can put one in a definition, and a forged payload decodes to
-  a non-`Named` key as readily as to a keyword."
+  "A map key whose `toString` THROWS. Running `(sort-by str (keys
+  definition))` over caller-supplied keys, or calling `namespace` on them,
+  would raise the KEY's own exception in place of the failure the summariser
+  was called to describe. A caller can put one in a definition, and a forged
+  payload decodes to a non-`Named` key as readily as to a keyword."
   #?(:clj  (reify Object
              (toString [_] (throw (ex-info (str "toString exploded: " sentinel) {}))))
      :cljs (let [o #js {}]
@@ -473,9 +469,9 @@
    true                                         12})
 
 (def ^:private attacker-sized-definition
-  "2000 sentinel-named states. The old `:keys` leg reproduced every top-level
-  key and the embedded `:defect` named the offending ones and their path, so
-  the summary grew with the forger's input without limit."
+  "2000 sentinel-named states. A `:keys` leg reproducing every top-level key,
+  or an embedded `:defect` naming the offending ones and their path, would
+  grow the summary with the forger's input without limit."
   {:initial                             (keyword (str sentinel "-0"))
    (keyword (str sentinel "-root-key")) 1
    :states  (into {} (map (fn [i] [(keyword (str sentinel "-" i)) {}])) (range 2000))})
@@ -513,10 +509,10 @@
    ["a 16-digit card number"                               4111111111111111]
    ["a boolean"                                            true]
    ["nil"                                                  nil]
-   ;; The `:else` leg. It is the one the bead named directly (`{:type :value}`,
-   ;; outside the closed vocabulary the other two summarisers share), and
-   ;; without an opaque host object in the corpus nothing would reach it — a
-   ;; hole that would have let the tag drift back unnoticed.
+   ;; The `:else` leg. Without an opaque host object in the corpus nothing
+   ;; would reach it, so an `{:type :value}` tag — outside the closed
+   ;; vocabulary the other two summarisers share — could appear there
+   ;; unnoticed.
    ["an opaque host object naming the sentinel"
     #?(:clj (java.io.File. ^String sentinel) :cljs (js-obj "k" sentinel))]])
 
@@ -596,12 +592,12 @@
                small " -> " big)))))
 
 (deftest hostile-keys-do-not-destroy-the-failure-being-described
-  (testing "rf2-oztox — a key that is not `Named` no longer throws out of the
-            validator. `unknown-bare-keys` called `namespace` on every key, and
-            `namespace` throws on a String / host object, so a forged
-            definition carrying a string key replaced the documented rejection
-            with a host cast exception — out of `valid-definition?` itself, and
-            therefore out of every boundary that delegates to it."
+  (testing "a key that is not `Named` does not throw out of the
+            validator. `namespace` throws on a String / host object, so
+            calling it on every key would let a forged definition carrying a
+            string key replace the documented rejection with a host cast
+            exception — out of `valid-definition?` itself, and therefore out
+            of every boundary that delegates to it."
     (doseq [[label d] [["a string key on the root"    {:initial :a :states {:a {}} "x" 1}]
                        ["a string key on a node"      {:initial :a :states {:a {"x" 1}}}]
                        ["a key whose toString throws" {:initial :a :states {:a {}} exploding-key 1}]
@@ -610,5 +606,5 @@
       (is (= :rf.error/machine-unknown-node-key (category d))
           (str label " — the documented defect, not a host exception"))
       (is (false? (g/valid-definition? d)) (str label " — rejects cleanly"))))
-  (testing "the namespaced-key carve-out is unchanged"
+  (testing "the namespaced-key carve-out holds"
     (is (nil? (g/definition-defect {:initial :a :states {:a {:my.app/note "x"}}})))))
