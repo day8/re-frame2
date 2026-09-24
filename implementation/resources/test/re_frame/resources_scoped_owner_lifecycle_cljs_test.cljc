@@ -1,7 +1,7 @@
 (ns re-frame.resources-scoped-owner-lifecycle-cljs-test
   "The scoped-cache OWNER lifecycle — acquire → hold → release → GC — pinned in
   the MULTI-SCOPE context that is re-frame2's structural leak boundary
-  (rf2-s6rviz, Spec 016 §The scoped-cache owner lifecycle).
+  (Spec 016 §The scoped-cache owner lifecycle).
 
   The single-scope GC mechanics (a fired GC re-check removes an owner-free idle
   entry, skips an owned / in-flight one, re-arms on skip) are pinned by
@@ -82,11 +82,11 @@
 ;; ---- helpers --------------------------------------------------------------
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
-;; rf2-9e0tyq — `:entries` is keyed on the opaque byte `key-id`; this test
+;; `:entries` is keyed on the opaque byte `key-id`; this test
 ;; reasons about scoped-key VECTORS, so `entries` returns a vector-keyed VIEW
 ;; (re-keyed from each entry's `:resource/key`) and `owner-index` returns the
 ;; index with its member byte-ids mapped back to the scoped-key vectors. The
-;; semantics (which keys/owners map where) are unchanged.
+;; re-keying preserves which keys/owners map where.
 (defn- entries []
   (into {} (map (fn [[_k-id e]] [(:resource/key e) e]))
         (get-in (runtime-db) (rf.resources.state/entries-path))))
