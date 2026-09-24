@@ -1,14 +1,14 @@
 (ns re-frame.warn-once-clear-governance-test
-  "JVM source-enumeration half of the warn-once-clear governance gate
-  (rf2-z79p8). The CLJS half
+  "JVM source-enumeration half of the warn-once-clear governance gate.
+  The CLJS half
   (`re-frame.warn-once-clear-governance-cljs-test`) proves, at runtime,
   that firing the canonical `:adapter/clear-warn-once-caches!` chain wipes
   every cache enrolled in the `warn-once-clear-registry`. This half proves,
   at the source level, that there is exactly ONE way to enrol a cache into
   that chain — the chokepoint `register-warn-once-clear-fn!` — so a future
-  5th cache cannot quietly chain itself with a bare `chain-fn!` (which
-  would chain it WITHOUT recording it in the registry, re-opening the
-  rf2-4edk/9hoos/qy6cl/z79p8 defect class the CLJS gate can no longer see).
+  cache cannot quietly chain itself with a bare `chain-fn!` (which would
+  chain it WITHOUT recording it in the registry, where the CLJS gate cannot
+  see it).
 
   SINGLE CHOKEPOINT assertion — no source file other than
   `re-frame.late-bind` itself (which DEFINES the chokepoint) may call
@@ -17,13 +17,6 @@
   `install-clear-warn-once-step!` (the spine/adapter seam, itself a thin
   delegator). This guarantees enrolment-and-chaining are atomic: you
   cannot chain without registering.
-
-  (A second assertion once enumerated standalone `clear-*warned*!`-shaped
-  late-bind hooks — the historical straggler shape, a `defonce` cache with
-  a hand-published clear-fn — and checked each was routed through the
-  chokepoint. The last such hook, `:views/clear-plain-fn-warned-pairs!`,
-  was removed in rf2-k4xous once its warning was retired per EP-0002, so
-  that shape no longer exists in source and the assertion had no subject.)
 
   Walks the same source tree as `re-frame.late-bind-drift-test`.")
 
@@ -65,8 +58,8 @@
   is the ONLY legitimate such call site.
 
   Both alias spellings match — the canonical `rf.late-bind`
-  (spec/Conventions.md §Require-alias dialect) and the pre-migration
-  `late-bind` the unswept artefacts still carry. This gate FORBIDS a call
+  (spec/Conventions.md §Require-alias dialect) and a bare `late-bind`
+  alias. This gate FORBIDS a call
   shape, so a spelling it cannot see is an offender it would wave through."
   #"\((?:(?:rf\.)?late-bind/)?chain-fn!\s+:adapter/clear-warn-once-caches!")
 
@@ -74,7 +67,7 @@
   (testing "no source file other than re-frame.late-bind calls
             (chain-fn! :adapter/clear-warn-once-caches! ...) directly —
             every contributor enrols through register-warn-once-clear-fn!
-            so chaining and registry-enrolment are atomic (rf2-z79p8)"
+            so chaining and registry-enrolment are atomic"
     (let [offenders
           (for [^java.io.File f (source-files)
                 :let [content (slurp f)]
@@ -89,7 +82,7 @@
                "spine seam install-clear-warn-once-step!). A raw chain-fn! "
                "wires the cache into the fixture chain WITHOUT recording it "
                "in the warn-once-clear-registry, so the CLJS governance "
-               "assertion can no longer see it — re-opening the "
-               "rf2-4edk/9hoos/qy6cl/z79p8 defect class. Route through the "
+               "assertion cannot see it — the unchained warn-once "
+               "cache defect. Route through the "
                "chokepoint:\n  "
                (str/join "\n  " (sort offenders)))))))
