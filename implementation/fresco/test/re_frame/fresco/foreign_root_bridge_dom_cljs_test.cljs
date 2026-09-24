@@ -1,30 +1,25 @@
 (ns re-frame.fresco.foreign-root-bridge-dom-cljs-test
   "WHO OWNS THE ROOT IS NOT THE VARIABLE, AND AN INVALIDATED CELL IS.
 
-  ## What this file was written to settle, and what it found instead
+  ## A foreign React host is reactive
 
-  The report behind it was that a boundary crossed into from a REAGENT
-  parent *\"paints once and is then deaf to writes\"*, with `h/render!` as a
-  live control, and it asked whether a UIx parent was deaf too — because
-  that would make it the outward bridge generally rather than a Reagent
-  story.
+  A boundary crossed into from a REAGENT parent is not deaf to writes,
+  and neither is one under a UIx parent — the outward bridge repaints
+  exactly as `h/render!` does. §1 below drives FIVE mounting routes —
+  Fresco's own root, a Reagent root through each of the two bridge doors,
+  a plain `react-dom/client` root, and a UIx `defui` parent under a plain
+  root — with one boundary, one subscription, one adapter and one drain,
+  and every one of them re-runs its body and moves the DOM on a write
+  into its own frame. So a Fresco view inside a foreign React host is
+  reactive, and a UIx parent repaints.
 
-  **Neither is deaf.** §1 below drives FIVE mounting routes — Fresco's
-  own root, a Reagent root through each of the two bridge doors, a plain
-  `react-dom/client` root, and a UIx `defui` parent under a plain root —
-  with one boundary, one subscription, one adapter and one drain, and
-  every one of them re-runs its body and moves the DOM on a write into
-  its own frame. So a Fresco view inside a foreign React host is
-  reactive, and the answer the bead's first move asks for is *a UIx
-  parent repaints*.
+  **What WOULD be deaf is a boundary that acquires a cell whose reaction
+  was dropped**, and that has nothing to do with the crossing: §2 opens
+  that window under `h/render!`, where there is no crossing at all. A
+  measurement that varies the mounting route AND the frame id at once can
+  blame the route for what the frame id carries.
 
-  **What IS deaf is a boundary that acquires a cell whose reaction was
-  dropped**, and that has nothing to do with the crossing: §2 reproduces
-  it under `h/render!`, where there is no crossing at all. The reported
-  measurement varied two things at once — the mounting route AND the
-  frame id — and the second was carrying the defect.
-
-  ## The defect, and why the acquire is where it is repaired
+  ## The invalidated cell, and why the acquire is where it is wired
 
   `impl.collector/invalidate-cell!` drops a cell's reaction
   SYNCHRONOUSLY and defers rebuilding the attachment to the microtask
@@ -34,11 +29,11 @@
   table holds a cell with no reaction and no watch.
 
   A boundary that COMMITS in that window is handed that cell by
-  `acquire-cell!`, and used to be handed it as it stood. It then rendered
-  the right value — a reaction-less cell takes the cold probe — and
-  nothing could notify it, because `mark-dirty!` rides the watch the cell
-  does not have. A commit is exactly a place to subscribe, so the acquire
-  now wires what it reuses; the deferred rewire guards on the reaction
+  `acquire-cell!`. Handed it as it stood, the boundary would render the
+  right value — a reaction-less cell takes the cold probe — and nothing
+  could notify it, because `mark-dirty!` rides the watch the cell does
+  not have. A commit is exactly a place to subscribe, so the acquire
+  wires what it reuses; the deferred rewire guards on the reaction
   still being nil, so the two are idempotent with respect to each other.
 
   The window opens on any first-time `reg-sub` of a query some live cell
@@ -53,18 +48,13 @@
   suffix. Every row here needs a fiber, so each degrades in Node to a
   stated skip rather than to a false green.
 
-  ## §3 — the hydration zero the outward bridge inherited
+  ## §3 — the hydration zero the outward bridge carries
 
-  §3 is not part of the reactivity story above. It re-takes the reading
-  `rf2-s52w` established and then lost: a root the CONSUMER opened
-  carries no Spec 011 hydration reporter, so a divergence under a bridged
-  subtree is React's to report and the framework's diagnostic never
-  fires. Its witness used to be
-  *a-consumer-built-root-hydrates-a-bridged-subtree-with-no-framework-reporter*
-  in `native_abi_dom_cljs_test.cljs`, deleted with the native authoring
-  tier by `aa01f0e8a6`. **The subject was never retired** — `h/as-component`
-  is live and this file is the suite that inherited it — so the row is
-  re-taken here rather than withdrawn (`rf2-2tt2` residue 2)."
+  §3 is not part of the reactivity story above. It reads that a root the
+  CONSUMER opened carries no Spec 011 hydration reporter, so a divergence
+  under a bridged subtree is React's to report and the framework's
+  diagnostic never fires. `h/as-component` is the outward bridge and this
+  file is its suite, so the row lives here."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [reagent.core :as r]
             [reagent.dom.client :as rdc]
@@ -124,7 +114,7 @@
      ;; §3 is an `(async done …)` row and `cljs.test` runs one only under a
      ;; MAP-form fixture. `:async? true` selects that shape; with
      ;; `:ambient-frame nil` it establishes no ambient scope, so §1 and §2
-     ;; keep the behaviour they had under the fn-form.
+     ;; see exactly what a fn-form fixture would give them.
      :async?        true
      :init-fn       (fn []
                       (rf.fresco.roots-frames-support/leave-act-environment!)
@@ -178,7 +168,7 @@
     (fn [] (try (rf.fresco/unmount! handle) (catch :default _ nil)))))
 
 (defn- reagent-root-as-element
-  "The bead's route 2: a REAGENT root, `rf/frame-provider` above, and the
+  "Route 2: a REAGENT root, `rf/frame-provider` above, and the
   boundary spliced in as a React element by `h/as-element`."
   [node frame-kw]
   (let [root (rdc/create-root node)]
@@ -190,8 +180,8 @@
     (fn [] (try (.unmount root) (catch :default _ nil)))))
 
 (defn- reagent-root-as-component
-  "The bead's route 3: the same Reagent root through the OTHER bridge
-  door, memoized on the head as the report spells it."
+  "Route 3: the same Reagent root through the OTHER bridge door, memoized
+  on the head."
   [node frame-kw]
   (let [root (rdc/create-root node)]
     (react-dom/flushSync
@@ -218,8 +208,8 @@
     (fn [] (try (.unmount root) (catch :default _ nil)))))
 
 (defn- uix-parent-plain-root
-  "THE ROW THE BEAD'S FIRST MOVE ASKS FOR: a UIx `defui` parent, under a
-  root Fresco did not open."
+  "A UIx `defui` parent, under a root Fresco did not open — the parent
+  that shows the bridge is reactive beyond Reagent."
   [node frame-kw]
   (let [root (react-dom-client/createRoot node)]
     (react-dom/flushSync
@@ -242,18 +232,16 @@
 ;; ===========================================================================
 
 (deftest a-write-repaints-through-every-mounting-route
-  (testing "rf2-phabt's headline claim, driven rather than argued: *a
-            Fresco view rendered inside any React-shaped host that is not
-            a Fresco root is non-reactive*. It is not. One boundary, one
-            subscription, one adapter and one drain; only the root and the
-            parent vary, and every route re-runs the body and moves the
-            DOM.
+  (testing "a Fresco view rendered inside a React-shaped host that is not
+            a Fresco root is REACTIVE, driven rather than argued. One
+            boundary, one subscription, one adapter and one drain; only the
+            root and the parent vary, and every route re-runs the body and
+            moves the DOM.
 
             BODY RUNS ARE THE DIAGNOSTIC and the DOM text is the
-            corroboration — the report is explicit that the failure it saw
-            was a missing NOTIFICATION rather than a stale read, so the
-            reading that answers it is the one that says the body was
-            invoked again."
+            corroboration — the failure a deaf boundary shows is a missing
+            NOTIFICATION rather than a stale read, so the reading that
+            answers it is the one that says the body was invoked again."
     (if-not (rf.fresco.impl.mount/browser?)
       (rf.fresco.roots-frames-support/skip! ":node-test has no DOM")
       (doseq [{:keys [route frame label mount]} routes]
@@ -279,14 +267,14 @@
               (finally (stop)))))))))
 
 ;; ===========================================================================
-;; 2 · THE CELL THE ACQUIRE USED TO REUSE WITHOUT WIRING
+;; 2 · AN INVALIDATED CELL, REUSED BY THE ACQUIRE AND WIRED
 ;; ===========================================================================
 ;;
-;; `invalidate-cell!` drops a cell's reaction now and rebuilds the
+;; `invalidate-cell!` drops a cell's reaction at once and rebuilds the
 ;; attachment at the microtask checkpoint. A boundary committing inside
 ;; that window is handed the empty cell, and handing it over as it stands
-;; — right value, no watch, no way to be notified — is the defect §2 is
-;; about.
+;; — right value, no watch, no way to be notified — would leave the
+;; boundary deaf. §2 pins that the acquire wires it instead.
 ;;
 ;; The window is opened here the way a per-test fixture opens it: the
 ;; registrar is cleared and the query registered from cold, which is a
@@ -315,20 +303,19 @@
   nil)
 
 (deftest a-boundary-acquiring-an-invalidated-cell-is-notified-in-the-same-turn
-  (testing "THE ROW THE BEAD'S MEASUREMENT ACTUALLY TOOK, with the
-            crossing held OUT of it. The cell for this frame's read is
-            still in the table and its reaction has been dropped; a
-            boundary now mounts through Fresco's OWN root — no bridge, no
-            foreign parent, nothing crossed — writes, and drains, all in
-            one turn.
+  (testing "THE INVALIDATED CELL, with the crossing held OUT of it. The
+            cell for this frame's read is still in the table and its
+            reaction has been dropped; a boundary then mounts through
+            Fresco's OWN root — no bridge, no foreign parent, nothing
+            crossed — writes, and drains, all in one turn.
 
-            Before rf2-phabt this row read `ctl/1` after a write of 42 and
-            the body run count did not move: `acquire-cell!` reused the
-            empty cell without wiring it, so `mark-dirty!` had no watch to
-            ride and nothing asked the boundary to render again. The value
-            on the first paint was RIGHT throughout, which is why a
-            witness that stopped at the mount would pass on the broken
-            runtime as happily as on the fixed one.
+            An `acquire-cell!` that reused the empty cell without wiring
+            it would read `ctl/1` after a write of 42 with the body run
+            count unmoved: `mark-dirty!` would have no watch to ride and
+            nothing would ask the boundary to render again. The value on
+            the first paint is RIGHT either way, which is why a witness
+            that stopped at the mount would pass on an unwiring runtime as
+            happily as on this one.
 
             SAME TURN is the whole claim. The deferred rewire does repair
             the cell at the microtask checkpoint, so a row that yielded
@@ -355,8 +342,8 @@
                   "THE ACQUIRE WIRED WHAT IT REUSED — the commit did not
                    leave a reader attached to an empty cell")
               (is (= (str painted "/1") (text-of node))
-                  "it painted the right value, as it always did — a
-                   reaction-less cell takes the cold probe")
+                  "it painted the right value — a reaction-less cell takes
+                   the cold probe")
               (let [runs (deref !runs)]
                 (rf/dispatch-sync [::bump 42] {:frame frame})
                 (drain!)
@@ -377,11 +364,9 @@
 ;; bridge inside it gets React's own reporting and none of Spec 011's:
 ;; `:rf.ssr/hydration-mismatch` never fires, however visibly the DOM diverged.
 ;;
-;; That is a SCOPE and not a gap. `spec/011-SSR.md` states it normatively, and
-;; `137bd927db` (PR #8646, rf2-0brem) narrowed the requirement to owe mismatch
-;; attribution only on roots a re-frame2 door opens. What this row adds is that
-;; the zero is READ rather than argued — which is what `rf2-s52w` established
-;; and then lost when its witness went with `native_abi_dom_cljs_test.cljs`.
+;; That is a SCOPE and not a gap. `spec/011-SSR.md` states it normatively:
+;; mismatch attribution is owed only on roots a re-frame2 door opens. What
+;; this row adds is that the zero is READ rather than argued.
 ;;
 ;; THE PACKAGE'S OWN DOOR IS THE CONTROL, and it is what makes the zero a
 ;; reading: the same manufactured divergence through the hydrating impl DOES
