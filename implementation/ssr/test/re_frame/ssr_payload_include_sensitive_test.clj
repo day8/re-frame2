@@ -1,5 +1,5 @@
 (ns re-frame.ssr-payload-include-sensitive-test
-  "rf2-hjz4r — the `:payload-include-sensitive` permit. A host names concrete
+  "The `:payload-include-sensitive` permit. A host names concrete
   app-db paths whose RAW value may cross to the hydrating browser even though
   the frame classifies them `:sensitive`, e.g. a CSRF synchronizer token the
   client must send back. Classification answers \"keep it out of the tools and
@@ -67,7 +67,7 @@
   (reg-server-frame! session-db session-sensitive)
   (let [db (project session-db [:session] [[:session :csrf]])]
     (is (= "csrf-abc-123" (get-in db [:session :csrf]))
-        "the permitted leaf rides raw (it was :rf/redacted)")
+        "the permitted leaf rides raw (the projection alone gives :rf/redacted)")
     (is (= redacted (get-in db [:session :upstream-key]))
         "control: the classified sibling the host did not permit stays redacted")
     (is (= "alice" (get-in db [:session :user]))
@@ -76,7 +76,7 @@
         "control: the unallowlisted key is still absent")
     (is (not (.contains (pr-str db) "sk-server-only"))
         "control: the withheld value survives nowhere in the slice"))
-  (testing "nil and [] mean no permits — today's projection exactly"
+  (testing "nil and [] mean no permits — the permit-free projection exactly"
     (is (= (rf.ssr.payload-policy/project-app-db-egress (select-keys session-db [:session]) sframe)
            (project session-db [:session] nil)
            (project session-db [:session] [])))
