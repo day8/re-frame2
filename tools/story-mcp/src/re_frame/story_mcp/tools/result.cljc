@@ -45,8 +45,8 @@
     (pr-str v)))
 
 (def ^:private unencodable-key
-  "Wire key of the bounded stand-in `wire-safe-value` puts where a value
-  the encoder cannot write used to be. A member of story-mcp's own
+  "Wire key of the bounded stand-in `wire-safe-value` puts in place of a
+  value the encoder cannot write. A member of story-mcp's own
   `:rf.story-mcp/*` vocabulary, alongside
   `:rf.story-mcp/unknown-arguments` — not an `:rf.error/*` id, because it
   labels a VALUE that was withheld, not a failure that occurred."
@@ -73,7 +73,7 @@
   An instant means one the encoder CAN write: a `java.util.Date` on the
   JVM, not anything `inst?` accepts. `inst?` is also true of a
   `java.time.Instant`, which Cheshire cannot encode, so admitting it
-  turned a whole result into a `-32603` server fault (rf2-3x7nj.34.1).
+  would turn a whole result into a `-32603` server fault.
   Mirrors core's `re-frame.recordable/inst-leaf?`."
   [v]
   (or (nil? v) (boolean? v) (number? v) (string? v)
@@ -96,10 +96,10 @@
   member name instead, which is the worse failure of the two because
   nothing goes red.
 
-  This is a rule about SHAPE, deliberately not a roster of slots. The
-  first fix for this defect named `:explain`, the one slot whose value was
-  known to be un-encodable; the next opaque value simply arrived under a
-  different key (rf2-ia904). A named-slot list is a roster that rots, so
+  This is a rule about SHAPE, deliberately not a roster of slots: a list
+  naming the slots known to carry an un-encodable value would miss the
+  next opaque value to arrive under a different key. A named-slot list is
+  a roster that rots, so
   the default handles the shape and the named slots below are left to do
   only what naming is actually for — improving a projection, not rescuing
   one."
@@ -117,7 +117,7 @@
 (defn- rebuild-record
   "`record` with each entry replaced by `(f entry)`, keeping the record's
   type. A copy of the private `rebuild-record` in `re-frame.mcp-base.dedup`,
-  which solved the same problem for the dedup walk (rf2-gwye.31).
+  which solves the same problem for the dedup walk.
 
   A record has no `empty`, so its entries are written back into the
   original, and an extension key that `f` respells must therefore REPLACE
@@ -138,24 +138,24 @@
   "Project ORDINARY SUCCESS data so the JSON encoder can write it, leaving
   everything that already IS data exactly as it was.
 
-  ## Why success data needs its own projection at all (rf2-gwye.58)
+  ## Why success data needs its own projection at all
 
   `[:assert-db path :pred fn-or-sym]` is a SUPPORTED Story authoring form
   (`tools/story/spec/001-Authoring.md` §Script steps), so a live function
   legitimately sits in a registered variant body — and from there in the
   body `get-variant` returns, the plan `explain-variant` returns, and the
   assertion evidence a RUN returns. None of that is exception data, so the
-  `wire-safe-ex-data` path never saw it, and a function reaching Cheshire
-  throws PAST the tool handler into `server/handle-frame!`, which answers
-  `-32603 Server fault: Cannot JSON encode object of class: class
-  clojure.core$pos_QMARK_`. Four tools failed that way on a variant Story
-  itself runs `:pass` — the verdict, the evidence and the whole surrounding
-  body discarded over one slot.
+  `wire-safe-ex-data` path never sees it, and a function reaching Cheshire
+  would throw PAST the tool handler into `server/handle-frame!`, which
+  would answer `-32603 Server fault: Cannot JSON encode object of class:
+  class clojure.core$pos_QMARK_`. Four tools would fail that way on a
+  variant Story itself runs `:pass` — the verdict, the evidence and the
+  whole surrounding body discarded over one slot.
 
   ## The rule: mark the value, keep everything around it
 
   A callable cannot be reconstructed from JSON or from printed EDN, and
-  pretending otherwise is the lie this replaces: `pr-str` of a function
+  pretending otherwise would be a lie: `pr-str` of a function
   emits `#object[clojure.core$pos_QMARK_ 0x4d1b0d2a …]`, which is neither
   readable EDN nor free of a build-local address. So the value is replaced —
   in place — by the same bounded `{:rf.story-mcp/unencodable \"<class
@@ -179,15 +179,16 @@
     collection as its own type (and visits map keys), so a payload carrying
     no callable comes back equal to what went in.
 
-  ## Records: a respelled key REPLACES its original (rf2-8m1i)
+  ## Records: a respelled key REPLACES its original
 
   The walk is `clojure.walk/walk` everywhere except a record, which
   `rebuild-record` handles. `clojure.walk` rebuilds a record by `conj`-ing
-  the walked entries back into the ORIGINAL record, so an extension key the
-  projection respells — `(assoc (->Sample pos?) pos? :extension)` — gained
-  its marker while the raw `pos?` key stayed too, and Cheshire wrote that
-  key as its identity string. Every other slot of that record was projected
-  correctly, which is why the leak was easy to miss."
+  the walked entries back into the ORIGINAL record, so under it an
+  extension key the projection respells — `(assoc (->Sample pos?) pos?
+  :extension)` — would gain its marker while the raw `pos?` key stayed
+  too, and Cheshire would write that key as its identity string. Every
+  other slot of that record would be projected correctly, which is what
+  makes that leak easy to miss."
   [v]
   (letfn [(project [x]
             (if (or (edn-scalar? x) (coll? x))
@@ -212,22 +213,22 @@
   says: a handler exception becomes an `isError: true` tool result, never
   a protocol-level `-32603`.
 
-  The history is worth keeping, because it is why the guarantee is stated
-  as a shape. `re-frame.story.registrar/validate-shape!` puts the raw
-  Malli `explain` map in `ex-data`, and its `:schema` entries are LIVE
-  reified `malli.core/Schema` objects. Relaying `:explain` verbatim made
+  Why the guarantee is stated as a shape:
+  `re-frame.story.registrar/validate-shape!` puts the raw Malli `explain`
+  map in `ex-data`, and its `:schema` entries are LIVE reified
+  `malli.core/Schema` objects. Relaying `:explain` verbatim would make
   `protocol/write-frame!` throw — past the tool handler, into
-  `server/handle-frame!`, which answered \"Server fault: Cannot JSON
+  `server/handle-frame!`, which would answer \"Server fault: Cannot JSON
   encode object of class: malli.core$_and_schema$…\". The tool's own
-  `isError: true` contract was bypassed and the actionable message (which
-  names the offending key and the nearest declared slot) never left the
-  JVM — on the single commonest authoring mistake an agent makes through
-  the write surface, a typo'd variant slot (rf2-2z9u3). The fix named
-  `:explain`. The generic arm then failed identically for `{:opaque
-  (Object.)}`, because one named slot is not a rule (rf2-ia904).
+  `isError: true` contract would be bypassed and the actionable message
+  (which names the offending key and the nearest declared slot) would
+  never leave the JVM — on the single commonest authoring mistake an
+  agent makes through the write surface, a typo'd variant slot. Naming
+  `:explain` alone would not be enough: `{:opaque (Object.)}` would fail
+  identically, because one named slot is not a rule.
 
-  TWO SLOTS ARE STILL NAMED, and neither is load-bearing for encodability
-  any more — the walk would render both safe on its own. They are named
+  TWO SLOTS ARE NAMED, and neither is load-bearing for encodability — the
+  walk would render both safe on its own. They are named
   because a good projection beats a marker:
 
   `:explain` is replaced by `:explain-humanized`, the
@@ -235,10 +236,10 @@
   keyed by the failing slot (`{:compnent [\"disallowed key\"]}`), and
   carrying the schema's own `:error/message` prose for the mutual-
   exclusion `:fn` clauses. Left to the walk it would survive as a tree of
-  markers — encodable, and useless. `:explain-humanized` is not a new
-  word: it is the slot `spec/010-Schemas.md` §humanize hook already
-  defines for exactly this value, and consumers there already read it in
-  preference to raw `:explain`. Renaming rather than adding also keeps
+  markers — encodable, and useless. `:explain-humanized` is the slot
+  `spec/010-Schemas.md` §humanize hook defines for exactly this value,
+  and consumers there read it in preference to raw `:explain`. Renaming
+  rather than adding also keeps
   the write surface's error slot from colliding with `explain-variant`'s
   unrelated plan-`:explain` projection.
 
@@ -249,8 +250,8 @@
   actually throws. But story-mcp's own wire vocabulary for that same fact
   is the BARE `:rf.error` key, the one `Principles.md` §Error envelopes
   names as the error payload's discriminator and every tool-EMITTED error
-  already sets. Relaying the thrown spelling verbatim would put a SECOND
-  word for one fact on the wire (rf2-2nbck). This is where ex-data
+  sets. Relaying the thrown spelling verbatim would put a SECOND word for
+  one fact on the wire. This is where ex-data
   vocabulary becomes wire vocabulary.
 
   Every other slot rides through as itself — `:reason`, `:where`,
@@ -298,13 +299,13 @@
   text slot serves agent hosts that read EDN; the structured slot
   serves hosts that prefer JSON data — and the cap pipeline sizes both.
 
-  ## The one success projection (rf2-gwye.58)
+  ## The one success projection
 
   `wire-safe-success` runs HERE, once, before either slot is built — so the
   two slots cannot disagree about a value, and the projection lands ahead of
   the wire-boundary transforms (dedup, then the token cap) which run after
   the handler returns. This is the chokepoint every data-returning handler
-  already shares, which is why the projection needs no per-handler opt-in
+  shares, which is why the projection needs no per-handler opt-in
   and no roster of which tools might carry a callable."
   [payload]
   (let [payload (wire-safe-success payload)]
@@ -328,7 +329,7 @@
   server has no bridge to the CLJS browser registry / panel state). It
   distinguishes 'this host cannot answer' from a reached provider that
   answered EMPTY — an agent MUST NOT read the latter's `[]`/`#{}` as this,
-  nor this as an empty inventory (rf2-3fc89f.21)."
+  nor this as an empty inventory."
   :rf.error/story-mcp-capability-unavailable)
 
 (defn capability-unavailable-result
