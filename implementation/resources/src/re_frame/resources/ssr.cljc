@@ -423,11 +423,14 @@
 ;; row must not merely be emptied but REMOVED. A constant substitution is MANY-TO-ONE on precisely the slots
 ;; that name a principal — two tenants project to one key — so there is no
 ;; client-side mapping back, and the row is unreachable for the whole session:
-;; nothing addresses it, and nothing collects it either. GC is TIMER-driven
-;; (`events/gc-fired-handler` fires against a handle armed by a commit fx), and
-;; hydration installs entries without arming any timer, so an ownerless hydrated
-;; row has no collector. Unreachable AND uncollectable leaves removal as the
-;; only lifecycle it can have.
+;; nothing addresses it. Collection does not rescue it. The client arms a GC
+;; timer for every hydrated entry right after `:rf/hydrate`
+;; (`rearm-timers-after-hydration!`, under the resource's normalized
+;; `:gc-after-ms`), so the ownerless row would only linger unread until that
+;; timer collects it — and under `:gc-after-ms :never`, for a resource the
+;; client never registered, or on a `:server` frame, nothing arms one and it
+;; lingers for the session. A row nothing can read has no use for a lifecycle,
+;; so removal is the one it gets.
 ;;
 ;; ---- the COARSE arm reaches the same end by a different road ---
 ;;
@@ -456,9 +459,9 @@
 ;;   regardless. Adoption could not suppress a single request; it would only
 ;;   move WHERE the refetch is planned from.
 ;;
-;; So the coarse row is unreachable and uncollectable exactly as the per-slot
-;; one, and it buys nothing. It is withheld too, and `unaddressable-wire-key?`
-;; matches BOTH substitutions.
+;; So the coarse row is unreachable exactly as the per-slot one, collection
+;; rescues it no better, and it buys nothing. It is withheld too, and
+;; `unaddressable-wire-key?` matches BOTH substitutions.
 
 (defn- coarse-redaction-token?
   "True iff `v` is the coarse WHOLE-COMPONENT `{:rf/redacted …}` token
@@ -746,8 +749,9 @@
                       ;; potentially one principal's data filed under another's
                       ;; key. `project-resources-runtime-db` goes further and
                       ;; WITHHOLDS the row outright — merely emptying it would
-                      ;; leave an ownerless, unaddressable, uncollectable duplicate
-                      ;; in the client's cache (see `unaddressable-wire-key?`). Dropping
+                      ;; leave an ownerless, unaddressable duplicate in the
+                      ;; client's cache, lingering unread at best until GC
+                      ;; collects it (see `unaddressable-wire-key?`). Dropping
                       ;; the data here still matters: it is what makes the
                       ;; withheld row's metadata safe to compute and report, and
                       ;; it fails CLOSED if any future caller ships this entry.
@@ -961,7 +965,8 @@
   emptied row would still be a row: it would install, survive the hydrate
   reconcile, and sit in the client's `:entries` beside the entry
   `ensure` writes under the raw key — ownerless, addressable by nothing, and
-  kept only until the GC timer the client arms after hydration collects it.
+  kept at best until the GC timer the client arms after hydration collects it
+  (none arms under `:gc-after-ms :never`, so there it stays for the session).
   It would also be, on every SSR render of every page, bytes that no client can
   use. So the row does not ride, and `hydrate-runtime-db` drops one that arrives
   from an older render anyway. The many-to-one collapse is vacuous: nothing
@@ -969,8 +974,8 @@
 
   BOTH halves apply to the coarse `:redact` / `:omit` arm too. A coarse key is
   re-keyed no less than a declared one — `project-scoped-key` replaces both its
-  components — so its row would be unaddressable and uncollectable in exactly
-  the same way. A digest is neither one-to-one nor safely client-derivable
+  components — so its row would be unaddressable, and no better collected, in
+  exactly the same way. A digest is neither one-to-one nor safely client-derivable
   (`unaddressable-wire-key?` carries the three-part reasoning), and a 32-bit
   digest of a low-entropy tenant id is enumerable, so shipping a coarse row's
   key would itself be a small egress. Withholding it costs the client nothing
@@ -1479,7 +1484,7 @@
        by this build carries none; this is the never-trust-the-wire half, for
        cached HTML rendered by an earlier deploy. Installing one would leave an
        ownerless duplicate beside the entry `ensure` later writes under the raw
-       key, reachable by nothing and kept only until the GC timer the client
+       key, reachable by nothing and kept at best until the GC timer the client
        arms after hydration collects it. Dropped rows are named on the
        `:rf.resource/hydrated` trace;
     2. recompute `:tag-index` / `:owner-index` from the reconciled
@@ -1564,7 +1569,7 @@
              ;; HTML, and cached HTML from an earlier deploy is routinely served
              ;; to a newer JS bundle. Installing such a row would leave an
              ;; ownerless duplicate beside the entry `ensure` later writes under
-             ;; the raw key, addressable by nothing and kept only until the GC
+             ;; the raw key, addressable by nothing and kept at best until the GC
              ;; timer the client arms after hydration collects it. It is dropped
              ;; HERE rather than at `ensure-handler` because here the fact is
              ;; known exactly and once, for every such row; `ensure` would have

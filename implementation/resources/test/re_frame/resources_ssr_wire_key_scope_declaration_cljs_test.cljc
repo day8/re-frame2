@@ -396,7 +396,7 @@
             per-slot substitution is a CONSTANT sentinel rather than a
             content-addressed digest — a row two principals can collapse onto.
             Shipping it EMPTY would leave an ownerless row in the client's cache
-            that nothing addresses and nothing collects. So it is withheld.
+            that nothing addresses and nothing reads. So it is withheld.
 
             The end-to-end statement of that contract (hydrate reconcile, live
             route/ensure, the exactly-one-request count, the zero-ghost control)
@@ -514,7 +514,7 @@
   (testing "the projection above is what the coarse arm DOES; this is what
             becomes of the row it produced. Both components are
             substituted, so no live client can derive the key, and an installed
-            row would be an ownerless duplicate nothing collects"
+            row would be an ownerless duplicate nothing reads"
     (install-entry! :rf/default (key-for :sealed/report))
     (install-entry! :rf/default (global-key-for :plain/report))
     (let [wired (wire-entries :rf/default)
