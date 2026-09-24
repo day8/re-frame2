@@ -1,5 +1,5 @@
 (ns re-frame.final-state-spawn-order-forget-cljs-test
-  "rf2-p6fw3q — the `:final?`-state AUTO-DESTROY path (`finalize-machine`)
+  "The `:final?`-state AUTO-DESTROY path (`finalize-machine`)
   MUST forget the finished actor from the per-frame `spawn-order` channel,
   exactly like the explicit-destroy path (`destroy/teardown-live-actor!`,
   destroy.cljc step 7).
@@ -15,25 +15,20 @@
   destroyed trace, no re-fired release; (3) frame-destroy emits no phantom
   for the finished actor.
 
-  Which of the three actually DISCRIMINATE changed under rf2-1vlyg, and it
-  is worth saying rather than leaving a reader to assume. This channel used
-  to be `actor-live?`'s standalone alive-or-gone bit, and frame destroy
-  unioned it into its walk membership — so a stranded entry made (2) emit a
-  phantom `:rf.machine/destroyed` and (3) a phantom
-  `:rf.machine.lifecycle/destroyed :parent-frame-destroyed`. Both consumers
-  now confirm against the LIVE runtime-db first (rf2-1vlyg audit: no
-  runtime-state install clears this cache, so a `restore-epoch!` that
-  rewinds past a spawn leaves it naming a DISCARDED actor, and believing it
-  reaped the dead). A stranded entry can therefore no longer resurrect a
-  dissoc'd actor by itself.
+  Which of the three actually DISCRIMINATE a missing `forget!` is worth
+  saying rather than leaving a reader to assume. `actor-live?` and frame
+  destroy's walk both confirm a spawn-order entry against the LIVE
+  runtime-db first (no runtime-state install clears this cache, so a
+  `restore-epoch!` that rewinds past a spawn leaves it naming a DISCARDED
+  actor, and believing it would reap the dead). A stranded entry therefore
+  cannot resurrect a dissoc'd actor by itself.
 
-  So (2) and (3) still pin their contracts — an already-finished actor is
-  never re-reaped — but they no longer FAIL on a missing `forget!`;
-  measured by deleting it from `finalize-machine`, which reds (1) and the
+  So (2) and (3) pin their contracts — an already-finished actor is
+  never re-reaped — but they do not FAIL on a missing `forget!`:
+  deleting it from `finalize-machine` reds (1) and the
   `frame-order` assertion inside (3) and leaves their trace assertions
   green. (1), which asserts on `frame-order` directly, is the pin that
-  keeps the `forget!` honest, and it is why this suite still catches
-  rf2-p6fw3q's regression.
+  keeps the `forget!` honest.
 
   Named `*-cljs-test.cljc` so both cognitect.test-runner (JVM, plain-atom)
   and shadow-cljs (CLJS, reagent) discover it."
@@ -93,7 +88,7 @@
 ;; ===========================================================================
 
 (deftest final-state-forgets-actor-from-spawn-order
-  (testing "rf2-p6fw3q — a spawned child reaching a :final? leaf is removed
+  (testing "a spawned child reaching a :final? leaf is removed
             from the per-frame spawn-order channel by finalize-machine"
     (reg-parent-and-child! :fsf1/parent :fsf1/child)
     (let [spawned-id (spawn-child! :fsf1/parent :rf/default)]
@@ -105,8 +100,8 @@
       (is (nil? (snapshot spawned-id))
           "the finished child's snapshot was synchronously dissoc'd")
       (is (not-any? #(= spawned-id %) (rf.machines.spawn-order/frame-order :rf/default))
-          "the finished child was forgotten from spawn-order (the fix) —
-           without it the liveness bit strands and destroy re-runs"))))
+          "the finished child was forgotten from spawn-order — without it
+           the entry strands, naming an actor the frame no longer holds"))))
 
 ;; ===========================================================================
 ;; 2. a stale destroy after finish is a SILENT no-op
@@ -114,7 +109,7 @@
 ;; ===========================================================================
 
 (deftest stale-destroy-after-final-is-silent-no-op
-  (testing "rf2-p6fw3q — after a spawned child auto-destroys on :final?, a
+  (testing "after a spawned child auto-destroys on :final?, a
             later [:rf.machine/destroy id] is a silent no-op: NO phantom
             :rf.machine/destroyed trace, NO re-fired resource release"
     (install-release-stub!)
@@ -132,10 +127,10 @@
       (rf/dispatch-sync [::stale-destroy spawned-id])
       (is (empty? (rf.machines.test-support/events-of :rf.machine/destroyed))
           "the stale destroy fired NO phantom :rf.machine/destroyed trace
-           (silent-idempotent) — without the forget! it RE-RUNS teardown")
+           (silent-idempotent)")
       (is (= [[:machine spawned-id]] @released)
           "the stale destroy did NOT re-fire the resource release
-           (still exactly one release) — a re-run would double it"))))
+           (exactly one release) — a re-run would double it"))))
 
 ;; ===========================================================================
 ;; 3. frame-destroy emits no phantom for the finished actor
@@ -148,7 +143,7 @@
        set))
 
 (deftest frame-destroy-after-final-emits-no-phantom
-  (testing "rf2-p6fw3q — a spawned child that finished (auto-destroyed) is
+  (testing "a spawned child that finished (auto-destroyed) is
             NOT re-reaped by frame-destroy: no phantom
             :rf.machine.lifecycle/destroyed :parent-frame-destroyed for it"
     (rf/make-frame {:id :fsf3/scratch :doc "final-state / frame-destroy scratch frame"})
