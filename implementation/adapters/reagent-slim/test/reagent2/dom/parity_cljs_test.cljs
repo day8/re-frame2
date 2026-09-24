@@ -610,3 +610,101 @@
       (is (= a b)))
     (is (= "<div tabindex=\"3\"></div>"
            (via-rewrite [:div {:tab-index 3}])))))
+
+;; ---------------------------------------------------------------------------
+;; javascript: URLs (rf2-w1hd8)
+;;
+;; react-dom 19 neutralises a `javascript:` URL in its URL-bearing props:
+;; `href`, `src`, `action`, `formAction` and `xlinkHref` on any non-custom
+;; element, and `data` on an `<object>`. It swaps the value for a URL that
+;; throws (`sanitizeURL`, tested by `isJavaScriptProtocol`). This serializer
+;; wrote every one of them unchanged, so a `javascript:` URL that react-dom
+;; would have blocked went out live. The reference below is the INSTALLED
+;; react-dom. `javascript-url-blocking-agrees-with-installed-react-dom`, in
+;; `reagent2.dom.boolean-attr-react-parity-cljs-test`, sweeps the same rule
+;; over react-dom's whole candidate-name space.
+;; ---------------------------------------------------------------------------
+
+(def ^:private blocked-javascript-url
+  "What react-dom 19.3.0 writes in place of a blocked `javascript:` URL."
+  "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')")
+
+(def ^:private javascript-url-values
+  "Each is a spelling of the scheme that react-dom's `isJavaScriptProtocol`
+  matches: it ignores case, skips leading C0 controls and spaces, and allows a
+  tab, LF or CR between the letters."
+  [["plain"                  "javascript:alert(1)"]
+   ["mixed case"             "JaVaScRiPt:alert(1)"]
+   ["leading spaces"         "  javascript:alert(1)"]
+   ["leading C0 controls"    "\u0001\u001Fjavascript:alert(1)"]
+   ["tab, LF and CR inside"  "java\tscr\nipt\r:alert(1)"]
+   ["a trailing space"       "javascript:alert(1) "]])
+
+(def ^:private near-miss-url-values
+  "Values react-dom leaves alone. They are the controls: an ordinary URL, and
+  two near-misses that a looser copy of the rule would wrongly block (JS `\\s`
+  matches a no-break space, and a space before the colon ends the scheme)."
+  [["an ordinary https URL"   "https://example.com/?q=javascript:x"]
+   ["a space before the colon" "javascript :alert(1)"]
+   ["a leading no-break space" " javascript:alert(1)"]])
+
+(def ^:private url-attribute-forms
+  "One hiccup form per attribute react-dom sanitises, each a fn of the value."
+  [["<a href>"              (fn [v] [:a {:href v}])]
+   ["<img src>"             (fn [v] [:img {:src v}])]
+   ["<form action>"         (fn [v] [:form {:action v}])]
+   ["<button formAction>"   (fn [v] [:button {:form-action v}])]
+   ["<svg><use xlink:href>" (fn [v] [:svg [:use {:xlink-href v}]])]
+   ["<object data>"         (fn [v] [:object {:data v}])]])
+
+(defn- =url-parity
+  "`=parity`, plus one canonicalisation. react-dom escapes `'` as `&#x27;`
+  inside an attribute value. This serializer leaves it literal, because its
+  attribute escape covers `&` and `\"` only. Both spellings parse to the same
+  attribute value, and the blocked URL carries two apostrophes."
+  [hiccup]
+  (mapv #(clojure.string/replace % "&#x27;" "'") (=parity hiccup)))
+
+(deftest parity-javascript-urls-are-blocked-rf2-w1hd8
+  (testing "every spelling of a javascript: URL is blocked in each URL-bearing
+            attribute, exactly as the installed react-dom blocks it"
+    (doseq [[attribute form] url-attribute-forms
+            [label value]    javascript-url-values]
+      (let [[a b] (=url-parity (form value))]
+        (is (clojure.string/includes? a blocked-javascript-url)
+            (str "control: react-dom blocks " label " in " attribute
+                 " — got " (pr-str a)))
+        (is (= a b)
+            (str "reagent-slim diverges from react-dom for " label " in "
+                 attribute)))))
+  (testing "a value react-dom leaves alone is left alone, in each attribute"
+    (doseq [[attribute form] url-attribute-forms
+            [label value]    near-miss-url-values]
+      (let [[a b] (=url-parity (form value))]
+        (is (not (clojure.string/includes? a "React has blocked"))
+            (str "control: react-dom leaves " label " alone in " attribute))
+        (is (= a b)
+            (str "reagent-slim diverges from react-dom for " label " in "
+                 attribute))))))
+
+(deftest parity-javascript-urls-where-react-dom-does-not-block-rf2-w1hd8
+  (testing "`data` is a URL only on an <object>, and a custom element's props
+            are written verbatim; react-dom blocks neither, so neither may this"
+    (doseq [hiccup [[:div {:data "javascript:alert(1)"}]
+                    [:my-widget {:href "javascript:alert(1)"}]]]
+      (let [[a b] (=url-parity hiccup)]
+        (is (not (clojure.string/includes? a "React has blocked"))
+            (str "control: react-dom leaves " (pr-str hiccup) " alone"))
+        (is (= a b)
+            (str "reagent-slim diverges from react-dom for " (pr-str hiccup)))))))
+
+(deftest javascript-url-bytes-rf2-w1hd8
+  (testing "the bytes, stated independently of react-dom so the intent
+            survives a react-dom bump"
+    (is (= (str "<a href=\"" blocked-javascript-url "\"></a>")
+           (via-rewrite [:a {:href "JaVaScRiPt:alert(1)"}])))
+    (is (= (str "<svg><use xlink:href=\"" blocked-javascript-url "\"></use></svg>")
+           (via-rewrite [:svg [:use {:xlink-href " javascript:alert(1)"}]])))
+    (is (= "<a href=\"https://example.com/\"></a>"
+           (via-rewrite [:a {:href "https://example.com/"}]))
+        "an ordinary https URL is untouched")))

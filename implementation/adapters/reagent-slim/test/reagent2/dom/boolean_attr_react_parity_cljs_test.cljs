@@ -463,6 +463,48 @@
                  react "`; render-to-static-markup wrote `" slim "`"))))))
 
 ;; ---------------------------------------------------------------------------
+;; javascript: URLs over the same candidate space (rf2-w1hd8).
+;;
+;; react-dom blocks a `javascript:` URL in a fixed set of props (its
+;; `sanitizeURL`), and this serializer carries a copy of that set. So the
+;; candidates are asked a third question: does a `javascript:` value reach
+;; markup live, or blocked? If react-dom blocks a name and this serializer does
+;; not, the URL ships live; that is the defect rf2-w1hd8 found. The reverse
+;; would block a value react-dom writes. `data` is blocked only on an
+;; `<object>`, which a `<div>` sweep cannot reach; `parity_cljs_test` pins it.
+;; ---------------------------------------------------------------------------
+
+(def ^:private blocked-url-marker "React has blocked a javascript: URL")
+
+(deftest javascript-url-blocking-agrees-with-installed-react-dom
+  (let [value "javascript:alert(1)"
+        rows  (for [attribute candidates
+                    :let [react-html (react-markup "div" attribute value)
+                          slim-html  (slim-markup "div" attribute value)]
+                    :when (and react-html slim-html)]
+                {:attribute  attribute
+                 :react?     (str/includes? react-html blocked-url-marker)
+                 :slim?      (str/includes? slim-html blocked-url-marker)
+                 :react-html react-html
+                 :slim-html  slim-html})]
+    (testing "the sweep compared real rows, and react-dom blocked the names it
+              is known to"
+      (is (> (count rows) 200)
+          (str "only " (count rows) " names compared — an empty sweep reads as a pass"))
+      (is (= #{"href" "src" "action" "formAction" "xlinkHref"}
+             (set (map :attribute (filter :react? rows))))
+          (str "react-dom " react-dom-version " blocks a javascript: URL on a "
+               "<div> in exactly these props; if the set moved, read "
+               "`sanitizeURL`'s call sites in the installed build")))
+    (testing "every name is blocked by this serializer exactly when react-dom
+              blocks it"
+      (doseq [{:keys [attribute react? slim? react-html slim-html]} rows]
+        (is (= react? slim?)
+            (str "react-dom " react-dom-version (if react? " blocks " " writes ")
+                 "a javascript: URL in `" attribute "` (" (pr-str react-html)
+                 "); render-to-static-markup wrote " (pr-str slim-html)))))))
+
+;; ---------------------------------------------------------------------------
 ;; Explicit pins.
 ;;
 ;; The table-driven checks above are the gate; these state the intent in
