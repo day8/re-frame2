@@ -8,9 +8,9 @@
   the retirement roster (`:rf.route/entry-blocked`, `:enter-attempts`,
   `:rf.error/route-guard-loop`, enter bypass, `:bypass-guards?`).
 
-  ## Posture split (rf2-o5dbf)
+  ## Posture split
 
-  Almost everything here is already production-real and carries NO posture
+  Almost everything here is production-real and carries NO posture
   guard: `capture-denials!` observes the denial through a PUBLIC
   `rf/reg-event` handler, not the trace stream, and the terminal-entry
   invariants (nothing commits, no pending value, exactly-once dispatch, the
@@ -18,24 +18,22 @@
   SSR response. Those run in the ordinary `clojure -M:test` suite AND in
   `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false` lane).
 
-  Two shapes needed the guard.
+  Two shapes need the guard.
 
   1. Trace-PAYLOAD assertions — the `:rf.error/can-enter-non-boolean` tags,
      the `:rf.error/navigate-bad-request` `:reason` / `:keys` — sit behind
      `trace/emit-error!`, gated on `rf.interop/debug-enabled?` and read once at
-     load time. Kept VERBATIM inside `(when rf.interop/debug-enabled? …)` arms
-     marked `rf2-o5dbf`. In every case the SEMANTICS beside them (the deny
-     held; the malformed request navigated nowhere) stay posture-independent.
+     load time. They sit inside `(when rf.interop/debug-enabled? …)`
+     dev-instrumentation arms. In every case the SEMANTICS beside them (the deny
+     holds; the malformed request navigates nowhere) stay posture-independent.
 
   2. NEGATIVE trace assertions — `not-any? :rf.error/no-such-handler` and
      `not-any? :rf.error/route-guard-loop`. Under the gate the ring is EMPTY
-     by design, so these pass VACUOUSLY: they would have reported green
+     by design, so these pass VACUOUSLY: they would report green
      without the framework doing anything at all. They are dev-posture
      assertions and are guarded as such, with the production-visible half of
      each (the deny still holds; 12 attempts really did deny 12 times and
-     accumulated no pending value) left outside the arm.
-
-  Nothing was deleted or weakened."
+     accumulated no pending value) left outside the arm."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.events :as rf.events]
@@ -75,11 +73,11 @@
 
   Registers through the PUBLIC `rf/reg-event` — the spelling every doc, example
   and skill teaches — so the suite exercises the documented recipe rather than a
-  framework-internal back door. Before rf2-0r6q4 this had to use the internal
-  `rf.events/reg-event`: the public macro stamps the calling namespace as
-  `:rf.provenance/ns`, and the default image then selected BOTH this
-  registration and the framework's own no-provenance default, so the next
-  `rf/make-frame` failed with `:rf.error/image-duplicate-id`."
+  framework-internal back door. The public macro stamps the calling namespace
+  as `:rf.provenance/ns`; the framework's own no-provenance default carries
+  the `:rf/framework-default?` marker, so the default image selects this
+  registration alone and the next `rf/make-frame` does not fail with
+  `:rf.error/image-duplicate-id`."
   []
   (let [seen (atom [])]
     (rf/reg-event :rf.route/entry-denied (fn [_ [_ d]] (swap! seen conj d) {}))
@@ -102,7 +100,7 @@
 
 (deftest entry-denied-through-link-door-fires-exactly-once
   (testing "the LINK door (:rf.route/url-requested) is a TWO-HOP path
-            (url-requested → transitioned). A denial must fire the event
+            (url-requested → handle-url-change). A denial must fire the event
             exactly ONCE, not once per hop and not zero times."
     (register-common!)
     (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
@@ -159,7 +157,7 @@
       (rf/register-listener! :trace ::d (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/navigate {:to :account}])
       (rf/unregister-listener! :trace ::d)
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). BOTH of these
+      ;; Dev-instrumentation arm (see ns docstring). BOTH of these
       ;; read the trace ring, and the second is NEGATIVE: under
       ;; -Dre-frame.debug=false the ring is empty by design, so `not-any?`
       ;; would pass without the framework resolving anything.
@@ -175,13 +173,13 @@
       (is (nil? (pending))))))
 
 (deftest application-handler-registers-cleanly-and-fires-exactly-once
-  (testing "rf2-0r6q4 — the DOCUMENTED recipe, and the complement of the test
+  (testing "the DOCUMENTED recipe, and the complement of the test
             above. An application registers its OWN :rf.route/entry-denied
             through the PUBLIC rf/reg-event, exactly as the routing docs, the
             auth how-to, the API table and the skill all teach. BOTH properties
             must hold at once: the app registration coexists with the framework's
-            shipped no-op default (the next rf/make-frame assembles — before the
-            fix it threw :rf.error/image-duplicate-id with colliding coordinates
+            shipped no-op default (the next rf/make-frame assembles rather than
+            throwing :rf.error/image-duplicate-id with colliding coordinates
             [{:ns nil} {:ns \"<app ns>\"}]), and the app handler receives the
             denial EXACTLY once. Invocations are COUNTED, so a double-fire and a
             zero-fire (the framework no-op still shadowing the app's handler)
@@ -192,7 +190,7 @@
       (is (= 1 (count (filter #(= :rf.route/entry-denied %)
                               (keys (rf.registrar/registrations :event)))))
           "one :event registration for the id — the app's replaced the default")
-      ;; The reported failure order IS the ordinary one: an app's namespaces
+      ;; This is the ordinary order: an app's namespaces
       ;; load and register, and THEN frames are built.
       (let [probe (rf/make-frame {:id :rf2-0r6q4/probe})]
         (is (some? probe)
@@ -257,7 +255,7 @@
       (rf/register-listener! :trace ::nb (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/navigate {:to :account}])
       (rf/unregister-listener! :trace ::nb)
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The
+      ;; Dev-instrumentation arm (see ns docstring). The
       ;; fail-CLOSED semantics are pinned posture-independently below, through
       ;; the PUBLIC :rf.route/entry-denied handler `capture-denials!` seats.
       (when rf.interop/debug-enabled?
@@ -300,7 +298,7 @@
 ;; ---- the fresh-return auth recipe ---------------------------------------
 
 (deftest fresh-return-after-sign-in
-  (testing "the ratified auth recipe: stash the denied :destination,
+  (testing "the documented auth recipe: stash the denied :destination,
             replace-navigate to login, then after sign-in dispatch a FRESH
             navigate with the stored destination — the guard re-evaluates
             because that is an ordinary new attempt"
@@ -366,7 +364,7 @@
       (rf/dispatch-sync [:rf.route/navigate {:query {:tab "history"}}])
       (is (= 1 @leave) "an in-place query change is a full transition — leave ran")
       (is (= 1 @enter) "…and entry ran too; the in-place form is not a bypass")
-      ;; rf2-3x7nj.12.1: `/page` declares no query vocabulary, so `:tab` is
+      ;; `/page` declares no query vocabulary, so `:tab` is
       ;; committed the way the URL spells it.
       (is (= {"tab" "history"} (get-in (rdb) [:rf.runtime/routing :current :query]))))))
 
@@ -458,18 +456,18 @@
 ;; ===========================================================================
 
 (deftest retired-entry-machinery-is-gone
-  (testing "the R4 retirement roster: no :rf.route/entry-blocked event, no
-            enter bypass, no :bypass-guards? policy key, no :enter-attempts"
+  (testing "the retired entry machinery (EP-0037 R4): no :rf.route/entry-blocked
+            event, no enter bypass, no :bypass-guards? policy key, no :enter-attempts"
     (register-common!)
     (is (nil? (rf.registrar/lookup :event :rf.route/entry-blocked))
-        ":rf.route/entry-blocked is no longer a registered event")
+        ":rf.route/entry-blocked is not a registered event")
     (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
-    ;; the retired set-valued policy key is now an UNKNOWN request key
+    ;; the retired set-valued policy key is an UNKNOWN request key
     (let [traces (atom [])]
       (rf/register-listener! :trace ::bad (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/navigate {:to :account :bypass-guards? #{:enter}}])
       (rf/unregister-listener! :trace ::bad)
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the REJECTION is the
+      ;; SEMANTIC, posture-independent: the REJECTION is the
       ;; always-on structural gate (`rf.routing.address/classify`; navigate.cljc
       ;; §236-250), so a retired key really does buy nothing under the
       ;; production gate — `:bypass-guards? #{:enter}` did NOT get past the
@@ -479,7 +477,7 @@
       (is (= [:bypass-guards?]
              (:keys (rf.routing.address/classify {:to :account :bypass-guards? #{:enter}} nil)))
           "the always-on gate names :bypass-guards? as the unknown key")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (some (fn [ev] (and (= :rf.error/navigate-bad-request (:operation ev))
                                 (= :unknown-keys (-> ev :tags :reason))
@@ -491,16 +489,16 @@
       (rf/register-listener! :trace ::rider (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/navigate {:to :home :rf.route/enter-attempts 2}])
       (rf/unregister-listener! :trace ::rider)
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): same always-on gate.
+      ;; SEMANTIC, posture-independent: same always-on gate.
       (is (= :unknown-keys
              (:reason (rf.routing.address/classify {:to :home :rf.route/enter-attempts 2} nil)))
           ":rf.route/enter-attempts is not an exemption in the always-on gate")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (some (fn [ev] (and (= :rf.error/navigate-bad-request (:operation ev))
                                 (= :unknown-keys (-> ev :tags :reason))))
                   @traces)
-            ":rf.route/enter-attempts is no longer an internal exemption")))))
+            ":rf.route/enter-attempts is not an internal exemption")))))
 
 (deftest repeated-denials-never-emit-a-loop-error
   (testing "entry is terminal, so a repeatedly-denied target cannot spin —
@@ -513,7 +511,7 @@
       (dotimes [_ 12] (rf/dispatch-sync [:rf.route/navigate {:to :account}]))
       (rf/unregister-listener! :trace ::loop)
       (is (= 12 (count @seen)) "each fresh attempt denies once — 12 attempts, 12 denials")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). This assertion
+      ;; Dev-instrumentation arm (see ns docstring). This assertion
       ;; is NEGATIVE over the trace ring, which is EMPTY by design under
       ;; -Dre-frame.debug=false, so outside a posture guard it would pass
       ;; vacuously. The production-visible half of "cannot spin" — 12 attempts
@@ -525,7 +523,7 @@
       (is (nil? (pending)) "no pending value ever accumulated")
       (is (= :home (current-id))))))
 
-;; ---- leave still short-circuits entry ------------------------------------
+;; ---- leave short-circuits entry ------------------------------------------
 
 (deftest leave-runs-before-entry
   (testing "the current route's :can-leave is consulted BEFORE the target's
