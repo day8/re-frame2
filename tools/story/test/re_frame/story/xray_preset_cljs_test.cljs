@@ -515,7 +515,7 @@
 ;; variant already selected and reached `wire-cross-host!` +
 ;; `on-variant-selected!` without ever passing the watcher. A story
 ;; carrying a valid `:xray {:open? true :panel :epoch}` preset therefore
-;; still attempted Xray open/panel/filter/focus operations in a published
+;; still attempted Xray open/panel/filter operations in a published
 ;; static export, where rf2-cljo6 ruled there is deliberately no Xray at
 ;; all. These tests pin the boundary at the namespace entry points, so no
 ;; caller — the mount-time path included — can route around it.
@@ -555,13 +555,12 @@
 (deftest static-export-mount-time-preset-drives-nothing
   (testing "rf2-n440v — the MOUNT-TIME entry point a preset-bearing deep link
             reaches. `on-variant-selected!` applies the preset for an
-            already-selected variant; under static-mode? not one of the four
-            preset operations (open / panel / filters / focus) is attempted."
+            already-selected variant; under static-mode? not one of the three
+            preset operations (open / panel / filters) is attempted."
     (reg-filtered-variant! :story.filt/deep-link
                            {:open?   true
                             :panel   :epoch
-                            :filters {:out [:app/noise]}
-                            :focus   {:event-pos 5}})
+                            :filters {:out [:app/noise]}})
     (let [opened     (atom 0)
           dispatched (atom [])
           configured (atom [])
@@ -580,8 +579,6 @@
             "dev control: :open? true reached Xray's mount/open!")
         (is (some #(= :rf.xray/select-tab (first %)) @dispatched)
             "dev control: :panel reached the :rf.xray/select-tab dispatch")
-        (is (some #(= :rf.xray/focus-event (first %)) @dispatched)
-            "dev control: :focus reached the :rf.xray/focus-event dispatch")
         (is (some #(contains? % :rf.xray/filters) @configured)
             "dev control: :filters reached Xray's configure! seed")
         ;; NOW THE STATIC ARM — counters must not move.

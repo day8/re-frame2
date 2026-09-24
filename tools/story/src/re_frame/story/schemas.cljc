@@ -426,19 +426,18 @@
                  state, so an explicitly empty one clears Xray's pills
                  ('deliberately unfiltered'). Omit the key entirely to
                  leave whatever pills the user has set alone.
-  - `:focus`   — optional pre-focus coordinates. `{:event-pos N}` selects
-                 the Nth event in the current cascade. Rare; usually you
-                 want LIVE to track head."
-  [:map
+
+  The outer map is `{:closed true}`, like the story and variant bodies
+  that carry it: an unknown or typo'd preset slot is rejected at
+  registration with `:rf.error/story-shape` / `:rf.error/variant-shape`,
+  naming the key and its location, rather than silently ignored."
+  [:map {:closed true}
    [:open?   {:optional true} :boolean]
    [:panel   {:optional true} :keyword]
    [:filters {:optional true}
     [:map
      [:out {:optional true} [:vector :keyword]]
-     [:in  {:optional true} [:vector :keyword]]]]
-   [:focus   {:optional true}
-    [:map
-     [:event-pos {:optional true} :int]]]])
+     [:in  {:optional true} [:vector :keyword]]]]])
 
 (def Story
   "Schema for the body of `reg-story`.

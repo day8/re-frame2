@@ -505,8 +505,7 @@
                        ;; live on a separate seam from the embed mount.
                        (rf.story.xray-preset/wire-cross-host!)
                        ;; rf2-q9kv5: apply any per-story Xray preset
-                       ;; (focus tab, configure filters, focus a cascade
-                       ;; position) + seed the RHS chip-row's user-
+                       ;; (focus tab, configure filters) + seed the RHS chip-row's user-
                        ;; override slot from the story's `:xray-panel`.
                        (rf.story.xray-preset/on-variant-selected! now))
                      ;; rf2-8i2a9 / rf2-j538f7.34: RESUME the one run owner —

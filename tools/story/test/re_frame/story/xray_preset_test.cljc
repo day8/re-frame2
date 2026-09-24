@@ -9,7 +9,8 @@
   bridges) lives in `re-frame.story.xray-preset-cljs-test`, because
   only a `-cljs-test` namespace is discovered by the `:node-test`
   build. See the note at the foot of this file."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story :as rf.story]
             [re-frame.story.xray-preset :as rf.story.xray-preset]
             #?@(:cljs [[re-frame.core :as rf]
@@ -134,6 +135,40 @@
   (testing "a non-map :filters slot lowers to nil rather than throwing"
     (is (nil? (rf.story.xray-preset/lower-filters nil)))
     (is (nil? (rf.story.xray-preset/lower-filters [:app/noise])))))
+
+;; ---- the preset map is closed (rf2-6spbt) ---------------------------------
+;;
+;; `:open?`, `:panel` and `:filters` are the whole preset. A slot the
+;; schema does not declare, a `:focus` left over from the retired
+;; pre-focus slot or a typo'd `:pannel`, rejects at registration, naming
+;; the key and where it sits, instead of registering and doing nothing.
+
+(defn- shape-error
+  "Call `f` and return the thrown ex-data, or nil when it did not throw."
+  [f]
+  (try (f) nil
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e))))
+
+(deftest xray-preset-rejects-undeclared-slots
+  (doseq [[kind id reg!] [[:story :story.closed-preset rf.story/reg-story*]
+                          [:variant :story.closed-preset/v rf.story/reg-variant*]]
+          :let [error-id (keyword "rf.error" (str (name kind) "-shape"))]]
+    (testing (str "a " (name kind) " preset carrying :focus is rejected")
+      (let [data (shape-error #(reg! id {:xray {:panel :trace :focus {:event-pos 5}}}))]
+        (is (= error-id (:rf.error/id data))
+            ":focus is not a preset slot, so the closed preset map refuses it")
+        (is (str/includes? (str (:reason data)) ":focus in [:xray]")
+            ":reason names the key and the preset map it sits in")
+        (is (not (rf.story/registered? kind id))
+            "nothing is registered")))
+    (testing (str "a " (name kind) " preset carrying a typo'd slot is rejected")
+      (let [data (shape-error #(reg! id {:xray {:pannel :trace}}))]
+        (is (= error-id (:rf.error/id data)))
+        (is (str/includes? (str (:reason data)) ":pannel in [:xray] (did you mean :panel?)"))))
+    (testing (str "control: a " (name kind) " preset using only declared slots registers")
+      (is (nil? (shape-error #(reg! id {:xray {:open? true :panel :trace
+                                               :filters {:out [:app/noise]}}}))))
+      (is (rf.story/registered? kind id)))))
 
 ;; ---- Why there are no CLJS-only tests in this file -----------------------
 ;;
