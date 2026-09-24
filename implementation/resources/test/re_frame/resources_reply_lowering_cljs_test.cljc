@@ -1,6 +1,6 @@
 (ns re-frame.resources-reply-lowering-cljs-test
   "Host-symmetric conformance for the PURE core of the resource + mutation
-  lowering onto the uniform reply envelope (rf2-zqefg3.3): the canonical
+  lowering onto the uniform reply envelope: the canonical
   reply-map builders in `re-frame.resources.reply`. Runs on the `npm run
   test:cljs` node gate (its ns matches the `cljs-test$` regexp).
 
@@ -9,7 +9,7 @@
   event; the resource family re-lifts that into the ONE canonical reply map
   every managed-async family produces — `re-frame.resources.reply` builds it
   with `:work/kind :resource` / `:mutation` and the decoded result under
-  `:value` (EP-0007 / kh9jz6). The end-to-end entry / instance settlement
+  `:value` (EP-0007). The end-to-end entry / instance settlement
   through these replies is covered by `resources_managed_http_cljs_test` /
   `resources_runtime_cljs_test` / `resources_mutation_cljs_test`.
 
@@ -61,7 +61,7 @@
 
 (deftest resource-failure-reply-is-canonical
   (testing "a resource :error reply carries the closed :rf.http/* envelope AND
-            the causal :completed-at (rf2-rl27r2 — a failed completion is still
+            the causal :completed-at (a failed completion is still
             a managed-async completion with a reply token, so its causal
             completion time rides the reply, symmetric with success)"
     (let [r (rf.resources.reply/failure-reply resource-vp {:kind :rf.http/http-5xx :status 503}
@@ -73,10 +73,10 @@
       (is (= :resource (:rf.reply/work-kind r)))
       (is (= {:kind :rf.http/http-5xx :status 503} (:error r)))
       (is (= 1781078400456 (:completed-at r))
-          "the failure reply carries the causal :completed-at (rf2-rl27r2)")
+          "the failure reply carries the causal :completed-at")
       (is (nil? (:value r)))))
   (testing "an :rf.http/aborted envelope lowers to :status :cancelled, not
-            :error, and carries the causal :completed-at (rf2-rl27r2)"
+            :error, and carries the causal :completed-at"
     (let [r (rf.resources.reply/failure-reply resource-vp {:kind :rf.http/aborted :reason :actor-destroyed}
                                   {:work-kind rf.resources.reply/work-kind-resource
                                    :completed-at 1781078400456})]
@@ -86,12 +86,12 @@
       (is (true? (:cancelled? r)))
       (is (= :actor-destroyed (:rf.reply/cancel-reason r)))
       (is (= 1781078400456 (:completed-at r))
-          "the cancellation reply carries the causal :completed-at (rf2-rl27r2)")
+          "the cancellation reply carries the causal :completed-at")
       (is (= {:kind :rf.http/aborted :reason :actor-destroyed} (:error r))))))
 
 (deftest mutation-success-reply-is-canonical
   (testing "a mutation :ok reply carries :work/kind :mutation and the result
-            under :value (the instance layer stores it as :result — kh9jz6)"
+            under :value (the instance layer stores it as :result)"
     (let [r (rf.resources.reply/success-reply mutation-vp {:slug "w" :title "Welcome"}
                                   {:work-kind rf.resources.reply/work-kind-mutation :completed-at 1781078400456})]
       (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
