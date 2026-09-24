@@ -1,5 +1,5 @@
 (ns re-frame.adapter-client-root-dom-cljs-test
-  "rf2-k5r9t — the real-DOM half of the Reagent client-root contract
+  "The real-DOM half of the Reagent client-root contract
   (`client-root` / `render!` / `unmount!`). The :node-test twin
   (`re-frame.adapter-client-root-cljs-test`) pins the call sequence at
   `reagent.dom.client` with stubs; this one lets the stock fns run against a
