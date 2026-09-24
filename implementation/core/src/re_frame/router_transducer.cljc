@@ -16,7 +16,7 @@
      commit.
    - The scaffold ships a `manual-driver` only — enough to exercise the
      reducing functions deterministically in tests. Real drivers
-     (microtask / raf / virtual-time) are Phase 2.
+     (microtask / raf / virtual-time) are outside the scaffold.
 
   Substrate-agnostic boundary: nothing in this namespace touches the
   rendering substrate or the live frame registry. The 'frame' value
@@ -120,7 +120,7 @@
   An effects-map like `{:db ... :fx [[:dispatch [:x]] [:http {...}]]}`
   yields `:fx [[:dispatch [:x]] [:http {...}]]`. A non-`:fx`-shaped
   effects-map like `{:db ... :dispatch [:x]}` is normalised into the
-  same seq form so reducing fns don't need to know about the legacy
+  same seq form so reducing fns don't need to know about that
   shape."
   []
   (map (fn [{:keys [effects] :as step}]
@@ -162,10 +162,10 @@
   envelopes onto step-results for `frame`.
 
   The factory exists for symmetry with the design's public API. The
-  frame is currently carried inside each envelope (so one transducer
-  instance can service many frames); the factory is the future seam
-  for per-frame customisations (e.g. interceptor-override pre-bound
-  into the transducer)."
+  frame is carried inside each envelope (so one transducer
+  instance can service many frames), and `frame` is ignored; the factory
+  is the seam for per-frame customisations (e.g. interceptor-override
+  pre-bound into the transducer)."
   [_frame]
   (frame-transducer))
 
