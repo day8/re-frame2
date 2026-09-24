@@ -1,17 +1,17 @@
 (ns re-frame.http-jvm-headers-shape-test
-  "rf2-0xvm1 — JVM response headers shape pin.
+  "JVM response headers shape pin.
 
   The JVM transport's `jvm-headers->map` flattens
   `java.net.http.HttpHeaders` into a Clojure map at the
   response-decode boundary. Per Spec 014 §Request envelope the headers
   map is `string → string (or string → vector of strings for
-  multi-valued)`. Before rf2-0xvm1 the helper comma-joined every multi-
-  valued header (`(str/join \",\" vs)`); that breaks `Set-Cookie`
+  multi-valued)`. Comma-joining every multi-
+  valued header (`(str/join \",\" vs)`) would break `Set-Cookie`
   because cookie attribute values legally contain commas
   (`Expires=Wed, 21 Oct 2026 ...`), so comma-joining N lines produces a
   single unparseable string.
 
-  Cookie shape decision (Mike — option a): single-valued headers stay
+  Cookie shape: single-valued headers stay
   `string`; multi-valued headers (every header where the JDK saw more
   than one wire instance) become `vector-of-strings`, preserving the
   original lines verbatim. RFC 6265 §3 forbids comma-folding
@@ -20,14 +20,14 @@
   — because any header the JDK reports with multiple values is, by
   definition, multi-valued on the wire and the consumer needs the
   unfolded form to roundtrip correctly. The string-only fast path
-  remains for the 99% case so the common shape stays cheap.
+  serves the 99% case so the common shape stays cheap.
 
   Tests below construct `HttpHeaders` via the public
   `HttpHeaders/of` factory and exercise the helper through its var so
   the `defn-` stays private to the namespace.
 
-  rf2-hp772l — `jvm-headers->map` is JVM-platform-transport internal and
-  now lives in the per-platform adapter ns `re-frame.http.transport-jvm`."
+  `jvm-headers->map` is JVM-platform-transport internal and
+  lives in the per-platform adapter ns `re-frame.http.transport-jvm`."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.http.transport-jvm :as rf.http.transport-jvm])
   (:import [java.net.http HttpHeaders]
@@ -67,15 +67,15 @@
           "shape is string, NOT a one-element vector — keeps the common
            shape cheap and matches Fetch's `Headers.forEach` behaviour"))))
 
-;; ---- multi-valued path becomes vector (rf2-0xvm1 core pin) -----------------
+;; ---- multi-valued path becomes vector (core pin) ---------------------------
 
 (deftest set-cookie-multi-valued-is-vector
   (testing "two Set-Cookie lines flatten to a 2-element vector — NOT a comma-joined string"
     (let [hh  (->http-headers {"Set-Cookie"
                                ;; The canonical RFC 6265 break case:
                                ;; Expires=… legally embeds a comma between
-                               ;; weekday and day-of-month. The pre-fix
-                               ;; `(str/join \",\" vs)` produced a single
+                               ;; weekday and day-of-month. A
+                               ;; `(str/join \",\" vs)` would produce a single
                                ;; unparseable string from these two lines.
                                ["session=abc; Path=/; Expires=Wed, 21 Oct 2026 07:28:00 GMT"
                                 "csrf=xyz; Path=/; Expires=Thu, 22 Oct 2026 07:28:00 GMT"]})
@@ -100,7 +100,7 @@
                                 "b=2; Path=/"]})
           v   (get (jvm-headers->map hh) "set-cookie")]
       (is (not (string? v))
-          "MUST NOT be the historical \"a=1; Path=/,b=2; Path=/\"
+          "MUST NOT be the \"a=1; Path=/,b=2; Path=/\"
            comma-joined string — that shape is unparseable")
       (is (= ["a=1; Path=/" "b=2; Path=/"] v)
           "vector-on-multi preserves the original wire lines"))))
@@ -119,7 +119,7 @@
           "single-value header stays as string — uniform rule, no
            special-casing by header name"))))
 
-;; ---- key casing — unchanged from prior contract ----------------------------
+;; ---- key casing -----------------------------------------------------------
 
 (deftest header-keys-stay-lower-cased
   (testing "names lower-cased at the boundary regardless of value shape"
