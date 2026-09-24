@@ -40,14 +40,14 @@
   because React has already repaired the DOM by the time the callback
   runs. Counting complaints is the only way to see one go missing.
 
-  ## Provenance
+  ## Where the technique comes from
 
   The technique is `re-frame.bench.fresco.arm1.hydrate-dom-cljs-test`
   and `…arm1.hydrate-recoverable-dom-cljs-test`, reimplemented rather
   than imported — the freeze gate forbids the package from requiring the
-  bench tree, and naming it in prose is provenance rather than a
-  dependency. What is NEW here is that every row runs TWO roots at once;
-  the prototype's rows all run one."
+  bench tree, and naming it in prose is a pointer rather than a
+  dependency. What this file adds is that every row runs TWO roots at
+  once; the bench's rows each run one."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
@@ -180,7 +180,7 @@
 ;; uncaught errors, which is precisely the fail-open the browser runner's
 ;; pageerror rule exists to prevent.
 ;;
-;; These rows used to end INSIDE the fulfilment handler:
+;; A row that ended INSIDE the fulfilment handler:
 ;;
 ;;   (-> (sup/wait-until! both-committed?)
 ;;       (.then (fn [ok] (try …assertions…
@@ -188,27 +188,26 @@
 ;;                                     (mount/release! hb)
 ;;                                     (done))))))
 ;;
-;; There was no rejection arm anywhere in this file, so on a rejection the
-;; handler was skipped, the `try` was never entered and the `finally` never
-;; fired. Nothing ran: no `release!`, no `done`. The row did not fail — it
-;; HUNG to `cljs.test`'s async timeout, reporting the timeout rather than
-;; the rejection, and it handed the next row live roots to take its census
-;; against. H6 is the expensive one: `js/Promise.all` rejects if EITHER
-;; adoption does, so one rejection stranded FOUR handles.
+;; would have no rejection arm, so on a rejection the handler is skipped,
+;; the `try` is never entered and the `finally` never fires. Nothing runs:
+;; no `release!`, no `done`. The row does not fail — it HANGS to
+;; `cljs.test`'s async timeout, reporting the timeout rather than the
+;; rejection, and it hands the next row live roots to take its census
+;; against. H6 would be the expensive one: `js/Promise.all` rejects if
+;; EITHER adoption does, so one rejection would strand FOUR handles.
 ;;
 ;; On THIS lane it is worse than a hang, which is worth knowing before
 ;; reading H7's sabotage as merely slow. An unsettled rejection is an
 ;; unhandled one, so it reaches the page as an uncaught error, and the
-;; browser runner treats that as terminal (rf2-u0j8). Measured on the
-;; sibling suite: the run stopped at that namespace with 85 announced, no
-;; summary line at all, and every namespace scheduled after it silently
-;; unrun — `shadow.test` runs the whole lane, and the closing summary,
-;; inside one `cljs.test/run-block` with no try/catch. So the cost of a
-;; rejection here was never one row.
+;; browser runner treats that as terminal: the run stops at that namespace
+;; with no summary line at all, and every namespace scheduled after it
+;; silently goes unrun — `shadow.test` runs the whole lane, and the closing
+;; summary, inside one `cljs.test/run-block` with no try/catch. So the cost
+;; of a rejection here is never one row.
 ;;
-;; `sup/settle-row!` is the one path every async row now ends with, and H7 is
+;; `sup/settle-row!` is the one path every async row ends with, and H7 is
 ;; what says it works — because its rejection arm is on no green path, and
-;; a repair to a branch nothing takes is untested by construction.
+;; a branch nothing takes is untested by construction.
 ;;
 ;; H4 is deliberately NOT on it: that row is synchronous end to end — no
 ;; `async`, no promise — so its `try`/`finally` is an ordinary bracket and
@@ -287,33 +286,31 @@
 ;; ## THE INDEPENDENCE WITNESS — two divergences, two complaints EACH WAY
 ;;
 ;; What is owed is two overlapping hydrating roots with *independent
-;; mismatch complaints*. Under a page-global window they are not
-;; independent, and the measurement of that is:
+;; mismatch complaints*. Under a page-global window they would not be
+;; independent:
 ;;
-;;   - React reported BOTH divergences. Two roots diverge, and two
+;;   - React reports BOTH divergences. Two roots diverge, and two
 ;;     "Hydration failed because…" errors reach the page's own error
 ;;     channel, because `impl.mount/report-recoverable-default!` delegates
 ;;     unconditionally.
-;;   - Spec 011's `:rf.ssr/hydration-mismatch` fired ONCE. The emit was
-;;     gated on a window that was one boolean for the whole page, and root
-;;     A's closer shut it from a passive effect before root B's hydration
-;;     commit reported. Root B's mismatch was invisible to every tool that
-;;     reads the instrumentation stream.
+;;   - Spec 011's `:rf.ssr/hydration-mismatch` would fire ONCE. The emit
+;;     would be gated on one boolean for the whole page, and root A's
+;;     closer would shut it from a passive effect before root B's
+;;     hydration commit reports. Root B's mismatch would be invisible to
+;;     every tool that reads the instrumentation stream.
 ;;
-;; Those two counts together are what made it a finding about THIS ARM and
-;; not about React: the divergence was detected and reported, and only the
-;; framework's own diagnostic went missing.
+;; Those two counts together are what make it a finding about THIS ARM and
+;; not about React: the divergence is detected and reported, and only the
+;; framework's own diagnostic goes missing.
 ;;
 ;; The window is root-scoped — one per `hydrate-root!`, reachable only
 ;; from that root's handle, carried to that root's closer, reporter and
 ;; presence subtree — so the two counts are EQUAL and this row asserts
-;; that: the strict-inequality assertion is an equality
-;; against the React count, and the `1` became `2`. Neither was re-pinned
-;; and neither was deleted.
+;; that: the framework count equals the React count, and both are `2`.
 ;;
 ;; Both halves are load-bearing and they fail in opposite directions. The
-;; equality catches a diagnostic going missing again — the defect that was
-;; here. The absolute `2` catches the opposite repair, a window that is
+;; equality catches a diagnostic going missing — a page-global window's
+;; defect. The absolute `2` catches the opposite mistake, a window that is
 ;; never shut at all, which would keep both counts equal while making
 ;; every later recoverable error on either root a "hydration mismatch";
 ;; H4 below is the row that separates those two.
@@ -327,9 +324,7 @@
 ;; ordering of root A's closer and root B's recoverable-error callback, and
 ;; React does not let a caller choose that ordering. An executing form of THIS
 ;; row would go green or red on the scheduler, which is a worse control than
-;; none. The hand run against this row's count is PR #7756, landed on main as
-;; commit `fdbf5d6907` — a pointer that can be followed without the GitHub UI,
-;; which "the PR body records it" could not. The family's executing control is
+;; none. The family's executing control is
 ;; [[a-page-global-adoption-window-steals-an-ordinary-roots-enter-transition]]
 ;; below, which arms the same mutation where the readings are taken by
 ;; construction rather than on a schedule.
@@ -379,9 +374,9 @@
                                (pr-str (mapv #(subs % 0 (min 60 (count %))) @captured)))))
 
                     (testing "and the framework's own stream carried exactly
-                              what the page did. This is the rf2-6tmu repair:
-                              each root's Spec 011 emit is gated on the window
-                              THAT root minted, so no root's closer can shut
+                              what the page did. Each root's Spec 011 emit is
+                              gated on the window THAT root minted, so no
+                              root's closer can shut
                               another root's window and no divergence React
                               reported goes missing"
                       (is (= (count react-complaints) (count @seen))
@@ -474,15 +469,15 @@
                             ;; THE DISCRIMINATING HALF, and the reason the two
                             ;; assertions above are not yet a witness of
                             ;; `mount/tree`'s hydrated-root shape: a `render!`
-                            ;; that REMOUNTED the adopted tree — the measured
-                            ;; failure `mount/tree`'s docstring records, a bare
+                            ;; that REMOUNTED the adopted tree — the failure
+                            ;; `mount/tree`'s docstring describes, a bare
                             ;; provider handed to a root that adopted under the
                             ;; Fragment-wrapped closer — would also run the body
                             ;; once and also paint "B2"/"beta". Node identity
                             ;; and the memo bail-out are what a remount cannot
                             ;; fake. (The technique is the fenced
                             ;; `arm1/hydrate-dom-cljs-test`'s §5 rider, restated
-                            ;; against the shipped door — provenance, not a
+                            ;; against the shipped door — a pointer, not a
                             ;; dependency.)
                             (testing "and still ADOPTED through that render: a
                                       props-equal render! bails at the memo with
@@ -515,10 +510,9 @@
 ;;      siblings are still adopting. THE ROW THAT RULES OUT A COUNTER.
 ;; ---------------------------------------------------------------------------
 
-;; A row measuring the page-global — two opens shut by one close — is NOT
-;; what stands here. What follows is the property such a measurement stands
-;; in for, and it discriminates against a strictly larger set of wrong
-;; answers.
+;; This row does not measure a page-global window directly — two opens shut
+;; by one close. It measures the property such a measurement stands in for,
+;; which discriminates against a strictly larger set of wrong answers.
 ;;
 ;; **H2 alone would pass under a page-global REFERENCE COUNT.** Two opens,
 ;; one close, count still one — both roots' mismatches emit and the two
@@ -549,8 +543,7 @@
 ;; schedule removed. That is deliberate rather than a shortcut: the two
 ;; orderings this row separates are orderings React does not let a caller
 ;; choose, so a version that waited for them would be measuring the
-;; scheduler and would go green or red on timing. It is the same technique
-;; the deleted row used, turned on the property instead of on the defect.
+;; scheduler and would go green or red on timing.
 (deftest a-completed-roots-later-recovery-is-not-a-mismatch-while-a-sibling-adopts
   (if-not (rf.fresco.impl.mount/browser?)
     (rf.fresco.roots-frames-support/skip! ":node-test has no DOM")
@@ -578,8 +571,8 @@
             (is (false? (rf.fresco.impl.roots/adopting? window-a)) "root A has completed")
             (is (true? (rf.fresco.impl.roots/adopting? window-b))
                 "and root B is STILL ADOPTING — this single pair of readings
-                 is the whole repair, and it is what the deleted row
-                 measured going the other way"))
+                 is the whole of root-scoping, and a page-global window reads
+                 it the other way"))
 
           (testing "a LATER recoverable error on the completed root A is not a
                     hydration mismatch, however many siblings are adopting —
@@ -609,8 +602,8 @@
             (is (= "a concurrent render root A recovered from"
                    (:error (rf.fresco.roots-frames-support/tags-of (last @seen))))))
 
-          (testing "and rf2-mwx08's fail-open is untouched in every case: the
-                    reporter ALWAYS delegates, emit or no emit"
+          (testing "and the reporter's fail-open holds in every case: it
+                    ALWAYS delegates, emit or no emit"
             (is (= 3 (count (filterv #(re-find #"root A|root B" %) @captured)))
                 (str "all three errors reached the page's own error channel: "
                      (pr-str @captured))))
@@ -623,17 +616,17 @@
 ;; H5 — presence isolation: adoption belongs to a SUBTREE, not to the page
 ;; ---------------------------------------------------------------------------
 
-;; The mismatch diagnostic was the LOUD half of the page-global. This is the
-;; quiet half, and it is the one an application would have felt: presence is
+;; The mismatch diagnostic is the LOUD half of a page-global window. This is
+;; the quiet half, and it is the one an application would feel: presence is
 ;; a second reader of the same window, and it reads it during a RENDER.
 ;;
-;; While ANY root hydrated, the window answered true for every presence tray
-;; on the page — including one in an ORDINARY root that had nothing to do
-;; with the hydration and was not adopting anything. Such a tray was told its
-;; children were already on the screen, so it started them `:present` and
-;; skipped the enter transition its author wrote. Nothing complained; the
-;; animation simply did not play, and only when a sibling root happened to be
-;; hydrating.
+;; Under a page-global window, while ANY root hydrates, the window answers
+;; true for every presence tray on the page — including one in an ORDINARY
+;; root that has nothing to do with the hydration and is not adopting
+;; anything. Such a tray is told its children are already on the screen, so
+;; it starts them `:present` and skips the enter transition its author wrote.
+;; Nothing complains; the animation simply does not play, and only when a
+;; sibling root happens to be hydrating.
 ;;
 ;; The construction makes that overlap a FACT rather than a race, the way H1
 ;; does: `hydrate-root!` returns before its tree is adopted, so root A's
@@ -646,9 +639,8 @@
 ;; below arms exactly this mutation — `sup/with-page-global-adoption` points
 ;; the window `impl.presence-react` reads back at a page-wide one — runs this
 ;; row's construction under it, and asserts the ordinary root's first phase is
-;; `:present`. That is the assertion the shipped code failed, going red on
-;; demand rather than being described. It was first run by hand for PR #7756,
-;; landed on main as commit `fdbf5d6907`.
+;; `:present` — this row's assertion, going red on demand rather than being
+;; described.
 (deftest presence-adoption-belongs-to-a-subtree-not-to-the-page
   (async done
     (if-not (rf.fresco.impl.mount/browser?)
@@ -661,7 +653,7 @@
       ;; those `let`s were never entered — so each is recorded as it is
       ;; created and `:release!` gives back whatever exists. Every other row
       ;; in this file binds its handles before the chain and names them
-      ;; directly, which is the shape the two repaired sibling suites carry.
+      ;; directly, which is the shape the two sibling suites carry.
       (let [held (atom {})]
         (fresh!)
         (reset! !phases {})
@@ -689,7 +681,7 @@
                     (swap! held assoc :hb hb)
                     (testing "the ordinary sibling gets its ENTER phase, even
                               though a hydration is in flight elsewhere on the
-                              page — the row the shipped page-global failed"
+                              page — the row a page-global window fails"
                       (is (= :mounting (first (get @!phases :ordinary)))
                           (str "root B's first render must see :mounting; saw "
                                (pr-str (get @!phases :ordinary))))
@@ -698,8 +690,8 @@
 
                     (testing "an ordinary root has no adoption window at all —
                               nil, which `adopting?` reads as closed. That is
-                              what makes the repair free for it: no object, no
-                              provider, no branch"
+                              what makes root-scoping free for it: no object,
+                              no provider, no branch"
                       (is (nil? (:adoption hb)))
                       (is (false? (rf.fresco.impl.roots/adopting? (:adoption hb)))))
 
@@ -783,7 +775,7 @@
 ;; reviewer cannot re-run a comment.
 ;;
 ;; This row is the mutation, executing. `sup/with-page-global-adoption`
-;; restores the page-global window — one ref for the whole page, read by
+;; substitutes a page-global window — one ref for the whole page, read by
 ;; every presence tray on it — and the row runs H5's construction under it and
 ;; again without it, changing nothing else in between. Both halves are
 ;; load-bearing and they red in opposite directions:
@@ -874,9 +866,9 @@
               (is (= "mounting" (text-in (:container (:hb disarmed)) ".probe"))))
 
             ;; `js/Promise.all` rejects if EITHER adoption does, and this row
-            ;; holds FOUR handles — so a single rejected adoption stranded all
-            ;; four, which is why this is the most expensive row in the file
-            ;; to leave unsettled.
+            ;; holds FOUR handles — so a single rejected adoption would strand
+            ;; all four, which is why this is the most expensive row in the
+            ;; file to leave unsettled.
             (-> (js/Promise.all #js [(rf.fresco.roots-frames-support/adopted! (:ha armed))
                                      (rf.fresco.roots-frames-support/adopted! (:ha disarmed))])
                 (.then
@@ -898,8 +890,8 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; H1 through H6 all FULFIL on a green run, so `sup/settle-row!`'s rejection
-;; arm is on no green path — and a repair to a branch nothing takes is
-;; untested by construction. This row takes it.
+;; arm is on no green path — and a branch nothing takes is untested by
+;; construction. This row takes it.
 ;;
 ;; It is written on `js/Promise.all` over TWO adoptions because that is H6's
 ;; shape and the most expensive one in this file: `Promise.all` rejects if
@@ -909,7 +901,8 @@
 ;; committed at that moment, so there is strictly MORE to release than there
 ;; would be had an adoption rejected before either root adopted.
 ;;
-;; Under the shape this file carried before, nothing below the injection runs
+;; Under a row that ends INSIDE its fulfilment handler (the shape the
+;; Settlement section above sets out), nothing below the injection would run
 ;; at all. The rejection skips the fulfilment handler, so the `try` is never
 ;; entered and its `finally` never fires: no `release!`, no `done`. The row
 ;; does not go red — it hangs to `cljs.test`'s async timeout, reports the
