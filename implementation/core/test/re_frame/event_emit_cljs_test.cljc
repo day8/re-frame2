@@ -1,6 +1,5 @@
 (ns re-frame.event-emit-cljs-test
-  "Per rf2-rirbq — the always-on event-emit substrate. Substrate-level
-  contract: one record per processed event, fan-out to every
+  "The always-on event-emit substrate. Substrate-level contract: one record per processed event, fan-out to every
   registered listener, listener exceptions are swallowed, registry is
   symmetric under register/unregister, record shape is tight (no
   trace-bus keys).
@@ -32,7 +31,7 @@
 ;; the same isolation `smoke_test`'s fixture performs.
 ;;
 ;; `clear-all!` wipes the WHOLE registrar; in the shared `:node-test`
-;; bundle (rf2-ezbzvm) that also drops sibling namespaces' ns-load view /
+;; bundle that also drops sibling namespaces' ns-load view /
 ;; sub registrations. Snapshot the registrar first and restore it in the
 ;; `finally` so the clean-slate is scoped to this test and cross-namespace
 ;; registrations survive (rf.test-support/{snapshot,restore}-registrar!).
@@ -44,19 +43,20 @@
   (rf.flows/reset-flows!)
   (rf.trace.tooling/clear-listeners!)
   (rf.event-emit/clear-event-listeners!)
-  ;; rf2-qj4g — COLD-START the slot: destroy, then seat. `init!` is idempotent
-  ;; only for the adapter ALREADY SEATED (rf2-kuky.1) — handed a DIFFERENT one
-  ;; it raises `:rf.error/adapter-already-installed` rather than ignoring the
-  ;; call. This ns shares the node bundle with suites that seat Reagent, UIx
-  ;; and the SSR adapter, so a bare `init!` here was a no-op whenever one of
-  ;; them ran first, and every test below ran on a substrate it never named.
+  ;; COLD-START the slot: destroy, then seat. `init!` is idempotent only for
+  ;; the adapter ALREADY SEATED — handed a DIFFERENT one it raises
+  ;; `:rf.error/adapter-already-installed` rather than ignoring the call.
+  ;; This ns shares the node bundle with suites that seat Reagent, UIx and
+  ;; the SSR adapter, so without the destroy a bare `init!` here would meet
+  ;; whichever adapter one of them seated first, and the tests below would
+  ;; not run on the substrate they name.
   (rf/destroy-adapter!)
   (rf/init! rf.substrate.plain-atom/adapter)
-  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
-  ;; framework operation surfaces require a carried frame stamp. Register
-  ;; `:rf/default` + pin it as the body's ambient scope (the carried-
-  ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
-  ;; `{:frame …}` opts in the test bodies still win.
+  ;; EP-0002: `init!` does not synthesise `:rf/default`; framework operation
+  ;; surfaces require a carried frame stamp. Register `:rf/default` + pin it
+  ;; as the body's ambient scope (the carried-invariant equivalent of
+  ;; `(with-frame :rf/default …)`); explicit `{:frame …}` opts in the test
+  ;; bodies win.
   (rf/make-frame {:id :rf/default})
   (let [hooks-before @rf.late-bind/hooks]
     (try
@@ -118,7 +118,7 @@
 ;;
 ;; A dispatch can fail AFTER the interceptor chain settled cleanly: candidate
 ;; app-db schema validation can REJECT the transition before install
-;; (Spec 010 §Per-step recovery row 4, rf2-uhk9ko), or a flow's :output can
+;; (Spec 010 §Per-step recovery row 4), or a flow's :output can
 ;; throw (Spec 013 §Failure semantics rule 3). Both are detected inside the
 ;; commit-and-flow! body; both MUST surface a non-:ok :outcome to off-box
 ;; observability shippers rather than mis-report a clean :ok.
@@ -159,8 +159,8 @@
       ;; flows-after-interceptor down its catch branch (which DISCARDS the
       ;; pending :db effect + stashes :rf/flow-error → event aborts before
       ;; install + :fx). The hook is the (frame db runtime-db) -> db transform
-      ;; (EP-0001 §535-551, rf2-4eisfr — the router now hands both pending
-      ;; partitions); on throw it carries only :rf.flow/failed-id for
+      ;; (EP-0001 — the router hands it both pending partitions); on throw it
+      ;; carries only :rf.flow/failed-id for
       ;; attribution — there is no partial-db (no partial commit per the
       ;; atomicity contract).
       (rf.late-bind/set-fn! :flows/run-flows-on-db
@@ -185,9 +185,9 @@
 
 (deftest listener-marks-clean-dispatch-as-ok-with-failure-hooks-installed
   (testing "With BOTH cascade-failure hooks installed but PASSING (schema
-            conforms, flows run cleanly) a normal dispatch is still
-            reported :ok — the widened outcome contract does not regress
-            the success path."
+            conforms, flows run cleanly) a normal dispatch is
+            reported :ok — the non-:ok outcomes do not leak onto the
+            success path."
     (let [seen (atom [])]
       (rf.late-bind/set-fn! :schemas/validate-app-schema!
                          (fn [_db-after _event-id _frame _continue?] true))
@@ -279,7 +279,7 @@
 ;; ---- 5. Record shape carries no trace-bus enrichment ----------------------
 
 (deftest record-shape-is-tight-no-trace-bus-keys
-  (testing "Per rf2-rirbq §record shape: the listener record carries
+  (testing "Per the substrate's record shape: the listener record carries
             ONLY {:event :event-id :frame :time :outcome
             :elapsed-ms}. No :dispatch-id, :parent-dispatch-id,
             :rf.trace/trigger-handler, :tags, :op-type, :id (the
@@ -306,18 +306,18 @@
         (is (not (contains? r :origin)))
         (is (not (contains? r :rf.trace/trigger-handler)))))))
 
-;; ---- 6. (removed) handler-meta :sensitive? drop ---------------------------
+;; ---- 6. No handler-meta :sensitive? drop ----------------------------------
 ;;
-;; The handler-meta `:sensitive?` annotation has been removed. Event-emit
-;; records are no longer dropped based on handler-level sensitivity; per-path
-;; elision (driven by the per-frame `[:rf.runtime/elision]` runtime-db registry, populated from
-;; app-schema `:sensitive?` slot meta) is the load-bearing privacy surface
-;; here. Path-marked classification supersedes the previous handler-level
-;; short-circuit.
+;; There is no handler-meta `:sensitive?` annotation, and event-emit records
+;; are not dropped based on handler-level sensitivity. Per-path elision
+;; (driven by the per-frame `[:rf.runtime/elision]` runtime-db registry, which
+;; the EP-0025 commit-plane classification effects and the other declaration
+;; sources `re-frame.elision` names populate) is the load-bearing privacy
+;; surface here.
 
 (deftest non-sensitive-handler-meta-fires-normally
-  (testing "Handlers continue to fan out — handler-meta `:sensitive?`
-            no longer short-circuits the substrate."
+  (testing "Handlers fan out — no handler-meta `:sensitive?` short-circuits
+            the substrate."
     (let [seen (atom [])]
       (rf.event-emit/register-event-listener!
         :test/recorder
