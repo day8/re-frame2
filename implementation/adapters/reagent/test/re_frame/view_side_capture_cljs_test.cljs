@@ -1,7 +1,7 @@
 (ns re-frame.view-side-capture-cljs-test
-  "Per rf2-9hoos — the three view-side captures phase-A adds to the
-  view-render instrumentation so Xray's Views table (phase-B) can show,
-  per view, its mount/rerender/unmount ACTION and the per-view REASON it
+  "The three view-side captures on the view-render instrumentation, so
+  Xray's Views table can show, per view, its mount/rerender/unmount
+  ACTION and the per-view REASON it
   rendered:
 
     1. view→sub edges — `:rf.view/rendered` carries `:rf.view/deref-subs`, the
@@ -10,7 +10,7 @@
        `:rf.view/cause-subs` (which over-reports).
     2. mount-vs-rerender — `:rf.view/rendered` carries `:rf.view/mount?`, `true`
        on a component instance's first render and `false` thereafter.
-    3. unmount — a NEW `:rf.view/unmounted` op fires when a registered
+    3. unmount — an `:rf.view/unmounted` op fires when a registered
        view instance tears down, carrying `:rf.view/id` + `:frame` (+ the
        `:rf.view/render-key` instance tuple).
 
@@ -197,13 +197,12 @@
           (is (= [:rf2-9hoos/lifecycle 1] (get-in ev [:tags :rf.view/render-key]))))))))
 
 ;; ===========================================================================
-;; co-existence — the new fields ride alongside the existing rf2-25zo2 shape
+;; co-existence — the capture fields ride alongside the base render shape
 ;; ===========================================================================
 
 (deftest existing-rf-view-rendered-tags-still-present
-  (testing "the rf2-9hoos additions are additive — :rf.view/id, :frame,
-   :rf.view/render-key (rf2-25zo2) still ride every :rf.view/rendered emit
-   alongside the new :rf.view/mount? / :rf.view/deref-subs"
+  (testing ":rf.view/id, :frame and :rf.view/render-key ride every
+   :rf.view/rendered emit alongside :rf.view/mount? / :rf.view/deref-subs"
     (with-trace-recorder! [observed {:pred  (in-op-set #{:rf.view/rendered})
                                      :shape :by-op}]
       (rf/reg-view ^{:rf/id :rf2-9hoos/coexist} coexist-view []
