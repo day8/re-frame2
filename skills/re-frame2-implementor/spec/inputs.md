@@ -19,7 +19,7 @@ The most load-bearing files:
 - **`spec/API.md`** — the consolidated public signatures; a standing anchor of the EP loop.
 - **`spec/Ownership.md`** — the "which spec owns this surface" map; the loop's other standing anchor.
 - **`spec/Conventions.md`** — the reserved `:rf/*` scheme, the three unqualified fx-ids, the `:rf/path` algebra and CEDN-1 canonical identity (cardinal rules 10–11).
-- **`spec/Managed-Effects.md`, `spec/004C-Roots-and-Mount.md`, `spec/Spec-Schemas.md`** — cross-cutting obligations linked from the EP index (reply envelope, root-attempt evidence, `:rf/effect-map`).
+- **`spec/Managed-Effects.md`, `spec/004C-Roots-and-Mount.md`, `spec/Spec-Schemas.md`** — cross-cutting obligations linked from the EP index (reply envelope, root identity, the Root Manifest and frame preflight, `:rf/effect-map`).
 
 The skill cites spec files by the published docs URL (`https://day8.github.io/re-frame2/spec/<file>/`), with anchor links for sections.
 
