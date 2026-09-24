@@ -8,10 +8,10 @@
   than on app-db, so it does not re-run when they have not moved.
 
   This file measures that contrast, and §4.1 there reports the reading.
-  Nothing else about the grid changes: the
-  application's `::subs/row-total` is a LAYER-1 reader over the whole of
-  `app-db`, so a keystroke re-runs every mounted row's fold and nine of
-  the ten at 10x10 recompute a total that did not move. [[row-total-l2]]
+  Nothing else about the grid changes: the application's
+  `::subs/row-total` is a LAYER-1 reader over the whole of `app-db`, so a
+  keystroke re-runs every mounted row's fold and nine of the ten at
+  10x10 recompute a total that did not move. [[row-total-l2]]
   below is the same arithmetic stated as a layer-2 subscription over the
   row's own cells, and the question is what the census reads with that one
   substitution made.
@@ -29,10 +29,9 @@
   ## Both arms on ONE instrument, in one file
 
   [[with-counted-subs]] is the per-keystroke census's counter. Both arms
-  are measured with it — the application's
-  layer-1 spelling AND the layer-2 restatement — so the contrast is a
-  reading rather than an arithmetic comparison between two instruments
-  run in two places. The census's published figures (111 at 10x10, 31 at
+  are measured with it — the application's layer-1 spelling AND the
+  layer-2 restatement — so the contrast is a reading rather than an
+  arithmetic comparison between two instruments run in two places. The census's published figures (111 at 10x10, 31 at
   5x5, `per-keystroke.md`) are then a CROSS-CHECK on this file's layer-1
   arm rather than one half of its subtraction.
 
