@@ -617,7 +617,8 @@
         ;;     to make its child hand-dispatch — which is exactly the parent
         ;;     vocabulary in the child that this protocol removes;
         ;;   - a `:spawn-all` join child's completion runs its per-child
-        ;;     `:on-done` fold and then folds into the join
+        ;;     `:on-done` fold for a `:done` completion only (a failed child
+        ;;     skips it, rf2-3x7nj.41.1) and then folds into the join
         ;;     (`lifecycle-fx.join/intercept-spawn-done-event`).
         ;;
         ;; The carrier is minted AFTER the teardown below, so the parent never
