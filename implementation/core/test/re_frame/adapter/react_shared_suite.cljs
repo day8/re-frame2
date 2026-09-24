@@ -3092,14 +3092,12 @@
             (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
             (try (act-fn (fn [] (.unmount root))) (catch :default _ nil)))))))))
 
-;; ---- hydrate render branch (rf2-ee38b.1 — closes the React-hook spine
-;;       hydrate test gap that Reagent/reagent-slim already cover) ----------
+;; ---- hydrate render branch ------------------------------------------------
 
 (defn assert-render-hydrate-branch-mounts-without-remount
-  "rf2-ee38b.13 / rf2-ee38b.14: the spine `make-render` `:hydrate? true`
-  branch (`react-dom/client/hydrateRoot`) was untested for the React-hook
-  substrates while Reagent/reagent-slim both exercise it. This closes the
-  gap once for every React-hook adapter.
+  "Pins the spine `make-render` `:hydrate? true` branch
+  (`react-dom/client/hydrateRoot`) once for every React-hook adapter;
+  Reagent/reagent-slim exercise their own hydrate path.
 
   The probe ELEMENT is pre-rendered to matching SSR markup with React's own
   `react-dom/server/renderToString` (a test-only require — the same element
@@ -3115,7 +3113,7 @@
     :probe-element  a thunk returning a fresh substrate probe ELEMENT (the
                     same `$`-built element the after-render twin uses)"
   [{:keys [name probe-element]}]
-  (testing (str name " — render :hydrate? true branch adopts SSR markup (rf2-ee38b.1)")
+  (testing (str name " — render :hydrate? true branch adopts SSR markup")
     (with-browser-act
      (fn [act-fn]
       (let [mount-node (make-mount-node!)
@@ -3139,20 +3137,19 @@
             (when-let [u @unmount]
               (try (act-fn (fn [] (u))) (catch :default _ nil))))))))))
 
-;; ---- element-slot CLJS-data guard (rf2-p6f6u (c)) --------------------------
+;; ---- element-slot CLJS-data guard -----------------------------------------
 ;;
-;; The React-hook spine's `make-render` is an ELEMENT-shaped slot. Handing it
-;; CLJS data (a hiccup vector / seq / map) used to let React spray one cryptic
-;; "Objects are not valid as a React child" error per child; the spine now
+;; The React-hook spine's `make-render` is an ELEMENT-shaped slot. Handed CLJS
+;; data (a hiccup vector / seq / map), React would spray one cryptic
+;; "Objects are not valid as a React child" error per child; the spine
 ;; fails loud FIRST — one structured `:rf.error/hiccup-on-element-render-slot`
 ;; thrown BEFORE any root is created, with an EP-0015-safe shape summary
 ;; (never the raw tree). The guard also covers, by construction, every
 ;; internal hiccup aggregator that funnels through the adapter `:render` slot
-;; (Xray's `panels.cljs` mount-<panel>! fns — the ungated failure shape
-;; rf2-p6f6u names).
+;; (Xray's `panels.cljs` mount-<panel>! fns).
 
 (defn assert-render-rejects-cljs-data-render-tree
-  "rf2-p6f6u (c): hiccup / seq / map handed to the element-shaped `:render`
+  "Hiccup / seq / map handed to the element-shaped `:render`
   slot raises ONE structured `:rf.error/hiccup-on-element-render-slot`
   (thrown before root creation, so it is node-safe to assert), and a
   legitimate React element passes the guard — proven directly against the
@@ -3212,17 +3209,16 @@
             (when-let [u @unmount]
               (try (act-fn (fn [] (u))) (catch :default _ nil))))))))))
 
-;; ---- native-root hydration-mismatch adoption reporter (rf2-qfz65) --------
+;; ---- native-root hydration-mismatch adoption reporter ---------------------
 ;;
-;; A native UIx root is a React-ELEMENT root: the hiccup
-;; :render-tree-fn hash channel does not cover it, so before rf2-qfz65 the spine's make-render hydrate branch
-;; called hydrateRoot with NO options and a hydration MISMATCH was SILENT (React
-;; warn-and-replace recovered the DOM but the framework emitted nothing). The
-;; spine now installs a composed onRecoverableError on the hydrate path that
-;; surfaces the SAME :rf.ssr/hydration-mismatch diagnostic, composed OVER any
-;; host :on-recoverable-error. Proven here on real DOM (mounted, act OFF so the
-;; genuine adoption mismatch reaches onRecoverableError on React's own schedule —
-;; the compiled tier's proven treatment).
+;; A native UIx root is a React-ELEMENT root: the hiccup :render-tree-fn hash
+;; channel does not cover it, so a hydrateRoot call with NO options would leave
+;; a hydration MISMATCH SILENT (React warn-and-replace recovers the DOM but the
+;; framework emits nothing). The spine installs a composed onRecoverableError
+;; on the hydrate path that surfaces the SAME :rf.ssr/hydration-mismatch
+;; diagnostic, composed OVER any host :on-recoverable-error. Proven here on
+;; real DOM (mounted, act OFF so the genuine adoption mismatch reaches
+;; onRecoverableError on React's own schedule).
 
 (defn- poll-until
   "Poll `pred` every 5ms up to ~2s, then call `k`. Bounded so an outcome that
@@ -3236,12 +3232,12 @@
       (step))))
 
 (defn assert-native-hydration-mismatch-surfaces-diagnostic
-  "rf2-qfz65: a hydrating native UIx root that adopts DIVERGENT server
+  "A hydrating native UIx root that adopts DIVERGENT server
   markup surfaces the framework :rf.ssr/hydration-mismatch diagnostic (via the
   spine's composed onRecoverableError), AND a host-supplied :on-recoverable-error
   still fires (compose, never clobber); a CLEAN native adoption stays silent.
 
-  RED-BEFORE: without the make-render hydrate-path reporter, a native root NEVER
+  Without the make-render hydrate-path reporter, a native root NEVER
   surfaces :rf.ssr/hydration-mismatch — the divergent assertion is the lever.
   Every assertion reads an OBSERVABLE outcome (a captured trace, a host-callback
   atom), never that an exception was thrown.
@@ -3308,7 +3304,7 @@
                 (is (seq @mismatches)
                     (str "a divergent native root's adoption fires onRecoverableError, "
                          "which make-render surfaces as :rf.ssr/hydration-mismatch "
-                         "(RED-BEFORE: silent without the reporter). Saw: "
+                         "(silent without the reporter). Saw: "
                          (pr-str @mismatches)))
                 (when-let [mm (first @mismatches)]
                   ;; Merge tag-level + top-level so the read is robust to whichever
@@ -3336,14 +3332,14 @@
                 (done)))))))))
 
 (defn assert-native-hydration-window-bounds-emit
-  "rf2-qfz65 residual (the over-fire fix): the native-tier hydration-mismatch
-  reporter emits `:rf.ssr/hydration-mismatch` ONLY inside the hydration ADOPTION
-  WINDOW. React holds a hydrating root's `onRecoverableError` for the root's WHOLE
-  LIFETIME and fires it for post-hydration recoverable errors too; #6526's
-  root-lifetime wrapper had NO window sentinel, so it emitted a FALSE
-  hydration-mismatch for those later recoveries. The fix bounds the framework emit
-  to a root-local `#js {:adopting true}` flag that the `adoption-window-closer`
-  clears on the hydration commit, while STILL delegating to the host callback in
+  "The native-tier hydration-mismatch reporter emits
+  `:rf.ssr/hydration-mismatch` ONLY inside the hydration ADOPTION WINDOW. React
+  holds a hydrating root's `onRecoverableError` for the root's WHOLE LIFETIME
+  and fires it for post-hydration recoverable errors too, so a root-lifetime
+  wrapper with NO window sentinel would emit a FALSE hydration-mismatch for
+  those later recoveries. The framework emit is bounded to a root-local
+  `#js {:adopting true}` flag that the `adoption-window-closer` clears on the
+  hydration commit, while the reporter STILL delegates to the host callback in
   BOTH windows.
 
   Drives the REAL production seam deterministically: `rf.substrate.spine/native-hydration-
@@ -3352,13 +3348,13 @@
   so it never waits on React's own post-hydration recoverable-error scheduling.
   Mounted DOM: the closer runs its passive effect on commit.
 
-  RED-BEFORE: without the window flag the reporter emits on EVERY call, so the
-  post-window invocation adds a SECOND `:rf.ssr/hydration-mismatch` — the
+  Without the window flag the reporter would emit on EVERY call, so the
+  post-window invocation would add a SECOND `:rf.ssr/hydration-mismatch` — the
   `(= 1 (count @mismatches))` AFTER the window closes is the lever. The host
   callback firing BOTH times is the compose-intact invariant, in and out of the
   window."
   [{:keys [name]}]
-  (testing (str name " — native hydration-mismatch emit is bounded to the adoption window (rf2-qfz65)")
+  (testing (str name " — native hydration-mismatch emit is bounded to the adoption window")
     (with-browser-act
      (fn [act-fn]
        (let [mismatches (atom [])
@@ -3392,9 +3388,9 @@
            ;; mismatch: the framework must NOT emit, but the host STILL fires.
            (reporter (js/Error. "post-window") nil)
            (is (= 1 (count @mismatches))
-               (str "over-fire fix: RED-BEFORE a root-lifetime wrapper emits a "
+               (str "a root-lifetime wrapper would emit a "
                     "FALSE :rf.ssr/hydration-mismatch after the window closes; "
-                    "after the fix the count stays 1. Saw: " (pr-str @mismatches)))
+                    "the window flag keeps the count at 1. Saw: " (pr-str @mismatches)))
            (is (= 2 (count @host-calls))
                "post-window: the reporter STILL delegates to the host (compose intact)")
            (finally
@@ -3402,7 +3398,7 @@
              (try (.unmount root) (catch :default _ nil))
              (when-let [p (.-parentNode node)] (.removeChild p node)))))))))
 
-;; ---- use-sub (rf2-518sp / rf2-7g959 / rf2-mwft2 / rf2-rcgsc) --------
+;; ---- use-sub --------------------------------------------------------------
 ;;
 ;; The probe components read the sub via `use-sub` and push the
 ;; observed value into a side-channel atom owned by the entry file. After
@@ -3414,7 +3410,7 @@
 ;; compile time.
 
 (defn assert-use-sub-tracks-app-db-changes
-  "rf2-518sp: use-sub sees post-dispatch values via
+  "`use-sub` sees post-dispatch values via
   useSyncExternalStore.
 
   cfg keys:
@@ -3424,7 +3420,7 @@
     :us-frame          frame-id keyword the Probe's query resolves under
     :us-query          query-v keyword the Probe subscribes to"
   [{:keys [name probe-element probe-observed refcount-target us-frame us-query]}]
-  (testing (str name " — use-sub sees post-dispatch values (rf2-518sp)")
+  (testing (str name " — use-sub sees post-dispatch values")
     (with-browser-act
      (fn [act-fn]
       (reset! probe-observed [])
@@ -3450,16 +3446,16 @@
           (finally
             (try (.unmount root) (catch :default _ nil)))))))))
 
-;; ---- flush-render! synchronous-commit proof (rf2-40a84) -------------------
+;; ---- flush-render! synchronous-commit proof -------------------------------
 
 (defn assert-flush-render-synchronously-commits
-  "rf2-40a84: `(adapter/flush-render! f)` SYNCHRONOUSLY commits the render
+  "`(adapter/flush-render! f)` SYNCHRONOUSLY commits the render
   scheduled by `f` to the DOM — the committed text reflects the dispatched
   state change by the time `flush-render!` RETURNS, with NO `act()` wrapper
   and NO wait for a `requestAnimationFrame` tick.
 
-  This is the load-bearing proof the bead asks for: it is the synchronous-
-  flush guarantee that lets headless tooling (the pair MCP) drive a
+  This is the load-bearing proof of the synchronous-flush guarantee
+  that lets headless tooling (the pair MCP) drive a
   `dispatch → flush-render! → observe-settled-DOM` loop in a backgrounded
   tab where the rAF-scheduled commit would never fire.
 
