@@ -1,5 +1,5 @@
 (ns re-frame.resources-timer-rearm-cljs-test
-  "Sibling-timer preservation across a PARTIAL timer re-arm (rf2-3fc89f.10).
+  "Sibling-timer preservation across a PARTIAL timer re-arm.
 
   The resource freshness-timer family has three kinds — `:stale`, `:gc`,
   `:poll` — that share one host side table (`re-frame.resources.timers`). Two
@@ -13,13 +13,13 @@
       (`:has-owner` / `:in-flight`) re-arms ONLY `:gc`. A partial re-arm MUST
       leave the SIBLING kinds it does not name untouched.
 
-  Before rf2-3fc89f.10 the scheduling effect overloaded a nil per-kind delay
+  The scheduling effect keeps the two operations explicit: it carries a
+  `:timers` map keyed by kind — a PRESENT key is reconciled (positive ⇒ arm,
+  nil ⇒ cancel), an ABSENT key is PRESERVED. Overloading a nil per-kind delay
   to mean BOTH \"preserve this sibling\" (partial re-arm) AND \"disarm this
-  kind\" (full settlement), so a poll re-arm silently cancelled the entry's GC
-  reaper (and a GC skip silently cancelled the entry's poll). The fix makes the
-  two operations explicit: the effect carries a `:timers` map keyed by kind —
-  a PRESENT key is reconciled (positive ⇒ arm, nil ⇒ cancel), an ABSENT key is
-  PRESERVED. These JVM+CLJS unit tests pin that contract at the timer substrate
+  kind\" (full settlement) would let a poll re-arm silently cancel the entry's
+  GC reaper (and a GC skip silently cancel the entry's poll). These JVM+CLJS
+  unit tests pin that contract at the timer substrate
   (`schedule-timers-handler` + `timer-table`) and end-to-end through the poll /
   GC re-check events. Per Spec 016 §Stale and GC scheduling / §Polling."
   (:require
@@ -128,7 +128,7 @@
           poll-h  (timer-handle k rf.resources.timers/poll-kind)]
       ;; a POLL-ONLY partial re-arm names ONLY :poll
       (reconcile! k {rf.resources.timers/poll-kind long-ms})
-      (testing "rf2-3fc89f.10 — a poll-only re-arm PRESERVES the sibling stale
+      (testing "a poll-only re-arm PRESERVES the sibling stale
                 + GC handles (they are not named, so untouched)"
         (is (= stale-h (timer-handle k rf.resources.timers/stale-kind)) "stale handle unchanged")
         (is (= gc-h (timer-handle k rf.resources.timers/gc-kind)) "gc handle unchanged"))
@@ -146,7 +146,7 @@
           poll-h  (timer-handle k rf.resources.timers/poll-kind)]
       ;; a GC-ONLY partial re-arm names ONLY :gc
       (reconcile! k {rf.resources.timers/gc-kind long-ms})
-      (testing "rf2-3fc89f.10 — a GC-only re-arm PRESERVES the sibling stale +
+      (testing "a GC-only re-arm PRESERVES the sibling stale +
                 poll handles"
         (is (= stale-h (timer-handle k rf.resources.timers/stale-kind)) "stale handle unchanged")
         (is (= poll-h (timer-handle k rf.resources.timers/poll-kind)) "poll handle unchanged"))
@@ -165,7 +165,7 @@
     ;; a later settle where the resource no longer declares a poll policy:
     ;; poll is NAMED with a nil delay ⇒ explicit cancel; stale/gc re-armed.
     (reconcile! k {rf.resources.timers/stale-kind long-ms rf.resources.timers/gc-kind long-ms rf.resources.timers/poll-kind nil})
-    (testing "rf2-3fc89f.10 — a NAMED nil-delay kind is CANCELLED (a removed
+    (testing "a NAMED nil-delay kind is CANCELLED (a removed
               policy leaves no lingering timer); the still-declared kinds stay"
       (is (not (armed? k rf.resources.timers/poll-kind)) "poll cancelled (policy removed)")
       (is (armed? k rf.resources.timers/stale-kind) "stale still armed")
@@ -179,8 +179,8 @@
 (deftest poll-tick-preserves-the-gc-timer
   ;; A resource with BOTH poll + GC policies. A settle arms poll + gc in the
   ;; real side table. A poll tick re-arms poll ONLY — the GC reaper MUST
-  ;; survive (before the fix the poll re-arm's nil GC delay cancelled it, so an
-  ;; owner-free entry would later never be collected).
+  ;; survive (were the poll re-arm to cancel it, an owner-free entry would
+  ;; never be collected).
   (rf/reg-resource :tre/pg (article-spec {:poll-interval-ms long-ms :gc-after-ms long-ms})
                    article-spec-request)
   (let [scope {:user "u"}
@@ -191,7 +191,7 @@
     (is (armed? k rf.resources.timers/poll-kind) "poll timer armed on settle")
     (let [gc-h (timer-handle k rf.resources.timers/gc-kind)]
       (poll-fired! k) ;; poll tick → background refetch + poll-only re-arm
-      (testing "rf2-3fc89f.10 — the GC timer is PRESERVED across a poll tick"
+      (testing "the GC timer is PRESERVED across a poll tick"
         (is (armed? k rf.resources.timers/gc-kind) "GC timer still armed after the poll tick")
         (is (= gc-h (timer-handle k rf.resources.timers/gc-kind)) "GC handle unchanged (not re-armed)"))
       (testing "the poll timer IS re-armed (cancel-then-arm)"
@@ -199,9 +199,9 @@
 
 (deftest gc-skip-while-owned-preserves-the-poll-timer
   ;; A GC timer that fires while the entry is still OWNED skips collection and
-  ;; re-arms GC ONLY — the entry's active poll MUST survive (before the fix the
-  ;; GC re-arm's nil poll delay cancelled it, silently stopping periodic
-  ;; refresh on a still-owned, still-polling entry).
+  ;; re-arms GC ONLY — the entry's active poll MUST survive (cancelling it
+  ;; would silently stop periodic refresh on a still-owned, still-polling
+  ;; entry).
   (rf/reg-resource :tre/gp (article-spec {:poll-interval-ms long-ms :gc-after-ms long-ms})
                    article-spec-request)
   (let [scope {:user "u"}
@@ -213,14 +213,14 @@
     (let [poll-h (timer-handle k rf.resources.timers/poll-kind)]
       (gc-fired! k) ;; entry still owned → GC skip → gc-only re-arm
       (is (some? (entry k)) "entry not collected (still owned)")
-      (testing "rf2-3fc89f.10 — the poll timer is PRESERVED across a GC skip"
+      (testing "the poll timer is PRESERVED across a GC skip"
         (is (armed? k rf.resources.timers/poll-kind) "poll timer still armed after the GC skip")
         (is (= poll-h (timer-handle k rf.resources.timers/poll-kind)) "poll handle unchanged"))
       (testing "the GC timer IS re-armed (cancel-then-arm)"
         (is (armed? k rf.resources.timers/gc-kind) "GC timer re-armed")))))
 
 (deftest poll-tick-then-release-still-collects-the-entry
-  ;; The end-to-end consequence the bug broke: on a combined poll+GC resource,
+  ;; The end-to-end consequence: on a combined poll+GC resource,
   ;; after a poll tick the GC reaper must still be live so that when the last
   ;; owner later releases, an owner-free + idle GC re-check collects the entry.
   (rf/reg-resource :tre/pgc (article-spec {:poll-interval-ms long-ms :gc-after-ms long-ms})
@@ -236,6 +236,6 @@
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :x 1]}])
     (is (empty? (:active-owners (entry k))) "entry owner-free after release")
     (gc-fired! k)                   ;; owner-free + idle → collected
-    (testing "rf2-3fc89f.10 — an owner-free + idle GC re-check collects the
+    (testing "an owner-free + idle GC re-check collects the
               entry (the reaper survived the intervening poll ticks)"
       (is (nil? (entry k)) "entry collected by the surviving GC reaper"))))
