@@ -1,28 +1,28 @@
 (ns re-frame.http-jvm-binary-decode-test
   "Spec 014 §Decoding + §JVM degradation table — JVM binary decode +
-  per-host timeout `:elapsed-ms` (rf2-a3wxe).
+  per-host timeout `:elapsed-ms`.
 
-  Two gaps closed:
+  Two contracts:
 
-  1. Binary decode on JVM. The JVM transport used to read every response
-     body as a String (`BodyHandlers/ofString`), so a `:blob` /
-     `:array-buffer` / `:form-data` decode fell through to the lossy
-     `body-text` fallback in `decode-response-body` — a UTF-8 decode of
-     raw bytes that CORRUPTS binary payloads. `jvm-fetch` now reads
+  1. Binary decode on JVM. `jvm-fetch` reads
      `BodyHandlers/ofByteArray` and, when the resolved decode mode is
      binary (`binary-read-kind`), rides the raw `byte[]` under
-     `:body-binary` so the bytes survive verbatim. The text path
+     `:body-binary` so the bytes survive verbatim. Reading every response
+     body as a String (`BodyHandlers/ofString`) would send a `:blob` /
+     `:array-buffer` / `:form-data` decode through the lossy
+     `body-text` fallback in `decode-response-body` — a UTF-8 decode of
+     raw bytes that CORRUPTS binary payloads. The text path
      reproduces `ofString`'s charset handling via `charset-of`.
 
   2. Per-host timeout `:elapsed-ms`. The JDK's `HttpTimeoutException`
-     does not surface the elapsed wall clock, so `classify-jvm-error`
-     used to leave `:elapsed-ms nil` on JVM. `run-attempt!` now captures
-     a monotonic start mark and threads the measured wall-clock delta in,
-     matching the CLJS path's intent (a value on both hosts, not nil-on-JVM).
+     does not surface the elapsed wall clock, so `run-attempt!` captures
+     a monotonic start mark and threads the measured wall-clock delta into
+     `classify-jvm-error`, matching the CLJS path's intent (a value on both
+     hosts, not nil-on-JVM).
 
   These exercise the live JVM transport via an in-process JDK HttpServer
   (real socket, real `HttpClient`) — they fail deterministically against
-  the pre-fix code (which UTF-8-decoded the bytes / left elapsed-ms nil)."
+  a transport that UTF-8-decodes the bytes or leaves elapsed-ms nil."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -61,16 +61,16 @@
     #(let [db (rf/app-db-value :rf/default)] (when (pred db) db))
     {:timeout-ms 5000 :label "http binary reply"}))
 
-;; ---- (1) binary decode honours the bytes on JVM (rf2-a3wxe) ---------------
+;; ---- (1) binary decode honours the bytes on JVM ----------------------------
 
-;; A payload with non-UTF-8 high bytes — a lossy String decode (the pre-fix
-;; behaviour) would substitute U+FFFD replacement chars and re-encoding
+;; A payload with non-UTF-8 high bytes — a lossy String decode
+;; would substitute U+FFFD replacement chars and re-encoding
 ;; would NOT round-trip to these bytes. ofByteArray preserves them exactly.
 (def ^:private raw-bytes (byte-array [(byte 0x00) (byte -1) (byte -2)
                                       (byte 0x7f) (byte -128) (byte 0x42)]))
 
 (deftest jvm-blob-decode-returns-raw-bytes
-  (testing "rf2-a3wxe — :decode :blob on JVM rides the raw byte[] under
+  (testing ":decode :blob on JVM rides the raw byte[] under
             :body-binary (ofByteArray), NOT a lossy UTF-8 String"
     (let [{:keys [port] :as srv}
           (start-server!
@@ -95,7 +95,7 @@
         (finally (stop-server! srv))))))
 
 (deftest jvm-array-buffer-decode-returns-raw-bytes
-  (testing "rf2-a3wxe — :decode :array-buffer on JVM also rides raw bytes"
+  (testing ":decode :array-buffer on JVM also rides raw bytes"
     (let [{:keys [port] :as srv}
           (start-server!
             (fn [^HttpExchange ex]
@@ -116,8 +116,8 @@
         (finally (stop-server! srv))))))
 
 (deftest jvm-text-decode-still-uses-response-charset
-  (testing "rf2-a3wxe — the text path still decodes via the response charset
-            (charset-of), faithfully reproducing the prior ofString
+  (testing "the text path decodes via the response charset
+            (charset-of), faithfully reproducing ofString's
             behaviour for a non-UTF-8 charset"
     (let [latin1-bytes (.getBytes "café" "ISO-8859-1")
           {:keys [port] :as srv}
@@ -141,7 +141,7 @@
 ;; ---- (1b) charset-of unit coverage ----------------------------------------
 
 (deftest charset-of-resolves-declared-charset
-  (testing "rf2-a3wxe — charset-of parses the Content-Type charset param"
+  (testing "charset-of parses the Content-Type charset param"
     (let [charset-of @#'rf.http.transport-jvm/charset-of]
       (is (= "ISO-8859-1"
              (.name ^java.nio.charset.Charset
@@ -151,7 +151,7 @@
                     (charset-of {"content-type" "application/json; charset=utf-8"})))))))
 
 (deftest charset-of-defaults-to-utf8
-  (testing "rf2-a3wxe — absent / unparseable charset falls back to UTF-8"
+  (testing "absent / unparseable charset falls back to UTF-8"
     (let [charset-of @#'rf.http.transport-jvm/charset-of]
       (is (= "UTF-8" (.name ^java.nio.charset.Charset (charset-of {}))))
       (is (= "UTF-8" (.name ^java.nio.charset.Charset
@@ -160,11 +160,11 @@
                             (charset-of {"content-type" "text/x; charset=not-a-real-charset"})))
           "an unparseable charset name must not throw — falls back to UTF-8"))))
 
-;; ---- (2) per-host timeout :elapsed-ms (rf2-a3wxe) --------------------------
+;; ---- (2) per-host timeout :elapsed-ms --------------------------------------
 
 (deftest classify-jvm-error-stamps-elapsed-ms-on-timeout
-  (testing "rf2-a3wxe — classify-jvm-error's 3-arity stamps the measured
-            :elapsed-ms onto a timeout failure (was nil pre-fix)"
+  (testing "classify-jvm-error's 3-arity stamps the measured
+            :elapsed-ms onto a timeout failure"
     (let [classify rf.http.transport-jvm/classify-jvm-error
           timeout  (java.net.http.HttpTimeoutException. "request timed out")
           failure  (classify timeout 30000 1234)]
@@ -173,16 +173,16 @@
       (is (= 30000 (:limit-ms failure)) "the configured limit is preserved"))))
 
 (deftest classify-jvm-error-elapsed-ms-nil-when-unmeasured
-  (testing "rf2-w59es5 — the single 3-arity carries a nil :elapsed-ms when no
+  (testing "the single 3-arity carries a nil :elapsed-ms when no
             start mark was measured (the synthetic-caller case); :limit-ms
-            still rides whatever was threaded"
+            rides whatever was threaded"
     (let [classify rf.http.transport-jvm/classify-jvm-error
           timeout  (java.net.http.HttpTimeoutException. "request timed out")]
       (is (nil? (:elapsed-ms (classify timeout 30000 nil))))
       (is (nil? (:elapsed-ms (classify timeout nil nil)))))))
 
 (deftest jvm-real-timeout-populates-elapsed-ms
-  (testing "rf2-a3wxe — a live JVM request that exceeds its per-attempt
+  (testing "a live JVM request that exceeds its per-attempt
             timeout surfaces :rf.http/timeout with a NON-nil :elapsed-ms
             (the end-to-end run-attempt! → classify-jvm-error path)"
     (let [{:keys [port] :as srv}
@@ -208,7 +208,7 @@
           (is (= :rf.http/timeout (:kind failure)))
           (is (= 50 (:limit-ms failure)))
           (is (some? (:elapsed-ms failure))
-              ":elapsed-ms must be populated on the JVM (was nil pre-fix)")
+              ":elapsed-ms must be populated on the JVM")
           (is (and (number? (:elapsed-ms failure))
                    (>= (:elapsed-ms failure) 0))
               ":elapsed-ms is a non-negative measured wall-clock delta"))
