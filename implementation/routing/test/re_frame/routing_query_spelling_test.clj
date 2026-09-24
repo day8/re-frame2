@@ -1,27 +1,27 @@
 (ns re-frame.routing-query-spelling-test
-  "rf2-3x7nj.12.1 — ONE query spelling on every door.
+  "ONE query spelling on every door.
 
   A URL door keeps a query key the route did not declare as a STRING key with
-  a STRING value (`match-url`'s rf2-5ifai rule), while the named-address doors
+  a STRING value (`match-url`'s rule), so the named-address doors
   — `[:rf.route/navigate {:to …}]`, the in-place `:query` / `:query-merge`
-  edit, `route-url` and so `route-link`'s href — used to pass the caller's
-  spelling straight through. On a route with no query vocabulary that gave one
+  edit, `route-url` and so `route-link`'s href — must not pass the caller's
+  spelling straight through. On a route with no query vocabulary that would give one
   destination two slices: `:query-merge {:page 2}` over a URL-seeded
-  `{\"page\" \"1\"}` committed BOTH spellings and pushed `page=2&page=1`, which a
-  reload read back as `page=1`; `{:page nil}` could not remove the key; and a
+  `{\"page\" \"1\"}` would commit BOTH spellings and push `page=2&page=1`, which a
+  reload reads back as `page=1`; `{:page nil}` could not remove the key; and a
   programmatic `{:to … :query {:q \"x\"}}` followed by the SAME URL through the
-  URL door was a full re-activation instead of Spec 012's rule-3 no-op.
+  URL door would be a full re-activation instead of Spec 012's rule-3 no-op.
 
-  The fix spells every entry the way the URL does, by its URL TOKEN against the
+  Every entry is spelled the way the URL spells it, by its URL TOKEN against the
   destination route's declared vocabulary (`rf.routing.registry/canonical-query`):
   an undeclared entry becomes a string key with a string value, and a string
   key naming a declared token becomes that declared keyword. It runs at the
   resolved-target seam, on the `:query-merge` deltas before the fold, and in
   `route-url` before the canonical sort.
 
-  The pre-existing `:query-merge` suite in `routing-navigation-test` cannot see
-  this defect: every route there declares its keys, and a declared key was
-  always keyword-keyed on every door. Every route below is BARE unless the test
+  The `:query-merge` suite in `routing-navigation-test` cannot see
+  this defect class: every route there declares its keys, and a declared key is
+  keyword-keyed on every door. Every route below is BARE unless the test
   says otherwise."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -144,7 +144,7 @@
 
 (deftest non-admitted-values-are-still-refused-and-never-stringified
   (rf/reg-route :route/search {} "/search")
-  (testing "route-url still refuses a host value, a float and an unsafe integer"
+  (testing "route-url refuses a host value, a float and an unsafe integer"
     (doseq [[label v] [["host object" (Object.)]
                        ["float" 1.5]
                        ["2^53" 9007199254740992]]]
@@ -154,7 +154,7 @@
       (is (= :rf.error/route-url-non-edn-value
              (thrown-id #(rf.routing/route-url {:to :route/search :query {"x" v}})))
           (str label " under a string key"))))
-  (testing "the navigate door still rejects rather than committing a stringified value"
+  (testing "the navigate door rejects rather than committing a stringified value"
     (let [pushed (record-pushes!)]
       (rf/dispatch-sync [:rf.route/navigate {:to :route/search :query {:x 1.5}}])
       (is (nil? (slice)) "nothing committed")
