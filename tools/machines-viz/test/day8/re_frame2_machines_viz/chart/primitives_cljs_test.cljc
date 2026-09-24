@@ -1,6 +1,5 @@
 (ns day8.re-frame2-machines-viz.chart.primitives-cljs-test
-  "Shape + theming pins for the chart `countdown-ring` glyph
-  (rf2-uv1on · xyflow Phase 2).
+  "Shape + theming pins for the chart `countdown-ring` glyph.
 
   The `:after`-timer countdown ring is the load-bearing primitive the
   xyflow after-rings overlay paints (per
@@ -10,7 +9,7 @@
       cancelled cross-line + tooltip),
     - the `stroke-dasharray` arc maths (fraction → filled arc length),
     - the colour-tier → token mapping, and
-    - the rf2-uv1on `var(--rf-xray-<key>, <hex>)` theming so light +
+    - the `var(--rf-xray-<key>, <hex>)` theming so light +
       dark both flow through the host's CSS custom-property surface.
 
   Dual-target via the `_cljs_test.cljc` extension. Pure hiccup —
@@ -95,12 +94,12 @@
                                 :tooltip "idle · 2500ms remaining"})]
     (is (= [:title "idle · 2500ms remaining"] (find-tag g :title)))))
 
-;; ---- var(--*) theming (rf2-uv1on) --------------------------------------
+;; ---- var(--*) theming --------------------------------------------------
 
 (deftest countdown-ring-strokes-resolve-through-css-vars
   (testing "the arc stroke is var(--rf-xray-<tier-token>, <hex>) so
             light + dark flow through the host's CSS custom-property
-            surface (bead requirement)"
+            surface"
     (let [g       (prim/countdown-ring {:cx 0 :cy 0 :r 40 :fraction 0.8
                                         :color :green})
           [track arc] (circles g)]
