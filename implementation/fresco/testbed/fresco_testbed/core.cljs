@@ -1,6 +1,6 @@
 (ns fresco-testbed.core
   "THE CONTROLLED-INPUT TESTBED — the surface invariant I15 is driven
-  against in three engines (rf2-hic-016).
+  against in three engines.
 
   Every field below is an ORDINARY Fresco field: a `:value` off a
   subscription and an intent vector at `:on-input`, written exactly as
@@ -29,7 +29,7 @@
   | `upper` | upper-cases | caret preservation at a length the normalisation preserves, so a caret failure cannot hide behind a length change |
   | `notes` (`<textarea>`) | collapses whitespace runs | the same law on the other convergeable tag |
   | `revision` | takes what is typed | `::h/revision` re-baselines the field to the model, on the SAME DOM node |
-  | `revision-strict` | refuses any value containing a non-digit | the same trigger with an OBSERVABLY DISTINCT target: mid-composition the model holds `\"42\"` while the field shows a kana draft, so a reset that wrote immediately would be visible as the draft disappearing. On the accepting `revision` field the model has already taken the draft, so an immediate write and a deferred one put the same string on screen and the row cannot red on the defect it names (#7815 audit) |
+  | `revision-strict` | refuses any value containing a non-digit | the same trigger with an OBSERVABLY DISTINCT target: mid-composition the model holds `\"42\"` while the field shows a kana draft, so a reset that wrote immediately would be visible as the draft disappearing. On the accepting `revision` field the model has already taken the draft, so an immediate write and a deferred one put the same string on screen and the row cannot red on the defect it names |
   | `flag` (checkbox) | toggles | the owned `::h/checked` pair, whose `false` is likewise a presence rather than a truth |
 
   `form-a` / `form-b` sit in a real `<form>` with a real reset button,
@@ -37,15 +37,15 @@
   `defaultValue` is precisely the per-instance record
   `re-frame.fresco.impl.controlled/last-rendered` reads. A form reset is
   therefore the one ordinary browser action that touches the converge's
-  own bookkeeping, and rf2-hic-016 records its conduct (the full
-  conformance matrix is hic-040's).
+  own bookkeeping, and `spec.cjs` records its conduct (the full
+  conformance matrix is the roster below).
 
   `mountable` is rendered behind a flag so the driver can unmount a field
   mid-composition: the carve-out's shadow is one `useState` on a fiber and
   cannot outlive it, and \"cannot strand\" is worth witnessing rather than
   reasoning about.
 
-  ## The rest of the control roster (rf2-hic-040)
+  ## The rest of the control roster
 
   Everything above is one shape of control — a text field, in seven model
   policies — because I15 is a law about text. The CONFORMANCE matrix is a
@@ -70,7 +70,7 @@
   | `async` | accepts; corrected out of band later | async normalization, on the path the keystroke converge is deliberately NOT on |
   | `svg` / `custom` | none | attribute conformance, read off the live DOM rather than a string |
 
-  The form gained a name on every control, plus a checkbox and a select,
+  The form carries a name on every control, plus a checkbox and a select,
   because `FormData` reads NAMED controls and a nameless form would make
   the extraction row pass by reading nothing.
 
@@ -80,18 +80,18 @@
   `window.__RF2_HIC_TB__.model()`. The bounded native-IME session
   (`docs/design/fresco/native-ime-manual-witness.md`) has no such
   luxury — Playwright's WebKit build on Windows is a browser shell with no
-  devtools — and the #7787 audit found two of its checks claiming more
-  than a screen full of `<input>`s can show:
+  devtools — and two of its checks ask more than a screen full of
+  `<input>`s can show:
 
   - **\"app-db clean until commit\"** cannot be read off a field. On a
     REFUSING field the snap-back looks identical whether the composing
     updates were dispatched or not, and on an ACCEPTING one a progressive
-    write is visually idempotent. So the store is now on screen: one row
+    write is visually idempotent. So the store is on screen: one row
     per field carrying the committed value and the number of `:tb/edit`
     intents that have ARRIVED for it, arrivals counted whether the policy
     accepted or refused them. The count is the instrument — it moves when
     a composing update reaches the model, and a field that stays put while
-    its counter climbs is the difference the checklist could not see.
+    its counter climbs is the difference a field alone cannot show.
   - **The mid-exchange edges** (a revision reset or an unmount arriving
     while a composition is live) cannot be triggered by clicking a button:
     the pointer-down closes the composition before the action lands. So
@@ -104,9 +104,9 @@
     The arm RESOLVES the event it will fire at the moment it is armed,
     puts it in the readout, and carries it in the `:dispatch-later`
     payload. That is not decoration: it is the only way a driver can
-    witness both arms without spending the five seconds, and the #7815
-    audit found the gate pinning one arm while claiming both. An arm whose
-    event is missing or wrong now reads wrong on screen immediately,
+    witness both arms without spending the five seconds, so a gate that
+    pinned one arm cannot claim both. An arm whose event is missing or
+    wrong reads wrong on screen immediately,
     which is also what the operator wants — the readout says what is
     queued rather than merely that something is.
 
@@ -157,7 +157,7 @@
     :form-b   typed
     :async    typed
     :digits   (if (re-matches #"[0-9]*" typed) typed old)
-    ;; --- rf2-hic-040's controls ---------------------------------------------
+    ;; --- the rest of the roster's controls ---------------------------------
     ;; Every one of these REFUSES or NORMALISES, because a control whose
     ;; policy accepts everything cannot witness "echoes only committed
     ;; state" — the field would show the same string under a working
@@ -210,7 +210,7 @@
    :form-a   "FORM"
    :form-b   "form"
    :mountable "9"
-   ;; rf2-hic-040's controls
+   ;; the rest of the roster's controls
    :pick     "one"
    :form-pick "one"
    :count    "5"
@@ -275,7 +275,7 @@
   (fn [{:keys [db]} _] {:db (update db :revision inc)}))
 
 ;; An OUT-OF-BAND correction — a write that no keystroke caused, which is
-;; the path `converge!` is deliberately not on (rf2-n3dxw). The driver uses
+;; the path `converge!` is deliberately not on. The driver uses
 ;; it to record what a range selection does across such a write.
 (rf/reg-event :tb/correct
   (fn [{:keys [db]} [_ field value]] {:db (assoc-in db [:fields field] value)}))
@@ -286,7 +286,7 @@
 (rf/reg-event :tb/noop (fn [{:keys [db]} _] {:db db}))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-hic-040's controls — the events behind the rest of the roster
+;; The events behind the rest of the roster
 ;; ---------------------------------------------------------------------------
 
 ;; A radio group is ONE model slot, so its refusal is expressed against the
@@ -312,11 +312,11 @@
 
 ;; The SAME control, written the way an author reaches for first: the
 ;; reserved marker at the change position. What arrives is the SELECTION —
-;; a list, `[]` when nothing is picked (rf2-42vlw, and
-;; `spec/004B-UI-Tree-and-Conversion.md` rules the same shape for the same
+;; a list, `[]` when nothing is picked
+;; (`spec/004B-UI-Tree-and-Conversion.md` rules the same shape for the same
 ;; DOM control on the sibling substrate) — so the obvious thing to do with
 ;; it is to hold it as it came. The witness measures that the naive
-;; spelling now costs the user nothing.
+;; spelling costs the user nothing.
 (rf/reg-event :tb/pick-many-marker
   (fn [{:keys [db]} [_ marked]]
     {:db (-> db
@@ -403,7 +403,7 @@
 
 (defn- humanise-ms
   "`5000` -> `\"5s\"`, `300` -> `\"300ms\"`. Whole seconds read as seconds so
-  the operator's default readout is the sentence it always was."
+  the operator's default readout is a plain sentence."
   [ms]
   (if (zero? (mod ms 1000)) (str (quot ms 1000) "s") (str ms "ms")))
 
@@ -420,28 +420,18 @@
 ;; so the readout can say what is queued, and into the `:dispatch-later`
 ;; payload so two arms in flight cannot fire each other's event. Resolving
 ;; at arm time is what lets a driver witness both arms in the turn it
-;; clicks them; before it, only the arm that was waited out was witnessed
-;; at all, and the other could have been wired to nothing (#7815 audit).
+;; clicks them; without it, only the arm that was waited out would be
+;; witnessed at all, and the other could be wired to nothing.
 ;; The effects ride in `:fx`, and that is not a style choice. re-frame2's
 ;; effect-map is a CLOSED shape — seven top-level keys, `#{:db :rf.db/runtime
 ;; :fx}` plus the four EP-0025 commit-plane classification effects (migration
-;; M-8 / EP-0001) — so the v1 spelling these two handlers shipped with, a
-;; top-level `:dispatch-later` beside `:db`, ARMED NOTHING.
-;; Both arms were dead from the day they landed: the readout said
-;; `armed: bump -> [:tb/bump-revision] fires in 5s` and no timer existed
-;; behind it. THAT ACCOUNT IS THE PRE-rf2-04tx CONTRACT, and the history is
-;; the point: back then the foreign top-level key was DROPPED while the `:db`
-;; write committed anyway, so the label rendered with nothing queued behind
-;; it. Today the same spelling REFUSES the event pre-commit — no timer and no
-;; label — which is what turns this silent failure into a loud one.
-;; Measured 2026-08-11 while building the scripted native-IME
-;; witness — 15s after the click the readout still read `armed`, while a
-;; plain `setTimeout(5000)` in the same page returned in 5006ms, so it was
-;; the effect and not the clock.
+;; M-8 / EP-0001) — so the v1 spelling, a top-level `:dispatch-later` beside
+;; `:db`, REFUSES the event pre-commit: no timer and no label, a loud
+;; failure where a dropped key would be a silent one.
 ;;
-;; `armed-edges-are-wired` could not see it: it reads the label and asserts
-;; "nothing has happened yet", which is true of a correctly deferred arm and
-;; equally true of one that never armed. That section now waits for the fire.
+;; `armed-edges-are-wired` therefore waits for the fire: reading the label
+;; and asserting "nothing has happened yet" is true of a correctly deferred
+;; arm and equally true of one that never armed.
 (rf/reg-event :tb/arm
   (fn [{:keys [db]} [_ what]]
     (let [event (armed-events what)
@@ -511,10 +501,9 @@
 
   Every control carries a `:name`, which is not decoration: `FormData`
   reads NAMED controls and skips the rest, so a nameless form is a form
-  whose extraction row would pass by reading nothing. rf2-hic-040 owns
-  the FormData row and added the names, the checkbox and the select; the
-  two text fields and the reset button are rf2-hic-016's and are
-  untouched apart from gaining a name."
+  whose extraction row would pass by reading nothing. The FormData row is
+  why the checkbox and the select are here; the two text fields and the
+  reset button are the reset row's."
   [_]
   [:form {:data-testid "form" :id "form" :on-submit [:tb/noop]}
    [:input {:data-testid "form-a"
@@ -563,7 +552,7 @@
     [:p {:data-testid "mountable-gone"} "unmounted"]))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-hic-040's controls — the rest of the roster, each written the way
+;; The rest of the roster, each written the way
 ;; authoring.md writes it and NOT the way a harness would find convenient
 ;; ---------------------------------------------------------------------------
 
@@ -824,7 +813,7 @@
    [:button {:data-testid "correct-upper" :on-click [:tb/correct :upper "ZZZZZZ"]}
     "correct upper"]
    [armed-edges {}]
-   ;; --- rf2-hic-040's controls ---------------------------------------------
+   ;; --- the rest of the roster ---------------------------------------------
    [radio-group {}]
    [select-single {}]
    [select-multiple {}]
@@ -865,7 +854,7 @@
                :edits    (:edits db)
                :flag     (:flag db)
                :revision (:revision db)
-               ;; rf2-hic-040's controls. Each is model state a driver
+               ;; The rest of the roster. Each is model state a driver
                ;; cannot read off the screen: which radio the GROUP holds
                ;; (three elements, one slot), the full multi-selection
                ;; beside the one string the reserved marker delivered,
