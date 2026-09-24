@@ -1,4 +1,4 @@
-(ns re-frame.todomvc-cljs-test
+(ns re-frame.todomvc-example-cljs-test
   "Integration test: drives the TodoMVC example (examples/core/todomvc/)
    through its cold-boot + add trajectory and guards the sorted-map id
    invariant.

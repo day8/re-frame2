@@ -9,7 +9,7 @@
   (mark-all-complete UNLESS all already complete), and the sub graph —
   `:todo/showing` (route -> filter), `:todo/visible-todos` (filter predicate),
   `:todo/all-complete?`, `:todo/footer-counts`. The adapter tree's
-  `re-frame.todomvc-cljs-test` pins the cold-boot id-allocation / sorted-map
+  `re-frame.todomvc-example-cljs-test` pins the cold-boot id-allocation / sorted-map
   invariant on the ADD path. Without these, a fault in toggle-all's
   all-complete? inversion, the visible-todos predicate, or the route->filter
   mapping would produce a visibly broken TodoMVC with a green suite.
