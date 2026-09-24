@@ -2440,7 +2440,7 @@
       (is (= {:n 0} (:db-after boom-r))
           "the seeded baseline is what landed in :db-after — the handler's
            :n inc did NOT take effect (no install)")
-      ;; Property 2 — :outcome :ok (current intentional behaviour;
+      ;; Property 2 — :outcome :ok (intentional behaviour;
       ;; flow-throw rides :trace-events, not the outcome slot).
       (is (= :ok (:outcome boom-r))
           ":outcome is :ok — the drain settled cleanly; flow-throw rides
@@ -2481,7 +2481,7 @@
                               :rf.error/flow-eval-exception))
           "no :rf.error/flow-eval-exception on a clean flow eval"))))
 
-;; ---- rejected / aborted dispatch commits no epoch (rf2-zymix) ------------
+;; ---- rejected / aborted dispatch commits no epoch ------------------------
 ;;
 ;; Per `settle!`'s empty-buffer policy (epoch.cljc) — a drain boundary
 ;; whose capture buffer holds no cascade context is SKIPPED rather than
@@ -2490,9 +2490,9 @@
 ;; routine cascade-abort case (dispatch-sync rejection, an aborted child
 ;; that never fired :event/run-start) the capture buffer is empty, so when
 ;; `settle!` fires at the abort boundary the harvested buffer is empty and
-;; no record is committed. The invariant was only covered indirectly (cross-
-;; contamination / leaked-buffer tests); this names it directly by driving
-;; the empty-buffer settle! seam.
+;; no record is committed. This names the invariant directly by driving
+;; the empty-buffer settle! seam (the cross-contamination / leaked-buffer
+;; tests cover it only indirectly).
 
 (deftest empty-buffer-settle-commits-no-epoch
   (testing "settle! at a drain boundary whose capture buffer is empty —
@@ -2510,8 +2510,8 @@
     (reset! @#'rf.epoch.state/capture-buffers {})
 
     ;; settle! fires at the abort boundary with no buffered cascade
-    ;; context — the empty-buffer skip suppresses the commit. (rf2-bh56rc:
-    ;; the clean arity now takes committed-at; nil here — nothing commits,
+    ;; context — the empty-buffer skip suppresses the commit. (The clean
+    ;; arity takes committed-at; nil here — nothing commits,
     ;; so the value is unused.)
     (rf.epoch/settle! :test/main {} {} nil)
 
@@ -2531,23 +2531,23 @@
           "the committed record is the real cascade, not the suppressed
            empty-buffer boundary"))))
 
-;; ---- no-handler dispatch commits no fake ok epoch (rf2-erczwd) -------------
+;; ---- no-handler dispatch commits no fake ok epoch --------------------------
 ;;
 ;; A dispatch to an UNREGISTERED event on a LIVE frame early-exits via
 ;; `diag/handle-no-handler!` — it never fires `:event/run-start`, but it DOES
 ;; emit a `:rf.error/no-such-handler` trace that is frame-stamped AND carries
 ;; the cascade scope's `:dispatch-id` (bound by `process-event!`). That trace
 ;; buffers into epoch capture, so the buffer is NON-EMPTY at the settle seam.
-;; The prior no-run-start harvest returned the whole buffer, and `settle!`
-;; committed any non-empty harvest — synthesising a misleading `:ok` epoch
+;; A no-run-start harvest returning the whole buffer would let `settle!`
+;; commit the non-empty harvest — synthesising a misleading `:ok` epoch
 ;; (with a fallback `:event-id` derived from the error trace) for a dispatch
-;; that never ran, contradicting the no-run-start / no-epoch invariant. The fix
-;; threads the settling envelope's `:dispatch-id` into the scoped harvest so
+;; that never ran, contradicting the no-run-start / no-epoch invariant. So the
+;; settling envelope's `:dispatch-id` is threaded into the scoped harvest:
 ;; the rejection's own trace is DROPPED (not returned), the empty-buffer skip
 ;; fires, and no epoch / listener advances.
 
 (deftest no-handler-dispatch-commits-no-epoch
-  (testing "rf2-erczwd — dispatching an UNREGISTERED event on an existing frame
+  (testing "dispatching an UNREGISTERED event on an existing frame
             records NO epoch and fires NO epoch listener, even though the
             no-such-handler error trace buffers into epoch capture. The
             no-run-start / no-epoch invariant holds through the real router."
@@ -2584,7 +2584,7 @@
         "a real cascade after the rejected dispatch commits normally")))
 
 (deftest no-run-start-harvest-scopes-drop-to-settling-dispatch
-  (testing "rf2-erczwd (unit) — harvest-buffer-for-event! given a settling
+  (testing "unit — harvest-buffer-for-event! given a settling
             dispatch-id, on a NO-RUN-START buffer, DROPS the settling
             dispatch's own traces (its error trace) + orphans and RETAINS an
             unrelated child marker, returning [] so settle! commits nothing."
@@ -2621,12 +2621,13 @@
     (rf/configure! {:epoch-history {:depth 12}})
     (is (= 12 (:depth (:epoch-history (rf/current-config)))))))
 
-;; ---- rf2-iegsz / rf2-mrsck: :trace-events elision policy -----------------
+;; ---- :trace-events elision policy ------------------------------------------
 ;;
-;; Per Spec-Schemas §`:rf/epoch-record` line 2224, `:trace-events` is
+;; Per Spec-Schemas §`:rf/epoch-record`, `:trace-events` is
 ;; optional — 'implementations may choose to drop traces from older
-;; epochs'. Per rf2-mrsck and Security.md §Epoch privacy posture the
-;; default is now FINITE (5): the most-recent five records per frame
+;; epochs'. Per Security.md §Epoch privacy posture the keep is FINITE:
+;; the shipped default is 50 (= :depth), and under a keep of N below the
+;; depth the most-recent N records per frame
 ;; retain raw `:trace-events`; older records keep their cheap
 ;; structured projections (`:sub-runs` / `:renders` / `:effects`)
 ;; but lose the raw trace stream. Apps that want the whole ring's
@@ -2677,14 +2678,14 @@
 (deftest trace-events-keep-finite-cap-elides-older-records
   (testing "a FINITE :trace-events-keep (the fixture configures 5) — drive
             >keep cascades and the oldest records lose :trace-events while
-            keeping the structured projections (per rf2-mrsck and Security.md
+            keeping the structured projections (per Security.md
             §Epoch privacy posture).
 
             NOTE: this pins the keep<depth ELISION behaviour against the
             fixture-configured cap of 5, NOT 'the default'. The real
             shipped default is 50 (= :depth, see
-            `re-frame.epoch.state/default-trace-events-keep`; Mike pair-debug
-            2026-05-27), at which trace + epoch evict atomically and no
+            `re-frame.epoch.state/default-trace-events-keep`), at which
+            trace + epoch evict atomically and no
             retained record drops its :trace-events. The fixture forces 5 so
             this elision path is reachable with a handful of dispatches."
     (rf/make-frame {:id :test/main})
@@ -2735,21 +2736,21 @@
       (is (every? #(contains? % :trace-events) history)
           "every record carries :trace-events — keep is large enough"))))
 
-;; ---- rf2-b2c02: value-changed scan bound tracks the ELISION boundary ------
+;; ---- value-changed scan bound tracks the ELISION boundary -----------------
 ;;
 ;; `value-changed-epoch-for` (state.cljc) scans the ring newest-first for the
 ;; epoch that genuinely re-rendered a view, bounded so it only walks records
 ;; that still carry `:trace-events` (the matchable set). The scan bounds on the
-;; directly-observable elision state (rf2-b2c02 R2): it breaks at the first
+;; directly-observable elision state: it breaks at the first
 ;; record MISSING `:trace-events`, so it tracks reality under any reconfigure.
-;; An index bound at `(- n keep)` (rf2-3rg4j) is correct only in STEADY STATE:
+;; An index bound at `(- n keep)` is correct only in STEADY STATE:
 ;; after a RUNTIME `:trace-events-keep` REDUCTION, elision is non-retroactive
 ;; (`elide-just-crossed-trace-events`'s docstring), so records that were inside
 ;; the OLD keep-window still carry `:trace-events` yet now sit BELOW
 ;; `(- n new-keep)` — an index bound would skip those still-trace-bearing
 ;; records and miss a genuine value-change, mis-attributing the render.
 ;;
-;; rf2-yw1w1u — the two tests below KEEP direct private-var access
+;; The two tests below use direct private-var access
 ;; (`@#'state/histories`, `@#'state/config`, `@#'state/value-changed-epoch-for`)
 ;; rather than the shared fixture / `configure!` boundary. They are
 ;; narrow unit tests of the PRIVATE `value-changed-epoch-for` scan: they
@@ -2782,10 +2783,10 @@
    :trace-events []})
 
 (deftest value-changed-scan-finds-trace-bearing-epoch-below-reduced-keep
-  (testing "rf2-b2c02 — after a runtime :trace-events-keep REDUCTION, the
+  (testing "after a runtime :trace-events-keep REDUCTION, the
             value-changed scan still finds an epoch that sits below the new
             (- n keep) index but STILL carries :trace-events (elision is
-            non-retroactive). The index-derived bound rf2-3rg4j shipped would
+            non-retroactive). An index-derived bound would
             skip it; the elision-boundary bound finds it."
     (let [frame-id   :test/main
           render-key [:counter-view 0]
@@ -2802,7 +2803,7 @@
       ;; idx 2 even though it still carries :trace-events.
       (reset! @#'rf.epoch.state/config {:depth 50 :trace-events-keep 3})
       ;; Anchor at the ring-newest epoch (:e7) so the scan runs the full
-      ;; newest-first walk — the anchor bound (rf2-arzb9o) is a no-op here.
+      ;; newest-first walk — the anchor bound is a no-op here.
       (is (= :e2 (@#'rf.epoch.state/value-changed-epoch-for frame-id render-key :e7))
           "the scan reaches the still-trace-bearing value-change at idx 2,
            below (- n new-keep) = 5 — the post-reduction transient gap"))))
