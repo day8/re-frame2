@@ -6,19 +6,18 @@
   same ambient reads, same props, same memo wrapper, same lifecycle —
   and the hiccup walk is skipped for that result. [spec §5, Rung 3]
 
-  ## The accept path is not new, and this file does not re-establish it
+  ## The accept path is established elsewhere, and not again here
 
   `codec/as-element` carries a total `:react-element` arm, asked after
   `vector?`, so a returned element passes through untouched, and
   `retaining_host_callbacks_dom_cljs_test`'s `stable-parent` writes the
   spelling as ordinary source.
-  What was never established is the half a reader actually has to trust
+  What this file establishes is the half a reader actually has to trust
   before moving a hot boundary onto it: that **nothing else runs**. An
   escape whose cost is unpriced is a guess, and an escape that quietly
   still lowers is worse than no escape at all.
 
-  This is the ONE generic direct-return witness the rf2-6c12m.3 ruling
-  keeps: a `defview` returning a raw React or UIx element skips
+  This is the ONE generic direct-return witness: a `defview` returning a raw React or UIx element skips
   interpretation and keeps its frame, its reads and its identity.
 
   ## The pair — and the UIx third
@@ -96,7 +95,7 @@
   escape.
 
   This is the delta that can be taken on a loaded machine, and it is not
-  the whole of the delta the bead asks for: see **What is NOT here**.
+  the whole of the delta: see **What is NOT here**.
 
   ## Where the fence itself is established, and why not again here
 
@@ -130,7 +129,7 @@
 
   ## What is NOT here, and must not be read off it
 
-  **The clock.** The bead's direct-return delta is a pinned interleaved
+  **The clock.** The full direct-return delta is a pinned interleaved
   run on both named reference profiles, published with witness,
   instrument and confidence. No figure in this file is a duration, and
   nothing here licenses a claim about how much faster a direct return
@@ -424,10 +423,10 @@
   ;; THE READINGS COME FIRST, and the order is load-bearing: the warning
   ;; fires ONCE PER AUTHORING SITE for the life of the run, so a render
   ;; of `key-hiccup-arm` taken before the spy is installed spends the
-  ;; site's one warning and leaves the control reading zero. That is not
-  ;; hypothetical — it is what the pair check below did when it was
-  ;; written above these two, and the dedupe made the CONTROL fail rather
-  ;; than the claim, which is the way round one wants it.
+  ;; site's one warning and leaves the control reading zero. Were the pair
+  ;; check below written above these two, the dedupe would make the
+  ;; CONTROL fail rather than the claim, which is the way round one wants
+  ;; it.
   (let [hiccup-warned (warnings-of key-hiccup-arm)
         direct-warned (warnings-of key-direct-arm)]
 
@@ -472,7 +471,7 @@
 
     (testing "the boundary pays the same two on either arm: Rung 3 is an
               escape from the codec, not from the boundary. A third hook
-              in the SHELL would break I9 (rf2-hic-018), frozen at two"
+              in the SHELL would break I9, frozen at two"
       (is (= direct (vec (take 2 hiccup)))))
 
     (testing "and the hiccup arm's THIRD hook is not the shell's. It is
