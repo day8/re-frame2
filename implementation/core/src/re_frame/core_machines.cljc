@@ -21,7 +21,7 @@
 
 ;; ---- machine guard/action handler-meta — DERIVED, not registered --------
 ;;
-;; Per rf2-ftrcv (supersedes rf2-ypu5i / rf2-npvsx): machine guards/actions
+;; Machine guards/actions
 ;; are NOT registrar kinds. Their dev-only fn-source handler-meta surface is
 ;; DERIVED on demand from the machine's existing `:event` registration spec
 ;; — the `reg-machine` macro co-locates `{:fn .. :source-coords ..
@@ -34,25 +34,24 @@
 
 (def ^:private machine-kind->slot
   "Map the two derived machine handler-meta kinds to their machine-spec
-  slot + the bare-id marker key the derived meta stamps (parity with the
-  former registrar entries, so tools enumerating the meta pivot on
+  slot + the bare-id marker key the derived meta stamps (so tools
+  enumerating the meta pivot on
   `:rf/guard-id` / `:rf/action-id` without re-parsing the 2-vector id)."
   {:machine-guard  {:slot :guards  :marker-key :rf/guard-id}
    :machine-action {:slot :actions :marker-key :rf/action-id}})
 
 (defn machine-handler-meta
   "Derive the dev-only fn-source handler-meta for a machine guard/action
-  from the machine's `:event` registration spec (rf2-ftrcv). `kind` is
+  from the machine's `:event` registration spec. `kind` is
   `:machine-guard` / `:machine-action`; `id` is the 2-vector
-  `[<machine-id> <guard-or-action-id>]`. Returns the same shape the former
-  `:machine-guard` / `:machine-action` registrar entries carried —
+  `[<machine-id> <guard-or-action-id>]`. Returns
   `{:rf/guard-id|:rf/action-id <id> :rf/machine-id <mid> :rf.handler/source
   <pr-str> :handler-fn <fn>}` merged with the per-element `:source-coords`
   (`:ns` / `:line` / `:file` / `:column`) — or nil.
 
   `re-frame.core/handler-meta` dispatches the two machine kinds here; all
   other kinds fall through to `rf.registrar/handler-meta`. The Xray lens +
-  re-frame-pair source-jump call sites are unchanged — they still call
+  re-frame-pair source-jump call sites call
   `(rf/handler-meta {:source :store :kind :machine-guard :id [machine-id guard-id]})`.
 
   Returns nil when:
@@ -95,16 +94,16 @@
   wrote at the call site.
 
   Delegates straight to the machines artefact's `:machines/reg-machine`
-  hook. Per rf2-ftrcv there is NO registrar side-table to maintain — the
+  hook. There is NO registrar side-table to maintain — the
   machine's guard/action fn-source handler-meta is derived on demand from
   the `:event` registration spec via [[machine-handler-meta]].
 
-  Per rf2-wgmipl the 4-arg form threads an `opts` registration-metadata map
+  The 4-arg form threads an `opts` registration-metadata map
   (the `:schema` event-vector boundary validator, plus any other metadata)
-  to the hook's 3-arity. Per rf2-wvh95f F2 `opts` is the canonical Spec 001
+  to the hook's 3-arity. `opts` is the canonical Spec 001
   MIDDLE slot, so the hook is called `(machine-id opts machine)`. The 3-arg
-  form (no opts) keeps the bare 2-arity so programmatic callers / hooks that
-  only implement the 2-arity still resolve."
+  form (no opts) calls the bare 2-arity so programmatic callers / hooks that
+  only implement the 2-arity resolve."
   ([where-sym machine-id machine]
    ((rf.late-bind/require-fn! :machines/reg-machine
                            where-sym
@@ -120,16 +119,16 @@
 
 (defn reg-machine*
   "Plain-fn surface for machine registration. Per Spec 005 §reg-machine
-  vs reg-machine* (rf2-8bp3). Used by code-gen pipelines that already
+  vs reg-machine*. Used by code-gen pipelines that already
   carry a stamped spec, REPL workflows that bypass the macro path, and
   the macro's own emitted form. Programmatic callers see no
   per-element source-coord index (only the macro can walk the literal
   spec at expansion time). Late-bound via :machines/reg-machine.
 
-  Per rf2-wgmipl the 3-arity accepts an `opts` registration-metadata map
+  The 3-arity accepts an `opts` registration-metadata map
   whose `:schema` key validates the dispatched OUTER event vector at the
   `:where :event` boundary — the machine + event-vector-schema shape (login /
-  realworld auth). Per rf2-wvh95f F2 `opts` is the canonical Spec 001 MIDDLE
+  realworld auth). `opts` is the canonical Spec 001 MIDDLE
   slot: `(reg-machine* machine-id opts machine)`. The framework-owned
   `:rf/machine?` / `:rf/machine` keys are stamped by the registration home and
   MUST NOT appear in `opts`."
@@ -151,9 +150,9 @@
   (macro) or `rf.machines/reg-machine*` (plain fn). It is public only because
   the macro emits a reference to it.
 
-  Per rf2-wgmipl the 3-arity threads the macro's `opts` registration-metadata
-  map (carrying the event-vector `:schema`) through to the hook. Per rf2-wvh95f
-  F2 `opts` is the canonical Spec 001 MIDDLE slot: `(reg-machine machine-id
+  The 3-arity threads the macro's `opts` registration-metadata
+  map (carrying the event-vector `:schema`) through to the hook.
+  `opts` is the canonical Spec 001 MIDDLE slot: `(reg-machine machine-id
   opts machine)`."
   ([machine-id machine]
    (reg-machine-impl 'rf/reg-machine machine-id machine))
