@@ -1,17 +1,18 @@
 (ns re-frame.final-auto-destroy-elision-drop-cljs-test
-  "rf2-3x7nj.9.2 — the `:final?` auto-destroy drops the finishing actor's
+  "The `:final?` auto-destroy drops the finishing actor's
   `:sensitive` / `:large` elision claims, and they STAY dropped.
 
   `finalize-machine` removes the actor's per-instance claims out of band
   (`drop-at-destroy!`, a live elision-registry swap) and then returns the
-  teardown runtime-db under `:rf.db/runtime`. That value is built from the
-  handler's `:rf.db/runtime` COEFFECT, captured before the drop, and the
-  router honours an effect-carried `:rf.runtime/elision` verbatim — so the
-  commit re-installed the pre-drop registry and every classified actor that
-  finished via `:final?` left a permanent claim behind (unbounded growth for
-  spawned `<type>#n` actors). The explicit-destroy path was unaffected, because
-  its drop runs in an fx after the event's commit. The boot-commit sibling of
-  this clobber is rf2-dr0pfi, pinned in `machine_data_schema_redaction_test`.
+  teardown runtime-db under `:rf.db/runtime`. The router honours an
+  effect-carried `:rf.runtime/elision` verbatim, so were that value built
+  from the handler's `:rf.db/runtime` COEFFECT, captured before the drop, the
+  commit would re-install the pre-drop registry and every classified actor
+  that finishes via `:final?` would leave a permanent claim behind (unbounded
+  growth for spawned `<type>#n` actors). The explicit-destroy path is not
+  exposed, because its drop runs in an fx after the event's commit. The
+  boot-commit counterpart of this clobber is pinned in
+  `machine_data_schema_redaction_test`.
 
   The file is named `*-cljs-test.cljc` so it is discovered by both
   cognitect.test-runner (JVM) and shadow-cljs (the `cljs-test$` ns-regexp)."
